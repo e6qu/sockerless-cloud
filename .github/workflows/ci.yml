@@ -335,8 +335,27 @@ jobs:
       - uses: actions/setup-go@v7.0.0
         with:
           go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          # Not setup-go's cache: its key is shared by every job in the
+          # workflow, whichever job misses first saves its own small module
+          # and build cache, and every later job hits that entry and never
+          # saves. The simulator jobs compile the cloud SDKs and their test
+          # binaries — minutes of work that entry never held, paid cold by
+          # every shard on every run, inside the timed test step. One entry
+          # per cloud below holds what these shards actually build.
+          cache: false
+      - name: Restore the Go module and build caches for this cloud's simulator jobs
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          # Keyed on the dependency set, so it turns over when go.sum changes
+          # and an older entry warms the incremental build until then. The
+          # pre-build steps run as the runner user, so the files this saves
+          # are readable; the sudo-run test steps only add to what is cached.
+          key: sim-go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ hashFiles('go.work', '**/go.sum') }}
+          restore-keys: |
+            sim-go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
       # These suites run real containers, and the ECR Public Gallery caps
       # anonymous requests by data volume — a cap no retry recovers from.
       # Caching the images means the common case makes no registry request at
@@ -489,11 +508,17 @@ jobs:
         # suite that overruns fails with a named Go stack rather than an opaque
         # step kill.
         timeout-minutes: 14
-      - name: Run CLI tests
+      - name: Pre-build the simulator and the CLI tests (warm build cache)
         if: matrix.suite == 'cli'
         run: |
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}/cli-tests
+          cd simulator-${{ matrix.cloud }} && CGO_ENABLED=0 go build -tags noui -o /dev/null .
+          cd cli-tests && CGO_ENABLED=0 go test -c -o /dev/null .
+        timeout-minutes: 10
+      - name: Run CLI tests
+        if: matrix.suite == 'cli'
+        run: |
           cd simulator-${{ matrix.cloud }}
           sudo env "PATH=$PATH" "HOME=$HOME" \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl" \
@@ -540,8 +565,27 @@ jobs:
       - uses: actions/setup-go@v7.0.0
         with:
           go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          # Not setup-go's cache: its key is shared by every job in the
+          # workflow, whichever job misses first saves its own small module
+          # and build cache, and every later job hits that entry and never
+          # saves. The simulator jobs compile the cloud SDKs and their test
+          # binaries — minutes of work that entry never held, paid cold by
+          # every shard on every run, inside the timed test step. One entry
+          # per cloud below holds what these shards actually build.
+          cache: false
+      - name: Restore the Go module and build caches for this cloud's simulator jobs
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          # Keyed on the dependency set, so it turns over when go.sum changes
+          # and an older entry warms the incremental build until then. The
+          # pre-build steps run as the runner user, so the files this saves
+          # are readable; the sudo-run test steps only add to what is cached.
+          key: sim-go-${{ runner.os }}-${{ runner.arch }}-aws-${{ hashFiles('go.work', '**/go.sum') }}
+          restore-keys: |
+            sim-go-${{ runner.os }}-${{ runner.arch }}-aws-
       - uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
@@ -750,8 +794,17 @@ jobs:
             run: '^Test(EC2(CLI_[N-Z]|Nat|Network|Routing|Security|Subnet))'
             timeout: 1500s
             timeout_minutes: 15
+          # compute split in two after it reached the 15-minute job budget on
+          # a slow runner with every test passing. Measured warm: its tests
+          # ran 367s, and the split is by cost — CloudWatch Logs and Cloud Map
+          # are 215s together, the other four services 150s — so each half
+          # sits well under the budget with a slow runner's margin to spare.
           - suite: compute
-            run: '^Test(CloudMap|DynamoDB|CLI_ECR|ECR|EFS|Logs)'
+            run: '^Test(CLI_ECR|DynamoDB|ECR|EFS)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: observability
+            run: '^Test(CloudMap|Logs)'
             timeout: 1200s
             timeout_minutes: 15
           - suite: ecs
@@ -782,8 +835,27 @@ jobs:
       - uses: actions/setup-go@v7.0.0
         with:
           go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          # Not setup-go's cache: its key is shared by every job in the
+          # workflow, whichever job misses first saves its own small module
+          # and build cache, and every later job hits that entry and never
+          # saves. The simulator jobs compile the cloud SDKs and their test
+          # binaries — minutes of work that entry never held, paid cold by
+          # every shard on every run, inside the timed test step. One entry
+          # per cloud below holds what these shards actually build.
+          cache: false
+      - name: Restore the Go module and build caches for this cloud's simulator jobs
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          # Keyed on the dependency set, so it turns over when go.sum changes
+          # and an older entry warms the incremental build until then. The
+          # pre-build steps run as the runner user, so the files this saves
+          # are readable; the sudo-run test steps only add to what is cached.
+          key: sim-go-${{ runner.os }}-${{ runner.arch }}-aws-${{ hashFiles('go.work', '**/go.sum') }}
+          restore-keys: |
+            sim-go-${{ runner.os }}-${{ runner.arch }}-aws-
       - uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
@@ -850,9 +922,20 @@ jobs:
           # shellcheck disable=SC2086
           bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
-      - name: Run AWS CLI tests
+      # Download modules and compile the simulator and the CLI test binary in
+      # their own budgeted step, as the runner user, so the timed test run
+      # below holds the tests alone and what this compiles is what the cache
+      # step saves. Measured before this step existed: about four minutes of
+      # the test step, on every one of these shards, on every run.
+      - name: Pre-build the simulator and the CLI tests (warm build cache)
         run: |
           bash scripts/ci-go-mod-download.sh simulator-aws
+          bash scripts/ci-go-mod-download.sh simulator-aws/cli-tests
+          cd simulator-aws && CGO_ENABLED=0 go build -tags noui -o /dev/null .
+          cd cli-tests && CGO_ENABLED=0 go test -c -o /dev/null .
+        timeout-minutes: 10
+      - name: Run AWS CLI tests
+        run: |
           cd simulator-aws
           sudo env "PATH=$PATH" "HOME=$HOME" \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/aws-cli-spec-violations.jsonl" \
