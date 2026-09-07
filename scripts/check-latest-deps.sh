@@ -378,7 +378,10 @@ done < <(git ls-files 'go.mod' '*/go.mod' | sort)
 # moment that provider build became downloadable. The index at
 # /v1/providers/<namespace>/<type> lists every version to walk.
 tf_provider_publish_time() {
-  curl -fsSL "https://registry.terraform.io/v1/providers/$LOOKUP_SUBJECT/$1" 2>/dev/null | jq -r '.published_at // empty'
+  # A registry that does not answer once is retried, as the npm lookup is:
+  # a transient refusal is not a version of unknown age.
+  curl -fsSL --max-time 30 --retry 3 --retry-delay 3 --retry-all-errors \
+    "https://registry.terraform.io/v1/providers/$LOOKUP_SUBJECT/$1" 2>/dev/null | jq -r '.published_at // empty'
 }
 
 echo
@@ -436,7 +439,7 @@ while IFS= read -r tf; do
     # the next attempt was a transport failure and nothing else.
     tf_index_read=1
     for attempt in 1 2 3; do
-      if curl -fsSL --max-time 30 -o "$index" "https://registry.terraform.io/v1/providers/${source}" 2>/dev/null; then
+      if curl -fsSL --max-time 30 --retry 3 --retry-delay 3 --retry-all-errors -o "$index" "https://registry.terraform.io/v1/providers/${source}" 2>/dev/null; then
         tf_index_read=0
         break
       fi
