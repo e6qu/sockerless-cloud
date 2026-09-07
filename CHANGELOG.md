@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.1](https://github.com/e6qu/sockerless-cloud/compare/v0.31.0...v0.31.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* **aws:** ECS task starts name their phases; simulator shards compile against their own warm cache ([#139](https://github.com/e6qu/sockerless-cloud/issues/139) part 1) ([#140](https://github.com/e6qu/sockerless-cloud/issues/140)) ([6448cdd](https://github.com/e6qu/sockerless-cloud/commit/6448cdd97c2a1555e907ca562e5fc763c76b61ea))
+
 ## [0.31.0](https://github.com/e6qu/sockerless-cloud/compare/v0.30.10...v0.31.0) (2026-09-07)
 
 
