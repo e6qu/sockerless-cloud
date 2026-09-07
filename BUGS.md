@@ -289,7 +289,8 @@ Open: 12. Resolved: 90.
   decides by what the site declares — the `SOCKERLESS_USER_ENTRYPOINT` /
   `SOCKERLESS_USER_CMD` app settings a bootstrap image carries, or a
   sitecontainers main container — and never by the reference's spelling.
-  The CLI tests that leaned on the name declare the bootstrap.
+  The CLI and SDK tests that leaned on the name declare the bootstrap
+  through the app setting on the `registry.example/functions/azf:test` image.
 
 - ~~**BUG-2989 (the Lambda and Amazon ECS hosts ran a pull-through-cache reference as a Docker Hub name spelt from its path):**~~
   `<account>.dkr.ecr.<region>.amazonaws.com/<prefix>/<path>` under a registered
