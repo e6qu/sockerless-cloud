@@ -66,16 +66,22 @@ type SiteProperties struct {
 
 // SiteConfig holds the site configuration for a function app.
 type SiteConfig struct {
-	AppSettings                            []NameValuePair `json:"appSettings,omitempty"`
-	LinuxFxVersion                         string          `json:"linuxFxVersion,omitempty"`
-	FunctionAppScaleLimit                  int             `json:"functionAppScaleLimit,omitempty"`
-	FtpsState                              string          `json:"ftpsState,omitempty"`
-	LoadBalancing                          string          `json:"loadBalancing,omitempty"`
-	ManagedPipelineMode                    string          `json:"managedPipelineMode,omitempty"`
-	IPSecurityRestrictionsDefaultAction    string          `json:"ipSecurityRestrictionsDefaultAction,omitempty"`
-	MinTLSVersion                          string          `json:"minTlsVersion,omitempty"`
-	ScmMinTLSVersion                       string          `json:"scmMinTlsVersion,omitempty"`
-	ScmIPSecurityRestrictionsDefaultAction string          `json:"scmIpSecurityRestrictionsDefaultAction,omitempty"`
+	AppSettings    []NameValuePair `json:"appSettings,omitempty"`
+	LinuxFxVersion string          `json:"linuxFxVersion,omitempty"`
+	// AcrUseManagedIdentityCreds asks the platform to pull the site's image
+	// from Azure Container Registry with a managed identity: the
+	// user-assigned identity AcrUserManagedIdentityID names by client id,
+	// else the site's system-assigned identity.
+	AcrUseManagedIdentityCreds             bool   `json:"acrUseManagedIdentityCreds,omitempty"`
+	AcrUserManagedIdentityID               string `json:"acrUserManagedIdentityID,omitempty"`
+	FunctionAppScaleLimit                  int    `json:"functionAppScaleLimit,omitempty"`
+	FtpsState                              string `json:"ftpsState,omitempty"`
+	LoadBalancing                          string `json:"loadBalancing,omitempty"`
+	ManagedPipelineMode                    string `json:"managedPipelineMode,omitempty"`
+	IPSecurityRestrictionsDefaultAction    string `json:"ipSecurityRestrictionsDefaultAction,omitempty"`
+	MinTLSVersion                          string `json:"minTlsVersion,omitempty"`
+	ScmMinTLSVersion                       string `json:"scmMinTlsVersion,omitempty"`
+	ScmIPSecurityRestrictionsDefaultAction string `json:"scmIpSecurityRestrictionsDefaultAction,omitempty"`
 }
 
 // NameValuePair holds a name-value pair for app settings.
@@ -1282,7 +1288,11 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 230*time.Second)
 	defer cancel()
 
-	platform, err := localImagePlatform(ctx, localImage)
+	// The host pulls the site's image with the credential the site declared
+	// for its registry — its Azure Container Registry managed identity or
+	// its DOCKER_REGISTRY_SERVER_* settings — as App Service does.
+	registryAuth := acrWorkloadRegistryAuth(containerImage, siteWorkloadRegistries(site, containerImage))
+	platform, err := localImagePlatform(ctx, localImage, registryAuth)
 	if err != nil {
 		return err
 	}
@@ -1518,7 +1528,13 @@ func siteAppSettings(site *Site) map[string]string {
 	return out
 }
 
-func localImagePlatform(ctx context.Context, imageRef string) (string, error) {
+// A registryAuth is the credential the workload declared for the image's
+// registry, which the host pulls with; none means an anonymous pull.
+func localImagePlatform(ctx context.Context, imageRef string, registryAuth ...string) (string, error) {
+	credential := ""
+	if len(registryAuth) > 0 {
+		credential = registryAuth[0]
+	}
 	cli := sim.DockerClient()
 	if cli == nil {
 		return "", fmt.Errorf("docker client not initialized")
@@ -1528,7 +1544,7 @@ func localImagePlatform(ctx context.Context, imageRef string) (string, error) {
 		// The pull surfaces failures the daemon reports inside the stream;
 		// draining and discarding that stream turned a failed pull into a
 		// misleading "No such image" from the re-inspect.
-		if pullErr := sim.PullImage(ctx, imageRef, ""); pullErr != nil {
+		if pullErr := sim.PullImageWithCredential(ctx, imageRef, "", credential); pullErr != nil {
 			return "", fmt.Errorf("inspect image %q platform: %w; pull image: %w", imageRef, err, pullErr)
 		}
 		inspect, err = cli.ImageInspect(ctx, imageRef)
@@ -1679,7 +1695,10 @@ func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
 
 	containerName := fmt.Sprintf("sockerless-sim-azure-func-%s-%d", site.Name, time.Now().UnixNano())
 	localImage := sim.ResolveLocalImage(containerImage)
-	platform, err := localImagePlatform(context.Background(), localImage)
+	// The host pulls the site's image with the credential the site declared
+	// for its registry, as App Service does.
+	registryAuth := acrWorkloadRegistryAuth(containerImage, siteWorkloadRegistries(site, containerImage))
+	platform, err := localImagePlatform(context.Background(), localImage, registryAuth)
 	if err != nil {
 		injectAppTrace(site.Name,
 			fmt.Sprintf("Function execution error: resolve image platform failed: %v", err))
@@ -1702,6 +1721,7 @@ func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
 		CancelGracePeriod: siteStopGrace(site),
 		Image:             localImage,
+		RegistryAuth:      registryAuth,
 		Architecture:      platform,
 		Command:           entrypoint,
 		Args:              cmd,

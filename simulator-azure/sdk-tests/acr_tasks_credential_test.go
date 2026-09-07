@@ -20,19 +20,19 @@ import (
 // itself, holding the registry's push scope the way a real run does: the
 // registry refuses an anonymous push and an anonymous read, and the image the
 // run pushed is there for a client that authenticates.
-func TestACRTasks_RunPushesIntoItsRegistryAsTheRun(t *testing.T) {
+// acrTasksPushImage builds an image from a public base and pushes it into the
+// registry through an ACR Tasks run, as a consumer's overlay build does. It
+// returns the registry's login server and the pushed reference. Linux only:
+// the container engine pushes to the registry's login server itself.
+func acrTasksPushImage(t *testing.T, rg, regName, account, repository string) (string, string) {
+	t.Helper()
 	if runtime.GOOS != "linux" {
 		t.Skip("platform gate: the container engine pushes to the registry's login server itself, and on a host whose engine runs inside its own virtual machine it has no route to this host's loopback, where the simulator's registry listens. Linux hosts — and the repository's Linux container path, `make docker-test` — share one loopback between engine, simulator and client.")
 	}
 	if _, err := exec.LookPath("docker"); err != nil {
-		t.Fatalf("docker CLI required for ACR Tasks push test (no fallback): %v", err)
+		t.Fatalf("docker CLI required for ACR Tasks push (no fallback): %v", err)
 	}
-	const (
-		rg      = "acr-tasks-cred-rg"
-		account = "acrtaskcredacct"
-		regName = "acrtaskcredreg"
-		ctr     = "build-context"
-	)
+	const ctr = "build-context"
 	acrEnsureRegistry(t, rg, regName)
 	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -42,7 +42,7 @@ func TestACRTasks_RunPushesIntoItsRegistryAsTheRun(t *testing.T) {
 	createStorageAccount(t, rg, account)
 
 	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
-	imageName := fmt.Sprintf("%s/sockerless-overlay/aca:run-%d", loginServer, time.Now().UnixNano())
+	imageName := fmt.Sprintf("%s/%s:run-%d", loginServer, repository, time.Now().UnixNano())
 	t.Cleanup(func() { _ = exec.Command("docker", "image", "rm", "-f", imageName).Run() })
 
 	blobClient, err := azblob.NewClientWithNoCredential(storageSDKURL(t, account, "blob"),
@@ -68,6 +68,15 @@ func TestACRTasks_RunPushesIntoItsRegistryAsTheRun(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result.Properties.Status)
 	require.Equal(t, armcontainerregistry.RunStatusSucceeded, *result.Properties.Status, "the run pushes into its registry with the run's own credential")
+	return loginServer, imageName
+}
+
+// An ACR Tasks run pushes its output into the registry it runs in as the run
+// itself, holding the registry's push scope the way a real run does: the
+// registry refuses an anonymous read, and the image the run pushed is there
+// for a client that authenticates.
+func TestACRTasks_RunPushesIntoItsRegistryAsTheRun(t *testing.T) {
+	loginServer, imageName := acrTasksPushImage(t, "acr-tasks-cred-rg", "acrtaskcredreg", "acrtaskcredacct", "sockerless-overlay/aca")
 
 	tag := imageName[strings.LastIndex(imageName, ":")+1:]
 	manifestURL := fmt.Sprintf("http://%s/v2/sockerless-overlay/aca/manifests/%s", loginServer, tag)

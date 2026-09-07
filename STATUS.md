@@ -98,11 +98,16 @@ Current state of the sockerless-cloud repository.
   `sim.WriteDockerConfig`), whose credential helper answers the build's
   registries — Artifact Registry and Container Registry with the Cloud Build
   service account's token, an Azure Container Registry with an identity
-  token of the ACR Tasks run — and hands other registries to the host's
-  helper.
+  token of the ACR Tasks run — names them outright for the legacy builder,
+  and hands other registries to the host's helper.
 - **A bucket carries Cloud Storage's default policy** from creation — the
   four legacy bindings for the project's owners, editors and viewers — so a
   client revoking what it granted sets the defaults back, never nothing.
+- **Azure workload hosts pull with what the workload declared**: a
+  Container App's or Job's `registries` entry — a managed identity, as an
+  identity token the registry exchanges, or a username and password secret —
+  and a site's Azure Container Registry managed identity or
+  `DOCKER_REGISTRY_SERVER_*` settings; nothing for an undeclared registry.
 - **Workload hosts pull as the cloud pulls**: the Cloud Run job and service
   hosts and the Cloud Functions host present the project's Cloud Run service
   agent to Artifact Registry and Container Registry, and nothing to any other

@@ -510,9 +510,12 @@ func acrRunDockerConfig(reg Registry, runID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	host := acrBareHost(acrLoginServer(reg))
-	return sim.WriteDockerConfig([]string{host, host + ":*"}, sim.DockerCredential{
-		Username: sim.DockerIdentityTokenUsername,
-		Secret:   refreshToken,
+	return sim.WriteDockerConfig(sim.DockerConfigSpec{
+		HostPatterns: []string{acrBareHost(acrLoginServer(reg)) + ":*"},
+		Hosts:        []string{acrLoginServer(reg), acrBareHost(acrLoginServer(reg))},
+		Credential: sim.DockerCredential{
+			Username: sim.DockerIdentityTokenUsername,
+			Secret:   refreshToken,
+		},
 	})
 }

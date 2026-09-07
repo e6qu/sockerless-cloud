@@ -12,3 +12,12 @@ func RegistryCredential(username, password string) string {
 	raw, _ := json.Marshal(map[string]string{"username": username, "password": password})
 	return base64.URLEncoding.EncodeToString(raw)
 }
+
+// RegistryIdentityToken is the credential the engine presents to a registry
+// as an identity token: the engine exchanges it through the registry's
+// OAuth 2.0 refresh-token grant for an access token, the way a Docker client
+// holds the token `az acr login` stored.
+func RegistryIdentityToken(token string) string {
+	raw, _ := json.Marshal(map[string]string{"identitytoken": token})
+	return base64.URLEncoding.EncodeToString(raw)
+}

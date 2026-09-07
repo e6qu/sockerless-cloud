@@ -740,13 +740,17 @@ func startACAAppContainer(ctx context.Context, resourceID string, app ContainerA
 	if networkMode != "" {
 		extraHosts = nil
 	}
-	platform, err := localImagePlatform(ctx, localImage)
+	// The host pulls the replica's image with the credential the app
+	// declared for its registry, as Container Apps does.
+	registryAuth := acrWorkloadRegistryAuth(c.Image, acaAppWorkloadRegistries(app))
+	platform, err := localImagePlatform(ctx, localImage, registryAuth)
 	if err != nil {
 		return nil, err
 	}
 	return sim.StartContainerSync(sim.ContainerConfig{
 		CancelGracePeriod: acaAppStopGrace(app),
 		Image:             localImage,
+		RegistryAuth:      registryAuth,
 		Architecture:      platform,
 		Command:           c.Command,
 		Args:              c.Args,
