@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.9](https://github.com/e6qu/sockerless-cloud/compare/v0.30.8...v0.30.9) (2026-09-07)
+
+
+### Bug Fixes
+
+* **azure:** workload hosts pull with the registry credential the workload declares, and a build service names its registries outright ([#131](https://github.com/e6qu/sockerless-cloud/issues/131)) ([921118e](https://github.com/e6qu/sockerless-cloud/commit/921118ebff9182c8906f1aa0393f3be5fa095a09))
+
 ## [0.30.8](https://github.com/e6qu/sockerless-cloud/compare/v0.30.7...v0.30.8) (2026-09-06)
 
 
