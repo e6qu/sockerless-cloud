@@ -1670,6 +1670,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 					t.Containers[j].LastStatus = "PENDING"
 				}
 			})
+			phases := newECSPhaseTimer(time.Now)
 
 			// Hydrate any snapshot-backed managed-EBS volume before starting the
 			// containers that mount it. A failure here is a resource problem, not
@@ -1699,12 +1700,15 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 				}
 			}
 
+			phases.Mark("ebs-restore")
+
 			// Prepare CloudWatch logs before the container starts, so the log
 			// group/stream are observable as soon as the task reports RUNNING.
 			sink := ecsTaskCloudWatchSink(td, id)
+			phases.Mark("log-stream")
 
 			// Start containers. This is the real work that RUNNING must wait for.
-			processes, err := startECSTaskContainers(id, td, taskTags, overrides, taskVolumeHosts, sink, launchType)
+			processes, err := startECSTaskContainers(id, td, taskTags, overrides, taskVolumeHosts, sink, launchType, phases)
 			if err != nil {
 				// Surface the start failure: it's otherwise only recorded in
 				// the task's StoppedReason, so an intermittent awsvpc netns /
@@ -1747,6 +1751,9 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 					t.Attachments[j].Status = "ATTACHED"
 				}
 			})
+			// One line per task naming where its start went: the pull is the
+			// only phase the ECS API exposes, and it is rarely the slow one.
+			fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: RUNNING %s\n", id, phases.Summary())
 			ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 1)
 			if processes != nil {
 				ecsProcessHandles.Store(id, processes)
@@ -1875,7 +1882,9 @@ func ecsResumePendingTask(task ECSTask, definition ECSTaskDefinition) {
 			current.Containers[index].LastStatus = "PENDING"
 		}
 	})
+	phases := newECSPhaseTimer(time.Now)
 	sink := ecsTaskCloudWatchSink(definition, taskID)
+	phases.Mark("log-stream")
 	processes, err := startECSTaskContainers(
 		taskID,
 		definition,
@@ -1884,6 +1893,7 @@ func ecsResumePendingTask(task ECSTask, definition ECSTaskDefinition) {
 		task.VolumeHosts,
 		sink,
 		task.LaunchType,
+		phases,
 	)
 	containerInstanceKey := ecsContainerInstanceKeyFromARN(task.ContainerInstanceArn)
 	if err != nil {
@@ -1908,6 +1918,7 @@ func ecsResumePendingTask(task ECSTask, definition ECSTaskDefinition) {
 		return
 	}
 	startedAt := time.Now().Unix()
+	fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: RUNNING (resumed after restart) %s\n", taskID, phases.Summary())
 	ecsTasks.Update(taskID, func(current *ECSTask) {
 		current.LastStatus = ECSTaskStatusRunning
 		current.Connectivity = "CONNECTED"
@@ -2131,9 +2142,12 @@ func ecsEpochSeconds() float64 {
 	return float64(time.Now().UnixMilli()) / 1000
 }
 
-func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, sink sim.LogSink, launchType string) (*ecsTaskProcesses, error) {
+func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, sink sim.LogSink, launchType string, phases *ecsPhaseTimer) (*ecsTaskProcesses, error) {
 	if len(td.ContainerDefinitions) == 0 {
 		return nil, nil
+	}
+	if phases == nil {
+		phases = newECSPhaseTimer(time.Now)
 	}
 
 	wantTTY := false
@@ -2231,6 +2245,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 		}
 		sharedNetMode = "container:" + pause.ContainerID
 	}
+	phases.Mark("volumes-pause-vpc")
 	metadataEnv, err := hostMetadataEnv(taskID)
 	if err != nil {
 		cleanupECSTaskProcesses(taskID, processes)
@@ -2265,6 +2280,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 	}
 	pullStoppedAt := ecsEpochSeconds()
 	ecsTasks.Update(taskID, func(t *ECSTask) { t.PullStoppedAt = &pullStoppedAt })
+	phases.Mark("image-pull")
 
 	for i, cd := range td.ContainerDefinitions {
 		if cd.Image == "" {
@@ -2394,6 +2410,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			mainDockerID = handle.ContainerID
 		}
 		processes.Handles[cd.Name] = handle
+		phases.Mark("container:" + cd.Name)
 	}
 
 	if len(processes.Handles) == 0 {
