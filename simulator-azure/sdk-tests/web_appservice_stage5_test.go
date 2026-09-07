@@ -76,6 +76,20 @@ func stage5EnsurePlan(t *testing.T, rg, plan, skuName, skuTier string) string {
 // becomes the site's Linux container; a non-empty command rides the real
 // SOCKERLESS_CMD app-setting contract, exactly as a sockerless invocation
 // delivers it.
+// httpFunctionImage is the image of a site whose app settings declare an HTTP
+// bootstrap: the host invokes such a site over HTTP and VNet integration
+// records the connection without starting a service container.
+const httpFunctionImage = "registry.example/functions/azf:test"
+
+// httpFunctionBootstrap is the app setting that declares the HTTP bootstrap:
+// SOCKERLESS_USER_CMD carrying base64(["/bin/true"]).
+func httpFunctionBootstrap() *armappservice.NameValuePair {
+	return &armappservice.NameValuePair{
+		Name:  to.Ptr("SOCKERLESS_USER_CMD"),
+		Value: to.Ptr("WyIvYmluL3RydWUiXQ=="),
+	}
+}
+
 func stage5CreateSite(t *testing.T, rg, name, planID, image string, command []string) string {
 	t.Helper()
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -83,6 +97,9 @@ func stage5CreateSite(t *testing.T, rg, name, planID, image string, command []st
 	siteConfig := &armappservice.SiteConfig{}
 	if image != "" {
 		siteConfig.LinuxFxVersion = to.Ptr("DOCKER|" + image)
+	}
+	if image == httpFunctionImage {
+		siteConfig.AppSettings = []*armappservice.NameValuePair{httpFunctionBootstrap()}
 	}
 	if len(command) > 0 {
 		cmdJSON, err := json.Marshal(command)
@@ -152,7 +169,7 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 	rg := "stage5-vnet-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-vnet-plan", "S1", "Standard")
-	stage5CreateSite(t, rg, "s5-vnet-app", planID, "registry.example/sockerless-overlay/azf:test", nil)
+	stage5CreateSite(t, rg, "s5-vnet-app", planID, httpFunctionImage, nil)
 	subnetID := stage5Subnet(t, rg, "s5-vnet", "10.60.0.0/16", "appsvc", "10.60.1.0/24")
 
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -242,7 +259,8 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 		Properties: &armappservice.SiteProperties{
 			ServerFarmID: to.Ptr(planID),
 			SiteConfig: &armappservice.SiteConfig{
-				LinuxFxVersion: to.Ptr("DOCKER|registry.example/sockerless-overlay/azf:test"),
+				LinuxFxVersion: to.Ptr("DOCKER|" + httpFunctionImage),
+				AppSettings:    []*armappservice.NameValuePair{httpFunctionBootstrap()},
 			},
 		},
 	}, nil)
@@ -304,7 +322,7 @@ func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 	rg := "stage5-plan-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-tail-plan", "S1", "Standard")
-	stage5CreateSite(t, rg, "s5-tail-app", planID, "registry.example/sockerless-overlay/azf:test", nil)
+	stage5CreateSite(t, rg, "s5-tail-app", planID, httpFunctionImage, nil)
 	subnetID := stage5Subnet(t, rg, "s5-tail-vnet", "10.61.0.0/16", "appsvc", "10.61.1.0/24")
 
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -490,7 +508,7 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 	rg := "stage5-hybrid-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-hyb-plan", "S1", "Standard")
-	siteID := stage5CreateSite(t, rg, "s5-hyb-app", planID, "registry.example/sockerless-overlay/azf:test", nil)
+	siteID := stage5CreateSite(t, rg, "s5-hyb-app", planID, httpFunctionImage, nil)
 
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -663,7 +681,7 @@ func TestSDK_WebPrivateAccess_RoundTrip(t *testing.T) {
 	rg := "stage5-pa-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-pa-plan", "S1", "Standard")
-	stage5CreateSite(t, rg, "s5-pa-app", planID, "registry.example/sockerless-overlay/azf:test", nil)
+	stage5CreateSite(t, rg, "s5-pa-app", planID, httpFunctionImage, nil)
 
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -730,7 +748,7 @@ func TestSDK_WebSitePrivateEndpointConnections(t *testing.T) {
 	rg := "stage5-pec-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-pec-plan", "S1", "Standard")
-	siteID := stage5CreateSite(t, rg, "s5-pec-app", planID, "registry.example/sockerless-overlay/azf:test", nil)
+	siteID := stage5CreateSite(t, rg, "s5-pec-app", planID, httpFunctionImage, nil)
 	subnetID := stage5Subnet(t, rg, "s5-pec-vnet", "10.63.0.0/16", "pe-subnet", "10.63.1.0/24")
 
 	// A private endpoint targeting the site opens the connection on the

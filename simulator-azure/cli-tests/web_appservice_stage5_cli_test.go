@@ -84,9 +84,9 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	rest("PUT", arm("Microsoft.Web/serverfarms/stage5-cli-plan"),
 		`{"location":"eastus","kind":"linux","sku":{"name":"S1","tier":"Standard"},"properties":{"reserved":true}}`)
 	rest("PUT", arm("Microsoft.Web/sites/stage5-cli-app"), fmt.Sprintf(
-		`{"location":"eastus","kind":"app,linux,container","properties":{"serverFarmId":"%s","siteConfig":{"linuxFxVersion":"DOCKER|registry.example/sockerless-overlay/azf:test"}}}`, planID))
+		`{"location":"eastus","kind":"app,linux,container","properties":{"serverFarmId":"%s","siteConfig":{"linuxFxVersion":"DOCKER|registry.example/functions/azf:test","appSettings":[{"name":"SOCKERLESS_USER_CMD","value":"WyIvYmluL3RydWUiXQ=="}]}}}`, planID))
 	rest("PUT", arm("Microsoft.Web/sites/stage5-cli-func"), fmt.Sprintf(
-		`{"location":"eastus","kind":"functionapp,linux,container","properties":{"serverFarmId":"%s","siteConfig":{"linuxFxVersion":"DOCKER|registry.example/sockerless-overlay/azf:test"}}}`, planID))
+		`{"location":"eastus","kind":"functionapp,linux,container","properties":{"serverFarmId":"%s","siteConfig":{"linuxFxVersion":"DOCKER|registry.example/functions/azf:test","appSettings":[{"name":"SOCKERLESS_USER_CMD","value":"WyIvYmluL3RydWUiXQ=="}]}}}`, planID))
 
 	// A real VNet + Microsoft.Web/serverFarms-delegated subnet in the
 	// Microsoft.Network store `az … vnet-integration add` resolves against.

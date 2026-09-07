@@ -2278,7 +2278,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 		if i > 0 {
 			containerName = fmt.Sprintf("%s-%s", containerName, cd.Name)
 		}
-		localImage := sim.ResolveLocalImage(cd.Image)
+		localImage := ecrWorkloadImage(cd.Image)
 		platform, err := localImagePlatform(context.Background(), localImage)
 		if err != nil {
 			cleanupECSTaskProcesses(taskID, processes)

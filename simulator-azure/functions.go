@@ -1113,10 +1113,8 @@ func hasAzureFunctionHTTPBootstrap(site *Site) bool {
 	if mainSiteContainer(site.ID) != nil {
 		return true
 	}
-	imageRef := site.Properties.SiteConfig.LinuxFxVersion
-	if strings.Contains(imageRef, "/sockerless-overlay/") || strings.Contains(imageRef, "|sockerless-overlay/") {
-		return true
-	}
+	// A site declares that its image serves HTTP for the host to invoke
+	// through its app settings; the image reference's spelling says nothing.
 	for _, setting := range site.Properties.SiteConfig.AppSettings {
 		switch setting.Name {
 		case "SOCKERLESS_USER_ENTRYPOINT", "SOCKERLESS_USER_CMD":
