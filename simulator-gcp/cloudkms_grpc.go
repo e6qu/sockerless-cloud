@@ -378,6 +378,9 @@ func (s *cloudKmsGRPC) CreateKeyRing(ctx context.Context, req *kmspb.CreateKeyRi
 	if req.GetKeyRingId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "key_ring_id is required")
 	}
+	if location := kmsParentLocation(parent); !kmsLocationValid(location) {
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid location %q", location)
+	}
 	name := parent + "/keyRings/" + req.GetKeyRingId()
 	if _, exists := kmsKeyRings.Get(name); exists {
 		return nil, status.Errorf(codes.AlreadyExists, "KeyRing %s already exists", name)
@@ -1678,4 +1681,17 @@ func kmsPageBounds(start, pageSize, total int) (end int, nextToken string) {
 		nextToken = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%d", end)))
 	}
 	return end, nextToken
+}
+
+// kmsParentLocation returns the location segment of a
+// projects/{project}/locations/{location} parent, or "" when the parent has
+// no such segment.
+func kmsParentLocation(parent string) string {
+	parts := strings.Split(parent, "/")
+	for i := 0; i+1 < len(parts); i++ {
+		if parts[i] == "locations" {
+			return parts[i+1]
+		}
+	}
+	return ""
 }

@@ -196,7 +196,9 @@ spelling survived; they now resolve the reference through the registered
 rule to its upstream, as ECR hydrates the cache. And the Functions host had
 told an HTTP-bootstrap site from a one-shot one by the image path containing
 `sockerless-overlay`, a consumer's convention; it now reads what the site
-declares in its app settings.
+declares in its app settings. Cloud KMS refuses a key ring in a location
+the service does not have — `US`, Cloud Storage's spelling of its
+multi-region, where Cloud KMS names it `us` — as the real service does.
 
 The Azure workload hosts had pulled every image anonymously, whatever the
 workload declared — a Container App's or Job's `registries` entry, a site's

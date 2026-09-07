@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 12. Resolved: 90.
+Open: 12. Resolved: 91.
 
 ## Open
 
@@ -291,6 +291,17 @@ Open: 12. Resolved: 90.
   sitecontainers main container — and never by the reference's spelling.
   The CLI and SDK tests that leaned on the name declare the bootstrap
   through the app setting on the `registry.example/functions/azf:test` image.
+
+- ~~**BUG-2990 (Cloud KMS accepted a key ring in a location the service does not have):**~~
+  `CreateKeyRing` under `projects/{project}/locations/US` — Cloud Storage's
+  spelling of its multi-region, which sockerless's Cloud Run modules had
+  passed through — stored a ring the real service refuses, so a Terraform
+  module that misspelt the location failed only at the next resource (the
+  provider could not parse the id it had been given) instead of at the ring.
+  Both the REST and gRPC creates now refuse a location that is not a Cloud
+  KMS location ID (`global`, a multi-region such as `us`, a dual-region such
+  as `nam4`, or a Compute Engine region) with `400 INVALID_ARGUMENT`.
+  Covered by `TestCloudKMSKeyRingLifecycleSDK`.
 
 - ~~**BUG-2989 (the Lambda and Amazon ECS hosts ran a pull-through-cache reference as a Docker Hub name spelt from its path):**~~
   `<account>.dkr.ecr.<region>.amazonaws.com/<prefix>/<path>` under a registered

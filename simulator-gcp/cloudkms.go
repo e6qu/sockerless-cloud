@@ -23,6 +23,7 @@ import (
 	"hash/crc32"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -286,6 +287,10 @@ func registerCloudKMS(srv *sim.Server) {
 		id := r.URL.Query().Get("keyRingId")
 		if id == "" {
 			GCPError(w, http.StatusBadRequest, "keyRingId query parameter is required", "INVALID_ARGUMENT")
+			return
+		}
+		if !kmsLocationValid(location) {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid location %q", location)
 			return
 		}
 		name := kmsKeyRingName(project, location, id)
@@ -2789,6 +2794,17 @@ func kmsVerifyCRC(w http.ResponseWriter, data []byte, supplied *int64, field str
 
 func kmsKeyRingName(project, location, id string) string {
 	return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s", project, location, id)
+}
+
+// kmsLocationPattern is the shape of a Cloud KMS location ID: "global", a
+// multi-region ("us", "europe", "asia"), a dual-region ("nam4", "eur5",
+// "asia1") or a Compute Engine region ("us-central1"). Location IDs are
+// lowercase; the service rejects "US", the spelling Cloud Storage uses for
+// its multi-region, as an invalid location.
+var kmsLocationPattern = regexp.MustCompile(`^(global|us|europe|asia|nam[0-9]+|eur[0-9]+|asia[0-9]+|[a-z]+-[a-z]+[0-9]+)$`)
+
+func kmsLocationValid(location string) bool {
+	return kmsLocationPattern.MatchString(location)
 }
 
 func kmsCryptoKeyName(r *http.Request) string {

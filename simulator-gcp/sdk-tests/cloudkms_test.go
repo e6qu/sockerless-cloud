@@ -180,6 +180,14 @@ func TestCloudKMSKeyRingLifecycleSDK(t *testing.T) {
 	_, err = svc.Projects.Locations.KeyRings.Create(parent, &cloudkms.KeyRing{}).KeyRingId(ringID).Do()
 	requireKMSErrorCode(t, err, 409)
 
+	// Location IDs are lowercase: "US", Cloud Storage's spelling of its
+	// multi-region, is not a Cloud KMS location and the create is refused.
+	_, err = svc.Projects.Locations.KeyRings.Create("projects/sdk-kms-project/locations/US", &cloudkms.KeyRing{}).KeyRingId("sdk-ring-bad-location").Do()
+	requireKMSErrorCode(t, err, 400)
+	// The multi-region itself, spelt as Cloud KMS names it, is accepted.
+	_, err = svc.Projects.Locations.KeyRings.Create("projects/sdk-kms-project/locations/us", &cloudkms.KeyRing{}).KeyRingId("sdk-ring-multi-region").Do()
+	require.NoError(t, err)
+
 	got, err := svc.Projects.Locations.KeyRings.Get(ringName).Do()
 	require.NoError(t, err)
 	require.Equal(t, ringName, got.Name)
