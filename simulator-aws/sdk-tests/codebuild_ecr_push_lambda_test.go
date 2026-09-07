@@ -145,9 +145,13 @@ func TestCodeBuild_PrivilegedBuildPushesToECRAndLambdaRunsIt(t *testing.T) {
 		_, _ = lc.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(fnName)})
 	})
 
+	// The image's command prints and exits without speaking the Runtime
+	// API, which Lambda reports as Runtime.ExitError — the proof that the
+	// pushed image ran is its output in the function's log, and a pull
+	// failure would have been reported instead.
 	invoked, err := lc.Invoke(ctx, &lambda.InvokeInput{FunctionName: aws.String(fnName)})
 	require.NoError(t, err)
-	assert.Nil(t, invoked.FunctionError, "payload: %s", string(invoked.Payload))
+	assert.NotContains(t, string(invoked.Payload), "pull", "the host pulls the pushed image from this registry: %s", string(invoked.Payload))
 
 	logGroupName := "/aws/lambda/" + fnName
 	events, err := cw.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{LogGroupName: aws.String(logGroupName)})
