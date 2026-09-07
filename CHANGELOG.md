@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.10](https://github.com/e6qu/sockerless-cloud/compare/v0.30.9...v0.30.10) (2026-09-07)
+
+
+### Bug Fixes
+
+* the Lambda and ECS hosts run a pull-through-cache reference's upstream image, and the Functions host reads a site's declared bootstrap ([#134](https://github.com/e6qu/sockerless-cloud/issues/134)) ([1fc6160](https://github.com/e6qu/sockerless-cloud/commit/1fc6160103cf0b1f61004910f321f1a4f5a7245e))
+
 ## [0.30.9](https://github.com/e6qu/sockerless-cloud/compare/v0.30.8...v0.30.9) (2026-09-07)
 
 
