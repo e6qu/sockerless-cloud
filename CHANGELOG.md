@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.2](https://github.com/e6qu/sockerless-cloud/compare/v0.31.1...v0.31.2) (2026-09-08)
+
+
+### Bug Fixes
+
+* **aws:** a task's ingress filter is one nft transaction; stopped tasks are not group members ([#139](https://github.com/e6qu/sockerless-cloud/issues/139) part 2) ([#142](https://github.com/e6qu/sockerless-cloud/issues/142)) ([42b68ef](https://github.com/e6qu/sockerless-cloud/commit/42b68efc2b2986133a32a51061ccc55eddb84549))
+
 ## [0.31.1](https://github.com/e6qu/sockerless-cloud/compare/v0.31.0...v0.31.1) (2026-09-07)
 
 
