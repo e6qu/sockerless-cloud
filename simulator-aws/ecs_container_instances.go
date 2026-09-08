@@ -414,7 +414,7 @@ func handleECSSubmitTaskStateChange(w http.ResponseWriter, r *http.Request) {
 			"Could not find task: %s", req.Task)
 		return
 	}
-	now := time.Now().Unix()
+	now := ecsEpochSeconds()
 	if req.Status != "" {
 		task.LastStatus = ECSTaskStatus(req.Status)
 		switch ECSTaskStatus(req.Status) {

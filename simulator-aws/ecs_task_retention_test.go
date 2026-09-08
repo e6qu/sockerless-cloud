@@ -14,9 +14,9 @@ import (
 // ListTasks paged through thousands of ARNs to answer an ordinary question and
 // the cluster read at a glance like a crash loop (GitHub issue #908).
 
-func ecsStoppedAt(t time.Time) *int64 {
-	unix := t.Unix()
-	return &unix
+func ecsStoppedAt(t time.Time) *float64 {
+	seconds := float64(t.UnixMilli()) / 1000
+	return &seconds
 }
 
 func TestStoppedTaskExpiresAfterTheRetentionWindow(t *testing.T) {

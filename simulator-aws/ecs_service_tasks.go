@@ -506,14 +506,14 @@ func ecsPrimaryDeploymentID(service ECSService) string {
 // only proves W has elapsed once W plus one second has, so that is what this
 // requires — the task's essential container gets the whole window to exit
 // before the scheduler will call the task in service.
-func ecsTaskHeldSteadyState(startedAt int64) bool {
+func ecsTaskHeldSteadyState(startedAt float64) bool {
 	return !time.Now().Before(ecsTaskSteadyStateAt(startedAt))
 }
 
 // ecsTaskSteadyStateAt is the instant ecsTaskHeldSteadyState starts reporting
 // true, so a scheduler wake-up lands when the task becomes eligible.
-func ecsTaskSteadyStateAt(startedAt int64) time.Time {
-	return time.Unix(startedAt, 0).Add(ecsServiceSteadyStateWindow + time.Second)
+func ecsTaskSteadyStateAt(startedAt float64) time.Time {
+	return ecsEpochTime(startedAt).Add(ecsServiceSteadyStateWindow + time.Second)
 }
 
 // ecsServiceTaskHealthy reports whether a task is in service. The Amazon ECS
@@ -548,7 +548,7 @@ func ecsServiceTaskUnhealthy(service ECSService, task ECSTask) bool {
 	if task.LastStatus != ECSTaskStatusRunning || task.StartedAt == nil {
 		return false
 	}
-	started := time.Unix(*task.StartedAt, 0)
+	started := ecsEpochTime(*task.StartedAt)
 	grace := ecsServiceSteadyStateWindow
 	if service.HealthCheckGracePeriodSeconds != nil {
 		grace = time.Duration(*service.HealthCheckGracePeriodSeconds) * time.Second
