@@ -81,7 +81,7 @@ func ecsSchedulerTestCluster(clusterName, family string) (ECSCluster, string) {
 // ecsSchedulerTestRunningTask stores one RUNNING task owned by the service,
 // started long enough ago to be past the steady-state window.
 func ecsSchedulerTestRunningTask(cluster ECSCluster, serviceName, taskDefinitionArn, containerIP string) ECSTask {
-	startedAt := time.Now().Add(-time.Minute).Unix()
+	startedAt := float64(time.Now().Add(-time.Minute).UnixMilli()) / 1000
 	createdAt := float64(startedAt)
 	taskID := generateUUID()
 	task := ECSTask{

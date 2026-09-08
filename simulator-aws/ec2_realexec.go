@@ -486,6 +486,18 @@ func ec2DeleteRealNIC(ctx context.Context, eniID string) error {
 // tier operates on IP prefixes rather than SG ids.
 func ec2BuildIngressPacketRules(securityGroupIDs []string) []realexec.PacketRule {
 	var rules []realexec.PacketRule
+	// A group's members are read once per attach. Every rule that names the
+	// group as its source walked the whole ENI, instance and task stores again
+	// (three rules, three scans, on the workspace task that led to #139).
+	members := map[string][]string{}
+	membersOf := func(groupID string) []string {
+		if cidrs, ok := members[groupID]; ok {
+			return cidrs
+		}
+		cidrs := ec2SGMemberCIDRs(groupID)
+		members[groupID] = cidrs
+		return cidrs
+	}
 	for _, groupID := range securityGroupIDs {
 		sg, ok := ec2SecurityGroups.Get(groupID)
 		if !ok {
@@ -518,7 +530,7 @@ func ec2BuildIngressPacketRules(securityGroupIDs []string) []realexec.PacketRule
 				})
 			}
 			for _, gp := range perm.UserIdGroupPairs {
-				for _, src := range ec2SGMemberCIDRs(gp.GroupId) {
+				for _, src := range membersOf(gp.GroupId) {
 					rules = append(rules, realexec.PacketRule{
 						Protocol:   perm.IpProtocol,
 						SourceCIDR: src,

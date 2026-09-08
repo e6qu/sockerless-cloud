@@ -21,7 +21,7 @@ func TestECSTaskHeldSteadyState_HonoursTheWindowWhateverTheSecondBoundary(t *tes
 	// elapsed time against the window alone returns true here, which is the
 	// defect.
 	atTheWindow := now.Add(-ecsServiceSteadyStateWindow)
-	if ecsTaskHeldSteadyState(atTheWindow.Unix()) {
+	if ecsTaskHeldSteadyState(float64(atTheWindow.UnixMilli()) / 1000) {
 		t.Errorf("a task whose recorded second is only %v old counted as having held "+
 			"the %v window, but truncation allows it to have started an instant ago",
 			ecsServiceSteadyStateWindow, ecsServiceSteadyStateWindow)
@@ -30,7 +30,7 @@ func TestECSTaskHeldSteadyState_HonoursTheWindowWhateverTheSecondBoundary(t *tes
 	// A task whose recorded second is old enough that the window has elapsed
 	// even if it started at the very end of that second.
 	settled := now.Add(-(ecsServiceSteadyStateWindow + time.Second))
-	if !ecsTaskHeldSteadyState(settled.Unix()) {
+	if !ecsTaskHeldSteadyState(float64(settled.UnixMilli()) / 1000) {
 		t.Errorf("a task started %v ago did not count as having held the %v window",
 			now.Sub(settled), ecsServiceSteadyStateWindow)
 	}
@@ -40,7 +40,7 @@ func TestECSTaskHeldSteadyState_HonoursTheWindowWhateverTheSecondBoundary(t *tes
 // before: an early reconcile finds the task still short of the window and the
 // deployment waits on the slower stabilization tick instead.
 func TestECSTaskSteadyStateAt_IsTheInstantTheWindowIsHeld(t *testing.T) {
-	startedAt := time.Now().Add(-500 * time.Millisecond).Unix()
+	startedAt := float64(time.Now().Add(-500*time.Millisecond).UnixMilli()) / 1000
 	at := ecsTaskSteadyStateAt(startedAt)
 
 	if ecsTaskHeldSteadyState(startedAt) {

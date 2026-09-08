@@ -1037,7 +1037,9 @@ func TestECS_TaskLogsToCloudWatch(t *testing.T) {
 	require.NotNil(t, task.StartedAt)
 	require.False(t, task.PullStartedAt.Before(*task.CreatedAt), "pull cannot begin before the task was created")
 	require.False(t, task.PullStoppedAt.Before(*task.PullStartedAt), "pull cannot stop before it started")
-	require.False(t, task.StartedAt.Before(task.PullStoppedAt.Truncate(time.Second)), "the container cannot start before its image is present")
+	// At full precision: every task timestamp carries milliseconds, as on
+	// Amazon ECS. Whole-second startedAt used to land before pullStoppedAt.
+	require.False(t, task.StartedAt.Before(*task.PullStoppedAt), "the container cannot start before its image is present")
 }
 
 // TestECS_RunningTaskStreamsLogsLive proves the awslogs contract for a
