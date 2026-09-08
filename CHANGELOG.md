@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.3](https://github.com/e6qu/sockerless-cloud/compare/v0.31.2...v0.31.3) (2026-09-08)
+
+
+### Bug Fixes
+
+* **aws:** a busy host port does not fail CreateListener ([#146](https://github.com/e6qu/sockerless-cloud/issues/146)) ([05e44d7](https://github.com/e6qu/sockerless-cloud/commit/05e44d7beffa6faf7a7e23bd4cf21803d180ab7f))
+
 ## [0.31.2](https://github.com/e6qu/sockerless-cloud/compare/v0.31.1...v0.31.2) (2026-09-08)
 
 
