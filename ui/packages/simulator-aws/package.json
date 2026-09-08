@@ -14,7 +14,7 @@
   "dependencies": {
     "@cloudscape-design/components": "3.0.1365",
     "@cloudscape-design/design-tokens": "^3.0.111",
-    "@cloudscape-design/global-styles": "^1.0.67",
+    "@cloudscape-design/global-styles": "^1.0.68",
     "@sockerless/ui-core": "workspace:*",
     "@tanstack/react-query": "^5.102.8",
     "react": "^19.2.8",

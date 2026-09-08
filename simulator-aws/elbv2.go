@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -726,15 +727,40 @@ func handleELBv2CreateListener(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "CreateListener", "<Listeners>"+elbv2ListenerXML(listener)+"</Listeners>", sim.RequestID(r.Context()))
 }
 
+// elbv2StartListenerDataPlane brings up the listener's proxy, if it has one.
+//
+// A bind the host refuses does NOT fail the call. Amazon ELBv2 never rejects
+// CreateListener because some unrelated process on some machine holds a port,
+// and the simulator answering 400 for that made a whole class of deployment
+// untestable: a simulator sharing a network namespace with its host (the
+// container-mode topology CI runs) cannot bind port 22 for an SSH NLB, because
+// the host's own sshd already holds it on every loopback address — no
+// per-load-balancer address lease can avoid that. The listener is recorded and
+// serves its control plane; what is lost is only the same-host convenience of
+// connecting through it, and the log says so at the moment it happens.
 func elbv2StartListenerDataPlane(listener ELBv2Listener) error {
 	if err := elbv2StartNLBProxy(listener); err != nil {
-		return err
+		if !elbv2HostCannotOfferAddress(err) {
+			return err
+		}
+		elbv2LogDataPlaneUnavailable(listener, err)
+		return nil
 	}
 	if err := elbv2StartTLSProxy(listener); err != nil {
 		elbv2StopNLBProxy(listener.Arn)
-		return err
+		if !elbv2HostCannotOfferAddress(err) {
+			return err
+		}
+		elbv2LogDataPlaneUnavailable(listener, err)
+		return nil
 	}
 	return nil
+}
+
+func elbv2LogDataPlaneUnavailable(listener ELBv2Listener, err error) {
+	fmt.Fprintf(os.Stderr,
+		"[sim-elbv2] listener %s (port %d): the host will not offer this address, so the listener has no data plane on this machine; its control plane is unaffected: %v\n",
+		listener.Arn, listener.Port, err)
 }
 
 func handleELBv2DescribeListeners(w http.ResponseWriter, r *http.Request) {
