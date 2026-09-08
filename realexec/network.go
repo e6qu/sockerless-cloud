@@ -1024,71 +1024,92 @@ func (n *NamespaceNIC) configureIngressFilter(ctx context.Context, devName strin
 func configureBridgeIngressFilter(ctx context.Context, network *Network, cleanup *CleanupStack, devName string, rules []PacketRule) error {
 	table := deriveLinuxName("fw"+devName, "fw")
 	defer lockTable(table)()
-	_ = network.runner.Run(ctx, "ip", "netns", "exec", network.NamespaceName, "nft", "delete", "table", "bridge", table)
-	if err := network.runner.Run(ctx, "ip", "netns", "exec", network.NamespaceName, "nft", "add", "table", "bridge", table); err != nil {
+	program, err := renderIngressFilterProgram(table, devName, rules)
+	if err != nil {
+		return err
+	}
+	// One nft process for the whole filter. Each nft invocation loads the
+	// namespace's entire ruleset before it can add a rule, so applying a
+	// filter one rule per process cost seconds per rule inside a small
+	// guest: a task whose security group referenced another group with a
+	// dozen members took three minutes here, and every other task ten
+	// seconds. The program also replaces the table atomically, so a reader
+	// never sees a half-built filter.
+	if err := network.runner.RunWithInput(ctx, program, "ip", "netns", "exec", network.NamespaceName, "nft", "-f", "-"); err != nil {
 		return err
 	}
 	cleanup.Add(func(cleanupCtx context.Context) error {
 		_ = network.runner.Run(cleanupCtx, "ip", "netns", "exec", network.NamespaceName, "nft", "delete", "table", "bridge", table)
 		return nil
 	})
-	if err := network.runner.Run(ctx, "ip", "netns", "exec", network.NamespaceName, "nft", "add", "chain", "bridge", table, "forward", "{", "type", "filter", "hook", "forward", "priority", "filter", ";", "policy", "accept", ";", "}"); err != nil {
-		return err
-	}
-	if err := network.runner.Run(ctx, "ip", "netns", "exec", network.NamespaceName, "nft", "add", "rule", "bridge", table, "forward", "ct", "state", "established,related", "accept"); err != nil {
-		return err
-	}
-	// Security groups filter IP traffic, not the link-layer neighbor discovery
-	// needed to deliver that traffic. Permit ARP before the per-NIC terminal
-	// drop so a newly attached peer can resolve the destination ENI instead of
-	// depending on a neighbor-cache entry created before the filter existed.
-	if err := network.runner.Run(ctx, "ip", "netns", "exec", network.NamespaceName, "nft", "add", "rule", "bridge", table, "forward", "oifname", devName, "ether", "type", "arp", "accept"); err != nil {
-		return err
-	}
+	return nil
+}
+
+// renderIngressFilterProgram is the nft program that installs the ingress
+// filter for one interface: the table is declared (so a first install and a
+// reinstall read the same), deleted, then rebuilt with the accept rules for
+// established traffic and ARP, one rule per PacketRule, and a final drop.
+func renderIngressFilterProgram(table, devName string, rules []PacketRule) (string, error) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "table bridge %s {}\n", table)
+	fmt.Fprintf(&b, "delete table bridge %s\n", table)
+	fmt.Fprintf(&b, "table bridge %s {\n", table)
+	fmt.Fprintf(&b, "\tchain forward {\n")
+	fmt.Fprintf(&b, "\t\ttype filter hook forward priority filter; policy accept;\n")
+	fmt.Fprintf(&b, "\t\tct state established,related accept\n")
+	fmt.Fprintf(&b, "\t\toifname %q ether type arp accept\n", devName)
 	for _, rule := range rules {
-		args := []string{"ip", "netns", "exec", network.NamespaceName, "nft", "add", "rule", "bridge", table, "forward", "oifname", devName}
-		if rule.SourceCIDR != "" {
-			args = append(args, "ip", "saddr", rule.SourceCIDR)
+		expr, err := renderIngressRule(devName, rule)
+		if err != nil {
+			return "", err
 		}
-		switch strings.ToLower(rule.Protocol) {
-		case "tcp", "udp":
-			proto := strings.ToLower(rule.Protocol)
-			args = append(args, "ip", "protocol", proto, proto)
-			if rule.FromPort > 0 || rule.ToPort > 0 {
-				from, to := rule.FromPort, rule.ToPort
-				if from == 0 {
-					from = to
-				}
-				if to == 0 {
-					to = from
-				}
-				if from == to {
-					args = append(args, "dport", fmt.Sprintf("%d", from))
-				} else {
-					args = append(args, "dport", fmt.Sprintf("%d-%d", from, to))
-				}
-			}
-		case "icmp":
-			args = append(args, "ip", "protocol", "icmp")
-		case "-1", "all", "":
-		default:
-			return fmt.Errorf("unsupported packet filter protocol %q", rule.Protocol)
-		}
-		action := strings.ToLower(rule.Action)
-		if action == "" {
-			action = "accept"
-		}
-		switch action {
-		case "accept", "drop":
-		default:
-			return fmt.Errorf("unsupported packet filter action %q", rule.Action)
-		}
-		args = append(args, action)
-		if err := network.runner.Run(ctx, args[0], args[1:]...); err != nil {
-			return err
-		}
+		fmt.Fprintf(&b, "\t\t%s\n", expr)
 	}
-	return network.runner.Run(ctx, "ip", "netns", "exec", network.NamespaceName, "nft", "add", "rule", "bridge", table, "forward", "oifname", devName, "drop")
+	fmt.Fprintf(&b, "\t\toifname %q drop\n", devName)
+	fmt.Fprintf(&b, "\t}\n}\n")
+	return b.String(), nil
+}
+
+func renderIngressRule(devName string, rule PacketRule) (string, error) {
+	parts := []string{"oifname", fmt.Sprintf("%q", devName)}
+	if rule.SourceCIDR != "" {
+		parts = append(parts, "ip", "saddr", rule.SourceCIDR)
+	}
+	switch strings.ToLower(rule.Protocol) {
+	case "tcp", "udp":
+		proto := strings.ToLower(rule.Protocol)
+		parts = append(parts, "ip", "protocol", proto, proto)
+		if rule.FromPort > 0 || rule.ToPort > 0 {
+			from, to := rule.FromPort, rule.ToPort
+			if from == 0 {
+				from = to
+			}
+			if to == 0 {
+				to = from
+			}
+			if from == to {
+				parts = append(parts, "dport", fmt.Sprintf("%d", from))
+			} else {
+				parts = append(parts, "dport", fmt.Sprintf("%d-%d", from, to))
+			}
+		}
+	case "icmp":
+		parts = append(parts, "ip", "protocol", "icmp")
+	case "-1", "all", "":
+	default:
+		return "", fmt.Errorf("unsupported packet filter protocol %q", rule.Protocol)
+	}
+	action := strings.ToLower(rule.Action)
+	if action == "" {
+		action = "accept"
+	}
+	switch action {
+	case "accept", "drop":
+	default:
+		return "", fmt.Errorf("unsupported packet filter action %q", rule.Action)
+	}
+	parts = append(parts, action)
+	return strings.Join(parts, " "), nil
 }
 
 func (n *NamespaceNIC) ClearIngressFilter(ctx context.Context) error {

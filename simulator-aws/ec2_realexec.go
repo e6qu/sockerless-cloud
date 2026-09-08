@@ -562,6 +562,13 @@ func ec2SGMemberCIDRs(groupID string) []string {
 		}
 	}
 	for _, task := range ecsTasks.List() {
+		// A stopped task holds no address any more: its ENI went with it, and
+		// the store keeps the task for an hour for DescribeTasks. Counting it
+		// tripled a group's member list on a deployment whose scheduled task
+		// runs every five minutes, and every member is a packet rule.
+		if task.LastStatus == ECSTaskStatusStopped {
+			continue
+		}
 		if !ecsTaskUsesSecurityGroup(task, groupID) {
 			continue
 		}
