@@ -22,6 +22,20 @@ func (Runner) Run(ctx context.Context, name string, args ...string) error {
 	return nil
 }
 
+// RunWithInput runs like Run with input on the command's standard input, for
+// tools that take a whole program at once (nft -f -) rather than one
+// statement per process.
+func (Runner) RunWithInput(ctx context.Context, input string, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdin = strings.NewReader(input)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return commandError(name, args, err, stderr.String())
+	}
+	return nil
+}
+
 func (Runner) Output(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	var stderr bytes.Buffer
