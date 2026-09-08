@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -163,7 +164,10 @@ func elbv2AcquireStableHost(lbArn string, port int) (elbv2NLBHost, error) {
 	}
 	ip, leased := realexec.ReserveNLBLoopbackIPv4(lbArn)
 	if !leased {
-		return elbv2NLBHost{}, fmt.Errorf("listener port %d already bound on 127.0.0.1 and no per-NLB loopback address is available on this host (one load balancer per listener port off Linux)", port)
+		// Wrapping the errno keeps the cause machine-readable: this is the
+		// host declining to offer the address, which the listener data plane
+		// degrades on rather than failing CreateListener.
+		return elbv2NLBHost{}, fmt.Errorf("listener port %d already bound on 127.0.0.1 and no per-NLB loopback address is available on this host (one load balancer per listener port off Linux): %w", port, syscall.EADDRINUSE)
 	}
 	return elbv2NLBHost{host: ip.String(), leaseIP: ip}, nil
 }
