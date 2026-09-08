@@ -786,12 +786,25 @@ jobs:
             run: '^Test(IAM)'
             timeout: 1200s
             timeout_minutes: 15
-          - suite: ec2-a-m
-            run: '^Test(EC2(CLI_[A-M]|Copy|EBS|Instance|Key|Launch))'
+          # The EC2 shards and appdata2 split by measured cost after compute
+          # was cancelled at the job budget on a slow runner: warm, each ran
+          # 370-390s of tests, eleven minutes of job, and the runner that
+          # cancelled compute was a quarter slower than normal. Each half now
+          # holds 150-200s of tests.
+          - suite: ec2-a-h
+            run: '^Test(EC2(CLI_[A-H]|Copy|EBS))'
             timeout: 1500s
             timeout_minutes: 15
-          - suite: ec2-n-z
-            run: '^Test(EC2(CLI_[N-Z]|Nat|Network|Routing|Security|Subnet))'
+          - suite: ec2-i-m
+            run: '^Test(EC2(CLI_[I-M]|Instance|Key|Launch))'
+            timeout: 1500s
+            timeout_minutes: 15
+          - suite: ec2-n-s
+            run: '^Test(EC2(CLI_[N-S]|Nat|Network|Routing|Security|Subnet))'
+            timeout: 1500s
+            timeout_minutes: 15
+          - suite: ec2-t-z
+            run: '^Test(EC2CLI_[T-Z])'
             timeout: 1500s
             timeout_minutes: 15
           # compute split in two after it reached the 15-minute job budget on
@@ -823,7 +836,11 @@ jobs:
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata2
-            run: '^Test(AWSServiceState|RDS|Route53|S3)'
+            run: '^Test(AWSServiceState|RDS)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: appdata5
+            run: '^Test(Route53|S3)'
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata3

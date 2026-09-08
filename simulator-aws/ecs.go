@@ -297,8 +297,11 @@ type ECSTask struct {
 	Connectivity      string             `json:"connectivity,omitempty"`
 	Containers        []ECSTaskContainer `json:"containers"`
 	CreatedAt         *float64           `json:"createdAt,omitempty"`
-	StartedAt         *int64             `json:"startedAt,omitempty"`
-	StoppedAt         *int64             `json:"stoppedAt,omitempty"`
+	// Seconds since the epoch with a fractional part, like createdAt and the
+	// pull timestamps: Amazon ECS reports every task timestamp at millisecond
+	// resolution, and whole seconds here put startedAt before pullStoppedAt.
+	StartedAt *float64 `json:"startedAt,omitempty"`
+	StoppedAt *float64 `json:"stoppedAt,omitempty"`
 	// The agent reports these while a task runs: when it finished pulling its
 	// images and when execution stopped. DescribeTasks returns them, and they
 	// were being discarded.
@@ -1680,7 +1683,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 			if len(pendingRestores) > 0 {
 				if err := ecsRunPendingEBSRestores(context.Background(), id, pendingRestores); err != nil {
 					fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: managed EBS restore failed: %v\n", id, err)
-					stoppedAt := time.Now().Unix()
+					stoppedAt := ecsEpochSeconds()
 					ecsTasks.Update(id, func(t *ECSTask) {
 						t.LastStatus = ECSTaskStatusStopped
 						t.DesiredStatus = ECSTaskStatusStopped
@@ -1715,7 +1718,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 				// pause-container / image-pull failure reads as an opaque
 				// container ExitCode -1 with no diagnosable cause in logs.
 				fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: container start failed: %v\n", id, err)
-				stoppedAt := time.Now().Unix()
+				stoppedAt := ecsEpochSeconds()
 				ecsTasks.Update(id, func(t *ECSTask) {
 					t.LastStatus = ECSTaskStatusStopped
 					t.DesiredStatus = ECSTaskStatusStopped
@@ -1739,7 +1742,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 			// Containers are actually running. Report RUNNING and wire up
 			// lifecycle waits. Store handles before marking RUNNING so any
 			// concurrent observer that sees RUNNING also sees handles.
-			now := time.Now().Unix()
+			now := ecsEpochSeconds()
 			ecsTasks.Update(id, func(t *ECSTask) {
 				t.LastStatus = ECSTaskStatusRunning
 				t.Connectivity = "CONNECTED"
@@ -1809,7 +1812,7 @@ func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTa
 				panic("Amazon ECS task process registry contained a non-process value")
 			}
 			cleanupECSTaskProcesses(taskID, ownedProcesses)
-			stoppedAt := time.Now().Unix()
+			stoppedAt := ecsEpochSeconds()
 			transitioned := false
 			ecsTasks.Update(taskID, func(t *ECSTask) {
 				if t.LastStatus == ECSTaskStatusStopped {
@@ -1897,7 +1900,7 @@ func ecsResumePendingTask(task ECSTask, definition ECSTaskDefinition) {
 	)
 	containerInstanceKey := ecsContainerInstanceKeyFromARN(task.ContainerInstanceArn)
 	if err != nil {
-		stoppedAt := time.Now().Unix()
+		stoppedAt := ecsEpochSeconds()
 		ecsTasks.Update(taskID, func(current *ECSTask) {
 			current.LastStatus = ECSTaskStatusStopped
 			current.DesiredStatus = ECSTaskStatusStopped
@@ -1917,7 +1920,7 @@ func ecsResumePendingTask(task ECSTask, definition ECSTaskDefinition) {
 		}
 		return
 	}
-	startedAt := time.Now().Unix()
+	startedAt := ecsEpochSeconds()
 	fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: RUNNING (resumed after restart) %s\n", taskID, phases.Summary())
 	ecsTasks.Update(taskID, func(current *ECSTask) {
 		current.LastStatus = ECSTaskStatusRunning
@@ -1962,7 +1965,7 @@ func ecsRecoverRunningTask(
 
 func ecsMarkMissingRunningTaskStopped(task ECSTask) {
 	taskID := task.TaskID()
-	stoppedAt := time.Now().Unix()
+	stoppedAt := ecsEpochSeconds()
 	transitioned := false
 	ecsTasks.Update(taskID, func(current *ECSTask) {
 		if current.LastStatus != ECSTaskStatusRunning {
@@ -2140,6 +2143,11 @@ type ecsResolvedImage struct {
 // fractional), as createdAt already is.
 func ecsEpochSeconds() float64 {
 	return float64(time.Now().UnixMilli()) / 1000
+}
+
+// ecsEpochTime is the inverse of ecsEpochSeconds.
+func ecsEpochTime(seconds float64) time.Time {
+	return time.UnixMilli(int64(seconds * 1000))
 }
 
 func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, sink sim.LogSink, launchType string, phases *ecsPhaseTimer) (*ecsTaskProcesses, error) {
@@ -2757,7 +2765,7 @@ func stopECSTask(taskID, reason, code string) bool {
 		}
 	}
 
-	now := time.Now().Unix()
+	now := ecsEpochSeconds()
 	ecsTasks.Update(taskID, func(t *ECSTask) {
 		t.DesiredStatus = ECSTaskStatusStopped
 		t.LastStatus = ECSTaskStatusStopped
@@ -2812,7 +2820,7 @@ func ecsTaskExpired(t ECSTask, now time.Time) bool {
 	if t.LastStatus != ECSTaskStatusStopped || t.StoppedAt == nil {
 		return false
 	}
-	return now.Sub(time.Unix(*t.StoppedAt, 0)) > ecsStoppedTaskRetention
+	return now.Sub(ecsEpochTime(*t.StoppedAt)) > ecsStoppedTaskRetention
 }
 
 // ecsSweepStoppedTasks deletes the tasks that have aged out, so the retention

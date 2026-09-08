@@ -121,7 +121,7 @@ func ecsHealthTestTaskAged(
 	serviceName, taskDefinitionArn, containerIP string,
 	age time.Duration,
 ) ECSTask {
-	startedAt := time.Now().Add(-age).Unix()
+	startedAt := float64(time.Now().Add(-age).UnixMilli()) / 1000
 	createdAt := float64(startedAt)
 	taskID := generateUUID()
 	task := ECSTask{
