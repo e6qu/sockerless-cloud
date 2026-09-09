@@ -204,6 +204,13 @@ func answerRoute53DNS(query []byte) ([]byte, error) {
 		return buildRoute53DNSResponse(hdr, dnsmessage.RCodeFormatError, q, nil), nil
 	}
 
+	// The container-host aliases are answered before anything else: they are
+	// not in a hosted zone and no upstream knows them, so recursion would only
+	// turn a name the other network tiers resolve into SERVFAIL.
+	if answers, mine := resolveWorkloadHostAlias(q); mine {
+		return buildRoute53DNSResponse(hdr, dnsmessage.RCodeSuccess, q, answers), nil
+	}
+
 	// Outside every hosted zone the VPC resolver recurses, exactly as
 	// AmazonProvidedDNS does. Answering NXDOMAIN here instead leaves a task able
 	// to resolve its own services and nothing else on the internet.
