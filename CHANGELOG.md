@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.4](https://github.com/e6qu/sockerless-cloud/compare/v0.31.3...v0.31.4) (2026-09-09)
+
+
+### Bug Fixes
+
+* **aws:** the netns tier resolves the container-host alias like every other tier ([#148](https://github.com/e6qu/sockerless-cloud/issues/148)) ([649d385](https://github.com/e6qu/sockerless-cloud/commit/649d385977e621a4ddf7c1f34f5588863e8d8681))
+
 ## [0.31.3](https://github.com/e6qu/sockerless-cloud/compare/v0.31.2...v0.31.3) (2026-09-08)
 
 
