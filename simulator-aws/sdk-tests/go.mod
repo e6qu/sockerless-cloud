@@ -18,12 +18,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/batch v1.74.0
 	github.com/aws/aws-sdk-go-v2/service/budgets v1.50.0
 	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.72.0
-	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.63.0
+	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.64.0
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.71.0
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.86.0
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.77.0
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.67.0
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.329.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.330.0
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.64.0
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.96.0
 	github.com/aws/aws-sdk-go-v2/service/efs v1.48.0
@@ -39,8 +39,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/organizations v1.59.0
 	github.com/aws/aws-sdk-go-v2/service/rds v1.128.0
 	github.com/aws/aws-sdk-go-v2/service/route53 v1.69.0
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.111.0
-	github.com/aws/aws-sdk-go-v2/service/s3control v1.77.0
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.112.0
+	github.com/aws/aws-sdk-go-v2/service/s3control v1.78.0
 	github.com/aws/aws-sdk-go-v2/service/scheduler v1.24.0
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.48.0
 	github.com/aws/aws-sdk-go-v2/service/servicediscovery v1.48.0
@@ -60,9 +60,9 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/crypto v0.56.0
-	golang.org/x/image v0.45.0
-	golang.org/x/net v0.58.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/image v0.46.0
+	golang.org/x/net v0.59.0
 )
 
 replace github.com/e6qu/sockerless-cloud/testutil => ../../testutil
@@ -90,8 +90,8 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )
