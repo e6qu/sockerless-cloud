@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.5](https://github.com/e6qu/sockerless-cloud/compare/v0.31.4...v0.31.5) (2026-09-10)
+
+
+### Bug Fixes
+
+* **sim:** the SFN fuzz target no longer parks on a Wait timer ([#151](https://github.com/e6qu/sockerless-cloud/issues/151)) ([7a77085](https://github.com/e6qu/sockerless-cloud/commit/7a77085371063f80176a6ce681f543f4c313a885))
+
 ## [0.31.4](https://github.com/e6qu/sockerless-cloud/compare/v0.31.3...v0.31.4) (2026-09-09)
 
 
