@@ -265,13 +265,41 @@ terraform {
 TF
 }
 
-# The release before the newest, for the exact-pin cases: an exact pin names the
-# one version Terraform may install, so being one release behind is drift even
-# though the major matches.
+# The release before the newest ADOPTABLE one, for the exact-pin cases: an exact
+# pin names the one version Terraform may install, so being one release behind
+# is drift even though the major matches.
+#
+# "Newest adoptable" is not "newest published", and taking the second-newest
+# published release made this fixture fail for a day every time upstream
+# shipped: the newest is then inside the quarantine, so the newest adoptable
+# release IS the second-newest, and pinning it is correctly not drift while the
+# assertion below still demands drift. hashicorp/null 3.3.2, published
+# 2026-09-10, did exactly that.
+#
+# Rather than re-deriving the window here — which would mean a second copy of
+# the checker's RFC 3339 arithmetic, free to disagree with the original — the
+# fixture asks the checker. An impossible pin makes it name the version it
+# considers adoptable, and the release below that is what an exact pin one
+# behind means.
+write_tf 0.0.1
+commit_repo "$tf_repo"
+run_check "$tf_repo"
+tf_newest_adoptable="$(printf '%s\n' "$CHECK_OUT" |
+	sed -n -E 's/.*vs latest adoptable ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -1)"
+if ! [[ "$tf_newest_adoptable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+	echo "FAIL terraform fixture: the checker did not name an adoptable version for $tf_provider" >&2
+	printf '%s\n' "$CHECK_OUT" >&2
+	exit 1
+fi
+
 tf_previous="$(curl -fsSL "https://registry.terraform.io/v1/providers/$tf_provider" |
-	jq -er '[.versions[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(split(".") | map(tonumber)) | .[-2]')"
+	jq -er --arg newest "$tf_newest_adoptable" '
+		[.versions[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))]
+		| sort_by(split(".") | map(tonumber))
+		| index($newest) as $i
+		| if $i == null or $i == 0 then error("no release below the newest adoptable") else .[$i - 1] end')"
 if ! [[ "$tf_previous" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-	echo "FAIL terraform fixture: the registry did not report a previous version for $tf_provider" >&2
+	echo "FAIL terraform fixture: the registry did not report a release below $tf_newest_adoptable" >&2
 	exit 1
 fi
 
