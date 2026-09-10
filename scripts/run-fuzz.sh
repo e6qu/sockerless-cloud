@@ -9,6 +9,19 @@ set -u
 seconds="${FUZZTIME_SECONDS:-60}"
 target_concurrency="${FUZZ_TARGET_CONCURRENCY:-4}"
 fuzz_parallel="${FUZZ_PARALLEL:-1}"
+# Go's collector, given no limit, sizes the heap against the whole machine, and
+# a fuzz target's live set grows as its corpus does. Four of them at once, each
+# a coordinator plus a worker, is eight processes all deciding independently
+# that there is plenty of memory left. On the nightly AWS shards that took the
+# runner from 1.7GB used to 15.9GB of its 16GB in about a minute, at which point
+# the runner was killed and the job reported only that it had received a
+# shutdown signal -- ten nights running, with no output surviving to say why.
+#
+# 512MiB apiece holds the same four targets to 1.8GB combined instead of 5.2GB,
+# with every target still passing and no crasher missed. It is a soft limit: the
+# collector works harder as the limit approaches rather than failing an
+# allocation, so a target that genuinely needs more slows down instead of dying.
+fuzz_memory_limit="${FUZZ_GOMEMLIMIT:-512MiB}"
 # Which slice of the discovered targets to run, so a group too large for the
 # job's time budget can be split across matrix entries. 1/1 runs everything.
 shard_index="${FUZZ_SHARD_INDEX:-1}"
@@ -77,7 +90,7 @@ run_target() {
 	{
 		echo "=== [$dir] $relative $function_name (${seconds}s) ==="
 		cd "$dir" || return
-		CGO_ENABLED=0 go test -tags=noui -run='^$' -fuzz="^${function_name}\$" -fuzztime="${seconds}s" -parallel="$fuzz_parallel" "$relative"
+		CGO_ENABLED=0 GOMEMLIMIT="$fuzz_memory_limit" go test -tags=noui -run='^$' -fuzz="^${function_name}\$" -fuzztime="${seconds}s" -parallel="$fuzz_parallel" "$relative"
 	} >"$log_file" 2>&1
 }
 
