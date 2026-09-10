@@ -13,9 +13,7 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `spanner-v1.discovery.json.gz` | `spanner.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260828` | 2026-08-30T11:23:51Z |
 | `redis-v1.discovery.json.gz` | `redis.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260828` | 2026-09-01T11:06:02Z |
 | `firestore-v1.discovery.json.gz` | `firestore.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260826` | 2026-09-01T11:06:02Z |
-| `iam-v1.discovery.json.gz` | `iam.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260828` | 2026-09-01T11:06:02Z |
 | `cloudfunctions-v2.discovery.json.gz` | `cloudfunctions.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20260827` | 2026-09-02T11:08:27Z |
-| `dns-v1.discovery.json.gz` | `dns.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260819` | 2026-09-04T11:16:10Z |
 | `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260821` | 2026-09-04T11:16:10Z |
 | `dataflow-v1b3.discovery.json.gz` | `dataflow.googleapis.com` | `$discovery/rest?version=v1b3` | Apache-2.0 | `revision 20260825` | 2026-09-04T11:16:10Z |
 | `cloudkms-v1.discovery.json.gz` | `cloudkms.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260827` | 2026-09-04T11:16:10Z |
@@ -35,3 +33,5 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `pubsub-v1.discovery.json.gz` | `pubsub.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260901` | 2026-09-10T07:49:13Z |
 | `compute-v1.discovery.json.gz` | `www.googleapis.com` | `discovery/v1/apis/compute/v1/rest` | Apache-2.0 | `revision 20260908` | 2026-09-10T07:49:18Z |
 | `cloudrun-v2.discovery.json.gz` | `run.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20260904` | 2026-09-10T07:49:19Z |
+| `iam-v1.discovery.json.gz` | `iam.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260904` | 2026-09-10T11:11:25Z |
+| `dns-v1.discovery.json.gz` | `dns.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260904` | 2026-09-10T11:11:25Z |
