@@ -13,9 +13,9 @@ require (
 	cloud.google.com/go/secretmanager v1.21.0
 	cloud.google.com/go/spanner v1.95.0
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260908045007-1cc3f62d8af5
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260908113928-099f2b580eb2
-	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905213638-ef4567e91da5
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260910061235-dc6430a5f03e
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260910061235-dc6430a5f03e
+	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260910061235-dc6430a5f03e
 	github.com/moby/moby/client v0.6.0
 	google.golang.org/genproto v0.0.0-20260908043556-f8649ddbbfe6
 	google.golang.org/genproto/googleapis/api v0.0.0-20260908043556-f8649ddbbfe6
@@ -66,11 +66,10 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
-	golang.org/x/mod v0.39.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/oauth2 v0.37.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
