@@ -107,6 +107,50 @@ is_fuzztime_shutdown_race() {
 	[[ -z "$(git ls-files --others --exclude-standard -- "$package_dir/testdata/fuzz" 2>/dev/null)" ]] || return 1
 }
 
+# The nightly job has died mid-batch since 2026-09-02, the runner reporting a
+# shutdown signal roughly five minutes into the first batch, and nothing
+# survives to say why: a target's output is held in its own log and only
+# replayed once the whole batch has been waited on, so a runner that goes away
+# takes every line of it. These report while the batch is still in flight, which
+# on a job that never reaches the end of one is the only window there is.
+report_resources() {
+	local phase="$1"
+	{
+		printf '=== resources (%s): ' "$phase"
+		free -m 2>/dev/null | awk '/^Mem:/ { printf "mem used=%sMB available=%sMB; ", $3, $7 }'
+		df -m . 2>/dev/null | awk 'NR == 2 { printf "disk available=%sMB", $4 }'
+		printf '\n'
+	} 2>/dev/null || true
+}
+
+# Prints each in-flight target's latest line, and the resource line, on an
+# interval. wait_batch stops it once the batch is accounted for. The subshell
+# reads the batch arrays as they stood when it forked, which is after the batch
+# is fully populated and before anything is waited on.
+start_batch_watchdog() {
+	(
+		local index
+		while :; do
+			sleep "${FUZZ_WATCHDOG_SECONDS:-20}"
+			report_resources "batch in flight"
+			for ((index = 0; index < ${#batch_logs[@]}; index += 1)); do
+				printf '    %s: %s\n' \
+					"${batch_labels[$index]}" \
+					"$(tail -n 1 "${batch_logs[$index]}" 2>/dev/null)"
+			done
+		done
+	) &
+	watchdog_pid=$!
+}
+
+stop_batch_watchdog() {
+	if [[ -n "${watchdog_pid:-}" ]]; then
+		kill "$watchdog_pid" 2>/dev/null || true
+		wait "$watchdog_pid" 2>/dev/null || true
+		watchdog_pid=""
+	fi
+}
+
 wait_batch() {
 	local index pid label log_file package_dir
 	for ((index = 0; index < ${#batch_pids[@]}; index += 1)); do
@@ -124,11 +168,14 @@ wait_batch() {
 		fi
 		cat "$log_file"
 	done
+	stop_batch_watchdog
 	batch_pids=()
 	batch_labels=()
 	batch_logs=()
 	batch_package_dirs=()
 }
+
+report_resources "before fuzzing"
 
 # Compile each package's test binary once, serially, before any fuzzing starts.
 #
@@ -210,10 +257,12 @@ while IFS=$'\t' read -r dir relative function_name; do
 	batch_package_dirs+=("$package_dir")
 	task_index=$((task_index + 1))
 	if ((${#batch_pids[@]} >= target_concurrency)); then
+		start_batch_watchdog
 		wait_batch
 	fi
 done <"$task_file"
 if ((${#batch_pids[@]} > 0)); then
+	start_batch_watchdog
 	wait_batch
 fi
 
