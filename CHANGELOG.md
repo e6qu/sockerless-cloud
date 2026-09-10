@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.6](https://github.com/e6qu/sockerless-cloud/compare/v0.31.5...v0.31.6) (2026-09-10)
+
+
+### Bug Fixes
+
+* **fuzz:** bound each target's heap so the nightly stops killing its runner ([#155](https://github.com/e6qu/sockerless-cloud/issues/155)) ([90a95a2](https://github.com/e6qu/sockerless-cloud/commit/90a95a200e8f271829cb78cfa0b9ed1bf6b68490))
+
 ## [0.31.5](https://github.com/e6qu/sockerless-cloud/compare/v0.31.4...v0.31.5) (2026-09-10)
 
 
