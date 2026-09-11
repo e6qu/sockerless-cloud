@@ -5,7 +5,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 
 | Local file | Upstream repo / host | Upstream path | License | Pinned at | Fetched (UTC) |
 |---|---|---|---|---|---|
-| `service-reference/ecs.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/ecs/ecs.json` | AWS Service Reference (public service authorization data) | `modified1785355305` | 2026-08-03T06:21:11Z |
 | `service-reference/ecr.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/ecr/ecr.json` | AWS Service Reference (public service authorization data) | `modified1775534505` | 2026-08-03T06:21:11Z |
 | `service-reference/sqs.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/sqs/sqs.json` | AWS Service Reference (public service authorization data) | `modified1774454977` | 2026-08-03T06:21:11Z |
 | `service-reference/budgets.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/budgets/budgets.json` | AWS Service Reference (public service authorization data) | `modified1780549308` | 2026-08-03T06:21:12Z |
@@ -38,3 +37,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `service-reference/kinesis.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/kinesis/kinesis.json` | AWS Service Reference (public service authorization data) | `modified1788289298` | 2026-09-01T20:38:36Z |
 | `service-reference/ec2.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/ec2/ec2.json` | AWS Service Reference (public service authorization data) | `modified1788552100` | 2026-09-04T21:57:25Z |
 | `service-reference/s3.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/s3/s3.json` | AWS Service Reference (public service authorization data) | `modified1788897702` | 2026-09-09T11:11:09Z |
+| `service-reference/ecs.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/ecs/ecs.json` | AWS Service Reference (public service authorization data) | `modified1789063303` | 2026-09-11T11:06:35Z |
