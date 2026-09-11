@@ -3,7 +3,7 @@ module github.com/e6qu/sockerless-cloud/simulator-gcp
 go 1.26.0
 
 require (
-	cloud.google.com/go/bigtable v1.56.0
+	cloud.google.com/go/bigtable v1.57.0
 	cloud.google.com/go/firestore v1.25.0
 	cloud.google.com/go/iam v1.13.0
 	cloud.google.com/go/kms v1.33.0
@@ -11,7 +11,7 @@ require (
 	cloud.google.com/go/longrunning v1.2.0
 	cloud.google.com/go/pubsub v1.51.1
 	cloud.google.com/go/secretmanager v1.21.0
-	cloud.google.com/go/spanner v1.95.0
+	cloud.google.com/go/spanner v1.95.1
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260910061235-dc6430a5f03e
 	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260910061235-dc6430a5f03e
