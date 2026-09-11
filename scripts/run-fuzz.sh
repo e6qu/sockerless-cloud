@@ -9,19 +9,6 @@ set -u
 seconds="${FUZZTIME_SECONDS:-60}"
 target_concurrency="${FUZZ_TARGET_CONCURRENCY:-4}"
 fuzz_parallel="${FUZZ_PARALLEL:-1}"
-# Go's collector, given no limit, sizes the heap against the whole machine, and
-# a fuzz target's live set grows as its corpus does. Four of them at once, each
-# a coordinator plus a worker, is eight processes all deciding independently
-# that there is plenty of memory left. On the nightly AWS shards that took the
-# runner from 1.7GB used to 15.9GB of its 16GB in about a minute, at which point
-# the runner was killed and the job reported only that it had received a
-# shutdown signal -- ten nights running, with no output surviving to say why.
-#
-# 512MiB apiece holds the same four targets to 1.8GB combined instead of 5.2GB,
-# with every target still passing and no crasher missed. It is a soft limit: the
-# collector works harder as the limit approaches rather than failing an
-# allocation, so a target that genuinely needs more slows down instead of dying.
-fuzz_memory_limit="${FUZZ_GOMEMLIMIT:-512MiB}"
 # Which slice of the discovered targets to run, so a group too large for the
 # job's time budget can be split across matrix entries. 1/1 runs everything.
 shard_index="${FUZZ_SHARD_INDEX:-1}"
@@ -90,7 +77,7 @@ run_target() {
 	{
 		echo "=== [$dir] $relative $function_name (${seconds}s) ==="
 		cd "$dir" || return
-		CGO_ENABLED=0 GOMEMLIMIT="$fuzz_memory_limit" go test -tags=noui -run='^$' -fuzz="^${function_name}\$" -fuzztime="${seconds}s" -parallel="$fuzz_parallel" "$relative"
+		CGO_ENABLED=0 go test -tags=noui -run='^$' -fuzz="^${function_name}\$" -fuzztime="${seconds}s" -parallel="$fuzz_parallel" "$relative"
 	} >"$log_file" 2>&1
 }
 
@@ -203,13 +190,33 @@ report_resources "before fuzzing"
 # This also makes a build failure say so, instead of surfacing as 25 fuzz
 # targets failing at once.
 prebuild_packages() {
-	local dir relative
+	local dir relative first_target
 	while IFS=$'\t' read -r dir relative; do
 		[[ -n "$relative" ]] || continue
 		echo "=== building test binary for [$dir] $relative ==="
 		if ! (cd "$dir" && CGO_ENABLED=0 go test -tags=noui -c -o /dev/null "$relative"); then
 			echo "!!! FAILED TO BUILD: $dir $relative" >&2
 			exit_status=1
+			continue
+		fi
+		# `go test -fuzz` links a fuzz-instrumented binary, and that is a
+		# different build cache entry from the plain one above. Warming only the
+		# plain one left every target in a batch missing the instrumented entry
+		# at the same instant, so each of them compiled the whole package graph
+		# itself: four `compile` processes at about 3.1GB each on simulator-aws,
+		# which is roughly 12.4GB of a 16GB runner, and the machine went down
+		# before a single target printed a line. Warming it here, serially, is
+		# one compile instead of four.
+		#
+		# A failure is not fatal: -fuzztime=1x runs a single execution, and if
+		# that finds something the real invocation below finds it too and
+		# reports it properly rather than as a build failure.
+		first_target="$(awk -F'\t' -v d="$dir" -v r="$relative" \
+			'$1 == d && $2 == r { print $3; exit }' "$task_file")"
+		if [[ -n "$first_target" ]]; then
+			echo "=== warming the fuzz-instrumented build for [$dir] $relative ==="
+			(cd "$dir" && CGO_ENABLED=0 go test -tags=noui -run='^$' \
+				-fuzz="^${first_target}\$" -fuzztime=1x "$relative" >/dev/null 2>&1) || true
 		fi
 	done < <(cut -f1,2 "$task_file" | sort -u)
 }
