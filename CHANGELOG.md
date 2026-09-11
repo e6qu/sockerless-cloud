@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.7](https://github.com/e6qu/sockerless-cloud/compare/v0.31.6...v0.31.7) (2026-09-11)
+
+
+### Bug Fixes
+
+* **fuzz:** warm the fuzz-instrumented build so a batch stops compiling four times ([#157](https://github.com/e6qu/sockerless-cloud/issues/157)) ([d8dbf03](https://github.com/e6qu/sockerless-cloud/commit/d8dbf0343d6c80a0d93f2b1ce2eb9eb1c30272c0))
+
 ## [0.31.6](https://github.com/e6qu/sockerless-cloud/compare/v0.31.5...v0.31.6) (2026-09-10)
 
 
