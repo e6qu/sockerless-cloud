@@ -46,4 +46,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `s3.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/s3.json` | Apache-2.0 | `cc3942bb907ad993738d18d2a3ff1b99bf51cd4e` | 2026-09-09T11:11:07Z |
 | `s3-control.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/s3-control.json` | Apache-2.0 | `cc3942bb907ad993738d18d2a3ff1b99bf51cd4e` | 2026-09-09T11:11:07Z |
 | `lambda.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/lambda.json` | Apache-2.0 | `9cc4bc539469ec525c3a58fa35072ef1c92237f3` | 2026-09-10T07:48:06Z |
-| `ec2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ec2.json` | Apache-2.0 | `9cc4bc539469ec525c3a58fa35072ef1c92237f3` | 2026-09-10T07:48:09Z |
+| `ec2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ec2.json` | Apache-2.0 | `9ab2e9233d84e8abfce56ead82a177ce321d8a71` | 2026-09-11T11:06:35Z |
