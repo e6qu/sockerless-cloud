@@ -9,13 +9,10 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `bigquery-v2.discovery.json.gz` | `bigquery.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20260811` | 2026-08-28T17:32:46Z |
 | `sqladmin-v1beta4.discovery.json.gz` | `sqladmin.googleapis.com` | `$discovery/rest?version=v1beta4` | Apache-2.0 | `revision 20260819` | 2026-08-29T12:37:40Z |
 | `sqladmin-v1.discovery.json.gz` | `sqladmin.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260819` | 2026-08-29T12:37:40Z |
-| `secretmanager-v1.discovery.json.gz` | `secretmanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260814` | 2026-08-29T12:37:40Z |
 | `spanner-v1.discovery.json.gz` | `spanner.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260828` | 2026-08-30T11:23:51Z |
 | `redis-v1.discovery.json.gz` | `redis.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260828` | 2026-09-01T11:06:02Z |
 | `firestore-v1.discovery.json.gz` | `firestore.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260826` | 2026-09-01T11:06:02Z |
 | `cloudfunctions-v2.discovery.json.gz` | `cloudfunctions.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20260827` | 2026-09-02T11:08:27Z |
-| `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260821` | 2026-09-04T11:16:10Z |
-| `cloudkms-v1.discovery.json.gz` | `cloudkms.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260827` | 2026-09-04T11:16:10Z |
 | `bigtableadmin-v2.discovery.json.gz` | `bigtableadmin.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20260829` | 2026-09-04T21:57:26Z |
 | `vpcaccess-v1.discovery.json.gz` | `vpcaccess.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260830` | 2026-09-04T21:57:32Z |
 | `apigateway-v1.discovery.json.gz` | `apigateway.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260902` | 2026-09-06T10:47:04Z |
@@ -35,3 +32,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `dataflow-v1b3.discovery.json.gz` | `dataflow.googleapis.com` | `$discovery/rest?version=v1b3` | Apache-2.0 | `revision 20260831` | 2026-09-11T11:06:47Z |
 | `iamcredentials-v1.discovery.json.gz` | `iamcredentials.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260903` | 2026-09-11T11:06:47Z |
 | `eventarc-v1.discovery.json.gz` | `eventarc.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260907` | 2026-09-11T11:06:47Z |
+| `secretmanager-v1.discovery.json.gz` | `secretmanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260907` | 2026-09-12T10:35:02Z |
+| `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260904` | 2026-09-12T10:35:02Z |
+| `cloudkms-v1.discovery.json.gz` | `cloudkms.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260903` | 2026-09-12T10:35:02Z |

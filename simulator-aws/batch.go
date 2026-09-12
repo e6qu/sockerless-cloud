@@ -187,6 +187,9 @@ func registerBatch(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/listjobs", cloudTrailRecordedREST("ListJobs", "batch.amazonaws.com", nil, handleBatchListJobs))
 	srv.HandleFunc("POST /v1/canceljob", cloudTrailRecordedREST("CancelJob", "batch.amazonaws.com", nil, handleBatchCancelJob))
 	srv.HandleFunc("POST /v1/terminatejob", cloudTrailRecordedREST("TerminateJob", "batch.amazonaws.com", nil, handleBatchTerminateJob))
+	srv.HandleFunc("POST /v1/canceljobs", cloudTrailRecordedREST("CancelJobs", "batch.amazonaws.com", nil, handleBatchCancelJobs))
+	srv.HandleFunc("POST /v1/terminatejobs", cloudTrailRecordedREST("TerminateJobs", "batch.amazonaws.com", nil, handleBatchTerminateJobs))
+	srv.HandleFunc("POST /v1/terminateservicejobs", cloudTrailRecordedREST("TerminateServiceJobs", "batch.amazonaws.com", nil, handleBatchTerminateServiceJobs))
 
 	srv.HandleFunc("POST /v1/createschedulingpolicy", cloudTrailRecordedREST("CreateSchedulingPolicy", "batch.amazonaws.com", nil, handleBatchCreateSchedulingPolicy))
 	srv.HandleFunc("POST /v1/describeschedulingpolicies", cloudTrailRecordedREST("DescribeSchedulingPolicies", "batch.amazonaws.com", nil, handleBatchDescribeSchedulingPolicies))
@@ -943,6 +946,76 @@ func handleBatchCancelJob(w http.ResponseWriter, r *http.Request) {
 func handleBatchTerminateJob(w http.ResponseWriter, r *http.Request) {
 	// Same as cancel for simulator purposes
 	handleBatchCancelJob(w, r)
+}
+
+// cancelBatchJob is the body of CancelJob without the HTTP around it, so the
+// bulk operations below apply exactly the same transition per job rather than a
+// second copy of it that can drift.
+//
+// The caller holds batchMu.
+func cancelBatchJob(id, reason string) {
+	job, ok := batchJobs.Get(id)
+	if !ok {
+		return
+	}
+	if job.Status == "SUCCEEDED" || job.Status == "FAILED" {
+		return
+	}
+	if handleAny, ok := batchJobHandles.Load(id); ok {
+		if handle, ok := handleAny.(*sim.ContainerHandle); ok {
+			handle.Cancel()
+		}
+		batchJobHandles.Delete(id)
+	}
+	job.Status = "FAILED"
+	job.StatusReason = reason
+	job.StoppedAt = batchEpochMs()
+	batchJobs.Put(id, job)
+}
+
+// handleBatchBulkTermination serves CancelJobs, TerminateJobs and
+// TerminateServiceJobs, which differ only in name: each takes a list of job ids
+// and a reason, and answers with the ids it accepted and a per-id error list for
+// the ones it did not. A job id that names nothing is reported in errors rather
+// than silently dropped, because a caller that asked to stop ten jobs and had
+// nine stopped needs to be told which one it was.
+func handleBatchBulkTermination(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Jobs   []string `json:"jobs"`
+		Reason string   `json:"reason"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	batchMu.Lock()
+	defer batchMu.Unlock()
+
+	successful := []string{}
+	errors := []map[string]any{}
+	for _, id := range req.Jobs {
+		if _, ok := batchJobs.Get(id); !ok {
+			errors = append(errors, map[string]any{
+				"job":     id,
+				"code":    "ClientError",
+				"message": "job " + id + " does not exist",
+			})
+			continue
+		}
+		cancelBatchJob(id, req.Reason)
+		successful = append(successful, id)
+	}
+	batchWriteJSON(w, http.StatusOK, map[string]any{"successful": successful, "errors": errors})
+}
+
+func handleBatchCancelJobs(w http.ResponseWriter, r *http.Request) {
+	handleBatchBulkTermination(w, r)
+}
+
+func handleBatchTerminateJobs(w http.ResponseWriter, r *http.Request) {
+	handleBatchBulkTermination(w, r)
+}
+
+func handleBatchTerminateServiceJobs(w http.ResponseWriter, r *http.Request) {
+	handleBatchBulkTermination(w, r)
 }
 
 func handleBatchCreateSchedulingPolicy(w http.ResponseWriter, r *http.Request) {

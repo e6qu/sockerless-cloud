@@ -650,3 +650,75 @@ func TestBatch_JobQueueSnapshot_SDK(t *testing.T) {
 	require.NotNil(t, snap.FrontOfQueue)
 	assert.NotNil(t, snap.FrontOfQueue.Jobs)
 }
+
+// TestBatch_CancelJobs_SDK covers the bulk terminations AWS added alongside the
+// singular CancelJob: they take a list and answer with what they accepted and a
+// per-id error list. The unknown id matters most — a caller that asked to stop
+// two jobs and had one stopped has to be told which one it was, so an id that
+// names nothing belongs in errors rather than being dropped on the floor.
+func TestBatch_CancelJobs_SDK(t *testing.T) {
+	c := batchClient()
+
+	_, err := c.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
+		ComputeEnvironmentName: aws.String("batch-sdk-ce-bulk"),
+		Type:                   batchtypes.CETypeManaged,
+		State:                  batchtypes.CEStateEnabled,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
+			ComputeEnvironment: aws.String("batch-sdk-ce-bulk"),
+		})
+	})
+
+	ceArn := "arn:aws:batch:us-east-1:123456789012:compute-environment/batch-sdk-ce-bulk"
+	_, err = c.CreateJobQueue(ctx, &batch.CreateJobQueueInput{
+		JobQueueName: aws.String("batch-sdk-jq-bulk"),
+		State:        batchtypes.JQStateEnabled,
+		Priority:     aws.Int32(10),
+		ComputeEnvironmentOrder: []batchtypes.ComputeEnvironmentOrder{
+			{Order: aws.Int32(1), ComputeEnvironment: aws.String(ceArn)},
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{JobQueue: aws.String("batch-sdk-jq-bulk")})
+	})
+
+	reg, err := c.RegisterJobDefinition(ctx, &batch.RegisterJobDefinitionInput{
+		JobDefinitionName: aws.String("batch-sdk-jd-bulk"),
+		Type:              batchtypes.JobDefinitionTypeContainer,
+		ContainerProperties: &batchtypes.ContainerProperties{
+			Image:  aws.String("public.ecr.aws/docker/library/alpine:3"),
+			Vcpus:  aws.Int32(1),
+			Memory: aws.Int32(512),
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeregisterJobDefinition(ctx, &batch.DeregisterJobDefinitionInput{
+			JobDefinition: reg.JobDefinitionArn,
+		})
+	})
+
+	submit, err := c.SubmitJob(ctx, &batch.SubmitJobInput{
+		JobName:       aws.String("batch-sdk-job-bulk"),
+		JobQueue:      aws.String("batch-sdk-jq-bulk"),
+		JobDefinition: reg.JobDefinitionArn,
+	})
+	require.NoError(t, err)
+
+	out, err := c.CancelJobs(ctx, &batch.CancelJobsInput{
+		Jobs:   []string{aws.ToString(submit.JobId), "job-that-does-not-exist"},
+		Reason: aws.String("bulk cancel from the SDK test"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{aws.ToString(submit.JobId)}, out.Successful)
+	require.Len(t, out.Errors, 1)
+	require.Equal(t, "job-that-does-not-exist", aws.ToString(out.Errors[0].Job))
+
+	desc, err := c.DescribeJobs(ctx, &batch.DescribeJobsInput{Jobs: []string{aws.ToString(submit.JobId)}})
+	require.NoError(t, err)
+	require.Len(t, desc.Jobs, 1)
+	require.Equal(t, batchtypes.JobStatusFailed, desc.Jobs[0].Status)
+}

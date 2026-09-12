@@ -13,13 +13,13 @@ require (
 	cloud.google.com/go/secretmanager v1.21.0
 	cloud.google.com/go/spanner v1.95.1
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260910061235-dc6430a5f03e
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260910061235-dc6430a5f03e
-	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260910061235-dc6430a5f03e
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260912152828-8fd99b4320ff
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260912152828-8fd99b4320ff
+	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/moby/moby/client v0.6.0
-	google.golang.org/genproto v0.0.0-20260908043556-f8649ddbbfe6
-	google.golang.org/genproto/googleapis/api v0.0.0-20260908043556-f8649ddbbfe6
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260908043556-f8649ddbbfe6
+	google.golang.org/genproto v0.0.0-20260911204522-f61a6ca850bd
+	google.golang.org/genproto/googleapis/api v0.0.0-20260911204522-f61a6ca850bd
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260911204522-f61a6ca850bd
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.58.0
