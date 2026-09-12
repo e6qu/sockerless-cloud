@@ -6,9 +6,9 @@ require (
 	github.com/HugoSmits86/nativewebp v1.3.0
 	github.com/PaesslerAG/jsonpath v0.1.1
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260910061235-dc6430a5f03e
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260910061235-dc6430a5f03e
-	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260910061235-dc6430a5f03e
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260912144307-c6989fe81f0e
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260912144307-c6989fe81f0e
+	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912144307-c6989fe81f0e
 	github.com/fxamacker/cbor/v2 v2.9.3
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/golang/snappy v1.0.0
@@ -85,8 +85,8 @@ require (
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20260908043556-f8649ddbbfe6 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260908043556-f8649ddbbfe6 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260911204522-f61a6ca850bd // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260911204522-f61a6ca850bd // indirect
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
