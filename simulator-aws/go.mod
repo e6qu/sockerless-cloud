@@ -6,9 +6,9 @@ require (
 	github.com/HugoSmits86/nativewebp v1.3.0
 	github.com/PaesslerAG/jsonpath v0.1.1
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260912145105-26529949bb53
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260912145105-26529949bb53
-	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912145105-26529949bb53
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260912152828-8fd99b4320ff
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260912152828-8fd99b4320ff
+	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/fxamacker/cbor/v2 v2.9.3
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/golang/snappy v1.0.0
