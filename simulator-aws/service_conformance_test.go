@@ -424,7 +424,7 @@ var serviceCoverageFloor = map[string]int{
 	"MagnolioAPIService_v20150201":         31,  // EFS (REST)
 	// restJson1 services measured via the REST registry (Part B).
 	"AWSGirApiService":        85,  // AWS Lambda
-	"AWSBatchV20160810":       45,  // AWS Batch
+	"AWSBatchV20160810":       48,  // AWS Batch
 	"BackplaneControlService": 124, // Amazon API Gateway
 	"Amplify":                 37,
 	"AWSChronosService":       12,  // EventBridge Scheduler
