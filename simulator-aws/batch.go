@@ -973,12 +973,17 @@ func cancelBatchJob(id, reason string) {
 	batchJobs.Put(id, job)
 }
 
-// handleBatchBulkTermination serves CancelJobs, TerminateJobs and
-// TerminateServiceJobs, which differ only in name: each takes a list of job ids
-// and a reason, and answers with the ids it accepted and a per-id error list for
-// the ones it did not. A job id that names nothing is reported in errors rather
-// than silently dropped, because a caller that asked to stop ten jobs and had
-// nine stopped needs to be told which one it was.
+// handleBatchBulkTermination serves CancelJobs and TerminateJobs, which differ
+// only in name: each takes a list of job ids and a reason, and answers with the
+// ids it accepted and a per-id error list for the ones it did not. A job id that
+// names nothing is reported in errors rather than silently dropped, because a
+// caller that asked to stop ten jobs and had nine stopped needs to be told which
+// one it was.
+//
+// TerminateServiceJobs is NOT served from here. Service jobs are a separate
+// store with a separate terminal transition (IsTerminated, which the lifecycle
+// goroutine reads to stop advancing them), so routing it through this would
+// answer "does not exist" for every real service job.
 func handleBatchBulkTermination(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Jobs   []string `json:"jobs"`
@@ -1014,8 +1019,42 @@ func handleBatchTerminateJobs(w http.ResponseWriter, r *http.Request) {
 	handleBatchBulkTermination(w, r)
 }
 
+// handleBatchTerminateServiceJobs is the bulk form of TerminateServiceJob, and
+// applies that handler's transition over batchServiceJobs: FAILED plus
+// IsTerminated, which is what stops batchRunServiceJobLifecycle from advancing
+// the job afterwards.
 func handleBatchTerminateServiceJobs(w http.ResponseWriter, r *http.Request) {
-	handleBatchBulkTermination(w, r)
+	var req struct {
+		Jobs   []string `json:"jobs"`
+		Reason string   `json:"reason"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	batchMu.Lock()
+	defer batchMu.Unlock()
+
+	successful := []string{}
+	errors := []map[string]any{}
+	for _, id := range req.Jobs {
+		job, ok := batchServiceJobs.Get(id)
+		if !ok {
+			errors = append(errors, map[string]any{
+				"job":     id,
+				"code":    "ClientError",
+				"message": "service job " + id + " does not exist",
+			})
+			continue
+		}
+		if job.Status != "SUCCEEDED" && job.Status != "FAILED" {
+			job.Status = "FAILED"
+			job.StatusReason = req.Reason
+			job.IsTerminated = true
+			job.StoppedAt = batchEpochMs()
+			batchServiceJobs.Put(id, job)
+		}
+		successful = append(successful, id)
+	}
+	batchWriteJSON(w, http.StatusOK, map[string]any{"successful": successful, "errors": errors})
 }
 
 func handleBatchCreateSchedulingPolicy(w http.ResponseWriter, r *http.Request) {

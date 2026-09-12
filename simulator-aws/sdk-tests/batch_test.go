@@ -722,3 +722,44 @@ func TestBatch_CancelJobs_SDK(t *testing.T) {
 	require.Len(t, desc.Jobs, 1)
 	require.Equal(t, batchtypes.JobStatusFailed, desc.Jobs[0].Status)
 }
+
+// TestBatch_TerminateServiceJobs_SDK is the test the first cut of the bulk
+// handlers did not have, and it is the one that mattered: service jobs live in
+// their own store with their own terminal transition, so serving
+// TerminateServiceJobs from the container-job handler answered "does not exist"
+// for every real service job while still passing CI.
+func TestBatch_TerminateServiceJobs_SDK(t *testing.T) {
+	c := batchClient()
+
+	cq, err := c.CreateJobQueue(ctx, &batch.CreateJobQueueInput{
+		JobQueueName: aws.String("batch-sdk-svc-jq-bulk"),
+		Priority:     aws.Int32(1),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{JobQueue: aws.String("batch-sdk-svc-jq-bulk")})
+	})
+
+	sub, err := c.SubmitServiceJob(ctx, &batch.SubmitServiceJobInput{
+		JobName:               aws.String("batch-sdk-svc-job-bulk"),
+		JobQueue:              aws.String(aws.ToString(cq.JobQueueArn)),
+		ServiceJobType:        batchtypes.ServiceJobTypeSagemakerTraining,
+		ServiceRequestPayload: aws.String(`{"trainingJobName":"t-bulk"}`),
+	})
+	require.NoError(t, err)
+	jobID := aws.ToString(sub.JobId)
+	require.NotEmpty(t, jobID)
+
+	out, err := c.TerminateServiceJobs(ctx, &batch.TerminateServiceJobsInput{
+		Jobs:   []string{jobID, "service-job-that-does-not-exist"},
+		Reason: aws.String("bulk terminate from the SDK test"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{jobID}, out.Successful)
+	require.Len(t, out.Errors, 1)
+	require.Equal(t, "service-job-that-does-not-exist", aws.ToString(out.Errors[0].Job))
+
+	desc, err := c.DescribeServiceJob(ctx, &batch.DescribeServiceJobInput{JobId: aws.String(jobID)})
+	require.NoError(t, err)
+	require.Equal(t, batchtypes.ServiceJobStatusFailed, desc.Status)
+}
