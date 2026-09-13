@@ -87,7 +87,7 @@ func handleECSStartTask(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		launched, requestError := runECSTasks(r.Context(), ecsRunTaskInput{
+		launched, notPlaced, requestError := runECSTasks(r.Context(), ecsRunTaskInput{
 			Cluster:              req.Cluster,
 			TaskDefinition:       req.TaskDefinition,
 			Count:                1,
@@ -107,6 +107,13 @@ func handleECSStartTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		tasks = append(tasks, launched...)
+		for _, failure := range notPlaced {
+			entry := map[string]string{"arn": failure.Arn, "reason": failure.Reason}
+			if failure.Detail != "" {
+				entry["detail"] = failure.Detail
+			}
+			failures = append(failures, entry)
+		}
 	}
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{

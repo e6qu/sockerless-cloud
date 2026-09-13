@@ -1,8 +1,26 @@
 # BUGS
 
-Open: 12. Resolved: 94.
+Open: 11. Resolved: 95.
 
 ## Open
+
+- **BUG-2995 (DynamoDB carries provisioned throughput but never enforces it):**
+  `DDBTable` stores `ProvisionedThroughput` (`ReadCapacityUnits`,
+  `WriteCapacityUnits`) and a `BillingModeSummary`, and the comment at
+  `simulator-aws/dynamodb.go:172` says it: "tests don't exercise actual
+  throughput throttling." No write or read path ever returns
+  `ProvisionedThroughputExceededException`. Real DynamoDB does, and every SDK
+  ships retry-with-backoff for exactly that error, so a client's retry path is
+  dead code against this simulator and only comes alive in production — under
+  load, which is the worst moment to find out it is wrong.
+
+  This is a documented gap rather than a drive-by fix on purpose: DynamoDB's
+  throttling is a per-partition token bucket with burst capacity, and a crude
+  "N writes per second over WCU → throttle" would be a NEW fake behaviour that
+  misrepresents the service it stands in for. The faithful implementation is a
+  bucket per table (and per GSI) refilled at the provisioned rate with the
+  documented burst, applied only when the billing mode is PROVISIONED, and
+  never for PAY_PER_REQUEST.
 
 - **BUG-2982 (every release pull request's CI run expires unapproved):**
   The run on each release-please pull request fails at startup with "This
@@ -245,6 +263,33 @@ Open: 12. Resolved: 94.
   clean checkout and fails each corruption with the message that names it.
 
 ## Resolved history
+
+- ~~**BUG-2994 (RunTask never refuses placement, so a consumer's capacity
+  handling is never exercised here):**~~ Real ECS answers RunTask with HTTP
+  200, an empty `tasks[]` and a populated `failures[]` when it cannot place a
+  task, synchronously, at placement time; this simulator's `runECSTasks` had no
+  placement model and `handleECSRunTask` wrote `"failures": []any{}`
+  unconditionally, so ecs-dev-desktop's placement-failure handling
+  (`ecs-compute-provider.ts:691`) had never run against it. **Fixed** by a
+  commitment ledger grounded in the one finite host the simulator is
+  (`simulator-aws/ecs_placement.go`): every placed task commits the memory and
+  CPU its task definition declares — task-level with request overrides, or the
+  container hard limits/reservations summed for a per-container EC2 definition
+  — against what the host can commit, read once from the simulator's own
+  cgroup (`memory.max`, `cpu.max`) or, unbounded, from the machine (macOS:
+  `hw.memsize`). The ledger is the task store (a task holds its commitment
+  until STOPPED) plus the reservations of tasks between "decided" and "stored",
+  so two concurrent RunTasks cannot both be granted the last slot; placement is
+  decided before the ENI, the managed volume or the record exist, so a refused
+  task allocates nothing. A task that does not fit comes back in `failures[]`
+  with the real shape — Fargate: the cluster ARN and "Capacity is unavailable
+  at this time…"; EC2: the container instance (or cluster) ARN and
+  `RESOURCE:MEMORY` / `RESOURCE:CPU` — with a `detail` carrying the ledger;
+  the tasks in the same count that did fit are launched. StartTask reports the
+  same failures, and the service scheduler records a refused batch through the
+  existing launch-failure path (service event, backoff, circuit breaker).
+  Sizing the simulator's container (`--memory`, `--cpus`) is therefore the
+  capacity knob. Tests: `ecs_placement_test.go`.
 
 - ~~**BUG-2978 (the Google Cloud workload hosts pulled from Artifact Registry
   with no credential, so no workload could start from the registry once it
