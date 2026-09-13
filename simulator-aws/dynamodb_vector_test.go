@@ -206,7 +206,7 @@ func TestDDBSearchVectorsReturnsTheNearestNeighboursInOrder(t *testing.T) {
 	_, jsonRouter, _ := buildConformanceSimulator(t)
 
 	code, _ := ddbVectorCall(t, jsonRouter, "CreateTable", `{
-		"TableName":"docs",
+		"TableName":"docs","BillingMode":"PAY_PER_REQUEST",
 		"KeySchema":[{"AttributeName":"pk","KeyType":"HASH"}],
 		"AttributeDefinitions":[{"AttributeName":"pk","AttributeType":"S"}],
 		"VectorIndexes":[{"IndexName":"by-embedding","VectorAttribute":{"AttributeName":"embedding"},
@@ -263,7 +263,7 @@ func TestDDBSearchVectorsReturnsTheNearestNeighboursInOrder(t *testing.T) {
 func TestDDBSearchVectorsHonoursItsCondition(t *testing.T) {
 	_, jsonRouter, _ := buildConformanceSimulator(t)
 	ddbVectorCall(t, jsonRouter, "CreateTable", `{
-		"TableName":"docs2",
+		"TableName":"docs2","BillingMode":"PAY_PER_REQUEST",
 		"KeySchema":[{"AttributeName":"pk","KeyType":"HASH"}],
 		"AttributeDefinitions":[{"AttributeName":"pk","AttributeType":"S"}],
 		"VectorIndexes":[{"IndexName":"by-embedding","VectorAttribute":{"AttributeName":"embedding"},
@@ -302,7 +302,7 @@ func TestDDBSearchVectorsHonoursItsCondition(t *testing.T) {
 func TestDDBSearchVectorsRefusesWhatItCannotAnswer(t *testing.T) {
 	_, jsonRouter, _ := buildConformanceSimulator(t)
 	ddbVectorCall(t, jsonRouter, "CreateTable", `{
-		"TableName":"docs3",
+		"TableName":"docs3","BillingMode":"PAY_PER_REQUEST",
 		"KeySchema":[{"AttributeName":"pk","KeyType":"HASH"}],
 		"AttributeDefinitions":[{"AttributeName":"pk","AttributeType":"S"}],
 		"VectorIndexes":[{"IndexName":"by-embedding","VectorAttribute":{"AttributeName":"embedding"},
@@ -330,7 +330,7 @@ func TestDDBSearchVectorsRefusesWhatItCannotAnswer(t *testing.T) {
 func TestDDBDescribeTableReportsItsVectorIndexes(t *testing.T) {
 	_, jsonRouter, _ := buildConformanceSimulator(t)
 	ddbVectorCall(t, jsonRouter, "CreateTable", `{
-		"TableName":"docs4",
+		"TableName":"docs4","BillingMode":"PAY_PER_REQUEST",
 		"KeySchema":[{"AttributeName":"pk","KeyType":"HASH"}],
 		"AttributeDefinitions":[{"AttributeName":"pk","AttributeType":"S"}]}`)
 
