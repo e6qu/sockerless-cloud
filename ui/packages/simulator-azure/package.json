@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@fluentui/react-components": "^9.74.7",
-    "@fluentui/react-icons": "^2.0.340",
+    "@fluentui/react-icons": "^2.0.341",
     "@sockerless/ui-core": "workspace:*",
     "@tanstack/react-query": "^5.102.8",
     "react": "^19.3.0",
