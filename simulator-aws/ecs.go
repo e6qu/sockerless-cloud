@@ -1565,6 +1565,15 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			failures = append(failures, ecsPlacementFailure(in, cluster.ClusterArn, short, requested, committed, ceiling))
 			continue
 		}
+		// A reservation is given back on every path that leaves without
+		// storing the task — an allocation error below, or a panic — so a task
+		// that never existed can never hold capacity.
+		placed := false
+		defer func(id string) {
+			if !placed {
+				ecsAbandonPlacement(id)
+			}
+		}(taskID)
 
 		// Only an awsvpc task is allocated an elastic network interface. A
 		// bridge/host/none task shares the container instance's networking and
@@ -1574,7 +1583,6 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 		if networkMode == ecsNetworkModeAwsvpc {
 			ip, ipErr := AllocateSubnetIP(requestedSubnet)
 			if ipErr != nil {
-				ecsAbandonPlacement(taskID)
 				return nil, nil, &ecsRequestError{"InvalidParameterException", ipErr.Error(), http.StatusBadRequest}
 			}
 			privateIP = ip
@@ -1607,7 +1615,6 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 
 		taskVolumeHosts, ebsAttachments, pendingRestores, ebsErr := ecsPrepareManagedEBSVolumes(ctx, td, in.VolumeConfigurations, taskID, requestedSubnet)
 		if ebsErr != nil {
-			ecsAbandonPlacement(taskID)
 			return nil, nil, ebsErr
 		}
 
@@ -1656,6 +1663,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 		}
 
 		ecsCommitPlacement(taskID, task)
+		placed = true
 		if in.ContainerInstanceKey != "" {
 			ecsContainerInstances.Update(in.ContainerInstanceKey, func(instance *ECSContainerInstance) {
 				instance.PendingTasksCount++
