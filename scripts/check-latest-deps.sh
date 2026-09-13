@@ -859,8 +859,11 @@ while IFS= read -r manifest; do
       held=$((held + 1))
       continue
     fi
-    echo "  FAIL  $manifest: $name pinned $constraint (latest adoptable $ADOPTABLE)"
-    fail=$((fail + 1))
+    # Attributed like every other class: a pin byte-identical to the baseline's
+    # is drift the baseline already carried, not this branch's. This branch
+    # failed on exactly that twice in one day before the npm half went through
+    # report_version_state like the Go, Terraform and Actions halves do.
+    report_version_state "$manifest: $name" "$pinned" "$manifest" "\"$name\""
   done < <(jq -r '
       [(.dependencies // {}), (.devDependencies // {})]
       | add // {}
