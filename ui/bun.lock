@@ -37,7 +37,7 @@
       "dependencies": {
         "@cloudscape-design/components": "3.0.1377",
         "@cloudscape-design/design-tokens": "^3.0.113",
-        "@cloudscape-design/global-styles": "^1.0.68",
+        "@cloudscape-design/global-styles": "^1.0.69",
         "@sockerless/ui-core": "workspace:*",
         "@tanstack/react-query": "^5.102.8",
         "react": "^19.3.0",
@@ -140,7 +140,7 @@
 
     "@cloudscape-design/design-tokens": ["@cloudscape-design/design-tokens@3.0.113", "", {}, "sha512-I6ECBBpcsXX9UmmeMprZ9uuTBPLBpqcSFcQYl10CX1Fcfoxj7SX75P8qN+0lMU8zPEvIMkErvh/5L/4jA+RB1g=="],
 
-    "@cloudscape-design/global-styles": ["@cloudscape-design/global-styles@1.0.68", "", {}, "sha512-OCeZG1rUS95WDhQdtREtT1YCdgZeSLjlYPdUQdTz3NNqOKD2wzDTslyA5iSmMt98mP9/YnNKopsqIcb4Nks5hg=="],
+    "@cloudscape-design/global-styles": ["@cloudscape-design/global-styles@1.0.70", "", {}, "sha512-b5y+fYid5C5enKKnWHZcO1eq0zTLYkdYBbC1YVQr8urMDVbN7CK8nIHC96X3IV2mUj6Pt4rf5Q9iqcfsKd/Fjw=="],
 
     "@cloudscape-design/test-utils-core": ["@cloudscape-design/test-utils-core@1.0.89", "", { "dependencies": { "css-selector-tokenizer": "^0.8.0", "css.escape": "^1.5.1" } }, "sha512-193V8iFCHFTNozSWZZcwyPOcC/FX0MeY/Yy3oBgxw1JJvOgaVmQjD1KnIBcqWLwEuB3mkWeilHAUKpKsrKjgCw=="],
 
