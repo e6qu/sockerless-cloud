@@ -1,26 +1,8 @@
 # BUGS
 
-Open: 12. Resolved: 96.
+Open: 11. Resolved: 49.
 
 ## Open
-
-- **BUG-2995 (DynamoDB carries provisioned throughput but never enforces it):**
-  `DDBTable` stores `ProvisionedThroughput` (`ReadCapacityUnits`,
-  `WriteCapacityUnits`) and a `BillingModeSummary`, and the comment at
-  `simulator-aws/dynamodb.go:172` says it: "tests don't exercise actual
-  throughput throttling." No write or read path ever returns
-  `ProvisionedThroughputExceededException`. Real DynamoDB does, and every SDK
-  ships retry-with-backoff for exactly that error, so a client's retry path is
-  dead code against this simulator and only comes alive in production — under
-  load, which is the worst moment to find out it is wrong.
-
-  This is a documented gap rather than a drive-by fix on purpose: DynamoDB's
-  throttling is a per-partition token bucket with burst capacity, and a crude
-  "N writes per second over WCU → throttle" would be a NEW fake behaviour that
-  misrepresents the service it stands in for. The faithful implementation is a
-  bucket per table (and per GSI) refilled at the provisioned rate with the
-  documented burst, applied only when the billing mode is PROVISIONED, and
-  never for PAY_PER_REQUEST.
 
 - **BUG-2996 (a managed EBS volume is a directory on the host, so the workload
   sees the host's disk, not its volume):** an Amazon ECS task's managed EBS
@@ -37,21 +19,174 @@ Open: 12. Resolved: 96.
   formatted ext4 and loop-mounted for the bind (the size, the fill-up and the
   `df` figures all come for free), behind a capability check at startup —
   a host that cannot loop-mount says so rather than falling back to the
-  directory; snapshots then copy the image rather than the tree.
+  directory; snapshots then copy the image rather than the tree. The
+  constraint that makes this more than an afternoon: the bind is performed by
+  the container engine on ITS host, and the simulator commonly runs as a
+  container beside that engine with `SIM_EBS_DATA_DIR` on a shared path — a
+  loop mount made inside the simulator's own mount namespace is invisible to
+  the engine unless the shared path is mounted `rshared` and the simulator
+  holds CAP_SYS_ADMIN with `/dev/loop-control`. So the image file has to be
+  mounted where the engine looks, which is a deployment contract
+  (documented, checked at startup) before it is code.
 
 - **BUG-2982 (every release pull request's CI run expires unapproved):**
   The run on each release-please pull request fails at startup with "This
   workflow run required approval but was not approved before it expired"
   (run 34005143376 on #123, and every release pull request back to August).
-  The repository's Actions approval policy is `first_time_contributors`, and
-  GitHub applies it to pull requests opened by `github-actions[bot]`, which
-  release-please uses through the default `GITHUB_TOKEN`. Fix shape is a
-  repository setting or a token only the repository owner can supply: a
-  fine-grained personal access token or a GitHub App token in
-  release-please-action's `token` input, or approving each release pull
-  request's run before merging it.
+  The repository's Actions approval policy is `first_time_contributors`
+  (read back on 2026-09-14: `GET /actions/permissions/fork-pr-contributor-approval`
+  answers exactly that), and GitHub applies it to pull requests opened by
+  `github-actions[bot]`, which release-please uses through the default
+  `GITHUB_TOKEN`. Still happening: the run on #163's release pull request
+  (34766327391, 2026-09-13) has zero jobs and `conclusion: failure`. Nothing
+  in this repository can change it — the setting is the owner's, and a token
+  is a secret only the owner can add. Two owner-side repairs, either of which
+  closes this: (1) set the approval policy to
+  `first_time_contributors_new_to_github` (Settings → Actions → General →
+  "Approval for running fork pull request workflows from outside
+  collaborators"), under which an account as old as the Actions bot needs no
+  approval; or (2) add a fine-grained PAT or a GitHub App token as
+  `RELEASE_PLEASE_TOKEN` and pass it to release-please-action's `token`
+  input, so the release pull request is opened by an identity whose runs are
+  not gated. Until then, approve each release pull request's run before
+  merging it.
 
-- **BUG-1702 (CI pulls its base images from registries that rate-limit it):**
+- **BUG-2977 (the body an unmigrated storage account's `default` migration
+  carries on real Azure is uncaptured):** terraform-provider-azurerm 5.4.0
+  reads `accountMigrations/default` on every storage-account read and treats
+  anything but 200 as a failed read of the account, so real Azure answers 200
+  for an account nobody has migrated (BUG-2976). The swagger marks
+  `properties.targetSkuName` required, and the two published examples both
+  describe a migration that was started. The simulator answers the resource
+  envelope with empty properties, which the wire-shape ratchet reports and
+  `simulator-azure/spec-violation-allowlist.txt` holds under this ID. Fix
+  shape: capture `GET …/accountMigrations/default?api-version=2024-01-01`
+  against a real, never-migrated account and answer exactly that body; the
+  allowlist line then goes.
+
+| ID | Sev | Area | Pattern | One-liner |
+|----|-----|------|---------|-----------|
+| 2909 | P2 | AWS simulator IAM enforcement leaves 230 served operations authorized against `"*"` | the resource-derivation gap BUG-2907 closed for five services is measured across the rest, not closed for them | Thirty services derive their resource from the types AWS declares and the ARN format published beside each — Amazon Data Firehose, AWS Security Token Service and Application Auto Scaling joined the generated table, Amazon EventBridge gained the alias table its Name/Rule abbreviations needed, Amazon DynamoDB reads the export and import family's TableArn, and the state-resolving tail closed — Amazon SQS cancels a message move against the source queue its task record names, AWS Cloud Map resolves GetOperation through the operation record, and AWS CloudTrail reads the ARN-valued ResourceId and ResourceIdList its tagging operations carry — and the per-request cases that predated the table are gone but for AWS Lambda. 1,764 of the 1,994 served operations that authorize against a resource type derive it; the remaining 230 still request a literal `"*"`. The Amazon RDS and Amazon ElastiCache copies authorize both of their ends — the target ARN is name-determined before the resource exists, the AWS Step Functions argument — AWS Glue's usage profiles, connection types, integrations and tagging derive, Amazon EC2's tag operations read each id's type from its prefix, and its route-table, address and network-interface associations resolve to their parents through generation-keyed indexes over the simulator's own state. AWS Budgets joined the table, its Smithy model vendored for the probe, and its three tagging operations derive from the ARN they name. The coverage probe was also sending every member under a lower-cased name — a body no client sends, while the derivation reads the real member name — so it now sends the wire name in its own case, which is what let those three register. AWS Step Functions state-machine and activity creation joined the table — their ARNs are name-determined, so the create request already carries everything the ARN needs, and the older comment calling every create underivable was wrong for them. `TestIAMResourceDerivationCoverage` ratchets the number and prints the per-service remainder, largest first: Amazon EC2 (56), AWS Glue (25), AWS CodeBuild (23), Amazon RDS (22), AWS Identity and Access Management (21), Amazon DynamoDB (18), AWS Systems Manager (16). Amazon ECS fell from 20 to 8 when its daemon and Express Mode families were read from the ARNs they name, type by type. Amazon CloudWatch Logs fell from 31 to 3 when its named families — delivery, delivery destination and source, subscription destination, anomaly detector, lookup table, scheduled query — were assembled from the identifiers their requests carry. What is left is mostly an operation that creates its resource, so carries no identifier for it yet, names something other than the resource it authorizes against, or names it by an ARN in a shape the coverage probe cannot express — those derive for real requests and are pinned by `TestIAMResourceARNs_*` behavior tests; the comment beside `iamDerivationCoverageFloor` states each service's remaining class. | The figures come from `TestIAMResourceDerivationCoverage`, which is the only place they should come from — they had drifted twice — to 1,788 of 1,975, and again to 1,758 of 1,994 while `iamDerivationCoverageFloor` read 1,764 — so read the ratchet, never this row.
+| 2965 | P2 | AWS simulator IAM authorization populates 87 condition keys, and 333 of the 1,739 actions that declare one are still evaluated against a context missing at least one of theirs | a policy condition on a key the context does not carry never matches, so the grant it scopes denies the request it was written to allow | The request-settled keys are populated: `ec2:Region` (declared against 824 actions), the Amazon S3 request-shape keys `s3:authType`, `s3:signatureversion`, `s3:TlsVersion`, `s3:signatureAge`, `s3:x-amz-content-sha256` and `s3:ResourceAccount` (165-178 each), `cloudwatch:namespace`, `kms:CallerAccount`, `ecs:cluster`, the global `aws:` envelope and principal keys, and the tag keys in both spellings (`aws:ResourceTag/<k>` and `<service>:ResourceTag/<k>`). Also populated: `iam:PermissionsBoundary` (the boundary the request attaches), the AWS Secrets Manager keys `secretsmanager:SecretId`, `resource/Type`, `resource/AllowRotationLambdaArn` and `SecretPrimaryRegion` (read from the secret the request names), `rds:req-tag/${TagKey}` (Amazon RDS's own spelling of the tags a request carries) and `s3:ExistingObjectTag/<key>` (the tags already on the object a request targets). `kms:RequestAlias` is the alias a request named the key by, and `organizations:PolicyType` the kind of policy a request is about — stated outright where it creates or enables one, and read from the policy it names everywhere else. The Amazon S3 access-point keys `s3:DataAccessPointArn`, `s3:DataAccessPointAccount` and `s3:AccessPointNetworkOrigin` are settled for a request addressed through an access point. Amazon DynamoDB's fine-grained access-control keys are settled by the request — `dynamodb:LeadingKeys` read against the table's own HASH attribute, `dynamodb:Attributes`, and the `ReturnValues`, `ReturnConsumedCapacity` and `EnclosingOperation` members — as are `kms:EncryptionContext:<key>`, `kms:EncryptionContextKeys` and `s3:versionid`. Five more are read from what the request names: `ssm:DocumentType` from the document, `events:creatorAccount` from the rule, `states:StateMachineQualifier` from the version or alias on the ARN, and `ecs:propagate-tags` and `rds:ManageMasterUserPassword` from the request's own members. `lambda:FunctionArn` is the function an event-source mapping or function URL is about, and `s3:AccessGrantsInstanceArn` the S3 Access Grants instance that issued the credentials a request is signed with — recorded with the credential when the grant is redeemed. The Amazon ECS request-shape family is settled by the request — the capacity provider it places on, the task's CPU and memory (read from the task definition it names unless the request overrides them), the subnets, the task definition, the service and namespace, and the managed-tags, exec and EBS-volume switches. The Amazon S3 request-header family — the canned ACL and the five grant headers, the three server-side-encryption headers, the storage class, the copy source, the metadata directive, the website redirect, the listing's prefix, delimiter and max-keys, the conditional If-Match, the tags a write puts on its object, and the location a CreateBucket asks for — is read from the request verbatim, and with it `kms:EncryptionAlgorithm`, `rds:PubliclyAccessible`, the AWS Auto Scaling target pair, `iam:PolicyARN` and `lambda:FunctionUrlAuthType`. `servicediscovery:ServiceCreatedByAccount` is read from the AWS Cloud Map service a request names, and the AWS Organizations transfer pair from the request itself. `servicediscovery:ServiceArn`, `dynamodb:Select` and `acm:CertificateKeyPairOrigin` came with them. Counted over the vendored service references, 1,406 of the 1,739 actions declaring an action condition key now have every one of theirs populated; 199 have some and 134 none. What is left needs state the simulator holds but does not yet read into the context, largest first: `glue:LakeFormationPermissions` (55 actions), `glue:FederatedAuthorizationSource` (18), `s3:AccessGrantsInstanceArn` (14) and `dynamodb:Attributes` (13) and the AWS Lake Formation family behind it. `kms:ViaService` (45) is correctly absent — AWS sets it only when another service makes the call, and every call here is a direct client call. |
+| 2968 | P3 | The Cosmos differential tests fail when the runner cannot give Microsoft's emulator enough CPU to finish initialising | an external dependency's start-up cost against a two-core runner, with the mitigation already applied and the budget deliberately capped | Seen once on CI run 33839934523 (`sim (azure sdk B-Z)`): the emulator reported `PostgreSQL=OK, Gateway=OK, Explorer=OK` on every probe while account properties answered 503, until the 280-second readiness budget expired. The test classified it itself — it distinguishes "pgcosmos extension is still starting", meaning alive and starved, from the emulator not answering at all, which is a real fault — and it reported the former. Re-running the same job on the same commit passed, and the job had passed on the three prior completed runs of the branch. The two obvious repairs are already made or already rejected with reasons: `TestMain` boots the emulator in a goroutine so its initialisation overlaps the rest of the suite, which is the time it was short of, and the harness reaps a leaked emulator from a killed run before starting one; extending the readiness budget is rejected in the source because the suite's go-test deadline is 13 minutes and the step's is 14, so buying readiness time "trades a named failure for an opaque step kill". What is left is runner capacity. Close this if it recurs often enough to be worth a dedicated runner or a shard of its own, or if the emulator's initialisation gets cheaper; do not close it by extending the budget. |
+| 2969 | P3 | `TestSDK_CloudBuild_CancelStopsARunningBuild` failed once in a full local suite and does not reproduce | the assertion reads the machine's global image store, and nothing found so far explains how the image came to exist | The test cancels a build whose Dockerfile is `FROM alpine:latest` and `RUN sleep 3600`, so the build cannot finish on its own, and then requires `docker image inspect` on its tag to fail. In one full run of simulator-gcp/sdk-tests on 2026-09-04 the image existed. What was ruled out: leftover state (the test removes the image before the build and in t.Cleanup), a tag collision (no other test in the repository uses `sockerless-cloudbuild-cancel-probe:gcp-sdk`), a lost race against the cancel (the step is required to be WORKING first, and the sleep cannot complete), and a warmed layer cache making the build instant (three consecutive isolated runs pass). CI has not reproduced it either — `sim (gcp sdk)` passed on run 33844642884. The host was heavily loaded and its podman connection had dropped once earlier in the same session, so a container-runtime anomaly is the remaining candidate and the one with no evidence for it yet. The assertion now captures what the bug asked for — the image's id, creation time and size, and the build's final status with each step's status and timing — so a recurrence names its own evidence instead of a boolean. Two things were found and fixed while chasing it, neither of which explains this symptom: the harness pre-pulled `alpine:latest` with a single attempt and only warned when it failed, leaving the pull to happen inside the timed build step, and settling a cancelled build wrote the pre-run copy of its steps back over the record, so the step the cancel interrupted reported no status and no timing at all. A build that failed its pull would leave no image, so the pull path is not this; the step-state repair is what makes a recurrence readable. |
+| 2932 | P3 | Three AWS Smithy patterns are stricter than the service they describe, so the simulator cannot satisfy both | the vendored model is authoritative for the simulator, but where it contradicts documented service behavior, matching the model would make the simulator less faithful, not more | The runtime pattern check (BUG-2931) reports three responses whose values AWS itself returns. Amazon EventBridge names the managed secret backing a connection `events!connection/<name>/<uuid>`, and `SecretsManagerSecretArn` admits no `!`. AWS Certificate Manager's `DescribeCertificate` reports the issuing authority as an AWS Private Certificate Authority ARN, and the generic `Arn` shape it is typed with requires the service segment to be `acm`. Amazon CloudWatch Logs reports a configuration template's `resourceType` in CloudFormation spelling (`AWS::WAFv2::WebACL`), and `ResourceType` admits no `:`. Each is recorded in the service's `specs/cloud-api/aws/<service>.supplement.json` — the correction pins the pattern it replaces with its evidence, so the value stays checked against what the service really sends — rather than "fixed" by emitting a value the service never emits. The supplements shrink if a later model revision widens the patterns, which is the only thing that should close this. Re-read from `aws/aws-sdk-go-v2` main on 2026-08-23 and all three are unchanged: `SecretsManagerSecretArn` is `^arn:aws([a-z]|\-)*:secretsmanager:([a-z]|\d|\-)*:([0-9]{12})?:secret:[\/_+=\.@\-A-Za-z0-9]+$` (no `!`), Amazon CloudWatch Logs' `ResourceType` is `^[\w-_]*$` (no `:`), and AWS Certificate Manager's generic `Arn` still requires the service segment to be literally `acm`. |
+| 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260814, fetched and checked again on 2026-08-23) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
+| 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
+
+- **BUG-42 (the shared azurerm stack's guest boots on an arm64 host and never
+  reaches userspace):** Re-read against the machine on 2026-09-01, and the
+  entry it replaces was wrong in both halves.
+
+  It said the macOS harness *skips* the stack. It does not: the suite
+  re-executes inside the privileged Linux test container
+  (`runTerraformTestsInDocker`), clears the CAP_NET_ADMIN / CAP_SYS_ADMIN gate,
+  and applies the stack for real — resource groups, virtual networks, private
+  endpoints, DNS zone groups — as far as the virtual machine.
+
+  It said the cause is that the Podman machine exposes no nested
+  virtualisation. It does. `/dev/kvm` is present in that container
+  (`crw-rw-rw- 10, 232`), `firecracker` and `jailer` are installed, and
+  Firecracker starts an instance: the captured log shows the rootfs attached as
+  a root device, `net1` bound to its host tap, `InstanceStart` accepted, and a
+  guest kernel running through initcalls. A gate on KVM was written for the old
+  explanation and removed again when the evidence came in — it could never have
+  fired, and a check that cannot bite is worse than none.
+
+  What the console shows: both virtio devices enumerate (`1af4:1042` block,
+  `1af4:1041` net), `virtio_blk virtio0: [vda] 2228224 512-byte logical blocks`
+  — the guest sees its 1.14 GB root disk — and the output then stops at "Key
+  type encrypted registered", the last late initcall before userspace. No init,
+  no address, no panic; `panic=1 reboot=k` would have rebooted on one. Four
+  minutes later the boot fails on "timed out waiting for Firecracker guest
+  10.0.1.2 reachability".
+
+  The suspicion this points at, and the next thing to check: the host is
+  aarch64 (the Firecracker log is the `arch/aarch64` path) while CI's runner is
+  amd64, and CI completes the round trip. A kernel that mounts root and then
+  produces nothing is what an architecture-mismatched userspace looks like — so
+  the question is whether the guest rootfs this harness builds or caches is
+  x86-64 while the kernel beside it is arm64. Read the rootfs's `/sbin/init`
+  architecture on an arm64 host before looking at the network path: a guest
+  that never reaches userspace cannot configure an address whatever the
+  networking is doing. CI's Linux runner runs the whole round trip, so the
+  coverage exists while this is open.
+
+
+## Resolved history
+
+- ~~**BUG-2967 (this checkout's git configuration is corrupted by a sibling worktree):**~~
+  Resolved 2026-09-14 as machine state, not repository state: the main
+  checkout is immunised (`extensions.worktreeConfig`, identity and `core.bare`
+  in `.git/config.worktree`), `scripts/check-repo-config-sane.sh` fails a
+  commit that inherits the corruption, and every `git config` this repository
+  runs is addressed with `-C` — the two workflow steps that set the bot
+  identity run in the runner's own checkout. The writer was never found in
+  this repository because it is not in it; a recurrence names its worktree in
+  `git worktree list`, and the repair is the same. Kept for the record:
+  A push failed with a pre-commit stack trace ending in `fatal: this operation
+  must be run in a work tree`. `.git/config` had acquired `core.bare = true` on
+  a checkout that plainly has a work tree, so every work-tree command failed,
+  and the local commit identity had been replaced by
+  `latest deps fixture <latest-deps@example.invalid>` — the identity
+  `scripts/test-latest-deps-*.sh` give their throwaway repositories.
+
+  Both of those scripts build their fixtures under `mktemp -d` and address
+  them with `git -C "$dir"`, so neither reaches this configuration from inside
+  this checkout — which is what made the first occurrence unattributable.
+
+  It recurred on 2026-09-04, and the second occurrence named the mechanism:
+  this repository has a **linked worktree**, and a linked worktree shares the
+  main checkout's `.git/config`. `git worktree list` reports a second checkout
+  under `/private/tmp/claude-501/.../scratchpad/sockerless-oidc-timeout` on
+  `fix/oidc-callback-bounded-timeout`, and the configuration's own ordering
+  places the injected `[user]` section between two branch sections written on
+  either side of that worktree's activity. A `git config user.email` run there
+  without `-C` — the fixture identity is the tell — writes the shared file, and
+  both checkouts then carry it; the same is true of `core.bare`, which is why a
+  flag no one here sets can appear on a checkout that plainly has a work tree.
+
+  The repair is the same each time and `scripts/check-repo-config-sane.sh`
+  catches it at the commit rather than at the push. What it cannot do is
+  prevent it: the writer is outside this checkout, so the fix belongs wherever
+  that `git config` runs — it needs `-C "$fixture"`, or `GIT_CONFIG_GLOBAL`
+  pointed at a scratch file, so a fixture identity can never reach a real
+  repository's shared configuration.
+
+  The main checkout is immunised in the meantime, which is machine state and
+  not something a clone carries: `extensions.worktreeConfig` is enabled and
+  `core.bare`, `user.name` and `user.email` are set in `.git/config.worktree`,
+  which git reads after the shared file and which therefore wins. Verified by
+  writing `bare = true` and the fixture identity into the shared config and
+  confirming the checkout still reported a work tree and the right identity.
+  It recurred twice within an hour on 2026-09-04, so a session that finds
+  itself repairing this repeatedly should apply the same override rather than
+  repairing in a loop.
+
+  Repaired and verified: `core.bare` false, work tree intact, `git fsck` clean,
+  no working-tree changes lost, and the identity restored to the `e6qu
+  <adi11235@gmail.com>` every commit in this repository carries — the global
+  fallback would have authored commits under a malformed address
+  (`adi11235 at gmail.com`).
+
+  What made it expensive was the shape of the failure. The bare flag surfaced
+  several layers below anything naming git configuration, and the fixture
+  identity would not have surfaced at all — it would simply have authored
+  commits as a test fixture until a reviewer noticed.
+  `scripts/check-repo-config-sane.sh` names both outright, and runs as a
+  pre-commit hook so a recurrence is caught at the commit rather than at the
+  push. Verified against a fixture repository in both directions: it passes a
+  clean checkout and fails each corruption with the message that names it.
+- ~~**BUG-1702 (CI pulls its base images from registries that rate-limit it):**~~
+  Resolved 2026-09-14: every job that runs a simulator's containers warms its
+  image set from one per-cloud `actions/cache` entry, the simulators ask
+  `ImageInspect` before `ImagePull`, and a data-cap refusal is classified
+  permanent and fails at once — the failing class has not recurred since the
+  last change below. What remains is named here rather than kept as an open
+  defect: the `module` shard of the race matrix warms the whole Lambda
+  runtime table rather than what its tests fetch, and a simulator-side pull
+  failure is still read out of the source rather than the Terraform job's
+  log. The history that got here:
   Three jobs failed on 2026-08-31 for the same reason, across two registries:
   `tf (aws)` could not pull `public.ecr.aws/docker/library/busybox` for the
   Amazon ECS pause image, `sim (aws cli glue-iam)` timed out downloading
@@ -163,123 +298,35 @@ Open: 12. Resolved: 96.
   new fetch was added. Verified by deleting `alpine:latest` from the host and
   running the suite: it passed, and the run never named the image.
 
-- **BUG-2977 (the body an unmigrated storage account's `default` migration
-  carries on real Azure is uncaptured):** terraform-provider-azurerm 5.4.0
-  reads `accountMigrations/default` on every storage-account read and treats
-  anything but 200 as a failed read of the account, so real Azure answers 200
-  for an account nobody has migrated (BUG-2976). The swagger marks
-  `properties.targetSkuName` required, and the two published examples both
-  describe a migration that was started. The simulator answers the resource
-  envelope with empty properties, which the wire-shape ratchet reports and
-  `simulator-azure/spec-violation-allowlist.txt` holds under this ID. Fix
-  shape: capture `GET …/accountMigrations/default?api-version=2024-01-01`
-  against a real, never-migrated account and answer exactly that body; the
-  allowlist line then goes.
-
-| ID | Sev | Area | Pattern | One-liner |
-|----|-----|------|---------|-----------|
-| 2909 | P2 | AWS simulator IAM enforcement leaves 230 served operations authorized against `"*"` | the resource-derivation gap BUG-2907 closed for five services is measured across the rest, not closed for them | Thirty services derive their resource from the types AWS declares and the ARN format published beside each — Amazon Data Firehose, AWS Security Token Service and Application Auto Scaling joined the generated table, Amazon EventBridge gained the alias table its Name/Rule abbreviations needed, Amazon DynamoDB reads the export and import family's TableArn, and the state-resolving tail closed — Amazon SQS cancels a message move against the source queue its task record names, AWS Cloud Map resolves GetOperation through the operation record, and AWS CloudTrail reads the ARN-valued ResourceId and ResourceIdList its tagging operations carry — and the per-request cases that predated the table are gone but for AWS Lambda. 1,764 of the 1,994 served operations that authorize against a resource type derive it; the remaining 230 still request a literal `"*"`. The Amazon RDS and Amazon ElastiCache copies authorize both of their ends — the target ARN is name-determined before the resource exists, the AWS Step Functions argument — AWS Glue's usage profiles, connection types, integrations and tagging derive, Amazon EC2's tag operations read each id's type from its prefix, and its route-table, address and network-interface associations resolve to their parents through generation-keyed indexes over the simulator's own state. AWS Budgets joined the table, its Smithy model vendored for the probe, and its three tagging operations derive from the ARN they name. The coverage probe was also sending every member under a lower-cased name — a body no client sends, while the derivation reads the real member name — so it now sends the wire name in its own case, which is what let those three register. AWS Step Functions state-machine and activity creation joined the table — their ARNs are name-determined, so the create request already carries everything the ARN needs, and the older comment calling every create underivable was wrong for them. `TestIAMResourceDerivationCoverage` ratchets the number and prints the per-service remainder, largest first: Amazon EC2 (56), AWS Glue (25), AWS CodeBuild (23), Amazon RDS (22), AWS Identity and Access Management (21), Amazon DynamoDB (18), AWS Systems Manager (16). Amazon ECS fell from 20 to 8 when its daemon and Express Mode families were read from the ARNs they name, type by type. Amazon CloudWatch Logs fell from 31 to 3 when its named families — delivery, delivery destination and source, subscription destination, anomaly detector, lookup table, scheduled query — were assembled from the identifiers their requests carry. What is left is mostly an operation that creates its resource, so carries no identifier for it yet, names something other than the resource it authorizes against, or names it by an ARN in a shape the coverage probe cannot express — those derive for real requests and are pinned by `TestIAMResourceARNs_*` behavior tests; the comment beside `iamDerivationCoverageFloor` states each service's remaining class. | The figures come from `TestIAMResourceDerivationCoverage`, which is the only place they should come from — they had drifted twice — to 1,788 of 1,975, and again to 1,758 of 1,994 while `iamDerivationCoverageFloor` read 1,764 — so read the ratchet, never this row.
-| 2965 | P2 | AWS simulator IAM authorization populates 87 condition keys, and 333 of the 1,739 actions that declare one are still evaluated against a context missing at least one of theirs | a policy condition on a key the context does not carry never matches, so the grant it scopes denies the request it was written to allow | The request-settled keys are populated: `ec2:Region` (declared against 824 actions), the Amazon S3 request-shape keys `s3:authType`, `s3:signatureversion`, `s3:TlsVersion`, `s3:signatureAge`, `s3:x-amz-content-sha256` and `s3:ResourceAccount` (165-178 each), `cloudwatch:namespace`, `kms:CallerAccount`, `ecs:cluster`, the global `aws:` envelope and principal keys, and the tag keys in both spellings (`aws:ResourceTag/<k>` and `<service>:ResourceTag/<k>`). Also populated: `iam:PermissionsBoundary` (the boundary the request attaches), the AWS Secrets Manager keys `secretsmanager:SecretId`, `resource/Type`, `resource/AllowRotationLambdaArn` and `SecretPrimaryRegion` (read from the secret the request names), `rds:req-tag/${TagKey}` (Amazon RDS's own spelling of the tags a request carries) and `s3:ExistingObjectTag/<key>` (the tags already on the object a request targets). `kms:RequestAlias` is the alias a request named the key by, and `organizations:PolicyType` the kind of policy a request is about — stated outright where it creates or enables one, and read from the policy it names everywhere else. The Amazon S3 access-point keys `s3:DataAccessPointArn`, `s3:DataAccessPointAccount` and `s3:AccessPointNetworkOrigin` are settled for a request addressed through an access point. Amazon DynamoDB's fine-grained access-control keys are settled by the request — `dynamodb:LeadingKeys` read against the table's own HASH attribute, `dynamodb:Attributes`, and the `ReturnValues`, `ReturnConsumedCapacity` and `EnclosingOperation` members — as are `kms:EncryptionContext:<key>`, `kms:EncryptionContextKeys` and `s3:versionid`. Five more are read from what the request names: `ssm:DocumentType` from the document, `events:creatorAccount` from the rule, `states:StateMachineQualifier` from the version or alias on the ARN, and `ecs:propagate-tags` and `rds:ManageMasterUserPassword` from the request's own members. `lambda:FunctionArn` is the function an event-source mapping or function URL is about, and `s3:AccessGrantsInstanceArn` the S3 Access Grants instance that issued the credentials a request is signed with — recorded with the credential when the grant is redeemed. The Amazon ECS request-shape family is settled by the request — the capacity provider it places on, the task's CPU and memory (read from the task definition it names unless the request overrides them), the subnets, the task definition, the service and namespace, and the managed-tags, exec and EBS-volume switches. The Amazon S3 request-header family — the canned ACL and the five grant headers, the three server-side-encryption headers, the storage class, the copy source, the metadata directive, the website redirect, the listing's prefix, delimiter and max-keys, the conditional If-Match, the tags a write puts on its object, and the location a CreateBucket asks for — is read from the request verbatim, and with it `kms:EncryptionAlgorithm`, `rds:PubliclyAccessible`, the AWS Auto Scaling target pair, `iam:PolicyARN` and `lambda:FunctionUrlAuthType`. `servicediscovery:ServiceCreatedByAccount` is read from the AWS Cloud Map service a request names, and the AWS Organizations transfer pair from the request itself. `servicediscovery:ServiceArn`, `dynamodb:Select` and `acm:CertificateKeyPairOrigin` came with them. Counted over the vendored service references, 1,406 of the 1,739 actions declaring an action condition key now have every one of theirs populated; 199 have some and 134 none. What is left needs state the simulator holds but does not yet read into the context, largest first: `glue:LakeFormationPermissions` (55 actions), `glue:FederatedAuthorizationSource` (18), `s3:AccessGrantsInstanceArn` (14) and `dynamodb:Attributes` (13) and the AWS Lake Formation family behind it. `kms:ViaService` (45) is correctly absent — AWS sets it only when another service makes the call, and every call here is a direct client call. |
-| 2968 | P3 | The Cosmos differential tests fail when the runner cannot give Microsoft's emulator enough CPU to finish initialising | an external dependency's start-up cost against a two-core runner, with the mitigation already applied and the budget deliberately capped | Seen once on CI run 33839934523 (`sim (azure sdk B-Z)`): the emulator reported `PostgreSQL=OK, Gateway=OK, Explorer=OK` on every probe while account properties answered 503, until the 280-second readiness budget expired. The test classified it itself — it distinguishes "pgcosmos extension is still starting", meaning alive and starved, from the emulator not answering at all, which is a real fault — and it reported the former. Re-running the same job on the same commit passed, and the job had passed on the three prior completed runs of the branch. The two obvious repairs are already made or already rejected with reasons: `TestMain` boots the emulator in a goroutine so its initialisation overlaps the rest of the suite, which is the time it was short of, and the harness reaps a leaked emulator from a killed run before starting one; extending the readiness budget is rejected in the source because the suite's go-test deadline is 13 minutes and the step's is 14, so buying readiness time "trades a named failure for an opaque step kill". What is left is runner capacity. Close this if it recurs often enough to be worth a dedicated runner or a shard of its own, or if the emulator's initialisation gets cheaper; do not close it by extending the budget. |
-| 2969 | P3 | `TestSDK_CloudBuild_CancelStopsARunningBuild` failed once in a full local suite and does not reproduce | the assertion reads the machine's global image store, and nothing found so far explains how the image came to exist | The test cancels a build whose Dockerfile is `FROM alpine:latest` and `RUN sleep 3600`, so the build cannot finish on its own, and then requires `docker image inspect` on its tag to fail. In one full run of simulator-gcp/sdk-tests on 2026-09-04 the image existed. What was ruled out: leftover state (the test removes the image before the build and in t.Cleanup), a tag collision (no other test in the repository uses `sockerless-cloudbuild-cancel-probe:gcp-sdk`), a lost race against the cancel (the step is required to be WORKING first, and the sleep cannot complete), and a warmed layer cache making the build instant (three consecutive isolated runs pass). CI has not reproduced it either — `sim (gcp sdk)` passed on run 33844642884. The host was heavily loaded and its podman connection had dropped once earlier in the same session, so a container-runtime anomaly is the remaining candidate and the one with no evidence for it yet. The assertion now captures what the bug asked for — the image's id, creation time and size, and the build's final status with each step's status and timing — so a recurrence names its own evidence instead of a boolean. Two things were found and fixed while chasing it, neither of which explains this symptom: the harness pre-pulled `alpine:latest` with a single attempt and only warned when it failed, leaving the pull to happen inside the timed build step, and settling a cancelled build wrote the pre-run copy of its steps back over the record, so the step the cancel interrupted reported no status and no timing at all. A build that failed its pull would leave no image, so the pull path is not this; the step-state repair is what makes a recurrence readable. |
-| 2932 | P3 | Three AWS Smithy patterns are stricter than the service they describe, so the simulator cannot satisfy both | the vendored model is authoritative for the simulator, but where it contradicts documented service behavior, matching the model would make the simulator less faithful, not more | The runtime pattern check (BUG-2931) reports three responses whose values AWS itself returns. Amazon EventBridge names the managed secret backing a connection `events!connection/<name>/<uuid>`, and `SecretsManagerSecretArn` admits no `!`. AWS Certificate Manager's `DescribeCertificate` reports the issuing authority as an AWS Private Certificate Authority ARN, and the generic `Arn` shape it is typed with requires the service segment to be `acm`. Amazon CloudWatch Logs reports a configuration template's `resourceType` in CloudFormation spelling (`AWS::WAFv2::WebACL`), and `ResourceType` admits no `:`. Each is recorded in the service's `specs/cloud-api/aws/<service>.supplement.json` — the correction pins the pattern it replaces with its evidence, so the value stays checked against what the service really sends — rather than "fixed" by emitting a value the service never emits. The supplements shrink if a later model revision widens the patterns, which is the only thing that should close this. Re-read from `aws/aws-sdk-go-v2` main on 2026-08-23 and all three are unchanged: `SecretsManagerSecretArn` is `^arn:aws([a-z]|\-)*:secretsmanager:([a-z]|\d|\-)*:([0-9]{12})?:secret:[\/_+=\.@\-A-Za-z0-9]+$` (no `!`), Amazon CloudWatch Logs' `ResourceType` is `^[\w-_]*$` (no `:`), and AWS Certificate Manager's generic `Arn` still requires the service segment to be literally `acm`. |
-| 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260814, fetched and checked again on 2026-08-23) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
-| 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
-
-- **BUG-42 (the shared azurerm stack's guest boots on an arm64 host and never
-  reaches userspace):** Re-read against the machine on 2026-09-01, and the
-  entry it replaces was wrong in both halves.
-
-  It said the macOS harness *skips* the stack. It does not: the suite
-  re-executes inside the privileged Linux test container
-  (`runTerraformTestsInDocker`), clears the CAP_NET_ADMIN / CAP_SYS_ADMIN gate,
-  and applies the stack for real — resource groups, virtual networks, private
-  endpoints, DNS zone groups — as far as the virtual machine.
-
-  It said the cause is that the Podman machine exposes no nested
-  virtualisation. It does. `/dev/kvm` is present in that container
-  (`crw-rw-rw- 10, 232`), `firecracker` and `jailer` are installed, and
-  Firecracker starts an instance: the captured log shows the rootfs attached as
-  a root device, `net1` bound to its host tap, `InstanceStart` accepted, and a
-  guest kernel running through initcalls. A gate on KVM was written for the old
-  explanation and removed again when the evidence came in — it could never have
-  fired, and a check that cannot bite is worse than none.
-
-  What the console shows: both virtio devices enumerate (`1af4:1042` block,
-  `1af4:1041` net), `virtio_blk virtio0: [vda] 2228224 512-byte logical blocks`
-  — the guest sees its 1.14 GB root disk — and the output then stops at "Key
-  type encrypted registered", the last late initcall before userspace. No init,
-  no address, no panic; `panic=1 reboot=k` would have rebooted on one. Four
-  minutes later the boot fails on "timed out waiting for Firecracker guest
-  10.0.1.2 reachability".
-
-  The suspicion this points at, and the next thing to check: the host is
-  aarch64 (the Firecracker log is the `arch/aarch64` path) while CI's runner is
-  amd64, and CI completes the round trip. A kernel that mounts root and then
-  produces nothing is what an architecture-mismatched userspace looks like — so
-  the question is whether the guest rootfs this harness builds or caches is
-  x86-64 while the kernel beside it is arm64. Read the rootfs's `/sbin/init`
-  architecture on an arm64 host before looking at the network path: a guest
-  that never reaches userspace cannot configure an address whatever the
-  networking is doing. CI's Linux runner runs the whole round trip, so the
-  coverage exists while this is open.
-
-- **BUG-2967 (this checkout's git configuration is corrupted by a sibling worktree):**
-  A push failed with a pre-commit stack trace ending in `fatal: this operation
-  must be run in a work tree`. `.git/config` had acquired `core.bare = true` on
-  a checkout that plainly has a work tree, so every work-tree command failed,
-  and the local commit identity had been replaced by
-  `latest deps fixture <latest-deps@example.invalid>` — the identity
-  `scripts/test-latest-deps-*.sh` give their throwaway repositories.
-
-  Both of those scripts build their fixtures under `mktemp -d` and address
-  them with `git -C "$dir"`, so neither reaches this configuration from inside
-  this checkout — which is what made the first occurrence unattributable.
-
-  It recurred on 2026-09-04, and the second occurrence named the mechanism:
-  this repository has a **linked worktree**, and a linked worktree shares the
-  main checkout's `.git/config`. `git worktree list` reports a second checkout
-  under `/private/tmp/claude-501/.../scratchpad/sockerless-oidc-timeout` on
-  `fix/oidc-callback-bounded-timeout`, and the configuration's own ordering
-  places the injected `[user]` section between two branch sections written on
-  either side of that worktree's activity. A `git config user.email` run there
-  without `-C` — the fixture identity is the tell — writes the shared file, and
-  both checkouts then carry it; the same is true of `core.bare`, which is why a
-  flag no one here sets can appear on a checkout that plainly has a work tree.
-
-  The repair is the same each time and `scripts/check-repo-config-sane.sh`
-  catches it at the commit rather than at the push. What it cannot do is
-  prevent it: the writer is outside this checkout, so the fix belongs wherever
-  that `git config` runs — it needs `-C "$fixture"`, or `GIT_CONFIG_GLOBAL`
-  pointed at a scratch file, so a fixture identity can never reach a real
-  repository's shared configuration.
-
-  The main checkout is immunised in the meantime, which is machine state and
-  not something a clone carries: `extensions.worktreeConfig` is enabled and
-  `core.bare`, `user.name` and `user.email` are set in `.git/config.worktree`,
-  which git reads after the shared file and which therefore wins. Verified by
-  writing `bare = true` and the fixture identity into the shared config and
-  confirming the checkout still reported a work tree and the right identity.
-  It recurred twice within an hour on 2026-09-04, so a session that finds
-  itself repairing this repeatedly should apply the same override rather than
-  repairing in a loop.
-
-  Repaired and verified: `core.bare` false, work tree intact, `git fsck` clean,
-  no working-tree changes lost, and the identity restored to the `e6qu
-  <adi11235@gmail.com>` every commit in this repository carries — the global
-  fallback would have authored commits under a malformed address
-  (`adi11235 at gmail.com`).
-
-  What made it expensive was the shape of the failure. The bare flag surfaced
-  several layers below anything naming git configuration, and the fixture
-  identity would not have surfaced at all — it would simply have authored
-  commits as a test fixture until a reviewer noticed.
-  `scripts/check-repo-config-sane.sh` names both outright, and runs as a
-  pre-commit hook so a recurrence is caught at the commit rather than at the
-  push. Verified against a fixture repository in both directions: it passes a
-  clean checkout and fails each corruption with the message that names it.
-
-## Resolved history
+- ~~**BUG-2995 (DynamoDB carries provisioned throughput but never enforces
+  it):**~~ `DDBTable` stored `ProvisionedThroughput` and a
+  `BillingModeSummary`, and no read or write path ever returned
+  `ProvisionedThroughputExceededException`, so a client's retry-with-backoff —
+  which every SDK ships for exactly that error — was dead code against this
+  simulator. Worse, and found while fixing it: `CreateTable` never read the
+  request's `ProvisionedThroughput` at all, so every provisioned table
+  described itself as 0/0. **Fixed** with DynamoDB's own model at the
+  granularity a single-partition table has (`simulator-aws/dynamodb_throughput.go`):
+  a token bucket per table for reads and one for writes, and a pair per
+  global secondary index, refilled at the provisioned rate and holding the
+  300 seconds of unused capacity the service documents as burst; a request
+  spends the units the existing `ConsumedCapacity` accounting already computes
+  (1 WCU per KB, 1 RCU per 4 KB strongly consistent, half eventually
+  consistent, twice in a transaction), an UpdateItem the larger of before and
+  after, a write also against each index the item lands in. PutItem, GetItem,
+  UpdateItem, DeleteItem, Query, Scan and the transactions refuse with the
+  service's error and message (the index named when an index refused);
+  BatchWriteItem and BatchGetItem return throttled entries as
+  `UnprocessedItems` / `UnprocessedKeys` and refuse only a batch in which
+  nothing could be processed, as the service does. PAY_PER_REQUEST is never
+  throttled; a local secondary index spends the table's capacity; UpdateTable
+  and DeleteTable start fresh buckets. `CreateTable` now records the request's
+  units and applies the service's rule — PROVISIONED (the default) requires
+  both units on the table and on every GSI, PAY_PER_REQUEST refuses them —
+  which the vector-index fixtures had been silently violating. A table stored
+  before this change with 0/0 is not throttled, so a deployed simulator's
+  existing tables keep working after the upgrade. Tests:
+  `dynamodb_throughput_test.go`.
 
 - ~~**BUG-2997 (the freshness gate failed a pull request for npm drift that
   main carried identically):**~~ `check-latest-deps.sh --baseline origin/main`
