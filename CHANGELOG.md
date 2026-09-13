@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.0](https://github.com/e6qu/sockerless-cloud/compare/v0.31.7...v0.32.0) (2026-09-13)
+
+
+### Features
+
+* **ecs:** RunTask refuses placement the host cannot fit, with the real failures[] shape ([#162](https://github.com/e6qu/sockerless-cloud/issues/162)) ([94d38f5](https://github.com/e6qu/sockerless-cloud/commit/94d38f5a52231bbf47e27eabf5616e25ebd6bb27))
+
 ## [0.31.7](https://github.com/e6qu/sockerless-cloud/compare/v0.31.6...v0.31.7) (2026-09-11)
 
 
