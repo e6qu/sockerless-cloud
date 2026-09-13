@@ -4,6 +4,52 @@ Open: 12. Resolved: 94.
 
 ## Open
 
+- **BUG-2994 (RunTask never refuses placement, so a consumer's capacity
+  handling is never exercised here):** Real ECS answers RunTask with HTTP 200,
+  an empty `tasks[]` and a populated `failures[]` when it cannot place a task —
+  `RESOURCE:MEMORY`, `RESOURCE:CPU`, `AGENT`, subnet/ENI exhaustion — and it
+  does so synchronously, at placement time. This simulator's `runECSTasks`
+  has no placement model at all: every request that passes validation is
+  placed, the task is returned as PROVISIONING, and `handleECSRunTask` writes
+  `"failures": []any{}` unconditionally (`simulator-aws/ecs.go:1458`). What
+  the sim does model faithfully is the post-placement path — a task that fails
+  to start becomes STOPPED with `StopCode: TaskFailedToStart` and a real
+  `StoppedReason` — which is a different failure with a different shape.
+
+  This matters because ecs-dev-desktop handles the placement shape explicitly
+  (`packages/compute-ecs/src/ecs-compute-provider.ts:691`: it reads
+  `failures[0].reason`/`.detail` and raises "failed to place task"), and that
+  code has never run against this simulator. Under the concurrency ECS Dev
+  Desktop is being sized for, capacity refusal is the normal case on real
+  Fargate, not the exceptional one.
+
+  Fix shape: the sim runs real containers on a finite host, so a refusal can
+  be grounded rather than invented. Track committed memory/CPU of running tasks
+  against the task definition's `memory`/`cpu` (not read at RunTask time
+  today) and a host ceiling, and when a task would not fit answer with the
+  real ECS shape — empty `tasks[]`, `failures:[{arn, reason:"RESOURCE:MEMORY",
+  detail}]` — instead of placing it. `sim/container_memory.go` observes what a
+  running container reached; it is not a commitment ledger and should not be
+  bent into one.
+
+- **BUG-2995 (DynamoDB carries provisioned throughput but never enforces it):**
+  `DDBTable` stores `ProvisionedThroughput` (`ReadCapacityUnits`,
+  `WriteCapacityUnits`) and a `BillingModeSummary`, and the comment at
+  `simulator-aws/dynamodb.go:172` says it: "tests don't exercise actual
+  throughput throttling." No write or read path ever returns
+  `ProvisionedThroughputExceededException`. Real DynamoDB does, and every SDK
+  ships retry-with-backoff for exactly that error, so a client's retry path is
+  dead code against this simulator and only comes alive in production — under
+  load, which is the worst moment to find out it is wrong.
+
+  This is a documented gap rather than a drive-by fix on purpose: DynamoDB's
+  throttling is a per-partition token bucket with burst capacity, and a crude
+  "N writes per second over WCU → throttle" would be a NEW fake behaviour that
+  misrepresents the service it stands in for. The faithful implementation is a
+  bucket per table (and per GSI) refilled at the provisioned rate with the
+  documented burst, applied only when the billing mode is PROVISIONED, and
+  never for PAY_PER_REQUEST.
+
 - **BUG-2982 (every release pull request's CI run expires unapproved):**
   The run on each release-please pull request fails at startup with "This
   workflow run required approval but was not approved before it expired"
