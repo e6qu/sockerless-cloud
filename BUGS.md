@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 11. Resolved: 95.
+Open: 12. Resolved: 95.
 
 ## Open
 
@@ -21,6 +21,23 @@ Open: 11. Resolved: 95.
   bucket per table (and per GSI) refilled at the provisioned rate with the
   documented burst, applied only when the billing mode is PROVISIONED, and
   never for PAY_PER_REQUEST.
+
+- **BUG-2996 (a managed EBS volume is a directory on the host, so the workload
+  sees the host's disk, not its volume):** an Amazon ECS task's managed EBS
+  volume (`volumeConfigurations[].managedEBSVolume.sizeInGiB`) is backed by a
+  directory under `SIM_EBS_DATA_DIR` bind-mounted into the container
+  (`ecsPrepareManagedEBSVolumes`, `simulator-aws/ecs.go`). `df` inside the task
+  therefore reports the simulator host's filesystem — ecs-dev-desktop's
+  idle-agent sent `diskUsedBytes: 81506238464, diskTotalBytes: 269427478528`
+  for an 8 GiB volume on 2026-09-13 — and nothing stops a workload from
+  writing past the size it declared, where real EBS is a block device of
+  exactly that size that fills up. A consumer's disk-usage display, low-disk
+  alerts and out-of-space handling never see the real numbers here. Fix
+  shape: back each managed volume with a sparse image file of `sizeInGiB`
+  formatted ext4 and loop-mounted for the bind (the size, the fill-up and the
+  `df` figures all come for free), behind a capability check at startup —
+  a host that cannot loop-mount says so rather than falling back to the
+  directory; snapshots then copy the image rather than the tree.
 
 - **BUG-2982 (every release pull request's CI run expires unapproved):**
   The run on each release-please pull request fails at startup with "This
