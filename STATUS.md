@@ -73,6 +73,13 @@ Current state of the sockerless-cloud repository.
   Fargate's capacity message or `RESOURCE:MEMORY`/`RESOURCE:CPU` — before any
   ENI, volume or record exists. The simulator container's memory and CPU
   limits are its capacity.
+- **Provisioned throughput is spent.** An Amazon DynamoDB PROVISIONED table
+  runs the service's token buckets — per table and per global secondary
+  index, refilled at the provisioned rate, holding 300 seconds of burst — and
+  a request the bucket cannot cover gets
+  `ProvisionedThroughputExceededException` (or comes back unprocessed from a
+  batch). On-demand tables are never throttled; `CreateTable` requires
+  capacity units exactly when the billing mode does.
 - **A stopped workload gets its cloud's grace** between SIGTERM and SIGKILL:
   an Amazon ECS container definition's `stopTimeout`, Cloud Run's ten seconds,
   a Container App template's `terminationGracePeriodSeconds`, App Service's
