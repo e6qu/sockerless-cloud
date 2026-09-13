@@ -1448,22 +1448,25 @@ func handleECSRunTask(w http.ResponseWriter, r *http.Request) {
 		VolumeConfigurations: req.VolumeConfigurations,
 		NetworkConfiguration: req.NetworkConfiguration,
 	}
-	tasks, rerr := runECSTasks(r.Context(), in)
+	tasks, failures, rerr := runECSTasks(r.Context(), in)
 	if rerr != nil {
 		AWSError(w, rerr.code, rerr.message, rerr.status)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"tasks":    ecsTasksWire(tasks),
-		"failures": []any{},
+		"failures": failures,
 	})
 }
 
 // runECSTasks launches `in.Count` tasks for the named cluster / task
-// definition, performing the same validation, ENI allocation, and async
-// PROVISIONING → PENDING → RUNNING lifecycle transitions as the RunTask API.
-// Used by handleECSRunTask and the in-process ECS service scheduler.
-func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsRequestError) {
+// definition, performing the same validation, placement, ENI allocation, and
+// async PROVISIONING → PENDING → RUNNING lifecycle transitions as the RunTask
+// API. A task the host cannot fit is not launched: it comes back as a
+// `failures[]` entry (never nil — the wire shape is `[]`), while the tasks
+// that did fit are launched, exactly as Amazon ECS places what it can. Used by
+// handleECSRunTask, StartTask and the in-process ECS service scheduler.
+func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailure, *ecsRequestError) {
 	if in.Cluster == "" {
 		in.Cluster = "default"
 	}
@@ -1479,7 +1482,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 
 	cluster, ok := ecsClusters.Get(clusterName)
 	if !ok {
-		return nil, &ecsRequestError{"ClusterNotFoundException",
+		return nil, nil, &ecsRequestError{"ClusterNotFoundException",
 			fmt.Sprintf("Cluster not found: %s", in.Cluster), http.StatusBadRequest}
 	}
 
@@ -1502,7 +1505,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 
 	td, ok := ecsTaskDefinitions.Get(tdKey)
 	if !ok {
-		return nil, &ecsRequestError{"ClientException",
+		return nil, nil, &ecsRequestError{"ClientException",
 			fmt.Sprintf("Unable to describe task definition: %s", in.TaskDefinition), http.StatusBadRequest}
 	}
 
@@ -1510,7 +1513,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 	if in.NetworkConfiguration != nil && in.NetworkConfiguration.AwsvpcConfiguration != nil {
 		for _, sgID := range in.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups {
 			if _, sgOK := ec2SecurityGroups.Get(sgID); !sgOK {
-				return nil, &ecsRequestError{"InvalidParameterException",
+				return nil, nil, &ecsRequestError{"InvalidParameterException",
 					fmt.Sprintf("The security group '%s' does not exist", sgID), http.StatusBadRequest}
 			}
 		}
@@ -1523,7 +1526,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 	// silently getting networking it did not ask for.
 	networkMode := ecsEffectiveNetworkMode(td)
 	if strings.EqualFold(in.LaunchType, "FARGATE") && networkMode != ecsNetworkModeAwsvpc {
-		return nil, &ecsRequestError{"ClientException",
+		return nil, nil, &ecsRequestError{"ClientException",
 			"Fargate tasks require the awsvpc network mode.", http.StatusBadRequest}
 	}
 	hasAwsvpcConfig := in.NetworkConfiguration != nil &&
@@ -1531,10 +1534,10 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 		len(in.NetworkConfiguration.AwsvpcConfiguration.Subnets) > 0
 	switch {
 	case networkMode == ecsNetworkModeAwsvpc && !hasAwsvpcConfig:
-		return nil, &ecsRequestError{"InvalidParameterException",
+		return nil, nil, &ecsRequestError{"InvalidParameterException",
 			"Network Configuration must be provided when networking mode is awsvpc.", http.StatusBadRequest}
 	case networkMode != ecsNetworkModeAwsvpc && in.NetworkConfiguration != nil:
-		return nil, &ecsRequestError{"InvalidParameterException",
+		return nil, nil, &ecsRequestError{"InvalidParameterException",
 			fmt.Sprintf("Network Configuration is not supported when networking mode is %s.", networkMode),
 			http.StatusBadRequest}
 	}
@@ -1549,10 +1552,19 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 	}
 
 	var tasks []ECSTask
+	failures := []ecsFailure{}
+	requested := ecsRequestedTaskSize(td, in.Overrides)
 	for i := 0; i < in.Count; i++ {
 		_ = i
 		taskID := generateUUID()
 		taskArn := fmt.Sprintf("arn:aws:ecs:"+awsRegion()+":"+awsAccountID()+":task/%s/%s", clusterName, taskID)
+
+		// Placement comes first: nothing below — the ENI, the managed volume,
+		// the stored record — is allocated for a task the host cannot fit.
+		if short, committed, ceiling, fits := ecsReservePlacement(taskID, requested); !fits {
+			failures = append(failures, ecsPlacementFailure(in, cluster.ClusterArn, short, requested, committed, ceiling))
+			continue
+		}
 
 		// Only an awsvpc task is allocated an elastic network interface. A
 		// bridge/host/none task shares the container instance's networking and
@@ -1562,7 +1574,8 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 		if networkMode == ecsNetworkModeAwsvpc {
 			ip, ipErr := AllocateSubnetIP(requestedSubnet)
 			if ipErr != nil {
-				return nil, &ecsRequestError{"InvalidParameterException", ipErr.Error(), http.StatusBadRequest}
+				ecsAbandonPlacement(taskID)
+				return nil, nil, &ecsRequestError{"InvalidParameterException", ipErr.Error(), http.StatusBadRequest}
 			}
 			privateIP = ip
 			subnetID = requestedSubnet
@@ -1594,7 +1607,8 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 
 		taskVolumeHosts, ebsAttachments, pendingRestores, ebsErr := ecsPrepareManagedEBSVolumes(ctx, td, in.VolumeConfigurations, taskID, requestedSubnet)
 		if ebsErr != nil {
-			return nil, ebsErr
+			ecsAbandonPlacement(taskID)
+			return nil, nil, ebsErr
 		}
 
 		task := ECSTask{
@@ -1641,7 +1655,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 			}
 		}
 
-		ecsTasks.Put(taskID, task)
+		ecsCommitPlacement(taskID, task)
 		if in.ContainerInstanceKey != "" {
 			ecsContainerInstances.Update(in.ContainerInstanceKey, func(instance *ECSContainerInstance) {
 				instance.PendingTasksCount++
@@ -1769,7 +1783,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 		ecsScheduleTaskStart(start, taskID, td, taskTags, in.Overrides, taskVolumeHosts, in.LaunchType, in.ContainerInstanceKey)
 	}
 
-	return tasks, nil
+	return tasks, failures, nil
 }
 
 // ecsScheduleTaskStart runs one task's PROVISIONING→RUNNING lifecycle under the

@@ -323,3 +323,17 @@ publish between its two per-architecture pushes is indistinguishable from an
 abandoned remnant. Releases are one `vX.Y.Z` tag through release-please, and the
 required-status-check manifest is compared against `main`'s live branch
 protection at push time, since protection drifts with nobody's commit.
+
+## ECS placement is grounded in the host
+
+RunTask on Amazon ECS can refuse a task at placement time — HTTP 200, empty
+`tasks[]`, an entry in `failures[]` — and a consumer sized for concurrency
+meets that refusal as the normal case, not the exception. The simulator runs
+real containers on one finite host, so rather than inventing a capacity
+number it commits each placed task's declared memory and CPU (the same figures
+its containers' cgroups are bounded to) against what the simulator's own
+cgroup, or the machine, can hold, and refuses with the real shape when the
+next task would not fit (`simulator-aws/ecs_placement.go`, BUG-2994). The
+ledger is the task store plus in-flight reservations, decided before any
+allocation happens. The consequence for operators: the simulator container's
+memory and CPU limits are its Fargate capacity.

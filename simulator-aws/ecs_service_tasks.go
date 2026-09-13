@@ -424,10 +424,20 @@ func ecsReconcileService(key string) {
 				}
 				next := input
 				next.Count = count
-				if _, requestErr := runECSTasks(context.Background(), next); requestErr != nil {
+				_, failures, requestErr := runECSTasks(context.Background(), next)
+				if requestErr != nil {
 					ecsRecordServiceLaunchFailure(key, requestErr.message)
 					fmt.Fprintf(os.Stderr, "[sim-ecs] service %s reconciliation failed: %s\n",
 						service.ServiceArn, requestErr.message)
+					return
+				}
+				// The host refused placement for some of the batch: what fit is
+				// launched; the rest waits for the scheduler's retry, with the
+				// service event and backoff Amazon ECS records for it.
+				if len(failures) > 0 {
+					ecsRecordServiceLaunchFailure(key, failures[0].Reason)
+					fmt.Fprintf(os.Stderr, "[sim-ecs] service %s: %d of %d tasks not placed: %s\n",
+						service.ServiceArn, len(failures), count, failures[0].Detail)
 					return
 				}
 				input.Count -= count

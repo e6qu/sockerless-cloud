@@ -1,36 +1,8 @@
 # BUGS
 
-Open: 12. Resolved: 94.
+Open: 11. Resolved: 95.
 
 ## Open
-
-- **BUG-2994 (RunTask never refuses placement, so a consumer's capacity
-  handling is never exercised here):** Real ECS answers RunTask with HTTP 200,
-  an empty `tasks[]` and a populated `failures[]` when it cannot place a task —
-  `RESOURCE:MEMORY`, `RESOURCE:CPU`, `AGENT`, subnet/ENI exhaustion — and it
-  does so synchronously, at placement time. This simulator's `runECSTasks`
-  has no placement model at all: every request that passes validation is
-  placed, the task is returned as PROVISIONING, and `handleECSRunTask` writes
-  `"failures": []any{}` unconditionally (`simulator-aws/ecs.go:1458`). What
-  the sim does model faithfully is the post-placement path — a task that fails
-  to start becomes STOPPED with `StopCode: TaskFailedToStart` and a real
-  `StoppedReason` — which is a different failure with a different shape.
-
-  This matters because ecs-dev-desktop handles the placement shape explicitly
-  (`packages/compute-ecs/src/ecs-compute-provider.ts:691`: it reads
-  `failures[0].reason`/`.detail` and raises "failed to place task"), and that
-  code has never run against this simulator. Under the concurrency ECS Dev
-  Desktop is being sized for, capacity refusal is the normal case on real
-  Fargate, not the exceptional one.
-
-  Fix shape: the sim runs real containers on a finite host, so a refusal can
-  be grounded rather than invented. Track committed memory/CPU of running tasks
-  against the task definition's `memory`/`cpu` (not read at RunTask time
-  today) and a host ceiling, and when a task would not fit answer with the
-  real ECS shape — empty `tasks[]`, `failures:[{arn, reason:"RESOURCE:MEMORY",
-  detail}]` — instead of placing it. `sim/container_memory.go` observes what a
-  running container reached; it is not a commitment ledger and should not be
-  bent into one.
 
 - **BUG-2995 (DynamoDB carries provisioned throughput but never enforces it):**
   `DDBTable` stores `ProvisionedThroughput` (`ReadCapacityUnits`,
@@ -291,6 +263,33 @@ Open: 12. Resolved: 94.
   clean checkout and fails each corruption with the message that names it.
 
 ## Resolved history
+
+- ~~**BUG-2994 (RunTask never refuses placement, so a consumer's capacity
+  handling is never exercised here):**~~ Real ECS answers RunTask with HTTP
+  200, an empty `tasks[]` and a populated `failures[]` when it cannot place a
+  task, synchronously, at placement time; this simulator's `runECSTasks` had no
+  placement model and `handleECSRunTask` wrote `"failures": []any{}`
+  unconditionally, so ecs-dev-desktop's placement-failure handling
+  (`ecs-compute-provider.ts:691`) had never run against it. **Fixed** by a
+  commitment ledger grounded in the one finite host the simulator is
+  (`simulator-aws/ecs_placement.go`): every placed task commits the memory and
+  CPU its task definition declares — task-level with request overrides, or the
+  container hard limits/reservations summed for a per-container EC2 definition
+  — against what the host can commit, read once from the simulator's own
+  cgroup (`memory.max`, `cpu.max`) or, unbounded, from the machine (macOS:
+  `hw.memsize`). The ledger is the task store (a task holds its commitment
+  until STOPPED) plus the reservations of tasks between "decided" and "stored",
+  so two concurrent RunTasks cannot both be granted the last slot; placement is
+  decided before the ENI, the managed volume or the record exist, so a refused
+  task allocates nothing. A task that does not fit comes back in `failures[]`
+  with the real shape — Fargate: the cluster ARN and "Capacity is unavailable
+  at this time…"; EC2: the container instance (or cluster) ARN and
+  `RESOURCE:MEMORY` / `RESOURCE:CPU` — with a `detail` carrying the ledger;
+  the tasks in the same count that did fit are launched. StartTask reports the
+  same failures, and the service scheduler records a refused batch through the
+  existing launch-failure path (service event, backoff, circuit breaker).
+  Sizing the simulator's container (`--memory`, `--cpus`) is therefore the
+  capacity knob. Tests: `ecs_placement_test.go`.
 
 - ~~**BUG-2978 (the Google Cloud workload hosts pulled from Artifact Registry
   with no credential, so no workload could start from the registry once it
