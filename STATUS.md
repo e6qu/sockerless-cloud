@@ -66,6 +66,13 @@ Current state of the sockerless-cloud repository.
 - **A workload starts where its definition says**: an Amazon ECS container
   definition's `workingDirectory` reaches the engine, which creates the
   directory when the image lacks it, and an ExecuteCommand session inherits it.
+- **A task is placed only where it fits.** Amazon ECS RunTask commits each
+  placed task's declared memory and CPU against what the simulator's own
+  cgroup (or the machine) can hold, and refuses a task that would not fit the
+  way the service does — HTTP 200, no task, a `failures[]` entry with
+  Fargate's capacity message or `RESOURCE:MEMORY`/`RESOURCE:CPU` — before any
+  ENI, volume or record exists. The simulator container's memory and CPU
+  limits are its capacity.
 - **A stopped workload gets its cloud's grace** between SIGTERM and SIGKILL:
   an Amazon ECS container definition's `stopTimeout`, Cloud Run's ten seconds,
   a Container App template's `terminationGracePeriodSeconds`, App Service's
