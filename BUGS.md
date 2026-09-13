@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 11. Resolved: 49.
+Open: 11. Resolved: 99.
 
 ## Open
 
