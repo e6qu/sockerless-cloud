@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 12. Resolved: 95.
+Open: 12. Resolved: 96.
 
 ## Open
 
@@ -280,6 +280,23 @@ Open: 12. Resolved: 95.
   clean checkout and fails each corruption with the message that names it.
 
 ## Resolved history
+
+- ~~**BUG-2997 (the freshness gate failed a pull request for npm drift that
+  main carried identically):**~~ `check-latest-deps.sh --baseline origin/main`
+  attributes each drift before failing on it — a pin byte-identical to the
+  baseline's is upstream moving under the branch, reported and annotated but
+  not failed — and the Go, Terraform and Actions halves all go through
+  `report_version_state` for that. The npm half printed its own `FAIL` and never
+  asked the baseline, so a console package that aged out of the quarantine
+  while a pull request was open failed that pull request for a pin `main` held
+  identically: #162 failed twice in one day this way (`@cloudscape-design/
+  components`, `@fluentui/react-icons`, then `@cloudscape-design/global-styles`
+  on the branch that followed), each time cleared by bumping the package on
+  the branch, which is the scheduled run's job. Fixed: the npm half reports
+  through `report_version_state` with the manifest and the quoted package name
+  as the baseline token; `scripts/test-latest-deps-baseline.sh` now carries the
+  npm cases (fails with no baseline, inherited when unchanged, still fails when
+  the branch moved it).
 
 - ~~**BUG-2994 (RunTask never refuses placement, so a consumer's capacity
   handling is never exercised here):**~~ Real ECS answers RunTask with HTTP

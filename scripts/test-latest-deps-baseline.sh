@@ -27,6 +27,10 @@ superseded_version='v2.5.0'
 other_version='v2.4.0'
 superseded_action='actions/checkout'
 superseded_action_tag='v4.0.0'
+# An npm package the console depends on, at a release years behind.
+superseded_npm='@cloudscape-design/global-styles'
+superseded_npm_version='1.0.1'
+other_npm_version='1.0.2'
 
 mkdir -p "$fixture/scripts" "$fixture/.github/workflows"
 cp "$root/scripts/check-latest-deps.sh" "$fixture/scripts/"
@@ -42,6 +46,19 @@ module example.invalid/fixture
 go 1.25
 
 require $superseded_module $1
+EOF
+}
+
+write_ui_manifest() {
+	mkdir -p "$fixture/ui"
+	cat >"$fixture/ui/package.json" <<EOF
+{
+  "name": "fixture-ui",
+  "private": true,
+  "dependencies": {
+    "$superseded_npm": "^$1"
+  }
+}
 EOF
 }
 
@@ -63,6 +80,7 @@ git -C "$fixture" config user.email latest-deps@example.invalid
 git -C "$fixture" config user.name 'latest deps fixture'
 write_gomod "$superseded_version"
 write_workflow "$superseded_action_tag"
+write_ui_manifest "$superseded_npm_version"
 git -C "$fixture" add -A
 git -C "$fixture" commit -qm 'baseline'
 baseline="$(git -C "$fixture" rev-parse HEAD)"
@@ -95,6 +113,9 @@ expect 1 "FAIL  .: $superseded_module pinned $superseded_version" \
 expect 1 "FAIL  .github/workflows/fixture.yml: $superseded_action pinned $superseded_action_tag" \
 	'a superseded action tag fails when nothing is attributed'
 
+expect 1 "FAIL  ui/package.json: $superseded_npm pinned $superseded_npm_version" \
+	'a superseded npm pin fails when nothing is attributed'
+
 # 2. The baseline records the same pins, so the branch did not let anything
 #    rot: upstream moved underneath it. Reported, annotated, not failed.
 expect 0 "INHERITED  .: $superseded_module pinned $superseded_version" \
@@ -103,12 +124,23 @@ expect 0 "INHERITED  .: $superseded_module pinned $superseded_version" \
 expect 0 "INHERITED  .github/workflows/fixture.yml: $superseded_action pinned $superseded_action_tag" \
 	'an action tag unchanged from the baseline is inherited' --baseline "$baseline"
 
+# The npm half went straight to FAIL and never asked the baseline, so a console
+# package that aged out of the quarantine while a pull request was open failed
+# that pull request for drift main carried identically.
+expect 0 "INHERITED  ui/package.json: $superseded_npm pinned $superseded_npm_version" \
+	'an npm pin unchanged from the baseline is inherited' --baseline "$baseline"
+
 # 3. Negative control: the branch moved the pin. It is the branch's own, and a
 #    baseline must not forgive it just because the result is still behind.
 write_gomod "$other_version"
 expect 1 "FAIL  .: $superseded_module pinned $other_version" \
 	'a Go pin the branch moved still fails against a baseline' --baseline "$baseline"
 write_gomod "$superseded_version"
+
+write_ui_manifest "$other_npm_version"
+expect 1 "FAIL  ui/package.json: $superseded_npm pinned $other_npm_version" \
+	'an npm pin the branch moved still fails against a baseline' --baseline "$baseline"
+write_ui_manifest "$superseded_npm_version"
 
 # 4. Negative control: absence is not inheritance. A file the baseline does not
 #    have is a file the branch added, and its pins are the branch's own.
