@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 11. Resolved: 99.
+Open: 10. Resolved: 100.
 
 ## Open
 
@@ -74,8 +74,40 @@ Open: 11. Resolved: 99.
 | 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260814, fetched and checked again on 2026-08-23) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
-- **BUG-42 (the shared azurerm stack's guest boots on an arm64 host and never
-  reaches userspace):** Re-read against the machine on 2026-09-01, and the
+## Resolved history
+
+- ~~**BUG-42 (the shared azurerm stack's guest boots on an arm64 host and never
+  reaches userspace):**~~ Resolved and verified 2026-09-14. The entry's own
+  suspicion — an architecture-mismatched guest userspace — was wrong. The
+  cause was Firecracker's opt-in PCI transport: on an aarch64 host the guest
+  never receives the completion interrupt for its first virtio-blk request,
+  so the boot stops after the last kernel initcall with not one byte read
+  from the root image — exactly the "Key type encrypted registered" stall
+  below. #140 (2026-09-08, after this entry was last re-read) launches
+  Firecracker without `--enable-pci`, over the default virtio-MMIO transport
+  that carries the same devices (`realexec/firecracker.go`). Verified on this
+  aarch64 host through the Linux harness: `TestTerraformApplyDestroy` —
+  resource groups, virtual networks, private endpoints and the Firecracker
+  virtual machine — applied, asserted and destroyed in 390.75 s.
+
+  Verifying it needed the harness repaired first, and that is its own defect:
+  `Dockerfile.test`, which the README, the Makefile standard, four Makefiles
+  and `runTerraformTestsInDocker` all build, matched `.gitignore`'s `*.test`
+  (the rule for compiled Go test binaries) and so was never committed —
+  every `make docker-test` and every macOS run of the Azure Terraform suite
+  failed at "open Dockerfile.test". It is committed now, un-ignored by name,
+  and it carries what those suites actually reach for, which the missing file
+  had hidden: Caddy (the HTTPS gateway in front of the simulator) and the
+  Docker CLI (the suites shell out to `docker`), beside pinned Go, Terraform,
+  the three cloud CLIs and Firecracker. And the harness dropped the host's
+  `-run`: a macOS `go test -run TestTerraformApplyDestroy` ran all three
+  stacks inside the container under one 600 s deadline, so the last of them
+  (the subscription stack) timed out for want of budget, not for any fault.
+  `runTerraformTestsInDocker` now parses the host's test flags and carries
+  `-run` and `-skip` in unless `TERRAFORM_TEST_ARGS` is set. The entry as it
+  stood:
+
+  Re-read against the machine on 2026-09-01, and the
   entry it replaces was wrong in both halves.
 
   It said the macOS harness *skips* the stack. It does not: the suite
@@ -111,9 +143,6 @@ Open: 11. Resolved: 99.
   that never reaches userspace cannot configure an address whatever the
   networking is doing. CI's Linux runner runs the whole round trip, so the
   coverage exists while this is open.
-
-
-## Resolved history
 
 - ~~**BUG-2967 (this checkout's git configuration is corrupted by a sibling worktree):**~~
   Resolved 2026-09-14 as machine state, not repository state: the main

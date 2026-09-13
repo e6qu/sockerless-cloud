@@ -358,7 +358,10 @@ a provisioned table states its units, an on-demand one does not.
 
 README, the Makefile standard, four Makefiles and the Azure and Google Cloud
 Terraform harnesses all named `Dockerfile.test`, and none of them had it — the
-file never made it into the extraction — so every `make docker-test` and every
-macOS run of those suites failed at "open Dockerfile.test". It exists now, with
-every toolchain pinned to a version and a digest (Go, Terraform, the three
-CLIs, Firecracker, Caddy), because the image decides what a test result means.
+file matched `.gitignore`'s `*.test`, the rule for compiled Go test binaries,
+so it was never committed — every `make docker-test` and every macOS run of
+those suites failed at "open Dockerfile.test". It is committed now, un-ignored
+by name, with every toolchain pinned to a version and a digest (Go, Terraform,
+the three cloud CLIs, Firecracker, Caddy, the Docker CLI), because the image
+decides what a test result means. With it, the shared azurerm stack's
+Firecracker guest was verified to boot on an arm64 host (BUG-42).
