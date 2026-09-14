@@ -245,8 +245,17 @@ type ECSTaskDefinition struct {
 }
 
 type ECSTaskContainer struct {
-	ContainerArn      string                `json:"containerArn"`
+	ContainerArn string `json:"containerArn"`
+	// The task, image, digest and sizing Amazon ECS reports for each container
+	// in DescribeTasks. imageDigest is known once the image is pulled; cpu is
+	// "0" when the definition set none, memory and memoryReservation are absent.
+	TaskArn           string                `json:"taskArn,omitempty"`
 	Name              string                `json:"name"`
+	Image             string                `json:"image,omitempty"`
+	ImageDigest       string                `json:"imageDigest,omitempty"`
+	Cpu               string                `json:"cpu,omitempty"`
+	Memory            string                `json:"memory,omitempty"`
+	MemoryReservation string                `json:"memoryReservation,omitempty"`
 	LastStatus        string                `json:"lastStatus"`
 	ExitCode          *int                  `json:"exitCode,omitempty"`
 	Reason            string                `json:"reason,omitempty"`
@@ -1594,9 +1603,12 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 		for _, cd := range td.ContainerDefinitions {
 			c := ECSTaskContainer{
 				ContainerArn: fmt.Sprintf("arn:aws:ecs:"+awsRegion()+":"+awsAccountID()+":container/%s", generateUUID()),
+				TaskArn:      taskArn,
 				Name:         cd.Name,
+				Image:        cd.Image,
 				LastStatus:   "PROVISIONING",
 			}
+			ecsApplyContainerSizing(&c, cd, in.Overrides)
 			if networkMode == ecsNetworkModeAwsvpc {
 				c.NetworkInterfaces = []ECSNetworkInterface{{
 					AttachmentId:       eniID,
@@ -1630,7 +1642,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			LaunchType:           in.LaunchType,
 			Cpu:                  ecsTaskCPU(td, in.Overrides),
 			Memory:               ecsTaskMemory(td, in.Overrides),
-			Group:                in.Group,
+			Group:                ecsTaskGroup(in.Group, td),
 			Overrides:            in.Overrides,
 			EnableExecuteCommand: in.EnableExecuteCommand,
 			StartedBy:            in.StartedBy,
@@ -2159,6 +2171,9 @@ func ecsTaskSandbox(launchType string, privileged bool) sim.SandboxProfile {
 type ecsResolvedImage struct {
 	Image    string
 	Platform string
+	// Digest is the manifest digest Amazon ECS reports as the container's
+	// imageDigest.
+	Digest string
 }
 
 // ecsEpochSeconds is the ECS API's timestamp shape (seconds since the epoch,
@@ -2306,10 +2321,23 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			cleanupECSTaskProcesses(taskID, processes)
 			return nil, fmt.Errorf("resolve task container %q image platform: %w", cd.Name, err)
 		}
-		images[cd.Name] = ecsResolvedImage{Image: localImage, Platform: platform}
+		digest, err := localImageDigest(context.Background(), cd.Image, localImage)
+		if err != nil {
+			cleanupECSTaskProcesses(taskID, processes)
+			return nil, fmt.Errorf("resolve task container %q image digest: %w", cd.Name, err)
+		}
+		images[cd.Name] = ecsResolvedImage{Image: localImage, Platform: platform, Digest: digest}
 	}
 	pullStoppedAt := ecsEpochSeconds()
-	ecsTasks.Update(taskID, func(t *ECSTask) { t.PullStoppedAt = &pullStoppedAt })
+	ecsTasks.Update(taskID, func(t *ECSTask) {
+		t.PullStoppedAt = &pullStoppedAt
+		// The agent knows each container's digest once its image is present.
+		for j := range t.Containers {
+			if img, ok := images[t.Containers[j].Name]; ok {
+				t.Containers[j].ImageDigest = img.Digest
+			}
+		}
+	})
 	phases.Mark("image-pull")
 
 	for i, cd := range td.ContainerDefinitions {
@@ -3633,4 +3661,37 @@ func validateFargateResources(cpuStr, memStr string) error {
 			mem, cpu, combo.memMin, combo.memMax, combo.memInc)
 	}
 	return fmt.Errorf("invalid cpu value %d, valid values: 256, 512, 1024, 2048, 4096, 8192, 16384", cpu)
+}
+
+// ecsTaskGroup is the task group Amazon ECS records: the one the request named,
+// or `family:<family>` — the documented default — when it named none.
+func ecsTaskGroup(requested string, td ECSTaskDefinition) string {
+	if requested != "" {
+		return requested
+	}
+	return "family:" + td.Family
+}
+
+// ecsApplyContainerSizing reports a container's CPU units and memory the way
+// Amazon ECS does in DescribeTasks — strings, from the container definition
+// with the run's container override applied. cpu is "0" when neither set it.
+func ecsApplyContainerSizing(c *ECSTaskContainer, cd ECSContainerDefinition, overrides *ECSTaskOverride) {
+	cpu, memory, reservation := cd.Cpu, cd.Memory, cd.MemoryReservation
+	o := ecsContainerOverrideFor(overrides, cd.Name)
+	if o.Cpu != nil {
+		cpu = *o.Cpu
+	}
+	if o.Memory != nil {
+		memory = *o.Memory
+	}
+	if o.MemoryReservation != nil {
+		reservation = *o.MemoryReservation
+	}
+	c.Cpu = strconv.Itoa(cpu)
+	if memory > 0 {
+		c.Memory = strconv.Itoa(memory)
+	}
+	if reservation > 0 {
+		c.MemoryReservation = strconv.Itoa(reservation)
+	}
 }

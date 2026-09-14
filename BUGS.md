@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 10. Resolved: 100.
+Open: 10. Resolved: 101.
 
 ## Open
 
@@ -75,6 +75,20 @@ Open: 10. Resolved: 100.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-2998 (DescribeTasks omitted each container's image, digest and sizing,
+  and a task RunTask gave no group had none):**~~ Found on the Scaleway stack
+  on 2026-09-14 while confirming a control-plane rollout: `describe-tasks`
+  returned `containers[]` with only `containerArn`, `name`, `lastStatus` and
+  `networkInterfaces`, so a caller could not confirm from the API which image a
+  task runs — and the scheduler-started reconciler task had no `group`, where
+  Amazon ECS records `family:<family>` by default. **Fixed**: each container
+  carries `taskArn`, `image`, `cpu` (as a string, "0" when unset), `memory`
+  and `memoryReservation` (with the run's container overrides applied), and
+  `imageDigest` once the image is present — the reference's own pin, or the
+  engine's repository digest for the reference's repository; a task RunTask
+  names no group for gets `family:<family>`. Tests:
+  `ecs_task_container_fields_test.go`.
 
 - ~~**BUG-42 (the shared azurerm stack's guest boots on an arm64 host and never
   reaches userspace):**~~ Resolved and verified 2026-09-14. The entry's own
