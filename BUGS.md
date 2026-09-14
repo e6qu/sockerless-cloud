@@ -1,8 +1,27 @@
 # BUGS
 
-Open: 9. Resolved: 104.
+Open: 10. Resolved: 104.
 
 ## Open
+
+- **BUG-3001 (the AWS and Google Cloud CLI harnesses parse JSON out of stdout
+  and stderr merged):** `runCLI` in `simulator-aws/cli-tests` and
+  `simulator-gcp/cli-tests` writes both streams into one buffer and returns
+  it, and 664 AWS and 59 Google Cloud call sites parse that return as JSON.
+  The Azure harness shows what that costs: az's Python interpreter writes a
+  SyntaxWarning to stderr when it compiles a module instead of loading cached
+  bytecode, so the warning lands on whichever command runs first, and a
+  merged stream put it in front of a correct response — it failed
+  `TestRedisCLI_ARMResources` on #171 (`waitForCLIJSON`, now split). gcloud
+  is a Python program run by the system interpreter and prints its own
+  `WARNING:` lines and status messages (`Created [...]`) to stderr, so the
+  same failure is one interpreter or SDK update away there; the AWS CLI v2 is
+  a frozen bundle and cannot hit the compile warning, but writes its own
+  warnings to stderr too. Not changed in #171 because some call sites may
+  assert on text the CLIs write to stderr on success, and switching `runCLI`
+  to stdout needs those found first. Fix shape: `runCLI` returns stdout,
+  a `runCLIStreams` returns both for the sites that read stderr, and each CLI
+  suite runs in CI to find the sites that relied on the merge.
 
 - **BUG-2996 (a managed EBS volume is a directory on the host, so the workload
   sees the host's disk, not its volume):** an Amazon ECS task's managed EBS

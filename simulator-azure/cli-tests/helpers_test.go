@@ -301,18 +301,35 @@ func runCLI(t *testing.T, cmd *exec.Cmd) string {
 // the only place a header is printed.
 func runCLIStreams(t *testing.T, cmd *exec.Cmd) (string, string) {
 	t.Helper()
+	stdout, stderr, err := runCLIStreamsResult(cmd)
+	if err != nil {
+		// A failure reports both streams: az writes its error message to
+		// stderr, and dropping it here would leave the reason invisible.
+		t.Fatalf("CLI command failed: %v\nCommand: %s\nStdout: %s\nStderr: %s",
+			err, strings.Join(cmd.Args, " "), stdout, stderr)
+	}
+	return stdout, stderr
+}
+
+// runCLIStreamsResult runs an az command with its two streams captured apart
+// and returns the error instead of failing the test, for callers that retry.
+//
+// az is a Python program, and the interpreter writes its own diagnostics to
+// stderr: recent versions compile a module that raises a SyntaxWarning
+// ("<unknown>:1: SyntaxWarning: invalid decimal literal"). That is not part of
+// az's data contract — stdout is — so the two streams are captured apart.
+// Merging them put the warning in front of the JSON and made a perfectly good
+// response unparseable. The warning is raised only when Python compiles the
+// module rather than loading its cached bytecode, so it lands on whichever
+// command runs first on a runner: runCLI was fixed for it, and waitForCLIJSON,
+// which still merged the streams, failed TestRedisCLI_ARMResources on
+// sockerless-cloud#171 with the warning in front of a correct Redis resource.
+//
+// PYTHONWARNINGS is still set, because silencing interpreter noise at the
+// source is better than reading around it; it is not relied on, because az
+// configures Python's warning filters itself and can undo it.
+func runCLIStreamsResult(cmd *exec.Cmd) (string, string, error) {
 	const perCmdTimeout = 60 * time.Second
-	// az is a Python program, and the interpreter writes its own diagnostics to
-	// stderr: recent versions compile a module that raises a SyntaxWarning
-	// ("<unknown>:1: SyntaxWarning: invalid decimal literal"). That is not part
-	// of az's data contract — stdout is — so the two streams are captured
-	// apart. Merging them put the warning in front of the JSON and made a
-	// perfectly good response unparseable, on the runner only, because the
-	// warning depends on the interpreter build there.
-	//
-	// PYTHONWARNINGS is still set, because silencing interpreter noise at the
-	// source is better than reading around it; it is not relied on, because az
-	// configures Python's warning filters itself and can undo it.
 	if cmd.Env == nil {
 		cmd.Env = os.Environ()
 	}
@@ -321,19 +338,14 @@ func runCLIStreams(t *testing.T, cmd *exec.Cmd) (string, string) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("CLI command failed to start: %v\nCommand: %s", err, strings.Join(cmd.Args, " "))
+		return "", "", fmt.Errorf("start: %w", err)
 	}
 	// Kill a hung CLI call so it can't consume the whole suite timeout and mask
 	// the real failure in the error message.
 	timer := time.AfterFunc(perCmdTimeout, func() { _ = cmd.Process.Kill() })
 	defer timer.Stop()
-	if err := cmd.Wait(); err != nil {
-		// A failure reports both streams: az writes its error message to
-		// stderr, and dropping it here would leave the reason invisible.
-		t.Fatalf("CLI command failed: %v\nCommand: %s\nStdout: %s\nStderr: %s",
-			err, strings.Join(cmd.Args, " "), stdout.String(), stderr.String())
-	}
-	return stdout.String(), stderr.String()
+	err := cmd.Wait()
+	return stdout.String(), stderr.String(), err
 }
 
 func parseJSON(t *testing.T, data string, target any) {
@@ -397,15 +409,18 @@ func waitForCLIJSON(t *testing.T, url string, ready func(string) bool) string {
 	// Generous deadline: each `az rest` poll pays Python startup cost, so a tight
 	// window allows only a few attempts and races on a loaded CI runner.
 	deadline := time.Now().Add(30 * time.Second)
-	var last string
+	var last, lastStderr string
 	for {
-		out, err := azRest("GET", url, "").CombinedOutput()
-		last = string(out)
+		// Stdout alone is the resource: see runCLIStreamsResult for why stderr
+		// must never reach the JSON the caller parses.
+		stdout, stderr, err := runCLIStreamsResult(azRest("GET", url, ""))
+		last, lastStderr = stdout, stderr
 		if err == nil && ready(last) {
 			return last
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for CLI resource state at %s; last output: %s", url, last)
+			t.Fatalf("timed out waiting for CLI resource state at %s; last error: %v\nlast stdout: %s\nlast stderr: %s",
+				url, err, last, lastStderr)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
