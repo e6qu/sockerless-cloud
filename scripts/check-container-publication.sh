@@ -29,14 +29,23 @@ expect_count 1 '          provenance: false'
 # rejects anything that is not a full 40-character SHA, so this is the label
 # that always names what was built.
 expect_count 1 "          labels: org.opencontainers.image.revision=${gha}{{ needs.prepare.outputs.commit }}"
-if [[ "$(grep -Fc "test \"\$MEDIA_TYPE\" = \"application/vnd.oci.image.manifest.v1+json\"" "$workflow")" != 1 ]]; then
-	echo 'publication workflow must verify both architecture tags are direct OCI manifests' >&2
-	exit 1
-fi
-if [[ "$(grep -Fc "test \"\$MEDIA_TYPE\" = \"application/vnd.oci.image.index.v1+json\"" "$workflow")" != 1 ]]; then
-	echo 'publication workflow must verify the generic tag is an OCI index' >&2
-	exit 1
-fi
+# Both workflows compose the multi-architecture index through one script, which
+# also verifies what it composed; the workflows pin the tag they hand it, and the
+# script's own checks are pinned once below.
+expect_count 1 "        run: bash scripts/compose-multiarch-manifest.sh \"${gha}{{ env.REGISTRY }}/e6qu/${gha}{{ matrix.image }}:${gha}{{ needs.prepare.outputs.short_sha }}\""
+compose_script="$root/scripts/compose-multiarch-manifest.sh"
+expect_compose_count() {
+	local expected="$1" literal="$2" message="$3" actual
+	actual="$(grep -Fxc -- "$literal" "$compose_script" || true)"
+	if [[ "$actual" != "$expected" ]]; then
+		echo "$message (expected $expected exact occurrence(s) in $compose_script, found $actual: $literal)" >&2
+		exit 1
+	fi
+}
+expect_compose_count 1 "for ref in \"${gha}amd64_ref\" \"${gha}arm64_ref\"; do" 'manifest composition must verify both architecture tags'
+expect_compose_count 1 "  test \"${gha}media_type\" = \"application/vnd.oci.image.manifest.v1+json\"" 'manifest composition must verify both architecture tags are direct OCI manifests'
+expect_compose_count 1 "test \"${gha}media_type\" = \"application/vnd.oci.image.index.v1+json\"" 'manifest composition must verify the generic tag is an OCI index'
+expect_compose_count 1 "test \"\$platforms\" = \"\$(printf 'linux/amd64\\nlinux/arm64')\"" 'manifest composition must verify the index holds exactly linux/amd64 and linux/arm64'
 # A publish produces the immutable artifact for one commit and no later commit
 # can produce it, so its concurrency group is the commit and nothing supersedes
 # it. scripts/check-workflow-concurrency.sh states the rule for every workflow;
@@ -113,14 +122,7 @@ expect_release_count 1 '          - { platform: linux/arm64, runner: ubuntu-24.0
 expect_release_count 1 "          tags: ghcr.io/e6qu/${gha}{{ matrix.image.name }}:${gha}{{ inputs.tag_name }}-${gha}{{ matrix.arch.suffix }}"
 expect_release_count 1 '          provenance: false'
 expect_release_count 1 "          labels: org.opencontainers.image.revision=${gha}{{ github.sha }}"
-if [[ "$(grep -Fc "test \"\$MEDIA_TYPE\" = \"application/vnd.oci.image.manifest.v1+json\"" "$release_workflow")" != 1 ]]; then
-	echo 'release workflow must verify both architecture tags are direct OCI manifests' >&2
-	exit 1
-fi
-if [[ "$(grep -Fc "test \"\$MEDIA_TYPE\" = \"application/vnd.oci.image.index.v1+json\"" "$release_workflow")" != 1 ]]; then
-	echo 'release workflow must verify the generic tag is an OCI index' >&2
-	exit 1
-fi
+expect_release_count 1 "        run: bash scripts/compose-multiarch-manifest.sh \"ghcr.io/e6qu/${gha}{{ matrix.image }}:\${TAG_NAME}\""
 for image in sockerless-simulator-aws sockerless-simulator-gcp sockerless-simulator-azure; do
 	count="$(grep -Fc -- "$image" "$release_workflow")"
 	if [[ "$count" != 2 ]]; then

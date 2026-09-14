@@ -162,34 +162,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: actions/checkout@v7.0.1
       - name: Compose multi-arch manifest list
         shell: bash
         env:
           TAG_NAME: ${{ inputs.tag_name }}
-        run: |
-          set -euo pipefail
-          TAG="ghcr.io/e6qu/${{ matrix.image }}:${TAG_NAME}"
-          AMD64_REF="$TAG-amd64"
-          ARM64_REF="$TAG-arm64"
-          echo "▸ assembling $TAG from $AMD64_REF + $ARM64_REF"
-          docker buildx imagetools create \
-            --tag "$TAG" \
-            "$AMD64_REF" \
-            "$ARM64_REF"
-
-          for REF in "$AMD64_REF" "$ARM64_REF"; do
-            MEDIA_TYPE=$(docker buildx imagetools inspect \
-              --format '{{.Manifest.MediaType}}' "$REF")
-            test "$MEDIA_TYPE" = "application/vnd.oci.image.manifest.v1+json"
-          done
-
-          MEDIA_TYPE=$(docker buildx imagetools inspect \
-            --format '{{.Manifest.MediaType}}' "$TAG")
-          test "$MEDIA_TYPE" = "application/vnd.oci.image.index.v1+json"
-          PLATFORMS=$(docker buildx imagetools inspect \
-            --format '{{range .Manifest.Manifests}}{{printf "%s/%s\n" .Platform.OS .Platform.Architecture}}{{end}}' \
-            "$TAG" | sort)
-          test "$PLATFORMS" = "$(printf 'linux/amd64\nlinux/arm64')"
+        run: bash scripts/compose-multiarch-manifest.sh "ghcr.io/e6qu/${{ matrix.image }}:${TAG_NAME}"
 
   # The tag is pushed when the release pull request merges and the artifacts are
   # built against it afterwards, so a stalled build leaves a published release
