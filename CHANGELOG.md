@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.3](https://github.com/e6qu/sockerless-cloud/compare/v0.32.2...v0.32.3) (2026-09-14)
+
+
+### Bug Fixes
+
+* **aws:** DescribeTasks reports each container's image, digest and sizing, and the Route 53 resolver no longer defaults to mDNS's port ([#169](https://github.com/e6qu/sockerless-cloud/issues/169)) ([3d2487b](https://github.com/e6qu/sockerless-cloud/commit/3d2487b77eee1d65a8ab7f307bfbdf9667bc4113))
+
 ## [0.32.2](https://github.com/e6qu/sockerless-cloud/compare/v0.32.1...v0.32.2) (2026-09-14)
 
 
