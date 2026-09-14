@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.2](https://github.com/e6qu/sockerless-cloud/compare/v0.32.1...v0.32.2) (2026-09-14)
+
+
+### Bug Fixes
+
+* enforce DynamoDB provisioned throughput, commit the shared test harness, and re-read the open bugs ([#167](https://github.com/e6qu/sockerless-cloud/issues/167)) ([ac679a3](https://github.com/e6qu/sockerless-cloud/commit/ac679a3f7796b24c38b9d0d2460c120c75c05f1e))
+
 ## [0.32.1](https://github.com/e6qu/sockerless-cloud/compare/v0.32.0...v0.32.1) (2026-09-13)
 
 
