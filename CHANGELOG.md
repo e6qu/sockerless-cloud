@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.1](https://github.com/e6qu/sockerless-cloud/compare/v0.32.0...v0.32.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* **check-deps:** npm drift the baseline already carried is inherited, not the branch's ([#165](https://github.com/e6qu/sockerless-cloud/issues/165)) ([343bf01](https://github.com/e6qu/sockerless-cloud/commit/343bf010ed495e42b3eceeb44353df914b610406))
+
 ## [0.32.0](https://github.com/e6qu/sockerless-cloud/compare/v0.31.7...v0.32.0) (2026-09-13)
 
 
