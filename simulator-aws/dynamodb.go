@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
 	"net/http"
 	"sort"
@@ -554,6 +555,7 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 		AttributeDefinitions   []DDBAttributeDef         `json:"AttributeDefinitions"`
 		KeySchema              []DDBKeySchemaEntry       `json:"KeySchema"`
 		BillingMode            string                    `json:"BillingMode"`
+		ProvisionedThroughput  *DDBProvisionedThroughput `json:"ProvisionedThroughput"`
 		GlobalSecondaryIndexes []DDBGlobalSecondaryIndex `json:"GlobalSecondaryIndexes"`
 		LocalSecondaryIndexes  []DDBLocalSecondaryIndex  `json:"LocalSecondaryIndexes"`
 		VectorIndexes          []map[string]any          `json:"VectorIndexes"`
@@ -605,6 +607,34 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 	if billingMode == "" {
 		billingMode = "PROVISIONED"
 	}
+	// The service's own rule: a PROVISIONED table (the default) states both
+	// units, and an on-demand table states neither. The request's throughput
+	// used to be dropped on the floor, so every provisioned table described
+	// itself as 0/0 and nothing could be enforced.
+	hasUnits := req.ProvisionedThroughput != nil &&
+		(req.ProvisionedThroughput.ReadCapacityUnits > 0 || req.ProvisionedThroughput.WriteCapacityUnits > 0)
+	switch {
+	case strings.EqualFold(billingMode, "PROVISIONED") &&
+		(req.ProvisionedThroughput == nil || req.ProvisionedThroughput.ReadCapacityUnits < 1 || req.ProvisionedThroughput.WriteCapacityUnits < 1):
+		AWSError(w, "ValidationException",
+			"One or more parameter values were invalid: ReadCapacityUnits and WriteCapacityUnits must both be specified when BillingMode is PROVISIONED",
+			http.StatusBadRequest)
+		return
+	case strings.EqualFold(billingMode, "PAY_PER_REQUEST") && hasUnits:
+		AWSError(w, "ValidationException",
+			"One or more parameter values were invalid: Neither ReadCapacityUnits nor WriteCapacityUnits can be specified when BillingMode is PAY_PER_REQUEST",
+			http.StatusBadRequest)
+		return
+	}
+	if strings.EqualFold(billingMode, "PROVISIONED") {
+		for _, g := range req.GlobalSecondaryIndexes {
+			if g.ProvisionedThroughput == nil || g.ProvisionedThroughput.ReadCapacityUnits < 1 || g.ProvisionedThroughput.WriteCapacityUnits < 1 {
+				AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+					"One or more parameter values were invalid: ProvisionedThroughput must be specified for index: %s", g.IndexName)
+				return
+			}
+		}
+	}
 	now := float64(time.Now().Unix())
 
 	// Model secondary indexes as immediately ACTIVE. terraform-provider-aws
@@ -633,11 +663,7 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 		},
 		// Real AWS returns a zero-filled ProvisionedThroughput even for
 		// PAY_PER_REQUEST tables so terraform's reader doesn't NPE.
-		ProvisionedThroughput: &DDBProvisionedThroughput{
-			NumberOfDecreasesToday: 0,
-			ReadCapacityUnits:      0,
-			WriteCapacityUnits:     0,
-		},
+		ProvisionedThroughput: ddbTableThroughput(billingMode, req.ProvisionedThroughput),
 		TableClassSummary: &DDBTableClassSummary{
 			TableClass: "STANDARD",
 		},
@@ -793,6 +819,7 @@ func handleDDBUpdateTable(w http.ResponseWriter, r *http.Request) {
 	if req.ProvisionedThroughput != nil {
 		t.ProvisionedThroughput = req.ProvisionedThroughput
 	}
+	defer ddbForgetBuckets(req.TableName)
 	if req.DeletionProtectionEnabled != nil {
 		t.DeletionProtectionEnabled = *req.DeletionProtectionEnabled
 	}
@@ -835,6 +862,7 @@ func handleDDBDeleteTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ddbTables.Delete(req.TableName)
+	ddbForgetBuckets(req.TableName)
 	ddbTableSettings.Delete(req.TableName)
 	// Real DeleteTable deletes the table AND all of its items — purge the
 	// item stores so the rows don't survive into a same-named recreate.
@@ -1155,6 +1183,10 @@ func handleDDBPutItem(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	}
+	if index, ok := ddbTakeWrite(t, req.Item, ddbWriteUnits(req.Item)); !ok {
+		ddbWriteThrottled(w, index)
+		return
+	}
 	defer ddbLockTables(true, req.TableName)()
 	itemKey := ddbItemKey(t, req.Item)
 	old, exists := ddbItems.Get(itemKey)
@@ -1235,6 +1267,10 @@ func handleDDBGetItem(w http.ResponseWriter, r *http.Request) {
 	}
 	itemKey := ddbItemKey(t, req.Key)
 	item, found := ddbItemSnapshot(itemKey)
+	if !ddbTake(t, "", ddbReadUnits(item, req.ConsistentRead), false) {
+		ddbWriteThrottled(w, "")
+		return
+	}
 	out := map[string]any{}
 	if found {
 		out["Item"] = ddbProjectItem(item, req.ProjectionExpression, req.ExpressionAttributeNames)
@@ -1331,6 +1367,10 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := ddbValidateItemSize(item); err != nil {
 		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if index, ok := ddbTakeWrite(t, item, math.Max(ddbWriteUnits(oldItem), ddbWriteUnits(item))); !ok {
+		ddbWriteThrottled(w, index)
 		return
 	}
 	ddbItems.Put(itemKey, item)
@@ -1509,6 +1549,10 @@ func handleDDBDeleteItem(w http.ResponseWriter, r *http.Request) {
 	defer ddbLockTables(true, req.TableName)()
 	itemKey := ddbItemKey(t, req.Key)
 	oldItem, existed := ddbItems.Get(itemKey)
+	if index, ok := ddbTakeWrite(t, oldItem, ddbWriteUnits(oldItem)); !ok {
+		ddbWriteThrottled(w, index)
+		return
+	}
 	if condOK, err := ddbEvalCondition(oldItem, existed, req.ConditionExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues); err != nil {
 		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
@@ -1684,6 +1728,10 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	queryUnits := 0.0
 	for _, it := range items {
 		queryUnits += ddbReadUnits(it, req.ConsistentRead)
+	}
+	if !ddbTake(t, ddbReadIndex(t, req.IndexName), queryUnits, false) {
+		ddbWriteThrottled(w, ddbReadIndex(t, req.IndexName))
+		return
 	}
 	if cc := ddbConsumedCapacity(req.ReturnConsumedCapacity, req.TableName, queryUnits); cc != nil {
 		out["ConsumedCapacity"] = cc
@@ -1876,6 +1924,10 @@ func handleDDBScan(w http.ResponseWriter, r *http.Request) {
 	scanUnits := 0.0
 	for _, it := range items {
 		scanUnits += ddbReadUnits(it, req.ConsistentRead)
+	}
+	if !ddbTake(t, ddbReadIndex(t, req.IndexName), scanUnits, false) {
+		ddbWriteThrottled(w, ddbReadIndex(t, req.IndexName))
+		return
 	}
 	if cc := ddbConsumedCapacity(req.ReturnConsumedCapacity, req.TableName, scanUnits); cc != nil {
 		out["ConsumedCapacity"] = cc
@@ -2108,24 +2160,48 @@ func handleDDBBatchWriteItem(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
+	// As on the service, a throttled entry is not an error: it comes back in
+	// UnprocessedItems for the caller to retry, and only a batch in which
+	// nothing could be processed is refused outright.
+	unprocessed := map[string]any{}
+	processed := 0
 	for tableName, ops := range req.RequestItems {
 		t, _ := ddbTables.Get(tableName)
+		var left []any
 		for _, op := range ops {
 			switch {
 			case op.PutRequest != nil:
+				if _, ok := ddbTakeWrite(t, op.PutRequest.Item, ddbWriteUnits(op.PutRequest.Item)); !ok {
+					left = append(left, map[string]any{"PutRequest": map[string]any{"Item": op.PutRequest.Item}})
+					continue
+				}
 				key := ddbItemKey(t, op.PutRequest.Item)
 				ddbItems.Put(key, op.PutRequest.Item)
 				ddbItemNames.Put(key, key)
 				ddbBumpKeyGen()
+				processed++
 			case op.DeleteRequest != nil:
 				key := ddbItemKey(t, op.DeleteRequest.Key)
+				old, _ := ddbItems.Get(key)
+				if _, ok := ddbTakeWrite(t, old, ddbWriteUnits(old)); !ok {
+					left = append(left, map[string]any{"DeleteRequest": map[string]any{"Key": op.DeleteRequest.Key}})
+					continue
+				}
 				ddbItems.Delete(key)
 				ddbItemNames.Delete(key)
 				ddbBumpKeyGen()
+				processed++
 			}
 		}
+		if len(left) > 0 {
+			unprocessed[tableName] = left
+		}
 	}
-	writeDDBJSON(w, http.StatusOK, map[string]any{"UnprocessedItems": map[string]any{}})
+	if processed == 0 && len(unprocessed) > 0 {
+		ddbWriteThrottled(w, "")
+		return
+	}
+	writeDDBJSON(w, http.StatusOK, map[string]any{"UnprocessedItems": unprocessed})
 }
 
 func handleDDBBatchGetItem(w http.ResponseWriter, r *http.Request) {
@@ -2162,18 +2238,32 @@ func handleDDBBatchGetItem(w http.ResponseWriter, r *http.Request) {
 	}
 	found := ddbItemSnapshots(allKeys)
 	responses := map[string][]map[string]any{}
+	unprocessed := map[string]any{}
 	for tableName, keys := range wanted {
 		items := []map[string]any{}
+		units := 0.0
 		for _, itemKey := range keys {
 			if it, ok := found[itemKey]; ok {
 				items = append(items, it)
+				units += ddbReadUnits(it, false)
+			} else {
+				units += ddbReadUnits(nil, false)
 			}
+		}
+		t, _ := ddbTables.Get(tableName)
+		if !ddbTake(t, "", units, false) {
+			unprocessed[tableName] = map[string]any{"Keys": req.RequestItems[tableName].Keys}
+			continue
 		}
 		responses[tableName] = items
 	}
+	if len(responses) == 0 && len(unprocessed) > 0 {
+		ddbWriteThrottled(w, "")
+		return
+	}
 	writeDDBJSON(w, http.StatusOK, map[string]any{
 		"Responses":       responses,
-		"UnprocessedKeys": map[string]any{},
+		"UnprocessedKeys": unprocessed,
 	})
 }
 
@@ -2225,6 +2315,28 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	defer ddbLockTables(true, transactTables...)()
+	// A transaction spends twice a single write's capacity on every item it
+	// touches, and it spends it before it writes anything: the service refuses
+	// the whole transaction when the table cannot cover it.
+	for _, ti := range req.TransactItems {
+		for _, op := range []*txWrite{ti.Put, ti.Update, ti.Delete, ti.ConditionCheck} {
+			if op == nil {
+				continue
+			}
+			t, ok := ddbTables.Get(op.TableName)
+			if !ok {
+				continue // reported below, where the service reports it
+			}
+			item := op.Item
+			if item == nil {
+				item, _ = ddbItems.Get(ddbItemKey(t, op.Key))
+			}
+			if index, ok := ddbTakeWrite(t, item, 2*ddbWriteUnits(item)); !ok {
+				ddbWriteThrottled(w, index)
+				return
+			}
+		}
+	}
 
 	// Validate exactly-one-op + the table exists, and evaluate EVERY item's
 	// condition so CancellationReasons reflects all items (real DynamoDB returns
@@ -2402,6 +2514,16 @@ func handleDDBTransactGetItems(w http.ResponseWriter, r *http.Request) {
 		itemKeys[i] = ddbItemKey(t, ti.Get.Key)
 	}
 	found := ddbItemSnapshots(itemKeys)
+	for i, ti := range req.TransactItems {
+		if ti.Get == nil {
+			continue
+		}
+		t, _ := ddbTables.Get(ti.Get.TableName)
+		if !ddbTake(t, "", 2*ddbReadUnits(found[itemKeys[i]], true), false) {
+			ddbWriteThrottled(w, "")
+			return
+		}
+	}
 	responses := make([]map[string]any, 0, len(req.TransactItems))
 	for i, ti := range req.TransactItems {
 		if ti.Get == nil {
@@ -2534,3 +2656,16 @@ func ddbAttrValuesEqual(a, b any) bool {
 // ddbItemNames mirrors the keys of ddbItems for iteration. Maintained
 // alongside Put/Delete in handleDDBPutItem etc.
 var ddbItemNames sim.Store[string]
+
+// ddbTableThroughput is what DescribeTable reports: the request's units for a
+// PROVISIONED table; for an on-demand table the zero-filled struct the service
+// itself returns, so terraform's state read has a shape to compare against.
+func ddbTableThroughput(billingMode string, requested *DDBProvisionedThroughput) *DDBProvisionedThroughput {
+	if strings.EqualFold(billingMode, "PROVISIONED") && requested != nil {
+		return &DDBProvisionedThroughput{
+			ReadCapacityUnits:  requested.ReadCapacityUnits,
+			WriteCapacityUnits: requested.WriteCapacityUnits,
+		}
+	}
+	return &DDBProvisionedThroughput{}
+}

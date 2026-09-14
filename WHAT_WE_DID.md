@@ -337,3 +337,31 @@ next task would not fit (`simulator-aws/ecs_placement.go`, BUG-2994). The
 ledger is the task store plus in-flight reservations, decided before any
 allocation happens. The consequence for operators: the simulator container's
 memory and CPU limits are its Fargate capacity.
+
+## DynamoDB's provisioned throughput is enforced, at the table's grain
+
+A PROVISIONED table's read and write units were stored and never spent, so a
+consumer's retry-with-backoff — the path every SDK ships for
+`ProvisionedThroughputExceededException` — never ran here (BUG-2995). The
+choice was between a crude "N requests per second" limiter, which would have
+been a new fake behaviour, and the service's own model. The service's model
+is a token bucket per table and per global secondary index, refilled at the
+provisioned rate and holding 300 seconds of unused capacity as burst; the
+simulator now runs exactly that, spending the units its `ConsumedCapacity`
+accounting already computed, at the granularity a single-partition table has
+(`simulator-aws/dynamodb_throughput.go`). Batches return throttled entries as
+unprocessed rather than failing, on-demand tables are never throttled, and
+`CreateTable` applies the rule that made the numbers real in the first place:
+a provisioned table states its units, an on-demand one does not.
+
+## The shared test harness image is in the repository
+
+README, the Makefile standard, four Makefiles and the Azure and Google Cloud
+Terraform harnesses all named `Dockerfile.test`, and none of them had it — the
+file matched `.gitignore`'s `*.test`, the rule for compiled Go test binaries,
+so it was never committed — every `make docker-test` and every macOS run of
+those suites failed at "open Dockerfile.test". It is committed now, un-ignored
+by name, with every toolchain pinned to a version and a digest (Go, Terraform,
+the three cloud CLIs, Firecracker, Caddy, the Docker CLI), because the image
+decides what a test result means. With it, the shared azurerm stack's
+Firecracker guest was verified to boot on an arm64 host (BUG-42).

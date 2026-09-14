@@ -91,3 +91,8 @@ tmp/
 # Per-user Claude state
 .claude/*
 !.claude/skills/
+
+# The shared Linux test harness image (README, the Makefiles and the Azure and
+# Google Cloud Terraform harnesses build it). `*.test` above is for compiled Go
+# test binaries and matched this file too, so it was never committed.
+!/Dockerfile.test

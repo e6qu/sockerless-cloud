@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -272,9 +273,14 @@ func runTerraformTestsInDocker() int {
 	args = append(args, image, "go", "test", "-v", "-count=1", "-timeout", innerTimeout)
 	// Carry the caller's selection into the container. Dropping it silently ran
 	// the whole suite for a `-run`-scoped invocation, so a developer narrowing to
-	// one test still launched every heavyweight terraform graph.
+	// one test still launched every heavyweight terraform graph — and ran them
+	// all under one deadline, so the last graph timed out for want of budget.
+	// TERRAFORM_TEST_ARGS (what the Makefile and CI pass) wins; otherwise the
+	// host's own `-run` and `-skip` go in, which is what `go test -run X` asked.
 	if extra := strings.Fields(os.Getenv("TERRAFORM_TEST_ARGS")); len(extra) > 0 {
 		args = append(args, extra...)
+	} else {
+		args = append(args, hostTestSelection()...)
 	}
 	args = append(args, "./...")
 
@@ -289,6 +295,24 @@ func runTerraformTestsInDocker() int {
 		return 1
 	}
 	return 0
+}
+
+// hostTestSelection is the `-run` and `-skip` this `go test` was invoked with,
+// as flags for the `go test` inside the container. TestMain runs before the
+// testing package parses its flags, so they are parsed here first.
+func hostTestSelection() []string {
+	if !flag.Parsed() {
+		flag.Parse()
+	}
+	var out []string
+	for _, name := range []string{"run", "skip"} {
+		f := flag.Lookup("test." + name)
+		if f == nil || f.Value.String() == "" {
+			continue
+		}
+		out = append(out, "-"+name, f.Value.String())
+	}
+	return out
 }
 
 func dockerSocketGroup() string {

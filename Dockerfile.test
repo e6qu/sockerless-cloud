@@ -1,0 +1,131 @@
+# syntax=docker/dockerfile:1
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# The shared Linux test harness image. `make docker-test` in every simulator
+# directory, and the macOS path of the Azure and Google Cloud Terraform suites
+# (`runTerraformTestsInDocker`), run the SDK, CLI and Terraform suites inside
+# this image with the repository mounted at /src and the host engine socket
+# mounted, so a developer on macOS exercises the same real-network handlers —
+# namespaces, bridges, veth pairs, nftables, Firecracker — that CI does on its
+# Linux runners. README.md, docs/MAKEFILE_STANDARD.md, four Makefiles and the
+# Go harness all named this file; none of them had it until now, so every one
+# of those paths failed at "open Dockerfile.test: no such file or directory".
+#
+# Every download is pinned to a version and a digest: this image decides what a
+# test result means, so two builds of it must be the same image.
+FROM ubuntu:24.04
+
+ARG TARGETARCH
+ENV DEBIAN_FRONTEND=noninteractive
+
+# What the suites and the handlers under test reach for: the real-network
+# fabric (iproute2, nftables, iptables, procps for sysctl), Firecracker's guest
+# assets (squashfs-tools, e2fsprogs), the entrypoint's DNS shim (dnsmasq) and
+# privilege drop (util-linux's setpriv), the HTTPS gateway the Azure and
+# Google Cloud Terraform suites put in front of the simulator (caddy, the
+# distribution package CI installs too), and the usual build/test tooling.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates curl git make jq unzip xz-utils gnupg \
+        iproute2 iptables nftables iputils-ping procps util-linux dnsmasq \
+        openssh-client squashfs-tools e2fsprogs python3 caddy \
+    && install -d -m 0755 /etc/apt/keyrings \
+    && rm -rf /var/lib/apt/lists/*
+
+# Go: the toolchain go.work declares (1.26), newest patch.
+ARG GO_VERSION=1.26.8
+RUN case "${TARGETARCH}" in \
+      amd64) go_sha256=d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b ;; \
+      arm64) go_sha256=211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0 ;; \
+      *) echo "unsupported Go architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl --fail --location --retry 5 --retry-all-errors \
+      "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" --output /tmp/go.tar.gz \
+    && echo "${go_sha256}  /tmp/go.tar.gz" | sha256sum --check --strict \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz
+ENV PATH=/usr/local/go/bin:/root/go/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Terraform.
+ARG TERRAFORM_VERSION=1.15.8
+RUN case "${TARGETARCH}" in \
+      amd64) terraform_sha256=d25ce7b6902013ad905db3d2eab0be4cd905887fe88b81a6171b8d5503c31f3d ;; \
+      arm64) terraform_sha256=8891e9dcedc9e3b8950bc6af9d4d8af1f4cfade3062f53b9dc403a89f6ce8c9c ;; \
+      *) echo "unsupported Terraform architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl --fail --location --retry 5 --retry-all-errors \
+      "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${TARGETARCH}.zip" \
+      --output /tmp/terraform.zip \
+    && echo "${terraform_sha256}  /tmp/terraform.zip" | sha256sum --check --strict \
+    && unzip -q /tmp/terraform.zip -d /usr/local/bin && rm /tmp/terraform.zip
+
+# AWS CLI v2.
+ARG AWS_CLI_VERSION=2.36.2
+RUN case "${TARGETARCH}" in \
+      amd64) aws_arch=x86_64; aws_sha256=88045926e48315681b73ec1d4e430ae6917b0eaffc6368d34bcc07bf9fe9fcb9 ;; \
+      arm64) aws_arch=aarch64; aws_sha256=7f41af8314f5a8d84742a7cf3e37e55d898355a6b605bcacb68adcf563c73064 ;; \
+      *) echo "unsupported AWS CLI architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl --fail --location --retry 5 --retry-all-errors \
+      "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}-${AWS_CLI_VERSION}.zip" --output /tmp/awscliv2.zip \
+    && echo "${aws_sha256}  /tmp/awscliv2.zip" | sha256sum --check --strict \
+    && unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/aws /tmp/awscliv2.zip
+
+# Azure CLI (Microsoft's noble package).
+ARG AZURE_CLI_VERSION=2.88.0
+RUN case "${TARGETARCH}" in \
+      amd64) azure_sha256=dedb0d666ad557edce8548e025c36fa3a28ac00df4f3d1e889e1246d2a261c36 ;; \
+      arm64) azure_sha256=274448a127d234651838377d3520a621edfd0820d47c5bb990f6e6d15cc7c281 ;; \
+      *) echo "unsupported Azure CLI architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl --fail --location --retry 5 --retry-all-errors \
+      "https://packages.microsoft.com/repos/azure-cli/pool/main/a/azure-cli/azure-cli_${AZURE_CLI_VERSION}-1~noble_${TARGETARCH}.deb" \
+      --output /tmp/azure-cli.deb \
+    && echo "${azure_sha256}  /tmp/azure-cli.deb" | sha256sum --check --strict \
+    && apt-get update && apt-get install -y --no-install-recommends /tmp/azure-cli.deb \
+    && rm -rf /var/lib/apt/lists/* /tmp/azure-cli.deb
+
+# Google Cloud CLI, with the Firestore emulator the Google Cloud SDK suite starts.
+ARG GCLOUD_VERSION=576.0.0
+RUN case "${TARGETARCH}" in \
+      amd64) gcloud_arch=x86_64; gcloud_sha256=7094a08e8fc3772cdbfb1a8a1920300f52fec5e370c9f9c803c2a3c8824a32c2 ;; \
+      arm64) gcloud_arch=arm; gcloud_sha256=be6077ade7b08312a250b49b5838473253c52e25358c63cfb2cfb4095503b5f2 ;; \
+      *) echo "unsupported Google Cloud CLI architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl --fail --location --retry 5 --retry-all-errors \
+      "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-${GCLOUD_VERSION}-linux-${gcloud_arch}.tar.gz" \
+      --output /tmp/google-cloud-cli.tar.gz \
+    && echo "${gcloud_sha256}  /tmp/google-cloud-cli.tar.gz" | sha256sum --check --strict \
+    && tar -xzf /tmp/google-cloud-cli.tar.gz -C /opt && rm /tmp/google-cloud-cli.tar.gz \
+    && /opt/google-cloud-sdk/install.sh --quiet --path-update=false --command-completion=false --usage-reporting=false \
+    && apt-get update && apt-get install -y --no-install-recommends default-jre-headless \
+    && rm -rf /var/lib/apt/lists/* \
+    && /opt/google-cloud-sdk/bin/gcloud components install cloud-firestore-emulator beta --quiet \
+    && ln -s /opt/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud
+ENV CLOUDSDK_CORE_DISABLE_PROMPTS=1
+
+# Firecracker + jailer, the same release CI installs (scripts/install-firecracker.sh).
+ARG FIRECRACKER_VERSION=v1.15.1
+COPY scripts/install-firecracker.sh /tmp/install-firecracker.sh
+# The installer says `sudo install`; in the build there is no sudo and no need
+# for one, so a shim that runs the command as the root the build already is.
+RUN printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod 0755 /usr/local/bin/sudo \
+    && FIRECRACKER_VERSION="${FIRECRACKER_VERSION}" FIRECRACKER_BIN_CACHE=/tmp/fc-cache bash /tmp/install-firecracker.sh \
+    && rm -rf /tmp/fc-cache /tmp/install-firecracker.sh /usr/local/bin/sudo \
+    && firecracker --version
+
+# The Docker CLI: the suites shell out to `docker` against the engine socket
+# the harness mounts. Docker's own signed apt repository, the key checked by
+# fingerprint, the package pinned.
+ARG DOCKER_CLI_VERSION=5:29.8.0-1~ubuntu.24.04~noble
+RUN curl --fail --location --retry 5 --retry-all-errors https://download.docker.com/linux/ubuntu/gpg --output /tmp/docker.gpg \
+    && gpg --show-keys --with-colons /tmp/docker.gpg | grep -q '^fpr:::::::::9DC858229FC7DD38854AE2D88D81803C0EBFCD88:$' \
+    && gpg --dearmor --output /etc/apt/keyrings/docker.gpg /tmp/docker.gpg && rm /tmp/docker.gpg \
+    && echo "deb [arch=${TARGETARCH} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update && apt-get install -y --no-install-recommends "docker-ce-cli=${DOCKER_CLI_VERSION}" \
+    && rm -rf /var/lib/apt/lists/* \
+    && docker --version
+
+COPY docker-test-entrypoint.sh /usr/local/bin/docker-test-entrypoint
+RUN chmod 0755 /usr/local/bin/docker-test-entrypoint
+WORKDIR /src
+ENTRYPOINT ["/usr/local/bin/docker-test-entrypoint"]
