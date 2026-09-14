@@ -88,3 +88,63 @@ func TestSimTrackedDropsWorkOnceTheDrainHasBegun(t *testing.T) {
 			"feeding would never empty")
 	}
 }
+
+// A watch is armed long before its event arrives, and a drain has to treat the
+// two halves differently: waiting on a container that has not exited would
+// hang every test that drains beside a running task, while returning during
+// the work that follows the exit is the race this barrier exists to prevent.
+func TestAwaitSimulatorBackgroundDetachesAWatchStillWaiting(t *testing.T) {
+	AwaitSimulatorBackground()
+
+	event := make(chan struct{})
+	var ran atomic.Bool
+	watch := simWatchThen(func() { <-event }, func() { ran.Store(true) })
+	if watch == nil {
+		t.Fatal("a watch armed outside a drain was refused")
+	}
+
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		AwaitSimulatorBackground()
+	}()
+	select {
+	case <-drained:
+	case <-time.After(10 * time.Second):
+		t.Fatal("AwaitSimulatorBackground waited on a watch whose event never arrived")
+	}
+
+	// The event arriving after the drain must not reach stores the next test owns.
+	close(event)
+	select {
+	case <-watch.done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("a detached watch's goroutine did not return once its event arrived")
+	}
+	if ran.Load() {
+		t.Fatal("a watch detached by a drain ran its work when its event arrived")
+	}
+}
+
+func TestAwaitSimulatorBackgroundWaitsForAWatchWhoseEventArrived(t *testing.T) {
+	AwaitSimulatorBackground()
+
+	started := make(chan struct{})
+	var finished atomic.Bool
+	_ = simWatchThen(func() {}, func() {
+		close(started)
+		time.Sleep(250 * time.Millisecond)
+		finished.Store(true)
+	})
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("a watch whose wait returned never ran its work")
+	}
+
+	AwaitSimulatorBackground()
+
+	if !finished.Load() {
+		t.Fatal("AwaitSimulatorBackground returned while a watch's work was still running")
+	}
+}

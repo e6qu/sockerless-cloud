@@ -1832,8 +1832,8 @@ func ecsScheduleTaskStart(
 
 func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTaskProcesses) {
 	for _, handle := range processes.Handles {
-		go func(taskID string, handle *sim.ContainerHandle) {
-			result := handle.Wait()
+		var result sim.ProcessResult
+		_ = simWatchThen(func() { result = handle.Wait() }, func() {
 			lifecycleLock := ecsTaskLifecycleLock(taskID)
 			lifecycleLock.Lock()
 			defer lifecycleLock.Unlock()
@@ -1871,7 +1871,7 @@ func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTa
 					ecsRequestServiceReconcileForTask(task)
 				}
 			}
-		}(taskID, handle)
+		})
 	}
 }
 

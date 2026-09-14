@@ -188,6 +188,84 @@ func (t *simTimer) Stop() bool {
 	return stopped
 }
 
+// Work that waits on something outside the simulator is still work.
+//
+// An Amazon ECS task's containers are watched by a goroutine each: it blocks
+// until its container exits and then moves the task to STOPPED, which reads
+// and writes the control-plane stores. Those goroutines were bare, so nothing
+// counted them. A test that started a real task finished, the next test
+// replaced the stores, and the watcher — whose busybox container exited a
+// moment later — wrote into stores that belonged to that next test. The race
+// detector reported it on a CI runner as TestListTasksOmitsTasksThatAgedOut
+// building its simulator while a watcher from the test before it updated
+// ecsTasks.
+//
+// Counting the whole goroutine is not the repair: its wait lasts as long as
+// the container runs, and a drain would then wait for a task nobody stops. A
+// watch is instead handled the way a pending timer is. It is counted when it
+// is armed. Once its event arrives and its work has begun, a drain waits for
+// that work like any other. A drain that reaches it while it is still waiting
+// detaches it, and its work then never runs: the stores it would have written
+// belong to a test that is over.
+var simPendingWatches sync.Map // *simWatch -> struct{}
+
+type simWatch struct {
+	mu       sync.Mutex
+	running  bool
+	detached bool
+	release  func()
+	// done closes when the watch's goroutine returns, whether its work ran or
+	// a drain detached it.
+	done chan struct{}
+}
+
+// simWatchThen runs wait on its own goroutine, and f after wait returns. It
+// returns nil when a drain refused to arm it.
+func simWatchThen(wait func(), f func()) *simWatch {
+	// Refused during a drain for the reason simAfterFunc is: work armed after
+	// the barrier began is what the barrier exists to keep out.
+	if simDraining.Load() {
+		return nil
+	}
+	simBackgroundWG.Add(1)
+	simBackgroundStarted.Add(1)
+	watch := &simWatch{done: make(chan struct{})}
+	var once sync.Once
+	watch.release = func() {
+		once.Do(func() {
+			simPendingWatches.Delete(watch)
+			simBackgroundWG.Done()
+		})
+	}
+	simPendingWatches.Store(watch, struct{}{})
+	go func() {
+		defer close(watch.done)
+		wait()
+		watch.mu.Lock()
+		if watch.detached {
+			watch.mu.Unlock()
+			return
+		}
+		watch.running = true
+		watch.mu.Unlock()
+		defer watch.release()
+		f()
+	}()
+	return watch
+}
+
+// detach releases a watch whose event has not arrived, so its work never runs.
+// A watch already running its work is left to finish, and the drain waits.
+func (w *simWatch) detach() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.running || w.detached {
+		return
+	}
+	w.detached = true
+	w.release()
+}
+
 // AwaitSimulatorBackground blocks until the simulator has no asynchronous work
 // left. It drains to quiescence rather than waiting once, because this work
 // chains: a service reconciliation requests another when a task transition
@@ -202,6 +280,12 @@ func AwaitSimulatorBackground() {
 		simPendingTimers.Range(func(key, _ any) bool {
 			if pending, ok := key.(*simTimer); ok {
 				pending.Stop()
+			}
+			return true
+		})
+		simPendingWatches.Range(func(key, _ any) bool {
+			if watch, ok := key.(*simWatch); ok {
+				watch.detach()
 			}
 			return true
 		})
