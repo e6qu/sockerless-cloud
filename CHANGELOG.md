@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.4](https://github.com/e6qu/sockerless-cloud/compare/v0.32.3...v0.32.4) (2026-09-14)
+
+
+### Bug Fixes
+
+* DynamoDB deletes items past their TTL, release pull requests run no CI, and simulator images publish within the job ceiling ([#171](https://github.com/e6qu/sockerless-cloud/issues/171)) ([bac2b74](https://github.com/e6qu/sockerless-cloud/commit/bac2b7469c82ace442196f6011c64e3516653fac))
+
 ## [0.32.3](https://github.com/e6qu/sockerless-cloud/compare/v0.32.2...v0.32.3) (2026-09-14)
 
 
