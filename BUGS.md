@@ -85,7 +85,12 @@ Open: 9. Resolved: 103.
   every run. And the manifest composition ran `docker buildx imagetools create`
   once: a single TCP reset from GHCR's blob storage failed 0.32.2's azure
   release manifest job, which skipped the release-complete check, although both
-  per-architecture images were whole. **Fixed**: the three simulator Dockerfiles
+  per-architecture images were whole. The 0.32.3 release (970fc7a) hit the
+  same ceiling twice more: its version-tag azure amd64 build finished its last
+  step at 14:32:18 and then logged nothing for twelve minutes until the job was
+  cancelled at 14:44:17, and the commit-tag aws amd64 build of the same commit
+  was cancelled too, so 0.32.3 has neither a complete release image set nor
+  complete commit-tag images. **Fixed**: the three simulator Dockerfiles
   keep the Go module and build caches in cache mounts, so the builder layer
   holds the source and the binary and the export carries only that (the
   fifteen-minute ceiling stands, per STATUS.md); both workflows compose through

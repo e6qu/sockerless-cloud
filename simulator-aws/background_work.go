@@ -83,28 +83,45 @@ func simJoinedGo(f func()) {
 	}()
 }
 
-// simTracked counts work the caller has already been given a goroutine for.
+// simHandoff counts work at the moment it is handed to another lifecycle.
 //
 // A simulator has two ways to run work off the request path, and only one of
-// them was counted here. Work handed to the server's own lifecycle —
+// them was counted here at first. Work handed to the server's own lifecycle —
 // Server.StartBackground, which exists so orderly shutdown drains it before
 // SQLite closes — runs on a goroutine this package never saw, so a drain
 // returned while an Amazon ECS task start was still moving through its
 // PROVISIONING→RUNNING lifecycle, and the next test replaced the stores it was
-// reading. That is the same defect the 144 original races were, arriving
-// through the other door: the barrier is only as good as the work it counts.
+// reading.
 //
-// The two lifecycles are both wanted and are not alternatives — the server's
-// drains before the database closes, this one before a test swaps the stores —
-// so work registers with both rather than choosing.
-func simTracked(f func()) {
+// Counting it from inside that goroutine closed most of the gap but not all of
+// it. The count began when the goroutine ran, and a goroutine that has been
+// created has not necessarily run: a drain in the moment between the two saw
+// nothing, returned, and the next test replaced the stores the task start then
+// read. The race job caught exactly that on a CI runner, a task start from
+// TestRunTaskReportsContainerTaskImageSizingAndDefaultGroup reading ecsTasks
+// while TestRunTaskKeepsTheGroupTheRequestNamed rebuilt it. The count is
+// therefore taken here, before the work is handed over, the way simAfterFunc
+// counts a timer when it is armed rather than when it fires.
+//
+// Work offered once a drain has begun is refused (ok is false, and the caller
+// must not hand it over), and work handed over earlier that only starts during a
+// drain is dropped: either way the drain is a barrier, and work it has not let
+// in must not reach stores the next test will own. The two lifecycles are both
+// wanted and are not alternatives — the server's drains before the database
+// closes, this one before a test swaps the stores — so work registers with both.
+func simHandoff(f func()) (run func(), ok bool) {
 	if simDraining.Load() {
-		return
+		return nil, false
 	}
 	simBackgroundWG.Add(1)
-	defer simBackgroundWG.Done()
 	simBackgroundStarted.Add(1)
-	f()
+	return func() {
+		defer simBackgroundWG.Done()
+		if simDraining.Load() {
+			return
+		}
+		f()
+	}, true
 }
 
 // Work a timer has not started yet is still work.
