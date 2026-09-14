@@ -26,7 +26,7 @@ var (
 
 func startRoute53DNSServer() {
 	r53DNSOnce.Do(func() {
-		udpConn, tcpLn := bindRoute53DNS(envOr("SIM_DNS_PORT", "5353"))
+		udpConn, tcpLn := bindRoute53DNS(route53DNSBindPort())
 		r53DNSAddr = udpConn.LocalAddr().String()
 		log.Printf("route53 dns: serving on UDP and TCP %s", r53DNSAddr)
 		go serveRoute53DNSUDP(udpConn)
@@ -596,4 +596,15 @@ func dnsFullName(s string) string {
 		s += "."
 	}
 	return s
+}
+
+// route53DNSBindPort is the port the Route 53 resolver binds: SIM_DNS_PORT when set,
+// otherwise a kernel-chosen one. It used to default to 5353, the multicast DNS
+// port — held by mDNSResponder on every macOS host and by Avahi on many Linux
+// ones — so an unconfigured simulator panicked at startup on exactly the
+// machines developers run it on. Nothing reads the resolver at a fixed port:
+// workload namespaces are redirected to the bound address (this is only the
+// request), and every harness in the repository already asks for 0.
+func route53DNSBindPort() string {
+	return envOr("SIM_DNS_PORT", "0")
 }
