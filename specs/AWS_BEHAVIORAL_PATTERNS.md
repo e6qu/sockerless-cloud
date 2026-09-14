@@ -38,6 +38,7 @@ Allowed classifications:
 | `cloudwatch-logs-metric-filter` | dispatch | `simulator-aws/cloudwatch_logs_ops.go` | `simulator-aws/sdk-tests/behavioral_gate_test.go` |
 | `sqs-dead-letter-redrive` | dispatch | `simulator-aws/sqs.go` | `simulator-aws/sdk-tests/behavioral_gate_test.go` |
 | `sns-topic-fanout` | dispatch | `simulator-aws/sns.go` | `simulator-aws/sdk-tests/cloudwatch_alarm_sns_sqs_process_test.go` |
+| `dynamodb-ttl-sweeper` | background-evaluator | `simulator-aws/dynamodb_ttl.go` | `simulator-aws/sdk-tests/behavioral_gate_test.go` |
 | `lambda-runtime-sidecar` | listener | `simulator-aws/lambda_runtime.go` | `simulator-aws/sdk-tests/lambda_test.go` |
 | `lambda-event-source-runtime` | background-evaluator | `simulator-aws/lambda_event_source_runtime.go` | `simulator-aws/sdk-tests/lambda_sqs_event_source_runtime_test.go` |
 | `elbv2-target-health-checker` | background-evaluator | `simulator-aws/elbv2_target_health.go` | `simulator-aws/sdk-tests/elbv2_test.go` |

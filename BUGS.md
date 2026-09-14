@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 9. Resolved: 103.
+Open: 9. Resolved: 104.
 
 ## Open
 
@@ -53,6 +53,28 @@ Open: 9. Resolved: 103.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3000 (DynamoDB never deleted an item past its TTL, and DescribeTable
+  reported every table empty):**~~ Found on 2026-09-14 when ecs-dev-desktop's
+  admin workspace list took 32 s on the Scaleway stack. Its table had TTL
+  enabled on `expiresAtEpochSeconds`, and 3,874 of its 3,876 session
+  correlations and all 1,056 logout tokens had expired, the oldest in August:
+  `UpdateTimeToLive` stored the setting and `DescribeTimeToLive` read it back,
+  but nothing deleted an expired item. The same table's `DescribeTable`
+  answered `ItemCount: 0` with 7,432 items in it, because the figures were
+  never computed. **Fixed**: `simulator-aws/dynamodb_ttl.go` sweeps every
+  table with TTL enabled every five seconds and deletes an item whose TTL
+  attribute is a Number of epoch seconds that has passed and is not more than
+  five years old, as DynamoDB documents; it re-reads each candidate under the
+  table's write lock, so an item whose TTL was moved into the future is kept,
+  and it consumes no write capacity. The sweeper is registered as the
+  `dynamodb-ttl-sweeper` background evaluator. `DescribeTable` computes the
+  table's and each secondary index's item count and size from the stored
+  items, an index counting the items that carry its keys and sizing what it
+  projects. Tests: `dynamodb_ttl_test.go` (eligibility, including a String TTL,
+  a missing one and one older than five years, and usage figures with a
+  KEYS_ONLY index) and `TestBehavioralGate_DynamoDBTimeToLive_DeletesExpiredItems`
+  through the SDK.
 
 - ~~**BUG-2982 (every release pull request's CI run expired unapproved):**~~
   The run on each release-please pull request failed at startup with "This

@@ -240,7 +240,7 @@ func ddbTableByArn(arn string) (string, DDBTable, bool) {
 	return name, t, ok
 }
 
-func registerDynamoDB(r *AWSRouter, srv *sim.Server) {
+func registerDynamoDB(r *AWSRouter, srv *sim.Server, startBackgroundEvaluators bool) {
 	// Item-level ops are CloudTrail DATA events (excluded from LookupEvents); the
 	// table-level ops registered below are management events.
 	cloudTrailDeclareDataEvents("dynamodb.amazonaws.com",
@@ -251,6 +251,9 @@ func registerDynamoDB(r *AWSRouter, srv *sim.Server) {
 	ddbTableSettings = sim.MakeStore[DDBTableSettings](srv.DB(), "ddb_table_settings")
 	ddbItems = sim.MakeStore[map[string]any](srv.DB(), "ddb_items")
 	ddbItemNames = sim.MakeStore[string](srv.DB(), "ddb_item_names")
+	if startBackgroundEvaluators {
+		startDDBTTLSweeper(srv)
+	}
 
 	reg := func(target string, h http.HandlerFunc) {
 		op := strings.TrimPrefix(target, "DynamoDB_20120810.")
@@ -729,7 +732,7 @@ func handleDDBDescribeTable(w http.ResponseWriter, r *http.Request) {
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
-	writeDDBJSON(w, http.StatusOK, map[string]any{"Table": t})
+	writeDDBJSON(w, http.StatusOK, map[string]any{"Table": ddbTableUsage(t)})
 }
 
 // ddbActivateGSI fills the stored/response fields of a GSI so it reports as

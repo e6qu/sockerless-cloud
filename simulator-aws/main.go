@@ -135,7 +135,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	registerSSMPatchOps(awsRouter, srv)
 	registerSSMCloudConnectors(awsRouter, srv)
 	registerKMS(awsRouter, srv)
-	registerDynamoDB(awsRouter, srv)
+	registerDynamoDB(awsRouter, srv, options.startBackgroundEvaluators)
 	registerACM(awsRouter, srv)
 	registerWAFv2(awsRouter, srv)
 	registerEventBridge(awsRouter, srv)
