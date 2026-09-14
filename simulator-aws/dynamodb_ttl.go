@@ -4,6 +4,8 @@ import (
 	"context"
 	"math"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -103,13 +105,11 @@ func ddbItemExpired(item map[string]any, attribute string, now time.Time) bool {
 	return !expiry.After(now) && !expiry.Before(now.AddDate(-ddbTTLMaxAgeYears, 0, 0))
 }
 
-// ddbTableUsage reports a table's item count and size, and each secondary
-// index's, from the items the table holds.
-//
-// DescribeTable reported zero for all of them whatever the table held — the
-// table above described itself as empty with 7,432 items in it. DynamoDB
-// refreshes these figures about every six hours; the simulator reports them as
-// they stand, which is where DynamoDB's converge. An index counts the items
+// ddbTableUsage computes a table's item count and size, and each secondary
+// index's, from the items the table holds. It reads every item, so it is never
+// run on a request: DescribeTable serves the figures ddbDescribedUsage last
+// computed, which is also how DynamoDB behaves — it refreshes these figures
+// about every six hours rather than on each call. An index counts the items
 // that carry its key attributes, and its size is what it projects: the table
 // and index keys, the included attributes, or the whole item.
 func ddbTableUsage(t DDBTable) DDBTable {
@@ -173,4 +173,118 @@ func ddbProjectedSize(item map[string]any, tableKeys, indexKeys []DDBKeySchemaEn
 		}
 	}
 	return int64(ddbItemSizeBytes(projected)), true
+}
+
+// DescribeTable's usage figures are served from a cache refreshed off the
+// request path.
+//
+// BUG-3000 made DescribeTable compute them on every call, which read and copied
+// every item in the table. On a table of 2,501 items in the deployed simulator
+// (SQLite-backed, so each item read is a query) DescribeTable took 1.6 s where
+// ListTables took 0.7 s. ecs-dev-desktop's health ping is a DescribeTable, and
+// its monitoring endpoint, which Shauth abandons at five seconds, took 5.8 s.
+// The figures now come from the last refresh; a refresh runs in the background,
+// at most once per interval per table, and a table described before its first
+// refresh reports zero, as a newly created DynamoDB table does.
+const ddbUsageRefreshInterval = time.Minute
+
+type ddbUsageEntry struct {
+	usage      DDBTable
+	computedAt time.Time
+	refreshing bool
+}
+
+var (
+	ddbUsageMu      sync.Mutex
+	ddbUsageByTable = map[string]*ddbUsageEntry{}
+	// ddbUsageRefreshes counts completed refreshes, so a test can tell a cached
+	// answer from a recomputed one.
+	ddbUsageRefreshes atomic.Uint64
+)
+
+// ddbDescribedUsage returns t carrying the most recently computed usage figures,
+// starting a background refresh when they are missing or older than the
+// interval. It never reads the table's items.
+func ddbDescribedUsage(t DDBTable, now time.Time) DDBTable {
+	ddbUsageMu.Lock()
+	entry := ddbUsageByTable[t.TableName]
+	if entry == nil {
+		entry = &ddbUsageEntry{}
+		ddbUsageByTable[t.TableName] = entry
+	}
+	stale := entry.computedAt.IsZero() || now.Sub(entry.computedAt) >= ddbUsageRefreshInterval
+	if stale && !entry.refreshing && !simDraining.Load() {
+		entry.refreshing = true
+		name := t.TableName
+		simGo(func() { ddbRefreshTableUsage(name) })
+	}
+	cached, computed := entry.usage, !entry.computedAt.IsZero()
+	ddbUsageMu.Unlock()
+	return ddbApplyUsage(t, cached, computed)
+}
+
+// ddbRefreshTableUsage recomputes one table's figures and stores them.
+func ddbRefreshTableUsage(name string) {
+	table, ok := ddbTables.Get(name)
+	var usage DDBTable
+	if ok {
+		usage = ddbTableUsage(table)
+	}
+	ddbUsageMu.Lock()
+	defer ddbUsageMu.Unlock()
+	if entry := ddbUsageByTable[name]; entry != nil {
+		entry.usage, entry.computedAt, entry.refreshing = usage, time.Now(), false
+	}
+	ddbUsageRefreshes.Add(1)
+}
+
+// ddbForgetUsage drops a table's cached figures, so a table recreated under the
+// same name never reports its predecessor's.
+func ddbForgetUsage(name string) {
+	ddbUsageMu.Lock()
+	defer ddbUsageMu.Unlock()
+	delete(ddbUsageByTable, name)
+}
+
+// ddbResetUsage drops every cached figure; the stores they describe were rebuilt.
+func ddbResetUsage() {
+	ddbUsageMu.Lock()
+	defer ddbUsageMu.Unlock()
+	ddbUsageByTable = map[string]*ddbUsageEntry{}
+}
+
+// ddbApplyUsage copies computed figures onto the table description being
+// answered, matching indexes by name; figures not yet computed read as zero.
+func ddbApplyUsage(t, usage DDBTable, computed bool) DDBTable {
+	t.ItemCount, t.TableSizeBytes = 0, 0
+	gsiUsage := map[string]DDBGlobalSecondaryIndex{}
+	lsiUsage := map[string]DDBLocalSecondaryIndex{}
+	if computed {
+		t.ItemCount, t.TableSizeBytes = usage.ItemCount, usage.TableSizeBytes
+		for _, g := range usage.GlobalSecondaryIndexes {
+			gsiUsage[g.IndexName] = g
+		}
+		for _, l := range usage.LocalSecondaryIndexes {
+			lsiUsage[l.IndexName] = l
+		}
+	}
+	if len(t.GlobalSecondaryIndexes) > 0 {
+		gsis := make([]DDBGlobalSecondaryIndex, len(t.GlobalSecondaryIndexes))
+		copy(gsis, t.GlobalSecondaryIndexes)
+		for i := range gsis {
+			u := gsiUsage[gsis[i].IndexName]
+			gsis[i].ItemCount, gsis[i].IndexSizeBytes = u.ItemCount, u.IndexSizeBytes
+		}
+		t.GlobalSecondaryIndexes = gsis
+	}
+	if len(t.LocalSecondaryIndexes) > 0 {
+		lsis := make([]DDBLocalSecondaryIndex, len(t.LocalSecondaryIndexes))
+		copy(lsis, t.LocalSecondaryIndexes)
+		for i := range lsis {
+			u := lsiUsage[lsis[i].IndexName]
+			lsis[i].ItemCount, lsis[i].IndexSizeBytes = u.ItemCount, u.IndexSizeBytes
+		}
+		t.LocalSecondaryIndexes = lsis
+	}
+	return t
 }
