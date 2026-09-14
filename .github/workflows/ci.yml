@@ -9,6 +9,15 @@ env:
 on:
   pull_request:
     branches: [main]
+    # A release-please pull request rewrites only these two files, and it runs
+    # no CI: the commits it releases were verified on their own pull requests
+    # and on main. Ignoring the paths means GitHub creates no run at all, so
+    # there is nothing for the outside-contributor approval gate to hold until
+    # it expires as a failure (BUG-2982). release-please is the only writer of
+    # both files, so no other pull request consists of them alone.
+    paths-ignore:
+      - CHANGELOG.md
+      - .release-please-manifest.json
   push:
     branches: [main]
   # Reusable so tag pushes can get full PR-level CI.

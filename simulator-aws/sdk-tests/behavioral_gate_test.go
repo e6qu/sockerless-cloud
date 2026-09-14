@@ -13,6 +13,8 @@ import (
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	cwltypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
@@ -411,4 +413,42 @@ func TestBehavioralGate_CloudWatchLogs_MetricFilterPublishesMetric(t *testing.T)
 		}
 		return sum == 2
 	}, 15*time.Second, 1*time.Second, "metric filter must publish Sum of 2 for two matching events")
+}
+
+// TestBehavioralGate_DynamoDBTimeToLive_DeletesExpiredItems asserts that the
+// service deletes an item once its TTL attribute has passed, and keeps an item
+// whose TTL is in the future and one whose TTL attribute is not a Number.
+func TestBehavioralGate_DynamoDBTimeToLive_DeletesExpiredItems(t *testing.T) {
+	c := ddbClient()
+	const table = "behavioral-ttl"
+	ddbCoverageTable(t, c, table)
+	_, err := c.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName: aws.String(table),
+		TimeToLiveSpecification: &ddbtypes.TimeToLiveSpecification{
+			Enabled: aws.Bool(true), AttributeName: aws.String("expiresAt"),
+		},
+	})
+	require.NoError(t, err)
+
+	now := time.Now()
+	put := func(id string, expiry ddbtypes.AttributeValue) {
+		_, err := c.PutItem(ctx, &dynamodb.PutItemInput{
+			TableName: aws.String(table),
+			Item:      map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: id}, "expiresAt": expiry},
+		})
+		require.NoError(t, err)
+	}
+	put("expired", &ddbtypes.AttributeValueMemberN{Value: fmt.Sprint(now.Add(-time.Minute).Unix())})
+	put("future", &ddbtypes.AttributeValueMemberN{Value: fmt.Sprint(now.Add(time.Hour).Unix())})
+	put("string-typed", &ddbtypes.AttributeValueMemberS{Value: fmt.Sprint(now.Add(-time.Minute).Unix())})
+
+	present := func(id string) bool {
+		out, err := c.GetItem(ctx, &dynamodb.GetItemInput{TableName: aws.String(table), Key: ddbKey(id)})
+		require.NoError(t, err)
+		return out.Item != nil
+	}
+	require.Eventually(t, func() bool { return !present("expired") }, 30*time.Second, 250*time.Millisecond,
+		"an item past its TTL was never deleted")
+	assert.True(t, present("future"), "an item whose TTL is in the future was deleted")
+	assert.True(t, present("string-typed"), "an item whose TTL attribute is not a Number was deleted")
 }

@@ -15,7 +15,16 @@ WORKDIR /src/simulator-azure
 # workspace covering just this simulator and its support modules, so the
 # build resolves the working tree's sim/realexec/ui-auth instead of failing on
 # the absent test modules.
-RUN rm /src/go.work /src/go.work.sum && \
+#
+# The module and build caches are cache mounts, not part of the layer. Without
+# them `go build` wrote both into this layer, and the publish workflows' cache
+# export (mode=max) compressed and uploaded all of it on every run: 0.32.2's aws
+# amd64 build spent 529 s of a 13-minute job exporting its cache, 418 s of that
+# preparing layers, while the compile itself took 105 s — against the jobs'
+# fifteen-minute ceiling. The layer now holds the source and the binary.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    rm /src/go.work /src/go.work.sum && \
     go work init . ../sim ../realexec ../ui-auth && \
     CGO_ENABLED=0 go build -ldflags="-s -w" -o /simulator-azure .
 

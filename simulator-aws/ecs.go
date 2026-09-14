@@ -1808,26 +1808,29 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 
 // ecsScheduleTaskStart runs one task's PROVISIONING→RUNNING lifecycle under the
 // server's background-worker lifecycle when the ECS service has registered one,
-// so orderly shutdown drains it before SQLite is closed. The unit-test paths
-// that exercise runECSTasks without a registered server fall back to a plain
-// goroutine, matching the prior behaviour.
+// so orderly shutdown drains it before SQLite is closed. Package tests that call
+// runECSTasks without building a server run it on a goroutine of its own.
+//
+// Either way the start is counted for the test drain barrier before it is
+// handed over. The goroutine of its own was uncounted altogether, and the
+// server's was counted only once it ran; both let a drain return while a start
+// was about to read the control-plane stores the next test rebuilt.
 func ecsScheduleTaskStart(
 	start func(string, ECSTaskDefinition, []ECSTag, *ECSTaskOverride, map[string]string, string, string),
 	id string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride,
 	taskVolumeHosts map[string]string, launchType, containerInstanceKey string,
 ) {
-	if ecsBackgroundServer == nil {
-		go start(id, td, taskTags, overrides, taskVolumeHosts, launchType, containerInstanceKey)
+	run, ok := simHandoff(func() {
+		start(id, td, taskTags, overrides, taskVolumeHosts, launchType, containerInstanceKey)
+	})
+	if !ok {
 		return
 	}
-	ecsBackgroundServer.StartBackground(func(context.Context) {
-		// Counted in the test drain barrier as well as the server's: the
-		// lifecycle this runs reads the control-plane stores, and a test that
-		// has awaited quiescence must not replace them underneath it.
-		simTracked(func() {
-			start(id, td, taskTags, overrides, taskVolumeHosts, launchType, containerInstanceKey)
-		})
-	})
+	if ecsBackgroundServer == nil {
+		go run()
+		return
+	}
+	ecsBackgroundServer.StartBackground(func(context.Context) { run() })
 }
 
 func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTaskProcesses) {

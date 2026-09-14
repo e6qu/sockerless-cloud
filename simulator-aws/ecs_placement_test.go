@@ -14,9 +14,17 @@ import (
 
 // A host that fits exactly one 2048 MiB / 1024 CPU-unit task beside a 2048 /
 // 1024 one already running.
+//
+// The helper builds a whole simulator before narrowing the ECS stores: a test
+// that runs a task sends it through the real start lifecycle, which reads the
+// stores of every service a task touches (the load balancers whose DNS names a
+// workload resolves, among them). Replacing only the ECS stores left those
+// nil unless an earlier test in the binary had built a simulator, so selecting
+// these tests on their own panicked in elbv2NLBHostEntries.
 func placementHostForTest(t *testing.T) {
 	t.Helper()
 	AwaitSimulatorBackground()
+	buildConformanceSimulator(t)
 	ecsClusters = sim.MakeStore[ECSCluster](nil, "ecs_clusters")
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")

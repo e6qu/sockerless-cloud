@@ -1,8 +1,27 @@
 # BUGS
 
-Open: 10. Resolved: 101.
+Open: 10. Resolved: 104.
 
 ## Open
+
+- **BUG-3001 (the AWS and Google Cloud CLI harnesses parse JSON out of stdout
+  and stderr merged):** `runCLI` in `simulator-aws/cli-tests` and
+  `simulator-gcp/cli-tests` writes both streams into one buffer and returns
+  it, and 664 AWS and 59 Google Cloud call sites parse that return as JSON.
+  The Azure harness shows what that costs: az's Python interpreter writes a
+  SyntaxWarning to stderr when it compiles a module instead of loading cached
+  bytecode, so the warning lands on whichever command runs first, and a
+  merged stream put it in front of a correct response — it failed
+  `TestRedisCLI_ARMResources` on #171 (`waitForCLIJSON`, now split). gcloud
+  is a Python program run by the system interpreter and prints its own
+  `WARNING:` lines and status messages (`Created [...]`) to stderr, so the
+  same failure is one interpreter or SDK update away there; the AWS CLI v2 is
+  a frozen bundle and cannot hit the compile warning, but writes its own
+  warnings to stderr too. Not changed in #171 because some call sites may
+  assert on text the CLIs write to stderr on success, and switching `runCLI`
+  to stdout needs those found first. Fix shape: `runCLI` returns stdout,
+  a `runCLIStreams` returns both for the sites that read stderr, and each CLI
+  suite runs in CI to find the sites that relied on the merge.
 
 - **BUG-2996 (a managed EBS volume is a directory on the host, so the workload
   sees the host's disk, not its volume):** an Amazon ECS task's managed EBS
@@ -29,28 +48,6 @@ Open: 10. Resolved: 101.
   mounted where the engine looks, which is a deployment contract
   (documented, checked at startup) before it is code.
 
-- **BUG-2982 (every release pull request's CI run expires unapproved):**
-  The run on each release-please pull request fails at startup with "This
-  workflow run required approval but was not approved before it expired"
-  (run 34005143376 on #123, and every release pull request back to August).
-  The repository's Actions approval policy is `first_time_contributors`
-  (read back on 2026-09-14: `GET /actions/permissions/fork-pr-contributor-approval`
-  answers exactly that), and GitHub applies it to pull requests opened by
-  `github-actions[bot]`, which release-please uses through the default
-  `GITHUB_TOKEN`. Still happening: the run on #163's release pull request
-  (34766327391, 2026-09-13) has zero jobs and `conclusion: failure`. Nothing
-  in this repository can change it — the setting is the owner's, and a token
-  is a secret only the owner can add. Two owner-side repairs, either of which
-  closes this: (1) set the approval policy to
-  `first_time_contributors_new_to_github` (Settings → Actions → General →
-  "Approval for running fork pull request workflows from outside
-  collaborators"), under which an account as old as the Actions bot needs no
-  approval; or (2) add a fine-grained PAT or a GitHub App token as
-  `RELEASE_PLEASE_TOKEN` and pass it to release-please-action's `token`
-  input, so the release pull request is opened by an identity whose runs are
-  not gated. Until then, approve each release pull request's run before
-  merging it.
-
 - **BUG-2977 (the body an unmigrated storage account's `default` migration
   carries on real Azure is uncaptured):** terraform-provider-azurerm 5.4.0
   reads `accountMigrations/default` on every storage-account read and treats
@@ -75,6 +72,72 @@ Open: 10. Resolved: 101.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3000 (DynamoDB never deleted an item past its TTL, and DescribeTable
+  reported every table empty):**~~ Found on 2026-09-14 when ecs-dev-desktop's
+  admin workspace list took 32 s on the Scaleway stack. Its table had TTL
+  enabled on `expiresAtEpochSeconds`, and 3,874 of its 3,876 session
+  correlations and all 1,056 logout tokens had expired, the oldest in August:
+  `UpdateTimeToLive` stored the setting and `DescribeTimeToLive` read it back,
+  but nothing deleted an expired item. The same table's `DescribeTable`
+  answered `ItemCount: 0` with 7,432 items in it, because the figures were
+  never computed. **Fixed**: `simulator-aws/dynamodb_ttl.go` sweeps every
+  table with TTL enabled every five seconds and deletes an item whose TTL
+  attribute is a Number of epoch seconds that has passed and is not more than
+  five years old, as DynamoDB documents; it re-reads each candidate under the
+  table's write lock, so an item whose TTL was moved into the future is kept,
+  and it consumes no write capacity. The sweeper is registered as the
+  `dynamodb-ttl-sweeper` background evaluator. `DescribeTable` computes the
+  table's and each secondary index's item count and size from the stored
+  items, an index counting the items that carry its keys and sizing what it
+  projects. Tests: `dynamodb_ttl_test.go` (eligibility, including a String TTL,
+  a missing one and one older than five years, and usage figures with a
+  KEYS_ONLY index) and `TestBehavioralGate_DynamoDBTimeToLive_DeletesExpiredItems`
+  through the SDK.
+
+- ~~**BUG-2982 (every release pull request's CI run expired unapproved):**~~
+  The run on each release-please pull request failed at startup with "This
+  workflow run required approval but was not approved before it expired" —
+  run 34005143376 on #123, every release pull request since August, and last
+  34853430643 on #170. The Actions approval policy is
+  `first_time_contributors`, and GitHub holds the runs of pull requests opened
+  by `github-actions[bot]`, which release-please uses through the default
+  `GITHUB_TOKEN`. The owner decided on 2026-09-14 that the policy stays
+  strict, because outside contributors must not run CI in this public
+  repository, and that release pull requests run no CI at all: one rewrites
+  only `CHANGELOG.md` and `.release-please-manifest.json`, and the commits it
+  releases were each verified on their own pull requests and on main.
+  **Fixed**: the `pull_request` trigger in `.github/workflows/ci.yml` ignores
+  those two paths, so a pull request that changes nothing else creates no run
+  to hold. Branch protection still lists its required checks, so a release
+  pull request is merged by the owner's bypass, as the last ones were.
+
+- ~~**BUG-2999 (a slow build or a registry reset left a release without its
+  multi-architecture images):**~~ Found on 2026-09-14 when 0.32.2's simulator
+  images could not be pinned. Two defects. Two of the last sixteen amd64
+  per-architecture image builds were killed by the jobs' fifteen-minute
+  ceiling at ~15.3 minutes — 0.32.2's azure amd64 among them, and a killed leg
+  skips every manifest, so that commit published no multi-architecture images.
+  The time was not the build: in 0.32.2's aws amd64 job the Go compile took
+  105 s and the UI build 97 s, while exporting the build cache took 529 s (418 s
+  of it preparing layers), because the simulator Dockerfiles ran `go build`
+  with no cache mounts, so the module and build caches were written into the
+  builder layer and the `mode=max` cache export compressed and uploaded them on
+  every run. And the manifest composition ran `docker buildx imagetools create`
+  once: a single TCP reset from GHCR's blob storage failed 0.32.2's azure
+  release manifest job, which skipped the release-complete check, although both
+  per-architecture images were whole. The 0.32.3 release (970fc7a) hit the
+  same ceiling twice more: its version-tag azure amd64 build finished its last
+  step at 14:32:18 and then logged nothing for twelve minutes until the job was
+  cancelled at 14:44:17, and the commit-tag aws amd64 build of the same commit
+  was cancelled too, so 0.32.3 has neither a complete release image set nor
+  complete commit-tag images. **Fixed**: the three simulator Dockerfiles
+  keep the Go module and build caches in cache mounts, so the builder layer
+  holds the source and the binary and the export carries only that (the
+  fifteen-minute ceiling stands, per STATUS.md); both workflows compose through
+  `scripts/compose-multiarch-manifest.sh`, which composes again only when the
+  failure is a broken connection (reset, EOF, TLS or I/O timeout, gateway 5xx),
+  at most three times, and keeps the existing index and platform checks.
 
 - ~~**BUG-2998 (DescribeTasks omitted each container's image, digest and sizing,
   and a task RunTask gave no group had none):**~~ Found on the Scaleway stack
