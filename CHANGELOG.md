@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.5](https://github.com/e6qu/sockerless-cloud/compare/v0.32.4...v0.32.5) (2026-09-15)
+
+
+### Bug Fixes
+
+* **aws:** DescribeTable serves cached usage figures instead of reading every item ([#173](https://github.com/e6qu/sockerless-cloud/issues/173)) ([35f476e](https://github.com/e6qu/sockerless-cloud/commit/35f476e20477fde578ceef85ce8879d5a9ddb69e))
+
 ## [0.32.4](https://github.com/e6qu/sockerless-cloud/compare/v0.32.3...v0.32.4) (2026-09-14)
 
 
