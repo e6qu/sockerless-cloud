@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"slices"
+	"sort"
 )
 
 // AWS Glue — Catalog (multi-catalog), Table Optimizer, BatchGet*, and zero-ETL
@@ -148,6 +150,7 @@ func registerGlueCatalogOptimizer(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.GetIntegrationTableProperties", handleGlueGetIntegrationTableProperties)
 	r.Register("AWSGlue.UpdateIntegrationTableProperties", handleGlueUpdateIntegrationTableProperties)
 	r.Register("AWSGlue.DeleteIntegrationTableProperties", handleGlueDeleteIntegrationTableProperties)
+	r.Register("AWSGlue.ListIntegrationTableProperties", handleGlueListIntegrationTableProperties)
 }
 
 func glueCatalogArn(name string) string {
@@ -1101,6 +1104,81 @@ func glueIntegResPropWire(p GlueIntegrationResourceProperty) map[string]any {
 
 func glueIntegTablePropKey(resourceArn, tableName string) string {
 	return resourceArn + "\x1f" + tableName
+}
+
+// handleGlueListIntegrationTableProperties lists the integration table properties
+// in the account, a page at a time (Marker, MaxRecords). A filter narrows the
+// list: SourceArn and TargetArn match the resource the properties were created
+// for, and SourceTableName and TargetTableName match the table name. A filter
+// name the operation does not define is an InvalidInputException rather than a
+// filter silently ignored. Entries are ordered by resource and table so a
+// Marker names the same position on every call.
+func handleGlueListIntegrationTableProperties(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Marker     string `json:"Marker"`
+		MaxRecords *int   `json:"MaxRecords"`
+		Filters    []struct {
+			Name   string   `json:"Name"`
+			Values []string `json:"Values"`
+		} `json:"Filters"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		glueWriteError(w, "InvalidInputException", "invalid JSON")
+		return
+	}
+	for _, f := range req.Filters {
+		switch f.Name {
+		case "SourceArn", "TargetArn", "SourceTableName", "TargetTableName":
+		default:
+			glueWriteError(w, "InvalidInputException",
+				fmt.Sprintf("unsupported filter name %q: supported names are SourceArn, TargetArn, SourceTableName and TargetTableName", f.Name))
+			return
+		}
+	}
+	matches := func(p GlueIntegrationTableProperties) bool {
+		for _, f := range req.Filters {
+			value := p.TableName
+			if f.Name == "SourceArn" || f.Name == "TargetArn" {
+				value = p.ResourceArn
+			}
+			if !slices.Contains(f.Values, value) {
+				return false
+			}
+		}
+		return true
+	}
+	all := glueIntegTableProps.List()
+	filtered := make([]GlueIntegrationTableProperties, 0, len(all))
+	for _, p := range all {
+		if matches(p) {
+			filtered = append(filtered, p)
+		}
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		return glueIntegTablePropKey(filtered[i].ResourceArn, filtered[i].TableName) <
+			glueIntegTablePropKey(filtered[j].ResourceArn, filtered[j].TableName)
+	})
+	maxR := 0
+	if req.MaxRecords != nil {
+		maxR = *req.MaxRecords
+	}
+	page, next := awsPage(filtered, req.Marker, maxR, 100)
+	wired := make([]map[string]any, 0, len(page))
+	for _, p := range page {
+		entry := map[string]any{"ResourceArn": p.ResourceArn, "TableName": p.TableName}
+		if len(p.SourceTableConfig) > 0 {
+			entry["SourceTableConfig"] = p.SourceTableConfig
+		}
+		if len(p.TargetTableConfig) > 0 {
+			entry["TargetTableConfig"] = p.TargetTableConfig
+		}
+		wired = append(wired, entry)
+	}
+	resp := map[string]any{"IntegrationTablePropertiesList": wired}
+	if next != "" {
+		resp["Marker"] = next
+	}
+	glueWriteJSON(w, http.StatusOK, resp)
 }
 
 func handleGlueCreateIntegrationTableProperties(w http.ResponseWriter, r *http.Request) {
