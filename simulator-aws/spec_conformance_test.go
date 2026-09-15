@@ -154,6 +154,11 @@ func loadSmithyModels(t *testing.T) []*smithyService {
 
 func buildConformanceSimulator(t *testing.T) (*sim.Server, *AWSRouter, *AWSQueryRouter) {
 	t.Helper()
+	// Building a simulator replaces the package-level stores, so asynchronous work
+	// a previous test left running must finish first: a DynamoDB DescribeTable
+	// starts a background usage refresh, and one still reading ddbTables raced
+	// the next test's registerDynamoDB on the race detector.
+	AwaitSimulatorBackground()
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, jsonRouter, queryRouter, err := buildSimulatorWithOptions(
 		sim.Config{Provider: "aws", ListenAddr: ":0", LogLevel: "error"},

@@ -98,6 +98,16 @@ func TestDynamoDBDescribeTableReportsItemAndIndexUsage(t *testing.T) {
 		ddbTTLCall(t, handleDDBPutItem, map[string]any{"TableName": table, "Item": item})
 	}
 
+	// The request path never reads the items: the first describe reports zero,
+	// as a new DynamoDB table does, and starts one background refresh.
+	AwaitSimulatorBackground()
+	// Read before the describe: its refresh can finish before the next line runs.
+	before := ddbUsageRefreshes.Load()
+	first := ddbTTLCall(t, handleDDBDescribeTable, map[string]any{"TableName": table})["Table"].(map[string]any)
+	require.EqualValues(t, 0, first["ItemCount"])
+	AwaitSimulatorBackground()
+	require.Equal(t, before+1, ddbUsageRefreshes.Load(), "one describe starts exactly one refresh")
+
 	described := ddbTTLCall(t, handleDDBDescribeTable, map[string]any{"TableName": table})["Table"].(map[string]any)
 	require.EqualValues(t, 3, described["ItemCount"])
 	// PK+G+Pad (2+1 + 1+1 + 3+10) + PK+G (2+1 + 1+1) + PK (2+1).
@@ -105,6 +115,8 @@ func TestDynamoDBDescribeTableReportsItemAndIndexUsage(t *testing.T) {
 	index := described["GlobalSecondaryIndexes"].([]any)[0].(map[string]any)
 	require.EqualValues(t, 2, index["ItemCount"], "the item without G is not in the index")
 	require.EqualValues(t, 5+5, index["IndexSizeBytes"], "KEYS_ONLY projects PK and G, not Pad")
+	AwaitSimulatorBackground()
+	require.Equal(t, before+1, ddbUsageRefreshes.Load(), "a describe within the interval serves the cached figures")
 
 	stored, ok := ddbTables.Get(table)
 	require.True(t, ok)

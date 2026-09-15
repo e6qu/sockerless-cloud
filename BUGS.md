@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 10. Resolved: 104.
+Open: 10. Resolved: 105.
 
 ## Open
 
@@ -72,6 +72,22 @@ Open: 10. Resolved: 104.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3002 (DescribeTable read every item in the table to answer):**~~
+  BUG-3000 made DescribeTable compute a table's item counts and sizes on each
+  call, from a copy of every item. In the deployed simulator, where each item
+  read is a SQLite query, DescribeTable on ecs-dev-desktop's 2,501-item table
+  took a median 1.6 s (runs up to 3 s) against 0.7 s for ListTables. That
+  application's health ping is a DescribeTable, and its monitoring endpoint,
+  which Shauth abandons after five seconds, took 5.8 s and failed the Scaleway
+  post-apply gate on 2026-09-14. **Fixed**: DescribeTable serves the figures
+  from a cache and never reads items on the request path; a background refresh,
+  counted by the test drain, recomputes a table at most once a minute, and a
+  table described before its first refresh reports zero — DynamoDB itself
+  refreshes these figures about every six hours. The cache is dropped with the
+  table and when the stores are rebuilt. The usage test now requires the first
+  describe to report zero, one refresh to follow, and a second describe within
+  the interval to start none.
 
 - ~~**BUG-3000 (DynamoDB never deleted an item past its TTL, and DescribeTable
   reported every table empty):**~~ Found on 2026-09-14 when ecs-dev-desktop's

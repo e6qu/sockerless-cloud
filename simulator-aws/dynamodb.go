@@ -251,6 +251,7 @@ func registerDynamoDB(r *AWSRouter, srv *sim.Server, startBackgroundEvaluators b
 	ddbTableSettings = sim.MakeStore[DDBTableSettings](srv.DB(), "ddb_table_settings")
 	ddbItems = sim.MakeStore[map[string]any](srv.DB(), "ddb_items")
 	ddbItemNames = sim.MakeStore[string](srv.DB(), "ddb_item_names")
+	ddbResetUsage()
 	if startBackgroundEvaluators {
 		startDDBTTLSweeper(srv)
 	}
@@ -732,7 +733,7 @@ func handleDDBDescribeTable(w http.ResponseWriter, r *http.Request) {
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
-	writeDDBJSON(w, http.StatusOK, map[string]any{"Table": ddbTableUsage(t)})
+	writeDDBJSON(w, http.StatusOK, map[string]any{"Table": ddbDescribedUsage(t, time.Now())})
 }
 
 // ddbActivateGSI fills the stored/response fields of a GSI so it reports as
@@ -823,6 +824,7 @@ func handleDDBUpdateTable(w http.ResponseWriter, r *http.Request) {
 		t.ProvisionedThroughput = req.ProvisionedThroughput
 	}
 	defer ddbForgetBuckets(req.TableName)
+	defer ddbForgetUsage(req.TableName)
 	if req.DeletionProtectionEnabled != nil {
 		t.DeletionProtectionEnabled = *req.DeletionProtectionEnabled
 	}
@@ -866,6 +868,7 @@ func handleDDBDeleteTable(w http.ResponseWriter, r *http.Request) {
 	}
 	ddbTables.Delete(req.TableName)
 	ddbForgetBuckets(req.TableName)
+	ddbForgetUsage(req.TableName)
 	ddbTableSettings.Delete(req.TableName)
 	// Real DeleteTable deletes the table AND all of its items — purge the
 	// item stores so the rows don't survive into a same-named recreate.
