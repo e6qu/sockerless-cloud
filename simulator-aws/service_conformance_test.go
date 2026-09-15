@@ -414,7 +414,7 @@ var serviceCoverageFloor = map[string]int{
 	"AmazonElastiCacheV9":                  75,
 	"AmazonRDSv19":                         164,
 	"AutoScaling_2011_01_01":               66,
-	"AWSGlue":                              299,
+	"AWSGlue":                              300,
 	"AWSWAF_20190729":                      59,
 	"CloudTrail_20131101":                  60,
 	"CodeBuild_20161006":                   59,
