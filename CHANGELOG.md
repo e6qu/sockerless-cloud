@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.6](https://github.com/e6qu/sockerless-cloud/compare/v0.32.5...v0.32.6) (2026-09-15)
+
+
+### Bug Fixes
+
+* **aws:** DynamoDB items are served from memory and written through to SQLite ([#175](https://github.com/e6qu/sockerless-cloud/issues/175)) ([68df1b9](https://github.com/e6qu/sockerless-cloud/commit/68df1b9761df843bf810dba45c608b72ecff339d))
+
 ## [0.32.5](https://github.com/e6qu/sockerless-cloud/compare/v0.32.4...v0.32.5) (2026-09-15)
 
 
