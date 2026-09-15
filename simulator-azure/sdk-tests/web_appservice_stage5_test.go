@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
@@ -473,8 +474,21 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 
 	// The probe's invocation container runs on the VNet and reaches redis by
 	// name: the wire answer is redis's own +PONG.
-	respBody := azureInvokeFunction(t, "s5-join-probe")
-	assert.Contains(t, string(respBody), "+PONG")
+	//
+	// The connection PUT returns once the redis container has started, and
+	// redis opens 6379 a moment later — App Service starts a site's container
+	// asynchronously too, and reports no readiness for a raw service. A probe
+	// issued in that moment is refused and nc exits at once, which the host
+	// answers with 500: the sim (azure sdk B-Z) job on #180 failed exactly so,
+	// 285 ms after the PUT. What this proves is that the function reaches redis
+	// by name once redis is serving, so it waits for that answer.
+	var lastStatus int
+	var lastBody []byte
+	require.Eventually(t, func() bool {
+		lastStatus, lastBody = azureInvokeFunctionResponse(t, "s5-join-probe")
+		return lastStatus == http.StatusOK && strings.Contains(string(lastBody), "+PONG")
+	}, 30*time.Second, 250*time.Millisecond,
+		"the probe never reached redis by name over the VNet; last answer %d: %s", lastStatus, lastBody)
 
 	// Deleting the classic connection really disconnects the redis container:
 	// the same probe now fails.

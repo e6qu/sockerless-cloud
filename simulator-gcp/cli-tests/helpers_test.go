@@ -410,14 +410,20 @@ func httpDoJSON(t *testing.T, method, url, body string) string {
 	return string(data)
 }
 
+// runCLI runs a command that must succeed and returns what it wrote to stdout.
+//
+// gcloud writes its status lines ("Created [URL].", "WARNING: ...") and its
+// interpreter's own warnings to stderr, and a caller that parses the result as
+// JSON or compares it to a payload must not receive them (BUG-3001). stderr is
+// still reported when the command fails.
 func runCLI(t *testing.T, cmd *exec.Cmd) string {
 	t.Helper()
 
 	const perCmdTimeout = 30 * time.Second
 
-	var combined bytes.Buffer
-	cmd.Stdout = &combined
-	cmd.Stderr = &combined
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("CLI command failed to start: %v\nCommand: %s", err, strings.Join(cmd.Args, " "))
@@ -432,9 +438,10 @@ func runCLI(t *testing.T, cmd *exec.Cmd) string {
 	defer timer.Stop()
 
 	if err := cmd.Wait(); err != nil {
-		t.Fatalf("CLI command failed: %v\nCommand: %s\nOutput: %s", err, strings.Join(cmd.Args, " "), combined.String())
+		t.Fatalf("CLI command failed: %v\nCommand: %s\nStdout: %s\nStderr: %s",
+			err, strings.Join(cmd.Args, " "), stdout.String(), stderr.String())
 	}
-	return combined.String()
+	return stdout.String()
 }
 
 func nativeDockerPlatform() string {
@@ -485,34 +492,18 @@ ENTRYPOINT ["/usr/local/bin/%s"]
 	}
 }
 
-// parseJSON decodes the JSON payload a command wrote into target.
+// parseJSON decodes the JSON payload a command wrote to stdout into target.
 //
-// gcloud may prefix its JSON with status text ("Created [URL].\n"), so the
-// payload is located structurally: the first delimiter from which the rest of
-// the output is one complete JSON value. It is then decoded exactly once, and
-// a decode that fails there is fatal.
-//
-// The location and the decode are deliberately separate steps. Decoding into
-// the caller's target is not a usable search signal — an object whose keys are
-// all unknown to a struct target decodes cleanly and leaves every field at its
-// zero value — so a search that advanced on decode failure would silently
-// settle on whichever fragment happened to decode and hand the caller a
-// zero-valued target to assert against.
+// It used to search the output for the first delimiter from which the rest
+// parsed, because gcloud's status text ("Created [URL].") arrived in front of
+// the payload. That text is gcloud's stderr, which runCLI no longer returns,
+// so the whole output is the payload and anything else in it is a fault to
+// report rather than skip.
 func parseJSON(t *testing.T, data string, target any) {
 	t.Helper()
-	for i, r := range data {
-		if r != '[' && r != '{' {
-			continue
-		}
-		if !json.Valid([]byte(data[i:])) {
-			continue
-		}
-		if err := json.Unmarshal([]byte(data[i:]), target); err != nil {
-			t.Fatalf("Failed to parse JSON into %T: %v\nData: %s", target, err, data)
-		}
-		return
+	if err := json.Unmarshal([]byte(data), target); err != nil {
+		t.Fatalf("Failed to parse JSON into %T: %v\nData: %s", target, err, data)
 	}
-	t.Fatalf("Output carries no complete JSON value.\nData: %s", data)
 }
 
 // parseDescribedResource decodes the one resource a `gcloud ... describe
@@ -526,30 +517,21 @@ func parseJSON(t *testing.T, data string, target any) {
 // arrived.
 func parseDescribedResource(t *testing.T, data string, target any) {
 	t.Helper()
-	for i, r := range data {
-		if r != '[' && r != '{' {
-			continue
-		}
-		if !json.Valid([]byte(data[i:])) {
-			continue
-		}
-		if r == '{' {
-			if err := json.Unmarshal([]byte(data[i:]), target); err != nil {
-				t.Fatalf("Failed to parse described resource into %T: %v\nData: %s", target, err, data)
-			}
-			return
-		}
-		var rendered []json.RawMessage
-		if err := json.Unmarshal([]byte(data[i:]), &rendered); err != nil {
-			t.Fatalf("Failed to parse describe output as a list: %v\nData: %s", err, data)
-		}
-		if len(rendered) != 1 {
-			t.Fatalf("A describe names one resource, so it renders one; got %d.\nData: %s", len(rendered), data)
-		}
-		if err := json.Unmarshal(rendered[0], target); err != nil {
+	trimmed := strings.TrimSpace(data)
+	if strings.HasPrefix(trimmed, "{") {
+		if err := json.Unmarshal([]byte(trimmed), target); err != nil {
 			t.Fatalf("Failed to parse described resource into %T: %v\nData: %s", target, err, data)
 		}
 		return
 	}
-	t.Fatalf("Output carries no complete JSON value.\nData: %s", data)
+	var rendered []json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &rendered); err != nil {
+		t.Fatalf("Failed to parse describe output as an object or a list: %v\nData: %s", err, data)
+	}
+	if len(rendered) != 1 {
+		t.Fatalf("A describe names one resource, so it renders one; got %d.\nData: %s", len(rendered), data)
+	}
+	if err := json.Unmarshal(rendered[0], target); err != nil {
+		t.Fatalf("Failed to parse described resource into %T: %v\nData: %s", target, err, data)
+	}
 }

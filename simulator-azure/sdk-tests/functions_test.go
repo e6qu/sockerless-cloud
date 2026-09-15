@@ -84,6 +84,15 @@ func azureCreateSiteWithImage(t *testing.T, rg, name string, command []string, i
 // to the site's `<name>.azurewebsites.net` (real Azure routing).
 func azureInvokeFunction(t *testing.T, siteName string) []byte {
 	t.Helper()
+	status, body := azureInvokeFunctionResponse(t, siteName)
+	require.Equal(t, http.StatusOK, status)
+	return body
+}
+
+// azureInvokeFunctionResponse invokes a function app and returns the status
+// and body as they came, for a caller that waits on what the function answers.
+func azureInvokeFunctionResponse(t *testing.T, siteName string) (int, []byte) {
+	t.Helper()
 	invokeReq, _ := http.NewRequestWithContext(ctx, "POST",
 		baseURL+"/api/function",
 		strings.NewReader("{}"))
@@ -92,9 +101,9 @@ func azureInvokeFunction(t *testing.T, siteName string) []byte {
 	invokeResp, err := http.DefaultClient.Do(invokeReq)
 	require.NoError(t, err)
 	defer invokeResp.Body.Close()
-	require.Equal(t, http.StatusOK, invokeResp.StatusCode)
-	body, _ := io.ReadAll(invokeResp.Body)
-	return body
+	body, err := io.ReadAll(invokeResp.Body)
+	require.NoError(t, err)
+	return invokeResp.StatusCode, body
 }
 
 func azureInvokeFunctionExpectError(t *testing.T, siteName string) {

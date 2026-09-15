@@ -4,25 +4,6 @@ Open: 10. Resolved: 106.
 
 ## Open
 
-- **BUG-3001 (the AWS and Google Cloud CLI harnesses parse JSON out of stdout
-  and stderr merged):** `runCLI` in `simulator-aws/cli-tests` and
-  `simulator-gcp/cli-tests` writes both streams into one buffer and returns
-  it, and 664 AWS and 59 Google Cloud call sites parse that return as JSON.
-  The Azure harness shows what that costs: az's Python interpreter writes a
-  SyntaxWarning to stderr when it compiles a module instead of loading cached
-  bytecode, so the warning lands on whichever command runs first, and a
-  merged stream put it in front of a correct response — it failed
-  `TestRedisCLI_ARMResources` on #171 (`waitForCLIJSON`, now split). gcloud
-  is a Python program run by the system interpreter and prints its own
-  `WARNING:` lines and status messages (`Created [...]`) to stderr, so the
-  same failure is one interpreter or SDK update away there; the AWS CLI v2 is
-  a frozen bundle and cannot hit the compile warning, but writes its own
-  warnings to stderr too. Not changed in #171 because some call sites may
-  assert on text the CLIs write to stderr on success, and switching `runCLI`
-  to stdout needs those found first. Fix shape: `runCLI` returns stdout,
-  a `runCLIStreams` returns both for the sites that read stderr, and each CLI
-  suite runs in CI to find the sites that relied on the merge.
-
 - **BUG-2996 (a managed EBS volume is a directory on the host, so the workload
   sees the host's disk, not its volume):** an Amazon ECS task's managed EBS
   volume (`volumeConfigurations[].managedEBSVolume.sizeInGiB`) is backed by a
@@ -72,6 +53,38 @@ Open: 10. Resolved: 106.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3005 (TestSDK_WebVnet_JoinsRealNetwork probed redis before it was
+  listening):**~~ The sim (azure sdk B-Z) job on #180 failed with the probe
+  function answering 500 instead of 200, 285 ms after the redis site's VNet
+  connection PUT, on a change that touched no Azure code; the same job passed
+  on main's two most recent runs. The PUT starts the `services:` container with
+  `StartContainerSync` and returns once the container is up; redis opens 6379 a
+  moment later, so a probe issued in that moment is refused, `nc` exits at once
+  with nothing on stdout, and the host answers 500 `{}`. App Service also starts
+  a site's container asynchronously and reports no readiness for a raw service,
+  so the simulator was faithful and the test's single invoke was the defect.
+  **Fixed**: the test waits, up to 30 s, for the probe to answer 200 with
+  redis's `+PONG`, and reports the last answer if it never does; the check that
+  deleting the connection makes the same probe fail is unchanged.
+
+- ~~**BUG-3001 (the AWS and Google Cloud CLI harnesses parsed JSON out of stdout
+  and stderr merged):**~~ `runCLI` in `simulator-aws/cli-tests` and
+  `simulator-gcp/cli-tests` wrote both streams into one buffer and returned it,
+  and 1,130 AWS and 85 Google Cloud call sites parsed that as JSON. The Azure
+  harness showed the cost when az's Python interpreter put a SyntaxWarning in
+  front of a correct response (#171). gcloud writes its status lines and its
+  interpreter's warnings to stderr, and the AWS CLI its own warnings.
+  **Fixed**: `runCLI` returns stdout and reports both streams when the command
+  fails; `runCLIExpectError` still returns both, because the CLIs report the
+  service's error on stderr. No success-path assertion read stderr: a search
+  for gcloud's and the AWS CLI's stderr-only text in assertions found none, and
+  the gcloud calls without `--format` read payloads (`secrets versions access`,
+  `storage cat`, `spanner databases ddl describe`) that stderr text could only
+  corrupt. The Google Cloud `parseJSON` and `parseDescribedResource` no longer
+  search the output for the first offset that parses — a search that existed to
+  skip gcloud's stderr status text — and decode the whole output, so stray text
+  in it now fails instead of being stepped over.
 
 - ~~**BUG-3004 (ECS StopTask waited out the container's stop timeout before it
   answered):**~~ Found on 2026-09-15 in the Scaleway stack's `[sim-slow]`
