@@ -54,6 +54,20 @@ Open: 10. Resolved: 106.
 
 ## Resolved history
 
+- ~~**BUG-3005 (TestSDK_WebVnet_JoinsRealNetwork probed redis before it was
+  listening):**~~ The sim (azure sdk B-Z) job on #180 failed with the probe
+  function answering 500 instead of 200, 285 ms after the redis site's VNet
+  connection PUT, on a change that touched no Azure code; the same job passed
+  on main's two most recent runs. The PUT starts the `services:` container with
+  `StartContainerSync` and returns once the container is up; redis opens 6379 a
+  moment later, so a probe issued in that moment is refused, `nc` exits at once
+  with nothing on stdout, and the host answers 500 `{}`. App Service also starts
+  a site's container asynchronously and reports no readiness for a raw service,
+  so the simulator was faithful and the test's single invoke was the defect.
+  **Fixed**: the test waits, up to 30 s, for the probe to answer 200 with
+  redis's `+PONG`, and reports the last answer if it never does; the check that
+  deleting the connection makes the same probe fail is unchanged.
+
 - ~~**BUG-3001 (the AWS and Google Cloud CLI harnesses parsed JSON out of stdout
   and stderr merged):**~~ `runCLI` in `simulator-aws/cli-tests` and
   `simulator-gcp/cli-tests` wrote both streams into one buffer and returned it,
