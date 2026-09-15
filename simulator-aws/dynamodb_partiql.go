@@ -1284,6 +1284,9 @@ func pqlExecUpdate(t DDBTable, st *partiQLStmt) (*pqlResult, *pqlError) {
 			Message: "The conditional request failed"}
 	}
 	old := ddbCloneItem(item)
+	// Work on a copy and publish that, as UpdateItem does: a stored item is never
+	// changed in place, which is what lets readers hold the maps they read.
+	item = ddbCloneItem(item)
 
 	// Translate SET/REMOVE into an UpdateExpression and reuse the engine's
 	// applier so nested-path + value semantics stay identical to UpdateItem.

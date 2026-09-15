@@ -249,8 +249,12 @@ func registerDynamoDB(r *AWSRouter, srv *sim.Server, startBackgroundEvaluators b
 		"ExecuteStatement", "ExecuteTransaction", "BatchExecuteStatement")
 	ddbTables = sim.MakeStore[DDBTable](srv.DB(), "ddb_tables")
 	ddbTableSettings = sim.MakeStore[DDBTableSettings](srv.DB(), "ddb_table_settings")
-	ddbItems = sim.MakeStore[map[string]any](srv.DB(), "ddb_items")
-	ddbItemNames = sim.MakeStore[string](srv.DB(), "ddb_item_names")
+	// Items and their key index are read in bulk — an index query, a scan, the
+	// usage refresh and the TTL sweep each read every item of a table — so they
+	// are served from memory and written through to SQLite: a SQLite read per
+	// item held the table's lock long enough to stall writes for seconds.
+	ddbItems = sim.MakeCachedStore[map[string]any](srv.DB(), "ddb_items")
+	ddbItemNames = sim.MakeCachedStore[string](srv.DB(), "ddb_item_names")
 	ddbResetUsage()
 	if startBackgroundEvaluators {
 		startDDBTTLSweeper(srv)
