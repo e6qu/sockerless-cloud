@@ -661,15 +661,9 @@ func TestECS_ExitCodeNilWhileRunning(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Describe task after STOPPED — ExitCode should be set
-	descOut2, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-		Cluster: aws.String(clusterName),
-		Tasks:   []string{taskArn},
-	})
-	require.NoError(t, err)
-	require.Len(t, descOut2.Tasks, 1)
-
-	stoppedTask := descOut2.Tasks[0]
+	// StopTask answers while the container is still stopping, so the exit
+	// code is read once the task has stopped.
+	stoppedTask := waitTaskStopped(t, client, clusterName, taskArn)
 	assert.Equal(t, "STOPPED", *stoppedTask.LastStatus)
 	assert.Equal(t, ecstypes.TaskStopCodeUserInitiated, stoppedTask.StopCode)
 	for _, c := range stoppedTask.Containers {
@@ -698,7 +692,9 @@ func TestECS_StopCodeUserInitiated(t *testing.T) {
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
-				StopTimeout: aws.Int32(2),
+				// sleep runs as PID 1 and ignores SIGTERM, so the container is
+				// stopped only when this timeout runs out and is SIGKILLed.
+				StopTimeout: aws.Int32(10),
 				Name:        aws.String("app"),
 				Image:       aws.String("alpine:latest"),
 				Command:     []string{"sleep", "30"},
@@ -725,26 +721,31 @@ func TestECS_StopCodeUserInitiated(t *testing.T) {
 
 	waitForECSTaskStatus(t, client, clusterName, taskArn, "RUNNING")
 
-	// Stop task via API
-	_, err = client.StopTask(ctx, &ecs.StopTaskInput{
+	// Amazon ECS answers StopTask at once, with the task still running and
+	// asked to stop, and gives the container its stop timeout afterwards. The
+	// simulator used to wait out the timeout before it answered.
+	requested := time.Now()
+	stopOut, err := client.StopTask(ctx, &ecs.StopTaskInput{
 		Cluster: aws.String(clusterName),
 		Task:    aws.String(taskArn),
 		Reason:  aws.String("testing stop"),
 	})
 	require.NoError(t, err)
+	assert.Less(t, time.Since(requested), 10*time.Second,
+		"StopTask must answer before the container's stop timeout has run out")
+	require.NotNil(t, stopOut.Task)
+	assert.Equal(t, "RUNNING", aws.ToString(stopOut.Task.LastStatus))
+	assert.Equal(t, "STOPPED", aws.ToString(stopOut.Task.DesiredStatus))
+	assert.Equal(t, ecstypes.TaskStopCodeUserInitiated, stopOut.Task.StopCode)
+	assert.Equal(t, "testing stop", aws.ToString(stopOut.Task.StoppedReason))
+	assert.NotNil(t, stopOut.Task.StoppingAt)
+	assert.Nil(t, stopOut.Task.StoppedAt)
 
-	// Describe — StopCode should be UserInitiated
-	descOut, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-		Cluster: aws.String(clusterName),
-		Tasks:   []string{taskArn},
-	})
-	require.NoError(t, err)
-	require.Len(t, descOut.Tasks, 1)
-
-	task := descOut.Tasks[0]
-	assert.Equal(t, "STOPPED", *task.LastStatus)
+	task := waitTaskStopped(t, client, clusterName, taskArn)
 	assert.Equal(t, ecstypes.TaskStopCodeUserInitiated, task.StopCode)
 	assert.Equal(t, "testing stop", *task.StoppedReason)
+	assert.NotNil(t, task.StoppingAt)
+	assert.NotNil(t, task.StoppedAt)
 }
 
 // ecsRunTaskHelper creates a cluster, registers a task definition, and runs a task.

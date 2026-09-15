@@ -91,7 +91,7 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"serviceusage-v1":         20,
 	"spanner-v1":              198,
 	"sqladmin-v1":             160,
-	"sqladmin-v1beta4":        160,
+	"sqladmin-v1beta4":        170,
 	"storage-v1":              89,
 	"vpcaccess-v1":            16,
 }
@@ -417,6 +417,15 @@ var gcpMethodFloor = map[string]int{
 	// green instance is a real instance in the same store every other Cloud SQL
 	// read serves, and switchover promotes it into the source's name while the
 	// source is retired under one `deleteOldSource` can delete.
+	//
+	// The v1beta4 document grew from 160 to 170 spellings on the 2026-09-15
+	// re-vendor (revision 20260908): the workloadCaptures collection — list,
+	// start, stop, startReplay and stopReplay, each spelled twice. None is
+	// served, and each answers a declared 501. Capturing a workload records
+	// the SQL an instance executes so it can be replayed elsewhere; the data
+	// plane's front proxy relays the engine's wire protocol as bytes and never
+	// reads a query, so a capture or replay reported as RUNNING or COMPLETED
+	// would be invented.
 	"sqladmin-v1":      160,
 	"sqladmin-v1beta4": 160,
 

@@ -926,16 +926,23 @@ X-Amz-Target: AmazonEC2ContainerServiceV20141113.DeregisterTaskDefinition
     "clusterArn": "string",
     "taskDefinitionArn": "string",
     "desiredStatus": "STOPPED",
-    "lastStatus": "STOPPING",
+    "lastStatus": "RUNNING",
     "stoppedReason": "string",
     "stopCode": "UserInitiated",
     "containers": [],
     "createdAt": 0,
-    "stoppingAt": 0,
-    "stoppedAt": 0
+    "stoppingAt": 0
   }
 }
 ```
+
+StopTask answers without waiting for the task to stop. The task it returns has
+`desiredStatus` `STOPPED`, `stopCode`, `stoppedReason` and `stoppingAt` set, and
+its `lastStatus` and containers are still what they were. The containers then
+get their stop signal and stop timeout (30 seconds unless the container
+definition sets `stopTimeout`) before SIGKILL, and the task reaches `STOPPED`
+with `stoppedAt` set. A second StopTask on a stopping task keeps the first
+request's code and reason, and one on a stopped task returns it unchanged.
 
 #### Errors
 

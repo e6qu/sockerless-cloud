@@ -205,6 +205,19 @@ func TestSchedulerStopsTheUnhealthyTaskOnceItsReplacementIsInService(t *testing.
 
 	ecsReconcileService(key)
 
+	// The scheduler asks the unhealthy task to stop; like StopTask, that does
+	// not wait for its containers, so the task reads as stopping first.
+	stopping, ok := ecsTasks.Get(failing.TaskID())
+	require.True(t, ok)
+	require.Equal(t, ECSTaskStatusStopped, stopping.DesiredStatus,
+		"the task whose health check failed was not asked to stop")
+	require.Equal(t, ecsUnhealthyTaskReplacedReason, stopping.StoppedReason)
+
+	// Once it has stopped, the reconciliation its stop requests settles the
+	// deployment.
+	awaitECSTaskStop(t, failing.TaskID())
+	AwaitSimulatorBackground()
+
 	stopped, ok := ecsTasks.Get(failing.TaskID())
 	require.True(t, ok)
 	require.Equal(t, ECSTaskStatusStopped, stopped.LastStatus,
