@@ -4,8 +4,8 @@ go 1.26.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.47.0
-	github.com/aws/aws-sdk-go-v2/config v1.33.4
-	github.com/aws/aws-sdk-go-v2/credentials v1.20.4
+	github.com/aws/aws-sdk-go-v2/config v1.33.5
+	github.com/aws/aws-sdk-go-v2/credentials v1.20.5
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.0
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.7.3
 	github.com/aws/aws-sdk-go-v2/service/acm v1.50.0
@@ -31,7 +31,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.63.0
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.54.0
 	github.com/aws/aws-sdk-go-v2/service/firehose v1.51.0
-	github.com/aws/aws-sdk-go-v2/service/glue v1.158.0
+	github.com/aws/aws-sdk-go-v2/service/glue v1.159.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.64.0
 	github.com/aws/aws-sdk-go-v2/service/kinesis v1.54.0
 	github.com/aws/aws-sdk-go-v2/service/kms v1.60.0
@@ -48,7 +48,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sns v1.47.0
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.0
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.78.0
-	github.com/aws/aws-sdk-go-v2/service/sts v1.50.0
+	github.com/aws/aws-sdk-go-v2/service/sts v1.51.0
 	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.83.0
 	github.com/aws/smithy-go v1.28.1
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
