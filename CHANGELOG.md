@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.7](https://github.com/e6qu/sockerless-cloud/compare/v0.32.6...v0.32.7) (2026-09-15)
+
+
+### Bug Fixes
+
+* **aws:** ECS StopTask answers while the task is still stopping ([#178](https://github.com/e6qu/sockerless-cloud/issues/178)) ([e7b311f](https://github.com/e6qu/sockerless-cloud/commit/e7b311ff4fc735859b93036765e31084f2b853d0))
+
 ## [0.32.6](https://github.com/e6qu/sockerless-cloud/compare/v0.32.5...v0.32.6) (2026-09-15)
 
 
