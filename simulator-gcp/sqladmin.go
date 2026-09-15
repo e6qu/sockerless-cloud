@@ -267,6 +267,27 @@ func registerCloudSQLPrefix(srv *sim.Server, prefix string) {
 	// instances action POSTs with bespoke response shapes.
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/executeSql", handleSQLExecuteSql)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/acquireSsrsLease", handleSQLAcquireSsrsLease)
+
+	// Workload capture records the SQL an instance executes so it can be
+	// replayed on another instance. The data plane's front proxy relays the
+	// engine's wire protocol as bytes and never reads a query out of it, so
+	// there is no traffic to capture, and a capture or replay reported as
+	// RUNNING or COMPLETED would be invented.
+	const workloadCaptureWhy = "capturing a workload records the SQL the instance executes, and this simulator's data plane relays the engine's wire protocol without reading the queries in it"
+	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures", sqlUnserved("workloadCaptures.list", workloadCaptureWhy))
+	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures:start", sqlUnserved("workloadCaptures.start", workloadCaptureWhy))
+	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures:stop", sqlUnserved("workloadCaptures.stop", workloadCaptureWhy))
+	// "{workloadId}:startReplay" is one segment, and a ServeMux wildcard must
+	// be a whole one, so the verb is read from the segment.
+	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures/{workloadAction}", func(w http.ResponseWriter, r *http.Request) {
+		_, verb, _ := strings.Cut(sim.PathParam(r, "workloadAction"), ":")
+		switch verb {
+		case "startReplay", "stopReplay":
+			sqlUnserved("workloadCaptures."+verb, workloadCaptureWhy)(w, r)
+		default:
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown workload capture operation: %s", sim.PathParam(r, "workloadAction"))
+		}
+	})
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/releaseSsrsLease", handleSQLReleaseSsrsLease)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/verifyExternalSyncSettings", handleSQLVerifyExternalSyncSettings)
 
@@ -1967,4 +1988,12 @@ func handleSQLDeleteBackup(w http.ResponseWriter, r *http.Request) {
 	sqlRemoveBackupVolume(sqlBackupVolume(project, id))
 	op := newSQLOperation(project, "DELETE_BACKUP", id)
 	sim.WriteJSON(w, http.StatusOK, op)
+}
+
+// sqlUnserved answers a Cloud SQL Admin method this simulator does not serve
+// with a 501 naming the method and why.
+func sqlUnserved(what, why string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED", "the simulator serves no %s: %s", what, why)
+	}
 }
