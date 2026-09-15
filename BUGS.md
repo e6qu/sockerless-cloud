@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 10. Resolved: 105.
+Open: 10. Resolved: 106.
 
 ## Open
 
@@ -72,6 +72,27 @@ Open: 10. Resolved: 105.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3003 (a DynamoDB query on a secondary index read every item from
+  SQLite under the table lock, stalling writes for seconds):**~~ Found on
+  2026-09-15 when ecs-dev-desktop's monitoring observation kept missing
+  Shauth's five-second budget on the Scaleway stack. The simulator's own
+  `[sim-slow]` reports showed 47 UpdateItem calls finishing after up to 21 s
+  and a PutItem after 13 s within one minute, and a GSI query took a median
+  1.2 s from outside against 0.65 s for GetItem. A query on an index cannot
+  narrow to a partition, so it takes every item key in the table as a
+  candidate and reads each one while holding the table's read lock; every
+  read was a SQLite query and a JSON decode, and a writer waiting on that lock
+  also blocks the readers behind it. On 2,500 items of about 1.8 KB the reads
+  took 116 ms on a developer's SSD against 3.2 ms from memory. **Fixed**: the
+  item store and its key index are `sim.MakeCachedStore` stores, which keep
+  every row in memory and write through to SQLite, so a bulk read costs
+  memory lookups and SQLite stays the durable copy that a restart reloads.
+  Reads return copies, as the in-memory store's do. PartiQL `UPDATE` now
+  copies the item before changing it, as UpdateItem already did. Tests in
+  `sim/state_cached_test.go` require reads to keep working with the database
+  closed, writes to survive a reload, reads to be copies, and the
+  cross-cutting store passes to reach both memory and SQLite.
 
 - ~~**BUG-3002 (DescribeTable read every item in the table to answer):**~~
   BUG-3000 made DescribeTable compute a table's item counts and sizes on each
