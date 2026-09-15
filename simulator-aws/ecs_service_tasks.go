@@ -61,6 +61,25 @@ func ecsServiceTaskGroup(serviceName string) string {
 }
 
 // ecsServiceRunningTasks returns the service's non-STOPPED tasks.
+// ecsTasksNotStopping leaves out the tasks that have been asked to stop.
+//
+// A stopped task keeps its last status until its containers have had their stop
+// timeout, so a task the scheduler has just stopped still reads as running for
+// up to 30 seconds. Counted as one of the service's tasks it is stopped again
+// for the same surplus, or another task is stopped in its place, and a
+// deployment's minimum healthy count is spent on a task that is already
+// leaving. It still holds its place on the host, so the capacity a deployment
+// may use is counted with it.
+func ecsTasksNotStopping(tasks []ECSTask) []ECSTask {
+	out := make([]ECSTask, 0, len(tasks))
+	for _, task := range tasks {
+		if task.DesiredStatus != ECSTaskStatusStopped {
+			out = append(out, task)
+		}
+	}
+	return out
+}
+
 func ecsServiceRunningTasks(clusterArn, group string) []ECSTask {
 	tasks := ecsServiceTasksForGroup(clusterArn, group)
 	out := tasks[:0]
@@ -353,7 +372,7 @@ func ecsReconcileService(key string) {
 	group := ecsServiceTaskGroup(service.ServiceName)
 	active := ecsServiceRunningTasks(service.ClusterArn, group)
 	var current, previous []ECSTask
-	for _, task := range active {
+	for _, task := range ecsTasksNotStopping(active) {
 		if task.TaskDefinitionArn == definition.TaskDefinitionArn {
 			current = append(current, task)
 		} else {
@@ -378,7 +397,7 @@ func ecsReconcileService(key string) {
 			launchCount = available
 		}
 		if launchCount <= 0 && len(previous) > 0 {
-			stoppable := ecsCountServiceTasks(active, ECSTaskStatusRunning) - minimumHealthy
+			stoppable := ecsCountServiceTasks(ecsTasksNotStopping(active), ECSTaskStatusRunning) - minimumHealthy
 			if stoppable > len(previous) {
 				stoppable = len(previous)
 			}
@@ -397,7 +416,7 @@ func ecsReconcileService(key string) {
 		// the unhealthy tasks one-by-one — using the minimumHealthyPercent as a
 		// constraint — to clear up capacity to launch replacement tasks."
 		if launchCount <= 0 && len(unhealthy) > 0 {
-			stoppable := ecsCountServiceTasks(active, ECSTaskStatusRunning) - minimumHealthy
+			stoppable := ecsCountServiceTasks(ecsTasksNotStopping(active), ECSTaskStatusRunning) - minimumHealthy
 			if stoppable > len(unhealthy) {
 				stoppable = len(unhealthy)
 			}
@@ -446,7 +465,7 @@ func ecsReconcileService(key string) {
 		active = ecsServiceRunningTasks(service.ClusterArn, group)
 		current = nil
 		previous = nil
-		for _, task := range active {
+		for _, task := range ecsTasksNotStopping(active) {
 			if task.TaskDefinitionArn == definition.TaskDefinitionArn {
 				current = append(current, task)
 			} else {
@@ -672,7 +691,7 @@ func ecsStopServiceTaskSlice(tasks []ECSTask, count int, reason string) {
 		if ecsServiceTaskProtected(task) {
 			continue
 		}
-		if stopECSTask(task.TaskID(), reason, "ServiceSchedulerInitiated") {
+		if _, ok := stopECSTask(task.TaskID(), reason, "ServiceSchedulerInitiated"); ok {
 			count--
 		}
 	}
@@ -911,7 +930,9 @@ func ecsSyncServiceRegistryInstances(service ECSService) error {
 		serviceID := ecsServiceRegistryID(registry.RegistryArn)
 		desired := map[string]map[string]string{}
 		for _, task := range tasks {
-			if task.LastStatus != ECSTaskStatusRunning {
+			// Amazon ECS deregisters a task from its service registries when
+			// the task is asked to stop, not once it has stopped.
+			if task.LastStatus != ECSTaskStatusRunning || task.DesiredStatus == ECSTaskStatusStopped {
 				continue
 			}
 			attributes, ok := ecsServiceRegistryTaskAttributes(service, task, registry)
@@ -1043,7 +1064,9 @@ func ecsSyncServiceLoadBalancerTargets(service ECSService) {
 			}
 			key := ecsServiceTargetKey(target)
 			managed[key] = true
-			if task.LastStatus == ECSTaskStatusRunning {
+			// A stopping task is deregistered, and starts draining, when it is
+			// asked to stop; its containers keep serving the drain.
+			if task.LastStatus == ECSTaskStatusRunning && task.DesiredStatus != ECSTaskStatusStopped {
 				desired[key] = target
 			}
 		}

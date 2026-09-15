@@ -73,6 +73,34 @@ Open: 10. Resolved: 106.
 
 ## Resolved history
 
+- ~~**BUG-3004 (ECS StopTask waited out the container's stop timeout before it
+  answered):**~~ Found on 2026-09-15 in the Scaleway stack's `[sim-slow]`
+  reports after the 08:43Z and 16:02Z deploys: StopTask calls took 30,567 ms,
+  the default 30-second stop timeout plus the container's removal, because
+  ecs-dev-desktop's workspace containers do not exit on SIGTERM. The
+  simulator stopped the containers, waited for their removal and recorded the
+  task STOPPED all before answering, holding the task's lifecycle lock, so a
+  StopTask on a task still starting also waited for its whole start, and a
+  service reconciliation that stopped tasks was held for as long. Amazon ECS
+  answers at once with the task's desired status STOPPED, its stop code, reason
+  and `stoppingAt` set, and its last status unchanged, and stops the containers
+  afterwards. **Fixed**: StopTask records the request and returns that task;
+  the containers are stopped and the task recorded STOPPED as tracked
+  background work under the lifecycle lock, which a server shutdown and a test
+  drain both account for. A repeated StopTask keeps the first request's code
+  and reason; an essential container exiting during the stop no longer
+  overwrites them. The service scheduler leaves stopping tasks out of the
+  tasks it counts and chooses among, so one surplus is not stopped twice or
+  twice over, and still counts them against the capacity a deployment may use;
+  load balancers and Cloud Map let go of a task when it is asked to stop.
+  Recovery after a restart finishes a stop the previous process accepted
+  instead of resuming or adopting the task as a running one, and pending-task
+  resumption is handed to the server lifecycle rather than a bare goroutine.
+  Tests require StopTask to answer while the task's lifecycle is busy, the
+  scheduler not to stop a replacement for a stop in progress, recovery to
+  finish stopping tasks, and the SDK stop tests to observe the RUNNING →
+  STOPPED transition.
+
 - ~~**BUG-3003 (a DynamoDB query on a secondary index read every item from
   SQLite under the table lock, stalling writes for seconds):**~~ Found on
   2026-09-15 when ecs-dev-desktop's monitoring observation kept missing

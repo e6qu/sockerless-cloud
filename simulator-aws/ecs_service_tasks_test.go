@@ -59,6 +59,10 @@ func TestECSStopServiceTasks_DrainsNonStopped(t *testing.T) {
 	}
 
 	ecsStopServiceTasks(svc)
+	// StopTask answers before a task has stopped; the drain's stops finish
+	// in the background.
+	awaitECSTaskStop(t, running.TaskID())
+	awaitECSTaskStop(t, pending.TaskID())
 
 	assertStatus := func(name, id string, want ECSTaskStatus) {
 		got, ok := ecsTasks.Get(id)

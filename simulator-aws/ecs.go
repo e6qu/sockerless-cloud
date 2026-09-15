@@ -310,7 +310,11 @@ type ECSTask struct {
 	// pull timestamps: Amazon ECS reports every task timestamp at millisecond
 	// resolution, and whole seconds here put startedAt before pullStoppedAt.
 	StartedAt *float64 `json:"startedAt,omitempty"`
-	StoppedAt *float64 `json:"stoppedAt,omitempty"`
+	// StoppingAt is when the task was asked to stop and StoppedAt when it
+	// finished stopping. Between the two the task's desired status is STOPPED
+	// while its containers are still being given their stop timeout.
+	StoppingAt *float64 `json:"stoppingAt,omitempty"`
+	StoppedAt  *float64 `json:"stoppedAt,omitempty"`
 	// The agent reports these while a task runs: when it finished pulling its
 	// images and when execution stopped. DescribeTasks returns them, and they
 	// were being discarded.
@@ -1820,11 +1824,29 @@ func ecsScheduleTaskStart(
 	id string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride,
 	taskVolumeHosts map[string]string, launchType, containerInstanceKey string,
 ) {
-	run, ok := simHandoff(func() {
+	ecsHandOffTaskLifecycle(func() {
 		start(id, td, taskTags, overrides, taskVolumeHosts, launchType, containerInstanceKey)
-	})
+	}, nil)
+}
+
+// ecsHandOffTaskLifecycle runs one step of a task's lifecycle off the request
+// path, the way ecsScheduleTaskStart describes, and then calls after whether
+// the step ran, was refused, or was dropped by a test drain. after must not
+// read the control-plane stores: it can run once a drain has returned.
+func ecsHandOffTaskLifecycle(work, after func()) {
+	run, ok := simHandoff(work)
 	if !ok {
+		if after != nil {
+			after()
+		}
 		return
+	}
+	if after != nil {
+		handedOff := run
+		run = func() {
+			defer after()
+			handedOff()
+		}
 	}
 	if ecsBackgroundServer == nil {
 		go run()
@@ -1857,10 +1879,15 @@ func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTa
 				}
 				transitioned = true
 				t.LastStatus = ECSTaskStatusStopped
-				t.DesiredStatus = ECSTaskStatusStopped
 				t.StoppedAt = &stoppedAt
-				t.StopCode = "EssentialContainerExited"
-				t.StoppedReason = "Essential container in task exited"
+				// A container that exits while the task is already stopping
+				// does not change why the task stopped: the stop request's
+				// code and reason stand, as they do on Amazon ECS.
+				if t.DesiredStatus != ECSTaskStatusStopped {
+					t.DesiredStatus = ECSTaskStatusStopped
+					t.StopCode = "EssentialContainerExited"
+					t.StoppedReason = "Essential container in task exited"
+				}
 				exitCode := result.ExitCode
 				for j := range t.Containers {
 					t.Containers[j].LastStatus = "STOPPED"
@@ -1886,13 +1913,19 @@ func recoverECSTasksWithContainerFinder(
 	findExistingContainers func(map[string]string) ([]sim.ExistingContainer, error),
 ) error {
 	for _, task := range ecsTasks.List() {
+		if task.LastStatus != ECSTaskStatusStopped && task.DesiredStatus == ECSTaskStatusStopped {
+			if err := ecsRecoverStoppingTask(task, findExistingContainers); err != nil {
+				return err
+			}
+			continue
+		}
 		switch task.LastStatus {
 		case ECSTaskStatusProvisioning, ECSTaskStatusPending:
 			definition, ok := ecsTaskDefinitionForARN(task.TaskDefinitionArn)
 			if !ok {
 				return fmt.Errorf("task %s references missing task definition %s", task.TaskArn, task.TaskDefinitionArn)
 			}
-			go ecsResumePendingTask(task, definition)
+			ecsHandOffTaskLifecycle(func() { ecsResumePendingTask(task, definition) }, nil)
 		case ECSTaskStatusRunning:
 			definition, ok := ecsTaskDefinitionForARN(task.TaskDefinitionArn)
 			if !ok {
@@ -1978,6 +2011,38 @@ func ecsResumePendingTask(task ECSTask, definition ECSTaskDefinition) {
 	if current, ok := ecsTasks.Get(taskID); ok {
 		ecsRequestServiceReconcileForTask(current)
 	}
+}
+
+// ecsRecoverStoppingTask finishes a stop that the previous simulator process
+// accepted and did not complete. StopTask answers before the task's containers
+// have stopped, so a restart inside a container's stop timeout leaves a task
+// whose desired status is STOPPED and whose last status is not. Resuming or
+// adopting it as a running task would keep a workload the caller asked to
+// stop; whatever of it is still on the host is adopted only so that the stop
+// can take it down.
+func ecsRecoverStoppingTask(
+	task ECSTask,
+	findExistingContainers func(map[string]string) ([]sim.ExistingContainer, error),
+) error {
+	taskID := task.TaskID()
+	existing, err := findExistingContainers(map[string]string{"sockerless-sim-task": taskID})
+	if err != nil {
+		return fmt.Errorf("find Amazon ECS task %s containers: %w", task.TaskArn, err)
+	}
+	if len(existing) > 0 {
+		definition, ok := ecsTaskDefinitionForARN(task.TaskDefinitionArn)
+		if !ok {
+			return fmt.Errorf("task %s references missing task definition %s", task.TaskArn, task.TaskDefinitionArn)
+		}
+		if len(definition.ContainerDefinitions) == 0 {
+			return fmt.Errorf("task %s references an Amazon ECS task definition without containers", task.TaskArn)
+		}
+		if err := ecsAdoptRunningTask(task, definition, existing); err != nil {
+			return err
+		}
+	}
+	stopECSTask(taskID, task.StoppedReason, task.StopCode)
+	return nil
 }
 
 func ecsRecoverRunningTask(
@@ -2785,44 +2850,60 @@ func handleECSStopTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	taskID := ecsTaskIDFromRef(req.Task)
-	if !stopECSTask(taskID, req.Reason, "UserInitiated") {
+	task, ok := stopECSTask(ecsTaskIDFromRef(req.Task), req.Reason, "UserInitiated")
+	if !ok {
 		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"Task not found: %s", req.Task)
 		return
 	}
-	task, _ := ecsTasks.Get(taskID)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"task": ecsTaskWire{ECSTask: task, includeTags: true},
 	})
 }
 
-// stopECSTask transitions a task to STOPPED — stopping its Docker containers,
-// recording the stop code/reason/exit code, and tearing down its VPC veth.
-// Returns false when the task is unknown. Used by the StopTask API handler
-// and the in-process service scheduler.
-func stopECSTask(taskID, reason, code string) bool {
-	lifecycleLock := ecsTaskLifecycleLock(taskID)
-	lifecycleLock.Lock()
-	defer lifecycleLock.Unlock()
+// ecsTaskStopsInFlight holds, for each task whose stop has been requested and
+// has not finished, a channel that closes when it has.
+var ecsTaskStopsInFlight sync.Map // task ID -> chan struct{}
 
-	existing, ok := ecsTasks.Get(taskID)
-	if !ok {
-		return false
+// stopECSTask asks a task to stop and returns the task as the request left it,
+// without waiting for its containers to stop. It reports false when there is
+// no such task.
+//
+// Amazon ECS answers StopTask at once. The task it returns has a desired status
+// of STOPPED, a stopCode, a stoppedReason and a stoppingAt, and its last status
+// and its containers are still what they were; the containers then get the
+// stop signal and their stop timeout, 30 seconds unless the container
+// definition sets another, before SIGKILL, and only then does the task reach
+// STOPPED. The simulator used to do all of that before it answered, holding
+// the task's lifecycle lock, so every StopTask on a container that did not exit
+// on SIGTERM took the full timeout: ecs-dev-desktop's workspace stops took
+// 30.5 seconds, and a service scheduler reconciliation that stopped tasks was
+// held for as long.
+//
+// A task already stopped is returned as it is, and a task already stopping
+// keeps the code and reason of the request that stopped it.
+func stopECSTask(taskID, reason, code string) (ECSTask, bool) {
+	done := make(chan struct{})
+	if _, stopping := ecsTaskStopsInFlight.LoadOrStore(taskID, done); stopping {
+		return ecsTasks.Get(taskID)
+	}
+	finished := func() {
+		ecsTaskStopsInFlight.CompareAndDelete(taskID, done)
+		close(done)
 	}
 
-	// Stop running container if any
-	if v, ok := ecsProcessHandles.LoadAndDelete(taskID); ok {
-		if procs, ok := v.(*ecsTaskProcesses); ok {
-			cleanupECSTaskProcesses(taskID, procs)
-		}
-	}
-
-	now := ecsEpochSeconds()
+	requestedAt := ecsEpochSeconds()
+	stopping := false
 	ecsTasks.Update(taskID, func(t *ECSTask) {
+		if t.LastStatus == ECSTaskStatusStopped {
+			return
+		}
+		stopping = true
+		if t.DesiredStatus == ECSTaskStatusStopped {
+			return
+		}
 		t.DesiredStatus = ECSTaskStatusStopped
-		t.LastStatus = ECSTaskStatusStopped
-		t.StoppedAt = &now
+		t.StoppingAt = &requestedAt
 		t.StopCode = code
 		switch {
 		case reason != "":
@@ -2832,8 +2913,50 @@ func stopECSTask(taskID, reason, code string) bool {
 		default:
 			t.StoppedReason = ""
 		}
-		// A user-initiated stop SIGKILLs the container; the faithful exit code is
-		// 137 (128+SIGKILL), what real Fargate reports — not a clean-exit 0.
+	})
+	task, ok := ecsTasks.Get(taskID)
+	if !ok || !stopping {
+		finished()
+		return task, ok
+	}
+	// The service scheduler stops counting the task and takes it out of its
+	// load balancers and service registries now, while its containers stop.
+	ecsRequestServiceReconcileForTask(task)
+	ecsHandOffTaskLifecycle(func() { ecsFinishTaskStop(taskID) }, finished)
+	return task, true
+}
+
+// ecsFinishTaskStop stops a stopping task's containers and records it STOPPED.
+// It holds the task's lifecycle lock, so a start still in progress finishes
+// first and its containers are then stopped rather than left running.
+func ecsFinishTaskStop(taskID string) {
+	lifecycleLock := ecsTaskLifecycleLock(taskID)
+	lifecycleLock.Lock()
+	defer lifecycleLock.Unlock()
+
+	existing, ok := ecsTasks.Get(taskID)
+	if !ok || existing.LastStatus == ECSTaskStatusStopped {
+		return
+	}
+	if v, ok := ecsProcessHandles.LoadAndDelete(taskID); ok {
+		if procs, ok := v.(*ecsTaskProcesses); ok {
+			cleanupECSTaskProcesses(taskID, procs)
+		}
+	}
+
+	now := ecsEpochSeconds()
+	transitioned := false
+	ecsTasks.Update(taskID, func(t *ECSTask) {
+		if t.LastStatus == ECSTaskStatusStopped {
+			return
+		}
+		transitioned = true
+		t.LastStatus = ECSTaskStatusStopped
+		t.DesiredStatus = ECSTaskStatusStopped
+		t.StoppedAt = &now
+		// A stopped container is SIGKILLed once its stop timeout runs out; the
+		// faithful exit code is 137 (128+SIGKILL), what real Fargate reports —
+		// not a clean-exit 0.
 		exitCode := 137
 		for j := range t.Containers {
 			t.Containers[j].LastStatus = "STOPPED"
@@ -2841,6 +2964,9 @@ func stopECSTask(taskID, reason, code string) bool {
 		}
 		ecsCleanupTaskManagedEBS(t)
 	})
+	if !transitioned {
+		return
+	}
 	instanceKey := ecsContainerInstanceKeyFromARN(existing.ContainerInstanceArn)
 	switch existing.LastStatus {
 	case ECSTaskStatusProvisioning, ECSTaskStatusPending:
@@ -2848,12 +2974,11 @@ func stopECSTask(taskID, reason, code string) bool {
 	case ECSTaskStatusRunning:
 		ecsUpdateContainerInstanceTaskCounts(instanceKey, 0, -1)
 	}
-
-	// Tear down the task's VPC veth (netns tier) after cloud-visible state is
-	// updated; Docker/netns cleanup can take seconds on CI.
-	go ec2DetachRealECSTaskNIC(context.Background(), taskID)
-	ecsRequestServiceReconcileForTask(existing)
-	return true
+	// A task that never ran has no container stop to tear its VPC veth down.
+	ec2DetachRealECSTaskNIC(context.Background(), taskID)
+	if task, ok := ecsTasks.Get(taskID); ok {
+		ecsRequestServiceReconcileForTask(task)
+	}
 }
 
 // ecsStoppedTaskRetention is how long a stopped task remains visible. Amazon

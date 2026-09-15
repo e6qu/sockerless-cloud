@@ -130,14 +130,8 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify STOPPED state
-	descOut2, err := ecsC.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-		Cluster: aws.String(clusterName),
-		Tasks:   []string{taskArn},
-	})
-	require.NoError(t, err)
-	require.Len(t, descOut2.Tasks, 1)
-	stoppedTask := descOut2.Tasks[0]
+	// Verify STOPPED state, which StopTask does not wait for
+	stoppedTask := waitTaskStopped(t, ecsC, clusterName, taskArn)
 	assert.Equal(t, "STOPPED", *stoppedTask.LastStatus)
 	assert.Equal(t, ecstypes.TaskStopCodeUserInitiated, stoppedTask.StopCode)
 	for _, c := range stoppedTask.Containers {
