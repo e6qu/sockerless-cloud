@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.10](https://github.com/e6qu/sockerless-cloud/compare/v0.32.9...v0.32.10) (2026-09-16)
+
+
+### Performance Improvements
+
+* **aws:** a task start stops rebuilding network policy, and the data plane stops calling client disconnects bad gateways ([#185](https://github.com/e6qu/sockerless-cloud/issues/185)) ([7dee0ac](https://github.com/e6qu/sockerless-cloud/commit/7dee0ac92b340f3c139c32db1185b149a83aaef3))
+
 ## [0.32.9](https://github.com/e6qu/sockerless-cloud/compare/v0.32.8...v0.32.9) (2026-09-16)
 
 
