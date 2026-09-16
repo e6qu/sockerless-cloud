@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -252,6 +253,13 @@ func elbv2TLSHTTPSHandler(listenerArn string) func(http.ResponseWriter, *http.Re
 			return
 		}
 		if err := elbv2ProxyHTTPRequest(w, r, listener, tg, address); err != nil {
+			// The HTTPS listener forwards through the same path as the plain
+			// data plane, so it inherits the same distinction: a client that
+			// hung up is not a failed target.
+			if errors.Is(err, errELBv2ClientWentAway) {
+				w.WriteHeader(elbv2StatusClientClosedRequest)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}

@@ -136,21 +136,43 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 		health, healthErr := elbC.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
 			TargetGroupArn: aws.String(targetGroupArn),
 		})
+		// TargetHealth is a pointer and is absent while a target is still being
+		// registered, which is a state this closure already expects -- the
+		// diagnostic below guards it. Dereferencing it here first panicked the
+		// shard (nil pointer dereference at this line) whenever the poll
+		// happened to sample that window, which is why it failed on CI and
+		// passed locally.
 		if healthErr != nil || len(health.TargetHealthDescriptions) != 1 ||
+			health.TargetHealthDescriptions[0].TargetHealth == nil ||
 			health.TargetHealthDescriptions[0].TargetHealth.State != elbtypes.TargetHealthStateEnumHealthy {
-			listed, _ := ecsC.ListTasks(ctx, &ecs.ListTasksInput{
+			// Both calls had their errors discarded and their results
+			// dereferenced anyway. DescribeTasks rejects an empty Tasks list,
+			// so every poll taken before the service has listed a task left
+			// described nil and panicked the shard on described.Tasks below.
+			// This is a diagnostic path: it reports what it can see and stays
+			// silent about what it cannot.
+			var taskArns []string
+			if listed, listErr := ecsC.ListTasks(ctx, &ecs.ListTasksInput{
 				Cluster: aws.String(cluster), ServiceName: aws.String(serviceName),
-			})
-			described, _ := ecsC.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-				Cluster: aws.String(cluster), Tasks: listed.TaskArns,
-			})
+			}); listErr == nil && listed != nil {
+				taskArns = listed.TaskArns
+			}
+			var described *ecs.DescribeTasksOutput
+			if len(taskArns) > 0 {
+				if out, describeErr := ecsC.DescribeTasks(ctx, &ecs.DescribeTasksInput{
+					Cluster: aws.String(cluster), Tasks: taskArns,
+				}); describeErr == nil {
+					described = out
+				}
+			}
 			targetState, targetID := "", ""
-			if health != nil && len(health.TargetHealthDescriptions) > 0 {
+			if health != nil && len(health.TargetHealthDescriptions) > 0 &&
+				health.TargetHealthDescriptions[0].TargetHealth != nil {
 				targetState = string(health.TargetHealthDescriptions[0].TargetHealth.State)
 				targetID = aws.ToString(health.TargetHealthDescriptions[0].Target.Id)
 			}
 			taskState, stoppedReason := "", ""
-			if len(described.Tasks) > 0 {
+			if described != nil && len(described.Tasks) > 0 {
 				taskState = aws.ToString(described.Tasks[0].LastStatus)
 				stoppedReason = aws.ToString(described.Tasks[0].StoppedReason)
 			}
