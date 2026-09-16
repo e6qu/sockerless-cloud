@@ -136,7 +136,14 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 		health, healthErr := elbC.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
 			TargetGroupArn: aws.String(targetGroupArn),
 		})
+		// TargetHealth is a pointer and is absent while a target is still being
+		// registered, which is a state this closure already expects -- the
+		// diagnostic below guards it. Dereferencing it here first panicked the
+		// shard (nil pointer dereference at this line) whenever the poll
+		// happened to sample that window, which is why it failed on CI and
+		// passed locally.
 		if healthErr != nil || len(health.TargetHealthDescriptions) != 1 ||
+			health.TargetHealthDescriptions[0].TargetHealth == nil ||
 			health.TargetHealthDescriptions[0].TargetHealth.State != elbtypes.TargetHealthStateEnumHealthy {
 			listed, _ := ecsC.ListTasks(ctx, &ecs.ListTasksInput{
 				Cluster: aws.String(cluster), ServiceName: aws.String(serviceName),
@@ -145,7 +152,8 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 				Cluster: aws.String(cluster), Tasks: listed.TaskArns,
 			})
 			targetState, targetID := "", ""
-			if health != nil && len(health.TargetHealthDescriptions) > 0 {
+			if health != nil && len(health.TargetHealthDescriptions) > 0 &&
+				health.TargetHealthDescriptions[0].TargetHealth != nil {
 				targetState = string(health.TargetHealthDescriptions[0].TargetHealth.State)
 				targetID = aws.ToString(health.TargetHealthDescriptions[0].Target.Id)
 			}
