@@ -3739,7 +3739,7 @@ type cwLogSink struct {
 }
 
 func (s *cwLogSink) WriteLog(line sim.LogLine) {
-	cwIngestWorkloadLogLine(s.logGroup, s.logStream, line.Text)
+	cwIngestWorkloadLogLine(s.logGroup, s.logStream, line.Text, line.Timestamp)
 }
 
 // Fargate CPU/memory validation. Valid combinations per AWS docs.

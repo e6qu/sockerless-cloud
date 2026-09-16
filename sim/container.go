@@ -842,7 +842,7 @@ func StreamContainerLogs(ctx context.Context, containerID string, sink LogSink) 
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
-		Timestamps: false,
+		Timestamps: true,
 	})
 	if err != nil {
 		return
@@ -1374,7 +1374,7 @@ func followContainerLogs(ctx context.Context, cli *client.Client, containerID st
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
-		Timestamps: false,
+		Timestamps: true,
 	})
 	if err != nil {
 		return
@@ -1392,7 +1392,7 @@ func drainContainerLogs(ctx context.Context, cli *client.Client, containerID str
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     false,
-		Timestamps: false,
+		Timestamps: true,
 	})
 	if err != nil {
 		return
@@ -1402,6 +1402,22 @@ func drainContainerLogs(ctx context.Context, cli *client.Client, containerID str
 }
 
 // streamDockerLogs demuxes Docker log output and sends lines to the sink.
+// splitDockerLogTimestamp splits the RFC3339Nano timestamp Docker prepends to
+// each line when ContainerLogs is asked for timestamps. A line without one —
+// an engine that did not honour the option — keeps its whole text and is dated
+// now, which is what every line used to get.
+func splitDockerLogTimestamp(line string) (time.Time, string) {
+	stamp, rest, found := strings.Cut(line, " ")
+	if !found {
+		return time.Now(), line
+	}
+	written, err := time.Parse(time.RFC3339Nano, stamp)
+	if err != nil {
+		return time.Now(), line
+	}
+	return written, rest
+}
+
 func streamDockerLogs(reader io.ReadCloser, sink LogSink) {
 	defer reader.Close()
 
@@ -1422,10 +1438,16 @@ func streamDockerLogs(reader io.ReadCloser, sink LogSink) {
 		defer wg.Done()
 		scanner := bufio.NewScanner(r)
 		for scanner.Scan() {
+			// The line carries the time the container wrote it, which Docker
+			// records and now prepends. Stamping time.Now() here dated every
+			// line by when this reader got to it, so a workload that logged
+			// during a slow start reported the delay as its own — the reader's
+			// lag and the workload's were the same number.
+			stamp, text := splitDockerLogTimestamp(scanner.Text())
 			sink.WriteLog(LogLine{
 				Stream:    stream,
-				Text:      scanner.Text(),
-				Timestamp: time.Now(),
+				Text:      text,
+				Timestamp: stamp,
 			})
 		}
 	}

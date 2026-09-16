@@ -1251,7 +1251,7 @@ type lambdaLogSink struct {
 }
 
 func (s *lambdaLogSink) WriteLog(line sim.LogLine) {
-	cwIngestWorkloadLogLine(s.logGroup, s.logStream, line.Text)
+	cwIngestWorkloadLogLine(s.logGroup, s.logStream, line.Text, line.Timestamp)
 }
 
 // handleLambdaUntagResource implements DELETE /2017-03-31/tags/{arn}?tagKeys=a&tagKeys=b.
