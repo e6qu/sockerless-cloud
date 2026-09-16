@@ -1,11 +1,11 @@
 package main
 
 import (
-	"errors"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
