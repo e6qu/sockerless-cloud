@@ -412,12 +412,20 @@ func awsCLIHostPrefixed(args ...string) *exec.Cmd {
 	return cmd
 }
 
+// runCLI runs a command that must succeed and returns what it wrote to stdout.
+//
+// The response is stdout. The CLI writes its own warnings and notices to
+// stderr, and a caller that parses the result as JSON or compares it to a
+// value must not receive them: Azure's harness returned both streams in one
+// buffer until az's Python interpreter put a SyntaxWarning in front of a
+// correct response and failed TestRedisCLI_ARMResources (BUG-3001). stderr is
+// still reported when the command fails.
 func runCLI(t *testing.T, cmd *exec.Cmd) string {
 	t.Helper()
 	const perCmdTimeout = 60 * time.Second
-	var combined bytes.Buffer
-	cmd.Stdout = &combined
-	cmd.Stderr = &combined
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("CLI command failed to start: %v\nCommand: %s", err, strings.Join(cmd.Args, " "))
 	}
@@ -426,11 +434,14 @@ func runCLI(t *testing.T, cmd *exec.Cmd) string {
 	timer := time.AfterFunc(perCmdTimeout, func() { _ = cmd.Process.Kill() })
 	defer timer.Stop()
 	if err := cmd.Wait(); err != nil {
-		t.Fatalf("CLI command failed: %v\nCommand: %s\nOutput: %s", err, strings.Join(cmd.Args, " "), combined.String())
+		t.Fatalf("CLI command failed: %v\nCommand: %s\nStdout: %s\nStderr: %s",
+			err, strings.Join(cmd.Args, " "), stdout.String(), stderr.String())
 	}
-	return combined.String()
+	return stdout.String()
 }
 
+// runCLIExpectError runs a command that must fail and returns both streams: the
+// CLI reports the service's error on stderr, and that is what its callers check.
 func runCLIExpectError(t *testing.T, cmd *exec.Cmd) string {
 	t.Helper()
 	const perCmdTimeout = 60 * time.Second
