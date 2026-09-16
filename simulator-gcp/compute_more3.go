@@ -261,6 +261,52 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 			sim.WriteJSON(w, http.StatusOK, scopeOp(r, key, opType))
 		})
 	}
+	// patchAssociation updates an association the policy already carries, and
+	// ONLY regionNetworkFirewallPolicies declares it: neither organization
+	// spelling nor the project-global collection has the method, so mounting it
+	// from the shared association verbs invented two routes no document
+	// describes while still missing this one.
+	if scope == cScopeRegion {
+		srv.HandleFunc("POST "+base+"/{name}/patchAssociation", func(w http.ResponseWriter, r *http.Request) {
+			key := relPath(r, sim.PathParam(r, "name"))
+			var body map[string]any
+			if err := sim.ReadJSON(r, &body); err != nil {
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				return
+			}
+			wanted, _ := body["name"].(string)
+			if wanted == "" {
+				wanted = r.URL.Query().Get("name")
+			}
+			patched := false
+			ok := store.Update(key, func(m *map[string]any) {
+				cur := *m
+				arr, _ := cur["associations"].([]map[string]any)
+				for i, entry := range arr {
+					if got, _ := entry["name"].(string); got != wanted {
+						continue
+					}
+					if _, named := body["name"]; !named {
+						body["name"] = wanted
+					}
+					arr[i] = body
+					patched = true
+					break
+				}
+				cur["associations"] = arr
+			})
+			if !ok {
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewallPolicy %q not found", sim.PathParam(r, "name"))
+				return
+			}
+			if !patched {
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "no association named %q on this policy", wanted)
+				return
+			}
+			sim.WriteJSON(w, http.StatusOK, scopeOp(r, key, "patchAssociation"))
+		})
+	}
+
 	remove("removeAssociation", "removeAssociation", "associations", "name", false)
 	remove("removeRule", "removeRule", "rules", "priority", true)
 	if isGlobal {

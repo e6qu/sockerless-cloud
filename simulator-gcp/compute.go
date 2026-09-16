@@ -2279,6 +2279,49 @@ func registerComputeCatalog(srv *sim.Server) {
 		})
 	})
 	imageJSON := computeImageJSON
+	// imageViews are a read-only view of the SAME global images, addressed with
+	// a regional context: "Returns the specified global ImageView resource,
+	// with a regional context." Unlike regions.projectViews — which exists to
+	// expose a replica's lag and is therefore declared unserved — a view adds
+	// no state of its own, so it is served from the image collection rather
+	// than refused.
+	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/imageViews/{resourceId}", func(w http.ResponseWriter, r *http.Request) {
+		project := sim.PathParam(r, "project")
+		name := sim.PathParam(r, "resourceId")
+		image := map[string]any(nil)
+		if gcpComputeImages != nil {
+			if m, ok := gcpComputeImages.Get(fmt.Sprintf("projects/%s/global/images/%s", project, name)); ok {
+				image = m
+			}
+		}
+		if image == nil {
+			image = computeImageJSON(project, name)
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"image": image})
+	})
+	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/imageViews", func(w http.ResponseWriter, r *http.Request) {
+		project := sim.PathParam(r, "project")
+		region := sim.PathParam(r, "region")
+		prefix := fmt.Sprintf("projects/%s/global/images/", project)
+		items := []any{}
+		if gcpComputeImages != nil {
+			// The store carries whole image objects; a project's own images are
+			// the ones whose selfLink names it, which is what the global images
+			// collection keys on.
+			for _, image := range gcpComputeImages.Filter(func(m map[string]any) bool {
+				link, _ := m["selfLink"].(string)
+				return strings.Contains(link, prefix)
+			}) {
+				items = append(items, image)
+			}
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"kind":     "compute#imageViewsListResponse",
+			"id":       computeNumericID(),
+			"items":    items,
+			"selfLink": fmt.Sprintf("projects/%s/regions/%s/imageViews", project, region),
+		})
+	})
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/images/{image}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "image")
