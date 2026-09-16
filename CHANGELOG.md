@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.8](https://github.com/e6qu/sockerless-cloud/compare/v0.32.7...v0.32.8) (2026-09-16)
+
+
+### Bug Fixes
+
+* **test:** the AWS and Google Cloud CLI harnesses return stdout, not both streams merged ([#180](https://github.com/e6qu/sockerless-cloud/issues/180)) ([fbf7216](https://github.com/e6qu/sockerless-cloud/commit/fbf7216e18d5e2ebdc807e9e320d9d9443fe4f3c))
+
 ## [0.32.7](https://github.com/e6qu/sockerless-cloud/compare/v0.32.6...v0.32.7) (2026-09-15)
 
 
