@@ -65,8 +65,14 @@ type Network struct {
 	mu            sync.Mutex
 	egressMu      sync.Mutex // serializes EnsureEgress so the veth pair is created once
 	cleanupOnce   sync.Map   // tableName -> struct{}: a shared table's teardown is registered once
-	cleanup       *CleanupStack
-	runner        Runner
+	// installed records the program last committed for a table, so an
+	// unchanged policy costs nothing. A VPC's egress policy is reapplied on
+	// every task start and every instance launch, and rebuilding it tears the
+	// table down and commits it again — 3.5-4.4 s of every Amazon ECS task
+	// start on the Scaleway stack, for a ruleset that had not changed.
+	installed sync.Map // tableName -> string (the committed program)
+	cleanup   *CleanupStack
+	runner    Runner
 }
 
 // registerTableCleanupOnce registers fn on the network's cleanup stack only the
@@ -517,28 +523,50 @@ func (n *Network) ConfigureEgressPolicy(ctx context.Context, allowedSourceCIDRs 
 	}
 	sort.Strings(cidrs)
 
+	program := renderEgressPolicyProgram(tableName, link.NetVethName, link.HostIP.String(), cidrs)
+	if committed, ok := n.installed.Load(tableName); ok && committed == program {
+		return nil
+	}
 	return withTableLock(tableName, func() error {
-		_ = n.runner.Run(ctx, "ip", "netns", "exec", n.NamespaceName, "nft", "delete", "table", "inet", tableName)
-		if err := n.runner.Run(ctx, "ip", "netns", "exec", n.NamespaceName, "nft", "add", "table", "inet", tableName); err != nil {
+		// One nft process for the whole policy, as the ingress filter already
+		// does. Each invocation loads the namespace's entire ruleset before it
+		// can add a rule, and this path spawned one per allowed source plus
+		// four more for the table, chain and drop: on the Scaleway stack the
+		// vpc:egress phase of every task start was 3.5-4.4 s of an 6-8 s start,
+		// where the single-process ingress filter beside it costs one call. The
+		// program also replaces the table atomically, so no packet meets a
+		// half-built policy.
+		if err := n.runner.RunWithInput(ctx, program, "ip", "netns", "exec", n.NamespaceName, "nft", "-f", "-"); err != nil {
 			return err
 		}
+		n.installed.Store(tableName, program)
 		n.registerTableCleanupOnce(tableName, func(cleanupCtx context.Context) error {
+			n.installed.Delete(tableName)
 			_ = n.runner.Run(cleanupCtx, "ip", "netns", "exec", n.NamespaceName, "nft", "delete", "table", "inet", tableName)
 			return nil
 		})
-		if err := n.runner.Run(ctx, "ip", "netns", "exec", n.NamespaceName, "nft", "add", "chain", "inet", tableName, "forward", "{", "type", "filter", "hook", "forward", "priority", "filter", ";", "}"); err != nil {
-			return err
-		}
-		if err := n.runner.Run(ctx, "ip", "netns", "exec", n.NamespaceName, "nft", "add", "rule", "inet", tableName, "forward", "oifname", link.NetVethName, "ip", "daddr", link.HostIP.String(), "accept"); err != nil {
-			return err
-		}
-		for _, cidr := range cidrs {
-			if err := n.runner.Run(ctx, "ip", "netns", "exec", n.NamespaceName, "nft", "add", "rule", "inet", tableName, "forward", "oifname", link.NetVethName, "ip", "saddr", cidr, "accept"); err != nil {
-				return err
-			}
-		}
-		return n.runner.Run(ctx, "ip", "netns", "exec", n.NamespaceName, "nft", "add", "rule", "inet", tableName, "forward", "oifname", link.NetVethName, "drop")
+		return nil
 	})
+}
+
+// renderEgressPolicyProgram is the nft program for a VPC's egress policy: the
+// host address stays reachable, every allowed source CIDR may leave through the
+// egress link, and nothing else does. The leading create-then-delete makes the
+// replacement idempotent whether or not the table already exists.
+func renderEgressPolicyProgram(table, netVethName, hostIP string, cidrs []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "table inet %s {}\n", table)
+	fmt.Fprintf(&b, "delete table inet %s\n", table)
+	fmt.Fprintf(&b, "table inet %s {\n", table)
+	fmt.Fprintf(&b, "\tchain forward {\n")
+	fmt.Fprintf(&b, "\t\ttype filter hook forward priority filter;\n")
+	fmt.Fprintf(&b, "\t\toifname %q ip daddr %s accept\n", netVethName, hostIP)
+	for _, cidr := range cidrs {
+		fmt.Fprintf(&b, "\t\toifname %q ip saddr %s accept\n", netVethName, cidr)
+	}
+	fmt.Fprintf(&b, "\t\toifname %q drop\n", netVethName)
+	fmt.Fprintf(&b, "\t}\n}\n")
+	return b.String()
 }
 
 func egressIPs(namespaceName string) (hostIP, netIP net.IP, prefixBits int) {
@@ -1028,6 +1056,14 @@ func configureBridgeIngressFilter(ctx context.Context, network *Network, cleanup
 	if err != nil {
 		return err
 	}
+	// An unchanged filter is not reinstalled. The security-group filter is
+	// reapplied on every task start, and committing it again cost 1.8-2.7 s of
+	// each start for a ruleset identical to the one already in the kernel.
+	if network != nil {
+		if committed, ok := network.installed.Load(table); ok && committed == program {
+			return nil
+		}
+	}
 	// One nft process for the whole filter. Each nft invocation loads the
 	// namespace's entire ruleset before it can add a rule, so applying a
 	// filter one rule per process cost seconds per rule inside a small
@@ -1038,7 +1074,9 @@ func configureBridgeIngressFilter(ctx context.Context, network *Network, cleanup
 	if err := network.runner.RunWithInput(ctx, program, "ip", "netns", "exec", network.NamespaceName, "nft", "-f", "-"); err != nil {
 		return err
 	}
+	network.installed.Store(table, program)
 	cleanup.Add(func(cleanupCtx context.Context) error {
+		network.installed.Delete(table)
 		_ = network.runner.Run(cleanupCtx, "ip", "netns", "exec", network.NamespaceName, "nft", "delete", "table", "bridge", table)
 		return nil
 	})
