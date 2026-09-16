@@ -2337,12 +2337,18 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 		taskDNS = []string{realexec.VPCResolverIPv4}
 	}
 	var sharedNetMode string
+	// The netns tier was one phase, "volumes-pause-vpc", and on the Scaleway
+	// stack it was 9-12 s of every task start with nothing saying which step
+	// spent them. Each step reports itself, and the attach reports its own,
+	// so the next slow start is attributable from the simulator's log.
+	phases.Mark("volumes")
 	if netnsTier {
 		pause, perr := startECSPauseContainer(taskID, td, taskDNS, sink)
 		if perr != nil {
 			return nil, perr
 		}
 		processes.Handles["__pause__"] = pause
+		phases.Mark("pause-start")
 		if derr := sim.DisconnectContainerNetworks(pause.ContainerID); derr != nil {
 			cleanupECSTaskProcesses(taskID, processes)
 			return nil, fmt.Errorf("disconnect task netns pause from Docker networks: %w", derr)
@@ -2352,13 +2358,18 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			cleanupECSTaskProcesses(taskID, processes)
 			return nil, fmt.Errorf("task netns pause pid: %w", perr)
 		}
-		if aerr := ec2AttachRealECSTaskNIC(context.Background(), taskID, subnetID, pid, eniIP, ecsTaskSecurityGroupIDs(taskID)); aerr != nil {
+		phases.Mark("pause-netns")
+		if aerr := ec2AttachRealECSTaskNIC(context.Background(), taskID, subnetID, pid, eniIP,
+			ecsTaskSecurityGroupIDs(taskID), phases.Mark); aerr != nil {
 			cleanupECSTaskProcesses(taskID, processes)
 			return nil, fmt.Errorf("attach task to VPC netns: %w", aerr)
 		}
-		sharedNetMode = "container:" + pause.ContainerID
 	}
-	phases.Mark("volumes-pause-vpc")
+	if sharedNetMode == "" && netnsTier {
+		if pause := processes.Handles["__pause__"]; pause != nil {
+			sharedNetMode = "container:" + pause.ContainerID
+		}
+	}
 	metadataEnv, err := hostMetadataEnv(taskID)
 	if err != nil {
 		cleanupECSTaskProcesses(taskID, processes)
@@ -3728,7 +3739,7 @@ type cwLogSink struct {
 }
 
 func (s *cwLogSink) WriteLog(line sim.LogLine) {
-	cwIngestWorkloadLogLine(s.logGroup, s.logStream, line.Text)
+	cwIngestWorkloadLogLine(s.logGroup, s.logStream, line.Text, line.Timestamp)
 }
 
 // Fargate CPU/memory validation. Valid combinations per AWS docs.

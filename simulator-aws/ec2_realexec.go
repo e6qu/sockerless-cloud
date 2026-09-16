@@ -91,7 +91,23 @@ func ec2ECSRealNetAvailable() bool {
 // without real-exec capabilities, ec2ApplyRealECSTaskSecurityGroups is a no-op
 // and SG rules remain metadata-only — enforced faithfully by the API surface
 // (validation, DescribeSecurityGroups) but not at the host firewall level.
-func ec2AttachRealECSTaskNIC(ctx context.Context, taskID, subnetID string, pid int, eniIP string, securityGroupIDs []string) error {
+// ec2AttachRealECSTaskNIC plumbs the task's elastic network interface into the
+// namespace its pause container holds. mark, when non-nil, is called after each
+// step with that step's name, so the caller's phase timer attributes the attach
+// instead of reporting it as one opaque window.
+func ec2AttachRealECSTaskNIC(
+	ctx context.Context,
+	taskID, subnetID string,
+	pid int,
+	eniIP string,
+	securityGroupIDs []string,
+	mark func(string),
+) error {
+	step := func(name string) {
+		if mark != nil {
+			mark(name)
+		}
+	}
 	sn, ok := ec2Subnets.Get(subnetID)
 	if !ok {
 		return fmt.Errorf("subnet %s not found", subnetID)
@@ -104,6 +120,7 @@ func ec2AttachRealECSTaskNIC(ctx context.Context, taskID, subnetID string, pid i
 	if err := ec2CreateRealSubnet(ctx, sn); err != nil {
 		return err
 	}
+	step("vpc:subnet")
 	ec2RealMu.Lock()
 	subnet := ec2RealSubnets[subnetID]
 	ec2RealMu.Unlock()
@@ -121,6 +138,7 @@ func ec2AttachRealECSTaskNIC(ctx context.Context, taskID, subnetID string, pid i
 	if err != nil {
 		return err
 	}
+	step("vpc:veth")
 	metadataPort, err := simHostMetadataPort()
 	if err != nil {
 		_ = nic.Close(context.Background())
@@ -130,10 +148,12 @@ func ec2AttachRealECSTaskNIC(ctx context.Context, taskID, subnetID string, pid i
 		_ = nic.Close(context.Background())
 		return fmt.Errorf("configure ECS task metadata routing for %s: %w", taskID, err)
 	}
+	step("vpc:task-metadata")
 	if err := subnet.ConfigureMetadataDNAT(ctx, metadataPort, ec2RealName("imd", sn.VpcId)); err != nil {
 		_ = nic.Close(context.Background())
 		return fmt.Errorf("configure ECS IMDS routing for %s: %w", taskID, err)
 	}
+	step("vpc:imds")
 	// The task's namespace holds only its own interface, so the resolver its
 	// image was configured with — Docker's embedded 127.0.0.11, written before
 	// the pause container was detached from Docker's networks — answers nothing.
@@ -145,16 +165,19 @@ func ec2AttachRealECSTaskNIC(ctx context.Context, taskID, subnetID string, pid i
 		_ = nic.Close(context.Background())
 		return err
 	}
+	step("vpc:resolver")
 	if err := ec2ApplyRealVPCEgressPolicy(ctx, sn.VpcId); err != nil {
 		_ = nic.Close(context.Background())
 		return fmt.Errorf("configure VPC egress policy for %s: %w", taskID, err)
 	}
+	step("vpc:egress")
 	ec2RealMu.Lock()
 	ec2RealECSNICs[taskID] = nic
 	ec2RealMu.Unlock()
 	if err := ec2ApplyRealECSTaskSecurityGroups(ctx, taskID, securityGroupIDs); err != nil {
 		return fmt.Errorf("apply security groups for %s: %w", taskID, err)
 	}
+	step("vpc:security-groups")
 	return nil
 }
 

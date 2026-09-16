@@ -68,14 +68,22 @@ func cwEventsKey(group, stream string) string {
 // logging stream reporting the instant it was created, so an operator ordering
 // a service's streams by LastEventTime could not tell a task that is still
 // writing from one that has said nothing since it started.
-func cwIngestWorkloadLogLine(logGroup, logStream, message string) {
+// cwIngestWorkloadLogLine records one workload log line. writtenAt is when the
+// container wrote it; the event carries that as its timestamp and the ingestion
+// time separately, as CloudWatch does. A zero writtenAt means the caller has no
+// container time, and the line is dated on arrival.
+func cwIngestWorkloadLogLine(logGroup, logStream, message string, writtenAt time.Time) {
 	key := cwEventsKey(logGroup, logStream)
 	nowMs := time.Now().UnixMilli()
-	event := CWLogEvent{Timestamp: nowMs, Message: message, IngestionTime: nowMs}
+	eventMs := nowMs
+	if !writtenAt.IsZero() {
+		eventMs = writtenAt.UnixMilli()
+	}
+	event := CWLogEvent{Timestamp: eventMs, Message: message, IngestionTime: nowMs}
 	cwLogEvents.Update(key, func(events *[]CWLogEvent) {
 		*events = append(*events, event)
 	})
-	for _, datum := range extractEMFMetrics(message, nowMs) {
+	for _, datum := range extractEMFMetrics(message, eventMs) {
 		cwStoreDatum(datum)
 	}
 	cwEvaluateMetricFilters(logGroup, []CWLogEvent{event})
@@ -84,9 +92,9 @@ func cwIngestWorkloadLogLine(logGroup, logStream, message string) {
 		stream.LastIngestionTime = nowMs
 		stream.UploadSequenceToken = nextSequenceToken
 		if stream.FirstEventTimestamp == 0 {
-			stream.FirstEventTimestamp = nowMs
+			stream.FirstEventTimestamp = eventMs
 		}
-		stream.LastEventTimestamp = nowMs
+		stream.LastEventTimestamp = eventMs
 	})
 }
 
