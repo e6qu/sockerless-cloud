@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "devDependencies": {
-    "jscpd": "5.2.0",
+    "jscpd": "5.2.1",
     "turbo": "^2.10.13",
     "typescript": "^7.0.2"
   }
