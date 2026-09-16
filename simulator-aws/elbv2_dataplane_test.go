@@ -425,3 +425,143 @@ func TestELBv2DataPlaneTunnelsUpgradedConnectionsBothWays(t *testing.T) {
 		t.Errorf("tunnel returned %q, want %q", line, "echo:ping\n")
 	}
 }
+
+// A browser abandons in-flight requests whenever it navigates, and Next's
+// _rsc= prefetches are abandoned constantly. On the Scaleway stack that made
+// 82 of 83 data-plane 502s client disconnections, which hid the one real
+// failure in eight hours until it landed on a <script> tag and failed the
+// acceptance gate. A client that went away is recorded as 499, not as a bad
+// gateway.
+func TestELBv2DataPlaneRecordsAClientDisconnectAsClientClosedRequest(t *testing.T) {
+	srv := newELBv2DataPlaneServer(t)
+
+	reached := make(chan struct{})
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+		close(reached)
+		<-r.Context().Done() // hold until the client gives up
+	}))
+	defer target.Close()
+
+	lb, tg, listener := elbv2TestTopologyForTarget(t, target, "cancel")
+	elbv2LoadBalancers.Put(lb.Arn, lb)
+	elbv2TargetGroups.Put(tg.Arn, tg)
+	elbv2Listeners.Put(listener.Arn, listener)
+	elbv2TestMarkTargetHealthy(tg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/prefetch?_rsc=abc", nil).WithContext(ctx)
+	req.Host = lb.DNSName
+	rr := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.ServeHTTP(rr, req)
+	}()
+	<-reached
+	cancel()
+	<-done
+
+	if rr.Code != elbv2StatusClientClosedRequest {
+		t.Errorf("client disconnect recorded as %d, want %d", rr.Code, elbv2StatusClientClosedRequest)
+	}
+}
+
+// The opposite case, and the one that must keep failing loudly: a target that
+// closes a FRESH connection. Go retries a reused connection by itself but
+// declines to replay a fresh one, so this reaches the client as a 502 carrying
+// "EOF" -- the exact shape of the single real failure on the Scaleway stack.
+// Retrying it here would invent a replay the standard library deliberately
+// refuses.
+func TestELBv2DataPlaneReportsATargetThatClosesAFreshConnection(t *testing.T) {
+	srv := newELBv2DataPlaneServer(t)
+
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+			return
+		}
+		_ = conn.Close()
+	}))
+	defer target.Close()
+
+	lb, tg, listener := elbv2TestTopologyForTarget(t, target, "dead")
+	elbv2LoadBalancers.Put(lb.Arn, lb)
+	elbv2TargetGroups.Put(tg.Arn, tg)
+	elbv2Listeners.Put(listener.Arn, listener)
+	elbv2TestMarkTargetHealthy(tg)
+
+	req := httptest.NewRequest(http.MethodGet, "/asset.js", nil)
+	req.Host = lb.DNSName
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Errorf("target closing a fresh connection recorded as %d, want %d", rr.Code, http.StatusBadGateway)
+	}
+	if !strings.Contains(rr.Body.String(), "EOF") {
+		t.Errorf("body does not name the failure: %q", rr.Body.String())
+	}
+}
+
+// elbv2TestTopologyForTarget builds the load balancer, target group and
+// listener that route to an httptest target.
+func elbv2TestTopologyForTarget(t *testing.T, target *httptest.Server, name string) (ELBv2LoadBalancer, ELBv2TargetGroup, ELBv2Listener) {
+	t.Helper()
+	parsed, err := url.Parse(target.URL)
+	if err != nil {
+		t.Fatalf("parse target URL: %v", err)
+	}
+	host, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatalf("split target host: %v", err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatalf("target port not numeric: %v", err)
+	}
+	lb := ELBv2LoadBalancer{
+		Arn:     "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/" + name + "-lb/abc123",
+		Name:    name + "-lb",
+		DNSName: name + "-lb-abc123.elb.us-east-1.amazonaws.com",
+		Type:    "application",
+	}
+	tg := ELBv2TargetGroup{
+		Arn:                 "arn:aws:elasticloadbalancing:us-east-1:000000000000:targetgroup/" + name + "-tg/abc123",
+		Protocol:            "HTTP",
+		Port:                80,
+		HealthCheckProtocol: "HTTP",
+		HealthCheckPath:     "/healthz",
+		HealthCheckTimeout:  2,
+		HealthCheckEnabled:  true,
+		Targets:             []ELBv2TargetDescription{{ID: host, Port: port}},
+	}
+	listener := ELBv2Listener{
+		Arn:             "arn:aws:elasticloadbalancing:us-east-1:000000000000:listener/app/" + name + "-lb/abc123/def456",
+		LoadBalancerArn: lb.Arn,
+		Protocol:        "HTTP",
+		Port:            80,
+		DefaultActions:  []ELBv2Action{{Type: "forward", TargetGroupArn: tg.Arn}},
+	}
+	return lb, tg, listener
+}
+
+// elbv2TestMarkTargetHealthy records the verdict the health checker would
+// reach, so the data plane forwards without waiting for a real check.
+func elbv2TestMarkTargetHealthy(tg ELBv2TargetGroup) {
+	elbv2TargetHealthMu.Lock()
+	defer elbv2TargetHealthMu.Unlock()
+	for _, target := range tg.Targets {
+		elbv2TargetHealthRecords[elbv2TargetHealthKey(tg.Arn, target)] =
+			&ELBv2TargetHealth{State: elbv2TargetStateHealthy}
+	}
+}

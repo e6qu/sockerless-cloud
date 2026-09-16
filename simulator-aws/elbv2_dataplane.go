@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -84,10 +85,27 @@ func handleELBv2DataPlane(w http.ResponseWriter, r *http.Request, lb ELBv2LoadBa
 		return
 	}
 	if err := elbv2ProxyHTTPRequest(w, r, listener, targetGroup, address); err != nil {
+		// Nothing can be delivered to a client that has already gone, and the
+		// status is recorded for a request nobody is waiting on. 499 is the
+		// status nginx and the AWS access logs use for exactly this, so the
+		// signal stays greppable without pretending the target failed.
+		if errors.Is(err, errELBv2ClientWentAway) {
+			w.WriteHeader(elbv2StatusClientClosedRequest)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 }
+
+// errELBv2ClientWentAway marks a forward that failed because the client
+// disconnected, not because the target did.
+var errELBv2ClientWentAway = errors.New("client closed the request before the target answered")
+
+// elbv2StatusClientClosedRequest is the non-standard status used to record a
+// client disconnect, matching what nginx and the AWS load balancer access logs
+// report for a request the client abandoned.
+const elbv2StatusClientClosedRequest = 499
 
 // elbv2ListenersByLoadBalancerPort indexes listeners by the load balancer and
 // port that select one, which is what every proxied request resolves before it
@@ -194,6 +212,18 @@ func elbv2ProxyHTTPRequest(w http.ResponseWriter, r *http.Request, listener ELBv
 	}
 	resp, err := client.Do(req)
 	if err != nil {
+		// A client that hangs up mid-flight is not a bad gateway. A browser
+		// abandons in-flight requests whenever it navigates -- Next's _rsc=
+		// prefetches are abandoned constantly -- and the forward inherits the
+		// inbound context, so the cancellation surfaces here as a forwarding
+		// error. Reporting 502 for it made 82 of 83 data-plane 502s on the
+		// Scaleway stack client disconnections, which is how the ONE real
+		// failure in eight hours (a target that closed a fresh connection,
+		// "EOF") stayed invisible until it happened to land on a <script> tag
+		// and fail the acceptance gate.
+		if errors.Is(err, context.Canceled) && r.Context().Err() != nil {
+			return errELBv2ClientWentAway
+		}
 		return fmt.Errorf("forward to target %s: %w", address, err)
 	}
 	defer resp.Body.Close()
