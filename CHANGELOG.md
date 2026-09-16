@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.9](https://github.com/e6qu/sockerless-cloud/compare/v0.32.8...v0.32.9) (2026-09-16)
+
+
+### Performance Improvements
+
+* **aws:** attribute a task start — VPC attach steps, and log events dated by the container ([#182](https://github.com/e6qu/sockerless-cloud/issues/182)) ([79a81f6](https://github.com/e6qu/sockerless-cloud/commit/79a81f63058add230de2c18c66052e3e17526354))
+
 ## [0.32.8](https://github.com/e6qu/sockerless-cloud/compare/v0.32.7...v0.32.8) (2026-09-16)
 
 
