@@ -485,17 +485,37 @@ func iamLambdaResourceName(r *http.Request) string {
 
 // iamRequestBody reads the full request body, restoring it so the downstream
 // handler still sees it.
+// iamConditionBodyLimit bounds what the gate holds of a request body. Every
+// request whose members the gate reads is far below it — AWS caps a DynamoDB
+// request at 16 MB — while an Amazon S3 upload has no bound at all, and
+// holding one in memory to look for members it does not carry is what the
+// guest has the least of.
+const iamConditionBodyLimit = 16 << 20
+
+// iamRequestBody returns the request body for the gate to read, and leaves the
+// request carrying all of it for the handler. A body past the limit is not
+// returned: half a document parses as nothing, or worse as something.
 func iamRequestBody(r *http.Request) []byte {
 	if r.Body == nil {
 		return nil
 	}
-	body, err := io.ReadAll(r.Body)
-	_ = r.Body.Close()
-	r.Body = io.NopCloser(bytes.NewReader(body))
+	held, err := io.ReadAll(io.LimitReader(r.Body, iamConditionBodyLimit+1))
 	if err != nil {
+		_ = r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(held))
 		return nil
 	}
-	return body
+	if len(held) <= iamConditionBodyLimit {
+		_ = r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(held))
+		return held
+	}
+	rest := r.Body
+	r.Body = struct {
+		io.Reader
+		io.Closer
+	}{Reader: io.MultiReader(bytes.NewReader(held), rest), Closer: rest}
+	return nil
 }
 
 // iamJSONBodyField reads a top-level string field from an awsJson request body,

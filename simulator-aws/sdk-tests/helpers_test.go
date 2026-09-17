@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"log"
 	"net"
 	"net/http"
@@ -715,4 +716,15 @@ func ensureGluePythonShellImage(t *testing.T) {
 	}
 	t.Fatalf("could not pull %s, which every AWS Glue Python shell job run executes in: %v",
 		gluePythonShellImage, last)
+}
+
+// nativeLambdaArchitectures is the architecture the images these tests build
+// carry: the host's. AWS Lambda defaults a function to x86_64, so a function
+// running a host-built image on an arm64 machine has to say so, exactly as one
+// running an arm64 image on real Lambda does.
+func nativeLambdaArchitectures() []lambdatypes.Architecture {
+	if runtime.GOARCH == "arm64" {
+		return []lambdatypes.Architecture{lambdatypes.ArchitectureArm64}
+	}
+	return []lambdatypes.Architecture{lambdatypes.ArchitectureX8664}
 }

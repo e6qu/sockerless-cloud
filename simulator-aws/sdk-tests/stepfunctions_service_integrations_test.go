@@ -64,10 +64,11 @@ func TestSFN_GenericAWSSDKIntegrations_SDK(t *testing.T) {
 	functionName := "sfn-sdk-" + suffix
 
 	_, err := lambdaAPI.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName: aws.String(functionName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
-		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
+		FunctionName:  aws.String(functionName),
+		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		PackageType:   lambdatypes.PackageTypeImage,
+		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
+		Architectures: nativeLambdaArchitectures(),
 	})
 	require.NoError(t, err)
 

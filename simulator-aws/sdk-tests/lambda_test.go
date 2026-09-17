@@ -290,10 +290,11 @@ func TestLambda_InvokeRoundTrip(t *testing.T) {
 	fnName := "roundtrip-fn"
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
-		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
+		FunctionName:  aws.String(fnName),
+		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		PackageType:   lambdatypes.PackageTypeImage,
+		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
+		Architectures: nativeLambdaArchitectures(),
 	})
 	require.NoError(t, err)
 	defer lc.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(fnName)})
@@ -349,10 +350,11 @@ func TestLambda_InvokeHandlerError(t *testing.T) {
 	fnName := "error-fn"
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
-		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
+		FunctionName:  aws.String(fnName),
+		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		PackageType:   lambdatypes.PackageTypeImage,
+		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
+		Architectures: nativeLambdaArchitectures(),
 	})
 	require.NoError(t, err)
 	defer lc.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(fnName)})
@@ -433,10 +435,11 @@ func TestLambda_RuntimeAPILogsToCloudWatch(t *testing.T) {
 	fnName := "logs-fn"
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
-		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
+		FunctionName:  aws.String(fnName),
+		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		PackageType:   lambdatypes.PackageTypeImage,
+		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
+		Architectures: nativeLambdaArchitectures(),
 	})
 	require.NoError(t, err)
 	defer lc.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(fnName)})
@@ -696,11 +699,12 @@ func TestLambda_VpcConfig_RuntimeReachesVpcResource(t *testing.T) {
 
 	fnName := "vpc-runtime-fn"
 	_, err = lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-vpc"),
-		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
-		Timeout:      aws.Int32(10),
+		FunctionName:  aws.String(fnName),
+		Role:          aws.String("arn:aws:iam::123456789012:role/lambda-vpc"),
+		PackageType:   lambdatypes.PackageTypeImage,
+		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
+		Architectures: nativeLambdaArchitectures(),
+		Timeout:       aws.Int32(10),
 		VpcConfig: &lambdatypes.VpcConfig{
 			SubnetIds:        []string{subnetID},
 			SecurityGroupIds: []string{securityGroupID},

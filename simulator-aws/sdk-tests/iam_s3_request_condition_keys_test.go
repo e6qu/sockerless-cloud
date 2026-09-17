@@ -62,8 +62,10 @@ func TestS3_RequestObjectTagConditionKeyScopesTheGrant(t *testing.T) {
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 
+	// A write that carries tags is also a PutObjectTagging, which is why the
+	// grant names both actions under the same condition.
 	akid, secret := restrictedCredential(t, "s3-must-label-writes",
-		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:PutObject",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:PutObjectTagging"],
 		  "Resource":"arn:aws:s3:::`+bucket+`/*",
 		  "Condition":{"StringEquals":{"s3:RequestObjectTag/classification":"public"}}}]}`)
 	restricted := s3.NewFromConfig(aws.Config{Region: "us-east-1",
