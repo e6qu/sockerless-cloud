@@ -30,7 +30,7 @@ func TestSTS_AssumeRoleEnforcement(t *testing.T) {
 	role := "sts-enf-role"
 
 	_, err := admin.CreateRole(ctx, &iam.CreateRoleInput{
-		RoleName:                 aws.String(role),
+		RoleName: aws.String(role),
 		// The account principal delegates to the caller's own policies, which
 		// for the harness administrator allow sts:AssumeRole.
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"sts:AssumeRole"}]}`),
