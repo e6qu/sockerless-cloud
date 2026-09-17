@@ -516,6 +516,11 @@ func (n *Network) ConfigureEgressPolicy(ctx context.Context, allowedSourceCIDRs 
 	if mark == nil {
 		mark = func(string) {}
 	}
+	// Marked on entry, before anything that can fail. Every other mark records
+	// after its step, so without this a phase line cannot tell a step that took
+	// no time from one that returned an error -- and EnsureEgress, the one step
+	// the memo can never skip, is exactly where that ambiguity would hurt.
+	mark("egress:begin")
 	link, err := n.EnsureEgress(ctx)
 	if err != nil {
 		return err
