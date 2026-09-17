@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.11](https://github.com/e6qu/sockerless-cloud/compare/v0.32.10...v0.32.11) (2026-09-17)
+
+
+### Performance Improvements
+
+* **aws:** the egress phase reports where its seconds go ([#187](https://github.com/e6qu/sockerless-cloud/issues/187)) ([5c1e2eb](https://github.com/e6qu/sockerless-cloud/commit/5c1e2eb04a9f594d43988b622ae5b619ec9162e6))
+
 ## [0.32.10](https://github.com/e6qu/sockerless-cloud/compare/v0.32.9...v0.32.10) (2026-09-16)
 
 
