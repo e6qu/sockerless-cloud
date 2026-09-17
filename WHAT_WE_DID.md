@@ -140,6 +140,20 @@ resolving once that branch is deleted.
   Snapshots stay file-level, which is what let volumes made before the change
   restore into it.
 
+- **A trust policy is evaluated, and a federated identity is verified, as AWS
+  does.** STS minted credentials for any role once a token parsed, and SAML
+  took any base64. Assuming a role now evaluates its trust policy with the
+  condition keys AWS documents for the caller — OpenID Connect claims under
+  the provider's name, the `saml:` attributes of a signed assertion — and a
+  SAML response is verified against the provider's own metadata. Tests sign
+  real tokens and assertions rather than sending placeholders.
+- **Condition keys are read from the request the way the service defines
+  them.** AWS CodeBuild's keys name the request member they read, so one
+  resolver serves all of them from the declared list; other services register
+  their request-settled keys per service. A key is populated only where AWS's
+  definition fixes its value; where it does not — AWS Glue's Lake Formation
+  keys — it stays absent rather than guessed.
+
 ## Execution
 
 Every workload runs as a real container on the engine the simulator was
