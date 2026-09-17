@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -98,12 +99,57 @@ func cwIngestWorkloadLogLine(logGroup, logStream, message string, writtenAt time
 	})
 }
 
+// cwRetentionSweepInterval is how often expired log events are deleted.
+// CloudWatch Logs deletes an event within about 72 hours of it reaching its
+// group's retention, so an hourly pass sits well inside that.
+const cwRetentionSweepInterval = time.Hour
+
+// cwSweepExpiredLogEvents deletes the events older than their log group's
+// retention and returns how many it deleted. Retention removes events, not
+// the streams that held them.
+func cwSweepExpiredLogEvents(now time.Time) int {
+	cutoffs := map[string]int64{}
+	for _, group := range cwLogGroups.List() {
+		if group.RetentionInDays > 0 {
+			cutoffs[group.LogGroupName] = now.Add(-time.Duration(group.RetentionInDays) * 24 * time.Hour).UnixMilli()
+		}
+	}
+	if len(cutoffs) == 0 {
+		return 0
+	}
+	deleted := 0
+	for _, stream := range cwLogStreams.List() {
+		cutoff, ok := cutoffs[stream.LogGroupName]
+		if !ok || stream.FirstEventTimestamp == 0 || stream.FirstEventTimestamp >= cutoff {
+			continue
+		}
+		key := cwEventsKey(stream.LogGroupName, stream.LogStreamName)
+		events, ok := cwLogEvents.Get(key)
+		if !ok || !slices.ContainsFunc(events, func(e CWLogEvent) bool { return e.Timestamp < cutoff }) {
+			continue
+		}
+		cwLogEvents.Update(key, func(events *[]CWLogEvent) {
+			kept := make([]CWLogEvent, 0, len(*events))
+			for _, e := range *events {
+				if e.Timestamp < cutoff {
+					deleted++
+					continue
+				}
+				kept = append(kept, e)
+			}
+			*events = kept
+		})
+	}
+	return deleted
+}
+
 func registerCloudWatchLogs(r *AWSRouter, srv *sim.Server) {
 	cwLogGroups = sim.MakeStore[CWLogGroup](srv.DB(), "cw_log_groups")
 	cwLogStreams = sim.MakeStore[CWLogStream](srv.DB(), "cw_log_streams")
 	cwLogEvents = sim.MakeStore[[]CWLogEvent](srv.DB(), "cw_log_events")
 	cwSequences = sim.MakeStore[int64](srv.DB(), "cw_sequences")
 	cwQueries = sim.MakeStore[CWQuery](srv.DB(), "cw_insights_queries")
+	startStoreSweeperEvery(srv, cwRetentionSweepInterval, cwSweepExpiredLogEvents)
 	registerCloudWatchInsights(r)
 	registerCloudWatchLogsOps(r, srv)
 	registerCloudWatchLogsExtra2(r, srv)

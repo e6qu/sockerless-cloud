@@ -15,8 +15,14 @@ const storeSweepInterval = time.Minute
 // server runs, so a retention the simulator reports is also a bound on what it
 // holds.
 func startStoreSweeper(srv *sim.Server, sweep func(now time.Time) int) {
+	startStoreSweeperEvery(srv, storeSweepInterval, sweep)
+}
+
+// startStoreSweeperEvery is startStoreSweeper for a sweep the service itself
+// runs less often.
+func startStoreSweeperEvery(srv *sim.Server, interval time.Duration, sweep func(now time.Time) int) {
 	srv.StartBackground(func(ctx context.Context) {
-		ticker := time.NewTicker(storeSweepInterval)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
