@@ -1181,6 +1181,14 @@ func ec2ApplyRealRouteTableEgressPolicy(ctx context.Context, routeTableID string
 
 func ec2AllowedRealEgressSources(vpcID string) ([]string, error) {
 	allowed := map[string]bool{}
+	var tasks []ECSTask
+	if ecsTasks != nil {
+		tasks = ecsTasks.List()
+	}
+	var instances []EC2Instance
+	if ec2Instances != nil {
+		instances = ec2Instances.List()
+	}
 	for _, subnet := range ec2Subnets.List() {
 		if subnet.VpcId != vpcID {
 			continue
@@ -1194,10 +1202,10 @@ func ec2AllowedRealEgressSources(vpcID string) ([]string, error) {
 			continue
 		}
 		if ec2RouteTableHasDefaultIGWRoute(rt, vpcID) {
-			for _, src := range ecsPublicEgressSourcesForSubnet(subnet.SubnetId) {
+			for _, src := range ecsPublicEgressSourcesForSubnet(tasks, subnet.SubnetId) {
 				allowed[src] = true
 			}
-			for _, src := range ec2PublicInstanceSourcesForSubnet(subnet.SubnetId) {
+			for _, src := range ec2PublicInstanceSourcesForSubnet(instances, subnet.SubnetId) {
 				allowed[src] = true
 			}
 		}
@@ -1282,12 +1290,14 @@ func ec2InternetGatewayAttachedToVPC(igwID, vpcID string) bool {
 	return false
 }
 
-func ecsPublicEgressSourcesForSubnet(subnetID string) []string {
-	if ecsTasks == nil {
-		return nil
-	}
+// ecsPublicEgressSourcesForSubnet returns the addresses of the tasks in subnetID
+// that were given a public IP. A stopped task holds no address any more.
+func ecsPublicEgressSourcesForSubnet(tasks []ECSTask, subnetID string) []string {
 	var out []string
-	for _, task := range ecsTasks.List() {
+	for _, task := range tasks {
+		if task.LastStatus == ECSTaskStatusStopped {
+			continue
+		}
 		cfg := task.NetworkConfiguration
 		if cfg == nil || cfg.AwsvpcConfiguration == nil || !strings.EqualFold(cfg.AwsvpcConfiguration.AssignPublicIp, "ENABLED") {
 			continue
@@ -1311,12 +1321,9 @@ func ecsPublicEgressSourcesForSubnet(subnetID string) []string {
 	return out
 }
 
-func ec2PublicInstanceSourcesForSubnet(subnetID string) []string {
-	if ec2Instances == nil {
-		return nil
-	}
+func ec2PublicInstanceSourcesForSubnet(instances []EC2Instance, subnetID string) []string {
 	var out []string
-	for _, inst := range ec2Instances.List() {
+	for _, inst := range instances {
 		if inst.SubnetId == subnetID && inst.PrivateIpAddress != "" && inst.PublicIpAddress != "" {
 			out = append(out, inst.PrivateIpAddress+"/32")
 		}
