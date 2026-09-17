@@ -3014,14 +3014,14 @@ func ecsTaskExpired(t ECSTask, now time.Time) bool {
 
 // ecsSweepStoppedTasks deletes the tasks that have aged out, so the retention
 // is a real bound on what the simulator holds rather than only a filter on what
-// it reports.
+// it reports. Tasks are keyed by ID, not ARN.
 func ecsSweepStoppedTasks(now time.Time) int {
 	swept := 0
 	for _, task := range ecsTasks.List() {
 		if !ecsTaskExpired(task, now) {
 			continue
 		}
-		if ecsTasks.Delete(task.TaskArn) {
+		if ecsTasks.Delete(task.TaskID()) {
 			swept++
 		}
 	}

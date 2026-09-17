@@ -108,6 +108,7 @@ func ec2AttachRealECSTaskNIC(
 			mark(name)
 		}
 	}
+	ctx = realexec.WithMark(ctx, mark)
 	sn, ok := ec2Subnets.Get(subnetID)
 	if !ok {
 		return fmt.Errorf("subnet %s not found", subnetID)
@@ -166,7 +167,7 @@ func ec2AttachRealECSTaskNIC(
 		return err
 	}
 	step("vpc:resolver")
-	if err := ec2ApplyRealVPCEgressPolicy(ctx, sn.VpcId, step); err != nil {
+	if err := ec2ApplyRealVPCEgressPolicy(ctx, sn.VpcId); err != nil {
 		_ = nic.Close(context.Background())
 		return fmt.Errorf("configure VPC egress policy for %s: %w", taskID, err)
 	}
@@ -247,7 +248,7 @@ func ec2AttachRealLambdaNIC(
 		_ = nic.Close(context.Background())
 		return fmt.Errorf("configure AWS Lambda Runtime API routing for %s: %w", invocationID, err)
 	}
-	if err := ec2ApplyRealVPCEgressPolicy(ctx, sn.VpcId, nil); err != nil {
+	if err := ec2ApplyRealVPCEgressPolicy(ctx, sn.VpcId); err != nil {
 		_ = subnet.RemoveAddressDNAT(context.Background(), runtimeTable)
 		_ = nic.Close(context.Background())
 		return fmt.Errorf("configure VPC egress policy for AWS Lambda invocation %s: %w", invocationID, err)
@@ -703,7 +704,11 @@ func ec2ApplyRealECSTaskSecurityGroups(ctx context.Context, taskID string, secur
 	if len(securityGroupIDs) == 0 {
 		return nic.ClearIngressFilter(ctx)
 	}
-	return nic.ConfigureIngressFilter(ctx, ec2BuildIngressPacketRules(securityGroupIDs))
+	// Building the rules resolves every referenced group's members from the
+	// stores, which is its own cost apart from rendering and committing them.
+	rules := ec2BuildIngressPacketRules(securityGroupIDs)
+	realexec.MarkFrom(ctx)("sg:rules")
+	return nic.ConfigureIngressFilter(ctx, rules)
 }
 
 func ec2ApplyRealLambdaSecurityGroups(ctx context.Context, invocationID string) error {
@@ -1151,7 +1156,7 @@ func ec2ConfigureRealNATRoute(ctx context.Context, routeTableID, destinationCIDR
 	return network.ConfigureSNAT(ctx, sourceCIDR, net.ParseIP(nat.NatGatewayAddresses[0].PublicIp), ec2RealName("sn", routeTableID+destinationCIDR))
 }
 
-func ec2ApplyRealVPCEgressPolicy(ctx context.Context, vpcID string, mark func(string)) error {
+func ec2ApplyRealVPCEgressPolicy(ctx context.Context, vpcID string) error {
 	ec2RealMu.Lock()
 	network := ec2RealVPCs[vpcID]
 	ec2RealMu.Unlock()
@@ -1162,11 +1167,7 @@ func ec2ApplyRealVPCEgressPolicy(ctx context.Context, vpcID string, mark func(st
 	if err != nil {
 		return err
 	}
-	if mark != nil {
-		mark("egress:sources")
-		network.Mark = mark
-		defer func() { network.Mark = nil }()
-	}
+	realexec.MarkFrom(ctx)("egress:sources")
 	return network.ConfigureEgressPolicy(ctx, allowed, ec2RealName("eg", vpcID))
 }
 
@@ -1175,7 +1176,7 @@ func ec2ApplyRealRouteTableEgressPolicy(ctx context.Context, routeTableID string
 	if !ok {
 		return nil
 	}
-	return ec2ApplyRealVPCEgressPolicy(ctx, rt.VpcId, nil)
+	return ec2ApplyRealVPCEgressPolicy(ctx, rt.VpcId)
 }
 
 func ec2AllowedRealEgressSources(vpcID string) ([]string, error) {

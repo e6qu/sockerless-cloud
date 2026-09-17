@@ -66,20 +66,11 @@ type Network struct {
 	egressMu      sync.Mutex // serializes EnsureEgress so the veth pair is created once
 	cleanupOnce   sync.Map   // tableName -> struct{}: a shared table's teardown is registered once
 	// installed records the program last committed for a table, so an
-	// unchanged policy costs nothing. A VPC's egress policy is reapplied on
-	// every task start and every instance launch, and rebuilding it tears the
-	// table down and commits it again — 3.5-4.4 s of every Amazon ECS task
-	// start on the Scaleway stack, for a ruleset that had not changed.
+	// unchanged policy, reapplied on every task start and instance launch, is
+	// not committed again.
 	installed sync.Map // tableName -> string (the committed program)
-	// Mark, when set, records how long each step of a configure call took.
-	// The egress phase of a task start measures 3.0-4.0 s on the Scaleway
-	// stack and every attempt to attribute it by reading has been wrong,
-	// most recently because the simulator runs inside the microVM and the
-	// timings were taken on the host. This reports from wherever the code
-	// actually runs.
-	Mark    func(step string)
-	cleanup *CleanupStack
-	runner  Runner
+	cleanup   *CleanupStack
+	runner    Runner
 }
 
 // registerTableCleanupOnce registers fn on the network's cleanup stack only the
@@ -512,14 +503,9 @@ func (n *Network) ConfigureEgressPolicy(ctx context.Context, allowedSourceCIDRs 
 	if tableName == "" {
 		tableName = deriveLinuxName("eg"+n.NamespaceName, "eg")
 	}
-	mark := n.Mark
-	if mark == nil {
-		mark = func(string) {}
-	}
-	// Marked on entry, before anything that can fail. Every other mark records
-	// after its step, so without this a phase line cannot tell a step that took
-	// no time from one that returned an error -- and EnsureEgress, the one step
-	// the memo can never skip, is exactly where that ambiguity would hurt.
+	mark := MarkFrom(ctx)
+	// Every other mark follows its step; this one separates a step that took no
+	// time from one that failed.
 	mark("egress:begin")
 	link, err := n.EnsureEgress(ctx)
 	if err != nil {
@@ -542,11 +528,7 @@ func (n *Network) ConfigureEgressPolicy(ctx context.Context, allowedSourceCIDRs 
 
 	program := renderEgressPolicyProgram(tableName, link.NetVethName, link.HostIP.String(), cidrs)
 	mark("egress:render")
-	// The memo is per-VPC and genuinely reachable, but it is defeated by its
-	// own input: the allowed sources include one /32 per running task with a
-	// public IP, so the set changes on the very start that consults it and the
-	// program never matches. Counting the miss makes that visible rather than
-	// leaving a compare that looks like an optimisation.
+	// Report the hit, so the phase line shows whether the memo saves the commit.
 	if committed, ok := n.installed.Load(tableName); ok && committed == program {
 		mark("egress:unchanged")
 		return nil
@@ -555,11 +537,8 @@ func (n *Network) ConfigureEgressPolicy(ctx context.Context, allowedSourceCIDRs 
 		// One nft process for the whole policy, as the ingress filter already
 		// does. Each invocation loads the namespace's entire ruleset before it
 		// can add a rule, and this path spawned one per allowed source plus
-		// four more for the table, chain and drop: on the Scaleway stack the
-		// vpc:egress phase of every task start was 3.5-4.4 s of an 6-8 s start,
-		// where the single-process ingress filter beside it costs one call. The
-		// program also replaces the table atomically, so no packet meets a
-		// half-built policy.
+		// four more for the table, chain and drop. The program also replaces
+		// the table atomically, so no packet meets a half-built policy.
 		if err := n.runner.RunWithInput(ctx, program, "ip", "netns", "exec", n.NamespaceName, "nft", "-f", "-"); err != nil {
 			return err
 		}
@@ -1082,12 +1061,13 @@ func configureBridgeIngressFilter(ctx context.Context, network *Network, cleanup
 		return err
 	}
 	// An unchanged filter is not reinstalled. The security-group filter is
-	// reapplied on every task start, and committing it again cost 1.8-2.7 s of
-	// each start for a ruleset identical to the one already in the kernel.
-	if network != nil {
-		if committed, ok := network.installed.Load(table); ok && committed == program {
-			return nil
-		}
+	// reapplied on every task start, so a ruleset identical to the one already
+	// in the kernel is left alone.
+	mark := MarkFrom(ctx)
+	mark("sg:render")
+	if committed, ok := network.installed.Load(table); ok && committed == program {
+		mark("sg:unchanged")
+		return nil
 	}
 	// One nft process for the whole filter. Each nft invocation loads the
 	// namespace's entire ruleset before it can add a rule, so applying a
@@ -1096,15 +1076,10 @@ func configureBridgeIngressFilter(ctx context.Context, network *Network, cleanup
 	// dozen members took three minutes here, and every other task ten
 	// seconds. The program also replaces the table atomically, so a reader
 	// never sees a half-built filter.
-	if network.Mark != nil {
-		network.Mark("sg:render")
-	}
 	if err := network.runner.RunWithInput(ctx, program, "ip", "netns", "exec", network.NamespaceName, "nft", "-f", "-"); err != nil {
 		return err
 	}
-	if network.Mark != nil {
-		network.Mark("sg:commit")
-	}
+	mark("sg:commit")
 	network.installed.Store(table, program)
 	cleanup.Add(func(cleanupCtx context.Context) error {
 		network.installed.Delete(table)
