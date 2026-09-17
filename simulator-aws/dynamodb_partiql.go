@@ -788,13 +788,24 @@ func (p *pqlParser) parsePrimary() partiQLExpr {
 		return partiQLBetween{col: col, lo: lo, hi: hi}
 	case p.kwEq("IN"):
 		p.next()
-		if p.peek().kind != pqlLParen {
-			p.fail("expected '(' after IN")
+		// AWS writes the IN list in brackets -- "WHERE OrderID IN [100, 300,
+		// 234]" in the PartiQL SELECT reference -- and the console and SDKs
+		// accept parentheses too. This parser took only parentheses, so the
+		// documented form was answered with a ValidationException. Both open
+		// the list; the closing delimiter must match the one that opened it.
+		var closing pqlTokKind
+		switch p.peek().kind {
+		case pqlLBracket:
+			closing = pqlRBracket
+		case pqlLParen:
+			closing = pqlRParen
+		default:
+			p.fail("expected '[' or '(' after IN")
 			return nil
 		}
 		p.next()
 		var vals []map[string]any
-		for p.peek().kind != pqlRParen && p.peek().kind != pqlEOF {
+		for p.peek().kind != closing && p.peek().kind != pqlEOF {
 			av, ok := p.parseScalarAV()
 			if !ok {
 				p.fail("expected value in IN list")
@@ -805,8 +816,10 @@ func (p *pqlParser) parsePrimary() partiQLExpr {
 				p.next()
 			}
 		}
-		if p.peek().kind == pqlRParen {
+		if p.peek().kind == closing {
 			p.next()
+		} else if closing == pqlRBracket {
+			p.fail("missing ']' in IN list")
 		} else {
 			p.fail("missing ')' in IN list")
 		}
