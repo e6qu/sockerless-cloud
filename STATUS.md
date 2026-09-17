@@ -89,6 +89,12 @@ Current state of the sockerless-cloud repository.
   containers, scoped to the state directory so a concurrent suite is never
   touched. A simulator exits when the process in `SOCKERLESS_PARENT_PID` is
   gone.
+- **The S3 control plane is authorized, not just the data plane.** Every
+  `/v20180820` route runs the shared IAM gate as the action the AWS Service
+  Reference names for its operation, against the resource the request names;
+  seven whose actions belong to the `s3express`, `s3-outposts` and
+  `s3-object-lambda` namespaces are listed as ungated with that reason, and a
+  test refuses an eighth (BUG-3014).
 - **Every credential is verified**: SigV4 against the principal's stored
   secret, from the header and from a presigned URL alike; Google Cloud and
   Microsoft Entra bearers against the simulator's signing keys; the Azure

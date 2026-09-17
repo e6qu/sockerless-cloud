@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"io"
 	"net"
 	"net/http"
@@ -86,6 +87,14 @@ func iamKMSKeyARNOrAny(keyID string) string {
 // anything. Operations that pass no role, and requests that name none, are
 // unaffected.
 func iamEnforcePassRole(w http.ResponseWriter, r *http.Request, action string) bool {
+	return iamEnforcePassRoleWith(w, r, action, iamWriteDeny)
+}
+
+// iamEnforcePassRoleWith is iamEnforcePassRole refusing in the error shape the
+// calling surface uses, which for a REST service is its own rather than the
+// control-plane envelope.
+func iamEnforcePassRoleWith(w http.ResponseWriter, r *http.Request, action string,
+	deny func(http.ResponseWriter, *http.Request, string, string)) bool {
 	principals, ok := iamPassRoleOperations[action]
 	if !ok {
 		return true
@@ -104,7 +113,7 @@ func iamEnforcePassRole(w http.ResponseWriter, r *http.Request, action string) b
 			return true
 		}
 		if !allowed {
-			iamWriteDeny(w, r, principalArn, "iam:PassRole")
+			deny(w, r, principalArn, "iam:PassRole")
 			return false
 		}
 	}
@@ -134,6 +143,10 @@ func iamPassedRoleARNs(r *http.Request) []string {
 		var doc any
 		if json.Unmarshal(body, &doc) == nil {
 			iamWalkJSONStrings(doc, add)
+		} else {
+			// The S3 control plane composes its requests as XML documents, and
+			// registering an Access Grants location names the role there.
+			iamWalkXMLText(body, add)
 		}
 	}
 	// Query-protocol services carry the role as a form parameter.
@@ -149,6 +162,23 @@ func iamPassedRoleARNs(r *http.Request) []string {
 
 func iamIsRoleARN(v string) bool {
 	return strings.HasPrefix(v, "arn:aws:iam::") && strings.Contains(v, ":role/")
+}
+
+// iamWalkXMLText calls visit for every element's character data anywhere in an
+// XML document.
+func iamWalkXMLText(body []byte, visit func(string)) {
+	decoder := xml.NewDecoder(bytes.NewReader(body))
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return
+		}
+		if data, ok := token.(xml.CharData); ok {
+			if text := strings.TrimSpace(string(data)); text != "" {
+				visit(text)
+			}
+		}
+	}
 }
 
 // iamWalkJSONStrings calls visit for every string anywhere in a decoded JSON

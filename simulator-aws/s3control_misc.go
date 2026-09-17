@@ -20,6 +20,12 @@ type s3AccessPointScope struct {
 	Permissions []string `xml:"Permissions>Permission,omitempty" json:"permissions,omitempty"`
 }
 
+// These six routes are the S3 control plane's ungated ones. Their operations
+// belong to service namespaces AWS publishes apart from s3 — an access
+// point's scope and the directory-bucket listing to s3express, the Outposts
+// bucket surface to s3-outposts — and none of those references is vendored
+// here, so which action and resource each authorizes against is not something
+// this repository can answer. BUGS.md holds what vendoring them would close.
 func registerS3ControlMisc(srv *sim.Server) {
 	srv.HandleFunc("PUT /v20180820/accesspoint/{name}/scope", handleS3PutAccessPointScope)
 	srv.HandleFunc("GET /v20180820/accesspoint/{name}/scope", handleS3GetAccessPointScope)
@@ -202,9 +208,16 @@ var s3ControlResourceTags sim.Store[map[string]string]
 func registerS3ControlTagging(srv *sim.Server) {
 	s3ControlResourceTags = sim.MakeStore[map[string]string](srv.DB(), "s3_control_resource_tags")
 
-	srv.HandleFunc("POST /v20180820/tags/{resourceArn...}", handleS3ControlTagResource)
-	srv.HandleFunc("DELETE /v20180820/tags/{resourceArn...}", handleS3ControlUntagResource)
-	srv.HandleFunc("GET /v20180820/tags/{resourceArn...}", handleS3ControlListTagsForResource)
+	s3ControlRegister(srv, s3ControlTaggingRoutes)
+}
+
+// s3ControlTaggingRoutes carries what the shared tagging trio is authorized
+// as: the resource is the ARN the request names outright, which is also what
+// tells AWS which of the six types the action declares this call is about.
+var s3ControlTaggingRoutes = []s3ControlRoute{
+	{"POST /v20180820/tags/{resourceArn...}", "TagResource", s3ControlTaggedResource, handleS3ControlTagResource},
+	{"DELETE /v20180820/tags/{resourceArn...}", "UntagResource", s3ControlTaggedResource, handleS3ControlUntagResource},
+	{"GET /v20180820/tags/{resourceArn...}", "ListTagsForResource", s3ControlTaggedResource, handleS3ControlListTagsForResource},
 }
 
 // s3ControlTaggedResourceExists reports whether the ARN names something this

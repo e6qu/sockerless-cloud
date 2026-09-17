@@ -51,19 +51,28 @@ func registerS3ControlStorageLens(srv *sim.Server) {
 	s3StorageLensConfigurations = sim.MakeStore[S3StorageLensConfiguration](srv.DB(), "s3_storage_lens_configurations")
 	s3StorageLensGroups = sim.MakeStore[S3StorageLensGroup](srv.DB(), "s3_storage_lens_groups")
 
-	srv.HandleFunc("PUT /v20180820/storagelens/{configId}", handleS3PutStorageLensConfiguration)
-	srv.HandleFunc("GET /v20180820/storagelens/{configId}", handleS3GetStorageLensConfiguration)
-	srv.HandleFunc("DELETE /v20180820/storagelens/{configId}", handleS3DeleteStorageLensConfiguration)
-	srv.HandleFunc("GET /v20180820/storagelens", handleS3ListStorageLensConfigurations)
-	srv.HandleFunc("PUT /v20180820/storagelens/{configId}/tagging", handleS3PutStorageLensConfigurationTagging)
-	srv.HandleFunc("GET /v20180820/storagelens/{configId}/tagging", handleS3GetStorageLensConfigurationTagging)
-	srv.HandleFunc("DELETE /v20180820/storagelens/{configId}/tagging", handleS3DeleteStorageLensConfigurationTagging)
+	s3ControlRegister(srv, s3ControlStorageLensRoutes)
+}
 
-	srv.HandleFunc("POST /v20180820/storagelensgroup", handleS3CreateStorageLensGroup)
-	srv.HandleFunc("GET /v20180820/storagelensgroup/{name}", handleS3GetStorageLensGroup)
-	srv.HandleFunc("PUT /v20180820/storagelensgroup/{name}", handleS3UpdateStorageLensGroup)
-	srv.HandleFunc("DELETE /v20180820/storagelensgroup/{name}", handleS3DeleteStorageLensGroup)
-	srv.HandleFunc("GET /v20180820/storagelensgroup", handleS3ListStorageLensGroups)
+// s3ControlStorageLensRoutes carries what each Storage Lens route is
+// authorized as. AWS declares no resource type for writing a configuration or
+// for creating a group — both name something that does not exist yet — while
+// every read, tagging and delete is evaluated against the configuration's or
+// the group's own ARN.
+var s3ControlStorageLensRoutes = []s3ControlRoute{
+	{"PUT /v20180820/storagelens/{configId}", "PutStorageLensConfiguration", nil, handleS3PutStorageLensConfiguration},
+	{"GET /v20180820/storagelens/{configId}", "GetStorageLensConfiguration", s3ControlStorageLensResource, handleS3GetStorageLensConfiguration},
+	{"DELETE /v20180820/storagelens/{configId}", "DeleteStorageLensConfiguration", s3ControlStorageLensResource, handleS3DeleteStorageLensConfiguration},
+	{"GET /v20180820/storagelens", "ListStorageLensConfigurations", nil, handleS3ListStorageLensConfigurations},
+	{"PUT /v20180820/storagelens/{configId}/tagging", "PutStorageLensConfigurationTagging", s3ControlStorageLensResource, handleS3PutStorageLensConfigurationTagging},
+	{"GET /v20180820/storagelens/{configId}/tagging", "GetStorageLensConfigurationTagging", s3ControlStorageLensResource, handleS3GetStorageLensConfigurationTagging},
+	{"DELETE /v20180820/storagelens/{configId}/tagging", "DeleteStorageLensConfigurationTagging", s3ControlStorageLensResource, handleS3DeleteStorageLensConfigurationTagging},
+
+	{"POST /v20180820/storagelensgroup", "CreateStorageLensGroup", nil, handleS3CreateStorageLensGroup},
+	{"GET /v20180820/storagelensgroup/{name}", "GetStorageLensGroup", s3ControlStorageLensGroupResource, handleS3GetStorageLensGroup},
+	{"PUT /v20180820/storagelensgroup/{name}", "UpdateStorageLensGroup", s3ControlStorageLensGroupResource, handleS3UpdateStorageLensGroup},
+	{"DELETE /v20180820/storagelensgroup/{name}", "DeleteStorageLensGroup", s3ControlStorageLensGroupResource, handleS3DeleteStorageLensGroup},
+	{"GET /v20180820/storagelensgroup", "ListStorageLensGroups", nil, handleS3ListStorageLensGroups},
 }
 
 func handleS3PutStorageLensConfiguration(w http.ResponseWriter, r *http.Request) {

@@ -51,14 +51,21 @@ func s3BatchJobARN(account, jobID string) string {
 func registerS3ControlJobs(srv *sim.Server) {
 	s3BatchJobs = sim.MakeStore[S3BatchJob](srv.DB(), "s3_batch_jobs")
 
-	srv.HandleFunc("POST /v20180820/jobs", handleS3CreateJob)
-	srv.HandleFunc("GET /v20180820/jobs", handleS3ListJobs)
-	srv.HandleFunc("GET /v20180820/jobs/{jobId}", handleS3DescribeJob)
-	srv.HandleFunc("POST /v20180820/jobs/{jobId}/priority", handleS3UpdateJobPriority)
-	srv.HandleFunc("POST /v20180820/jobs/{jobId}/status", handleS3UpdateJobStatus)
-	srv.HandleFunc("PUT /v20180820/jobs/{jobId}/tagging", handleS3PutJobTagging)
-	srv.HandleFunc("GET /v20180820/jobs/{jobId}/tagging", handleS3GetJobTagging)
-	srv.HandleFunc("DELETE /v20180820/jobs/{jobId}/tagging", handleS3DeleteJobTagging)
+	s3ControlRegister(srv, s3ControlJobRoutes)
+}
+
+// s3ControlJobRoutes carries what each Batch Operations route is authorized
+// as. Creating and listing name no job, so AWS declares no resource type for
+// either; everything addressed to one job is evaluated against that job's ARN.
+var s3ControlJobRoutes = []s3ControlRoute{
+	{"POST /v20180820/jobs", "CreateJob", nil, handleS3CreateJob},
+	{"GET /v20180820/jobs", "ListJobs", nil, handleS3ListJobs},
+	{"GET /v20180820/jobs/{jobId}", "DescribeJob", s3ControlJobResource, handleS3DescribeJob},
+	{"POST /v20180820/jobs/{jobId}/priority", "UpdateJobPriority", s3ControlJobResource, handleS3UpdateJobPriority},
+	{"POST /v20180820/jobs/{jobId}/status", "UpdateJobStatus", s3ControlJobResource, handleS3UpdateJobStatus},
+	{"PUT /v20180820/jobs/{jobId}/tagging", "PutJobTagging", s3ControlJobResource, handleS3PutJobTagging},
+	{"GET /v20180820/jobs/{jobId}/tagging", "GetJobTagging", s3ControlJobResource, handleS3GetJobTagging},
+	{"DELETE /v20180820/jobs/{jobId}/tagging", "DeleteJobTagging", s3ControlJobResource, handleS3DeleteJobTagging},
 }
 
 func handleS3CreateJob(w http.ResponseWriter, r *http.Request) {

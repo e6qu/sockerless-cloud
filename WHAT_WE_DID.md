@@ -299,6 +299,22 @@ one matching only by account delegates to that account's IAM, which is what the
 default AWS KMS key policy means and what reading it as a grant had silently
 defeated.
 
+The Amazon S3 control plane is gated like the data plane. Each `/v20180820`
+route declares the operation it serves and the resource AWS authorizes that
+operation against — an access point, an Access Grants instance, location or
+grant, a batch job, a Multi-Region Access Point by its alias, a Storage Lens
+configuration or group, or the ARN the shared tagging trio names outright —
+and the gate runs the same `iamAuthorize` the rest of the surface does. A
+route whose action declares no resource type authorizes `"*"` because that is
+what the reference says about the action, and a test crosses every route
+against it so a re-vendor moves both together. Registering an Access Grants
+location also authorizes `iam:PassRole` on the role it hands S3, which meant
+teaching the passed-role scan to read an XML document. The seven routes whose
+actions live in the `s3express`, `s3-outposts` and `s3-object-lambda`
+namespaces stay ungated and listed as such: no reference for those is
+vendored, and inventing an action or a resource denies grants real AWS
+honours (BUG-3014).
+
 Google Cloud's `testIamPermissions` answers from the stored policy resolved
 through the vendored curated roles and the held custom roles, and a caller
 presenting no simulator-issued token is the account's operator.

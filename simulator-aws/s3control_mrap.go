@@ -70,22 +70,46 @@ func registerS3ControlMultiRegion(srv *sim.Server) {
 	s3MultiRegionAccessPoints = sim.MakeStore[S3MultiRegionAccessPoint](srv.DB(), "s3_multi_region_access_points")
 	s3AsyncOperations = sim.MakeStore[S3AsyncOperation](srv.DB(), "s3_async_operations")
 
-	srv.HandleFunc("POST /v20180820/async-requests/mrap/create", handleS3CreateMultiRegionAccessPoint)
-	srv.HandleFunc("POST /v20180820/async-requests/mrap/delete", handleS3DeleteMultiRegionAccessPoint)
-	srv.HandleFunc("POST /v20180820/async-requests/mrap/put-policy", handleS3PutMultiRegionAccessPointPolicy)
-	srv.HandleFunc("GET /v20180820/async-requests/mrap/{token...}", handleS3DescribeMultiRegionAccessPointOperation)
+	s3ControlRegister(srv, s3ControlMultiRegionRoutes)
+}
 
-	srv.HandleFunc("GET /v20180820/mrap/instances", handleS3ListMultiRegionAccessPoints)
-	srv.HandleFunc("GET /v20180820/mrap/instances/{name}", handleS3GetMultiRegionAccessPoint)
-	srv.HandleFunc("GET /v20180820/mrap/instances/{name}/policy", handleS3GetMultiRegionAccessPointPolicy)
-	srv.HandleFunc("GET /v20180820/mrap/instances/{name}/policystatus", handleS3GetMultiRegionAccessPointPolicyStatus)
-	srv.HandleFunc("GET /v20180820/mrap/instances/{name}/routes", handleS3GetMultiRegionAccessPointRoutes)
-	srv.HandleFunc("PATCH /v20180820/mrap/instances/{name}/routes", handleS3SubmitMultiRegionAccessPointRoutes)
+// s3ControlMultiRegionRoutes carries what each Multi-Region Access Point route
+// is authorized as. The three asynchronous operations name their endpoint in
+// the request document and the rest in the path; polling one is authorized
+// against the request token S3 handed back, which is an ARN of its own type.
+var s3ControlMultiRegionRoutes = []s3ControlRoute{
+	{"POST /v20180820/async-requests/mrap/create", "CreateMultiRegionAccessPoint", s3ControlMultiRegionRequestResource, handleS3CreateMultiRegionAccessPoint},
+	{"POST /v20180820/async-requests/mrap/delete", "DeleteMultiRegionAccessPoint", s3ControlMultiRegionRequestResource, handleS3DeleteMultiRegionAccessPoint},
+	{"POST /v20180820/async-requests/mrap/put-policy", "PutMultiRegionAccessPointPolicy", s3ControlMultiRegionRequestResource, handleS3PutMultiRegionAccessPointPolicy},
+	{"GET /v20180820/async-requests/mrap/{token...}", "DescribeMultiRegionAccessPointOperation", s3ControlAsyncRequestResource, handleS3DescribeMultiRegionAccessPointOperation},
+
+	{"GET /v20180820/mrap/instances", "ListMultiRegionAccessPoints", nil, handleS3ListMultiRegionAccessPoints},
+	{"GET /v20180820/mrap/instances/{name}", "GetMultiRegionAccessPoint", s3ControlMultiRegionResource, handleS3GetMultiRegionAccessPoint},
+	{"GET /v20180820/mrap/instances/{name}/policy", "GetMultiRegionAccessPointPolicy", s3ControlMultiRegionResource, handleS3GetMultiRegionAccessPointPolicy},
+	{"GET /v20180820/mrap/instances/{name}/policystatus", "GetMultiRegionAccessPointPolicyStatus", s3ControlMultiRegionResource, handleS3GetMultiRegionAccessPointPolicyStatus},
+	{"GET /v20180820/mrap/instances/{name}/routes", "GetMultiRegionAccessPointRoutes", s3ControlMultiRegionResource, handleS3GetMultiRegionAccessPointRoutes},
+	{"PATCH /v20180820/mrap/instances/{name}/routes", "SubmitMultiRegionAccessPointRoutes", s3ControlMultiRegionResource, handleS3SubmitMultiRegionAccessPointRoutes},
 }
 
 // s3MultiRegionAlias is the global name a client addresses the endpoint by.
+// The alias ends in the last four digits of the owning account, and an
+// account id shorter than that carries all of it rather than indexing past
+// its start.
 func s3MultiRegionAlias(name, account string) string {
-	return strings.ToLower(name) + "." + account[len(account)-4:] + ".mrap"
+	suffix := account
+	if len(account) > 4 {
+		suffix = account[len(account)-4:]
+	}
+	return strings.ToLower(name) + "." + suffix + ".mrap"
+}
+
+// s3MultiRegionAccessPointARN names the endpoint the way AWS's ARN format for
+// one does — by its alias, and with no region, because the endpoint is global.
+func s3MultiRegionAccessPointARN(account, name string) string {
+	if name == "" {
+		return ""
+	}
+	return fmt.Sprintf("arn:aws:s3::%s:accesspoint/%s", account, s3MultiRegionAlias(name, account))
 }
 
 // s3RecordAsyncOperation stores an asynchronous request's outcome and returns

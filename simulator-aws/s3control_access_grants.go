@@ -97,31 +97,39 @@ func registerS3ControlAccessGrants(srv *sim.Server) {
 	s3AccessGrants = sim.MakeStore[S3AccessGrant](srv.DB(), "s3_access_grants")
 	s3AccessGrantsCredentials = sim.MakeStore[S3AccessGrantsCredential](srv.DB(), "s3_access_grants_credentials")
 
-	srv.HandleFunc("POST /v20180820/accessgrantsinstance", handleS3CreateAccessGrantsInstance)
-	srv.HandleFunc("GET /v20180820/accessgrantsinstance", handleS3GetAccessGrantsInstance)
-	srv.HandleFunc("DELETE /v20180820/accessgrantsinstance", handleS3DeleteAccessGrantsInstance)
-	srv.HandleFunc("GET /v20180820/accessgrantsinstances", handleS3ListAccessGrantsInstances)
-	srv.HandleFunc("GET /v20180820/accessgrantsinstance/prefix", handleS3GetAccessGrantsInstanceForPrefix)
+	s3ControlRegister(srv, s3ControlAccessGrantsRoutes)
+}
 
-	srv.HandleFunc("POST /v20180820/accessgrantsinstance/identitycenter", handleS3AssociateAccessGrantsIdentityCenter)
-	srv.HandleFunc("DELETE /v20180820/accessgrantsinstance/identitycenter", handleS3DissociateAccessGrantsIdentityCenter)
+// s3ControlAccessGrantsRoutes carries what each Access Grants route is
+// authorized as. Every operation here is its own IAM action; the instance is
+// the resource all but the grants and locations are evaluated against, which
+// is how a policy scoped to an account's instance governs its whole surface.
+var s3ControlAccessGrantsRoutes = []s3ControlRoute{
+	{"POST /v20180820/accessgrantsinstance", "CreateAccessGrantsInstance", s3ControlAccessGrantsInstanceResource, handleS3CreateAccessGrantsInstance},
+	{"GET /v20180820/accessgrantsinstance", "GetAccessGrantsInstance", s3ControlAccessGrantsInstanceResource, handleS3GetAccessGrantsInstance},
+	{"DELETE /v20180820/accessgrantsinstance", "DeleteAccessGrantsInstance", s3ControlAccessGrantsInstanceResource, handleS3DeleteAccessGrantsInstance},
+	{"GET /v20180820/accessgrantsinstances", "ListAccessGrantsInstances", nil, handleS3ListAccessGrantsInstances},
+	{"GET /v20180820/accessgrantsinstance/prefix", "GetAccessGrantsInstanceForPrefix", s3ControlAccessGrantsInstanceResource, handleS3GetAccessGrantsInstanceForPrefix},
 
-	srv.HandleFunc("PUT /v20180820/accessgrantsinstance/resourcepolicy", handleS3PutAccessGrantsInstanceResourcePolicy)
-	srv.HandleFunc("GET /v20180820/accessgrantsinstance/resourcepolicy", handleS3GetAccessGrantsInstanceResourcePolicy)
-	srv.HandleFunc("DELETE /v20180820/accessgrantsinstance/resourcepolicy", handleS3DeleteAccessGrantsInstanceResourcePolicy)
+	{"POST /v20180820/accessgrantsinstance/identitycenter", "AssociateAccessGrantsIdentityCenter", s3ControlAccessGrantsInstanceResource, handleS3AssociateAccessGrantsIdentityCenter},
+	{"DELETE /v20180820/accessgrantsinstance/identitycenter", "DissociateAccessGrantsIdentityCenter", s3ControlAccessGrantsInstanceResource, handleS3DissociateAccessGrantsIdentityCenter},
 
-	srv.HandleFunc("POST /v20180820/accessgrantsinstance/location", handleS3CreateAccessGrantsLocation)
-	srv.HandleFunc("GET /v20180820/accessgrantsinstance/location/{locationId}", handleS3GetAccessGrantsLocation)
-	srv.HandleFunc("PUT /v20180820/accessgrantsinstance/location/{locationId}", handleS3UpdateAccessGrantsLocation)
-	srv.HandleFunc("DELETE /v20180820/accessgrantsinstance/location/{locationId}", handleS3DeleteAccessGrantsLocation)
-	srv.HandleFunc("GET /v20180820/accessgrantsinstance/locations", handleS3ListAccessGrantsLocations)
+	{"PUT /v20180820/accessgrantsinstance/resourcepolicy", "PutAccessGrantsInstanceResourcePolicy", s3ControlAccessGrantsInstanceResource, handleS3PutAccessGrantsInstanceResourcePolicy},
+	{"GET /v20180820/accessgrantsinstance/resourcepolicy", "GetAccessGrantsInstanceResourcePolicy", s3ControlAccessGrantsInstanceResource, handleS3GetAccessGrantsInstanceResourcePolicy},
+	{"DELETE /v20180820/accessgrantsinstance/resourcepolicy", "DeleteAccessGrantsInstanceResourcePolicy", s3ControlAccessGrantsInstanceResource, handleS3DeleteAccessGrantsInstanceResourcePolicy},
 
-	srv.HandleFunc("POST /v20180820/accessgrantsinstance/grant", handleS3CreateAccessGrant)
-	srv.HandleFunc("GET /v20180820/accessgrantsinstance/grant/{grantId}", handleS3GetAccessGrant)
-	srv.HandleFunc("DELETE /v20180820/accessgrantsinstance/grant/{grantId}", handleS3DeleteAccessGrant)
-	srv.HandleFunc("GET /v20180820/accessgrantsinstance/grants", handleS3ListAccessGrants)
-	srv.HandleFunc("GET /v20180820/accessgrantsinstance/caller/grants", handleS3ListCallerAccessGrants)
-	srv.HandleFunc("GET /v20180820/accessgrantsinstance/dataaccess", handleS3GetDataAccess)
+	{"POST /v20180820/accessgrantsinstance/location", "CreateAccessGrantsLocation", s3ControlNewAccessGrantsLocationResource, handleS3CreateAccessGrantsLocation},
+	{"GET /v20180820/accessgrantsinstance/location/{locationId}", "GetAccessGrantsLocation", s3ControlAccessGrantsLocationResource, handleS3GetAccessGrantsLocation},
+	{"PUT /v20180820/accessgrantsinstance/location/{locationId}", "UpdateAccessGrantsLocation", s3ControlAccessGrantsLocationResource, handleS3UpdateAccessGrantsLocation},
+	{"DELETE /v20180820/accessgrantsinstance/location/{locationId}", "DeleteAccessGrantsLocation", s3ControlAccessGrantsLocationResource, handleS3DeleteAccessGrantsLocation},
+	{"GET /v20180820/accessgrantsinstance/locations", "ListAccessGrantsLocations", s3ControlAccessGrantsInstanceResource, handleS3ListAccessGrantsLocations},
+
+	{"POST /v20180820/accessgrantsinstance/grant", "CreateAccessGrant", s3ControlNewAccessGrantResource, handleS3CreateAccessGrant},
+	{"GET /v20180820/accessgrantsinstance/grant/{grantId}", "GetAccessGrant", s3ControlAccessGrantResource, handleS3GetAccessGrant},
+	{"DELETE /v20180820/accessgrantsinstance/grant/{grantId}", "DeleteAccessGrant", s3ControlAccessGrantResource, handleS3DeleteAccessGrant},
+	{"GET /v20180820/accessgrantsinstance/grants", "ListAccessGrants", s3ControlAccessGrantsInstanceResource, handleS3ListAccessGrants},
+	{"GET /v20180820/accessgrantsinstance/caller/grants", "ListCallerAccessGrants", s3ControlAccessGrantsInstanceResource, handleS3ListCallerAccessGrants},
+	{"GET /v20180820/accessgrantsinstance/dataaccess", "GetDataAccess", s3ControlAccessGrantsInstanceResource, handleS3GetDataAccess},
 }
 
 // s3ControlOptionalXMLBody reads a request document that the operation does
