@@ -309,3 +309,50 @@ func TestS3Control_MultiRegionAccessPointIsAuthorizedAgainstItsAlias(t *testing.
 	require.Error(t, err, "a grant on another endpoint does not read this one")
 	assert.Equal(t, "AccessDenied", errCodeOf(err))
 }
+
+// TestS3Control_AccessPointScopeIsAnS3ExpressAction covers the routes AWS
+// authorizes outside the s3 namespace: a directory bucket's access-point scope
+// is an s3express action against an s3express ARN, so a grant written with the
+// s3 access-point ARN — the one every other access-point route takes — does not
+// reach it.
+func TestS3Control_AccessPointScopeIsAnS3ExpressAction(t *testing.T) {
+	admin := s3ControlClient()
+	bucket, apName := "scope-auth-bucket", "scope-auth-ap"
+	_, err := s3Client().CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	_, err = admin.CreateAccessPoint(ctx, &s3control.CreateAccessPointInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), Name: aws.String(apName),
+		Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = admin.DeleteAccessPoint(ctx, &s3control.DeleteAccessPointInput{
+			AccountId: aws.String(s3ObjectLambdaAccount), Name: aws.String(apName)})
+	})
+
+	expressARN := "arn:aws:s3express:us-east-1:" + s3ObjectLambdaAccount + ":accesspoint/" + apName
+	allowed := s3ControlClientWithCreds(restrictedCredential(t, "s3express-scope-reader",
+		s3ControlPolicy("s3express:GetAccessPointScope", expressARN)))
+	_, err = allowed.GetAccessPointScope(ctx, &s3control.GetAccessPointScopeInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), Name: aws.String(apName)})
+	require.NoError(t, err, "the grant names the access point in the namespace AWS authorizes the scope in")
+
+	// The same action on another access point of the same type does not reach
+	// this one.
+	elsewhere := s3ControlClientWithCreds(restrictedCredential(t, "s3express-scope-elsewhere",
+		s3ControlPolicy("s3express:GetAccessPointScope",
+			"arn:aws:s3express:us-east-1:"+s3ObjectLambdaAccount+":accesspoint/other-"+apName)))
+	_, err = elsewhere.GetAccessPointScope(ctx, &s3control.GetAccessPointScopeInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), Name: aws.String(apName)})
+	require.Error(t, err, "a grant on another access point's scope does not reach this one")
+	assert.Equal(t, "AccessDenied", errCodeOf(err))
+	assert.Contains(t, err.Error(), "s3express:GetAccessPointScope")
+
+	// The s3 spelling of the same access point is a different resource, which
+	// is the whole point of the namespace.
+	s3Spelled := s3ControlClientWithCreds(restrictedCredential(t, "s3express-scope-s3-arn",
+		s3ControlPolicy("s3express:GetAccessPointScope", s3ControlARN("accesspoint/"+apName))))
+	_, err = s3Spelled.GetAccessPointScope(ctx, &s3control.GetAccessPointScopeInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), Name: aws.String(apName)})
+	require.Error(t, err, "the s3 access-point ARN is not the s3express one")
+	assert.Equal(t, "AccessDenied", errCodeOf(err))
+}

@@ -17,12 +17,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `PUT /v20180820/accesspoint/{name}/scope` | ✓ `simulator-aws/s3control_misc.go:30::handleS3PutAccessPointScope` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v20180820/accesspoint/{name}/scope` | ✓ `simulator-aws/s3control_misc.go:31::handleS3GetAccessPointScope` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `DELETE /v20180820/accesspoint/{name}/scope` | ✓ `simulator-aws/s3control_misc.go:32::handleS3DeleteAccessPointScope` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v20180820/bucket` | ✓ `simulator-aws/s3control_misc.go:34::handleS3ListRegionalBuckets` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `DELETE /v20180820/bucket/{bucket}/lifecycleconfiguration` | ✓ `simulator-aws/s3control_misc.go:35::handleS3DeleteBucketLifecycleConfiguration` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v20180820/accesspointfordirectory` | ✓ `simulator-aws/s3control_misc.go:36::handleS3ListAccessPointsForDirectoryBuckets` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `DELETE /v20180820/bucket/{bucket}/lifecycleconfiguration` | ✓ `simulator-aws/s3control_misc.go:41::handleS3DeleteBucketLifecycleConfiguration` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 
