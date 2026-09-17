@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -2484,4 +2485,28 @@ func TestIAMResourceARNs_AnAliasNamesTheMachineItRoutesTo(t *testing.T) {
 				`{"name":"live","routingConfiguration":[{"weight":100}]}`),
 			"states:CreateStateMachineAlias", "*")
 	})
+}
+
+// TestIAMPassedRolesDenyWhenTheBodyCannotBeRead proves the PassRole scan does
+// not read an unreadable body as a request that passes no role. The gate holds
+// at most iamConditionBodyLimit of a body; past that it sees nothing, and
+// "nothing" must not mean "no role here, let it through".
+func TestIAMPassedRolesDenyWhenTheBodyCannotBeRead(t *testing.T) {
+	// A document larger than the limit whose only role ARN sits past it.
+	var body bytes.Buffer
+	body.WriteString(`{"pad":"`)
+	body.Write(bytes.Repeat([]byte("x"), iamConditionBodyLimit))
+	body.WriteString(`","roleArn":"arn:aws:iam::123456789012:role/hidden"}`)
+
+	got := iamPassedRoleARNs(iamJSONRequest("AmazonEC2ContainerServiceV20141113.RunTask", body.String()))
+	if len(got) != 1 || got[0] != iamUnreadableRoleARN {
+		t.Fatalf("passed roles = %v, want the unreadable sentinel — a body the gate cannot read must not read as naming no role", got)
+	}
+
+	// The same request under the limit is read normally.
+	small := iamPassedRoleARNs(iamJSONRequest("AmazonEC2ContainerServiceV20141113.RunTask",
+		`{"roleArn":"arn:aws:iam::123456789012:role/hidden"}`))
+	if len(small) != 1 || small[0] != "arn:aws:iam::123456789012:role/hidden" {
+		t.Fatalf("passed roles = %v, want the role the request names", small)
+	}
 }

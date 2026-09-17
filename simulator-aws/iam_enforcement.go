@@ -93,6 +93,12 @@ func iamEnforcePassRole(w http.ResponseWriter, r *http.Request, action string) b
 // iamEnforcePassRoleWith is iamEnforcePassRole refusing in the error shape the
 // calling surface uses, which for a REST service is its own rather than the
 // control-plane envelope.
+// iamUnreadableRoleARN stands for a role this gate could not read out of a
+// request body that did not fit. It is not a role any policy can name, so the
+// PassRole check denies -- the safe reading of "the request may be passing a
+// role and we cannot see which".
+const iamUnreadableRoleARN = "arn:aws:iam::unreadable-request-body:role/unreadable"
+
 func iamEnforcePassRoleWith(w http.ResponseWriter, r *http.Request, action string,
 	deny func(http.ResponseWriter, *http.Request, string, string)) bool {
 	principals, ok := iamPassRoleOperations[action]
@@ -139,7 +145,8 @@ func iamPassedRoleARNs(r *http.Request) []string {
 		seen[v] = struct{}{}
 		roles = append(roles, v)
 	}
-	if body := iamRequestBody(r); len(body) > 0 {
+	body, within := iamRequestBodyWithin(r)
+	if len(body) > 0 {
 		var doc any
 		if json.Unmarshal(body, &doc) == nil {
 			iamWalkJSONStrings(doc, add)
@@ -148,6 +155,14 @@ func iamPassedRoleARNs(r *http.Request) []string {
 			// registering an Access Grants location names the role there.
 			iamWalkXMLText(body, add)
 		}
+	}
+	if !within && len(roles) == 0 {
+		// The body did not fit, so this scan cannot say the request names no
+		// role. Every operation that passes a role is small -- none of them
+		// carries an upload -- so an oversized body on one of them is treated
+		// as naming a role that no policy grants rather than as naming none,
+		// which would let it through unauthorized.
+		roles = append(roles, iamUnreadableRoleARN)
 	}
 	// Query-protocol services carry the role as a form parameter.
 	_ = r.ParseForm()
@@ -519,26 +534,36 @@ const iamConditionBodyLimit = 16 << 20
 // request carrying all of it for the handler. A body past the limit is not
 // returned: half a document parses as nothing, or worse as something.
 func iamRequestBody(r *http.Request) []byte {
+	body, _ := iamRequestBodyWithin(r)
+	return body
+}
+
+// iamRequestBodyWithin is iamRequestBody plus whether the body fit. A caller
+// that must not miss what the body says — the iam:PassRole check, whose whole
+// job is to find a role ARN in it — needs to tell "no role in this body" from
+// "this body was too large to look at", because the first is a grant and the
+// second would be a bypass.
+func iamRequestBodyWithin(r *http.Request) ([]byte, bool) {
 	if r.Body == nil {
-		return nil
+		return nil, true
 	}
 	held, err := io.ReadAll(io.LimitReader(r.Body, iamConditionBodyLimit+1))
 	if err != nil {
 		_ = r.Body.Close()
 		r.Body = io.NopCloser(bytes.NewReader(held))
-		return nil
+		return nil, false
 	}
 	if len(held) <= iamConditionBodyLimit {
 		_ = r.Body.Close()
 		r.Body = io.NopCloser(bytes.NewReader(held))
-		return held
+		return held, true
 	}
 	rest := r.Body
 	r.Body = struct {
 		io.Reader
 		io.Closer
 	}{Reader: io.MultiReader(bytes.NewReader(held), rest), Closer: rest}
-	return nil
+	return nil, false
 }
 
 // iamJSONBodyField reads a top-level string field from an awsJson request body,
