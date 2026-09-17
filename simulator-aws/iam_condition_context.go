@@ -289,6 +289,8 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		iamPopulateCodeBuildConditionKeys(name, body, ctx)
 	}
 
+	iamRunRequestConditionPopulators(r, service, name, body, ctx)
+
 	// kms:EncryptionAlgorithm is the algorithm the request asks the key to use,
 	// which a policy pins so a key is never used with a weaker one.
 	if service == "kms" {
