@@ -121,6 +121,14 @@ resolving once that branch is deleted.
 - **A stubbed external dependency fails loudly and names itself.** Amazon SNS
   SMS and mobile push need a carrier or Apple's and Google's hosts; each
   failure says so rather than reporting a missing `TopicArn`.
+- **A retention the service reports is also a bound on what the simulator
+  holds.** Stopped Amazon ECS tasks, temporary credentials and AWS WAF sampled
+  requests were only filtered out of answers, so the Scaleway simulator reached
+  21,409 task rows, 1.2 million credentials and 196,000 samples. Sweepers now
+  delete each at its real lifetime through `Store.Prune`, which reads 500 rows
+  at a time. Where deleting a record would change an answer, the answer moved
+  into what the client presents: a session token carries its expiration under
+  the simulator's key, so a pruned credential is still refused as expired.
 
 ## Execution
 

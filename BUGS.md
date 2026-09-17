@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 11. Resolved: 107.
+Open: 11. Resolved: 108.
 
 ## Open
 
@@ -52,25 +52,51 @@ Open: 11. Resolved: 107.
 | 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260814, fetched and checked again on 2026-08-23) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
-- **BUG-3007 (three AWS stores are never pruned, so they grow for as long as
-  the simulator runs):** nothing deletes from `iamTempCreds` (`sts.go`),
-  `cloudTrailEvents` (`cloudtrail.go`) or `wafSampledRequests` (`wafv2.go`).
-  On the Scaleway stack on 2026-09-17 the persisted database was 2.37 GB, of
-  which `iam_temp_creds` held 1,207,489 rows (532 MB), `cloudtrail_events`
-  1,487,907 (501 MB) and `wafv2_sampled_requests` 193,891 (442 MB). Each
-  diverges from the service it simulates, which forgets these records: AWS STS
-  credentials stop existing at their `Expiration`, CloudTrail event history
-  covers 90 days, and AWS WAF keeps sampled requests for three hours. Every
-  `List` of these stores decodes all of it, and the rootfs they live on is
-  32 GB. Fix shape: the ECS stopped-task sweep, per store — a background pass
-  that deletes rows past `IAMTempCred.Expiration`, `CloudTrailEvent.EventTime`
-  plus 90 days, and `wafSampledRequest.Timestamp` plus three hours, keyed by
-  the ID each store is written under, with a test that writes rows through the
-  store's production write path. The first pass on an existing database
-  deletes millions of rows, so it has to run in batches rather than one
-  delete per row under the store lock.
+- **BUG-3008 (CloudTrail event history and CloudTrail Lake read one store, so
+  neither can have its own retention):** `LookupEvents` (`cloudtrail.go`) and
+  CloudTrail Lake queries (`cloudtrail_lake.go`) both read `cloudTrailEvents`.
+  Event history covers the last 90 days, while an event data store keeps
+  events for its own retention period, years by default. So pruning the store
+  at 90 days would drop events a Lake query must still return, and without
+  pruning it grows for good: 1,500,797 rows (501 MB) on the Scaleway stack on
+  2026-09-17, none of them older than 90 days yet. `registerCloudTrail` also
+  lists the whole store at startup to find the highest sequence number. Fix
+  shape: give each event data store its own copy of the events it ingests,
+  prune event history at 90 days with `Store.Prune`, and keep the highest
+  sequence number in its own row rather than rescanning for it.
+
+- **BUG-3009 (records keyed by a temporary access key outlive the
+  credential):** `s3ExpressSessions` (`s3_express.go`) and
+  `s3AccessGrantsCredentials` (`s3control_access_grants.go`) are written with
+  the credential they describe, but nothing deletes them when the sweep in
+  `sts.go` removes that credential. They are small on the Scaleway stack, but
+  they grow with every session. Fix shape: prune each by the same expiration
+  the credential carries, from the sweeper that deletes the credential.
 
 ## Resolved history
+
+- ~~**BUG-3007 (temporary credentials and AWS WAF sampled requests were never
+  deleted):**~~ Nothing deleted from `iamTempCreds` or `wafSampledRequests`.
+  On 2026-09-17 the Scaleway simulator held 1,212,219 temporary credentials
+  (532 MB), 1,210,876 of them expired, and 196,367 sampled requests
+  (442 MB), 193,893 of them older than the three hours AWS WAF keeps. 94% of
+  the credentials belonged to one task's role: `GET /v4/{id}/credentials`
+  minted a new credential on every request, about 22 a minute. **Fixed**:
+  - The endpoint serves a task one credential and replaces it once less than
+    half its hour remains, as the Amazon ECS agent serves one until it
+    refreshes it.
+  - Sweepers built on `Store.Prune` delete expired credentials, samples older
+    than three hours, and the credential a swept task held. `Store.Prune` reads
+    500 rows at a time, so the first sweep of a million rows does not load them
+    all.
+  - A session token now carries its expiration under an HMAC keyed by a
+    persisted secret, so a request signed with a pruned credential is still
+    refused as `ExpiredToken`, as AWS refuses one, rather than as
+    `InvalidClientTokenId`.
+
+  CloudTrail's event history is not pruned yet (BUG-3008), and the
+  `s3ExpressSessions` and `s3AccessGrantsCredentials` records keyed by a
+  temporary access key are not deleted with it (BUG-3009).
 
 - ~~**BUG-3006 (the stopped-task sweep deleted by ARN, so it never swept
   anything):**~~ Amazon ECS task starts on the Scaleway stack spent 3.1-6.0 s
