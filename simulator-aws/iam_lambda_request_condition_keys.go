@@ -64,14 +64,19 @@ func lambdaStatementPrincipals(function, sid string) []string {
 		if statement.Sid != sid {
 			continue
 		}
-		for _, value := range statement.Principal {
-			switch v := value.(type) {
-			case string:
-				principals = append(principals, v)
-			case []any:
-				for _, item := range v {
-					if s, ok := item.(string); ok {
-						principals = append(principals, s)
+		switch element := statement.Principal.(type) {
+		case string:
+			principals = append(principals, element)
+		case map[string]any:
+			for _, value := range element {
+				switch v := value.(type) {
+				case string:
+					principals = append(principals, v)
+				case []any:
+					for _, item := range v {
+						if s, ok := item.(string); ok {
+							principals = append(principals, s)
+						}
 					}
 				}
 			}
