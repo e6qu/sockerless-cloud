@@ -37,8 +37,14 @@ Current state of the sockerless-cloud repository.
   exemptions being the Amazon S3 bucket subresources the query-parameter table
   routes, each verified against that table. IAM resource derivation covers
   2,004 of 2,012 served operations; the eight that remain are requests naming
-  no resource, and `"*"` is the honest answer. Condition-key coverage is not
-  ratcheted yet; BUG-2965 holds the last hand count.
+  no resource, and `"*"` is the honest answer. Condition keys are ratcheted too:
+  every key the vendored Service References declare -- 606 over 1,739 actions --
+  is either named by the gate or classified as unmodelled with the reason, and a
+  classified key the gate later resolves fails its own row. What that does not
+  yet prove is per-action: that a key some code names is built for every action
+  declaring it (BUG-2965). The Amazon S3 control plane is authorized route by
+  route; the seven routes whose actions belong to namespaces no vendored
+  reference covers are listed and tested as ungated (BUG-3016).
 - **Google Cloud**: 5,486 of 5,486 Discovery method spellings across 30
   documents reach a route that names them; the gRPC surfaces serve 210 of 213
   methods, the three unserved each needing state the simulator does not hold.
