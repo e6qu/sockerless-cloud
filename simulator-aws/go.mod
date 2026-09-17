@@ -7,7 +7,7 @@ require (
 	github.com/PaesslerAG/jsonpath v0.1.1
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917090915-f5e49032c874
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260917053320-37155c5588e3
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260917090956-347503e2a5a2
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/go-git/go-git/v5 v5.19.2
