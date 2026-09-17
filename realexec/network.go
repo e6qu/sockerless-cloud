@@ -66,11 +66,8 @@ type Network struct {
 	egressMu      sync.Mutex // serializes EnsureEgress so the veth pair is created once
 	cleanupOnce   sync.Map   // tableName -> struct{}: a shared table's teardown is registered once
 	// installed records the program last committed for a table, so an
-	// unchanged policy is not committed again. A VPC's egress policy is
-	// reapplied on every task start and every instance launch. (The 3.5-4.4 s
-	// this was added to remove turned out, once the phase was measured from
-	// inside the microVM, to be the simulator decoding its task store, not
-	// the commit.)
+	// unchanged policy, reapplied on every task start and instance launch, is
+	// not committed again.
 	installed sync.Map // tableName -> string (the committed program)
 	cleanup   *CleanupStack
 	runner    Runner
@@ -507,10 +504,8 @@ func (n *Network) ConfigureEgressPolicy(ctx context.Context, allowedSourceCIDRs 
 		tableName = deriveLinuxName("eg"+n.NamespaceName, "eg")
 	}
 	mark := MarkFrom(ctx)
-	// Marked on entry, before anything that can fail. Every other mark records
-	// after its step, so without this a phase line cannot tell a step that took
-	// no time from one that returned an error -- and EnsureEgress, the one step
-	// the memo can never skip, is exactly where that ambiguity would hurt.
+	// Every other mark follows its step; this one separates a step that took no
+	// time from one that failed.
 	mark("egress:begin")
 	link, err := n.EnsureEgress(ctx)
 	if err != nil {
@@ -533,10 +528,7 @@ func (n *Network) ConfigureEgressPolicy(ctx context.Context, allowedSourceCIDRs 
 
 	program := renderEgressPolicyProgram(tableName, link.NetVethName, link.HostIP.String(), cidrs)
 	mark("egress:render")
-	// An unchanged policy is not reinstalled. The allowed sources include one
-	// /32 per task with a public IP, but on the Scaleway stack the program
-	// still matched on every start measured, so the phase line reports the hit
-	// rather than leaving a compare that only looks like an optimisation.
+	// Report the hit, so the phase line shows whether the memo saves the commit.
 	if committed, ok := n.installed.Load(tableName); ok && committed == program {
 		mark("egress:unchanged")
 		return nil

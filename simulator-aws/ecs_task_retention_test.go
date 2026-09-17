@@ -77,9 +77,7 @@ func TestSweepRemovesOnlyTheTasksThatAgedOut(t *testing.T) {
 		ClusterArn: ecsArn("cluster", "retention"),
 		LastStatus: ECSTaskStatusRunning,
 	}
-	// Stored under the task ID, as RunTask stores them. This test once keyed
-	// them by ARN, which is what the sweeper deleted by, so it passed while the
-	// sweeper removed nothing from a real simulator.
+	// Store the tasks the way RunTask does, under their ID.
 	for _, task := range []ECSTask{aged, recent, running} {
 		ecsCommitPlacement(task.TaskID(), task)
 	}

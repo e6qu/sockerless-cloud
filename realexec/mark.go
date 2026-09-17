@@ -5,10 +5,8 @@ import "context"
 type markKey struct{}
 
 // WithMark returns a context whose configure calls report each finished step to
-// mark, so a task start's phase line can say where a slow phase spends its time.
-// The hook travels with the call rather than on the per-VPC Network, which
-// every task start in that VPC shares: a field there let two concurrent starts
-// overwrite, and then clear, each other's hook.
+// mark. The hook rides on the context because every task start in a VPC shares
+// one Network, and concurrent starts must each report to their own.
 func WithMark(ctx context.Context, mark func(step string)) context.Context {
 	if mark == nil {
 		return ctx

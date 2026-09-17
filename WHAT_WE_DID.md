@@ -288,6 +288,17 @@ mismatches, at zero. The fake-test gate decides seven shapes of can't-fail test
 from the syntax tree. The dead-code gate judges the framework from the three
 programs that link it, so a framework function no simulator reaches is dead.
 
+A slow phase of an Amazon ECS task start is attributed by measuring it where
+the simulator runs, never by reading the code. The `vpc:egress` and
+`vpc:security-groups` phases cost 3-6 s and 1.6-3 s on the Scaleway stack,
+where the simulator runs inside a Firecracker microVM, and fixes aimed at the
+`nft` commits and timings taken on the host changed nothing. Sub-phase marks
+reported from the guest, and goroutine samples taken through its diagnostics
+listener during a start, put the time in decoding the whole `ecs_tasks` store:
+the stopped-task sweep had never deleted a row (BUG-3006). The marks travel on
+the context (`realexec.WithMark`), because every start in a VPC shares one
+`realexec.Network`.
+
 The race detector runs on every pull request over every module. The first run
 reported 144 races in the AWS module, every one asynchronous simulator work
 that nothing tracked; `simGo` and `simAfterFunc` count goroutines and pending

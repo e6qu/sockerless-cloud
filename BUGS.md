@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 10. Resolved: 106.
+Open: 11. Resolved: 107.
 
 ## Open
 
@@ -52,7 +52,44 @@ Open: 10. Resolved: 106.
 | 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260814, fetched and checked again on 2026-08-23) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
+- **BUG-3007 (three AWS stores are never pruned, so they grow for as long as
+  the simulator runs):** nothing deletes from `iamTempCreds` (`sts.go`),
+  `cloudTrailEvents` (`cloudtrail.go`) or `wafSampledRequests` (`wafv2.go`).
+  On the Scaleway stack on 2026-09-17 the persisted database was 2.37 GB, of
+  which `iam_temp_creds` held 1,207,489 rows (532 MB), `cloudtrail_events`
+  1,487,907 (501 MB) and `wafv2_sampled_requests` 193,891 (442 MB). Each
+  diverges from the service it simulates, which forgets these records: AWS STS
+  credentials stop existing at their `Expiration`, CloudTrail event history
+  covers 90 days, and AWS WAF keeps sampled requests for three hours. Every
+  `List` of these stores decodes all of it, and the rootfs they live on is
+  32 GB. Fix shape: the ECS stopped-task sweep, per store — a background pass
+  that deletes rows past `IAMTempCred.Expiration`, `CloudTrailEvent.EventTime`
+  plus 90 days, and `wafSampledRequest.Timestamp` plus three hours, keyed by
+  the ID each store is written under, with a test that writes rows through the
+  store's production write path. The first pass on an existing database
+  deletes millions of rows, so it has to run in batches rather than one
+  delete per row under the store lock.
+
 ## Resolved history
+
+- ~~**BUG-3006 (the stopped-task sweep deleted by ARN, so it never swept
+  anything):**~~ Amazon ECS task starts on the Scaleway stack spent 3.1-6.0 s
+  in `vpc:egress` and 1.6-3.1 s in `vpc:security-groups`. Phase marks added
+  inside both phases put all of the egress time before the first `nft` step,
+  and goroutine samples taken inside the microVM during a start sat in
+  `json.Unmarshal` under `ecsPublicEgressSourcesForSubnet` and
+  `ec2SGMemberCIDRs`: each start decoded the whole `ecs_tasks` table once per
+  subnet and once per referenced security group. The table held 21,409 rows
+  while `ListTasks` showed 16. `ecsSweepStoppedTasks` deleted
+  `task.TaskArn`, but `RunTask` stores a task under its ID, so every delete
+  missed; its test stored tasks under their ARN and passed. **Fixed**: the
+  sweep deletes `task.TaskID()`, and the retention tests store tasks through
+  `ecsCommitPlacement` under the key `RunTask` uses — against the old sweep
+  they fail with `sweep removed 0 task(s), want 1`. The phase hook moved from
+  a field on the per-VPC `realexec.Network`, which concurrent starts in one VPC
+  overwrote and cleared, onto the context (`realexec.WithMark`), and the
+  security-group phase now reports `sg:rules`, `sg:render` and `sg:commit` or
+  `sg:unchanged`, where before its marks never fired.
 
 - ~~**BUG-3005 (TestSDK_WebVnet_JoinsRealNetwork probed redis before it was
   listening):**~~ The sim (azure sdk B-Z) job on #180 failed with the probe

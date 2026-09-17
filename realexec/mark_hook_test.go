@@ -6,11 +6,8 @@ import (
 	"testing"
 )
 
-// Instrumentation that never fires is worse than none: it reads like evidence
-// and reports nothing. This asserts the hook is reached on entry, before any
-// step that needs a namespace or the ip binary, so it is meaningful on any
-// machine -- an earlier version of this test asserted after EnsureEgress and
-// went red simply because macOS has no ip(8).
+// Assert on the entry mark, which fires before any step that needs a network
+// namespace or ip(8), so the test holds on every host.
 func TestConfigureEgressPolicyMarksOnEntry(t *testing.T) {
 	var steps []string
 	n := &Network{NamespaceName: "mark-hook-probe"}
@@ -26,11 +23,6 @@ func TestConfigureEgressPolicyMarksOnEntry(t *testing.T) {
 	}
 }
 
-// Every task start in a VPC shares one Network. The hook used to be a field on
-// it, set for the duration of one start and cleared afterwards, so a second
-// start in the same VPC replaced the first one's hook and its steps landed on
-// the wrong task's phase line -- or on none, once the first start cleared it.
-// Carried on the context, each call reports only to its own hook.
 func TestConcurrentCallsOnOneNetworkKeepTheirOwnHooks(t *testing.T) {
 	n := &Network{NamespaceName: "mark-hook-shared"}
 	const calls = 8
