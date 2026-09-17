@@ -64,23 +64,11 @@ type iamAuthorizationTarget struct {
 	resource string
 }
 
-// iamAuthorizationTargets lists what a request is authorized for. Almost every
-// operation is its own action on each resource it names; AWS KMS authorizes a
-// ReEncrypt as kms:ReEncryptFrom on the key that protects the ciphertext and
-// kms:ReEncryptTo on the key it moves to.
+// iamAuthorizationTargets lists what a request is authorized for: see
+// iamOperationTargets.
 func iamAuthorizationTargets(r *http.Request, action string) []iamAuthorizationTarget {
-	if action == "kms:ReEncrypt" {
-		source, destination := iamKMSReEncryptKeys(iamRequestBody(r))
-		return []iamAuthorizationTarget{
-			{action: "kms:ReEncryptFrom", resource: iamKMSKeyARNOrAny(source)},
-			{action: "kms:ReEncryptTo", resource: iamKMSKeyARNOrAny(destination)},
-		}
-	}
-	var targets []iamAuthorizationTarget
-	for _, resource := range iamResourceARNsForRequest(r, action) {
-		targets = append(targets, iamAuthorizationTarget{action: action, resource: resource})
-	}
-	return targets
+	service, operation, _ := strings.Cut(action, ":")
+	return iamOperationTargets(r, service, operation, iamResourceARNsForRequest(r, action))
 }
 
 func iamKMSKeyARNOrAny(keyID string) string {

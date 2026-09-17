@@ -118,6 +118,32 @@ EOF
   done
 
   echo "}"
+
+  cat <<'EOF'
+
+// iamOperationActions maps an API operation whose name is not itself an IAM
+// action to the one action AWS authorizes it as, per the Service Reference's
+// operation table: Amazon S3's ListObjectVersions is s3:ListBucketVersions,
+// Amazon SQS's SendMessageBatch is sqs:SendMessage. Operations the reference
+// authorizes as several actions are resolved from the request in
+// iam_operation_actions.go.
+var iamOperationActions = map[string]string{
+EOF
+
+  for f in "$SRC_DIR"/*.servicereference.json.gz; do
+    gzip -dc "$f" | jq -r '
+      .Name as $svc
+      | [.Actions[].Name] as $declared
+      | .Operations[]?
+      | . as $op
+      | select(($declared | index($op.Name)) | not)
+      | [(.AuthorizedActions // [])[] | select(.Service == $svc) | .Name] | unique
+      | select(length == 1)
+      | "\t\"" + $svc + ":" + $op.Name + "\": \"" + .[0] + "\","
+    ' | sort
+  done
+
+  echo "}"
 } >"$tmp"
 
 gofmt "$tmp" >"$DEST"

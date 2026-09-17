@@ -159,7 +159,7 @@ func TestIAM_DynamoDBTransactionsResourceScopedCLI(t *testing.T) {
 	runCLI(t, awsCLI("iam", "put-user-policy", "--user-name", user,
 		"--policy-name", "one-table-txn",
 		"--policy-document", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",`+
-			`"Action":["dynamodb:TransactWriteItems"],`+
+			`"Action":["dynamodb:PutItem"],`+
 			`"Resource":["arn:aws:dynamodb:us-east-1:123456789012:table/cli-txn-scoped",`+
 			`"arn:aws:dynamodb:us-east-1:123456789012:table/cli-txn-scoped/index/*"]}]}`))
 	out := runCLI(t, awsCLI("iam", "create-access-key", "--user-name", user, "--output", "json"))
