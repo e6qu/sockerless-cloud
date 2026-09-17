@@ -70,7 +70,13 @@ const ebsHelperImage = "sockerless-ebs-helper:1"
 // applet of the same name, which takes no long options and cannot list the
 // devices a given backing file is attached to, which is how the detach path
 // finds them.
-const ebsHelperDockerfile = "FROM alpine:latest\nRUN apk add --no-cache e2fsprogs xfsprogs losetup\n"
+// The base image is the pinned ECR Public mirror the rest of this repository
+// builds helpers from (sim/volume_snapshot.go uses the same one), not Docker
+// Hub's alpine:latest: scripts/base-images-for.sh scans for ECR Public names
+// and CI pre-warms what it finds, so a Docker Hub tag is both unpinned and
+// pulled against Docker Hub's rate limit on every cold runner.
+const ebsHelperDockerfile = "FROM public.ecr.aws/docker/library/alpine:3.22\n" +
+	"RUN apk add --no-cache e2fsprogs xfsprogs losetup\n"
 
 // ebsImageFile is the backing file's path inside its holder volume.
 const ebsImageFile = "disk.img"
