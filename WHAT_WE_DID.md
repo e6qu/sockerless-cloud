@@ -159,6 +159,30 @@ resolving once that branch is deleted.
   their request-settled keys per service. A key is populated only where AWS's
   definition fixes its value; where it does not — AWS Glue's Lake Formation
   keys — it stays absent rather than guessed.
+- **Each service's keys are spelled the way that service spells them.** The
+  gate used to write `<service>:ResourceTag/<k>` for every service, which is a
+  spelling Amazon RDS does not have: RDS declares `rds:db-tag/`,
+  `rds:cluster-tag/`, `rds:snapshot-tag/`, `rds:pg-tag/` and seven more, one
+  per resource type, and the tags of a DB instance must not appear under the
+  cluster's key. IAM's own users and roles carry `iam:ResourceTag/<k>`; its
+  policies and instance profiles carry only `aws:ResourceTag/<k>`, because that
+  is what the reference declares for them.
+- **A key that says who called is only set when someone else called.**
+  `kms:ViaService` and `kms:GrantIsForAWSResource` are built from the
+  service-initiation the request carries, so a direct client call has neither
+  and a policy that grants a key's use only through a service refuses the
+  client. Wiring them exposed a dead end: the role check a service ran on the
+  principal's behalf evaluated every action against a nil condition context, so
+  a role policy scoped to one service could never match.
+- **What the gate cannot resolve is named, with the reason.**
+  `TestIAM_DeclaredConditionKeysAreResolvedOrClassified` reads every condition
+  key the vendored Service References declare and fails unless the gate names
+  it or a row classifies it. A row states what the simulator would have to
+  model first — a Nitro enclave's attestation document, an FIS experiment, a
+  registered managed node, AWS Lake Formation — and a key that becomes
+  resolvable makes its own row fail, so the list cannot rot into an excuse. The
+  count that lived in BUGS.md was written by hand and had been read as
+  authoritative; this one is measured on every run.
 
 ## Execution
 
