@@ -20,6 +20,8 @@ func resetCredentialStores() {
 	iamAccessKeys = sim.MakeStore[IAMAccessKey](nil, "iam_access_keys")
 	iamTempCreds = sim.MakeStore[IAMTempCred](nil, "iam_temp_creds")
 	stsTokenKeys = sim.MakeStore[string](nil, "sts_token_keys")
+	s3ExpressSessions = sim.MakeStore[S3ExpressSession](nil, "s3_express_sessions")
+	s3AccessGrantsCredentials = sim.MakeStore[S3AccessGrantsCredential](nil, "s3_access_grants_credentials")
 }
 
 // TestSigV4_KnownVector validates the signing math against the AWS SigV4

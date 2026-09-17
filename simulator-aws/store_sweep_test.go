@@ -86,11 +86,27 @@ func TestTempCredSweepKeepsLiveCredentials(t *testing.T) {
 	now := time.Now()
 	iamTempCreds.Put("ASIAEXPIRED", IAMTempCred{AccessKeyID: "ASIAEXPIRED", Expiration: now.Add(-time.Second).UTC().Format(time.RFC3339)})
 	iamTempCreds.Put("ASIALIVE", IAMTempCred{AccessKeyID: "ASIALIVE", Expiration: now.Add(time.Minute).UTC().Format(time.RFC3339)})
+	for _, akid := range []string{"ASIAEXPIRED", "ASIALIVE"} {
+		s3ExpressSessions.Put(akid, S3ExpressSession{AccessKeyID: akid})
+		s3AccessGrantsCredentials.Put(akid, S3AccessGrantsCredential{AccessKeyID: akid})
+	}
 	if swept := stsSweepExpiredTempCreds(now); swept != 1 {
 		t.Fatalf("sweep deleted %d credentials, want 1", swept)
 	}
 	if _, ok := iamTempCreds.Get("ASIALIVE"); !ok {
 		t.Error("the live credential was deleted")
+	}
+	if _, ok := s3ExpressSessions.Get("ASIAEXPIRED"); ok {
+		t.Error("the S3 Express session of a deleted credential survived")
+	}
+	if _, ok := s3AccessGrantsCredentials.Get("ASIAEXPIRED"); ok {
+		t.Error("the S3 Access Grants record of a deleted credential survived")
+	}
+	if _, ok := s3ExpressSessions.Get("ASIALIVE"); !ok {
+		t.Error("the S3 Express session of a live credential was deleted")
+	}
+	if _, ok := s3AccessGrantsCredentials.Get("ASIALIVE"); !ok {
+		t.Error("the S3 Access Grants record of a live credential was deleted")
 	}
 }
 

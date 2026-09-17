@@ -196,11 +196,24 @@ func startTempCredSweeper(srv *sim.Server) {
 	startStoreSweeper(srv, stsSweepExpiredTempCreds)
 }
 
+// stsSweepExpiredTempCreds deletes expired temporary credentials and the
+// records that describe a credential no longer held.
 func stsSweepExpiredTempCreds(now time.Time) int {
-	return iamTempCreds.Prune(func(tc IAMTempCred) bool {
+	swept := iamTempCreds.Prune(func(tc IAMTempCred) bool {
 		exp, err := time.Parse(time.RFC3339, tc.Expiration)
 		return err == nil && now.After(exp)
 	})
+	credentialGone := func(accessKeyID string) bool {
+		_, ok := iamTempCreds.Get(accessKeyID)
+		return !ok
+	}
+	s3ExpressSessions.Prune(func(session S3ExpressSession) bool {
+		return credentialGone(session.AccessKeyID)
+	})
+	s3AccessGrantsCredentials.Prune(func(issued S3AccessGrantsCredential) bool {
+		return credentialGone(issued.AccessKeyID)
+	})
+	return swept
 }
 
 func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
