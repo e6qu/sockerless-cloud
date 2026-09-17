@@ -43,8 +43,10 @@ Current state of the sockerless-cloud repository.
   classified key the gate later resolves fails its own row. What that does not
   yet prove is per-action: that a key some code names is built for every action
   declaring it (BUG-2965). The Amazon S3 control plane is authorized route by
-  route; the seven routes whose actions belong to namespaces no vendored
-  reference covers are listed and tested as ungated (BUG-3016).
+  route, each in the namespace AWS publishes its action under — s3, s3express,
+  s3-outposts or s3-object-lambda. One route is tested as ungated and says why:
+  no vendored document declares an action for the control plane's
+  DeleteBucketLifecycleConfiguration.
 - **Google Cloud**: 5,486 of 5,486 Discovery method spellings across 30
   documents reach a route that names them; the gRPC surfaces serve 210 of 213
   methods, the three unserved each needing state the simulator does not hold.

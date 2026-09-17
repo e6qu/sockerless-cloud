@@ -193,6 +193,13 @@ resolving once that branch is deleted.
   allows exactly that. `s3:JobSuspendedCause` is the exception and says why: the
   service writes it, the model enumerates nothing, and no vendored document
   names a value.
+- **An S3 operation is authorized in the namespace AWS publishes it under.**
+  A directory bucket's access-point scope is an s3express action against an
+  s3express ARN, the Outposts bucket listing an s3-outposts one; a route says
+  which namespace authorizes it, and each is crossed against that namespace's
+  own reference. The request-shape keys follow the same rule — a request
+  settles `s3express:TlsVersion`, not `s3:TlsVersion`, when that is what it is
+  authorized as.
 - **What the gate cannot resolve is named, with the reason.**
   `TestIAM_DeclaredConditionKeysAreResolvedOrClassified` reads every condition
   key the vendored Service References declare and fails unless the gate names
