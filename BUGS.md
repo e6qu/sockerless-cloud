@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 8. Resolved: 125.
+Open: 8. Resolved: 127.
 
 ## Open
 
@@ -28,6 +28,32 @@ Open: 8. Resolved: 125.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3025 (engine calls ran under the task store's write lock):**~~
+  `ecsCleanupTaskManagedEBS` was called from inside `ecsTasks.Update`
+  callbacks at six sites, and `MemoryStore.Update` holds the write mutex for
+  the whole callback — so two blocking `VolumeRemove` calls blocked every other
+  task transition and every DescribeTasks, and the loop-device work would have
+  added a container start to that. **Fixed**: the callback returns the volume
+  names and each caller removes them after `Update` returns. The state mutation
+  still happens under the lock; only the engine work moved out.
+
+- ~~**BUG-3024 (a managed EBS volume mounted on Podman and on no Docker at
+  all):**~~ The volume asked the engine for a loop mount with
+  `DriverOpts{"o": "loop"}`. Podman shells out to `mount(8)`, which implements
+  `-o loop` in userspace; moby passes `o` to `mount(2)` as filesystem data,
+  where `loop` is not a flag in its table and never has been — checked at
+  v20.10, v23, v24, v25, v27, v28 and master, so no Docker would have accepted
+  it. Four tests were red in CI for hours while every local run was green,
+  because this machine's engine is Podman. **Fixed**: a privileged helper
+  attaches the loop device itself (`losetup --find --show`) and the volume is
+  created against the real `/dev/loopN` with no `loop` option, which both
+  engines mount the same way. A loop device is kernel-global, so the daemon
+  mounts what the helper attached; removal detaches by association with the
+  backing file's device and inode, so a device is never leaked or orphaned by a
+  retried create. The SELinux `context=` option stays: it is genuine mount
+  data, and a volume created without it is mounted read-only in practice —
+  proved by hand on this engine.
 
 - ~~**BUG-3023 (an Amazon S3 batch job's own conditions never matched):**~~
   Six keys the reference declares were never built, so a policy that allows

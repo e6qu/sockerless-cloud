@@ -181,6 +181,12 @@ resolving once that branch is deleted.
   client. Wiring them exposed a dead end: the role check a service ran on the
   principal's behalf evaluated every action against a nil condition context, so
   a role policy scoped to one service could never match.
+- **The engine is asked for nothing it has to interpret.** A managed EBS volume
+  is a real filesystem on a real loop device: the simulator attaches the device
+  and hands the daemon `/dev/loopN`, rather than passing an `o=loop` option that
+  Podman implements in `mount(8)` and moby has never had in its flag table. The
+  divergence cost a day of green local runs against red CI, and the rule it
+  leaves is that a mechanism must not depend on which engine parses it.
 - **A policy can bound a batch job and a grant.** The Amazon S3 batch-job and
   access-grant keys are read from the request and from the stored job, grant or
   location, so a statement that allows one job operation at a bounded priority
