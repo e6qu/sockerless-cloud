@@ -2,6 +2,7 @@ package realexec
 
 import (
 	"context"
+	"sync"
 	"testing"
 )
 
@@ -13,30 +14,51 @@ import (
 func TestConfigureEgressPolicyMarksOnEntry(t *testing.T) {
 	var steps []string
 	n := &Network{NamespaceName: "mark-hook-probe"}
-	n.Mark = func(step string) { steps = append(steps, step) }
+	ctx := WithMark(context.Background(), func(step string) { steps = append(steps, step) })
 
-	_ = n.ConfigureEgressPolicy(context.Background(), []string{"10.0.0.0/16"}, "markhookprobe")
+	_ = n.ConfigureEgressPolicy(ctx, []string{"10.0.0.0/16"}, "markhookprobe")
 
 	if len(steps) == 0 {
-		t.Fatal("Mark was never called: the hook does not reach ConfigureEgressPolicy")
+		t.Fatal("the hook was never called: WithMark does not reach ConfigureEgressPolicy")
 	}
 	if steps[0] != "egress:begin" {
 		t.Errorf("first step = %q, want %q", steps[0], "egress:begin")
 	}
 }
 
-func TestConfigureEgressPolicyWithoutAMarkHookRecordsNothing(t *testing.T) {
-	var steps []string
-	n := &Network{NamespaceName: "mark-hook-absent"}
-	// No hook set: the nil guard substitutes a no-op, so nothing is recorded
-	// and the call still reaches its first real step rather than returning
-	// early. Asserting the absence is the point -- a test that only declines
-	// to panic asserts nothing at all.
-	err := n.ConfigureEgressPolicy(context.Background(), nil, "markhookabsent")
-	if len(steps) != 0 {
-		t.Errorf("steps recorded with no hook set: %v", steps)
+// Every task start in a VPC shares one Network. The hook used to be a field on
+// it, set for the duration of one start and cleared afterwards, so a second
+// start in the same VPC replaced the first one's hook and its steps landed on
+// the wrong task's phase line -- or on none, once the first start cleared it.
+// Carried on the context, each call reports only to its own hook.
+func TestConcurrentCallsOnOneNetworkKeepTheirOwnHooks(t *testing.T) {
+	n := &Network{NamespaceName: "mark-hook-shared"}
+	const calls = 8
+	got := make([][]string, calls)
+	var wg sync.WaitGroup
+	for i := 0; i < calls; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			ctx := WithMark(context.Background(), func(step string) { got[i] = append(got[i], step) })
+			_ = n.ConfigureEgressPolicy(ctx, nil, "markhookshared")
+		}(i)
 	}
-	if err == nil {
-		t.Skip("ConfigureEgressPolicy succeeded; this machine has a usable ip(8) and namespace")
+	wg.Wait()
+	for i, steps := range got {
+		if len(steps) == 0 || steps[0] != "egress:begin" {
+			t.Errorf("call %d recorded %v, want its own egress:begin first", i, steps)
+		}
+	}
+}
+
+func TestMarkFromWithoutAHookIsANoOp(t *testing.T) {
+	mark := MarkFrom(context.Background())
+	if mark == nil {
+		t.Fatal("MarkFrom returned nil; callers would have to guard every mark")
+	}
+	mark("anything")
+	if got := WithMark(context.Background(), nil); got != context.Background() {
+		t.Error("WithMark(nil) wrapped the context; a nil hook should leave it unchanged")
 	}
 }

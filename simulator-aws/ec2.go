@@ -1311,7 +1311,7 @@ func handleAttachInternetGateway(w http.ResponseWriter, r *http.Request) {
 	ec2InternetGateways.Update(igwId, func(igw *EC2InternetGateway) {
 		igw.Attachments = append(igw.Attachments, EC2IGWAttachment{VpcId: vpcId, State: "available"})
 	})
-	if err := ec2ApplyRealVPCEgressPolicy(r.Context(), vpcId, nil); err != nil {
+	if err := ec2ApplyRealVPCEgressPolicy(r.Context(), vpcId); err != nil {
 		fmt.Fprintf(os.Stderr, "sim: real VPC egress policy for %s unavailable after IGW attach: %v\n", vpcId, err)
 	}
 
@@ -1334,7 +1334,7 @@ func handleDetachInternetGateway(w http.ResponseWriter, r *http.Request) {
 		}
 		igw.Attachments = filtered
 	})
-	if err := ec2ApplyRealVPCEgressPolicy(r.Context(), vpcId, nil); err != nil {
+	if err := ec2ApplyRealVPCEgressPolicy(r.Context(), vpcId); err != nil {
 		fmt.Fprintf(os.Stderr, "sim: real VPC egress policy for %s unavailable after IGW detach: %v\n", vpcId, err)
 	}
 

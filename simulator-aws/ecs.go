@@ -3015,13 +3015,19 @@ func ecsTaskExpired(t ECSTask, now time.Time) bool {
 // ecsSweepStoppedTasks deletes the tasks that have aged out, so the retention
 // is a real bound on what the simulator holds rather than only a filter on what
 // it reports.
+//
+// Tasks are stored under their ID, not their ARN. This deleted by ARN, so every
+// delete missed and nothing was ever swept: the Scaleway stack held 21,409 task
+// rows behind a ListTasks that showed 16, and every task start decoded all of
+// them several times over -- 3-6 s of vpc:egress and 1.6-3 s of
+// vpc:security-groups, all of it JSON.
 func ecsSweepStoppedTasks(now time.Time) int {
 	swept := 0
 	for _, task := range ecsTasks.List() {
 		if !ecsTaskExpired(task, now) {
 			continue
 		}
-		if ecsTasks.Delete(task.TaskArn) {
+		if ecsTasks.Delete(task.TaskID()) {
 			swept++
 		}
 	}

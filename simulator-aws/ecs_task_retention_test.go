@@ -77,25 +77,28 @@ func TestSweepRemovesOnlyTheTasksThatAgedOut(t *testing.T) {
 		ClusterArn: ecsArn("cluster", "retention"),
 		LastStatus: ECSTaskStatusRunning,
 	}
+	// Stored under the task ID, as RunTask stores them. This test once keyed
+	// them by ARN, which is what the sweeper deleted by, so it passed while the
+	// sweeper removed nothing from a real simulator.
 	for _, task := range []ECSTask{aged, recent, running} {
-		ecsTasks.Put(task.TaskArn, task)
+		ecsCommitPlacement(task.TaskID(), task)
 	}
 	t.Cleanup(func() {
 		for _, task := range []ECSTask{aged, recent, running} {
-			ecsTasks.Delete(task.TaskArn)
+			ecsTasks.Delete(task.TaskID())
 		}
 	})
 
 	if swept := ecsSweepStoppedTasks(now); swept != 1 {
 		t.Errorf("sweep removed %d task(s), want 1", swept)
 	}
-	if _, found := ecsTasks.Get(aged.TaskArn); found {
+	if _, found := ecsTasks.Get(aged.TaskID()); found {
 		t.Error("the aged-out task is still held")
 	}
-	if _, found := ecsTasks.Get(recent.TaskArn); !found {
+	if _, found := ecsTasks.Get(recent.TaskID()); !found {
 		t.Error("a task stopped five minutes ago was removed")
 	}
-	if _, found := ecsTasks.Get(running.TaskArn); !found {
+	if _, found := ecsTasks.Get(running.TaskID()); !found {
 		t.Error("a running task was removed")
 	}
 }
@@ -120,11 +123,11 @@ func TestListTasksOmitsTasksThatAgedOut(t *testing.T) {
 		LastStatus: ECSTaskStatusStopped, DesiredStatus: ECSTaskStatusStopped,
 		StoppedAt: ecsStoppedAt(now.Add(-2 * time.Minute)),
 	}
-	ecsTasks.Put(aged.TaskArn, aged)
-	ecsTasks.Put(recent.TaskArn, recent)
+	ecsCommitPlacement(aged.TaskID(), aged)
+	ecsCommitPlacement(recent.TaskID(), recent)
 	t.Cleanup(func() {
-		ecsTasks.Delete(aged.TaskArn)
-		ecsTasks.Delete(recent.TaskArn)
+		ecsTasks.Delete(aged.TaskID())
+		ecsTasks.Delete(recent.TaskID())
 		ecsClusters.Delete(cluster)
 	})
 
