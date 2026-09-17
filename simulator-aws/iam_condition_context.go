@@ -105,7 +105,7 @@ func iamPopulateResourceConditionKeys(r *http.Request, action string, ctx map[st
 		// resource into aws:ResourceTag/<k> + <service>:ResourceTag/<k>.
 		iamPopulateServiceResourceTags(r, service, ctx)
 	}
-	iamPopulateRequestTags(r, ctx)
+	iamPopulateRequestTags(r, service, ctx)
 }
 
 // iamPopulateEC2ResourceTags resolves the tags of the EC2 resource the request
@@ -182,16 +182,30 @@ func iamPopulateECSCluster(r *http.Request, ctx map[string][]string) {
 }
 
 // iamPopulateRequestTags exposes aws:RequestTag/<k> + aws:TagKeys from the tags
-// supplied on a tag-on-create / CreateTags request (Tag.N.Key/Value form).
-func iamPopulateRequestTags(r *http.Request, ctx map[string][]string) {
-	tags := parseIndexedTags(r, "Tag")
+// supplied on a tag-on-create / tagging request, read in the wire shape the
+// addressed service actually sends — see iamRequestTagShapes, which records one
+// row per service and cites the vendored Smithy model it came from. A request
+// carrying no tags in a shape this simulator can read leaves both keys unset,
+// the way AWS leaves out a condition key that does not apply.
+func iamPopulateRequestTags(r *http.Request, service string, ctx map[string][]string) {
+	tags := iamRequestTags(r, service)
 	if len(tags) == 0 {
 		return
 	}
 	var keys []string
+	seen := map[string]bool{}
 	for _, t := range tags {
+		if t.Key == "" {
+			continue
+		}
 		ctx["aws:RequestTag/"+t.Key] = []string{t.Value}
-		keys = append(keys, t.Key)
+		if !seen[t.Key] {
+			seen[t.Key] = true
+			keys = append(keys, t.Key)
+		}
+	}
+	if len(keys) == 0 {
+		return
 	}
 	ctx["aws:TagKeys"] = keys
 }
