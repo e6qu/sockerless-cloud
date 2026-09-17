@@ -117,6 +117,40 @@ var iamUnmodelledConditionKeys = []iamUnmodelledConditionKey{
 		"s3.smithy, the supplement or the service reference). The simulator's job record has no cause field, so any " +
 		"string here would be invented. The other six batch-job and access-grant keys are populated."},
 
+	{"s3-outposts:delimiter", "Declared on the Outposts bucket listings, which the simulator does not serve: its one " +
+		"s3-outposts operation is ListRegionalBuckets, whose declared keys are the request-shape ones and which takes " +
+		"no delimiter."},
+	{"s3-outposts:max-keys", "Declared on the same unserved Outposts bucket listings."},
+	{"s3-outposts:prefix", "Declared on the same unserved Outposts bucket listings."},
+	{"s3-outposts:versionid", "The object version an Outposts request names, on object operations the simulator does " +
+		"not serve."},
+	{"s3-outposts:x-amz-acl", "A header an Outposts object write carries, on operations the simulator does not serve; " +
+		"the general-purpose data plane reads it under the s3 spelling."},
+	{"s3-outposts:x-amz-copy-source", "The same, for the copy source of an unserved Outposts object copy."},
+	{"s3-outposts:x-amz-metadata-directive", "The same, for an unserved Outposts object copy's metadata directive."},
+	{"s3-outposts:x-amz-server-side-encryption", "The same, for an unserved Outposts object write's encryption."},
+	{"s3-outposts:x-amz-storage-class", "The same, for an unserved Outposts object write's storage class."},
+	{"s3-object-lambda:versionid", "The object version a request through an Object Lambda access point names, on the " +
+		"object operations that access point forwards. The simulator serves the transformation callback and the " +
+		"access point's own control-plane surface; a versioned read through one is not an operation it answers."},
+
+	{"s3-outposts:DataAccessPoint*", "Declared on the Amazon S3 on Outposts access-point and object operations. The " +
+		"simulator serves exactly one s3-outposts operation, ListRegionalBuckets, and models no Outpost -- no outpost " +
+		"id, no Outposts bucket, no Outposts access point -- so no request it answers is addressed through one. The " +
+		"request-shape keys ListRegionalBuckets does declare are populated."},
+	{"s3-outposts:AccessPointNetworkOrigin", "The network origin of an Outposts access point, which the simulator " +
+		"models nothing of; see the DataAccessPoint row."},
+	{"s3-outposts:ExistingObjectTag/*", "The tags already on an Outposts object. The simulator serves no Outposts " +
+		"object operation, so there is no such object to read tags from."},
+	{"s3-outposts:RequestObjectTag*", "The tags an Outposts object write carries, on operations the simulator does " +
+		"not serve."},
+	{"s3express:AllAccessRestrictedToLocalZoneGroup", "Declared on s3express:CreateSession, the directory-bucket " +
+		"session operation the simulator does not serve; it also describes a local zone group, which the simulator " +
+		"models nothing of."},
+	{"s3express:InventoryAccessibleOptionalFields", "Declared on s3express:PutInventoryConfiguration. The simulator " +
+		"serves inventory configuration on the general-purpose data plane, where it populates the s3 spelling of this " +
+		"key; it serves no directory-bucket inventory operation."},
+
 	{"s3:isReplicationPauseRequest", "True when a PutReplicationConfiguration request is the one that pauses " +
 		"replication. The vendored Amazon S3 model has no pause: its ReplicationConfiguration is Role and Rules, and a " +
 		"ReplicationRule is ID, Priority, Prefix, Filter, Status, SourceSelectionCriteria, ExistingObjectReplication, " +
@@ -214,15 +248,35 @@ func iamDeclaredConditionKeys(t *testing.T) map[string][]string {
 }
 
 // iamConditionKeySpellings is every string literal that would make a key
-// reachable. AWS writes a templated key with a placeholder the code never
-// contains — aws:ResourceTag/${TagKey}, kms:EncryptionContext:${key},
+// reachable, for a key whose service the source is known to serve. AWS writes
+// a templated key with a placeholder the code never contains —
+// aws:ResourceTag/${TagKey}, kms:EncryptionContext:${key},
 // secretsmanager:ResourceTag/tag-key — so the code is credited for the literal
-// prefix it concatenates the tag onto. The service prefix is optional because
-// a per-service populator registered for "kms" writes its keys unprefixed.
-func iamConditionKeySpellings(key string) []string {
+// prefix it concatenates the tag onto.
+//
+// Two forms drop the service prefix, and both are deliberately narrow, because
+// a bare name matches any string literal in the package and would credit one
+// service for another's key:
+//
+//   - the bare name, only when the source registers a populator for that
+//     service or writes its prefix as a literal ("codebuild:"+key), since both
+//     name their own keys bare;
+//   - the separator-led ":Name", only when the source composes that key's
+//     prefix — ctx[service+":TlsVersion"], written once for every Amazon S3
+//     namespace — so no literal carries the prefix at all.
+func iamConditionKeySpellings(key, source string, composed, registered map[string]bool) []string {
 	forms := map[string]bool{key: true}
 	if service, rest, ok := strings.Cut(key, ":"); ok && service != "" && rest != "" {
-		forms[rest] = true
+		// A service whose prefix the source writes as a literal -- AWS
+		// CodeBuild's ctx["codebuild:"+key] over its declared key list -- names
+		// its keys bare, and so does one with a registered populator.
+		lowered := strings.ToLower(service)
+		if registered[lowered] || strings.Contains(source, `"`+lowered+`:"`) {
+			forms[rest] = true
+		}
+		if composed[lowered] {
+			forms[":"+rest] = true
+		}
 	}
 	for form := range forms {
 		// A templated segment starts at the last separator before the
@@ -242,6 +296,52 @@ func iamConditionKeySpellings(key string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// iamPopulatorServices are the services a per-service condition-key populator
+// is registered for, read from the source's own registration calls. Only those
+// write their keys unprefixed.
+func iamPopulatorServices(source string) map[string]bool {
+	services := map[string]bool{}
+	// iamPackageSource lowers the source once so the key scan is
+	// case-insensitive, so these patterns are lowered to match it.
+	const call = `registeriamrequestconditionpopulator("`
+	for rest := source; ; {
+		i := strings.Index(rest, call)
+		if i < 0 {
+			break
+		}
+		rest = rest[i+len(call):]
+		if j := strings.Index(rest, `"`); j > 0 {
+			services[strings.ToLower(rest[:j])] = true
+		}
+	}
+	return services
+}
+
+// iamComposedKeyServices are the services whose condition-key prefix the
+// source composes rather than spells: the Amazon S3 namespaces, read from the
+// map that lists them.
+func iamComposedKeyServices(source string) map[string]bool {
+	services := map[string]bool{}
+	start := strings.Index(source, "var iams3conditionnamespaces = map[string]bool{")
+	if start < 0 {
+		return services
+	}
+	block := source[start:]
+	if end := strings.Index(block, "}"); end > 0 {
+		block = block[:end]
+	}
+	for _, line := range strings.Split(block, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, `"`) {
+			continue
+		}
+		if name, _, ok := strings.Cut(strings.TrimPrefix(line, `"`), `"`); ok && name != "" {
+			services[strings.ToLower(name)] = true
+		}
+	}
+	return services
 }
 
 // iamPackageSource is every non-test Go file of the simulator package, lowered
@@ -319,6 +419,10 @@ func TestIAM_DeclaredConditionKeysAreResolvedOrClassified(t *testing.T) {
 	source := iamPackageSource(t)
 
 	dispatched := iamServiceResourceTagServices(t)
+	registered, composed := iamPopulatorServices(source), iamComposedKeyServices(source)
+	if len(registered) == 0 || len(composed) == 0 {
+		t.Fatal("read no populator registrations or composed namespaces out of the package source")
+	}
 	mentioned := func(key string) bool {
 		// <service>:ResourceTag/<k> is written as service+":ResourceTag/"+k,
 		// so no literal names the service. It is resolved exactly for the
@@ -328,7 +432,7 @@ func TestIAM_DeclaredConditionKeysAreResolvedOrClassified(t *testing.T) {
 				return true
 			}
 		}
-		for _, form := range iamConditionKeySpellings(key) {
+		for _, form := range iamConditionKeySpellings(key, source, composed, registered) {
 			if strings.Contains(source, `"`+strings.ToLower(form)) {
 				return true
 			}

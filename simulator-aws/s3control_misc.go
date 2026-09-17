@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -20,20 +21,47 @@ type s3AccessPointScope struct {
 	Permissions []string `xml:"Permissions>Permission,omitempty" json:"permissions,omitempty"`
 }
 
-// These six routes are the S3 control plane's ungated ones. Their operations
-// belong to service namespaces AWS publishes apart from s3 — an access
-// point's scope and the directory-bucket listing to s3express, the Outposts
-// bucket surface to s3-outposts — and none of those references is vendored
-// here, so which action and resource each authorizes against is not something
-// this repository can answer. BUGS.md holds what vendoring them would close.
+// These routes' operations belong to namespaces AWS publishes apart from s3 —
+// an access point's scope and the directory-bucket listing to s3express, the
+// Outposts bucket surface to s3-outposts — so each names the namespace that
+// declares its action, and is authorized against that namespace's own ARN
+// format. A scope is the access point's, which s3express declares its actions
+// against; the two listings declare no resource type at all, so they authorize
+// "*", which is what the reference says rather than a default chosen here.
+//
+// DeleteBucketLifecycleConfiguration stays ungated: no vendored document
+// declares an action for it. The s3 reference lists the operation with an
+// empty authorized-action set, and the s3-outposts reference declares only
+// GetLifecycleConfiguration and PutLifecycleConfiguration, whose resource type
+// is an Outposts bucket — an ARN carrying an OutpostId, which this simulator
+// models nothing of. Gating it as the s3 bucket lifecycle action would refuse
+// exactly the grant real AWS honours for it.
 func registerS3ControlMisc(srv *sim.Server) {
-	srv.HandleFunc("PUT /v20180820/accesspoint/{name}/scope", handleS3PutAccessPointScope)
-	srv.HandleFunc("GET /v20180820/accesspoint/{name}/scope", handleS3GetAccessPointScope)
-	srv.HandleFunc("DELETE /v20180820/accesspoint/{name}/scope", handleS3DeleteAccessPointScope)
-
-	srv.HandleFunc("GET /v20180820/bucket", handleS3ListRegionalBuckets)
+	s3ControlRegister(srv, s3ControlMiscRoutes)
 	srv.HandleFunc("DELETE /v20180820/bucket/{bucket}/lifecycleconfiguration", handleS3DeleteBucketLifecycleConfiguration)
-	srv.HandleFunc("GET /v20180820/accesspointfordirectory", handleS3ListAccessPointsForDirectoryBuckets)
+}
+
+// s3ControlMiscRoutes carries what each of these routes is authorized as.
+var s3ControlMiscRoutes = []s3ControlRoute{
+	{"PUT /v20180820/accesspoint/{name}/scope", "s3express:PutAccessPointScope", s3ExpressAccessPointResource, handleS3PutAccessPointScope},
+	{"GET /v20180820/accesspoint/{name}/scope", "s3express:GetAccessPointScope", s3ExpressAccessPointResource, handleS3GetAccessPointScope},
+	{"DELETE /v20180820/accesspoint/{name}/scope", "s3express:DeleteAccessPointScope", s3ExpressAccessPointResource, handleS3DeleteAccessPointScope},
+	{"GET /v20180820/accesspointfordirectory", "s3express:ListAccessPointsForDirectoryBuckets", nil, handleS3ListAccessPointsForDirectoryBuckets},
+	{"GET /v20180820/bucket", "s3-outposts:ListRegionalBuckets", nil, handleS3ListRegionalBuckets},
+}
+
+// s3ExpressAccessPointResource is the access point a scope request is about,
+// in the ARN format s3express declares for its accesspoint resource type:
+// arn:${Partition}:s3express:${Region}:${Account}:accesspoint/${AccessPointName}.
+// It is not the s3 access-point ARN, which is what keeps a policy over a
+// directory bucket's access points apart from one over the general-purpose
+// ones.
+func s3ExpressAccessPointResource(r *http.Request) string {
+	name := sim.PathParam(r, "name")
+	if name == "" {
+		return ""
+	}
+	return fmt.Sprintf("arn:aws:s3express:%s:%s:accesspoint/%s", awsRegion(), s3ControlAccountID(r), name)
 }
 
 func handleS3PutAccessPointScope(w http.ResponseWriter, r *http.Request) {

@@ -19,6 +19,7 @@ const (
 	s3ControlTestAccount    = "123456789012"
 	s3ControlTestRegion     = "us-east-1"
 	s3ControlAccessPoint    = "arn:aws:s3:us-east-1:123456789012:accesspoint/points"
+	s3ExpressAccessPoint    = "arn:aws:s3express:us-east-1:123456789012:accesspoint/points"
 	s3ControlObjectLambda   = "arn:aws:s3-object-lambda:us-east-1:123456789012:accesspoint/olap"
 	s3ControlInstance       = "arn:aws:s3:us-east-1:123456789012:access-grants/default"
 	s3ControlLocation       = "arn:aws:s3:us-east-1:123456789012:access-grants/default/location/loc-1"
@@ -215,6 +216,21 @@ var s3ControlDerivationCases = []s3ControlDerivationCase{
 		want: []string{"s3:DeleteStorageLensGroup " + s3ControlLensGroup}},
 	{pattern: "GET /v20180820/storagelensgroup", want: []string{"s3:ListStorageLensGroups *"}},
 
+	// The routes AWS authorizes out of another namespace: a directory
+	// bucket's access-point scope and listing are s3express actions, and the
+	// Outposts bucket listing is an s3-outposts one. A scope names the access
+	// point in s3express's own ARN format; neither listing declares a resource
+	// type, so both authorize "*".
+	{pattern: "PUT /v20180820/accesspoint/{name}/scope", params: map[string]string{"name": "points"},
+		want: []string{"s3express:PutAccessPointScope " + s3ExpressAccessPoint}},
+	{pattern: "GET /v20180820/accesspoint/{name}/scope", params: map[string]string{"name": "points"},
+		want: []string{"s3express:GetAccessPointScope " + s3ExpressAccessPoint}},
+	{pattern: "DELETE /v20180820/accesspoint/{name}/scope", params: map[string]string{"name": "points"},
+		want: []string{"s3express:DeleteAccessPointScope " + s3ExpressAccessPoint}},
+	{pattern: "GET /v20180820/accesspointfordirectory",
+		want: []string{"s3express:ListAccessPointsForDirectoryBuckets *"}},
+	{pattern: "GET /v20180820/bucket", want: []string{"s3-outposts:ListRegionalBuckets *"}},
+
 	// The shared tagging trio, authorized against the ARN it names.
 	{pattern: "POST /v20180820/tags/{resourceArn...}", params: map[string]string{"resourceArn": s3ControlTaggedBucket},
 		want: []string{"s3:TagResource " + s3ControlTaggedBucket}},
@@ -265,9 +281,9 @@ func TestS3ControlRoutesDeriveTheirActionAndResource(t *testing.T) {
 // s3ServiceReference is the vendored Amazon S3 Service Reference, the
 // authority on which action an operation is authorized as and which resource
 // types that action supports.
-func s3ServiceReference(t *testing.T) (actions map[string][]string, operations map[string][]string) {
+func s3ServiceReference(t *testing.T, service string) (actions map[string][]string, operations map[string][]string) {
 	t.Helper()
-	f, err := os.Open("../specs/cloud-api/aws/service-reference/s3.servicereference.json.gz")
+	f, err := os.Open("../specs/cloud-api/aws/service-reference/" + service + ".servicereference.json.gz")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +316,7 @@ func s3ServiceReference(t *testing.T) (actions map[string][]string, operations m
 	operations = map[string][]string{}
 	for _, op := range ref.Operations {
 		for _, action := range op.AuthorizedActions {
-			if action.Service == "s3" {
+			if action.Service == service {
 				operations[op.Name] = append(operations[op.Name], action.Name)
 			}
 		}
@@ -312,11 +328,23 @@ func s3ServiceReference(t *testing.T) (actions map[string][]string, operations m
 // type for its action, and "*" when AWS declares none. Refreshing the vendored
 // reference moves either answer, and this is what says so.
 func TestS3ControlRoutesAuthorizeWhatTheReferenceDeclares(t *testing.T) {
-	actions, operations := s3ServiceReference(t)
+	// A route is crossed against the reference of the namespace it names, so
+	// an s3express action is looked for where AWS publishes it rather than
+	// among the s3 ones.
+	references := map[string][2]map[string][]string{}
+	reference := func(service string) (map[string][]string, map[string][]string) {
+		if cached, ok := references[service]; ok {
+			return cached[0], cached[1]
+		}
+		actions, operations := s3ServiceReference(t, service)
+		references[service] = [2]map[string][]string{actions, operations}
+		return actions, operations
+	}
 	for _, route := range s3ControlGatedRoutes() {
-		action := route.operation
+		service, action := s3ControlRouteService(route.operation)
+		actions, operations := reference(service)
 		if _, isAction := actions[action]; !isAction {
-			mapped := operations[route.operation]
+			mapped := operations[action]
 			if len(mapped) != 1 {
 				t.Errorf("%s: the reference authorizes %s as %v, which names no single action",
 					route.pattern, route.operation, mapped)
@@ -326,31 +354,30 @@ func TestS3ControlRoutesAuthorizeWhatTheReferenceDeclares(t *testing.T) {
 		}
 		types, declared := actions[action]
 		if !declared {
-			t.Errorf("%s: the reference declares no s3:%s action", route.pattern, action)
+			t.Errorf("%s: the reference declares no %s:%s action", route.pattern, service, action)
 			continue
 		}
 		switch {
 		case len(types) == 0 && route.resource != nil:
-			t.Errorf("%s authorizes a resource, but the reference declares none for s3:%s",
-				route.pattern, action)
+			t.Errorf("%s authorizes a resource, but the reference declares none for %s:%s",
+				route.pattern, service, action)
 		case len(types) > 0 && route.resource == nil:
-			t.Errorf("%s authorizes \"*\", but the reference declares %v for s3:%s",
-				route.pattern, types, action)
+			t.Errorf("%s authorizes \"*\", but the reference declares %v for %s:%s",
+				route.pattern, types, service, action)
 		}
 	}
 }
 
 // s3ControlUngatedRoutes are the control-plane routes that carry no gate, and
-// why each one cannot. Each names an operation whose IAM action lives in a
-// service namespace this repository vendors no Service Reference for, so
-// neither the action nor the resource is derivable here.
+// why each one cannot. A route earns a place here only when no vendored
+// document declares the action its operation is authorized as, or declares a
+// resource this simulator cannot name -- not merely because the action lives
+// outside the s3 namespace, which a route now states for itself.
 var s3ControlUngatedRoutes = map[string]string{
-	"PUT /v20180820/accesspoint/{name}/scope":                  "PutAccessPointScope is an s3express action",
-	"GET /v20180820/accesspoint/{name}/scope":                  "GetAccessPointScope is an s3express action",
-	"DELETE /v20180820/accesspoint/{name}/scope":               "DeleteAccessPointScope is an s3express action",
-	"GET /v20180820/accesspointfordirectory":                   "ListAccessPointsForDirectoryBuckets is an s3express action",
-	"GET /v20180820/bucket":                                    "ListRegionalBuckets is an s3-outposts action",
-	"DELETE /v20180820/bucket/{bucket}/lifecycleconfiguration": "the control plane's DeleteBucketLifecycleConfiguration is an s3-outposts action",
+	"DELETE /v20180820/bucket/{bucket}/lifecycleconfiguration": "no vendored document declares an action for the control plane's " +
+		"DeleteBucketLifecycleConfiguration: the s3 reference lists the operation with an empty authorized-action set, and " +
+		"s3-outposts declares only Get/PutLifecycleConfiguration, whose resource type is an Outposts bucket whose ARN carries " +
+		"an OutpostId this simulator models nothing of",
 }
 
 // Every S3 control-plane route the simulator serves is either gated or listed

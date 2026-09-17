@@ -240,24 +240,28 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 	}
 
 	// The Amazon S3 keys below describe how the request was signed and carried,
-	// which the request states outright.
-	if service == "s3" {
+	// which the request states outright. AWS publishes the same family under
+	// each S3 namespace — s3express, s3-outposts and s3-object-lambda declare
+	// their own authType, signatureversion, TlsVersion, signatureAge,
+	// x-amz-content-sha256 and ResourceAccount — so the keys are written under
+	// the namespace the request is authorized in, not always under s3.
+	if iamS3ConditionNamespaces[service] {
 		if r.TLS != nil {
-			ctx["s3:TlsVersion"] = []string{iamTLSVersionName(r.TLS.Version)}
+			ctx[service+":TlsVersion"] = []string{iamTLSVersionName(r.TLS.Version)}
 		}
 		authorization := r.Header.Get("Authorization")
 		switch {
 		case strings.HasPrefix(authorization, "AWS4-HMAC-SHA256"):
-			ctx["s3:authType"] = []string{"REST-HEADER"}
-			ctx["s3:signatureversion"] = []string{"AWS4-HMAC-SHA256"}
+			ctx[service+":authType"] = []string{"REST-HEADER"}
+			ctx[service+":signatureversion"] = []string{"AWS4-HMAC-SHA256"}
 		case r.URL.Query().Get("X-Amz-Signature") != "":
-			ctx["s3:authType"] = []string{"REST-QUERY-STRING"}
-			ctx["s3:signatureversion"] = []string{"AWS4-HMAC-SHA256"}
+			ctx[service+":authType"] = []string{"REST-QUERY-STRING"}
+			ctx[service+":signatureversion"] = []string{"AWS4-HMAC-SHA256"}
 		}
 		if digest := r.Header.Get("x-amz-content-sha256"); digest != "" {
-			ctx["s3:x-amz-content-sha256"] = []string{digest}
+			ctx[service+":x-amz-content-sha256"] = []string{digest}
 		}
-		// s3:signatureAge is how long ago the request was signed, in
+		// signatureAge is how long ago the request was signed, in
 		// milliseconds — the fact a policy tests to refuse a long-lived
 		// presigned URL.
 		if signed := iamSigV4SigningTime(r); !signed.IsZero() {
@@ -265,9 +269,14 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 			if age < 0 {
 				age = 0
 			}
-			ctx["s3:signatureAge"] = []string{strconv.FormatInt(age, 10)}
+			ctx[service+":signatureAge"] = []string{strconv.FormatInt(age, 10)}
 		}
-		ctx["s3:ResourceAccount"] = []string{awsAccountID()}
+		ctx[service+":ResourceAccount"] = []string{awsAccountID()}
+	}
+	// The rest are the general-purpose data plane's own, and only it serves
+	// them: an Outposts object or a directory bucket's object is not an
+	// operation this simulator answers.
+	if service == "s3" {
 		iamPopulateS3RequestConditionKeys(r, ctx)
 		iamPopulateS3LocationConstraint(body, ctx)
 		// s3:versionid is the object version the request names, which is how a
@@ -609,6 +618,17 @@ func iamPopulateS3ObjectConditionKeys(r *http.Request, ctx map[string][]string) 
 	for tagKey, tagValue := range tags {
 		ctx["s3:ExistingObjectTag/"+tagKey] = []string{tagValue}
 	}
+}
+
+// iamS3ConditionNamespaces are the namespaces AWS splits the Amazon S3 surface
+// into, each declaring the request-shape condition keys in its own spelling. A
+// request is authorized in exactly one of them, and the gate writes that one's
+// keys.
+var iamS3ConditionNamespaces = map[string]bool{
+	"s3":               true,
+	"s3express":        true,
+	"s3-outposts":      true,
+	"s3-object-lambda": true,
 }
 
 // iamTLSVersionName spells a TLS version the way s3:TlsVersion does.

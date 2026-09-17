@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/xml"
 	"net/http"
+	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -22,17 +23,28 @@ import (
 // and TestS3ControlRoutesAuthorizeWhatTheReferenceDeclares holds the route
 // table and the vendored reference together.
 //
-// Seven routes carry no gate because the vendored s3 reference declares no
-// action for their operations: PutAccessPointScope, GetAccessPointScope,
-// DeleteAccessPointScope, ListAccessPointsForDirectoryBuckets,
-// ListRegionalBuckets, the control plane's DeleteBucketLifecycleConfiguration,
-// and WriteGetObjectResponse. Their actions live in namespaces AWS publishes
-// separately (s3express, s3-outposts, s3-object-lambda), none of them vendored
-// here; BUGS.md holds what fetching them would close.
+// Not every control-plane operation is authorized as an s3 action. AWS
+// publishes the directory-bucket surface as s3express, the Outposts surface as
+// s3-outposts and the transformation callback as s3-object-lambda, each in its
+// own Service Reference; all three are vendored here now, and a route whose
+// operation carries a namespace prefix ("s3express:PutAccessPointScope") is
+// authorized as that namespace's action against that namespace's ARN format.
+//
+// One route still carries no gate, and BUGS.md holds it: the control plane's
+// DeleteBucketLifecycleConfiguration. No vendored document declares an action
+// for it -- the s3 reference lists the operation with an empty authorized-action
+// set, and s3-outposts declares only Get/PutLifecycleConfiguration, whose
+// resource type is an Outposts bucket whose ARN carries an OutpostId this
+// simulator models nothing of. Authorizing it as the s3 lifecycle action would
+// deny the grant real AWS honours.
 
 // s3ControlRoute is one gated route: the pattern it mounts on, the operation
 // it serves, the resource AWS authorizes that operation against, and the
 // handler behind the gate. A nil resource is an operation that names none.
+//
+// The operation may carry the namespace that declares its action, as
+// "s3express:PutAccessPointScope"; a bare name is an s3 operation, which most
+// of them are.
 type s3ControlRoute struct {
 	pattern   string
 	operation string
@@ -55,11 +67,20 @@ func s3ControlGatedRoutes() []s3ControlRoute {
 		s3AccessPointRoutes, s3ObjectLambdaAccessPointRoutes,
 		s3ControlAccessGrantsRoutes, s3ControlJobRoutes,
 		s3ControlMultiRegionRoutes, s3ControlStorageLensRoutes,
-		s3ControlTaggingRoutes,
+		s3ControlTaggingRoutes, s3ControlMiscRoutes,
 	} {
 		all = append(all, table...)
 	}
 	return all
+}
+
+// s3ControlRouteService splits a route's operation into the namespace whose
+// Service Reference declares its action and the operation's own name.
+func s3ControlRouteService(operation string) (string, string) {
+	if service, name, ok := strings.Cut(operation, ":"); ok {
+		return service, name
+	}
+	return "s3", operation
 }
 
 func s3ControlEnforced(operation string, resource func(*http.Request) string, h http.HandlerFunc) http.HandlerFunc {
@@ -71,7 +92,8 @@ func s3ControlEnforced(operation string, resource func(*http.Request) string, h 
 		}
 		// Registering an Access Grants location hands S3 a role, which AWS
 		// authorizes a second time against the role itself.
-		if !iamEnforcePassRoleWith(w, r, "s3:"+operation, s3ControlWriteIAMDeny) {
+		service, name := s3ControlRouteService(operation)
+		if !iamEnforcePassRoleWith(w, r, service+":"+name, s3ControlWriteIAMDeny) {
 			return
 		}
 		h(w, r)
@@ -89,8 +111,9 @@ func s3ControlAuthorizationTargets(r *http.Request, operation string, resource f
 			arn = named
 		}
 	}
-	targets := iamOperationTargets(r, "s3", operation, []string{arn})
-	return append(targets, s3ControlTaggingTargets(r, operation)...)
+	service, name := s3ControlRouteService(operation)
+	targets := iamOperationTargets(r, service, name, []string{arn})
+	return append(targets, s3ControlTaggingTargets(r, name)...)
 }
 
 // s3ControlTaggingTargets is the tagging AWS authorizes alongside a create
