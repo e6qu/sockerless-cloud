@@ -92,3 +92,29 @@ func TestIAMConditionKeysAbsentWithoutTheirMembers(t *testing.T) {
 	ctx = iamConditionContext(url.Values{"Action": {"GetRole"}, "AWSServiceName": {"ec2.amazonaws.com"}})
 	assertConditionKeysAbsent(t, ctx, "iam:AWSServiceName")
 }
+
+// TestIAMConditionKeysReadAccountPropertyNamespaces proves a policy can allow
+// an account to set the properties of one namespace and no other: the key
+// carries the namespaces the request names, and nothing when a key is
+// malformed (the request is refused on its own merits).
+func TestIAMConditionKeysReadAccountPropertyNamespaces(t *testing.T) {
+	ctx := iamConditionContext(url.Values{
+		"Action":                   {"PutAccountProperties"},
+		"Properties.entry.1.key":   {"roleManager/assumeRoleWithWebIdentityLimit"},
+		"Properties.entry.1.value": {"extended"},
+		"Properties.entry.2.key":   {"roleManager/allowTemplates"},
+		"Properties.entry.2.value": {"true"},
+	})
+	assertPopulatedConditionValues(t, ctx, map[string][]string{
+		"iam:AccountPropertyNamespaces": {"roleManager"},
+	})
+
+	malformed := iamConditionContext(url.Values{
+		"Action":                   {"PutAccountProperties"},
+		"Properties.entry.1.key":   {"assumeRoleWithWebIdentityLimit"},
+		"Properties.entry.1.value": {"extended"},
+	})
+	if got := malformed["iam:AccountPropertyNamespaces"]; len(got) != 0 {
+		t.Errorf("a key with no namespace produced %v — there is no namespace to authorize", got)
+	}
+}

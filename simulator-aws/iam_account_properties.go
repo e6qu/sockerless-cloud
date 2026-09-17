@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -38,19 +39,63 @@ func registerIAMAccountProperties(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("AcquireRole", handleIAMAcquireRole)
 }
 
-func handleIAMPutAccountProperties(w http.ResponseWriter, r *http.Request) {
-	// The query protocol flattens a map into Properties.entry.N.key/value.
-	properties, _ := iamAccountProperties.Get(iamAccountPropertiesKey)
-	if properties == nil {
-		properties = map[string]string{}
-	}
+// iamRequestAccountProperties reads the property map the query protocol
+// flattens into Properties.entry.N.key/value. The entries are returned in
+// request order, because the namespace rule is about the request as a whole.
+func iamRequestAccountProperties(r *http.Request) [][2]string {
+	var entries [][2]string
 	for i := 1; ; i++ {
 		key := r.FormValue(fmt.Sprintf("Properties.entry.%d.key", i))
 		if key == "" {
 			break
 		}
-		value := r.FormValue(fmt.Sprintf("Properties.entry.%d.value", i))
-		properties[key] = value
+		entries = append(entries, [2]string{key, r.FormValue(fmt.Sprintf("Properties.entry.%d.value", i))})
+	}
+	return entries
+}
+
+// iamAccountPropertyNamespace splits a property key into its namespace. The
+// model is explicit: "Each key uses the format Namespace/PropertyName. The key
+// must contain exactly one / separating the namespace from the property name,
+// and cannot start or end with /."
+func iamAccountPropertyNamespace(key string) (string, bool) {
+	namespace, property, found := strings.Cut(key, "/")
+	if !found || namespace == "" || property == "" || strings.Contains(property, "/") {
+		return "", false
+	}
+	return namespace, true
+}
+
+func handleIAMPutAccountProperties(w http.ResponseWriter, r *http.Request) {
+	entries := iamRequestAccountProperties(r)
+	// "All properties in a single request must belong to the same namespace."
+	// Accepting a malformed key would store a property GetAccountProperties
+	// then returns in a shape the model says cannot exist, and a policy
+	// conditioned on iam:AccountPropertyNamespaces would be evaluated against
+	// a namespace the caller never named.
+	namespace := ""
+	for _, entry := range entries {
+		got, ok := iamAccountPropertyNamespace(entry[0])
+		if !ok {
+			iamErrorXML(w, "InvalidInput", fmt.Sprintf("The account property key %q is not in Namespace/PropertyName "+
+				"format: it must contain exactly one '/' and cannot start or end with one.", entry[0]),
+				http.StatusBadRequest)
+			return
+		}
+		if namespace == "" {
+			namespace = got
+		} else if got != namespace {
+			iamErrorXML(w, "InvalidInput", fmt.Sprintf("All account properties in one request must belong to the same "+
+				"namespace: the request names both %q and %q.", namespace, got), http.StatusBadRequest)
+			return
+		}
+	}
+	properties, _ := iamAccountProperties.Get(iamAccountPropertiesKey)
+	if properties == nil {
+		properties = map[string]string{}
+	}
+	for _, entry := range entries {
+		properties[entry[0]] = entry[1]
 	}
 	iamAccountProperties.Put(iamAccountPropertiesKey, properties)
 	iamEmptyResultXML(w, "PutAccountProperties")

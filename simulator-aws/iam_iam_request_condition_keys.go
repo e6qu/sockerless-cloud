@@ -11,6 +11,23 @@ func init() {
 // an access report or a service-specific credential is for.
 func iamPopulateIAMRequestConditionKeys(r *http.Request, operation string, _ []byte, ctx map[string][]string) {
 	switch operation {
+	case "PutAccountProperties":
+		// The namespaces the request names, so a policy can allow an account
+		// to set Role Manager properties and nothing else. Every key in one
+		// request shares a namespace, but a malformed request is authorized
+		// before it is rejected, so this reports each distinct namespace it
+		// can read rather than assuming there is exactly one.
+		var namespaces []string
+		seen := map[string]bool{}
+		for _, entry := range iamRequestAccountProperties(r) {
+			namespace, ok := iamAccountPropertyNamespace(entry[0])
+			if !ok || seen[namespace] {
+				continue
+			}
+			seen[namespace] = true
+			namespaces = append(namespaces, namespace)
+		}
+		iamSetConditionValues(ctx, "iam:AccountPropertyNamespaces", namespaces...)
 	case "CreateServiceLinkedRole":
 		iamSetConditionValues(ctx, "iam:AWSServiceName", r.FormValue("AWSServiceName"))
 	case "CreateDelegationRequest":

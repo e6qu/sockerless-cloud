@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -148,4 +149,48 @@ func TestS3ConditionKeysAbsentWithoutTheirMembers(t *testing.T) {
 	r = s3ObjectConditionRequest(http.MethodPut, "/b/k?retention")
 	ctx = s3ConditionContext(r, `<Retention><Mode>GOVERNANCE</Mode></Retention>`)
 	assertConditionKeysAbsent(t, ctx, "s3:object-lock-event-hold-duration-days", "s3:object-lock-retain-until-date")
+}
+
+// TestS3ConditionKeysCountRemainingRetentionDays proves the key a bucket policy
+// bounds a lock with: the days left until the requested retain-until date,
+// rounded up, on both the header form and the retention body, absent when the
+// request names no date and zero for a date already past.
+func TestS3ConditionKeysCountRemainingRetentionDays(t *testing.T) {
+	const day = 24 * time.Hour
+
+	header := s3ObjectConditionRequest(http.MethodPut, "/b/k")
+	header.Header.Set("x-amz-object-lock-retain-until-date",
+		time.Now().Add(10*day).UTC().Format(time.RFC3339))
+	assertPopulatedConditionValues(t, s3ConditionContext(header, ""), map[string][]string{
+		"s3:object-lock-remaining-retention-days": {"10"},
+	})
+
+	// A part of a day counts as a day, so a bound of 10 rejects 10 days and a
+	// minute rather than reading it as 10.
+	overshoot := s3ObjectConditionRequest(http.MethodPut, "/b/k")
+	overshoot.Header.Set("x-amz-object-lock-retain-until-date",
+		time.Now().Add(10*day+time.Minute).UTC().Format(time.RFC3339))
+	assertPopulatedConditionValues(t, s3ConditionContext(overshoot, ""), map[string][]string{
+		"s3:object-lock-remaining-retention-days": {"11"},
+	})
+
+	body := s3ObjectConditionRequest(http.MethodPut, "/b/k?retention")
+	ctx := s3ConditionContext(body, `<Retention xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Mode>COMPLIANCE</Mode>
+  <RetainUntilDate>`+time.Now().Add(3*day).UTC().Format(time.RFC3339)+`</RetainUntilDate>
+</Retention>`)
+	assertPopulatedConditionValues(t, ctx, map[string][]string{
+		"s3:object-lock-remaining-retention-days": {"3"},
+	})
+
+	past := s3ObjectConditionRequest(http.MethodPut, "/b/k")
+	past.Header.Set("x-amz-object-lock-retain-until-date", "2001-01-01T00:00:00Z")
+	if got := s3ConditionContext(past, "")["s3:object-lock-remaining-retention-days"]; len(got) != 1 || got[0] != "0" {
+		t.Errorf("a retain-until date in the past = %v, want [0] — a lapsed lock has no days left, not a negative count", got)
+	}
+
+	plain := s3ObjectConditionRequest(http.MethodPut, "/b/k")
+	if got := s3ConditionContext(plain, "")["s3:object-lock-remaining-retention-days"]; len(got) != 0 {
+		t.Errorf("a request with no retain-until date set the key to %v — a policy requiring it must deny, not compare against a made-up count", got)
+	}
 }

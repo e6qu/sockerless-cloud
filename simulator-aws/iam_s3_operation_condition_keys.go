@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 func init() {
@@ -51,6 +52,7 @@ func iamPopulateS3OperationConditionKeys(r *http.Request, operation string, body
 		iamSetConditionValues(ctx, "s3:if-none-match", r.Header.Get("If-None-Match"))
 		iamSetConditionValues(ctx, "s3:object-lock-mode", r.Header.Get("x-amz-object-lock-mode"))
 		iamSetConditionValues(ctx, "s3:object-lock-retain-until-date", r.Header.Get("x-amz-object-lock-retain-until-date"))
+		iamSetS3RemainingRetentionDays(ctx, r.Header.Get("x-amz-object-lock-retain-until-date"))
 		iamSetConditionValues(ctx, "s3:object-lock-legal-hold", r.Header.Get("x-amz-object-lock-legal-hold"))
 		iamSetConditionValues(ctx, "s3:object-lock-event-hold", r.Header.Get("x-amz-object-lock-event-hold"))
 		iamSetConditionValues(ctx, "s3:object-lock-event-hold-duration-days",
@@ -71,6 +73,7 @@ func iamPopulateS3OperationConditionKeys(r *http.Request, operation string, body
 		}
 		iamSetConditionValues(ctx, "s3:object-lock-mode", retention.Mode)
 		iamSetConditionValues(ctx, "s3:object-lock-retain-until-date", retention.RetainUntilDate)
+		iamSetS3RemainingRetentionDays(ctx, retention.RetainUntilDate)
 		iamSetConditionValues(ctx, "s3:object-lock-event-hold", retention.EventHold)
 		iamSetConditionInt(ctx, "s3:object-lock-event-hold-duration-days", retention.EventHoldDuration.Days)
 	case "PutObjectLegalHold":
@@ -113,4 +116,41 @@ func iamPopulateS3OperationConditionKeys(r *http.Request, operation string, body
 			iamSetConditionValues(ctx, "s3:AccessPointTag/"+key, value)
 		}
 	}
+}
+
+// iamSetS3RemainingRetentionDays turns a requested retain-until date into
+// s3:object-lock-remaining-retention-days, the key a bucket policy conditions
+// on to bound how long a caller may lock an object ("NumericLessThanEquals":
+// {"s3:object-lock-remaining-retention-days": "10"}).
+//
+// A request without a retain-until date, or with one this simulator cannot
+// parse, leaves the key unset: a policy that requires it then denies the
+// request, which is the behaviour a retention bound is written for. A date in
+// the past is zero days remaining, not a negative count.
+//
+// The period is rounded UP to whole days, so any part of a day counts as a
+// day. AWS documents the key as the remaining retention period in days and
+// does not document its rounding, and the IAM policy oracle this repo tests
+// against (SimulateCustomPolicy) evaluates a context this simulator supplies,
+// so it cannot settle the question either. Rounding up never understates a
+// lock: an upper bound written for 10 days rejects 10 days and one second,
+// which is the safe direction for a guard whose purpose is to stop a caller
+// locking an object for longer than the bucket allows.
+func iamSetS3RemainingRetentionDays(ctx map[string][]string, retainUntil string) {
+	if retainUntil == "" {
+		return
+	}
+	until, err := time.Parse(time.RFC3339, retainUntil)
+	if err != nil {
+		return
+	}
+	remaining := time.Until(until)
+	if remaining < 0 {
+		remaining = 0
+	}
+	days := int64(remaining / (24 * time.Hour))
+	if remaining%(24*time.Hour) != 0 {
+		days++
+	}
+	iamSetConditionInt(ctx, "s3:object-lock-remaining-retention-days", &days)
 }

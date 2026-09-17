@@ -39,14 +39,35 @@ func TestGlue_DataCatalogExportConfigurationRoundTrips(t *testing.T) {
 
 func TestIAM_AccountPropertiesRoundTripAndTemplatesNameTheirCatalog(t *testing.T) {
 	c := iamClient()
+	// The model is explicit about the key: "Each key uses the format
+	// Namespace/PropertyName ... exactly one / ... cannot start or end with
+	// /", and "All properties in a single request must belong to the same
+	// namespace."
 	_, err := c.PutAccountProperties(ctx, &iam.PutAccountPropertiesInput{
-		Properties: map[string]string{"assumeRoleWithWebIdentityLimit": "extended"},
+		Properties: map[string]string{"roleManager/assumeRoleWithWebIdentityLimit": "extended"},
 	})
 	require.NoError(t, err)
 	got, err := c.GetAccountProperties(ctx, &iam.GetAccountPropertiesInput{})
 	require.NoError(t, err)
-	assert.Equal(t, "extended", got.Properties["assumeRoleWithWebIdentityLimit"],
+	assert.Equal(t, "extended", got.Properties["roleManager/assumeRoleWithWebIdentityLimit"],
 		"the property that was put must be the one returned")
+
+	_, err = c.PutAccountProperties(ctx, &iam.PutAccountPropertiesInput{
+		Properties: map[string]string{"assumeRoleWithWebIdentityLimit": "extended"},
+	})
+	require.Error(t, err, "a key with no namespace must be rejected, not stored")
+	assert.Contains(t, err.Error(), "Namespace/PropertyName",
+		"the failure must name the required key format: %v", err)
+
+	_, err = c.PutAccountProperties(ctx, &iam.PutAccountPropertiesInput{
+		Properties: map[string]string{
+			"roleManager/assumeRoleWithWebIdentityLimit": "extended",
+			"rootAccess/allowRootSessions":               "false",
+		},
+	})
+	require.Error(t, err, "two namespaces in one request must be rejected")
+	assert.Contains(t, err.Error(), "same namespace",
+		"the failure must name the one-namespace rule: %v", err)
 
 	// Role templates are AWS's own catalog; both operations say so rather
 	// than fabricating template content.
