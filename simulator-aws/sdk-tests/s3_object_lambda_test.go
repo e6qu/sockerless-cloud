@@ -140,11 +140,12 @@ func TestS3_ObjectLambdaGetObject(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::" + s3ObjectLambdaAccount + ":role/olap-transform"),
-		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
-		Timeout:      aws.Int32(30),
+		FunctionName:  aws.String(fnName),
+		Role:          aws.String("arn:aws:iam::" + s3ObjectLambdaAccount + ":role/olap-transform"),
+		PackageType:   lambdatypes.PackageTypeImage,
+		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
+		Architectures: nativeLambdaArchitectures(),
+		Timeout:       aws.Int32(30),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

@@ -43,4 +43,5 @@ Allowed classifications:
 | `lambda-event-source-runtime` | background-evaluator | `simulator-aws/lambda_event_source_runtime.go` | `simulator-aws/sdk-tests/lambda_sqs_event_source_runtime_test.go` |
 | `elbv2-target-health-checker` | background-evaluator | `simulator-aws/elbv2_target_health.go` | `simulator-aws/sdk-tests/elbv2_test.go` |
 | `ecs-stopped-task-sweeper` | background-evaluator | `simulator-aws/ecs.go` | `simulator-aws/sdk-tests/ecs_task_retention_test.go` |
+| `store-sweep` | background-evaluator | `simulator-aws/store_sweep.go` | `simulator-aws/sdk-tests/ecs_task_role_credentials_test.go` |
 | `behavioral-audit-misc` | audit | `simulator-aws` | `simulator-aws/sdk-tests/behavioral_audit_test.go` |

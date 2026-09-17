@@ -134,30 +134,45 @@ func registerS3ObjectLambda(srv *sim.Server) {
 	s3AccessPoints = sim.MakeStore[S3AccessPoint](srv.DB(), "s3_access_points")
 	s3ObjectLambdaAccessPoints = sim.MakeStore[S3ObjectLambdaAccessPoint](srv.DB(), "s3_object_lambda_access_points")
 
-	// ── Standard access points ───────────────────────────────────────────
-	srv.HandleFunc("PUT /v20180820/accesspoint/{name}", handleS3CreateAccessPoint)
-	srv.HandleFunc("GET /v20180820/accesspoint/{name}", handleS3GetAccessPoint)
-	srv.HandleFunc("DELETE /v20180820/accesspoint/{name}", handleS3DeleteAccessPoint)
-	srv.HandleFunc("GET /v20180820/accesspoint", handleS3ListAccessPoints)
-	srv.HandleFunc("PUT /v20180820/accesspoint/{name}/policy", handleS3PutAccessPointPolicy)
-	srv.HandleFunc("GET /v20180820/accesspoint/{name}/policy", handleS3GetAccessPointPolicy)
-	srv.HandleFunc("DELETE /v20180820/accesspoint/{name}/policy", handleS3DeleteAccessPointPolicy)
-	srv.HandleFunc("GET /v20180820/accesspoint/{name}/policyStatus", handleS3GetAccessPointPolicyStatus)
+	s3ControlRegister(srv, s3AccessPointRoutes)
+	s3ControlRegister(srv, s3ObjectLambdaAccessPointRoutes)
 
-	// ── Object Lambda access points ──────────────────────────────────────
-	srv.HandleFunc("PUT /v20180820/accesspointforobjectlambda/{name}", handleS3CreateAccessPointForObjectLambda)
-	srv.HandleFunc("GET /v20180820/accesspointforobjectlambda/{name}", handleS3GetAccessPointForObjectLambda)
-	srv.HandleFunc("DELETE /v20180820/accesspointforobjectlambda/{name}", handleS3DeleteAccessPointForObjectLambda)
-	srv.HandleFunc("GET /v20180820/accesspointforobjectlambda", handleS3ListAccessPointsForObjectLambda)
-	srv.HandleFunc("GET /v20180820/accesspointforobjectlambda/{name}/configuration", handleS3GetAccessPointConfigurationForObjectLambda)
-	srv.HandleFunc("PUT /v20180820/accesspointforobjectlambda/{name}/configuration", handleS3PutAccessPointConfigurationForObjectLambda)
-	srv.HandleFunc("PUT /v20180820/accesspointforobjectlambda/{name}/policy", handleS3PutAccessPointPolicyForObjectLambda)
-	srv.HandleFunc("GET /v20180820/accesspointforobjectlambda/{name}/policy", handleS3GetAccessPointPolicyForObjectLambda)
-	srv.HandleFunc("DELETE /v20180820/accesspointforobjectlambda/{name}/policy", handleS3DeleteAccessPointPolicyForObjectLambda)
-	srv.HandleFunc("GET /v20180820/accesspointforobjectlambda/{name}/policyStatus", handleS3GetAccessPointPolicyStatusForObjectLambda)
-
-	// ── The transformation callback ──────────────────────────────────────
+	// The transformation callback carries no gate: its action,
+	// s3-object-lambda:WriteGetObjectResponse, lives in a namespace whose
+	// Service Reference this repository does not vendor.
 	srv.HandleFunc("POST /WriteGetObjectResponse", handleS3WriteGetObjectResponse)
+}
+
+// s3AccessPointRoutes carries what each standard access point route is
+// authorized as. AWS declares no resource type for reading one or for listing
+// them, so both authorize "*"; the rest are evaluated against the access
+// point's own ARN.
+var s3AccessPointRoutes = []s3ControlRoute{
+	{"PUT /v20180820/accesspoint/{name}", "CreateAccessPoint", s3ControlAccessPointResource, handleS3CreateAccessPoint},
+	{"GET /v20180820/accesspoint/{name}", "GetAccessPoint", nil, handleS3GetAccessPoint},
+	{"DELETE /v20180820/accesspoint/{name}", "DeleteAccessPoint", s3ControlAccessPointResource, handleS3DeleteAccessPoint},
+	{"GET /v20180820/accesspoint", "ListAccessPoints", nil, handleS3ListAccessPoints},
+	{"PUT /v20180820/accesspoint/{name}/policy", "PutAccessPointPolicy", s3ControlAccessPointResource, handleS3PutAccessPointPolicy},
+	{"GET /v20180820/accesspoint/{name}/policy", "GetAccessPointPolicy", s3ControlAccessPointResource, handleS3GetAccessPointPolicy},
+	{"DELETE /v20180820/accesspoint/{name}/policy", "DeleteAccessPointPolicy", s3ControlAccessPointResource, handleS3DeleteAccessPointPolicy},
+	{"GET /v20180820/accesspoint/{name}/policyStatus", "GetAccessPointPolicyStatus", s3ControlAccessPointResource, handleS3GetAccessPointPolicyStatus},
+}
+
+// s3ObjectLambdaAccessPointRoutes carries what each Object Lambda access point
+// route is authorized as. Its resource type is the s3-object-lambda ARN, not
+// the s3 one, which is what keeps a policy over Object Lambda access points
+// separate from one over the access points behind them.
+var s3ObjectLambdaAccessPointRoutes = []s3ControlRoute{
+	{"PUT /v20180820/accesspointforobjectlambda/{name}", "CreateAccessPointForObjectLambda", s3ControlObjectLambdaResource, handleS3CreateAccessPointForObjectLambda},
+	{"GET /v20180820/accesspointforobjectlambda/{name}", "GetAccessPointForObjectLambda", s3ControlObjectLambdaResource, handleS3GetAccessPointForObjectLambda},
+	{"DELETE /v20180820/accesspointforobjectlambda/{name}", "DeleteAccessPointForObjectLambda", s3ControlObjectLambdaResource, handleS3DeleteAccessPointForObjectLambda},
+	{"GET /v20180820/accesspointforobjectlambda", "ListAccessPointsForObjectLambda", nil, handleS3ListAccessPointsForObjectLambda},
+	{"GET /v20180820/accesspointforobjectlambda/{name}/configuration", "GetAccessPointConfigurationForObjectLambda", s3ControlObjectLambdaResource, handleS3GetAccessPointConfigurationForObjectLambda},
+	{"PUT /v20180820/accesspointforobjectlambda/{name}/configuration", "PutAccessPointConfigurationForObjectLambda", s3ControlObjectLambdaResource, handleS3PutAccessPointConfigurationForObjectLambda},
+	{"PUT /v20180820/accesspointforobjectlambda/{name}/policy", "PutAccessPointPolicyForObjectLambda", s3ControlObjectLambdaResource, handleS3PutAccessPointPolicyForObjectLambda},
+	{"GET /v20180820/accesspointforobjectlambda/{name}/policy", "GetAccessPointPolicyForObjectLambda", s3ControlObjectLambdaResource, handleS3GetAccessPointPolicyForObjectLambda},
+	{"DELETE /v20180820/accesspointforobjectlambda/{name}/policy", "DeleteAccessPointPolicyForObjectLambda", s3ControlObjectLambdaResource, handleS3DeleteAccessPointPolicyForObjectLambda},
+	{"GET /v20180820/accesspointforobjectlambda/{name}/policyStatus", "GetAccessPointPolicyStatusForObjectLambda", s3ControlObjectLambdaResource, handleS3GetAccessPointPolicyStatusForObjectLambda},
 }
 
 // s3ControlError writes the ErrorResponse envelope the s3-control surface

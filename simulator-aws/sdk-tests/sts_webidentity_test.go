@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
+	"github.com/aws/smithy-go"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/stretchr/testify/assert"
@@ -181,4 +183,56 @@ func TestSTS_AssumeRoleWithWebIdentity_RejectsExpiredToken(t *testing.T) {
 	})
 	var invalid *ststypes.InvalidIdentityTokenException
 	assert.ErrorAs(t, err, &invalid, "an expired token must be rejected")
+}
+
+// TestSTS_AssumeRoleWithWebIdentity_EnforcesTheTrustPolicy proves the role's
+// trust policy decides who may federate into it: its condition on the token's
+// subject admits one operator and refuses another, and a role that trusts a
+// different provider refuses a token this provider signed.
+func TestSTS_AssumeRoleWithWebIdentity_EnforcesTheTrustPolicy(t *testing.T) {
+	issuer := newWebIdentityIssuer(t)
+	const audience = "sockerless-console"
+	c := iamClient()
+	provider, err := c.CreateOpenIDConnectProvider(ctx, &iam.CreateOpenIDConnectProviderInput{
+		Url:            aws.String(issuer.server.URL),
+		ClientIDList:   []string{audience},
+		ThumbprintList: []string{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	})
+	require.NoError(t, err)
+	providerArn := aws.ToString(provider.OpenIDConnectProviderArn)
+	t.Cleanup(func() {
+		_, _ = c.DeleteOpenIDConnectProvider(ctx, &iam.DeleteOpenIDConnectProviderInput{OpenIDConnectProviderArn: aws.String(providerArn)})
+	})
+	providerName := strings.TrimPrefix(strings.TrimPrefix(issuer.server.URL, "https://"), "http://")
+
+	createRole := func(name, policy string) string {
+		out, err := c.CreateRole(ctx, &iam.CreateRoleInput{RoleName: aws.String(name), AssumeRolePolicyDocument: aws.String(policy)})
+		require.NoError(t, err)
+		t.Cleanup(func() { _, _ = c.DeleteRole(ctx, &iam.DeleteRoleInput{RoleName: aws.String(name)}) })
+		return aws.ToString(out.Role.Arn)
+	}
+	scoped := createRole("web-identity-one-operator", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",
+		"Principal":{"Federated":"`+providerArn+`"},"Action":"sts:AssumeRoleWithWebIdentity",
+		"Condition":{"StringEquals":{"`+providerName+`:sub":"operator@example.test","`+providerName+`:aud":"`+audience+`"}}}]}`)
+	otherProvider := createRole("web-identity-other-provider", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",
+		"Principal":{"Federated":"arn:aws:iam::123456789012:oidc-provider/elsewhere.example.test"},"Action":"sts:AssumeRoleWithWebIdentity"}]}`)
+
+	assume := func(roleArn, subject string) error {
+		_, err := stsClient().AssumeRoleWithWebIdentity(ctx, &sts.AssumeRoleWithWebIdentityInput{
+			RoleArn:          aws.String(roleArn),
+			RoleSessionName:  aws.String("console"),
+			WebIdentityToken: aws.String(issuer.mint(t, subject, audience, time.Now().Add(10*time.Minute))),
+		})
+		return err
+	}
+	require.NoError(t, assume(scoped, "operator@example.test"), "the subject the trust policy names may federate")
+
+	var denied smithy.APIError
+	err = assume(scoped, "intruder@example.test")
+	require.ErrorAs(t, err, &denied, "another subject is refused by the trust policy's condition")
+	assert.Equal(t, "AccessDenied", denied.ErrorCode())
+
+	err = assume(otherProvider, "operator@example.test")
+	require.ErrorAs(t, err, &denied, "a role that trusts another provider refuses this one")
+	assert.Equal(t, "AccessDenied", denied.ErrorCode())
 }

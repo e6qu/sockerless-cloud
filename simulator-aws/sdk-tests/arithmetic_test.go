@@ -20,10 +20,11 @@ func TestLambda_InvokeArithmetic(t *testing.T) {
 	fnName := "arith-basic-fn"
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
-		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String(evalImageName)},
+		FunctionName:  aws.String(fnName),
+		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		PackageType:   lambdatypes.PackageTypeImage,
+		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(evalImageName)},
+		Architectures: nativeLambdaArchitectures(),
 		ImageConfig: &lambdatypes.ImageConfig{
 			Command: []string{"3 + 4 * 2"},
 		},
@@ -41,10 +42,11 @@ func TestLambda_InvokeArithmeticParentheses(t *testing.T) {
 	fnName := "arith-paren-fn"
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
-		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String(evalImageName)},
+		FunctionName:  aws.String(fnName),
+		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		PackageType:   lambdatypes.PackageTypeImage,
+		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(evalImageName)},
+		Architectures: nativeLambdaArchitectures(),
 		ImageConfig: &lambdatypes.ImageConfig{
 			Command: []string{"(3 + 4) * 2"},
 		},
@@ -63,10 +65,11 @@ func TestLambda_InvokeArithmeticInvalid(t *testing.T) {
 	fnName := "arith-invalid-fn"
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
-		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String(evalImageName)},
+		FunctionName:  aws.String(fnName),
+		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		PackageType:   lambdatypes.PackageTypeImage,
+		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(evalImageName)},
+		Architectures: nativeLambdaArchitectures(),
 		ImageConfig: &lambdatypes.ImageConfig{
 			Command: []string{"3 +"},
 		},
@@ -101,10 +104,11 @@ func TestLambda_InvokeArithmeticLogs(t *testing.T) {
 	fnName := "arith-logs-fn"
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
-		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String(evalImageName)},
+		FunctionName:  aws.String(fnName),
+		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		PackageType:   lambdatypes.PackageTypeImage,
+		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(evalImageName)},
+		Architectures: nativeLambdaArchitectures(),
 		ImageConfig: &lambdatypes.ImageConfig{
 			Command: []string{"((2+3)*4-1)/3"},
 		},

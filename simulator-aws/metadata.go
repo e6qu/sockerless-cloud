@@ -222,31 +222,67 @@ func registerHostMetadata(srv *sim.Server) {
 			return
 		}
 
-		accessKeyID, secretAccessKey, token := stsMintTempCred()
-		expiration := time.Now().UTC().Add(time.Hour)
-		principalArn := fmt.Sprintf(
-			"arn:aws:sts::%s:assumed-role/%s/%s",
-			awsAccountID(), role.RoleName, id,
-		)
-		iamTempCreds.Put(accessKeyID, IAMTempCred{
-			AccessKeyID:     accessKeyID,
-			SecretAccessKey: secretAccessKey,
-			SessionToken:    token,
-			RoleName:        role.RoleName,
-			PrincipalArn:    principalArn,
-			Expiration:      expiration.Format(time.RFC3339),
-			CreatedAt:       time.Now().UTC().Format(time.RFC3339),
-		})
+		cred := ecsTaskCredential(id, role.RoleName, time.Now().UTC())
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"RoleArn":         taskRoleArn,
-			"AccessKeyId":     accessKeyID,
-			"SecretAccessKey": secretAccessKey,
-			"Token":           token,
-			"Expiration":      expiration.Format(time.RFC3339),
+			"AccessKeyId":     cred.AccessKeyID,
+			"SecretAccessKey": cred.SecretAccessKey,
+			"Token":           cred.SessionToken,
+			"Expiration":      cred.Expiration,
 		})
 	})
+}
+
+const (
+	ecsTaskCredentialLifetime = time.Hour
+	// ecsTaskCredentialMinRemaining is how much of a held credential's
+	// lifetime must remain for the endpoint to keep serving it. The Amazon ECS
+	// agent serves a task one credential until it refreshes it ahead of
+	// expiry, and SDKs refresh their own copy minutes before expiry; half the
+	// lifetime clears every SDK's window.
+	ecsTaskCredentialMinRemaining = ecsTaskCredentialLifetime / 2
+)
+
+// ecsHeldCredential is the credential the endpoint currently serves a task.
+type ecsHeldCredential struct {
+	TaskID      string
+	AccessKeyID string
+}
+
+var (
+	ecsTaskCredentials  sim.Store[ecsHeldCredential]
+	ecsTaskCredentialMu sync.Mutex
+)
+
+// ecsTaskCredential returns the credential a task's role credentials endpoint
+// serves at now, minting a new one only when the task holds none for roleName
+// or the one it holds is too close to expiry.
+func ecsTaskCredential(taskID, roleName string, now time.Time) IAMTempCred {
+	ecsTaskCredentialMu.Lock()
+	defer ecsTaskCredentialMu.Unlock()
+	if held, ok := ecsTaskCredentials.Get(taskID); ok {
+		if cred, ok := iamTempCreds.Get(held.AccessKeyID); ok && cred.RoleName == roleName {
+			if exp, err := time.Parse(time.RFC3339, cred.Expiration); err == nil && exp.Sub(now) > ecsTaskCredentialMinRemaining {
+				return cred
+			}
+		}
+	}
+	expiration := now.Add(ecsTaskCredentialLifetime)
+	accessKeyID, secretAccessKey, token := stsMintTempCred(expiration)
+	cred := IAMTempCred{
+		AccessKeyID:     accessKeyID,
+		SecretAccessKey: secretAccessKey,
+		SessionToken:    token,
+		RoleName:        roleName,
+		PrincipalArn:    fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), roleName, taskID),
+		Expiration:      expiration.Format(time.RFC3339),
+		CreatedAt:       now.Format(time.RFC3339),
+	}
+	iamTempCreds.Put(accessKeyID, cred)
+	ecsTaskCredentials.Put(taskID, ecsHeldCredential{TaskID: taskID, AccessKeyID: accessKeyID})
+	return cred
 }
 
 func ecsTaskRoleArn(taskID string) string {

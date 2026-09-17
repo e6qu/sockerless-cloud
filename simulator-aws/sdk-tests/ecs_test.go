@@ -491,6 +491,119 @@ echo EBS_ROUNDTRIP_OK`},
 	assert.Contains(t, strings.Join(messages, "\n"), "EBS_ROUNDTRIP_OK")
 }
 
+// A managed EBS volume is a block device of the size the task asked for,
+// formatted with the filesystem it named: the workload sees that capacity and
+// runs out of space where EBS would.
+func TestECS_ManagedEBSVolumeHasItsOwnSizeAndFilesystemSDK(t *testing.T) {
+	client := ecsClient()
+	cw := cwLogsClient()
+
+	clusterName := "managed-ebs-capacity"
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(clusterName)})
+	require.NoError(t, err)
+	subnetID := createECSTestSubnet(t, "managed-ebs-capacity")
+
+	logGroupName := "/ecs/managed-ebs-capacity"
+	_, _ = cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(logGroupName)})
+	t.Cleanup(func() {
+		_, _ = cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroupName)})
+	})
+
+	tdOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family:                  aws.String("managed-ebs-capacity"),
+		NetworkMode:             ecstypes.NetworkModeAwsvpc,
+		RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
+		Cpu:                     aws.String("256"),
+		Memory:                  aws.String("512"),
+		Volumes: []ecstypes.Volume{{
+			Name:               aws.String("data"),
+			ConfiguredAtLaunch: aws.Bool(true),
+		}},
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("probe"),
+			Image:       aws.String(busyboxImage),
+			EntryPoint:  []string{"sh", "-c"},
+			// A 1 GiB volume holds a little under 1 GiB once formatted, and a
+			// 1.2 GiB write has to stop short.
+			Command: []string{`set -e
+total_kb=$(df -k /data | tail -1 | awk '{print $2}')
+echo "total_kb=$total_kb"
+test "$total_kb" -gt 900000
+test "$total_kb" -le 1048576
+if dd if=/dev/zero of=/data/fill bs=1M count=1200 2>/dev/null; then echo "wrote past the volume"; exit 1; fi
+echo EBS_CAPACITY_OK`},
+			MountPoints: []ecstypes.MountPoint{{
+				SourceVolume:  aws.String("data"),
+				ContainerPath: aws.String("/data"),
+			}},
+			LogConfiguration: &ecstypes.LogConfiguration{
+				LogDriver: ecstypes.LogDriverAwslogs,
+				Options: map[string]string{
+					"awslogs-group":         logGroupName,
+					"awslogs-stream-prefix": "ecs",
+				},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	runOut, err := client.RunTask(ctx, &ecs.RunTaskInput{
+		Cluster:        aws.String(clusterName),
+		TaskDefinition: tdOut.TaskDefinition.TaskDefinitionArn,
+		LaunchType:     ecstypes.LaunchTypeFargate,
+		NetworkConfiguration: &ecstypes.NetworkConfiguration{
+			AwsvpcConfiguration: &ecstypes.AwsVpcConfiguration{Subnets: []string{subnetID}},
+		},
+		VolumeConfigurations: []ecstypes.TaskVolumeConfiguration{{
+			Name: aws.String("data"),
+			ManagedEBSVolume: &ecstypes.TaskManagedEBSVolumeConfiguration{
+				RoleArn:        aws.String("arn:aws:iam::123456789012:role/ecsInfrastructureRole"),
+				SizeInGiB:      aws.Int32(1),
+				FilesystemType: ecstypes.TaskFilesystemTypeExt4,
+			},
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, runOut.Tasks, 1)
+	taskArn := aws.ToString(runOut.Tasks[0].TaskArn)
+	waitForECSTaskStatus(t, client, clusterName, taskArn, "STOPPED")
+	described, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{Cluster: aws.String(clusterName), Tasks: []string{taskArn}})
+	require.NoError(t, err)
+	require.Len(t, described.Tasks, 1)
+	task := described.Tasks[0]
+
+	events, err := cw.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
+		LogGroupName: aws.String(logGroupName),
+	})
+	require.NoError(t, err)
+	var messages []string
+	for _, e := range events.Events {
+		messages = append(messages, aws.ToString(e.Message))
+	}
+	require.Contains(t, strings.Join(messages, "\n"), "EBS_CAPACITY_OK",
+		"stopped: %s; output: %s", aws.ToString(task.StoppedReason), strings.Join(messages, " | "))
+
+	_, err = client.RunTask(ctx, &ecs.RunTaskInput{
+		Cluster:        aws.String(clusterName),
+		TaskDefinition: tdOut.TaskDefinition.TaskDefinitionArn,
+		LaunchType:     ecstypes.LaunchTypeFargate,
+		NetworkConfiguration: &ecstypes.NetworkConfiguration{
+			AwsvpcConfiguration: &ecstypes.AwsVpcConfiguration{Subnets: []string{subnetID}},
+		},
+		VolumeConfigurations: []ecstypes.TaskVolumeConfiguration{{
+			Name: aws.String("data"),
+			ManagedEBSVolume: &ecstypes.TaskManagedEBSVolumeConfiguration{
+				RoleArn:        aws.String("arn:aws:iam::123456789012:role/ecsInfrastructureRole"),
+				SizeInGiB:      aws.Int32(1),
+				FilesystemType: ecstypes.TaskFilesystemType("btrfs"),
+			},
+		}},
+	})
+	var invalid *ecstypes.InvalidParameterException
+	require.ErrorAs(t, err, &invalid)
+}
+
 func TestECS_RunTaskContainerOverridesApplyToRuntimeSDK(t *testing.T) {
 	client := ecsClient()
 	cw := cwLogsClient()

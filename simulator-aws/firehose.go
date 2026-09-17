@@ -66,6 +66,21 @@ func firehoseNormalizeEncryption(keyType, keyARN string) (FirehoseEncryption, er
 	return FirehoseEncryption{KeyARN: key.Arn, KeyType: keyType, Status: "ENABLED"}, nil
 }
 
+// firehoseAuthorizeCustomerKeyUse proves the delivery stream's role may use the
+// stream's customer-managed CMK for one cryptographic operation. Amazon Data
+// Firehose reaches AWS KMS through its own regional endpoint on the principal's
+// behalf, so the role's policies are evaluated with kms:ViaService set to
+// firehose.<region>.amazonaws.com — which is how a KMS permission is narrowed
+// to use through Firehose alone and refused to anything else. A stream
+// encrypted with the AWS-owned key calls no customer key and needs no grant.
+func firehoseAuthorizeCustomerKeyUse(stream FirehoseDeliveryStream, action string) error {
+	if stream.Encryption.Status != "ENABLED" || stream.Encryption.KeyType != "CUSTOMER_MANAGED_CMK" {
+		return nil
+	}
+	return iamValidateServiceRole(stream.S3.RoleARN, "firehose.amazonaws.com",
+		map[string]string{action: stream.Encryption.KeyARN})
+}
+
 func firehoseEncryptBufferedRecord(encryption FirehoseEncryption, plaintext []byte) (FirehoseBufferedRecord, error) {
 	if encryption.Status != "ENABLED" {
 		return FirehoseBufferedRecord{Data: append([]byte(nil), plaintext...)}, nil
@@ -491,6 +506,9 @@ func firehoseAddRecord(name string, data []byte) (string, bool, error) {
 			return "", true, err
 		}
 	}
+	if err := firehoseAuthorizeCustomerKeyUse(stream, "kms:GenerateDataKey"); err != nil {
+		return "", true, err
+	}
 	buffered, err := firehoseEncryptBufferedRecord(stream.Encryption, data)
 	if err != nil {
 		return "", stream.Encryption.Status == "ENABLED", err
@@ -610,6 +628,9 @@ func firehoseFlushLocked(name string) error {
 		"s3:ListBucket":        stream.S3.BucketARN,
 		"s3:PutObject":         stream.S3.BucketARN + "/*",
 	}); err != nil {
+		return fmt.Errorf("delivery failed: %w", err)
+	}
+	if err := firehoseAuthorizeCustomerKeyUse(stream, "kms:Decrypt"); err != nil {
 		return fmt.Errorf("delivery failed: %w", err)
 	}
 	var raw bytes.Buffer

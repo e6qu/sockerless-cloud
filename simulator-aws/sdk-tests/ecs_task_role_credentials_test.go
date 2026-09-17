@@ -84,6 +84,23 @@ d = json.load(sys.stdin)
 print("export AWS_ACCESS_KEY_ID=%s AWS_SECRET_ACCESS_KEY=%s AWS_SESSION_TOKEN=%s" % tuple(quote(d[k]) for k in ("AccessKeyId", "SecretAccessKey", "Token")))'
 	)"
 fi
+# The Amazon ECS agent serves a task one credential until it refreshes it, so
+# two fetches a moment apart return the same access key.
+if [ -n "${AWS_CONTAINER_CREDENTIALS_RELATIVE_URI:-}" ]; then
+	credentials_uri="http://169.254.170.2${AWS_CONTAINER_CREDENTIALS_RELATIVE_URI}"
+else
+	credentials_uri="${AWS_CONTAINER_CREDENTIALS_FULL_URI}"
+fi
+access_key_id() {
+	curl --fail --silent "$credentials_uri" |
+		python -c 'import json, sys; print(json.load(sys.stdin)["AccessKeyId"])'
+}
+first_key=$(access_key_id)
+second_key=$(access_key_id)
+if [ -z "$first_key" ] || [ "$first_key" != "$second_key" ]; then
+	echo "credentials endpoint served ${first_key:-nothing} and then ${second_key:-nothing}"
+	exit 3
+fi
 aws sts get-caller-identity --query Arn --output text`},
 			Environment: []ecstypes.KeyValuePair{
 				{

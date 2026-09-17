@@ -1,8 +1,15 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base32"
 	"encoding/base64"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -41,10 +48,19 @@ func stsRequestMFA(r *http.Request) bool {
 	return r.FormValue("SerialNumber") != "" && r.FormValue("TokenCode") != ""
 }
 
-var iamTempCreds sim.Store[IAMTempCred]
+var (
+	iamTempCreds sim.Store[IAMTempCred]
+	// stsTokenKeys holds the key session tokens are sealed with, under
+	// stsTokenKeyID, so tokens minted before a restart still open after it.
+	stsTokenKeys sim.Store[string]
+)
+
+const stsTokenKeyID = "session-token-mac"
 
 func registerSTS(r *AWSQueryRouter, srv *sim.Server) {
 	iamTempCreds = sim.MakeStore[IAMTempCred](srv.DB(), "iam_temp_creds")
+	stsTokenKeys = sim.MakeStore[string](srv.DB(), "sts_token_keys")
+	startTempCredSweeper(srv)
 	r.Register("GetCallerIdentity", handleGetCallerIdentity)
 	r.Register("AssumeRole", handleSTSAssumeRole)
 	r.Register("AssumeRoleWithWebIdentity", handleSTSAssumeRoleWithWebIdentity)
@@ -114,8 +130,142 @@ func stsDurationSeconds(r *http.Request) int {
 	return d
 }
 
-func stsMintTempCred() (akid, secret, token string) {
-	return "ASIA" + strings.ToUpper(iamRandomB32(16)), iamRandomSecret(), iamRandomB32(64)
+// stsMintTempCred mints a temporary credential whose session token carries its
+// own expiration, sealed with the simulator's key. AWS reads a presented
+// token's expiration from the token itself, so a credential the simulator has
+// already pruned is still refused as expired rather than as unknown.
+// stsTrustAllows evaluates a role's trust policy for a caller. A statement that
+// names the caller's account rather than the caller delegates to the account's
+// own IAM, which the call-time enforcement has already applied.
+func stsTrustAllows(role IAMRole, action, caller string, ctx map[string][]string) bool {
+	trust, err := parseIAMPolicy(role.AssumeRolePolicyDocument)
+	if err != nil {
+		return false
+	}
+	decision, _ := iamEvalDecisionForPrincipal([]iamPolicyDoc{trust}, action, role.Arn, caller, ctx)
+	if decision == "allowed" {
+		return true
+	}
+	if decision == "explicitDeny" {
+		return false
+	}
+	return stsTrustDelegates(trust, action, caller, ctx)
+}
+
+// stsTrustDelegates reports whether an Allow statement admits the caller by
+// its account alone.
+func stsTrustDelegates(trust iamPolicyDoc, action, caller string, ctx map[string][]string) bool {
+	for _, stmt := range trust.Statement {
+		if !strings.EqualFold(stmt.Effect, "allow") || iamPrincipalMatchKind(stmt, caller, ctx) != iamPrincipalDelegated {
+			continue
+		}
+		if !iamActionMatches(stmt, action) {
+			continue
+		}
+		if ok, _ := iamConditionMatches(stmt, ctx); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// iamRoleTrustDocs returns the trust policy of the role roleArn names.
+func iamRoleTrustDocs(roleArn string) []iamPolicyDoc {
+	if !iamIsRoleARN(roleArn) {
+		return nil
+	}
+	role, ok := iamRoles.Get(iamRoleNameFromArn(roleArn))
+	if !ok || role.Arn != roleArn {
+		return nil
+	}
+	trust, err := parseIAMPolicy(role.AssumeRolePolicyDocument)
+	if err != nil {
+		return nil
+	}
+	return []iamPolicyDoc{trust}
+}
+
+func stsMintTempCred(expiration time.Time) (akid, secret, token string) {
+	akid = "ASIA" + strings.ToUpper(iamRandomB32(16))
+	payload := make([]byte, stsTokenPayloadLen)
+	binary.BigEndian.PutUint64(payload, uint64(expiration.Unix()))
+	_, _ = rand.Read(payload[8:])
+	sealed := append(payload, stsTokenMAC(akid, payload)...)
+	return akid, iamRandomSecret(), stsTokenEncoding.EncodeToString(sealed)
+}
+
+const (
+	stsTokenPayloadLen = 24 // expiration (8) + random (16)
+	stsTokenMACLen     = 16
+)
+
+var stsTokenEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)
+
+func stsTokenMAC(akid string, payload []byte) []byte {
+	mac := hmac.New(sha256.New, stsTokenKey())
+	mac.Write([]byte(akid))
+	mac.Write(payload)
+	return mac.Sum(nil)[:stsTokenMACLen]
+}
+
+func stsTokenKey() []byte {
+	encoded, ok := stsTokenKeys.Get(stsTokenKeyID)
+	if !ok {
+		stsTokenKeys.Upsert(stsTokenKeyID, func(key *string) {
+			if *key == "" {
+				fresh := make([]byte, sha256.Size)
+				_, _ = rand.Read(fresh)
+				*key = hex.EncodeToString(fresh)
+			}
+			encoded = *key
+		})
+	}
+	key, err := hex.DecodeString(encoded)
+	if err != nil {
+		panic(fmt.Sprintf("stored session token key is not hex: %v", err))
+	}
+	return key
+}
+
+// stsTokenExpiration returns the expiration sealed into a session token
+// stsMintTempCred minted for akid, and false for any other token.
+func stsTokenExpiration(akid, token string) (time.Time, bool) {
+	sealed, err := stsTokenEncoding.DecodeString(token)
+	if err != nil || len(sealed) != stsTokenPayloadLen+stsTokenMACLen {
+		return time.Time{}, false
+	}
+	payload := sealed[:stsTokenPayloadLen]
+	if !hmac.Equal(sealed[stsTokenPayloadLen:], stsTokenMAC(akid, payload)) {
+		return time.Time{}, false
+	}
+	return time.Unix(int64(binary.BigEndian.Uint64(payload)), 0).UTC(), true
+}
+
+// startTempCredSweeper deletes temporary credentials once they expire. An
+// expired credential authorizes nothing, and a caller that presents one is
+// still told so by stsTokenExpiration.
+func startTempCredSweeper(srv *sim.Server) {
+	startStoreSweeper(srv, stsSweepExpiredTempCreds)
+}
+
+// stsSweepExpiredTempCreds deletes expired temporary credentials and the
+// records that describe a credential no longer held.
+func stsSweepExpiredTempCreds(now time.Time) int {
+	swept := iamTempCreds.Prune(func(tc IAMTempCred) bool {
+		exp, err := time.Parse(time.RFC3339, tc.Expiration)
+		return err == nil && now.After(exp)
+	})
+	credentialGone := func(accessKeyID string) bool {
+		_, ok := iamTempCreds.Get(accessKeyID)
+		return !ok
+	}
+	s3ExpressSessions.Prune(func(session S3ExpressSession) bool {
+		return credentialGone(session.AccessKeyID)
+	})
+	s3AccessGrantsCredentials.Prune(func(issued S3AccessGrantsCredential) bool {
+		return credentialGone(issued.AccessKeyID)
+	})
+	return swept
 }
 
 func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
@@ -133,8 +283,27 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
 			http.StatusForbidden)
 		return
 	}
-	akid, secret, token := stsMintTempCred()
+	// The trust policy has to admit the caller. A credential no registered
+	// principal holds is not evaluated here, as the call-time gate does not
+	// evaluate it either.
+	callerKey := iamAccessKeyIDFromRequest(r)
+	if callerArn, _, userName, registered := iamPrincipalForAccessKey(callerKey); registered {
+		ctx := iamRequestConditionContext(r, callerKey, callerArn, userName, "sts:AssumeRole")
+		ctx["sts:RoleSessionName"] = []string{sessionName}
+		for key, param := range map[string]string{"sts:ExternalId": "ExternalId", "sts:SourceIdentity": "SourceIdentity"} {
+			if value := r.FormValue(param); value != "" {
+				ctx[key] = []string{value}
+			}
+		}
+		if !stsTrustAllows(role, "sts:AssumeRole", callerArn, ctx) {
+			stsErrorXML(w, "AccessDenied",
+				fmt.Sprintf("User: %s is not authorized to perform: sts:AssumeRole on resource: %s", callerArn, roleArn),
+				http.StatusForbidden)
+			return
+		}
+	}
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
@@ -177,13 +346,18 @@ func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) 
 	}
 	// Verify the web identity token against the registered OpenID Connect
 	// provider, the way STS does, rather than minting credentials for any token.
-	tokenSubject, err := verifyWebIdentityToken(r.Context(), r.FormValue("WebIdentityToken"))
+	identity, err := verifyWebIdentityToken(r.Context(), r.FormValue("WebIdentityToken"))
 	if err != nil {
 		stsErrorXML(w, "InvalidIdentityToken", err.Error(), http.StatusBadRequest)
 		return
 	}
-	akid, secret, token := stsMintTempCred()
+	tokenSubject := identity.Subject
+	if !stsTrustAllows(role, "sts:AssumeRoleWithWebIdentity", "federated:"+identity.Provider.Arn, identity.conditionContext(sessionName)) {
+		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:AssumeRoleWithWebIdentity on %s", roleArn), http.StatusForbidden)
+		return
+	}
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
 	iamTempCreds.Put(akid, IAMTempCred{AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token, RoleName: role.RoleName, PrincipalArn: assumedArn, Expiration: exp.Format(time.RFC3339)})
 	w.Header().Set("Content-Type", "text/xml")
@@ -199,8 +373,8 @@ func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) 
 }
 
 func handleSTSGetSessionToken(w http.ResponseWriter, r *http.Request) {
-	akid, secret, token := stsMintTempCred()
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	// Bind the session token to the caller's user (if registered) so it inherits
 	// the user's policies under enforcement.
 	tc := IAMTempCred{AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
@@ -229,8 +403,8 @@ func handleSTSGetFederationToken(w http.ResponseWriter, r *http.Request) {
 		stsErrorXML(w, "ValidationError", "Name is required", http.StatusBadRequest)
 		return
 	}
-	akid, secret, token := stsMintTempCred()
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	fedArn := fmt.Sprintf("arn:aws:sts::%s:federated-user/%s", awsAccountID(), name)
 	fedUserID := awsAccountID() + ":" + name
 	iamTempCreds.Put(akid, IAMTempCred{
@@ -254,22 +428,46 @@ func handleSTSGetFederationToken(w http.ResponseWriter, r *http.Request) {
 // in for the trust-policy check the sim does not enforce).
 func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
 	roleArn := r.FormValue("RoleArn")
-	if roleArn == "" || r.FormValue("PrincipalArn") == "" || r.FormValue("SAMLAssertion") == "" {
+	providerArn := r.FormValue("PrincipalArn")
+	if roleArn == "" || providerArn == "" || r.FormValue("SAMLAssertion") == "" {
 		stsErrorXML(w, "ValidationError", "RoleArn, PrincipalArn and SAMLAssertion are required", http.StatusBadRequest)
 		return
 	}
-	roleName := iamRoleNameFromArn(roleArn)
-	role, ok := iamRoles.Get(roleName)
+	role, ok := iamRoles.Get(iamRoleNameFromArn(roleArn))
 	if !ok {
 		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:AssumeRoleWithSAML on %s", roleArn), http.StatusForbidden)
 		return
 	}
-	// The session name for SAML is derived from the assertion subject; AWS uses
-	// the SAML subject's NameID. Use a stable simulator subject.
-	subject := "sim-saml-subject"
-	sessionName := subject
-	akid, secret, token := stsMintTempCred()
+	provider, ok := iamSAMLProviders.Get(providerArn)
+	if !ok {
+		stsErrorXML(w, "InvalidIdentityToken", fmt.Sprintf("Specified provider doesn't exist: %s", providerArn), http.StatusBadRequest)
+		return
+	}
+	assertion, err := verifySAMLAssertion(r.FormValue("SAMLAssertion"), provider, time.Now().UTC())
+	if errors.Is(err, errSAMLExpired) {
+		stsErrorXML(w, "ExpiredTokenException", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		stsErrorXML(w, "InvalidIdentityToken", err.Error(), http.StatusBadRequest)
+		return
+	}
+	assertion.ProviderArn = provider.Arn
+	assertion.ProviderName = provider.Name
+	if assertion.SessionName == "" {
+		stsErrorXML(w, "InvalidIdentityToken", "The SAML assertion has no RoleSessionName attribute", http.StatusBadRequest)
+		return
+	}
+	// The assertion has to offer this role through this provider, and the
+	// role has to trust the provider for this subject.
+	if !assertion.namesRole(role.Arn, provider.Arn) ||
+		!stsTrustAllows(role, "sts:AssumeRoleWithSAML", "federated:"+provider.Arn, assertion.conditionContext(awsAccountID())) {
+		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:AssumeRoleWithSAML on %s", roleArn), http.StatusForbidden)
+		return
+	}
+	sessionName := assertion.SessionName
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
@@ -282,15 +480,17 @@ func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
     <Credentials><AccessKeyId>%s</AccessKeyId><SecretAccessKey>%s</SecretAccessKey><SessionToken>%s</SessionToken><Expiration>%s</Expiration></Credentials>
     <AssumedRoleUser><Arn>%s</Arn><AssumedRoleId>%s</AssumedRoleId></AssumedRoleUser>
     <Subject>%s</Subject>
-    <SubjectType>persistent</SubjectType>
-    <Issuer>https://sim.local/saml</Issuer>
-    <Audience>https://signin.aws.amazon.com/saml</Audience>
-    <NameQualifier>sim-name-qualifier</NameQualifier>
+    <SubjectType>%s</SubjectType>
+    <Issuer>%s</Issuer>
+    <Audience>%s</Audience>
+    <NameQualifier>%s</NameQualifier>
     <PackedPolicySize>0</PackedPolicySize>
   </AssumeRoleWithSAMLResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </AssumeRoleWithSAMLResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339),
-		xmlEscape(assumedArn), role.RoleId+":"+sessionName, subject, generateUUID())
+		xmlEscape(assumedArn), role.RoleId+":"+xmlEscape(sessionName), xmlEscape(assertion.Subject),
+		xmlEscape(assertion.SubjectType), xmlEscape(assertion.Issuer), xmlEscape(assertion.Recipient),
+		xmlEscape(assertion.nameQualifier(awsAccountID())), generateUUID())
 }
 
 // handleSTSGetWebIdentityToken issues a signed web-identity token (a JWT) and
@@ -318,8 +518,8 @@ func handleSTSGetDelegatedAccessToken(w http.ResponseWriter, r *http.Request) {
 		stsErrorXML(w, "ValidationError", "TradeInToken is required", http.StatusBadRequest)
 		return
 	}
-	akid, secret, token := stsMintTempCred()
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	principal := fmt.Sprintf("arn:aws:iam::%s:user/simulator", awsAccountID())
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token, PrincipalArn: principal,
@@ -345,8 +545,8 @@ func handleSTSAssumeRoot(w http.ResponseWriter, r *http.Request) {
 		stsErrorXML(w, "ValidationError", "TargetPrincipal is required", http.StatusBadRequest)
 		return
 	}
-	akid, secret, token := stsMintTempCred()
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	rootArn := fmt.Sprintf("arn:aws:iam::%s:root", target)
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token, PrincipalArn: rootArn,

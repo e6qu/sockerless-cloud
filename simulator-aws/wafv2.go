@@ -252,6 +252,7 @@ func registerWAFv2(r *AWSRouter, srv *sim.Server) {
 	wafManagedRuleSet = sim.MakeStore[wafStoredManagedRuleSet](srv.DB(), "wafv2_managed_rule_sets")
 	wafPermissionPolicies = sim.MakeStore[string](srv.DB(), "wafv2_permission_policies")
 	wafSampledRequests = sim.MakeStore[wafSampledRequest](srv.DB(), "wafv2_sampled_requests")
+	startStoreSweeper(srv, wafSweepSampledRequests)
 	wafAssociations = sim.MakeStore[wafAssociation](srv.DB(), "wafv2_associations")
 	wafRateWindows = sim.MakeStore[wafRateWindow](srv.DB(), "wafv2_rate_windows")
 	wafSeedManagedRuleSets()
@@ -1564,6 +1565,15 @@ func wafRecordSample(webACLARN, metricName, action, clientIP string, r *http.Req
 	})
 }
 
+// wafSampleRetention is how long AWS WAF keeps a sampled request.
+const wafSampleRetention = 3 * time.Hour
+
+func wafSweepSampledRequests(now time.Time) int {
+	return wafSampledRequests.Prune(func(sample wafSampledRequest) bool {
+		return sample.Timestamp.Before(now.Add(-wafSampleRetention))
+	})
+}
+
 type wafGetSampledRequestsReq struct {
 	WebACLARN      string `json:"WebAclArn"`
 	RuleMetricName string `json:"RuleMetricName"`
@@ -1592,7 +1602,7 @@ func handleWAFGetSampledRequests(w http.ResponseWriter, r *http.Request) {
 	}
 	end := time.Unix(int64(req.TimeWindow.EndTime), 0).UTC()
 	start := time.Unix(int64(req.TimeWindow.StartTime), 0).UTC()
-	if earliest := time.Now().UTC().Add(-3 * time.Hour); start.Before(earliest) {
+	if earliest := time.Now().UTC().Add(-wafSampleRetention); start.Before(earliest) {
 		start = earliest
 	}
 	var matches []wafSampledRequest

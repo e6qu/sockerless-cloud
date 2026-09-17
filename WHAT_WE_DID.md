@@ -121,6 +121,94 @@ resolving once that branch is deleted.
 - **A stubbed external dependency fails loudly and names itself.** Amazon SNS
   SMS and mobile push need a carrier or Apple's and Google's hosts; each
   failure says so rather than reporting a missing `TopicArn`.
+- **A retention the service reports is also a bound on what the simulator
+  holds.** Stopped Amazon ECS tasks, temporary credentials and AWS WAF sampled
+  requests were only filtered out of answers, so the Scaleway simulator reached
+  21,409 task rows, 1.2 million credentials and 196,000 samples. Sweepers now
+  delete each at its real lifetime through `Store.Prune`, which reads 500 rows
+  at a time. Where deleting a record would change an answer, the answer moved
+  into what the client presents: a session token carries its expiration under
+  the simulator's key, so a pruned credential is still refused as expired.
+  CloudTrail event history keeps 90 days apart from the copies each CloudTrail
+  Lake event data store ingests and keeps for its own period, and CloudWatch
+  Logs applies a group's `retentionInDays` to its events, not its streams.
+- **A managed EBS volume is a block device, mounted by the engine.** A plain
+  engine volume showed the workload the host's disk. The volume is an image
+  file of the requested size and filesystem, and the container engine mounts it
+  through its own `local` driver: the mount then happens on the engine's host,
+  where the bind looks, and the simulator needs no privilege to make it.
+  Snapshots stay file-level, which is what let volumes made before the change
+  restore into it.
+
+- **A trust policy is evaluated, and a federated identity is verified, as AWS
+  does.** STS minted credentials for any role once a token parsed, and SAML
+  took any base64. Assuming a role now evaluates its trust policy with the
+  condition keys AWS documents for the caller — OpenID Connect claims under
+  the provider's name, the `saml:` attributes of a signed assertion — and a
+  SAML response is verified against the provider's own metadata. Tests sign
+  real tokens and assertions rather than sending placeholders.
+- **A request is authorized as the action AWS names, not as its operation.**
+  The two differ for 94 operations: a multipart upload is `s3:PutObject`, a
+  batch send is `sqs:SendMessage`, a re-encrypt is `kms:ReEncryptFrom` on one
+  key and `kms:ReEncryptTo` on the other. The unambiguous ones are generated
+  from the Service Reference; the rest are resolved from the request, down to
+  each key of a batch delete and each statement of a PartiQL call.
+- **Condition keys are read from the request the way the service defines
+  them.** AWS CodeBuild's keys name the request member they read, so one
+  resolver serves all of them from the declared list; other services register
+  their request-settled keys per service. A key is populated only where AWS's
+  definition fixes its value; where it does not — AWS Glue's Lake Formation
+  keys — it stays absent rather than guessed.
+- **Each service's keys are spelled the way that service spells them.** The
+  gate used to write `<service>:ResourceTag/<k>` for every service, which is a
+  spelling Amazon RDS does not have: RDS declares `rds:db-tag/`,
+  `rds:cluster-tag/`, `rds:snapshot-tag/`, `rds:pg-tag/` and seven more, one
+  per resource type, and the tags of a DB instance must not appear under the
+  cluster's key. IAM's own users and roles carry `iam:ResourceTag/<k>`; its
+  policies and instance profiles carry only `aws:ResourceTag/<k>`, because that
+  is what the reference declares for them.
+- **A request's tags are read in the shape that service sends.** The member
+  path comes from each service's own vendored model — `Tags.Tag.N` for Amazon
+  RDS, `Tags.member.N` for Elastic Load Balancing and IAM,
+  `TagSpecification.N.Tag.M` for an Amazon EC2 tag-on-create, a lower-case
+  `tags` list for Amazon ECS, `TagKey`/`TagValue` for AWS KMS, and a map for
+  Amazon SQS and CloudWatch Logs. Before this, one awsQuery spelling was read
+  and every other service settled no `aws:RequestTag/<k>` at all.
+- **A key that says who called is only set when someone else called.**
+  `kms:ViaService` and `kms:GrantIsForAWSResource` are built from the
+  service-initiation the request carries, so a direct client call has neither
+  and a policy that grants a key's use only through a service refuses the
+  client. Wiring them exposed a dead end: the role check a service ran on the
+  principal's behalf evaluated every action against a nil condition context, so
+  a role policy scoped to one service could never match.
+- **The engine is asked for nothing it has to interpret.** A managed EBS volume
+  is a real filesystem on a real loop device: the simulator attaches the device
+  and hands the daemon `/dev/loopN`, rather than passing an `o=loop` option that
+  Podman implements in `mount(8)` and moby has never had in its flag table. The
+  divergence cost a day of green local runs against red CI, and the rule it
+  leaves is that a mechanism must not depend on which engine parses it.
+- **A policy can bound a batch job and a grant.** The Amazon S3 batch-job and
+  access-grant keys are read from the request and from the stored job, grant or
+  location, so a statement that allows one job operation at a bounded priority
+  allows exactly that. `s3:JobSuspendedCause` is the exception and says why: the
+  service writes it, the model enumerates nothing, and no vendored document
+  names a value.
+- **An S3 operation is authorized in the namespace AWS publishes it under.**
+  A directory bucket's access-point scope is an s3express action against an
+  s3express ARN, the Outposts bucket listing an s3-outposts one; a route says
+  which namespace authorizes it, and each is crossed against that namespace's
+  own reference. The request-shape keys follow the same rule — a request
+  settles `s3express:TlsVersion`, not `s3:TlsVersion`, when that is what it is
+  authorized as.
+- **What the gate cannot resolve is named, with the reason.**
+  `TestIAM_DeclaredConditionKeysAreResolvedOrClassified` reads every condition
+  key the vendored Service References declare and fails unless the gate names
+  it or a row classifies it. A row states what the simulator would have to
+  model first — a Nitro enclave's attestation document, an FIS experiment, a
+  registered managed node, AWS Lake Formation — and a key that becomes
+  resolvable makes its own row fail, so the list cannot rot into an excuse. The
+  count that lived in BUGS.md was written by hand and had been read as
+  authoritative; this one is measured on every run.
 
 ## Execution
 
@@ -260,6 +348,22 @@ own `Resource` is `"*"`. A resource-policy statement naming the caller grants;
 one matching only by account delegates to that account's IAM, which is what the
 default AWS KMS key policy means and what reading it as a grant had silently
 defeated.
+
+The Amazon S3 control plane is gated like the data plane. Each `/v20180820`
+route declares the operation it serves and the resource AWS authorizes that
+operation against — an access point, an Access Grants instance, location or
+grant, a batch job, a Multi-Region Access Point by its alias, a Storage Lens
+configuration or group, or the ARN the shared tagging trio names outright —
+and the gate runs the same `iamAuthorize` the rest of the surface does. A
+route whose action declares no resource type authorizes `"*"` because that is
+what the reference says about the action, and a test crosses every route
+against it so a re-vendor moves both together. Registering an Access Grants
+location also authorizes `iam:PassRole` on the role it hands S3, which meant
+teaching the passed-role scan to read an XML document. The seven routes whose
+actions live in the `s3express`, `s3-outposts` and `s3-object-lambda`
+namespaces stay ungated and listed as such: no reference for those is
+vendored, and inventing an action or a resource denies grants real AWS
+honours (BUG-3014).
 
 Google Cloud's `testIamPermissions` answers from the stored policy resolved
 through the vendored curated roles and the held custom roles, and a caller

@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cttypes "github.com/aws/aws-sdk-go-v2/service/cloudtrail/types"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -94,15 +95,28 @@ func TestCloudTrail_EventDataStoreLifecycleSDK(t *testing.T) {
 	assert.Equal(t, cttypes.EventDataStoreStatusEnabled, restored.Status)
 }
 
-// TestCloudTrail_LakeQuerySDK exercises the Lake query surface over the sim's
-// recorded events: StartQuery → DescribeQuery / GetQueryResults / ListQueries →
-// CancelQuery, plus GenerateQuery and SearchSampleQueries.
+// TestCloudTrail_LakeQuerySDK exercises the Lake query surface over the events
+// an event data store ingested: StartQuery → DescribeQuery / GetQueryResults /
+// ListQueries → CancelQuery, plus GenerateQuery and SearchSampleQueries.
 func TestCloudTrail_LakeQuerySDK(t *testing.T) {
 	ct := cloudTrailClient()
-	const eds = "arn:aws:cloudtrail:us-east-1:123456789012:eventdatastore/lake-query-eds"
+	created, err := ct.CreateEventDataStore(ctx, &cloudtrail.CreateEventDataStoreInput{
+		Name:                         aws.String("lake-query-eds"),
+		RetentionPeriod:              aws.Int32(7),
+		TerminationProtectionEnabled: aws.Bool(false),
+	})
+	require.NoError(t, err)
+	eds := aws.ToString(created.EventDataStoreArn)
+	t.Cleanup(func() {
+		_, _ = ct.DeleteEventDataStore(ctx, &cloudtrail.DeleteEventDataStoreInput{EventDataStore: aws.String(eds)})
+	})
+
+	// A store holds the events recorded after it was created.
+	_, err = ec2Client().DescribeVpcs(ctx, &ec2.DescribeVpcsInput{})
+	require.NoError(t, err)
 
 	started, err := ct.StartQuery(ctx, &cloudtrail.StartQueryInput{
-		QueryStatement: aws.String("SELECT eventName, eventSource FROM " + eds + " LIMIT 10"),
+		QueryStatement: aws.String("SELECT eventName, eventSource FROM " + eds + " WHERE eventName = 'DescribeVpcs'"),
 	})
 	require.NoError(t, err)
 	qid := aws.ToString(started.QueryId)
@@ -116,6 +130,13 @@ func TestCloudTrail_LakeQuerySDK(t *testing.T) {
 	res, err := ct.GetQueryResults(ctx, &cloudtrail.GetQueryResultsInput{QueryId: aws.String(qid)})
 	require.NoError(t, err)
 	assert.Equal(t, cttypes.QueryStatusFinished, res.QueryStatus)
+	require.NotEmpty(t, res.QueryResultRows, "the store must hold the DescribeVpcs call made after it was created")
+
+	_, err = ct.StartQuery(ctx, &cloudtrail.StartQueryInput{
+		QueryStatement: aws.String("SELECT eventName FROM arn:aws:cloudtrail:us-east-1:123456789012:eventdatastore/never-created"),
+	})
+	var notFound *cttypes.EventDataStoreNotFoundException
+	require.ErrorAs(t, err, &notFound)
 
 	queries, err := ct.ListQueries(ctx, &cloudtrail.ListQueriesInput{EventDataStore: aws.String(eds)})
 	require.NoError(t, err)

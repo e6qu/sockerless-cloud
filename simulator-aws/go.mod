@@ -5,9 +5,11 @@ go 1.26.0
 require (
 	github.com/HugoSmits86/nativewebp v1.3.0
 	github.com/PaesslerAG/jsonpath v0.1.1
+	github.com/beevik/etree v1.8.0
+	github.com/containerd/errdefs v1.0.0
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917090915-f5e49032c874
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260917090956-347503e2a5a2
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917134425-9515e908cf03
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260917164212-18eae6f0d1c2
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/go-git/go-git/v5 v5.19.2
@@ -18,6 +20,7 @@ require (
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.6.0
 	github.com/rs/zerolog v1.35.1
+	github.com/russellhaering/goxmldsig v1.6.1
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/image v0.46.0
 	golang.org/x/net v0.59.0
@@ -34,7 +37,6 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.6.5 // indirect
-	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.7.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
@@ -51,6 +53,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
+	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/kevinburke/ssh_config v1.6.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect

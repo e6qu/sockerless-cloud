@@ -36,10 +36,17 @@ Current state of the sockerless-cloud repository.
 - **AWS**: the 41 vendored Smithy models are implemented or exempt in full, the
   exemptions being the Amazon S3 bucket subresources the query-parameter table
   routes, each verified against that table. IAM resource derivation covers
-  2,000 of 2,008 served operations; the eight that remain are requests naming
-  no resource, and `"*"` is the honest answer. 1,406 of the 1,739 actions
-  declaring an action condition key carry every one of theirs (BUG-2965
-  measures the rest).
+  2,004 of 2,012 served operations; the eight that remain are requests naming
+  no resource, and `"*"` is the honest answer. Condition keys are ratcheted too:
+  every key the vendored Service References declare -- 606 over 1,739 actions --
+  is either named by the gate or classified as unmodelled with the reason, and a
+  classified key the gate later resolves fails its own row. What that does not
+  yet prove is per-action: that a key some code names is built for every action
+  declaring it (BUG-2965). The Amazon S3 control plane is authorized route by
+  route, each in the namespace AWS publishes its action under — s3, s3express,
+  s3-outposts or s3-object-lambda. One route is tested as ungated and says why:
+  no vendored document declares an action for the control plane's
+  DeleteBucketLifecycleConfiguration.
 - **Google Cloud**: 5,486 of 5,486 Discovery method spellings across 30
   documents reach a route that names them; the gRPC surfaces serve 210 of 213
   methods, the three unserved each needing state the simulator does not hold.
@@ -90,6 +97,12 @@ Current state of the sockerless-cloud repository.
   containers, scoped to the state directory so a concurrent suite is never
   touched. A simulator exits when the process in `SOCKERLESS_PARENT_PID` is
   gone.
+- **The S3 control plane is authorized, not just the data plane.** Every
+  `/v20180820` route runs the shared IAM gate as the action the AWS Service
+  Reference names for its operation, against the resource the request names;
+  seven whose actions belong to the `s3express`, `s3-outposts` and
+  `s3-object-lambda` namespaces are listed as ungated with that reason, and a
+  test refuses an eighth (BUG-3014).
 - **Every credential is verified**: SigV4 against the principal's stored
   secret, from the header and from a presigned URL alike; Google Cloud and
   Microsoft Entra bearers against the simulator's signing keys; the Azure

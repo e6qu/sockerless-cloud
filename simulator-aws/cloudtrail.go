@@ -71,8 +71,35 @@ type CloudTrailEvent struct {
 	Seq int64
 }
 
-// cloudTrailSeq is the monotonic source for CloudTrailEvent.Seq.
+// cloudTrailSeq is the last CloudTrailEvent.Seq handed out.
 var cloudTrailSeq int64
+
+// cloudTrailNextSeq returns a sequence number above every earlier one, including
+// those a previous process recorded: it never falls below the clock in
+// nanoseconds, so a restart needs no scan of the stored events to resume.
+func cloudTrailNextSeq() int64 {
+	for {
+		last := atomic.LoadInt64(&cloudTrailSeq)
+		next := max(last+1, time.Now().UnixNano())
+		if atomic.CompareAndSwapInt64(&cloudTrailSeq, last, next) {
+			return next
+		}
+	}
+}
+
+// cloudTrailHistoryRetention is how far back CloudTrail event history reaches.
+const cloudTrailHistoryRetention = 90 * 24 * time.Hour
+
+func cloudTrailSweepHistory(now time.Time) int {
+	return cloudTrailEvents.Prune(func(event CloudTrailEvent) bool {
+		return !cloudTrailInHistory(event, now)
+	})
+}
+
+func cloudTrailInHistory(event CloudTrailEvent, now time.Time) bool {
+	at, err := time.Parse(time.RFC3339, event.EventTime)
+	return err == nil && !at.Before(now.Add(-cloudTrailHistoryRetention))
+}
 
 type CloudTrailResource struct {
 	ResourceName string
@@ -117,13 +144,7 @@ func registerCloudTrail(r *AWSRouter, srv *sim.Server) {
 	cloudTrailDeliveries = sim.MakeStore[CloudTrailDelivery](srv.DB(), "cloudtrail_deliveries")
 	cloudTrailEvents = sim.MakeStore[CloudTrailEvent](srv.DB(), "cloudtrail_events")
 	cloudTrailChannels = sim.MakeStore[CloudTrailChannel](srv.DB(), "cloudtrail_channels")
-	var latestSequence int64
-	for _, event := range cloudTrailEvents.List() {
-		if event.Seq > latestSequence {
-			latestSequence = event.Seq
-		}
-	}
-	atomic.StoreInt64(&cloudTrailSeq, latestSequence)
+	startStoreSweeper(srv, cloudTrailSweepHistory)
 
 	for _, op := range []string{
 		"CreateTrail", "DescribeTrails", "GetTrail", "UpdateTrail", "GetTrailStatus",
@@ -340,7 +361,9 @@ func handleCloudTrailLookupEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	// The full matched, time-ordered event list; a stable cursor resumes within
 	// it so head-insertion between page fetches can't duplicate or skip events.
-	matched := cloudTrailMatchedOrdered(cloudTrailEvents.List(), req.LookupAttributes)
+	now := time.Now()
+	history := cloudTrailEvents.Filter(func(event CloudTrailEvent) bool { return cloudTrailInHistory(event, now) })
+	matched := cloudTrailMatchedOrdered(history, req.LookupAttributes)
 	// StartTime/EndTime (epoch-second numbers in awsJson) scope events to a
 	// [StartTime, EndTime] window — inclusive, matching the real LookupEvents API.
 	matched = cloudTrailFilterTimeWindow(matched, req.StartTime, req.EndTime)
@@ -1021,12 +1044,13 @@ func cloudTrailRecord(ev CloudTrailEvent) {
 	}
 	ev.EventId = generateUUID()
 	ev.EventTime = time.Now().UTC().Format(time.RFC3339)
-	ev.Seq = atomic.AddInt64(&cloudTrailSeq, 1)
+	ev.Seq = cloudTrailNextSeq()
 	if ev.Username == "" && ev.InvokedBy == "" {
 		ev.Username = "sockerless"
 	}
 	cloudTrailEvents.Put(ev.EventId, ev)
 	cloudTrailDeliverEvent(ev)
+	cloudTrailLakeIngest(ev)
 }
 
 // cloudTrailAccessKeyID extracts the IAM access key id from a SigV4

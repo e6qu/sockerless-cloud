@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 )
 
 // Service-initiation IAM condition keys (aws:ViaAWSService / aws:CalledVia /
@@ -26,14 +29,50 @@ type iamServiceSource struct {
 	SourceAccount string // the originating resource's account
 }
 
-// iamDeliverySource reports the originating-service context for a request that
-// arrived at the front door. Direct client calls (everything that hits POST /)
-// are never service-initiated, so this is nil: a service-initiated call does not
-// arrive as a client request — it is the sim's internal event delivery (see
+// iamServiceSourceKey keys the originating-service context on a request the sim
+// makes internally on the principal's behalf.
+type iamServiceSourceKey struct{}
+
+// iamStampServiceInitiation records src on r as the AWS service that originated
+// the call. It is what a sim internal call path (see
+// firehoseAuthorizeCustomerKeyUse) puts on the request it authorizes, and it is
+// the only way the service-initiation keys become resolvable: a request that
+// arrived from a client carries no stamp and is therefore a direct call.
+func iamStampServiceInitiation(r *http.Request, src iamServiceSource) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), iamServiceSourceKey{}, src))
+}
+
+// iamServiceInitiatedRequest is the request envelope an AWS-service-initiated
+// call carries when the sim originates it internally rather than receiving it
+// from a client: no client body or headers, the originating service stamped on
+// it.
+func iamServiceInitiatedRequest(src iamServiceSource) *http.Request {
+	r := &http.Request{
+		Method: http.MethodPost,
+		URL:    &url.URL{Path: "/"},
+		Header: http.Header{},
+		Body:   http.NoBody,
+	}
+	return iamStampServiceInitiation(r, src)
+}
+
+// iamDeliverySource reports the originating-service context for a request.
+// Direct client calls (everything that hits POST /) are never service-initiated,
+// so this is nil for them: nothing stamps a client's request. A
+// service-initiated call is either the sim's internal event delivery (see
 // snsDeliverToLambda), which authorizes the target's resource policy directly
-// with iamEvalServiceInitiated rather than re-entering the gate.
-func iamDeliverySource(_ *http.Request) *iamServiceSource {
-	return nil
+// with iamEvalServiceInitiated, or an internal call the sim makes on the
+// principal's behalf, which stamps the source with iamStampServiceInitiation and
+// is authorized through the gate.
+func iamDeliverySource(r *http.Request) *iamServiceSource {
+	if r == nil {
+		return nil
+	}
+	src, stamped := r.Context().Value(iamServiceSourceKey{}).(iamServiceSource)
+	if !stamped {
+		return nil
+	}
+	return &src
 }
 
 // iamAuthorizeServiceDelivery is the gate the sim's internal event delivery
@@ -66,22 +105,35 @@ func iamValidateServiceRole(roleARN, service string, actions map[string]string) 
 	if err != nil {
 		return fmt.Errorf("IAM role %s has an invalid trust policy: %w", roleARN, err)
 	}
-	ctx := map[string][]string{
-		"aws:CalledVia":     {service},
-		"aws:ViaAWSService": {"true"},
-	}
+	src := iamServiceSource{Service: service}
 	if decision, _ := iamEvalDecisionForPrincipal(
-		[]iamPolicyDoc{trust}, "sts:AssumeRole", roleARN, "service:"+service, ctx,
+		[]iamPolicyDoc{trust}, "sts:AssumeRole", roleARN, "service:"+service,
+		iamServiceInitiatedConditionContext(src),
 	); decision != "allowed" {
 		return fmt.Errorf("IAM role %s does not trust %s", roleARN, service)
 	}
 	docs := iamPolicyDocsForRole(roleName)
 	for action, resource := range actions {
-		if decision, _ := iamEvalDecision(docs, action, resource, nil); decision != "allowed" {
+		ctx := iamServiceCallConditionContext(src, action)
+		if decision, _ := iamEvalDecision(docs, action, resource, ctx); decision != "allowed" {
 			return fmt.Errorf("IAM role %s does not allow %s on %s", roleARN, action, resource)
 		}
 	}
 	return nil
+}
+
+// iamServiceCallConditionContext is the condition context one cloud action an
+// AWS service performs on the principal's behalf is authorized against: the
+// service-initiation keys the call always settles, plus the keys the called
+// service itself settles for a service-initiated call — for AWS KMS,
+// kms:ViaService and kms:GrantIsForAWSResource. Before this, the per-action
+// check evaluated a nil context, so a role policy that scoped a permission to
+// use through one service could not match at all.
+func iamServiceCallConditionContext(src iamServiceSource, action string) map[string][]string {
+	ctx := iamServiceInitiatedConditionContext(src)
+	service, operation, _ := strings.Cut(action, ":")
+	iamRunRequestConditionPopulators(iamServiceInitiatedRequest(src), service, operation, nil, ctx)
+	return ctx
 }
 
 // iamEvalServiceInitiated authorizes an AWS-service-initiated call against the

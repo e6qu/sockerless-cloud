@@ -2,6 +2,19 @@
 
 ## Standing work
 
+- **An engine-touching change is not verified by a local run.** The developer
+  machine runs Podman behind the docker socket and CI runs moby; Podman
+  implements volume options in `mount(8)` that moby passes to `mount(2)`, which
+  is how `o=loop` passed here and failed there for hours. Prefer a mechanism
+  neither engine has to interpret, and when only CI can confirm a claim, say so
+  instead of reporting the local run as the proof.
+- **Prove a managed EBS volume inside the microVM once.** The volume now needs
+  a loop device from the guest kernel, and the Scaleway guest is a Firecracker
+  kernel separate from the host's. Nothing in the deployment exercises one
+  today, so the first check after a re-pin is running a task with a managed EBS
+  volume against the deployed simulator rather than assuming the guest has
+  `loop`.
+
 - **Serve what a re-vendor adds.** The daily specification refresh pushes onto
   the open pull request; a moved declared total has to be served or declared,
   and a served count that falls has to be shown to be a withdrawal, with the

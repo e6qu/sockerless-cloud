@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"io"
 	"net"
 	"net/http"
@@ -44,17 +45,38 @@ func iamEnforce(w http.ResponseWriter, r *http.Request) bool {
 	if iamPermissionlessAction(action) {
 		return true // calls AWS authorizes for every caller regardless of policy
 	}
-	for _, resource := range iamResourceARNsForRequest(r, action) {
-		allowed, principalArn, registered := iamAuthorize(r, action, resource)
+	for _, target := range iamAuthorizationTargets(r, action) {
+		allowed, principalArn, registered := iamAuthorize(r, target.action, target.resource)
 		if !registered {
 			return true // unknown/test credential — permissive
 		}
 		if !allowed {
-			iamWriteDeny(w, r, principalArn, action)
+			iamWriteDeny(w, r, principalArn, target.action)
 			return false
 		}
 	}
 	return iamEnforcePassRole(w, r, action)
+}
+
+// iamAuthorizationTarget is one action a request is authorized for, on one
+// resource.
+type iamAuthorizationTarget struct {
+	action   string
+	resource string
+}
+
+// iamAuthorizationTargets lists what a request is authorized for: see
+// iamOperationTargets.
+func iamAuthorizationTargets(r *http.Request, action string) []iamAuthorizationTarget {
+	service, operation, _ := strings.Cut(action, ":")
+	return iamOperationTargets(r, service, operation, iamResourceARNsForRequest(r, action))
+}
+
+func iamKMSKeyARNOrAny(keyID string) string {
+	if key, ok := kmsKeys.Get(keyID); ok && key.Arn != "" {
+		return key.Arn
+	}
+	return "*"
 }
 
 // iamEnforcePassRole runs the second authorization AWS performs when a request
@@ -65,6 +87,20 @@ func iamEnforce(w http.ResponseWriter, r *http.Request) bool {
 // anything. Operations that pass no role, and requests that name none, are
 // unaffected.
 func iamEnforcePassRole(w http.ResponseWriter, r *http.Request, action string) bool {
+	return iamEnforcePassRoleWith(w, r, action, iamWriteDeny)
+}
+
+// iamEnforcePassRoleWith is iamEnforcePassRole refusing in the error shape the
+// calling surface uses, which for a REST service is its own rather than the
+// control-plane envelope.
+// iamUnreadableRoleARN stands for a role this gate could not read out of a
+// request body that did not fit. It is not a role any policy can name, so the
+// PassRole check denies -- the safe reading of "the request may be passing a
+// role and we cannot see which".
+const iamUnreadableRoleARN = "arn:aws:iam::unreadable-request-body:role/unreadable"
+
+func iamEnforcePassRoleWith(w http.ResponseWriter, r *http.Request, action string,
+	deny func(http.ResponseWriter, *http.Request, string, string)) bool {
 	principals, ok := iamPassRoleOperations[action]
 	if !ok {
 		return true
@@ -83,7 +119,7 @@ func iamEnforcePassRole(w http.ResponseWriter, r *http.Request, action string) b
 			return true
 		}
 		if !allowed {
-			iamWriteDeny(w, r, principalArn, "iam:PassRole")
+			deny(w, r, principalArn, "iam:PassRole")
 			return false
 		}
 	}
@@ -109,11 +145,24 @@ func iamPassedRoleARNs(r *http.Request) []string {
 		seen[v] = struct{}{}
 		roles = append(roles, v)
 	}
-	if body := iamRequestBody(r); len(body) > 0 {
+	body, within := iamRequestBodyWithin(r)
+	if len(body) > 0 {
 		var doc any
 		if json.Unmarshal(body, &doc) == nil {
 			iamWalkJSONStrings(doc, add)
+		} else {
+			// The S3 control plane composes its requests as XML documents, and
+			// registering an Access Grants location names the role there.
+			iamWalkXMLText(body, add)
 		}
+	}
+	if !within && len(roles) == 0 {
+		// The body did not fit, so this scan cannot say the request names no
+		// role. Every operation that passes a role is small -- none of them
+		// carries an upload -- so an oversized body on one of them is treated
+		// as naming a role that no policy grants rather than as naming none,
+		// which would let it through unauthorized.
+		roles = append(roles, iamUnreadableRoleARN)
 	}
 	// Query-protocol services carry the role as a form parameter.
 	_ = r.ParseForm()
@@ -128,6 +177,23 @@ func iamPassedRoleARNs(r *http.Request) []string {
 
 func iamIsRoleARN(v string) bool {
 	return strings.HasPrefix(v, "arn:aws:iam::") && strings.Contains(v, ":role/")
+}
+
+// iamWalkXMLText calls visit for every element's character data anywhere in an
+// XML document.
+func iamWalkXMLText(body []byte, visit func(string)) {
+	decoder := xml.NewDecoder(bytes.NewReader(body))
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return
+		}
+		if data, ok := token.(xml.CharData); ok {
+			if text := strings.TrimSpace(string(data)); text != "" {
+				visit(text)
+			}
+		}
+	}
 }
 
 // iamWalkJSONStrings calls visit for every string anywhere in a decoded JSON
@@ -225,7 +291,13 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 				policyARN = resource[:len("arn:aws:s3:::")+i]
 			}
 		}
-		if rdocs := iamResourcePolicyDocsForARN(policyARN); len(rdocs) > 0 {
+		rdocs := iamResourcePolicyDocsForARN(policyARN)
+		// A role's trust policy is the resource policy of assuming it: naming
+		// the caller there grants the assumption without an identity policy.
+		if action == "sts:AssumeRole" {
+			rdocs = append(rdocs, iamRoleTrustDocs(resource)...)
+		}
+		if len(rdocs) > 0 {
 			rdec, _ := iamEvalDecisionForPrincipal(rdocs, action, resource, principalArn, ctx)
 			if rdec == "explicitDeny" {
 				return false, principalArn, true
@@ -321,14 +393,7 @@ func iamActionForRequest(r *http.Request) (string, bool) {
 	if service == "monitoring" {
 		service = "cloudwatch"
 	}
-	var op string
-	if target := r.Header.Get("X-Amz-Target"); target != "" {
-		if i := strings.LastIndex(target, "."); i >= 0 {
-			op = target[i+1:]
-		}
-	} else {
-		op = r.FormValue("Action")
-	}
+	op := iamRequestWireOperation(r)
 	if service == "" || op == "" {
 		return "", false
 	}
@@ -458,17 +523,47 @@ func iamLambdaResourceName(r *http.Request) string {
 
 // iamRequestBody reads the full request body, restoring it so the downstream
 // handler still sees it.
+// iamConditionBodyLimit bounds what the gate holds of a request body. Every
+// request whose members the gate reads is far below it — AWS caps a DynamoDB
+// request at 16 MB — while an Amazon S3 upload has no bound at all, and
+// holding one in memory to look for members it does not carry is what the
+// guest has the least of.
+const iamConditionBodyLimit = 16 << 20
+
+// iamRequestBody returns the request body for the gate to read, and leaves the
+// request carrying all of it for the handler. A body past the limit is not
+// returned: half a document parses as nothing, or worse as something.
 func iamRequestBody(r *http.Request) []byte {
-	if r.Body == nil {
-		return nil
-	}
-	body, err := io.ReadAll(r.Body)
-	_ = r.Body.Close()
-	r.Body = io.NopCloser(bytes.NewReader(body))
-	if err != nil {
-		return nil
-	}
+	body, _ := iamRequestBodyWithin(r)
 	return body
+}
+
+// iamRequestBodyWithin is iamRequestBody plus whether the body fit. A caller
+// that must not miss what the body says — the iam:PassRole check, whose whole
+// job is to find a role ARN in it — needs to tell "no role in this body" from
+// "this body was too large to look at", because the first is a grant and the
+// second would be a bypass.
+func iamRequestBodyWithin(r *http.Request) ([]byte, bool) {
+	if r.Body == nil {
+		return nil, true
+	}
+	held, err := io.ReadAll(io.LimitReader(r.Body, iamConditionBodyLimit+1))
+	if err != nil {
+		_ = r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(held))
+		return nil, false
+	}
+	if len(held) <= iamConditionBodyLimit {
+		_ = r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(held))
+		return held, true
+	}
+	rest := r.Body
+	r.Body = struct {
+		io.Reader
+		io.Closer
+	}{Reader: io.MultiReader(bytes.NewReader(held), rest), Closer: rest}
+	return nil, false
 }
 
 // iamJSONBodyField reads a top-level string field from an awsJson request body,

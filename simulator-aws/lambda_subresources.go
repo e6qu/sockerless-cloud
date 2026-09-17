@@ -67,9 +67,11 @@ type LambdaAliasRoutingConfig struct {
 // LambdaPolicyStatement is one entry in the function's resource-policy
 // document. AddPermission appends, RemovePermission removes by Sid.
 type LambdaPolicyStatement struct {
-	Sid       string         `json:"Sid"`
-	Effect    string         `json:"Effect"`
-	Principal map[string]any `json:"Principal"`
+	Sid    string `json:"Sid"`
+	Effect string `json:"Effect"`
+	// Principal is the element AWS Lambda writes for the principal the
+	// permission names: an object keyed by its kind, or "*".
+	Principal any            `json:"Principal"`
 	Action    string         `json:"Action"`
 	Resource  string         `json:"Resource"`
 	Condition map[string]any `json:"Condition,omitempty"`
@@ -453,7 +455,7 @@ func handleLambdaAddPermission(w http.ResponseWriter, r *http.Request) {
 	stmt := LambdaPolicyStatement{
 		Sid:       req.StatementId,
 		Effect:    "Allow",
-		Principal: map[string]any{"Service": req.Principal},
+		Principal: lambdaPermissionPrincipal(req.Principal),
 		Action:    req.Action,
 		Resource:  fn.FunctionArn,
 	}
@@ -667,4 +669,22 @@ func handleLambdaDeleteFunctionUrlConfig(w http.ResponseWriter, r *http.Request)
 	}
 	lambdaURLConfigs.Delete(name)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// lambdaPermissionPrincipal renders the principal an AddPermission names the
+// way AWS Lambda writes it into the function's policy: a service by its
+// principal name, an account by its root ARN, an IAM user or role by its own
+// ARN, and "*" as the wildcard.
+func lambdaPermissionPrincipal(principal string) any {
+	switch {
+	case principal == "*":
+		return "*"
+	case strings.HasPrefix(principal, "arn:"):
+		return map[string]any{"AWS": principal}
+	case strings.HasSuffix(principal, ".amazonaws.com"):
+		return map[string]any{"Service": principal}
+	case len(principal) == 12 && strings.Trim(principal, "0123456789") == "":
+		return map[string]any{"AWS": "arn:aws:iam::" + principal + ":root"}
+	}
+	return map[string]any{"Service": principal}
 }

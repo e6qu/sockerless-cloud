@@ -21,6 +21,9 @@ type Store[T any] interface {
 	// for read-modify-write that must not race a concurrent writer the way a
 	// separate Update-then-Put pair would.
 	Upsert(id string, fn func(*T))
+	// Prune deletes every item expired reports true for and returns how many
+	// it deleted, without loading the whole store at once.
+	Prune(expired func(T) bool) int
 	// Generation is a counter this store advances on every write that
 	// changed it. Two reads that observe the same generation observed the
 	// same contents, so a caller that derives an index from List can keep

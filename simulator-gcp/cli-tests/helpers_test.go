@@ -220,12 +220,32 @@ func installCBT(binDir string) {
 	}
 	// v1.13.0 is the last release of cloud.google.com/go/bigtable that still
 	// ships cmd/cbt; later versions moved it out of the module.
-	install := exec.Command("go", "install", "cloud.google.com/go/bigtable/cmd/cbt@v1.13.0")
-	install.Env = append(os.Environ(), "GOBIN="+binDir, "GOWORK=off")
+	//
+	// The install reaches the module proxy and the checksum database, and both
+	// fail from time to time in a way that has nothing to do with this
+	// repository: a run failed with "sum.golang.org/tile/8/0/112: stream
+	// error: INTERNAL_ERROR; received from peer" and took the whole pull
+	// request red with it. So the fetch is attempted a few times before it is
+	// believed. This is not a fallback -- nothing else is installed, nothing is
+	// skipped, and a persistent failure still stops the suite -- it only keeps
+	// one flaky read of a public server from being reported as a defect here.
 	var buf bytes.Buffer
-	install.Stdout = &buf
-	install.Stderr = &buf
-	if err := install.Run(); err != nil {
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		buf.Reset()
+		install := exec.Command("go", "install", "cloud.google.com/go/bigtable/cmd/cbt@v1.13.0")
+		install.Env = append(os.Environ(), "GOBIN="+binDir, "GOWORK=off")
+		install.Stdout = &buf
+		install.Stderr = &buf
+		if err = install.Run(); err == nil {
+			break
+		}
+		log.Printf("go install cbt attempt %d/3 failed: %v\n%s", attempt, err, buf.String())
+		if attempt < 3 {
+			time.Sleep(time.Duration(attempt) * 5 * time.Second)
+		}
+	}
+	if err != nil {
 		log.Fatalf("go install cbt failed (required for Bigtable data-plane CLI test): %v\n%s", err, buf.String())
 	}
 	if _, err := os.Stat(cbtPath); err != nil {
@@ -270,7 +290,11 @@ func installGcloudCLI() string {
 	archive := fmt.Sprintf("google-cloud-cli-%s-%s-%s.tar.gz", version, osName, arch)
 	dlURL := "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/" + archive
 	tarball := filepath.Join(binDir, archive)
-	if out, err := exec.Command("curl", "-fsSL", "-o", tarball, dlURL).CombinedOutput(); err != nil {
+	// curl retries the transfer itself for the same reason the cbt install
+	// does: a single failed read of a public download server is not a fact
+	// about this repository, and a persistent one still stops the suite.
+	if out, err := exec.Command("curl", "-fsSL", "--retry", "3", "--retry-delay", "5",
+		"--retry-connrefused", "-o", tarball, dlURL).CombinedOutput(); err != nil {
 		log.Fatalf("Failed to download gcloud CLI (%s): %v\n%s", dlURL, err, out)
 	}
 	if out, err := exec.Command("tar", "-xzf", tarball, "-C", binDir).CombinedOutput(); err != nil {

@@ -105,7 +105,7 @@ func iamPopulateResourceConditionKeys(r *http.Request, action string, ctx map[st
 		// resource into aws:ResourceTag/<k> + <service>:ResourceTag/<k>.
 		iamPopulateServiceResourceTags(r, service, ctx)
 	}
-	iamPopulateRequestTags(r, ctx)
+	iamPopulateRequestTags(r, service, ctx)
 }
 
 // iamPopulateEC2ResourceTags resolves the tags of the EC2 resource the request
@@ -182,16 +182,30 @@ func iamPopulateECSCluster(r *http.Request, ctx map[string][]string) {
 }
 
 // iamPopulateRequestTags exposes aws:RequestTag/<k> + aws:TagKeys from the tags
-// supplied on a tag-on-create / CreateTags request (Tag.N.Key/Value form).
-func iamPopulateRequestTags(r *http.Request, ctx map[string][]string) {
-	tags := parseIndexedTags(r, "Tag")
+// supplied on a tag-on-create / tagging request, read in the wire shape the
+// addressed service actually sends — see iamRequestTagShapes, which records one
+// row per service and cites the vendored Smithy model it came from. A request
+// carrying no tags in a shape this simulator can read leaves both keys unset,
+// the way AWS leaves out a condition key that does not apply.
+func iamPopulateRequestTags(r *http.Request, service string, ctx map[string][]string) {
+	tags := iamRequestTags(r, service)
 	if len(tags) == 0 {
 		return
 	}
 	var keys []string
+	seen := map[string]bool{}
 	for _, t := range tags {
+		if t.Key == "" {
+			continue
+		}
 		ctx["aws:RequestTag/"+t.Key] = []string{t.Value}
-		keys = append(keys, t.Key)
+		if !seen[t.Key] {
+			seen[t.Key] = true
+			keys = append(keys, t.Key)
+		}
+	}
+	if len(keys) == 0 {
+		return
 	}
 	ctx["aws:TagKeys"] = keys
 }
@@ -226,24 +240,28 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 	}
 
 	// The Amazon S3 keys below describe how the request was signed and carried,
-	// which the request states outright.
-	if service == "s3" {
+	// which the request states outright. AWS publishes the same family under
+	// each S3 namespace — s3express, s3-outposts and s3-object-lambda declare
+	// their own authType, signatureversion, TlsVersion, signatureAge,
+	// x-amz-content-sha256 and ResourceAccount — so the keys are written under
+	// the namespace the request is authorized in, not always under s3.
+	if iamS3ConditionNamespaces[service] {
 		if r.TLS != nil {
-			ctx["s3:TlsVersion"] = []string{iamTLSVersionName(r.TLS.Version)}
+			ctx[service+":TlsVersion"] = []string{iamTLSVersionName(r.TLS.Version)}
 		}
 		authorization := r.Header.Get("Authorization")
 		switch {
 		case strings.HasPrefix(authorization, "AWS4-HMAC-SHA256"):
-			ctx["s3:authType"] = []string{"REST-HEADER"}
-			ctx["s3:signatureversion"] = []string{"AWS4-HMAC-SHA256"}
+			ctx[service+":authType"] = []string{"REST-HEADER"}
+			ctx[service+":signatureversion"] = []string{"AWS4-HMAC-SHA256"}
 		case r.URL.Query().Get("X-Amz-Signature") != "":
-			ctx["s3:authType"] = []string{"REST-QUERY-STRING"}
-			ctx["s3:signatureversion"] = []string{"AWS4-HMAC-SHA256"}
+			ctx[service+":authType"] = []string{"REST-QUERY-STRING"}
+			ctx[service+":signatureversion"] = []string{"AWS4-HMAC-SHA256"}
 		}
 		if digest := r.Header.Get("x-amz-content-sha256"); digest != "" {
-			ctx["s3:x-amz-content-sha256"] = []string{digest}
+			ctx[service+":x-amz-content-sha256"] = []string{digest}
 		}
-		// s3:signatureAge is how long ago the request was signed, in
+		// signatureAge is how long ago the request was signed, in
 		// milliseconds — the fact a policy tests to refuse a long-lived
 		// presigned URL.
 		if signed := iamSigV4SigningTime(r); !signed.IsZero() {
@@ -251,9 +269,14 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 			if age < 0 {
 				age = 0
 			}
-			ctx["s3:signatureAge"] = []string{strconv.FormatInt(age, 10)}
+			ctx[service+":signatureAge"] = []string{strconv.FormatInt(age, 10)}
 		}
-		ctx["s3:ResourceAccount"] = []string{awsAccountID()}
+		ctx[service+":ResourceAccount"] = []string{awsAccountID()}
+	}
+	// The rest are the general-purpose data plane's own, and only it serves
+	// them: an Outposts object or a directory bucket's object is not an
+	// operation this simulator answers.
+	if service == "s3" {
 		iamPopulateS3RequestConditionKeys(r, ctx)
 		iamPopulateS3LocationConstraint(body, ctx)
 		// s3:versionid is the object version the request names, which is how a
@@ -285,6 +308,12 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		iamPopulateDynamoDBConditionKeys(r, action, body, ctx)
 	}
 
+	if service == "codebuild" {
+		iamPopulateCodeBuildConditionKeys(name, body, ctx)
+	}
+
+	iamRunRequestConditionPopulators(r, service, name, body, ctx)
+
 	// kms:EncryptionAlgorithm is the algorithm the request asks the key to use,
 	// which a policy pins so a key is never used with a weaker one.
 	if service == "kms" {
@@ -295,7 +324,7 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 
 	// rds:PubliclyAccessible is whether the request asks for an instance
 	// reachable from the internet, which a policy refuses outright.
-	if service == "rds" {
+	if service == "rds" && iamRDSPublicAccessActions[name] {
 		if public := iamRequestParameter(r, body, "PubliclyAccessible"); public != "" {
 			ctx["rds:PubliclyAccessible"] = []string{public}
 		}
@@ -351,21 +380,18 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 	}
 
 	// acm:CertificateKeyPairOrigin says who made the certificate's key pair:
-	// AWS, for one this service issued, or the caller, for one it imported —
-	// which the certificate's own record settles.
+	// AWS_MANAGED for one ACM made, ACME or CUSTOMER_PROVIDED otherwise.
 	if service == "acm" {
-		if arn := iamRequestParameter(r, body, "CertificateArn"); arn != "" {
-			// The store is keyed by the certificate's id, which is the last
-			// segment of its ARN.
-			if stored, ok := acmCertificates.Get(acmARNToID(arn)); ok {
-				// The certificate's own type says who made its key pair: one
-				// the caller imported came with its key, and one this service
-				// issued was made here.
-				origin := "AWS_ISSUED"
-				if stored.Cert.Type == "IMPORTED" {
-					origin = "IMPORTED"
+		switch name {
+		case "RequestCertificate":
+			ctx["acm:CertificateKeyPairOrigin"] = []string{"AWS_MANAGED"}
+		case "AddTagsToCertificate", "DeleteCertificate", "RevokeCertificate", "UpdateCertificate":
+			if arn := iamRequestParameter(r, body, "CertificateArn"); arn != "" {
+				// The store is keyed by the certificate's id, the last segment
+				// of its ARN.
+				if stored, ok := acmCertificates.Get(acmARNToID(arn)); ok {
+					ctx["acm:CertificateKeyPairOrigin"] = []string{acmCertificateKeyPairOrigin(stored.Cert)}
 				}
-				ctx["acm:CertificateKeyPairOrigin"] = []string{origin}
 			}
 		}
 	}
@@ -428,7 +454,7 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 	// rds:ManageMasterUserPassword is whether the request asks Amazon RDS to
 	// manage the master password in AWS Secrets Manager, which a policy uses to
 	// require that a password never be supplied by hand.
-	if service == "rds" {
+	if service == "rds" && iamRDSManagedPasswordActions[name] {
 		if managed := iamRequestParameter(r, body, "ManageMasterUserPassword"); managed != "" {
 			ctx["rds:ManageMasterUserPassword"] = []string{managed}
 		}
@@ -494,6 +520,19 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 // iamOrganizationsRequestPolicyType reads the policy type an AWS Organizations
 // request is about, either from the type the request states or from the policy
 // it names.
+var (
+	iamRDSPublicAccessActions = map[string]bool{
+		"CreateDBInstance": true, "CreateDBInstanceReadReplica": true, "CreateDBShardGroup": true,
+		"RestoreDBInstanceFromDBSnapshot": true, "RestoreDBInstanceFromS3": true, "RestoreDBInstanceToPointInTime": true,
+	}
+	iamRDSManagedPasswordActions = map[string]bool{
+		"CreateDBCluster": true, "CreateDBInstance": true, "CreateTenantDatabase": true,
+		"ModifyDBCluster": true, "ModifyDBInstance": true, "ModifyTenantDatabase": true,
+		"RestoreDBClusterFromS3": true, "RestoreDBInstanceFromDBSnapshot": true,
+		"RestoreDBInstanceFromS3": true, "RestoreDBInstanceToPointInTime": true,
+	}
+)
+
 func iamOrganizationsRequestPolicyType(r *http.Request, body []byte) string {
 	if policyType := iamRequestParameter(r, body, "Type"); policyType != "" {
 		return policyType
@@ -579,6 +618,17 @@ func iamPopulateS3ObjectConditionKeys(r *http.Request, ctx map[string][]string) 
 	for tagKey, tagValue := range tags {
 		ctx["s3:ExistingObjectTag/"+tagKey] = []string{tagValue}
 	}
+}
+
+// iamS3ConditionNamespaces are the namespaces AWS splits the Amazon S3 surface
+// into, each declaring the request-shape condition keys in its own spelling. A
+// request is authorized in exactly one of them, and the gate writes that one's
+// keys.
+var iamS3ConditionNamespaces = map[string]bool{
+	"s3":               true,
+	"s3express":        true,
+	"s3-outposts":      true,
+	"s3-object-lambda": true,
 }
 
 // iamTLSVersionName spells a TLS version the way s3:TlsVersion does.

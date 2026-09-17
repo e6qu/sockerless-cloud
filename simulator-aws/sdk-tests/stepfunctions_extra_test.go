@@ -26,6 +26,7 @@ func TestSFN_LambdaTaskHistory_SDK(t *testing.T) {
 		Code: &lambdatypes.FunctionCode{
 			ImageUri: aws.String(lambdaHandlerImageName),
 		},
+		Architectures: nativeLambdaArchitectures(),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

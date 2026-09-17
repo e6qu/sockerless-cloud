@@ -89,7 +89,7 @@ func TestIAM_ResourceARN_DynamoDBTransactionsAndBatches(t *testing.T) {
 		UserName:   aws.String(user),
 		PolicyName: aws.String("one-table-txn"),
 		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
-			`"Action":["dynamodb:TransactWriteItems","dynamodb:TransactGetItems","dynamodb:BatchWriteItem","dynamodb:BatchGetItem"],` +
+			`"Action":["dynamodb:PutItem","dynamodb:GetItem","dynamodb:BatchWriteItem","dynamodb:BatchGetItem"],` +
 			`"Resource":["arn:aws:dynamodb:us-east-1:123456789012:table/txn-scoped-table",` +
 			`"arn:aws:dynamodb:us-east-1:123456789012:table/txn-scoped-table/index/*"]}]}`),
 	})

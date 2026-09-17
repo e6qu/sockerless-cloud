@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/acm"
+	acmtypes "github.com/aws/aws-sdk-go-v2/service/acm/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -310,9 +311,8 @@ func TestDynamoDB_SelectConditionKeyScopesTheGrant(t *testing.T) {
 
 // TestACM_CertificateKeyPairOriginConditionKeyScopesTheGrant covers
 // acm:CertificateKeyPairOrigin, which says who made a certificate's key pair —
-// the caller, for one it imported, or AWS, for one this service issued. A
-// policy uses it to keep operators away from certificates whose private key
-// came from outside.
+// CUSTOMER_PROVIDED for one the caller imported, AWS_MANAGED for one ACM
+// issued. AddTagsToCertificate is one of the actions that declare it.
 func TestACM_CertificateKeyPairOriginConditionKeyScopesTheGrant(t *testing.T) {
 	admin := acmClient()
 
@@ -341,19 +341,20 @@ func TestACM_CertificateKeyPairOriginConditionKeyScopesTheGrant(t *testing.T) {
 	require.NoError(t, err)
 
 	akid, secret := restrictedCredential(t, "acm-imported-only",
-		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"acm:DescribeCertificate",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"acm:AddTagsToCertificate",
 		  "Resource":"*",
-		  "Condition":{"StringEquals":{"acm:CertificateKeyPairOrigin":"IMPORTED"}}}]}`)
+		  "Condition":{"StringEquals":{"acm:CertificateKeyPairOrigin":"CUSTOMER_PROVIDED"}}}]}`)
 	restricted := acm.NewFromConfig(aws.Config{Region: "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
 		func(o *acm.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
-	_, err = restricted.DescribeCertificate(ctx, &acm.DescribeCertificateInput{
-		CertificateArn: imported.CertificateArn})
+	tags := []acmtypes.Tag{{Key: aws.String("owner"), Value: aws.String("platform")}}
+	_, err = restricted.AddTagsToCertificate(ctx, &acm.AddTagsToCertificateInput{
+		CertificateArn: imported.CertificateArn, Tags: tags})
 	assert.NoError(t, err, "the caller imported this certificate's key pair, which the grant names")
 
-	_, err = restricted.DescribeCertificate(ctx, &acm.DescribeCertificateInput{
-		CertificateArn: issued.CertificateArn})
+	_, err = restricted.AddTagsToCertificate(ctx, &acm.AddTagsToCertificateInput{
+		CertificateArn: issued.CertificateArn, Tags: tags})
 	require.Error(t, err, "a certificate this service issued is not covered by the grant")
 	assert.Contains(t, err.Error(), "not authorized")
 }
