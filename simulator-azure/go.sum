@@ -30,6 +30,8 @@ github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917052632-95775049fdfb h1:
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917052632-95775049fdfb/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917053241-fc0d343303aa h1:zkLAU3e3ZVU5O0NSs9mkjsEUAh8WOS2V84TMmUHHJHw=
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917053241-fc0d343303aa/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917090915-f5e49032c874 h1:MwPf5gFqHkLO7hoGGYCM/D6e8Lfs5wcDKiEw7x7WrCo=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917090915-f5e49032c874/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20260916070120-9ef99c7afde3 h1:ZEqNXhPUaQS1C9Tz5Bmv3j8PrmcGrMtULJiqki63wAY=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20260916070120-9ef99c7afde3/go.mod h1:gUPED98FZ00B22JjsM2qyZP6Lm/Nk+19OKazs2GWAIs=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20260916132950-5bd5cd1ea54c h1:dw2qUhJtj3xmVMqNSaU7Vc+OhLeab3EjTaiRyPD31ok=
