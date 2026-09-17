@@ -113,7 +113,10 @@ var iamConditionKeyRegistry = []iamConditionKeySpec{
 	{"aws:SourceArn", "aws:SourceArn", "the originating resource ARN on a service-initiated delivery", iamProbeServiceDeliveryContext},
 	{"aws:SourceAccount", "aws:SourceAccount", "the originating account on a service-initiated delivery", iamProbeServiceDeliveryContext},
 	{"aws:CalledVia", "aws:CalledVia", "the calling service on a service-initiated delivery", iamProbeServiceDeliveryContext},
-	{"<service>:ResourceTag/*", "lambda:ResourceTag/owner", "lambda/sqs/sns/rds/dynamodb/s3/... resource tags", iamProbeServiceResourceTagContext},
+	{"<service>:ResourceTag/*", "lambda:ResourceTag/owner", "lambda/sqs/sns/dynamodb/s3/... resource tags", iamProbeServiceResourceTagContext},
+	{"rds:<type>-tag/*", "rds:db-tag/owner", "the targeted RDS resource's tags, in the per-resource-type spelling RDS declares instead of rds:ResourceTag", iamProbeRDSResourceTagContext},
+	{"rds:req-tag/*", "rds:req-tag/team", "the tags an RDS request carries (RDS's own spelling of aws:RequestTag)", iamProbeRDSResourceTagContext},
+	{"iam:ResourceTag/*", "iam:ResourceTag/owner", "the targeted IAM user/role's tags", iamProbeIAMResourceTagContext},
 }
 
 // iamProbeAccessKeyID and iamProbeSessionKeyID are the two credentials the
@@ -250,6 +253,47 @@ func iamProbeServiceResourceTagContext(t *testing.T) map[string][]string {
 	r := iamProbeSignedRequest(iamProbeAccessKeyID, "lambda", "", "")
 	r.SetPathValue("name", "conformance-probe-fn")
 	return iamProbeContextFor(t, r, iamProbeAccessKeyID, "lambda:GetFunction")
+}
+
+// iamProbeRDSResourceTagContext is an Amazon RDS tag call against a tagged DB
+// instance: the instance's tags come back as rds:db-tag/<k> (RDS declares no
+// rds:ResourceTag/<k>) and the tags the call carries as rds:req-tag/<k>.
+func iamProbeRDSResourceTagContext(t *testing.T) map[string][]string {
+	t.Helper()
+	iamProbeSeedUser(t)
+	rdsInstances.Put("conformance-probe-db", RDSInstance{
+		DBInstanceIdentifier: "conformance-probe-db",
+		ARN:                  rdsInstanceARN("conformance-probe-db"),
+		Tags:                 map[string]string{"owner": "platform"},
+	})
+	t.Cleanup(func() { rdsInstances.Delete("conformance-probe-db") })
+	form := "Action=AddTagsToResource&Version=2014-10-31" +
+		"&ResourceName=" + rdsInstanceARN("conformance-probe-db") +
+		"&Tags.Tag.1.Key=team&Tags.Tag.1.Value=platform"
+	r := httptest.NewRequest(http.MethodPost, "https://sim.local/", strings.NewReader(form))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+iamProbeAccessKeyID+
+		"/20260801/us-east-1/rds/aws4_request, SignedHeaders=host, Signature=00")
+	return iamProbeContextFor(t, r, iamProbeAccessKeyID, "rds:AddTagsToResource")
+}
+
+// iamProbeIAMResourceTagContext is a call against a tagged IAM role, the
+// service whose own resources the tag resolver had no case for.
+func iamProbeIAMResourceTagContext(t *testing.T) map[string][]string {
+	t.Helper()
+	iamProbeSeedUser(t)
+	iamRoles.Put("conformance-probe-tagged-role", IAMRole{
+		RoleName: "conformance-probe-tagged-role",
+		Arn:      "arn:aws:iam::" + awsAccountID() + ":role/conformance-probe-tagged-role",
+		Tags:     []IAMTag{{Key: "owner", Value: "platform"}},
+	})
+	t.Cleanup(func() { iamRoles.Delete("conformance-probe-tagged-role") })
+	form := "Action=GetRole&Version=2010-05-08&RoleName=conformance-probe-tagged-role"
+	r := httptest.NewRequest(http.MethodPost, "https://sim.local/", strings.NewReader(form))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+iamProbeAccessKeyID+
+		"/20260801/us-east-1/iam/aws4_request, SignedHeaders=host, Signature=00")
+	return iamProbeContextFor(t, r, iamProbeAccessKeyID, "iam:GetRole")
 }
 
 // iamProbeServiceDeliveryContext is the context a service-initiated delivery

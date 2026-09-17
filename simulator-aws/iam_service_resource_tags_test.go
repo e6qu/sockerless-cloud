@@ -18,8 +18,6 @@ func resetTagStores() {
 	lambdaFunctions = sim.MakeStore[LambdaFunction](nil, "lambda_functions")
 	sqsQueues = sim.MakeStore[SQSQueue](nil, "sqs_queues")
 	snsTopics = sim.MakeStore[SNSTopic](nil, "sns_topics")
-	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
-	rdsSnapshots = sim.MakeStore[RDSSnapshot](nil, "rds_snapshots")
 	elbv2LoadBalancers = sim.MakeStore[ELBv2LoadBalancer](nil, "elbv2_load_balancers")
 	elbv2TargetGroups = sim.MakeStore[ELBv2TargetGroup](nil, "elbv2_target_groups")
 	ecClusters = sim.MakeStore[ECCluster](nil, "elasticache_clusters")
@@ -175,12 +173,12 @@ func TestIAMServiceResourceTags(t *testing.T) {
 			"crit", "yes")
 	})
 
-	rdsInstances.Put("db1", RDSInstance{ARN: "arn:aws:rds:us-east-1:123456789012:db:db1", Tags: map[string]string{"app": "core"}})
-	t.Run("rds_resourcename", func(t *testing.T) {
-		assertResolved(t, "rds",
-			formRequest(map[string]string{"ResourceName": "arn:aws:rds:us-east-1:123456789012:db:db1"}),
-			"app", "core")
-	})
+	// Amazon RDS is deliberately not exercised here: it declares no
+	// rds:ResourceTag/${TagKey} and spells one key per resource type instead
+	// (rds:db-tag/<k>, rds:cluster-tag/<k>, …), so it is covered by
+	// iam_rds_iam_resource_tags_test.go rather than by assertResolved's
+	// <service>:ResourceTag shape. AWS Identity and Access Management is
+	// covered there too.
 
 	lbArn := "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/abc"
 	elbv2LoadBalancers.Put(lbArn, ELBv2LoadBalancer{Tags: map[string]string{"net": "edge"}})

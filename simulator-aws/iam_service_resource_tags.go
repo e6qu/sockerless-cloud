@@ -23,7 +23,7 @@ import (
 //
 //   awsJson  : lambda (REST path), sqs, dynamodb, ecr, logs (CloudWatch Logs),
 //              stepfunctions, kms, secretsmanager, kinesis, glue
-//   awsQuery : sns, rds, elbv2, elasticache
+//   awsQuery : sns, elbv2, elasticache
 //   REST     : batch (path arn), s3 (bucket/object tags from the URL path)
 //
 // Each resolver returns the targeted resource's tags as a flat map; the
@@ -31,12 +31,36 @@ import (
 // the target (no such resource / no identifying param) returns ok=false and the
 // gate simply leaves those keys unset — exactly as real AWS does when the
 // resource is absent.
+//
+// Two services do not spell their resource tags <service>:ResourceTag/<k>, so
+// they write their own keys (iamPopulateRDSResourceTags /
+// iamPopulateIAMResourceTags) instead of going through that shared loop:
+//
+//   rds : the vendored service reference declares no rds:ResourceTag/${TagKey}
+//         at all. Every RDS resource type spells its own key — a DB instance's
+//         tags are "rds:db-tag/${TagKey}", a DB cluster's
+//         "rds:cluster-tag/${TagKey}", and so on — so which spelling the gate
+//         writes depends on which resource the request targets.
+//   iam : "iam:ResourceTag/${TagKey}" is declared only on the user and role
+//         resources; a policy or an instance profile carries
+//         "aws:ResourceTag/${TagKey}" alone.
 
 // iamPopulateServiceResourceTags resolves the request's target resource tags
 // for service prefixes other than ec2/ecs and writes aws:ResourceTag/<k> +
 // <service>:ResourceTag/<k>. Returns true when it handled the service (so the
 // caller knows resolution was attempted for this prefix).
 func iamPopulateServiceResourceTags(r *http.Request, service string, ctx map[string][]string) bool {
+	// The two services whose resource-tag condition keys are not spelled
+	// <service>:ResourceTag/<k> write their own.
+	switch service {
+	case "rds":
+		iamPopulateRDSResourceTags(r, ctx)
+		return true
+	case "iam":
+		iamPopulateIAMResourceTags(r, ctx)
+		return true
+	}
+
 	var (
 		tags map[string]string
 		ok   bool
@@ -48,8 +72,6 @@ func iamPopulateServiceResourceTags(r *http.Request, service string, ctx map[str
 		tags, ok = iamSQSResourceTags(r)
 	case "sns":
 		tags, ok = iamSNSResourceTags(r)
-	case "rds":
-		tags, ok = iamRDSResourceTags(r)
 	case "elasticloadbalancing":
 		tags, ok = iamELBv2ResourceTags(r)
 	case "elasticache":
@@ -357,27 +379,6 @@ func iamSNSResourceTags(r *http.Request) (map[string]string, bool) {
 	return t.Tags, true
 }
 
-// iamRDSResourceTags resolves the DB instance/snapshot the request targets — the
-// tag ops carry ResourceName (an ARN); the instance-scoped ops carry
-// DBInstanceIdentifier.
-func iamRDSResourceTags(r *http.Request) (map[string]string, bool) {
-	if arn := r.FormValue("ResourceName"); arn != "" {
-		if i, ok := findRDSByARN(arn); ok {
-			return i.Tags, true
-		}
-		if s, ok := findRDSSnapshotByARN(arn); ok {
-			return s.Tags, true
-		}
-		return nil, false
-	}
-	if id := r.FormValue("DBInstanceIdentifier"); id != "" {
-		if i, ok := rdsInstances.Get(id); ok {
-			return i.Tags, true
-		}
-	}
-	return nil, false
-}
-
 // iamELBv2ResourceTags resolves the load balancer / target group the request
 // targets — the tag ops carry the ResourceArns.N list; resource-scoped ops carry
 // the single LoadBalancerArn / TargetGroupArn (ARN-keyed stores).
@@ -485,4 +486,220 @@ func smTagsToMap(tags []SMTag) map[string]string {
 		out[t.Key] = t.Value
 	}
 	return out
+}
+
+// ── Amazon RDS: one tag condition key per resource type ───────────────
+//
+// RDS declares no rds:ResourceTag/${TagKey}. Each of its resource types names
+// its own key, so the gate can only write the spelling belonging to the
+// resource the request actually targets. The spellings below are quoted
+// verbatim from the vendored reference
+// (specs/cloud-api/aws/service-reference/rds.servicereference.json.gz,
+// Resources[].ConditionKeys):
+//
+//	db               → "rds:db-tag/${TagKey}"
+//	cluster          → "rds:cluster-tag/${TagKey}"
+//	snapshot         → "rds:snapshot-tag/${TagKey}"
+//	cluster-snapshot → "rds:cluster-snapshot-tag/${TagKey}"
+//	pg               → "rds:pg-tag/${TagKey}"
+//	cluster-pg       → "rds:cluster-pg-tag/${TagKey}"
+//	og               → "rds:og-tag/${TagKey}"
+//	subgrp           → "rds:subgrp-tag/${TagKey}"
+//	secgrp           → "rds:secgrp-tag/${TagKey}"
+//	es               → "rds:es-tag/${TagKey}"
+//
+// Every one of those resource types also declares "aws:ResourceTag/${TagKey}",
+// which the gate keeps writing alongside the RDS spelling.
+//
+// The reference declares one further resource tag key,
+// "rds:ri-tag/${TagKey}" on the reserved-instance resource. The simulator's
+// RDSReservedInstance carries no tags, so there is nothing to resolve and that
+// key stays unset rather than being invented.
+
+// iamRDSResourceKind is one RDS resource type the simulator stores tags on: the
+// segment its ARN carries, the condition-key prefix the reference declares for
+// it, the awsQuery member that names one by identifier, and the two lookups of
+// its stored tags.
+type iamRDSResourceKind struct {
+	segment   string
+	condition string
+	member    string
+	byARN     func(arn string) (map[string]string, bool)
+	byID      func(id string) (map[string]string, bool)
+}
+
+// iamRDSResourceKinds is ordered the way a request is matched by member: the
+// resource an operation acts on comes before the groups it merely references,
+// so a ModifyDBInstance naming an instance and its parameter group reports the
+// instance, while a RestoreDBInstanceFromDBSnapshot — whose DBInstanceIdentifier
+// is the instance it is about to create, and so is not stored yet — reports the
+// snapshot it restores from.
+var iamRDSResourceKinds = []iamRDSResourceKind{
+	{"db", "rds:db-tag/", "DBInstanceIdentifier",
+		func(arn string) (map[string]string, bool) { v, ok := findRDSByARN(arn); return v.Tags, ok },
+		func(id string) (map[string]string, bool) { v, ok := rdsInstances.Get(id); return v.Tags, ok }},
+	{"cluster", "rds:cluster-tag/", "DBClusterIdentifier",
+		func(arn string) (map[string]string, bool) { v, ok := findRDSClusterByARN(arn); return v.Tags, ok },
+		func(id string) (map[string]string, bool) { v, ok := rdsClusters.Get(id); return v.Tags, ok }},
+	{"snapshot", "rds:snapshot-tag/", "DBSnapshotIdentifier",
+		func(arn string) (map[string]string, bool) { v, ok := findRDSSnapshotByARN(arn); return v.Tags, ok },
+		func(id string) (map[string]string, bool) { v, ok := rdsSnapshots.Get(id); return v.Tags, ok }},
+	{"cluster-snapshot", "rds:cluster-snapshot-tag/", "DBClusterSnapshotIdentifier",
+		func(arn string) (map[string]string, bool) {
+			v, ok := findRDSClusterSnapshotByARN(arn)
+			return v.Tags, ok
+		},
+		func(id string) (map[string]string, bool) { v, ok := rdsClusterSnapshots.Get(id); return v.Tags, ok }},
+	{"pg", "rds:pg-tag/", "DBParameterGroupName",
+		func(arn string) (map[string]string, bool) { v, ok := findRDSParamGroupByARN(arn); return v.Tags, ok },
+		func(id string) (map[string]string, bool) { v, ok := rdsParamGroups.Get(id); return v.Tags, ok }},
+	{"cluster-pg", "rds:cluster-pg-tag/", "DBClusterParameterGroupName",
+		func(arn string) (map[string]string, bool) {
+			v, ok := findRDSClusterParamGroupByARN(arn)
+			return v.Tags, ok
+		},
+		func(id string) (map[string]string, bool) { v, ok := rdsClusterParamGroups.Get(id); return v.Tags, ok }},
+	{"og", "rds:og-tag/", "OptionGroupName",
+		func(arn string) (map[string]string, bool) { v, ok := findRDSOptionGroupByARN(arn); return v.Tags, ok },
+		func(id string) (map[string]string, bool) { v, ok := rdsOptionGroups.Get(id); return v.Tags, ok }},
+	{"subgrp", "rds:subgrp-tag/", "DBSubnetGroupName",
+		func(arn string) (map[string]string, bool) { v, ok := findRDSSubnetGroupByARN(arn); return v.Tags, ok },
+		func(id string) (map[string]string, bool) { v, ok := rdsSubnetGroups.Get(id); return v.Tags, ok }},
+	{"secgrp", "rds:secgrp-tag/", "DBSecurityGroupName",
+		func(arn string) (map[string]string, bool) {
+			for _, g := range rdsDBSecurityGroups.List() {
+				if g.ARN == arn {
+					return g.Tags, true
+				}
+			}
+			return nil, false
+		},
+		func(id string) (map[string]string, bool) { v, ok := rdsDBSecurityGroups.Get(id); return v.Tags, ok }},
+	{"es", "rds:es-tag/", "SubscriptionName",
+		func(arn string) (map[string]string, bool) {
+			v, ok := findRDSEventSubscriptionByARN(arn)
+			return v.Tags, ok
+		},
+		func(id string) (map[string]string, bool) { v, ok := rdsEventSubscriptions.Get(id); return v.Tags, ok }},
+}
+
+// iamPopulateRDSResourceTags writes the targeted RDS resource's tags as
+// aws:ResourceTag/<k> plus that resource type's own rds:<type>-tag/<k>. A
+// request that names no RDS resource the simulator holds leaves every key
+// unset.
+func iamPopulateRDSResourceTags(r *http.Request, ctx map[string][]string) {
+	kind, tags, ok := iamRDSTargetedResource(r)
+	if !ok {
+		return
+	}
+	for k, v := range tags {
+		ctx["aws:ResourceTag/"+k] = []string{v}
+		ctx[kind.condition+k] = []string{v}
+	}
+}
+
+// iamRDSTargetedResource resolves the RDS resource a request targets, returning
+// its kind (which settles the condition-key spelling) and its stored tags.
+//
+// The tag operations (AddTagsToResource, ListTagsForResource,
+// RemoveTagsFromResource) name it by ARN in ResourceName, whose resource-type
+// segment settles the kind outright; every other operation names it by
+// identifier.
+func iamRDSTargetedResource(r *http.Request) (iamRDSResourceKind, map[string]string, bool) {
+	if arn := r.FormValue("ResourceName"); arn != "" {
+		// arn:<partition>:rds:<region>:<account>:<type>:<name>
+		fields := strings.SplitN(arn, ":", 7)
+		if len(fields) < 7 {
+			return iamRDSResourceKind{}, nil, false
+		}
+		for _, kind := range iamRDSResourceKinds {
+			if kind.segment != fields[5] {
+				continue
+			}
+			tags, ok := kind.byARN(arn)
+			return kind, tags, ok
+		}
+		return iamRDSResourceKind{}, nil, false
+	}
+	for _, kind := range iamRDSResourceKinds {
+		id := r.FormValue(kind.member)
+		if id == "" {
+			continue
+		}
+		if tags, ok := kind.byID(id); ok {
+			return kind, tags, true
+		}
+	}
+	return iamRDSResourceKind{}, nil, false
+}
+
+// ── AWS Identity and Access Management: its own tagged resources ──────
+//
+// IAM stores tags on its users, roles, policies and instance profiles, and a
+// request naming one is authorized against that resource — so the gate must
+// resolve it, or a policy conditioned on the tags of the role it is about to
+// modify can never match.
+//
+// Per the vendored reference
+// (specs/cloud-api/aws/service-reference/iam.servicereference.json.gz,
+// Resources[].ConditionKeys) "iam:ResourceTag/${TagKey}" is declared on the
+// user and role resources only; the policy and instance-profile resources
+// declare "aws:ResourceTag/${TagKey}" alone. The gate writes exactly that, so
+// an iam:ResourceTag condition on a policy stays unmatched here just as it does
+// on real AWS.
+
+// iamIAMResourceKind is one tagged IAM resource type: the awsQuery member that
+// names one, whether the reference declares iam:ResourceTag/<k> for it, and the
+// lookup of its stored tags.
+type iamIAMResourceKind struct {
+	member    string
+	iamPrefix bool
+	tags      func(name string) ([]IAMTag, bool)
+}
+
+// iamIAMResourceKinds is ordered so the resource an operation is authorized
+// against wins when a request names two: AddRoleToInstanceProfile is a call on
+// the instance profile, AttachRolePolicy and AttachUserPolicy are calls on the
+// role and the user rather than on the policy they attach.
+var iamIAMResourceKinds = []iamIAMResourceKind{
+	{"InstanceProfileName", false, func(name string) ([]IAMTag, bool) {
+		set, ok := iamInstanceProfileTag.Get(name)
+		return set.Tags, ok
+	}},
+	{"UserName", true, func(name string) ([]IAMTag, bool) {
+		u, ok := iamUsers.Get(name)
+		return u.Tags, ok
+	}},
+	{"RoleName", true, func(name string) ([]IAMTag, bool) {
+		role, ok := iamRoles.Get(name)
+		return role.Tags, ok
+	}},
+	{"PolicyArn", false, func(arn string) ([]IAMTag, bool) {
+		p, ok := iamPolicies.Get(arn)
+		return p.Tags, ok
+	}},
+}
+
+// iamPopulateIAMResourceTags writes the tags of the IAM user, role, policy or
+// instance profile the request targets. The first member the request carries
+// names the target; when that resource is not stored the keys stay unset, as
+// they are on real AWS for a request against a resource that does not exist.
+func iamPopulateIAMResourceTags(r *http.Request, ctx map[string][]string) {
+	for _, kind := range iamIAMResourceKinds {
+		name := r.FormValue(kind.member)
+		if name == "" {
+			continue
+		}
+		tags, ok := kind.tags(name)
+		if !ok {
+			return
+		}
+		for _, t := range tags {
+			ctx["aws:ResourceTag/"+t.Key] = []string{t.Value}
+			if kind.iamPrefix {
+				ctx["iam:ResourceTag/"+t.Key] = []string{t.Value}
+			}
+		}
+		return
+	}
 }
