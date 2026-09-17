@@ -1,7 +1,13 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base32"
 	"encoding/base64"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -41,10 +47,19 @@ func stsRequestMFA(r *http.Request) bool {
 	return r.FormValue("SerialNumber") != "" && r.FormValue("TokenCode") != ""
 }
 
-var iamTempCreds sim.Store[IAMTempCred]
+var (
+	iamTempCreds sim.Store[IAMTempCred]
+	// stsTokenKeys holds the key session tokens are sealed with, under
+	// stsTokenKeyID, so tokens minted before a restart still open after it.
+	stsTokenKeys sim.Store[string]
+)
+
+const stsTokenKeyID = "session-token-mac"
 
 func registerSTS(r *AWSQueryRouter, srv *sim.Server) {
 	iamTempCreds = sim.MakeStore[IAMTempCred](srv.DB(), "iam_temp_creds")
+	stsTokenKeys = sim.MakeStore[string](srv.DB(), "sts_token_keys")
+	startTempCredSweeper(srv)
 	r.Register("GetCallerIdentity", handleGetCallerIdentity)
 	r.Register("AssumeRole", handleSTSAssumeRole)
 	r.Register("AssumeRoleWithWebIdentity", handleSTSAssumeRoleWithWebIdentity)
@@ -114,8 +129,78 @@ func stsDurationSeconds(r *http.Request) int {
 	return d
 }
 
-func stsMintTempCred() (akid, secret, token string) {
-	return "ASIA" + strings.ToUpper(iamRandomB32(16)), iamRandomSecret(), iamRandomB32(64)
+// stsMintTempCred mints a temporary credential whose session token carries its
+// own expiration, sealed with the simulator's key. AWS reads a presented
+// token's expiration from the token itself, so a credential the simulator has
+// already pruned is still refused as expired rather than as unknown.
+func stsMintTempCred(expiration time.Time) (akid, secret, token string) {
+	akid = "ASIA" + strings.ToUpper(iamRandomB32(16))
+	payload := make([]byte, stsTokenPayloadLen)
+	binary.BigEndian.PutUint64(payload, uint64(expiration.Unix()))
+	_, _ = rand.Read(payload[8:])
+	sealed := append(payload, stsTokenMAC(akid, payload)...)
+	return akid, iamRandomSecret(), stsTokenEncoding.EncodeToString(sealed)
+}
+
+const (
+	stsTokenPayloadLen = 24 // expiration (8) + random (16)
+	stsTokenMACLen     = 16
+)
+
+var stsTokenEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)
+
+func stsTokenMAC(akid string, payload []byte) []byte {
+	mac := hmac.New(sha256.New, stsTokenKey())
+	mac.Write([]byte(akid))
+	mac.Write(payload)
+	return mac.Sum(nil)[:stsTokenMACLen]
+}
+
+func stsTokenKey() []byte {
+	encoded, ok := stsTokenKeys.Get(stsTokenKeyID)
+	if !ok {
+		stsTokenKeys.Upsert(stsTokenKeyID, func(key *string) {
+			if *key == "" {
+				fresh := make([]byte, sha256.Size)
+				_, _ = rand.Read(fresh)
+				*key = hex.EncodeToString(fresh)
+			}
+			encoded = *key
+		})
+	}
+	key, err := hex.DecodeString(encoded)
+	if err != nil {
+		panic(fmt.Sprintf("stored session token key is not hex: %v", err))
+	}
+	return key
+}
+
+// stsTokenExpiration returns the expiration sealed into a session token
+// stsMintTempCred minted for akid, and false for any other token.
+func stsTokenExpiration(akid, token string) (time.Time, bool) {
+	sealed, err := stsTokenEncoding.DecodeString(token)
+	if err != nil || len(sealed) != stsTokenPayloadLen+stsTokenMACLen {
+		return time.Time{}, false
+	}
+	payload := sealed[:stsTokenPayloadLen]
+	if !hmac.Equal(sealed[stsTokenPayloadLen:], stsTokenMAC(akid, payload)) {
+		return time.Time{}, false
+	}
+	return time.Unix(int64(binary.BigEndian.Uint64(payload)), 0).UTC(), true
+}
+
+// startTempCredSweeper deletes temporary credentials once they expire. An
+// expired credential authorizes nothing, and a caller that presents one is
+// still told so by stsTokenExpiration.
+func startTempCredSweeper(srv *sim.Server) {
+	startStoreSweeper(srv, stsSweepExpiredTempCreds)
+}
+
+func stsSweepExpiredTempCreds(now time.Time) int {
+	return iamTempCreds.Prune(func(tc IAMTempCred) bool {
+		exp, err := time.Parse(time.RFC3339, tc.Expiration)
+		return err == nil && now.After(exp)
+	})
 }
 
 func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
@@ -133,8 +218,8 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
 			http.StatusForbidden)
 		return
 	}
-	akid, secret, token := stsMintTempCred()
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
@@ -182,8 +267,8 @@ func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) 
 		stsErrorXML(w, "InvalidIdentityToken", err.Error(), http.StatusBadRequest)
 		return
 	}
-	akid, secret, token := stsMintTempCred()
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
 	iamTempCreds.Put(akid, IAMTempCred{AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token, RoleName: role.RoleName, PrincipalArn: assumedArn, Expiration: exp.Format(time.RFC3339)})
 	w.Header().Set("Content-Type", "text/xml")
@@ -199,8 +284,8 @@ func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) 
 }
 
 func handleSTSGetSessionToken(w http.ResponseWriter, r *http.Request) {
-	akid, secret, token := stsMintTempCred()
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	// Bind the session token to the caller's user (if registered) so it inherits
 	// the user's policies under enforcement.
 	tc := IAMTempCred{AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
@@ -229,8 +314,8 @@ func handleSTSGetFederationToken(w http.ResponseWriter, r *http.Request) {
 		stsErrorXML(w, "ValidationError", "Name is required", http.StatusBadRequest)
 		return
 	}
-	akid, secret, token := stsMintTempCred()
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	fedArn := fmt.Sprintf("arn:aws:sts::%s:federated-user/%s", awsAccountID(), name)
 	fedUserID := awsAccountID() + ":" + name
 	iamTempCreds.Put(akid, IAMTempCred{
@@ -268,8 +353,8 @@ func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
 	// the SAML subject's NameID. Use a stable simulator subject.
 	subject := "sim-saml-subject"
 	sessionName := subject
-	akid, secret, token := stsMintTempCred()
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
@@ -318,8 +403,8 @@ func handleSTSGetDelegatedAccessToken(w http.ResponseWriter, r *http.Request) {
 		stsErrorXML(w, "ValidationError", "TradeInToken is required", http.StatusBadRequest)
 		return
 	}
-	akid, secret, token := stsMintTempCred()
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	principal := fmt.Sprintf("arn:aws:iam::%s:user/simulator", awsAccountID())
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token, PrincipalArn: principal,
@@ -345,8 +430,8 @@ func handleSTSAssumeRoot(w http.ResponseWriter, r *http.Request) {
 		stsErrorXML(w, "ValidationError", "TargetPrincipal is required", http.StatusBadRequest)
 		return
 	}
-	akid, secret, token := stsMintTempCred()
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
+	akid, secret, token := stsMintTempCred(exp)
 	rootArn := fmt.Sprintf("arn:aws:iam::%s:root", target)
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token, PrincipalArn: rootArn,

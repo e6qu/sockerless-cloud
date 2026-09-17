@@ -217,8 +217,8 @@ func handleS3CreateSession(w http.ResponseWriter, r *http.Request) {
 	if !known {
 		principalArn = fmt.Sprintf("arn:aws:iam::%s:user/simulator", awsAccountID())
 	}
-	akid, secret, token := stsMintTempCred()
 	expires := time.Now().UTC().Add(s3ExpressSessionDuration)
+	akid, secret, token := stsMintTempCred(expires)
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
 		UserName: userName, PrincipalArn: principalArn,

@@ -806,8 +806,8 @@ func handleS3GetDataAccess(w http.ResponseWriter, r *http.Request) {
 			duration = int(n.Seconds())
 		}
 	}
-	akid, secret, token := stsMintTempCred()
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
+	akid, secret, token := stsMintTempCred(expiration)
 	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/s3-access-grants", account, role.RoleName)
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,

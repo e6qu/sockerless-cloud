@@ -538,8 +538,9 @@ func registerECS(r *AWSRouter, srv *sim.Server) {
 	ecsClusters = sim.MakeStore[ECSCluster](srv.DB(), "ecs_clusters")
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](srv.DB(), "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](srv.DB(), "ecs_tasks")
+	ecsTaskCredentials = sim.MakeStore[ecsHeldCredential](srv.DB(), "ecs_task_credentials")
 	ecsBackgroundServer = srv
-	ecsStartStoppedTaskSweeper(srv)
+	startStoreSweeper(srv, ecsSweepStoppedTasks)
 	ecsRebuildRevisionIndex()
 
 	r.Register("AmazonEC2ContainerServiceV20141113.CreateCluster", handleECSCreateCluster)
@@ -3012,43 +3013,16 @@ func ecsTaskExpired(t ECSTask, now time.Time) bool {
 	return now.Sub(ecsEpochTime(*t.StoppedAt)) > ecsStoppedTaskRetention
 }
 
-// ecsSweepStoppedTasks deletes the tasks that have aged out, so the retention
-// is a real bound on what the simulator holds rather than only a filter on what
-// it reports. Tasks are keyed by ID, not ARN.
+// ecsSweepStoppedTasks deletes the tasks that have aged out, and the
+// credentials held for them.
 func ecsSweepStoppedTasks(now time.Time) int {
-	swept := 0
-	for _, task := range ecsTasks.List() {
-		if !ecsTaskExpired(task, now) {
-			continue
-		}
-		if ecsTasks.Delete(task.TaskID()) {
-			swept++
-		}
-	}
+	swept := ecsTasks.Prune(func(task ECSTask) bool { return ecsTaskExpired(task, now) })
+	ecsTaskCredentials.Prune(func(held ecsHeldCredential) bool {
+		_, ok := ecsTasks.Get(held.TaskID)
+		return !ok
+	})
 	return swept
 }
-
-// ecsStartStoppedTaskSweeper prunes aged-out stopped tasks for as long as the
-// server runs.
-func ecsStartStoppedTaskSweeper(srv *sim.Server) {
-	srv.StartBackground(func(ctx context.Context) {
-		ticker := time.NewTicker(ecsStoppedTaskSweepInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				ecsSweepStoppedTasks(time.Now())
-			}
-		}
-	})
-}
-
-// ecsStoppedTaskSweepInterval is how often the sweep runs. It is far shorter
-// than the retention window so a task leaves soon after it ages out, and far
-// longer than a request so the sweep costs nothing measurable.
-const ecsStoppedTaskSweepInterval = time.Minute
 
 func handleECSListTasks(w http.ResponseWriter, r *http.Request) {
 	var req struct {

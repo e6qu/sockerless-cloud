@@ -225,6 +225,9 @@ func sigv4SecretFor(accessKeyID, presentedToken string) (string, *sigv4Error) {
 		}
 		return tc.SecretAccessKey, nil
 	}
+	if exp, ok := stsTokenExpiration(accessKeyID, presentedToken); ok && time.Now().After(exp) {
+		return "", &sigv4Error{sigErrExpiredToken, sigMsgExpiredTok}
+	}
 	return "", &sigv4Error{sigErrInvalidClientToken, sigMsgInvalidTok}
 }
 

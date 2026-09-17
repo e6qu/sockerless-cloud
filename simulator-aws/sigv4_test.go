@@ -19,6 +19,7 @@ func resetCredentialStores() {
 	AwaitSimulatorBackground()
 	iamAccessKeys = sim.MakeStore[IAMAccessKey](nil, "iam_access_keys")
 	iamTempCreds = sim.MakeStore[IAMTempCred](nil, "iam_temp_creds")
+	stsTokenKeys = sim.MakeStore[string](nil, "sts_token_keys")
 }
 
 // TestSigV4_KnownVector validates the signing math against the AWS SigV4
