@@ -1060,6 +1060,7 @@ func injectLambdaInvokeLogs(functionName, requestID string) (logGroup, logStream
 		CreationTime:        startMs,
 		FirstEventTimestamp: startMs,
 		LastEventTimestamp:  startMs,
+		LastIngestionTime:   startMs,
 		Arn:                 cwLogStreamArn(logGroup, logStream),
 		UploadSequenceToken: "1",
 	})
@@ -1071,9 +1072,7 @@ func injectLambdaInvokeLogs(functionName, requestID string) (logGroup, logStream
 
 // appendLambdaLog adds one event to a stream.
 func appendLambdaLog(logKey string, ts int64, msg string) {
-	cwLogEvents.Update(logKey, func(events *[]CWLogEvent) {
-		*events = append(*events, CWLogEvent{Timestamp: ts, Message: msg, IngestionTime: ts})
-	})
+	cwAppendLogEvents(logKey, []CWLogEvent{{Timestamp: ts, Message: msg, IngestionTime: ts}}, nil)
 }
 
 // lambdaErrorPayload renders a Lambda-style error JSON body.

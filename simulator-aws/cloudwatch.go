@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"fmt"
 	"net/http"
 	"slices"
@@ -31,6 +32,11 @@ type CWLogStream struct {
 	FirstEventTimestamp int64  `json:"firstEventTimestamp,omitempty"`
 	LastEventTimestamp  int64  `json:"lastEventTimestamp,omitempty"`
 	LastIngestionTime   int64  `json:"lastIngestionTime,omitempty"`
+	// CompressedBytes is the stream's share of its group's storedBytes, as of
+	// CompressedThrough, the LastIngestionTime it was measured at (-1 once
+	// retention has removed events since).
+	CompressedBytes     int64  `json:"-"`
+	CompressedThrough   int64  `json:"-"`
 	Arn                 string `json:"arn"`
 	UploadSequenceToken string `json:"uploadSequenceToken"`
 }
@@ -81,21 +87,40 @@ func cwIngestWorkloadLogLine(logGroup, logStream, message string, writtenAt time
 		eventMs = writtenAt.UnixMilli()
 	}
 	event := CWLogEvent{Timestamp: eventMs, Message: message, IngestionTime: nowMs}
-	cwLogEvents.Update(key, func(events *[]CWLogEvent) {
-		*events = append(*events, event)
+	nextSequenceToken := cwNextSequenceToken()
+	cwAppendLogEvents(key, []CWLogEvent{event}, func(stream *CWLogStream) {
+		stream.UploadSequenceToken = nextSequenceToken
 	})
 	for _, datum := range extractEMFMetrics(message, eventMs) {
 		cwStoreDatum(datum)
 	}
 	cwEvaluateMetricFilters(logGroup, []CWLogEvent{event})
-	nextSequenceToken := cwNextSequenceToken()
+}
+
+// cwAppendLogEvents appends events to a stream and keeps the stream's own
+// record of them in step -- its first and last event timestamps and its last
+// ingestion time -- whichever path delivered them. touch, when set, updates
+// the stream in the same write.
+func cwAppendLogEvents(key string, events []CWLogEvent, touch func(*CWLogStream)) {
+	if len(events) == 0 {
+		return
+	}
+	cwLogEvents.Update(key, func(stored *[]CWLogEvent) {
+		*stored = append(*stored, events...)
+	})
+	first, last, ingested := events[0].Timestamp, events[0].Timestamp, events[0].IngestionTime
+	for _, e := range events[1:] {
+		first, last, ingested = min(first, e.Timestamp), max(last, e.Timestamp), max(ingested, e.IngestionTime)
+	}
 	cwLogStreams.Update(key, func(stream *CWLogStream) {
-		stream.LastIngestionTime = nowMs
-		stream.UploadSequenceToken = nextSequenceToken
-		if stream.FirstEventTimestamp == 0 {
-			stream.FirstEventTimestamp = eventMs
+		if stream.FirstEventTimestamp == 0 || first < stream.FirstEventTimestamp {
+			stream.FirstEventTimestamp = first
 		}
-		stream.LastEventTimestamp = eventMs
+		stream.LastEventTimestamp = max(stream.LastEventTimestamp, last)
+		stream.LastIngestionTime = max(stream.LastIngestionTime, ingested)
+		if touch != nil {
+			touch(stream)
+		}
 	})
 }
 
@@ -103,6 +128,61 @@ func cwIngestWorkloadLogLine(logGroup, logStream, message string, writtenAt time
 // CloudWatch Logs deletes an event within about 72 hours of it reaching its
 // group's retention, so an hourly pass sits well inside that.
 const cwRetentionSweepInterval = time.Hour
+
+// cwSweepLogs applies each group's retention, then refreshes its storedBytes.
+func cwSweepLogs(now time.Time) int {
+	deleted := cwSweepExpiredLogEvents(now)
+	cwRefreshStoredBytes()
+	return deleted
+}
+
+// cwRefreshStoredBytes sets each log group's storedBytes to the compressed size
+// of the events its streams hold, which is what CloudWatch Logs reports. A
+// stream is compressed again only when it has taken or lost events since it
+// was last measured, so the figure lags ingestion the way the service's does.
+func cwRefreshStoredBytes() {
+	totals := map[string]int64{}
+	for _, stream := range cwLogStreams.List() {
+		size := stream.CompressedBytes
+		if stream.CompressedThrough != stream.LastIngestionTime {
+			key := cwEventsKey(stream.LogGroupName, stream.LogStreamName)
+			events, _ := cwLogEvents.Get(key)
+			size = cwCompressedSize(events)
+			through := stream.LastIngestionTime
+			cwLogStreams.Update(key, func(s *CWLogStream) {
+				s.CompressedBytes = size
+				s.CompressedThrough = through
+			})
+		}
+		totals[stream.LogGroupName] += size
+	}
+	for _, group := range cwLogGroups.List() {
+		if total := totals[group.LogGroupName]; total != group.StoredBytes {
+			cwLogGroups.Update(group.LogGroupName, func(g *CWLogGroup) { g.StoredBytes = total })
+		}
+	}
+}
+
+func cwCompressedSize(events []CWLogEvent) int64 {
+	if len(events) == 0 {
+		return 0
+	}
+	var counted byteCounter
+	zw := gzip.NewWriter(&counted)
+	for _, e := range events {
+		_, _ = zw.Write([]byte(e.Message))
+		_, _ = zw.Write([]byte{'\n'})
+	}
+	_ = zw.Close()
+	return int64(counted)
+}
+
+type byteCounter int64
+
+func (c *byteCounter) Write(p []byte) (int, error) {
+	*c += byteCounter(len(p))
+	return len(p), nil
+}
 
 // cwSweepExpiredLogEvents deletes the events older than their log group's
 // retention and returns how many it deleted. Retention removes events, not
@@ -120,7 +200,9 @@ func cwSweepExpiredLogEvents(now time.Time) int {
 	deleted := 0
 	for _, stream := range cwLogStreams.List() {
 		cutoff, ok := cutoffs[stream.LogGroupName]
-		if !ok || stream.FirstEventTimestamp == 0 || stream.FirstEventTimestamp >= cutoff {
+		// A stream written before its first timestamp was kept records none;
+		// it is read rather than trusted to be young.
+		if !ok || (stream.FirstEventTimestamp != 0 && stream.FirstEventTimestamp >= cutoff) {
 			continue
 		}
 		key := cwEventsKey(stream.LogGroupName, stream.LogStreamName)
@@ -139,6 +221,7 @@ func cwSweepExpiredLogEvents(now time.Time) int {
 			}
 			*events = kept
 		})
+		cwLogStreams.Update(key, func(s *CWLogStream) { s.CompressedThrough = -1 })
 	}
 	return deleted
 }
@@ -149,7 +232,7 @@ func registerCloudWatchLogs(r *AWSRouter, srv *sim.Server) {
 	cwLogEvents = sim.MakeStore[[]CWLogEvent](srv.DB(), "cw_log_events")
 	cwSequences = sim.MakeStore[int64](srv.DB(), "cw_sequences")
 	cwQueries = sim.MakeStore[CWQuery](srv.DB(), "cw_insights_queries")
-	startStoreSweeperEvery(srv, cwRetentionSweepInterval, cwSweepExpiredLogEvents)
+	startStoreSweeperEvery(srv, cwRetentionSweepInterval, cwSweepLogs)
 	registerCloudWatchInsights(r)
 	registerCloudWatchLogsOps(r, srv)
 	registerCloudWatchLogsExtra2(r, srv)
@@ -456,9 +539,9 @@ func handleCWPutLogEvents(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Append events
-	cwLogEvents.Update(key, func(events *[]CWLogEvent) {
-		*events = append(*events, newEvents...)
+	nextSequenceToken := cwNextSequenceToken()
+	cwAppendLogEvents(key, newEvents, func(s *CWLogStream) {
+		s.UploadSequenceToken = nextSequenceToken
 	})
 
 	// CloudWatch auto-extracts metrics from any EMF-formatted event into the
@@ -470,19 +553,6 @@ func handleCWPutLogEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cwEvaluateMetricFilters(req.LogGroupName, newEvents)
-
-	// Update stream timestamps
-	nextSequenceToken := cwNextSequenceToken()
-	cwLogStreams.Update(key, func(s *CWLogStream) {
-		s.LastIngestionTime = now
-		s.UploadSequenceToken = nextSequenceToken
-		if len(newEvents) > 0 {
-			if s.FirstEventTimestamp == 0 {
-				s.FirstEventTimestamp = newEvents[0].Timestamp
-			}
-			s.LastEventTimestamp = newEvents[len(newEvents)-1].Timestamp
-		}
-	})
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"nextSequenceToken": nextSequenceToken,

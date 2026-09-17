@@ -1437,13 +1437,7 @@ func deliverEBTarget(ruleArn string, target EBTarget, body, source, detailType, 
 			})
 			cwLogEvents.Put(key, []CWLogEvent{})
 		}
-		cwLogEvents.Update(key, func(events *[]CWLogEvent) {
-			*events = append(*events, CWLogEvent{Timestamp: now, IngestionTime: now, Message: body})
-		})
-		cwLogStreams.Update(key, func(logStream *CWLogStream) {
-			logStream.LastEventTimestamp = now
-			logStream.LastIngestionTime = now
-		})
+		cwAppendLogEvents(key, []CWLogEvent{{Timestamp: now, IngestionTime: now, Message: body}}, nil)
 		return
 	}
 	_, _, _ = source, detailType, eventID

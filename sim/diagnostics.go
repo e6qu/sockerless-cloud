@@ -22,8 +22,9 @@ import (
 //
 // The diagnostics listener is deliberately separate from the API listener and
 // is not proxied publicly: goroutine dumps expose internal state, and
-// /debug/pprof/profile is a denial-of-service handle. It binds inside the guest
-// only, where an operator reaches it from the host over the tap:
+// /debug/pprof/profile is a denial-of-service handle. It binds loopback unless
+// the deployment names another address; the Scaleway microVM names :6060 so an
+// operator reaches it from the host over the tap:
 //
 //	curl http://172.16.0.2:6060/debug/pprof/goroutine?debug=2
 //	curl http://172.16.0.2:6060/debug/inflight
@@ -119,13 +120,26 @@ func InFlightSnapshot() []inFlightRequest {
 	return out
 }
 
+// defaultDiagnosticsAddr keeps the listener off every network the host is on:
+// a simulator run on a workstation would otherwise hand its goroutine dumps and
+// CPU profiler to anyone who can reach port 6060.
+const defaultDiagnosticsAddr = "127.0.0.1:6060"
+
+var diagnosticsOnce sync.Once
+
 // StartDiagnosticsListener serves pprof and the in-flight registry on
-// SIM_DIAGNOSTICS_ADDR (default :6060). Set SIM_DIAGNOSTICS_ADDR=off to
-// disable. It never shares the API listener: see the file comment.
+// SIM_DIAGNOSTICS_ADDR (default 127.0.0.1:6060). Set SIM_DIAGNOSTICS_ADDR=off
+// to disable. It never shares the API listener: see the file comment. The
+// registry is the process's, so a process that builds several servers -- the
+// test suites do -- serves it once.
 func StartDiagnosticsListener() {
+	diagnosticsOnce.Do(startDiagnosticsListener)
+}
+
+func startDiagnosticsListener() {
 	addr := os.Getenv("SIM_DIAGNOSTICS_ADDR")
 	if addr == "" {
-		addr = ":6060"
+		addr = defaultDiagnosticsAddr
 	}
 	if addr == "off" {
 		return
