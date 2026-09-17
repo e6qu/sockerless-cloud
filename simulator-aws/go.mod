@@ -6,7 +6,7 @@ require (
 	github.com/HugoSmits86/nativewebp v1.3.0
 	github.com/PaesslerAG/jsonpath v0.1.1
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917052224-fa2f0b9b13d0
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917052632-95775049fdfb
 	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260917052326-05a4f15837b9
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/fxamacker/cbor/v2 v2.9.4
