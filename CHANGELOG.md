@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.13](https://github.com/e6qu/sockerless-cloud/compare/v0.32.12...v0.32.13) (2026-09-17)
+
+
+### Bug Fixes
+
+* **aws:** authorize the S3 control plane, enforce retention, and measure the condition keys the gate cannot build ([#191](https://github.com/e6qu/sockerless-cloud/issues/191)) ([1b69bf8](https://github.com/e6qu/sockerless-cloud/commit/1b69bf8f175ffd533740d0b0342c1fdd4a5165b2))
+
 ## [0.32.12](https://github.com/e6qu/sockerless-cloud/compare/v0.32.11...v0.32.12) (2026-09-17)
 
 
