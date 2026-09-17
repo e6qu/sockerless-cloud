@@ -9,7 +9,7 @@ import (
 
 func iamConditionContext(form url.Values) map[string][]string {
 	form.Set("Version", "2010-05-08")
-	return requestConditionContext(queryConditionRequest(form), "iam", form.Get("Action"), "")
+	return populatedConditionContext(queryConditionRequest(form), "iam", form.Get("Action"), "")
 }
 
 func TestIAMConditionKeysReadTheRequestParameters(t *testing.T) {
@@ -48,7 +48,7 @@ func TestIAMConditionKeysReadTheRequestParameters(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.form.Get("Action"), func(t *testing.T) {
-			assertConditionValues(t, iamConditionContext(tc.form), tc.want)
+			assertPopulatedConditionValues(t, iamConditionContext(tc.form), tc.want)
 		})
 	}
 }
@@ -72,7 +72,7 @@ func TestIAMConditionKeysReadTheStoredCredentialService(t *testing.T) {
 			"UserName":                    {"u"},
 			"ServiceSpecificCredentialId": {"ACCAEXAMPLE"},
 		})
-		assertConditionValues(t, ctx, map[string][]string{
+		assertPopulatedConditionValues(t, ctx, map[string][]string{
 			"iam:ServiceSpecificCredentialServiceName": {"codecommit.amazonaws.com"},
 		})
 	}

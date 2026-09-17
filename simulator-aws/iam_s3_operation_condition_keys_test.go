@@ -14,7 +14,7 @@ func s3ConditionContext(r *http.Request, body string) map[string][]string {
 	if r.PathValue("key") == "" {
 		operation = s3BucketOperationName(r, nil)
 	}
-	return requestConditionContext(r, "s3", operation, body)
+	return populatedConditionContext(r, "s3", operation, body)
 }
 
 func s3ObjectConditionRequest(method, target string) *http.Request {
@@ -37,7 +37,7 @@ func TestS3ConditionKeysReadObjectLockAndConditionalWriteHeaders(t *testing.T) {
 		r.Header.Set("x-amz-object-lock-legal-hold", "ON")
 		r.Header.Set("x-amz-object-lock-event-hold", "ON")
 		r.Header.Set("x-amz-object-lock-event-hold-duration-days", "90")
-		assertConditionValues(t, s3ConditionContext(r, ""), map[string][]string{
+		assertPopulatedConditionValues(t, s3ConditionContext(r, ""), map[string][]string{
 			"s3:if-none-match":                        {"*"},
 			"s3:object-lock-mode":                     {"GOVERNANCE"},
 			"s3:object-lock-retain-until-date":        {"2030-01-01T00:00:00Z"},
@@ -50,7 +50,7 @@ func TestS3ConditionKeysReadObjectLockAndConditionalWriteHeaders(t *testing.T) {
 	r := s3ObjectConditionRequest(http.MethodPut, "/b/k")
 	r.Header.Set("x-amz-copy-source", "/src/k")
 	r.Header.Set("x-amz-object-annotation-directive", "COPY")
-	assertConditionValues(t, s3ConditionContext(r, ""), map[string][]string{
+	assertPopulatedConditionValues(t, s3ConditionContext(r, ""), map[string][]string{
 		"s3:x-amz-object-annotation-directive": {"COPY"},
 	})
 }
@@ -61,7 +61,7 @@ func TestS3ConditionKeysReadObjectLockBodies(t *testing.T) {
 		<Mode>COMPLIANCE</Mode><RetainUntilDate>2031-06-01T00:00:00Z</RetainUntilDate>
 		<EventHold>OFF</EventHold><EventHoldDuration><Days>30</Days></EventHoldDuration>
 	</Retention>`)
-	assertConditionValues(t, ctx, map[string][]string{
+	assertPopulatedConditionValues(t, ctx, map[string][]string{
 		"s3:object-lock-mode":                     {"COMPLIANCE"},
 		"s3:object-lock-retain-until-date":        {"2031-06-01T00:00:00Z"},
 		"s3:object-lock-event-hold":               {"OFF"},
@@ -70,12 +70,12 @@ func TestS3ConditionKeysReadObjectLockBodies(t *testing.T) {
 
 	r = s3ObjectConditionRequest(http.MethodPut, "/b/k?legal-hold")
 	ctx = s3ConditionContext(r, `<LegalHold xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>OFF</Status></LegalHold>`)
-	assertConditionValues(t, ctx, map[string][]string{"s3:object-lock-legal-hold": {"OFF"}})
+	assertPopulatedConditionValues(t, ctx, map[string][]string{"s3:object-lock-legal-hold": {"OFF"}})
 }
 
 func TestS3ConditionKeysReadAnnotationRequests(t *testing.T) {
 	r := s3ObjectConditionRequest(http.MethodGet, "/b/k?annotation&annotation-prefix=review/&max-annotation-results=25")
-	assertConditionValues(t, s3ConditionContext(r, ""), map[string][]string{
+	assertPopulatedConditionValues(t, s3ConditionContext(r, ""), map[string][]string{
 		"s3:annotation-prefix":      {"review/"},
 		"s3:max-annotation-results": {"25"},
 	})
@@ -83,7 +83,7 @@ func TestS3ConditionKeysReadAnnotationRequests(t *testing.T) {
 	for _, method := range []string{http.MethodPut, http.MethodDelete} {
 		r = s3ObjectConditionRequest(method, "/b/k?annotation&annotationName=a&versionId=v1")
 		r.Header.Set("x-amz-object-if-match", `"etag"`)
-		assertConditionValues(t, s3ConditionContext(r, ""), map[string][]string{
+		assertPopulatedConditionValues(t, s3ConditionContext(r, ""), map[string][]string{
 			"s3:x-amz-object-if-match": {`"etag"`},
 		})
 	}
@@ -94,7 +94,7 @@ func TestS3ConditionKeysReadBucketRequests(t *testing.T) {
 	r.SetPathValue("bucket", "b")
 	r.Header.Set("x-amz-bucket-namespace", "account-regional")
 	r.Header.Set("x-amz-object-ownership", "BucketOwnerEnforced")
-	assertConditionValues(t, s3ConditionContext(r, ""), map[string][]string{
+	assertPopulatedConditionValues(t, s3ConditionContext(r, ""), map[string][]string{
 		"s3:x-amz-bucket-namespace": {"account-regional"},
 		"s3:x-amz-object-ownership": {"BucketOwnerEnforced"},
 	})
@@ -106,7 +106,7 @@ func TestS3ConditionKeysReadBucketRequests(t *testing.T) {
 		<Schedule><Frequency>Weekly</Frequency></Schedule>
 		<OptionalFields><Field>Size</Field><Field>ObjectOwner</Field></OptionalFields>
 	</InventoryConfiguration>`)
-	assertConditionValues(t, ctx, map[string][]string{
+	assertPopulatedConditionValues(t, ctx, map[string][]string{
 		"s3:InventoryAccessibleOptionalFields": {"Size", "ObjectOwner"},
 	})
 }
@@ -122,7 +122,7 @@ func TestS3ConditionKeysReadTheAccessPointTags(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/b?uploads", nil)
 	r.SetPathValue("bucket", "b")
 	r = r.WithContext(context.WithValue(r.Context(), s3AccessPointContextKey{}, ap))
-	assertConditionValues(t, s3ConditionContext(r, ""), map[string][]string{
+	assertPopulatedConditionValues(t, s3ConditionContext(r, ""), map[string][]string{
 		"s3:AccessPointTag/team": {"ledger"},
 	})
 

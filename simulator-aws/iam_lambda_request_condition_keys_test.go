@@ -23,13 +23,13 @@ func TestLambdaConditionKeysReadTheFunctionConfiguration(t *testing.T) {
 	ec2Subnets.Put("subnet-b", EC2Subnet{SubnetId: "subnet-b", VpcId: "vpc-1"})
 
 	r := httptest.NewRequest(http.MethodPost, "/2015-03-31/functions", nil)
-	ctx := requestConditionContext(r, "lambda", "CreateFunction", `{
+	ctx := populatedConditionContext(r, "lambda", "CreateFunction", `{
 		"FunctionName": "f",
 		"CodeSigningConfigArn": "arn:aws:lambda:us-east-1:123456789012:code-signing-config:csc-1",
 		"Layers": ["arn:aws:lambda:us-east-1:123456789012:layer:l:1", "arn:aws:lambda:us-east-1:123456789012:layer:m:2"],
 		"VpcConfig": {"SubnetIds": ["subnet-a", "subnet-b"], "SecurityGroupIds": ["sg-1"]}
 	}`)
-	assertConditionValues(t, ctx, map[string][]string{
+	assertPopulatedConditionValues(t, ctx, map[string][]string{
 		"lambda:CodeSigningConfigArn": {"arn:aws:lambda:us-east-1:123456789012:code-signing-config:csc-1"},
 		"lambda:Layer": {
 			"arn:aws:lambda:us-east-1:123456789012:layer:l:1",
@@ -41,9 +41,9 @@ func TestLambdaConditionKeysReadTheFunctionConfiguration(t *testing.T) {
 	})
 
 	r = httptest.NewRequest(http.MethodPost, "/2025-11-30/capacity-providers", nil)
-	ctx = requestConditionContext(r, "lambda", "CreateCapacityProvider",
+	ctx = populatedConditionContext(r, "lambda", "CreateCapacityProvider",
 		`{"CapacityProviderName": "cp", "VpcConfig": {"SubnetIds": ["subnet-a"], "SecurityGroupIds": ["sg-2"]}}`)
-	assertConditionValues(t, ctx, map[string][]string{
+	assertPopulatedConditionValues(t, ctx, map[string][]string{
 		"lambda:SubnetIds":        {"subnet-a"},
 		"lambda:SecurityGroupIds": {"sg-2"},
 	})
@@ -51,9 +51,9 @@ func TestLambdaConditionKeysReadTheFunctionConfiguration(t *testing.T) {
 
 	r = httptest.NewRequest(http.MethodPut, "/2020-06-30/functions/f/code-signing-config", nil)
 	r.SetPathValue("name", "f")
-	ctx = requestConditionContext(r, "lambda", "PutFunctionCodeSigningConfig",
+	ctx = populatedConditionContext(r, "lambda", "PutFunctionCodeSigningConfig",
 		`{"CodeSigningConfigArn": "arn:aws:lambda:us-east-1:123456789012:code-signing-config:csc-2"}`)
-	assertConditionValues(t, ctx, map[string][]string{
+	assertPopulatedConditionValues(t, ctx, map[string][]string{
 		"lambda:CodeSigningConfigArn": {"arn:aws:lambda:us-east-1:123456789012:code-signing-config:csc-2"},
 	})
 }
@@ -62,9 +62,9 @@ func TestLambdaConditionKeysReadThePermissionPrincipal(t *testing.T) {
 	useLambdaConditionStores(t)
 	r := httptest.NewRequest(http.MethodPost, "/2015-03-31/functions/f/policy", nil)
 	r.SetPathValue("name", "f")
-	ctx := requestConditionContext(r, "lambda", "AddPermission",
+	ctx := populatedConditionContext(r, "lambda", "AddPermission",
 		`{"StatementId": "s3", "Action": "lambda:InvokeFunction", "Principal": "s3.amazonaws.com"}`)
-	assertConditionValues(t, ctx, map[string][]string{"lambda:Principal": {"s3.amazonaws.com"}})
+	assertPopulatedConditionValues(t, ctx, map[string][]string{"lambda:Principal": {"s3.amazonaws.com"}})
 
 	lambdaPolicies.Put("f", []LambdaPolicyStatement{
 		{Sid: "other", Principal: map[string]any{"Service": "sns.amazonaws.com"}},
@@ -73,26 +73,26 @@ func TestLambdaConditionKeysReadThePermissionPrincipal(t *testing.T) {
 	r = httptest.NewRequest(http.MethodDelete, "/2015-03-31/functions/f/policy/s3", nil)
 	r.SetPathValue("name", "f")
 	r.SetPathValue("statement", "s3")
-	ctx = requestConditionContext(r, "lambda", "RemovePermission", "")
-	assertConditionValues(t, ctx, map[string][]string{"lambda:Principal": {"s3.amazonaws.com"}})
+	ctx = populatedConditionContext(r, "lambda", "RemovePermission", "")
+	assertPopulatedConditionValues(t, ctx, map[string][]string{"lambda:Principal": {"s3.amazonaws.com"}})
 
 	r = httptest.NewRequest(http.MethodDelete, "/2015-03-31/functions/f/policy/missing", nil)
 	r.SetPathValue("name", "f")
 	r.SetPathValue("statement", "missing")
-	assertConditionKeysAbsent(t, requestConditionContext(r, "lambda", "RemovePermission", ""), "lambda:Principal")
+	assertConditionKeysAbsent(t, populatedConditionContext(r, "lambda", "RemovePermission", ""), "lambda:Principal")
 }
 
 func TestLambdaConditionKeysAbsentWithoutTheirMembers(t *testing.T) {
 	useLambdaConditionStores(t)
 	r := httptest.NewRequest(http.MethodPut, "/2015-03-31/functions/f/configuration", nil)
 	r.SetPathValue("name", "f")
-	ctx := requestConditionContext(r, "lambda", "UpdateFunctionConfiguration", `{"Timeout": 30}`)
+	ctx := populatedConditionContext(r, "lambda", "UpdateFunctionConfiguration", `{"Timeout": 30}`)
 	assertConditionKeysAbsent(t, ctx, "lambda:CodeSigningConfigArn", "lambda:Layer",
 		"lambda:SubnetIds", "lambda:SecurityGroupIds", "lambda:VpcIds", "lambda:Principal")
 
 	// UpdateFunctionConfiguration carries no code signing config, so the
 	// key is not settled by a member the operation does not declare.
-	ctx = requestConditionContext(r, "lambda", "UpdateFunctionConfiguration",
+	ctx = populatedConditionContext(r, "lambda", "UpdateFunctionConfiguration",
 		`{"CodeSigningConfigArn": "arn:aws:lambda:us-east-1:123456789012:code-signing-config:csc-1"}`)
 	assertConditionKeysAbsent(t, ctx, "lambda:CodeSigningConfigArn")
 }

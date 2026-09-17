@@ -9,7 +9,7 @@ import (
 const ecsConditionTarget = "AmazonEC2ContainerServiceV20141113."
 
 func ecsConditionContext(operation, body string) map[string][]string {
-	return requestConditionContext(jsonConditionRequest(ecsConditionTarget+operation), "ecs", operation, body)
+	return populatedConditionContext(jsonConditionRequest(ecsConditionTarget+operation), "ecs", operation, body)
 }
 
 func TestECSConditionKeysReadTheRequestShape(t *testing.T) {
@@ -70,7 +70,7 @@ func TestECSConditionKeysReadTheRequestShape(t *testing.T) {
 			map[string][]string{"ecs:container-name": {"web"}}},
 	} {
 		t.Run(tc.operation, func(t *testing.T) {
-			assertConditionValues(t, ecsConditionContext(tc.operation, tc.body), tc.want)
+			assertPopulatedConditionValues(t, ecsConditionContext(tc.operation, tc.body), tc.want)
 		})
 	}
 }
@@ -87,7 +87,7 @@ func TestECSConditionKeysResolveTheOnlyExecContainer(t *testing.T) {
 
 	ctx := ecsConditionContext("ExecuteCommand",
 		`{"task": "arn:aws:ecs:us-east-1:123456789012:task/c/single", "command": "sh", "interactive": true}`)
-	assertConditionValues(t, ctx, map[string][]string{"ecs:container-name": {"app"}})
+	assertPopulatedConditionValues(t, ctx, map[string][]string{"ecs:container-name": {"app"}})
 
 	ctx = ecsConditionContext("ExecuteCommand", `{"task": "pair", "command": "sh", "interactive": true}`)
 	assertConditionKeysAbsent(t, ctx, "ecs:container-name")

@@ -7,7 +7,7 @@ import (
 )
 
 func glueConditionContext(operation, body string) map[string][]string {
-	return requestConditionContext(jsonConditionRequest("AWSGlue."+operation), "glue", operation, body)
+	return populatedConditionContext(jsonConditionRequest("AWSGlue."+operation), "glue", operation, body)
 }
 
 func useGlueConditionStores(t *testing.T) {
@@ -38,11 +38,11 @@ func TestGlueConditionKeysReadTheJobConnections(t *testing.T) {
 		"glue:VpcIds":           {"vpc-a", "vpc-b"},
 	}
 	connections := `{"Connections": ["warehouse", "lake", "public"]}`
-	assertConditionValues(t, glueConditionContext("CreateJob",
+	assertPopulatedConditionValues(t, glueConditionContext("CreateJob",
 		`{"Name": "j", "Role": "r", "Command": {"Name": "glueetl"}, "Connections": `+connections+`}`), want)
-	assertConditionValues(t, glueConditionContext("CreateSession",
+	assertPopulatedConditionValues(t, glueConditionContext("CreateSession",
 		`{"Id": "s", "Role": "r", "Command": {"Name": "glueetl"}, "Connections": `+connections+`}`), want)
-	assertConditionValues(t, glueConditionContext("UpdateJob",
+	assertPopulatedConditionValues(t, glueConditionContext("UpdateJob",
 		`{"JobName": "j", "JobUpdate": {"Connections": `+connections+`}}`), want)
 }
 

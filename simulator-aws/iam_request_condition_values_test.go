@@ -9,10 +9,10 @@ import (
 	"testing"
 )
 
-// requestConditionContext runs every populator registered for service, which
+// populatedConditionContext runs every populator registered for service, which
 // is the path the gate takes, so a populator that is never registered fails
 // here too.
-func requestConditionContext(r *http.Request, service, operation, body string) map[string][]string {
+func populatedConditionContext(r *http.Request, service, operation, body string) map[string][]string {
 	ctx := map[string][]string{}
 	iamRunRequestConditionPopulators(r, service, operation, []byte(body), ctx)
 	return ctx
@@ -31,7 +31,7 @@ func queryConditionRequest(form url.Values) *http.Request {
 	return r
 }
 
-func assertConditionValues(t *testing.T, ctx map[string][]string, want map[string][]string) {
+func assertPopulatedConditionValues(t *testing.T, ctx map[string][]string, want map[string][]string) {
 	t.Helper()
 	for key, values := range want {
 		if got := ctx[key]; !reflect.DeepEqual(got, values) {
@@ -53,7 +53,7 @@ func TestSetConditionValuesKeepsAKeyAlreadySet(t *testing.T) {
 	ctx := map[string][]string{"svc:key": {"first"}}
 	iamSetConditionValues(ctx, "svc:key", "second")
 	iamSetConditionValues(ctx, "svc:other", "a", "", "b", "a")
-	assertConditionValues(t, ctx, map[string][]string{
+	assertPopulatedConditionValues(t, ctx, map[string][]string{
 		"svc:key":   {"first"},
 		"svc:other": {"a", "b"},
 	})

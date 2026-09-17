@@ -3,7 +3,7 @@ package main
 import "testing"
 
 func wafv2ConditionContext(operation, body string) map[string][]string {
-	return requestConditionContext(jsonConditionRequest("AWSWAF_20190729."+operation), "wafv2", operation, body)
+	return populatedConditionContext(jsonConditionRequest("AWSWAF_20190729."+operation), "wafv2", operation, body)
 }
 
 func TestWAFv2ConditionKeysReadTheLoggingConfiguration(t *testing.T) {
@@ -13,14 +13,14 @@ func TestWAFv2ConditionKeysReadTheLoggingConfiguration(t *testing.T) {
 		"LogType": "WAF_LOGS",
 		"LogScope": "CUSTOMER"
 	}}`)
-	assertConditionValues(t, ctx, map[string][]string{
+	assertPopulatedConditionValues(t, ctx, map[string][]string{
 		"wafv2:LogDestinationResource": {"arn:aws:logs:us-east-1:123456789012:log-group:aws-waf-logs-a"},
 		"wafv2:LogScope":               {"CUSTOMER"},
 	})
 
 	for _, operation := range []string{"GetLoggingConfiguration", "DeleteLoggingConfiguration", "ListLoggingConfigurations"} {
 		ctx = wafv2ConditionContext(operation, `{"Scope": "REGIONAL", "LogScope": "SECURITY_LAKE"}`)
-		assertConditionValues(t, ctx, map[string][]string{"wafv2:LogScope": {"SECURITY_LAKE"}})
+		assertPopulatedConditionValues(t, ctx, map[string][]string{"wafv2:LogScope": {"SECURITY_LAKE"}})
 	}
 }
 

@@ -6,7 +6,7 @@ import (
 )
 
 func eventsConditionContext(operation, body string) map[string][]string {
-	return requestConditionContext(jsonConditionRequest("AWSEvents."+operation), "events", operation, body)
+	return populatedConditionContext(jsonConditionRequest("AWSEvents."+operation), "events", operation, body)
 }
 
 func TestEventsConditionKeysReadTheEventsSent(t *testing.T) {
@@ -14,7 +14,7 @@ func TestEventsConditionKeysReadTheEventsSent(t *testing.T) {
 		{"Source": "com.example.orders", "DetailType": "OrderPlaced", "Detail": "{}"},
 		{"Source": "com.example.orders", "DetailType": "OrderShipped", "Detail": "{}"}
 	]}`)
-	assertConditionValues(t, ctx, map[string][]string{
+	assertPopulatedConditionValues(t, ctx, map[string][]string{
 		"events:source":      {"com.example.orders"},
 		"events:detail-type": {"OrderPlaced", "OrderShipped"},
 	})
@@ -37,7 +37,7 @@ func TestEventsConditionKeysReadTheRulePattern(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertConditionValues(t, eventsConditionContext("PutRule", string(body)), map[string][]string{
+	assertPopulatedConditionValues(t, eventsConditionContext("PutRule", string(body)), map[string][]string{
 		"events:source":                          {"aws.health"},
 		"events:detail-type":                     {"AWS Health Event"},
 		"events:detail.service":                  {"EC2"},
@@ -51,7 +51,7 @@ func TestEventsConditionKeysReadTargetsAndEndpointBuses(t *testing.T) {
 		{"Id": "1", "Arn": "arn:aws:sqs:us-east-1:123456789012:q", "DeadLetterConfig": {"Arn": "arn:aws:sqs:us-east-1:123456789012:dlq"}},
 		{"Id": "2", "Arn": "arn:aws:lambda:us-east-1:123456789012:function:f"}
 	]}`)
-	assertConditionValues(t, ctx, map[string][]string{"events:TargetArn": {
+	assertPopulatedConditionValues(t, ctx, map[string][]string{"events:TargetArn": {
 		"arn:aws:sqs:us-east-1:123456789012:q",
 		"arn:aws:lambda:us-east-1:123456789012:function:f",
 	}})
@@ -60,7 +60,7 @@ func TestEventsConditionKeysReadTargetsAndEndpointBuses(t *testing.T) {
 		{"EventBusArn": "arn:aws:events:us-east-1:123456789012:event-bus/b"},
 		{"EventBusArn": "arn:aws:events:us-west-2:123456789012:event-bus/b"}
 	]}`)
-	assertConditionValues(t, ctx, map[string][]string{"events:EventBusArn": {
+	assertPopulatedConditionValues(t, ctx, map[string][]string{"events:EventBusArn": {
 		"arn:aws:events:us-east-1:123456789012:event-bus/b",
 		"arn:aws:events:us-west-2:123456789012:event-bus/b",
 	}})

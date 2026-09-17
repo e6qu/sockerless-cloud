@@ -15,7 +15,7 @@ func TestEC2ConditionKeysReadTheMetadataDefaults(t *testing.T) {
 		"InstanceMetadataTags":    {"disabled"},
 		"HttpTokensEnforced":      {"enabled"},
 	})
-	assertConditionValues(t, requestConditionContext(r, "ec2", "ModifyInstanceMetadataDefaults", ""), map[string][]string{
+	assertPopulatedConditionValues(t, populatedConditionContext(r, "ec2", "ModifyInstanceMetadataDefaults", ""), map[string][]string{
 		"ec2:Attribute/HttpTokens":              {"required"},
 		"ec2:Attribute/HttpPutResponseHopLimit": {"2"},
 		"ec2:Attribute/HttpEndpoint":            {"enabled"},
@@ -26,11 +26,11 @@ func TestEC2ConditionKeysReadTheMetadataDefaults(t *testing.T) {
 
 func TestEC2ConditionKeysAbsentWithoutTheirMembers(t *testing.T) {
 	r := queryConditionRequest(url.Values{"Action": {"ModifyInstanceMetadataDefaults"}, "HttpTokens": {"required"}})
-	ctx := requestConditionContext(r, "ec2", "ModifyInstanceMetadataDefaults", "")
-	assertConditionValues(t, ctx, map[string][]string{"ec2:Attribute/HttpTokens": {"required"}})
+	ctx := populatedConditionContext(r, "ec2", "ModifyInstanceMetadataDefaults", "")
+	assertPopulatedConditionValues(t, ctx, map[string][]string{"ec2:Attribute/HttpTokens": {"required"}})
 	assertConditionKeysAbsent(t, ctx, "ec2:Attribute/HttpEndpoint", "ec2:Attribute/HttpPutResponseHopLimit")
 
 	r = queryConditionRequest(url.Values{"Action": {"ModifyInstanceMetadataOptions"}, "HttpTokens": {"required"}})
-	assertConditionKeysAbsent(t, requestConditionContext(r, "ec2", "ModifyInstanceMetadataOptions", ""),
+	assertConditionKeysAbsent(t, populatedConditionContext(r, "ec2", "ModifyInstanceMetadataOptions", ""),
 		"ec2:Attribute/HttpTokens")
 }
