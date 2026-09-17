@@ -17,17 +17,17 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action GetCallerIdentity` | ✓ `simulator-aws/sts.go:48::handleGetCallerIdentity` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AssumeRole` | ✓ `simulator-aws/sts.go:49::handleSTSAssumeRole` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AssumeRoleWithWebIdentity` | ✓ `simulator-aws/sts.go:50::handleSTSAssumeRoleWithWebIdentity` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetSessionToken` | ✓ `simulator-aws/sts.go:51::handleSTSGetSessionToken` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetFederationToken` | ✓ `simulator-aws/sts.go:52::handleSTSGetFederationToken` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AssumeRoleWithSAML` | ✓ `simulator-aws/sts.go:53::handleSTSAssumeRoleWithSAML` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetWebIdentityToken` | ○ `simulator-aws/sts.go:54::handleSTSGetWebIdentityToken` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetDelegatedAccessToken` | ✓ `simulator-aws/sts.go:55::handleSTSGetDelegatedAccessToken` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AssumeRoot` | ✓ `simulator-aws/sts.go:56::handleSTSAssumeRoot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DecodeAuthorizationMessage` | ○ `simulator-aws/sts.go:57::handleSTSDecodeAuthorizationMessage` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetAccessKeyInfo` | ○ `simulator-aws/sts.go:58::handleSTSGetAccessKeyInfo` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetCallerIdentity` | ✓ `simulator-aws/sts.go:63::handleGetCallerIdentity` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AssumeRole` | ✓ `simulator-aws/sts.go:64::handleSTSAssumeRole` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AssumeRoleWithWebIdentity` | ✓ `simulator-aws/sts.go:65::handleSTSAssumeRoleWithWebIdentity` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetSessionToken` | ✓ `simulator-aws/sts.go:66::handleSTSGetSessionToken` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetFederationToken` | ✓ `simulator-aws/sts.go:67::handleSTSGetFederationToken` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AssumeRoleWithSAML` | ✓ `simulator-aws/sts.go:68::handleSTSAssumeRoleWithSAML` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetWebIdentityToken` | ○ `simulator-aws/sts.go:69::handleSTSGetWebIdentityToken` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetDelegatedAccessToken` | ✓ `simulator-aws/sts.go:70::handleSTSGetDelegatedAccessToken` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AssumeRoot` | ✓ `simulator-aws/sts.go:71::handleSTSAssumeRoot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DecodeAuthorizationMessage` | ○ `simulator-aws/sts.go:72::handleSTSDecodeAuthorizationMessage` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetAccessKeyInfo` | ○ `simulator-aws/sts.go:73::handleSTSGetAccessKeyInfo` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 
