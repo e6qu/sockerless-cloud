@@ -110,6 +110,13 @@ var iamUnmodelledConditionKeys = []iamUnmodelledConditionKey{
 		"propagation needs a context provider to assert the context, and none exists here."},
 	{"sts:RequestContextProviders", "Declared on the same unserved sts:SetContext; there are no context providers to " +
 		"list."},
+	{"s3:JobSuspendedCause", "The reason a batch job is suspended. The vendored S3 Control model types it as a free " +
+		"string with no enumeration, and its own documentation says a job is only suspended when it is created " +
+		"through the Amazon S3 console and is awaiting confirmation -- the value is service-written, never sent by a " +
+		"caller, and no vendored document names one (no occurrence of AwaitingConfirmation in s3-control.smithy, " +
+		"s3.smithy, the supplement or the service reference). The simulator's job record has no cause field, so any " +
+		"string here would be invented. The other six batch-job and access-grant keys are populated."},
+
 	{"s3:isReplicationPauseRequest", "True when a PutReplicationConfiguration request is the one that pauses " +
 		"replication. The vendored Amazon S3 model has no pause: its ReplicationConfiguration is Role and Rules, and a " +
 		"ReplicationRule is ID, Priority, Prefix, Filter, Status, SourceSelectionCriteria, ExistingObjectReplication, " +

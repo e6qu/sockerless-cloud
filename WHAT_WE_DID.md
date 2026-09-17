@@ -181,6 +181,12 @@ resolving once that branch is deleted.
   client. Wiring them exposed a dead end: the role check a service ran on the
   principal's behalf evaluated every action against a nil condition context, so
   a role policy scoped to one service could never match.
+- **A policy can bound a batch job and a grant.** The Amazon S3 batch-job and
+  access-grant keys are read from the request and from the stored job, grant or
+  location, so a statement that allows one job operation at a bounded priority
+  allows exactly that. `s3:JobSuspendedCause` is the exception and says why: the
+  service writes it, the model enumerates nothing, and no vendored document
+  names a value.
 - **What the gate cannot resolve is named, with the reason.**
   `TestIAM_DeclaredConditionKeysAreResolvedOrClassified` reads every condition
   key the vendored Service References declare and fails unless the gate names
