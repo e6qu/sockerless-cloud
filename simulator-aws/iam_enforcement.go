@@ -44,17 +44,50 @@ func iamEnforce(w http.ResponseWriter, r *http.Request) bool {
 	if iamPermissionlessAction(action) {
 		return true // calls AWS authorizes for every caller regardless of policy
 	}
-	for _, resource := range iamResourceARNsForRequest(r, action) {
-		allowed, principalArn, registered := iamAuthorize(r, action, resource)
+	for _, target := range iamAuthorizationTargets(r, action) {
+		allowed, principalArn, registered := iamAuthorize(r, target.action, target.resource)
 		if !registered {
 			return true // unknown/test credential — permissive
 		}
 		if !allowed {
-			iamWriteDeny(w, r, principalArn, action)
+			iamWriteDeny(w, r, principalArn, target.action)
 			return false
 		}
 	}
 	return iamEnforcePassRole(w, r, action)
+}
+
+// iamAuthorizationTarget is one action a request is authorized for, on one
+// resource.
+type iamAuthorizationTarget struct {
+	action   string
+	resource string
+}
+
+// iamAuthorizationTargets lists what a request is authorized for. Almost every
+// operation is its own action on each resource it names; AWS KMS authorizes a
+// ReEncrypt as kms:ReEncryptFrom on the key that protects the ciphertext and
+// kms:ReEncryptTo on the key it moves to.
+func iamAuthorizationTargets(r *http.Request, action string) []iamAuthorizationTarget {
+	if action == "kms:ReEncrypt" {
+		source, destination := iamKMSReEncryptKeys(iamRequestBody(r))
+		return []iamAuthorizationTarget{
+			{action: "kms:ReEncryptFrom", resource: iamKMSKeyARNOrAny(source)},
+			{action: "kms:ReEncryptTo", resource: iamKMSKeyARNOrAny(destination)},
+		}
+	}
+	var targets []iamAuthorizationTarget
+	for _, resource := range iamResourceARNsForRequest(r, action) {
+		targets = append(targets, iamAuthorizationTarget{action: action, resource: resource})
+	}
+	return targets
+}
+
+func iamKMSKeyARNOrAny(keyID string) string {
+	if key, ok := kmsKeys.Get(keyID); ok && key.Arn != "" {
+		return key.Arn
+	}
+	return "*"
 }
 
 // iamEnforcePassRole runs the second authorization AWS performs when a request

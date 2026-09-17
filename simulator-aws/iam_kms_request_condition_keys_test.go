@@ -4,9 +4,11 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -193,10 +195,40 @@ func TestKMSRequestConditionKeysReadTheKeysUsageAndTheReEncryptTarget(t *testing
 		{"source key named", `{"CiphertextBlob":` + ciphertext + `,"SourceKeyId":"fresh","DestinationKeyId":"fresh"}`, "true"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			assertConditionValues(t, jsonConditionContext("kms", "ReEncrypt", c.body),
+			assertConditionValues(t, jsonConditionContext("kms", "ReEncryptFrom", c.body),
 				map[string][]string{"kms:ReEncryptOnSameKey": {c.want}})
 		})
 	}
-	assertConditionValues(t, jsonConditionContext("kms", "ReEncrypt",
+	assertConditionValues(t, jsonConditionContext("kms", "ReEncryptFrom",
 		`{"CiphertextBlob":`+ciphertext+`,"DestinationKeyId":"missing"}`), map[string][]string{})
+
+	// Each side of a ReEncrypt carries its own algorithm, context and alias.
+	assertConditionValues(t, jsonConditionContext("kms", "ReEncryptTo",
+		`{"CiphertextBlob":`+ciphertext+`,"DestinationKeyId":"alias/used","DestinationEncryptionAlgorithm":"RSAES_OAEP_SHA_256",
+		  "DestinationEncryptionContext":{"Stage":"prod"},"SourceEncryptionContext":{"Stage":"test"}}`),
+		map[string][]string{
+			"kms:ReEncryptOnSameKey":      {"true"},
+			"kms:RequestAlias":            {"alias/used"},
+			"kms:EncryptionAlgorithm":     {"RSAES_OAEP_SHA_256"},
+			"kms:EncryptionContext:Stage": {"prod"},
+			"kms:EncryptionContextKeys":   {"Stage"},
+		})
+}
+
+// AWS KMS authorizes a ReEncrypt twice: ReEncryptFrom on the key that protects
+// the ciphertext, ReEncryptTo on the key it moves to.
+func TestKMSReEncryptIsAuthorizedOnBothKeys(t *testing.T) {
+	resetKMSConditionStores()
+	kmsKeys.Put("from", KMSKey{KeyId: "from", Arn: kmsKeyArn("from")})
+	kmsKeys.Put("to", KMSKey{KeyId: "to", Arn: kmsKeyArn("to")})
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"CiphertextBlob":"AAAA","SourceKeyId":"from","DestinationKeyId":"to"}`))
+	r.Header.Set("X-Amz-Target", "TrentService.ReEncrypt")
+	got := iamAuthorizationTargets(r, "kms:ReEncrypt")
+	want := []iamAuthorizationTarget{
+		{action: "kms:ReEncryptFrom", resource: kmsKeyArn("from")},
+		{action: "kms:ReEncryptTo", resource: kmsKeyArn("to")},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("targets = %+v, want %+v", got, want)
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -69,8 +70,38 @@ func iamPopulateKMSRequestConditionKeys(_ *http.Request, operation string, body 
 	case "GetParametersForImport":
 		set.str("kms:WrappingAlgorithm", "WrappingAlgorithm")
 		set.str("kms:WrappingKeySpec", "WrappingKeySpec")
-	case "ReEncrypt":
-		iamPopulateKMSReEncryptOnSameKey(request, ctx)
+	case "ReEncryptFrom":
+		iamPopulateKMSReEncryptDirection(request, "Source", ctx)
+	case "ReEncryptTo":
+		iamPopulateKMSReEncryptDirection(request, "Destination", ctx)
+	}
+}
+
+// iamPopulateKMSReEncryptDirection adds the keys one side of a ReEncrypt
+// settles: the algorithm, encryption context and alias the request gives that
+// side, and whether both sides are one key.
+func iamPopulateKMSReEncryptDirection(request iamBodyMembers, side string, ctx map[string][]string) {
+	set := request.setters(ctx)
+	set.str("kms:EncryptionAlgorithm", side+"EncryptionAlgorithm")
+	if ref, ok := request.str(side + "KeyId"); ok && strings.HasPrefix(ref, "alias/") {
+		ctx["kms:RequestAlias"] = []string{ref}
+	}
+	var encryptionContext map[string]string
+	if raw, ok := request[side+"EncryptionContext"]; ok && json.Unmarshal(raw, &encryptionContext) == nil && len(encryptionContext) > 0 {
+		names := make([]string, 0, len(encryptionContext))
+		for name, value := range encryptionContext {
+			ctx["kms:EncryptionContext:"+name] = []string{value}
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		ctx["kms:EncryptionContextKeys"] = names
+	}
+	body, err := json.Marshal(request)
+	if err != nil {
+		return
+	}
+	if source, destination := iamKMSReEncryptKeys(body); source != "" && destination != "" {
+		ctx["kms:ReEncryptOnSameKey"] = []string{strconv.FormatBool(source == destination)}
 	}
 }
 
@@ -156,34 +187,28 @@ func iamPopulateKMSTrailingDaysWithoutUsage(request iamBodyMembers, ctx map[stri
 	ctx["kms:TrailingDaysWithoutKeyUsage"] = []string{strconv.FormatInt(int64(idle/(24*time.Hour)), 10)}
 }
 
-// iamPopulateKMSReEncryptOnSameKey adds whether a ReEncrypt request moves the
-// ciphertext onto the key that already protects it. A request that names no
-// source key is about the key recorded in the ciphertext's header.
-func iamPopulateKMSReEncryptOnSameKey(request iamBodyMembers, ctx map[string][]string) {
-	destinationRef, ok := request.str("DestinationKeyId")
-	if !ok {
-		return
+// iamKMSReEncryptKeys resolves the two keys of a ReEncrypt request. A request
+// that names no source key is about the key recorded in the ciphertext's
+// header. An unresolvable side is "".
+func iamKMSReEncryptKeys(body []byte) (source, destination string) {
+	request := iamParseBodyMembers(body)
+	if request == nil {
+		return "", ""
 	}
-	destination, ok := resolveKMSKey(destinationRef)
-	if !ok {
-		return
+	if ref, ok := request.str("DestinationKeyId"); ok {
+		destination, _ = resolveKMSKey(ref)
 	}
-	var source string
-	if sourceRef, named := request.str("SourceKeyId"); named {
-		if source, ok = resolveKMSKey(sourceRef); !ok {
-			return
-		}
-	} else {
-		var blob []byte
-		raw, present := request["CiphertextBlob"]
-		if !present || json.Unmarshal(raw, &blob) != nil {
-			return
-		}
-		if source, ok = kmsCiphertextKeyID(blob); !ok {
-			return
+	if ref, named := request.str("SourceKeyId"); named {
+		source, _ = resolveKMSKey(ref)
+		return source, destination
+	}
+	var blob []byte
+	if raw, present := request["CiphertextBlob"]; present && json.Unmarshal(raw, &blob) == nil {
+		if id, ok := kmsCiphertextKeyID(blob); ok {
+			source, _ = resolveKMSKey(id)
 		}
 	}
-	ctx["kms:ReEncryptOnSameKey"] = []string{strconv.FormatBool(source == destination)}
+	return source, destination
 }
 
 // kmsCiphertextKeyID reads the key id from the header kmsEncryptBytes writes,
