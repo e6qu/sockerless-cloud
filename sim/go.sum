@@ -22,6 +22,12 @@ github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260905213638-ef4567e91da5 h1:
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260905213638-ef4567e91da5/go.mod h1:ti4TI6cQ5vQHioqlGmDtkBVweHmLHKxIAS5H+90FxU0=
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260916132319-c580fcb486a0 h1:r5WDHMPS8XWT4+ZcrQVkAO5RyAyjeY91nT6nBzBTE+Q=
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260916132319-c580fcb486a0/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917052224-fa2f0b9b13d0 h1:NdPM8XBtZAKU2oN5GB0/L0DPNjt14fEyAUg4Km/9dPk=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917052224-fa2f0b9b13d0/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917052632-95775049fdfb h1:UXLJpq2Do0xwxkuvhl/pNWc27W1Qr2l5Ot0es4CXJuk=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917052632-95775049fdfb/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917053241-fc0d343303aa h1:zkLAU3e3ZVU5O0NSs9mkjsEUAh8WOS2V84TMmUHHJHw=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917053241-fc0d343303aa/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905213638-ef4567e91da5 h1:Q8VSrCZGKSbBPaqe4cpLpudG7s2oW4ym+ndCZVwrKKg=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905213638-ef4567e91da5/go.mod h1:xoBHEyXuJRea+OxATpPAM+UzxeqYeBxlwfGEpbTF90M=
 github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeORc=

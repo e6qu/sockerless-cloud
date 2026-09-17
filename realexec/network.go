@@ -71,8 +71,15 @@ type Network struct {
 	// table down and commits it again — 3.5-4.4 s of every Amazon ECS task
 	// start on the Scaleway stack, for a ruleset that had not changed.
 	installed sync.Map // tableName -> string (the committed program)
-	cleanup   *CleanupStack
-	runner    Runner
+	// Mark, when set, records how long each step of a configure call took.
+	// The egress phase of a task start measures 3.0-4.0 s on the Scaleway
+	// stack and every attempt to attribute it by reading has been wrong,
+	// most recently because the simulator runs inside the microVM and the
+	// timings were taken on the host. This reports from wherever the code
+	// actually runs.
+	Mark    func(step string)
+	cleanup *CleanupStack
+	runner  Runner
 }
 
 // registerTableCleanupOnce registers fn on the network's cleanup stack only the
@@ -505,10 +512,20 @@ func (n *Network) ConfigureEgressPolicy(ctx context.Context, allowedSourceCIDRs 
 	if tableName == "" {
 		tableName = deriveLinuxName("eg"+n.NamespaceName, "eg")
 	}
+	mark := n.Mark
+	if mark == nil {
+		mark = func(string) {}
+	}
+	// Marked on entry, before anything that can fail. Every other mark records
+	// after its step, so without this a phase line cannot tell a step that took
+	// no time from one that returned an error -- and EnsureEgress, the one step
+	// the memo can never skip, is exactly where that ambiguity would hurt.
+	mark("egress:begin")
 	link, err := n.EnsureEgress(ctx)
 	if err != nil {
 		return err
 	}
+	mark("egress:ensure")
 	seen := map[string]bool{}
 	var cidrs []string
 	for _, cidr := range allowedSourceCIDRs {
@@ -524,7 +541,14 @@ func (n *Network) ConfigureEgressPolicy(ctx context.Context, allowedSourceCIDRs 
 	sort.Strings(cidrs)
 
 	program := renderEgressPolicyProgram(tableName, link.NetVethName, link.HostIP.String(), cidrs)
+	mark("egress:render")
+	// The memo is per-VPC and genuinely reachable, but it is defeated by its
+	// own input: the allowed sources include one /32 per running task with a
+	// public IP, so the set changes on the very start that consults it and the
+	// program never matches. Counting the miss makes that visible rather than
+	// leaving a compare that looks like an optimisation.
 	if committed, ok := n.installed.Load(tableName); ok && committed == program {
+		mark("egress:unchanged")
 		return nil
 	}
 	return withTableLock(tableName, func() error {
@@ -539,6 +563,7 @@ func (n *Network) ConfigureEgressPolicy(ctx context.Context, allowedSourceCIDRs 
 		if err := n.runner.RunWithInput(ctx, program, "ip", "netns", "exec", n.NamespaceName, "nft", "-f", "-"); err != nil {
 			return err
 		}
+		mark("egress:commit")
 		n.installed.Store(tableName, program)
 		n.registerTableCleanupOnce(tableName, func(cleanupCtx context.Context) error {
 			n.installed.Delete(tableName)
@@ -1071,8 +1096,14 @@ func configureBridgeIngressFilter(ctx context.Context, network *Network, cleanup
 	// dozen members took three minutes here, and every other task ten
 	// seconds. The program also replaces the table atomically, so a reader
 	// never sees a half-built filter.
+	if network.Mark != nil {
+		network.Mark("sg:render")
+	}
 	if err := network.runner.RunWithInput(ctx, program, "ip", "netns", "exec", network.NamespaceName, "nft", "-f", "-"); err != nil {
 		return err
+	}
+	if network.Mark != nil {
+		network.Mark("sg:commit")
 	}
 	network.installed.Store(table, program)
 	cleanup.Add(func(cleanupCtx context.Context) error {
