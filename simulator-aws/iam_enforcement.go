@@ -348,14 +348,7 @@ func iamActionForRequest(r *http.Request) (string, bool) {
 	if service == "monitoring" {
 		service = "cloudwatch"
 	}
-	var op string
-	if target := r.Header.Get("X-Amz-Target"); target != "" {
-		if i := strings.LastIndex(target, "."); i >= 0 {
-			op = target[i+1:]
-		}
-	} else {
-		op = r.FormValue("Action")
-	}
+	op := iamRequestWireOperation(r)
 	if service == "" || op == "" {
 		return "", false
 	}

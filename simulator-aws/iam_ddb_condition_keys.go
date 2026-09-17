@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -42,6 +43,21 @@ func iamPopulateDynamoDBConditionKeys(r *http.Request, action string, body []byt
 	if selection, ok := request["Select"].(string); ok && selection != "" {
 		ctx["dynamodb:Select"] = []string{selection}
 	}
+	// dynamodb:FullTableScan is whether the PartiQL SELECT the request runs has
+	// to read every item in the table. Amazon DynamoDB documents a SELECT as a
+	// full table scan unless its WHERE clause restricts the partition key with
+	// an equality or an IN condition, so a WHERE clause over non-key attributes
+	// — a filter — is a full table scan all the same, and so is a statement
+	// with no WHERE clause at all. The key is declared on PartiQLSelect alone;
+	// it stays unset when the statement reads a table the simulator does not
+	// hold, because the table's partition key, and with it the answer, is then
+	// unknown rather than false.
+	if operation == "PartiQLSelect" {
+		if scan, known := ddbRequestFullTableScan(body); known {
+			ctx["dynamodb:FullTableScan"] = []string{strconv.FormatBool(scan)}
+		}
+	}
+
 	// An operation that carries other operations names itself as the enclosing
 	// one for the requests inside it.
 	switch operation {
@@ -56,6 +72,96 @@ func iamPopulateDynamoDBConditionKeys(r *http.Request, action string, body []byt
 	if attributes := ddbRequestAttributes(request); len(attributes) > 0 {
 		ctx["dynamodb:Attributes"] = attributes
 	}
+}
+
+// ddbRequestFullTableScan reports whether the PartiQL statements a request
+// carries include a SELECT that reads the whole table, and whether the request
+// settles that question at all. A request can carry several statements — a
+// batch or a transaction — and it scans the whole table if any of its selects
+// does, since that select reads every item either way.
+func ddbRequestFullTableScan(body []byte) (scan, known bool) {
+	type statement struct {
+		Statement  string           `json:"Statement"`
+		Parameters []map[string]any `json:"Parameters"`
+	}
+	var request struct {
+		statement
+		Statements         []statement `json:"Statements"`
+		TransactStatements []statement `json:"TransactStatements"`
+	}
+	if !iamDecodeJSONRequest(body, &request) {
+		return false, false
+	}
+	all := append([]statement{request.statement}, request.Statements...)
+	all = append(all, request.TransactStatements...)
+	for _, s := range all {
+		if s.Statement == "" {
+			continue
+		}
+		parsed, err := parsePartiQL(s.Statement, s.Parameters)
+		if err != nil || parsed.Kind != pqlSelect {
+			continue
+		}
+		partition, ok := ddbSelectPartitionKey(parsed)
+		if !ok {
+			continue
+		}
+		known = true
+		if !ddbWhereRestrictsPartition(parsed.Where, partition) {
+			return true, true
+		}
+	}
+	return false, known
+}
+
+// ddbSelectPartitionKey is the partition key a SELECT is read by: the table's
+// own, or that of the index the statement names, read from the schema the
+// simulator holds for them.
+func ddbSelectPartitionKey(st *partiQLStmt) (string, bool) {
+	table, ok := ddbTables.Get(st.Table)
+	if !ok {
+		return "", false
+	}
+	schema := table.KeySchema
+	if st.Index != "" {
+		schema = nil
+		for _, index := range table.GlobalSecondaryIndexes {
+			if index.IndexName == st.Index {
+				schema = index.KeySchema
+			}
+		}
+		for _, index := range table.LocalSecondaryIndexes {
+			if index.IndexName == st.Index {
+				schema = index.KeySchema
+			}
+		}
+	}
+	for _, entry := range schema {
+		if entry.KeyType == "HASH" {
+			return entry.AttributeName, true
+		}
+	}
+	return "", false
+}
+
+// ddbWhereRestrictsPartition reports whether a WHERE clause restricts the
+// partition key with an equality or an IN condition, which is what keeps a
+// SELECT off a full table scan. An AND is restricted when either side is, an OR
+// only when both are — `WHERE id = 1 OR other = 2` still reads every item —
+// and nothing else restricts the key: a range comparison on it, a negation, a
+// function, or no WHERE clause at all all scan the table.
+func ddbWhereRestrictsPartition(where partiQLExpr, partition string) bool {
+	switch node := where.(type) {
+	case partiQLAnd:
+		return ddbWhereRestrictsPartition(node.l, partition) || ddbWhereRestrictsPartition(node.r, partition)
+	case partiQLOr:
+		return ddbWhereRestrictsPartition(node.l, partition) && ddbWhereRestrictsPartition(node.r, partition)
+	case partiQLCompare:
+		return node.col == partition && node.op == "="
+	case partiQLIn:
+		return node.col == partition && len(node.vals) > 0
+	}
+	return false
 }
 
 // ddbRequestLeadingKeys is the partition-key values the request names. The

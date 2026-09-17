@@ -12,12 +12,13 @@ func init() {
 }
 
 type ecsConditionRequest struct {
-	Name                    string   `json:"name"`
-	Cluster                 string   `json:"cluster"`
-	Task                    string   `json:"task"`
-	Container               string   `json:"container"`
-	ContainerInstances      []string `json:"containerInstances"`
-	RequiresCompatibilities []string `json:"requiresCompatibilities"`
+	Tags                    []json.RawMessage `json:"tags"`
+	Name                    string            `json:"name"`
+	Cluster                 string            `json:"cluster"`
+	Task                    string            `json:"task"`
+	Container               string            `json:"container"`
+	ContainerInstances      []string          `json:"containerInstances"`
+	RequiresCompatibilities []string          `json:"requiresCompatibilities"`
 	ContainerDefinitions    []struct {
 		Privileged *bool `json:"privileged"`
 	} `json:"containerDefinitions"`
@@ -51,6 +52,13 @@ func iamPopulateECSRequestConditionKeys(r *http.Request, operation string, body 
 	if !iamDecodeJSONRequest(body, &request) {
 		return
 	}
+	// ecs:CreateAction is the create whose tags a TagResource authorization
+	// covers: Amazon ECS authorizes the tags a create request carries as
+	// TagResource, and this key names the create that carried them. Tagging an
+	// existing resource with TagResource itself leaves it unset.
+	iamSetConditionValues(ctx, "ecs:CreateAction",
+		iamTagOnCreateOperation(r, operation, "TagResource", len(request.Tags) > 0))
+
 	switch operation {
 	case "PutAccountSetting", "PutAccountSettingDefault", "DeleteAccountSetting":
 		iamSetConditionValues(ctx, "ecs:account-setting", request.Name)

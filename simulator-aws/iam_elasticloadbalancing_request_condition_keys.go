@@ -14,6 +14,14 @@ func init() {
 }
 
 func iamPopulateELBRequestConditionKeys(r *http.Request, operation string, _ []byte, ctx map[string][]string) {
+	// elasticloadbalancing:CreateAction is the create behind the tags an AddTags
+	// authorization covers: Elastic Load Balancing authorizes the tags a create
+	// request carries as AddTags, and this key names that create, so a grant can
+	// allow tagging on creation without allowing a caller to retag an existing
+	// load balancer. A plain AddTags call leaves it unset.
+	iamSetConditionValues(ctx, "elasticloadbalancing:CreateAction",
+		iamTagOnCreateOperation(r, operation, "AddTags", len(parseELBv2Tags(r, "Tags")) > 0))
+
 	switch operation {
 	case "CreateLoadBalancer":
 		ecSetString(ctx, "elasticloadbalancing:Scheme", r.FormValue("Scheme"))

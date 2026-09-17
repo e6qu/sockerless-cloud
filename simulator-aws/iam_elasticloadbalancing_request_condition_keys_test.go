@@ -67,3 +67,38 @@ func TestElasticLoadBalancingConditionKeysAreAbsentForAbsentMembers(t *testing.T
 		t.Errorf("SetIpAddressType settled %v", ctx)
 	}
 }
+
+func TestElasticLoadBalancingCreateActionNamesTheCreateThatCarriedTheTags(t *testing.T) {
+	createTargetGroup := queryConditionRequest(url.Values{
+		"Action":              {"CreateTargetGroup"},
+		"Name":                {"tg"},
+		"Tags.member.1.Key":   {"env"},
+		"Tags.member.1.Value": {"dev"},
+	})
+	assertPopulatedConditionValues(t, populatedConditionContext(createTargetGroup, "elasticloadbalancing", "AddTags", ""),
+		map[string][]string{"elasticloadbalancing:CreateAction": {"CreateTargetGroup"}})
+	// Elastic Load Balancing declares the key on AddTags alone, so the
+	// create's own authorization does not carry it.
+	assertConditionKeysAbsent(t, populatedConditionContext(createTargetGroup, "elasticloadbalancing", "CreateTargetGroup", ""),
+		"elasticloadbalancing:CreateAction")
+}
+
+func TestElasticLoadBalancingCreateActionAbsentWithoutATagOnCreate(t *testing.T) {
+	// Retagging a load balancer that already exists creates nothing.
+	standalone := queryConditionRequest(url.Values{
+		"Action":                {"AddTags"},
+		"ResourceArns.member.1": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1"},
+		"Tags.member.1.Key":     {"env"},
+		"Tags.member.1.Value":   {"dev"},
+	})
+	assertConditionKeysAbsent(t, populatedConditionContext(standalone, "elasticloadbalancing", "AddTags", ""),
+		"elasticloadbalancing:CreateAction")
+
+	untagged := queryConditionRequest(url.Values{
+		"Action": {"CreateLoadBalancer"},
+		"Name":   {"web"},
+		"Scheme": {"internal"},
+	})
+	assertConditionKeysAbsent(t, populatedConditionContext(untagged, "elasticloadbalancing", "AddTags", ""),
+		"elasticloadbalancing:CreateAction")
+}

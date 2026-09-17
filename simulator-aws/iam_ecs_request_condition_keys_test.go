@@ -102,3 +102,33 @@ func TestECSConditionKeysAbsentWithoutTheirMembers(t *testing.T) {
 	ctx = ecsConditionContext("RunTask", `{"name": "containerInsights", "requiresCompatibilities": ["FARGATE"]}`)
 	assertConditionKeysAbsent(t, ctx, "ecs:account-setting", "ecs:compute-compatibility")
 }
+
+func TestECSCreateActionNamesTheCreateThatCarriedTheTags(t *testing.T) {
+	runTask := `{"cluster": "c", "taskDefinition": "td", "tags": [{"key": "env", "value": "dev"}]}`
+	assertPopulatedConditionValues(t, populatedConditionContext(
+		jsonConditionRequest(ecsConditionTarget+"RunTask"), "ecs", "TagResource", runTask),
+		map[string][]string{"ecs:CreateAction": {"RunTask"}})
+	// Amazon ECS declares the key on TagResource alone, so the run's own
+	// authorization does not carry it.
+	assertConditionKeysAbsent(t, populatedConditionContext(
+		jsonConditionRequest(ecsConditionTarget+"RunTask"), "ecs", "RunTask", runTask),
+		"ecs:CreateAction")
+
+	assertPopulatedConditionValues(t, populatedConditionContext(
+		jsonConditionRequest(ecsConditionTarget+"CreateService"), "ecs", "TagResource",
+		`{"serviceName": "s", "tags": [{"key": "env", "value": "dev"}]}`),
+		map[string][]string{"ecs:CreateAction": {"CreateService"}})
+}
+
+func TestECSCreateActionAbsentWithoutATagOnCreate(t *testing.T) {
+	// TagResource on a cluster that already exists creates nothing.
+	assertConditionKeysAbsent(t, populatedConditionContext(
+		jsonConditionRequest(ecsConditionTarget+"TagResource"), "ecs", "TagResource",
+		`{"resourceArn": "arn:aws:ecs:us-east-1:123456789012:cluster/c", "tags": [{"key": "env", "value": "dev"}]}`),
+		"ecs:CreateAction")
+
+	assertConditionKeysAbsent(t, populatedConditionContext(
+		jsonConditionRequest(ecsConditionTarget+"RunTask"), "ecs", "TagResource",
+		`{"cluster": "c", "taskDefinition": "td"}`),
+		"ecs:CreateAction")
+}
