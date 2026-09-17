@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -427,20 +428,44 @@ func handleSTSGetFederationToken(w http.ResponseWriter, r *http.Request) {
 // in for the trust-policy check the sim does not enforce).
 func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
 	roleArn := r.FormValue("RoleArn")
-	if roleArn == "" || r.FormValue("PrincipalArn") == "" || r.FormValue("SAMLAssertion") == "" {
+	providerArn := r.FormValue("PrincipalArn")
+	if roleArn == "" || providerArn == "" || r.FormValue("SAMLAssertion") == "" {
 		stsErrorXML(w, "ValidationError", "RoleArn, PrincipalArn and SAMLAssertion are required", http.StatusBadRequest)
 		return
 	}
-	roleName := iamRoleNameFromArn(roleArn)
-	role, ok := iamRoles.Get(roleName)
+	role, ok := iamRoles.Get(iamRoleNameFromArn(roleArn))
 	if !ok {
 		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:AssumeRoleWithSAML on %s", roleArn), http.StatusForbidden)
 		return
 	}
-	// The session name for SAML is derived from the assertion subject; AWS uses
-	// the SAML subject's NameID. Use a stable simulator subject.
-	subject := "sim-saml-subject"
-	sessionName := subject
+	provider, ok := iamSAMLProviders.Get(providerArn)
+	if !ok {
+		stsErrorXML(w, "InvalidIdentityToken", fmt.Sprintf("Specified provider doesn't exist: %s", providerArn), http.StatusBadRequest)
+		return
+	}
+	assertion, err := verifySAMLAssertion(r.FormValue("SAMLAssertion"), provider, time.Now().UTC())
+	if errors.Is(err, errSAMLExpired) {
+		stsErrorXML(w, "ExpiredTokenException", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		stsErrorXML(w, "InvalidIdentityToken", err.Error(), http.StatusBadRequest)
+		return
+	}
+	assertion.ProviderArn = provider.Arn
+	assertion.ProviderName = provider.Name
+	if assertion.SessionName == "" {
+		stsErrorXML(w, "InvalidIdentityToken", "The SAML assertion has no RoleSessionName attribute", http.StatusBadRequest)
+		return
+	}
+	// The assertion has to offer this role through this provider, and the
+	// role has to trust the provider for this subject.
+	if !assertion.namesRole(role.Arn, provider.Arn) ||
+		!stsTrustAllows(role, "sts:AssumeRoleWithSAML", "federated:"+provider.Arn, assertion.conditionContext(awsAccountID())) {
+		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:AssumeRoleWithSAML on %s", roleArn), http.StatusForbidden)
+		return
+	}
+	sessionName := assertion.SessionName
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
 	akid, secret, token := stsMintTempCred(exp)
 	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
@@ -455,15 +480,17 @@ func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
     <Credentials><AccessKeyId>%s</AccessKeyId><SecretAccessKey>%s</SecretAccessKey><SessionToken>%s</SessionToken><Expiration>%s</Expiration></Credentials>
     <AssumedRoleUser><Arn>%s</Arn><AssumedRoleId>%s</AssumedRoleId></AssumedRoleUser>
     <Subject>%s</Subject>
-    <SubjectType>persistent</SubjectType>
-    <Issuer>https://sim.local/saml</Issuer>
-    <Audience>https://signin.aws.amazon.com/saml</Audience>
-    <NameQualifier>sim-name-qualifier</NameQualifier>
+    <SubjectType>%s</SubjectType>
+    <Issuer>%s</Issuer>
+    <Audience>%s</Audience>
+    <NameQualifier>%s</NameQualifier>
     <PackedPolicySize>0</PackedPolicySize>
   </AssumeRoleWithSAMLResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </AssumeRoleWithSAMLResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339),
-		xmlEscape(assumedArn), role.RoleId+":"+sessionName, subject, generateUUID())
+		xmlEscape(assumedArn), role.RoleId+":"+xmlEscape(sessionName), xmlEscape(assertion.Subject),
+		xmlEscape(assertion.SubjectType), xmlEscape(assertion.Issuer), xmlEscape(assertion.Recipient),
+		xmlEscape(assertion.nameQualifier(awsAccountID())), generateUUID())
 }
 
 // handleSTSGetWebIdentityToken issues a signed web-identity token (a JWT) and
