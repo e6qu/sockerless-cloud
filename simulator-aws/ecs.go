@@ -166,6 +166,9 @@ type ECSTaskManagedEBSVolumeConfiguration struct {
 	VolumeType        string                              `json:"volumeType,omitempty"`
 	SizeInGiB         int                                 `json:"sizeInGiB,omitempty"`
 	SnapshotId        string                              `json:"snapshotId,omitempty"`
+	Iops              int                                 `json:"iops,omitempty"`
+	Throughput        int                                 `json:"throughput,omitempty"`
+	FilesystemType    string                              `json:"filesystemType,omitempty"`
 	RoleArn           string                              `json:"roleArn,omitempty"`
 	TerminationPolicy *ECSTaskManagedEBSTerminationPolicy `json:"terminationPolicy,omitempty"`
 	TagSpecifications []ECSTaskManagedEBSTagSpecification `json:"tagSpecifications,omitempty"`
@@ -1095,10 +1098,15 @@ func ecsTaskDetail(details []ECSKeyValuePair, name string) string {
 type ecsPendingEBSRestore struct {
 	AttachmentID string
 	VolumeName   string
-	DockerSrc    string
-	DockerDst    string
-	HostSrc      string
-	HostDst      string
+	// DockerDst is created as a block volume of SizeGiB formatted with
+	// FilesystemType, and filled from DockerSrc when the volume comes from a
+	// snapshot.
+	DockerSrc      string
+	DockerDst      string
+	SizeGiB        int
+	FilesystemType string
+	HostSrc        string
+	HostDst        string
 }
 
 func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, configs []ECSTaskVolumeConfiguration, taskID, requestedSubnet string) (map[string]string, []ECSAttachment, []ecsPendingEBSRestore, *ecsRequestError) {
@@ -1154,6 +1162,13 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 		if volumeType == "" {
 			volumeType = "gp3"
 		}
+		fsType := managed.FilesystemType
+		if fsType == "" {
+			fsType = ebsDefaultFilesystemType
+		}
+		if !ebsValidFilesystemType(fsType) {
+			return nil, nil, nil, &ecsRequestError{"InvalidParameterException", fmt.Sprintf("Invalid filesystemType %q for volume %s: supported values are %s", managed.FilesystemType, cfg.Name, strings.Join(ebsFilesystemTypes, ", ")), http.StatusBadRequest}
+		}
 		deleteOnTermination := true
 		if managed.TerminationPolicy != nil && managed.TerminationPolicy.DeleteOnTermination != nil {
 			deleteOnTermination = *managed.TerminationPolicy.DeleteOnTermination
@@ -1169,6 +1184,8 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 			State:            "in-use",
 			CreateTime:       now,
 			VolumeType:       volumeType,
+			Iops:             managed.Iops,
+			Throughput:       managed.Throughput,
 			Encrypted:        managed.Encrypted,
 			Tags:             ecsManagedEBSTags(managed.TagSpecifications),
 			Attachments: []EC2VolumeAttachment{{
@@ -1194,18 +1211,19 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 		} else {
 			vol.DockerVolumeName = ebsECSDockerVolumeName(volumeID)
 		}
-		// Docker auto-creates the destination volume on first container use so no
-		// explicit VolumeCreate is needed — the copy container triggers creation.
-		// The copy itself is deferred: see ecsPendingEBSRestore.
-		if snapshotDockerVolumeName != "" {
-			if processMode {
-				return nil, nil, nil, &ecsRequestError{"InvalidParameterException", fmt.Sprintf("managed-EBS snapshot %s is Docker-volume-backed and cannot be restored under SIM_RUNTIME=process — start the simulator in container runtime to restore it", snapshotID), http.StatusBadRequest}
-			}
+		// Creating and formatting the volume, and filling it from a snapshot,
+		// are deferred to the task's transition: see ecsPendingEBSRestore.
+		if snapshotDockerVolumeName != "" && processMode {
+			return nil, nil, nil, &ecsRequestError{"InvalidParameterException", fmt.Sprintf("managed-EBS snapshot %s is Docker-volume-backed and cannot be restored under SIM_RUNTIME=process — start the simulator in container runtime to restore it", snapshotID), http.StatusBadRequest}
+		}
+		if !processMode && snapshotHostPath == "" {
 			restores = append(restores, ecsPendingEBSRestore{
-				AttachmentID: "ebs-" + volumeID,
-				VolumeName:   cfg.Name,
-				DockerSrc:    snapshotDockerVolumeName,
-				DockerDst:    vol.DockerVolumeName,
+				AttachmentID:   "ebs-" + volumeID,
+				VolumeName:     cfg.Name,
+				DockerSrc:      snapshotDockerVolumeName,
+				DockerDst:      vol.DockerVolumeName,
+				SizeGiB:        size,
+				FilesystemType: fsType,
 			})
 		} else if snapshotHostPath != "" {
 			// Snapshot came from an EC2/Firecracker volume (host-path); fall back to
@@ -1264,6 +1282,12 @@ func ecsRunPendingEBSRestores(ctx context.Context, taskID string, restores []ecs
 	for _, restore := range restores {
 		switch {
 		case restore.DockerDst != "":
+			if err := ebsCreateBlockVolume(ctx, restore.DockerDst, restore.SizeGiB, restore.FilesystemType); err != nil {
+				return fmt.Errorf("volume %s: %w", restore.VolumeName, err)
+			}
+			if restore.DockerSrc == "" {
+				break
+			}
 			if err := ebsCopyDockerVolumes(ctx, restore.DockerSrc, restore.DockerDst); err != nil {
 				return fmt.Errorf("volume %s: %w", restore.VolumeName, err)
 			}
@@ -1721,14 +1745,14 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			// caller can read from DescribeTasks.
 			if len(pendingRestores) > 0 {
 				if err := ecsRunPendingEBSRestores(context.Background(), id, pendingRestores); err != nil {
-					fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: managed EBS restore failed: %v\n", id, err)
+					fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: managed EBS volume preparation failed: %v\n", id, err)
 					stoppedAt := ecsEpochSeconds()
 					ecsTasks.Update(id, func(t *ECSTask) {
 						t.LastStatus = ECSTaskStatusStopped
 						t.DesiredStatus = ECSTaskStatusStopped
 						t.StoppedAt = &stoppedAt
 						t.StopCode = "TaskFailedToStart"
-						t.StoppedReason = fmt.Sprintf("ResourceInitializationError: unable to restore managed EBS volume: %v", err)
+						t.StoppedReason = fmt.Sprintf("ResourceInitializationError: unable to prepare managed EBS volume: %v", err)
 						for j := range t.Containers {
 							t.Containers[j].LastStatus = "STOPPED"
 						}

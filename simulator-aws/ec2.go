@@ -4472,6 +4472,9 @@ func ebsRemoveDockerVolume(name string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_, _ = cli.VolumeRemove(ctx, name, dockerclient.VolumeRemoveOptions{})
+	// A block volume's image file lives in a volume of its own, removed once
+	// nothing mounts the image.
+	_, _ = cli.VolumeRemove(ctx, ebsImageHolderName(name), dockerclient.VolumeRemoveOptions{})
 }
 
 // ebsCopyDockerVolumes copies all content from srcVolume into dstVolume using a
