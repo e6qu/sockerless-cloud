@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 7. Resolved: 129.
+Open: 7. Resolved: 130.
 
 ## Open
 
@@ -27,6 +27,17 @@ Open: 7. Resolved: 129.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3027 (one flaky read of a public server failed the whole pull
+  request):**~~ The Google Cloud CLI suite installs `cbt` and downloads the
+  gcloud CLI from inside TestMain — deliberately, so the data-plane test is
+  unconditional rather than skipped. Neither fetch was retried, so when
+  sum.golang.org answered `tile/8/0/112: stream error: INTERNAL_ERROR` while
+  verifying a go.mod, the job failed and took a green pull request red with it.
+  **Fixed**: both fetches are attempted three times with a growing delay before
+  they are believed. Nothing else is installed and nothing is skipped — a
+  persistent failure still stops the suite, and the attempts are logged, so a
+  real outage still reads as one.
 
 - ~~**BUG-3016 (seven S3 control-plane routes could not be gated):**~~ They
   were recorded as unfixable here because their actions belong to namespaces
