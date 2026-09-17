@@ -76,10 +76,19 @@ func TestCloudTrailCLI_EventDataStoreLifecycle(t *testing.T) {
 // start-query → describe-query / get-query-results / list-queries →
 // cancel-query, plus generate-query and search-sample-queries.
 func TestCloudTrailCLI_LakeQuery(t *testing.T) {
-	const eds = "arn:aws:cloudtrail:us-east-1:123456789012:eventdatastore/cli-lake-query"
+	eds := strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "create-event-data-store",
+		"--name", "cli-lake-query", "--retention-period", "7", "--no-termination-protection-enabled",
+		"--query", "EventDataStoreArn", "--output", "text")))
+	if eds == "" {
+		t.Fatal("create-event-data-store returned no EventDataStoreArn")
+	}
+	t.Cleanup(func() {
+		_ = awsCLI("cloudtrail", "delete-event-data-store", "--event-data-store", eds).Run()
+	})
+	runCLI(t, awsCLI("ec2", "describe-vpcs"))
 
 	qid := strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "start-query",
-		"--query-statement", "SELECT eventName FROM "+eds+" LIMIT 10",
+		"--query-statement", "SELECT eventName FROM "+eds+" WHERE eventName = 'DescribeVpcs'",
 		"--query", "QueryId", "--output", "text")))
 	if qid == "" {
 		t.Fatal("start-query returned no QueryId")
@@ -95,6 +104,11 @@ func TestCloudTrailCLI_LakeQuery(t *testing.T) {
 		"--query-id", qid, "--query", "QueryStatus", "--output", "text")))
 	if got != "FINISHED" {
 		t.Fatalf("get-query-results QueryStatus: got %q, want FINISHED", got)
+	}
+	got = strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "get-query-results",
+		"--query-id", qid, "--query", "length(QueryResultRows)", "--output", "text")))
+	if got == "0" || got == "" {
+		t.Fatalf("the store holds no DescribeVpcs event recorded after it was created (rows %q)", got)
 	}
 
 	got = strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "list-queries",

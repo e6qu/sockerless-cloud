@@ -83,7 +83,16 @@ type CloudTrailImport struct {
 	UpdatedTimestamp string
 }
 
+// CloudTrailLakeEvent is an event as one event data store ingested it. Each
+// store keeps its own copy, from its creation onward and for its own retention
+// period, apart from the 90 days of event history.
+type CloudTrailLakeEvent struct {
+	EventDataStore string
+	Event          CloudTrailEvent
+}
+
 var (
+	cloudTrailLakeEvents      sim.Store[CloudTrailLakeEvent]
 	cloudTrailEventDataStores sim.Store[CloudTrailEventDataStore]
 	cloudTrailQueries         sim.Store[CloudTrailQuery]
 	cloudTrailDashboards      sim.Store[CloudTrailDashboard]
@@ -103,6 +112,8 @@ func registerCloudTrailLake(r *AWSRouter, srv *sim.Server) {
 	cloudTrailDashboards = sim.MakeStore[CloudTrailDashboard](srv.DB(), "cloudtrail_dashboards")
 	cloudTrailImports = sim.MakeStore[CloudTrailImport](srv.DB(), "cloudtrail_imports")
 	cloudTrailOrgAdmins = sim.MakeStore[CloudTrailOrgAdmin](srv.DB(), "cloudtrail_org_admins")
+	cloudTrailLakeEvents = sim.MakeStore[CloudTrailLakeEvent](srv.DB(), "cloudtrail_lake_events")
+	startStoreSweeper(srv, cloudTrailSweepLake)
 
 	ops := map[string]http.HandlerFunc{
 		"CreateEventDataStore":                 handleCloudTrailCreateEventDataStore,
@@ -418,6 +429,112 @@ func cloudTrailEDSFromRequest(w http.ResponseWriter, r *http.Request) (CloudTrai
 	return eds, true
 }
 
+// cloudTrailIngestingStores indexes the event data stores that are ingesting
+// under one constant key, so recording an event reads the decoded set rather
+// than every stored event data store.
+var cloudTrailIngestingStores sim.GenerationIndex[CloudTrailEventDataStore]
+
+func cloudTrailIngestingStoreKeys(eds CloudTrailEventDataStore) []string {
+	if eds.Status != "ENABLED" {
+		return nil
+	}
+	return []string{"ingesting"}
+}
+
+func cloudTrailLakeIngest(event CloudTrailEvent) {
+	if cloudTrailLakeEvents == nil {
+		return
+	}
+	for _, eds := range cloudTrailIngestingStores.LookupAll(cloudTrailEventDataStores, "ingesting", cloudTrailIngestingStoreKeys) {
+		if !cloudTrailSelectorsSelect(eds.AdvancedEventSelectors, event) {
+			continue
+		}
+		cloudTrailLakeEvents.Put(eds.ARN+"|"+event.EventId, CloudTrailLakeEvent{EventDataStore: eds.ARN, Event: event})
+	}
+}
+
+// cloudTrailSelectorsSelect reports whether an event data store's advanced
+// event selectors take a management event. A store without selectors takes
+// every management event, and a selector takes the event when each of its
+// eventCategory and readOnly field selectors admits it.
+func cloudTrailSelectorsSelect(selectors []map[string]any, event CloudTrailEvent) bool {
+	if len(selectors) == 0 {
+		return true
+	}
+	for _, selector := range selectors {
+		fields, _ := selector["FieldSelectors"].([]any)
+		takes := true
+		for _, raw := range fields {
+			field, _ := raw.(map[string]any)
+			var value string
+			switch field["Field"] {
+			case "eventCategory":
+				value = "Management"
+			case "readOnly":
+				value = strconv.FormatBool(event.ReadOnly)
+			default:
+				continue
+			}
+			if !cloudTrailFieldAdmits(field, value) {
+				takes = false
+				break
+			}
+		}
+		if takes {
+			return true
+		}
+	}
+	return false
+}
+
+func cloudTrailFieldAdmits(field map[string]any, value string) bool {
+	contains := func(key string) (bool, bool) {
+		list, ok := field[key].([]any)
+		if !ok {
+			return false, false
+		}
+		for _, item := range list {
+			if item == value {
+				return true, true
+			}
+		}
+		return false, true
+	}
+	if found, set := contains("Equals"); set && !found {
+		return false
+	}
+	if found, set := contains("NotEquals"); set && found {
+		return false
+	}
+	return true
+}
+
+// cloudTrailSweepLake deletes each ingested event once it is older than its
+// event data store's retention period, and the events of a store that no
+// longer exists.
+func cloudTrailSweepLake(now time.Time) int {
+	return cloudTrailLakeEvents.Prune(func(stored CloudTrailLakeEvent) bool {
+		eds, ok := cloudTrailEventDataStores.Get(stored.EventDataStore)
+		if !ok {
+			return true
+		}
+		at, err := time.Parse(time.RFC3339, stored.Event.EventTime)
+		return err == nil && now.Sub(at) > time.Duration(eds.RetentionPeriod)*24*time.Hour
+	})
+}
+
+// cloudTrailQueryStore returns the event data store a query statement reads
+// FROM, which CloudTrail Lake names by its ID or its ARN.
+func cloudTrailQueryStore(statement string) (string, bool) {
+	fields := strings.Fields(statement)
+	for i, field := range fields {
+		if strings.EqualFold(field, "from") && i+1 < len(fields) {
+			return strings.Trim(fields[i+1], "`\"';()"), true
+		}
+	}
+	return "", false
+}
+
 func handleCloudTrailStartQuery(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		QueryStatement  string
@@ -433,10 +550,28 @@ func handleCloudTrailStartQuery(w http.ResponseWriter, r *http.Request) {
 			"QueryStatement or QueryAlias is required", http.StatusBadRequest)
 		return
 	}
-	// Run the query synchronously over the recorded events and settle FINISHED.
-	rows, scanned, matched := cloudTrailRunQuery(req.QueryStatement)
+	storeRef, ok := cloudTrailQueryStore(req.QueryStatement)
+	if !ok {
+		cloudTrailError(w, "InvalidQueryStatementException",
+			"The query statement does not name an event data store in its FROM clause", http.StatusBadRequest)
+		return
+	}
+	eds, ok := findCloudTrailEDS(storeRef)
+	if !ok {
+		cloudTrailError(w, "EventDataStoreNotFoundException",
+			"The specified event data store "+storeRef+" was not found", http.StatusBadRequest)
+		return
+	}
+	if eds.Status == "PENDING_DELETION" {
+		cloudTrailError(w, "InactiveEventDataStoreException",
+			"The event data store "+eds.ARN+" is pending deletion", http.StatusBadRequest)
+		return
+	}
+	// Run the query synchronously over the store's events and settle FINISHED.
+	rows, scanned, matched := cloudTrailRunQuery(eds.ARN, req.QueryStatement)
 	query := CloudTrailQuery{
 		QueryId:        generateUUID(),
+		EventDataStore: eds.ARN,
 		QueryStatement: req.QueryStatement,
 		QueryStatus:    "FINISHED",
 		CreationTime:   time.Now().UTC().Format(time.RFC3339),
@@ -450,13 +585,19 @@ func handleCloudTrailStartQuery(w http.ResponseWriter, r *http.Request) {
 	writeAWSJSON(w, http.StatusOK, map[string]any{"QueryId": query.QueryId})
 }
 
-// cloudTrailRunQuery executes a Lake query over the sim's recorded CloudTrail
-// events. It returns rows (one per matched event) plus scanned/matched counts.
+// cloudTrailRunQuery executes a Lake query over the events one event data store
+// ingested. It returns rows (one per matched event) plus scanned/matched counts.
 // The query statement's WHERE eventName = '<X>' / eventSource = '<X>' clauses,
-// when present, scope the rows; everything else returns all recorded events —
-// the faithful "run a query over the events the sim already stores" behavior.
-func cloudTrailRunQuery(statement string) (rows []map[string]string, scanned, matched int64) {
-	events := cloudTrailEvents.List()
+// when present, scope the rows; everything else returns all of the store's
+// events.
+func cloudTrailRunQuery(storeARN, statement string) (rows []map[string]string, scanned, matched int64) {
+	var events []CloudTrailEvent
+	for _, stored := range cloudTrailLakeEvents.Filter(func(stored CloudTrailLakeEvent) bool {
+		return stored.EventDataStore == storeARN
+	}) {
+		events = append(events, stored.Event)
+	}
+	sort.Slice(events, func(i, j int) bool { return events[i].Seq < events[j].Seq })
 	scanned = int64(len(events))
 	lower := strings.ToLower(statement)
 	wantName := cloudTrailQueryEquals(lower, "eventname")
@@ -603,6 +744,16 @@ func handleCloudTrailListQueries(w http.ResponseWriter, r *http.Request) {
 		QueryStatus    string
 	}
 	_ = readAWSJSONAllowEmpty(r, &req)
+	var storeARN string
+	if req.EventDataStore != "" {
+		eds, ok := findCloudTrailEDS(req.EventDataStore)
+		if !ok {
+			cloudTrailError(w, "EventDataStoreNotFoundException",
+				"The specified event data store "+req.EventDataStore+" was not found", http.StatusBadRequest)
+			return
+		}
+		storeARN = eds.ARN
+	}
 	queries := cloudTrailQueries.List()
 	sort.SliceStable(queries, func(i, j int) bool {
 		return queries[i].CreationTime > queries[j].CreationTime
@@ -610,6 +761,9 @@ func handleCloudTrailListQueries(w http.ResponseWriter, r *http.Request) {
 	out := make([]map[string]any, 0)
 	for _, q := range queries {
 		if req.QueryStatus != "" && q.QueryStatus != req.QueryStatus {
+			continue
+		}
+		if storeARN != "" && q.EventDataStore != storeARN {
 			continue
 		}
 		out = append(out, map[string]any{
