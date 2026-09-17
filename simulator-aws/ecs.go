@@ -1307,7 +1307,16 @@ func ecsRunPendingEBSRestores(ctx context.Context, taskID string, restores []ecs
 	return nil
 }
 
-func ecsCleanupTaskManagedEBS(task *ECSTask) {
+// ecsCleanupTaskManagedEBS releases the task's managed-EBS volumes and returns
+// the container-engine volumes the caller must then remove with
+// ebsRemoveDockerVolumes.
+//
+// Every caller runs this inside an ecsTasks.Update callback, which holds the
+// task store's write lock for as long as the callback runs — every other
+// task's transition and every DescribeTasks waits behind it. Removing a block
+// volume starts a container to give its loop device back, so that part is
+// handed to the caller to do once the lock is released rather than done here.
+func ecsCleanupTaskManagedEBS(task *ECSTask) (doomed []string) {
 	for i := range task.Attachments {
 		att := &task.Attachments[i]
 		if att.Type != "AmazonElasticBlockStorage" {
@@ -1321,7 +1330,7 @@ func ecsCleanupTaskManagedEBS(task *ECSTask) {
 		if deleteOnTermination {
 			if vol, ok := ec2Volumes.Get(volumeID); ok {
 				if vol.DockerVolumeName != "" {
-					ebsRemoveDockerVolume(vol.DockerVolumeName)
+					doomed = append(doomed, vol.DockerVolumeName)
 				} else {
 					_ = os.RemoveAll(vol.HostPath)
 				}
@@ -1334,6 +1343,16 @@ func ecsCleanupTaskManagedEBS(task *ECSTask) {
 			})
 		}
 		att.Status = "DETACHED"
+	}
+	return doomed
+}
+
+// ebsRemoveDockerVolumes removes the container-engine volumes a stopped task's
+// managed-EBS cleanup gave up. Call it after the ecsTasks.Update that produced
+// them has returned: it starts a container per block volume.
+func ebsRemoveDockerVolumes(names []string) {
+	for _, name := range names {
+		ebsRemoveDockerVolume(name)
 	}
 }
 
@@ -1747,6 +1766,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 				if err := ecsRunPendingEBSRestores(context.Background(), id, pendingRestores); err != nil {
 					fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: managed EBS volume preparation failed: %v\n", id, err)
 					stoppedAt := ecsEpochSeconds()
+					var doomedVolumes []string
 					ecsTasks.Update(id, func(t *ECSTask) {
 						t.LastStatus = ECSTaskStatusStopped
 						t.DesiredStatus = ECSTaskStatusStopped
@@ -1756,8 +1776,9 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 						for j := range t.Containers {
 							t.Containers[j].LastStatus = "STOPPED"
 						}
-						ecsCleanupTaskManagedEBS(t)
+						doomedVolumes = ecsCleanupTaskManagedEBS(t)
 					})
+					ebsRemoveDockerVolumes(doomedVolumes)
 					ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
 					if task, ok := ecsTasks.Get(id); ok {
 						ecsRequestServiceReconcileForTask(task)
@@ -1782,6 +1803,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 				// container ExitCode -1 with no diagnosable cause in logs.
 				fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: container start failed: %v\n", id, err)
 				stoppedAt := ecsEpochSeconds()
+				var doomedVolumes []string
 				ecsTasks.Update(id, func(t *ECSTask) {
 					t.LastStatus = ECSTaskStatusStopped
 					t.DesiredStatus = ECSTaskStatusStopped
@@ -1793,8 +1815,9 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 						t.Containers[j].LastStatus = "STOPPED"
 						t.Containers[j].ExitCode = &exitCode
 					}
-					ecsCleanupTaskManagedEBS(t)
+					doomedVolumes = ecsCleanupTaskManagedEBS(t)
 				})
+				ebsRemoveDockerVolumes(doomedVolumes)
 				ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
 				if task, ok := ecsTasks.Get(id); ok {
 					ecsRequestServiceReconcileForTask(task)
@@ -1898,6 +1921,7 @@ func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTa
 			cleanupECSTaskProcesses(taskID, ownedProcesses)
 			stoppedAt := ecsEpochSeconds()
 			transitioned := false
+			var doomedVolumes []string
 			ecsTasks.Update(taskID, func(t *ECSTask) {
 				if t.LastStatus == ECSTaskStatusStopped {
 					return
@@ -1918,8 +1942,9 @@ func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTa
 					t.Containers[j].LastStatus = "STOPPED"
 					t.Containers[j].ExitCode = &exitCode
 				}
-				ecsCleanupTaskManagedEBS(t)
+				doomedVolumes = ecsCleanupTaskManagedEBS(t)
 			})
+			ebsRemoveDockerVolumes(doomedVolumes)
 			if transitioned {
 				ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, 0, -1)
 				if task, ok := ecsTasks.Get(taskID); ok {
@@ -1996,6 +2021,7 @@ func ecsResumePendingTask(task ECSTask, definition ECSTaskDefinition) {
 	containerInstanceKey := ecsContainerInstanceKeyFromARN(task.ContainerInstanceArn)
 	if err != nil {
 		stoppedAt := ecsEpochSeconds()
+		var doomedVolumes []string
 		ecsTasks.Update(taskID, func(current *ECSTask) {
 			current.LastStatus = ECSTaskStatusStopped
 			current.DesiredStatus = ECSTaskStatusStopped
@@ -2007,8 +2033,9 @@ func ecsResumePendingTask(task ECSTask, definition ECSTaskDefinition) {
 				current.Containers[index].LastStatus = "STOPPED"
 				current.Containers[index].ExitCode = &exitCode
 			}
-			ecsCleanupTaskManagedEBS(current)
+			doomedVolumes = ecsCleanupTaskManagedEBS(current)
 		})
+		ebsRemoveDockerVolumes(doomedVolumes)
 		ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
 		if current, ok := ecsTasks.Get(taskID); ok {
 			ecsRequestServiceReconcileForTask(current)
@@ -2094,6 +2121,7 @@ func ecsMarkMissingRunningTaskStopped(task ECSTask) {
 	taskID := task.TaskID()
 	stoppedAt := ecsEpochSeconds()
 	transitioned := false
+	var doomedVolumes []string
 	ecsTasks.Update(taskID, func(current *ECSTask) {
 		if current.LastStatus != ECSTaskStatusRunning {
 			return
@@ -2110,8 +2138,9 @@ func ecsMarkMissingRunningTaskStopped(task ECSTask) {
 			current.Containers[index].LastStatus = "STOPPED"
 			current.Containers[index].ExitCode = &exitCode
 		}
-		ecsCleanupTaskManagedEBS(current)
+		doomedVolumes = ecsCleanupTaskManagedEBS(current)
 	})
+	ebsRemoveDockerVolumes(doomedVolumes)
 	if !transitioned {
 		return
 	}
@@ -2982,6 +3011,7 @@ func ecsFinishTaskStop(taskID string) {
 
 	now := ecsEpochSeconds()
 	transitioned := false
+	var doomedVolumes []string
 	ecsTasks.Update(taskID, func(t *ECSTask) {
 		if t.LastStatus == ECSTaskStatusStopped {
 			return
@@ -2998,8 +3028,9 @@ func ecsFinishTaskStop(taskID string) {
 			t.Containers[j].LastStatus = "STOPPED"
 			t.Containers[j].ExitCode = &exitCode
 		}
-		ecsCleanupTaskManagedEBS(t)
+		doomedVolumes = ecsCleanupTaskManagedEBS(t)
 	})
+	ebsRemoveDockerVolumes(doomedVolumes)
 	if !transitioned {
 		return
 	}

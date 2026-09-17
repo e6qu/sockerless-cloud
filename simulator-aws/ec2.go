@@ -4457,7 +4457,11 @@ func ebsSnapshotDockerVolumeName(snapshotID string) string {
 }
 
 // ebsRemoveDockerVolume removes a Docker named volume created for an ECS EBS volume or
-// snapshot. Errors are silently ignored (volume may already be absent).
+// snapshot. Errors removing a volume are silently ignored (it may already be absent);
+// a loop device left attached is not, because nothing else would ever report it.
+//
+// It starts a container (see ebsDetachLoopDevices), so it must not be called
+// while a state store's write lock is held.
 func ebsRemoveDockerVolume(name string) {
 	if name == "" {
 		return
@@ -4469,12 +4473,21 @@ func ebsRemoveDockerVolume(name string) {
 		// dereference the nil client (the panic reported in #569).
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// The budget covers a helper image the engine has to build first, which it
+	// does when this simulator did not create the volume it is now removing.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	// Remove the volume before detaching: removing it unmounts the filesystem,
+	// and a loop device whose filesystem is still mounted cannot be given back
+	// (the kernel defers the detach to the last close instead).
 	_, _ = cli.VolumeRemove(ctx, name, dockerclient.VolumeRemoveOptions{})
+	holder := ebsImageHolderName(name)
+	if err := ebsDetachLoopDevices(ctx, cli, holder); err != nil {
+		fmt.Fprintf(os.Stderr, "[sim-ec2] volume %s: loop device not detached: %v\n", name, err)
+	}
 	// A block volume's image file lives in a volume of its own, removed once
 	// nothing mounts the image.
-	_, _ = cli.VolumeRemove(ctx, ebsImageHolderName(name), dockerclient.VolumeRemoveOptions{})
+	_, _ = cli.VolumeRemove(ctx, holder, dockerclient.VolumeRemoveOptions{})
 }
 
 // ebsCopyDockerVolumes copies all content from srcVolume into dstVolume using a
