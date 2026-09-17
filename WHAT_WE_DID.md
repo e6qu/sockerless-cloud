@@ -147,6 +147,12 @@ resolving once that branch is deleted.
   the provider's name, the `saml:` attributes of a signed assertion — and a
   SAML response is verified against the provider's own metadata. Tests sign
   real tokens and assertions rather than sending placeholders.
+- **A request is authorized as the action AWS names, not as its operation.**
+  The two differ for 94 operations: a multipart upload is `s3:PutObject`, a
+  batch send is `sqs:SendMessage`, a re-encrypt is `kms:ReEncryptFrom` on one
+  key and `kms:ReEncryptTo` on the other. The unambiguous ones are generated
+  from the Service Reference; the rest are resolved from the request, down to
+  each key of a batch delete and each statement of a PartiQL call.
 - **Condition keys are read from the request the way the service defines
   them.** AWS CodeBuild's keys name the request member they read, so one
   resolver serves all of them from the declared list; other services register
