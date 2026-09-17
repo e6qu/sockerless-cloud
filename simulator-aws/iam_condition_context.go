@@ -301,7 +301,7 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 
 	// rds:PubliclyAccessible is whether the request asks for an instance
 	// reachable from the internet, which a policy refuses outright.
-	if service == "rds" {
+	if service == "rds" && iamRDSPublicAccessActions[name] {
 		if public := iamRequestParameter(r, body, "PubliclyAccessible"); public != "" {
 			ctx["rds:PubliclyAccessible"] = []string{public}
 		}
@@ -357,21 +357,18 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 	}
 
 	// acm:CertificateKeyPairOrigin says who made the certificate's key pair:
-	// AWS, for one this service issued, or the caller, for one it imported —
-	// which the certificate's own record settles.
+	// AWS_MANAGED for one ACM made, ACME or CUSTOMER_PROVIDED otherwise.
 	if service == "acm" {
-		if arn := iamRequestParameter(r, body, "CertificateArn"); arn != "" {
-			// The store is keyed by the certificate's id, which is the last
-			// segment of its ARN.
-			if stored, ok := acmCertificates.Get(acmARNToID(arn)); ok {
-				// The certificate's own type says who made its key pair: one
-				// the caller imported came with its key, and one this service
-				// issued was made here.
-				origin := "AWS_ISSUED"
-				if stored.Cert.Type == "IMPORTED" {
-					origin = "IMPORTED"
+		switch name {
+		case "RequestCertificate":
+			ctx["acm:CertificateKeyPairOrigin"] = []string{"AWS_MANAGED"}
+		case "AddTagsToCertificate", "DeleteCertificate", "RevokeCertificate", "UpdateCertificate":
+			if arn := iamRequestParameter(r, body, "CertificateArn"); arn != "" {
+				// The store is keyed by the certificate's id, the last segment
+				// of its ARN.
+				if stored, ok := acmCertificates.Get(acmARNToID(arn)); ok {
+					ctx["acm:CertificateKeyPairOrigin"] = []string{acmCertificateKeyPairOrigin(stored.Cert)}
 				}
-				ctx["acm:CertificateKeyPairOrigin"] = []string{origin}
 			}
 		}
 	}
@@ -434,7 +431,7 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 	// rds:ManageMasterUserPassword is whether the request asks Amazon RDS to
 	// manage the master password in AWS Secrets Manager, which a policy uses to
 	// require that a password never be supplied by hand.
-	if service == "rds" {
+	if service == "rds" && iamRDSManagedPasswordActions[name] {
 		if managed := iamRequestParameter(r, body, "ManageMasterUserPassword"); managed != "" {
 			ctx["rds:ManageMasterUserPassword"] = []string{managed}
 		}
@@ -500,6 +497,19 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 // iamOrganizationsRequestPolicyType reads the policy type an AWS Organizations
 // request is about, either from the type the request states or from the policy
 // it names.
+var (
+	iamRDSPublicAccessActions = map[string]bool{
+		"CreateDBInstance": true, "CreateDBInstanceReadReplica": true, "CreateDBShardGroup": true,
+		"RestoreDBInstanceFromDBSnapshot": true, "RestoreDBInstanceFromS3": true, "RestoreDBInstanceToPointInTime": true,
+	}
+	iamRDSManagedPasswordActions = map[string]bool{
+		"CreateDBCluster": true, "CreateDBInstance": true, "CreateTenantDatabase": true,
+		"ModifyDBCluster": true, "ModifyDBInstance": true, "ModifyTenantDatabase": true,
+		"RestoreDBClusterFromS3": true, "RestoreDBInstanceFromDBSnapshot": true,
+		"RestoreDBInstanceFromS3": true, "RestoreDBInstanceToPointInTime": true,
+	}
+)
+
 func iamOrganizationsRequestPolicyType(r *http.Request, body []byte) string {
 	if policyType := iamRequestParameter(r, body, "Type"); policyType != "" {
 		return policyType

@@ -785,18 +785,19 @@ func handleACMRequestCertificate(w http.ResponseWriter, r *http.Request) {
 		options = &ACMCertificateOptions{CertificateTransparencyLoggingPreference: "ENABLED"}
 	}
 	cert := ACMCertificate{
-		CertificateArn:          acmCertARN(id),
-		DomainName:              req.DomainName,
-		SubjectAlternativeNames: req.SubjectAlternativeNames,
-		DomainValidationOptions: dvOpts,
-		Status:                  "PENDING_VALIDATION",
-		Type:                    "AMAZON_ISSUED",
-		RenewalEligibility:      "INELIGIBLE",
-		KeyAlgorithm:            firstNonEmpty(req.KeyAlgorithm, "RSA_2048"),
-		SignatureAlgorithm:      "SHA256WITHRSA",
-		Options:                 options,
-		CreatedAt:               now,
-		InUseBy:                 []string{},
+		CertificateArn:           acmCertARN(id),
+		DomainName:               req.DomainName,
+		SubjectAlternativeNames:  req.SubjectAlternativeNames,
+		DomainValidationOptions:  dvOpts,
+		Status:                   "PENDING_VALIDATION",
+		Type:                     "AMAZON_ISSUED",
+		CertificateKeyPairOrigin: "AWS_MANAGED",
+		RenewalEligibility:       "INELIGIBLE",
+		KeyAlgorithm:             firstNonEmpty(req.KeyAlgorithm, "RSA_2048"),
+		SignatureAlgorithm:       "SHA256WITHRSA",
+		Options:                  options,
+		CreatedAt:                now,
+		InUseBy:                  []string{},
 	}
 	stored := acmStoredCert{Tags: req.Tags}
 	if req.CertificateAuthorityArn != "" {
@@ -1546,4 +1547,17 @@ func handleACMListCertificateDomainValidations(w http.ResponseWriter, r *http.Re
 		out["NextToken"] = next
 	}
 	acmWriteJSON(w, http.StatusOK, out)
+}
+
+// acmCertificateKeyPairOrigin is who made a certificate's key pair. A record
+// written before the origin was stored carries its type instead: an imported
+// certificate brought its own key, and ACM made every other.
+func acmCertificateKeyPairOrigin(cert ACMCertificate) string {
+	if cert.CertificateKeyPairOrigin != "" {
+		return cert.CertificateKeyPairOrigin
+	}
+	if cert.Type == "IMPORTED" {
+		return "CUSTOMER_PROVIDED"
+	}
+	return "AWS_MANAGED"
 }
