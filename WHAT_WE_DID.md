@@ -167,6 +167,13 @@ resolving once that branch is deleted.
   cluster's key. IAM's own users and roles carry `iam:ResourceTag/<k>`; its
   policies and instance profiles carry only `aws:ResourceTag/<k>`, because that
   is what the reference declares for them.
+- **A request's tags are read in the shape that service sends.** The member
+  path comes from each service's own vendored model — `Tags.Tag.N` for Amazon
+  RDS, `Tags.member.N` for Elastic Load Balancing and IAM,
+  `TagSpecification.N.Tag.M` for an Amazon EC2 tag-on-create, a lower-case
+  `tags` list for Amazon ECS, `TagKey`/`TagValue` for AWS KMS, and a map for
+  Amazon SQS and CloudWatch Logs. Before this, one awsQuery spelling was read
+  and every other service settled no `aws:RequestTag/<k>` at all.
 - **A key that says who called is only set when someone else called.**
   `kms:ViaService` and `kms:GrantIsForAWSResource` are built from the
   service-initiation the request carries, so a direct client call has neither

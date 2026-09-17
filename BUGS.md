@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 8. Resolved: 123.
+Open: 8. Resolved: 124.
 
 ## Open
 
@@ -28,6 +28,25 @@ Open: 8. Resolved: 123.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3022 (a request's tags were read in one shape, and most services
+  send another):**~~ `aws:RequestTag/<k>` and `aws:TagKeys` came from the
+  awsQuery member `Tag.N` alone, so every service that spells its tags
+  differently settled neither key: Amazon RDS and Amazon ElastiCache send
+  `Tags.Tag.N`, Elastic Load Balancing, IAM, AWS STS, Amazon SNS, Auto Scaling
+  and CloudWatch send `Tags.member.N`, Amazon EC2's tag-on-create sends
+  `TagSpecification.N.Tag.M`, and the JSON protocols were not read at all —
+  Amazon ECS's `tags` are lower case, AWS KMS's are `TagKey`/`TagValue`, and
+  Amazon SQS, CloudWatch Logs, Amazon Kinesis and AWS Glue send a map, not a
+  list. The tag-on-create restriction AWS documents — `"Null":
+  {"aws:RequestTag/owner": "false"}`, or a `ForAllValues:StringEquals` on
+  `aws:TagKeys` — therefore denied every create it was written to allow.
+  **Fixed**: each service's shape is read from the member path its own vendored
+  model serializes, with the model quoted per row, and map-carried tags are
+  emitted in sorted order so the context does not depend on map iteration. The
+  restJson1 services are deliberately absent and say why: the gate runs on
+  `POST /` for awsJson and awsQuery requests, so a row for them would be
+  unreachable code.
 
 - ~~**BUG-3021 (the whole Amazon S3 control plane was unauthenticated in
   effect):**~~ Every `/v20180820` route — access points, access grants, batch
