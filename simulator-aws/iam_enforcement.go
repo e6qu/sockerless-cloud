@@ -225,7 +225,13 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 				policyARN = resource[:len("arn:aws:s3:::")+i]
 			}
 		}
-		if rdocs := iamResourcePolicyDocsForARN(policyARN); len(rdocs) > 0 {
+		rdocs := iamResourcePolicyDocsForARN(policyARN)
+		// A role's trust policy is the resource policy of assuming it: naming
+		// the caller there grants the assumption without an identity policy.
+		if action == "sts:AssumeRole" {
+			rdocs = append(rdocs, iamRoleTrustDocs(resource)...)
+		}
+		if len(rdocs) > 0 {
 			rdec, _ := iamEvalDecisionForPrincipal(rdocs, action, resource, principalArn, ctx)
 			if rdec == "explicitDeny" {
 				return false, principalArn, true

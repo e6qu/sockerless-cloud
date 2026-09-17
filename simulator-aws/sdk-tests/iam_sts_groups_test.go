@@ -31,7 +31,9 @@ func TestSTS_AssumeRoleEnforcement(t *testing.T) {
 
 	_, err := admin.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(role),
-		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
+		// The account principal delegates to the caller's own policies, which
+		// for the harness administrator allow sts:AssumeRole.
+		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"sts:AssumeRole"}]}`),
 	})
 	require.NoError(t, err)
 	defer admin.DeleteRole(ctx, &iam.DeleteRoleInput{RoleName: aws.String(role)})

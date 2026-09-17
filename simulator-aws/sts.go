@@ -133,6 +133,57 @@ func stsDurationSeconds(r *http.Request) int {
 // own expiration, sealed with the simulator's key. AWS reads a presented
 // token's expiration from the token itself, so a credential the simulator has
 // already pruned is still refused as expired rather than as unknown.
+// stsTrustAllows evaluates a role's trust policy for a caller. A statement that
+// names the caller's account rather than the caller delegates to the account's
+// own IAM, which the call-time enforcement has already applied.
+func stsTrustAllows(role IAMRole, action, caller string, ctx map[string][]string) bool {
+	trust, err := parseIAMPolicy(role.AssumeRolePolicyDocument)
+	if err != nil {
+		return false
+	}
+	decision, _ := iamEvalDecisionForPrincipal([]iamPolicyDoc{trust}, action, role.Arn, caller, ctx)
+	if decision == "allowed" {
+		return true
+	}
+	if decision == "explicitDeny" {
+		return false
+	}
+	return stsTrustDelegates(trust, action, caller, ctx)
+}
+
+// stsTrustDelegates reports whether an Allow statement admits the caller by
+// its account alone.
+func stsTrustDelegates(trust iamPolicyDoc, action, caller string, ctx map[string][]string) bool {
+	for _, stmt := range trust.Statement {
+		if !strings.EqualFold(stmt.Effect, "allow") || iamPrincipalMatchKind(stmt, caller, ctx) != iamPrincipalDelegated {
+			continue
+		}
+		if !iamActionMatches(stmt, action) {
+			continue
+		}
+		if ok, _ := iamConditionMatches(stmt, ctx); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// iamRoleTrustDocs returns the trust policy of the role roleArn names.
+func iamRoleTrustDocs(roleArn string) []iamPolicyDoc {
+	if !iamIsRoleARN(roleArn) {
+		return nil
+	}
+	role, ok := iamRoles.Get(iamRoleNameFromArn(roleArn))
+	if !ok || role.Arn != roleArn {
+		return nil
+	}
+	trust, err := parseIAMPolicy(role.AssumeRolePolicyDocument)
+	if err != nil {
+		return nil
+	}
+	return []iamPolicyDoc{trust}
+}
+
 func stsMintTempCred(expiration time.Time) (akid, secret, token string) {
 	akid = "ASIA" + strings.ToUpper(iamRandomB32(16))
 	payload := make([]byte, stsTokenPayloadLen)
@@ -231,6 +282,25 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
 			http.StatusForbidden)
 		return
 	}
+	// The trust policy has to admit the caller. A credential no registered
+	// principal holds is not evaluated here, as the call-time gate does not
+	// evaluate it either.
+	callerKey := iamAccessKeyIDFromRequest(r)
+	if callerArn, _, userName, registered := iamPrincipalForAccessKey(callerKey); registered {
+		ctx := iamRequestConditionContext(r, callerKey, callerArn, userName, "sts:AssumeRole")
+		ctx["sts:RoleSessionName"] = []string{sessionName}
+		for key, param := range map[string]string{"sts:ExternalId": "ExternalId", "sts:SourceIdentity": "SourceIdentity"} {
+			if value := r.FormValue(param); value != "" {
+				ctx[key] = []string{value}
+			}
+		}
+		if !stsTrustAllows(role, "sts:AssumeRole", callerArn, ctx) {
+			stsErrorXML(w, "AccessDenied",
+				fmt.Sprintf("User: %s is not authorized to perform: sts:AssumeRole on resource: %s", callerArn, roleArn),
+				http.StatusForbidden)
+			return
+		}
+	}
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
 	akid, secret, token := stsMintTempCred(exp)
 	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
@@ -275,9 +345,14 @@ func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) 
 	}
 	// Verify the web identity token against the registered OpenID Connect
 	// provider, the way STS does, rather than minting credentials for any token.
-	tokenSubject, err := verifyWebIdentityToken(r.Context(), r.FormValue("WebIdentityToken"))
+	identity, err := verifyWebIdentityToken(r.Context(), r.FormValue("WebIdentityToken"))
 	if err != nil {
 		stsErrorXML(w, "InvalidIdentityToken", err.Error(), http.StatusBadRequest)
+		return
+	}
+	tokenSubject := identity.Subject
+	if !stsTrustAllows(role, "sts:AssumeRoleWithWebIdentity", "federated:"+identity.Provider.Arn, identity.conditionContext(sessionName)) {
+		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:AssumeRoleWithWebIdentity on %s", roleArn), http.StatusForbidden)
 		return
 	}
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)

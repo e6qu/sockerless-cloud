@@ -59,11 +59,12 @@ type iamStatement struct {
 // wildcard string "*" or an object mapping a type (AWS, Service, Federated, …)
 // to one or more values.
 type iamPrincipal struct {
-	Wildcard bool
-	AWS      []string
-	Service  []string
-	Other    []string
-	set      bool
+	Wildcard  bool
+	AWS       []string
+	Service   []string
+	Federated []string
+	Other     []string
+	set       bool
 }
 
 func (p *iamPrincipal) UnmarshalJSON(b []byte) error {
@@ -94,6 +95,8 @@ func (p *iamPrincipal) UnmarshalJSON(b []byte) error {
 			p.AWS = append(p.AWS, v...)
 		case "Service":
 			p.Service = append(p.Service, v...)
+		case "Federated":
+			p.Federated = append(p.Federated, v...)
 		default:
 			p.Other = append(p.Other, v...)
 		}
@@ -152,6 +155,15 @@ func iamPrincipalMatchKind(stmt iamStatement, callerArn string, ctx map[string][
 		for _, want := range p.Service {
 			for _, svc := range ctx["aws:CalledVia"] {
 				if want == svc {
+					return iamPrincipalNamed
+				}
+			}
+		}
+		// A federated caller is its identity provider: a principal names it by
+		// ARN, or by name for the providers AWS knows without one.
+		if provider, federated := strings.CutPrefix(callerArn, "federated:"); federated {
+			for _, want := range p.Federated {
+				if want == provider || strings.HasSuffix(provider, "-provider/"+want) {
 					return iamPrincipalNamed
 				}
 			}
