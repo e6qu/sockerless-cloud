@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.12](https://github.com/e6qu/sockerless-cloud/compare/v0.32.11...v0.32.12) (2026-09-17)
+
+
+### Bug Fixes
+
+* **aws:** sweep stopped tasks by the key they are stored under ([#189](https://github.com/e6qu/sockerless-cloud/issues/189)) ([9515e90](https://github.com/e6qu/sockerless-cloud/commit/9515e908cf0303906f305fddc37955823e75d7a9))
+
 ## [0.32.11](https://github.com/e6qu/sockerless-cloud/compare/v0.32.10...v0.32.11) (2026-09-17)
 
 
