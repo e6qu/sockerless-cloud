@@ -129,6 +129,16 @@ resolving once that branch is deleted.
   at a time. Where deleting a record would change an answer, the answer moved
   into what the client presents: a session token carries its expiration under
   the simulator's key, so a pruned credential is still refused as expired.
+  CloudTrail event history keeps 90 days apart from the copies each CloudTrail
+  Lake event data store ingests and keeps for its own period, and CloudWatch
+  Logs applies a group's `retentionInDays` to its events, not its streams.
+- **A managed EBS volume is a block device, mounted by the engine.** A plain
+  engine volume showed the workload the host's disk. The volume is an image
+  file of the requested size and filesystem, and the container engine mounts it
+  through its own `local` driver: the mount then happens on the engine's host,
+  where the bind looks, and the simulator needs no privilege to make it.
+  Snapshots stay file-level, which is what let volumes made before the change
+  restore into it.
 
 ## Execution
 

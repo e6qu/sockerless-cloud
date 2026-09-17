@@ -18,7 +18,7 @@
       "_evidence": [
         "GoogleCloudRunV2ServiceScaling declares scalingMode, minInstanceCount",
         "and maxInstanceCount; the WorkerPool equivalent declares only",
-        "manualInstanceCount, through Discovery revision 20260822. The three",
+        "manualInstanceCount, through Discovery revision 20260911. The three",
         "are nonetheless served: gcloud's generated Cloud Run v2 client and the",
         "Google Terraform provider both send and read them on a worker pool,",
         "and manualInstanceCount sits at proto field 6 with fields 1-5",

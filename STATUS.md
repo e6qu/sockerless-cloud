@@ -36,10 +36,9 @@ Current state of the sockerless-cloud repository.
 - **AWS**: the 41 vendored Smithy models are implemented or exempt in full, the
   exemptions being the Amazon S3 bucket subresources the query-parameter table
   routes, each verified against that table. IAM resource derivation covers
-  2,000 of 2,008 served operations; the eight that remain are requests naming
-  no resource, and `"*"` is the honest answer. 1,406 of the 1,739 actions
-  declaring an action condition key carry every one of theirs (BUG-2965
-  measures the rest).
+  2,004 of 2,012 served operations; the eight that remain are requests naming
+  no resource, and `"*"` is the honest answer. Condition-key coverage is not
+  ratcheted yet; BUG-2965 holds the last hand count.
 - **Google Cloud**: 5,486 of 5,486 Discovery method spellings across 30
   documents reach a route that names them; the gRPC surfaces serve 210 of 213
   methods, the three unserved each needing state the simulator does not hold.
