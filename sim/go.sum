@@ -30,6 +30,8 @@ github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917053241-fc0d343303aa h1:
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917053241-fc0d343303aa/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917090915-f5e49032c874 h1:MwPf5gFqHkLO7hoGGYCM/D6e8Lfs5wcDKiEw7x7WrCo=
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917090915-f5e49032c874/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917134425-9515e908cf03 h1:QEllS3vqVL8v/euN4yd4JurogHQ9wDRZgWGkQO2HmqE=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917134425-9515e908cf03/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905213638-ef4567e91da5 h1:Q8VSrCZGKSbBPaqe4cpLpudG7s2oW4ym+ndCZVwrKKg=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905213638-ef4567e91da5/go.mod h1:xoBHEyXuJRea+OxATpPAM+UzxeqYeBxlwfGEpbTF90M=
 github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeORc=
