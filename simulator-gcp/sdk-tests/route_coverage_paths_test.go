@@ -727,3 +727,27 @@ func TestRouteCoveragePathsAreServed(t *testing.T) {
 //   POST /v1/projects/{project}/serviceAccounts/{email}/keys:upload
 //   POST /v1/projects/{project}/serviceAccounts/{email}/keys/{keyAction}
 //   POST /v1/roles:queryGrantableRoles
+
+// Cloud Resource Manager v3 capabilityConfigs, published on all three
+// hierarchy nodes by the 2026-09-18 Discovery re-vendor and driven by
+// cloudresourcemanager_capability_configs_test.go. The generated Go client
+// carries no collection for them yet, so the tests send the wire paths
+// themselves, with a folder, an organization and a project name in place of
+// the parent — the literal templates are recorded here so the
+// simulator-testing-contract hook can see the coverage.
+//
+//   POST /v3/folders/{parent}/capabilityConfigs
+//   GET /v3/folders/{parent}/capabilityConfigs
+//   GET /v3/folders/{parent}/capabilityConfigs/{capabilityConfig}
+//   PATCH /v3/folders/{parent}/capabilityConfigs/{capabilityConfig}
+//   DELETE /v3/folders/{parent}/capabilityConfigs/{capabilityConfig}
+//   POST /v3/organizations/{parent}/capabilityConfigs
+//   GET /v3/organizations/{parent}/capabilityConfigs
+//   GET /v3/organizations/{parent}/capabilityConfigs/{capabilityConfig}
+//   PATCH /v3/organizations/{parent}/capabilityConfigs/{capabilityConfig}
+//   DELETE /v3/organizations/{parent}/capabilityConfigs/{capabilityConfig}
+//   POST /v3/projects/{parent}/capabilityConfigs
+//   GET /v3/projects/{parent}/capabilityConfigs
+//   GET /v3/projects/{parent}/capabilityConfigs/{capabilityConfig}
+//   PATCH /v3/projects/{parent}/capabilityConfigs/{capabilityConfig}
+//   DELETE /v3/projects/{parent}/capabilityConfigs/{capabilityConfig}

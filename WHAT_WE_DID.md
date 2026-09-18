@@ -391,6 +391,21 @@ fails until it is served or declared. A re-vendor can also *withdraw* a
 surface, as Cloud Build's `gitLabConfigs` collection was withdrawn, and the
 floor comment has to say which methods moved and why.
 
+What a re-vendor adds is served wherever the document describes something the
+simulator already holds. Cloud Resource Manager's `capabilityConfigs` — which
+capabilities are enabled over an organization, a folder or a project and its
+sub-tree, over which boundaries, in which management project — arrived that
+way and is served from one store under all three parents, because it is the
+same kind of record as the folder capability toggle beside it and because the
+management project the API creates when a caller supplies none is a project,
+which this simulator models: the name the config reports resolves through the
+same `projects.get` every other client uses. Cloud SQL's `workloadCaptures`
+arrived at the `v1` spelling a re-vendor after the `v1beta4` one and needed
+nothing, because the module mounts itself on both prefixes and the
+declared 501 was already answering there — the captures stay declared, since
+the data plane relays the engine's wire protocol without reading a query out
+of it and a replay reported as RUNNING would be invented.
+
 The store-scan gate holds request-path full-store reads at zero: every
 exemption the file ever carried was a keyed lookup on a second reading, and a
 row indexed under every `/`-terminated prefix of its identifier answers a child

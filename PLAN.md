@@ -1,7 +1,7 @@
 # PLAN
 
 The simulators serve their declared surfaces: every vendored AWS model is
-implemented or exempt in full, Google Cloud reads 5,486 of 5,486 Discovery
+implemented or exempt in full, Google Cloud reads 5,576 of 5,576 Discovery
 method spellings and Azure 2,628 of 2,628 operations, with every remaining
 gap answering a declared 501 that names what is missing. The framework the
 three simulators are built on is one module, `sim/`, pinned by pseudo-version
