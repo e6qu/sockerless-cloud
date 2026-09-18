@@ -15,8 +15,13 @@ import (
 // the file lives inside a Firecracker guest with no shell, so it was settled by
 // dumping the first hundred bytes of the file off the guest's ext4 image and
 // decoding the SQLite header by hand. The page count and the free list are in
-// that header, but the per-table split -- the fact that Amazon S3 object bodies
-// are blobs in this database and account for most of it -- is not.
+// that header; the per-table split is not, and guessing it went wrong. The
+// guess was Amazon S3 object bodies, which are blobs in this database. The
+// first answer this endpoint gave on the deployed simulator was s3_objects at
+// 4 KiB, against 659 MiB of sampled AWS WAF requests, 604 MiB of temporary
+// credentials and 590 MiB of CloudTrail events -- the three tables the
+// retention sweeps exist to drain, which had not drained because each sweep
+// was being killed by the panic this release also fixes.
 //
 // /debug/stores answers it in one request. It reports each table's size from
 // SQLite's own dbstat virtual table, so it walks b-tree pages rather than

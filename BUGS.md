@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 7. Resolved: 131.
+Open: 7. Resolved: 132.
 
 ## Open
 
@@ -27,6 +27,20 @@ Open: 7. Resolved: 131.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3029 (the database's size was attributed to the wrong thing):**~~
+  A 2.4 GB database was blamed on Amazon S3 object bodies, which are blobs in
+  this database — a guess made from the SQLite header, which carries the page
+  count and the free list but no per-table split, and written into a commit
+  message and a pull request as though it were a finding. `/debug/stores`
+  disproved it on the deployed simulator the day it shipped: `s3_objects` holds
+  **4 KiB**. The database is `wafv2_sampled_requests` (659.8 MiB),
+  `iam_temp_creds` (604.2 MiB) and `cloudtrail_events` (590.6 MiB), with
+  `cw_log_events` (181.9 MiB) behind them — the three tables the retention
+  sweeps exist to drain, which had not drained because every sweep was being
+  killed by BUG-3028's panic. **Corrected** where the claim was written, and
+  the endpoint's own comment now carries what it measured instead of what was
+  assumed.
 
 - ~~**BUG-3028 (the retention sweeper restarted the simulator every
   minute):**~~ Release 0.32.13 went out and the deployed simulator panicked
