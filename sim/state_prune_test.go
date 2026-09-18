@@ -84,13 +84,19 @@ func TestPruneKeepsARowRewrittenAfterTheScan(t *testing.T) {
 	store.Put("stale", pruneRow{Age: 0})
 	expired := func(r pruneRow) bool { return r.Age == 0 }
 
-	_, doomed := store.pruneScan("", false, expired)
+	_, doomed, busy := store.pruneScan("", false, expired)
+	if busy {
+		t.Fatal("the scan reported a busy database on an idle store")
+	}
 	if len(doomed) != 2 {
 		t.Fatalf("scan found %v, want both rows", doomed)
 	}
 	store.Put("renewed", pruneRow{Age: 1})
 
-	deleted := store.deleteExpired(doomed, expired)
+	deleted, busy := store.deleteExpired(doomed, expired)
+	if busy {
+		t.Fatal("the delete reported a busy database on an idle store")
+	}
 	if len(deleted) != 1 || deleted[0] != "stale" {
 		t.Fatalf("deleted %v, want only the stale row", deleted)
 	}
