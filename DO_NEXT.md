@@ -97,3 +97,12 @@
   Google's hosts, which no AWS API provisions.
 - **BUG-42** — the shared azurerm Terraform stack's Firecracker guest never
   reaches userspace on this arm64 host; CI's amd64 Linux cell runs it.
+
+- **The WAF sample sweep contends with the writes that fill it.** Nineteen of
+  the twenty-two panics that restarted the deployed simulator were on
+  `wafv2_sampled_requests`: request sampling writes that table on the request
+  path, and the sweep deletes from it in 500-row transactions, so the two meet
+  under load. The sweep no longer dies of it, but it can now end early often
+  enough that a busy table drains slowly. If that shows up as a table that
+  stops shrinking, the lever is a smaller batch with a pause between batches
+  for the high-write stores, not a bigger one.
