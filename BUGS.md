@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 7. Resolved: 130.
+Open: 7. Resolved: 131.
 
 ## Open
 
@@ -27,6 +27,23 @@ Open: 7. Resolved: 130.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3028 (the retention sweeper restarted the simulator every
+  minute):**~~ Release 0.32.13 went out and the deployed simulator panicked
+  thirteen times in thirteen minutes with `Prune delete … database is locked
+  (5) (SQLITE_BUSY)`. Prune sent every error to `fatalDBErr`, whose stance
+  suits a handler — net/http turns the panic into a 500 and the service keeps
+  serving — but the sweeper runs on a background goroutine, so the panic ended
+  the process, systemd restarted it, and the next sweep met the same contention
+  a minute later. Each restart tore down every running task's network
+  namespace, so the Amazon ECS service behind the simulator's load balancer
+  never became reachable and the end-to-end SSO gate failed on ECS Dev Desktop
+  while the other eight apps passed. **Fixed**: a busy or locked database ends
+  the sweep, which reports what it left and takes those rows on the next pass;
+  a corrupt row still panics, because nothing else will fix that. The result
+  code comes from the driver rather than from matching a message, and
+  `StartBackground` now contains a panic in any worker so maintenance work can
+  never take the service down again.
 
 - ~~**BUG-3027 (one flaky read of a public server failed the whole pull
   request):**~~ The Google Cloud CLI suite installs `cbt` and downloads the

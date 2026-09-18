@@ -210,6 +210,14 @@ resolving once that branch is deleted.
   count that lived in BUGS.md was written by hand and had been read as
   authoritative; this one is measured on every run.
 
+- **Maintenance may not end the service.** Failing loudly on a persistence
+  fault is right in a handler, where net/http turns the panic into a 500. On a
+  background goroutine it is a restart loop: the retention sweeper met a busy
+  database, panicked, and took the simulator down thirteen times in thirteen
+  minutes, each restart destroying every running task's network. Contention is
+  now distinguished from corruption — the sweep yields and returns — and a
+  panic in any background worker is contained where it happens.
+
 ## Execution
 
 Every workload runs as a real container on the engine the simulator was
