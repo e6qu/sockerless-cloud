@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.15](https://github.com/e6qu/sockerless-cloud/compare/v0.32.14...v0.32.15) (2026-09-18)
+
+
+### Bug Fixes
+
+* **sim:** bound the write-ahead log, and correct what fills it ([#195](https://github.com/e6qu/sockerless-cloud/issues/195)) ([246c6f6](https://github.com/e6qu/sockerless-cloud/commit/246c6f630b0541482b50366250fadd6ce938a216))
+
 ## [0.32.14](https://github.com/e6qu/sockerless-cloud/compare/v0.32.13...v0.32.14) (2026-09-18)
 
 
