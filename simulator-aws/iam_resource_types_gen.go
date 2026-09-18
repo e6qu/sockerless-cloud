@@ -2699,6 +2699,7 @@ var iamOperationActions = map[string]string{
 	"budgets:UpdateSubscriber":                       "ModifyBudget",
 	"dynamodb:TransactGetItems":                      "GetItem",
 	"glue:BatchGetDataQualityResult":                 "GetDataQualityResult",
+	"glue:BatchGetDataQualityRulesetEvaluationRun":   "GetDataQualityRulesetEvaluationRun",
 	"glue:BatchPutDataQualityStatisticAnnotation":    "PutDataQualityStatisticAnnotation",
 	"glue:ListDataQualityStatisticAnnotations":       "GetDataQualityResult",
 	"glue:ListDataQualityStatistics":                 "GetDataQualityResult",
