@@ -46,13 +46,18 @@ func OpenDB(dataDir string) (*sql.DB, error) {
 	// journal_size_limit bounds the write-ahead log's FILE, not the amount of
 	// WAL a transaction may use: after each checkpoint SQLite truncates the
 	// file back to this size instead of leaving it at its high-water mark,
-	// which is the default. Amazon S3 object bodies live in this database as
-	// blobs, so one upload can carry the WAL to hundreds of megabytes and hold
-	// it there -- a deployed simulator was found with a 368 MB WAL beside a
-	// 2.4 GB database. That costs disk in the microVM's rootfs and makes every
-	// restart replay more, for no benefit once the frames are checkpointed.
-	// 64 MiB leaves ample room for a large write to commit without the file
-	// being retruncated constantly.
+	// which is the default. A deployed simulator was found with a 368 MB WAL
+	// beside a 2.4 GB database. That costs disk in the microVM's rootfs and
+	// makes every restart replay more, for no benefit once the frames are
+	// checkpointed. 64 MiB leaves ample room for a large write to commit
+	// without the file being retruncated constantly, and the deployment
+	// settled at exactly that within minutes of the limit arriving.
+	//
+	// The first reading of that WAL blamed Amazon S3 object bodies, which are
+	// blobs in this database. /debug/stores disproved it: s3_objects held
+	// 4 KiB. What fills the log is the retention sweep itself, deleting from
+	// the three tables that hold the database -- sampled AWS WAF requests,
+	// temporary credentials and CloudTrail events.
 	dsn := dbPath +
 		"?_pragma=busy_timeout(5000)" +
 		"&_pragma=journal_mode(WAL)" +

@@ -8,12 +8,12 @@
   is how `o=loop` passed here and failed there for hours. Prefer a mechanism
   neither engine has to interpret, and when only CI can confirm a claim, say so
   instead of reporting the local run as the proof.
-- **Prove a managed EBS volume inside the microVM once.** The volume now needs
-  a loop device from the guest kernel, and the Scaleway guest is a Firecracker
-  kernel separate from the host's. Nothing in the deployment exercises one
-  today, so the first check after a re-pin is running a task with a managed EBS
-  volume against the deployed simulator rather than assuming the guest has
-  `loop`.
+- ~~**Prove a managed EBS volume inside the microVM once.**~~ Done on release
+  0.32.14: a task whose command only exits 0 when `/proc/mounts` shows `/data`
+  as ext4 on a `/dev/loop*` device, and an 8 MiB write to it succeeds, exited
+  0 against the deployed simulator (`ebs-restore=695ms`, RUNNING in 1.9 s). The
+  guest kernel supplies loop devices; the mechanism holds on Podman, on moby in
+  CI and in the Firecracker guest.
 
 - **Serve what a re-vendor adds.** The daily specification refresh pushes onto
   the open pull request; a moved declared total has to be served or declared,
