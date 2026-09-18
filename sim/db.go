@@ -43,10 +43,21 @@ func OpenDB(dataDir string) (*sql.DB, error) {
 	// simulates breaks fidelity for any client whose behavior is timing
 	// sensitive — durability the real service's own client contract never
 	// promised was the wrong thing to buy that slowdown for.
+	// journal_size_limit bounds the write-ahead log's FILE, not the amount of
+	// WAL a transaction may use: after each checkpoint SQLite truncates the
+	// file back to this size instead of leaving it at its high-water mark,
+	// which is the default. Amazon S3 object bodies live in this database as
+	// blobs, so one upload can carry the WAL to hundreds of megabytes and hold
+	// it there -- a deployed simulator was found with a 368 MB WAL beside a
+	// 2.4 GB database. That costs disk in the microVM's rootfs and makes every
+	// restart replay more, for no benefit once the frames are checkpointed.
+	// 64 MiB leaves ample room for a large write to commit without the file
+	// being retruncated constantly.
 	dsn := dbPath +
 		"?_pragma=busy_timeout(5000)" +
 		"&_pragma=journal_mode(WAL)" +
-		"&_pragma=synchronous(NORMAL)"
+		"&_pragma=synchronous(NORMAL)" +
+		"&_pragma=journal_size_limit(67108864)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -60,6 +71,7 @@ func OpenDB(dataDir string) (*sql.DB, error) {
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
 
+	registerDiagnosticsDB(dbPath, db)
 	return db, nil
 }
 
@@ -86,5 +98,6 @@ func CloseDB(db *sql.DB) error {
 		)
 	}
 
+	unregisterDiagnosticsDB(db)
 	return errors.Join(checkpointErr, db.Close())
 }
