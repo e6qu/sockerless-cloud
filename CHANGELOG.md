@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.14](https://github.com/e6qu/sockerless-cloud/compare/v0.32.13...v0.32.14) (2026-09-18)
+
+
+### Bug Fixes
+
+* **sim:** a busy database ends a sweep, not the simulator ([#193](https://github.com/e6qu/sockerless-cloud/issues/193)) ([332b3cd](https://github.com/e6qu/sockerless-cloud/commit/332b3cdfe645b2b706ca30a17294a3c53a01a5bf))
+
 ## [0.32.13](https://github.com/e6qu/sockerless-cloud/compare/v0.32.12...v0.32.13) (2026-09-17)
 
 
