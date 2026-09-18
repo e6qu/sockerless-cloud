@@ -237,6 +237,9 @@ func NewServer(cfg Config) (*Server, error) {
 		backgroundCtx:    backgroundCtx,
 		backgroundCancel: backgroundCancel,
 	}
+	// The write-ahead log outgrows what journal_size_limit promises whenever a
+	// checkpoint cannot reset it, so the server asks for the reset itself.
+	srv.startWALCheckpointer()
 
 	return srv, nil
 }
