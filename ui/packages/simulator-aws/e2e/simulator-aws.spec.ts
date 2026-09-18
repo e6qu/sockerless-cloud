@@ -845,22 +845,28 @@ test.describe("Accessibility landmarks and keyboard operability", () => {
 
   test("carries a visible focus indicator that clears 3:1 in both themes", async ({ page }) => {
     await page.goto("/ui/");
-    // Cloudscape's own focus ring only renders once its focus-visible
-    // polyfill has seen a real keyboard interaction (it gates the ring's
-    // CSS behind `body[data-awsui-focus-visible=true]`, toggled by that
-    // polyfill, not by `:focus` alone) — one Tab press anywhere arms it,
-    // same as a real keyboard user's first Tab press would.
-    await page.keyboard.press("Tab");
     const link = page.getByRole("navigation", { name: "Service" }).getByRole("link", { name: "Overview" });
-    await link.focus();
-    // Cloudscape's own focus ring is a `box-shadow`, not the native
-    // `outline` this console's hand-built links used to draw — still a
-    // visible, non-colour-only indicator, just Cloudscape's real mechanism
-    // for it.
-    // The polyfill arms asynchronously after the Tab press, so a one-shot
-    // computed-style read races it; poll until the ring is painted.
+    await expect(link).toBeVisible();
+    // Cloudscape's own focus ring is a `box-shadow`, not the native `outline`
+    // this console's hand-built links used to draw — still a visible,
+    // non-colour-only indicator, just Cloudscape's real mechanism for it. It
+    // renders only once Cloudscape's focus-visible polyfill has seen a real
+    // keyboard interaction, the way it does for a keyboard user's first Tab.
+    //
+    // The polyfill can only see a key press once its own listener is attached,
+    // so pressing Tab exactly once races the page's hydration: land the press
+    // first and no ring ever paints, and the assertion fails on a console that
+    // is perfectly accessible. This suite spent that flake on an unrelated
+    // pull request. Pressing inside the poll arms it and checks it in the same
+    // breath, and asserts the painted ring rather than the polyfill's own
+    // attribute, which is Cloudscape's internal business and not a promise to
+    // this console.
     await expect
-      .poll(async () => link.evaluate((el) => getComputedStyle(el).boxShadow))
+      .poll(async () => {
+        await page.keyboard.press("Tab");
+        await link.focus();
+        return link.evaluate((el) => getComputedStyle(el).boxShadow);
+      })
       .not.toBe("none");
   });
 
