@@ -162,6 +162,8 @@ func startDiagnosticsListener() {
 		}
 	})
 
+	mux.HandleFunc("/debug/stores", storeDiagnosticsHandler)
+
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		// Diagnostics must never stop the simulator from serving.

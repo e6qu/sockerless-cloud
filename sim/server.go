@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -337,10 +338,25 @@ func (s *Server) ServeUIRoot(w http.ResponseWriter, r *http.Request) bool {
 // must return when ctx is cancelled. ListenAndServe cancels and drains every
 // registered worker before checkpointing and closing SQLite, so no service can
 // query durable state after orderly shutdown has closed the database.
+//
+// A panic in one of these workers is contained here. In a handler a panic is a
+// 500 and the service keeps serving, because net/http recovers it; on a bare
+// goroutine it ends the process. A deployed simulator was restarted thirteen
+// times in thirteen minutes by its own retention sweeper meeting a busy
+// database, and every restart tore down the network namespace of every running
+// task. Maintenance work must not be able to do that. The stack is written
+// where the deployment collects it, and the worker stops -- so the failure is
+// as loud as a crash without taking the service with it.
 func (s *Server) StartBackground(worker func(context.Context)) {
 	s.backgroundWG.Add(1)
 	go func() {
 		defer s.backgroundWG.Done()
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				fmt.Fprintf(os.Stderr, "[sim-background] worker panicked and was stopped: %v\n%s\n",
+					recovered, debug.Stack())
+			}
+		}()
 		worker(s.backgroundCtx)
 	}()
 }
