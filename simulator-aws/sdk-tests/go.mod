@@ -13,28 +13,28 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/amplify v1.48.0
 	github.com/aws/aws-sdk-go-v2/service/apigateway v1.47.0
 	github.com/aws/aws-sdk-go-v2/service/apigatewayv2 v1.42.0
-	github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.50.0
+	github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.51.0
 	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.78.0
-	github.com/aws/aws-sdk-go-v2/service/batch v1.76.0
-	github.com/aws/aws-sdk-go-v2/service/budgets v1.51.0
+	github.com/aws/aws-sdk-go-v2/service/batch v1.77.0
+	github.com/aws/aws-sdk-go-v2/service/budgets v1.52.0
 	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.73.0
 	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.65.0
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.72.0
-	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.87.0
+	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.88.0
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.78.0
-	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.68.0
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.332.0
-	github.com/aws/aws-sdk-go-v2/service/ecr v1.65.0
-	github.com/aws/aws-sdk-go-v2/service/ecs v1.98.0
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.69.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.335.0
+	github.com/aws/aws-sdk-go-v2/service/ecr v1.66.0
+	github.com/aws/aws-sdk-go-v2/service/ecs v1.99.0
 	github.com/aws/aws-sdk-go-v2/service/efs v1.49.0
 	github.com/aws/aws-sdk-go-v2/service/elasticache v1.61.0
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.63.0
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.54.0
-	github.com/aws/aws-sdk-go-v2/service/firehose v1.51.0
-	github.com/aws/aws-sdk-go-v2/service/glue v1.159.0
+	github.com/aws/aws-sdk-go-v2/service/firehose v1.52.0
+	github.com/aws/aws-sdk-go-v2/service/glue v1.160.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.64.0
-	github.com/aws/aws-sdk-go-v2/service/kinesis v1.54.0
-	github.com/aws/aws-sdk-go-v2/service/kms v1.60.0
+	github.com/aws/aws-sdk-go-v2/service/kinesis v1.55.0
+	github.com/aws/aws-sdk-go-v2/service/kms v1.61.0
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.108.0
 	github.com/aws/aws-sdk-go-v2/service/organizations v1.60.0
 	github.com/aws/aws-sdk-go-v2/service/rds v1.129.0
@@ -42,15 +42,15 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.1
 	github.com/aws/aws-sdk-go-v2/service/s3control v1.79.0
 	github.com/aws/aws-sdk-go-v2/service/scheduler v1.25.0
-	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.49.0
+	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.0
 	github.com/aws/aws-sdk-go-v2/service/servicediscovery v1.49.0
-	github.com/aws/aws-sdk-go-v2/service/sfn v1.50.0
-	github.com/aws/aws-sdk-go-v2/service/sns v1.47.0
+	github.com/aws/aws-sdk-go-v2/service/sfn v1.51.0
+	github.com/aws/aws-sdk-go-v2/service/sns v1.47.1
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.0
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.78.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.0
 	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.83.0
-	github.com/aws/smithy-go v1.28.1
+	github.com/aws/smithy-go v1.28.2
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/go-sql-driver/mysql v1.10.1
