@@ -202,7 +202,15 @@ func registerS3(srv *sim.Server) {
 	//     with the literal route — sim documents this as a known
 	//     edge case rather than rejecting such bucket names.
 	s3BucketResource := cloudTrailRESTResource("AWS::S3::Bucket", "bucket")
-	s3ObjectResource := cloudTrailRESTResource("AWS::S3::Object", "key", "bucket")
+	s3ObjectResourceOrBucket := cloudTrailRESTResource("AWS::S3::Object", "key", "bucket")
+	// "/{bucket}/" carries no key and is the bucket itself, so it is recorded
+	// as a bucket rather than as an object with an empty name.
+	s3ObjectResource := func(r *http.Request, body []byte) []CloudTrailResource {
+		if s3PathIsBucketOnly(r) {
+			return s3BucketResource(r, body)
+		}
+		return s3ObjectResourceOrBucket(r, body)
+	}
 	staticOp := func(name string) func(*http.Request, []byte) string {
 		return func(*http.Request, []byte) string { return name }
 	}
@@ -398,7 +406,21 @@ func s3BucketOperationName(r *http.Request, _ []byte) string {
 	return ""
 }
 
-func s3ObjectOperationName(r *http.Request, _ []byte) string {
+// s3PathIsBucketOnly reports a path-style request that names a bucket and no
+// key: "/{bucket}/". Go's mux routes it to the "/{bucket}/{key...}" patterns
+// with an empty key, because "/{bucket}" does not match a trailing slash and
+// a "{$}" pattern beside it collides with the fixed "/v2/" prefix another
+// service owns. S3 treats both forms as the bucket -- an empty key is not an
+// object -- and clients send either: aws-sdk-go-v2 1.47 puts the trailing
+// slash on CreateBucket, where earlier versions sent none.
+func s3PathIsBucketOnly(r *http.Request) bool {
+	return sim.PathParam(r, "bucket") != "" && sim.PathParam(r, "key") == ""
+}
+
+func s3ObjectOperationName(r *http.Request, body []byte) string {
+	if s3PathIsBucketOnly(r) {
+		return s3BucketOperationName(r, body)
+	}
 	q := r.URL.Query()
 	switch r.Method {
 	case http.MethodHead:
