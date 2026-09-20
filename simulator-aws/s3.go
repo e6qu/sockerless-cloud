@@ -414,7 +414,8 @@ func s3BucketOperationName(r *http.Request, _ []byte) string {
 // object -- and clients send either: aws-sdk-go-v2 1.47 puts the trailing
 // slash on CreateBucket, where earlier versions sent none.
 func s3PathIsBucketOnly(r *http.Request) bool {
-	return sim.PathParam(r, "bucket") != "" && sim.PathParam(r, "key") == ""
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	return strings.HasSuffix(path, "/") && strings.Count(path, "/") == 1
 }
 
 func s3ObjectOperationName(r *http.Request, body []byte) string {
