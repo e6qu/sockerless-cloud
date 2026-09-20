@@ -14,7 +14,7 @@ require (
 	cloud.google.com/go/spanner v1.95.1
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917134425-9515e908cf03
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260919222953-2689ee5878ae
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260920084153-285d30555b2e
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/moby/moby/client v0.6.0
 	google.golang.org/genproto v0.0.0-20260918162117-cecb64721679

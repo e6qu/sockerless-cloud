@@ -68,6 +68,10 @@ func checkpointOversizedWAL(db *sql.DB, walPath string, threshold int64) {
 	}
 	before := info.Size()
 
+	// TRUNCATE reports the log it leaves behind, which is empty when it
+	// succeeds, so the frame counts it returns say nothing about the work it
+	// did. The sizes on either side of the call are what an operator can act
+	// on, and a reader that held the log back is reported from the busy flag.
 	var busy, frames, checkpointed int
 	if err := db.QueryRow("PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &frames, &checkpointed); err != nil {
 		fmt.Fprintf(os.Stderr, "[sim-wal] checkpoint of a %s log failed: %v\n", humanBytes(before), err)
@@ -79,10 +83,10 @@ func checkpointOversizedWAL(db *sql.DB, walPath string, threshold int64) {
 	}
 	if busy != 0 {
 		fmt.Fprintf(os.Stderr,
-			"[sim-wal] %s log: readers held %d of %d frames, %s now — retrying in %s\n",
-			humanBytes(before), frames-checkpointed, frames, humanBytes(after), walCheckpointInterval)
+			"[sim-wal] %s log: a reader held it open, %s now — retrying in %s\n",
+			humanBytes(before), humanBytes(after), walCheckpointInterval)
 		return
 	}
-	fmt.Fprintf(os.Stderr, "[sim-wal] %s log checkpointed and reset to %s (%d frames)\n",
-		humanBytes(before), humanBytes(after), frames)
+	fmt.Fprintf(os.Stderr, "[sim-wal] %s log checkpointed and reset to %s\n",
+		humanBytes(before), humanBytes(after))
 }
