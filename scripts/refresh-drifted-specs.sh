@@ -149,9 +149,31 @@ for cloud in "${CLOUDS[@]}"; do
   # The check exits non-zero exactly when it found drift, which is the case
   # this exists to act on.
   bash "$ROOT/scripts/check-spec-freshness.sh" "$cloud" >"$report" 2>&1 || true
-  while read -r line; do
-    file="${line#DRIFT }"
-    file="${file%%:*}"
+  rows="$(mktemp)"
+  grep '^DRIFT ' "$report" 2>/dev/null | sed 's/^DRIFT //; s/:.*//' >"$rows" || true
+  # Every captured document is a row the freshness run reported as drift, and
+  # that run is the one that saw upstream move. This re-check is a second
+  # sample, from another runner minutes later, and Google serves several
+  # Discovery revisions at once -- so on its own it both misses rows the run
+  # captured and finds rows the run called current. That is not theory: the
+  # run on 1a72c6278c86 captured a drifted eventarc and the refresh vendored
+  # iamcredentials instead, leaving eventarc stale and the report red for it
+  # on every later run. The captured rows are therefore added to whatever this
+  # sample found, and a row is refreshed once.
+  if [ -n "$CAPTURE_DIR" ] && [ -d "$CAPTURE_DIR" ]; then
+    for captured in "$CAPTURE_DIR"/*; do
+      [ -f "$captured" ] || continue
+      captured_file="$(basename "$captured")"
+      # A capture belongs to the cloud whose SOURCES.md carries a row for it,
+      # which is what keeps one shared capture directory from refreshing a
+      # document through another corpus's fetcher.
+      if sources_row "$ROOT/specs/cloud-api/$cloud/SOURCES.md" "$captured_file" >/dev/null 2>&1 ||
+        sources_row "$ROOT/specs/cloud-api/$cloud/SERVICE_REFERENCE_SOURCES.md" "$captured_file" >/dev/null 2>&1; then
+        echo "$captured_file" >>"$rows"
+      fi
+    done
+  fi
+  while read -r file; do
     [ -n "$file" ] || continue
     refreshed=$((refreshed + 1))
     case "$cloud" in
@@ -159,7 +181,8 @@ for cloud in "${CLOUDS[@]}"; do
     azure) refresh_azure "$file" ;;
     gcp) refresh_gcp "$file" ;;
     esac
-  done < <(grep '^DRIFT ' "$report" || true)
+  done < <(sort -u "$rows")
+  rm -f "$rows"
   # A row the check could not evaluate at all is not drift, but it is not a
   # clean run either: the refresh cannot know whether that document moved.
   if grep -q '^?     ' "$report"; then

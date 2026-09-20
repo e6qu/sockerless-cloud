@@ -149,6 +149,12 @@ jobs:
         run: bash scripts/test-spec-freshness-baseline.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The rows the refresh acts on decide whether a drift the freshness run
+      # reported is ever vendored. Its own re-check is a second sample, so
+      # the captured rows have to carry too; this holds that, negative
+      # control included.
+      - name: The refresh acts on the rows the run reported
+        run: bash scripts/test-refresh-drifted-specs.sh
       # Every cloud's vendored specifications are gated, not just one: the
       # check takes a cloud argument, and each cloud is its own step so a
       # drift names the cloud that drifted. Each captures the newer document
