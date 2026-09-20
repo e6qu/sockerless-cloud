@@ -46,6 +46,10 @@ var (
 // when the first segment isn't a registered bucket so the SDK
 // surfaces a real 404 instead of an S3-shaped InvalidRequest.
 func handleS3PostObjectDispatch(w http.ResponseWriter, r *http.Request) {
+	if s3PathIsBucketOnly(r) {
+		handleS3PostBucketDispatch(w, r)
+		return
+	}
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
 		http.NotFound(w, r)
@@ -97,6 +101,10 @@ func handleS3PostBucketDispatch(w http.ResponseWriter, r *http.Request) {
 // PutObjectTagging by `?tagging`; otherwise PutObject. Known-bucket
 // gate (see handleS3PostObjectDispatch for rationale).
 func handleS3PutObjectDispatch(w http.ResponseWriter, r *http.Request) {
+	if s3PathIsBucketOnly(r) {
+		handleS3PutBucketDispatch(w, r)
+		return
+	}
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
 		http.NotFound(w, r)
@@ -143,6 +151,10 @@ func handleS3GetOrHeadObjectDispatch(w http.ResponseWriter, r *http.Request) {
 	if s3ServeObjectLambdaRead(w, r) {
 		return
 	}
+	if s3PathIsBucketOnly(r) {
+		handleS3GetOrHeadBucket(w, r)
+		return
+	}
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
 		http.NotFound(w, r)
@@ -178,6 +190,10 @@ func handleS3GetOrHeadObjectDispatch(w http.ResponseWriter, r *http.Request) {
 // handleS3DeleteObjectDispatch routes DELETE /{bucket}/{key...} based on
 // subresource query strings. Known-bucket gate.
 func handleS3DeleteObjectDispatch(w http.ResponseWriter, r *http.Request) {
+	if s3PathIsBucketOnly(r) {
+		handleS3DeleteBucketDispatch(w, r)
+		return
+	}
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
 		http.NotFound(w, r)

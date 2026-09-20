@@ -11,13 +11,32 @@ import (
 //
 // AWS error format:
 //
-//	{"__type": "SomeException", "message": "details"}
+//	{"__type": "SomeException", "message": "details", "Message": "details"}
+//
+// The message is written under both spellings because AWS models both and a
+// client now reads only the one its own model names. The vendored Smithy
+// models spell the member "message" on 760 exception shapes and "Message" on
+// 677, and 49 exception names -- ResourceNotFoundException and
+// LimitExceededException among them -- are spelled one way by one service and
+// the other way by another. Until aws-sdk-go-v2 1.47 the generated
+// deserializers matched the key case-insensitively and either spelling
+// served; the schema-driven deserializers that replaced them match the
+// modelled member exactly, so a single spelling here leaves half of AWS
+// reading an empty message.
+//
+// Writing one spelling per exception is what the real services do, and it
+// needs the service: the same exception name is spelled differently by
+// different services, and this writer has no service to consult at its 2,326
+// call sites. BUGS.md carries that as the repair -- a table generated from
+// the vendored models, keyed by service and exception, consulted where the
+// response is written.
 func AWSError(w http.ResponseWriter, code string, message string, statusCode int) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(map[string]string{
 		"__type":  code,
 		"message": message,
+		"Message": message,
 	})
 }
 

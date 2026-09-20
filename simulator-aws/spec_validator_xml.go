@@ -191,7 +191,16 @@ func (st *specValidatorState) restXMLKey(req *http.Request) (string, bool) {
 	if !found {
 		return "", false // method-less or host-addressed pattern: not a restXml surface
 	}
-	return method + " " + normalizeAWSPath(strings.TrimSuffix(path, "{$}")), true
+	key := method + " " + normalizeAWSPath(strings.TrimSuffix(path, "{$}"))
+	// "/{bucket}/" addresses the bucket, not an object with an empty key.
+	// The S3 routes dispatch it to the bucket handler, so the operation its
+	// response is checked against has to be the bucket's too -- otherwise a
+	// PutBucketPolicy sent with a trailing slash is read as a PutObject and
+	// its 204 reported as a status PutObject does not declare.
+	if strings.HasSuffix(key, "/{+}") && s3PathIsBucketOnly(req) {
+		key = strings.TrimSuffix(key, "/{+}")
+	}
+	return key, true
 }
 
 func (st *specValidatorState) validateRestXML(req *http.Request, status int, respHeader http.Header, respBody []byte) []sim.SpecViolation {

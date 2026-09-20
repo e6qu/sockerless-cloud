@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"net/http"
 	"slices"
 	"testing"
 
@@ -276,4 +277,39 @@ func TestS3_HeadBucket_NoSuchBucket_ErrorClassification(t *testing.T) {
 	var notFound *s3types.NotFound
 	assert.True(t, errors.As(err, &notFound),
 		"S3 NotFound (HeadBucket) must be classified by SDK errors.As; got %T: %v", err, err)
+}
+
+// A bucket is addressed as "/{bucket}" or "/{bucket}/", and both forms are
+// the bucket: an empty key is not an object. aws-sdk-go-v2 1.47 puts the
+// trailing slash on CreateBucket where earlier versions sent none, and the
+// simulator answered 404 to every bucket operation addressed that way.
+func TestS3_BucketIsAddressedWithOrWithoutATrailingSlash(t *testing.T) {
+	client := s3Client()
+	bucket := "trailing-slash-bucket"
+	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = client.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+	})
+
+	// The SDK's own path for a bucket operation, whichever form it sends.
+	_, err = client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+
+	// And the wire forms themselves, so the routing is held rather than the
+	// SDK's current choice of form.
+	for _, path := range []string{"/" + bucket, "/" + bucket + "/"} {
+		response, err := http.Get(baseURL + path + "?list-type=2")
+		require.NoError(t, err)
+		body, _ := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		assert.Equal(t, 200, response.StatusCode, "GET %s: %s", path, string(body))
+		assert.Contains(t, string(body), "ListBucketResult", "GET %s lists the bucket", path)
+	}
+
+	// A key that is genuinely missing is still a missing object, not a bucket.
+	response, err := http.Get(baseURL + "/" + bucket + "/no-such-key")
+	require.NoError(t, err)
+	_ = response.Body.Close()
+	assert.Equal(t, 404, response.StatusCode)
 }
