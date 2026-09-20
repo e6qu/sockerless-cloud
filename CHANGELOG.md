@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.16](https://github.com/e6qu/sockerless-cloud/compare/v0.32.15...v0.32.16) (2026-09-20)
+
+
+### Bug Fixes
+
+* **sim:** report what the WAL checkpoint did, not a count that is always zero ([#199](https://github.com/e6qu/sockerless-cloud/issues/199)) ([0732562](https://github.com/e6qu/sockerless-cloud/commit/0732562fdde4deecaa1020164e7e8ea066bfeb26))
+
 ## [0.32.15](https://github.com/e6qu/sockerless-cloud/compare/v0.32.14...v0.32.15) (2026-09-18)
 
 
