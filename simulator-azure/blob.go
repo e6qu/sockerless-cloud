@@ -177,11 +177,15 @@ var (
 //   - blocksByContainer: containerKey ("account/container") → set of
 //     blobBlockKeys, so a container delete can reach staged-but-uncommitted
 //     blocks that have no committed blob object.
+//   - recordsByBlob: blobKey ("account/container/blob") → set of
+//     blobObjectKeys of that blob's records (the base and its snapshots), so an
+//     operation on one blob costs the same in a container of any size.
 var (
-	blobIndexMu       sync.Mutex
+	blobIndexMu       sync.RWMutex
 	blobIndex         = map[string]map[string]struct{}{}
 	blockIndex        = map[string]map[string]struct{}{}
 	blocksByContainer = map[string]map[string]struct{}{}
+	recordsByBlob     = map[string]map[string]struct{}{}
 )
 
 func indexAdd(idx map[string]map[string]struct{}, group, key string) {
@@ -212,6 +216,7 @@ func putBlobObject(b BlobObject) {
 	key := blobObjectKeyOf(b)
 	blobIndexMu.Lock()
 	indexAdd(blobIndex, blobContainerKey(b.Account, b.Container), key)
+	indexAdd(recordsByBlob, blobObjectKey(b.Account, b.Container, b.Name), key)
 	blobIndexMu.Unlock()
 	blobObjects.Put(key, b)
 }
@@ -222,6 +227,7 @@ func deleteBlobSnapshot(account, container, name, snapshot string) {
 	key := blobSnapshotKey(account, container, name, snapshot)
 	blobIndexMu.Lock()
 	indexRemove(blobIndex, blobContainerKey(account, container), key)
+	indexRemove(recordsByBlob, blobObjectKey(account, container, name), key)
 	blobIndexMu.Unlock()
 	blobObjects.Delete(key)
 }
@@ -245,8 +251,8 @@ func deleteBlobBlock(account, container, blob, blockID string) {
 }
 
 func blobKeysInContainer(account, container string) []string {
-	blobIndexMu.Lock()
-	defer blobIndexMu.Unlock()
+	blobIndexMu.RLock()
+	defer blobIndexMu.RUnlock()
 	set := blobIndex[blobContainerKey(account, container)]
 	out := make([]string, 0, len(set))
 	for k := range set {
@@ -258,8 +264,8 @@ func blobKeysInContainer(account, container string) []string {
 // blockKeysForBlob returns the store keys of every block staged/committed
 // under the given blob.
 func blockKeysForBlob(account, container, blob string) []string {
-	blobIndexMu.Lock()
-	defer blobIndexMu.Unlock()
+	blobIndexMu.RLock()
+	defer blobIndexMu.RUnlock()
 	set := blockIndex[blobObjectKey(account, container, blob)]
 	out := make([]string, 0, len(set))
 	for k := range set {
@@ -271,8 +277,8 @@ func blockKeysForBlob(account, container, blob string) []string {
 // blockKeysInContainer returns the store keys of every block staged/committed
 // in the container, including blocks with no committed blob object.
 func blockKeysInContainer(account, container string) []string {
-	blobIndexMu.Lock()
-	defer blobIndexMu.Unlock()
+	blobIndexMu.RLock()
+	defer blobIndexMu.RUnlock()
 	set := blocksByContainer[blobContainerKey(account, container)]
 	out := make([]string, 0, len(set))
 	for k := range set {
@@ -294,8 +300,10 @@ func registerBlobDataPlane(srv *sim.Server) {
 	blobIndex = map[string]map[string]struct{}{}
 	blockIndex = map[string]map[string]struct{}{}
 	blocksByContainer = map[string]map[string]struct{}{}
+	recordsByBlob = map[string]map[string]struct{}{}
 	for _, b := range blobObjects.List() {
 		indexAdd(blobIndex, blobContainerKey(b.Account, b.Container), blobObjectKeyOf(b))
+		indexAdd(recordsByBlob, blobObjectKey(b.Account, b.Container, b.Name), blobObjectKeyOf(b))
 	}
 	for _, bl := range blobBlocks.List() {
 		indexAdd(blockIndex, blobObjectKey(bl.Account, bl.Container, bl.Blob), blobBlockKey(bl.Account, bl.Container, bl.Blob, bl.BlockID))
@@ -600,6 +608,9 @@ func handleBlobDataPlane(w http.ResponseWriter, r *http.Request, account string)
 		}
 		writeStorageOperationNotImplemented(w, r, "Blob")
 		return
+	}
+	if r.Method == http.MethodPut || r.Method == http.MethodDelete {
+		defer blobWriters.lock(blobObjectKey(account, container, blob))()
 	}
 	switch r.Method {
 	case http.MethodPut:
@@ -1145,25 +1156,6 @@ func handleListBlobs(w http.ResponseWriter, r *http.Request, account, container 
 	writeStorageXML(w, http.StatusOK, out)
 }
 
-// azureBlobPreconditionOK validates the conditional headers against the current
-// blob ETag (exists=false → no current blob). Writes a 412 ConditionNotMet and
-// returns false on a failed precondition; an absent header always passes.
-func azureBlobPreconditionOK(w http.ResponseWriter, r *http.Request, currentETag string, exists bool) bool {
-	if inm := r.Header.Get("If-None-Match"); inm == "*" && exists {
-		writeStorageError(w, "ConditionNotMet",
-			"The condition specified using HTTP conditional header(s) is not met.", http.StatusPreconditionFailed)
-		return false
-	}
-	if im := r.Header.Get("If-Match"); im != "" && im != "*" {
-		if !exists || strings.Trim(im, `"`) != strings.Trim(currentETag, `"`) {
-			writeStorageError(w, "ConditionNotMet",
-				"The condition specified using HTTP conditional header(s) is not met.", http.StatusPreconditionFailed)
-			return false
-		}
-	}
-	return true
-}
-
 func handlePutBlob(w http.ResponseWriter, r *http.Request, account, container, blob string) {
 	if _, ok := blobContainersData.Get(blobContainerKey(account, container)); !ok {
 		writeStorageError(w, "ContainerNotFound",
@@ -1175,10 +1167,7 @@ func handlePutBlob(w http.ResponseWriter, r *http.Request, account, container, b
 		exists = false
 		existing = BlobObject{}
 	}
-	if !azureBlobPreconditionOK(w, r, existing.ETag, exists) {
-		return
-	}
-	if !blobWriteAllowed(w, r, existing, exists) {
+	if !blobWriteAllowed(w, r, existing, exists, blobCreate) {
 		return
 	}
 	blobType := r.Header.Get("x-ms-blob-type")
@@ -1292,8 +1281,7 @@ func handleCopyBlob(w http.ResponseWriter, r *http.Request, account, container, 
 	}
 	source, ok := blobObjects.Get(blobSnapshotKey(srcAccount, srcContainer, srcBlob, blobCopySourceSnapshot(sourceURL)))
 	if !ok || source.Deleted {
-		writeStorageError(w, "CannotVerifyCopySource",
-			"The specified copy source does not exist.", http.StatusNotFound)
+		writeCopySourceBlobNotFound(w)
 		return
 	}
 
@@ -1302,7 +1290,7 @@ func handleCopyBlob(w http.ResponseWriter, r *http.Request, account, container, 
 		exists = false
 		existing = BlobObject{}
 	}
-	if !blobWriteAllowed(w, r, existing, exists) {
+	if !blobWriteAllowed(w, r, existing, exists, blobCreate) {
 		return
 	}
 
@@ -1491,7 +1479,7 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 	if priorExists && priorBlob.Deleted {
 		priorExists, priorBlob = false, BlobObject{}
 	}
-	if !blobWriteAllowed(w, r, priorBlob, priorExists) {
+	if !blobWriteAllowed(w, r, priorBlob, priorExists, blobCreate) {
 		return
 	}
 	defer r.Body.Close()
@@ -1670,6 +1658,9 @@ func handleGetBlob(w http.ResponseWriter, r *http.Request, account, container, b
 			"The specified blob does not exist.", http.StatusNotFound)
 		return
 	}
+	if !blobConditionsMet(w, r, b, true, blobRead) {
+		return
+	}
 	start, end, partial, ok := azureStorageReadRange(w, r, int64(len(b.Data)))
 	if !ok {
 		return // azureStorageReadRange has written the error.
@@ -1758,6 +1749,9 @@ func handleHeadBlob(w http.ResponseWriter, r *http.Request, account, container, 
 			"The specified blob does not exist.", http.StatusNotFound)
 		return
 	}
+	if !blobConditionsMet(w, r, b, true, blobRead) {
+		return
+	}
 	writeBlobHeaders(w, b)
 }
 
@@ -1769,10 +1763,7 @@ func handleDeleteBlob(w http.ResponseWriter, r *http.Request, account, container
 			"The specified blob does not exist.", http.StatusNotFound)
 		return
 	}
-	if !azureBlobPreconditionOK(w, r, existing.ETag, true) {
-		return
-	}
-	if !blobWriteAllowed(w, r, existing, true) {
+	if !blobWriteAllowed(w, r, existing, true, blobModify) {
 		return
 	}
 
@@ -1782,8 +1773,8 @@ func handleDeleteBlob(w http.ResponseWriter, r *http.Request, account, container
 	deleteSnapshots := strings.ToLower(r.Header.Get("x-ms-delete-snapshots"))
 	var snapshots []BlobObject
 	if snapshot == "" {
-		for _, s := range blobsInContainer(account, container) {
-			if s.Name == blob && s.Snapshot != "" && !s.Deleted {
+		for _, s := range blobRecords(account, container, blob) {
+			if s.Snapshot != "" && !s.Deleted {
 				snapshots = append(snapshots, s)
 			}
 		}

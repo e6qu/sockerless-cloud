@@ -66,6 +66,17 @@ if ((quarantine_seconds < ADOPTION_QUARANTINE_FLOOR_SECONDS)); then
 fi
 readonly quarantine_seconds
 
+# How long one module-proxy query may go unanswered before it is retried (see
+# go_proxy). Changing it cannot let a drift through — a query that never
+# answers fails the run however long it was given — so a test may shorten it
+# to prove that in seconds rather than minutes.
+go_proxy_deadline=${DEPS_GO_PROXY_DEADLINE_SECONDS:-60}
+if ! [[ $go_proxy_deadline =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: DEPS_GO_PROXY_DEADLINE_SECONDS must be a positive whole number of seconds, got '$go_proxy_deadline'" >&2
+  exit 2
+fi
+readonly go_proxy_deadline
+
 # --- Baseline attribution --------------------------------------------------
 #
 # Usage: scripts/check-latest-deps.sh [--baseline <ref>]
@@ -113,7 +124,7 @@ if [ -n "$BASELINE" ] && ! git rev-parse --verify --quiet "$BASELINE^{commit}" >
   exit 2
 fi
 
-for tool in go curl jq; do
+for tool in go curl jq timeout; do
   command -v "$tool" >/dev/null 2>&1 || {
     echo "ERROR: $tool not on PATH" >&2
     exit 1
@@ -122,6 +133,31 @@ done
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+exec 3>&2
+
+# go_proxy runs one `go list -m` query, which is a request to the module proxy
+# that the Go toolchain puts no deadline on: a single stalled connection once
+# held a CI run until the job's own time limit cancelled it, with nothing in
+# the log to say what it was waiting for. Each attempt gets its own deadline and
+# a stalled one is retried; any other failure is the query's answer, returned
+# as is. A query that stalls every time fails the run, closed, rather than
+# reading as a module with no versions: the callers skip what they cannot look
+# up, and a lookup that never answered is not a clean result.
+go_proxy() {
+  local attempt outcome
+  for attempt in 1 2 3; do
+    if GOFLAGS='' timeout "$go_proxy_deadline" go list -m "$@"; then
+      return 0
+    else
+      outcome=$?
+    fi
+    [[ $outcome -eq 124 ]] || return "$outcome"
+    # To the run's own stderr (fd 3): callers discard the query's stderr.
+    echo "  ..    go list -m $* stalled for ${go_proxy_deadline}s (attempt $attempt of 3)" >&3
+  done
+  printf 'go list -m %s\n' "$*" >> "$work/go-proxy-stalled"
+  return 124
+}
 
 now_epoch=$(date -u +%s)
 readonly now_epoch
@@ -316,7 +352,7 @@ report_version_state() {
 # toolchain prints the zero time instead of nothing; adoptable_version rejects
 # that rather than reading it as an ancient, safely-adoptable release.
 go_module_publish_time() {
-  GOFLAGS='' go list -m -json "$LOOKUP_SUBJECT@$1" 2>/dev/null | jq -r '.Time // empty'
+  go_proxy -json "$LOOKUP_SUBJECT@$1" 2>/dev/null | jq -r '.Time // empty'
 }
 
 echo "=== Go module dependency freshness (adoption quarantine ${quarantine_seconds}s) ==="
@@ -356,7 +392,7 @@ while IFS= read -r mod_file; do
     if [[ $name == github.com/e6qu/sockerless-cloud/* ]]; then
       continue
     fi
-    published=$(GOFLAGS='' go list -m -versions "$name" 2>/dev/null \
+    published=$(go_proxy -versions "$name" 2>/dev/null \
       | tr ' ' '\n' | tail -n +2 \
       | grep -vE '\-(beta|alpha|rc|dev|preview)' || true)
     if [[ -z "$published" ]]; then continue; fi
@@ -567,7 +603,7 @@ gh_api() {
   local url=$1 out=$2 code headers attempt wait_for
   headers="$work/gh-headers.txt"
   for attempt in 1 2 3; do
-    code=$(curl -sSL -o "$out" -D "$headers" -w '%{http_code}' "${github_headers[@]}" "$url" 2>/dev/null || echo 000)
+    code=$(curl -sSL --max-time 30 -o "$out" -D "$headers" -w '%{http_code}' "${github_headers[@]}" "$url" 2>/dev/null || echo 000)
     [[ $code == 200 ]] && return 0
     [[ $code == 403 || $code == 429 ]] || return 1
     [[ $attempt == 3 ]] && return 1
@@ -598,7 +634,7 @@ gh_tag_publish_time() {
   local tag=$1
   local release obj ref_type ref_sha ts code
   release="$work/gh-release.json"
-  code=$(curl -sSL -o "$release" -w '%{http_code}' "${github_headers[@]}" \
+  code=$(curl -sSL --max-time 30 -o "$release" -w '%{http_code}' "${github_headers[@]}" \
     "https://api.github.com/repos/$LOOKUP_SUBJECT/releases/tags/$tag" 2>/dev/null || echo 000)
   case "$code" in
     200)
@@ -704,7 +740,7 @@ go_tool_module() {
     # stderr to a file rather than `2>&1 >/dev/null`: under zsh's MULTIOS that
     # idiom does not mean what it means in bash, and it swallowed the very
     # error this was added to surface.
-    if GOFLAGS='' go list -m -versions "$candidate" >/dev/null 2>"$errfile"; then
+    if go_proxy -versions "$candidate" >/dev/null 2>"$errfile"; then
       rm -f "$errfile"
       printf '%s\n' "$candidate"
       return 0
@@ -747,7 +783,7 @@ if [[ -d .github/workflows ]]; then
       fail=$((fail + 1))
       continue
     }
-    published=$(GOFLAGS='' go list -m -versions "$module" 2>/dev/null \
+    published=$(go_proxy -versions "$module" 2>/dev/null \
       | tr ' ' '\n' | tail -n +2 \
       | grep -vE '\-(beta|alpha|rc|dev|preview)' || true)
     [[ -z "$published" ]] && continue
@@ -873,6 +909,11 @@ while IFS= read -r manifest; do
 done < <(git ls-files 'ui/package.json' 'ui/packages/*/package.json' | sort)
 
 echo
+if [[ -s "$work/go-proxy-stalled" ]]; then
+  echo "The module proxy never answered these queries, so the versions they would have checked are unknown; re-run once it answers:" >&2
+  sed 's/^/  /' "$work/go-proxy-stalled" >&2
+  exit 1
+fi
 if [[ $held -gt 0 ]]; then
   echo "$held newer version(s) held: published less than ${quarantine_seconds}s ago and deliberately not adopted yet. They are re-checked on every run and become drift once they age out."
 fi

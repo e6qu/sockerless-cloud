@@ -96,8 +96,7 @@ func handlePageBlobCopyIncremental(w http.ResponseWriter, r *http.Request, accou
 	}
 	source, ok := blobObjects.Get(blobSnapshotKey(srcAccount, srcContainer, srcBlob, snapshot))
 	if !ok || source.Deleted {
-		writeStorageError(w, "CannotVerifyCopySource",
-			"The specified copy source does not exist.", http.StatusNotFound)
+		writeCopySourceBlobNotFound(w)
 		return
 	}
 	if source.BlobType != "PageBlob" {
@@ -195,8 +194,7 @@ func blobReadCopySourceRange(w http.ResponseWriter, r *http.Request, sourceURL, 
 	}
 	source, ok := blobObjects.Get(blobSnapshotKey(srcAccount, srcContainer, srcBlob, blobCopySourceSnapshot(sourceURL)))
 	if !ok || source.Deleted {
-		writeStorageError(w, "CannotVerifyCopySource",
-			"The specified copy source does not exist.", http.StatusNotFound)
+		writeCopySourceBlobNotFound(w)
 		return nil, false
 	}
 	if sourceRange == "" {

@@ -118,6 +118,7 @@ lives.
 | `gcp-firestore_change_streams` | [`gcp-firestore_change_streams`](SIM_SURFACE_TABLES/gcp-firestore_change_streams.md) | [`gcp-firestore_change_streams`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-firestore_document_verbs` | [`gcp-firestore_document_verbs`](SIM_SURFACE_TABLES/gcp-firestore_document_verbs.md) | [`gcp-firestore_document_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-gcs` | [`gcp-gcs`](SIM_SURFACE_TABLES/gcp-gcs.md) | [`gcp-gcs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-gcs_batch` | [`gcp-gcs_batch`](SIM_SURFACE_TABLES/gcp-gcs_batch.md) | [`gcp-gcs_batch`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-gcs_object_acls` | [`gcp-gcs_object_acls`](SIM_SURFACE_TABLES/gcp-gcs_object_acls.md) | [`gcp-gcs_object_acls`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-gcs_object_iam` | [`gcp-gcs_object_iam`](SIM_SURFACE_TABLES/gcp-gcs_object_iam.md) | [`gcp-gcs_object_iam`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-gcs_object_restore` | [`gcp-gcs_object_restore`](SIM_SURFACE_TABLES/gcp-gcs_object_restore.md) | [`gcp-gcs_object_restore`](SIM_TEST_COVERAGE_MATRIX.md) |

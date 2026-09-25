@@ -87,7 +87,7 @@ func blobPageBlobFor(w http.ResponseWriter, r *http.Request, account, container,
 			"The blob type is invalid for this operation.", http.StatusConflict)
 		return BlobObject{}, false
 	}
-	if !blobWriteAllowed(w, r, b, true) {
+	if !blobWriteAllowed(w, r, b, true, blobModify) {
 		return BlobObject{}, false
 	}
 	return b, true

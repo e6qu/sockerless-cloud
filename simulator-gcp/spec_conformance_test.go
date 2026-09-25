@@ -234,6 +234,10 @@ var allowedNonSpecGCPRoutes = map[string]string{
 	// own templates do: the literal family segment first. Both documented
 	// spellings are served through it; neither is invented.
 	"GET /compute/v1/projects/{project}/global/images/{first}/{second}": "image family lookup and image IAM policy read, which a path router cannot separate",
+	// The JSON API's batch endpoint, which Cloud Storage documents on its own
+	// page (cloud.google.com/storage/docs/batch) and its Discovery document
+	// names only as batchPath, not as a method.
+	"POST /batch/storage/v1": "Cloud Storage JSON API batch endpoint (the document's batchPath)",
 	// OAuth2 token endpoints — real Google auth surface
 	// (oauth2.googleapis.com /token; legacy www.googleapis.com/oauth2/v4/token),
 	// not part of any service Discovery document.

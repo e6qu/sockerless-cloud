@@ -31,7 +31,7 @@ func blobAppendBlobFor(w http.ResponseWriter, r *http.Request, account, containe
 			"The blob is sealed and no further appends are allowed.", http.StatusConflict)
 		return BlobObject{}, false
 	}
-	if !blobWriteAllowed(w, r, b, true) {
+	if !blobWriteAllowed(w, r, b, true, blobModify) {
 		return BlobObject{}, false
 	}
 	if raw := r.Header.Get("x-ms-blob-condition-appendpos"); raw != "" {
@@ -128,7 +128,7 @@ func handleAppendBlobSeal(w http.ResponseWriter, r *http.Request, account, conta
 			"The blob type is invalid for this operation.", http.StatusConflict)
 		return
 	}
-	if !blobWriteAllowed(w, r, b, true) {
+	if !blobWriteAllowed(w, r, b, true, blobModify) {
 		return
 	}
 	if raw := r.Header.Get("x-ms-blob-condition-appendpos"); raw != "" {

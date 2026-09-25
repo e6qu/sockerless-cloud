@@ -128,6 +128,12 @@ Current state of the sockerless-cloud repository.
   service account's token, an Azure Container Registry with an identity
   token of the ACR Tasks run — names them outright for the legacy builder,
   and hands other registries to the host's helper.
+- **Object stores arbitrate conditional writes.** Cloud Storage's generation
+  and metageneration preconditions and Azure Blob Storage's conditional
+  headers are evaluated on every read and write, a write's check and store are
+  one step under a per-object lock, and a Cloud Storage generation is never
+  reused; the XML download, V4 signed URLs and the JSON API batch endpoint
+  answer as the service does (BUG-3031, BUG-3032).
 - **A bucket carries Cloud Storage's default policy** from creation — the
   four legacy bindings for the project's owners, editors and viewers — so a
   client revoking what it granted sets the defaults back, never nothing.

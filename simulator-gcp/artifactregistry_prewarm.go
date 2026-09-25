@@ -255,7 +255,7 @@ func arHandleExportArtifact(w http.ResponseWriter, r *http.Request, repo string,
 	if _, err := persistGCSObject(gcsObjects, bucket, object, blob.Data, GCSObject{
 		ContentType: blob.ContentType,
 		Metadata:    map[string]string{"artifactregistry-source": version.Name, "artifactregistry-location": repoLocation},
-	}); err != nil {
+	}, gcsPreconditions{}); err != nil {
 		writeGCSPersistError(w, "export artifact", err)
 		return
 	}

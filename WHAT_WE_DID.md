@@ -503,3 +503,18 @@ by name, with every toolchain pinned to a version and a digest (Go, Terraform,
 the three cloud CLIs, Firecracker, Caddy, the Docker CLI), because the image
 decides what a test result means. With it, the shared azurerm stack's
 Firecracker guest was verified to boot on an arm64 host (BUG-42).
+
+## An object store's conditional write is one step
+
+A client that keeps its consistency in an object store — a git server
+arbitrating a branch update, a lock file, a manifest — builds on one guarantee:
+of two writers that each require the version they read, exactly one wins. The
+Cloud Storage and Azure Blob Storage slices checked no such condition, or
+checked it and then wrote with nothing between the two, so they served such a
+client while silently breaking it (BUG-3031, BUG-3032). The repair puts the
+evaluation and the store under one per-object lock at each service's single
+write path — `persistGCSObject`, and the Azure blob dispatcher ahead of
+`blobWriteAllowed` — rather than at each handler, so a handler added later
+cannot skip it. A lock per object and not per bucket keeps unrelated writes
+concurrent; each lock's entry is dropped when its last holder leaves, so the
+table stays as small as the set of objects being written.

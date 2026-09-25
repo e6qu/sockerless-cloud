@@ -152,6 +152,7 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 				"no soft-deleted object %q with generation %s in bucket %q", objectName, generation, bucketName)
 			return
 		}
+		defer gcsObjectWriters.lock(bucketName, objectName)()
 		if _, live := objects.Get(bucketName + "/" + objectName); live {
 			GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
 				"object %q already exists in bucket %q", objectName, bucketName)
@@ -236,25 +237,27 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", source, bucketName)
 			return
 		}
-		if _, exists := objects.Get(bucketName + "/" + destination); exists {
-			GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
-				"object %q already exists in bucket %q", destination, bucketName)
-			return
-		}
 		data, err := gcsObjectBytes(obj, bucketName, source)
 		if err != nil {
 			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "read source object: %v", err)
 			return
 		}
-		moved, err := persistGCSObject(objects, bucketName, destination, data, obj)
+		// The destination must not exist when the move lands, which is the
+		// precondition the write states rather than a look taken beforehand.
+		absent := int64(0)
+		moved, err := persistGCSObject(objects, bucketName, destination, data, obj, gcsPreconditions{GenerationMatch: &absent})
 		if err != nil {
 			writeGCSPersistError(w, "move object", err)
 			return
 		}
-		objects.Delete(bucketName + "/" + source)
-		gcsIndexRemove(bucketName, source)
-		gcsRemoveObjectPayload(bucketName, source)
-		gcsDropObjectACL(bucketName, source)
+		release := gcsObjectWriters.lock(bucketName, source)
+		if current, ok := objects.Get(bucketName + "/" + source); ok && current.Generation == obj.Generation {
+			objects.Delete(bucketName + "/" + source)
+			gcsIndexRemove(bucketName, source)
+			gcsRemoveObjectPayload(bucketName, source)
+			gcsDropObjectACL(bucketName, source)
+		}
+		release()
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, moved))
 	})
 }

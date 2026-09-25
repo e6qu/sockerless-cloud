@@ -334,10 +334,7 @@ func blobForPropertyWrite(w http.ResponseWriter, r *http.Request, account, conta
 			"The specified blob does not exist.", http.StatusNotFound)
 		return BlobObject{}, false
 	}
-	if !azureBlobPreconditionOK(w, r, b.ETag, true) {
-		return BlobObject{}, false
-	}
-	if !blobWriteAllowed(w, r, b, true) {
+	if !blobWriteAllowed(w, r, b, true, blobModify) {
 		return BlobObject{}, false
 	}
 	return b, true
