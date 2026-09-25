@@ -32,6 +32,36 @@ type KinesisStream struct {
 	OpenShardCount       int64             `json:"-"`
 	MaxRecordSizeInKiB   int64             `json:"-"`
 	WarmThroughputMiBps  int64             `json:"-"`
+	// RecordDistributionStrategy is AUTO or USER_PARTITION_KEY; empty is the
+	// default, USER_PARTITION_KEY.
+	RecordDistributionStrategy string `json:"-"`
+}
+
+const (
+	kinesisDistributionAuto         = "AUTO"
+	kinesisDistributionPartitionKey = "USER_PARTITION_KEY"
+)
+
+func (s KinesisStream) recordDistributionStrategy() string {
+	if s.RecordDistributionStrategy == "" {
+		return kinesisDistributionPartitionKey
+	}
+	return s.RecordDistributionStrategy
+}
+
+// kinesisValidDistributionStrategy checks a requested strategy against the
+// stream's capacity mode: AUTO exists only for on-demand streams.
+func kinesisValidDistributionStrategy(strategy string, mode map[string]string) string {
+	switch strategy {
+	case kinesisDistributionPartitionKey:
+		return ""
+	case kinesisDistributionAuto:
+		if !strings.EqualFold(mode["StreamMode"], "ON_DEMAND") {
+			return "The AUTO record distribution strategy is supported only for streams in on-demand capacity mode."
+		}
+		return ""
+	}
+	return "RecordDistributionStrategy must be AUTO or USER_PARTITION_KEY"
 }
 
 type KinesisShard struct {
@@ -136,6 +166,7 @@ func registerKinesis(r *AWSRouter, srv *sim.Server) {
 	r.Register("Kinesis_20131202.UpdateAccountSettings", handleKinesisUpdateAccountSettings)
 	r.Register("Kinesis_20131202.UpdateMaxRecordSize", handleKinesisUpdateMaxRecordSize)
 	r.Register("Kinesis_20131202.UpdateStreamWarmThroughput", handleKinesisUpdateStreamWarmThroughput)
+	r.Register("Kinesis_20131202.UpdateStreamRecordDistributionStrategy", handleKinesisUpdateStreamRecordDistributionStrategy)
 }
 
 func writeKinesisJSON(w http.ResponseWriter, status int, v any) {
@@ -204,14 +235,15 @@ func kinesisStreamDescriptionSummary(s KinesisStream) map[string]any {
 		open = int64(len(s.Shards))
 	}
 	out := map[string]any{
-		"StreamName":              s.StreamName,
-		"StreamARN":               s.StreamARN,
-		"StreamStatus":            s.StreamStatus,
-		"RetentionPeriodHours":    s.RetentionPeriodHours,
-		"StreamCreationTimestamp": s.CreationTimestamp,
-		"EnhancedMonitoring":      s.EnhancedMonitoring,
-		"OpenShardCount":          open,
-		"StreamModeDetails":       s.StreamModeDetails,
+		"StreamName":                 s.StreamName,
+		"StreamARN":                  s.StreamARN,
+		"StreamStatus":               s.StreamStatus,
+		"RetentionPeriodHours":       s.RetentionPeriodHours,
+		"StreamCreationTimestamp":    s.CreationTimestamp,
+		"EnhancedMonitoring":         s.EnhancedMonitoring,
+		"OpenShardCount":             open,
+		"StreamModeDetails":          s.StreamModeDetails,
+		"RecordDistributionStrategy": s.recordDistributionStrategy(),
 	}
 	kinesisSetEncryption(out, s)
 	return out
@@ -263,6 +295,8 @@ func handleKinesisCreateStream(w http.ResponseWriter, r *http.Request) {
 		ShardCount        int64             `json:"ShardCount"`
 		StreamModeDetails map[string]string `json:"StreamModeDetails"`
 		Tags              map[string]string `json:"Tags"`
+		// RecordDistributionStrategy may be set at creation, on an on-demand stream.
+		RecordDistributionStrategy string `json:"RecordDistributionStrategy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
@@ -280,6 +314,12 @@ func handleKinesisCreateStream(w http.ResponseWriter, r *http.Request) {
 	if mode == nil {
 		mode = map[string]string{"StreamMode": "PROVISIONED"}
 	}
+	if req.RecordDistributionStrategy != "" {
+		if problem := kinesisValidDistributionStrategy(req.RecordDistributionStrategy, mode); problem != "" {
+			AWSError(w, "InvalidArgumentException", problem, http.StatusBadRequest)
+			return
+		}
+	}
 	shardCount := req.ShardCount
 	if strings.EqualFold(mode["StreamMode"], "ON_DEMAND") && shardCount == 0 {
 		shardCount = 4
@@ -288,16 +328,17 @@ func handleKinesisCreateStream(w http.ResponseWriter, r *http.Request) {
 		shardCount = 1
 	}
 	stream := KinesisStream{
-		StreamName:           req.StreamName,
-		StreamARN:            kinesisStreamARN(req.StreamName),
-		StreamStatus:         "ACTIVE",
-		StreamModeDetails:    mode,
-		Shards:               kinesisMakeShards(shardCount),
-		RetentionPeriodHours: 24,
-		EnhancedMonitoring:   []map[string]any{{"ShardLevelMetrics": []string{}}},
-		CreationTimestamp:    float64(time.Now().Unix()),
-		Tags:                 map[string]string{},
-		OpenShardCount:       shardCount,
+		StreamName:                 req.StreamName,
+		StreamARN:                  kinesisStreamARN(req.StreamName),
+		StreamStatus:               "ACTIVE",
+		StreamModeDetails:          mode,
+		Shards:                     kinesisMakeShards(shardCount),
+		RetentionPeriodHours:       24,
+		EnhancedMonitoring:         []map[string]any{{"ShardLevelMetrics": []string{}}},
+		CreationTimestamp:          float64(time.Now().Unix()),
+		Tags:                       map[string]string{},
+		OpenShardCount:             shardCount,
+		RecordDistributionStrategy: req.RecordDistributionStrategy,
 	}
 	for k, v := range req.Tags {
 		stream.Tags[k] = v
@@ -617,7 +658,12 @@ func kinesisAppendRecord(streamName, streamARN string, data []byte, partitionKey
 	if !ok {
 		return "", "", fmt.Errorf("stream not found")
 	}
-	shard := kinesisSelectShard(stream, partitionKey, explicitHashKey)
+	var shard KinesisShard
+	if stream.recordDistributionStrategy() == kinesisDistributionAuto {
+		shard = kinesisLeastLoadedOpenShard(stream)
+	} else {
+		shard = kinesisSelectShard(stream, partitionKey, explicitHashKey)
+	}
 	key := kinesisShardRecordKey(stream.StreamName, shard.ShardId)
 	records, _ := kinesisRecords.Get(key)
 	seq := strconv.FormatInt(int64(len(records)+1), 10)
@@ -630,6 +676,26 @@ func kinesisAppendRecord(streamName, streamARN string, data []byte, partitionKey
 	})
 	kinesisRecords.Put(key, records)
 	return shard.ShardId, seq, nil
+}
+
+// kinesisLeastLoadedOpenShard places a record under the AUTO strategy, which
+// spreads records evenly across the open shards and ignores the partition key
+// and ExplicitHashKey. Choosing the open shard holding the fewest records keeps
+// the counts within one of each other; ties go to the first in shard order.
+// The caller holds kinesisMu.
+func kinesisLeastLoadedOpenShard(stream KinesisStream) KinesisShard {
+	var chosen KinesisShard
+	fewest := -1
+	for _, shard := range stream.Shards {
+		if _, closed := shard.SequenceNumberRange["EndingSequenceNumber"]; closed {
+			continue
+		}
+		records, _ := kinesisRecords.Get(kinesisShardRecordKey(stream.StreamName, shard.ShardId))
+		if fewest < 0 || len(records) < fewest {
+			chosen, fewest = shard, len(records)
+		}
+	}
+	return chosen
 }
 
 func kinesisSelectShard(stream KinesisStream, partitionKey, explicitHashKey string) KinesisShard {
@@ -1669,4 +1735,33 @@ func handleKinesisUpdateStreamWarmThroughput(w http.ResponseWriter, r *http.Requ
 			"CurrentMiBps": req.WarmThroughputMiBps,
 		},
 	})
+}
+
+func handleKinesisUpdateStreamRecordDistributionStrategy(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		StreamARN                  string `json:"StreamARN"`
+		RecordDistributionStrategy string `json:"RecordDistributionStrategy"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.StreamARN == "" {
+		AWSError(w, "InvalidArgumentException", "StreamARN is required", http.StatusBadRequest)
+		return
+	}
+	kinesisMu.Lock()
+	defer kinesisMu.Unlock()
+	stream, ok := kinesisStreamByARN(req.StreamARN)
+	if !ok {
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		return
+	}
+	if problem := kinesisValidDistributionStrategy(req.RecordDistributionStrategy, stream.StreamModeDetails); problem != "" {
+		AWSError(w, "InvalidArgumentException", problem, http.StatusBadRequest)
+		return
+	}
+	stream.RecordDistributionStrategy = req.RecordDistributionStrategy
+	kinesisStreams.Put(stream.StreamName, stream)
+	writeKinesisJSON(w, http.StatusOK, map[string]any{})
 }

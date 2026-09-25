@@ -140,6 +140,14 @@ var (
 // Keep a row here whenever a test drives a newly-launched operation, so the
 // requirement is declared in one place instead of degrading into a per-test skip.
 var requiredAWSCLIOperations = [][2]string{
+	{"kinesis", "update-stream-record-distribution-strategy"},
+	{"cloudwatch", "create-resource-metrics-configuration"},
+	{"cloudwatch", "get-resource-metrics-configuration"},
+	{"cloudwatch", "update-resource-metrics-configuration"},
+	{"cloudwatch", "delete-resource-metrics-configuration"},
+	{"cloudwatch", "update-otel-enrichment"},
+	{"ec2", "create-capacity-reservation-date-change-quote"},
+	{"ec2", "describe-capacity-reservation-date-change-quotes"},
 	{"ec2", "describe-account-vpc-encryption-control"},
 	{"ec2", "modify-account-vpc-encryption-control"},
 	{"glue", "create-glossary"},

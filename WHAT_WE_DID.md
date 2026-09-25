@@ -518,3 +518,14 @@ write path — `persistGCSObject`, and the Azure blob dispatcher ahead of
 cannot skip it. A lock per object and not per bucket keeps unrelated writes
 concurrent; each lock's entry is dropped when its last holder leaves, so the
 table stays as small as the set of objects being written.
+
+## A reservation's state is read from the clock, not stored ahead of it
+
+A future-dated Capacity Reservation becomes active on its start date with
+nobody calling anything. Storing that transition would need a timer — the kind
+of synthetic behaviour the simulators refuse — or a sweep that could be late.
+Instead the stored record holds what was asked for (the requested count, the
+start date, the commitment), and `ec2GetCapacityReservation`, the one accessor
+every read goes through, derives the state and instance count as of now
+(BUG-3036). A handler that read the store directly could report a scheduled
+reservation after its delivery, so none does.

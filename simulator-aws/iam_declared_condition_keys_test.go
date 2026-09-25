@@ -38,6 +38,22 @@ type iamUnmodelledConditionKey struct {
 }
 
 var iamUnmodelledConditionKeys = []iamUnmodelledConditionKey{
+	{"cloudwatch:HasAccessGrant", "Declared only on cloudwatch:AssumeAccessProfile, CreateAccessGrant and CreateAccessProfile, " +
+		"operations the vendored CloudWatch model does not contain and the simulator does not serve."},
+	{"events:ContentFilterPresent", "Declared only on events:CreateSubscriber and UpdateSubscriber, operations the vendored " +
+		"EventBridge model does not contain and the simulator does not serve."},
+	{"events:Metadata/${MetadataKey}", "Declared on events:CreateSubscriber, UpdateSubscriber and PutRawEvents, operations " +
+		"the vendored EventBridge model does not contain and the simulator does not serve."},
+	{"events:Metadata/${MetadataKey}/Matcher", "Declared only on events:CreateSubscriber and UpdateSubscriber, operations the " +
+		"vendored EventBridge model does not contain and the simulator does not serve."},
+	{"events:SystemMetadata/AwsDetailType", "Arrived with events:PutRawEvents and is also declared on PutEvents, but neither the " +
+		"Service Reference nor the Service Authorization Reference says what value it carries (2026-09-25); a value derived " +
+		"from PutEvents' DetailType would be a guess that a policy could match on."},
+	{"events:SystemMetadata/AwsSource", "Arrived with events:PutRawEvents and is also declared on PutEvents, but neither the " +
+		"Service Reference nor the Service Authorization Reference says what value it carries (2026-09-25); a value derived " +
+		"from PutEvents' Source would be a guess that a policy could match on."},
+	{"events:SystemMetadata/ContentType", "Arrived with events:PutRawEvents and is also declared on PutEvents, but neither the " +
+		"Service Reference nor the Service Authorization Reference says what value it carries (2026-09-25)."},
 	{"kms:RecipientAttestation:*", "Each of the 65 measurements (PCR0-31, the Nitro TPM registers, ImageSha384) is read " +
 		"out of the signed attestation document an enclave passes in the Recipient parameter. This simulator runs no " +
 		"Nitro enclave and mints no attestation document -- handleKMSGenerateRandom says as much about the Recipient " +

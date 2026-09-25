@@ -35,7 +35,7 @@
       "name": "@sockerless/ui-simulator-aws",
       "version": "0.1.0",
       "dependencies": {
-        "@cloudscape-design/components": "3.0.1384",
+        "@cloudscape-design/components": "3.0.1385",
         "@cloudscape-design/design-tokens": "^3.0.113",
         "@cloudscape-design/global-styles": "^1.0.70",
         "@sockerless/ui-core": "workspace:*",
@@ -136,7 +136,7 @@
 
     "@cloudscape-design/component-toolkit": ["@cloudscape-design/component-toolkit@1.0.0-beta.183", "", { "dependencies": { "tslib": "^2.3.1", "weekstart": "^2.0.0" }, "peerDependencies": { "react": ">=16.8.0" } }, "sha512-gsnvcZo85aJQuEFxvnqQQTzFaA3wd5zyFewHpVFKbteYgSKPSwrWFvSN3aKSrrxC7OckLYZvxGMXsu5Y8qYXvQ=="],
 
-    "@cloudscape-design/components": ["@cloudscape-design/components@3.0.1384", "", { "dependencies": { "@cloudscape-design/collection-hooks": "^1.0.0", "@cloudscape-design/component-toolkit": "^1.0.0-beta", "@cloudscape-design/test-utils-core": "^1.0.0", "@cloudscape-design/theming-runtime": "^1.0.0", "@dnd-kit/core": "^6.0.8", "@dnd-kit/sortable": "^7.0.2", "@dnd-kit/utilities": "^3.2.1", "ace-builds": "^1.34.0", "clsx": "^1.1.0", "d3-shape": "^1.3.7", "date-fns": "^2.25.0", "intl-messageformat": "^10.3.1", "mnth": "^2.0.0", "react-is": "^18.2.0", "react-transition-group": "^4.4.2", "tslib": "^2.4.0", "weekstart": "^1.1.0" }, "peerDependencies": { "react": ">=16.8.0" } }, "sha512-tCbpIKFJmtWmN1n57IcnPvAoJgvGjghDoT0xjSthf2XDIqeBCs8Mf1hBmJEAlfoyqZwopr8hIwtdgROvXpa51A=="],
+    "@cloudscape-design/components": ["@cloudscape-design/components@3.0.1385", "", { "dependencies": { "@cloudscape-design/collection-hooks": "^1.0.0", "@cloudscape-design/component-toolkit": "^1.0.0-beta", "@cloudscape-design/test-utils-core": "^1.0.0", "@cloudscape-design/theming-runtime": "^1.0.0", "@dnd-kit/core": "^6.0.8", "@dnd-kit/sortable": "^7.0.2", "@dnd-kit/utilities": "^3.2.1", "ace-builds": "^1.34.0", "clsx": "^1.1.0", "d3-shape": "^1.3.7", "date-fns": "^2.25.0", "intl-messageformat": "^10.3.1", "mnth": "^2.0.0", "react-is": "^18.2.0", "react-transition-group": "^4.4.2", "tslib": "^2.4.0", "weekstart": "^1.1.0" }, "peerDependencies": { "react": ">=16.8.0" } }, "sha512-wn5J+wnqFTKon1JtMwZyj8VXpOOQPIL9DwAKnSVrkzlLQteKtA5SVSmmhIu9XJGgbvNzoR2Y+GpC7vcYAEl0Gw=="],
 
     "@cloudscape-design/design-tokens": ["@cloudscape-design/design-tokens@3.0.113", "", {}, "sha512-I6ECBBpcsXX9UmmeMprZ9uuTBPLBpqcSFcQYl10CX1Fcfoxj7SX75P8qN+0lMU8zPEvIMkErvh/5L/4jA+RB1g=="],
 
