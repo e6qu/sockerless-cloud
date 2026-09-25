@@ -20,7 +20,7 @@ require (
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/stretchr/testify v1.12.1
-	google.golang.org/api v0.298.0
+	google.golang.org/api v0.299.0
 	google.golang.org/genproto v0.0.0-20260918162117-cecb64721679
 	google.golang.org/genproto/googleapis/api v0.0.0-20260918162117-cecb64721679
 	google.golang.org/grpc v1.84.0
@@ -80,7 +80,7 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260918162117-cecb64721679 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260921155816-b14227669459 // indirect
 )
 
 replace github.com/e6qu/sockerless-cloud/realexec => ../../realexec

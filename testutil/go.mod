@@ -3,7 +3,7 @@ module github.com/e6qu/sockerless-cloud/testutil
 go 1.25.0
 
 require (
-	github.com/beevik/etree v1.8.0
+	github.com/beevik/etree v1.8.1
 	github.com/russellhaering/goxmldsig v1.6.1
 )
 

@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 8. Resolved: 135.
+Open: 8. Resolved: 136.
 
 ## Open
 
@@ -28,6 +28,19 @@ Open: 8. Resolved: 135.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3034 (the console lockfile could resolve versions inside the
+  adoption quarantine):**~~ `scripts/check-latest-deps.sh` holds every pin in a
+  `package.json` to versions a day old, but the pins are caret ranges and
+  `bun install` resolves a range to the newest version published, transitive
+  dependencies included, with nothing checking the lockfile's ages. Adopting
+  the pins the scheduled freshness run reported behind resolved turbo 2.11.4
+  (published 17 hours earlier) against a `^2.11.3` pin, and four `@csstools`
+  packages published within the previous two hours. `ui/bunfig.toml` now sets
+  `install.minimumReleaseAge` to the same 86,400 seconds, so the resolver
+  itself refuses what the quarantine refuses. `ui/package.json`'s
+  `packageManager`, which turbo reads, named bun 1.2.19 while CI installs
+  1.4.0; it names 1.4.0 now.
 
 - ~~**BUG-3033 (the dependency freshness check could wait forever on the
   module proxy):**~~ `check-deps` on #204 ran its zsh pass into the job's
