@@ -74,3 +74,29 @@ func WriteXML(w http.ResponseWriter, statusCode int, v any) {
 	w.WriteHeader(statusCode)
 	_ = xml.NewEncoder(w).Encode(v)
 }
+
+// awsErrorBody is an awsJson error document for a service whose Smithy model is
+// the one named: the message goes under the member that model declares for the
+// error, which is what the SDKs' deserializers read. Where the model agrees on
+// one spelling for all its errors, an error it does not declare takes that
+// spelling too; only an undeclared error in a model that mixes the two carries
+// both.
+func awsErrorBody(model, code, message string) map[string]string {
+	members, ok := awsErrorMessageMembers[model]
+	if !ok {
+		panic("awsErrorBody: no vendored Smithy model named " + model)
+	}
+	body := map[string]string{"__type": code}
+	if member, declared := members[code]; declared {
+		body[member] = message
+		return body
+	}
+	spellings := map[string]bool{}
+	for _, member := range members {
+		spellings[member] = true
+	}
+	for member := range spellings {
+		body[member] = message
+	}
+	return body
+}

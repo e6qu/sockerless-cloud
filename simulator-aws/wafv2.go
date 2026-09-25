@@ -231,10 +231,7 @@ func wafWriteJSON(w http.ResponseWriter, v any) {
 func wafWriteError(w http.ResponseWriter, code, msg string) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(http.StatusBadRequest)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"__type":  code,
-		"message": msg,
-	})
+	_ = json.NewEncoder(w).Encode(awsErrorBody("wafv2", code, msg))
 }
 
 func wafWriteDuplicate(w http.ResponseWriter, kind, name string) {
