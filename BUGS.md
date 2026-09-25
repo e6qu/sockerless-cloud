@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 8. Resolved: 132.
+Open: 8. Resolved: 134.
 
 ## Open
 
@@ -28,6 +28,44 @@ Open: 8. Resolved: 132.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3032 (Cloud Storage accepted every conditional write):**~~ An
+  external object-store conformance suite — the one a git server built on
+  generation compare-and-swap runs at startup — failed against the Google Cloud
+  simulator on every rule it checks. `objects.insert` ignored
+  `ifGenerationMatch` and every other precondition, on every object operation,
+  so a create-if-absent overwrote; a write read the object and stored its
+  replacement with nothing between them, so two conditional writers could both
+  win; a generation was the previous one plus one, so a deleted and recreated
+  object reused generation 1; the XML API download sent none of the headers
+  that describe the object (`x-goog-generation`, `x-goog-hash`, `ETag`,
+  `Last-Modified`) and ignored `Range`; a V4 signed URL was refused for want of
+  a bearer; and `POST /batch/storage/v1` did not exist. Now: one
+  `persistGCSObject` evaluates the preconditions and stores under a per-object
+  write lock that delete, patch, move and restore take too; generations are
+  microsecond timestamps that never repeat, seeded past the stores' own when
+  they open; downloads carry the documented headers and serve ranges;
+  signatures verify against the service account's IAM keys (the signed host
+  with or without its port, because Google's Go library signs the hostname
+  alone); and the batch endpoint serves each part through the full handler.
+  `simulator-gcp/sdk-tests/storage_conditions_test.go` races sixteen writers
+  per round and requires exactly one winner.
+- ~~**BUG-3031 (Azure Blob Storage ignored most conditional headers, and a
+  delete scanned its container):**~~ Found by the same suite against the Azure
+  simulator. Get Blob and Get Blob Properties evaluated no conditional header,
+  so a revalidation never got 304; writes honoured only `If-None-Match: *` and
+  `If-Match`, and Put Block List none at all; no lock spanned a write's check
+  and its store; a create-if-absent over an existing blob answered 412 where
+  Azure answers 409 `BlobAlreadyExists`; `CannotVerifyCopySource` omitted the
+  `x-ms-copy-source-*` headers that name the source's own failure; and Delete
+  Blob loaded every record of the container to find one blob's snapshots, so a
+  256-delete Blob Batch took 50 seconds in a container of 2,200 blobs. Now one
+  evaluator, in RFC 9110 order, serves every read and — through
+  `blobWriteAllowed` — every write; the blob dispatcher serializes writes per
+  blob; and a per-blob record index, rebuilt on restart and held equal to a
+  container scan by `TestBlobRecordIndexAgreesWithAContainerScan`, answers
+  delete and undelete. The index lock became a read-write lock whose readers
+  share it.
 
 - ~~**BUG-3029 (the database's size was attributed to the wrong thing):**~~
   A 2.4 GB database was blamed on Amazon S3 object bodies, which are blobs in

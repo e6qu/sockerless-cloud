@@ -32,6 +32,31 @@ type storageErrorResponse struct {
 	XMLName xml.Name `xml:"Error"`
 	Code    string   `xml:"Code"`
 	Message string   `xml:"Message"`
+	// The copy operations name the failure of their source's read.
+	CopySourceStatusCode   int    `xml:"CopySourceStatusCode,omitempty"`
+	CopySourceErrorCode    string `xml:"CopySourceErrorCode,omitempty"`
+	CopySourceErrorMessage string `xml:"CopySourceErrorMessage,omitempty"`
+}
+
+// writeCopySourceBlobNotFound refuses a copy whose source blob does not exist:
+// CannotVerifyCopySource, with the source read's own 404 BlobNotFound in the
+// x-ms-copy-source-* headers and the body.
+// https://learn.microsoft.com/en-us/rest/api/storageservices/status-and-error-codes2#copy-api-error-response
+func writeCopySourceBlobNotFound(w http.ResponseWriter) {
+	const sourceMessage = "The specified blob does not exist."
+	w.Header().Set("Content-Type", "application/xml")
+	w.Header().Set("x-ms-error-code", "CannotVerifyCopySource")
+	w.Header().Set("x-ms-copy-source-status-code", "404")
+	w.Header().Set("x-ms-copy-source-error-code", "BlobNotFound")
+	w.WriteHeader(http.StatusNotFound)
+	_, _ = w.Write([]byte(xml.Header))
+	_ = xml.NewEncoder(w).Encode(storageErrorResponse{
+		Code:                   "CannotVerifyCopySource",
+		Message:                sourceMessage,
+		CopySourceStatusCode:   http.StatusNotFound,
+		CopySourceErrorCode:    "BlobNotFound",
+		CopySourceErrorMessage: sourceMessage,
+	})
 }
 
 func writeStorageError(w http.ResponseWriter, code, message string, statusCode int) {

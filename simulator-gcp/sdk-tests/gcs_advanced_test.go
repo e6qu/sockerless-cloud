@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -216,6 +217,7 @@ func TestGCS_ObjectMetadataCRC32CAndGeneration(t *testing.T) {
 	bucket := "metadata-shape-bucket"
 	gcsRESTCreate(t, bucket)
 
+	var generations []int64
 	for _, body := range []string{"first", "second"} {
 		req, _ := http.NewRequest("POST",
 			baseURL+"/upload/storage/v1/b/"+bucket+"/o?uploadType=media&name=object.txt",
@@ -226,10 +228,18 @@ func TestGCS_ObjectMetadataCRC32CAndGeneration(t *testing.T) {
 		data, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		require.Equal(t, http.StatusOK, resp.StatusCode, "upload status: %s", data)
+		var written struct {
+			Generation string `json:"generation"`
+		}
+		require.NoError(t, json.Unmarshal(data, &written))
+		generation, err := strconv.ParseInt(written.Generation, 10, 64)
+		require.NoError(t, err)
+		generations = append(generations, generation)
 	}
+	assert.Greater(t, generations[1], generations[0], "overwrites must advance object generation")
 
 	meta := gcsObjectMetadataRaw(t, bucket, "object.txt")
-	assert.Equal(t, "2", meta["generation"], "overwrites must advance object generation")
+	assert.Equal(t, strconv.FormatInt(generations[1], 10), meta["generation"])
 	assert.Equal(t, "1", meta["metageneration"])
 	crc, ok := meta["crc32c"].(string)
 	require.True(t, ok)

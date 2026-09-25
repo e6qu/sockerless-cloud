@@ -162,33 +162,42 @@ func verifyServiceAccountAssertion(assertion string, now time.Time) (saAssertion
 		return none, invalidGrant("Invalid grant: account disabled")
 	}
 
-	// The candidate public keys: the exact key the `kid` header names, or —
-	// when the client sent no kid — every key registered for the account.
-	var candidates []GCPServiceAccountKeyMaterial
-	if header.Kid != "" {
-		material, ok := iamSAKeyPublics.Get(saName + "/keys/" + header.Kid)
-		if !ok {
-			return none, invalidGrant("Invalid JWT Signature.")
-		}
-		candidates = []GCPServiceAccountKeyMaterial{material}
-	} else {
-		keyPrefix := saName + "/keys/"
-		candidates = iamSAKeyPublics.Filter(func(m GCPServiceAccountKeyMaterial) bool {
-			return strings.HasPrefix(m.Name, keyPrefix)
-		})
-	}
-
-	signingInput := parts[0] + "." + parts[1]
 	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
 		return none, invalidGrant("Invalid JWT Signature.")
 	}
-	digest := sha256.Sum256([]byte(signingInput))
-	verified := false
+	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+	verified := serviceAccountSigned(saName, header.Kid, digest[:], signature)
+	if !verified {
+		return none, invalidGrant("Invalid JWT Signature.")
+	}
+
+	if claims.Exp == 0 || now.After(time.Unix(claims.Exp, 0)) {
+		return none, invalidGrant("Invalid JWT: Token must be a short-lived token (60 minutes) and in a reasonable timeframe. Check your iat and exp values in the JWT claim.")
+	}
+
+	return saAssertionClaims{issuer: claims.Iss, targetAudience: claims.TargetAudience}, nil
+}
+
+// serviceAccountSigned reports whether one of the service account's enabled
+// keys made signature, an RSASSA-PKCS1-v1_5 signature over the SHA-256 digest:
+// the key kid names, or with no kid any key registered for the account. A
+// disabled key signs nothing, as on Google until keys.enable turns it back on.
+func serviceAccountSigned(account, kid string, digest, signature []byte) bool {
+	var candidates []GCPServiceAccountKeyMaterial
+	if kid != "" {
+		material, ok := iamSAKeyPublics.Get(account + "/keys/" + kid)
+		if !ok {
+			return false
+		}
+		candidates = []GCPServiceAccountKeyMaterial{material}
+	} else {
+		keyPrefix := account + "/keys/"
+		candidates = iamSAKeyPublics.Filter(func(m GCPServiceAccountKeyMaterial) bool {
+			return strings.HasPrefix(m.Name, keyPrefix)
+		})
+	}
 	for _, candidate := range candidates {
-		// A disabled key does not authenticate: real Google refuses an
-		// assertion signed with a key keys.disable turned off, until
-		// keys.enable turns it back on.
 		if key, ok := iamSAKeys.Get(candidate.Name); ok && key.Disabled {
 			continue
 		}
@@ -204,18 +213,9 @@ func verifyServiceAccountAssertion(assertion string, now time.Time) (saAssertion
 		if !ok {
 			continue
 		}
-		if rsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, digest[:], signature) == nil {
-			verified = true
-			break
+		if rsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, digest, signature) == nil {
+			return true
 		}
 	}
-	if !verified {
-		return none, invalidGrant("Invalid JWT Signature.")
-	}
-
-	if claims.Exp == 0 || now.After(time.Unix(claims.Exp, 0)) {
-		return none, invalidGrant("Invalid JWT: Token must be a short-lived token (60 minutes) and in a reasonable timeframe. Check your iat and exp values in the JWT claim.")
-	}
-
-	return saAssertionClaims{issuer: claims.Iss, targetAudience: claims.TargetAudience}, nil
+	return false
 }

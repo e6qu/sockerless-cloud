@@ -395,23 +395,26 @@ func persistGCSObjectMetadata(objects sim.Store[GCSObject], key string, obj GCSO
 	objects.Put(key, obj)
 }
 
-func persistGCSObject(objects sim.Store[GCSObject], bucketName, objectName string, data []byte, attrs GCSObject) (GCSObject, error) {
+// It evaluates the write's preconditions and stores the new version as one
+// step, under the object's write lock, and gives the version a generation no
+// version of the object has had before.
+func persistGCSObject(objects sim.Store[GCSObject], bucketName, objectName string, data []byte, attrs GCSObject, pre gcsPreconditions) (GCSObject, error) {
 	if attrs.ContentType == "" {
 		attrs.ContentType = "application/octet-stream"
 	}
 	if err := validateGCSObjectAttrs(attrs); err != nil {
 		return GCSObject{}, err
 	}
+	defer gcsObjectWriters.lock(bucketName, objectName)()
+	existing, existed := objects.Get(bucketName + "/" + objectName)
+	if !pre.holds(existing, existed) {
+		return GCSObject{}, errGCSPreconditionFailed
+	}
 	now := gcsTimestamp()
 	hash := md5.Sum(data)
 	md5Hash := base64.StdEncoding.EncodeToString(hash[:])
 	etag := base64.StdEncoding.EncodeToString(append(hash[:], []byte(now)...))
-	generation := int64(1)
-	if existing, ok := objects.Get(bucketName + "/" + objectName); ok {
-		if n, err := strconv.ParseInt(existing.Generation, 10, 64); err == nil && n >= generation {
-			generation = n + 1
-		}
-	}
+	generation := gcsNextGeneration()
 
 	objPath := filepath.Join(GCSBucketHostDir(bucketName), objectName)
 	if err := os.MkdirAll(filepath.Dir(objPath), 0o755); err != nil {
@@ -430,6 +433,11 @@ func persistGCSObject(objects sim.Store[GCSObject], bucketName, objectName strin
 	obj.Generation = strconv.FormatInt(generation, 10)
 	obj.Metageneration = "1"
 	obj.Md5Hash = md5Hash
+	// A composite object has no MD5 of its whole: Cloud Storage reports only
+	// the CRC32C it can combine from its components'.
+	if attrs.ComponentCount > 0 {
+		obj.Md5Hash = ""
+	}
 	obj.Crc32c = gcsCRC32C(data)
 	obj.Etag = etag
 	if !attrs.metadataCloned {
@@ -439,13 +447,17 @@ func persistGCSObject(objects sim.Store[GCSObject], bucketName, objectName strin
 	obj.data = append([]byte(nil), data...)
 	objects.Put(bucketName+"/"+objectName, obj)
 	gcsIndexAdd(bucketName, objectName)
-	if generation == 1 {
+	if !existed {
 		gcsSeedObjectACL(bucketName, objectName, obj.Generation)
 	}
 	return obj, nil
 }
 
 func writeGCSPersistError(w http.ResponseWriter, action string, err error) {
+	if errors.Is(err, errGCSPreconditionFailed) {
+		writeGCSPreconditionFailed(w)
+		return
+	}
 	var invalid *invalidGCSObjectMetadataError
 	if errors.As(err, &invalid) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s: %v", action, err)
@@ -466,6 +478,9 @@ type gcsResumableSession struct {
 	Object string    `json:"object"`
 	Attrs  GCSObject `json:"attrs"`
 	Data   []byte    `json:"data,omitempty"`
+	// Preconditions stated when the session began, which the write that
+	// completes the upload must meet.
+	Preconditions gcsPreconditions `json:"preconditions"`
 }
 
 var gcsResumableSessions sim.Store[gcsResumableSession]
@@ -564,7 +579,7 @@ func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID st
 	gcsResumableSessions.Delete(uploadID)
 	gcsResumableMu.Unlock()
 
-	obj, err := persistGCSObject(objects, sess.Bucket, sess.Object, finalData, sess.Attrs)
+	obj, err := persistGCSObject(objects, sess.Bucket, sess.Object, finalData, sess.Attrs, sess.Preconditions)
 	if err != nil {
 		writeGCSPersistError(w, "write resumable object", err)
 		return
@@ -627,7 +642,7 @@ func gcsObjectMetadata(r *http.Request, obj GCSObject) map[string]any {
 	mediaLink := fmt.Sprintf("https://%s/download/storage/v1/b/%s/o/%s?alt=media", r.Host, obj.Bucket, escapedObject)
 	meta := map[string]any{
 		"kind":           "storage#object",
-		"id":             fmt.Sprintf("%s/%s/1", obj.Bucket, obj.Name),
+		"id":             fmt.Sprintf("%s/%s/%s", obj.Bucket, obj.Name, defaultStr(obj.Generation, "1")),
 		"selfLink":       selfLink,
 		"mediaLink":      mediaLink,
 		"name":           obj.Name,
@@ -972,15 +987,16 @@ func registerGCS(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
 			return
 		}
+		if !gcsJSONReadPreconditionsMet(w, r, obj) {
+			return
+		}
 		if r.URL.Query().Get("alt") == "media" {
 			body, err := gcsObjectBytes(obj, bucketName, objectName)
 			if err != nil {
 				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
 				return
 			}
-			setGCSObjectResponseHeaders(w.Header(), obj, len(body))
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(body)
+			serveGCSObjectMedia(w, r, obj, body)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, obj))
@@ -994,9 +1010,19 @@ func registerGCS(srv *sim.Server) {
 		bucketName := sim.PathParam(r, "bucket")
 		objectName := sim.PathParam(r, "object")
 		key := bucketName + "/" + objectName
+		pre, err := parseGCSPreconditions(r.URL.Query(), false)
+		if err != nil {
+			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			return
+		}
+		defer gcsObjectWriters.lock(bucketName, objectName)()
 		obj, ok := objects.Get(key)
 		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
+			return
+		}
+		if !pre.holds(obj, true) {
+			writeGCSPreconditionFailed(w)
 			return
 		}
 		var res gcsObjectResource
@@ -1027,10 +1053,20 @@ func registerGCS(srv *sim.Server) {
 		bucketName := sim.PathParam(r, "bucket")
 		objectName := sim.PathParam(r, "object")
 		key := bucketName + "/" + objectName
+		pre, err := parseGCSPreconditions(r.URL.Query(), false)
+		if err != nil {
+			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			return
+		}
 
+		defer gcsObjectWriters.lock(bucketName, objectName)()
 		obj, found := objects.Get(key)
 		if !found {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
+			return
+		}
+		if !pre.holds(obj, true) {
+			writeGCSPreconditionFailed(w)
 			return
 		}
 		bucket, ok := buckets.Get(bucketName)
@@ -1071,6 +1107,11 @@ func registerGCS(srv *sim.Server) {
 
 		if _, ok := buckets.Get(bucketName); !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
+			return
+		}
+		pre, err := parseGCSPreconditions(r.URL.Query(), false)
+		if err != nil {
+			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 			return
 		}
 
@@ -1129,10 +1170,10 @@ func registerGCS(srv *sim.Server) {
 			}
 			sessionID := generateUUID()
 			gcsResumableSessions.Put(sessionID, gcsResumableSession{
-				Bucket: bucketName,
-				Object: objectName,
-				Attrs:  objAttrs,
-				Data:   nil,
+				Bucket:        bucketName,
+				Object:        objectName,
+				Attrs:         objAttrs,
+				Preconditions: pre,
 			})
 			location := fmt.Sprintf("%s://%s/upload/storage/v1/b/%s/o?uploadType=resumable&upload_id=%s",
 				requestScheme(r), r.Host, bucketName, sessionID)
@@ -1214,7 +1255,7 @@ func registerGCS(srv *sim.Server) {
 			objAttrs.ContentType = ct
 		}
 
-		obj, err := persistGCSObject(objects, bucketName, objectName, data, objAttrs)
+		obj, err := persistGCSObject(objects, bucketName, objectName, data, objAttrs, pre)
 		if err != nil {
 			writeGCSPersistError(w, "write object", err)
 			return
@@ -1297,17 +1338,17 @@ func registerGCS(srv *sim.Server) {
 		if req.Destination != nil {
 			objAttrs = req.Destination.applyTo(objAttrs)
 		}
-		composedObj, err := persistGCSObject(objects, bucketName, destObject, composed, objAttrs)
+		objAttrs.ComponentCount = componentCount
+		pre, err := parseGCSPreconditions(r.URL.Query(), false)
+		if err != nil {
+			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			return
+		}
+		composedObj, err := persistGCSObject(objects, bucketName, destObject, composed, objAttrs, pre)
 		if err != nil {
 			writeGCSPersistError(w, "write composed object", err)
 			return
 		}
-		composedObj.ComponentCount = componentCount
-		composedObj.Md5Hash = ""
-		objects.Update(bucketName+"/"+destObject, func(o *GCSObject) {
-			o.ComponentCount = componentCount
-			o.Md5Hash = ""
-		})
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, composedObj))
 	})
 
@@ -1342,25 +1383,30 @@ func registerGCS(srv *sim.Server) {
 			http.NotFound(w, r)
 			return
 		}
-		if !verifyRequestBearer(w, r) {
+		// A V4 signed URL authorizes the request in place of a bearer token.
+		if signed, authorized := gcsSignedURLAuthorized(w, r); signed {
+			if !authorized {
+				return
+			}
+		} else if !verifyRequestBearer(w, r) {
 			return
 		}
 		key := bucketName + "/" + objectName
 
 		obj, ok := objects.Get(key)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
+			writeGCSXMLError(w, http.StatusNotFound, "NoSuchKey", "The specified key does not exist.")
 			return
 		}
-
+		if !gcsXMLReadConditionsMet(w, r, obj) {
+			return
+		}
 		body, err := gcsObjectBytes(obj, bucketName, objectName)
 		if err != nil {
 			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
 			return
 		}
-		setGCSObjectResponseHeaders(w.Header(), obj, len(body))
-		w.WriteHeader(http.StatusOK)
-		w.Write(body)
+		serveGCSObjectMedia(w, r, obj, body)
 	})
 
 	// Download object data (JSON API)
@@ -1374,18 +1420,20 @@ func registerGCS(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
 			return
 		}
-
+		if !gcsJSONReadPreconditionsMet(w, r, obj) {
+			return
+		}
 		body, err := gcsObjectBytes(obj, bucketName, objectName)
 		if err != nil {
 			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
 			return
 		}
-		setGCSObjectResponseHeaders(w.Header(), obj, len(body))
-		w.WriteHeader(http.StatusOK)
-		w.Write(body)
+		serveGCSObjectMedia(w, r, obj, body)
 	})
 
 	registerGCSExtras(srv, buckets, objects)
+	registerGCSBatch(srv)
+	seedGCSGenerations()
 }
 
 func setGCSObjectResponseHeaders(h http.Header, obj GCSObject, size int) {
@@ -1489,10 +1537,24 @@ func pathUnescape(s string) (string, bool) {
 }
 
 func copyGCSObject(w http.ResponseWriter, r *http.Request, srcBucket, srcObject, dstBucket, dstObject string, objects sim.Store[GCSObject]) (GCSObject, bool) {
+	pre, err := parseGCSPreconditions(r.URL.Query(), false)
+	if err != nil {
+		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+		return GCSObject{}, false
+	}
+	sourcePre, err := parseGCSPreconditions(r.URL.Query(), true)
+	if err != nil {
+		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+		return GCSObject{}, false
+	}
 	src, ok := objects.Get(srcBucket + "/" + srcObject)
 	if !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"source object %q not found in bucket %q", srcObject, srcBucket)
+		return GCSObject{}, false
+	}
+	if !sourcePre.holds(src, true) {
+		writeGCSPreconditionFailed(w)
 		return GCSObject{}, false
 	}
 	dstAttrs := src
@@ -1512,7 +1574,7 @@ func copyGCSObject(w http.ResponseWriter, r *http.Request, srcBucket, srcObject,
 		return GCSObject{}, false
 	}
 	data := append([]byte(nil), srcBytes...)
-	dst, err := persistGCSObject(objects, dstBucket, dstObject, data, dstAttrs)
+	dst, err := persistGCSObject(objects, dstBucket, dstObject, data, dstAttrs, pre)
 	if err != nil {
 		writeGCSPersistError(w, "write copied object", err)
 		return GCSObject{}, false
@@ -2818,7 +2880,12 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 			ContentType: res.ContentType,
 			Metadata:    res.Metadata,
 		}
-		obj, err := persistGCSObject(objects, bucket, name, nil, attrs)
+		pre, err := parseGCSPreconditions(r.URL.Query(), false)
+		if err != nil {
+			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			return
+		}
+		obj, err := persistGCSObject(objects, bucket, name, nil, attrs, pre)
 		if err != nil {
 			writeGCSPersistError(w, "insert object", err)
 			return

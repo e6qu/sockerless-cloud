@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -618,11 +619,130 @@ func applyBlobLeaseAction(w http.ResponseWriter, req blobLeaseActionRequest, cur
 
 // Write guards
 
-// blobWriteAllowed enforces the write protections a stored blob carries: a
-// locked or unlocked-but-named lease, a legal hold, and an unexpired
-// immutability policy. It writes the Azure error and returns false when the
-// write must be refused.
-func blobWriteAllowed(w http.ResponseWriter, r *http.Request, b BlobObject, exists bool) bool {
+// blobAccess is what a request does to the blob it addresses, which decides how
+// a conditional header it carries fails.
+type blobAccess int
+
+const (
+	// blobRead reads the blob: a condition that says the caller's copy is
+	// current fails with 304 Not Modified.
+	blobRead blobAccess = iota
+	// blobModify changes a blob that must exist.
+	blobModify
+	// blobCreate writes the blob whether or not it exists (Put Blob, Put Block
+	// List, Copy Blob): If-None-Match: * on one that exists is refused as
+	// already existing, not as an unmet condition.
+	blobCreate
+)
+
+// blobConditionsMet evaluates the request's conditional headers against the
+// blob, in the order HTTP evaluates them (RFC 9110 §13.2.2): If-Match, else
+// If-Unmodified-Since; then If-None-Match, else If-Modified-Since. It writes
+// the refusal and returns false when a condition fails.
+// https://learn.microsoft.com/en-us/rest/api/storageservices/specifying-conditional-headers-for-blob-service-operations
+func blobConditionsMet(w http.ResponseWriter, r *http.Request, b BlobObject, exists bool, access blobAccess) bool {
+	modified, _ := http.ParseTime(b.LastModified)
+	if match := r.Header.Get("If-Match"); match != "" {
+		if !exists || !blobETagMatches(match, b.ETag) {
+			writeBlobConditionNotMet(w)
+			return false
+		}
+	} else if since, err := http.ParseTime(r.Header.Get("If-Unmodified-Since")); err == nil && exists && modified.After(since) {
+		writeBlobConditionNotMet(w)
+		return false
+	}
+
+	unchanged := false
+	if noneMatch := r.Header.Get("If-None-Match"); noneMatch != "" {
+		unchanged = exists && blobETagMatches(noneMatch, b.ETag)
+		if unchanged && access == blobCreate && strings.TrimSpace(noneMatch) == "*" {
+			writeStorageError(w, "BlobAlreadyExists", "The specified blob already exists.", http.StatusConflict)
+			return false
+		}
+	} else if since, err := http.ParseTime(r.Header.Get("If-Modified-Since")); err == nil && exists {
+		unchanged = !modified.After(since)
+	}
+	if !unchanged {
+		return true
+	}
+	if access != blobRead {
+		writeBlobConditionNotMet(w)
+		return false
+	}
+	// A 304 carries the validators of the representation the caller holds, and
+	// no body.
+	w.Header().Set("ETag", b.ETag)
+	w.Header().Set("Last-Modified", b.LastModified)
+	w.Header().Set("x-ms-error-code", "ConditionNotMet")
+	w.WriteHeader(http.StatusNotModified)
+	return false
+}
+
+// blobETagMatches reports whether a conditional header's value, a list of
+// entity tags or *, names the blob's ETag. Entity tags compare with their
+// quotes, which some clients omit.
+func blobETagMatches(header, etag string) bool {
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || strings.Trim(candidate, `"`) == strings.Trim(etag, `"`) {
+			return true
+		}
+	}
+	return false
+}
+
+func writeBlobConditionNotMet(w http.ResponseWriter) {
+	writeStorageError(w, "ConditionNotMet",
+		"The condition specified using HTTP conditional header(s) is not met.", http.StatusPreconditionFailed)
+}
+
+// blobWriteLocks serializes the writes to one blob. Evaluating a write's
+// conditions and storing its result is one step on Azure — of two writers that
+// both require the blob they read, exactly one succeeds — so it is one step
+// here too. A blob's entry lives only while a writer holds or awaits it.
+type blobWriteLocks struct {
+	mu   sync.Mutex
+	held map[string]*blobWriteLock
+}
+
+type blobWriteLock struct {
+	sync.Mutex
+	users int
+}
+
+var blobWriters = &blobWriteLocks{held: map[string]*blobWriteLock{}}
+
+// lock takes the lock of the blob key names and returns its release.
+func (l *blobWriteLocks) lock(key string) func() {
+	l.mu.Lock()
+	entry := l.held[key]
+	if entry == nil {
+		entry = &blobWriteLock{}
+		l.held[key] = entry
+	}
+	entry.users++
+	l.mu.Unlock()
+
+	entry.Lock()
+	return func() {
+		entry.Unlock()
+		l.mu.Lock()
+		entry.users--
+		if entry.users == 0 {
+			delete(l.held, key)
+		}
+		l.mu.Unlock()
+	}
+}
+
+// blobWriteAllowed evaluates a write's conditional headers and enforces the
+// write protections a stored blob carries: a locked or unlocked-but-named
+// lease, a legal hold, and an unexpired immutability policy. It writes the
+// Azure error and returns false when the write must be refused.
+func blobWriteAllowed(w http.ResponseWriter, r *http.Request, b BlobObject, exists bool, access blobAccess) bool {
+	if !blobConditionsMet(w, r, b, exists, access) {
+		return false
+	}
 	if exists && !blobLeaseAccessOK(w, r, b.Lease, "blob") {
 		return false
 	}
@@ -678,6 +798,25 @@ func lookupBlob(r *http.Request, account, container, name string) (BlobObject, b
 		return BlobObject{}, false
 	}
 	return b, true
+}
+
+// blobRecords returns every stored record of one blob — the base, its
+// snapshots and soft-deleted rows alike — ordered by snapshot.
+func blobRecords(account, container, name string) []BlobObject {
+	blobIndexMu.RLock()
+	keys := make([]string, 0, len(recordsByBlob[blobObjectKey(account, container, name)]))
+	for key := range recordsByBlob[blobObjectKey(account, container, name)] {
+		keys = append(keys, key)
+	}
+	blobIndexMu.RUnlock()
+	out := make([]BlobObject, 0, len(keys))
+	for _, key := range keys {
+		if b, ok := blobObjects.Get(key); ok {
+			out = append(out, b)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Snapshot < out[j].Snapshot })
+	return out
 }
 
 // blobsInContainer returns every stored record of a container — base blobs,

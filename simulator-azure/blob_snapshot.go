@@ -27,7 +27,7 @@ func handleCreateBlobSnapshot(w http.ResponseWriter, r *http.Request, account, c
 			"The specified blob does not exist.", http.StatusNotFound)
 		return
 	}
-	if !azureBlobPreconditionOK(w, r, base.ETag, true) {
+	if !blobConditionsMet(w, r, base, true, blobModify) {
 		return
 	}
 	if !blobLeaseAccessOK(w, r, base.Lease, "blob") {
@@ -59,10 +59,7 @@ func handleCreateBlobSnapshot(w http.ResponseWriter, r *http.Request, account, c
 func handleUndeleteBlob(w http.ResponseWriter, r *http.Request, account, container, blob string) {
 	var restored bool
 	var found bool
-	for _, b := range blobsInContainer(account, container) {
-		if b.Name != blob {
-			continue
-		}
+	for _, b := range blobRecords(account, container, blob) {
 		found = true
 		if !b.Deleted {
 			continue

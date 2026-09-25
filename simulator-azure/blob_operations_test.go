@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/xml"
 	"net/http"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -278,5 +279,88 @@ func TestBlobTagFilterExpressionIsEvaluated(t *testing.T) {
 		if _, err := parseBlobTagFilter(where); err == nil {
 			t.Fatalf("%q parsed, but it is outside the supported grammar and must be refused", where)
 		}
+	}
+}
+
+// TestBlobRecordIndexAgreesWithAContainerScan holds the per-blob record index
+// to what a scan of the whole container answers, through every operation that
+// adds or removes one of a blob's records and through a restart that rebuilds
+// the index from the store.
+func TestBlobRecordIndexAgreesWithAContainerScan(t *testing.T) {
+	t.Setenv("SIM_RUNTIME", "process")
+	dataDir := t.TempDir()
+	const account, container = "recordindexacct", "records"
+	boot := func() *sim.Server {
+		t.Helper()
+		srv, err := buildSimulator(sim.Config{
+			Provider: "azure", ListenAddr: ":0", LogLevel: "error",
+			Persist: true, DataDir: dataDir,
+		})
+		if err != nil {
+			t.Fatalf("build simulator: %v", err)
+		}
+		t.Cleanup(AwaitAzureAsyncOperations)
+		return srv
+	}
+	agree := func(stage string) {
+		t.Helper()
+		for _, name := range []string{"a", "a/b", "ab", "gone"} {
+			var scanned []string
+			for _, b := range blobsInContainer(account, container) {
+				if b.Name == name {
+					scanned = append(scanned, blobObjectKeyOf(b))
+				}
+			}
+			var indexed []string
+			for _, b := range blobRecords(account, container, name) {
+				indexed = append(indexed, blobObjectKeyOf(b))
+			}
+			sort.Strings(scanned)
+			sort.Strings(indexed)
+			if strings.Join(scanned, "|") != strings.Join(indexed, "|") {
+				t.Fatalf("%s: records of %q: index %v, scan %v", stage, name, indexed, scanned)
+			}
+		}
+	}
+	put := func(srv *sim.Server, name string) {
+		t.Helper()
+		assertStatus(t, storagePlaneReq(t, srv, http.MethodPut, account, "blob", "/"+container+"/"+name, []byte(name),
+			map[string]string{"x-ms-blob-type": "BlockBlob"}), http.StatusCreated, "PutBlob "+name)
+	}
+
+	srv := boot()
+	assertStatus(t, storagePlaneReq(t, srv, http.MethodPut, account, "blob", "/"+container+"?restype=container", nil, nil),
+		http.StatusCreated, "CreateContainer")
+	for _, name := range []string{"a", "a/b", "ab", "gone"} {
+		put(srv, name)
+	}
+	for range 2 {
+		assertStatus(t, storagePlaneReq(t, srv, http.MethodPut, account, "blob", "/"+container+"/a?comp=snapshot", nil, nil),
+			http.StatusCreated, "CreateSnapshot")
+	}
+	agree("after snapshots")
+
+	assertStatus(t, storagePlaneReq(t, srv, http.MethodDelete, account, "blob", "/"+container+"/a", nil, nil),
+		http.StatusConflict, "DeleteBlob of a blob with snapshots, not naming them")
+	assertStatus(t, storagePlaneReq(t, srv, http.MethodDelete, account, "blob", "/"+container+"/gone", nil, nil),
+		http.StatusAccepted, "DeleteBlob")
+	agree("after a hard delete")
+
+	assertStatus(t, storagePlaneReq(t, srv, http.MethodPut, account, "blob", "/?restype=service&comp=properties",
+		[]byte(`<StorageServiceProperties><DeleteRetentionPolicy><Enabled>true</Enabled><Days>7</Days></DeleteRetentionPolicy></StorageServiceProperties>`), nil),
+		http.StatusAccepted, "SetBlobServiceProperties")
+	assertStatus(t, storagePlaneReq(t, srv, http.MethodDelete, account, "blob", "/"+container+"/a", nil,
+		map[string]string{"x-ms-delete-snapshots": "include"}), http.StatusAccepted, "DeleteBlob with its snapshots")
+	agree("after a soft delete")
+
+	restarted := boot()
+	agree("after a restart")
+	assertStatus(t, storagePlaneReq(t, restarted, http.MethodPut, account, "blob", "/"+container+"/a?comp=undelete", nil, nil),
+		http.StatusOK, "UndeleteBlob after restart")
+	agree("after an undelete")
+	rec := storagePlaneReq(t, restarted, http.MethodGet, account, "blob", "/"+container+"/a", nil, nil)
+	assertStatus(t, rec, http.StatusOK, "GetBlob of the undeleted blob")
+	if rec.Body.String() != "a" {
+		t.Fatalf("undeleted blob = %q, want %q", rec.Body.String(), "a")
 	}
 }
