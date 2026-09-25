@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 9. Resolved: 139.
+Open: 9. Resolved: 140.
 
 ## Open
 
@@ -29,6 +29,16 @@ Open: 9. Resolved: 139.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3039 (the specification refresh could not land on a pull request
+  that already carried one):**~~ The Specification freshness run re-vendors
+  what drifted on `main`, then stashes the result, checks out the open pull
+  request's branch and pops it there. When that branch already holds an
+  earlier refresh — as a dependency-and-specification pull request does for as
+  long as it is open — every file both refreshes touched conflicts, the pop
+  fails, and the refresh never lands. The bump job now checks out the target
+  branch before re-vendoring, so drift is measured against the pins that branch
+  has and the refresh is one commit on its head.
 
 - ~~**BUG-3038 (nine services' error writers spelled the message member their
   own model does not declare):**~~ Adopting the AWS SDK release of 2026-09-24
