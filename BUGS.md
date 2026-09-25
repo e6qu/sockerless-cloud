@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 9. Resolved: 140.
+Open: 9. Resolved: 141.
 
 ## Open
 
@@ -29,6 +29,12 @@ Open: 9. Resolved: 140.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3040 (the Firecracker job's time limit left no room for a cold
+  build):**~~ The job's warm runs took 150 to 225 seconds against a five-minute
+  limit. A change to any `go.sum` — every dependency bump — misses the Go build
+  cache, and on #205 the cold compile ran the job into the limit a second after
+  its last test passed, reported as cancelled. The limit is ten minutes.
 
 - ~~**BUG-3039 (the specification refresh could not land on a pull request
   that already carried one):**~~ The Specification freshness run re-vendors

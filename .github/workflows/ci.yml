@@ -270,7 +270,10 @@ jobs:
   firecracker:
     name: firecracker (microVM arithmetic)
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # A warm run takes 150-225 s. A change to any go.sum misses the build
+    # cache, and the cold compile of the simulators alone took the job past
+    # five minutes with every test passed.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
