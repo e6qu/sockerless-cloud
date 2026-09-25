@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 8. Resolved: 134.
+Open: 8. Resolved: 135.
 
 ## Open
 
@@ -28,6 +28,19 @@ Open: 8. Resolved: 134.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3033 (the dependency freshness check could wait forever on the
+  module proxy):**~~ `check-deps` on #204 ran its zsh pass into the job's
+  15-minute limit, silent inside "Workflow Go tool freshness", while the bash
+  pass of the same check had finished in a minute and a local zsh run finished
+  too. Every `go list -m` in `scripts/check-latest-deps.sh` is a module-proxy
+  request the Go toolchain gives no deadline, and two GitHub API `curl` calls
+  had none either, so one stalled connection held the run with nothing in the
+  log. A lookup that failed was also read as "no versions" and skipped. Now
+  `go_proxy` gives each query a deadline, retries a stalled one twice, and a
+  query that never answers fails the run naming it; the two `curl` calls carry
+  `--max-time`. `scripts/test-latest-deps-quarantine.sh` points the check at a
+  listener that accepts and never replies, under bash and zsh.
 
 - ~~**BUG-3032 (Cloud Storage accepted every conditional write):**~~ An
   external object-store conformance suite — the one a git server built on

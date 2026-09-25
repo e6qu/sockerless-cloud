@@ -202,6 +202,42 @@ expect_says 'github.com/stretchr/testify publication time for v1.12.0' \
 	'go: unknown publication time fails loudly'
 expect_says 'could not be determined' 'go: unknown publication time fails loudly'
 
+# --- Go modules: a proxy that never answers ---------------------------------
+# A module proxy that accepts a connection and then says nothing is what held a
+# CI run until its job was cancelled: the Go toolchain gives the request no
+# deadline. The check must give up on it, and fail naming what it could not
+# learn, rather than wait forever or read the silence as "no newer versions".
+# The listener is a real TCP socket that accepts and never replies, and the
+# deadline is shortened so three stalled attempts take seconds; both shells CI
+# runs the check under are held to it.
+stall_port_file="$fixture/stall-port"
+python3 - "$stall_port_file" <<'PY' &
+import socket, sys
+listener = socket.socket()
+listener.bind(("127.0.0.1", 0))
+listener.listen()
+with open(sys.argv[1], "w") as f:
+    f.write(str(listener.getsockname()[1]))
+held = []
+while True:
+    connection, _ = listener.accept()
+    held.append(connection)
+PY
+stall_pid=$!
+until [[ -s "$stall_port_file" ]]; do sleep 0.1; done
+stall_proxy="http://127.0.0.1:$(cat "$stall_port_file")"
+for shell in bash zsh; do
+	run_check_with "$shell" "$go_repo" GOWORK=off "GOPROXY=$stall_proxy" \
+		"GOMODCACHE=$fixture/stall-gomodcache-$shell" DEPS_GO_PROXY_DEADLINE_SECONDS=2
+	expect_status 1 "go ($shell): a proxy that never answers fails the run"
+	expect_says 'stalled for 2s (attempt 3 of 3)' "go ($shell): a proxy that never answers fails the run"
+	expect_says 'The module proxy never answered' "go ($shell): a proxy that never answers fails the run"
+done
+kill "$stall_pid"
+
+run_check "$go_repo" GOWORK=off DEPS_GO_PROXY_DEADLINE_SECONDS=0
+expect_status 2 'go: a zero proxy deadline is rejected'
+
 # --- GitHub Actions --------------------------------------------------------
 # actions/checkout v6.1.0 is superseded by v7.0.1, whose GitHub Release records
 # published_at 2026-07-20 — again older than a day.
