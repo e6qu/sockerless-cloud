@@ -2,6 +2,8 @@ package sim
 
 import (
 	"reflect"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -14,6 +16,9 @@ type Store[T any] interface {
 	Delete(id string) bool
 	List() []T
 	Filter(fn func(T) bool) []T
+	// ListPrefix returns snapshots of the items whose id begins with prefix,
+	// with their ids, in id order. It reads those items and no others.
+	ListPrefix(prefix string) []Keyed[T]
 	Len() int
 	Update(id string, fn func(*T)) bool
 	// Upsert atomically applies fn to the item at id under a single lock,
@@ -43,6 +48,27 @@ type Store[T any] interface {
 	// its rows but starts counting from wherever the new process's counter
 	// begins.
 	Generation() uint64
+}
+
+// PrefixStore is a Store that cannot be read whole: what it holds is read by
+// id or by id prefix. A store of object contents is one, because a read of all
+// of it costs every byte every bucket holds, and a listing of one bucket has
+// to cost that bucket.
+type PrefixStore[T any] interface {
+	Get(id string) (T, bool)
+	Put(id string, item T)
+	Delete(id string) bool
+	ListPrefix(prefix string) []Keyed[T]
+	Len() int
+	Update(id string, fn func(*T)) bool
+	Upsert(id string, fn func(*T))
+	Generation() uint64
+}
+
+// Keyed is one item of a ListPrefix result, under the id it is stored at.
+type Keyed[T any] struct {
+	ID   string
+	Item T
 }
 
 // storeGenerations is the counter every store's Generation draws from. It is
@@ -215,6 +241,31 @@ func (s *MemoryStore[T]) Filter(fn func(T) bool) []T {
 		if fn(snap) {
 			result = append(result, snap)
 		}
+	}
+	return result
+}
+
+// ListPrefix returns snapshots of the items whose id begins with prefix, in id
+// order.
+func (s *MemoryStore[T]) ListPrefix(prefix string) []Keyed[T] {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return snapshotPrefix(s.items, prefix)
+}
+
+// snapshotPrefix clones the items of items whose id begins with prefix, in id
+// order, leaving every other item uncopied.
+func snapshotPrefix[T any](items map[string]T, prefix string) []Keyed[T] {
+	ids := make([]string, 0)
+	for id := range items {
+		if strings.HasPrefix(id, prefix) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	result := make([]Keyed[T], 0, len(ids))
+	for _, id := range ids {
+		result = append(result, Keyed[T]{ID: id, Item: cloneStoreValue(items[id])})
 	}
 	return result
 }
