@@ -529,3 +529,17 @@ start date, the commitment), and `ec2GetCapacityReservation`, the one accessor
 every read goes through, derives the state and instance count as of now
 (BUG-3036). A handler that read the store directly could report a scheduled
 reservation after its delivery, so none does.
+
+## An object store is read by key or by key prefix
+
+The Amazon S3 object store holds object bodies, so reading it whole costs every
+byte every bucket holds, and a listing of one bucket did exactly that
+(BUG-3041). The store-scan gate could not see it, because it counts the scans
+every request pays and a data-plane API call is one scan per call by that
+accounting — cheap for a table of load balancers, not for a table of bodies.
+So the object store is a `sim.PrefixStore`, which has no `List` or `Filter`:
+it is read by id, or by `ListPrefix`, a range on the primary key that decodes
+only the rows under the prefix. A bucket and a prefix in it are one key range
+because the ids are `bucket/key`, and a listing takes each object's key from
+that id rather than from a field a writer fills separately — the field one
+writer filled wrongly (BUG-3042).

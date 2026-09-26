@@ -74,6 +74,55 @@ func TestS3_Multipart(t *testing.T) {
 	defer get.Body.Close()
 	body, _ := io.ReadAll(get.Body)
 	assert.Equal(t, strings.Join(parts, ""), string(body))
+
+	// The completed object is an object like any other: every listing shows
+	// it under its key, and it keeps its bucket from being deleted.
+	v2, err := c.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	require.Len(t, v2.Contents, 1)
+	assert.Equal(t, key, aws.ToString(v2.Contents[0].Key))
+	assert.Equal(t, int64(len(strings.Join(parts, ""))), aws.ToInt64(v2.Contents[0].Size))
+	v1, err := c.ListObjects(ctx, &s3.ListObjectsInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	require.Len(t, v1.Contents, 1)
+	assert.Equal(t, key, aws.ToString(v1.Contents[0].Key))
+	versions, err := c.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	require.Len(t, versions.Versions, 1)
+	assert.Equal(t, key, aws.ToString(versions.Versions[0].Key))
+	_, err = c.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+	require.ErrorContains(t, err, "BucketNotEmpty")
+}
+
+// TestS3_ListObjectsStaysInsideItsBucket lists a bucket beside another whose
+// name extends it, the pair a listing by key prefix could confuse.
+func TestS3_ListObjectsStaysInsideItsBucket(t *testing.T) {
+	c := s3Client()
+	ctx := context.Background()
+	s3CreateBucket(t, c, "list-scope")
+	s3CreateBucket(t, c, "list-scope-2")
+	for bucket, keys := range map[string][]string{
+		"list-scope":   {"a/1", "a/2", "b"},
+		"list-scope-2": {"a/3", "c"},
+	} {
+		for _, key := range keys {
+			_, err := c.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String(key), Body: strings.NewReader(key)})
+			require.NoError(t, err)
+		}
+	}
+	listed := func(bucket, prefix string) []string {
+		out, err := c.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucket), Prefix: aws.String(prefix)})
+		require.NoError(t, err)
+		keys := []string{}
+		for _, object := range out.Contents {
+			keys = append(keys, aws.ToString(object.Key))
+		}
+		return keys
+	}
+	assert.Equal(t, []string{"a/1", "a/2", "b"}, listed("list-scope", ""))
+	assert.Equal(t, []string{"a/1", "a/2"}, listed("list-scope", "a/"))
+	assert.Equal(t, []string{"a/3", "c"}, listed("list-scope-2", ""))
+	assert.Empty(t, listed("list-scope", "c"))
 }
 
 // TestS3_AbortMultipart confirms AbortMultipartUpload cleanly cancels

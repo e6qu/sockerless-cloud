@@ -175,7 +175,9 @@ shape, and one whose scan set can go empty exits non-zero.
 
 - Coverage ratchets with served floors and declared-total locks, per cloud,
   plus the phantom-coverage and unserved-declares-itself tests.
-- `check-store-scans.sh` at zero request-path full-store reads;
+- `check-store-scans.sh` at zero request-path full-store reads, and the
+  Amazon S3 object store typed `sim.PrefixStore`, so no path can read it
+  whole: a listing costs its bucket and prefix, not every stored object;
   `check-readonly-locks.sh` and `check-lock-pairing.sh` at zero;
   `check-fake-tests.sh` holding five can't-fail shapes at zero and two at
   floors that may only fall; `check-casefold-slice.sh` and

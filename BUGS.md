@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 9. Resolved: 141.
+Open: 9. Resolved: 143.
 
 ## Open
 
@@ -29,6 +29,40 @@ Open: 9. Resolved: 141.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3042 (an object completed by a multipart upload was missing from
+  every listing):**~~ CompleteMultipartUpload stored the object under
+  `bucket/key` but wrote the bucket-relative key into the object's own `Key`
+  field, which every other writer fills with `bucket/key`. ListObjectsV2,
+  ListObjects, ListObjectVersions and DeleteBucket's emptiness check selected
+  objects by that field, so the object never appeared in a listing and did not
+  keep its bucket from being deleted, though GetObject served it. The listings
+  now take each object's key from the id it is stored under — which no writer
+  can get wrong without GetObject failing too — so the rows an earlier build
+  stored list correctly as well; the writer stores `bucket/key` in both places.
+  `TestS3_Multipart` lists the completed object through all three listings and
+  fails DeleteBucket on it.
+
+- ~~**BUG-3041 (listing one Amazon S3 bucket cost every object in every
+  bucket):**~~ ListObjectsV2 read the whole object store — every object of
+  every bucket, bodies included — and filtered it down to the bucket and prefix
+  asked for; on a persisted simulator that is one SQLite row decoded per stored
+  object, per listing. The deployed simulator took 1.3 s to list a prefix
+  holding nothing, and bleephub's benchmark measured its replica start at 4.0 s
+  there against 0.42 s on versitygw. ListObjects, ListObjectVersions,
+  DeleteBucket, Glue's table reads and Amplify's deployment from an S3 prefix
+  had the same shape. The store's rows are keyed `bucket/key`, so a bucket and
+  prefix is a key range: `sim.Store` gained `ListPrefix`, a range on the
+  primary key that reads and decodes only the rows under the prefix, and the
+  object store is now a `sim.PrefixStore`, which has no `List` or `Filter`, so a
+  whole-store read of object contents no longer compiles. Listing an empty
+  prefix beside 75 MiB of other objects went from 690 ms to 0.4 ms.
+  `TestListPrefixDecodesNoRowOutsideThePrefix` plants undecodable rows around
+  the prefix and passes only if none of them is read. The store-scan gate did
+  not see this: it counts full reads on the paths every request pays, and a
+  data-plane API call is one scan per call by its accounting — which is fine
+  for a table of load balancers and not for a table of object bodies. The type
+  closes that for the object store.
 
 - ~~**BUG-3040 (the Firecracker job's time limit left no room for a cold
   build):**~~ The job's warm runs took 150 to 225 seconds against a five-minute

@@ -451,18 +451,13 @@ func handleS3ListObjectsV1(w http.ResponseWriter, r *http.Request, bucket string
 	}
 
 	bucketPrefix := bucket + "/"
-	objects := s3Objects.Filter(func(obj S3Object) bool {
-		if !strings.HasPrefix(obj.Key, bucketPrefix) {
-			return false
-		}
-		relKey := obj.Key[len(bucketPrefix):]
-		return prefix == "" || strings.HasPrefix(relKey, prefix)
-	})
+	objects := s3Objects.ListPrefix(bucketPrefix + prefix)
 
 	var contents []s3ObjectInfo
-	for _, obj := range objects {
+	for _, row := range objects {
+		obj := row.Item
 		contents = append(contents, s3ObjectInfo{
-			Key:          obj.Key[len(bucketPrefix):],
+			Key:          row.ID[len(bucketPrefix):],
 			LastModified: obj.LastModified.UTC().Format(time.RFC3339),
 			ETag:         obj.ETag,
 			Size:         obj.Size,
