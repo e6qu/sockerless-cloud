@@ -304,10 +304,8 @@ func storageRestoreBlobs(account string, restoreTo time.Time, ranges []struct {
 		return 0
 	}
 	restored := 0
-	for _, blob := range blobObjects.List() {
-		if blob.Account != account {
-			continue
-		}
+	for _, row := range blobObjects.ListPrefix(account + "/") {
+		blob := row.Item
 		path := blob.Container + "/" + blob.Name
 		if !storageRangeCovers(ranges, path) {
 			continue

@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 9. Resolved: 143.
+Open: 9. Resolved: 144.
 
 ## Open
 
@@ -29,6 +29,21 @@ Open: 9. Resolved: 143.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3043 (Azure Blob Storage and Cloud Storage listed a prefix at the
+  cost of the whole container or bucket):**~~ Both kept an in-memory index of
+  each container's or bucket's names and listed by reading every object the
+  index named, bodies included, then dropping those outside the prefix — so a
+  listing of one prefix decoded everything its container or bucket held. It
+  was BUG-3041's shape one level down: bleephub's benchmark measured its
+  replica start at 1.32 s on the Azure simulator, where the other stores took
+  0.32 to 0.42 s. Both object stores are now `sim.PrefixStore`s and list by key
+  range, `account/container/prefix` and `bucket/prefix`; Cloud Storage's index,
+  which existed only because the store could not be read by range, is gone,
+  and Azure Blob Storage's remains for the two passes that need names alone.
+  Blob-range restore reads one account's range instead of every account's.
+  `TestStorageSDK_ListBlobsStaysInsideItsContainerAndPrefix` lists beside a
+  container whose name extends the first, with a snapshot under the prefix.
 
 - ~~**BUG-3042 (an object completed by a multipart upload was missing from
   every listing):**~~ CompleteMultipartUpload stored the object under

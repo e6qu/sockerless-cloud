@@ -204,7 +204,8 @@ var gcsGenerations struct {
 func seedGCSGenerations() {
 	gcsGenerations.mu.Lock()
 	defer gcsGenerations.mu.Unlock()
-	for _, obj := range gcsObjects.List() {
+	for _, row := range gcsObjects.ListPrefix("") {
+		obj := row.Item
 		if generation, err := strconv.ParseInt(obj.Generation, 10, 64); err == nil {
 			gcsGenerations.last = max(gcsGenerations.last, generation)
 		}

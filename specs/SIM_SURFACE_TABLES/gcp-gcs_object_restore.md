@@ -18,8 +18,8 @@ The extractor reads the route out of a single string literal, so a registration 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
 | `POST /storage/v1/b/{bucket}/o/{object}/restore` | ✓ `simulator-gcp/gcs_object_restore.go:138::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /storage/v1/b/{bucket}/o/bulkRestore` | ✓ `simulator-gcp/gcs_object_restore.go:169::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /storage/v1/b/{bucket}/o/{sourceObject}/moveTo/o/{destinationObject}` | ✓ `simulator-gcp/gcs_object_restore.go:222::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /storage/v1/b/{bucket}/o/bulkRestore` | ✓ `simulator-gcp/gcs_object_restore.go:168::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /storage/v1/b/{bucket}/o/{sourceObject}/moveTo/o/{destinationObject}` | ✓ `simulator-gcp/gcs_object_restore.go:220::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

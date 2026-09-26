@@ -126,7 +126,7 @@ func gcsDropObjectACL(bucket, object string) {
 	}
 }
 
-func registerGCSObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], objects sim.Store[GCSObject]) {
+func registerGCSObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject]) {
 	resolve := func(w http.ResponseWriter, r *http.Request) (bucket, object string, obj GCSObject, ok bool) {
 		bucket, object = sim.PathParam(r, "bucket"), sim.PathParam(r, "object")
 		b, found := buckets.Get(bucket)
