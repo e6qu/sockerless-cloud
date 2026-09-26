@@ -3,23 +3,23 @@ module github.com/e6qu/sockerless-cloud/simulator-gcp
 go 1.26.0
 
 require (
-	cloud.google.com/go/bigtable v1.57.0
-	cloud.google.com/go/firestore v1.25.0
-	cloud.google.com/go/iam v1.13.0
-	cloud.google.com/go/kms v1.34.0
-	cloud.google.com/go/logging v1.19.1
-	cloud.google.com/go/longrunning v1.2.0
+	cloud.google.com/go/bigtable v1.58.0
+	cloud.google.com/go/firestore v1.26.0
+	cloud.google.com/go/iam v1.14.0
+	cloud.google.com/go/kms v1.35.0
+	cloud.google.com/go/logging v1.20.0
+	cloud.google.com/go/longrunning v1.3.0
 	cloud.google.com/go/pubsub v1.51.1
-	cloud.google.com/go/secretmanager v1.21.0
+	cloud.google.com/go/secretmanager v1.22.0
 	cloud.google.com/go/spanner v1.95.1
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917134425-9515e908cf03
 	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260920084153-285d30555b2e
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/moby/moby/client v0.6.0
-	google.golang.org/genproto v0.0.0-20260918162117-cecb64721679
-	google.golang.org/genproto/googleapis/api v0.0.0-20260918162117-cecb64721679
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260918162117-cecb64721679
+	google.golang.org/genproto v0.0.0-20260921155816-b14227669459
+	google.golang.org/genproto/googleapis/api v0.0.0-20260921155816-b14227669459
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260921155816-b14227669459
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.59.0
@@ -70,7 +70,7 @@ require (
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
-	modernc.org/libc v1.77.0 // indirect
+	modernc.org/libc v1.77.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
