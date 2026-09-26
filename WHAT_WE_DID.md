@@ -545,3 +545,15 @@ only the rows under the prefix. A bucket and a prefix in it are one key range
 because the ids are `bucket/key` (`account/container/name` on Azure), and a listing takes each object's key from
 that id rather than from a field a writer fills separately — the field one
 writer filled wrongly (BUG-3042).
+
+## A method served on two surfaces shares one implementation
+
+Cloud Bigtable's memory layers were served over REST before the gRPC
+descriptor declared them. When `cloud.google.com/go/bigtable` 1.58.0 added
+GetMemoryLayer, ListMemoryLayers and UpdateMemoryLayer to the gRPC service, the
+gRPC methods did not get a second copy of the logic: the lookups, the etag
+check, the update mask and the enable/disable rule moved into functions that
+return a gRPC status, the gRPC methods return it as is, and the REST handlers
+write it through `GCPStatusError`, which maps each code to the HTTP status
+`google.rpc.Code` documents for it. The two surfaces now differ only in how
+they carry a request and an error.

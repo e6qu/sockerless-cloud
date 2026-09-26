@@ -93,7 +93,7 @@ var grpcServiceImplementations = map[string]string{
 // a first message: cache updates report splits moving, and no split here
 // moves.
 var grpcMethodFloor = map[string]int{
-	"google.bigtable.admin.v2.BigtableInstanceAdmin":     31,
+	"google.bigtable.admin.v2.BigtableInstanceAdmin":     34,
 	"google.bigtable.admin.v2.BigtableTableAdmin":        35,
 	"google.bigtable.v2.Bigtable":                        14,
 	"google.cloud.kms.v1.KeyManagementService":           35,
@@ -112,7 +112,7 @@ var grpcMethodFloor = map[string]int{
 // ADDS methods leaves the served counts untouched, so the floors stay green
 // while the new methods answer Unimplemented unnoticed.
 var grpcDeclaredMethodTotals = map[string]int{
-	"google.bigtable.admin.v2.BigtableInstanceAdmin":     31,
+	"google.bigtable.admin.v2.BigtableInstanceAdmin":     34,
 	"google.bigtable.admin.v2.BigtableTableAdmin":        35,
 	"google.bigtable.v2.Bigtable":                        15,
 	"google.cloud.kms.v1.KeyManagementService":           35,

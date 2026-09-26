@@ -396,7 +396,10 @@ func (s *grpcOperationsService) ListOperations(_ context.Context, req *longrunni
 		}
 		matched = append(matched, op)
 	}
-	page, next := bigtableGRPCPage(matched, req.GetPageSize(), req.GetPageToken())
+	page, next, err := bigtableGRPCPage(matched, req.GetPageSize(), req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
 	return &longrunningpb.ListOperationsResponse{Operations: page, NextPageToken: next}, nil
 }
 
@@ -412,6 +415,12 @@ func (s *grpcOperationsService) CancelOperation(_ context.Context, req *longrunn
 }
 
 func bigtableDoneOperation(resourceName string, resource proto.Message) (*longrunningpb.Operation, error) {
+	return bigtableDoneOperationWithMetadata(resourceName, resource, nil)
+}
+
+// bigtableDoneOperationWithMetadata is bigtableDoneOperation carrying the
+// method's operation metadata; nil carries none.
+func bigtableDoneOperationWithMetadata(resourceName string, resource, metadata proto.Message) (*longrunningpb.Operation, error) {
 	resp, err := anypb.New(resource)
 	if err != nil {
 		return nil, err
@@ -422,6 +431,11 @@ func bigtableDoneOperation(resourceName string, resource proto.Message) (*longru
 		Result: &longrunningpb.Operation_Response{
 			Response: resp,
 		},
+	}
+	if metadata != nil {
+		if op.Metadata, err = anypb.New(metadata); err != nil {
+			return nil, err
+		}
 	}
 	if err := grpcRecordOperation(op); err != nil {
 		return nil, err
@@ -456,6 +470,14 @@ func bigtableInstanceParts(parent string) (string, string, error) {
 		return "", "", status.Errorf(codes.InvalidArgument, "invalid instance name %q", parent)
 	}
 	return parts[1], parts[3], nil
+}
+
+func bigtableClusterParts(name string) (string, string, string, error) {
+	parts := strings.Split(name, "/")
+	if len(parts) != 6 || parts[0] != "projects" || parts[2] != "instances" || parts[4] != "clusters" || parts[1] == "" || parts[3] == "" || parts[5] == "" {
+		return "", "", "", status.Errorf(codes.InvalidArgument, "invalid cluster name %q", name)
+	}
+	return parts[1], parts[3], parts[5], nil
 }
 
 func bigtableInstanceToPB(inst bigtableInstance) *btadmin.Instance {
@@ -703,7 +725,10 @@ func bigtableDeleteResource(kind bigtableResourceKind, name, etag string) error 
 // continues the listing.
 func bigtableListResources[T proto.Message](kind bigtableResourceKind, parent, collection string, pageSize int32, pageToken string, newMsg func() T) ([]T, string, error) {
 	bodies := bigtableFilterResources(kind.store, parent+"/"+collection+"/")
-	page, next := bigtableGRPCPage(bodies, pageSize, pageToken)
+	page, next, err := bigtableGRPCPage(bodies, pageSize, pageToken)
+	if err != nil {
+		return nil, "", err
+	}
 	out := make([]T, 0, len(page))
 	for _, body := range page {
 		msg, err := bigtableStoredProto(body, newMsg())
@@ -790,13 +815,16 @@ func bigtableJSONFieldName(md protoreflect.MessageDescriptor, path string) strin
 
 // bigtableGRPCPage slices a sorted list onto the requested page and returns the
 // token that continues it.
-func bigtableGRPCPage[T any](items []T, pageSize int32, pageToken string) ([]T, string) {
-	start, end := psPaging(len(items), pageSize, pageToken)
+func bigtableGRPCPage[T any](items []T, pageSize int32, pageToken string) ([]T, string, error) {
+	start, end, err := psPaging(len(items), pageSize, pageToken)
+	if err != nil {
+		return nil, "", err
+	}
 	next := ""
 	if end < len(items) {
 		next = strconv.Itoa(end)
 	}
-	return items[start:end], next
+	return items[start:end], next, nil
 }
 
 // Parent resolution

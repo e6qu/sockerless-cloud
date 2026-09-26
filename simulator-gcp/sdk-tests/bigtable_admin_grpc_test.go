@@ -920,3 +920,78 @@ func TestBigtableAdminGRPC_Operations(t *testing.T) {
 	_, err = ops.GetOperation(ctx, &longrunningpb.GetOperationRequest{Name: created.GetName()})
 	requireGRPCCode(t, err, codes.NotFound)
 }
+
+// TestBigtableAdminGRPC_MemoryLayers enables and disables a cluster's memory
+// layer, refuses a stale etag, and lists one cluster's layer and every
+// cluster's.
+func TestBigtableAdminGRPC_MemoryLayers(t *testing.T) {
+	ia, _, _ := bigtableAdminGRPCConn(t)
+	instance, cluster := bigtableAdminGRPCInstance(t, ia, "bt-grpc-memory", "inst", "c1")
+	name := cluster + "/memoryLayer"
+
+	layer, err := ia.GetMemoryLayer(ctx, &adminpb.GetMemoryLayerRequest{Name: name})
+	require.NoError(t, err)
+	assert.Equal(t, name, layer.GetName())
+	assert.Equal(t, adminpb.MemoryLayer_DISABLED, layer.GetState(), "a cluster's memory layer starts disabled")
+	assert.Nil(t, layer.GetMemoryConfig())
+	require.NotEmpty(t, layer.GetEtag())
+
+	op, err := ia.UpdateMemoryLayer(ctx, &adminpb.UpdateMemoryLayerRequest{
+		MemoryLayer: &adminpb.MemoryLayer{Name: name, MemoryConfig: &adminpb.MemoryLayer_MemoryConfig{}, Etag: layer.GetEtag()},
+		UpdateMask:  &fieldmaskpb.FieldMask{Paths: []string{"memory_config"}},
+	})
+	require.NoError(t, err)
+	enabled := bigtableLROResource(t, op, &adminpb.MemoryLayer{})
+	assert.Equal(t, adminpb.MemoryLayer_READY, enabled.GetState())
+	assert.NotNil(t, enabled.GetMemoryConfig())
+	assert.NotEqual(t, layer.GetEtag(), enabled.GetEtag(), "an update moves the etag")
+	metadata := &adminpb.UpdateMemoryLayerMetadata{}
+	require.NoError(t, op.GetMetadata().UnmarshalTo(metadata))
+	assert.Equal(t, name, metadata.GetOriginalRequest().GetMemoryLayer().GetName())
+	assert.False(t, metadata.GetFinishTime().AsTime().Before(metadata.GetRequestTime().AsTime()))
+
+	_, err = ia.UpdateMemoryLayer(ctx, &adminpb.UpdateMemoryLayerRequest{
+		MemoryLayer: &adminpb.MemoryLayer{Name: name, Etag: layer.GetEtag()},
+	})
+	requireGRPCCode(t, err, codes.Aborted)
+
+	op, err = ia.UpdateMemoryLayer(ctx, &adminpb.UpdateMemoryLayerRequest{
+		MemoryLayer: &adminpb.MemoryLayer{Name: name, Etag: enabled.GetEtag()},
+	})
+	require.NoError(t, err)
+	disabled := bigtableLROResource(t, op, &adminpb.MemoryLayer{})
+	assert.Equal(t, adminpb.MemoryLayer_DISABLED, disabled.GetState(), "unsetting memory_config disables the layer")
+	assert.Nil(t, disabled.GetMemoryConfig())
+
+	_, err = ia.UpdateMemoryLayer(ctx, &adminpb.UpdateMemoryLayerRequest{
+		MemoryLayer: &adminpb.MemoryLayer{Name: name},
+		UpdateMask:  &fieldmaskpb.FieldMask{Paths: []string{"state"}},
+	})
+	requireGRPCCode(t, err, codes.InvalidArgument)
+	_, err = ia.GetMemoryLayer(ctx, &adminpb.GetMemoryLayerRequest{Name: instance + "/clusters/missing/memoryLayer"})
+	requireGRPCCode(t, err, codes.NotFound)
+
+	op, err = ia.CreateCluster(ctx, &adminpb.CreateClusterRequest{
+		Parent:    instance,
+		ClusterId: "c2",
+		Cluster:   &adminpb.Cluster{Location: "projects/bt-grpc-memory/locations/us-east1-c", ServeNodes: 1},
+	})
+	require.NoError(t, err)
+	require.True(t, op.GetDone())
+
+	one, err := ia.ListMemoryLayers(ctx, &adminpb.ListMemoryLayersRequest{Parent: cluster})
+	require.NoError(t, err)
+	require.Len(t, one.GetMemoryLayers(), 1)
+	assert.Equal(t, name, one.GetMemoryLayers()[0].GetName())
+
+	first, err := ia.ListMemoryLayers(ctx, &adminpb.ListMemoryLayersRequest{Parent: instance + "/clusters/-", PageSize: 1})
+	require.NoError(t, err)
+	require.Len(t, first.GetMemoryLayers(), 1)
+	require.NotEmpty(t, first.GetNextPageToken())
+	second, err := ia.ListMemoryLayers(ctx, &adminpb.ListMemoryLayersRequest{Parent: instance + "/clusters/-", PageSize: 1, PageToken: first.GetNextPageToken()})
+	require.NoError(t, err)
+	require.Len(t, second.GetMemoryLayers(), 1)
+	assert.Empty(t, second.GetNextPageToken())
+	assert.Equal(t, []string{name, instance + "/clusters/c2/memoryLayer"},
+		[]string{first.GetMemoryLayers()[0].GetName(), second.GetMemoryLayers()[0].GetName()})
+}

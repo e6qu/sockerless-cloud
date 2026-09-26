@@ -49,7 +49,7 @@ Current state of the sockerless-cloud repository.
   DeleteBucketLifecycleConfiguration.
 - **Google Cloud**: 5,576 of 5,576 Discovery method spellings across 30
   documents reach a route that names them — 5,522 served and 54 answering a
-  declared 501; the gRPC surfaces serve 210 of 213 methods, the three unserved
+  declared 501; the gRPC surfaces serve 213 of 216 methods, the three unserved
   each needing state the simulator does not hold.
   Every gRPC service is crossed against its REST door.
 - **Azure**: 2,628 of 2,628 Swagger operations across 120 documents, App
