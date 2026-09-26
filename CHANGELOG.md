@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.32.17](https://github.com/e6qu/sockerless-cloud/compare/v0.32.16...v0.32.17) (2026-09-25)
+
+
+### Bug Fixes
+
+* **specs:** refresh the rows the freshness run reported, not a second sample ([#202](https://github.com/e6qu/sockerless-cloud/issues/202)) ([ee74018](https://github.com/e6qu/sockerless-cloud/commit/ee74018a3fd8531617c483b42a392c36862da7ec))
+* **storage:** conditional writes arbitrate, on Cloud Storage and Azure Blob Storage ([#204](https://github.com/e6qu/sockerless-cloud/issues/204)) ([986a531](https://github.com/e6qu/sockerless-cloud/commit/986a53159134753c06d6fd6278e1f6507b5d4eb8))
+
 ## [0.32.16](https://github.com/e6qu/sockerless-cloud/compare/v0.32.15...v0.32.16) (2026-09-20)
 
 
