@@ -386,10 +386,7 @@ func amplifyWriteError(w http.ResponseWriter, status int, code, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Amzn-Errortype", code)
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"__type":  code,
-		"message": msg,
-	})
+	_ = json.NewEncoder(w).Encode(awsErrorBody("amplify", code, msg))
 }
 
 // amplifyPageQuery parses the restJson1 ?nextToken=&maxResults= pagination

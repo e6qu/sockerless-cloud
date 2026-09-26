@@ -52,9 +52,8 @@ type CWManagedRule struct {
 }
 
 var (
-	cwDatasets       sim.Store[CWDataset]
-	cwManagedRules   sim.Store[CWManagedRule]
-	cwOTelEnrichment sim.Store[string] // single row keyed "account" → "Running"/"Stopped"
+	cwDatasets     sim.Store[CWDataset]
+	cwManagedRules sim.Store[CWManagedRule]
 )
 
 const cwOTelEnrichmentKey = "account"
@@ -62,16 +61,13 @@ const cwOTelEnrichmentKey = "account"
 func registerCloudWatchMonitoringExtra(r *AWSRouter, srv *sim.Server) {
 	cwDatasets = sim.MakeStore[CWDataset](srv.DB(), "cw_datasets")
 	cwManagedRules = sim.MakeStore[CWManagedRule](srv.DB(), "cw_managed_rules")
-	cwOTelEnrichment = sim.MakeStore[string](srv.DB(), "cw_otel_enrichment")
+	registerCloudWatchResourceMetrics(r, srv)
 
 	// awsJson1.0 surface (aws CLI / botocore).
 	for target, h := range map[string]http.HandlerFunc{
 		"GraniteServiceVersion20100801.GetDataset":                handleCWJSONGetDataset,
 		"GraniteServiceVersion20100801.AssociateDatasetKmsKey":    handleCWJSONAssociateDatasetKmsKey,
 		"GraniteServiceVersion20100801.DisassociateDatasetKmsKey": handleCWJSONDisassociateDatasetKmsKey,
-		"GraniteServiceVersion20100801.GetOTelEnrichment":         handleCWJSONGetOTelEnrichment,
-		"GraniteServiceVersion20100801.StartOTelEnrichment":       handleCWJSONStartOTelEnrichment,
-		"GraniteServiceVersion20100801.StopOTelEnrichment":        handleCWJSONStopOTelEnrichment,
 		"GraniteServiceVersion20100801.ListManagedInsightRules":   handleCWJSONListManagedInsightRules,
 		"GraniteServiceVersion20100801.PutManagedInsightRules":    handleCWJSONPutManagedInsightRules,
 		"GraniteServiceVersion20100801.GetInsightRuleReport":      handleCWJSONGetInsightRuleReport,
@@ -86,9 +82,6 @@ func registerCloudWatchMonitoringExtra(r *AWSRouter, srv *sim.Server) {
 		"GetDataset":                handleCWCBORGetDataset,
 		"AssociateDatasetKmsKey":    handleCWCBORAssociateDatasetKmsKey,
 		"DisassociateDatasetKmsKey": handleCWCBORDisassociateDatasetKmsKey,
-		"GetOTelEnrichment":         handleCWCBORGetOTelEnrichment,
-		"StartOTelEnrichment":       handleCWCBORStartOTelEnrichment,
-		"StopOTelEnrichment":        handleCWCBORStopOTelEnrichment,
 		"ListManagedInsightRules":   handleCWCBORListManagedInsightRules,
 		"PutManagedInsightRules":    handleCWCBORPutManagedInsightRules,
 		"GetInsightRuleReport":      handleCWCBORGetInsightRuleReport,
@@ -124,13 +117,6 @@ func cwSetDatasetKey(identifier, kmsKeyArn string) {
 	ds := cwResolveDataset(identifier)
 	ds.KmsKeyArn = kmsKeyArn
 	cwDatasets.Put(ds.DatasetId, ds)
-}
-
-func cwOTelStatus() string {
-	if s, ok := cwOTelEnrichment.Get(cwOTelEnrichmentKey); ok && s != "" {
-		return s
-	}
-	return "Stopped"
 }
 
 type cwManagedRuleInput struct {
@@ -303,20 +289,6 @@ func handleCWJSONDisassociateDatasetKmsKey(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	cwSetDatasetKey(req.DatasetIdentifier, "")
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
-}
-
-func handleCWJSONGetOTelEnrichment(w http.ResponseWriter, _ *http.Request) {
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Status": cwOTelStatus()})
-}
-
-func handleCWJSONStartOTelEnrichment(w http.ResponseWriter, _ *http.Request) {
-	cwOTelEnrichment.Put(cwOTelEnrichmentKey, "Running")
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
-}
-
-func handleCWJSONStopOTelEnrichment(w http.ResponseWriter, _ *http.Request) {
-	cwOTelEnrichment.Put(cwOTelEnrichmentKey, "Stopped")
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -509,20 +481,6 @@ func handleCWCBORDisassociateDatasetKmsKey(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	cwSetDatasetKey(req.DatasetIdentifier, "")
-	cwWriteCBOR(w, map[string]any{})
-}
-
-func handleCWCBORGetOTelEnrichment(w http.ResponseWriter, _ *http.Request) {
-	cwWriteCBOR(w, map[string]any{"Status": cwOTelStatus()})
-}
-
-func handleCWCBORStartOTelEnrichment(w http.ResponseWriter, _ *http.Request) {
-	cwOTelEnrichment.Put(cwOTelEnrichmentKey, "Running")
-	cwWriteCBOR(w, map[string]any{})
-}
-
-func handleCWCBORStopOTelEnrichment(w http.ResponseWriter, _ *http.Request) {
-	cwOTelEnrichment.Put(cwOTelEnrichmentKey, "Stopped")
 	cwWriteCBOR(w, map[string]any{})
 }
 

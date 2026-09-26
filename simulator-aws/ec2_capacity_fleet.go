@@ -42,6 +42,12 @@ type EC2CapacityReservation struct {
 	CreateDate                 string
 	CapacityReservationFleetId string
 	Tags                       []EC2Tag
+	// A future-dated reservation holds RequestedInstanceCount and its
+	// commitment; until StartDate it is scheduled with no instances.
+	RequestedInstanceCount int
+	CommitmentDuration     int64
+	OriginalStartDate      string
+	AdjustmentStatus       string
 }
 
 // EC2CapacityReservationFleet aggregates capacity reservations toward a target.
@@ -220,6 +226,7 @@ func registerEC2CapacityFleet(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("CancelCapacityReservation", handleCancelCapacityReservation)
 	r.Register("GetCapacityReservationUsage", handleGetCapacityReservationUsage)
 	r.Register("GetGroupsForCapacityReservation", handleGetGroupsForCapacityReservation)
+	registerEC2CapacityReservationDateChange(r, srv)
 
 	// Capacity Reservation Fleets
 	r.Register("CreateCapacityReservationFleet", handleCreateCapacityReservationFleet)
@@ -342,6 +349,11 @@ func handleCreateCapacityReservation(w http.ResponseWriter, r *http.Request) {
 	if endDateType == "" {
 		endDateType = "unlimited"
 	}
+	future, problem := ec2FutureDatedRequest(r, matchCriteria, endDateType, time.Now())
+	if problem != nil {
+		ec2ErrorXML(w, problem.code, problem.message, http.StatusBadRequest)
+		return
+	}
 	cr := EC2CapacityReservation{
 		CapacityReservationId:  ec2ID("cr"),
 		OwnerId:                ec2Owner(),
@@ -361,7 +373,15 @@ func handleCreateCapacityReservation(w http.ResponseWriter, r *http.Request) {
 		CreateDate:             ec2NowMilli(),
 		Tags:                   ec2ParseTagSpecs(r),
 	}
+	if future.start != "" {
+		cr.State = ec2CapacityScheduled
+		cr.StartDate = future.start
+		cr.OriginalStartDate = future.start
+		cr.CommitmentDuration = future.commitment
+		cr.RequestedInstanceCount = count
+	}
 	ec2CapacityReservations.Put(cr.CapacityReservationId, cr)
+	cr = ec2CapacityReservationAsOf(cr, time.Now())
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateCapacityReservationResponse %s><requestId>%s</requestId><capacityReservation>%s</capacityReservation></CreateCapacityReservationResponse>`,
 		ec2Xmlns(), generateUUID(), ec2CapReservationFieldsXML(cr))
@@ -376,12 +396,12 @@ func ec2CapReservationFieldsXML(cr EC2CapacityReservation) string {
 	if cr.CapacityReservationFleetId != "" {
 		fleet = fmt.Sprintf("<capacityReservationFleetId>%s</capacityReservationFleetId>", cr.CapacityReservationFleetId)
 	}
-	return fmt.Sprintf("<capacityReservationId>%s</capacityReservationId><ownerId>%s</ownerId><capacityReservationArn>%s</capacityReservationArn><instanceType>%s</instanceType><instancePlatform>%s</instancePlatform><availabilityZone>%s</availabilityZone><tenancy>%s</tenancy><totalInstanceCount>%d</totalInstanceCount><availableInstanceCount>%d</availableInstanceCount><ebsOptimized>%t</ebsOptimized><ephemeralStorage>%t</ephemeralStorage><state>%s</state><startDate>%s</startDate>%s<endDateType>%s</endDateType><instanceMatchCriteria>%s</instanceMatchCriteria><createDate>%s</createDate>%s%s",
+	return fmt.Sprintf("<capacityReservationId>%s</capacityReservationId><ownerId>%s</ownerId><capacityReservationArn>%s</capacityReservationArn><instanceType>%s</instanceType><instancePlatform>%s</instancePlatform><availabilityZone>%s</availabilityZone><tenancy>%s</tenancy><totalInstanceCount>%d</totalInstanceCount><availableInstanceCount>%d</availableInstanceCount><ebsOptimized>%t</ebsOptimized><ephemeralStorage>%t</ephemeralStorage><state>%s</state><startDate>%s</startDate>%s<endDateType>%s</endDateType><instanceMatchCriteria>%s</instanceMatchCriteria><createDate>%s</createDate>%s%s%s",
 		cr.CapacityReservationId, cr.OwnerId, ec2CapReservationArn(cr.CapacityReservationId),
 		cr.InstanceType, cr.InstancePlatform, cr.AvailabilityZone, cr.Tenancy,
 		cr.TotalInstanceCount, cr.AvailableInstanceCount, cr.EbsOptimized, cr.EphemeralStorage,
 		cr.State, cr.StartDate, endDate, cr.EndDateType, cr.InstanceMatchCriteria, cr.CreateDate,
-		fleet, writeTagSetXML(cr.Tags))
+		fleet, writeTagSetXML(cr.Tags), ec2CapacityCommitmentXML(cr))
 }
 
 func handleDescribeCapacityReservations(w http.ResponseWriter, r *http.Request) {
@@ -390,7 +410,7 @@ func handleDescribeCapacityReservations(w http.ResponseWriter, r *http.Request) 
 	results := make([]EC2CapacityReservation, 0)
 	if len(ids) > 0 {
 		for _, id := range ids {
-			cr, ok := ec2CapacityReservations.Get(id)
+			cr, ok := ec2GetCapacityReservation(id)
 			if !ok {
 				ec2ErrorXML(w, "InvalidCapacityReservationId.NotFound", fmt.Sprintf("The Capacity Reservation ID %q does not exist", id), http.StatusBadRequest)
 				return
@@ -398,7 +418,9 @@ func handleDescribeCapacityReservations(w http.ResponseWriter, r *http.Request) 
 			results = append(results, cr)
 		}
 	} else {
-		for _, cr := range ec2CapacityReservations.List() {
+		now := time.Now()
+		for _, stored := range ec2CapacityReservations.List() {
+			cr := ec2CapacityReservationAsOf(stored, now)
 			if !ec2CapReservationMatchesFilters(cr, filters) {
 				continue
 			}
@@ -406,15 +428,20 @@ func handleDescribeCapacityReservations(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].CapacityReservationId < results[j].CapacityReservationId })
+	page, next, problem := ec2CapacityReservationPage(results, r.FormValue("MaxResults"), r.FormValue("NextToken"))
+	if problem != nil {
+		ec2ErrorXML(w, problem.code, problem.message, http.StatusBadRequest)
+		return
+	}
 	var items strings.Builder
-	for _, cr := range results {
+	for _, cr := range page {
 		items.WriteString("<item>")
 		items.WriteString(ec2CapReservationFieldsXML(cr))
 		items.WriteString("</item>")
 	}
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeCapacityReservationsResponse %s><requestId>%s</requestId><capacityReservationSet>%s</capacityReservationSet></DescribeCapacityReservationsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+	fmt.Fprintf(w, `<DescribeCapacityReservationsResponse %s><requestId>%s</requestId><capacityReservationSet>%s</capacityReservationSet>%s</DescribeCapacityReservationsResponse>`,
+		ec2Xmlns(), generateUUID(), items.String(), next)
 }
 
 func ec2CapReservationMatchesFilters(cr EC2CapacityReservation, filters map[string][]string) bool {
@@ -451,21 +478,19 @@ func ec2CapReservationMatchesFilters(cr EC2CapacityReservation, filters map[stri
 
 func handleModifyCapacityReservation(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("CapacityReservationId")
-	cr, ok := ec2CapacityReservations.Get(id)
+	cr, ok := ec2GetCapacityReservation(id)
 	if !ok {
 		ec2ErrorXML(w, "InvalidCapacityReservationId.NotFound", fmt.Sprintf("The Capacity Reservation ID %q does not exist", id), http.StatusBadRequest)
 		return
 	}
-	if v := r.FormValue("InstanceCount"); v != "" {
-		n := ec2AtoiOr(v, cr.TotalInstanceCount)
-		cr.TotalInstanceCount = n
-		cr.AvailableInstanceCount = n
+	now := time.Now()
+	if problem := ec2ModifyCapacityReservation(&cr, r, now); problem != nil {
+		ec2ErrorXML(w, problem.code, problem.message, http.StatusBadRequest)
+		return
 	}
-	if v := r.FormValue("EndDateType"); v != "" {
-		cr.EndDateType = v
-	}
-	if v := r.FormValue("EndDate"); v != "" {
-		cr.EndDate = v
+	if r.FormValue("DryRun") == "true" {
+		ec2ErrorXML(w, "DryRunOperation", "Request would have succeeded, but DryRun flag is set.", http.StatusPreconditionFailed)
+		return
 	}
 	ec2CapacityReservations.Put(id, cr)
 	w.Header().Set("Content-Type", "text/xml")
@@ -474,7 +499,7 @@ func handleModifyCapacityReservation(w http.ResponseWriter, r *http.Request) {
 
 func handleCancelCapacityReservation(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("CapacityReservationId")
-	cr, ok := ec2CapacityReservations.Get(id)
+	cr, ok := ec2GetCapacityReservation(id)
 	if !ok {
 		ec2ErrorXML(w, "InvalidCapacityReservationId.NotFound", fmt.Sprintf("The Capacity Reservation ID %q does not exist", id), http.StatusBadRequest)
 		return
@@ -488,7 +513,7 @@ func handleCancelCapacityReservation(w http.ResponseWriter, r *http.Request) {
 
 func handleGetCapacityReservationUsage(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("CapacityReservationId")
-	cr, ok := ec2CapacityReservations.Get(id)
+	cr, ok := ec2GetCapacityReservation(id)
 	if !ok {
 		ec2ErrorXML(w, "InvalidCapacityReservationId.NotFound", fmt.Sprintf("The Capacity Reservation ID %q does not exist", id), http.StatusBadRequest)
 		return

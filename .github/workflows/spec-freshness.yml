@@ -133,6 +133,18 @@ jobs:
           pattern: '*-spec-drift'
           merge-multiple: true
           path: ${{ runner.temp }}/spec-drift
+      # Drift is measured against the tree the refresh lands on. The matrix
+      # measured main; an open pull request may already carry an earlier
+      # refresh, and re-vendoring main's pins and replaying them onto that
+      # branch conflicts on every file both refreshes touched.
+      - name: Check out the branch the refresh lands on
+        if: ${{ steps.gate.outputs.refresh == 'yes' && steps.gate.outputs.target != '' }}
+        env:
+          TARGET: ${{ steps.gate.outputs.target }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET"
+          git checkout -B "$TARGET" "origin/$TARGET"
       - name: Re-vendor every drifted specification
         if: ${{ steps.gate.outputs.refresh == 'yes' }}
         env:
@@ -153,13 +165,9 @@ jobs:
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           target='${{ steps.gate.outputs.target }}'
           if [ -n "$target" ]; then
-            # Ride the open pull request. Rebasing the refresh onto its head
-            # keeps the branch's own commits and adds one on top; a force-push
-            # here would discard whatever the author pushed while this ran.
-            git stash push --include-untracked -- specs/cloud-api
-            git fetch origin "$target"
-            git checkout -B "$target" "origin/$target"
-            git stash pop
+            # Ride the open pull request: the refresh was made on its head, so
+            # it adds one commit on top. A push refused because the author
+            # pushed meanwhile is left for the next run, never forced over.
             git add specs/cloud-api
             git commit -m 'chore(specs): refresh the vendored specifications behind upstream' \
               -m "$(git diff --cached --name-only | sed 's/^/- /')"

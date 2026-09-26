@@ -490,10 +490,7 @@ func glueWriteError(w http.ResponseWriter, code string, msg string) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.Header().Set("X-Amzn-Errortype", code)
 	w.WriteHeader(http.StatusBadRequest)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"__type":  code,
-		"message": msg,
-	})
+	_ = json.NewEncoder(w).Encode(awsErrorBody("glue", code, msg))
 }
 
 func handleGlueCreateDatabase(w http.ResponseWriter, r *http.Request) {

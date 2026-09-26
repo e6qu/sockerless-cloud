@@ -36,9 +36,9 @@ Current state of the sockerless-cloud repository.
 - **AWS**: the 41 vendored Smithy models are implemented or exempt in full, the
   exemptions being the Amazon S3 bucket subresources the query-parameter table
   routes, each verified against that table. IAM resource derivation covers
-  2,004 of 2,012 served operations; the eight that remain are requests naming
+  2,007 of 2,015 served operations; the eight that remain are requests naming
   no resource, and `"*"` is the honest answer. Condition keys are ratcheted too:
-  every key the vendored Service References declare -- 606 over 1,739 actions --
+  every key the vendored Service References declare -- 653 over 1,917 actions --
   is either named by the gate or classified as unmodelled with the reason, and a
   classified key the gate later resolves fails its own row. What that does not
   yet prove is per-action: that a key some code names is built for every action
@@ -128,6 +128,11 @@ Current state of the sockerless-cloud repository.
   service account's token, an Azure Container Registry with an identity
   token of the ACR Tasks run — names them outright for the legacy builder,
   and hands other registries to the host's helper.
+- **Future-dated Capacity Reservations are scheduled, committed and
+  postponed by quote.** A reservation requested for a future start is
+  `scheduled` with no instances and a commitment until its start date, derived
+  from the clock on every read; its start date moves only through an accepted
+  date-change quote, within 30 days of the original (BUG-3036).
 - **Object stores arbitrate conditional writes.** Cloud Storage's generation
   and metageneration preconditions and Azure Blob Storage's conditional
   headers are evaluated on every read and write, a write's check and store are

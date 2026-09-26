@@ -1,0 +1,6 @@
+# Resolve no npm version published less than a day ago, the same quarantine
+# scripts/check-latest-deps.sh holds every pin to (ADOPTION_QUARANTINE_FLOOR_SECONDS).
+# Without it a caret range resolves to whatever was published a minute ago,
+# transitive dependencies included, and nothing checks the lockfile's ages.
+[install]
+minimumReleaseAge = 86400

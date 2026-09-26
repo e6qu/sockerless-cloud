@@ -309,10 +309,7 @@ func batchWriteError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Amzn-Errortype", code)
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"__type":  code,
-		"message": msg,
-	})
+	_ = json.NewEncoder(w).Encode(awsErrorBody("batch", code, msg))
 }
 
 func handleBatchCreateComputeEnvironment(w http.ResponseWriter, r *http.Request) {

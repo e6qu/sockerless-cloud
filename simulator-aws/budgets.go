@@ -100,7 +100,7 @@ func budgetsError(w http.ResponseWriter, code, message string, status int) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.Header().Set("X-Amzn-Errortype", code)
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"__type": code, "message": message})
+	_ = json.NewEncoder(w).Encode(awsErrorBody("budgets", code, message))
 }
 
 func budgetsRead(w http.ResponseWriter, r *http.Request, out any) bool {

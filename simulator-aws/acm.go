@@ -713,10 +713,7 @@ func acmWriteJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func acmWriteError(w http.ResponseWriter, code, msg string) {
-	acmWriteJSON(w, http.StatusBadRequest, map[string]string{
-		"__type":  code,
-		"message": msg,
-	})
+	acmWriteJSON(w, http.StatusBadRequest, awsErrorBody("acm", code, msg))
 }
 
 type acmRequestCertificateReq struct {

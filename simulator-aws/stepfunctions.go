@@ -171,10 +171,7 @@ func sfnWriteErrorStatus(w http.ResponseWriter, status int, code string, msg str
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 	w.Header().Set("X-Amzn-Errortype", code)
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"__type":  code,
-		"message": msg,
-	})
+	_ = json.NewEncoder(w).Encode(awsErrorBody("sfn", code, msg))
 }
 
 func handleSFNCreateStateMachine(w http.ResponseWriter, r *http.Request) {
