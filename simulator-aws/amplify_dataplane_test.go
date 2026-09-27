@@ -51,7 +51,9 @@ func amplifyZipOf(t *testing.T, files map[string]string) []byte {
 func amplifySeedDeployment(t *testing.T, appID, branch, jobID string, files map[string]string) {
 	t.Helper()
 	key := "artifacts/" + appID + "/" + branch + "/" + jobID + "/artifacts.zip"
-	amplifyPutS3Object(key, "application/zip", amplifyZipOf(t, files))
+	if err := amplifyPutS3Object(key, "application/zip", amplifyZipOf(t, files)); err != nil {
+		t.Fatal(err)
+	}
 	amplifyArtifacts.Put(jobID+"-art", amplifyStoredArtifact{
 		Artifact:      AmplifyArtifact{ArtifactId: jobID + "-art", ArtifactFileName: "artifacts.zip"},
 		AppId:         appID,
@@ -248,7 +250,9 @@ func TestAmplifyHostingInvalidArtifactIsNotContent(t *testing.T) {
 	// An invalid deployment artifact is not a valid zip, so the
 	// hosting plane must treat the branch as having no servable content.
 	key := "artifacts/dsynth/main/djob3/e2e-test-artifacts.zip"
-	amplifyPutS3Object(key, "application/zip", []byte("amplify artifact placeholder\n"))
+	if err := amplifyPutS3Object(key, "application/zip", []byte("amplify artifact placeholder\n")); err != nil {
+		t.Fatal(err)
+	}
 	amplifyArtifacts.Put("djob3-art", amplifyStoredArtifact{
 		Artifact:      AmplifyArtifact{ArtifactId: "djob3-art", ArtifactFileName: "e2e-test-artifacts.zip"},
 		AppId:         "dsynth",
@@ -273,7 +277,9 @@ func TestAmplifyHostingFileMapDeployment(t *testing.T) {
 	// fileMap deployments register one artifact per uploaded file.
 	for name, content := range map[string]string{"index.html": "<html>map</html>", "app.js": "js"} {
 		key := "deployments/dmap/main/djob4/files/" + name
-		amplifyPutS3Object(key, "", []byte(content))
+		if err := amplifyPutS3Object(key, "", []byte(content)); err != nil {
+			t.Fatal(err)
+		}
 		amplifyArtifacts.Put("djob4-"+name, amplifyStoredArtifact{
 			Artifact:      AmplifyArtifact{ArtifactId: "djob4-" + name, ArtifactFileName: name},
 			AppId:         "dmap",

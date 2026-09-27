@@ -325,7 +325,7 @@ func persistGCSObject(objects sim.PrefixStore[GCSObject], bucketName, objectName
 	if err := validateGCSObjectAttrs(attrs); err != nil {
 		return GCSObject{}, err
 	}
-	defer gcsObjectWriters.lock(bucketName, objectName)()
+	defer gcsObjectWriters.Lock(bucketName + "/" + objectName)()
 	existing, existed := objects.Get(bucketName + "/" + objectName)
 	if !pre.holds(existing, existed) {
 		return GCSObject{}, errGCSPreconditionFailed
@@ -924,7 +924,7 @@ func registerGCS(srv *sim.Server) {
 			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 			return
 		}
-		defer gcsObjectWriters.lock(bucketName, objectName)()
+		defer gcsObjectWriters.Lock(bucketName + "/" + objectName)()
 		obj, ok := objects.Get(key)
 		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
@@ -968,7 +968,7 @@ func registerGCS(srv *sim.Server) {
 			return
 		}
 
-		defer gcsObjectWriters.lock(bucketName, objectName)()
+		defer gcsObjectWriters.Lock(bucketName + "/" + objectName)()
 		obj, found := objects.Get(key)
 		if !found {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)

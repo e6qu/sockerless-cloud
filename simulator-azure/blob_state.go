@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -696,44 +695,10 @@ func writeBlobConditionNotMet(w http.ResponseWriter) {
 		"The condition specified using HTTP conditional header(s) is not met.", http.StatusPreconditionFailed)
 }
 
-// blobWriteLocks serializes the writes to one blob. Evaluating a write's
-// conditions and storing its result is one step on Azure — of two writers that
-// both require the blob they read, exactly one succeeds — so it is one step
-// here too. A blob's entry lives only while a writer holds or awaits it.
-type blobWriteLocks struct {
-	mu   sync.Mutex
-	held map[string]*blobWriteLock
-}
-
-type blobWriteLock struct {
-	sync.Mutex
-	users int
-}
-
-var blobWriters = &blobWriteLocks{held: map[string]*blobWriteLock{}}
-
-// lock takes the lock of the blob key names and returns its release.
-func (l *blobWriteLocks) lock(key string) func() {
-	l.mu.Lock()
-	entry := l.held[key]
-	if entry == nil {
-		entry = &blobWriteLock{}
-		l.held[key] = entry
-	}
-	entry.users++
-	l.mu.Unlock()
-
-	entry.Lock()
-	return func() {
-		entry.Unlock()
-		l.mu.Lock()
-		entry.users--
-		if entry.users == 0 {
-			delete(l.held, key)
-		}
-		l.mu.Unlock()
-	}
-}
+// blobWriters serializes the writes to one blob: evaluating a write's
+// conditions and storing its result is one step on Azure, so of two writers
+// that both require the blob they read, exactly one succeeds.
+var blobWriters = sim.NewKeyedLocks()
 
 // blobWriteAllowed evaluates a write's conditional headers and enforces the
 // write protections a stored blob carries: a locked or unlocked-but-named

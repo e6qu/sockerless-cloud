@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -1415,7 +1416,11 @@ func amplifyDeploymentManifestError(appID, branch, jobID string) error {
 func amplifyFailJobDeployStep(appID, branch, jobID, urlBase string, cause error) {
 	stepLog := &amplifyStepLog{}
 	stepLog.Printf("!!! CustomerError: We failed to validate the deploy-manifest.json file found in your build output directory. %v", cause)
-	logURL := amplifyStoreStepLog(urlBase, appID, branch, jobID, "DEPLOY", stepLog)
+	logURL, err := amplifyStoreStepLog(urlBase, appID, branch, jobID, "DEPLOY", stepLog)
+	if err != nil {
+		// The job fails either way; this only means its failed step has no log.
+		log.Printf("amplify: store the DEPLOY log of job %s: %v", jobID, err)
+	}
 	amplifyUpdateJobStep(jobID, "DEPLOY", func(s *AmplifyJobStep) {
 		s.Status = AmplifyJobStatusFailed
 		s.EndTime = amplifyEpoch()
@@ -1554,7 +1559,7 @@ func amplifyRegisterAuxiliaryArtifact(urlBase, appID, branch, jobID, artifactID,
 func amplifyDeleteArtifactsForJob(jobID string) {
 	for _, artifact := range amplifyArtifacts.List() {
 		if artifact.JobId == jobID {
-			s3Objects.Delete(s3ObjectKey(amplifyArtifactBucketName(), artifact.Key))
+			s3DeleteObjectRow(s3ObjectKey(amplifyArtifactBucketName(), artifact.Key))
 			amplifyArtifacts.Delete(artifact.Artifact.ArtifactId)
 		}
 	}
@@ -1564,9 +1569,9 @@ func amplifyDeleteArtifactsForJob(jobID string) {
 // client uploaded against its presigned URLs.
 func amplifyDeleteDeployment(dep amplifyStoredDeployment) {
 	bucket := amplifyArtifactBucketName()
-	s3Objects.Delete(s3ObjectKey(bucket, dep.ZipKey))
+	s3DeleteObjectRow(s3ObjectKey(bucket, dep.ZipKey))
 	for _, key := range dep.FileKeys {
-		s3Objects.Delete(s3ObjectKey(bucket, key))
+		s3DeleteObjectRow(s3ObjectKey(bucket, key))
 	}
 	amplifyDeployments.Delete(dep.JobId)
 }
@@ -1582,18 +1587,19 @@ func amplifyArtifactBucketName() string {
 	return bucket
 }
 
-func amplifyPutS3Object(key, contentType string, data []byte) {
-	bucket := amplifyArtifactBucketName()
+func amplifyPutS3Object(key, contentType string, data []byte) error {
+	storeKey := s3ObjectKey(amplifyArtifactBucketName(), key)
 	hash := md5.Sum(data)
-	s3Objects.Put(s3ObjectKey(bucket, key), S3Object{
-		Key:          s3ObjectKey(bucket, key),
-		Data:         data,
+	release := s3ObjectWriters.Lock(storeKey)
+	defer release()
+	_, err := s3StoreObject(S3Object{
+		Key:          storeKey,
 		ContentType:  contentType,
 		ETag:         fmt.Sprintf("\"%x\"", hash),
 		LastModified: time.Now().UTC(),
-		Size:         int64(len(data)),
 		Metadata:     map[string]string{"amplify": "true"},
-	})
+	}, data)
+	return err
 }
 
 func amplifyURLBase(r *http.Request) string {
@@ -1831,7 +1837,10 @@ func handleAmplifyGenerateAccessLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := "accesslogs/" + appID + "/" + req.DomainName + "/" + strconv.FormatInt(time.Now().UTC().UnixNano(), 10) + ".log"
-	amplifyPutS3Object(key, "text/plain", []byte("date time x-edge-location sc-bytes c-ip cs-method cs-host cs-uri-stem sc-status\n"))
+	if err := amplifyPutS3Object(key, "text/plain", []byte("date time x-edge-location sc-bytes c-ip cs-method cs-host cs-uri-stem sc-status\n")); err != nil {
+		amplifyWriteError(w, http.StatusInternalServerError, "InternalFailureException", err.Error())
+		return
+	}
 	amplifyWriteJSON(w, http.StatusOK, map[string]string{
 		"logUrl": amplifyPresignedS3URL(r, key, http.MethodGet),
 	})
@@ -1959,7 +1968,12 @@ func handleAmplifyStartDeployment(w http.ResponseWriter, r *http.Request) {
 						"deployment upload is incomplete; missing "+name)
 					return
 				}
-				sum := md5.Sum(object.Data)
+				data, err := s3ObjectData(object)
+				if err != nil {
+					amplifyWriteError(w, http.StatusInternalServerError, "InternalFailureException", err.Error())
+					return
+				}
+				sum := md5.Sum(data)
 				if expected := dep.FileHashes[name]; expected != "" && fmt.Sprintf("%x", sum) != expected {
 					amplifyWriteError(w, http.StatusBadRequest, "BadRequestException",
 						"deployment upload checksum does not match fileMap for "+name)
@@ -2034,7 +2048,13 @@ func amplifyResolveDeploymentSource(r *http.Request, appID, branch, jobID, sourc
 				return nil, fmt.Errorf("sourceUrl Amazon S3 object does not exist")
 			}
 			destination := destinationBase + "archive.zip"
-			amplifyPutS3Object(destination, object.ContentType, object.Data)
+			object, data, err := s3OpenObjectData(object)
+			if err != nil {
+				return nil, err
+			}
+			if err := amplifyPutS3Object(destination, object.ContentType, data); err != nil {
+				return nil, err
+			}
 			return []amplifyUploadedArtifact{{FileName: "archive.zip", Key: destination}}, nil
 		}
 		prefix := s3ObjectKey(bucket, strings.TrimSuffix(key, "/")+"/")
@@ -2046,7 +2066,13 @@ func amplifyResolveDeploymentSource(r *http.Request, appID, branch, jobID, sourc
 				continue
 			}
 			destination := destinationBase + "files/" + name
-			amplifyPutS3Object(destination, object.ContentType, object.Data)
+			object, data, err := s3OpenObjectData(object)
+			if err != nil {
+				return nil, err
+			}
+			if err := amplifyPutS3Object(destination, object.ContentType, data); err != nil {
+				return nil, err
+			}
 			uploads = append(uploads, amplifyUploadedArtifact{FileName: name, Key: destination})
 		}
 		if len(uploads) == 0 {
@@ -2078,7 +2104,9 @@ func amplifyResolveDeploymentSource(r *http.Request, appID, branch, jobID, sourc
 		return nil, fmt.Errorf("sourceUrl returned an empty deployment")
 	}
 	destination := destinationBase + "archive.zip"
-	amplifyPutS3Object(destination, response.Header.Get("Content-Type"), data)
+	if err := amplifyPutS3Object(destination, response.Header.Get("Content-Type"), data); err != nil {
+		return nil, err
+	}
 	return []amplifyUploadedArtifact{{FileName: "archive.zip", Key: destination}}, nil
 }
 

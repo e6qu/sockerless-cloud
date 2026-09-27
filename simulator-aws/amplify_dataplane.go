@@ -268,7 +268,11 @@ func amplifyJobArtifactFiles(appID, branch, jobID string) map[string][]byte {
 		if !ok {
 			return nil
 		}
-		zr, err := zip.NewReader(bytes.NewReader(obj.Data), int64(len(obj.Data)))
+		archive, err := s3ObjectData(obj)
+		if err != nil {
+			return nil
+		}
+		zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
 		if err != nil {
 			return nil
 		}
@@ -293,7 +297,11 @@ func amplifyJobArtifactFiles(appID, branch, jobID string) map[string][]byte {
 			if !ok {
 				continue
 			}
-			files[path.Clean(strings.TrimPrefix(a.Artifact.ArtifactFileName, "/"))] = obj.Data
+			data, err := s3ObjectData(obj)
+			if err != nil {
+				return nil
+			}
+			files[path.Clean(strings.TrimPrefix(a.Artifact.ArtifactFileName, "/"))] = data
 		}
 	}
 	return files

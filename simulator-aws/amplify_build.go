@@ -245,10 +245,12 @@ func (l *amplifyStepLog) Text() string {
 
 // amplifyStoreStepLog writes a step's log to the sim's S3 and returns the
 // presigned URL that becomes the step's logUrl.
-func amplifyStoreStepLog(urlBase, appID, branch, jobID, step string, log *amplifyStepLog) string {
+func amplifyStoreStepLog(urlBase, appID, branch, jobID, step string, log *amplifyStepLog) (string, error) {
 	key := "logs/" + appID + "/" + branch + "/" + jobID + "/" + step + ".log"
-	amplifyPutS3Object(key, "text/plain", []byte(log.Text()))
-	return amplifyPresignedS3URLBase(urlBase, key, http.MethodGet)
+	if err := amplifyPutS3Object(key, "text/plain", []byte(log.Text())); err != nil {
+		return "", err
+	}
+	return amplifyPresignedS3URLBase(urlBase, key, http.MethodGet), nil
 }
 
 // amplifyUpdateJobStep mutates one step of a stored job. Steps that already
@@ -336,7 +338,11 @@ func amplifyRunRealBuild(appID, branch, jobID, urlBase, repo, specText string, e
 	provisionLog := &amplifyStepLog{}
 	amplifyStartJobStep(jobID, "PROVISION")
 	finishStep := func(step string, log *amplifyStepLog, status AmplifyJobStatus) {
-		logURL := amplifyStoreStepLog(urlBase, appID, branch, jobID, step, log)
+		logURL, err := amplifyStoreStepLog(urlBase, appID, branch, jobID, step, log)
+		if err != nil {
+			// A step whose log could not be kept did not finish cleanly.
+			status = AmplifyJobStatusFailed
+		}
 		now := amplifyEpoch()
 		amplifyUpdateJobStep(jobID, step, func(s *AmplifyJobStep) {
 			s.Status = status
@@ -482,7 +488,11 @@ func amplifyRunRealBuild(appID, branch, jobID, urlBase, repo, specText string, e
 		return AmplifyJobStatusFailed
 	}
 	key := "artifacts/" + appID + "/" + branch + "/" + jobID + "/artifacts.zip"
-	amplifyPutS3Object(key, "application/zip", zipBytes)
+	if err := amplifyPutS3Object(key, "application/zip", zipBytes); err != nil {
+		deployLog.Printf("!!! could not store the build artifacts: %v", err)
+		finishStep("DEPLOY", deployLog, AmplifyJobStatusFailed)
+		return AmplifyJobStatusFailed
+	}
 	amplifyRegisterJobArtifact(urlBase, appID, branch, jobID, amplifyArtifactID(jobID), "artifacts.zip", key)
 	amplifySetJobStepArtifactsURL(jobID, "BUILD", amplifyPresignedS3URLBase(urlBase, key, http.MethodGet))
 	deployLog.Printf("# deployed %d files (%d bytes) from %s", fileCount, len(zipBytes), spec.BaseDirectory)
@@ -507,7 +517,9 @@ func amplifyCollectEndToEndTestArtifacts(
 		return nil
 	}
 	aggregateKey := "test-artifacts/" + appID + "/" + branch + "/" + jobID + "/test-artifacts.zip"
-	amplifyPutS3Object(aggregateKey, "application/zip", testZip)
+	if err := amplifyPutS3Object(aggregateKey, "application/zip", testZip); err != nil {
+		return err
+	}
 	aggregateURL := amplifyPresignedS3URLBase(urlBase, aggregateKey, http.MethodGet)
 	amplifyRegisterAuxiliaryArtifact(
 		urlBase, appID, branch, jobID, amplifyArtifactID(jobID), "test-artifacts.zip", aggregateKey,
@@ -532,7 +544,9 @@ func amplifyCollectEndToEndTestArtifacts(
 		}
 		key := "test-artifacts/" + appID + "/" + branch + "/" + jobID + "/files/" + relative
 		if amplifyArtifactMatch(spec.TestFiles, relative) {
-			amplifyPutS3Object(key, "application/octet-stream", data)
+			if err := amplifyPutS3Object(key, "application/octet-stream", data); err != nil {
+				return err
+			}
 			amplifyRegisterEndToEndTestArtifact(
 				urlBase, appID, branch, jobID, amplifyArtifactID(jobID), relative, key,
 			)
@@ -541,7 +555,9 @@ func amplifyCollectEndToEndTestArtifacts(
 			spec.TestConfigFilePath != "" &&
 			amplifyArtifactMatch([]string{spec.TestConfigFilePath}, relative) {
 			configKey := "test-artifacts/" + appID + "/" + branch + "/" + jobID + "/config/" + relative
-			amplifyPutS3Object(configKey, "application/json", data)
+			if err := amplifyPutS3Object(configKey, "application/json", data); err != nil {
+				return err
+			}
 			configURL = amplifyPresignedS3URLBase(urlBase, configKey, http.MethodGet)
 			amplifyRegisterAuxiliaryArtifact(
 				urlBase, appID, branch, jobID, amplifyArtifactID(jobID), relative, configKey,

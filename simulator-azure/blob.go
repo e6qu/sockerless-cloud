@@ -611,7 +611,7 @@ func handleBlobDataPlane(w http.ResponseWriter, r *http.Request, account string)
 		return
 	}
 	if r.Method == http.MethodPut || r.Method == http.MethodDelete {
-		defer blobWriters.lock(blobObjectKey(account, container, blob))()
+		defer blobWriters.Lock(blobObjectKey(account, container, blob))()
 	}
 	switch r.Method {
 	case http.MethodPut:

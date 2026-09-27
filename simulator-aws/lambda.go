@@ -663,7 +663,7 @@ func lambdaDeploymentPackageBytes(code *LambdaFunctionCode) ([]byte, error) {
 				"Amazon S3 object s3://%s/%s does not exist", code.S3Bucket, code.S3Key,
 			))
 		}
-		return append([]byte(nil), obj.Data...), nil
+		return s3ObjectData(obj)
 	}
 	return nil, lambdaDeploymentPackageError("ZipFile or Amazon S3 deployment package coordinates are required")
 }
@@ -734,7 +734,10 @@ func handleLambdaGetFunction(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			key := "functions/" + name + "/" + fn.RevisionId + ".zip"
-			lambdaPutArtifact(key, archive)
+			if err := lambdaPutArtifact(key, archive); err != nil {
+				AWSError(w, "ServiceException", err.Error(), http.StatusInternalServerError)
+				return
+			}
 			code["Location"] = presignedS3URLBase(
 				awsRequestURLBase(r), lambdaArtifactBucketName(), key, http.MethodGet,
 			)
@@ -764,7 +767,7 @@ func lambdaArtifactBucketName() string {
 	return awsAccountID() + "-lambda-artifacts"
 }
 
-func lambdaPutArtifact(key string, data []byte) {
+func lambdaPutArtifact(key string, data []byte) error {
 	bucket := lambdaArtifactBucketName()
 	if _, ok := s3Buckets_.Get(bucket); !ok {
 		s3Buckets_.Put(bucket, S3Bucket{
@@ -773,15 +776,17 @@ func lambdaPutArtifact(key string, data []byte) {
 		})
 	}
 	digest := md5.Sum(data)
-	s3Objects.Put(s3ObjectKey(bucket, key), S3Object{
-		Key:          s3ObjectKey(bucket, key),
-		Data:         append([]byte(nil), data...),
+	storeKey := s3ObjectKey(bucket, key)
+	release := s3ObjectWriters.Lock(storeKey)
+	defer release()
+	_, err := s3StoreObject(S3Object{
+		Key:          storeKey,
 		ContentType:  "application/zip",
 		ETag:         fmt.Sprintf("\"%x\"", digest),
 		LastModified: time.Now().UTC(),
-		Size:         int64(len(data)),
 		Metadata:     map[string]string{"aws-service": "lambda"},
-	})
+	}, data)
+	return err
 }
 
 func handleLambdaDeleteFunction(w http.ResponseWriter, r *http.Request) {
