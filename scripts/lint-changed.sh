@@ -56,7 +56,9 @@ for mod in $sorted; do
     placeholders+=("$mod/dist")
   fi
   echo "lint: $mod"
-  if ! (cd "$mod" && golangci-lint run --timeout 2m ./...); then
+  # The timeout is .golangci.yml's; a second one here, shorter, failed the
+  # largest module's package load whenever the machine was busy.
+  if ! (cd "$mod" && golangci-lint run ./...); then
     failed=1
   fi
 done
