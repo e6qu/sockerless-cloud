@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.0](https://github.com/e6qu/sockerless-cloud/compare/v0.32.17...v0.33.0) (2026-09-27)
+
+
+### Features
+
+* serve Cloud Bigtable memory layers over gRPC, list object stores by key range, adopt the newest dependencies ([#206](https://github.com/e6qu/sockerless-cloud/issues/206)) ([7dc470c](https://github.com/e6qu/sockerless-cloud/commit/7dc470cf6501e7ff0fc1c1875280d33979fbfde5))
+
 ## [0.32.17](https://github.com/e6qu/sockerless-cloud/compare/v0.32.16...v0.32.17) (2026-09-25)
 
 
