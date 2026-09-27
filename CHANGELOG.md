@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.1](https://github.com/e6qu/sockerless-cloud/compare/v0.33.0...v0.33.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **storage:** object contents out of store rows, one S3 conditional writer per object; adopt the newest dependencies ([#208](https://github.com/e6qu/sockerless-cloud/issues/208)) ([38af0a7](https://github.com/e6qu/sockerless-cloud/commit/38af0a7f00026aca79f0470ba4d6f4bfaf7fa493))
+
 ## [0.33.0](https://github.com/e6qu/sockerless-cloud/compare/v0.32.17...v0.33.0) (2026-09-27)
 
 
