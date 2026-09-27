@@ -491,15 +491,21 @@ func glueEntityParseObject(object S3Object, table GlueTable, columns []map[strin
 	library, _ := serde["SerializationLibrary"].(string)
 	inputFormat, _ := table.StorageDescriptor["InputFormat"].(string)
 	lowerFormat := strings.ToLower(library + " " + inputFormat + " " + object.ContentType + " " + object.Key)
-	if strings.Contains(lowerFormat, "json") || strings.HasSuffix(strings.ToLower(object.Key), ".json") ||
-		strings.HasSuffix(strings.ToLower(object.Key), ".jsonl") {
-		return glueEntityParseJSON(object.Data)
+	jsonFormat := strings.Contains(lowerFormat, "json") || strings.HasSuffix(strings.ToLower(object.Key), ".json") ||
+		strings.HasSuffix(strings.ToLower(object.Key), ".jsonl")
+	csvFormat := strings.Contains(lowerFormat, "csv") || strings.Contains(lowerFormat, "textinputformat") ||
+		strings.HasSuffix(strings.ToLower(object.Key), ".csv")
+	if !jsonFormat && !csvFormat {
+		return nil, fmt.Errorf("unsupported table input format %q", inputFormat)
 	}
-	if strings.Contains(lowerFormat, "csv") || strings.Contains(lowerFormat, "textinputformat") ||
-		strings.HasSuffix(strings.ToLower(object.Key), ".csv") {
-		return glueEntityParseCSV(object.Data, columns, table.Parameters)
+	data, err := s3ObjectData(object)
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("unsupported table input format %q", inputFormat)
+	if jsonFormat {
+		return glueEntityParseJSON(data)
+	}
+	return glueEntityParseCSV(data, columns, table.Parameters)
 }
 
 func glueEntityParseJSON(data []byte) ([]map[string]any, error) {

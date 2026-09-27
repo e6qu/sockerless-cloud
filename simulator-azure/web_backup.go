@@ -437,28 +437,28 @@ func webParseBackupStorageURL(raw string) (webBackupStorageTarget, string, strin
 
 // webPutBackupBlob writes one backup artifact into the Blob data plane of the
 // account the backup targets — the same plane the customer downloads it from.
-func webPutBackupBlob(target webBackupStorageTarget, name string, data []byte, contentType string) {
+func webPutBackupBlob(target webBackupStorageTarget, name string, data []byte, contentType string) error {
 	now := time.Now().UTC().Format(http.TimeFormat)
-	putBlobObject(BlobObject{
+	return putBlobWithContents(BlobObject{
 		Account:      target.account,
 		Container:    target.container,
 		Name:         name,
-		Data:         data,
 		ContentType:  contentType,
 		BlobType:     "BlockBlob",
 		ETag:         azureNetworkEtag(),
 		LastModified: now,
 		CreationTime: now,
-	})
+	}, data)
 }
 
 // webGetBackupBlob reads one backup artifact back out of the Blob data plane.
-func webGetBackupBlob(target webBackupStorageTarget, name string) ([]byte, bool) {
+func webGetBackupBlob(target webBackupStorageTarget, name string) ([]byte, bool, error) {
 	obj, ok := blobObjects.Get(blobObjectKey(target.account, target.container, name))
 	if !ok || obj.Deleted {
-		return nil, false
+		return nil, false, nil
 	}
-	return obj.Data, true
+	_, data, err := blobData(obj)
+	return data, true, err
 }
 
 // webCaptureAppSnapshot records a platform snapshot of the app: the complete

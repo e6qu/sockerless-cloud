@@ -2,12 +2,12 @@ package main
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -483,33 +483,31 @@ func handleS3RenameObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	srcStoreKey := s3ObjectKey(bucket, srcKey)
-	obj, ok := s3Objects.Get(srcStoreKey)
-	if !ok {
+	// Destination conditional headers (optimistic concurrency on the target).
+	ifNoneMatch, ifMatch := r.Header.Get("If-None-Match"), r.Header.Get("If-Match")
+	condition := func(existing S3Object, exists bool) bool {
+		if ifNoneMatch == "*" && exists {
+			return false
+		}
+		return ifMatch == "" || (exists && strings.Trim(ifMatch, `"`) == strings.Trim(existing.ETag, `"`))
+	}
+	// The object's annotations travel with it — a rename moves the object, it
+	// does not strip metadata.
+	annotations := s3ObjectAnnotationsOf(bucket, srcKey)
+	_, err := s3MoveObject(srcStoreKey, s3ObjectKey(bucket, destKey), condition)
+	switch {
+	case errors.Is(err, errS3NoSuchKey):
 		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			srcKey, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
-	}
-	// Destination conditional headers (optimistic concurrency on the target).
-	existing, exists := s3Objects.Get(s3ObjectKey(bucket, destKey))
-	if inm := r.Header.Get("If-None-Match"); inm == "*" && exists {
+	case errors.Is(err, errS3PreconditionFailed):
 		S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
 			destKey, sim.RequestID(r.Context()), http.StatusPreconditionFailed)
 		return
+	case err != nil:
+		S3ErrorXML(w, "InternalError", err.Error(), destKey, sim.RequestID(r.Context()), http.StatusInternalServerError)
+		return
 	}
-	if im := r.Header.Get("If-Match"); im != "" {
-		if !exists || strings.Trim(im, `"`) != strings.Trim(existing.ETag, `"`) {
-			S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
-				destKey, sim.RequestID(r.Context()), http.StatusPreconditionFailed)
-			return
-		}
-	}
-	// Move: write under the new key, delete the old. The object's annotations
-	// travel with it — a rename moves the object, it does not strip metadata.
-	annotations := s3ObjectAnnotationsOf(bucket, srcKey)
-	obj.Key = s3ObjectKey(bucket, destKey)
-	obj.LastModified = time.Now()
-	s3Objects.Put(obj.Key, obj)
-	s3Objects.Delete(srcStoreKey)
 	for _, ann := range annotations {
 		s3ObjectAnnotations.Delete(s3AnnotationKey(bucket, srcKey, ann.Name))
 		ann.Owner = s3ObjectKey(bucket, destKey)
@@ -575,20 +573,26 @@ func handleS3UpdateObjectEncryption(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var algorithm, kmsKeyID string
 	switch {
 	case doc.SSEKMS != nil:
-		obj.SSEAlgorithm = "aws:kms"
-		obj.SSEKMSKeyID = doc.SSEKMS.KMSKeyArn
+		algorithm, kmsKeyID = "aws:kms", doc.SSEKMS.KMSKeyArn
 	case doc.SSES3 != nil:
-		obj.SSEAlgorithm = "AES256"
-		obj.SSEKMSKeyID = ""
+		algorithm = "AES256"
 	default:
 		S3ErrorXML(w, "InvalidRequest",
 			"The ObjectEncryption body must specify SSE-KMS or SSE-S3.",
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
-	s3Objects.Put(storeKey, obj)
+	if !s3Objects.Update(storeKey, func(current *S3Object) {
+		current.SSEAlgorithm, current.SSEKMSKeyID = algorithm, kmsKeyID
+		obj = *current
+	}) {
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+			key, sim.RequestID(r.Context()), http.StatusNotFound)
+		return
+	}
 
 	w.Header().Set("x-amz-server-side-encryption", obj.SSEAlgorithm)
 	if obj.SSEKMSKeyID != "" {

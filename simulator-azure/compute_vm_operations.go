@@ -293,17 +293,19 @@ func registerVirtualMachineBootDiagnostics(srv *sim.Server, armBase string) {
 		}
 		container, blobName := azureBootDiagnosticsPath(vm)
 		now := time.Now().UTC().Format(http.TimeFormat)
-		putBlobObject(BlobObject{
+		if err := putBlobWithContents(BlobObject{
 			Account:      account,
 			Container:    container,
 			Name:         blobName,
-			Data:         console,
 			ContentType:  "text/plain",
 			BlobType:     "BlockBlob",
 			ETag:         azureNetworkEtag(),
 			LastModified: now,
 			CreationTime: now,
-		})
+		}, console); err != nil {
+			AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+			return
+		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"serialConsoleLogBlobUri": fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s",
 				account, container, blobName),

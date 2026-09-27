@@ -243,8 +243,18 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 			sim.WriteJSON(w, http.StatusOK, backupItemWire(r, row, false))
 			return
 		}
-		webPutBackupBlob(target, blobName, archive.zip, "application/zip")
-		webPutBackupBlob(target, webManifestBlobName(blobName), archive.manifest, "application/xml")
+		stored := webPutBackupBlob(target, blobName, archive.zip, "application/zip")
+		if stored == nil {
+			stored = webPutBackupBlob(target, webManifestBlobName(blobName), archive.manifest, "application/xml")
+		}
+		if stored != nil {
+			row.Status = "Failed"
+			row.Log = stored.Error()
+			row.FinishedTimeStamp = time.Now().UTC().Format(time.RFC3339)
+			webBackupItems.Put(row.ID, row)
+			sim.WriteJSON(w, http.StatusOK, backupItemWire(r, row, false))
+			return
+		}
 		row.Status = "Succeeded"
 		row.SizeInBytes = int64(len(archive.zip))
 		row.WebsiteSizeInBytes = archive.contentBytes
@@ -373,12 +383,19 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 				"The blobName property is required to discover a backup.", http.StatusBadRequest)
 			return
 		}
-		if _, ok := webGetBackupBlob(target, blobName); !ok {
+		if _, ok, err := webGetBackupBlob(target, blobName); err != nil {
+			AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+			return
+		} else if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The backup blob %q was not found in container %q.", blobName, target.container)
 			return
 		}
-		manifest, ok := webGetBackupBlob(target, webManifestBlobName(blobName))
+		manifest, ok, err := webGetBackupBlob(target, webManifestBlobName(blobName))
+		if err != nil {
+			AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+			return
+		}
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The backup manifest %q was not found in container %q.",
@@ -589,7 +606,11 @@ func webRestoreFromBlob(w http.ResponseWriter, r *http.Request, storageURL, blob
 		AzureError(w, code, msg, http.StatusBadRequest)
 		return
 	}
-	data, ok := webGetBackupBlob(target, blobName)
+	data, ok, err := webGetBackupBlob(target, blobName)
+	if err != nil {
+		AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if !ok {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The backup blob %q was not found in container %q.", blobName, target.container)
@@ -609,7 +630,12 @@ func webRestoreFromBlob(w http.ResponseWriter, r *http.Request, storageURL, blob
 		return
 	}
 	var hostNames []string
-	if manifest, ok := webGetBackupBlob(target, webManifestBlobName(blobName)); ok {
+	manifest, ok, err := webGetBackupBlob(target, webManifestBlobName(blobName))
+	if err != nil {
+		AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if ok {
 		hostNames = webManifestHostNames(manifest)
 	}
 	ignoreHostNames := req.Properties.IgnoreConflictingHostNames

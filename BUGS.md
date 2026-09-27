@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 11. Resolved: 145.
+Open: 14. Resolved: 150.
 
 ## Open
 
@@ -19,6 +19,9 @@ Open: 11. Resolved: 145.
 
 | ID | Sev | Area | Pattern | One-liner |
 |----|-----|------|---------|-----------|
+| 3053 | P3 | An Amazon EBS volume keeps its contents inside its store row | the class BUG-3047 took out of the object stores, in a store it did not reach | `EC2Volume.Data` holds the volume's bytes, and CreateVolume from a snapshot copies them row to row (`ec2_volumes_misc.go`), so every read of the volume decodes all of it. The repair is BUG-3047's: the contents in a `sim.Payloads` file, the row holding its reference. |
+| 3052 | P3 | AWS Private CA drops a failure to publish a certificate revocation list | an error discarded where the service would report it | `privateCAWriteCRL` returns silently when `x509.CreateRevocationList` fails and discards the error of the Amazon S3 write (`_, _ = s3PutServiceObject(...)`), so a CRL that was never published looks the same as one that was. AWS Private CA reports a CRL it could not write through the `MisconfiguredCRLBucket` metric and the CA's audit trail; the repair records the failure where DescribeCertificateAuthority and the CRL's absence can be read together. |
+| 3051 | P3 | S3 RestoreObject ignores the restore request's `Days` and tier | an accepted request body read and dropped | `handleS3RestoreObject` reads the `<RestoreRequest>` body and discards it, then marks the object restored for 24 hours whatever `Days` said, and never distinguishes the Expedited, Standard and Bulk tiers. The repair parses the request, sets `RestoreExpiryDate` from `Days`, and answers a request for an object that is not in an archive storage class with `InvalidObjectState`, as Amazon S3 does. |
 | 3046 | P3 | A Cloud Bigtable memory layer never reports `memoryConfig.storageSizeGib` | an output-only measurement whose rule no published source states | The field is "the current size of the memory layer in GiB" (`google.bigtable.admin.v2.MemoryLayer.MemoryConfig`), set by the service once a layer is enabled. Neither the proto, the Discovery document nor the product documentation says how the size follows from the cluster, so the simulator reports none rather than invent a figure; both the REST and gRPC surfaces read the same record. The repair is a capture: enable a memory layer on a real cluster at two node counts and read the size back, then derive it from the cluster the way the service does. |
 | 3045 | P3 | Cloud Bigtable admin operations carry no metadata, except UpdateMemoryLayer's | an operation built from its result alone | Every Cloud Bigtable admin method that answers with a long-running operation declares a metadata message — `CreateInstanceMetadata`, `UpdateClusterMetadata`, `CreateBackupMetadata` and the rest — and the service fills it with the original request and its timings. `bigtableDoneOperation` builds the operation from the resource alone, so a client that reads `Metadata()` gets nothing. `bigtableDoneOperationWithMetadata` exists now and UpdateMemoryLayer uses it; the repair is the same call at each of the other call sites with that method's metadata, and an SDK assertion per method that the metadata names the request. |
 | 3037 | P3 | DescribeInstanceTypes reports 2 vCPUs, one core and 1024 MiB for every instance type, and the future-dated Capacity Reservation minimum of 32 vCPUs is not enforced because nothing in the simulator knows a type's vCPUs | a response built from a template rather than from the instance type it names | `handleDescribeInstanceTypes` writes the same `vCpuInfo`, `memoryInfo` and network block for every type it lists, and `vcpusForInstanceType` guesses from the size suffix, defaulting to 2. A client sizing a fleet, and the CreateCapacityReservation check that a future-dated request asks for at least 32 vCPUs ("the minimum instance count is 32 vCPUs", EC2 user guide, Future-dated Capacity Reservation assessment), both need the real figures. The repair is a vendored instance-type catalog — the specification of each type as `DescribeInstanceTypes` itself publishes it, pinned and checksummed like the other vendored corpora — that both the describe and the capacity check read. |
@@ -31,6 +34,55 @@ Open: 11. Resolved: 145.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3054 (shrinking a page blob kept pages past its new end):**~~ Resize
+  truncated the contents first and then removed the written page ranges from
+  the new size to twice the new size, so a range written beyond that
+  survived in Get Page Ranges though its bytes were gone. It now removes
+  everything from the new size to the old one.
+
+- ~~**BUG-3050 (CloudTrail dropped a delivery it could not make, without a
+  trace):**~~ Delivering an event to a trail's bucket skipped the trail when
+  the log file could not be built, and stored it with no way to fail, so
+  GetTrailStatus reported the last success as the last attempt whatever
+  happened after it. A failed delivery now records its time and error, and
+  GetTrailStatus reports `LatestDeliveryAttemptTime` and
+  `LatestDeliveryError` apart from the last delivery that succeeded.
+
+- ~~**BUG-3049 (S3 CopyObject dropped the source's user metadata):**~~ A copy
+  kept the content type and dropped every `x-amz-meta-*` value, where the
+  default `COPY` metadata directive carries them over. The copy now keeps
+  them, and `REPLACE` takes the content type and metadata from the request.
+
+- ~~**BUG-3048 (two S3 conditional writes to one key could both
+  succeed):**~~ PutObject read the object, checked `If-None-Match` and
+  `If-Match` against it, then read the request body and stored, with nothing
+  holding the key in between. Thirty-two concurrent `If-None-Match: *`
+  creates of one key produced between 2 and 16 winners in five runs; a
+  client that arbitrates with a conditional write — bleephub's repository
+  manifest, a lock object — was silently broken. The Cloud Storage and Azure
+  Blob Storage slices had been fixed with per-object write locks (BUG-3031,
+  BUG-3032); the lock is now one `sim.KeyedLocks` all three use, and
+  PutObject, CopyObject, CompleteMultipartUpload, RenameObject and every
+  other writer of an object evaluate their conditions and store under it.
+  `TestS3_ConcurrentConditionalPutsHaveOneWinner` holds it to one winner.
+
+- ~~**BUG-3047 (an object's contents were read whole on every request):**~~
+  The S3 slice kept each object's bytes inside its store row, so reading a
+  1 KiB range of a 6 MiB object decoded the whole row: 57 ms, against 60 ms
+  for the whole object. bleephub's benchmark saw it as cold clones taking
+  1.1 s on the simulator against 0.6 s on real S3 servers, and a push's
+  compaction finishing a scenario late. Contents now live in `sim.Payloads`
+  files, and the row holds a reference, so a ranged read opens the file and
+  reads its range: 0.45 ms, and 3 ms for the whole object. Uploaded parts
+  moved out of their upload's row the same way, which also ended every
+  UploadPart re-encoding every earlier part. A database written before this
+  is migrated as the slice starts, and files no row references are swept.
+  Azure Blob Storage had the same shape — every blob, snapshot and staged or
+  committed block carried its bytes in its row — and moved the same way
+  (`blob_bodies.go`). There a copy and a snapshot used to be built by
+  copying the source's row; each now writes a file of its own, so releasing
+  one row's contents can never take another's.
 
 - ~~**BUG-3044 (a gRPC listing restarted from the first page on a token it
   had not issued):**~~ The paging shared by the Pub/Sub and Cloud Bigtable

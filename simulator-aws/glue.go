@@ -1425,7 +1425,7 @@ func gluePythonScript(job GlueJob) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("script object not found: %s", location)
 	}
-	return obj.Data, nil
+	return s3ObjectData(obj)
 }
 
 // gluePythonShellImage is the interpreter a Python shell job runs on, chosen by

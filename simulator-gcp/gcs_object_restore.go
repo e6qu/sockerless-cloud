@@ -152,7 +152,7 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 				"no soft-deleted object %q with generation %s in bucket %q", objectName, generation, bucketName)
 			return
 		}
-		defer gcsObjectWriters.lock(bucketName, objectName)()
+		defer gcsObjectWriters.Lock(bucketName + "/" + objectName)()
 		if _, live := objects.Get(bucketName + "/" + objectName); live {
 			GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
 				"object %q already exists in bucket %q", objectName, bucketName)
@@ -248,7 +248,7 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 			writeGCSPersistError(w, "move object", err)
 			return
 		}
-		release := gcsObjectWriters.lock(bucketName, source)
+		release := gcsObjectWriters.Lock(bucketName + "/" + source)
 		if current, ok := objects.Get(bucketName + "/" + source); ok && current.Generation == obj.Generation {
 			objects.Delete(bucketName + "/" + source)
 			gcsRemoveObjectPayload(bucketName, source)

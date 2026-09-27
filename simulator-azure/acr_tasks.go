@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -416,9 +415,14 @@ func executeACRBuild(ctx context.Context, req acrDockerBuildRequest, reg Registr
 	}
 	args = append(args, "-") // build context from stdin (gzipped tar)
 
+	_, context, closeContext, err := blobOpen(obj)
+	if err != nil {
+		return runLog.String(), fmt.Errorf("read the build context: %w", err)
+	}
+	defer closeContext()
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Env = dockerEnv
-	cmd.Stdin = bytes.NewReader(obj.Data)
+	cmd.Stdin = context
 	out, err := cmd.CombinedOutput()
 	runLog.Write(out)
 	if err != nil {

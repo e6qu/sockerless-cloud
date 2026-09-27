@@ -113,11 +113,15 @@ func handlePageBlobCopyIncremental(w http.ResponseWriter, r *http.Request, accou
 		return
 	}
 
+	source, data, err := blobData(source)
+	if err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	completion := blobNowHTTP()
 	copyID := generateUUID()
 	dst := source
 	dst.Account, dst.Container, dst.Name, dst.Snapshot = account, container, blob, ""
-	dst.Data = append([]byte(nil), source.Data...)
 	dst.PageRanges = append([]BlobPageRange(nil), source.PageRanges...)
 	dst.Metadata = cloneBlobMetadata(source.Metadata)
 	dst.Tags = cloneBlobMetadata(source.Tags)
@@ -126,7 +130,7 @@ func handlePageBlobCopyIncremental(w http.ResponseWriter, r *http.Request, accou
 	dst.CopyID = copyID
 	dst.CopyStatus = "success"
 	dst.CopySource = sourceURL
-	dst.CopyProgress = fmt.Sprintf("%d/%d", len(dst.Data), len(dst.Data))
+	dst.CopyProgress = fmt.Sprintf("%d/%d", len(data), len(data))
 	dst.CopyCompletionTime = completion
 	blobTouch(&dst)
 
@@ -136,6 +140,15 @@ func handlePageBlobCopyIncremental(w http.ResponseWriter, r *http.Request, accou
 	destSnapshot.Snapshot = blobSnapshotStamp(time.Now())
 	destSnapshot.Lease = BlobLease{}
 	dst.CopyDestinationSnapshot = destSnapshot.Snapshot
+	// The destination and its snapshot are two rows, so each gets a file.
+	if err := blobSetContents(&dst, data); err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := blobSetContents(&destSnapshot, data); err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	putBlobObject(destSnapshot)
 	putBlobObject(dst)
 
@@ -168,7 +181,12 @@ func handleStageBlockFromURL(w http.ResponseWriter, r *http.Request, account, co
 	key := blobBlockKey(account, container, blob, blockID)
 	block, _ := blobBlocks.Get(key)
 	block.Account, block.Container, block.Blob, block.BlockID = account, container, blob, blockID
-	block.UncommittedData = data
+	ref, err := blobWriteBody(data)
+	if err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	block.UncommittedBody, block.UncommittedSize, block.LegacyUncommittedData = ref, int64(len(data)), nil
 	block.HasUncommitted = true
 	putBlobBlock(account, container, blob, blockID, block)
 	w.Header().Set("Content-MD5", blobContentMD5(data))
@@ -197,17 +215,22 @@ func blobReadCopySourceRange(w http.ResponseWriter, r *http.Request, sourceURL, 
 		writeCopySourceBlobNotFound(w)
 		return nil, false
 	}
+	_, data, err := blobData(source)
+	if err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return nil, false
+	}
 	if sourceRange == "" {
-		return append([]byte(nil), source.Data...), true
+		return data, true
 	}
 	start, end, ok := parseBlobByteRange(sourceRange)
-	if !ok || start < 0 || start > end || end >= int64(len(source.Data)) {
+	if !ok || start < 0 || start > end || end >= int64(len(data)) {
 		writeStorageError(w, "InvalidRange",
 			"The range specified is invalid for the current size of the resource.",
 			http.StatusRequestedRangeNotSatisfiable)
 		return nil, false
 	}
-	return append([]byte(nil), source.Data[start:end+1]...), true
+	return data[start : end+1], true
 }
 
 // blobDrainBody consumes and discards a request body, so a handler that ignores

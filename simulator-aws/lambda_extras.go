@@ -298,21 +298,27 @@ func lambdaLayerVersionArn(name string, version int64) string {
 	return fmt.Sprintf("%s:%d", lambdaLayerArn(name), version)
 }
 
-func lambdaLayerContentOutput(r *http.Request, lv LambdaLayerVersion) map[string]any {
+func lambdaLayerContentOutput(r *http.Request, lv LambdaLayerVersion) (map[string]any, error) {
 	key := fmt.Sprintf("layers/%s/%d.zip", lv.LayerName, lv.Version)
-	lambdaPutArtifact(key, lv.Content)
+	if err := lambdaPutArtifact(key, lv.Content); err != nil {
+		return nil, err
+	}
 	return map[string]any{
 		"Location": presignedS3URLBase(
 			awsRequestURLBase(r), lambdaArtifactBucketName(), key, http.MethodGet,
 		),
 		"CodeSha256": lv.CodeSha256,
 		"CodeSize":   lv.CodeSize,
-	}
+	}, nil
 }
 
-func lambdaLayerVersionResponse(r *http.Request, lv LambdaLayerVersion) map[string]any {
+func lambdaLayerVersionResponse(r *http.Request, lv LambdaLayerVersion) (map[string]any, error) {
+	content, err := lambdaLayerContentOutput(r, lv)
+	if err != nil {
+		return nil, err
+	}
 	out := map[string]any{
-		"Content":         lambdaLayerContentOutput(r, lv),
+		"Content":         content,
 		"LayerArn":        lambdaLayerArn(lv.LayerName),
 		"LayerVersionArn": lambdaLayerVersionArn(lv.LayerName, lv.Version),
 		"Version":         lv.Version,
@@ -330,7 +336,7 @@ func lambdaLayerVersionResponse(r *http.Request, lv LambdaLayerVersion) map[stri
 	if lv.LicenseInfo != "" {
 		out["LicenseInfo"] = lv.LicenseInfo
 	}
-	return out
+	return out, nil
 }
 
 func lambdaLayerVersionsListItem(lv LambdaLayerVersion) map[string]any {
@@ -408,7 +414,12 @@ func handleLambdaPublishLayerVersion(w http.ResponseWriter, r *http.Request) {
 		*existing = append(*existing, lv)
 	})
 
-	sim.WriteJSON(w, http.StatusCreated, lambdaLayerVersionResponse(r, lv))
+	response, err := lambdaLayerVersionResponse(r, lv)
+	if err != nil {
+		AWSError(w, "ServiceException", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sim.WriteJSON(w, http.StatusCreated, response)
 }
 
 func handleLambdaListLayerVersions(w http.ResponseWriter, r *http.Request) {
@@ -436,7 +447,12 @@ func handleLambdaGetLayerVersion(w http.ResponseWriter, r *http.Request) {
 			"Layer version %s:%d not found", layerName, version)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, lambdaLayerVersionResponse(r, lv))
+	response, err := lambdaLayerVersionResponse(r, lv)
+	if err != nil {
+		AWSError(w, "ServiceException", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, response)
 }
 
 func handleLambdaDeleteLayerVersion(w http.ResponseWriter, r *http.Request) {
@@ -553,7 +569,12 @@ func handleLambdaGetLayerVersionByArn(w http.ResponseWriter, r *http.Request) {
 			"Layer version %s:%d not found", name, version)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, lambdaLayerVersionResponse(r, lv))
+	response, err := lambdaLayerVersionResponse(r, lv)
+	if err != nil {
+		AWSError(w, "ServiceException", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, response)
 }
 
 // Reserved concurrency

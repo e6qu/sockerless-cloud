@@ -98,7 +98,7 @@ func handlePageBlobUploadPages(w http.ResponseWriter, r *http.Request, account, 
 	if !ok {
 		return
 	}
-	start, end, ok := blobPageAlignedRange(w, r, int64(len(b.Data)))
+	start, end, ok := blobPageAlignedRange(w, r, b.Size)
 	if !ok {
 		return
 	}
@@ -119,7 +119,10 @@ func handlePageBlobUploadPages(w http.ResponseWriter, r *http.Request, account, 
 			http.StatusBadRequest)
 		return
 	}
-	blobWritePages(&b, start, end, data)
+	if err := blobWritePages(&b, start, end, data); err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	putBlobObject(b)
 	writePageOperationHeaders(w, b, data, http.StatusCreated)
 }
@@ -129,7 +132,7 @@ func handlePageBlobUploadPagesFromURL(w http.ResponseWriter, r *http.Request, ac
 	if !ok {
 		return
 	}
-	start, end, ok := blobPageAlignedRange(w, r, int64(len(b.Data)))
+	start, end, ok := blobPageAlignedRange(w, r, b.Size)
 	if !ok {
 		return
 	}
@@ -143,7 +146,10 @@ func handlePageBlobUploadPagesFromURL(w http.ResponseWriter, r *http.Request, ac
 			http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
-	blobWritePages(&b, start, end, data)
+	if err := blobWritePages(&b, start, end, data); err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	putBlobObject(b)
 	writePageOperationHeaders(w, b, data, http.StatusCreated)
 }
@@ -154,12 +160,16 @@ func handlePageBlobClearPages(w http.ResponseWriter, r *http.Request, account, c
 	if !ok {
 		return
 	}
-	start, end, ok := blobPageAlignedRange(w, r, int64(len(b.Data)))
+	start, end, ok := blobPageAlignedRange(w, r, b.Size)
 	if !ok {
 		return
 	}
-	for i := start; i <= end; i++ {
-		b.Data[i] = 0
+	if err := blobEditContents(&b, func(data []byte) []byte {
+		clear(data[start : end+1])
+		return data
+	}); err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
 	}
 	b.PageRanges = blobSubtractRange(b.PageRanges, start, end)
 	blobTouch(&b)
@@ -181,10 +191,16 @@ func writePageOperationHeaders(w http.ResponseWriter, b BlobObject, written []by
 
 // blobWritePages copies data into the blob at [start,end] and records the range
 // as written.
-func blobWritePages(b *BlobObject, start, end int64, data []byte) {
-	copy(b.Data[start:end+1], data)
+func blobWritePages(b *BlobObject, start, end int64, data []byte) error {
+	if err := blobEditContents(b, func(current []byte) []byte {
+		copy(current[start:end+1], data)
+		return current
+	}); err != nil {
+		return err
+	}
 	b.PageRanges = blobMergeRange(b.PageRanges, start, end)
 	blobTouch(b)
+	return nil
 }
 
 // blobMergeRange adds [start,end] to a sorted, disjoint range set, coalescing
@@ -288,7 +304,7 @@ func handleGetPageRanges(w http.ResponseWriter, r *http.Request, account, contai
 
 	w.Header().Set("ETag", b.ETag)
 	w.Header().Set("Last-Modified", b.LastModified)
-	w.Header().Set("x-ms-blob-content-length", strconv.Itoa(len(b.Data)))
+	w.Header().Set("x-ms-blob-content-length", strconv.FormatInt(b.Size, 10))
 	writeStorageXML(w, http.StatusOK, doc)
 }
 
@@ -330,18 +346,26 @@ func handlePageBlobResize(w http.ResponseWriter, r *http.Request, account, conta
 	if !ok {
 		return
 	}
-	switch {
-	case size < int64(len(b.Data)):
-		b.Data = b.Data[:size]
-		if size == 0 {
-			b.PageRanges = nil
-		} else {
-			b.PageRanges = blobSubtractRange(b.PageRanges, size, int64(len(b.Data))+size)
+	oldSize := b.Size
+	if size != oldSize {
+		if err := blobEditContents(&b, func(data []byte) []byte {
+			if size < int64(len(data)) {
+				return data[:size]
+			}
+			grown := make([]byte, size)
+			copy(grown, data)
+			return grown
+		}); err != nil {
+			writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+			return
 		}
-	case size > int64(len(b.Data)):
-		grown := make([]byte, size)
-		copy(grown, b.Data)
-		b.Data = grown
+	}
+	switch {
+	case size == 0:
+		b.PageRanges = nil
+	case size < oldSize:
+		// Every written page past the new end goes with the bytes.
+		b.PageRanges = blobSubtractRange(b.PageRanges, size, oldSize-1)
 	}
 	blobTouch(&b)
 	putBlobObject(b)

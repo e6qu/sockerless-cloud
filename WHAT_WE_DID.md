@@ -557,3 +557,22 @@ return a gRPC status, the gRPC methods return it as is, and the REST handlers
 write it through `GCPStatusError`, which maps each code to the HTTP status
 `google.rpc.Code` documents for it. The two surfaces now differ only in how
 they carry a request and an error.
+
+## An object's contents are not in its row
+
+A store row is decoded whole on every read, so an object store that kept each
+object's bytes in its row made a ranged read cost the whole object (BUG-3047).
+`sim.Payloads` keeps contents in files of their own and the row holds a
+reference. A write is always a new file: the file is written before the row
+that names it and the file it replaced released after, so a crash leaves an
+unreferenced file, which the startup sweep removes, and never a row naming a
+file that is gone. A reader that loses the race with an overwrite reads the
+row again and serves the new contents. Each slice has one set of helpers that
+own the files (`s3_bodies.go` for S3, `blob_bodies.go` for Azure Blob
+Storage); a handler never writes a row's reference itself. A file belongs to
+exactly one row: a copy or a snapshot writes a file of its own rather than
+sharing its source's, so no row's release can take another row's contents.
+
+The Cloud Storage slice already kept its payloads in files, for Cloud Run
+volume mounts. The writes that decide a conditional request share one
+`sim.KeyedLocks` across all three slices (BUG-3048).

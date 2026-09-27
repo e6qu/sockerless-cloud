@@ -37,7 +37,12 @@ type CloudTrailTrail struct {
 // trail would re-key the index over trails each time, costing the index its
 // whole point.
 type CloudTrailDelivery struct {
+	// LatestDelivery is the last delivery that succeeded.
 	LatestDelivery string
+	// LatestDeliveryAttempt is the last delivery tried, and
+	// LatestDeliveryError why it failed, empty when it did not.
+	LatestDeliveryAttempt string `json:",omitempty"`
+	LatestDeliveryError   string `json:",omitempty"`
 }
 
 // CloudTrailChannel is a CloudTrail Lake channel — a named resource with an ARN
@@ -315,10 +320,21 @@ func handleCloudTrailGetTrailStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := map[string]any{"IsLogging": trail.Logging}
-	if delivery, ok := cloudTrailDeliveries.Get(trail.Name); ok && delivery.LatestDelivery != "" {
-		resp["LatestDeliveryTime"] = cloudTrailEpochSeconds(delivery.LatestDelivery)
-		resp["LatestDeliveryAttemptTime"] = delivery.LatestDelivery
-		resp["LatestDeliveryAttemptSucceeded"] = delivery.LatestDelivery
+	if delivery, ok := cloudTrailDeliveries.Get(trail.Name); ok {
+		attempt := delivery.LatestDeliveryAttempt
+		if attempt == "" {
+			attempt = delivery.LatestDelivery
+		}
+		if attempt != "" {
+			resp["LatestDeliveryAttemptTime"] = attempt
+		}
+		if delivery.LatestDelivery != "" {
+			resp["LatestDeliveryTime"] = cloudTrailEpochSeconds(delivery.LatestDelivery)
+			resp["LatestDeliveryAttemptSucceeded"] = delivery.LatestDelivery
+		}
+		if delivery.LatestDeliveryError != "" {
+			resp["LatestDeliveryError"] = delivery.LatestDeliveryError
+		}
 	}
 	writeAWSJSON(w, http.StatusOK, resp)
 }
@@ -1232,23 +1248,37 @@ func cloudTrailDeliverEvent(event CloudTrailEvent) {
 		if _, ok := s3Buckets_.Get(trail.S3BucketName); !ok {
 			continue
 		}
-		body, err := cloudTrailLogBody(event)
-		if err != nil {
-			continue
-		}
-		key := cloudTrailObjectKey(trail, event)
-		hash := md5.Sum(body)
-		s3Objects.Put(s3ObjectKey(trail.S3BucketName, key), S3Object{
-			Key:          s3ObjectKey(trail.S3BucketName, key),
-			Data:         body,
-			ContentType:  "application/json",
-			ETag:         fmt.Sprintf("\"%x\"", hash),
-			LastModified: time.Now().UTC(),
-			Size:         int64(len(body)),
-			Metadata:     map[string]string{"cloudtrail-event-id": event.EventId},
+		err := cloudTrailDeliverTo(trail, event)
+		cloudTrailDeliveries.Upsert(trail.Name, func(delivery *CloudTrailDelivery) {
+			delivery.LatestDeliveryAttempt = event.EventTime
+			delivery.LatestDeliveryError = ""
+			if err != nil {
+				delivery.LatestDeliveryError = err.Error()
+				return
+			}
+			delivery.LatestDelivery = event.EventTime
 		})
-		cloudTrailDeliveries.Put(trail.Name, CloudTrailDelivery{LatestDelivery: event.EventTime})
 	}
+}
+
+// cloudTrailDeliverTo writes one event's log file to the trail's bucket.
+func cloudTrailDeliverTo(trail CloudTrailTrail, event CloudTrailEvent) error {
+	body, err := cloudTrailLogBody(event)
+	if err != nil {
+		return err
+	}
+	key := s3ObjectKey(trail.S3BucketName, cloudTrailObjectKey(trail, event))
+	hash := md5.Sum(body)
+	release := s3ObjectWriters.Lock(key)
+	defer release()
+	_, err = s3StoreObject(S3Object{
+		Key:          key,
+		ContentType:  "application/json",
+		ETag:         fmt.Sprintf("\"%x\"", hash),
+		LastModified: time.Now().UTC(),
+		Metadata:     map[string]string{"cloudtrail-event-id": event.EventId},
+	}, body)
+	return err
 }
 
 func cloudTrailLogBody(event CloudTrailEvent) ([]byte, error) {

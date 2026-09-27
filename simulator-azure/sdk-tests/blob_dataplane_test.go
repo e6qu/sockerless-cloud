@@ -1448,3 +1448,32 @@ func TestStorageSDK_ListBlobsStaysInsideItsContainerAndPrefix(t *testing.T) {
 	assert.Equal(t, []string{"a/1", "a/1", "a/2"}, listed("a/", true))
 	assert.Empty(t, listed("c", false))
 }
+
+// TestStorageSDK_PageBlobShrinkDropsPagesPastTheEnd shrinks a page blob below
+// a written page far past the new end, which must leave no range there.
+func TestStorageSDK_PageBlobShrinkDropsPagesPastTheEnd(t *testing.T) {
+	client := newBlobTestClient(t, "sdkpageshrinkacct")
+	pageClient := newBlobTestContainer(t, client, "page-shrink").NewPageBlobClient("shrunk.vhd")
+	_, err := pageClient.Create(ctx, 4096, nil)
+	require.NoError(t, err)
+	for _, offset := range []int64{0, 3584} {
+		_, err = pageClient.UploadPages(ctx, streaming.NopCloser(bytes.NewReader(bytes.Repeat([]byte("p"), 512))),
+			blob.HTTPRange{Offset: offset, Count: 512}, nil)
+		require.NoError(t, err)
+	}
+
+	_, err = pageClient.Resize(ctx, 1024, nil)
+	require.NoError(t, err)
+
+	page, err := pageClient.NewGetPageRangesPager(nil).NextPage(ctx)
+	require.NoError(t, err)
+	require.Len(t, page.PageRange, 1, "only the page inside the new length is still written")
+	assert.Equal(t, int64(0), *page.PageRange[0].Start)
+	assert.Equal(t, int64(511), *page.PageRange[0].End)
+	download, err := pageClient.DownloadStream(ctx, nil)
+	require.NoError(t, err)
+	content, err := io.ReadAll(download.Body)
+	require.NoError(t, err)
+	require.NoError(t, download.Body.Close())
+	assert.Equal(t, 1024, len(content))
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/csv"
 	"encoding/json"
 	"encoding/xml"
@@ -191,7 +192,11 @@ func s3BatchManifestEntries(manifest s3ControlXMLNode) ([]s3BatchManifestEntry, 
 		strings.Trim(etag, `"`) != strings.Trim(object.ETag, `"`) {
 		return nil, fmt.Errorf("the manifest object's ETag does not match the one the job was created with")
 	}
-	reader := csv.NewReader(strings.NewReader(string(object.Data)))
+	manifestData, err := s3ObjectData(object)
+	if err != nil {
+		return nil, fmt.Errorf("read the manifest object %s: %w", objectArn, err)
+	}
+	reader := csv.NewReader(bytes.NewReader(manifestData))
 	reader.FieldsPerRecord = -1
 	records, err := reader.ReadAll()
 	if err != nil {
@@ -256,7 +261,11 @@ func s3RunBatchTask(job S3BatchJob, entry s3BatchManifestEntry) error {
 		if targetPrefix != "" {
 			targetKey = strings.TrimSuffix(targetPrefix, "/") + "/" + entry.Key
 		}
-		_, err := s3PutServiceObject(targetBucket, targetKey, object.Data, object.ContentType, object.Metadata)
+		object, data, err := s3OpenObjectData(object)
+		if err != nil {
+			return err
+		}
+		_, err = s3PutServiceObject(targetBucket, targetKey, data, object.ContentType, object.Metadata)
 		return err
 	case hasChild(job.Operation, "S3PutObjectLegalHold"):
 		operation, _ := job.Operation.Child("S3PutObjectLegalHold")

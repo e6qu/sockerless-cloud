@@ -387,17 +387,18 @@ func storePacketCapture(capture AzurePacketCapture, pcap []byte) error {
 	}
 	container, blobName := packetCapturePath(location.StoragePath, capture)
 	now := time.Now().UTC().Format(http.TimeFormat)
-	putBlobObject(BlobObject{
+	if err := putBlobWithContents(BlobObject{
 		Account:      account,
 		Container:    container,
 		Name:         blobName,
-		Data:         pcap,
 		ContentType:  "application/vnd.tcpdump.pcap",
 		BlobType:     "BlockBlob",
 		ETag:         azureNetworkEtag(),
 		LastModified: now,
 		CreationTime: now,
-	})
+	}, pcap); err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"sort"
 	"strconv"
@@ -27,8 +28,12 @@ type S3MultipartUpload struct {
 }
 
 type s3MultipartPart struct {
-	Data []byte
-	ETag string
+	// Body references the part's contents in s3Bodies, as S3Object.Body does.
+	Body string `json:"body,omitempty"`
+	// LegacyData is where a build before Body kept the contents.
+	LegacyData []byte `json:"Data,omitempty"`
+	Size       int64  `json:"size,omitempty"`
+	ETag       string
 }
 
 var (
@@ -286,9 +291,16 @@ func handleS3UploadPart(w http.ResponseWriter, r *http.Request) {
 	hash := md5.Sum(body)
 	etag := fmt.Sprintf(`"%x"`, hash)
 
-	s3MultipartUploads.Update(uploadID, func(upload *S3MultipartUpload) {
-		upload.Parts[partNum] = s3MultipartPart{Data: body, ETag: etag}
-	})
+	stored, err := s3StorePart(uploadID, partNum, body, etag)
+	if !stored {
+		S3ErrorXML(w, "NoSuchUpload", "The specified multipart upload does not exist",
+			mp.Bucket, sim.RequestID(r.Context()), http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		S3ErrorXML(w, "InternalError", err.Error(), mp.Bucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("ETag", etag)
 	w.WriteHeader(http.StatusOK)
 }
@@ -362,8 +374,14 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
-		assembled = append(assembled, part.Data...)
-		partHash := md5.Sum(part.Data)
+		data, err := s3PartData(part)
+		if err != nil {
+			S3ErrorXML(w, "InternalError", fmt.Sprintf("part %d: %v", p.PartNumber, err),
+				bucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
+			return
+		}
+		assembled = append(assembled, data...)
+		partHash := md5.Sum(data)
 		partMD5s = append(partMD5s, partHash[:]...)
 	}
 
@@ -373,16 +391,20 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 	finalHash := md5.Sum(partMD5s)
 	finalETag := fmt.Sprintf(`"%x-%d"`, finalHash, len(req.Parts))
 
-	obj := S3Object{
-		Key:          s3ObjectKey(bucket, key),
-		Data:         assembled,
-		Size:         int64(len(assembled)),
+	storeKey := s3ObjectKey(bucket, key)
+	release := s3ObjectWriters.Lock(storeKey)
+	_, err = s3StoreObject(S3Object{
+		Key:          storeKey,
 		ETag:         finalETag,
 		ContentType:  mp.ContentType,
 		LastModified: time.Now().UTC(),
+	}, assembled)
+	release()
+	if err != nil {
+		S3ErrorXML(w, "InternalError", err.Error(), bucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
+		return
 	}
-	s3Objects.Put(s3ObjectKey(bucket, key), obj)
-	s3MultipartUploads.Delete(uploadID)
+	s3DeleteUpload(uploadID)
 
 	// The Location field is the real-AWS canonical
 	// `https://<bucket>.s3.amazonaws.com/<key>` URL that the SDK
@@ -411,7 +433,7 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 
 func handleS3AbortMultipart(w http.ResponseWriter, r *http.Request) {
 	uploadID := r.URL.Query().Get("uploadId")
-	ok := s3MultipartUploads.Delete(uploadID)
+	ok := s3DeleteUpload(uploadID)
 	if !ok {
 		S3ErrorXML(w, "NoSuchUpload",
 			"The specified multipart upload does not exist",
@@ -595,7 +617,7 @@ func handleS3ListParts(w http.ResponseWriter, r *http.Request) {
 			PartNumber:   n,
 			LastModified: mp.Initiated.UTC().Format(time.RFC3339),
 			ETag:         part.ETag,
-			Size:         len(part.Data),
+			Size:         int(part.Size),
 		})
 		if n > result.NextPartNumberMarker {
 			result.NextPartNumberMarker = n
@@ -728,16 +750,37 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now().UTC()
-	dst := S3Object{
-		Key:          s3ObjectKey(dstBucket, dstKey),
-		Data:         append([]byte(nil), src.Data...),
-		Size:         src.Size,
-		ETag:         src.ETag,
-		ContentType:  src.ContentType,
-		LastModified: now,
+	src, data, err := s3OpenObjectData(src)
+	if err != nil {
+		S3ErrorXML(w, "InternalError", err.Error(), srcBucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
+		return
 	}
-	s3Objects.Put(dstBucket+"/"+dstKey, dst)
+	// The COPY metadata directive, the default, carries the source's user
+	// metadata and content type over; REPLACE takes both from this request.
+	contentType, metadata := src.ContentType, maps.Clone(src.Metadata)
+	if strings.EqualFold(r.Header.Get("x-amz-metadata-directive"), "REPLACE") {
+		contentType, metadata = r.Header.Get("Content-Type"), map[string]string{}
+		for name, values := range r.Header {
+			if lower := strings.ToLower(name); strings.HasPrefix(lower, "x-amz-meta-") && len(values) > 0 {
+				metadata[strings.TrimPrefix(lower, "x-amz-meta-")] = values[0]
+			}
+		}
+	}
+	now := time.Now().UTC()
+	dstKeyStore := s3ObjectKey(dstBucket, dstKey)
+	release := s3ObjectWriters.Lock(dstKeyStore)
+	_, err = s3StoreObject(S3Object{
+		Key:          dstKeyStore,
+		ETag:         src.ETag,
+		ContentType:  contentType,
+		Metadata:     metadata,
+		LastModified: now,
+	}, data)
+	release()
+	if err != nil {
+		S3ErrorXML(w, "InternalError", err.Error(), dstBucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
+		return
+	}
 	result := struct {
 		XMLName      xml.Name `xml:"CopyObjectResult"`
 		Xmlns        string   `xml:"xmlns,attr"`
@@ -796,7 +839,7 @@ func handleS3MultiObjectDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, o := range req.Objects {
 		storeKey := s3ObjectKey(bucket, o.Key)
-		s3Objects.Delete(storeKey)
+		s3DeleteObjectRow(storeKey)
 		s3ObjectTags.Delete(storeKey)
 		s3DeleteObjectAnnotations(bucket, o.Key)
 		if !req.Quiet {
