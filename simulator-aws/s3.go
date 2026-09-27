@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,8 +32,14 @@ type S3Bucket struct {
 }
 
 type S3Object struct {
-	Key          string
-	Data         []byte
+	Key string
+	// Body references the object's contents in s3Bodies; empty for an empty
+	// object. A row is decoded whole on every read, so the bytes are not in
+	// it.
+	Body string `json:"body,omitempty"`
+	// LegacyData is where a build before Body kept the contents, under the
+	// JSON name they were written with; registerS3 moves them out.
+	LegacyData   []byte `json:"Data,omitempty"`
 	ContentType  string
 	ETag         string
 	LastModified time.Time
@@ -124,24 +131,54 @@ func s3ObjectKey(bucket, key string) string {
 // AWS Private CA audit reports, and certificate-revocation lists use the same
 // durable object representation and notification pipeline as PutObject.
 func s3PutServiceObject(bucket, key string, body []byte, contentType string, metadata map[string]string) (S3Object, error) {
+	return s3PutObjectIf(bucket, key, body, contentType, metadata, nil)
+}
+
+var (
+	errS3NoSuchBucket       = errors.New("the specified bucket does not exist")
+	errS3PreconditionFailed = errors.New("at least one of the pre-conditions you specified did not hold")
+)
+
+// s3ObjectWriters serializes the writes to one object: S3 evaluates a
+// conditional write's If-Match or If-None-Match and applies the write as one
+// step, so of two writers that each require the version they read, exactly
+// one succeeds.
+var s3ObjectWriters = sim.NewKeyedLocks()
+
+// s3PutObjectIf stores body under bucket/key when condition, given the object
+// as it stands, holds; a nil condition always does. It fails with
+// errS3NoSuchBucket or errS3PreconditionFailed.
+func s3PutObjectIf(bucket, key string, body []byte, contentType string, metadata map[string]string,
+	condition func(existing S3Object, exists bool) bool,
+) (S3Object, error) {
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		return S3Object{}, fmt.Errorf("bucket %q does not exist", bucket)
+		return S3Object{}, fmt.Errorf("bucket %q: %w", bucket, errS3NoSuchBucket)
 	}
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 	hash := md5.Sum(body)
 	etag := fmt.Sprintf("\"%x\"", hash)
-	obj := S3Object{
-		Key:          s3ObjectKey(bucket, key),
-		Data:         append([]byte(nil), body...),
+	storeKey := s3ObjectKey(bucket, key)
+	release := s3ObjectWriters.Lock(storeKey)
+	if condition != nil {
+		existing, exists := s3Objects.Get(storeKey)
+		if !condition(existing, exists) {
+			release()
+			return S3Object{}, errS3PreconditionFailed
+		}
+	}
+	obj, err := s3StoreObject(S3Object{
+		Key:          storeKey,
 		ContentType:  contentType,
 		ETag:         etag,
 		LastModified: time.Now(),
-		Size:         int64(len(body)),
 		Metadata:     metadata,
+	}, body)
+	release()
+	if err != nil {
+		return S3Object{}, err
 	}
-	s3Objects.Put(obj.Key, obj)
 	s3FireObjectNotifications(bucket, key, "ObjectCreated:Put", etag, obj.Size)
 	return obj, nil
 }
@@ -169,6 +206,7 @@ func registerS3(srv *sim.Server) {
 	s3MetadataConfigs = sim.MakeStore[s3MetadataConfig](srv.DB(), "s3_metadata_configs")
 	s3MetadataTableConfigs = sim.MakeStore[s3MetadataTableConfig](srv.DB(), "s3_metadata_table_configs")
 	s3AbacStatus = sim.MakeStore[string](srv.DB(), "s3_abac_status")
+	s3OpenBodies(srv)
 
 	mux := srv
 
@@ -723,7 +761,7 @@ func handleS3DeleteBucket(w http.ResponseWriter, r *http.Request) {
 	for _, upload := range s3MultipartUploads.Filter(func(upload S3MultipartUpload) bool {
 		return upload.Bucket == bucket
 	}) {
-		s3MultipartUploads.Delete(upload.UploadID)
+		s3DeleteUpload(upload.UploadID)
 	}
 	s3MetadataConfigs.Delete(bucket)
 	s3MetadataTableConfigs.Delete(bucket)
@@ -1048,19 +1086,14 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Conditional write (optimistic concurrency): If-None-Match: * fails if the
-	// object already exists; If-Match: <etag> fails if the current ETag differs.
-	existing, exists := s3Objects.Get(s3ObjectKey(bucket, key))
-	if inm := r.Header.Get("If-None-Match"); inm == "*" && exists {
-		S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
-			key, sim.RequestID(r.Context()), http.StatusPreconditionFailed)
-		return
-	}
-	if im := r.Header.Get("If-Match"); im != "" {
-		if !exists || strings.Trim(im, `"`) != strings.Trim(existing.ETag, `"`) {
-			S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
-				key, sim.RequestID(r.Context()), http.StatusPreconditionFailed)
-			return
+	// object already exists; If-Match: <etag> fails if the current ETag
+	// differs. s3PutObjectIf evaluates it under the object's write lock.
+	ifNoneMatch, ifMatch := r.Header.Get("If-None-Match"), r.Header.Get("If-Match")
+	condition := func(existing S3Object, exists bool) bool {
+		if ifNoneMatch == "*" && exists {
+			return false
 		}
+		return ifMatch == "" || (exists && strings.Trim(ifMatch, `"`) == strings.Trim(existing.ETag, `"`))
 	}
 
 	defer r.Body.Close()
@@ -1093,10 +1126,18 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	obj, err := s3PutServiceObject(bucket, key, body, contentType, metadata)
-	if err != nil {
+	obj, err := s3PutObjectIf(bucket, key, body, contentType, metadata, condition)
+	switch {
+	case errors.Is(err, errS3NoSuchBucket):
 		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
+		return
+	case errors.Is(err, errS3PreconditionFailed):
+		S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
+			key, sim.RequestID(r.Context()), http.StatusPreconditionFailed)
+		return
+	case err != nil:
+		S3ErrorXML(w, "InternalError", err.Error(), key, sim.RequestID(r.Context()), http.StatusInternalServerError)
 		return
 	}
 
@@ -1116,6 +1157,13 @@ func handleS3GetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	obj, body, closeBody, err := s3OpenObject(obj)
+	if err != nil {
+		S3ErrorXML(w, "InternalError", err.Error(), key, sim.RequestID(r.Context()), http.StatusInternalServerError)
+		return
+	}
+	defer closeBody()
+
 	w.Header().Set("Content-Type", obj.ContentType)
 	w.Header().Set("ETag", obj.ETag)
 	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
@@ -1126,7 +1174,7 @@ func handleS3GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 	s3SetObjectEncryptionHeaders(w, obj)
 
-	http.ServeContent(w, r, key, obj.LastModified, bytes.NewReader(obj.Data))
+	http.ServeContent(w, r, key, obj.LastModified, body)
 }
 
 func handleS3HeadObject(w http.ResponseWriter, r *http.Request) {
@@ -1172,7 +1220,7 @@ func handleS3DeleteObject(w http.ResponseWriter, r *http.Request) {
 
 	storeKey := s3ObjectKey(bucket, key)
 	existing, existed := s3Objects.Get(storeKey)
-	s3Objects.Delete(storeKey)
+	s3DeleteObjectRow(storeKey)
 	s3ObjectTags.Delete(storeKey)
 	s3DeleteObjectAnnotations(bucket, key)
 

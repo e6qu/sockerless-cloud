@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // gcsPreconditions are the generation and metageneration preconditions a JSON
@@ -146,46 +148,10 @@ func writeGCSPreconditionFailed(w http.ResponseWriter) {
 	})
 }
 
-// gcsObjectWriteLocks serializes the writes to one object. Cloud Storage
-// evaluates a write's preconditions and applies the write as one step — of two
-// writers stating ifGenerationMatch=0, exactly one creates the object — so the
-// simulator holds an object's lock from reading it to storing what replaces it.
-// An object's entry lives only while a writer holds or awaits it.
-type gcsObjectWriteLocks struct {
-	mu   sync.Mutex
-	held map[string]*gcsObjectWriteLock
-}
-
-type gcsObjectWriteLock struct {
-	sync.Mutex
-	users int
-}
-
-var gcsObjectWriters = &gcsObjectWriteLocks{held: map[string]*gcsObjectWriteLock{}}
-
-// lock takes the write lock of bucket/object and returns its release.
-func (l *gcsObjectWriteLocks) lock(bucket, object string) func() {
-	key := bucket + "/" + object
-	l.mu.Lock()
-	entry := l.held[key]
-	if entry == nil {
-		entry = &gcsObjectWriteLock{}
-		l.held[key] = entry
-	}
-	entry.users++
-	l.mu.Unlock()
-
-	entry.Lock()
-	return func() {
-		entry.Unlock()
-		l.mu.Lock()
-		entry.users--
-		if entry.users == 0 {
-			delete(l.held, key)
-		}
-		l.mu.Unlock()
-	}
-}
+// gcsObjectWriters serializes the writes to one object: Cloud Storage
+// evaluates a write's preconditions and applies the write as one step, so of
+// two writers stating ifGenerationMatch=0, exactly one creates the object.
+var gcsObjectWriters = sim.NewKeyedLocks()
 
 // gcsGenerations issues object generations. Cloud Storage never gives two
 // versions of an object name the same generation, a deleted and recreated

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -30,6 +31,13 @@ func amplifyResetStores() {
 	amplifyBackends = sim.MakeStore[amplifyStoredBackend](nil, "amplify_backends")
 	s3Buckets_ = sim.MakeStore[S3Bucket](nil, "s3_buckets")
 	s3Objects = sim.MakeStore[S3Object](nil, "s3_objects")
+	dir, err := os.MkdirTemp("", "amplify-test-s3-bodies-")
+	if err != nil {
+		panic(err)
+	}
+	if s3Bodies, err = sim.OpenPayloads(dir); err != nil {
+		panic(err)
+	}
 }
 
 func amplifySeedApp(id string, branches ...string) {
@@ -186,7 +194,9 @@ func TestAmplifyDeleteAppCascade(t *testing.T) {
 	for _, appID := range []string{"doomed", "keeper"} {
 		amplifyWebhooks.Put("wh-"+appID, amplifyStoredWebhook{Webhook: AmplifyWebhook{WebhookId: "wh-" + appID}, AppId: appID})
 		artifactKey := "artifacts/" + appID + "/main/job-" + appID + "/out.zip"
-		amplifyPutS3Object(artifactKey, "application/zip", []byte("artifact"))
+		if err := amplifyPutS3Object(artifactKey, "application/zip", []byte("artifact")); err != nil {
+			t.Fatal(err)
+		}
 		amplifyArtifacts.Put("art-"+appID, amplifyStoredArtifact{
 			Artifact: AmplifyArtifact{ArtifactId: "art-" + appID, ArtifactFileName: "out.zip"},
 			AppId:    appID, BranchName: "main", JobId: "job-" + appID, Key: artifactKey,
@@ -196,7 +206,9 @@ func TestAmplifyDeleteAppCascade(t *testing.T) {
 			AppId: appID, BranchName: "main",
 		})
 		depKey := "deployments/" + appID + "/main/dep-" + appID + "/archive.zip"
-		amplifyPutS3Object(depKey, "application/zip", []byte("zip"))
+		if err := amplifyPutS3Object(depKey, "application/zip", []byte("zip")); err != nil {
+			t.Fatal(err)
+		}
 		amplifyDeployments.Put("dep-"+appID, amplifyStoredDeployment{
 			JobId: "dep-" + appID, AppId: appID, BranchName: "main", ZipKey: depKey, FileKeys: map[string]string{},
 		})
@@ -376,10 +388,10 @@ func TestAmplifyStartDeploymentValidation(t *testing.T) {
 	}
 
 	s3Buckets_.Put("bucket", S3Bucket{Name: "bucket"})
-	s3Objects.Put(s3ObjectKey("bucket", "prefix/index.html"), S3Object{
-		Key:  s3ObjectKey("bucket", "prefix/index.html"),
-		Data: []byte("<html>source prefix</html>"),
-	})
+	if _, err := s3StoreObject(S3Object{Key: s3ObjectKey("bucket", "prefix/index.html")},
+		[]byte("<html>source prefix</html>")); err != nil {
+		t.Fatal(err)
+	}
 	rec, body = amplifyDoJSON(t, handleAmplifyStartDeployment, http.MethodPost, "/apps/depapp/branches/main/deployments/start",
 		`{"sourceUrl":"s3://bucket/prefix/","sourceUrlType":"BUCKET_PREFIX"}`, vals)
 	if rec.Code != http.StatusOK {
