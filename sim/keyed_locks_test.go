@@ -31,8 +31,11 @@ func TestKeyedLocksSerializeAKeyAndForgetItAfterward(t *testing.T) {
 	if most != 1 {
 		t.Fatalf("%d holders of one key at once, want 1", most)
 	}
-	if locks.Len() != 0 {
-		t.Fatalf("%d entries remain after every holder released", locks.Len())
+	locks.mu.Lock()
+	remaining := len(locks.held)
+	locks.mu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("%d entries remain after every holder released", remaining)
 	}
 }
 

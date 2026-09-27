@@ -45,11 +45,3 @@ func (l *KeyedLocks) Lock(key string) func() {
 		l.mu.Unlock()
 	}
 }
-
-// Len reports how many keys have an entry, for tests that hold the table to
-// its promise of forgetting a key nobody holds.
-func (l *KeyedLocks) Len() int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return len(l.held)
-}
