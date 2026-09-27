@@ -92,7 +92,12 @@ func handleBlobQuery(w http.ResponseWriter, r *http.Request, account, container,
 		writeStorageError(w, "ParseError", err.Error(), http.StatusBadRequest)
 		return
 	}
-	rows, headers, err := decodeBlobQueryInput(b.Data, req.InputSerialization)
+	b, content, err := blobData(b)
+	if err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rows, headers, err := decodeBlobQueryInput(content, req.InputSerialization)
 	if err != nil {
 		writeStorageError(w, "ParseError", err.Error(), http.StatusBadRequest)
 		return
@@ -113,7 +118,7 @@ func handleBlobQuery(w http.ResponseWriter, r *http.Request, account, container,
 	w.Header().Set("Last-Modified", b.LastModified)
 	w.Header().Set("x-ms-blob-type", b.BlobType)
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(encodeBlobQueryAvro(payload, int64(len(b.Data))))
+	_, _ = w.Write(encodeBlobQueryAvro(payload, int64(len(content))))
 }
 
 // Input / output serialization

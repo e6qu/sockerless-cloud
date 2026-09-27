@@ -71,8 +71,15 @@ type BlobObject struct {
 	Name      string
 	// Snapshot is empty for the base blob and carries the snapshot timestamp
 	// (`?snapshot=<ts>`) for a snapshot, which is how Azure addresses one.
-	Snapshot     string
-	Data         []byte
+	Snapshot string
+	// Body references the blob's contents in blobBodies; empty for an empty
+	// blob. A row is decoded whole on every read, so the bytes are not in it.
+	Body string `json:"body,omitempty"`
+	// Size is the length of the contents Body references.
+	Size int64 `json:"size,omitempty"`
+	// LegacyData is where a build before Body kept the contents, under the
+	// JSON name they were written with; registerBlob moves them out.
+	LegacyData   []byte `json:"Data,omitempty"`
 	ContentType  string
 	BlobType     string
 	ETag         string
@@ -143,20 +150,29 @@ type BlobContainerData struct {
 }
 
 type BlobBlockData struct {
-	Account         string
-	Container       string
-	Blob            string
-	BlockID         string
-	UncommittedData []byte
-	CommittedData   []byte
-	HasUncommitted  bool
-	HasCommitted    bool
-	CommitOrdinal   int
+	Account   string
+	Container string
+	Blob      string
+	BlockID   string
+	// UncommittedBody and CommittedBody reference the block's staged and
+	// committed contents in blobBodies, as BlobObject.Body does.
+	UncommittedBody string `json:"uncommittedBody,omitempty"`
+	CommittedBody   string `json:"committedBody,omitempty"`
+	UncommittedSize int64  `json:"uncommittedSize,omitempty"`
+	CommittedSize   int64  `json:"committedSize,omitempty"`
+	// LegacyUncommittedData and LegacyCommittedData are where a build before
+	// the Body fields kept the contents.
+	LegacyUncommittedData []byte `json:"UncommittedData,omitempty"`
+	LegacyCommittedData   []byte `json:"CommittedData,omitempty"`
+	HasUncommitted        bool
+	HasCommitted          bool
+	CommitOrdinal         int
 }
 
 type blockRef struct {
 	id   string
-	data []byte
+	body string
+	size int64
 }
 
 var (
@@ -218,18 +234,36 @@ func putBlobObject(b BlobObject) {
 	indexAdd(blobIndex, blobContainerKey(b.Account, b.Container), key)
 	indexAdd(recordsByBlob, blobObjectKey(b.Account, b.Container, b.Name), key)
 	blobIndexMu.Unlock()
-	blobObjects.Put(key, b)
+	replaced := ""
+	blobObjects.Upsert(key, func(current *BlobObject) {
+		replaced = current.Body
+		*current = b
+	})
+	if replaced != b.Body {
+		blobReleaseBody(replaced)
+	}
 }
 
 // deleteBlobSnapshot removes one stored record — the base blob when snapshot is
-// empty, a snapshot otherwise — and keeps the container index in step.
+// empty, a snapshot otherwise — releases its contents, and keeps the container
+// index in step.
 func deleteBlobSnapshot(account, container, name, snapshot string) {
+	if b, ok := removeBlobRecord(account, container, name, snapshot); ok {
+		blobReleaseBody(b.Body)
+	}
+}
+
+// removeBlobRecord removes one stored record and keeps the index in step, but
+// keeps its contents: it is the first half of moving a record to a new key,
+// whose row takes the contents over.
+func removeBlobRecord(account, container, name, snapshot string) (BlobObject, bool) {
 	key := blobSnapshotKey(account, container, name, snapshot)
 	blobIndexMu.Lock()
 	indexRemove(blobIndex, blobContainerKey(account, container), key)
 	indexRemove(recordsByBlob, blobObjectKey(account, container, name), key)
 	blobIndexMu.Unlock()
-	blobObjects.Delete(key)
+	b, ok := blobObjects.Get(key)
+	return b, ok && blobObjects.Delete(key)
 }
 
 func putBlobBlock(account, container, blob, blockID string, b BlobBlockData) {
@@ -238,16 +272,34 @@ func putBlobBlock(account, container, blob, blockID string, b BlobBlockData) {
 	indexAdd(blockIndex, blobObjectKey(account, container, blob), key)
 	indexAdd(blocksByContainer, blobContainerKey(account, container), key)
 	blobIndexMu.Unlock()
-	blobBlocks.Put(key, b)
+	var replaced BlobBlockData
+	blobBlocks.Upsert(key, func(current *BlobBlockData) {
+		replaced = *current
+		*current = b
+	})
+	for _, ref := range []string{replaced.UncommittedBody, replaced.CommittedBody} {
+		if ref != b.UncommittedBody && ref != b.CommittedBody {
+			blobReleaseBody(ref)
+		}
+	}
 }
 
 func deleteBlobBlock(account, container, blob, blockID string) {
+	if block, ok := removeBlobBlockRecord(account, container, blob, blockID); ok {
+		blobReleaseBody(block.UncommittedBody)
+		blobReleaseBody(block.CommittedBody)
+	}
+}
+
+// removeBlobBlockRecord is removeBlobRecord for a staged or committed block.
+func removeBlobBlockRecord(account, container, blob, blockID string) (BlobBlockData, bool) {
 	key := blobBlockKey(account, container, blob, blockID)
 	blobIndexMu.Lock()
 	indexRemove(blockIndex, blobObjectKey(account, container, blob), key)
 	indexRemove(blocksByContainer, blobContainerKey(account, container), key)
 	blobIndexMu.Unlock()
-	blobBlocks.Delete(key)
+	block, ok := blobBlocks.Get(key)
+	return block, ok && blobBlocks.Delete(key)
 }
 
 func blobKeysInContainer(account, container string) []string {
@@ -293,6 +345,7 @@ func registerBlobDataPlane(srv *sim.Server) {
 	blobBlocks = sim.MakeStore[BlobBlockData](srv.DB(), "blob_blocks")
 	blobServicePropsStore = sim.MakeStore[BlobServiceConfig](srv.DB(), "blob_dataplane_service_properties")
 	blobDelegationKeys = sim.MakeStore[BlobUserDelegationKey](srv.DB(), "blob_user_delegation_keys")
+	blobOpenBodies(srv)
 
 	// Rebuild the secondary indexes from any persisted store contents so a
 	// restart with a SQLite-backed store starts consistent.
@@ -1207,7 +1260,6 @@ func handlePutBlob(w http.ResponseWriter, r *http.Request, account, container, b
 		Account:      account,
 		Container:    container,
 		Name:         blob,
-		Data:         data,
 		BlobType:     blobType,
 		CreationTime: blobNowHTTP(),
 		Metadata:     collectMetadata(r),
@@ -1232,6 +1284,10 @@ func handlePutBlob(w http.ResponseWriter, r *http.Request, account, container, b
 	}
 	b.ContentMD5 = blobContentMD5(data)
 	blobTouch(&b)
+	if err := blobSetContents(&b, data); err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	putBlobObject(b)
 
 	w.Header().Set("ETag", b.ETag)
@@ -1292,7 +1348,11 @@ func handleCopyBlob(w http.ResponseWriter, r *http.Request, account, container, 
 		return
 	}
 
-	data := append([]byte(nil), source.Data...)
+	source, data, err := blobData(source)
+	if err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	metadata := collectMetadata(r)
 	if len(metadata) == 0 {
 		metadata = cloneBlobMetadata(source.Metadata)
@@ -1303,7 +1363,6 @@ func handleCopyBlob(w http.ResponseWriter, r *http.Request, account, container, 
 		Account:            account,
 		Container:          container,
 		Name:               blob,
-		Data:               data,
 		ContentType:        source.ContentType,
 		ContentEncoding:    source.ContentEncoding,
 		ContentLanguage:    source.ContentLanguage,
@@ -1334,6 +1393,10 @@ func handleCopyBlob(w http.ResponseWriter, r *http.Request, account, container, 
 		dst.AccessTierChangeTime = completion
 	}
 	blobTouch(&dst)
+	if err := blobSetContents(&dst, data); err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	putBlobObject(dst)
 	w.Header().Set("ETag", dst.ETag)
 	w.Header().Set("Last-Modified", dst.LastModified)
@@ -1454,7 +1517,12 @@ func handleStageBlock(w http.ResponseWriter, r *http.Request, account, container
 	block.Container = container
 	block.Blob = blob
 	block.BlockID = blockID
-	block.UncommittedData = data
+	ref, err := blobWriteBody(data)
+	if err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	block.UncommittedBody, block.UncommittedSize, block.LegacyUncommittedData = ref, int64(len(data)), nil
 	block.HasUncommitted = true
 	putBlobBlock(account, container, blob, blockID, block)
 	w.WriteHeader(http.StatusCreated)
@@ -1495,7 +1563,7 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 				"The specified block list is invalid.", http.StatusBadRequest)
 			return
 		}
-		refs = append(refs, blockRef{id: id, data: block.CommittedData})
+		refs = append(refs, blockRef{id: id, body: block.CommittedBody, size: block.CommittedSize})
 	}
 	for _, id := range req.Latest {
 		block, ok := blobBlocks.Get(blobBlockKey(account, container, blob, id))
@@ -1504,11 +1572,11 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 				"The specified block list is invalid.", http.StatusBadRequest)
 			return
 		}
-		data := block.CommittedData
+		ref := blockRef{id: id, body: block.CommittedBody, size: block.CommittedSize}
 		if block.HasUncommitted {
-			data = block.UncommittedData
+			ref = blockRef{id: id, body: block.UncommittedBody, size: block.UncommittedSize}
 		}
-		refs = append(refs, blockRef{id: id, data: data})
+		refs = append(refs, ref)
 	}
 	for _, id := range req.Uncommitted {
 		block, ok := blobBlocks.Get(blobBlockKey(account, container, blob, id))
@@ -1517,13 +1585,18 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 				"The specified block list is invalid.", http.StatusBadRequest)
 			return
 		}
-		refs = append(refs, blockRef{id: id, data: block.UncommittedData})
+		refs = append(refs, blockRef{id: id, body: block.UncommittedBody, size: block.UncommittedSize})
 	}
 
 	var data []byte
 	committed := map[string]blockRef{}
 	for _, ref := range refs {
-		data = append(data, ref.data...)
+		blockBytes, err := blockData(ref.body)
+		if err != nil {
+			writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+			return
+		}
+		data = append(data, blockBytes...)
 		committed[ref.id] = ref
 	}
 	for _, key := range blockKeysForBlob(account, container, blob) {
@@ -1534,10 +1607,12 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 		ref, keepCommitted := committed[block.BlockID]
 		block.HasCommitted = keepCommitted
 		if keepCommitted {
-			block.CommittedData = ref.data
+			// The committed contents are this block's own staged or committed
+			// file, so the file stays with the row that owns it.
+			block.CommittedBody, block.CommittedSize = ref.body, ref.size
 			block.CommitOrdinal = indexBlockRef(refs, block.BlockID)
 			block.HasUncommitted = false
-			block.UncommittedData = nil
+			block.UncommittedBody, block.UncommittedSize = "", 0
 		}
 		if !block.HasCommitted && !block.HasUncommitted {
 			deleteBlobBlock(block.Account, block.Container, block.Blob, block.BlockID)
@@ -1552,10 +1627,10 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 		block.Container = container
 		block.Blob = blob
 		block.BlockID = ref.id
-		block.CommittedData = ref.data
+		block.CommittedBody, block.CommittedSize = ref.body, ref.size
 		block.HasCommitted = true
 		block.HasUncommitted = false
-		block.UncommittedData = nil
+		block.UncommittedBody, block.UncommittedSize = "", 0
 		block.CommitOrdinal = idx
 		putBlobBlock(account, container, blob, ref.id, block)
 	}
@@ -1564,7 +1639,6 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 		Account:            account,
 		Container:          container,
 		Name:               blob,
-		Data:               data,
 		BlobType:           "BlockBlob",
 		CreationTime:       blobNowHTTP(),
 		Metadata:           collectMetadata(r),
@@ -1584,6 +1658,10 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 		committedBlob.AccessTierChangeTime = blobNowHTTP()
 	}
 	blobTouch(&committedBlob)
+	if err := blobSetContents(&committedBlob, data); err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	putBlobObject(committedBlob)
 	w.Header().Set("ETag", committedBlob.ETag)
 	w.Header().Set("Last-Modified", committedBlob.LastModified)
@@ -1628,13 +1706,13 @@ func handleGetBlockList(w http.ResponseWriter, r *http.Request, account, contain
 		if (listType == "committed" || listType == "all") && block.HasCommitted {
 			out.CommittedBlocks = append(out.CommittedBlocks, blockEntry{
 				Name: block.BlockID,
-				Size: int64(len(block.CommittedData)),
+				Size: block.CommittedSize,
 			})
 		}
 		if (listType == "uncommitted" || listType == "all") && block.HasUncommitted {
 			out.UncommittedBlocks = append(out.UncommittedBlocks, blockEntry{
 				Name: block.BlockID,
-				Size: int64(len(block.UncommittedData)),
+				Size: block.UncommittedSize,
 			})
 		}
 	}
@@ -1656,22 +1734,32 @@ func handleGetBlob(w http.ResponseWriter, r *http.Request, account, container, b
 			"The specified blob does not exist.", http.StatusNotFound)
 		return
 	}
+	b, body, closeBody, err := blobOpen(b)
+	if err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer closeBody()
 	if !blobConditionsMet(w, r, b, true, blobRead) {
 		return
 	}
-	start, end, partial, ok := azureStorageReadRange(w, r, int64(len(b.Data)))
+	start, end, partial, ok := azureStorageReadRange(w, r, b.Size)
 	if !ok {
 		return // azureStorageReadRange has written the error.
 	}
 	writeBlobHeaders(w, b)
 	if !partial {
-		_, _ = w.Write(b.Data)
+		_, _ = io.Copy(w, body)
+		return
+	}
+	if _, err := body.Seek(start, io.SeekStart); err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", end-start+1))
-	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(b.Data)))
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, b.Size))
 	w.WriteHeader(http.StatusPartialContent)
-	_, _ = w.Write(b.Data[start : end+1])
+	_, _ = io.CopyN(w, body, end-start+1)
 }
 
 // azureStorageReadRange resolves the byte range a storage read requests. Azure
@@ -1904,7 +1992,7 @@ func writeBlobHeaders(w http.ResponseWriter, b BlobObject) {
 	w.Header().Set("x-ms-server-encrypted", "true")
 	w.Header().Set("ETag", b.ETag)
 	w.Header().Set("Last-Modified", b.LastModified)
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(b.Data)))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", b.Size))
 	w.Header().Set("Accept-Ranges", "bytes")
 	for k, v := range b.Metadata {
 		w.Header().Set("x-ms-meta-"+k, v)

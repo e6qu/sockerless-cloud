@@ -822,9 +822,9 @@ func blobNowHTTP() string {
 // blobETagFor derives the ETag of a stored blob from its bytes plus a
 // modification stamp, so two writes of identical bytes still produce distinct
 // ETags the way Azure's do.
-func blobETagFor(data []byte, stamp string) string {
+// blobETagFor derives an ETag from a stamp unique to the write.
+func blobETagFor(stamp string) string {
 	h := md5.New()
-	h.Write(data)
 	h.Write([]byte(stamp))
 	return `"0x` + strings.ToUpper(hex.EncodeToString(h.Sum(nil))[:16]) + `"`
 }
@@ -856,7 +856,7 @@ func blobRandomKeyMaterial() string {
 // callers can write it back.
 func blobTouch(b *BlobObject) {
 	b.LastModified = blobNowHTTP()
-	b.ETag = blobETagFor(b.Data, b.LastModified+generateUUID())
+	b.ETag = blobETagFor(b.LastModified + generateUUID())
 }
 
 // List Blobs entry shape
@@ -924,7 +924,7 @@ func blobListEntryFor(b BlobObject, include map[string]bool) blobListEntry {
 			CreationTime:            b.CreationTime,
 			LastModified:            b.LastModified,
 			ETag:                    b.ETag,
-			ContentLength:           int64(len(b.Data)),
+			ContentLength:           b.Size,
 			ContentType:             b.ContentType,
 			ContentEncoding:         b.ContentEncoding,
 			ContentLanguage:         b.ContentLanguage,

@@ -36,7 +36,11 @@ func handleCreateBlobSnapshot(w http.ResponseWriter, r *http.Request, account, c
 
 	snap := base
 	snap.Snapshot = blobSnapshotStamp(time.Now())
-	snap.Data = append([]byte(nil), base.Data...)
+	// A snapshot is a row of its own, so it gets a file of its own.
+	if err := blobCopyContents(&snap, base); err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	snap.PageRanges = append([]BlobPageRange(nil), base.PageRanges...)
 	snap.Metadata = cloneBlobMetadata(base.Metadata)
 	snap.Tags = cloneBlobMetadata(base.Tags)
@@ -155,10 +159,10 @@ func handleRenameContainer(w http.ResponseWriter, r *http.Request, account, cont
 		}
 	}
 	for _, b := range blobs {
-		deleteBlobSnapshot(b.Account, b.Container, b.Name, b.Snapshot)
+		removeBlobRecord(b.Account, b.Container, b.Name, b.Snapshot)
 	}
 	for _, bl := range staged {
-		deleteBlobBlock(bl.Account, bl.Container, bl.Blob, bl.BlockID)
+		removeBlobBlockRecord(bl.Account, bl.Container, bl.Blob, bl.BlockID)
 	}
 	blobContainersData.Delete(srcKey)
 

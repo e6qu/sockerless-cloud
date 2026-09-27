@@ -384,17 +384,18 @@ func azureCaptureVMImage(
 	}
 	blobName := vhdPrefix + "-osdisk.vhd"
 	now := time.Now().UTC().Format(http.TimeFormat)
-	putBlobObject(BlobObject{
+	if err := putBlobWithContents(BlobObject{
 		Account:      account,
 		Container:    container,
 		Name:         blobName,
-		Data:         disk,
 		ContentType:  "application/octet-stream",
 		BlobType:     "PageBlob",
 		ETag:         azureNetworkEtag(),
 		LastModified: now,
 		CreationTime: now,
-	})
+	}, disk); err != nil {
+		return nil, err
+	}
 
 	uri := fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", account, container, blobName)
 	return map[string]any{

@@ -42,7 +42,7 @@ func blobAppendBlobFor(w http.ResponseWriter, r *http.Request, account, containe
 				http.StatusBadRequest)
 			return BlobObject{}, false
 		}
-		if want != int64(len(b.Data)) {
+		if want != b.Size {
 			writeStorageError(w, "AppendPositionConditionNotMet",
 				"The append position condition specified was not met.",
 				http.StatusPreconditionFailed)
@@ -57,7 +57,7 @@ func blobAppendBlobFor(w http.ResponseWriter, r *http.Request, account, containe
 				http.StatusBadRequest)
 			return BlobObject{}, false
 		}
-		if int64(len(b.Data))+incoming > max {
+		if b.Size+incoming > max {
 			writeStorageError(w, "MaxBlobSizeConditionNotMet",
 				"The max blob size condition specified was not met.",
 				http.StatusPreconditionFailed)
@@ -99,11 +99,20 @@ func handleAppendBlockFromURL(w http.ResponseWriter, r *http.Request, account, c
 }
 
 func blobAppendBytes(w http.ResponseWriter, b BlobObject, data []byte) {
-	offset := int64(len(b.Data))
-	b.Data = append(append([]byte(nil), b.Data...), data...)
+	b, existing, err := blobData(b)
+	if err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	offset := int64(len(existing))
+	appended := append(existing, data...)
 	b.CommittedBlockCount++
-	b.ContentMD5 = blobContentMD5(b.Data)
+	b.ContentMD5 = blobContentMD5(appended)
 	blobTouch(&b)
+	if err := blobSetContents(&b, appended); err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	putBlobObject(b)
 
 	w.Header().Set("ETag", b.ETag)
@@ -133,7 +142,7 @@ func handleAppendBlobSeal(w http.ResponseWriter, r *http.Request, account, conta
 	}
 	if raw := r.Header.Get("x-ms-blob-condition-appendpos"); raw != "" {
 		want, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil || want != int64(len(b.Data)) {
+		if err != nil || want != b.Size {
 			writeStorageError(w, "AppendPositionConditionNotMet",
 				"The append position condition specified was not met.",
 				http.StatusPreconditionFailed)

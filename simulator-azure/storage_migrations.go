@@ -305,46 +305,60 @@ func storageRestoreBlobs(account string, restoreTo time.Time, ranges []struct {
 	}
 	restored := 0
 	for _, row := range blobObjects.ListPrefix(account + "/") {
-		blob := row.Item
-		path := blob.Container + "/" + blob.Name
-		if !storageRangeCovers(ranges, path) {
-			continue
-		}
-		if !blob.Deleted {
-			// A blob written after the instant being restored to did not exist
-			// then, so restoring to it removes the blob. Reporting a restore
-			// that left later writes in place would describe a state the
-			// account was never in.
-			created, err := time.Parse(time.RFC1123, blob.LastModified)
-			if err != nil || created.Before(restoreTo.Truncate(time.Second).Add(time.Second)) {
-				continue
-			}
-			blobObjects.Delete(blobSnapshotKey(blob.Account, blob.Container, blob.Name, blob.Snapshot))
+		// The listing may be older than the blob; its lock and a fresh read
+		// decide on the blob as it stands, as a data-plane write would.
+		release := blobWriters.Lock(blobObjectKey(row.Item.Account, row.Item.Container, row.Item.Name))
+		if blob, ok := blobObjects.Get(row.ID); ok && storageRestoreBlob(blob, restoreTo, ranges) {
 			restored++
-			continue
 		}
-		deletedAt, err := time.Parse(time.RFC1123, blob.DeletedTime)
-		if err != nil {
-			// A blob whose deletion time cannot be read cannot be placed
-			// relative to the instant being restored to, and restoring it
-			// anyway would undo a deletion the caller did not ask to undo.
-			continue
-		}
-		// A blob records its deletion time to the second, because that is the
-		// precision the header carries it in, so the instant restored to is
-		// compared at the same precision. Comparing a whole-second stamp
-		// against a nanosecond one would place every deletion in the current
-		// second before the restore point and restore nothing.
-		if deletedAt.Before(restoreTo.Truncate(time.Second)) {
-			continue
-		}
-		blob.Deleted = false
-		blob.DeletedTime = ""
-		blob.RemainingRetentionDays = 0
-		blobObjects.Put(blobSnapshotKey(blob.Account, blob.Container, blob.Name, blob.Snapshot), blob)
-		restored++
+		release()
 	}
 	return restored
+}
+
+// storageRestoreBlob restores one blob record to the instant given, reporting
+// whether it changed anything. The caller holds the blob's write lock.
+func storageRestoreBlob(blob BlobObject, restoreTo time.Time, ranges []struct {
+	StartRange string `json:"startRange"`
+	EndRange   string `json:"endRange"`
+},
+) bool {
+	path := blob.Container + "/" + blob.Name
+	if !storageRangeCovers(ranges, path) {
+		return false
+	}
+	if !blob.Deleted {
+		// A blob written after the instant being restored to did not exist
+		// then, so restoring to it removes the blob. Reporting a restore
+		// that left later writes in place would describe a state the
+		// account was never in.
+		created, err := time.Parse(time.RFC1123, blob.LastModified)
+		if err != nil || created.Before(restoreTo.Truncate(time.Second).Add(time.Second)) {
+			return false
+		}
+		deleteBlobSnapshot(blob.Account, blob.Container, blob.Name, blob.Snapshot)
+		return true
+	}
+	deletedAt, err := time.Parse(time.RFC1123, blob.DeletedTime)
+	if err != nil {
+		// A blob whose deletion time cannot be read cannot be placed
+		// relative to the instant being restored to, and restoring it
+		// anyway would undo a deletion the caller did not ask to undo.
+		return false
+	}
+	// A blob records its deletion time to the second, because that is the
+	// precision the header carries it in, so the instant restored to is
+	// compared at the same precision. Comparing a whole-second stamp
+	// against a nanosecond one would place every deletion in the current
+	// second before the restore point and restore nothing.
+	if deletedAt.Before(restoreTo.Truncate(time.Second)) {
+		return false
+	}
+	blob.Deleted = false
+	blob.DeletedTime = ""
+	blob.RemainingRetentionDays = 0
+	putBlobObject(blob)
+	return true
 }
 
 // storageRangeCovers reports whether a blob path falls in one of the lexical

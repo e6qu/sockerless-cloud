@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 14. Resolved: 149.
+Open: 14. Resolved: 150.
 
 ## Open
 
@@ -34,6 +34,12 @@ Open: 14. Resolved: 149.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3054 (shrinking a page blob kept pages past its new end):**~~ Resize
+  truncated the contents first and then removed the written page ranges from
+  the new size to twice the new size, so a range written beyond that
+  survived in Get Page Ranges though its bytes were gone. It now removes
+  everything from the new size to the old one.
 
 - ~~**BUG-3050 (CloudTrail dropped a delivery it could not make, without a
   trace):**~~ Delivering an event to a trail's bucket skipped the trail when
@@ -72,6 +78,11 @@ Open: 14. Resolved: 149.
   moved out of their upload's row the same way, which also ended every
   UploadPart re-encoding every earlier part. A database written before this
   is migrated as the slice starts, and files no row references are swept.
+  Azure Blob Storage had the same shape — every blob, snapshot and staged or
+  committed block carried its bytes in its row — and moved the same way
+  (`blob_bodies.go`). There a copy and a snapshot used to be built by
+  copying the source's row; each now writes a file of its own, so releasing
+  one row's contents can never take another's.
 
 - ~~**BUG-3044 (a gRPC listing restarted from the first page on a token it
   had not issued):**~~ The paging shared by the Pub/Sub and Cloud Bigtable

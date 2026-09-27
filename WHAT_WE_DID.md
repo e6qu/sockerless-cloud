@@ -568,8 +568,10 @@ that names it and the file it replaced released after, so a crash leaves an
 unreferenced file, which the startup sweep removes, and never a row naming a
 file that is gone. A reader that loses the race with an overwrite reads the
 row again and serves the new contents. Each slice has one set of helpers that
-own the files (`s3_bodies.go` for S3); a handler never writes a row's
-reference itself.
+own the files (`s3_bodies.go` for S3, `blob_bodies.go` for Azure Blob
+Storage); a handler never writes a row's reference itself. A file belongs to
+exactly one row: a copy or a snapshot writes a file of its own rather than
+sharing its source's, so no row's release can take another row's contents.
 
 The Cloud Storage slice already kept its payloads in files, for Cloud Run
 volume mounts. The writes that decide a conditional request share one
