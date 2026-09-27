@@ -374,14 +374,14 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 	finalETag := fmt.Sprintf(`"%x-%d"`, finalHash, len(req.Parts))
 
 	obj := S3Object{
-		Key:          key,
+		Key:          s3ObjectKey(bucket, key),
 		Data:         assembled,
 		Size:         int64(len(assembled)),
 		ETag:         finalETag,
 		ContentType:  mp.ContentType,
 		LastModified: time.Now().UTC(),
 	}
-	s3Objects.Put(bucket+"/"+key, obj)
+	s3Objects.Put(s3ObjectKey(bucket, key), obj)
 	s3MultipartUploads.Delete(uploadID)
 
 	// The Location field is the real-AWS canonical
@@ -810,16 +810,7 @@ func handleS3ListObjectVersions(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	prefix := r.URL.Query().Get("prefix")
 	bucketPrefix := bucket + "/"
-	objects := s3Objects.Filter(func(obj S3Object) bool {
-		if !strings.HasPrefix(obj.Key, bucketPrefix) {
-			return false
-		}
-		relKey := obj.Key[len(bucketPrefix):]
-		return prefix == "" || strings.HasPrefix(relKey, prefix)
-	})
-	sort.Slice(objects, func(i, j int) bool {
-		return objects[i].Key < objects[j].Key
-	})
+	objects := s3Objects.ListPrefix(bucketPrefix + prefix)
 
 	type owner struct {
 		ID          string `xml:"ID"`
@@ -852,9 +843,10 @@ func handleS3ListObjectVersions(w http.ResponseWriter, r *http.Request) {
 		MaxKeys:     1000,
 		IsTruncated: false,
 	}
-	for _, obj := range objects {
+	for _, row := range objects {
+		obj := row.Item
 		out.Versions = append(out.Versions, version{
-			Key:          strings.TrimPrefix(obj.Key, bucketPrefix),
+			Key:          row.ID[len(bucketPrefix):],
 			VersionId:    "null",
 			IsLatest:     true,
 			LastModified: obj.LastModified.UTC().Format(time.RFC3339),

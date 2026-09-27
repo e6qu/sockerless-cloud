@@ -473,16 +473,13 @@ func glueEntityReadRecords(table GlueTable) ([]map[string]any, error) {
 	if !strings.HasPrefix(location, "s3://") || !ok || bucket == "" {
 		return nil, fmt.Errorf("table location is not an Amazon S3 URI: %s", location)
 	}
-	objects := s3Objects.Filter(func(object S3Object) bool {
-		return strings.HasPrefix(object.Key, bucket+"/"+strings.TrimPrefix(prefix, "/"))
-	})
-	sort.Slice(objects, func(i, j int) bool { return objects[i].Key < objects[j].Key })
+	objects := s3Objects.ListPrefix(s3ObjectKey(bucket, strings.TrimPrefix(prefix, "/")))
 	columns := glueEntityColumnMaps(table.StorageDescriptor["Columns"])
 	records := make([]map[string]any, 0)
-	for _, object := range objects {
-		parsed, err := glueEntityParseObject(object, table, columns)
+	for _, row := range objects {
+		parsed, err := glueEntityParseObject(row.Item, table, columns)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", object.Key, err)
+			return nil, fmt.Errorf("read %s: %w", row.ID, err)
 		}
 		records = append(records, parsed...)
 	}

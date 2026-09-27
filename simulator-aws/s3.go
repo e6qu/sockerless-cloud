@@ -112,7 +112,7 @@ type s3CommonPrefix struct {
 // State stores
 var (
 	s3Buckets_ sim.Store[S3Bucket]
-	s3Objects  sim.Store[S3Object]
+	s3Objects  sim.PrefixStore[S3Object]
 )
 
 func s3ObjectKey(bucket, key string) string {
@@ -708,10 +708,7 @@ func handleS3DeleteBucket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if bucket is empty
-	objects := s3Objects.Filter(func(obj S3Object) bool {
-		return strings.HasPrefix(obj.Key, bucket+"/") || obj.Key == bucket+"/"
-	})
-	if len(objects) > 0 {
+	if len(s3Objects.ListPrefix(bucket+"/")) > 0 {
 		S3ErrorXML(w, "BucketNotEmpty", "The bucket you tried to delete is not empty",
 			bucket, sim.RequestID(r.Context()), http.StatusConflict)
 		return
@@ -938,24 +935,13 @@ func handleS3GetBucket(w http.ResponseWriter, r *http.Request) {
 		maxKeys = 0
 	}
 
-	// Collect objects for this bucket
 	bucketPrefix := bucket + "/"
-	objects := s3Objects.Filter(func(obj S3Object) bool {
-		objKey := obj.Key
-		if !strings.HasPrefix(objKey, bucketPrefix) {
-			return false
-		}
-		// Get the key relative to bucket
-		relKey := objKey[len(bucketPrefix):]
-		if prefix != "" && !strings.HasPrefix(relKey, prefix) {
-			return false
-		}
-		return true
-	})
+	objects := s3Objects.ListPrefix(bucketPrefix + prefix)
 
 	var contents []s3ObjectInfo
-	for _, obj := range objects {
-		relKey := obj.Key[len(bucketPrefix):]
+	for _, row := range objects {
+		obj := row.Item
+		relKey := row.ID[len(bucketPrefix):]
 		contents = append(contents, s3ObjectInfo{
 			Key:          relKey,
 			LastModified: obj.LastModified.UTC().Format(time.RFC3339),

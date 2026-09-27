@@ -13,6 +13,7 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -480,4 +481,29 @@ func psPullAll(t *testing.T, sc pubsubpb.SubscriberClient, sub string, count int
 		}
 	}
 	return out
+}
+
+// TestPubSubGRPC_ListRefusesAMalformedPage holds a listing to Google's paging
+// contract: a page token the service did not issue, or a negative page size,
+// is an INVALID_ARGUMENT, not a silent restart from the first page.
+func TestPubSubGRPC_ListRefusesAMalformedPage(t *testing.T) {
+	pub, _ := psRawClient(t)
+	project := "projects/ps-grpc-paging"
+	for _, id := range []string{"a", "b", "c"} {
+		_, err := pub.CreateTopic(ctx, &pubsubpb.Topic{Name: project + "/topics/" + id})
+		require.NoError(t, err)
+	}
+	first, err := pub.ListTopics(ctx, &pubsubpb.ListTopicsRequest{Project: project, PageSize: 2})
+	require.NoError(t, err)
+	require.Len(t, first.GetTopics(), 2)
+	rest, err := pub.ListTopics(ctx, &pubsubpb.ListTopicsRequest{Project: project, PageSize: 2, PageToken: first.GetNextPageToken()})
+	require.NoError(t, err)
+	require.Len(t, rest.GetTopics(), 1)
+
+	_, err = pub.ListTopics(ctx, &pubsubpb.ListTopicsRequest{Project: project, PageToken: "not-a-token"})
+	requireGRPCCode(t, err, codes.InvalidArgument)
+	_, err = pub.ListTopics(ctx, &pubsubpb.ListTopicsRequest{Project: project, PageToken: "99"})
+	requireGRPCCode(t, err, codes.InvalidArgument)
+	_, err = pub.ListTopics(ctx, &pubsubpb.ListTopicsRequest{Project: project, PageSize: -1})
+	requireGRPCCode(t, err, codes.InvalidArgument)
 }

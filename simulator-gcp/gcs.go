@@ -150,100 +150,20 @@ type gcsObjectResource struct {
 // build context tarballs without depending on the gcs.go handler
 // closure.
 var (
-	gcsObjects sim.Store[GCSObject]
+	gcsObjects sim.PrefixStore[GCSObject]
 	// gcsBuckets is package-level so a slice that exports into Cloud Storage
 	// (Artifact Registry's exportArtifact) can refuse a bucket that does not
 	// exist rather than inventing one.
 	gcsBuckets sim.Store[Bucket]
 )
 
-// gcsBucketObjectIndex maps a bucket name to the set of object names it
-// holds, so listing one bucket fetches only that bucket's rows instead
-// of scanning every object in every bucket (the underlying Store only
-// exposes a whole-store Filter). It is a pure optimization derived from
-// the object store — `gcsBucketObjects` rebuilds it from the store on
-// first use, and every persist/delete keeps it in sync. The object
-// store (and the host backing files) remain the source of truth.
-var (
-	gcsIndexMu     sync.RWMutex
-	gcsObjectIndex map[string]map[string]struct{}
-	gcsIndexBuilt  bool
-)
-
-// gcsIndexRebuildLocked populates gcsObjectIndex from the object store.
-// Caller holds gcsIndexMu for writing. Runs once (one full scan) and is
-// idempotent thereafter — incremental add/remove keep it current.
-func gcsIndexRebuildLocked() {
-	gcsObjectIndex = make(map[string]map[string]struct{})
-	for _, o := range gcsObjects.List() {
-		set := gcsObjectIndex[o.Bucket]
-		if set == nil {
-			set = make(map[string]struct{})
-			gcsObjectIndex[o.Bucket] = set
-		}
-		set[o.Name] = struct{}{}
-	}
-	gcsIndexBuilt = true
-}
-
-// gcsIndexAdd records bucket/objectName in the per-bucket index.
-func gcsIndexAdd(bucket, objectName string) {
-	gcsIndexMu.Lock()
-	defer gcsIndexMu.Unlock()
-	if !gcsIndexBuilt {
-		gcsIndexRebuildLocked()
-	}
-	set := gcsObjectIndex[bucket]
-	if set == nil {
-		set = make(map[string]struct{})
-		gcsObjectIndex[bucket] = set
-	}
-	set[objectName] = struct{}{}
-}
-
-// gcsIndexRemove drops bucket/objectName from the per-bucket index.
-func gcsIndexRemove(bucket, objectName string) {
-	gcsIndexMu.Lock()
-	defer gcsIndexMu.Unlock()
-	if !gcsIndexBuilt {
-		gcsIndexRebuildLocked()
-	}
-	if set := gcsObjectIndex[bucket]; set != nil {
-		delete(set, objectName)
-		if len(set) == 0 {
-			delete(gcsObjectIndex, bucket)
-		}
-	}
-}
-
-// gcsBucketObjects returns every object in one bucket, looking each up
-// by exact key (bucket/object) via the per-bucket index. This avoids the
-// whole-store Filter scan, so listing bucket A doesn't touch bucket B's
-// objects. Output is identical to filtering the store by bucket — a
-// stale index entry whose object was removed out-of-band is skipped
-// (the Get miss), and the store remains authoritative.
-func gcsBucketObjects(bucket string) []GCSObject {
-	gcsIndexMu.RLock()
-	if !gcsIndexBuilt {
-		gcsIndexMu.RUnlock()
-		gcsIndexMu.Lock()
-		if !gcsIndexBuilt {
-			gcsIndexRebuildLocked()
-		}
-		gcsIndexMu.Unlock()
-		gcsIndexMu.RLock()
-	}
-	names := make([]string, 0, len(gcsObjectIndex[bucket]))
-	for name := range gcsObjectIndex[bucket] {
-		names = append(names, name)
-	}
-	gcsIndexMu.RUnlock()
-
-	out := make([]GCSObject, 0, len(names))
-	for _, name := range names {
-		if o, ok := gcsObjects.Get(bucket + "/" + name); ok {
-			out = append(out, o)
-		}
+// gcsBucketObjects returns the objects of one bucket whose names begin with
+// prefix, in name order.
+func gcsBucketObjects(bucket, prefix string) []GCSObject {
+	rows := gcsObjects.ListPrefix(bucket + "/" + prefix)
+	out := make([]GCSObject, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Item)
 	}
 	return out
 }
@@ -391,14 +311,14 @@ func gcsCRC32C(data []byte) string {
 // metageneration. Kept as a distinct, auditable write path so the
 // data-write invariant (every payload write goes through persistGCSObject
 // and reaches the host backing store) stays enforced by the AST guard test.
-func persistGCSObjectMetadata(objects sim.Store[GCSObject], key string, obj GCSObject) {
+func persistGCSObjectMetadata(objects sim.PrefixStore[GCSObject], key string, obj GCSObject) {
 	objects.Put(key, obj)
 }
 
 // It evaluates the write's preconditions and stores the new version as one
 // step, under the object's write lock, and gives the version a generation no
 // version of the object has had before.
-func persistGCSObject(objects sim.Store[GCSObject], bucketName, objectName string, data []byte, attrs GCSObject, pre gcsPreconditions) (GCSObject, error) {
+func persistGCSObject(objects sim.PrefixStore[GCSObject], bucketName, objectName string, data []byte, attrs GCSObject, pre gcsPreconditions) (GCSObject, error) {
 	if attrs.ContentType == "" {
 		attrs.ContentType = "application/octet-stream"
 	}
@@ -446,7 +366,6 @@ func persistGCSObject(objects sim.Store[GCSObject], bucketName, objectName strin
 	obj.metadataCloned = true
 	obj.data = append([]byte(nil), data...)
 	objects.Put(bucketName+"/"+objectName, obj)
-	gcsIndexAdd(bucketName, objectName)
 	if !existed {
 		gcsSeedObjectACL(bucketName, objectName, obj.Generation)
 	}
@@ -497,7 +416,7 @@ var gcsResumableMu sync.Mutex
 // GCS object and the canonical 200 + object-metadata response goes back.
 // Otherwise the sim returns 308 Resume Incomplete with a `Range` header
 // naming the bytes received so the client knows where to resume.
-func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID string, buckets sim.Store[Bucket], objects sim.Store[GCSObject]) {
+func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID string, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject]) {
 	sess, ok := gcsResumableSessions.Get(uploadID)
 	if !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
@@ -852,9 +771,8 @@ func registerGCS(srv *sim.Server) {
 
 		// Delete all objects in the bucket (index-scoped — only this
 		// bucket's rows, not every object in the store).
-		for _, obj := range gcsBucketObjects(bucketName) {
+		for _, obj := range gcsBucketObjects(bucketName, "") {
 			objects.Delete(bucketName + "/" + obj.Name)
-			gcsIndexRemove(bucketName, obj.Name)
 		}
 
 		w.WriteHeader(http.StatusNoContent)
@@ -910,16 +828,7 @@ func registerGCS(srv *sim.Server) {
 			return
 		}
 
-		// Index-scoped: fetch only this bucket's objects, then apply the
-		// prefix filter. Same result as filtering the whole store by
-		// bucket+prefix, without scanning other buckets' objects.
-		var allObjects []GCSObject
-		for _, o := range gcsBucketObjects(bucketName) {
-			if prefix != "" && !strings.HasPrefix(o.Name, prefix) {
-				continue
-			}
-			allObjects = append(allObjects, o)
-		}
+		allObjects := gcsBucketObjects(bucketName, prefix)
 
 		var items []map[string]any
 		var prefixes []string
@@ -1075,7 +984,6 @@ func registerGCS(srv *sim.Server) {
 			return
 		}
 		objects.Delete(key)
-		gcsIndexRemove(bucketName, objectName)
 		// Under a soft-delete policy the object is retired rather than
 		// destroyed, and its payload is retained for objects.restore to bring
 		// back. Without one it is destroyed here, bytes included.
@@ -1456,7 +1364,7 @@ func setGCSObjectResponseHeaders(h http.Header, obj GCSObject, size int) {
 	}
 }
 
-func handleGCSObjectCopyRequest(w http.ResponseWriter, r *http.Request, buckets sim.Store[Bucket], objects sim.Store[GCSObject]) bool {
+func handleGCSObjectCopyRequest(w http.ResponseWriter, r *http.Request, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject]) bool {
 	srcBucket, srcObject, dstBucket, dstObject, op, ok := parseGCSCopyPath(r)
 	if !ok {
 		return false
@@ -1536,7 +1444,7 @@ func pathUnescape(s string) (string, bool) {
 	return out, true
 }
 
-func copyGCSObject(w http.ResponseWriter, r *http.Request, srcBucket, srcObject, dstBucket, dstObject string, objects sim.Store[GCSObject]) (GCSObject, bool) {
+func copyGCSObject(w http.ResponseWriter, r *http.Request, srcBucket, srcObject, dstBucket, dstObject string, objects sim.PrefixStore[GCSObject]) (GCSObject, bool) {
 	pre, err := parseGCSPreconditions(r.URL.Query(), false)
 	if err != nil {
 		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
@@ -1753,7 +1661,7 @@ func gcsACLEmailFor(entity string) (email string, team *gcsProjectTeam) {
 // bucket-level lifecycle verbs (relocate/restore/lockRetentionPolicy),
 // channels.stop, the project service account, and the metadata-only object
 // insert. Each is a faithful slice of the real JSON API.
-func registerGCSExtras(srv *sim.Server, buckets sim.Store[Bucket], objects sim.Store[GCSObject]) {
+func registerGCSExtras(srv *sim.Server, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject]) {
 	gcsBucketACLs = sim.MakeStore[GCSBucketACL](srv.DB(), "gcs_bucket_acls")
 	gcsObjectDefACLs = sim.MakeStore[GCSObjectACL](srv.DB(), "gcs_default_object_acls")
 	gcsObjectACLs = sim.MakeStore[GCSObjectACL](srv.DB(), "gcs_object_acls")
@@ -2721,7 +2629,7 @@ type GCSRapidCache struct {
 // --- Bucket lifecycle verbs, operations, IAM testPermissions, channels,
 //     and the metadata-only object insert. ---
 
-func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], objects sim.Store[GCSObject], bucketExists func(http.ResponseWriter, string) bool) {
+func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject], bucketExists func(http.ResponseWriter, string) bool) {
 	// bucket IAM testPermissions (getIamPolicy/setIamPolicy already live in iam.go)
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/iam/testPermissions", func(w http.ResponseWriter, r *http.Request) {
 		gcsWriteTestPermissions(w, r)

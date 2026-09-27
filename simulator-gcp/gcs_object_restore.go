@@ -125,7 +125,7 @@ func gcsSoftDeletedListing(bucketName, prefix string) []gcsSoftDeleted {
 	return items
 }
 
-func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], objects sim.Store[GCSObject]) {
+func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject]) {
 	bucketOr404 := func(w http.ResponseWriter, name string) (Bucket, bool) {
 		bucket, ok := buckets.Get(name)
 		if !ok {
@@ -161,7 +161,6 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 		restored := entry.Object
 		restored.Updated = gcsTimestamp()
 		objects.Put(bucketName+"/"+objectName, restored)
-		gcsIndexAdd(bucketName, objectName)
 		gcsSoftDeletedObjects.Delete(gcsSoftDeleteKey(bucketName, objectName, generation))
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, restored))
 	})
@@ -202,7 +201,6 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 			object := entry.Object
 			object.Updated = gcsTimestamp()
 			objects.Put(bucketName+"/"+name, object)
-			gcsIndexAdd(bucketName, name)
 			gcsSoftDeletedObjects.Delete(gcsSoftDeleteKey(bucketName, name, entry.Object.Generation))
 			// Without copySourceAcl the restored object takes the bucket
 			// default, the rule a freshly written object follows.
@@ -253,7 +251,6 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 		release := gcsObjectWriters.lock(bucketName, source)
 		if current, ok := objects.Get(bucketName + "/" + source); ok && current.Generation == obj.Generation {
 			objects.Delete(bucketName + "/" + source)
-			gcsIndexRemove(bucketName, source)
 			gcsRemoveObjectPayload(bucketName, source)
 			gcsDropObjectACL(bucketName, source)
 		}

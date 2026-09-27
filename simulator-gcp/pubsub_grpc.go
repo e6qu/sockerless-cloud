@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -553,7 +554,10 @@ func (s *pubsubPublisherGRPC) ListTopics(_ context.Context, req *pspb.ListTopics
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start, end := psPaging(len(all), req.GetPageSize(), req.GetPageToken())
+	start, end, err := psPaging(len(all), req.GetPageSize(), req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
 	page := all[start:end]
 	resp := &pspb.ListTopicsResponse{Topics: make([]*pspb.Topic, 0, len(page))}
 	for _, t := range page {
@@ -577,7 +581,10 @@ func (s *pubsubPublisherGRPC) ListTopicSubscriptions(_ context.Context, req *psp
 		}
 	}
 	sort.Strings(names)
-	start, end := psPaging(len(names), req.GetPageSize(), req.GetPageToken())
+	start, end, err := psPaging(len(names), req.GetPageSize(), req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
 	resp := &pspb.ListTopicSubscriptionsResponse{Subscriptions: names[start:end]}
 	if end < len(names) {
 		resp.NextPageToken = fmt.Sprintf("%d", end)
@@ -597,7 +604,10 @@ func (s *pubsubPublisherGRPC) ListTopicSnapshots(_ context.Context, req *pspb.Li
 		}
 	}
 	sort.Strings(names)
-	start, end := psPaging(len(names), req.GetPageSize(), req.GetPageToken())
+	start, end, err := psPaging(len(names), req.GetPageSize(), req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
 	resp := &pspb.ListTopicSnapshotsResponse{Snapshots: names[start:end]}
 	if end < len(names) {
 		resp.NextPageToken = fmt.Sprintf("%d", end)
@@ -712,7 +722,10 @@ func (s *pubsubSubscriberGRPC) ListSubscriptions(_ context.Context, req *pspb.Li
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start, end := psPaging(len(all), req.GetPageSize(), req.GetPageToken())
+	start, end, err := psPaging(len(all), req.GetPageSize(), req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
 	page := all[start:end]
 	resp := &pspb.ListSubscriptionsResponse{Subscriptions: make([]*pspb.Subscription, 0, len(page))}
 	for _, sub := range page {
@@ -1035,7 +1048,10 @@ func (s *pubsubSubscriberGRPC) ListSnapshots(_ context.Context, req *pspb.ListSn
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start, end := psPaging(len(all), req.GetPageSize(), req.GetPageToken())
+	start, end, err := psPaging(len(all), req.GetPageSize(), req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
 	page := all[start:end]
 	resp := &pspb.ListSnapshotsResponse{Snapshots: make([]*pspb.Snapshot, 0, len(page))}
 	for _, snap := range page {
@@ -1119,7 +1135,10 @@ func (s *pubsubSchemaGRPC) ListSchemas(_ context.Context, req *pspb.ListSchemasR
 		all = append(all, sc)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start, end := psPaging(len(all), req.GetPageSize(), req.GetPageToken())
+	start, end, err := psPaging(len(all), req.GetPageSize(), req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
 	page := all[start:end]
 	resp := &pspb.ListSchemasResponse{Schemas: make([]*pspb.Schema, 0, len(page))}
 	for _, sc := range page {
@@ -1185,7 +1204,10 @@ func (s *pubsubSchemaGRPC) ListSchemaRevisions(_ context.Context, req *pspb.List
 			revs[i].Definition = ""
 		}
 	}
-	start, end := psPaging(len(revs), req.GetPageSize(), req.GetPageToken())
+	start, end, err := psPaging(len(revs), req.GetPageSize(), req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
 	page := revs[start:end]
 	resp := &pspb.ListSchemaRevisionsResponse{Schemas: make([]*pspb.Schema, 0, len(page))}
 	for _, sc := range page {
@@ -1265,18 +1287,20 @@ func psNormalizeProject(s string) string {
 
 // paging helper
 
-func psPaging(total int, pageSize int32, pageToken string) (start, end int) {
+func psPaging(total int, pageSize int32, pageToken string) (start, end int, err error) {
+	if pageSize < 0 {
+		return 0, 0, status.Errorf(codes.InvalidArgument, "page_size must not be negative, got %d", pageSize)
+	}
 	end = total
 	if pageToken != "" {
-		var n int
-		if _, err := fmt.Sscanf(pageToken, "%d", &n); err == nil && n >= 0 && n <= total {
-			start = n
-		} else {
-			start = 0
+		n, convErr := strconv.Atoi(pageToken)
+		if convErr != nil || n < 0 || n > total {
+			return 0, 0, status.Errorf(codes.InvalidArgument, "invalid page_token %q", pageToken)
 		}
+		start = n
 	}
 	if size := int(pageSize); size > 0 && start+size < end {
 		end = start + size
 	}
-	return start, end
+	return start, end, nil
 }

@@ -18,7 +18,7 @@ func gcsObjectPolicyKey(bucket, object string) string {
 	return "object/" + bucket + "\x00" + object
 }
 
-func registerGCSObjectIAM(srv *sim.Server, buckets sim.Store[Bucket], objects sim.Store[GCSObject]) {
+func registerGCSObjectIAM(srv *sim.Server, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject]) {
 	resourceID := func(bucket, object string) string {
 		return "projects/_/buckets/" + bucket + "/objects/" + object
 	}

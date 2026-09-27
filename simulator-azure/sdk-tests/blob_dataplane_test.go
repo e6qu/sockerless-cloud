@@ -1409,3 +1409,42 @@ func TestStorageSDK_BlobSoftDeleteThroughARM(t *testing.T) {
 	require.NoError(t, download.Body.Close())
 	assert.Equal(t, "retained by the ARM policy", string(got))
 }
+
+// TestStorageSDK_ListBlobsStaysInsideItsContainerAndPrefix lists a container
+// beside another whose name extends it, the pair a listing by key prefix could
+// confuse, with a snapshot under the prefix.
+func TestStorageSDK_ListBlobsStaysInsideItsContainerAndPrefix(t *testing.T) {
+	account := "sdklistscopeacct"
+	client := newBlobTestClient(t, account)
+	scoped := newBlobTestContainer(t, client, "scope")
+	newBlobTestContainer(t, client, "scope-2")
+	for containerName, names := range map[string][]string{
+		"scope":   {"a/1", "a/2", "b"},
+		"scope-2": {"a/3", "c"},
+	} {
+		for _, name := range names {
+			_, err := client.UploadBuffer(ctx, containerName, name, []byte(name), nil)
+			require.NoError(t, err)
+		}
+	}
+	_, err := scoped.NewBlobClient("a/1").CreateSnapshot(ctx, nil)
+	require.NoError(t, err)
+
+	listed := func(prefix string, snapshots bool) []string {
+		options := &container.ListBlobsFlatOptions{Include: container.ListBlobsInclude{Snapshots: snapshots}}
+		if prefix != "" {
+			options.Prefix = to.Ptr(prefix)
+		}
+		page, err := scoped.NewListBlobsFlatPager(options).NextPage(ctx)
+		require.NoError(t, err)
+		names := []string{}
+		for _, item := range page.Segment.BlobItems {
+			names = append(names, *item.Name)
+		}
+		return names
+	}
+	assert.Equal(t, []string{"a/1", "a/2", "b"}, listed("", false))
+	assert.Equal(t, []string{"a/1", "a/2"}, listed("a/", false))
+	assert.Equal(t, []string{"a/1", "a/1", "a/2"}, listed("a/", true))
+	assert.Empty(t, listed("c", false))
+}

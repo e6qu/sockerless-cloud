@@ -2039,11 +2039,9 @@ func amplifyResolveDeploymentSource(r *http.Request, appID, branch, jobID, sourc
 		}
 		prefix := s3ObjectKey(bucket, strings.TrimSuffix(key, "/")+"/")
 		var uploads []amplifyUploadedArtifact
-		for _, object := range s3Objects.List() {
-			if !strings.HasPrefix(object.Key, prefix) {
-				continue
-			}
-			name := strings.TrimPrefix(object.Key, prefix)
+		for _, row := range s3Objects.ListPrefix(prefix) {
+			object := row.Item
+			name := strings.TrimPrefix(row.ID, prefix)
 			if name == "" {
 				continue
 			}

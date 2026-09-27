@@ -823,20 +823,29 @@ func blobRecords(account, container, name string) []BlobObject {
 // snapshots and soft-deleted rows alike — sorted by name then snapshot, which is
 // the order Azure lists them in.
 func blobsInContainer(account, container string) []BlobObject {
-	keys := blobKeysInContainer(account, container)
-	out := make([]BlobObject, 0, len(keys))
-	for _, key := range keys {
-		if b, ok := blobObjects.Get(key); ok {
-			out = append(out, b)
-		}
+	return blobsUnderPrefix(account, container, "")
+}
+
+// blobsUnderPrefix returns the blobs of one container whose names begin with
+// prefix, snapshots included.
+func blobsUnderPrefix(account, container, prefix string) []BlobObject {
+	rows := blobObjects.ListPrefix(blobObjectKey(account, container, prefix))
+	out := make([]BlobObject, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Item)
 	}
+	sortBlobs(out)
+	return out
+}
+
+// sortBlobs orders blobs by name, and a blob's snapshots by timestamp.
+func sortBlobs(out []BlobObject) {
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Name != out[j].Name {
 			return out[i].Name < out[j].Name
 		}
 		return out[i].Snapshot < out[j].Snapshot
 	})
-	return out
 }
 
 // Shared value helpers

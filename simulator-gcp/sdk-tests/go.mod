@@ -3,17 +3,17 @@ module github.com/e6qu/sockerless-cloud/simulator-gcp/sdk-tests
 go 1.26.0
 
 require (
-	cloud.google.com/go/bigtable v1.57.0
-	cloud.google.com/go/compute/metadata v0.9.1
-	cloud.google.com/go/eventarc v1.25.0
-	cloud.google.com/go/firestore v1.25.0
-	cloud.google.com/go/functions v1.25.0
-	cloud.google.com/go/iam v1.13.0
-	cloud.google.com/go/kms v1.34.0
-	cloud.google.com/go/logging v1.19.1
-	cloud.google.com/go/resourcemanager v1.16.0
-	cloud.google.com/go/run v1.22.0
-	cloud.google.com/go/secretmanager v1.21.0
+	cloud.google.com/go/bigtable v1.58.0
+	cloud.google.com/go/compute/metadata v0.10.0
+	cloud.google.com/go/eventarc v1.26.0
+	cloud.google.com/go/firestore v1.26.0
+	cloud.google.com/go/functions v1.26.0
+	cloud.google.com/go/iam v1.14.0
+	cloud.google.com/go/kms v1.35.0
+	cloud.google.com/go/logging v1.20.0
+	cloud.google.com/go/resourcemanager v1.17.0
+	cloud.google.com/go/run v1.23.0
+	cloud.google.com/go/secretmanager v1.22.0
 	cloud.google.com/go/storage v1.68.0
 	github.com/e6qu/sockerless-cloud/realexec v0.1.0
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
@@ -21,8 +21,8 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/stretchr/testify v1.12.1
 	google.golang.org/api v0.299.0
-	google.golang.org/genproto v0.0.0-20260918162117-cecb64721679
-	google.golang.org/genproto/googleapis/api v0.0.0-20260918162117-cecb64721679
+	google.golang.org/genproto v0.0.0-20260921155816-b14227669459
+	google.golang.org/genproto/googleapis/api v0.0.0-20260921155816-b14227669459
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 )
@@ -42,10 +42,10 @@ require (
 require (
 	cel.dev/expr v0.25.3 // indirect
 	cloud.google.com/go v0.123.0 // indirect
-	cloud.google.com/go/auth v0.23.3 // indirect
-	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
-	cloud.google.com/go/longrunning v1.2.0
-	cloud.google.com/go/monitoring v1.30.0 // indirect
+	cloud.google.com/go/auth v0.24.0 // indirect
+	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
+	cloud.google.com/go/longrunning v1.3.0
+	cloud.google.com/go/monitoring v1.31.0 // indirect
 	cloud.google.com/go/pubsub v1.51.1
 	cloud.google.com/go/pubsub/v2 v2.7.0 // indirect
 	cloud.google.com/go/spanner v1.95.1
@@ -60,7 +60,7 @@ require (
 	github.com/google/s2a-go v0.1.10 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.22 // indirect
-	github.com/googleapis/gax-go/v2 v2.24.1 // indirect
+	github.com/googleapis/gax-go/v2 v2.26.2 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.8.2 // indirect
 	go.opencensus.io v0.24.0 // indirect

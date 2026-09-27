@@ -67,7 +67,7 @@ ALL_APPS := $(GO_UI_APPS) $(GO_APPS) $(UI_APPS)
 
 # ── Standard fan-out targets ────────────────────────────────────────
 
-.PHONY: install build build-noui test test-integration lint lint-ui lint-all clean upgrade-deps check-deps check-workflow-timeouts check-workflow-concurrency hooks
+.PHONY: install build build-noui test test-integration lint lint-ui lint-all clean upgrade-deps work-sum check-deps check-workflow-timeouts check-workflow-concurrency hooks
 
 install: ## install deps in every app
 	@$(MAKE) -s _fanout TARGET=install APPS="$(ALL_APPS)"
@@ -102,6 +102,12 @@ clean: ## clean every app's artefacts
 
 upgrade-deps: ## bump every Go module's direct deps to latest (per-module independence preserved; TEST_DIRS included so scripts/check-latest-deps.sh stays clean)
 	@$(MAKE) -s _fanout TARGET=upgrade-deps APPS="$(GO_UI_APPS) $(GO_APPS) $(TEST_DIRS)"
+	@$(MAKE) -s work-sum
+
+# Each module upgrades on its own, so nothing records the checksums the
+# workspace build needs; the first workspace-mode tool to load packages would.
+work-sum: ## record in go.work.sum every checksum the workspace's packages and tests need
+	@go work edit -json | jq -r '.Use[].DiskPath + "/..."' | xargs go list -e -deps -test > /dev/null
 
 check-deps: ## fail if any Go module / Terraform provider is behind its latest published version
 	@bash scripts/test-latest-deps-quarantine.sh

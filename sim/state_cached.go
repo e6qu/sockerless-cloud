@@ -109,6 +109,14 @@ func (s *CachedSQLiteStore[T]) Filter(fn func(T) bool) []T {
 	return out
 }
 
+// ListPrefix returns snapshots of the items whose id begins with prefix, in id
+// order.
+func (s *CachedSQLiteStore[T]) ListPrefix(prefix string) []Keyed[T] {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return snapshotPrefix(s.items, prefix)
+}
+
 func (s *CachedSQLiteStore[T]) Len() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

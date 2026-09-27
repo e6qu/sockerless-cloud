@@ -244,6 +244,54 @@ func (s *SQLiteStore[T]) Filter(fn func(T) bool) []T {
 	return result
 }
 
+// ListPrefix returns the items whose id begins with prefix, in id order. It is
+// a range on the primary key, so SQLite reads and this decodes only those rows.
+func (s *SQLiteStore[T]) ListPrefix(prefix string) []Keyed[T] {
+	query := fmt.Sprintf(`SELECT key, value FROM %q WHERE key >= ? ORDER BY key`, s.table)
+	args := []any{prefix}
+	if end, bounded := prefixEnd(prefix); bounded {
+		query = fmt.Sprintf(`SELECT key, value FROM %q WHERE key >= ? AND key < ? ORDER BY key`, s.table)
+		args = append(args, end)
+	}
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		s.fatalDBErr("ListPrefix", prefix, err)
+	}
+	defer func() { _ = rows.Close() }()
+	result := make([]Keyed[T], 0)
+	for rows.Next() {
+		var id string
+		var data []byte
+		if err := rows.Scan(&id, &data); err != nil {
+			s.fatalDBErr("ListPrefix scan", prefix, err)
+		}
+		var v T
+		if err := unmarshalPersistentValue(data, &v); err != nil {
+			s.fatalDBErr("ListPrefix unmarshal (corrupt row)", id, err)
+		}
+		result = append(result, Keyed[T]{ID: id, Item: v})
+	}
+	if err := rows.Err(); err != nil {
+		s.fatalDBErr("ListPrefix rows", prefix, err)
+	}
+	return result
+}
+
+// prefixEnd returns the least string greater than every string that begins
+// with prefix, which SQLite's default BINARY collation orders byte by byte as
+// Go does. A prefix of nothing but 0xff bytes, or of nothing at all, has no
+// such bound.
+func prefixEnd(prefix string) (string, bool) {
+	end := []byte(prefix)
+	for i := len(end) - 1; i >= 0; i-- {
+		if end[i] < 0xff {
+			end[i]++
+			return string(end[:i+1]), true
+		}
+	}
+	return "", false
+}
+
 func (s *SQLiteStore[T]) Len() int {
 	var count int
 	if err := s.db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM %q`, s.table)).Scan(&count); err != nil {

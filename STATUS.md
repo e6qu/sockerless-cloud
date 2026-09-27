@@ -49,7 +49,7 @@ Current state of the sockerless-cloud repository.
   DeleteBucketLifecycleConfiguration.
 - **Google Cloud**: 5,576 of 5,576 Discovery method spellings across 30
   documents reach a route that names them — 5,522 served and 54 answering a
-  declared 501; the gRPC surfaces serve 210 of 213 methods, the three unserved
+  declared 501; the gRPC surfaces serve 213 of 216 methods, the three unserved
   each needing state the simulator does not hold.
   Every gRPC service is crossed against its REST door.
 - **Azure**: 2,628 of 2,628 Swagger operations across 120 documents, App
@@ -175,7 +175,9 @@ shape, and one whose scan set can go empty exits non-zero.
 
 - Coverage ratchets with served floors and declared-total locks, per cloud,
   plus the phantom-coverage and unserved-declares-itself tests.
-- `check-store-scans.sh` at zero request-path full-store reads;
+- `check-store-scans.sh` at zero request-path full-store reads, and the three
+  object stores typed `sim.PrefixStore`, so no path can read one whole: a
+  listing costs its bucket and prefix, not every stored object;
   `check-readonly-locks.sh` and `check-lock-pairing.sh` at zero;
   `check-fake-tests.sh` holding five can't-fail shapes at zero and two at
   floors that may only fall; `check-casefold-slice.sh` and

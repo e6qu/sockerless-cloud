@@ -160,7 +160,7 @@ type blockRef struct {
 }
 
 var (
-	blobObjects        sim.Store[BlobObject]
+	blobObjects        sim.PrefixStore[BlobObject]
 	blobContainersData sim.Store[BlobContainerData]
 	blobBlocks         sim.Store[BlobBlockData]
 )
@@ -301,7 +301,8 @@ func registerBlobDataPlane(srv *sim.Server) {
 	blockIndex = map[string]map[string]struct{}{}
 	blocksByContainer = map[string]map[string]struct{}{}
 	recordsByBlob = map[string]map[string]struct{}{}
-	for _, b := range blobObjects.List() {
+	for _, row := range blobObjects.ListPrefix("") {
+		b := row.Item
 		indexAdd(blobIndex, blobContainerKey(b.Account, b.Container), blobObjectKeyOf(b))
 		indexAdd(recordsByBlob, blobObjectKey(b.Account, b.Container, b.Name), blobObjectKeyOf(b))
 	}
@@ -1107,14 +1108,11 @@ func handleListBlobs(w http.ResponseWriter, r *http.Request, account, container 
 	include := blobListIncludeSet(r.URL.Query().Get("include"))
 
 	var all []blobListEntry
-	for _, b := range blobsInContainer(account, container) {
+	for _, b := range blobsUnderPrefix(account, container, reqPrefix) {
 		if b.Snapshot != "" && !include["snapshots"] {
 			continue
 		}
 		if b.Deleted && !include["deleted"] {
-			continue
-		}
-		if reqPrefix != "" && !strings.HasPrefix(b.Name, reqPrefix) {
 			continue
 		}
 		all = append(all, blobListEntryFor(b, include))
