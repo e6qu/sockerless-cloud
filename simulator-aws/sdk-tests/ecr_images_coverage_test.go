@@ -134,3 +134,30 @@ func TestECR_LifecyclePolicyLifecycle(t *testing.T) {
 	_, err = c.GetLifecyclePolicy(ctx, &ecr.GetLifecyclePolicyInput{RepositoryName: aws.String("cov-lifecycle")})
 	assert.Error(t, err, "lifecycle policy gone after delete")
 }
+
+// imageSizeInBytes is the image's compressed layers, and a repository's images
+// are its own even when another repository's name begins with its name.
+func TestECR_DescribeImagesReportsLayerSizesPerRepository(t *testing.T) {
+	c := ecrClient()
+	for _, name := range []string{"cov-size", "cov-size-other"} {
+		_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(name)})
+		require.NoError(t, err)
+	}
+	manifest := `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json",` +
+		`"config":{"mediaType":"application/vnd.docker.container.image.v1+json","size":7,"digest":"sha256:covsizecfg"},` +
+		`"layers":[{"mediaType":"application/vnd.docker.image.rootfs.diff.tar.gzip","size":1200,"digest":"sha256:covsizea"},` +
+		`{"mediaType":"application/vnd.docker.image.rootfs.diff.tar.gzip","size":34,"digest":"sha256:covsizeb"}]}`
+	_, err := c.PutImage(ctx, &ecr.PutImageInput{
+		RepositoryName: aws.String("cov-size"), ImageTag: aws.String("v1"), ImageManifest: aws.String(manifest),
+	})
+	require.NoError(t, err)
+	_, err = c.PutImage(ctx, &ecr.PutImageInput{
+		RepositoryName: aws.String("cov-size-other"), ImageTag: aws.String("v1"), ImageManifest: aws.String(ecrManifest),
+	})
+	require.NoError(t, err)
+
+	desc, err := c.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String("cov-size")})
+	require.NoError(t, err)
+	require.Len(t, desc.ImageDetails, 1, "only cov-size's own image")
+	assert.Equal(t, int64(1234), aws.ToInt64(desc.ImageDetails[0].ImageSizeInBytes))
+}
