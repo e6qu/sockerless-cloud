@@ -43,7 +43,13 @@ import (
 // registration, and the source scan alone cannot tell the two apart. Scoped
 // entries are therefore also excluded from the staleness sweep — their
 // review lives with the catalogue their reason cites.
-var modelScopedDriftExemptions = map[string]string{}
+var modelScopedDriftExemptions = map[string]string{
+	// No SDK release past the adoption quarantine, no CLI and no Terraform
+	// resource carries these EC2 operations yet.
+	"ec2.smithy.json.gz:GetClientVpnEndpointAuthorizationPolicy":    "no client carries it yet",
+	"ec2.smithy.json.gz:ModifyClientVpnEndpointAuthorizationPolicy": "no client carries it yet",
+	"ec2.smithy.json.gz:DeleteClientVpnEndpointAuthorizationPolicy": "no client carries it yet",
+}
 
 var modelDriftExemptions = map[string]string{
 	// S3 routes bucket subresources by query parameter, so these operation
