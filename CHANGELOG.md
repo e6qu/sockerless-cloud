@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.3](https://github.com/e6qu/sockerless-cloud/compare/v0.33.2...v0.33.3) (2026-09-28)
+
+
+### Bug Fixes
+
+* **aws:** CBOR CloudWatch, S3 storage classes, faster DynamoDB, ECR, ECS reads ([42012bf](https://github.com/e6qu/sockerless-cloud/commit/42012bffb57fb8fff86b1f7a4e531261dfffb2e6))
+
 ## [0.33.2](https://github.com/e6qu/sockerless-cloud/compare/v0.33.1...v0.33.2) (2026-09-28)
 
 
