@@ -888,20 +888,30 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 	probe := dynamodb.NewFromConfig(sdkConfig(), func(o *dynamodb.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
-	// DynamoDB Local is a JVM; a cold start on a loaded CI runner can take well
-	// over 30s, so wait up to 120s (was 30s — the tight readiness window was a
-	// flake source when the runner was busy).
-	ok := false
-	for i := 0; i < 240; i++ {
-		if _, err := probe.ListTables(ctx, &dynamodb.ListTablesInput{}); err == nil {
-			ok = true
+	// DynamoDB Local is a JVM, and a cold start on a loaded CI runner can take
+	// well over 30s. The deadline is wall-clock and each probe carries its own
+	// timeout, so a probe the SDK retries cannot stretch the wait.
+	deadline := time.Now().Add(120 * time.Second)
+	var probeErr error
+	for {
+		probeCtx, cancelProbe := context.WithTimeout(ctx, 5*time.Second)
+		_, probeErr = probe.ListTables(probeCtx, &dynamodb.ListTablesInput{}, func(o *dynamodb.Options) {
+			o.RetryMaxAttempts = 1
+		})
+		cancelProbe()
+		if probeErr == nil || time.Now().After(deadline) {
 			break
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	if !ok {
+	if probeErr != nil {
+		inspectCtx, cancelInspect := context.WithTimeout(context.Background(), 30*time.Second)
+		stateOut, _ := exec.CommandContext(inspectCtx, "docker", "inspect", "--format", "{{json .State}}", containerName).CombinedOutput()
+		logsOut, _ := exec.CommandContext(inspectCtx, "docker", "logs", "--tail", "60", containerName).CombinedOutput()
+		cancelInspect()
 		stop()
-		t.Fatalf("DynamoDB Local did not become ready at %s", endpoint)
+		t.Fatalf("DynamoDB Local did not become ready at %s within 120s: %v\ncontainer state: %s\ncontainer log:\n%s",
+			endpoint, probeErr, stateOut, logsOut)
 	}
 	return endpoint, stop
 }

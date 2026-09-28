@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 15. Resolved: 176.
+Open: 15. Resolved: 178.
 
 ## Open
 
@@ -35,6 +35,10 @@ Open: 15. Resolved: 176.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3082 (the DynamoDB Local readiness wait was unbounded and silent):**~~ The differential harness counted 240 probes rather than a deadline, and each `ListTables` probe carried no timeout of its own while the SDK retried it, so on a loaded runner the wait ran 278 seconds and failed with no cause. The wait is now 120 seconds of wall clock with a five-second, single-attempt probe, and a failure reports the last probe error, the container's state and the tail of its log.
+
+- ~~**BUG-3081 (every DynamoDB Query listed the whole table's keys):**~~ Moving the index path into its own branch listed the table's keys before the partition narrowing replaced them, so a Query that names its partition still enumerated the table: forty concurrent queries over 2,000 items took 3.3 seconds instead of 1.4, and 8.4 on a CI runner. The table is listed only when the key condition does not fix the partition, and `TestDDBQueryReadsOnlyTheAddressedPartition` now records the key ranges a query enumerates, so the regression fails deterministically; the timing test had been the only one to see it.
 
 - ~~**BUG-3079 (a PartiQL INSERT accepted keys that do not fit the table, with an invented refusal):**~~ INSERT accepted a key attribute or a secondary index key of the wrong type and a number that is not one, and refused a missing key attribute in words no DynamoDB returns. It now refuses each as DynamoDB Local does, word for word. The differential scenarios that compare refusals now compare the message too: the harness kept only an error's code, so the earlier ones had compared codes alone.
 

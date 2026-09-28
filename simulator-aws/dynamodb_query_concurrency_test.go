@@ -69,6 +69,21 @@ func (s *ddbCountingStore) Get(id string) (map[string]any, bool) {
 	return s.Store.Get(id)
 }
 
+// ddbListingNames records every prefix listed from the key-name store, so a
+// test sees which key ranges a request enumerated before reading any item.
+type ddbListingNames struct {
+	sim.Store[string]
+	mu       sync.Mutex
+	prefixes []string
+}
+
+func (s *ddbListingNames) ListPrefix(prefix string) []sim.Keyed[string] {
+	s.mu.Lock()
+	s.prefixes = append(s.prefixes, prefix)
+	s.mu.Unlock()
+	return s.Store.ListPrefix(prefix)
+}
+
 // ddbSeedQueryTable stores one table of items sharing a partition key, so a
 // query's key condition matches exactly one of them and the rest are
 // candidates it must examine and reject.
@@ -259,8 +274,13 @@ func TestDDBQueryReadsOnlyTheAddressedPartition(t *testing.T) {
 	counting := &ddbCountingStore{Store: ddbItems}
 	ddbItems = counting
 	t.Cleanup(func() { ddbItems = counting.Store })
+	listing := &ddbListingNames{Store: ddbItemNames}
+	ddbItemNames = listing
+	t.Cleanup(func() { ddbItemNames = listing.Store })
 	recorder := ddbQuery(t, table, "tenant-007", "sk-00007")
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.Equal(t, []string{prefix}, listing.prefixes,
+		"a query must enumerate only the key range of the partition it addresses, never the table's")
 	// Reading fewer items must not mean answering with fewer: the narrowed
 	// query returns the same item the whole-table scan returned.
 	var narrowedOut struct {

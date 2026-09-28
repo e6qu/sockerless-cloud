@@ -1651,9 +1651,11 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 		// partition in index sort-key order and resumes by the index's key.
 		remaining = ddbIndexCandidateKeys(t, index, keyExpr, req.ExclusiveStartKey, forward)
 	} else {
-		candidates := ddbTableSortedKeys(prefix)
+		var candidates []string
 		if partition, ok := ddbQueryPartitionPrefix(t, keyExpr); ok {
 			candidates = ddbKeysInPartition(ddbTableSortedKeys(partition), partition)
+		} else {
+			candidates = ddbTableSortedKeys(prefix)
 		}
 		remaining = ddbQueryCandidateKeys(candidates, t, req.ExclusiveStartKey, prefix, forward)
 	}
