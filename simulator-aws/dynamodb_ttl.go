@@ -66,7 +66,7 @@ func ddbSweepExpiredItems(now time.Time) int {
 			if !ddbItemExpired(item, settings.TTLAttributeName, now) {
 				continue
 			}
-			if ddbDeleteIfStillExpired(table.TableName, itemKey, settings.TTLAttributeName, now) {
+			if ddbDeleteIfStillExpired(table, itemKey, settings.TTLAttributeName, now) {
 				deleted++
 			}
 		}
@@ -74,14 +74,13 @@ func ddbSweepExpiredItems(now time.Time) int {
 	return deleted
 }
 
-func ddbDeleteIfStillExpired(tableName, itemKey, attribute string, now time.Time) bool {
-	defer ddbLockTables(true, tableName)()
+func ddbDeleteIfStillExpired(table DDBTable, itemKey, attribute string, now time.Time) bool {
+	defer ddbLockTables(true, table.TableName)()
 	item, ok := ddbItems.Get(itemKey)
 	if !ok || !ddbItemExpired(item, attribute, now) {
 		return false
 	}
-	ddbItems.Delete(itemKey)
-	ddbItemNames.Delete(itemKey)
+	ddbDeleteItem(table, itemKey)
 	return true
 }
 

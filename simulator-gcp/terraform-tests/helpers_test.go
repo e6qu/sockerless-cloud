@@ -228,8 +228,11 @@ func waitForHealth(url string) error {
 	return fmt.Errorf("timeout waiting for %s", url)
 }
 
+// The dependency lock beside each configuration is untracked local state, so
+// init re-resolves the providers the configuration pins exactly rather than
+// failing on a lock an earlier provider bump left behind.
 func terraformCmd(args ...string) *exec.Cmd {
-	cmd := exec.Command("terraform", args...)
+	cmd := exec.Command("terraform", initUpgrading(args)...)
 	cmd.Dir = filepath.Dir(mustAbs("main.tf"))
 	// Own process group so runTimed can reap terraform + its provider-plugin
 	// grandchildren with one kill(-pgid); otherwise a timed-out command leaves
@@ -410,4 +413,11 @@ func trustedHTTPClient(caCert string) (*http.Client, error) {
 			TLSClientConfig: &tls.Config{RootCAs: pool},
 		},
 	}, nil
+}
+
+func initUpgrading(args []string) []string {
+	if len(args) > 0 && args[0] == "init" {
+		return append([]string{"init", "-upgrade"}, args[1:]...)
+	}
+	return args
 }

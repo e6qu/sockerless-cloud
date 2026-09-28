@@ -37,6 +37,13 @@ repos:
         language: system
         types: [go]
 
+      - id: terraform-fmt
+        name: Terraform format
+        entry: terraform fmt -check -diff
+        language: system
+        files: \.tf$
+        exclude: /\.terraform/
+
       - id: golangci-lint
         name: Go lint
         entry: bash scripts/lint-changed.sh

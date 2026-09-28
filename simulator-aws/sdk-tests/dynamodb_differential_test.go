@@ -395,6 +395,98 @@ func dynamoDifferentialScenarios() []diffScenario {
 			return diffErrorMessage(err), err
 		}},
 
+		{"gsi-query-reads-index-order-and-projection", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithIndex(c, table); err != nil {
+				return nil, err
+			}
+			if err := diffPutIndexed(c, table); err != nil {
+				return nil, err
+			}
+			out, err := c.Query(ctx, &dynamodb.QueryInput{
+				TableName: &table, IndexName: aws.String("byGroup"),
+				KeyConditionExpression:    aws.String("grp = :g"),
+				ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":g": &ddbtypes.AttributeValueMemberS{Value: "g1"}},
+			})
+			if err != nil {
+				return nil, err
+			}
+			return diffNormItems(out.Items), nil
+		}},
+
+		{"gsi-query-pages-by-the-index-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithIndex(c, table); err != nil {
+				return nil, err
+			}
+			if err := diffPutIndexed(c, table); err != nil {
+				return nil, err
+			}
+			var pages []any
+			var start map[string]ddbtypes.AttributeValue
+			for {
+				out, err := c.Query(ctx, &dynamodb.QueryInput{
+					TableName: &table, IndexName: aws.String("byGroup"), Limit: aws.Int32(2), ExclusiveStartKey: start,
+					KeyConditionExpression:    aws.String("grp = :g"),
+					ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":g": &ddbtypes.AttributeValueMemberS{Value: "g1"}},
+				})
+				if err != nil {
+					return nil, err
+				}
+				pages = append(pages, map[string]any{"items": diffNormItems(out.Items), "last": diffNormItem(out.LastEvaluatedKey)})
+				if out.LastEvaluatedKey == nil {
+					return pages, nil
+				}
+				start = out.LastEvaluatedKey
+			}
+		}},
+
+		{"sparse-index-scan-sees-only-indexed-items", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithIndex(c, table); err != nil {
+				return nil, err
+			}
+			if err := diffPutIndexed(c, table); err != nil {
+				return nil, err
+			}
+			out, err := c.Scan(ctx, &dynamodb.ScanInput{TableName: &table, IndexName: aws.String("byGroup")})
+			if err != nil {
+				return nil, err
+			}
+			ids := []string{}
+			for _, item := range out.Items {
+				ids = append(ids, item["PK"].(*ddbtypes.AttributeValueMemberS).Value)
+			}
+			sort.Strings(ids)
+			return ids, nil
+		}},
+
+		{"put-with-an-index-key-of-the-wrong-type", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithIndex(c, table); err != nil {
+				return nil, err
+			}
+			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{
+				"PK": &ddbtypes.AttributeValueMemberS{Value: "x"}, "grp": &ddbtypes.AttributeValueMemberN{Value: "1"},
+			}})
+			return diffErrorMessage(err), err
+		}},
+
+		{"transaction-with-a-failing-update-writes-nothing", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTable(c, table); err != nil {
+				return nil, err
+			}
+			_, txErr := c.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: []ddbtypes.TransactWriteItem{
+				{Put: &ddbtypes.Put{TableName: &table, Item: diffKey("first", nil)}},
+				{Update: &ddbtypes.Update{
+					TableName: &table, Key: diffKey("second", nil),
+					UpdateExpression:          aws.String("SET n = n + :v"),
+					ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":v": &ddbtypes.AttributeValueMemberN{Value: "1"}},
+				}},
+			}})
+			got, err := diffGet(c, table, "first")
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"refused": txErr != nil, "first": got}, nil
+		}},
+
 		{"undefined-value-ref-fails-loud", func(c *dynamodb.Client, table string) (any, error) {
 			if err := diffMakeTable(c, table); err != nil {
 				return nil, err
@@ -409,6 +501,51 @@ func dynamoDifferentialScenarios() []diffScenario {
 }
 
 // ── scenario helpers ─────────────────────────────────────────────────────────
+
+// diffMakeTableWithIndex is a table keyed by PK with a KEYS_ONLY global index
+// byGroup on grp (hash) and rank (numeric range).
+func diffMakeTableWithIndex(c *dynamodb.Client, table string) error {
+	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName: &table,
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("PK"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+			{AttributeName: aws.String("grp"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+			{AttributeName: aws.String("rank"), AttributeType: ddbtypes.ScalarAttributeTypeN},
+		},
+		KeySchema: []ddbtypes.KeySchemaElement{{AttributeName: aws.String("PK"), KeyType: ddbtypes.KeyTypeHash}},
+		GlobalSecondaryIndexes: []ddbtypes.GlobalSecondaryIndex{{
+			IndexName: aws.String("byGroup"),
+			KeySchema: []ddbtypes.KeySchemaElement{
+				{AttributeName: aws.String("grp"), KeyType: ddbtypes.KeyTypeHash},
+				{AttributeName: aws.String("rank"), KeyType: ddbtypes.KeyTypeRange},
+			},
+			Projection: &ddbtypes.Projection{ProjectionType: ddbtypes.ProjectionTypeKeysOnly},
+		}},
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+	})
+	return err
+}
+
+// diffPutIndexed writes items in and out of byGroup: ranks out of order, one
+// item with no grp, and one attribute the KEYS_ONLY index does not project.
+func diffPutIndexed(c *dynamodb.Client, table string) error {
+	for _, row := range []struct{ pk, grp, rank string }{
+		{"a", "g1", "10"}, {"b", "g1", "9"}, {"c", "g1", "-1"}, {"d", "g2", "5"}, {"e", "", ""}, {"f", "g1", "100"},
+	} {
+		item := map[string]ddbtypes.AttributeValue{
+			"PK":    &ddbtypes.AttributeValueMemberS{Value: row.pk},
+			"extra": &ddbtypes.AttributeValueMemberS{Value: "not projected"},
+		}
+		if row.grp != "" {
+			item["grp"] = &ddbtypes.AttributeValueMemberS{Value: row.grp}
+			item["rank"] = &ddbtypes.AttributeValueMemberN{Value: row.rank}
+		}
+		if _, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: item}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // diffErrorMessage is the message a refusal carries, so a scenario compares
 // the wording with DynamoDB Local's and not only the error code.

@@ -33,7 +33,7 @@ func TestTerraformSecretManagerUpdateDelete(t *testing.T) {
 }
 
 func terraformCmdInDir(dir string, args ...string) *exec.Cmd {
-	cmd := exec.Command("terraform", args...)
+	cmd := exec.Command("terraform", initUpgrading(args)...)
 	if filepath.IsAbs(dir) {
 		cmd.Dir = dir
 	} else {

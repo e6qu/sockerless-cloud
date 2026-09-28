@@ -196,6 +196,36 @@ func ddbItemKeyError(t DDBTable, item map[string]any) string {
 			return message
 		}
 	}
+	return ddbIndexKeyError(t, item)
+}
+
+// ddbIndexKeyError checks the attributes an item gives its secondary indexes'
+// keys: an index key the item carries has the index's declared type and is not
+// empty. An item without one is simply not in that index.
+func ddbIndexKeyError(t DDBTable, item map[string]any) string {
+	for _, index := range ddbIndexes(t) {
+		for _, k := range index.keySchema {
+			value, ok := item[k.AttributeName]
+			if !ok {
+				continue
+			}
+			declared := ""
+			for _, def := range t.AttributeDefinitions {
+				if def.AttributeName == k.AttributeName {
+					declared = def.AttributeType
+				}
+			}
+			typed, _ := value.(map[string]any)
+			raw, matches := typed[declared]
+			if !matches {
+				return "One or more parameter values were invalid: Type mismatch for Index Key"
+			}
+			if text, isText := raw.(string); isText && text == "" {
+				return "One or more parameter values are not valid. A value specified for a secondary index key is not supported. " +
+					"The AttributeValue for a key attribute cannot contain an empty string value. IndexName: " + index.name + ", IndexKey: " + k.AttributeName
+			}
+		}
+	}
 	return ""
 }
 

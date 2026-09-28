@@ -155,6 +155,11 @@ func (e *Env) Terraform(t *testing.T, args ...string) []byte {
 	t.Helper()
 	if len(args) > 0 {
 		switch args[0] {
+		case "init":
+			// The lock beside the configuration is untracked local state; init
+			// re-resolves the exactly pinned providers instead of failing on a
+			// stale one.
+			args = append([]string{"init", "-upgrade"}, args[1:]...)
 		case "apply", "destroy", "output", "plan", "refresh":
 			out := make([]string, 0, len(args)+1)
 			out = append(out, args[0], "-state="+e.State)

@@ -259,6 +259,10 @@ func registerDynamoDB(r *AWSRouter, srv *sim.Server, startBackgroundEvaluators b
 	if err := ddbMigrateItemKeys(); err != nil {
 		log.Fatalf("dynamodb: %v", err)
 	}
+	ddbIndexEntries = sim.NewStateStore[string]()
+	for _, table := range ddbTables.List() {
+		ddbRebuildTableIndexes(table)
+	}
 	ddbResetUsage()
 	if startBackgroundEvaluators {
 		startDDBTTLSweeper(srv)
@@ -857,6 +861,12 @@ func handleDDBUpdateTable(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ddbTables.Put(req.TableName, t)
+	if len(req.GlobalSecondaryIndexUpdates) > 0 {
+		func() {
+			defer ddbLockTables(true, req.TableName)()
+			ddbRebuildTableIndexes(t)
+		}()
+	}
 	writeDDBJSON(w, http.StatusOK, map[string]any{"TableDescription": t})
 }
 
@@ -882,13 +892,11 @@ func handleDDBDeleteTable(w http.ResponseWriter, r *http.Request) {
 	// item stores so the rows don't survive into a same-named recreate.
 	// Keys are "<table>/<hash>[|<rng>]"; the trailing "/" prevents a prefix
 	// collision with a differently-named table (e.g. "foo" vs "foobar").
-	prefix := req.TableName + "/"
-	for _, k := range ddbItemNames.List() {
-		if strings.HasPrefix(k, prefix) {
-			ddbItems.Delete(k)
-			ddbItemNames.Delete(k)
-		}
+	for _, k := range ddbTableSortedKeys(req.TableName + "/") {
+		ddbItems.Delete(k)
+		ddbItemNames.Delete(k)
 	}
+	ddbDropTableIndexes(req.TableName)
 	writeDDBJSON(w, http.StatusOK, map[string]any{"TableDescription": t})
 }
 
@@ -1184,8 +1192,7 @@ func handleDDBPutItem(w http.ResponseWriter, r *http.Request) {
 		writeDDBConditionalCheckFailed(w, req.ReturnValuesOnConditionCheckFailure, old, exists)
 		return
 	}
-	ddbItems.Put(itemKey, req.Item)
-	ddbItemNames.Put(itemKey, itemKey)
+	ddbPutItem(t, itemKey, req.Item)
 	resp := map[string]any{}
 	if req.ReturnValues == "ALL_OLD" && exists {
 		resp["Attributes"] = old
@@ -1353,12 +1360,15 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	}
+	if message := ddbIndexKeyError(t, item); message != "" {
+		AWSError(w, "ValidationException", message, http.StatusBadRequest)
+		return
+	}
 	if index, ok := ddbTakeWrite(t, item, math.Max(ddbWriteUnits(oldItem), ddbWriteUnits(item))); !ok {
 		ddbWriteThrottled(w, index)
 		return
 	}
-	ddbItems.Put(itemKey, item)
-	ddbItemNames.Put(itemKey, itemKey)
+	ddbPutItem(t, itemKey, item)
 
 	resp := map[string]any{}
 	switch strings.ToUpper(req.ReturnValues) {
@@ -1554,8 +1564,7 @@ func handleDDBDeleteItem(w http.ResponseWriter, r *http.Request) {
 		writeDDBConditionalCheckFailed(w, req.ReturnValuesOnConditionCheckFailure, oldItem, existed)
 		return
 	}
-	ddbItems.Delete(itemKey)
-	ddbItemNames.Delete(itemKey)
+	ddbDeleteItem(t, itemKey)
 	out := map[string]any{}
 	if strings.EqualFold(req.ReturnValues, "ALL_OLD") && existed {
 		out["Attributes"] = oldItem
@@ -1633,14 +1642,21 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	// the partition cannot be read out of the key condition — a query on a
 	// secondary index, whose key attributes are not the table's — the whole
 	// table is the candidate set and the key condition decides.
-	var candidates []string
-	if partition, ok := ddbQueryPartitionPrefix(t, keyExpr); ok && req.IndexName == "" {
-		candidates = ddbKeysInPartition(ddbTableSortedKeys(partition), partition)
+	forward := req.ScanIndexForward == nil || *req.ScanIndexForward
+	index, onIndex := ddbIndexByName(t, req.IndexName)
+	onGSI := onIndex && ddbIsGSI(t, req.IndexName)
+	var remaining []string
+	if onIndex {
+		// An index holds its own ordered entries, so a query on one reads its
+		// partition in index sort-key order and resumes by the index's key.
+		remaining = ddbIndexCandidateKeys(t, index, keyExpr, req.ExclusiveStartKey, forward)
 	} else {
-		candidates = ddbTableSortedKeys(prefix)
+		candidates := ddbTableSortedKeys(prefix)
+		if partition, ok := ddbQueryPartitionPrefix(t, keyExpr); ok {
+			candidates = ddbKeysInPartition(ddbTableSortedKeys(partition), partition)
+		}
+		remaining = ddbQueryCandidateKeys(candidates, t, req.ExclusiveStartKey, prefix, forward)
 	}
-	remaining := ddbQueryCandidateKeys(candidates, t, req.ExclusiveStartKey, prefix,
-		req.ScanIndexForward == nil || *req.ScanIndexForward)
 
 	// Query reads only the items matching the KeyConditionExpression; Limit caps
 	// how many such items are *examined* (ScannedCount), and the optional
@@ -1667,7 +1683,7 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	func() {
 		defer ddbLockTables(false, req.TableName)()
 		var lastScannedStored map[string]any
-		for i, k := range remaining {
+		for _, k := range remaining {
 			stored, ok2 := ddbItems.Get(k)
 			if !ok2 {
 				continue
@@ -1677,13 +1693,19 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 			}
 			scanned++
 			lastScannedStored = stored
-			if filterExpr.match(stored, true) {
+			// A global secondary index holds only what it projects, so its
+			// filter sees nothing else; a local one reads the table.
+			view := stored
+			if onGSI {
+				view = ddbProjectToIndex(t, index, stored)
+			}
+			if filterExpr.match(view, true) {
 				matched = append(matched, stored)
 			}
+			// Reaching Limit ends the page with a LastEvaluatedKey even when
+			// nothing is left, as DynamoDB does: the next page is then empty.
 			if req.Limit > 0 && scanned >= req.Limit {
-				if i+1 < len(remaining) {
-					exhausted = false
-				}
+				exhausted = false
 				break
 			}
 		}
@@ -1696,8 +1718,15 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	// The matches are copied once the stripe is released: a published item is
 	// never mutated in place, so the copy is safe outside the lock and no
 	// other reader waits for it.
+	// An index query returns what the index projects, unless a local index is
+	// asked for the table's attributes by Select or a ProjectionExpression.
+	projectToIndex := onGSI || (onIndex && !strings.EqualFold(req.Select, "ALL_ATTRIBUTES") && req.ProjectionExpression == "")
 	for _, stored := range matched {
-		items = append(items, ddbCloneItem(stored))
+		item := ddbCloneItem(stored)
+		if projectToIndex {
+			item = ddbProjectToIndex(t, index, item)
+		}
+		items = append(items, item)
 	}
 	if items == nil {
 		items = []map[string]any{}
@@ -1707,7 +1736,11 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	// Emit LastEvaluatedKey when we stopped on Limit before exhausting the keys —
 	// from the last *scanned* (key-matched) item's full key, the resume cursor.
 	if !exhausted && lastScanned != nil {
-		out["LastEvaluatedKey"] = ddbExtractKey(t, lastScanned)
+		if onIndex {
+			out["LastEvaluatedKey"] = ddbIndexLastEvaluatedKey(t, index, lastScanned)
+		} else {
+			out["LastEvaluatedKey"] = ddbExtractKey(t, lastScanned)
+		}
 	}
 	// Select=COUNT returns only Count/ScannedCount and omits Items.
 	if !strings.EqualFold(req.Select, "COUNT") {
@@ -1849,33 +1882,38 @@ func handleDDBScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	prefix := req.TableName + "/"
-	keys := ddbTableSortedKeys(prefix)
-	// Parallel scan: a TotalSegments=N scan issues N calls, each owning a disjoint
-	// subset of the table's keys — partition by position so the union is the whole
-	// table with no overlap (real DynamoDB hashes; deterministic positional split
-	// gives the same disjoint-coverage contract).
+	// A scan of an index reads the index's entries, so it sees only the items
+	// the index holds; a scan of the table reads the table.
+	index, onIndex := ddbIndexByName(t, req.IndexName)
+	onGSI := onIndex && ddbIsGSI(t, req.IndexName)
+	var remaining []string
+	if onIndex {
+		remaining = ddbIndexCandidateKeys(t, index, nil, req.ExclusiveStartKey, true)
+	} else {
+		keys := ddbTableSortedKeys(prefix)
+		remaining = keys[ddbResumeIndex(keys, ddbItemKey(t, req.ExclusiveStartKey), prefix, prefix):]
+	}
+	// Parallel scan: a TotalSegments=N scan issues N calls, each owning the
+	// partitions that hash to its segment, so the segments stay disjoint and
+	// complete however the table changes between their pages.
 	if req.TotalSegments != nil {
-		seg := 0
+		segment := 0
 		if req.Segment != nil {
-			seg = *req.Segment
+			segment = *req.Segment
 		}
-		part := keys[:0:0]
-		for i, k := range keys {
-			if i%*req.TotalSegments == seg {
+		part := remaining[:0:0]
+		for _, k := range remaining {
+			if ddbScanSegment(k, *req.TotalSegments) == segment {
 				part = append(part, k)
 			}
 		}
-		keys = part
+		remaining = part
 	}
-
-	startKey := ddbItemKey(t, req.ExclusiveStartKey)
-	startIdx := ddbResumeIndex(keys, startKey, prefix, t.TableName+"/")
 
 	// Limit caps the number of items *examined* (ScannedCount), not the number
 	// returned; the FilterExpression is applied to the examined items, so a
 	// filtered Scan can return fewer than Limit and still carry a
 	// LastEvaluatedKey to resume from.
-	remaining := keys[startIdx:]
 	var items []map[string]any
 	scanned := 0
 	var lastScanned map[string]any
@@ -1888,13 +1926,17 @@ func handleDDBScan(w http.ResponseWriter, r *http.Request) {
 		}
 		scanned++
 		lastScanned = it
+		if onGSI {
+			it = ddbProjectToIndex(t, index, it)
+		}
 		if filterExpr.match(it, true) {
+			if onIndex && !onGSI && !strings.EqualFold(req.Select, "ALL_ATTRIBUTES") && req.ProjectionExpression == "" {
+				it = ddbProjectToIndex(t, index, it)
+			}
 			items = append(items, it)
 		}
 		if req.Limit > 0 && scanned >= req.Limit {
-			if i+1 < len(remaining) {
-				exhausted = false
-			}
+			exhausted = false
 			break
 		}
 	}
@@ -1904,7 +1946,11 @@ func handleDDBScan(w http.ResponseWriter, r *http.Request) {
 
 	out := map[string]any{"Count": len(items), "ScannedCount": scanned}
 	if !exhausted && lastScanned != nil {
-		out["LastEvaluatedKey"] = ddbExtractKey(t, lastScanned)
+		if onIndex {
+			out["LastEvaluatedKey"] = ddbIndexLastEvaluatedKey(t, index, lastScanned)
+		} else {
+			out["LastEvaluatedKey"] = ddbExtractKey(t, lastScanned)
+		}
 	}
 	if !strings.EqualFold(req.Select, "COUNT") {
 		out["Items"] = ddbProjectItems(items, req.ProjectionExpression, req.ExpressionAttributeNames)
@@ -2176,8 +2222,7 @@ func handleDDBBatchWriteItem(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				key := ddbItemKey(t, op.PutRequest.Item)
-				ddbItems.Put(key, op.PutRequest.Item)
-				ddbItemNames.Put(key, key)
+				ddbPutItem(t, key, op.PutRequest.Item)
 				processed++
 			case op.DeleteRequest != nil:
 				key := ddbItemKey(t, op.DeleteRequest.Key)
@@ -2186,8 +2231,7 @@ func handleDDBBatchWriteItem(w http.ResponseWriter, r *http.Request) {
 					left = append(left, map[string]any{"DeleteRequest": map[string]any{"Key": op.DeleteRequest.Key}})
 					continue
 				}
-				ddbItems.Delete(key)
-				ddbItemNames.Delete(key)
+				ddbDeleteItem(t, key)
 				processed++
 			}
 		}
@@ -2431,14 +2475,22 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Apply mutations (every condition passed). ConditionCheck is read-only.
+	// Every write is prepared before any is applied: an update that cannot be
+	// applied, or leaves an index key of the wrong type, refuses the whole
+	// transaction, as DynamoDB's all-or-nothing contract requires.
+	// ConditionCheck is read-only.
+	type plannedWrite struct {
+		table  DDBTable
+		key    string
+		item   map[string]any
+		delete bool
+	}
+	var planned []plannedWrite
 	for _, ti := range req.TransactItems {
 		switch {
 		case ti.Put != nil:
 			t, _ := ddbTables.Get(ti.Put.TableName)
-			key := ddbItemKey(t, ti.Put.Item)
-			ddbItems.Put(key, ti.Put.Item)
-			ddbItemNames.Put(key, key)
+			planned = append(planned, plannedWrite{table: t, key: ddbItemKey(t, ti.Put.Item), item: ti.Put.Item})
 		case ti.Update != nil:
 			t, _ := ddbTables.Get(ti.Update.TableName)
 			key := ddbItemKey(t, ti.Update.Key)
@@ -2458,13 +2510,21 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			ddbItems.Put(key, item)
-			ddbItemNames.Put(key, key)
+			if message := ddbIndexKeyError(t, item); message != "" {
+				AWSError(w, "ValidationException", message, http.StatusBadRequest)
+				return
+			}
+			planned = append(planned, plannedWrite{table: t, key: key, item: item})
 		case ti.Delete != nil:
 			t, _ := ddbTables.Get(ti.Delete.TableName)
-			key := ddbItemKey(t, ti.Delete.Key)
-			ddbItems.Delete(key)
-			ddbItemNames.Delete(key)
+			planned = append(planned, plannedWrite{table: t, key: ddbItemKey(t, ti.Delete.Key), delete: true})
+		}
+	}
+	for _, write := range planned {
+		if write.delete {
+			ddbDeleteItem(write.table, write.key)
+		} else {
+			ddbPutItem(write.table, write.key, write.item)
 		}
 	}
 	writeDDBJSON(w, http.StatusOK, map[string]any{})

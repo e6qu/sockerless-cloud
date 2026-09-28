@@ -418,8 +418,7 @@ func ddbRestoreItems(items map[string]map[string]any, srcTable string, target DD
 	for _, item := range items {
 		clone := ddbCloneItem(item)
 		key := ddbItemKey(target, clone)
-		ddbItems.Put(key, clone)
-		ddbItemNames.Put(key, key)
+		ddbPutItem(target, key, clone)
 	}
 }
 

@@ -399,11 +399,11 @@ resource "aws_ecs_task_definition" "tf_runner" {
   memory                   = "512"
 
   container_definitions = jsonencode([{
-    name      = "app"
+    name        = "app"
     stopTimeout = 2
-    image     = "sockerless-container-command:aws-terraform"
-    command   = ["hold"]
-    essential = true
+    image       = "sockerless-container-command:aws-terraform"
+    command     = ["hold"]
+    essential   = true
   }])
 }
 
@@ -415,10 +415,10 @@ resource "aws_ecs_task_definition" "tf_runner_bridge" {
   network_mode = "bridge"
 
   container_definitions = jsonencode([{
-    name      = "app"
+    name        = "app"
     stopTimeout = 2
-    image     = "public.ecr.aws/docker/library/alpine:latest"
-    essential = true
+    image       = "public.ecr.aws/docker/library/alpine:latest"
+    essential   = true
   }])
 }
 
@@ -942,6 +942,7 @@ resource "aws_lambda_function" "tf_lambda" {
   role                           = "arn:aws:iam::123456789012:role/tf-lambda"
   package_type                   = "Image"
   image_uri                      = "123456789012.dkr.ecr.us-east-1.amazonaws.com/sockerless-lambda-runtime-handler:aws-terraform"
+  architectures                  = [var.lambda_architecture]
   memory_size                    = 128
   timeout                        = 3
   publish                        = true
