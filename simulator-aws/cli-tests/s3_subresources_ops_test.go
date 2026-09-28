@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -151,10 +152,18 @@ func TestS3CLI_ObjectTorrent(t *testing.T) {
 func TestS3CLI_RestoreObject(t *testing.T) {
 	bucket, key := "cli-obj-restore-bucket", "restore.txt"
 	s3PutObjectCLI(t, bucket, key, "restore payload")
+	// Only an archived object can be restored; a copy onto itself changes the
+	// object's storage class.
+	runCLI(t, awsCLI("s3api", "copy-object",
+		"--bucket", bucket, "--key", key, "--copy-source", bucket+"/"+key, "--storage-class", "GLACIER"))
 
 	runCLI(t, awsCLI("s3api", "restore-object",
 		"--bucket", bucket, "--key", key,
 		"--restore-request", "Days=1,GlacierJobParameters={Tier=Standard}"))
+	head := runCLI(t, awsCLI("s3api", "head-object", "--bucket", bucket, "--key", key))
+	if !strings.Contains(head, `"StorageClass": "GLACIER"`) || !strings.Contains(head, `ongoing-request=\"false\"`) {
+		t.Fatalf("head-object after the restore: %s", head)
+	}
 
 	_ = awsCLI("s3api", "delete-object", "--bucket", bucket, "--key", key).Run()
 	_ = awsCLI("s3api", "delete-bucket", "--bucket", bucket).Run()

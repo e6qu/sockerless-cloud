@@ -225,6 +225,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 
 	// Smithy RPCv2 CBOR services (path-based routing)
 	registerCloudWatchMetrics(srv, options.startBackgroundEvaluators)
+	registerCloudWatchCBORBridge(srv, awsRouter)
 
 	// REST-based services register directly on the server mux
 	registerEFS(srv)

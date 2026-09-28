@@ -588,3 +588,24 @@ the host holds, so the cache removed nothing and the cap still failed suites.
 every suite goes through it, and a test in `testutil` fails on a file that
 pulls a base image itself. A pull that tests a simulator's own registry is
 the one deliberate exception, named `registrytrust.PullFromRegistryUnderTest`.
+
+## A CloudWatch operation answers on every protocol its model declares
+
+The Amazon CloudWatch model declares awsQuery, awsJson1_0 and rpc-v2-cbor for
+every operation, and the Go SDK, and so Terraform, speaks only CBOR. The CBOR
+routes were written by hand, one operation at a time, and ten operations the
+other two protocols served had none. Rather than write ten more, an operation
+without a hand-written CBOR route is served from its JSON handler: the request
+is decoded and re-encoded as JSON, the answer re-encoded as CBOR, both walked
+by the operation's input and output shapes, because the protocols carry
+timestamps, blobs and numbers differently. The shapes are generated from the
+vendored model and held to it by a test, and another test fails on any model
+operation with no implementation on any protocol.
+
+## An S3 object keeps its storage class
+
+Objects used to be STANDARD whatever the request said, which left RestoreObject
+nothing to decide by. The class is stored with the object and reported where
+S3 reports it, and an archived object answers the model's own errors until a
+restore makes a temporary copy. A restore completes at once; how the service
+reports the hours a real one takes is BUG-3059.

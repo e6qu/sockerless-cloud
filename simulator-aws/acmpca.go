@@ -514,7 +514,7 @@ func privateCARevokeIssuedCertificate(certificateARN, reason string) error {
 	certificate.RevokedAt = float64(time.Now().UTC().UnixMilli()) / 1000
 	privateCACertificates.Put(certificate.ARN, certificate)
 	if ca, ok := privateCAs.Get(privateCAID(certificate.CAARN)); ok {
-		privateCAWriteCRL(ca)
+		return privateCAWriteCRL(ca)
 	}
 	return nil
 }
@@ -1026,11 +1026,14 @@ func handlePrivateCARevoke(w http.ResponseWriter, r *http.Request) {
 		privateCAError(w, "ResourceNotFoundException", "The certificate serial was not issued by this certificate authority.")
 		return
 	}
-	privateCAWriteCRL(ca)
+	if err := privateCAWriteCRL(ca); err != nil {
+		AWSError(w, "InternalFailure", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-func privateCAWriteCRL(ca privateCA) {
+func privateCAWriteCRL(ca privateCA) error {
 	var revocation struct {
 		CrlConfiguration struct {
 			Enabled          bool   `json:"Enabled"`
@@ -1038,17 +1041,21 @@ func privateCAWriteCRL(ca privateCA) {
 			ExpirationInDays int    `json:"ExpirationInDays"`
 		} `json:"CrlConfiguration"`
 	}
-	if json.Unmarshal(ca.RevocationConfiguration, &revocation) != nil ||
-		!revocation.CrlConfiguration.Enabled || revocation.CrlConfiguration.S3BucketName == "" {
-		return
+	if len(ca.RevocationConfiguration) > 0 {
+		if err := json.Unmarshal(ca.RevocationConfiguration, &revocation); err != nil {
+			return fmt.Errorf("the stored revocation configuration of %s: %w", ca.ARN, err)
+		}
+	}
+	if !revocation.CrlConfiguration.Enabled || revocation.CrlConfiguration.S3BucketName == "" {
+		return nil
 	}
 	certificate, err := privateCAParseCertificate(ca.CertificatePEM)
 	if err != nil {
-		return
+		return fmt.Errorf("the certificate of %s: %w", ca.ARN, err)
 	}
 	signer, err := privateCASigner(ca)
 	if err != nil {
-		return
+		return fmt.Errorf("the signing key of %s: %w", ca.ARN, err)
 	}
 	var entries []x509.RevocationListEntry
 	for _, issued := range privateCACertificates.List() {
@@ -1057,7 +1064,7 @@ func privateCAWriteCRL(ca privateCA) {
 		}
 		serial := new(big.Int)
 		if _, ok := serial.SetString(issued.Serial, 10); !ok {
-			continue
+			return fmt.Errorf("the serial %q of %s is not a decimal integer", issued.Serial, issued.ARN)
 		}
 		entries = append(entries, x509.RevocationListEntry{
 			SerialNumber: serial, RevocationTime: time.UnixMilli(int64(issued.RevokedAt * 1000)).UTC(),
@@ -1074,10 +1081,24 @@ func privateCAWriteCRL(ca privateCA) {
 		ThisUpdate:                time.Now().UTC(), NextUpdate: time.Now().UTC().AddDate(0, 0, expiration),
 	}, certificate, signer)
 	if err != nil {
-		return
+		return fmt.Errorf("signing the CRL of %s: %w", ca.ARN, err)
 	}
-	_, _ = s3PutServiceObject(revocation.CrlConfiguration.S3BucketName,
-		privateCAID(ca.ARN)+".crl", der, "application/pkix-crl", nil)
+	// AWS Private CA reports a CRL it could not write to its bucket through
+	// the MisconfiguredCRLBucket metric, not through the call that revoked.
+	metric := "CRLGenerated"
+	if _, err := s3PutServiceObject(revocation.CrlConfiguration.S3BucketName,
+		privateCAID(ca.ARN)+".crl", der, "application/pkix-crl", nil); err != nil {
+		metric = "MisconfiguredCRLBucket"
+	}
+	cwStoreDatum(CWMetricDatum{
+		Namespace:  "AWS/ACMPrivateCA",
+		MetricName: metric,
+		Dimensions: []CWDimension{{Name: "PrivateCAArn", Value: ca.ARN}},
+		Value:      1,
+		Unit:       "None",
+		Timestamp:  float64(time.Now().UTC().Unix()),
+	})
+	return nil
 }
 
 func handlePrivateCACreateAudit(w http.ResponseWriter, r *http.Request) {

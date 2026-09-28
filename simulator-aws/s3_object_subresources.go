@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -253,7 +254,7 @@ func handleS3GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&b, "<ETag>%s</ETag>", strings.Trim(obj.ETag, `"`))
 	}
 	if want["StorageClass"] {
-		b.WriteString("<StorageClass>STANDARD</StorageClass>")
+		fmt.Fprintf(&b, "<StorageClass>%s</StorageClass>", obj.storageClassOf())
 	}
 	if want["ObjectSize"] {
 		fmt.Fprintf(&b, "<ObjectSize>%d</ObjectSize>", obj.Size)
@@ -301,30 +302,70 @@ func handleS3RestoreObject(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
 	storeKey := s3ObjectKey(bucket, key)
-	_, ok := s3Objects.Get(storeKey)
+	obj, ok := s3Objects.Get(storeKey)
 	if !ok {
 		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	defer r.Body.Close()
-	// Drain the RestoreRequest body (Days / GlacierJobParameters / Tier);
-	// the sim doesn't model storage tiers, so the request is accepted and
-	// the object marked restored.
-	_, _ = io.ReadAll(r.Body)
+	var req struct {
+		Days                 *int   `xml:"Days"`
+		Tier                 string `xml:"Tier"`
+		GlacierJobParameters struct {
+			Tier string `xml:"Tier"`
+		} `xml:"GlacierJobParameters"`
+	}
+	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed or did not validate against our published schema",
+			key, sim.RequestID(r.Context()), http.StatusBadRequest)
+		return
+	}
+	tier := req.GlacierJobParameters.Tier
+	if tier == "" {
+		tier = req.Tier
+	}
+	switch tier {
+	case "", "Standard", "Bulk", "Expedited":
+	default:
+		S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed or did not validate against our published schema",
+			key, sim.RequestID(r.Context()), http.StatusBadRequest)
+		return
+	}
+	if !s3ArchiveStorageClasses[obj.storageClassOf()] {
+		S3ErrorXML(w, "ObjectAlreadyInActiveTierError", "This action is not allowed against this storage tier.",
+			key, sim.RequestID(r.Context()), http.StatusForbidden)
+		return
+	}
+	if req.Days == nil || *req.Days < 1 {
+		S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed or did not validate against our published schema",
+			key, sim.RequestID(r.Context()), http.StatusBadRequest)
+		return
+	}
 
+	// A first restore is accepted; a restore of an object already restored
+	// answers 200 and moves its expiry, counted from now.
 	status := http.StatusAccepted
-	if !s3Objects.Update(storeKey, func(obj *S3Object) {
-		if obj.RestoreRequested {
-			// A restore was already requested for this object.
+	expiry := s3RestoreExpiry(time.Now().UTC(), *req.Days).Format(time.RFC3339)
+	inProgress := false
+	if !s3Objects.Update(storeKey, func(o *S3Object) {
+		if o.RestoreInProgress {
+			inProgress = true
+			return
+		}
+		if o.RestoreRequested {
 			status = http.StatusOK
 		}
-		obj.RestoreRequested = true
-		obj.RestoreInProgress = false
-		obj.RestoreExpiryDate = time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339)
+		o.RestoreRequested = true
+		o.RestoreExpiryDate = expiry
 	}) {
 		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
+		return
+	}
+	if inProgress {
+		S3ErrorXML(w, "RestoreAlreadyInProgress", "Object restore is already in progress",
+			key, sim.RequestID(r.Context()), http.StatusConflict)
 		return
 	}
 	w.WriteHeader(status)
@@ -487,7 +528,7 @@ func handleS3ListObjectsV1(w http.ResponseWriter, r *http.Request, bucket string
 			LastModified: obj.LastModified.UTC().Format(time.RFC3339),
 			ETag:         obj.ETag,
 			Size:         obj.Size,
-			StorageClass: "STANDARD",
+			StorageClass: obj.storageClassOf(),
 		})
 	}
 	sort.Slice(contents, func(i, j int) bool {

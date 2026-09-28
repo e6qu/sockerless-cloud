@@ -54,6 +54,8 @@ type S3ErrorResponse struct {
 	Message   string   `xml:"Message"`
 	Resource  string   `xml:"Resource,omitempty"`
 	RequestID string   `xml:"RequestId"`
+	// StorageClass is InvalidObjectState's member naming the object's class.
+	StorageClass string `xml:"StorageClass,omitempty"`
 }
 
 // S3ErrorXML writes an S3-style XML error response.
@@ -66,6 +68,11 @@ func S3ErrorXML(w http.ResponseWriter, code string, message string, resource str
 		Resource:  resource,
 		RequestID: requestID,
 	})
+}
+
+// WriteXMLBody encodes v after the caller has written the status.
+func WriteXMLBody(w http.ResponseWriter, v any) {
+	_ = xml.NewEncoder(w).Encode(v)
 }
 
 // WriteXML writes an XML response with the given status code.

@@ -25,6 +25,8 @@ type S3MultipartUpload struct {
 	ContentType string
 	Initiated   time.Time
 	Parts       map[int]s3MultipartPart // partNumber → bytes+etag
+	// StorageClass is the class CreateMultipartUpload asked for.
+	StorageClass string `json:",omitempty"`
 }
 
 type s3MultipartPart struct {
@@ -227,15 +229,22 @@ func handleS3InitiateMultipart(w http.ResponseWriter, r *http.Request) {
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
+	storageClass, err := s3RequestedStorageClass(r)
+	if err != nil {
+		S3ErrorXML(w, "InvalidStorageClass", "The storage class you specified is not valid",
+			key, sim.RequestID(r.Context()), http.StatusBadRequest)
+		return
+	}
 	uploadID := generateUUID()
 	contentType := r.Header.Get("Content-Type")
 	s3MultipartUploads.Put(uploadID, S3MultipartUpload{
-		UploadID:    uploadID,
-		Bucket:      bucket,
-		Key:         key,
-		ContentType: contentType,
-		Initiated:   time.Now().UTC(),
-		Parts:       map[int]s3MultipartPart{},
+		UploadID:     uploadID,
+		Bucket:       bucket,
+		Key:          key,
+		ContentType:  contentType,
+		StorageClass: storageClass,
+		Initiated:    time.Now().UTC(),
+		Parts:        map[int]s3MultipartPart{},
 	})
 	result := struct {
 		XMLName  xml.Name `xml:"InitiateMultipartUploadResult"`
@@ -398,6 +407,7 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 		ETag:         finalETag,
 		ContentType:  mp.ContentType,
 		LastModified: time.Now().UTC(),
+		StorageClass: mp.StorageClass,
 	}, assembled)
 	release()
 	if err != nil {
@@ -461,9 +471,10 @@ func handleS3ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 		Initiated    string  `xml:"Initiated"`
 	}
 	type uploadEntry struct {
-		key       string
-		uploadID  string
-		initiated time.Time
+		key          string
+		uploadID     string
+		initiated    time.Time
+		storageClass string
 	}
 
 	var entries []uploadEntry
@@ -483,9 +494,10 @@ func handleS3ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		entries = append(entries, uploadEntry{
-			key:       upload.Key,
-			uploadID:  upload.UploadID,
-			initiated: upload.Initiated,
+			key:          upload.Key,
+			uploadID:     upload.UploadID,
+			initiated:    upload.Initiated,
+			storageClass: upload.storageClassOf(),
 		})
 	}
 
@@ -529,7 +541,7 @@ func handleS3ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 			UploadID:     entry.uploadID,
 			Initiator:    owner,
 			Owner:        owner,
-			StorageClass: "STANDARD",
+			StorageClass: entry.storageClass,
 			Initiated:    entry.initiated.UTC().Format(time.RFC3339),
 		})
 	}
@@ -589,7 +601,7 @@ func handleS3ListParts(w http.ResponseWriter, r *http.Request) {
 		Bucket:               bucket,
 		Key:                  key,
 		UploadID:             uploadID,
-		StorageClass:         "STANDARD",
+		StorageClass:         mp.storageClassOf(),
 		NextPartNumberMarker: 0,
 		PartNumberMarker:     partNumberMarker,
 		MaxParts:             maxParts,
@@ -744,6 +756,18 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 			srcBucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
+	if !src.readable(time.Now().UTC()) {
+		S3ErrorXML(w, "ObjectNotInActiveTierError",
+			"The source object of the COPY action is not in the active tier and is only stored in Amazon S3 Glacier.",
+			srcKey, sim.RequestID(r.Context()), http.StatusForbidden)
+		return
+	}
+	storageClass, err := s3RequestedStorageClass(r)
+	if err != nil {
+		S3ErrorXML(w, "InvalidStorageClass", "The storage class you specified is not valid",
+			dstKey, sim.RequestID(r.Context()), http.StatusBadRequest)
+		return
+	}
 	if _, ok := s3Buckets_.Get(dstBucket); !ok {
 		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			dstBucket, sim.RequestID(r.Context()), http.StatusNotFound)
@@ -775,6 +799,7 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 		ContentType:  contentType,
 		Metadata:     metadata,
 		LastModified: now,
+		StorageClass: storageClass,
 	}, data)
 	release()
 	if err != nil {
@@ -895,7 +920,7 @@ func handleS3ListObjectVersions(w http.ResponseWriter, r *http.Request) {
 			LastModified: obj.LastModified.UTC().Format(time.RFC3339),
 			ETag:         obj.ETag,
 			Size:         obj.Size,
-			StorageClass: "STANDARD",
+			StorageClass: obj.storageClassOf(),
 			Owner: owner{
 				ID:          awsAccountID(),
 				DisplayName: "simulator",
