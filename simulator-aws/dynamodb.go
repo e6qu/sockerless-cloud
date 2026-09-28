@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"math/big"
 	"net/http"
@@ -254,6 +255,10 @@ func registerDynamoDB(r *AWSRouter, srv *sim.Server, startBackgroundEvaluators b
 	// item held the table's lock long enough to stall writes for seconds.
 	ddbItems = sim.MakeCachedStore[map[string]any](srv.DB(), "ddb_items")
 	ddbItemNames = sim.MakeCachedStore[string](srv.DB(), "ddb_item_names")
+	ddbKeyFormat = sim.MakeStore[string](srv.DB(), "ddb_key_format")
+	if err := ddbMigrateItemKeys(); err != nil {
+		log.Fatalf("dynamodb: %v", err)
+	}
 	ddbResetUsage()
 	if startBackgroundEvaluators {
 		startDDBTTLSweeper(srv)
@@ -923,47 +928,6 @@ func handleDDBListTables(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeDDBJSON(w, http.StatusOK, out)
-}
-
-// ddbItemKey encodes the primary-key attribute values into a stable
-// store key. Composite keys join HASH and RANGE with `|`.
-func ddbItemKey(table DDBTable, item map[string]any) string {
-	var hash, rng string
-	for _, k := range table.KeySchema {
-		val := ddbExtractAttrValue(item[k.AttributeName])
-		switch k.KeyType {
-		case "HASH":
-			hash = val
-		case "RANGE":
-			rng = val
-		}
-	}
-	if rng != "" {
-		return table.TableName + "/" + hash + "|" + rng
-	}
-	return table.TableName + "/" + hash
-}
-
-// ddbExtractAttrValue encodes a key AttributeValue (`{"S"|"N"|"B": ...}`) into
-// the store-key component. The type tag is prefixed so an S value never collides
-// with an equal-looking N/B value, and N values are canonicalized so DynamoDB's
-// numeric equality holds: "01", "1", and "1.0" map to the same key. big.Rat is
-// exact (DynamoDB numbers carry up to 38 digits — float64 would corrupt them).
-func ddbExtractAttrValue(v any) string {
-	m, ok := v.(map[string]any)
-	if !ok {
-		return ""
-	}
-	if s, ok := m["S"]; ok {
-		return "S#" + fmt.Sprintf("%v", s)
-	}
-	if n, ok := m["N"]; ok {
-		return "N#" + ddbCanonicalNumber(fmt.Sprintf("%v", n))
-	}
-	if b, ok := m["B"]; ok {
-		return "B#" + fmt.Sprintf("%v", b)
-	}
-	return ""
 }
 
 // ddbAttrValueSize returns the stored byte size DynamoDB assigns an attribute
@@ -2573,15 +2537,10 @@ func ddbResumeIndex(keys []string, startKey, prefix, tablePrefix string) int {
 	if startKey == prefix || startKey == tablePrefix {
 		return 0
 	}
-	// sort.Search finds the first index with keys[i] >= startKey. The original
-	// linear scan advanced one past an exact match and left the cursor at 0 when
-	// the key was absent (e.g. it was deleted between pages); reproduce both:
-	// exact match → i+1, no match → 0.
-	i := sort.Search(len(keys), func(i int) bool { return keys[i] >= startKey })
-	if i < len(keys) && keys[i] == startKey {
-		return i + 1
-	}
-	return 0
+	// DynamoDB resumes after the ExclusiveStartKey's position, whether or not
+	// an item is still stored there: an item deleted between pages must not
+	// send the next page back to the start.
+	return sort.Search(len(keys), func(i int) bool { return keys[i] > startKey })
 }
 
 func ddbResolveAttrName(name string, aliases map[string]string) string {

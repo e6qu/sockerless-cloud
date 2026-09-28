@@ -409,20 +409,17 @@ func handleDDBListBackups(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, out)
 }
 
-// ddbRestoreItems writes a backup/snapshot's items into the live item store
-// under a new table name (re-keying from the source table prefix to target).
-func ddbRestoreItems(items map[string]map[string]any, srcTable, dstTable string) {
-	srcPrefix := srcTable + "/"
+// ddbRestoreItems writes a backup's or snapshot's items into the target table,
+// each under the key the target's schema gives it; a backup taken by an older
+// build holds its items under that build's key encoding.
+func ddbRestoreItems(items map[string]map[string]any, srcTable string, target DDBTable) {
 	// Both tables: the source is read from and the target is written to.
-	defer ddbLockTables(true, srcTable, dstTable)()
-	for k, item := range items {
-		// Re-derive the store key under the target table so a same-shaped
-		// recreate is queryable; the key suffix (hash[|range]) is reused.
-		suffix := strings.TrimPrefix(k, srcPrefix)
-		newKey := dstTable + "/" + suffix
+	defer ddbLockTables(true, srcTable, target.TableName)()
+	for _, item := range items {
 		clone := ddbCloneItem(item)
-		ddbItems.Put(newKey, clone)
-		ddbItemNames.Put(newKey, newKey)
+		key := ddbItemKey(target, clone)
+		ddbItems.Put(key, clone)
+		ddbItemNames.Put(key, key)
 	}
 }
 
@@ -448,7 +445,7 @@ func handleDDBRestoreTableFromBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	t := ddbRecreateTable(req.TargetTableName, bk.KeySchema, bk.AttributeDefs, bk.GSIs, bk.LSIs, bk.BillingMode)
 	ddbTables.Put(req.TargetTableName, t)
-	ddbRestoreItems(bk.Items, bk.TableName, req.TargetTableName)
+	ddbRestoreItems(bk.Items, bk.TableName, t)
 	writeDDBJSON(w, http.StatusOK, map[string]any{"TableDescription": t})
 }
 
@@ -490,7 +487,7 @@ func handleDDBRestoreTableToPointInTime(w http.ResponseWriter, r *http.Request) 
 		src.GlobalSecondaryIndexes, src.LocalSecondaryIndexes, ddbBillingModeOf(src))
 	ddbTables.Put(req.TargetTableName, t)
 	items := ddbTableItemsSnapshot(srcName)
-	ddbRestoreItems(items, srcName, req.TargetTableName)
+	ddbRestoreItems(items, srcName, t)
 	writeDDBJSON(w, http.StatusOK, map[string]any{"TableDescription": t})
 }
 

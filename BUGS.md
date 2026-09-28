@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 15. Resolved: 159.
+Open: 15. Resolved: 164.
 
 ## Open
 
@@ -35,6 +35,16 @@ Open: 15. Resolved: 159.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3069 (CI never cached the images the framework's own containers run):**~~ `scripts/base-images-for.sh` read a simulator job's images out of that simulator's directory only, and the Azure Database for PostgreSQL volume snapshot helper is `alpine:3.22`, named in `sim/`. So every Azure SDK job fetched it from the ECR Public Gallery, and on 2026-09-28 the anonymous data cap failed four backup and restore tests on `main` twice. A simulator directory now brings `sim/` into the scan.
+
+- ~~**BUG-3068 (a DynamoDB restore reused the backup's item keys):**~~ RestoreTableFromBackup and the point-in-time restore re-keyed items by swapping the table name in front of the stored key, so a backup taken under an older key encoding restored into keys no request could address. Each item's key is now computed from the target table's schema.
+
+- ~~**BUG-3067 (a DynamoDB page resumed from the start when its start key had been deleted):**~~ Query and Scan resumed after an `ExclusiveStartKey` only when an item was still stored there; if it had been deleted between pages, the next page started again from the first item. They now resume after the key's position either way, as DynamoDB Local does (`query-resumes-after-a-deleted-start-key`).
+
+- ~~**BUG-3066 (two DynamoDB partitions could share keys):**~~ Item keys joined hash and range with `|`, which a string value can hold, so the hash `a|b` and the hash `a` with range `b` collided. Components are now joined by a byte no encoded component can contain.
+
+- ~~**BUG-3065 (DynamoDB returned a partition's items in text order, not sort-key order):**~~ Key values were encoded as text, so numbers sorted as strings (`-2` before `-2.5`, `10` before `9`) and binary values in base64 order, and Query returns items in key order. The key encoding now orders numbers by value and binary by bytes (`dynamodb_keys.go`), items stored under the old encoding are re-keyed once at startup, and differential scenarios against DynamoDB Local hold the numeric and binary orders.
 
 - ~~**BUG-3064 (ECS task-definition listings decoded every revision, and disagreed on which families were active):**~~ ListTaskDefinitions and ListTaskDefinitionFamilies each decoded every task definition row from SQLite (576 calls in three hours on the deployed simulator, median 25 ms). The store is now the cached kind and a `familyPrefix` reads its key range. ListTaskDefinitionFamilies also counted a revision ACTIVE only when its status said so, while ListTaskDefinitions reads a revision written before statuses were recorded as ACTIVE; both now read it the same way.
 

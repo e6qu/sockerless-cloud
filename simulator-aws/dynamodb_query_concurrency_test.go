@@ -298,8 +298,8 @@ func TestDDBQueryReadsOnlyTheAddressedPartition(t *testing.T) {
 	require.False(t, ok, "a partition that is not fixed by an equality cannot narrow the scan")
 
 	// One partition's prefix must not claim another whose name extends it.
-	require.True(t, ddbKeyInPartition(table+"/tenant-007|sk-1", table+"/tenant-007"))
-	require.False(t, ddbKeyInPartition(table+"/tenant-0070|sk-1", table+"/tenant-007"),
+	require.True(t, ddbKeyInPartition(table+"/tenant-007"+ddbKeySeparator+"sk-1", table+"/tenant-007"))
+	require.False(t, ddbKeyInPartition(table+"/tenant-0070"+ddbKeySeparator+"sk-1", table+"/tenant-007"),
 		"a prefix must not swallow a longer partition name")
 }
 

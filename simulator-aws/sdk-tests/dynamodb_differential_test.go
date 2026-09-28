@@ -295,6 +295,58 @@ func dynamoDifferentialScenarios() []diffScenario {
 			return "scan", err
 		}},
 
+		{"query-orders-numeric-sort-keys-by-value", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			for _, n := range []string{"10", "9", "-2", "-2.5", "0", "100", "0.5", "1e3"} {
+				if _, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{
+					"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}, "SK": &ddbtypes.AttributeValueMemberN{Value: n},
+				}}); err != nil {
+					return nil, err
+				}
+			}
+			return diffQuerySortKeys(c, table, nil, true)
+		}},
+
+		{"query-orders-binary-sort-keys-by-bytes", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeB); err != nil {
+				return nil, err
+			}
+			for _, b := range [][]byte{{0xff}, {0x00, 0x01}, {0x7f}, {0x80}, {0x00}} {
+				if _, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{
+					"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}, "SK": &ddbtypes.AttributeValueMemberB{Value: b},
+				}}); err != nil {
+					return nil, err
+				}
+			}
+			return diffQuerySortKeys(c, table, nil, false)
+		}},
+
+		{"query-resumes-after-a-deleted-start-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSort(c, table); err != nil {
+				return nil, err
+			}
+			for _, sk := range []string{"a", "b", "c", "d"} {
+				if _, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{
+					"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}, "SK": &ddbtypes.AttributeValueMemberS{Value: sk},
+				}}); err != nil {
+					return nil, err
+				}
+			}
+			first, err := c.Query(ctx, &dynamodb.QueryInput{
+				TableName: &table, KeyConditionExpression: aws.String("PK = :p"), Limit: aws.Int32(2),
+				ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":p": &ddbtypes.AttributeValueMemberS{Value: "p"}},
+			})
+			if err != nil {
+				return nil, err
+			}
+			if _, err := c.DeleteItem(ctx, &dynamodb.DeleteItemInput{TableName: &table, Key: first.LastEvaluatedKey}); err != nil {
+				return nil, err
+			}
+			return diffQuerySortKeys(c, table, first.LastEvaluatedKey, true)
+		}},
+
 		{"undefined-value-ref-fails-loud", func(c *dynamodb.Client, table string) (any, error) {
 			if err := diffMakeTable(c, table); err != nil {
 				return nil, err
@@ -309,6 +361,46 @@ func dynamoDifferentialScenarios() []diffScenario {
 }
 
 // ── scenario helpers ─────────────────────────────────────────────────────────
+
+func diffMakeTableWithSortType(c *dynamodb.Client, table string, sortType ddbtypes.ScalarAttributeType) error {
+	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName: &table,
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("PK"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+			{AttributeName: aws.String("SK"), AttributeType: sortType},
+		},
+		KeySchema: []ddbtypes.KeySchemaElement{
+			{AttributeName: aws.String("PK"), KeyType: ddbtypes.KeyTypeHash},
+			{AttributeName: aws.String("SK"), KeyType: ddbtypes.KeyTypeRange},
+		},
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+	})
+	return err
+}
+
+// diffQuerySortKeys queries partition "p" from start and returns its sort keys
+// in the order they came back, with the value reported as text.
+func diffQuerySortKeys(c *dynamodb.Client, table string, start map[string]ddbtypes.AttributeValue, _ bool) (any, error) {
+	out, err := c.Query(ctx, &dynamodb.QueryInput{
+		TableName: &table, KeyConditionExpression: aws.String("PK = :p"), ExclusiveStartKey: start,
+		ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":p": &ddbtypes.AttributeValueMemberS{Value: "p"}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var keys []string
+	for _, item := range out.Items {
+		switch v := item["SK"].(type) {
+		case *ddbtypes.AttributeValueMemberN:
+			keys = append(keys, canonNum(v.Value))
+		case *ddbtypes.AttributeValueMemberS:
+			keys = append(keys, v.Value)
+		case *ddbtypes.AttributeValueMemberB:
+			keys = append(keys, fmt.Sprintf("%x", v.Value))
+		}
+	}
+	return keys, nil
+}
 
 func diffKey(pk string, extra map[string]ddbtypes.AttributeValue) map[string]ddbtypes.AttributeValue {
 	m := map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: pk}}
