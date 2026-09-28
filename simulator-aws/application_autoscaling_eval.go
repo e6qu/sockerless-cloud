@@ -41,7 +41,7 @@ var (
 // in-process build path) does not start a second goroutine.
 func startAppScalingEvalLoop(srv *sim.Server) {
 	appScalingEvalOnce.Do(func() {
-		srv.StartBackground(func(ctx context.Context) {
+		srv.StartBackground("Application Auto Scaling evaluator", func(ctx context.Context) {
 			ticker := time.NewTicker(appScalingEvalInterval)
 			defer ticker.Stop()
 			for {

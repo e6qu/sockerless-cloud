@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -573,23 +575,7 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 }
 
 func diffDockerPull(image string) bool {
-	// A locally-present image (CI pre-pull or a previous run) needs no network.
-	inspectCtx, cancelInspect := context.WithTimeout(context.Background(), 30*time.Second)
-	inspectErr := exec.CommandContext(inspectCtx, "docker", "image", "inspect", image).Run()
-	cancelInspect()
-	if inspectErr == nil {
-		return true
-	}
-	for attempt := 1; attempt <= 5; attempt++ {
-		pullCtx, cancelPull := context.WithTimeout(context.Background(), 2*time.Minute)
-		pullErr := exec.CommandContext(pullCtx, "docker", "pull", image).Run()
-		cancelPull()
-		if pullErr == nil {
-			return true
-		}
-		time.Sleep(time.Duration(attempt*attempt) * time.Second)
-	}
-	return false
+	return baseimage.Ensure(image) == nil
 }
 
 func trimNL(b []byte) []byte {

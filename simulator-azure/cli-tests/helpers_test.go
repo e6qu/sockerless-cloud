@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 )
 
 var (
@@ -429,20 +431,7 @@ func waitForCLIJSON(t *testing.T, url string, ready func(string) bool) string {
 // pullWorkloadImage fetches an image with bounded exponential backoff, so a
 // transient registry throttle does not fail the whole suite before it starts.
 func pullWorkloadImage(image string) {
-	delay := time.Second
-	var lastErr error
-	for attempt := 0; attempt < 5; attempt++ {
-		if attempt > 0 {
-			time.Sleep(delay)
-			if delay < 8*time.Second {
-				delay *= 2
-			}
-		}
-		out, err := exec.Command("docker", "pull", image).CombinedOutput()
-		if err == nil {
-			return
-		}
-		lastErr = fmt.Errorf("%v: %s", err, out)
+	if err := baseimage.Ensure(image); err != nil {
+		log.Fatalf("pull %s: %v", image, err)
 	}
-	log.Fatalf("pull %s after retries: %v", image, lastErr)
 }

@@ -2,7 +2,6 @@ package aws_cli_test
 
 import (
 	"bytes"
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,6 +19,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 )
 
 // signRawSigV4 signs a hand-built HTTP request with SigV4 using the seed
@@ -741,21 +742,8 @@ const gluePythonShellImage = "public.ecr.aws/docker/library/python:3.9"
 // test.
 func ensureGluePythonShellImage(t *testing.T) {
 	t.Helper()
-	if exec.Command("docker", "image", "inspect", gluePythonShellImage).Run() == nil {
-		return
+	if err := baseimage.Ensure(gluePythonShellImage); err != nil {
+		t.Fatalf("could not pull %s, which every AWS Glue Python shell job run executes in: %v",
+			gluePythonShellImage, err)
 	}
-	var last error
-	for attempt := 1; attempt <= 5; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		last = exec.CommandContext(ctx, "docker", "pull", gluePythonShellImage).Run()
-		cancel()
-		if last == nil {
-			return
-		}
-		// A registry that is rate-limiting answers again shortly; backing off
-		// quadratically spans a throttling window without hammering it.
-		time.Sleep(time.Duration(attempt*attempt) * time.Second)
-	}
-	t.Fatalf("could not pull %s, which every AWS Glue Python shell job run executes in: %v",
-		gluePythonShellImage, last)
 }

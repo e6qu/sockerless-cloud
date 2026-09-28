@@ -21,7 +21,7 @@ func startStoreSweeper(srv *sim.Server, sweep func(now time.Time) int) {
 // startStoreSweeperEvery is startStoreSweeper for a sweep the service itself
 // runs less often.
 func startStoreSweeperEvery(srv *sim.Server, interval time.Duration, sweep func(now time.Time) int) {
-	srv.StartBackground(func(ctx context.Context) {
+	srv.StartBackground("store retention sweep", func(ctx context.Context) {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {

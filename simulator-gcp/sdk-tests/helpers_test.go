@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+
 	"golang.org/x/oauth2"
 )
 
@@ -335,17 +337,9 @@ const simWorkloadImage = "public.ecr.aws/docker/library/alpine:3.20"
 // registry failure surfaces here as a clear pull error, not as a workload
 // that "failed to start" inside a timed test.
 func pullImageBeforeRun(image string) {
-	var lastErr error
-	for attempt := 1; attempt <= 5; attempt++ {
-		cmd := exec.Command("docker", "pull", image)
-		if out, err := cmd.CombinedOutput(); err == nil {
-			return
-		} else {
-			lastErr = fmt.Errorf("%w\n%s", err, out)
-		}
-		time.Sleep(time.Duration(attempt*attempt) * time.Second)
+	if err := baseimage.Ensure(image); err != nil {
+		log.Fatalf("Failed to pull %s: %v", image, err)
 	}
-	log.Fatalf("Failed to pull %s after retries: %v", image, lastErr)
 }
 
 // testRunSelects reports whether the -test.run filter (or SHARD_RUN) selects

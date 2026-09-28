@@ -1900,7 +1900,7 @@ func ecsHandOffTaskLifecycle(work, after func()) {
 		go run()
 		return
 	}
-	ecsBackgroundServer.StartBackground(func(context.Context) { run() })
+	ecsBackgroundServer.StartBackground("ECS task lifecycle step", func(context.Context) { run() })
 }
 
 func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTaskProcesses) {

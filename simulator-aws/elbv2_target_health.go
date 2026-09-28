@@ -259,7 +259,7 @@ func elbv2TargetReceivesTraffic(tg ELBv2TargetGroup, target ELBv2TargetDescripti
 // startELBv2TargetHealthChecker runs the health checker for the lifetime of
 // the simulator.
 func startELBv2TargetHealthChecker(srv *sim.Server) {
-	srv.StartBackground(func(ctx context.Context) {
+	srv.StartBackground("ELB target health checker", func(ctx context.Context) {
 		ticker := time.NewTicker(elbv2TargetHealthSweep)
 		defer ticker.Stop()
 		for {

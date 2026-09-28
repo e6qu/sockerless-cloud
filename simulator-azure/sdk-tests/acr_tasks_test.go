@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -72,7 +74,7 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	// that happens the installation cannot be falsified at this coordinate, and
 	// this test says so rather than asserting another engine's wording;
 	// proving the mechanism itself belongs to testutil/registrytrust.
-	probe, err := exec.Command("docker", "pull", coordinate+"/sockerless-overlay/aca:absent").CombinedOutput()
+	probe, err := registrytrust.PullFromRegistryUnderTest(ctx, coordinate+"/sockerless-overlay/aca:absent")
 	require.Error(t, err, "the absent tag must not resolve before anything is pushed: %s", probe)
 	trustIsFalsifiable := strings.Contains(string(probe), "certificate signed by unknown authority")
 	if !trustIsFalsifiable {
@@ -89,7 +91,7 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	if trustIsFalsifiable {
 		// The same pull must now be refused by the registry rather than by the
 		// certificate, which is what proves the authority installation worked.
-		trusted, err := exec.Command("docker", "pull", coordinate+"/sockerless-overlay/aca:absent").CombinedOutput()
+		trusted, err := registrytrust.PullFromRegistryUnderTest(ctx, coordinate+"/sockerless-overlay/aca:absent")
 		require.Error(t, err, "the absent tag must still not resolve: %s", trusted)
 		assert.NotContains(t, string(trusted), "certificate signed by unknown authority",
 			"installing the authority must stop the engine refusing the registry's certificate")
@@ -196,22 +198,9 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 // pull paths take. Fails the test only after exhausting retries.
 func pullImageWithRetry(t *testing.T, image string) {
 	t.Helper()
-	var lastErr error
-	delay := time.Second
-	for attempt := 0; attempt < 5; attempt++ {
-		if attempt > 0 {
-			time.Sleep(delay)
-			if delay < 8*time.Second {
-				delay *= 2
-			}
-		}
-		out, err := exec.Command("docker", "pull", image).CombinedOutput()
-		if err == nil {
-			return
-		}
-		lastErr = fmt.Errorf("%v: %s", err, out)
+	if err := baseimage.Ensure(image); err != nil {
+		t.Fatalf("%v", err)
 	}
-	t.Fatalf("pull %s after retries: %v", image, lastErr)
 }
 
 // startThrowawayRegistry runs a real registry:2 on 127.0.0.1:<port> for the

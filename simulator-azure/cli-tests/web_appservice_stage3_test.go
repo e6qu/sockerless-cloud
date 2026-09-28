@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,22 +65,9 @@ const stage3CLIAlpine = "public.ecr.aws/docker/library/alpine:3.20"
 // the simulator's if-not-present policy finds it warm.
 func stage3PullImage(t *testing.T, image string) {
 	t.Helper()
-	var lastErr error
-	delay := time.Second
-	for attempt := 0; attempt < 5; attempt++ {
-		if attempt > 0 {
-			time.Sleep(delay)
-			if delay < 8*time.Second {
-				delay *= 2
-			}
-		}
-		out, err := exec.Command("docker", "pull", image).CombinedOutput()
-		if err == nil {
-			return
-		}
-		lastErr = fmt.Errorf("%v: %s", err, out)
+	if err := baseimage.Ensure(image); err != nil {
+		t.Fatalf("%v", err)
 	}
-	t.Fatalf("docker pull %s: %v", image, lastErr)
 }
 
 // stage3Zip builds an in-memory deployment package (shell scripts carry the

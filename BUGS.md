@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 14. Resolved: 150.
+Open: 15. Resolved: 151.
 
 ## Open
 
@@ -19,6 +19,7 @@ Open: 14. Resolved: 150.
 
 | ID | Sev | Area | Pattern | One-liner |
 |----|-----|------|---------|-----------|
+| 3055 | P2 | The deployed AWS simulator takes 90 seconds to stop | a shutdown that waits on something that does not return when cancelled, until systemd's default stop timeout kills it | In the Scaleway microVM, `simulator-aws.service` logged "shutting down" at 01:08:11 on 2026-09-28 and was stopped at 01:09:41 — exactly systemd's default `TimeoutStopSec` — with nothing in between; every other guest unit stopped within milliseconds. It is 92 of the 117 seconds a simulator upgrade takes. A local simulator with a running ECS task stops in one second, so the cause needs the deployed load. The main suspect is `ecsHandOffTaskLifecycle`, whose workers ignore their context (`StartBackground(..., func(context.Context) { run() })`), so a task start in progress at shutdown holds `stopBackground` until it finishes. The shutdown now names the workers it waits on every five seconds and times its phases, so the next upgrade's serial console (the host journal of `sim-vm.service`) says which; the repair is making that worker return on cancellation. |
 | 3053 | P3 | An Amazon EBS volume keeps its contents inside its store row | the class BUG-3047 took out of the object stores, in a store it did not reach | `EC2Volume.Data` holds the volume's bytes, and CreateVolume from a snapshot copies them row to row (`ec2_volumes_misc.go`), so every read of the volume decodes all of it. The repair is BUG-3047's: the contents in a `sim.Payloads` file, the row holding its reference. |
 | 3052 | P3 | AWS Private CA drops a failure to publish a certificate revocation list | an error discarded where the service would report it | `privateCAWriteCRL` returns silently when `x509.CreateRevocationList` fails and discards the error of the Amazon S3 write (`_, _ = s3PutServiceObject(...)`), so a CRL that was never published looks the same as one that was. AWS Private CA reports a CRL it could not write through the `MisconfiguredCRLBucket` metric and the CA's audit trail; the repair records the failure where DescribeCertificateAuthority and the CRL's absence can be read together. |
 | 3051 | P3 | S3 RestoreObject ignores the restore request's `Days` and tier | an accepted request body read and dropped | `handleS3RestoreObject` reads the `<RestoreRequest>` body and discards it, then marks the object restored for 24 hours whatever `Days` said, and never distinguishes the Expedited, Standard and Bulk tiers. The repair parses the request, sets `RestoreExpiryDate` from `Days`, and answers a request for an object that is not in an archive storage class with `InvalidObjectState`, as Amazon S3 does. |
@@ -34,6 +35,14 @@ Open: 14. Resolved: 150.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3056 (suites pulled base images the CI cache had already loaded):**~~
+  Ten test helpers ran `docker pull` unconditionally, which asks the registry
+  even for an image on the host, so the ECR Public Gallery's anonymous data
+  cap ("toomanyrequests: Data limit exceeded") failed `sim (gcp cli)` and
+  `sim (azure cli A-M)` after their base images had loaded from cache. Every
+  suite now takes a base image through `testutil/baseimage.Ensure`, which asks
+  the host first, and `TestNoSuitePullsABaseImageItself` holds it there.
 
 - ~~**BUG-3054 (shrinking a page blob kept pages past its new end):**~~ Resize
   truncated the contents first and then removed the written page ranges from

@@ -50,6 +50,10 @@ type Server struct {
 	backgroundCtx    context.Context
 	backgroundCancel context.CancelFunc
 	backgroundWG     sync.WaitGroup
+	// backgroundRunning counts the running workers by name, so a shutdown
+	// that waits on them can say which ones it is waiting on.
+	backgroundMu      sync.Mutex
+	backgroundRunning map[string]int
 
 	// routePatterns records every mux pattern registered through
 	// Handle/HandleFunc, in registration order. The spec-conformance
@@ -227,15 +231,16 @@ func NewServer(cfg Config) (*Server, error) {
 
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
 	srv := &Server{
-		config:           cfg,
-		logger:           logger,
-		mux:              mux,
-		runtimeMode:      runtimeMode,
-		routed:           routed,
-		db:               db,
-		uiAuth:           uiAuth,
-		backgroundCtx:    backgroundCtx,
-		backgroundCancel: backgroundCancel,
+		config:            cfg,
+		logger:            logger,
+		mux:               mux,
+		runtimeMode:       runtimeMode,
+		routed:            routed,
+		db:                db,
+		uiAuth:            uiAuth,
+		backgroundCtx:     backgroundCtx,
+		backgroundCancel:  backgroundCancel,
+		backgroundRunning: map[string]int{},
 	}
 	// The write-ahead log outgrows what journal_size_limit promises whenever a
 	// checkpoint cannot reset it, so the server asks for the reset itself.
@@ -350,10 +355,15 @@ func (s *Server) ServeUIRoot(w http.ResponseWriter, r *http.Request) bool {
 // task. Maintenance work must not be able to do that. The stack is written
 // where the deployment collects it, and the worker stops -- so the failure is
 // as loud as a crash without taking the service with it.
-func (s *Server) StartBackground(worker func(context.Context)) {
+//
+// name says what the worker is, and is what a shutdown still waiting on it
+// reports.
+func (s *Server) StartBackground(name string, worker func(context.Context)) {
 	s.backgroundWG.Add(1)
+	s.countBackground(name, 1)
 	go func() {
 		defer s.backgroundWG.Done()
+		defer s.countBackground(name, -1)
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				fmt.Fprintf(os.Stderr, "[sim-background] worker panicked and was stopped: %v\n%s\n",
@@ -364,9 +374,49 @@ func (s *Server) StartBackground(worker func(context.Context)) {
 	}()
 }
 
+func (s *Server) countBackground(name string, delta int) {
+	s.backgroundMu.Lock()
+	defer s.backgroundMu.Unlock()
+	s.backgroundRunning[name] += delta
+	if s.backgroundRunning[name] == 0 {
+		delete(s.backgroundRunning, name)
+	}
+}
+
+// runningBackground names the workers still running, with how many of each.
+func (s *Server) runningBackground() string {
+	s.backgroundMu.Lock()
+	defer s.backgroundMu.Unlock()
+	names := make([]string, 0, len(s.backgroundRunning))
+	for name, count := range s.backgroundRunning {
+		names = append(names, fmt.Sprintf("%s x%d", name, count))
+	}
+	slices.Sort(names)
+	return strings.Join(names, ", ")
+}
+
+// backgroundReportInterval is how often a shutdown waiting on background
+// workers says which ones it is waiting on.
+const backgroundReportInterval = 5 * time.Second
+
 func (s *Server) stopBackground() {
 	s.backgroundCancel()
-	s.backgroundWG.Wait()
+	drained := make(chan struct{})
+	go func() {
+		s.backgroundWG.Wait()
+		close(drained)
+	}()
+	ticker := time.NewTicker(backgroundReportInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-drained:
+			return
+		case <-ticker.C:
+			s.logger.Warn().Str("running", s.runningBackground()).
+				Msg("shutdown: still waiting for background workers to return")
+		}
+	}
 }
 
 // StopBackground cancels every background worker the server started and waits
@@ -405,7 +455,10 @@ func (s *Server) ListenAndServe() error {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		done <- srv.Shutdown(ctx)
+		started := time.Now()
+		err := srv.Shutdown(ctx)
+		s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: HTTP server drained")
+		done <- err
 	}()
 
 	// Print startup banner
@@ -428,8 +481,15 @@ func (s *Server) ListenAndServe() error {
 	if err == http.ErrServerClosed {
 		err = <-done
 	}
+	// Each phase says how long it took: a shutdown that overran its unit's
+	// stop timeout was killed without a word, and a deploy waited 90 seconds
+	// on it with nothing to say why.
+	started := time.Now()
 	s.stopBackground()
+	s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: background workers returned")
+	started = time.Now()
 	closeErr := CloseDB(s.db)
+	s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: database closed")
 	s.db = nil
 	return errors.Join(err, closeErr)
 }

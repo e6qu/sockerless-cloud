@@ -39,7 +39,7 @@ const ddbTTLSweepInterval = 5 * time.Second
 const ddbTTLMaxAgeYears = 5
 
 func startDDBTTLSweeper(srv *sim.Server) {
-	srv.StartBackground(func(ctx context.Context) {
+	srv.StartBackground("DynamoDB TTL sweeper", func(ctx context.Context) {
 		ticker := time.NewTicker(ddbTTLSweepInterval)
 		defer ticker.Stop()
 		for {

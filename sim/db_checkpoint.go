@@ -43,7 +43,7 @@ func (s *Server) startWALCheckpointer() {
 		return
 	}
 	walPath := filepath.Join(s.config.DataDir, "simulator.db-wal")
-	s.StartBackground(func(ctx context.Context) {
+	s.StartBackground("database checkpoint", func(ctx context.Context) {
 		ticker := time.NewTicker(walCheckpointInterval)
 		defer ticker.Stop()
 		for {

@@ -3,6 +3,7 @@ package sim
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestServerDrainsBackgroundWorkersBeforeClosingSQLite(t *testing.T) {
@@ -19,7 +20,7 @@ func TestServerDrainsBackgroundWorkersBeforeClosingSQLite(t *testing.T) {
 
 	store := MakeStore[string](srv.DB(), "background_shutdown")
 	started := make(chan struct{})
-	srv.StartBackground(func(ctx context.Context) {
+	srv.StartBackground("test worker", func(ctx context.Context) {
 		close(started)
 		<-ctx.Done()
 		store.Put("worker", "drained")
@@ -44,5 +45,46 @@ func TestServerDrainsBackgroundWorkersBeforeClosingSQLite(t *testing.T) {
 	}
 	if value != "drained" {
 		t.Fatalf("shutdown state = %q, want drained", value)
+	}
+}
+
+// A worker that does not return when cancelled holds shutdown up; the server
+// names it while it waits, so a stalled stop says what it is waiting on.
+func TestServerNamesTheBackgroundWorkersItWaitsOn(t *testing.T) {
+	t.Setenv("SIM_RUNTIME", "process")
+	srv, err := NewServer(Config{Provider: "background-report-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	started := make(chan struct{})
+	srv.StartBackground("stubborn worker", func(context.Context) {
+		close(started)
+		<-release
+	})
+	srv.StartBackground("stubborn worker", func(context.Context) { <-release })
+	srv.StartBackground("polite worker", func(ctx context.Context) { <-ctx.Done() })
+	<-started
+
+	stopped := make(chan struct{})
+	go func() {
+		srv.stopBackground()
+		close(stopped)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for srv.runningBackground() != "stubborn worker x2" {
+		if time.Now().After(deadline) {
+			t.Fatalf("running workers = %q, want only the two that ignore cancellation", srv.runningBackground())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	close(release)
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stopBackground did not return once the workers did")
+	}
+	if running := srv.runningBackground(); running != "" {
+		t.Fatalf("workers still counted after they returned: %q", running)
 	}
 }

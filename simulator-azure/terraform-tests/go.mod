@@ -8,8 +8,11 @@ require (
 )
 
 require (
+	github.com/e6qu/sockerless-cloud/testutil v0.1.0
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 )
 
 replace github.com/e6qu/sockerless-cloud/realexec => ../../realexec
+
+replace github.com/e6qu/sockerless-cloud/testutil => ../../testutil
