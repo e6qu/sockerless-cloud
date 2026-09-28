@@ -1242,12 +1242,27 @@ func pqlExecInsert(t DDBTable, st *partiQLStmt) (*pqlResult, *pqlError) {
 	if item == nil {
 		return nil, pqlErrf("ValidationException", "INSERT VALUE must be a non-empty map")
 	}
-	// Every primary-key attribute must be present.
+	// Every primary-key attribute is present and of its declared type, and the
+	// secondary indexes' keys fit them; the wording is DynamoDB Local's.
 	for _, ks := range t.KeySchema {
-		if _, ok := item[ks.AttributeName]; !ok {
+		value, ok := item[ks.AttributeName]
+		if !ok {
 			return nil, pqlErrf("ValidationException",
-				"INSERT statement does not provide a value for the key attribute %s", ks.AttributeName)
+				"Key attribute should be present in the item: Key %s", ks.AttributeName)
 		}
+		if message := ddbKeyValueError(t, ks.AttributeName, value); message != "" {
+			if strings.Contains(message, "Type mismatch") {
+				return nil, pqlErrf("ValidationException",
+					"Key attribute's data type should match its data type in table's schema: Key %s", ks.AttributeName)
+			}
+			return nil, pqlErrf("ValidationException", "%s", message)
+		}
+	}
+	if message := ddbNumbersError(item); message != "" {
+		return nil, pqlErrf("ValidationException", "%s", message)
+	}
+	if message := ddbIndexKeyError(t, item); message != "" {
+		return nil, pqlErrf("ValidationException", "%s", message)
 	}
 	if ddbItemTooDeep(item) {
 		return nil, pqlErrf("ValidationException", "Item nesting exceeds the 32-level maximum")

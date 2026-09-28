@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 14. Resolved: 175.
+Open: 14. Resolved: 176.
 
 ## Open
 
@@ -34,6 +34,8 @@ Open: 14. Resolved: 175.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3079 (a PartiQL INSERT accepted keys that do not fit the table, with an invented refusal):**~~ INSERT accepted a key attribute or a secondary index key of the wrong type and a number that is not one, and refused a missing key attribute in words no DynamoDB returns. It now refuses each as DynamoDB Local does, word for word. The differential scenarios that compare refusals now compare the message too: the harness kept only an error's code, so the earlier ones had compared codes alone.
 
 - ~~**BUG-3078 (Terraform formatting was checked nowhere):**~~ Two of the suites' configurations had drifted from `terraform fmt`. Both are formatted, and a pre-commit hook checks every `.tf` file.
 

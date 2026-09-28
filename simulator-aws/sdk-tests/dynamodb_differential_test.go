@@ -352,7 +352,7 @@ func dynamoDifferentialScenarios() []diffScenario {
 				return nil, err
 			}
 			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}}})
-			return diffErrorMessage(err), err
+			return diffRefusal(err)
 		}},
 
 		{"put-with-a-key-of-the-wrong-type", func(c *dynamodb.Client, table string) (any, error) {
@@ -360,7 +360,7 @@ func dynamoDifferentialScenarios() []diffScenario {
 				return nil, err
 			}
 			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberN{Value: "1"}, "SK": &ddbtypes.AttributeValueMemberN{Value: "1"}}})
-			return diffErrorMessage(err), err
+			return diffRefusal(err)
 		}},
 
 		{"put-with-a-number-that-is-not-one", func(c *dynamodb.Client, table string) (any, error) {
@@ -368,7 +368,7 @@ func dynamoDifferentialScenarios() []diffScenario {
 				return nil, err
 			}
 			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}, "SK": &ddbtypes.AttributeValueMemberN{Value: "1"}, "count": &ddbtypes.AttributeValueMemberN{Value: "many"}}})
-			return diffErrorMessage(err), err
+			return diffRefusal(err)
 		}},
 
 		{"put-with-an-empty-string-key", func(c *dynamodb.Client, table string) (any, error) {
@@ -376,7 +376,7 @@ func dynamoDifferentialScenarios() []diffScenario {
 				return nil, err
 			}
 			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: ""}, "SK": &ddbtypes.AttributeValueMemberN{Value: "1"}}})
-			return diffErrorMessage(err), err
+			return diffRefusal(err)
 		}},
 
 		{"get-with-an-extra-key-attribute", func(c *dynamodb.Client, table string) (any, error) {
@@ -384,7 +384,7 @@ func dynamoDifferentialScenarios() []diffScenario {
 				return nil, err
 			}
 			_, err := c.GetItem(ctx, &dynamodb.GetItemInput{TableName: &table, Key: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}, "SK": &ddbtypes.AttributeValueMemberN{Value: "1"}, "extra": &ddbtypes.AttributeValueMemberS{Value: "x"}}})
-			return diffErrorMessage(err), err
+			return diffRefusal(err)
 		}},
 
 		{"get-without-the-sort-key", func(c *dynamodb.Client, table string) (any, error) {
@@ -392,7 +392,7 @@ func dynamoDifferentialScenarios() []diffScenario {
 				return nil, err
 			}
 			_, err := c.GetItem(ctx, &dynamodb.GetItemInput{TableName: &table, Key: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}}})
-			return diffErrorMessage(err), err
+			return diffRefusal(err)
 		}},
 
 		{"gsi-query-reads-index-order-and-projection", func(c *dynamodb.Client, table string) (any, error) {
@@ -465,7 +465,7 @@ func dynamoDifferentialScenarios() []diffScenario {
 			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{
 				"PK": &ddbtypes.AttributeValueMemberS{Value: "x"}, "grp": &ddbtypes.AttributeValueMemberN{Value: "1"},
 			}})
-			return diffErrorMessage(err), err
+			return diffRefusal(err)
 		}},
 
 		{"transaction-with-a-failing-update-writes-nothing", func(c *dynamodb.Client, table string) (any, error) {
@@ -485,6 +485,46 @@ func dynamoDifferentialScenarios() []diffScenario {
 				return nil, err
 			}
 			return map[string]any{"refused": txErr != nil, "first": got}, nil
+		}},
+
+		{"partiql-insert-without-the-sort-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.ExecuteStatement(ctx, &dynamodb.ExecuteStatementInput{
+				Statement: aws.String(fmt.Sprintf("INSERT INTO \"%s\" VALUE {'PK': 'p'}", table)),
+			})
+			return diffRefusal(err)
+		}},
+
+		{"partiql-insert-with-a-key-of-the-wrong-type", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.ExecuteStatement(ctx, &dynamodb.ExecuteStatementInput{
+				Statement: aws.String(fmt.Sprintf("INSERT INTO \"%s\" VALUE {'PK': 'p', 'SK': 'one'}", table)),
+			})
+			return diffRefusal(err)
+		}},
+
+		{"partiql-insert-with-an-index-key-of-the-wrong-type", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithIndex(c, table); err != nil {
+				return nil, err
+			}
+			_, err := c.ExecuteStatement(ctx, &dynamodb.ExecuteStatementInput{
+				Statement: aws.String(fmt.Sprintf("INSERT INTO \"%s\" VALUE {'PK': 'x', 'grp': 1}", table)),
+			})
+			return diffRefusal(err)
+		}},
+
+		{"partiql-insert-with-an-empty-string-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTable(c, table); err != nil {
+				return nil, err
+			}
+			_, err := c.ExecuteStatement(ctx, &dynamodb.ExecuteStatementInput{
+				Statement: aws.String(fmt.Sprintf("INSERT INTO \"%s\" VALUE {'PK': ''}", table)),
+			})
+			return diffRefusal(err)
 		}},
 
 		{"undefined-value-ref-fails-loud", func(c *dynamodb.Client, table string) (any, error) {
@@ -547,14 +587,18 @@ func diffPutIndexed(c *dynamodb.Client, table string) error {
 	return nil
 }
 
-// diffErrorMessage is the message a refusal carries, so a scenario compares
-// the wording with DynamoDB Local's and not only the error code.
-func diffErrorMessage(err error) string {
-	var apiErr smithy.APIError
-	if errors.As(err, &apiErr) {
-		return apiErr.ErrorMessage()
+// diffRefusal turns a refusal into the scenario's value, its code and its
+// message, so the wording is compared with DynamoDB Local's and not only the
+// code; captureDiff keeps nothing but the code of an error.
+func diffRefusal(err error) (any, error) {
+	if err == nil {
+		return "accepted", nil
 	}
-	return ""
+	var apiErr smithy.APIError
+	if !errors.As(err, &apiErr) {
+		return nil, err
+	}
+	return apiErr.ErrorCode() + ": " + apiErr.ErrorMessage(), nil
 }
 
 func diffMakeTableWithSortType(c *dynamodb.Client, table string, sortType ddbtypes.ScalarAttributeType) error {
