@@ -539,7 +539,9 @@ func ecsArn(resourceType, id string) string {
 
 func registerECS(r *AWSRouter, srv *sim.Server) {
 	ecsClusters = sim.MakeStore[ECSCluster](srv.DB(), "ecs_clusters")
-	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](srv.DB(), "ecs_task_definitions")
+	// Read in bulk by every ListTaskDefinitions and ListTaskDefinitionFamilies,
+	// so the rows stay in memory rather than each call decoding them all.
+	ecsTaskDefinitions = sim.MakeCachedStore[ECSTaskDefinition](srv.DB(), "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](srv.DB(), "ecs_tasks")
 	ecsTaskCredentials = sim.MakeStore[ecsHeldCredential](srv.DB(), "ecs_task_credentials")
 	ecsBackgroundServer = srv

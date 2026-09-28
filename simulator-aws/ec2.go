@@ -278,7 +278,6 @@ type EC2Volume struct {
 	Attachments        []EC2VolumeAttachment
 	HostPath           string
 	DockerVolumeName   string
-	Data               []byte
 }
 
 type EC2VolumeModification struct {
@@ -320,7 +319,6 @@ type EC2Snapshot struct {
 	Tags             []EC2Tag
 	HostPath         string
 	DockerVolumeName string
-	VolumeData       []byte
 }
 
 // EC2RunInstancesToken records the reservation a RunInstances ClientToken
@@ -3737,7 +3735,6 @@ func ec2CreateInstance(spec EC2InstanceCreateSpec) (EC2Instance, error) {
 			AttachTime:          spec.LaunchTime,
 			DeleteOnTermination: true,
 		}},
-		Data: []byte{},
 	}
 	rootVolume.HostPath = EBSVolumeHostDir(rootVolumeID)
 	ec2Volumes.Put(rootVolumeID, rootVolume)
@@ -4760,7 +4757,6 @@ func handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	snapshotID := r.FormValue("SnapshotId")
-	var data []byte
 	var snapshotHostPath string
 	if snapshotID != "" {
 		ec2SettleSnapshot(snapshotID)
@@ -4776,7 +4772,6 @@ func handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 		if size < snap.VolumeSize {
 			size = snap.VolumeSize
 		}
-		data = append([]byte(nil), snap.VolumeData...)
 		snapshotHostPath = snap.HostPath
 	}
 	volType := r.FormValue("VolumeType")
@@ -4799,7 +4794,6 @@ func handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 		Encrypted:          r.FormValue("Encrypted") == "true" || r.FormValue("KmsKeyId") != "",
 		MultiAttachEnabled: r.FormValue("MultiAttachEnabled") == "true",
 		Tags:               parseTags(r),
-		Data:               data,
 	}
 	if err := ebsPrepareVolumeHostPath(&vol); err != nil {
 		ec2ErrorXML(w, "InternalError", fmt.Sprintf("could not create volume data path: %v", err), http.StatusInternalServerError)
@@ -5035,7 +5029,6 @@ func handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		Encrypted:     vol.Encrypted,
 		KmsKeyId:      vol.KmsKeyId,
 		Tags:          parseTags(r),
-		VolumeData:    append([]byte(nil), vol.Data...),
 	}
 	if vol.DockerVolumeName != "" {
 		snap.DockerVolumeName = ebsSnapshotDockerVolumeName(snap.SnapshotId)
@@ -5101,7 +5094,6 @@ func handleCopySnapshot(w http.ResponseWriter, r *http.Request) {
 		Encrypted:     src.Encrypted,
 		KmsKeyId:      src.KmsKeyId,
 		Tags:          parseTags(r),
-		VolumeData:    append([]byte(nil), src.VolumeData...),
 	}
 	if src.DockerVolumeName != "" {
 		snap.DockerVolumeName = ebsSnapshotDockerVolumeName(snap.SnapshotId)

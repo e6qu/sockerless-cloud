@@ -5,7 +5,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 
 | Local file | Upstream repo / host | Upstream path | License | Pinned at | Fetched (UTC) |
 |---|---|---|---|---|---|
-| `bigquery-v2.discovery.json.gz` | `bigquery.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20260901` | 2026-09-14T12:32:29Z |
 | `spanner-v1.discovery.json.gz` | `spanner.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260909` | 2026-09-15T11:35:48Z |
 | `cloudbilling-v1.discovery.json.gz` | `cloudbilling.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260911` | 2026-09-15T11:35:48Z |
 | `firestore-v1.discovery.json.gz` | `firestore.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260911` | 2026-09-15T16:57:05Z |
@@ -24,7 +23,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudrun-v2.discovery.json.gz` | `run.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20260917` | 2026-09-25T17:04:39Z |
 | `dataflow-v1b3.discovery.json.gz` | `dataflow.googleapis.com` | `$discovery/rest?version=v1b3` | Apache-2.0 | `revision 20260920` | 2026-09-25T17:04:39Z |
 | `dns-v1.discovery.json.gz` | `dns.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260917` | 2026-09-25T17:04:40Z |
-| `eventarc-v1.discovery.json.gz` | `eventarc.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260911` | 2026-09-25T17:04:40Z |
 | `iam-v1.discovery.json.gz` | `iam.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260918` | 2026-09-25T17:04:40Z |
 | `logging-v2.discovery.json.gz` | `logging.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20260917` | 2026-09-25T17:04:40Z |
 | `pubsub-v1.discovery.json.gz` | `pubsub.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260915` | 2026-09-25T17:04:40Z |
@@ -35,3 +33,5 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `storage-v1.discovery.json.gz` | `storage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260922` | 2026-09-25T19:47:56Z |
 | `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260918` | 2026-09-26T11:15:01Z |
 | `compute-v1.discovery.json.gz` | `www.googleapis.com` | `discovery/v1/apis/compute/v1/rest` | Apache-2.0 | `revision 20260922` | 2026-09-26T11:15:01Z |
+| `bigquery-v2.discovery.json.gz` | `bigquery.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20260922` | 2026-09-28T13:39:36Z |
+| `eventarc-v1.discovery.json.gz` | `eventarc.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260923` | 2026-09-28T13:39:36Z |

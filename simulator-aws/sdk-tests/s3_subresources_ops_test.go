@@ -213,8 +213,14 @@ func TestS3_ObjectTorrent(t *testing.T) {
 func TestS3_RestoreObject(t *testing.T) {
 	bucket, key := "obj-restore-bucket", "restore-obj.txt"
 	client := putTestObject(t, bucket, key, []byte("restore payload"))
+	// Only an archived object can be restored.
+	_, err := client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String(key),
+		Body: bytes.NewReader([]byte("restore payload")), StorageClass: s3types.StorageClassGlacier,
+	})
+	require.NoError(t, err)
 
-	_, err := client.RestoreObject(ctx, &s3.RestoreObjectInput{
+	_, err = client.RestoreObject(ctx, &s3.RestoreObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String(key),
 		RestoreRequest: &s3types.RestoreRequest{
 			Days: aws.Int32(1),

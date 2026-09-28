@@ -216,7 +216,6 @@ func handleCreateSnapshots(w http.ResponseWriter, r *http.Request) {
 			Encrypted:     vol.Encrypted,
 			KmsKeyId:      vol.KmsKeyId,
 			Tags:          tags,
-			VolumeData:    append([]byte(nil), vol.Data...),
 		}
 		ec2Snapshots.Put(snap.SnapshotId, snap)
 		go ec2TransitionSnapshotToCompleted(snap.SnapshotId)
@@ -273,7 +272,6 @@ func handleCopyVolumes(w http.ResponseWriter, r *http.Request) {
 		Encrypted:          src.Encrypted,
 		MultiAttachEnabled: src.MultiAttachEnabled,
 		Tags:               parseTags(r),
-		Data:               append([]byte(nil), src.Data...),
 	}
 	if v := r.FormValue("Size"); v != "" {
 		if n := ec2AtoiOr(v, 0); n > cp.Size {

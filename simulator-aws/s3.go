@@ -69,6 +69,9 @@ type S3Object struct {
 	// x-amz-server-side-encryption[-aws-kms-key-id] response headers.
 	SSEAlgorithm string
 	SSEKMSKeyID  string
+	// StorageClass is the class the object was written in; empty on a row
+	// written before classes were recorded, which were STANDARD.
+	StorageClass string `json:",omitempty"`
 }
 
 // XML response types for S3
@@ -131,7 +134,7 @@ func s3ObjectKey(bucket, key string) string {
 // AWS Private CA audit reports, and certificate-revocation lists use the same
 // durable object representation and notification pipeline as PutObject.
 func s3PutServiceObject(bucket, key string, body []byte, contentType string, metadata map[string]string) (S3Object, error) {
-	return s3PutObjectIf(bucket, key, body, contentType, metadata, nil)
+	return s3PutObjectIf(bucket, key, body, contentType, metadata, "STANDARD", nil)
 }
 
 var (
@@ -149,7 +152,7 @@ var s3ObjectWriters = sim.NewKeyedLocks()
 // as it stands, holds; a nil condition always does. It fails with
 // errS3NoSuchBucket or errS3PreconditionFailed.
 func s3PutObjectIf(bucket, key string, body []byte, contentType string, metadata map[string]string,
-	condition func(existing S3Object, exists bool) bool,
+	storageClass string, condition func(existing S3Object, exists bool) bool,
 ) (S3Object, error) {
 	if _, ok := s3Buckets_.Get(bucket); !ok {
 		return S3Object{}, fmt.Errorf("bucket %q: %w", bucket, errS3NoSuchBucket)
@@ -174,6 +177,7 @@ func s3PutObjectIf(bucket, key string, body []byte, contentType string, metadata
 		ETag:         etag,
 		LastModified: time.Now(),
 		Metadata:     metadata,
+		StorageClass: storageClass,
 	}, body)
 	release()
 	if err != nil {
@@ -985,7 +989,7 @@ func handleS3GetBucket(w http.ResponseWriter, r *http.Request) {
 			LastModified: obj.LastModified.UTC().Format(time.RFC3339),
 			ETag:         obj.ETag,
 			Size:         obj.Size,
-			StorageClass: "STANDARD",
+			StorageClass: obj.storageClassOf(),
 		})
 	}
 	if contents == nil {
@@ -1088,6 +1092,12 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 	// Conditional write (optimistic concurrency): If-None-Match: * fails if the
 	// object already exists; If-Match: <etag> fails if the current ETag
 	// differs. s3PutObjectIf evaluates it under the object's write lock.
+	storageClass, err := s3RequestedStorageClass(r)
+	if err != nil {
+		S3ErrorXML(w, "InvalidStorageClass", "The storage class you specified is not valid",
+			key, sim.RequestID(r.Context()), http.StatusBadRequest)
+		return
+	}
 	ifNoneMatch, ifMatch := r.Header.Get("If-None-Match"), r.Header.Get("If-Match")
 	condition := func(existing S3Object, exists bool) bool {
 		if ifNoneMatch == "*" && exists {
@@ -1126,7 +1136,7 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	obj, err := s3PutObjectIf(bucket, key, body, contentType, metadata, condition)
+	obj, err := s3PutObjectIf(bucket, key, body, contentType, metadata, storageClass, condition)
 	switch {
 	case errors.Is(err, errS3NoSuchBucket):
 		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
@@ -1156,6 +1166,10 @@ func handleS3GetObject(w http.ResponseWriter, r *http.Request) {
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
+	if !obj.readable(time.Now().UTC()) {
+		s3InvalidObjectState(w, r, key, obj)
+		return
+	}
 
 	obj, body, closeBody, err := s3OpenObject(obj)
 	if err != nil {
@@ -1172,7 +1186,7 @@ func handleS3GetObject(w http.ResponseWriter, r *http.Request) {
 	for k, v := range obj.Metadata {
 		w.Header().Set("x-amz-meta-"+k, v)
 	}
-	s3SetObjectEncryptionHeaders(w, obj)
+	s3SetObjectStateHeaders(w, obj)
 
 	http.ServeContent(w, r, key, obj.LastModified, body)
 }
@@ -1196,7 +1210,7 @@ func handleS3HeadObject(w http.ResponseWriter, r *http.Request) {
 	for k, v := range obj.Metadata {
 		w.Header().Set("x-amz-meta-"+k, v)
 	}
-	s3SetObjectEncryptionHeaders(w, obj)
+	s3SetObjectStateHeaders(w, obj)
 
 	w.WriteHeader(http.StatusOK)
 }

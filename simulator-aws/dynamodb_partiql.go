@@ -1261,7 +1261,6 @@ func pqlExecInsert(t DDBTable, st *partiQLStmt) (*pqlResult, *pqlError) {
 	}
 	ddbItems.Put(key, item)
 	ddbItemNames.Put(key, key)
-	ddbBumpKeyGen()
 	return &pqlResult{}, nil
 }
 
@@ -1314,7 +1313,6 @@ func pqlExecUpdate(t DDBTable, st *partiQLStmt) (*pqlResult, *pqlError) {
 	}
 	ddbItems.Put(itemKey, item)
 	ddbItemNames.Put(itemKey, itemKey)
-	ddbBumpKeyGen()
 
 	res := &pqlResult{}
 	switch st.Returning {
@@ -1407,7 +1405,6 @@ func pqlExecDelete(t DDBTable, st *partiQLStmt) (*pqlResult, *pqlError) {
 	}
 	ddbItems.Delete(itemKey)
 	ddbItemNames.Delete(itemKey)
-	ddbBumpKeyGen()
 	res := &pqlResult{}
 	if st.Returning == "ALLOLD" {
 		res.Item = old

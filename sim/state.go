@@ -2,8 +2,6 @@ package sim
 
 import (
 	"reflect"
-	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -87,6 +85,7 @@ type StateStore[T any] = MemoryStore[T]
 type MemoryStore[T any] struct {
 	mu         sync.RWMutex
 	items      map[string]T
+	order      orderedIDs
 	generation uint64
 }
 
@@ -187,6 +186,7 @@ func (s *MemoryStore[T]) Put(id string, item T) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.items[id] = cloneStoreValue(item)
+	s.order.add(id)
 	s.generation = nextStoreGeneration()
 }
 
@@ -196,6 +196,7 @@ func (s *MemoryStore[T]) Delete(id string) bool {
 	_, ok := s.items[id]
 	if ok {
 		delete(s.items, id)
+		s.order.remove(id)
 		s.generation = nextStoreGeneration()
 	}
 	return ok
@@ -250,19 +251,13 @@ func (s *MemoryStore[T]) Filter(fn func(T) bool) []T {
 func (s *MemoryStore[T]) ListPrefix(prefix string) []Keyed[T] {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return snapshotPrefix(s.items, prefix)
+	return snapshotPrefix(s.items, &s.order, prefix)
 }
 
-// snapshotPrefix clones the items of items whose id begins with prefix, in id
-// order, leaving every other item uncopied.
-func snapshotPrefix[T any](items map[string]T, prefix string) []Keyed[T] {
-	ids := make([]string, 0)
-	for id := range items {
-		if strings.HasPrefix(id, prefix) {
-			ids = append(ids, id)
-		}
-	}
-	sort.Strings(ids)
+// snapshotPrefix clones the items whose id begins with prefix, in id order,
+// leaving every other item uncopied.
+func snapshotPrefix[T any](items map[string]T, order *orderedIDs, prefix string) []Keyed[T] {
+	ids := order.withPrefix(prefix)
 	result := make([]Keyed[T], 0, len(ids))
 	for _, id := range ids {
 		result = append(result, Keyed[T]{ID: id, Item: cloneStoreValue(items[id])})
@@ -299,5 +294,6 @@ func (s *MemoryStore[T]) Upsert(id string, fn func(*T)) {
 	v = cloneStoreValue(v)
 	fn(&v)
 	s.items[id] = cloneStoreValue(v)
+	s.order.add(id)
 	s.generation = nextStoreGeneration()
 }

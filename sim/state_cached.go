@@ -24,6 +24,7 @@ type CachedSQLiteStore[T any] struct {
 	disk  *SQLiteStore[T]
 	mu    sync.RWMutex
 	items map[string]T
+	order orderedIDs
 }
 
 // NewCachedSQLiteStore opens the SQLite table and loads every row into memory.
@@ -38,6 +39,7 @@ func NewCachedSQLiteStore[T any](db *sql.DB, table string) (*CachedSQLiteStore[T
 			store.items[key] = v
 		}
 	}
+	store.order = orderedIDsOf(store.items)
 	return store, nil
 }
 
@@ -76,6 +78,7 @@ func (s *CachedSQLiteStore[T]) Put(id string, item T) {
 	defer s.mu.Unlock()
 	s.disk.Put(id, item)
 	s.items[id] = cloneStoreValue(item)
+	s.order.add(id)
 }
 
 func (s *CachedSQLiteStore[T]) Delete(id string) bool {
@@ -83,6 +86,7 @@ func (s *CachedSQLiteStore[T]) Delete(id string) bool {
 	defer s.mu.Unlock()
 	removed := s.disk.Delete(id)
 	delete(s.items, id)
+	s.order.remove(id)
 	return removed
 }
 
@@ -114,7 +118,7 @@ func (s *CachedSQLiteStore[T]) Filter(fn func(T) bool) []T {
 func (s *CachedSQLiteStore[T]) ListPrefix(prefix string) []Keyed[T] {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return snapshotPrefix(s.items, prefix)
+	return snapshotPrefix(s.items, &s.order, prefix)
 }
 
 func (s *CachedSQLiteStore[T]) Len() int {
@@ -147,6 +151,7 @@ func (s *CachedSQLiteStore[T]) Upsert(id string, fn func(*T)) {
 	fn(&v)
 	s.disk.Put(id, v)
 	s.items[id] = cloneStoreValue(v)
+	s.order.add(id)
 }
 
 // Generation reports the write counter described on Store; every write goes

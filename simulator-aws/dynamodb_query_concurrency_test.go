@@ -53,7 +53,6 @@ func ddbQueryConcurrencyStores(t *testing.T) {
 	ddbItemNames = sim.MakeStore[string](db, "ddb_item_names")
 	ddbTables = sim.MakeStore[DDBTable](db, "ddb_tables")
 	ddbResetItemLocks()
-	ddbKeyGen.Add(1)
 }
 
 // ddbCountingStore counts the per-item reads a query performs, which is the
@@ -108,7 +107,6 @@ func ddbSeedQueryTable(t *testing.T, table string, items int, partitions int) DD
 		ddbItems.Put(key, item)
 		ddbItemNames.Put(key, key)
 	}
-	ddbKeyGen.Add(1)
 	return definition
 }
 

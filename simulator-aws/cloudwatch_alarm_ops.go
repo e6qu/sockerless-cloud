@@ -399,6 +399,7 @@ func registerCloudWatchAlarmOpsCBOR(srv *sim.Server) {
 // GraniteServiceVersion20100801 service path, wrapped in CloudTrail recording
 // like the existing alarm/metric cbor routes.
 func cwCBOR(srv *sim.Server, op string, h http.HandlerFunc) {
+	cwCBORRecordRoute(srv, op)
 	srv.HandleFunc("POST /service/GraniteServiceVersion20100801/operation/"+op,
 		cloudTrailRecordedREST(op, "monitoring.amazonaws.com", nil, cloudWatchCBORAuthorized(op, h)))
 }
