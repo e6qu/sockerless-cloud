@@ -30,7 +30,7 @@ import (
 // every metric alarm's state every cwAlarmEvalInterval and dispatches the
 // configured action topics on state transitions.
 func startCWAlarmEvaluator(srv *sim.Server) {
-	srv.StartBackground(func(ctx context.Context) {
+	srv.StartBackground("CloudWatch alarm evaluator", func(ctx context.Context) {
 		ticker := time.NewTicker(cwAlarmEvalInterval)
 		defer ticker.Stop()
 		for {

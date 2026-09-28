@@ -43,7 +43,7 @@ func TestAwaitSimulatorBackgroundDrainsServerLifecycleWork(t *testing.T) {
 	if !ok {
 		t.Fatal("work offered outside a drain was refused")
 	}
-	srv.StartBackground(func(context.Context) { run() })
+	srv.StartBackground("test lifecycle step", func(context.Context) { run() })
 
 	// The work must be running before the drain, or the drain would be
 	// entitled to find nothing and the case would prove nothing.

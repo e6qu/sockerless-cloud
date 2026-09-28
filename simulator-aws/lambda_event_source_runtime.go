@@ -20,7 +20,7 @@ var (
 )
 
 func startLambdaEventSourcePollers(srv *sim.Server) {
-	srv.StartBackground(func(ctx context.Context) {
+	srv.StartBackground("Lambda event source poller", func(ctx context.Context) {
 		ticker := time.NewTicker(200 * time.Millisecond)
 		defer ticker.Stop()
 		for {
@@ -38,7 +38,7 @@ func startLambdaEventSourcePollers(srv *sim.Server) {
 			for _, mapping := range mappings {
 				if lambdaBeginESMRun(mapping.UUID) {
 					mapping := mapping
-					srv.StartBackground(func(ctx context.Context) {
+					srv.StartBackground("Lambda event source mapping", func(ctx context.Context) {
 						lambdaPollSQSMapping(ctx, mapping)
 					})
 				}

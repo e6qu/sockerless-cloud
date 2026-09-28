@@ -36,7 +36,7 @@ var (
 // startSchedulerFiringLoop launches the once-per-second evaluation loop.
 func startSchedulerFiringLoop(srv *sim.Server) {
 	schedulerLoopOnce.Do(func() {
-		srv.StartBackground(func(ctx context.Context) {
+		srv.StartBackground("EventBridge Scheduler firing", func(ctx context.Context) {
 			ticker := time.NewTicker(time.Second)
 			defer ticker.Stop()
 			for {
