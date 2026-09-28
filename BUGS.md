@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 15. Resolved: 158.
+Open: 15. Resolved: 159.
 
 ## Open
 
@@ -35,6 +35,8 @@ Open: 15. Resolved: 158.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3064 (ECS task-definition listings decoded every revision, and disagreed on which families were active):**~~ ListTaskDefinitions and ListTaskDefinitionFamilies each decoded every task definition row from SQLite (576 calls in three hours on the deployed simulator, median 25 ms). The store is now the cached kind and a `familyPrefix` reads its key range. ListTaskDefinitionFamilies also counted a revision ACTIVE only when its status said so, while ListTaskDefinitions reads a revision written before statuses were recorded as ACTIVE; both now read it the same way.
 
 - ~~**BUG-3062 (ECR DescribeImages read every image in the registry, and reported a manifest's length as the image size):**~~ The deployed simulator served 3,600 DescribeImages calls in three hours (a client polling every 3 s) at a median of 50 ms: the repository's images came from a cache of every image in the registry, decoded from SQLite with their manifests and rebuilt after any push anywhere. They are now the store's key range `<repository>:`, which a repository name cannot contain a colon to escape. `imageSizeInBytes` was `len(imageManifest)`, a few hundred bytes for any image; it is now the manifest's compressed layer sizes, and for a manifest list the largest listed manifest, as ImageDetail defines it, and a stored manifest that is not JSON is a `ServerException` rather than a size of zero.
 

@@ -215,9 +215,12 @@ func handleECSListTaskDefinitionFamilies(w http.ResponseWriter, r *http.Request)
 	// active[family] is true if the family has ≥1 ACTIVE revision.
 	active := map[string]bool{}
 	seen := map[string]bool{}
-	for _, td := range ecsTaskDefinitions.List() {
+	for _, row := range ecsTaskDefinitions.ListPrefix(req.FamilyPrefix) {
+		td := row.Item
 		seen[td.Family] = true
-		if td.Status == "ACTIVE" {
+		// A row written before revisions recorded a status is ACTIVE, as
+		// ListTaskDefinitions reads it.
+		if td.Status == "ACTIVE" || td.Status == "" {
 			active[td.Family] = true
 		}
 	}
@@ -596,8 +599,11 @@ func handleECSListTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 		revision int
 	}
 	var defs []tdRef
-	for _, td := range ecsTaskDefinitions.List() {
-		if req.FamilyPrefix != "" && !strings.HasPrefix(td.Family, req.FamilyPrefix) {
+	// Rows are keyed "<family>:<revision>" and a family holds no colon, so the
+	// families a prefix names are that key range; the family check decides.
+	for _, row := range ecsTaskDefinitions.ListPrefix(req.FamilyPrefix) {
+		td := row.Item
+		if !strings.HasPrefix(td.Family, req.FamilyPrefix) {
 			continue
 		}
 		if status != "ALL" {
