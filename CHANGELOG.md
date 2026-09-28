@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.2](https://github.com/e6qu/sockerless-cloud/compare/v0.33.1...v0.33.2) (2026-09-28)
+
+
+### Bug Fixes
+
+* **sim:** a shutdown names the background workers it waits on and times its phases ([#211](https://github.com/e6qu/sockerless-cloud/issues/211)) ([595e6c6](https://github.com/e6qu/sockerless-cloud/commit/595e6c62013f753f0cdce72176ef1c0f5a510f67))
+
 ## [0.33.1](https://github.com/e6qu/sockerless-cloud/compare/v0.33.0...v0.33.1) (2026-09-27)
 
 
