@@ -1147,6 +1147,10 @@ func handleDDBPutItem(w http.ResponseWriter, r *http.Request) {
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
+	if message := ddbItemKeyError(t, req.Item); message != "" {
+		AWSError(w, "ValidationException", message, http.StatusBadRequest)
+		return
+	}
 	if ddbItemTooDeep(req.Item) {
 		AWSError(w, "ValidationException",
 			"Item nesting exceeds the 32-level maximum", http.StatusBadRequest)
@@ -1237,6 +1241,10 @@ func handleDDBGetItem(w http.ResponseWriter, r *http.Request) {
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
+	if message := ddbKeyParamError(t, req.Key); message != "" {
+		AWSError(w, "ValidationException", message, http.StatusBadRequest)
+		return
+	}
 	itemKey := ddbItemKey(t, req.Key)
 	item, found := ddbItemSnapshot(itemKey)
 	if !ddbTake(t, "", ddbReadUnits(item, req.ConsistentRead), false) {
@@ -1281,6 +1289,10 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
+		return
+	}
+	if message := ddbKeyParamError(t, req.Key); message != "" {
+		AWSError(w, "ValidationException", message, http.StatusBadRequest)
 		return
 	}
 	defer ddbLockTables(true, req.TableName)()
@@ -1515,6 +1527,10 @@ func handleDDBDeleteItem(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
+		return
+	}
+	if message := ddbKeyParamError(t, req.Key); message != "" {
+		AWSError(w, "ValidationException", message, http.StatusBadRequest)
 		return
 	}
 	defer ddbLockTables(true, req.TableName)()
@@ -2107,12 +2123,24 @@ func handleDDBBatchWriteItem(w http.ResponseWriter, r *http.Request) {
 	total := 0
 	for tableName, ops := range req.RequestItems {
 		total += len(ops)
-		if _, ok := ddbTables.Get(tableName); !ok {
+		batchTable, ok := ddbTables.Get(tableName)
+		if !ok {
 			AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 				"Requested resource not found: Table: %s not found", tableName)
 			return
 		}
 		for _, op := range ops {
+			var keyProblem string
+			switch {
+			case op.PutRequest != nil:
+				keyProblem = ddbItemKeyError(batchTable, op.PutRequest.Item)
+			case op.DeleteRequest != nil:
+				keyProblem = ddbKeyParamError(batchTable, op.DeleteRequest.Key)
+			}
+			if keyProblem != "" {
+				AWSError(w, "ValidationException", keyProblem, http.StatusBadRequest)
+				return
+			}
 			if op.PutRequest != nil && ddbItemTooDeep(op.PutRequest.Item) {
 				AWSError(w, "ValidationException",
 					"Item nesting exceeds the 32-level maximum", http.StatusBadRequest)
@@ -2201,6 +2229,10 @@ func handleDDBBatchGetItem(w http.ResponseWriter, r *http.Request) {
 		}
 		keys := make([]string, 0, len(spec.Keys))
 		for _, key := range spec.Keys {
+			if message := ddbKeyParamError(t, key); message != "" {
+				AWSError(w, "ValidationException", message, http.StatusBadRequest)
+				return
+			}
 			keys = append(keys, ddbItemKey(t, key))
 		}
 		wanted[tableName] = keys
@@ -2336,6 +2368,14 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 				"Requested resource not found: Table: %s not found", op.TableName)
+			return
+		}
+		keyProblem := ddbKeyParamError(t, keyItem)
+		if ti.Put != nil {
+			keyProblem = ddbItemKeyError(t, keyItem)
+		}
+		if keyProblem != "" {
+			AWSError(w, "ValidationException", keyProblem, http.StatusBadRequest)
 			return
 		}
 		current, exists := ddbItems.Get(ddbItemKey(t, keyItem))
@@ -2476,6 +2516,10 @@ func handleDDBTransactGetItems(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 				"Requested resource not found: Table: %s not found", ti.Get.TableName)
+			return
+		}
+		if message := ddbKeyParamError(t, ti.Get.Key); message != "" {
+			AWSError(w, "ValidationException", message, http.StatusBadRequest)
 			return
 		}
 		itemKeys[i] = ddbItemKey(t, ti.Get.Key)

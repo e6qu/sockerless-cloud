@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 15. Resolved: 164.
+Open: 15. Resolved: 166.
 
 ## Open
 
@@ -35,6 +35,10 @@ Open: 15. Resolved: 164.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3071 (the DynamoDB oracle was whatever `latest` meant that day):**~~ The differential suite pulled DynamoDB Local by the floating `latest` tag, so the reference the simulator is compared against could change between two runs of the same commit. It is pinned by digest, and `scripts/base-images-for.sh` now reads digest references too, so the pinned image is still warmed from the cache.
+
+- ~~**BUG-3070 (DynamoDB accepted items and keys that do not fit the table's key schema):**~~ An item without its key attributes was stored under an empty key, a key attribute of the wrong type or an empty string was accepted, a number that is not one was stored, and a Key with extra or missing attributes was read. PutItem, GetItem, UpdateItem and DeleteItem and their batch and transaction forms now refuse each with DynamoDB Local's ValidationException and message, and differential scenarios compare the wording with it.
 
 - ~~**BUG-3069 (CI never cached the images the framework's own containers run):**~~ `scripts/base-images-for.sh` read a simulator job's images out of that simulator's directory only, and the Azure Database for PostgreSQL volume snapshot helper is `alpine:3.22`, named in `sim/`. So every Azure SDK job fetched it from the ECR Public Gallery, and on 2026-09-28 the anonymous data cap failed four backup and restore tests on `main` twice. A simulator directory now brings `sim/` into the scan.
 

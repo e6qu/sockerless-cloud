@@ -347,6 +347,54 @@ func dynamoDifferentialScenarios() []diffScenario {
 			return diffQuerySortKeys(c, table, first.LastEvaluatedKey, true)
 		}},
 
+		{"put-without-the-sort-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}}})
+			return diffErrorMessage(err), err
+		}},
+
+		{"put-with-a-key-of-the-wrong-type", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberN{Value: "1"}, "SK": &ddbtypes.AttributeValueMemberN{Value: "1"}}})
+			return diffErrorMessage(err), err
+		}},
+
+		{"put-with-a-number-that-is-not-one", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}, "SK": &ddbtypes.AttributeValueMemberN{Value: "1"}, "count": &ddbtypes.AttributeValueMemberN{Value: "many"}}})
+			return diffErrorMessage(err), err
+		}},
+
+		{"put-with-an-empty-string-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: ""}, "SK": &ddbtypes.AttributeValueMemberN{Value: "1"}}})
+			return diffErrorMessage(err), err
+		}},
+
+		{"get-with-an-extra-key-attribute", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.GetItem(ctx, &dynamodb.GetItemInput{TableName: &table, Key: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}, "SK": &ddbtypes.AttributeValueMemberN{Value: "1"}, "extra": &ddbtypes.AttributeValueMemberS{Value: "x"}}})
+			return diffErrorMessage(err), err
+		}},
+
+		{"get-without-the-sort-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.GetItem(ctx, &dynamodb.GetItemInput{TableName: &table, Key: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}}})
+			return diffErrorMessage(err), err
+		}},
+
 		{"undefined-value-ref-fails-loud", func(c *dynamodb.Client, table string) (any, error) {
 			if err := diffMakeTable(c, table); err != nil {
 				return nil, err
@@ -361,6 +409,16 @@ func dynamoDifferentialScenarios() []diffScenario {
 }
 
 // ── scenario helpers ─────────────────────────────────────────────────────────
+
+// diffErrorMessage is the message a refusal carries, so a scenario compares
+// the wording with DynamoDB Local's and not only the error code.
+func diffErrorMessage(err error) string {
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.ErrorMessage()
+	}
+	return ""
+}
 
 func diffMakeTableWithSortType(c *dynamodb.Client, table string, sortType ddbtypes.ScalarAttributeType) error {
 	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
@@ -587,7 +645,8 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 	// Docker Hub. Pulling it from Amazon avoids Docker Hub's anonymous rate
 	// limit, which times the pull out on a shared CI runner and fails this
 	// oracle-backed test for a reason that has nothing to do with DynamoDB.
-	const image = "public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local:latest"
+	// Pinned by digest: the oracle is only an oracle if it stays the same one.
+	const image = "public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local@sha256:0b8779f3e5a761cb41c7b7610d1a67518964a22a9ca063b4a53c8c312b933485"
 	if !diffDockerPull(image) {
 		t.Fatalf("docker is present but %s could not be pulled after retries", image)
 	}

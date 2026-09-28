@@ -177,3 +177,109 @@ func ddbMigrateItemKeys() error {
 	ddbKeyFormat.Put("items", ddbCurrentKeyFormat)
 	return nil
 }
+
+// The answers below are DynamoDB Local's, captured from
+// public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local@sha256:0b8779f3e5a761cb41c7b7610d1a67518964a22a9ca063b4a53c8c312b933485.
+
+// ddbItemKeyError checks an item written whole (PutItem and its batch and
+// transaction forms) against the table's key schema; "" means it is valid.
+func ddbItemKeyError(t DDBTable, item map[string]any) string {
+	if message := ddbNumbersError(item); message != "" {
+		return message
+	}
+	for _, k := range t.KeySchema {
+		value, ok := item[k.AttributeName]
+		if !ok {
+			return "One of the required keys was not given a value"
+		}
+		if message := ddbKeyValueError(t, k.AttributeName, value); message != "" {
+			return message
+		}
+	}
+	return ""
+}
+
+// ddbKeyParamError checks a Key parameter (GetItem, DeleteItem, UpdateItem and
+// their batch and transaction forms): exactly the table's key attributes, each
+// of its declared type.
+func ddbKeyParamError(t DDBTable, key map[string]any) string {
+	if len(key) != len(t.KeySchema) {
+		return "The number of conditions on the keys is invalid"
+	}
+	for _, k := range t.KeySchema {
+		value, ok := key[k.AttributeName]
+		if !ok {
+			return "The number of conditions on the keys is invalid"
+		}
+		if message := ddbKeyValueError(t, k.AttributeName, value); message != "" {
+			return message
+		}
+	}
+	return ddbNumbersError(key)
+}
+
+func ddbKeyValueError(t DDBTable, name string, value any) string {
+	declared := ""
+	for _, def := range t.AttributeDefinitions {
+		if def.AttributeName == name {
+			declared = def.AttributeType
+		}
+	}
+	typed, ok := value.(map[string]any)
+	if !ok || len(typed) != 1 {
+		return "One or more parameter values were invalid: Type mismatch for key"
+	}
+	raw, ok := typed[declared]
+	if !ok {
+		return "One or more parameter values were invalid: Type mismatch for key"
+	}
+	if text, ok := raw.(string); ok && text == "" && (declared == "S" || declared == "B") {
+		return "One or more parameter values are not valid. The AttributeValue for a key attribute cannot contain an empty string value. Key: " + name
+	}
+	return ""
+}
+
+// ddbNumbersError reports a number anywhere in the attributes that DynamoDB
+// would not accept, in an N, an NS, or nested in an L or M.
+func ddbNumbersError(attributes map[string]any) string {
+	for _, value := range attributes {
+		if ddbValueHasBadNumber(value) {
+			return "A value provided cannot be converted into a number"
+		}
+	}
+	return ""
+}
+
+func ddbValueHasBadNumber(value any) bool {
+	typed, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	if n, ok := typed["N"].(string); ok {
+		_, valid := ddbOrderedNumber(n)
+		return !valid
+	}
+	if set, ok := typed["NS"].([]any); ok {
+		for _, member := range set {
+			n, isText := member.(string)
+			if _, valid := ddbOrderedNumber(n); !isText || !valid {
+				return true
+			}
+		}
+	}
+	if list, ok := typed["L"].([]any); ok {
+		for _, member := range list {
+			if ddbValueHasBadNumber(member) {
+				return true
+			}
+		}
+	}
+	if fields, ok := typed["M"].(map[string]any); ok {
+		for _, field := range fields {
+			if ddbValueHasBadNumber(field) {
+				return true
+			}
+		}
+	}
+	return false
+}

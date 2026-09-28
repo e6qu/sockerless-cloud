@@ -51,7 +51,7 @@ done
             -name '*.sh' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' -o \
             -name 'Dockerfile*' \
         \) ! -path '*simulator-aws/lambda_runtime.go' -print0 |
-        xargs -0 grep -hoE 'public\.ecr\.aws/[a-z0-9][a-z0-9/._-]*:[a-zA-Z0-9][a-zA-Z0-9._-]*'
+        xargs -0 grep -hoE 'public\.ecr\.aws/[a-z0-9][a-z0-9/._-]*(:[a-zA-Z0-9][a-zA-Z0-9._-]*|@sha256:[0-9a-f]{64})'
 
     for dir in "$@"; do
         case "$dir" in
