@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"log"
 	"net"
 	"net/http"
@@ -22,6 +21,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -473,17 +475,9 @@ func nativeDockerPlatform() string {
 // image. Mirrors the azure sdk-tests pattern. Fails the suite only after
 // exhausting retries — a genuinely unreachable image must fail loud.
 func pullImageWithRetry(image string) {
-	var lastErr error
-	for attempt := 1; attempt <= 5; attempt++ {
-		cmd := exec.Command("docker", "pull", image)
-		if out, err := cmd.CombinedOutput(); err == nil {
-			return
-		} else {
-			lastErr = fmt.Errorf("%w\n%s", err, out)
-		}
-		time.Sleep(time.Duration(attempt*attempt) * time.Second)
+	if err := baseimage.Ensure(image); err != nil {
+		log.Fatalf("Failed to pull %s: %v", image, err)
 	}
-	log.Fatalf("Failed to pull %s after retries: %v", image, lastErr)
 }
 
 // buildTerraformAWSImage prepares the exact Terraform workload used by the
@@ -699,23 +693,10 @@ const gluePythonShellImage = "public.ecr.aws/docker/library/python:3.9"
 // inside the wait for the run to settle.
 func ensureGluePythonShellImage(t *testing.T) {
 	t.Helper()
-	if exec.Command("docker", "image", "inspect", gluePythonShellImage).Run() == nil {
-		return
+	if err := baseimage.Ensure(gluePythonShellImage); err != nil {
+		t.Fatalf("could not pull %s, which every AWS Glue Python shell job run executes in: %v",
+			gluePythonShellImage, err)
 	}
-	var last error
-	for attempt := 1; attempt <= 5; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		last = exec.CommandContext(ctx, "docker", "pull", gluePythonShellImage).Run()
-		cancel()
-		if last == nil {
-			return
-		}
-		// A registry that is rate-limiting answers again shortly; backing off
-		// quadratically spans a throttling window without hammering it.
-		time.Sleep(time.Duration(attempt*attempt) * time.Second)
-	}
-	t.Fatalf("could not pull %s, which every AWS Glue Python shell job run executes in: %v",
-		gluePythonShellImage, last)
 }
 
 // nativeLambdaArchitectures is the architecture the images these tests build

@@ -576,3 +576,15 @@ sharing its source's, so no row's release can take another row's contents.
 The Cloud Storage slice already kept its payloads in files, for Cloud Run
 volume mounts. The writes that decide a conditional request share one
 `sim.KeyedLocks` across all three slices (BUG-3048).
+
+## A base image is asked of the host first
+
+CI loads every base image a job runs containers from out of one cached
+tarball, because the ECR Public Gallery caps anonymous pulls by data volume
+and its refusal does not clear within a job. Ten suite helpers then ran
+`docker pull` anyway, and `docker pull` asks the registry even for an image
+the host holds, so the cache removed nothing and the cap still failed suites.
+`testutil/baseimage.Ensure` inspects first and pulls only a missing image;
+every suite goes through it, and a test in `testutil` fails on a file that
+pulls a base image itself. A pull that tests a simulator's own registry is
+the one deliberate exception, named `registrytrust.PullFromRegistryUnderTest`.

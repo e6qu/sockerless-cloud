@@ -205,7 +205,10 @@ shards; console vitest, typecheck, build and Playwright; the race jobs per
 simulator and for `sim`; the quality gates; the one-open-pull-request and
 rebased-on-main checks; the nightly fuzz workflow across the four Go modules.
 Every job holds a fifteen-minute ceiling. Base images are warmed from one
-cache entry per module, read out of the source by `scripts/base-images-for.sh`.
+cache entry per module, read out of the source by `scripts/base-images-for.sh`,
+and every suite takes a base image through `testutil/baseimage.Ensure`, which
+asks the host before a registry; `build-gates` runs the `testutil` tests, whose
+guard fails on a suite that pulls a base image itself.
 
 ## Releases
 

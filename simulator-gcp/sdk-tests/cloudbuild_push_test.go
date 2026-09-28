@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+
 	"github.com/e6qu/sockerless-cloud/testutil/registrytrust"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -96,22 +98,9 @@ func TestCloudBuild_FaithfulBuildPush(t *testing.T) {
 // runtime fails fast instead of hanging the whole suite.
 func pullImageWithRetry(t *testing.T, image string) {
 	t.Helper()
-	var lastErr error
-	delay := time.Second
-	for attempt := 0; attempt < 5; attempt++ {
-		if attempt > 0 {
-			time.Sleep(delay)
-			if delay < 8*time.Second {
-				delay *= 2
-			}
-		}
-		out, err := dockerCLIWithTimeout(180*time.Second, "pull", image)
-		if err == nil {
-			return
-		}
-		lastErr = fmt.Errorf("%v: %s", err, out)
+	if err := baseimage.Ensure(image); err != nil {
+		t.Fatalf("%v", err)
 	}
-	t.Fatalf("pull %s after retries: %v", image, lastErr)
 }
 
 // startThrowawayRegistry runs a real registry:2 on 127.0.0.1:<port> for the

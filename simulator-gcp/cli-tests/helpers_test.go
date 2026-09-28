@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 )
 
 var (
@@ -76,16 +78,9 @@ const cliWorkloadImage = "public.ecr.aws/docker/library/alpine:3.20"
 // inside a timed test, where a slow or throttled registry surfaces as a
 // workload that never started rather than as a pull error.
 func pullWorkloadImage(image string) {
-	var lastErr error
-	for attempt := 1; attempt <= 5; attempt++ {
-		if out, err := exec.Command("docker", "pull", image).CombinedOutput(); err == nil {
-			return
-		} else {
-			lastErr = fmt.Errorf("%w\n%s", err, out)
-		}
-		time.Sleep(time.Duration(attempt*attempt) * time.Second)
+	if err := baseimage.Ensure(image); err != nil {
+		log.Fatalf("Failed to pull %s: %v", image, err)
 	}
-	log.Fatalf("Failed to pull %s after retries: %v", image, lastErr)
 }
 
 func TestMain(m *testing.M) {

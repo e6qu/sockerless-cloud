@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -89,32 +91,9 @@ func TestMain(m *testing.M) {
 	// pull blows the terraform-provider's request budget. ECR Public
 	// Gallery serves linux/{amd64,arm64} variants without auth.
 	//
-	// ECR Public can return `toomanyrequests` on cold CI runners. Retry
-	// with exponential backoff before giving up — never just one
-	// attempt against a public registry.
 	pullImage := "public.ecr.aws/docker/library/alpine:latest"
-	backoff := 5 * time.Second
-	var pullErr error
-	// An image already on the host needs no registry at all. Asking first is
-	// what makes a warmed cache useful: the data cap that answers
-	// "toomanyrequests" is not a transient blip a retry recovers from, so the
-	// only way past it is not to make the request.
-	if exec.Command("docker", "image", "inspect", pullImage).Run() != nil {
-		for attempt := 1; attempt <= 4; attempt++ {
-			pull := exec.Command("docker", "pull", pullImage)
-			pull.Stdout = os.Stdout
-			pull.Stderr = os.Stderr
-			pullErr = pull.Run()
-			if pullErr == nil {
-				break
-			}
-			log.Printf("alpine pull attempt %d failed: %v — retrying in %s", attempt, pullErr, backoff)
-			time.Sleep(backoff)
-			backoff *= 2
-		}
-	}
-	if pullErr != nil {
-		log.Fatalf("Failed to pre-pull alpine image after retries: %v", pullErr)
+	if err := baseimage.Ensure(pullImage); err != nil {
+		log.Fatalf("Failed to pre-pull alpine image: %v", err)
 	}
 	tag := exec.Command("docker", "tag", pullImage, "alpine:latest")
 	if err := tag.Run(); err != nil {

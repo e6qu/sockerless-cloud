@@ -13,6 +13,11 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 )
 
-require github.com/e6qu/sockerless-cloud/realexec v0.1.0
+require (
+	github.com/e6qu/sockerless-cloud/realexec v0.1.0
+	github.com/e6qu/sockerless-cloud/testutil v0.1.0
+)
 
 replace github.com/e6qu/sockerless-cloud/realexec => ../../realexec
+
+replace github.com/e6qu/sockerless-cloud/testutil => ../../testutil

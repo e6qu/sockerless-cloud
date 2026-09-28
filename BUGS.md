@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 15. Resolved: 150.
+Open: 15. Resolved: 151.
 
 ## Open
 
@@ -35,6 +35,14 @@ Open: 15. Resolved: 150.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3056 (suites pulled base images the CI cache had already loaded):**~~
+  Ten test helpers ran `docker pull` unconditionally, which asks the registry
+  even for an image on the host, so the ECR Public Gallery's anonymous data
+  cap ("toomanyrequests: Data limit exceeded") failed `sim (gcp cli)` and
+  `sim (azure cli A-M)` after their base images had loaded from cache. Every
+  suite now takes a base image through `testutil/baseimage.Ensure`, which asks
+  the host first, and `TestNoSuitePullsABaseImageItself` holds it there.
 
 - ~~**BUG-3054 (shrinking a page blob kept pages past its new end):**~~ Resize
   truncated the contents first and then removed the written page ranges from

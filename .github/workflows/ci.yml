@@ -1389,6 +1389,11 @@ jobs:
           go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - name: Test the shared test helpers
+        run: |
+          bash scripts/ci-go-mod-download.sh testutil
+          cd testutil && go test -count=1 ./...
+        timeout-minutes: 5
       - name: Check simulator SDK/CLI/Terraform coverage matrix
         run: bash scripts/check-simulator-coverage-matrix.sh
         timeout-minutes: 5

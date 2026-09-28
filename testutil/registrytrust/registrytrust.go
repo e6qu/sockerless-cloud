@@ -626,3 +626,9 @@ func runWithStdin(parent context.Context, stdin, name string, args ...string) ([
 	}
 	return stdout.Bytes(), nil
 }
+
+// PullFromRegistryUnderTest always asks the registry, never the host: the
+// registry's answer is what the test examines.
+func PullFromRegistryUnderTest(ctx context.Context, reference string) ([]byte, error) {
+	return exec.CommandContext(ctx, "docker", "pull", reference).CombinedOutput()
+}
