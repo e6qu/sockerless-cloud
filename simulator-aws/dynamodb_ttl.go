@@ -82,7 +82,6 @@ func ddbDeleteIfStillExpired(tableName, itemKey, attribute string, now time.Time
 	}
 	ddbItems.Delete(itemKey)
 	ddbItemNames.Delete(itemKey)
-	ddbBumpKeyGen()
 	return true
 }
 

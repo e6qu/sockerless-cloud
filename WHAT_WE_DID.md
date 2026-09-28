@@ -609,3 +609,13 @@ nothing to decide by. The class is stored with the object and reported where
 S3 reports it, and an archived object answers the model's own errors until a
 restore makes a temporary copy. A restore completes at once; how the service
 reports the hours a real one takes is BUG-3059.
+
+## A prefix read costs the prefix, not the store
+
+The in-memory and cached stores keep their ids in sorted order, maintained on
+every write, so `ListPrefix` is a binary search and the matching run. DynamoDB
+reads a query's partition, or a scan's table, straight from the item store as
+such a range. It used to keep its own index of every key in every table,
+rebuilt after any write, which made the read path depend on remembering to
+invalidate it at a dozen write sites and made every query cost the whole
+database.

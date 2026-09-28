@@ -424,7 +424,6 @@ func ddbRestoreItems(items map[string]map[string]any, srcTable, dstTable string)
 		ddbItems.Put(newKey, clone)
 		ddbItemNames.Put(newKey, newKey)
 	}
-	ddbBumpKeyGen()
 }
 
 func handleDDBRestoreTableFromBackup(w http.ResponseWriter, r *http.Request) {

@@ -25,7 +25,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -1219,7 +1218,6 @@ func handleDDBPutItem(w http.ResponseWriter, r *http.Request) {
 	}
 	ddbItems.Put(itemKey, req.Item)
 	ddbItemNames.Put(itemKey, itemKey)
-	ddbBumpKeyGen()
 	resp := map[string]any{}
 	if req.ReturnValues == "ALL_OLD" && exists {
 		resp["Attributes"] = old
@@ -1385,7 +1383,6 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 	}
 	ddbItems.Put(itemKey, item)
 	ddbItemNames.Put(itemKey, itemKey)
-	ddbBumpKeyGen()
 
 	resp := map[string]any{}
 	switch strings.ToUpper(req.ReturnValues) {
@@ -1579,7 +1576,6 @@ func handleDDBDeleteItem(w http.ResponseWriter, r *http.Request) {
 	}
 	ddbItems.Delete(itemKey)
 	ddbItemNames.Delete(itemKey)
-	ddbBumpKeyGen()
 	out := map[string]any{}
 	if strings.EqualFold(req.ReturnValues, "ALL_OLD") && existed {
 		out["Attributes"] = oldItem
@@ -1652,14 +1648,16 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	// it descending — the basis of every "latest N" access pattern. The
 	// candidate key set is built in the scan direction so ExclusiveStartKey
 	// resume + Limit + LastEvaluatedKey all work in that direction.
-	candidates := ddbTableSortedKeys(prefix)
 	// A Query addresses one partition, so the items it can return are a
 	// contiguous run of the sorted key space rather than the whole table. When
 	// the partition cannot be read out of the key condition — a query on a
-	// secondary index, whose key attributes are not the table's — the full set
-	// stands and the key condition decides, exactly as before.
+	// secondary index, whose key attributes are not the table's — the whole
+	// table is the candidate set and the key condition decides.
+	var candidates []string
 	if partition, ok := ddbQueryPartitionPrefix(t, keyExpr); ok && req.IndexName == "" {
-		candidates = ddbKeysInPartition(candidates, partition)
+		candidates = ddbKeysInPartition(ddbTableSortedKeys(partition), partition)
+	} else {
+		candidates = ddbTableSortedKeys(prefix)
 	}
 	remaining := ddbQueryCandidateKeys(candidates, t, req.ExclusiveStartKey, prefix,
 		req.ScanIndexForward == nil || *req.ScanIndexForward)
@@ -2188,7 +2186,6 @@ func handleDDBBatchWriteItem(w http.ResponseWriter, r *http.Request) {
 				key := ddbItemKey(t, op.PutRequest.Item)
 				ddbItems.Put(key, op.PutRequest.Item)
 				ddbItemNames.Put(key, key)
-				ddbBumpKeyGen()
 				processed++
 			case op.DeleteRequest != nil:
 				key := ddbItemKey(t, op.DeleteRequest.Key)
@@ -2199,7 +2196,6 @@ func handleDDBBatchWriteItem(w http.ResponseWriter, r *http.Request) {
 				}
 				ddbItems.Delete(key)
 				ddbItemNames.Delete(key)
-				ddbBumpKeyGen()
 				processed++
 			}
 		}
@@ -2439,7 +2435,6 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 			key := ddbItemKey(t, ti.Put.Item)
 			ddbItems.Put(key, ti.Put.Item)
 			ddbItemNames.Put(key, key)
-			ddbBumpKeyGen()
 		case ti.Update != nil:
 			t, _ := ddbTables.Get(ti.Update.TableName)
 			key := ddbItemKey(t, ti.Update.Key)
@@ -2461,13 +2456,11 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 			}
 			ddbItems.Put(key, item)
 			ddbItemNames.Put(key, key)
-			ddbBumpKeyGen()
 		case ti.Delete != nil:
 			t, _ := ddbTables.Get(ti.Delete.TableName)
 			key := ddbItemKey(t, ti.Delete.Key)
 			ddbItems.Delete(key)
 			ddbItemNames.Delete(key)
-			ddbBumpKeyGen()
 		}
 	}
 	writeDDBJSON(w, http.StatusOK, map[string]any{})
@@ -2560,53 +2553,16 @@ func ddbExtractKey(t DDBTable, item map[string]any) map[string]any {
 	return key
 }
 
-// ddbKeyIndex caches per-table sorted item-key slices so a paginated Query/Scan
-// resumes from its ExclusiveStartKey cursor without re-walking and re-sorting the
-// entire cross-table key set on every page. It is rebuilt from ddbItemNames (the
-// source of truth, which survives SQLite-backed restarts) only when a write has
-// bumped the generation since the last build — within a page sequence no write
-// occurs, so pages 2..N reuse the cached slice.
-var ddbKeyIndex struct {
-	mu      sync.Mutex
-	gen     uint64 // last generation the cache was built at
-	byTable map[string][]string
-}
-
-// ddbKeyGen is bumped (atomically) on every item-name Put/Delete so the index
-// cache knows to rebuild. Mutations already hold their table stripe, but the read path
-// (Query/Scan) does not, so a dedicated counter keeps the cache coherent.
-var ddbKeyGen atomic.Uint64
-
-// ddbBumpKeyGen invalidates the cached key index. Call after any ddbItemNames
-// Put/Delete.
-func ddbBumpKeyGen() { ddbKeyGen.Add(1) }
-
-// ddbTableSortedKeys returns the sorted item keys for one table (prefix
-// "<table>/"), using the cached index and rebuilding it only when the key set
-// has changed since the last build.
+// ddbTableSortedKeys returns the item keys under prefix in order, read as a
+// key range from the item-name store: a table's with "<table>/", one
+// partition's with "<table>/<hash>".
 func ddbTableSortedKeys(prefix string) []string {
-	gen := ddbKeyGen.Load()
-	ddbKeyIndex.mu.Lock()
-	defer ddbKeyIndex.mu.Unlock()
-	if ddbKeyIndex.byTable == nil || ddbKeyIndex.gen != gen {
-		byTable := make(map[string][]string)
-		for _, name := range ddbItemNames.List() {
-			if i := strings.IndexByte(name, '/'); i >= 0 {
-				tp := name[:i+1]
-				byTable[tp] = append(byTable[tp], name)
-			}
-		}
-		for tp := range byTable {
-			sort.Strings(byTable[tp])
-		}
-		ddbKeyIndex.byTable = byTable
-		ddbKeyIndex.gen = gen
+	rows := ddbItemNames.ListPrefix(prefix)
+	keys := make([]string, len(rows))
+	for i, row := range rows {
+		keys[i] = row.ID
 	}
-	keys := ddbKeyIndex.byTable[prefix]
-	// Return a copy so callers can't mutate the cached slice.
-	out := make([]string, len(keys))
-	copy(out, keys)
-	return out
+	return keys
 }
 
 // ddbResumeIndex returns the index into a sorted key slice at which to resume

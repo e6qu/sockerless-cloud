@@ -175,6 +175,7 @@ func (s *MemoryStore[T]) Prune(expired func(T) bool) int {
 	for key, v := range s.items {
 		if expired(cloneStoreValue(v)) {
 			delete(s.items, key)
+			s.order.remove(key)
 			pruned++
 		}
 	}
@@ -203,6 +204,7 @@ func (s *CachedSQLiteStore[T]) Prune(expired func(T) bool) int {
 		deleted, busy := s.disk.deleteExpired(doomed[start:end], expired)
 		for _, key := range deleted {
 			delete(s.items, key)
+			s.order.remove(key)
 			pruned++
 		}
 		s.mu.Unlock()
