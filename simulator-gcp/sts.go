@@ -288,3 +288,22 @@ func mapWorkforceSubject(oidcConfig map[string]any, claims map[string]any, defau
 // service-account or metadata token. Real Google signs opaque federated tokens
 // its resource services validate internally; the simulator plays the same role
 // with a token it both issues and verifies.
+
+// workforceSubjectPrincipal turns a WorkforcePoolSubject resource name,
+// `locations/{l}/workforcePools/{p}/subjects/{s}`, into the principal a
+// federated access token names as its subject, `…/workforcePools/{p}/subject/{s}`.
+func workforceSubjectPrincipal(subjectName string) string {
+	pool, subject, _ := strings.Cut(subjectName, "/subjects/")
+	return pool + "/subject/" + subject
+}
+
+// workforceSessionRevoked reports whether revokeSessions has revoked a token
+// issued to principal at issuedAt: every token issued at or before the
+// revocation's second is revoked.
+func workforceSessionRevoked(principal string, issuedAt int64) bool {
+	if iamSessionRevocations == nil {
+		return false
+	}
+	revokedAt, ok := iamSessionRevocations.Get(principal)
+	return ok && issuedAt <= revokedAt
+}

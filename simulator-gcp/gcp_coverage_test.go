@@ -82,7 +82,7 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"dns-v1":                  80,
 	"eventarc-v1":             132,
 	"firestore-v1":            120,
-	"iam-v1":                  272,
+	"iam-v1":                  274,
 	"iamcredentials-v1":       14,
 	"logging-v2":              508,
 	"pubsub-v1":               92,
@@ -415,7 +415,7 @@ var gcpMethodFloor = map[string]int{
 	// grantable-roles query over the sim's own catalog, the iamPolicies lint
 	// and auditable-services queries, workload/workforce identity pools with
 	// their subjects' delete/undelete pair, and the IAM policy verbs.
-	"iam-v1": 272,
+	"iam-v1": 274,
 
 	// Secret Manager: secrets and versions CRUD, addVersion, access, enable,
 	// disable, destroy and the IAM verbs are served on both the global and the

@@ -164,6 +164,9 @@ var (
 	iamSAKeys          sim.Store[GCPServiceAccountKey]
 	iamSAKeyPublics    sim.Store[GCPServiceAccountKeyMaterial]
 	iamSASystemKeys    sim.Store[serviceAccountSystemKey]
+	// iamSessionRevocations holds, per workforce principal, the Unix second at
+	// or before which every access token issued to it is revoked.
+	iamSessionRevocations sim.Store[int64]
 	// iamCustomRoles is read outside registerIAM by the permission check, which
 	// resolves a binding's role to the permissions it includes.
 	iamCustomRoles sim.Store[GCPCustomRole]
@@ -177,6 +180,7 @@ func registerIAM(srv *sim.Server) {
 	iamSAKeys = saKeys
 	iamSAKeyPublics = saKeyPublics
 	iamSASystemKeys = sim.MakeStore[serviceAccountSystemKey](srv.DB(), "iam_sa_system_keys")
+	iamSessionRevocations = sim.MakeStore[int64](srv.DB(), "iam_workforce_session_revocations")
 	projectPolicies := sim.MakeStore[IAMPolicy](srv.DB(), "iam_project_policies")
 	gcpResourcePolicies = sim.MakeStore[IAMPolicy](srv.DB(), "iam_resource_policies")
 	resourcePolicies := gcpResourcePolicies
@@ -3462,12 +3466,22 @@ func registerWorkforcePools(srv *sim.Server) {
 	// the resource.
 	srv.HandleFunc("POST "+base+"/workforcePools/{pool}/subjects/{subjectAction}", func(w http.ResponseWriter, r *http.Request) {
 		subject, verb, found := gcpCustomMethod(sim.PathParam(r, "subjectAction"))
-		if !found || verb != "undelete" {
+		if !found || (verb != "undelete" && verb != "revokeSessions") {
 			gcpMethodNotFound(w)
 			return
 		}
 		name := fmt.Sprintf("locations/%s/workforcePools/%s/subjects/%s",
 			sim.PathParam(r, "location"), sim.PathParam(r, "pool"), subject)
+		if verb == "revokeSessions" {
+			var req struct{}
+			if err := sim.ReadJSON(r, &req); err != nil {
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				return
+			}
+			iamSessionRevocations.Put(workforceSubjectPrincipal(name), time.Now().Unix())
+			sim.WriteJSON(w, http.StatusOK, newIAMLRO(name, map[string]any{}, "type.googleapis.com/google.protobuf.Empty"))
+			return
+		}
 		res, ok := iamResources.Get(name)
 		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)

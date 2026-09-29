@@ -334,6 +334,9 @@ through hooks:
 - **A restore writes a new object.** A restored Cloud Storage object gets a new
   generation and metageneration 1, and its preconditions are judged against the
   live object it would replace.
+- **A revoked session stays revoked.** `workforcePools.subjects.revokeSessions`
+  records when a subject's sessions end, and every check of a simulator-minted
+  access token refuses one issued to that subject at or before that second.
 - **A page token proves where it came from.** Every listing tags the tokens it
   issues and refuses one it never issued with the service's invalid-argument
   error, instead of listing an empty page.

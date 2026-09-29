@@ -18,7 +18,7 @@ The extractor reads the route out of a single string literal, so a registration 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
 | `POST /v1/token` | ✓ `simulator-gcp/sts.go:31::handleSTSTokenExchange` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/introspect` | ○ `simulator-gcp/sts.go:32::handleSTSIntrospect` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/introspect` | ✓ `simulator-gcp/sts.go:32::handleSTSIntrospect` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

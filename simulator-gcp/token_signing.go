@@ -221,6 +221,9 @@ func verifiedAccessTokenClaims(raw string) (accessTokenClaims, error) {
 		Audience:      simAccessTokenAudience,
 		RequireExpiry: true,
 	}, accessSigner)
+	if err == nil && workforceSessionRevoked(claims.Sub, claims.Iat) {
+		err = fmt.Errorf("the session of %s was revoked", claims.Sub)
+	}
 	return claims, err
 }
 
