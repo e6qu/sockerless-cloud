@@ -108,9 +108,9 @@ func functionCPUResources(fn storedFunction) *ResourceRequirements {
 	return &ResourceRequirements{Limits: map[string]string{"cpu": cpu}}
 }
 
-func functionsLRO(project, location string, resource any, typeName string) Operation {
+func functionsLRO(r *http.Request, project, location, target string, resource any, typeName string) Operation {
 	return newLRO(project, location, resource, typeName,
-		gcpStandardOperationMetadata("type.googleapis.com/google.cloud.functions.v2.OperationMetadata"))
+		gcpStandardOperationMetadata("type.googleapis.com/google.cloud.functions.v2.OperationMetadata", gcpOperationVerb(r), target))
 }
 
 func registerCloudFunctions(srv *sim.Server) {
@@ -196,7 +196,7 @@ func registerCloudFunctions(srv *sim.Server) {
 
 		functions.Put(name, fn)
 
-		lro := functionsLRO(project, location, fn.wire(), "type.googleapis.com/google.cloud.functions.v2.Function")
+		lro := functionsLRO(r, project, location, name, fn.wire(), "type.googleapis.com/google.cloud.functions.v2.Function")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -283,7 +283,7 @@ func registerCloudFunctions(srv *sim.Server) {
 		fn.UpdateTime = nowTimestamp()
 		functions.Put(name, fn)
 
-		lro := functionsLRO(project, location, fn.wire(), "type.googleapis.com/google.cloud.functions.v2.Function")
+		lro := functionsLRO(r, project, location, name, fn.wire(), "type.googleapis.com/google.cloud.functions.v2.Function")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -364,7 +364,7 @@ func registerCloudFunctions(srv *sim.Server) {
 		functionID := sim.PathParam(r, "function")
 		name := fmt.Sprintf("projects/%s/locations/%s/functions/%s", project, location, functionID)
 
-		fn, ok := functions.Get(name)
+		_, ok := functions.Get(name)
 		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "function %q not found", name)
 			return
@@ -372,7 +372,7 @@ func registerCloudFunctions(srv *sim.Server) {
 
 		functions.Delete(name)
 
-		lro := functionsLRO(project, location, fn.wire(), "type.googleapis.com/google.cloud.functions.v2.Function")
+		lro := functionsLRO(r, project, location, name, nil, "type.googleapis.com/google.protobuf.Empty")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -417,24 +417,24 @@ func registerCloudFunctions(srv *sim.Server) {
 			applyUpgradeState(&fn, "SETUP_FUNCTION_UPGRADE_CONFIG_SUCCESSFUL")
 			fn.UpdateTime = nowTimestamp()
 			functions.Put(name, fn)
-			sim.WriteJSON(w, http.StatusOK, functionsLRO(project, location, fn.wire(), cloudFunctionTypeURL))
+			sim.WriteJSON(w, http.StatusOK, functionsLRO(r, project, location, name, fn.wire(), cloudFunctionTypeURL))
 		case "abortFunctionUpgrade":
 			applyUpgradeState(&fn, "ELIGIBLE_FOR_2ND_GEN_UPGRADE")
 			fn.UpdateTime = nowTimestamp()
 			functions.Put(name, fn)
-			sim.WriteJSON(w, http.StatusOK, functionsLRO(project, location, fn.wire(), cloudFunctionTypeURL))
+			sim.WriteJSON(w, http.StatusOK, functionsLRO(r, project, location, name, fn.wire(), cloudFunctionTypeURL))
 		case "redirectFunctionUpgradeTraffic":
 			applyUpgradeState(&fn, "REDIRECT_FUNCTION_UPGRADE_TRAFFIC_SUCCESSFUL")
 			fn.UpdateTime = nowTimestamp()
 			functions.Put(name, fn)
-			sim.WriteJSON(w, http.StatusOK, functionsLRO(project, location, fn.wire(), cloudFunctionTypeURL))
+			sim.WriteJSON(w, http.StatusOK, functionsLRO(r, project, location, name, fn.wire(), cloudFunctionTypeURL))
 		case "rollbackFunctionUpgradeTraffic":
 			// Roll traffic back to the 1st Gen stack; the function returns to
 			// the setup-complete state (the 2nd Gen stack still exists).
 			applyUpgradeState(&fn, "SETUP_FUNCTION_UPGRADE_CONFIG_SUCCESSFUL")
 			fn.UpdateTime = nowTimestamp()
 			functions.Put(name, fn)
-			sim.WriteJSON(w, http.StatusOK, functionsLRO(project, location, fn.wire(), cloudFunctionTypeURL))
+			sim.WriteJSON(w, http.StatusOK, functionsLRO(r, project, location, name, fn.wire(), cloudFunctionTypeURL))
 		case "commitFunctionUpgrade", "commitFunctionUpgradeAsGen2":
 			// Commit finalizes the migration: the function is now a 2nd Gen
 			// function and upgradeInfo is cleared. A successful upgrade is
@@ -443,14 +443,14 @@ func registerCloudFunctions(srv *sim.Server) {
 			fn.UpgradeInfo = nil
 			fn.UpdateTime = nowTimestamp()
 			functions.Put(name, fn)
-			sim.WriteJSON(w, http.StatusOK, functionsLRO(project, location, fn.wire(), cloudFunctionTypeURL))
+			sim.WriteJSON(w, http.StatusOK, functionsLRO(r, project, location, name, fn.wire(), cloudFunctionTypeURL))
 		case "detachFunction":
 			// Detach the 2nd Gen function from its 1st Gen counterpart; the
 			// function survives as a standalone 2nd Gen function.
 			fn.UpgradeInfo = nil
 			fn.UpdateTime = nowTimestamp()
 			functions.Put(name, fn)
-			sim.WriteJSON(w, http.StatusOK, functionsLRO(project, location, fn.wire(), cloudFunctionTypeURL))
+			sim.WriteJSON(w, http.StatusOK, functionsLRO(r, project, location, name, fn.wire(), cloudFunctionTypeURL))
 		default:
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on function %q", action, id)
 		}

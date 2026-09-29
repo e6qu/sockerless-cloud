@@ -462,15 +462,9 @@ func newLRO(project, location string, resource any, typeName string, metadata gc
 		responseMap = map[string]any{"@type": typeName}
 	}
 
-	// Derive target from the resource's name field if available
-	var target string
-	if n, ok := responseMap["name"].(string); ok {
-		target = n
-	}
-
 	op := Operation{
 		Name:     fmt.Sprintf("projects/%s/locations/%s/operations/%s", project, location, opID),
-		Metadata: metadata(target, responseMap),
+		Metadata: metadata(responseMap),
 		Done:     true,
 		Response: responseMap,
 	}

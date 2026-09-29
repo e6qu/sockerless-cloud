@@ -136,6 +136,7 @@ func gcsRestoreGeneration(objects sim.PrefixStore[GCSObject], bucket Bucket, ent
 		gcsSeedObjectACL(restored.Bucket, restored.Name, restored.Generation)
 	}
 	gcsMirror(restored)
+	gcsNotifyWrite(restored, replaced, existed)
 	return restored
 }
 
@@ -301,6 +302,7 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 			gcsUnmirror(bucketName, source)
 			gcsReleaseBody(current.Body)
 			gcsDropObjectACL(bucketName, source)
+			gcsNotify(gcsEventDelete, current, nil)
 		}
 		release()
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, moved))

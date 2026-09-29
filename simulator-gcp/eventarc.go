@@ -102,9 +102,9 @@ var (
 	eventarcChannelConfigs     sim.Store[EventarcGoogleChannelConfig]
 )
 
-func eventarcLRO(project, location string, resource any, typeName string) Operation {
+func eventarcLRO(r *http.Request, project, location, target string, resource any, typeName string) Operation {
 	return newLRO(project, location, resource, typeName,
-		gcpStandardOperationMetadata("type.googleapis.com/google.cloud.eventarc.v1.OperationMetadata"))
+		gcpStandardOperationMetadata("type.googleapis.com/google.cloud.eventarc.v1.OperationMetadata", gcpOperationVerb(r), target))
 }
 
 func registerEventarc(srv *sim.Server) {
@@ -284,6 +284,10 @@ func handleEventarcCreateTrigger(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "trigger %q already exists", eventarcTriggerName(project, location, triggerID))
 		return
 	}
+	if err := eventarcValidateTrigger(req, project, location); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		return
+	}
 	now := nowTimestamp()
 	req.Name = eventarcTriggerName(project, location, triggerID)
 	req.Uid = sim.NewUUID()
@@ -291,7 +295,7 @@ func handleEventarcCreateTrigger(w http.ResponseWriter, r *http.Request) {
 	req.UpdateTime = now
 	eventarcProvisionTransport(&req, project, location, triggerID)
 	eventarcTriggers.Put(eventarcTriggerKey(project, location, triggerID), req)
-	op := eventarcLRO(project, location, req, "type.googleapis.com/google.cloud.eventarc.v1.Trigger")
+	op := eventarcLRO(r, project, location, req.Name, req, "type.googleapis.com/google.cloud.eventarc.v1.Trigger")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -361,10 +365,14 @@ func handleEventarcPatchTrigger(w http.ResponseWriter, r *http.Request) {
 	if req.EventDataContentType != "" {
 		existing.EventDataContentType = req.EventDataContentType
 	}
+	if err := eventarcValidateTrigger(existing, project, location); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		return
+	}
 	existing.UpdateTime = nowTimestamp()
 	eventarcProvisionTransport(&existing, project, location, trigger)
 	eventarcTriggers.Put(key, existing)
-	op := eventarcLRO(project, location, existing, "type.googleapis.com/google.cloud.eventarc.v1.Trigger")
+	op := eventarcLRO(r, project, location, existing.Name, existing, "type.googleapis.com/google.cloud.eventarc.v1.Trigger")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -380,7 +388,7 @@ func handleEventarcDeleteTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 	eventarcTriggers.Delete(key)
 	eventarcReleaseTransport(t)
-	op := eventarcLRO(project, location, t, "type.googleapis.com/google.cloud.eventarc.v1.Trigger")
+	op := eventarcLRO(r, project, location, t.Name, t, "type.googleapis.com/google.cloud.eventarc.v1.Trigger")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -409,7 +417,7 @@ func handleEventarcCreateChannel(w http.ResponseWriter, r *http.Request) {
 	req.State = "ACTIVE"
 	req.ActivationToken = sim.NewUUID()
 	eventarcChannels.Put(eventarcChannelKey(project, location, channelID), req)
-	op := eventarcLRO(project, location, req, "type.googleapis.com/google.cloud.eventarc.v1.Channel")
+	op := eventarcLRO(r, project, location, req.Name, req, "type.googleapis.com/google.cloud.eventarc.v1.Channel")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -475,7 +483,7 @@ func handleEventarcPatchChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	existing.UpdateTime = nowTimestamp()
 	eventarcChannels.Put(key, existing)
-	op := eventarcLRO(project, location, existing, "type.googleapis.com/google.cloud.eventarc.v1.Channel")
+	op := eventarcLRO(r, project, location, existing.Name, existing, "type.googleapis.com/google.cloud.eventarc.v1.Channel")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -490,7 +498,7 @@ func handleEventarcDeleteChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	eventarcChannels.Delete(key)
-	op := eventarcLRO(project, location, c, "type.googleapis.com/google.cloud.eventarc.v1.Channel")
+	op := eventarcLRO(r, project, location, c.Name, c, "type.googleapis.com/google.cloud.eventarc.v1.Channel")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -563,7 +571,7 @@ func handleEventarcCreateChannelConnection(w http.ResponseWriter, r *http.Reques
 	req.CreateTime = now
 	req.UpdateTime = now
 	eventarcChannelConnections.Put(eventarcChannelConnectionKey(project, location, connectionID), req)
-	op := eventarcLRO(project, location, req, "type.googleapis.com/google.cloud.eventarc.v1.ChannelConnection")
+	op := eventarcLRO(r, project, location, req.Name, req, "type.googleapis.com/google.cloud.eventarc.v1.ChannelConnection")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -611,7 +619,7 @@ func handleEventarcDeleteChannelConnection(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	eventarcChannelConnections.Delete(key)
-	op := eventarcLRO(project, location, cc, "type.googleapis.com/google.cloud.eventarc.v1.ChannelConnection")
+	op := eventarcLRO(r, project, location, cc.Name, cc, "type.googleapis.com/google.cloud.eventarc.v1.ChannelConnection")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -779,7 +787,7 @@ func handleEventarcCreateEnrollment(w http.ResponseWriter, r *http.Request) {
 	req.CreateTime = now
 	req.UpdateTime = now
 	eventarcEnrollments.Put(key, req)
-	op := eventarcLRO(project, location, req, "type.googleapis.com/google.cloud.eventarc.v1.Enrollment")
+	op := eventarcLRO(r, project, location, req.Name, req, "type.googleapis.com/google.cloud.eventarc.v1.Enrollment")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -848,7 +856,7 @@ func handleEventarcPatchEnrollment(w http.ResponseWriter, r *http.Request) {
 	}
 	existing.UpdateTime = nowTimestamp()
 	eventarcEnrollments.Put(key, existing)
-	op := eventarcLRO(project, location, existing, "type.googleapis.com/google.cloud.eventarc.v1.Enrollment")
+	op := eventarcLRO(r, project, location, existing.Name, existing, "type.googleapis.com/google.cloud.eventarc.v1.Enrollment")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -863,7 +871,7 @@ func handleEventarcDeleteEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	eventarcEnrollments.Delete(key)
-	op := eventarcLRO(project, location, e, "type.googleapis.com/google.cloud.eventarc.v1.Enrollment")
+	op := eventarcLRO(r, project, location, e.Name, e, "type.googleapis.com/google.cloud.eventarc.v1.Enrollment")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -899,7 +907,7 @@ func handleEventarcCreateMessageBus(w http.ResponseWriter, r *http.Request) {
 	req.CreateTime = now
 	req.UpdateTime = now
 	eventarcMessageBuses.Put(key, req)
-	op := eventarcLRO(project, location, req, "type.googleapis.com/google.cloud.eventarc.v1.MessageBus")
+	op := eventarcLRO(r, project, location, req.Name, req, "type.googleapis.com/google.cloud.eventarc.v1.MessageBus")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -992,7 +1000,7 @@ func handleEventarcPatchMessageBus(w http.ResponseWriter, r *http.Request) {
 	}
 	existing.UpdateTime = nowTimestamp()
 	eventarcMessageBuses.Put(key, existing)
-	op := eventarcLRO(project, location, existing, "type.googleapis.com/google.cloud.eventarc.v1.MessageBus")
+	op := eventarcLRO(r, project, location, existing.Name, existing, "type.googleapis.com/google.cloud.eventarc.v1.MessageBus")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1007,7 +1015,7 @@ func handleEventarcDeleteMessageBus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	eventarcMessageBuses.Delete(key)
-	op := eventarcLRO(project, location, mb, "type.googleapis.com/google.cloud.eventarc.v1.MessageBus")
+	op := eventarcLRO(r, project, location, mb.Name, mb, "type.googleapis.com/google.cloud.eventarc.v1.MessageBus")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1043,7 +1051,7 @@ func handleEventarcCreatePipeline(w http.ResponseWriter, r *http.Request) {
 	req.CreateTime = now
 	req.UpdateTime = now
 	eventarcPipelines.Put(key, req)
-	op := eventarcLRO(project, location, req, "type.googleapis.com/google.cloud.eventarc.v1.Pipeline")
+	op := eventarcLRO(r, project, location, req.Name, req, "type.googleapis.com/google.cloud.eventarc.v1.Pipeline")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1124,7 +1132,7 @@ func handleEventarcPatchPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	existing.UpdateTime = nowTimestamp()
 	eventarcPipelines.Put(key, existing)
-	op := eventarcLRO(project, location, existing, "type.googleapis.com/google.cloud.eventarc.v1.Pipeline")
+	op := eventarcLRO(r, project, location, existing.Name, existing, "type.googleapis.com/google.cloud.eventarc.v1.Pipeline")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1139,7 +1147,7 @@ func handleEventarcDeletePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	eventarcPipelines.Delete(key)
-	op := eventarcLRO(project, location, p, "type.googleapis.com/google.cloud.eventarc.v1.Pipeline")
+	op := eventarcLRO(r, project, location, p.Name, p, "type.googleapis.com/google.cloud.eventarc.v1.Pipeline")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1175,7 +1183,7 @@ func handleEventarcCreateGoogleAPISource(w http.ResponseWriter, r *http.Request)
 	req.CreateTime = now
 	req.UpdateTime = now
 	eventarcGoogleAPISources.Put(key, req)
-	op := eventarcLRO(project, location, req, "type.googleapis.com/google.cloud.eventarc.v1.GoogleApiSource")
+	op := eventarcLRO(r, project, location, req.Name, req, "type.googleapis.com/google.cloud.eventarc.v1.GoogleApiSource")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1247,7 +1255,7 @@ func handleEventarcPatchGoogleAPISource(w http.ResponseWriter, r *http.Request) 
 	}
 	existing.UpdateTime = nowTimestamp()
 	eventarcGoogleAPISources.Put(key, existing)
-	op := eventarcLRO(project, location, existing, "type.googleapis.com/google.cloud.eventarc.v1.GoogleApiSource")
+	op := eventarcLRO(r, project, location, existing.Name, existing, "type.googleapis.com/google.cloud.eventarc.v1.GoogleApiSource")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1262,7 +1270,7 @@ func handleEventarcDeleteGoogleAPISource(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	eventarcGoogleAPISources.Delete(key)
-	op := eventarcLRO(project, location, s, "type.googleapis.com/google.cloud.eventarc.v1.GoogleApiSource")
+	op := eventarcLRO(r, project, location, s.Name, s, "type.googleapis.com/google.cloud.eventarc.v1.GoogleApiSource")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 

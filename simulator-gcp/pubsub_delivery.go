@@ -24,12 +24,18 @@ import (
 type psQueue struct {
 	Subscription string
 	Queue        msgq.Queue[PSMessage]
+	// Acked holds the acknowledged messages a subscription with
+	// retainAckedMessages keeps for its messageRetentionDuration, the ones a
+	// seek to a time can mark unacknowledged again.
+	Acked []PSMessage `json:",omitempty"`
 }
 
 const (
 	psDefaultMaxDeliveryAttempts = 5
 	psDefaultMinimumBackoff      = 10 * time.Second
 	psDefaultMaximumBackoff      = 600 * time.Second
+	psDefaultMessageRetention    = 7 * 24 * time.Hour
+	psMinAckDeadlineSeconds      = 10
 	psMaxAckDeadlineSeconds      = 600
 	psPushMinimumBackoff         = 100 * time.Millisecond
 	psPushMaximumBackoff         = 60 * time.Second
@@ -57,6 +63,20 @@ func psMaxDeliveryAttempts(p *PSDeadLetterPolicy) int {
 // psValidateSubscription applies the create-time checks Pub/Sub makes on the
 // delivery settings the simulator enforces.
 func psValidateSubscription(s PSSubscription) error {
+	switch {
+	case s.AckDeadlineSeconds < psMinAckDeadlineSeconds:
+		return fmt.Errorf("the value for ack_deadline_seconds is too small: you passed %d in the request, but the minimum value is %d",
+			s.AckDeadlineSeconds, psMinAckDeadlineSeconds)
+	case s.AckDeadlineSeconds > psMaxAckDeadlineSeconds:
+		return fmt.Errorf("the value for ack_deadline_seconds is too large: you passed %d in the request, but the maximum value is %d",
+			s.AckDeadlineSeconds, psMaxAckDeadlineSeconds)
+	}
+	if s.MessageRetentionDuration != "" {
+		d, err := psParseDuration(s.MessageRetentionDuration)
+		if err != nil || d < 10*time.Minute || d > 31*24*time.Hour {
+			return fmt.Errorf("message_retention_duration %q must be between 10 minutes and 31 days", s.MessageRetentionDuration)
+		}
+	}
 	if _, err := psParseFilter(s.Filter); err != nil {
 		return err
 	}
@@ -237,9 +257,36 @@ func psAcknowledge(subName string, ackIDs []string) {
 	pol, now := psPolicy(s), time.Now()
 	psQueues.Update(subName, func(q *psQueue) {
 		for _, id := range ackIDs {
-			q.Queue.Settle(id, pol, now)
+			if m, ok := q.Queue.Settle(id, pol, now); ok && s.RetainAckedMessages {
+				q.Acked = append(q.Acked, m.Payload)
+			}
 		}
+		q.Acked = psRetained(s, q.Acked, now)
 	})
+}
+
+// psRetained keeps the acknowledged messages still inside the subscription's
+// messageRetentionDuration, measured from each message's publish time.
+func psRetained(s PSSubscription, acked []PSMessage, now time.Time) []PSMessage {
+	if !s.RetainAckedMessages {
+		return nil
+	}
+	retention := psDefaultMessageRetention
+	if s.MessageRetentionDuration != "" {
+		d, err := psParseDuration(s.MessageRetentionDuration)
+		if err != nil {
+			return nil
+		}
+		retention = d
+	}
+	kept := make([]PSMessage, 0, len(acked))
+	for _, m := range acked {
+		published, err := time.Parse(time.RFC3339Nano, m.PublishTime)
+		if err == nil && now.Sub(published) <= retention {
+			kept = append(kept, m)
+		}
+	}
+	return kept
 }
 
 // psModifyAckDeadline moves each named message's ack deadline to seconds from
@@ -295,15 +342,31 @@ func psSeekSnapshot(subName string, backlog []PSMessage) {
 }
 
 // psSeekTime acknowledges the messages published before t and marks the
-// retained ones published at or after it — the snapshot backlogs captured on
-// the subscription's topic — unacknowledged again.
+// retained ones published at or after it unacknowledged again: the
+// acknowledged messages a subscription with retainAckedMessages keeps, and
+// the snapshot backlogs captured on the subscription's topic.
 func psSeekTime(subName string, t time.Time) {
 	s, _ := psSubscriptions.Get(subName)
 	cutoff := t.UnixMilli()
-	psQueues.Update(subName, func(q *psQueue) {
-		q.Queue.Remove(func(m msgq.Message[PSMessage]) bool { return m.EnqueuedAt < cutoff })
-	})
 	var replay []PSMessage
+	psQueues.Update(subName, func(q *psQueue) {
+		acked := q.Queue.Remove(func(m msgq.Message[PSMessage]) bool { return m.EnqueuedAt < cutoff })
+		if !s.RetainAckedMessages {
+			return
+		}
+		var retained []PSMessage
+		for _, m := range psRetained(s, q.Acked, time.Now()) {
+			if published, err := time.Parse(time.RFC3339Nano, m.PublishTime); err == nil && !published.Before(t) {
+				replay = append(replay, m)
+				continue
+			}
+			retained = append(retained, m)
+		}
+		for _, m := range acked {
+			retained = append(retained, m.Payload)
+		}
+		q.Acked = retained
+	})
 	for _, snap := range psSnapshots.List() {
 		if snap.Topic != s.Topic {
 			continue

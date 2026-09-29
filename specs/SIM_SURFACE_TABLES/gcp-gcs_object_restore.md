@@ -17,9 +17,9 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /storage/v1/b/{bucket}/o/{object}/restore` | ✓ `simulator-gcp/gcs_object_restore.go:185::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /storage/v1/b/{bucket}/o/bulkRestore` | ✓ `simulator-gcp/gcs_object_restore.go:221::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /storage/v1/b/{bucket}/o/{sourceObject}/moveTo/o/{destinationObject}` | ✓ `simulator-gcp/gcs_object_restore.go:267::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /storage/v1/b/{bucket}/o/{object}/restore` | ✓ `simulator-gcp/gcs_object_restore.go:186::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /storage/v1/b/{bucket}/o/bulkRestore` | ✓ `simulator-gcp/gcs_object_restore.go:222::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /storage/v1/b/{bucket}/o/{sourceObject}/moveTo/o/{destinationObject}` | ✓ `simulator-gcp/gcs_object_restore.go:268::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

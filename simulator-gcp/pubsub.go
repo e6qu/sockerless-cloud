@@ -638,6 +638,9 @@ func handlePSPatchSubscription(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if existing.AckDeadlineSeconds == 0 {
+		existing.AckDeadlineSeconds = psMinAckDeadlineSeconds
+	}
 	if err := psValidateSubscription(existing); err != nil {
 		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
 		return
@@ -802,9 +805,8 @@ func handlePSDetach(w http.ResponseWriter, r *http.Request, subName string) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handlePSSeek resets a subscription to a snapshot or timestamp. The sim does
-// not model per-message ack cursors, so seek validates the subscription exists
-// and returns the empty SeekResponse the API contract specifies.
+// handlePSSeek resets a subscription's acknowledgement state to a snapshot or
+// a time and answers the empty SeekResponse.
 func handlePSSeek(w http.ResponseWriter, r *http.Request, subName string) {
 	if _, ok := psSubscriptions.Get(subName); !ok {
 		gcpError(w, http.StatusNotFound, "NOT_FOUND", "Subscription not found: "+subName)

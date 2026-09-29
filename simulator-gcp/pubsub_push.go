@@ -114,8 +114,8 @@ func psPush(ctx context.Context, subName string, d psDelivered) bool {
 	header := http.Header{}
 	var body []byte
 	var err error
-	if eventarcDeliversThrough(sub.Name) {
-		header, body, err = eventarcCloudEvent(sub, d.Message)
+	if trigger, ok := eventarcDeliveringThrough(sub.Name); ok {
+		header, body, err = eventarcCloudEvent(trigger, sub, d.Message)
 	} else {
 		header.Set("Content-Type", "application/json")
 		body, err = json.Marshal(psPushEnvelope(sub, d.Message, d.DeliveryAttempt))

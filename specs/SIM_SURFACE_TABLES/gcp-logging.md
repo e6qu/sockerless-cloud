@@ -31,9 +31,9 @@ The extractor reads the route out of a single string literal, so a registration 
 | `PUT /v2/projects/{project}/metrics/{metric}` | ✓ `simulator-gcp/logging.go:299::handleUpdateLoggingMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PATCH /v2/projects/{project}/metrics/{metric}` | ✓ `simulator-gcp/logging.go:300::handleUpdateLoggingMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `DELETE /v2/projects/{project}/metrics/{metric}` | ✓ `simulator-gcp/logging.go:301::handleDeleteLoggingMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/entries:copy` | ✓ `simulator-gcp/logging_admin.go:143::handleLoggingEntriesCopy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/entries:tail` | ✓ `simulator-gcp/logging_admin.go:144::handleLoggingEntriesTail` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/monitoredResourceDescriptors` | ○ `simulator-gcp/logging_admin.go:145::handleLoggingListMRD` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/entries:copy` | ✓ `simulator-gcp/logging_admin.go:148::handleLoggingEntriesCopy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/entries:tail` | ✓ `simulator-gcp/logging_admin.go:149::handleLoggingEntriesTail` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/monitoredResourceDescriptors` | ○ `simulator-gcp/logging_admin.go:150::handleLoggingListMRD` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

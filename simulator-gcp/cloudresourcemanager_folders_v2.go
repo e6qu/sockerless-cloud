@@ -42,14 +42,24 @@ func crmV2Folder(f CRMFolder) crmV2FolderMsg {
 	}
 }
 
-// Fully-qualified Any types of the two v2 folder verbs the document models as
-// long-running — create and move. patch, delete and undelete return the Folder
-// itself.
-const (
-	crmV2TypeFolder       = "type.googleapis.com/google.cloud.resourcemanager.v2.Folder"
-	crmV2MetaCreateFolder = "type.googleapis.com/google.cloud.resourcemanager.v2.CreateFolderMetadata"
-	crmV2MetaMoveFolder   = "type.googleapis.com/google.cloud.resourcemanager.v2.MoveFolderMetadata"
-)
+const crmV2TypeFolder = "type.googleapis.com/google.cloud.resourcemanager.v2.Folder"
+
+// crmV2FolderOperation is the metadata the two long-running v2 folder methods,
+// create and move, declare in their operation_info: a FolderOperation naming
+// the folder and the parents it moved between. patch, delete and undelete
+// return the Folder itself.
+func crmV2FolderOperation(operationType string, f CRMFolder, sourceParent string) map[string]any {
+	metadata := map[string]any{
+		"@type":             "type.googleapis.com/google.cloud.resourcemanager.v2.FolderOperation",
+		"displayName":       f.DisplayName,
+		"operationType":     operationType,
+		"destinationParent": f.Parent,
+	}
+	if sourceParent != "" {
+		metadata["sourceParent"] = sourceParent
+	}
+	return metadata
+}
 
 // crmV2FolderPOSTMethods are the POST custom methods v2 serves on a folder.
 var crmV2FolderPOSTMethods = map[string]bool{
@@ -88,7 +98,7 @@ func registerCloudResourceManagerV2(srv *sim.Server, resourcePolicies sim.Store[
 			Etag:        crmEtag(),
 		}
 		crmFolders.Put(f.Name, f)
-		sim.WriteJSON(w, http.StatusOK, crmLRO(crmV2Folder(f), crmV2TypeFolder, crmV2MetaCreateFolder))
+		sim.WriteJSON(w, http.StatusOK, crmLROWithMetadata(crmV2Folder(f), crmV2TypeFolder, crmV2FolderOperation("CREATE", f, "")))
 	})
 
 	srv.HandleFunc("GET /v2/folders", func(w http.ResponseWriter, r *http.Request) {
@@ -210,10 +220,11 @@ func registerCloudResourceManagerV2(srv *sim.Server, resourcePolicies sim.Store[
 				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
+			sourceParent := f.Parent
 			f.Parent = req.DestinationParent
 			f.UpdateTime = nowTimestamp()
 			crmFolders.Put(name, f)
-			sim.WriteJSON(w, http.StatusOK, crmLRO(crmV2Folder(f), crmV2TypeFolder, crmV2MetaMoveFolder))
+			sim.WriteJSON(w, http.StatusOK, crmLROWithMetadata(crmV2Folder(f), crmV2TypeFolder, crmV2FolderOperation("MOVE", f, sourceParent)))
 		case "undelete":
 			f.State = "ACTIVE"
 			f.UpdateTime = nowTimestamp()

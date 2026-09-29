@@ -131,6 +131,7 @@ func TestConformance_EventarcTriggerChannelRoundTrip(t *testing.T) {
 	parent := "projects/conformance-project/locations/us-central1"
 	name := parent + "/triggers/conf-channel-trigger"
 	channel := parent + "/channels/conf-channel"
+	eventarcRunService(t, "conformance-project", "us-central1", "conf-channel-svc")
 
 	op, err := client.CreateTrigger(ctx, &eventarcpb.CreateTriggerRequest{
 		Parent:    parent,
@@ -143,7 +144,7 @@ func TestConformance_EventarcTriggerChannelRoundTrip(t *testing.T) {
 			}},
 			Destination: &eventarcpb.Destination{
 				Descriptor_: &eventarcpb.Destination_CloudRun{
-					CloudRun: &eventarcpb.CloudRun{Service: "svc", Region: "us-central1"},
+					CloudRun: &eventarcpb.CloudRun{Service: "conf-channel-svc", Region: "us-central1"},
 				},
 			},
 		},
@@ -366,6 +367,7 @@ func TestConformance_EventarcDuplicateTriggerConflict(t *testing.T) {
 
 	parent := "projects/conformance-project/locations/us-central1"
 	name := parent + "/triggers/conf-dup-trigger"
+	eventarcRunService(t, "conformance-project", "us-central1", "conf-dup-svc")
 	req := &eventarcpb.CreateTriggerRequest{
 		Parent:    parent,
 		TriggerId: "conf-dup-trigger",
@@ -377,7 +379,7 @@ func TestConformance_EventarcDuplicateTriggerConflict(t *testing.T) {
 			}},
 			Destination: &eventarcpb.Destination{
 				Descriptor_: &eventarcpb.Destination_CloudRun{
-					CloudRun: &eventarcpb.CloudRun{Service: "svc", Region: "us-central1"},
+					CloudRun: &eventarcpb.CloudRun{Service: "conf-dup-svc", Region: "us-central1"},
 				},
 			},
 		},
@@ -538,6 +540,7 @@ func TestConformance_EventarcTriggersPaginate(t *testing.T) {
 	t.Cleanup(func() { client.Close() })
 
 	parent := "projects/conf-eventarc-pagination/locations/us-central1"
+	eventarcRunService(t, "conf-eventarc-pagination", "us-central1", "conf-page-svc")
 	for _, id := range []string{"conf-pag-trig-a", "conf-pag-trig-b"} {
 		op, err := client.CreateTrigger(ctx, &eventarcpb.CreateTriggerRequest{
 			Parent:    parent,
@@ -550,7 +553,7 @@ func TestConformance_EventarcTriggersPaginate(t *testing.T) {
 				}},
 				Destination: &eventarcpb.Destination{
 					Descriptor_: &eventarcpb.Destination_CloudRun{
-						CloudRun: &eventarcpb.CloudRun{Service: "svc", Region: "us-central1"},
+						CloudRun: &eventarcpb.CloudRun{Service: "conf-page-svc", Region: "us-central1"},
 					},
 				},
 			},

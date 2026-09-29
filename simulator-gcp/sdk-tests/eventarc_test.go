@@ -9,6 +9,7 @@ import (
 	eventarc "cloud.google.com/go/eventarc/apiv1"
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
 	iampb "cloud.google.com/go/iam/apiv1/iampb"
+	"cloud.google.com/go/run/apiv2/runpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -45,10 +46,36 @@ func eventarcClient(t *testing.T) *eventarc.Client {
 	return client
 }
 
+// eventarcRunService creates the Cloud Run service a trigger delivers to:
+// Eventarc refuses a trigger whose destination service does not exist.
+func eventarcRunService(t *testing.T, project, region, id string) {
+	t.Helper()
+	client := newServicesClient(t)
+	parent := "projects/" + project + "/locations/" + region
+	op, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
+		Parent:    parent,
+		ServiceId: id,
+		Service: &runpb.Service{Template: &runpb.RevisionTemplate{
+			Containers: []*runpb.Container{{Image: "gcr.io/" + project + "/" + id}},
+		}},
+	})
+	require.NoError(t, err)
+	_, err = op.Wait(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		op, err := client.DeleteService(ctx, &runpb.DeleteServiceRequest{Name: parent + "/services/" + id})
+		if assert.NoError(t, err, "delete Cloud Run service %s", id) {
+			_, err = op.Wait(ctx)
+			assert.NoError(t, err, "await deletion of Cloud Run service %s", id)
+		}
+	})
+}
+
 func TestEventarc_TriggerLifecycleSDK(t *testing.T) {
 	client := eventarcClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	name := parent + "/triggers/sdk-trigger"
+	eventarcRunService(t, "test-project", "us-central1", "sdk-trigger-svc")
 
 	create, err := client.CreateTrigger(ctx, &eventarcpb.CreateTriggerRequest{
 		Parent:    parent,
@@ -60,7 +87,7 @@ func TestEventarc_TriggerLifecycleSDK(t *testing.T) {
 			}},
 			Destination: &eventarcpb.Destination{
 				Descriptor_: &eventarcpb.Destination_CloudRun{
-					CloudRun: &eventarcpb.CloudRun{Service: "svc", Region: "us-central1"},
+					CloudRun: &eventarcpb.CloudRun{Service: "sdk-trigger-svc", Region: "us-central1"},
 				},
 			},
 			Transport: &eventarcpb.Transport{
@@ -89,7 +116,7 @@ func TestEventarc_TriggerLifecycleSDK(t *testing.T) {
 	got, err := client.GetTrigger(ctx, &eventarcpb.GetTriggerRequest{Name: name})
 	require.NoError(t, err)
 	assert.Equal(t, name, got.GetName())
-	assert.Equal(t, "svc", got.GetDestination().GetCloudRun().GetService())
+	assert.Equal(t, "sdk-trigger-svc", got.GetDestination().GetCloudRun().GetService())
 
 	rawResp, err := http.Get(baseURL + "/v1/" + name)
 	require.NoError(t, err)
@@ -393,6 +420,7 @@ func TestEventarc_IamPolicySDK(t *testing.T) {
 	client := eventarcClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	triggerName := parent + "/triggers/iam-trigger"
+	eventarcRunService(t, "test-project", "us-central1", "iam-trigger-svc")
 
 	create, err := client.CreateTrigger(ctx, &eventarcpb.CreateTriggerRequest{
 		Parent:    parent,
@@ -404,7 +432,7 @@ func TestEventarc_IamPolicySDK(t *testing.T) {
 			}},
 			Destination: &eventarcpb.Destination{
 				Descriptor_: &eventarcpb.Destination_CloudRun{
-					CloudRun: &eventarcpb.CloudRun{Service: "svc", Region: "us-central1"},
+					CloudRun: &eventarcpb.CloudRun{Service: "iam-trigger-svc", Region: "us-central1"},
 				},
 			},
 		},

@@ -512,6 +512,11 @@ func TestResourceManagerV2_Folders(t *testing.T) {
 	assert.Equal(t, "sdk-v2-folder", created.DisplayName)
 	assert.Equal(t, "organizations/123456789012", created.Parent)
 	assert.Equal(t, "ACTIVE", created.LifecycleState)
+	var createMeta crmv2.FolderOperation
+	require.NoError(t, json.Unmarshal(op.Metadata, &createMeta))
+	assert.Equal(t, "CREATE", createMeta.OperationType, "create carries the FolderOperation its operation_info declares")
+	assert.Equal(t, "sdk-v2-folder", createMeta.DisplayName)
+	assert.Equal(t, "organizations/123456789012", createMeta.DestinationParent)
 
 	got, err := svc.Folders.Get(created.Name).Do()
 	require.NoError(t, err)

@@ -571,7 +571,7 @@ func handleSpannerCreateInstance(w http.ResponseWriter, r *http.Request) {
 // CreateInstanceMetadata or UpdateInstanceMetadata carries the instance and
 // the operation's start and end times.
 func newSpannerInstanceLRO(project, instance string, resource any, typeName, metadataMessage string) Operation {
-	op := newLRO(project, "global", resource, typeName, func(_ string, response map[string]any) map[string]any {
+	op := newLRO(project, "global", resource, typeName, func(response map[string]any) map[string]any {
 		now := nowTimestamp()
 		instance := cloneAnyMap(response)
 		delete(instance, "@type")
@@ -928,7 +928,7 @@ func spannerInstanceConfigName(project, config string) string {
 // operation. Its CreateInstanceConfigMetadata or UpdateInstanceConfigMetadata
 // carries the configuration and the operation's completed progress.
 func newSpannerInstanceConfigLRO(project, config string, resource any, typeName, metadataMessage string) Operation {
-	op := newLRO(project, "global", resource, typeName, func(_ string, response map[string]any) map[string]any {
+	op := newLRO(project, "global", resource, typeName, func(response map[string]any) map[string]any {
 		now := nowTimestamp()
 		instanceConfig := cloneAnyMap(response)
 		delete(instanceConfig, "@type")

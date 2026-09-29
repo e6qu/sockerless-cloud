@@ -171,6 +171,7 @@ func TestSDK_Eventarc_OperationsCancel(t *testing.T) {
 	svc, err := eventarcapi.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	parent := fmt.Sprintf("projects/%s/locations/us-central1", cancelProject)
+	eventarcRunService(t, cancelProject, "us-central1", "cancel-probe-svc")
 
 	op, err := svc.Projects.Locations.Triggers.Create(parent, &eventarcapi.Trigger{
 		EventFilters: []*eventarcapi.EventFilter{{

@@ -9,6 +9,18 @@ import (
 )
 
 func TestEventarcCLI_TriggerLifecycle(t *testing.T) {
+	// Eventarc refuses a trigger whose destination Cloud Run service does not
+	// exist, so the service comes first.
+	services := baseURL + "/v2/projects/" + project + "/locations/" + location + "/services"
+	httpDoJSON(t, "POST", services+"?serviceId=cli-service",
+		`{"template":{"containers":[{"image":"gcr.io/`+project+`/cli-service"}]}}`)
+	t.Cleanup(func() {
+		resp, err := httpDo("DELETE", services+"/cli-service", "")
+		if assert.NoError(t, err) {
+			resp.Body.Close()
+		}
+	})
+
 	runCLI(t, gcloudCLI("eventarc", "triggers", "create", "cli-trigger",
 		"--location", location,
 		"--destination-run-service", "cli-service",

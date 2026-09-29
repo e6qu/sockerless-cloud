@@ -334,6 +334,16 @@ through hooks:
 - **A restore writes a new object.** A restored Cloud Storage object gets a new
   generation and metageneration 1, and its preconditions are judged against the
   live object it would replace.
+- **An operation is recorded where its name says it lives.** Every Google Cloud
+  long-running operation gets a fresh name in its service's operations
+  collection and a row in the operations store, carries the metadata message
+  and response type its service declares (with `verb` and `target` filled), and
+  can be read back over REST and gRPC.
+- **An event reaches its subscribers because something emitted it.** Cloud
+  Storage publishes JSON_API_V1 notifications for object writes, deletes and
+  metadata changes; Eventarc delivers Cloud Storage triggers from those
+  notifications as binary-mode CloudEvents; Cloud Logging `entries:copy` copies
+  the entries its sinks routed to the bucket.
 - **A revoked session stays revoked.** `workforcePools.subjects.revokeSessions`
   records when a subject's sessions end, and every check of a simulator-minted
   access token refuses one issued to that subject at or before that second.

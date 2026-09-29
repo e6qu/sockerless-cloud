@@ -124,7 +124,7 @@ func arHandlePrewarm(w http.ResponseWriter, r *http.Request, repo string, versio
 	}
 	// streamLocation is optional: unset caches the artifact where it already
 	// lives, which is the repository's own location.
-	_, repoLocation, _ := arRepoParts(repo)
+	project, repoLocation, _ := arRepoParts(repo)
 	streamLocation := req.StreamLocation
 	if streamLocation == "" {
 		streamLocation = repoLocation
@@ -154,9 +154,8 @@ func arHandlePrewarm(w http.ResponseWriter, r *http.Request, repo string, versio
 	arPrewarmed.Put(key, artifact)
 	// The document declares no prewarm-specific metadata message, so the
 	// operation carries the API's own OperationMetadata.
-	sim.WriteJSON(w, http.StatusOK, newLROFromResource(repo, map[string]any{"prewarmedArtifact": artifact},
-		"type.googleapis.com/google.devtools.artifactregistry.v1.PrewarmArtifactResponse",
-		map[string]any{"@type": arOperationMetadataType}))
+	sim.WriteJSON(w, http.StatusOK, artifactRegistryLRO(project, repoLocation, map[string]any{"prewarmedArtifact": artifact},
+		"type.googleapis.com/google.devtools.artifactregistry.v1.PrewarmArtifactResponse"))
 }
 
 func arHandleCheckPrewarmed(w http.ResponseWriter, r *http.Request, repo string) {
@@ -243,7 +242,7 @@ func arHandleExportArtifact(w http.ResponseWriter, r *http.Request, repo string,
 		return
 	}
 	digest := version.Name[strings.LastIndex(version.Name, "/")+1:]
-	_, repoLocation, repoID := arRepoParts(repo)
+	project, repoLocation, repoID := arRepoParts(repo)
 	blob, ok := arRegistry.Blobs.Get(repoID + "@" + digest)
 	if !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
@@ -262,15 +261,15 @@ func arHandleExportArtifact(w http.ResponseWriter, r *http.Request, repo string,
 		writeGCSPersistError(w, "export artifact", err)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, newLROFromResource(repo, map[string]any{"exportedVersion": version},
+	sim.WriteJSON(w, http.StatusOK, newLRO(project, repoLocation, map[string]any{"exportedVersion": version},
 		"type.googleapis.com/google.devtools.artifactregistry.v1.ExportArtifactResponse",
-		map[string]any{
+		gcpFixedOperationMetadata(map[string]any{
 			"@type": "type.googleapis.com/google.devtools.artifactregistry.v1.ExportArtifactMetadata",
 			"exportedFiles": []map[string]any{{
 				"name":          digest,
 				"gcsObjectPath": "gs://" + bucket + "/" + object,
 			}},
-		}))
+		})))
 }
 
 // arResolveVersion follows a tag to its version, or reads the version directly.

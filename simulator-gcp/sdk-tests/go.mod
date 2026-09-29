@@ -28,6 +28,9 @@ require (
 )
 
 require (
+	cloud.google.com/go/apigateway v1.15.0 // indirect
+	cloud.google.com/go/artifactregistry v1.27.0 // indirect
+	cloud.google.com/go/redis v1.26.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/GoogleCloudPlatform/grpc-gcp-go/grpcgcp v1.6.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.38.0 // indirect

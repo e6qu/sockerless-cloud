@@ -29,7 +29,7 @@ type VPCAccessConnector struct {
 // and the method that started it, spelled as the document's own example spells
 // it.
 func vpcAccessLRO(project, location string, resource any, typeName, method, target string) Operation {
-	return newLRO(project, location, resource, typeName, func(string, map[string]any) map[string]any {
+	return newLRO(project, location, resource, typeName, func(map[string]any) map[string]any {
 		now := nowTimestamp()
 		return map[string]any{
 			"@type":      "type.googleapis.com/google.cloud.vpcaccess.v1.OperationMetadata",

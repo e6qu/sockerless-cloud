@@ -1,13 +1,24 @@
 package gcp_sdk_test
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
 	"cloud.google.com/go/logging"
+	"cloud.google.com/go/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/googleapi"
+	"google.golang.org/api/iterator"
 	loggingrpc "google.golang.org/api/logging/v2"
+	"google.golang.org/api/option"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // These round-trips drive the Cloud Logging admin families (sinks, exclusions,
@@ -246,17 +257,91 @@ func TestLogging_LinkCreateAndList_ProjectScope(t *testing.T) {
 	assert.True(t, found, "created link must appear in list")
 }
 
+// TestLogging_EntriesCopy routes a log into a user-defined log bucket through a
+// sink, copies the bucket's error entries into a Cloud Storage bucket, and
+// reads back what the copy wrote: the count the operation reports, and the
+// entries themselves in the exported object.
 func TestLogging_EntriesCopy(t *testing.T) {
 	svc := loggingRESTService(t)
+	const project = "copy-test-project"
+	const logID = "copy-source"
+	locParent := "projects/" + project + "/locations/global"
+	bucketName := locParent + "/buckets/copy-bucket"
+
+	_, err := svc.Projects.Locations.Buckets.Create(locParent, &loggingrpc.LogBucket{}).BucketId("copy-bucket").Do()
+	require.NoError(t, err)
+	_, err = svc.Projects.Sinks.Create("projects/"+project, &loggingrpc.LogSink{
+		Name:        "copy-sink",
+		Destination: "logging.googleapis.com/" + bucketName,
+		Filter:      fmt.Sprintf(`logName="projects/%s/logs/%s"`, project, logID),
+	}).Do()
+	require.NoError(t, err)
+
+	gcs := storageClient(t)
+	dest := gcs.Bucket("copy-dest-bucket")
+	require.NoError(t, dest.Create(ctx, project, nil))
+
+	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	writer, err := logging.NewClient(ctx, project, option.WithGRPCConn(conn))
+	require.NoError(t, err)
+	logger := writer.Logger(logID)
+	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "copy info", Severity: logging.Info}))
+	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "copy error one", Severity: logging.Error}))
+	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "copy error two", Severity: logging.Critical}))
+	require.NoError(t, writer.Logger("not-routed").LogSync(ctx, logging.Entry{Payload: "unrouted error", Severity: logging.Error}))
+	require.NoError(t, writer.Close())
+
 	op, err := svc.Entries.Copy(&loggingrpc.CopyLogEntriesRequest{
-		Name:        "projects/copy-test-project",
+		Name:        bucketName,
 		Filter:      `severity >= ERROR`,
 		Destination: "storage.googleapis.com/copy-dest-bucket",
 	}).Do()
 	require.NoError(t, err)
-	require.NotNil(t, op)
-	assert.True(t, op.Done)
-	assert.NotEmpty(t, op.Response)
+	require.True(t, op.Done)
+	var response loggingrpc.CopyLogEntriesResponse
+	require.NoError(t, json.Unmarshal(op.Response, &response))
+	assert.Equal(t, int64(2), response.LogEntriesCopiedCount, "the two routed entries at or above ERROR")
+	var metadata loggingrpc.CopyLogEntriesMetadata
+	require.NoError(t, json.Unmarshal(op.Metadata, &metadata))
+	assert.Equal(t, bucketName, metadata.Source)
+	assert.Equal(t, "storage.googleapis.com/copy-dest-bucket", metadata.Destination)
+	assert.Equal(t, "OPERATION_STATE_SUCCEEDED", metadata.State)
+
+	fetched, err := svc.Projects.Locations.Operations.Get(op.Name).Do()
+	require.NoError(t, err)
+	assert.Equal(t, op.Response, fetched.Response)
+
+	var payloads []string
+	it := dest.Objects(ctx, &storage.Query{Prefix: logID + "/"})
+	for {
+		attrs, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		require.NoError(t, err)
+		r, err := dest.Object(attrs.Name).NewReader(ctx)
+		require.NoError(t, err)
+		body, err := io.ReadAll(r)
+		require.NoError(t, r.Close())
+		require.NoError(t, err)
+		for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
+			var entry loggingrpc.LogEntry
+			require.NoError(t, json.Unmarshal([]byte(line), &entry))
+			assert.Equal(t, fmt.Sprintf("projects/%s/logs/%s", project, logID), entry.LogName)
+			payloads = append(payloads, entry.TextPayload)
+		}
+	}
+	assert.ElementsMatch(t, []string{"copy error one", "copy error two"}, payloads)
+
+	_, err = svc.Entries.Copy(&loggingrpc.CopyLogEntriesRequest{
+		Name:        locParent + "/buckets/no-such-bucket",
+		Destination: "storage.googleapis.com/copy-dest-bucket",
+	}).Do()
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Code)
 }
 
 // TestLogging_EntriesTail writes a spread of severities into one log and tails
