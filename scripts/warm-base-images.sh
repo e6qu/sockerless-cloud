@@ -20,6 +20,16 @@ shift
 images=("$@")
 [ "${#images[@]}" -gt 0 ] || { echo "warm-base-images: at least one image required" >&2; exit 2; }
 
+# `docker load` restores the references an archive names, and an archive saved
+# by digest names none, so a digest-pinned image is saved and checked under a
+# local tag that spells its digest.
+local_ref() {
+    case "$1" in
+        *@sha256:*) printf '%s:sha256-%s\n' "${1%@sha256:*}" "${1##*@sha256:}" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
 if [ -f "$tarball" ]; then
     echo "warm-base-images: loading $(basename "$tarball")"
     docker load --input "$tarball"
@@ -27,14 +37,14 @@ if [ -f "$tarball" ]; then
     # cache, not a reason to proceed short: fall through and fetch the rest.
     missing=0
     for image in "${images[@]}"; do
-        docker image inspect "$image" >/dev/null 2>&1 || missing=1
+        docker image inspect "$(local_ref "$image")" >/dev/null 2>&1 || missing=1
     done
     [ "$missing" -eq 0 ] && exit 0
     echo "warm-base-images: the cached set is missing an image; fetching" >&2
 fi
 
 for image in "${images[@]}"; do
-    if docker image inspect "$image" >/dev/null 2>&1; then
+    if docker image inspect "$(local_ref "$image")" >/dev/null 2>&1; then
         continue
     fi
     fetched=0
@@ -51,8 +61,15 @@ for image in "${images[@]}"; do
         echo "warm-base-images: could not fetch $image after 5 attempts" >&2
         exit 1
     fi
+    if [ "$(local_ref "$image")" != "$image" ]; then
+        docker tag "$image" "$(local_ref "$image")"
+    fi
 done
 
 mkdir -p "$(dirname "$tarball")"
-docker save --output "$tarball" "${images[@]}"
+saved=()
+for image in "${images[@]}"; do
+    saved+=("$(local_ref "$image")")
+done
+docker save --output "$tarball" "${saved[@]}"
 echo "warm-base-images: saved ${#images[@]} image(s) to $(basename "$tarball")"

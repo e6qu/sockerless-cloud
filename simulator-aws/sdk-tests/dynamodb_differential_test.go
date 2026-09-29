@@ -917,10 +917,13 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 		inspectCtx, cancelInspect := context.WithTimeout(context.Background(), 30*time.Second)
 		stateOut, _ := exec.CommandContext(inspectCtx, "docker", "inspect", "--format", "{{json .State}} {{json .HostConfig.Memory}}", containerName).CombinedOutput()
 		logsOut, _ := exec.CommandContext(inspectCtx, "docker", "logs", "--tail", "60", containerName).CombinedOutput()
+		imageOut, _ := exec.CommandContext(inspectCtx, "docker", "image", "inspect", "--format",
+			"{{.Id}} {{.Os}}/{{.Architecture}} entrypoint={{json .Config.Entrypoint}} workdir={{json .Config.WorkingDir}} digests={{json .RepoDigests}}",
+			image).CombinedOutput()
 		cancelInspect()
 		stop()
-		t.Fatalf("DynamoDB Local did not become ready at %s within 120s: %v\ncontainer state: %s\ncontainer log:\n%s",
-			endpoint, probeErr, stateOut, logsOut)
+		t.Fatalf("DynamoDB Local did not become ready at %s within 120s: %v\ncontainer state: %s\nimage: %s\ncontainer log:\n%s",
+			endpoint, probeErr, stateOut, imageOut, logsOut)
 	}
 	return endpoint, stop
 }
