@@ -422,6 +422,10 @@ func TestCloudKMS_GRPC_DeleteCryptoKeyAndVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, keyOp.Done())
 	require.NoError(t, keyOp.Wait(ctx))
+	// The operation carries the DeleteCryptoKeyMetadata its RPC declares.
+	keyMeta, err := keyOp.Metadata()
+	require.NoError(t, err)
+	require.NotNil(t, keyMeta, "DeleteCryptoKey's operation must carry DeleteCryptoKeyMetadata")
 
 	// The server mounts one google.longrunning.Operations service, so an
 	// operation name Cloud KMS hands a client has to resolve there.

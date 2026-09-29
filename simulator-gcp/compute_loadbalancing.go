@@ -34,8 +34,7 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		if hc.Name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		if computeRefuseResourceName(w, hc.Name) {
 			return
 		}
 		hc.Kind = "compute#healthCheck"
@@ -92,8 +91,7 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		if bs.Name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		if computeRefuseResourceName(w, bs.Name) {
 			return
 		}
 		bs.Kind = "compute#backendService"
@@ -197,8 +195,7 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		if um.Name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		if computeRefuseResourceName(w, um.Name) {
 			return
 		}
 		um.Kind = "compute#urlMap"
@@ -229,8 +226,7 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		if proxy.Name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		if computeRefuseResourceName(w, proxy.Name) {
 			return
 		}
 		proxy.Kind = "compute#targetHttpProxy"
@@ -260,8 +256,7 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		if fr.Name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		if computeRefuseResourceName(w, fr.Name) {
 			return
 		}
 		fr.Kind = "compute#forwardingRule"
@@ -349,6 +344,10 @@ func computeWriteGlobalList[T computeNamedResource](w http.ResponseWriter, r *ht
 	sort.Slice(items, func(i, j int) bool {
 		return computeResourceSelfLink(items[i]) < computeResourceSelfLink(items[j])
 	})
+	items, ok := gcpApplyComputeListParams(w, r, items)
+	if !ok {
+		return
+	}
 	page, next, ok := paginateListCompute(w, r, items)
 	if !ok {
 		return

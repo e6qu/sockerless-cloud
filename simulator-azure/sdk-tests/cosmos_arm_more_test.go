@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/cosmos/armcosmos"
 	"github.com/stretchr/testify/assert"
@@ -295,6 +296,38 @@ func TestAzureCosmosDB_SQLThroughputMigrateSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, back.Properties.Resource.Throughput)
 	assert.Equal(t, int32(4000), *back.Properties.Resource.Throughput)
+}
+
+// A SQL database created without dedicated throughput has no offer to read or
+// migrate; armcosmos surfaces the resource provider's 404 NotFound.
+func TestAzureCosmosDB_SQLThroughputWithoutAnOfferIsNotFoundSDK(t *testing.T) {
+	rg, account, db := "sdk-cosmos-nooffer-rg", "sdkcosmosnooffer", "shared"
+	ensureCosmosAccount(t, rg, account)
+
+	client, err := armcosmos.NewSQLResourcesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	dbPoller, err := client.BeginCreateUpdateSQLDatabase(ctx, rg, account, db, armcosmos.SQLDatabaseCreateUpdateParameters{
+		Properties: &armcosmos.SQLDatabaseCreateUpdateProperties{
+			Resource: &armcosmos.SQLDatabaseResource{ID: to.Ptr(db)},
+		},
+	}, nil)
+	require.NoError(t, err)
+	_, err = dbPoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+
+	requireNotFound := func(op string, err error) {
+		t.Helper()
+		var respErr *azcore.ResponseError
+		require.ErrorAs(t, err, &respErr, op)
+		assert.Equal(t, http.StatusNotFound, respErr.StatusCode, op)
+		assert.Equal(t, "NotFound", respErr.ErrorCode, op)
+	}
+	_, err = client.GetSQLDatabaseThroughput(ctx, rg, account, db, nil)
+	requireNotFound("GetSQLDatabaseThroughput", err)
+	_, err = client.BeginMigrateSQLDatabaseToAutoscale(ctx, rg, account, db, nil)
+	requireNotFound("BeginMigrateSQLDatabaseToAutoscale", err)
+	_, err = client.GetSQLDatabaseThroughput(ctx, rg, account, db, nil)
+	requireNotFound("GetSQLDatabaseThroughput after the refused migration", err)
 }
 
 func TestAzureCosmosDB_AccountOperationsSDK(t *testing.T) {

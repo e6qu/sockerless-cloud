@@ -144,9 +144,7 @@ func cwCBORBridge(op string, handler http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 		if recorder.Code >= 300 {
-			fields, _ := answer.(map[string]any)
-			code, _ := fields["__type"].(string)
-			message, _ := fields["message"].(string)
+			code, message := awsJSONError(recorder.Body.Bytes())
 			if code == "" {
 				code = "InternalFailure"
 			}

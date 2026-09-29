@@ -29,6 +29,20 @@ func TestCWLogPatternMatches(t *testing.T) {
 		{`{"a":{"b":7}}`, `{ $.a.b > 5 }`, true},          // nested
 		{`{"xs":[1,2,3]}`, `{ $.xs[2] = 3 }`, true},       // array index
 		{`not json`, `{ $.x = "y" }`, false},              // structured on non-JSON
+		// Keyword tests: IS NULL, NOT EXISTS, IS TRUE, IS FALSE.
+		{`{"ip":null}`, `{ $.ip IS NULL }`, true},
+		{`{"ip":"10.0.0.1"}`, `{ $.ip IS NULL }`, false},
+		{`{}`, `{ $.ip IS NULL }`, false}, // absent is not null
+		{`{}`, `{ $.ip NOT EXISTS }`, true},
+		{`{"ip":null}`, `{ $.ip NOT EXISTS }`, false},
+		{`{"a":{"b":1}}`, `{ $.a.c NOT EXISTS }`, true},
+		{`{"admin":true}`, `{ $.admin IS TRUE }`, true},
+		{`{"admin":"true"}`, `{ $.admin IS TRUE }`, false}, // a string is not a Boolean
+		{`{"admin":false}`, `{ $.admin IS TRUE }`, false},
+		{`{"admin":false}`, `{ $.admin IS FALSE }`, true},
+		{`{"admin":0}`, `{ $.admin IS FALSE }`, false},
+		{`{"admin":true,"ip":null}`, `{ $.admin IS TRUE && ($.ip IS NULL || $.ip NOT EXISTS) }`, true},
+		{`{"admin":true}`, `{ $.admin IS TRUE && $.ip IS NULL }`, false},
 	}
 	for _, tc := range cases {
 		c, err := cwCompileLogPattern(tc.pat)
@@ -52,6 +66,10 @@ func TestCWLogPatternFailsLoud(t *testing.T) {
 		`{ ($.a = 1 }`,   // unbalanced parenthesis
 		`{ = 1 }`,        // missing selector
 		`{ $.a }`,        // selector with no comparison
+		`{ $.a IS }`,     // IS with no operand
+		`{ $.a IS EMPTY }`,
+		`{ $.a NOT NULL }`,
+		`{ $.a NOT }`,
 	}
 	for _, pat := range bad {
 		if _, err := cwCompileLogPattern(pat); err == nil {

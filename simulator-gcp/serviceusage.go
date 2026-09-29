@@ -19,6 +19,17 @@ type ServiceUsageState struct {
 	Parent string `json:"parent"`
 }
 
+// serviceUsageLRO records a finished Service Usage operation: its response is
+// the method's google.api.serviceusage.v1 response message, and its
+// google.api.serviceusage.v1.OperationMetadata names the services it acted on.
+func serviceUsageLRO(response map[string]any, responseType string, resourceNames ...string) Operation {
+	return newLRO("", "global", response, "type.googleapis.com/google.api.serviceusage.v1."+responseType,
+		gcpFixedOperationMetadata(map[string]any{
+			"@type":         "type.googleapis.com/google.api.serviceusage.v1.OperationMetadata",
+			"resourceNames": resourceNames,
+		}))
+}
+
 func registerServiceUsage(srv *sim.Server) {
 	services := sim.MakeStore[ServiceUsageState](srv.DB(), "service_usage")
 
@@ -46,16 +57,17 @@ func registerServiceUsage(srv *sim.Server) {
 			services.Put(name, svc)
 
 			op := renameGCPOperation(
-				newLRO(project, "global", svc, "type.googleapis.com/google.api.serviceusage.v1.EnableServiceResponse"),
+				serviceUsageLRO(map[string]any{"service": svc}, "EnableServiceResponse", name),
 				"operations")
 			sim.WriteJSON(w, http.StatusOK, op)
 		case "disable":
 			services.Update(name, func(s *ServiceUsageState) {
 				s.State = "DISABLED"
 			})
+			disabled, _ := services.Get(name)
 
 			op := renameGCPOperation(
-				newLRO(project, "global", nil, "type.googleapis.com/google.api.serviceusage.v1.DisableServiceResponse"),
+				serviceUsageLRO(map[string]any{"service": disabled}, "DisableServiceResponse", name),
 				"operations")
 			sim.WriteJSON(w, http.StatusOK, op)
 		default:
@@ -181,6 +193,8 @@ func registerServiceUsage(srv *sim.Server) {
 			return
 		}
 
+		enabled := make([]ServiceUsageState, 0, len(req.ServiceIds))
+		names := make([]string, 0, len(req.ServiceIds))
 		for _, serviceId := range req.ServiceIds {
 			name := fmt.Sprintf("projects/%s/services/%s", project, serviceId)
 			svc := ServiceUsageState{
@@ -191,10 +205,12 @@ func registerServiceUsage(srv *sim.Server) {
 			svc.Config.Name = serviceId
 			svc.Config.Title = serviceId
 			services.Put(name, svc)
+			enabled = append(enabled, svc)
+			names = append(names, name)
 		}
 
 		op := renameGCPOperation(
-			newLRO(project, "global", nil, "type.googleapis.com/google.api.serviceusage.v1.BatchEnableServicesResponse"),
+			serviceUsageLRO(map[string]any{"services": enabled}, "BatchEnableServicesResponse", names...),
 			"operations")
 		sim.WriteJSON(w, http.StatusOK, op)
 	})

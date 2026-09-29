@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -88,29 +89,57 @@ func sortCloudFunctions(items []Function) {
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 }
 
-func gcpOperationMetadataType(responseType string) string {
-	switch responseType {
-	case "type.googleapis.com/google.cloud.functions.v2.Function":
-		return "type.googleapis.com/google.cloud.functions.v2.OperationMetadata"
-	case "type.googleapis.com/google.cloud.run.v2.Job",
-		"type.googleapis.com/google.cloud.run.v2.Execution",
-		"type.googleapis.com/google.cloud.run.v2.Service":
-		return "type.googleapis.com/google.cloud.run.v2.OperationMetadata"
-	case "type.googleapis.com/google.cloud.apigateway.v1.Api",
-		"type.googleapis.com/google.cloud.apigateway.v1.ApiConfig",
-		"type.googleapis.com/google.cloud.apigateway.v1.Gateway":
-		return "type.googleapis.com/google.cloud.apigateway.v1.OperationMetadata"
-	case "type.googleapis.com/google.cloud.eventarc.v1.Trigger",
-		"type.googleapis.com/google.cloud.eventarc.v1.Channel",
-		"type.googleapis.com/google.cloud.eventarc.v1.ChannelConnection",
-		"type.googleapis.com/google.cloud.eventarc.v1.Enrollment",
-		"type.googleapis.com/google.cloud.eventarc.v1.MessageBus",
-		"type.googleapis.com/google.cloud.eventarc.v1.Pipeline",
-		"type.googleapis.com/google.cloud.eventarc.v1.GoogleApiSource":
-		return "type.googleapis.com/google.cloud.eventarc.v1.OperationMetadata"
-	default:
-		return "type.googleapis.com/google.longrunning.OperationMetadata"
+const gcpEmptyType = "type.googleapis.com/google.protobuf.Empty"
+
+// gcpOperationMetadata builds a finished operation's metadata message from the
+// response it finished with.
+type gcpOperationMetadata func(response map[string]any) map[string]any
+
+// gcpStandardOperationMetadata is the OperationMetadata message the Cloud
+// Functions, API Gateway, Eventarc and Memorystore APIs each declare in their
+// own package: when the operation was created and ended, the method it ran,
+// and the resource it acted on.
+func gcpStandardOperationMetadata(typeURL, verb, target string) gcpOperationMetadata {
+	return func(map[string]any) map[string]any {
+		now := nowTimestamp()
+		return map[string]any{"@type": typeURL, "createTime": now, "endTime": now, "verb": verb, "target": target}
 	}
+}
+
+// gcpOperationVerb names the method a request runs the way OperationMetadata.verb
+// spells it: a custom method by its own name, a standard method as create,
+// update or delete.
+func gcpOperationVerb(r *http.Request) string {
+	segment := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+	if _, verb, found := gcpCustomMethod(segment); found {
+		return verb
+	}
+	switch r.Method {
+	case http.MethodDelete:
+		return "delete"
+	case http.MethodPatch, http.MethodPut:
+		return "update"
+	default:
+		return "create"
+	}
+}
+
+// gcpEmptyOperationMetadata is a metadata message that declares no fields.
+func gcpEmptyOperationMetadata(typeURL string) gcpOperationMetadata {
+	return func(map[string]any) map[string]any {
+		return map[string]any{"@type": typeURL}
+	}
+}
+
+// gcpFixedOperationMetadata is a metadata message its caller built whole.
+func gcpFixedOperationMetadata(metadata map[string]any) gcpOperationMetadata {
+	return func(map[string]any) map[string]any { return metadata }
+}
+
+// gcpResourceOperationMetadata is Cloud Run's rule: each Cloud Run Admin API v2
+// method declares the resource it acts on as its operation's metadata.
+func gcpResourceOperationMetadata(response map[string]any) map[string]any {
+	return cloneAnyMap(response)
 }
 
 func gcpPolicyETag() string {

@@ -1,7 +1,9 @@
 package aws_cli_test
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +35,19 @@ func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
 		} `json:"DBInstance"`
 	}
 	parseJSON(t, out, &stopResp)
-	assert.Equal(t, "stopped", stopResp.DBInstance.DBInstanceStatus)
+	assert.Equal(t, "stopping", stopResp.DBInstance.DBInstanceStatus)
+	require.Eventually(t, func() bool {
+		described, err := awsCLI("rds", "describe-db-instances", "--db-instance-identifier", instID).Output()
+		if err != nil {
+			return false
+		}
+		var desc struct {
+			DBInstances []struct {
+				DBInstanceStatus string `json:"DBInstanceStatus"`
+			} `json:"DBInstances"`
+		}
+		return json.Unmarshal(described, &desc) == nil && len(desc.DBInstances) == 1 && desc.DBInstances[0].DBInstanceStatus == "stopped"
+	}, 2*time.Minute, 200*time.Millisecond, "the instance must settle to stopped once its engine stops")
 
 	out = runCLI(t, awsCLI("rds", "start-db-instance", "--db-instance-identifier", instID))
 	parseJSON(t, out, &stopResp)
@@ -76,11 +90,13 @@ func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
 		} `json:"DBCluster"`
 	}
 	parseJSON(t, out, &clResp)
-	assert.Equal(t, "stopped", clResp.DBCluster.Status)
+	assert.Equal(t, "stopping", clResp.DBCluster.Status)
+	waitForCLIRDSClusterStatus(t, clusterID, "stopped")
 
 	out = runCLI(t, awsCLI("rds", "start-db-cluster", "--db-cluster-identifier", clusterID))
 	parseJSON(t, out, &clResp)
-	assert.Equal(t, "available", clResp.DBCluster.Status)
+	assert.Equal(t, "starting", clResp.DBCluster.Status)
+	runCLI(t, awsCLI("rds", "wait", "db-cluster-available", "--db-cluster-identifier", clusterID))
 
 	runCLI(t, awsCLI("rds", "failover-db-cluster", "--db-cluster-identifier", clusterID))
 
@@ -315,4 +331,22 @@ func TestRDSCLI_EventSubParamDetailEndpoint(t *testing.T) {
 		_ = awsCLI("rds", "delete-db-cluster-snapshot",
 			"--db-cluster-snapshot-identifier", copySnap).Run()
 	})
+}
+
+// waitForCLIRDSClusterStatus polls describe-db-clusters until the cluster
+// reports status; the AWS CLI has no waiter for a stopped cluster.
+func waitForCLIRDSClusterStatus(t *testing.T, clusterID, status string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		described, err := awsCLI("rds", "describe-db-clusters", "--db-cluster-identifier", clusterID).Output()
+		if err != nil {
+			return false
+		}
+		var desc struct {
+			DBClusters []struct {
+				Status string `json:"Status"`
+			} `json:"DBClusters"`
+		}
+		return json.Unmarshal(described, &desc) == nil && len(desc.DBClusters) == 1 && desc.DBClusters[0].Status == status
+	}, 2*time.Minute, 200*time.Millisecond, "DB cluster %s must reach %s", clusterID, status)
 }

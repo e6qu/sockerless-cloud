@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -310,6 +311,66 @@ func computeConflict(w http.ResponseWriter, exists bool, resource, name string) 
 		return true
 	}
 	return false
+}
+
+// computeResourceNamePattern is the RFC 1035 name the Discovery document
+// declares for a Compute Engine resource's name.
+const computeResourceNamePattern = `(?:[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?)`
+
+var computeResourceNameRE = regexp.MustCompile(`^` + computeResourceNamePattern + `$`)
+
+// computeRefuseResourceName answers an insert whose resource name is missing
+// or breaks the declared pattern, and reports whether it did.
+func computeRefuseResourceName(w http.ResponseWriter, name string) bool {
+	switch {
+	case name == "":
+		computeFieldError(w, "required", "Required field 'resource.name' not specified")
+	case !computeResourceNameRE.MatchString(name):
+		computeFieldError(w, "invalid", fmt.Sprintf(
+			"Invalid value for field 'resource.name': '%s'. Must be a match of regex '%s'", name, computeResourceNamePattern))
+	default:
+		return false
+	}
+	return true
+}
+
+// computeUnpatternedNameKinds are the insertable resources whose name the
+// Discovery document gives no pattern.
+var computeUnpatternedNameKinds = map[string]bool{
+	"compute#nodeTemplate":         true,
+	"compute#nodeGroup":            true,
+	"compute#networkEndpointGroup": true,
+	"compute#firewallPolicy":       true,
+}
+
+// computeRefuseNameOf is computeRefuseResourceName for a resource of the given
+// kind, which judges the name's pattern only where the document declares one.
+func computeRefuseNameOf(w http.ResponseWriter, kind, name string) bool {
+	if computeUnpatternedNameKinds[kind] {
+		if name == "" {
+			computeFieldError(w, "required", "Required field 'resource.name' not specified")
+			return true
+		}
+		return false
+	}
+	return computeRefuseResourceName(w, name)
+}
+
+// computeFieldError writes the 400 Compute Engine answers a request field it
+// refuses with; clients branch on errors[].reason.
+func computeFieldError(w http.ResponseWriter, reason, message string) {
+	sim.WriteJSON(w, http.StatusBadRequest, map[string]any{
+		"error": map[string]any{
+			"code":    http.StatusBadRequest,
+			"message": message,
+			"status":  "INVALID_ARGUMENT",
+			"errors": []map[string]string{{
+				"message": message,
+				"domain":  "global",
+				"reason":  reason,
+			}},
+		},
+	})
 }
 
 // computeNotFound writes the 404 NOT_FOUND response real GCP returns when a
@@ -880,8 +941,7 @@ func registerCompute(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		if req.Name == "" {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name is required")
+		if computeRefuseResourceName(w, req.Name) {
 			return
 		}
 
@@ -937,7 +997,7 @@ func registerCompute(srv *sim.Server) {
 			return strings.HasPrefix(n.SelfLink, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		listed, listOK := gcpApplyListParams(w, r, all)
+		listed, listOK := gcpApplyComputeListParams(w, r, all)
 		if !listOK {
 			return
 		}
@@ -1007,8 +1067,7 @@ func registerCompute(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		if req.Name == "" {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name is required")
+		if computeRefuseResourceName(w, req.Name) {
 			return
 		}
 		selfLink := fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/global/instanceTemplates/%s", project, req.Name)
@@ -1044,7 +1103,7 @@ func registerCompute(srv *sim.Server) {
 			return strings.HasPrefix(t.SelfLink, "https://www.googleapis.com/compute/v1/"+prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		listed, listOK := gcpApplyListParams(w, r, all)
+		listed, listOK := gcpApplyComputeListParams(w, r, all)
 		if !listOK {
 			return
 		}
@@ -1160,7 +1219,7 @@ func registerCompute(srv *sim.Server) {
 			return strings.HasPrefix(subnet.SelfLink, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		listed, listOK := gcpApplyListParams(w, r, all)
+		listed, listOK := gcpApplyComputeListParams(w, r, all)
 		if !listOK {
 			return
 		}
@@ -1292,8 +1351,7 @@ func registerCompute(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		if fw.Name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		if computeRefuseResourceName(w, fw.Name) {
 			return
 		}
 		if msg := gcpInvalidFirewallPort(fw); msg != "" {
@@ -1341,7 +1399,7 @@ func registerCompute(srv *sim.Server) {
 			return strings.HasPrefix(f.SelfLink, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		listed, listOK := gcpApplyListParams(w, r, all)
+		listed, listOK := gcpApplyComputeListParams(w, r, all)
 		if !listOK {
 			return
 		}
@@ -1447,8 +1505,7 @@ func registerCompute(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		if addr.Name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		if computeRefuseResourceName(w, addr.Name) {
 			return
 		}
 		addr.Kind = "compute#address"
@@ -1507,7 +1564,7 @@ func registerCompute(srv *sim.Server) {
 			return strings.HasPrefix(addr.SelfLink, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		listed, listOK := gcpApplyListParams(w, r, all)
+		listed, listOK := gcpApplyComputeListParams(w, r, all)
 		if !listOK {
 			return
 		}
@@ -1569,8 +1626,7 @@ func registerCompute(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		if rt.Name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		if computeRefuseResourceName(w, rt.Name) {
 			return
 		}
 		if err := validateRouterNATAddresses(project, region, rt.Nats, addresses); err != nil {
@@ -1621,7 +1677,7 @@ func registerCompute(srv *sim.Server) {
 			return strings.HasPrefix(rt.SelfLink, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		listed, listOK := gcpApplyListParams(w, r, all)
+		listed, listOK := gcpApplyComputeListParams(w, r, all)
 		if !listOK {
 			return
 		}
@@ -1940,8 +1996,7 @@ func registerComputeInstanceGroups(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		if group.Name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		if computeRefuseResourceName(w, group.Name) {
 			return
 		}
 		group.Kind = "compute#instanceGroup"
@@ -2602,8 +2657,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		if inst.Name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		if computeRefuseResourceName(w, inst.Name) {
 			return
 		}
 		if _, exists := instances.Get(instanceSelfLink(project, zone, inst.Name)); computeConflict(w, exists, "instance", inst.Name) {
@@ -2684,7 +2738,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			return strings.HasPrefix(inst.SelfLink, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		listed, listOK := gcpApplyListParams(w, r, all)
+		listed, listOK := gcpApplyComputeListParams(w, r, all)
 		if !listOK {
 			return
 		}
@@ -2876,8 +2930,7 @@ func registerComputeDisks(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		if d.Name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		if computeRefuseResourceName(w, d.Name) {
 			return
 		}
 		d.Kind = "compute#disk"

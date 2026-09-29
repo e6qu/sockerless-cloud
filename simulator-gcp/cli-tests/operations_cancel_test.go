@@ -171,22 +171,33 @@ func TestMemorystoreRedisCLI_OperationsCancel(t *testing.T) {
 func assertOperationCompletedDespiteCancel(t *testing.T, out, wantName, wantResource string) {
 	t.Helper()
 	var settled struct {
-		Name     string `json:"name"`
-		Done     bool   `json:"done"`
 		Response struct {
 			Name string `json:"name"`
 		} `json:"response"`
+	}
+	assertOperationSettledDespiteCancel(t, out, wantName, &settled)
+	assert.Equal(t, wantResource, settled.Response.Name,
+		"the recorded result stands after the cancel: %s", out)
+}
+
+// assertOperationSettledDespiteCancel holds a cancelled operation to its
+// settled record — named, done and not failed — and decodes it into result so
+// the caller can check the response its service defines.
+func assertOperationSettledDespiteCancel(t *testing.T, out, wantName string, result any) {
+	t.Helper()
+	var settled struct {
+		Name  string `json:"name"`
+		Done  bool   `json:"done"`
 		Error *struct {
 			Code    int    `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
 	}
 	parseJSONObject(t, out, &settled)
+	parseJSONObject(t, out, result)
 	assert.Equal(t, wantName, settled.Name, "output: %s", out)
 	assert.True(t, settled.Done, "the operation stays settled after the cancel: %s", out)
 	assert.Nil(t, settled.Error, "a completed operation is not turned into a failure by a cancel: %s", out)
-	assert.Equal(t, wantResource, settled.Response.Name,
-		"the recorded result stands after the cancel: %s", out)
 }
 
 // TestCloudSQLCLI_OperationsCancel drives `gcloud sql operations cancel`.
@@ -241,9 +252,22 @@ func TestServiceUsageCLI_OperationsCancel(t *testing.T) {
 	// The enable finished inside the request that returned the operation, so
 	// the cancel is the late one the method describes: the record still stands
 	// after it, carrying the EnableServiceResponse the enable produced.
-	assertOperationCompletedDespiteCancel(t,
-		httpDoJSON(t, "GET", fmt.Sprintf("%s/v1/%s", baseURL, op.Name), ""),
-		op.Name, fmt.Sprintf("projects/%s/services/pubsub.googleapis.com", project))
+	// EnableServiceResponse carries the enabled service under `service`.
+	settledOut := httpDoJSON(t, "GET", fmt.Sprintf("%s/v1/%s", baseURL, op.Name), "")
+	var enabled struct {
+		Response struct {
+			Type    string `json:"@type"`
+			Service struct {
+				Name  string `json:"name"`
+				State string `json:"state"`
+			} `json:"service"`
+		} `json:"response"`
+	}
+	assertOperationSettledDespiteCancel(t, settledOut, op.Name, &enabled)
+	assert.Equal(t, "type.googleapis.com/google.api.serviceusage.v1.EnableServiceResponse", enabled.Response.Type)
+	assert.Equal(t, fmt.Sprintf("projects/%s/services/pubsub.googleapis.com", project), enabled.Response.Service.Name,
+		"the recorded result stands after the cancel: %s", settledOut)
+	assert.Equal(t, "ENABLED", enabled.Response.Service.State)
 
 	resp, err := httpDo("POST", fmt.Sprintf("%s/v1/operations/never-minted:cancel", baseURL), `{}`)
 	require.NoError(t, err)

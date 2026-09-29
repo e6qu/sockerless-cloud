@@ -20,7 +20,8 @@ import (
 //   - Structured (pattern wrapped in {…}, JSON events): a boolean expression over
 //     JSON selectors — `$.field`, nested `$.a.b`, array `$.a[0]` — with the
 //     comparison operators = != < <= > >= (string equality supports a trailing
-//     `*` wildcard), combined with && / || and parentheses.
+//     `*` wildcard) and the tests IS NULL, NOT EXISTS, IS TRUE and IS FALSE,
+//     combined with && / || and parentheses.
 //
 // A malformed structured pattern is a loud error (the FilterLogEvents handler
 // surfaces it as InvalidParameterException, exactly as real CloudWatch Logs),
@@ -181,6 +182,26 @@ func (n cwPatCmp) Eval(d listq.Doc) bool {
 	return false
 }
 
+// cwPatTest is a structured pattern's keyword test on a selector: IS NULL
+// matches a property whose value is null, NOT EXISTS one the event lacks, and
+// IS TRUE / IS FALSE a Boolean property.
+type cwPatTest struct{ selector, test string }
+
+func (n cwPatTest) Eval(d listq.Doc) bool {
+	actual, present := cwSelectJSON(d[cwPatRoot], n.selector)
+	switch n.test {
+	case "IS NULL":
+		return present && actual == nil
+	case "NOT EXISTS":
+		return !present
+	case "IS TRUE":
+		return present && actual == true
+	case "IS FALSE":
+		return present && actual == false
+	}
+	return false
+}
+
 type cwPatKind int
 
 const (
@@ -324,6 +345,21 @@ func (p *cwPatParser) parseTerm() listq.Node {
 		return cwPatCmp{op: "="}
 	}
 	selector := p.next().text
+	if keyword := p.peek(); keyword.kind == cwPatWord && (keyword.text == "IS" || keyword.text == "NOT") {
+		p.next()
+		operand := p.peek()
+		test := keyword.text + " " + operand.text
+		switch {
+		case operand.kind == cwPatWord && (test == "IS NULL" || test == "IS TRUE" || test == "IS FALSE" || test == "NOT EXISTS"):
+			p.next()
+			return cwPatTest{selector: selector, test: test}
+		case keyword.text == "IS":
+			p.fail("invalid filter pattern: IS on %q must be followed by NULL, TRUE or FALSE", selector)
+		default:
+			p.fail("invalid filter pattern: NOT on %q must be followed by EXISTS", selector)
+		}
+		return listq.True{}
+	}
 	if p.peek().kind != cwPatOp {
 		p.fail("invalid filter pattern: %q is missing a comparison", selector)
 		return listq.True{}

@@ -93,6 +93,9 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 		return nil, nil, nil, err
 	}
 
+	// Innermost, so the writer it scopes is the one every handler receives.
+	srv.WrapHandler(awsErrorModelMiddleware)
+
 	// Runtime wire-shape validation (armed only when
 	// SOCKERLESS_SPEC_VALIDATE is set; see spec_validator.go). Wraps the
 	// handler chain before any host-addressed data plane does: traffic a

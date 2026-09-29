@@ -317,6 +317,43 @@ through hooks:
   without a hand-written CBOR route is served from its JSON handler, converted
   both ways by shapes generated from the vendored model, and a test fails on
   any model operation no protocol serves.
+- **An operation names a type that exists.** Every long-running operation
+  carries the metadata message its service's Discovery document or proto
+  `operation_info` declares; the Google Cloud operation constructor takes that
+  builder as a required argument, so no service falls back to a default type
+  that a gRPC client cannot decode.
+- **Each service spells its errors its own way.** An AWS error is written with
+  the message member (`message` or `Message`) and, for Amazon EFS, the
+  `ErrorCode` member that the serving service's Smithy model declares; a
+  middleware resolves the model from the request's target or signing name.
+- **A state change follows the work it names.** Amazon RDS instances and
+  clusters report `stopping` and `starting` until the database engines behind
+  them have actually stopped or started, and Application Gateway, target-pool
+  and backend-service health comes from probes that have run, reporting
+  `Unknown` until they reach a verdict.
+- **A restore writes a new object.** A restored Cloud Storage object gets a new
+  generation and metageneration 1, and its preconditions are judged against the
+  live object it would replace.
+- **An operation is recorded where its name says it lives.** Every Google Cloud
+  long-running operation gets a fresh name in its service's operations
+  collection and a row in the operations store, carries the metadata message
+  and response type its service declares (with `verb` and `target` filled), and
+  can be read back over REST and gRPC.
+- **An event reaches its subscribers because something emitted it.** Cloud
+  Storage publishes JSON_API_V1 notifications for object writes, deletes and
+  metadata changes; Eventarc delivers Cloud Storage triggers from those
+  notifications as binary-mode CloudEvents; Cloud Logging `entries:copy` copies
+  the entries its sinks routed to the bucket.
+- **A revoked session stays revoked.** `workforcePools.subjects.revokeSessions`
+  records when a subject's sessions end, and every check of a simulator-minted
+  access token refuses one issued to that subject at or before that second.
+- **AMQP is a byte stream.** A WebSocket message or a TCP read can end inside
+  a frame, so the Service Bus and Event Hubs connection carries unconsumed bytes
+  over to the next read; dropping the connection on a split frame lost
+  receive-and-delete messages it had already handed out.
+- **A page token proves where it came from.** Every listing tags the tokens it
+  issues and refuses one it never issued with the service's invalid-argument
+  error, instead of listing an empty page.
 
 ## Execution
 

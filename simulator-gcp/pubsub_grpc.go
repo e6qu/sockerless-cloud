@@ -367,6 +367,12 @@ func (s *pubsubPublisherGRPC) CreateTopic(_ context.Context, req *pspb.Topic) (*
 	return psTopicToProto(t), nil
 }
 
+// psMaskField spells a FieldMask path the way the REST door does. A protobuf
+// FieldMask names fields in snake_case, as the client libraries send it.
+func psMaskField(path string) string {
+	return kebabToCamel(strings.ReplaceAll(path, "_", "-"))
+}
+
 func (s *pubsubPublisherGRPC) UpdateTopic(_ context.Context, req *pspb.UpdateTopicRequest) (*pspb.Topic, error) {
 	topic := req.GetTopic()
 	name := topic.GetName()
@@ -378,7 +384,7 @@ func (s *pubsubPublisherGRPC) UpdateTopic(_ context.Context, req *pspb.UpdateTop
 	mask := req.GetUpdateMask()
 	if mask != nil && len(mask.GetPaths()) > 0 {
 		for _, p := range mask.GetPaths() {
-			switch p {
+			switch psMaskField(p) {
 			case "labels":
 				existing.Labels = updated.Labels
 			case "kmsKeyName":
@@ -389,6 +395,8 @@ func (s *pubsubPublisherGRPC) UpdateTopic(_ context.Context, req *pspb.UpdateTop
 				existing.MessageStoragePolicy = updated.MessageStoragePolicy
 			case "schemaSettings":
 				existing.SchemaSettings = updated.SchemaSettings
+			default:
+				return nil, status.Errorf(codes.InvalidArgument, "invalid update_mask provided in the UpdateTopicRequest: the field %s is not updatable", p)
 			}
 		}
 	} else {
@@ -553,7 +561,7 @@ func (s *pubsubSubscriberGRPC) UpdateSubscription(_ context.Context, req *pspb.U
 	mask := req.GetUpdateMask()
 	if mask != nil && len(mask.GetPaths()) > 0 {
 		for _, p := range mask.GetPaths() {
-			switch p {
+			switch psMaskField(p) {
 			case "ackDeadlineSeconds":
 				existing.AckDeadlineSeconds = updated.AckDeadlineSeconds
 			case "labels":
@@ -574,10 +582,15 @@ func (s *pubsubSubscriberGRPC) UpdateSubscription(_ context.Context, req *pspb.U
 				existing.DeadLetterPolicy = updated.DeadLetterPolicy
 			case "retryPolicy":
 				existing.RetryPolicy = updated.RetryPolicy
+			default:
+				return nil, status.Errorf(codes.InvalidArgument, "invalid update_mask provided in the UpdateSubscriptionRequest: the field %s is not updatable", p)
 			}
 		}
 	} else {
 		existing = updated
+	}
+	if existing.AckDeadlineSeconds == 0 {
+		existing.AckDeadlineSeconds = psMinAckDeadlineSeconds
 	}
 	if err := psValidateSubscription(existing); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -865,11 +878,13 @@ func (s *pubsubSubscriberGRPC) UpdateSnapshot(_ context.Context, req *pspb.Updat
 	mask := req.GetUpdateMask()
 	if mask != nil {
 		for _, p := range mask.GetPaths() {
-			switch p {
+			switch psMaskField(p) {
 			case "labels":
 				existing.Labels = updated.Labels
 			case "expireTime":
 				existing.ExpireTime = updated.ExpireTime
+			default:
+				return nil, status.Errorf(codes.InvalidArgument, "invalid update_mask provided in the UpdateSnapshotRequest: the field %s is not updatable", p)
 			}
 		}
 	} else {

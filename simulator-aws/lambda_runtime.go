@@ -321,7 +321,11 @@ func lambdaRuntimeLinkLocalAddress() string {
 
 func startLambdaVpcPauseContainer(invocationID string, sink sim.LogSink) (*sim.ContainerHandle, error) {
 	img := sim.ResolveLocalImage(ecsPauseImage())
-	platform, err := workload.LocalImagePlatform(context.Background(), img, ecrWorkloadRegistryAuth(img))
+	registryAuth, err := ecrWorkloadRegistryAuth(img)
+	if err != nil {
+		return nil, err
+	}
+	platform, err := workload.LocalImagePlatform(context.Background(), img, registryAuth)
 	if err != nil {
 		return nil, fmt.Errorf("resolve AWS Lambda VPC pause image platform: %w", err)
 	}
@@ -686,9 +690,13 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 	environmentAttempt := 0
 	startExecutionEnvironment := func() (*sim.ContainerHandle, error) {
 		environmentAttempt++
+		registryAuth, err := ecrWorkloadRegistryAuth(ecrWorkloadImage(image))
+		if err != nil {
+			return nil, err
+		}
 		return sim.StartContainerSync(sim.ContainerConfig{
 			Image:        ecrWorkloadImage(image),
-			RegistryAuth: ecrWorkloadRegistryAuth(ecrWorkloadImage(image)),
+			RegistryAuth: registryAuth,
 			Architecture: platform,
 			Command:      entrypoint,
 			Args:         args,

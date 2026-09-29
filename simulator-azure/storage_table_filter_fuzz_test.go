@@ -42,7 +42,10 @@ func FuzzTableEntityFilter(f *testing.F) {
 			Properties:   raw,
 			Timestamp:    "2026-01-01T00:00:00Z",
 		}
-		m := tableEntityFilterMap(e)
+		m, err := tableEntityFilterMap(e)
+		if err != nil {
+			return
+		}
 		node, err := azureParseODataFilter(filter)
 		if err == nil && node != nil {
 			_ = node.Eval(m)

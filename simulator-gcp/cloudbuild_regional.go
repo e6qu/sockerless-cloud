@@ -294,6 +294,7 @@ func registerCloudBuildRegional(srv *sim.Server) {
 
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}/connectedRepositories:batchCreate",
 		func(w http.ResponseWriter, r *http.Request) {
+			created := nowTimestamp()
 			name := cbConfigKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"),
 				"bitbucketServerConfigs", sim.PathParam(r, "config"))
 			config, ok := cbBitbucketConfigs.Get(name)
@@ -330,16 +331,24 @@ func registerCloudBuildRegional(srv *sim.Server) {
 				if !cbRepoConnected(config.ConnectedRepositories, repo.ProjectKey+"/"+repo.RepoSlug) {
 					config.ConnectedRepositories = append(config.ConnectedRepositories, id)
 				}
+				// status is a google.rpc.Status; a connection that succeeded
+				// carries code OK, which renders as the empty message.
 				connected = append(connected, map[string]any{
 					"parent": name,
 					"repo":   id,
-					"status": "COMPLETE",
+					"status": map[string]any{},
 				})
 			}
 			cbBitbucketConfigs.Put(name, config)
-			sim.WriteJSON(w, http.StatusOK, newLROFromResource(name,
+			sim.WriteJSON(w, http.StatusOK, newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"),
 				map[string]any{"bitbucketServerConnectedRepositories": connected},
-				"type.googleapis.com/google.devtools.cloudbuild.v1.BatchCreateBitbucketServerConnectedRepositoriesResponse"))
+				"type.googleapis.com/google.devtools.cloudbuild.v1.BatchCreateBitbucketServerConnectedRepositoriesResponse",
+				gcpFixedOperationMetadata(map[string]any{
+					"@type":        "type.googleapis.com/google.devtools.cloudbuild.v1.BatchCreateBitbucketServerConnectedRepositoriesResponseMetadata",
+					"config":       name,
+					"createTime":   created,
+					"completeTime": nowTimestamp(),
+				})))
 		})
 }
 

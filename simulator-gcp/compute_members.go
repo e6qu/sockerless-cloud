@@ -218,11 +218,10 @@ func registerComputeTargetPoolMembers(srv *sim.Server) {
 	// registerComputeIAMTriplet, beside every other collection that declares
 	// them.
 
-	// The health a pool reports for one of its instances. It is healthy when
-	// the pool holds it, which is the only thing this simulator knows about it
-	// — and it says so rather than reporting a check nothing ran.
+	// The health a pool reports for one of its instances: what the pool's
+	// legacy HTTP health check last found, as the health checker recorded it.
 	srv.HandleFunc("POST "+base+"/{targetPool}/getHealth", func(w http.ResponseWriter, r *http.Request) {
-		_, pool, ok := load(w, r)
+		key, pool, ok := load(w, r)
 		if !ok {
 			return
 		}
@@ -239,10 +238,8 @@ func registerComputeTargetPoolMembers(srv *sim.Server) {
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"kind": "compute#targetPoolInstanceHealth",
-			"healthStatus": []any{map[string]any{
-				"instance": req.Instance, "healthState": "HEALTHY",
-			}},
+			"kind":         "compute#targetPoolInstanceHealth",
+			"healthStatus": []any{gcpTargetPoolInstanceHealth(key, pool, req.Instance)},
 		})
 	})
 }

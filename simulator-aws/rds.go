@@ -53,6 +53,8 @@ type RDSInstance struct {
 	// that pending change when it next starts.
 	BackendMasterUserSecret         []byte
 	EnableIAMDatabaseAuthentication bool
+	// DBClusterIdentifier names the DB cluster the instance is a member of.
+	DBClusterIdentifier string
 }
 
 // RDSSnapshot models the canonical RDS DB snapshot state machine:
@@ -371,6 +373,7 @@ func registerRDS(r *AWSQueryRouter, srv *sim.Server) {
 	if err := rdsRecoverDataPlanes(); err != nil {
 		panic(fmt.Sprintf("restore Amazon Relational Database Service data planes: %v", err))
 	}
+	rdsRecoverClusterTransitions()
 }
 
 func rdsInstanceARN(id string) string {
@@ -405,6 +408,9 @@ func renderRDSInstance(i RDSInstance) string {
 	fmt.Fprintf(&b, "<Engine>%s</Engine>", xmlEscape(i.Engine))
 	fmt.Fprintf(&b, "<EngineVersion>%s</EngineVersion>", xmlEscape(i.EngineVersion))
 	fmt.Fprintf(&b, "<DBInstanceStatus>%s</DBInstanceStatus>", xmlEscape(i.DBInstanceStatus))
+	if i.DBClusterIdentifier != "" {
+		fmt.Fprintf(&b, "<DBClusterIdentifier>%s</DBClusterIdentifier>", xmlEscape(i.DBClusterIdentifier))
+	}
 	fmt.Fprintf(&b, "<MasterUsername>%s</MasterUsername>", xmlEscape(i.MasterUsername))
 	fmt.Fprintf(&b, "<DBName>%s</DBName>", xmlEscape(i.DBName))
 	fmt.Fprintf(&b, "<AllocatedStorage>%d</AllocatedStorage>", i.AllocatedStorage)
@@ -449,6 +455,17 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 	if engineVersion == "" {
 		engineVersion = rdsDefaultEngineVersion(engine)
 	}
+	clusterID := r.FormValue("DBClusterIdentifier")
+	if clusterID != "" {
+		cluster, ok := rdsClusters.Get(clusterID)
+		if !ok {
+			rdsErrorXML(w, "DBClusterNotFoundFault", fmt.Sprintf("DBCluster %s not found.", clusterID), http.StatusNotFound, sim.RequestID(r.Context()))
+			return
+		}
+		if !rdsRequireClusterState(w, r, cluster, "available", "given a DB instance") {
+			return
+		}
+	}
 	inst := RDSInstance{
 		DBInstanceIdentifier:            id,
 		DbiResourceId:                   rdsResourceID(),
@@ -466,6 +483,7 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		ARN:                             rdsInstanceARN(id),
 		Tags:                            parseAWSQueryTagMap(r, "Tags.Tag"),
 		EnableIAMDatabaseAuthentication: strings.EqualFold(r.FormValue("EnableIAMDatabaseAuthentication"), "true"),
+		DBClusterIdentifier:             clusterID,
 	}
 	if err := rdsInstallDataPlane(&inst, r.FormValue("MasterUserPassword")); err != nil {
 		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
@@ -585,10 +603,11 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 		snapID := finalSnapID
 		bg.Go(func() {
 			rdsCaptureSnapshotData(snapID, id)
-			rdsStopDataPlane(id, true)
+			// The instance is gone either way; rdsStopDataPlane logs the failure.
+			_ = rdsStopDataPlane(id, true)
 		})
 	} else {
-		rdsStopDataPlane(id, true)
+		_ = rdsStopDataPlane(id, true)
 	}
 	rdsXMLResponse(w, "DeleteDBInstance", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
@@ -1160,7 +1179,10 @@ func handleRDSReboot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(inst.MasterUserSecret) > 0 {
-		rdsStopDataPlane(id, false)
+		if err := rdsStopDataPlane(id, false); err != nil {
+			rdsErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
+			return
+		}
 		_, password, decrypted := kmsDecryptBytes(inst.MasterUserSecret)
 		if !decrypted {
 			rdsErrorXML(w, "ProvisioningFailure", "RDS master-user credential could not be decrypted", http.StatusInternalServerError, sim.RequestID(r.Context()))
@@ -1224,6 +1246,7 @@ func renderRDSCluster(c RDSCluster) string {
 		fmt.Fprintf(&b, "<AvailabilityZone>%s</AvailabilityZone>", xmlEscape(az))
 	}
 	b.WriteString("</AvailabilityZones>")
+	b.WriteString(renderRDSClusterMembers(c.DBClusterIdentifier))
 	b.WriteString("</DBCluster>")
 	return b.String()
 }
@@ -2227,16 +2250,9 @@ func handleRDSStartInstance(w http.ResponseWriter, r *http.Request) {
 	if !rdsRequireInstanceState(w, r, instance, "stopped", "started") {
 		return
 	}
-	if len(instance.MasterUserSecret) > 0 {
-		_, password, decrypted := kmsDecryptBytes(instance.MasterUserSecret)
-		if !decrypted {
-			rdsErrorXML(w, "ProvisioningFailure", "RDS master-user credential could not be decrypted", http.StatusInternalServerError, sim.RequestID(r.Context()))
-			return
-		}
-		if err := rdsInstallDataPlane(&instance, string(password)); err != nil {
-			rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
-			return
-		}
+	if err := rdsStartInstanceEngine(&instance); err != nil {
+		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
+		return
 	}
 	instance.DBInstanceStatus = "available"
 	rdsInstances.Put(id, instance)
@@ -2254,9 +2270,11 @@ func handleRDSStopInstance(w http.ResponseWriter, r *http.Request) {
 	if !rdsRequireInstanceState(w, r, instance, "available", "stopped") {
 		return
 	}
-	rdsStopDataPlane(id, false)
-	rdsInstances.Update(id, func(i *RDSInstance) { i.DBInstanceStatus = "stopped" })
+	// Amazon RDS answers stopping and lands stopped once the engine has shut
+	// down, which is when the engine container here has stopped.
+	rdsInstances.Update(id, func(i *RDSInstance) { i.DBInstanceStatus = "stopping" })
 	updated, _ := rdsInstances.Get(id)
+	bg.Go(func() { rdsFinishStop(id) })
 	rdsXMLResponse(w, "StopDBInstance", renderRDSInstance(updated), sim.RequestID(r.Context()))
 }
 
@@ -2290,28 +2308,6 @@ func handleRDSPromoteReadReplica(w http.ResponseWriter, r *http.Request) {
 	}
 	updated, _ := rdsInstances.Get(id)
 	rdsXMLResponse(w, "PromoteReadReplica", renderRDSInstance(updated), sim.RequestID(r.Context()))
-}
-
-func handleRDSStartCluster(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("DBClusterIdentifier")
-	if _, ok := rdsClusters.Get(id); !ok {
-		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	rdsClusters.Update(id, func(c *RDSCluster) { c.Status = "available" })
-	updated, _ := rdsClusters.Get(id)
-	rdsXMLResponse(w, "StartDBCluster", renderRDSCluster(updated), sim.RequestID(r.Context()))
-}
-
-func handleRDSStopCluster(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("DBClusterIdentifier")
-	if _, ok := rdsClusters.Get(id); !ok {
-		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	rdsClusters.Update(id, func(c *RDSCluster) { c.Status = "stopped" })
-	updated, _ := rdsClusters.Get(id)
-	rdsXMLResponse(w, "StopDBCluster", renderRDSCluster(updated), sim.RequestID(r.Context()))
 }
 
 // handleRDSFailoverCluster simulates an Aurora failover. With no engine

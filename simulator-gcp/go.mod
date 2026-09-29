@@ -3,18 +3,27 @@ module github.com/e6qu/sockerless-cloud/simulator-gcp
 go 1.26.0
 
 require (
+	cloud.google.com/go/apigateway v1.15.0
+	cloud.google.com/go/artifactregistry v1.27.0
 	cloud.google.com/go/bigtable v1.58.0
+	cloud.google.com/go/cloudbuild v1.34.0
+	cloud.google.com/go/eventarc v1.26.0
 	cloud.google.com/go/firestore v1.26.0
+	cloud.google.com/go/functions v1.26.0
 	cloud.google.com/go/iam v1.14.0
 	cloud.google.com/go/kms v1.35.0
 	cloud.google.com/go/logging v1.20.0
 	cloud.google.com/go/longrunning v1.3.0
 	cloud.google.com/go/pubsub v1.51.1
+	cloud.google.com/go/redis v1.26.0
+	cloud.google.com/go/resourcemanager v1.17.0
+	cloud.google.com/go/run v1.23.0
 	cloud.google.com/go/secretmanager v1.22.0
+	cloud.google.com/go/serviceusage v1.16.0
 	cloud.google.com/go/spanner v1.95.1
-	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260929084919-a4109b6910bf
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260929093006-20ce40d18867
+	cloud.google.com/go/vpcaccess v1.15.0
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260929114915-9275986964aa
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260929114915-9275986964aa
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/moby/moby/client v0.6.0
 	google.golang.org/genproto v0.0.0-20260921155816-b14227669459
@@ -32,6 +41,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
+	github.com/coreos/go-oidc/v3 v3.21.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-connections v0.8.1 // indirect
 	github.com/docker/go-units v0.5.0 // indirect

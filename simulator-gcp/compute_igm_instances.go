@@ -355,8 +355,7 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
-			if body.Name == "" {
-				GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			if computeRefuseResourceName(w, body.Name) {
 				return
 			}
 			body.Group = key

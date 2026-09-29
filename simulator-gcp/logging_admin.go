@@ -1,13 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // Cloud Logging admin resource families (logging/v2). Every admin resource
@@ -568,6 +574,7 @@ func handleLoggingCreateBucket(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingCreateBucketAsync(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	parent := loggingLocationParent(r)
 	id := r.URL.Query().Get("bucketId")
 	var b LogBucket
@@ -575,6 +582,7 @@ func handleLoggingCreateBucketAsync(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bucket: %v", err)
 		return
 	}
+	request := map[string]any{"parent": parent, "bucketId": id, "bucket": b}
 	if id == "" {
 		id = lastSegment(b.Name)
 	}
@@ -586,7 +594,8 @@ func handleLoggingCreateBucketAsync(w http.ResponseWriter, r *http.Request) {
 	now := nowTimestamp()
 	b.CreateTime, b.UpdateTime = now, now
 	logBuckets.Put(b.Name, b)
-	sim.WriteJSON(w, http.StatusOK, loggingNewOperation(parent, b, "type.googleapis.com/google.logging.v2.LogBucket"))
+	sim.WriteJSON(w, http.StatusOK, loggingNewOperation(parent, b, "type.googleapis.com/google.logging.v2.LogBucket",
+		loggingOperationMetadata("BucketMetadata", "createBucketRequest", request, started)))
 }
 
 func handleLoggingListBuckets(w http.ResponseWriter, r *http.Request) {
@@ -658,6 +667,7 @@ func handleLoggingDeleteBucket(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingBucketAction(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	parent := loggingLocationParent(r)
 	raw := sim.PathParam(r, "bucketAction")
 	id, verb := splitColonVerb(raw)
@@ -691,7 +701,10 @@ func handleLoggingBucketAction(w http.ResponseWriter, r *http.Request) {
 		}
 		cur.UpdateTime = nowTimestamp()
 		logBuckets.Put(key, cur)
-		sim.WriteJSON(w, http.StatusOK, loggingNewOperation(parent, cur, "type.googleapis.com/google.logging.v2.LogBucket"))
+		upd.Name = key
+		request := map[string]any{"name": key, "bucket": upd, "updateMask": r.URL.Query().Get("updateMask")}
+		sim.WriteJSON(w, http.StatusOK, loggingNewOperation(parent, cur, "type.googleapis.com/google.logging.v2.LogBucket",
+			loggingOperationMetadata("BucketMetadata", "updateBucketRequest", request, started)))
 	default:
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unknown bucket verb %q", verb)
 	}
@@ -817,6 +830,7 @@ func handleLoggingViewIAM(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingCreateLink(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	parent := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket")
 	id := r.URL.Query().Get("linkId")
 	var l LogLink
@@ -824,6 +838,7 @@ func handleLoggingCreateLink(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid link: %v", err)
 		return
 	}
+	request := map[string]any{"parent": parent, "linkId": id, "link": l}
 	if id == "" {
 		id = lastSegment(l.Name)
 	}
@@ -834,7 +849,8 @@ func handleLoggingCreateLink(w http.ResponseWriter, r *http.Request) {
 	l.LifecycleState = "ACTIVE"
 	l.CreateTime = nowTimestamp()
 	logLinks.Put(l.Name, l)
-	sim.WriteJSON(w, http.StatusOK, loggingNewOperation(loggingLocationParent(r), l, "type.googleapis.com/google.logging.v2.Link"))
+	sim.WriteJSON(w, http.StatusOK, loggingNewOperation(loggingLocationParent(r), l, "type.googleapis.com/google.logging.v2.Link",
+		loggingOperationMetadata("LinkMetadata", "createLinkRequest", request, started)))
 }
 
 func handleLoggingListLinks(w http.ResponseWriter, r *http.Request) {
@@ -863,13 +879,15 @@ func handleLoggingGetLink(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingDeleteLink(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	parent := loggingLocationParent(r)
 	key := parent + "/buckets/" + sim.PathParam(r, "bucket") + "/links/" + sim.PathParam(r, "link")
 	if !logLinks.Delete(key) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "link %s not found", key)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, loggingNewOperation(parent, nil, "type.googleapis.com/google.protobuf.Empty"))
+	sim.WriteJSON(w, http.StatusOK, loggingNewOperation(parent, nil, "type.googleapis.com/google.protobuf.Empty",
+		loggingOperationMetadata("LinkMetadata", "deleteLinkRequest", map[string]any{"name": key}, started)))
 }
 
 func handleLoggingCreateSavedQuery(w http.ResponseWriter, r *http.Request) {
@@ -1082,6 +1100,7 @@ func handleLoggingOperationCancel(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingEntriesCopy(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	var body struct {
 		Name        string `json:"name"`
 		Filter      string `json:"filter"`
@@ -1091,9 +1110,162 @@ func handleLoggingEntriesCopy(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid copy request: %v", err)
 		return
 	}
-	op := loggingNewOperation("", map[string]any{"logEntriesCopiedCount": "0"},
-		"type.googleapis.com/google.logging.v2.CopyLogEntriesResponse")
+	scope, location, ok := loggingBucketParts(body.Name)
+	if !ok {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name %q is not a log bucket", body.Name)
+		return
+	}
+	if _, exists := logBuckets.Get(body.Name); !exists {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "log bucket %s not found", body.Name)
+		return
+	}
+	gcsBucket, isGCS := strings.CutPrefix(body.Destination, "storage.googleapis.com/")
+	if !isGCS || gcsBucket == "" || strings.Contains(gcsBucket, "/") {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"destination %q is not a Cloud Storage bucket (storage.googleapis.com/BUCKET)", body.Destination)
+		return
+	}
+	if _, exists := gcsBuckets.Get(gcsBucket); !exists {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Cloud Storage bucket %s not found", gcsBucket)
+		return
+	}
+	filter, err := parseLogFilter(body.Filter)
+	if err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid filter: %v", err)
+		return
+	}
+	entries, err := loggingBucketEntries(scope, body.Name, filter)
+	if err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		return
+	}
+	if err := loggingExportToGCS(gcsBucket, entries); err != nil {
+		writeGCSPersistError(w, "copy log entries", err)
+		return
+	}
+	metadata := loggingOperationMetadata("CopyLogEntriesMetadata", "request", body, started)
+	metadata["progress"] = 100
+	metadata["verb"] = "copy"
+	metadata["source"] = body.Name
+	metadata["destination"] = body.Destination
+	op := loggingNewOperation(scope+"/locations/"+location,
+		map[string]any{"logEntriesCopiedCount": strconv.Itoa(len(entries))},
+		"type.googleapis.com/google.logging.v2.CopyLogEntriesResponse", metadata)
 	sim.WriteJSON(w, http.StatusOK, op)
+}
+
+// loggingBucketParts splits a log bucket name,
+// {scope}/{id}/locations/{location}/buckets/{bucket}, into its scope and
+// location.
+func loggingBucketParts(name string) (scope, location string, ok bool) {
+	parts := strings.Split(name, "/")
+	if len(parts) != 6 || parts[2] != "locations" || parts[4] != "buckets" || parts[1] == "" || parts[3] == "" || parts[5] == "" {
+		return "", "", false
+	}
+	for _, sc := range loggingScopes {
+		if parts[0] == sc.collection {
+			return parts[0] + "/" + parts[1], parts[3], true
+		}
+	}
+	return "", "", false
+}
+
+// loggingBucketEntries returns, oldest first, the entries of scope's logs that
+// a log bucket stores and the filter matches. A bucket stores what the scope's
+// sinks route to it: an enabled sink whose destination names the bucket and
+// whose filter matches an entry none of its exclusions match.
+func loggingBucketEntries(scope, bucket string, filter listq.Node) ([]LogEntry, error) {
+	type route struct {
+		filter     listq.Node
+		exclusions []listq.Node
+	}
+	var routes []route
+	for _, sink := range logSinks.ListPrefix(scope + "/sinks/") {
+		if sink.Item.Disabled || sink.Item.Destination != "logging.googleapis.com/"+bucket {
+			continue
+		}
+		f, err := parseLogFilter(sink.Item.Filter)
+		if err != nil {
+			return nil, fmt.Errorf("sink %s: %w", sink.ID, err)
+		}
+		rt := route{filter: f}
+		for _, ex := range sink.Item.Exclusions {
+			if ex.Disabled {
+				continue
+			}
+			exf, err := parseLogFilter(ex.Filter)
+			if err != nil {
+				return nil, fmt.Errorf("sink %s exclusion %s: %w", sink.ID, ex.Name, err)
+			}
+			rt.exclusions = append(rt.exclusions, exf)
+		}
+		routes = append(routes, rt)
+	}
+	var held []LogEntry
+	for _, log := range logEntries.ListPrefix(scope + "/logs/") {
+		for _, entry := range log.Item {
+			doc, err := listq.ToDoc(entry)
+			if err != nil {
+				return nil, err
+			}
+			if !filter.Eval(doc) {
+				continue
+			}
+			for _, rt := range routes {
+				if rt.filter.Eval(doc) && !slices.ContainsFunc(rt.exclusions, func(ex listq.Node) bool { return ex.Eval(doc) }) {
+					held = append(held, entry)
+					break
+				}
+			}
+		}
+	}
+	sort.SliceStable(held, func(i, j int) bool {
+		if held[i].Timestamp != held[j].Timestamp {
+			return held[i].Timestamp < held[j].Timestamp
+		}
+		return held[i].InsertID < held[j].InsertID
+	})
+	return held, nil
+}
+
+// loggingExportToGCS writes entries into a Cloud Storage bucket the way Cloud
+// Logging exports to one: one object per log and hour of entry timestamp,
+// {log id}/{YYYY}/{MM}/{DD}/{HH}:00:00_{HH}:59:59_S0.json, holding the entries
+// as newline-delimited JSON.
+func loggingExportToGCS(bucket string, entries []LogEntry) error {
+	objects := map[string]*bytes.Buffer{}
+	var order []string
+	for _, entry := range entries {
+		ts, err := time.Parse(time.RFC3339Nano, entry.Timestamp)
+		if err != nil {
+			return fmt.Errorf("entry %s has timestamp %q: %w", entry.InsertID, entry.Timestamp, err)
+		}
+		_, logID, _ := strings.Cut(entry.LogName, "/logs/")
+		if decoded, err := url.PathUnescape(logID); err == nil {
+			logID = decoded
+		}
+		ts = ts.UTC()
+		object := fmt.Sprintf("%s/%s/%02d:00:00_%02d:59:59_S0.json", logID, ts.Format("2006/01/02"), ts.Hour(), ts.Hour())
+		buf, ok := objects[object]
+		if !ok {
+			buf = &bytes.Buffer{}
+			objects[object] = buf
+			order = append(order, object)
+		}
+		line, err := json.Marshal(entry)
+		if err != nil {
+			return err
+		}
+		buf.Write(line)
+		buf.WriteByte('\n')
+	}
+	for _, object := range order {
+		if _, err := persistGCSObjectBytes(bucket, object, objects[object].Bytes(),
+			GCSObject{ContentType: "application/json"}, gcsPreconditions{}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func handleLoggingEntriesTail(w http.ResponseWriter, r *http.Request) {
@@ -1116,20 +1288,35 @@ func handleLoggingEntriesTail(w http.ResponseWriter, r *http.Request) {
 // loggingNewOperation builds a completed Operation whose response carries the
 // given resource wrapped as a protobuf Any (@type). Real Cloud Logging's async
 // bucket/link/copy methods return a done operation once the resource settles.
-func loggingNewOperation(parent string, resource any, typeName string) Operation {
+func loggingNewOperation(parent string, resource any, typeName string, metadata map[string]any) Operation {
 	opName := parent + "/operations/" + sim.NewUUID()
 	if parent == "" {
 		opName = "operations/" + sim.NewUUID()
 	}
-	op := newLROFromResource(opName, resource, typeName)
+	op := newLROFromResource(opName, resource, typeName, metadata)
 	logOperations.Put(opName, op)
 	return op
 }
 
+// loggingOperationMetadata is the BucketMetadata, LinkMetadata or
+// CopyLogEntriesMetadata message a Cloud Logging method declares: the request
+// it carries under requestField, and the times and state of an operation that
+// finished inside that request.
+func loggingOperationMetadata(message, requestField string, request any, started time.Time) map[string]any {
+	return map[string]any{
+		"@type":      "type.googleapis.com/google.logging.v2." + message,
+		"startTime":  started.UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z"),
+		"endTime":    nowTimestamp(),
+		"state":      "OPERATION_STATE_SUCCEEDED",
+		requestField: request,
+	}
+}
+
 // newLROFromResource is newLRO's name-explicit form: the operation name is
 // supplied directly (logging's operations live under arbitrary scope parents,
-// not just projects/{p}/locations/{l}).
-func newLROFromResource(name string, resource any, typeName string) Operation {
+// not just projects/{p}/locations/{l}). metadata is the message the method
+// declares.
+func newLROFromResource(name string, resource any, typeName string, metadata map[string]any) Operation {
 	var responseMap map[string]any
 	if resource != nil {
 		responseMap = anyToMap(resource)
@@ -1138,12 +1325,9 @@ func newLROFromResource(name string, resource any, typeName string) Operation {
 		responseMap = map[string]any{"@type": typeName}
 	}
 	return Operation{
-		Name: name,
-		Done: true,
-		Metadata: map[string]any{
-			"@type":      "type.googleapis.com/google.logging.v2.OperationMetadata",
-			"createTime": nowTimestamp(),
-		},
+		Name:     name,
+		Done:     true,
+		Metadata: metadata,
 		Response: responseMap,
 	}
 }

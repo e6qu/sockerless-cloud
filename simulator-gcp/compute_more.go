@@ -282,8 +282,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				body = map[string]any{}
 			}
 			name, _ := body["name"].(string)
-			if name == "" {
-				GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			if computeRefuseNameOf(w, res.kind, name) {
 				return
 			}
 			key := relPath(r, name)
@@ -337,7 +336,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				nj, _ := items[j]["name"].(string)
 				return ni < nj
 			})
-			listed, listOK := gcpApplyListParams(w, r, items)
+			listed, listOK := gcpApplyComputeListParams(w, r, items)
 			if !listOK {
 				return
 			}
@@ -374,7 +373,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				nj, _ := items[j]["name"].(string)
 				return ni < nj
 			})
-			listed, listOK := gcpApplyListParams(w, r, items)
+			listed, listOK := gcpApplyComputeListParams(w, r, items)
 			if !listOK {
 				return
 			}
@@ -663,6 +662,9 @@ func registerComputeMore(srv *sim.Server) {
 	// A packet mirroring policy's collectorIlb resolves through the regional
 	// backend services to the instances behind it, so the resolver reads them.
 	gcpRegionBackendServices = mk("compute_region_backend_services")
+	// The health checker probes through the checks these collections hold.
+	gcpRegionHealthChecks = mk("compute_region_health_checks")
+	gcpHTTPHealthChecks = mk("compute_http_health_checks")
 
 	// Shared so the verbs in the files beside this one write the same records
 	// the lifecycle here serves.
@@ -688,8 +690,8 @@ func registerComputeMore(srv *sim.Server) {
 		{collection: "targetPools", kind: "compute#targetPool", scope: cScopeRegion, store: gcpComputeTargetPools, aggregated: true},
 		{collection: "backendServices", kind: "compute#backendService", scope: cScopeRegion, store: gcpRegionBackendServices, patch: true, update: true, listUsableKind: "compute#usableBackendServiceList",
 			setVerbs: []computeSetVerb{{verb: "setSecurityPolicy", member: "securityPolicy"}}},
-		{collection: "healthChecks", kind: "compute#healthCheck", scope: cScopeRegion, store: mk("compute_region_health_checks"), patch: true, update: true},
-		{collection: "httpHealthChecks", kind: "compute#httpHealthCheck", scope: cScopeGlobal, store: mk("compute_http_health_checks"), patch: true, update: true, testIamOnly: true},
+		{collection: "healthChecks", kind: "compute#healthCheck", scope: cScopeRegion, store: gcpRegionHealthChecks, patch: true, update: true},
+		{collection: "httpHealthChecks", kind: "compute#httpHealthCheck", scope: cScopeGlobal, store: gcpHTTPHealthChecks, patch: true, update: true, testIamOnly: true},
 		{collection: "httpsHealthChecks", kind: "compute#httpsHealthCheck", scope: cScopeGlobal, store: mk("compute_https_health_checks"), patch: true, update: true, testIamOnly: true},
 		{collection: "urlMaps", kind: "compute#urlMap", scope: cScopeRegion, store: mk("compute_region_url_maps"), patch: true, update: true},
 		{collection: "targetHttpProxies", kind: "compute#targetHttpProxy", scope: cScopeRegion, store: mk("compute_region_target_http_proxies"),

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"net/http"
 	"regexp"
 	"sort"
@@ -101,20 +102,41 @@ func gcsRetireObject(bucket Bucket, bucketName string, obj GCSObject) bool {
 	return false
 }
 
-// gcsRestoreGeneration makes a soft-deleted generation the live object again.
-// A live object it replaces is retired as an overwrite retires it.
-func gcsRestoreGeneration(objects sim.PrefixStore[GCSObject], bucket Bucket, entry gcsSoftDeleted) GCSObject {
+// gcsRestoreGeneration makes a soft-deleted generation's contents the live
+// object again. A restore writes the object anew, the way a copy does: the
+// live object gets a generation of its own, newer than every generation the
+// name has had, and starts at metageneration 1. It keeps the source's access
+// controls only under copySourceAcl and otherwise takes the bucket default. A
+// live object it replaces is retired as an overwrite retires it.
+func gcsRestoreGeneration(objects sim.PrefixStore[GCSObject], bucket Bucket, entry gcsSoftDeleted, copySourceACL bool) GCSObject {
 	restored := entry.Object
 	restored.Body = entry.Body
-	restored.Updated = gcsTimestamp()
+	now := gcsTimestamp()
+	md5, _ := base64.StdEncoding.DecodeString(restored.Md5Hash)
+	restored.Generation = strconv.FormatInt(gcsNextGeneration(), 10)
+	restored.Metageneration = "1"
+	restored.TimeCreated = now
+	restored.Updated = now
+	restored.Etag = base64.StdEncoding.EncodeToString(append(md5, []byte(now)...))
 	key := restored.Bucket + "/" + restored.Name
 	replaced, existed := objects.Get(key)
 	objects.Put(key, restored)
-	gcsSoftDeletedObjects.Delete(gcsSoftDeleteKey(restored.Bucket, restored.Name, restored.Generation))
+	gcsSoftDeletedObjects.Delete(gcsSoftDeleteKey(entry.Object.Bucket, entry.Object.Name, entry.Object.Generation))
 	if existed {
 		gcsRetireGeneration(bucket, replaced)
 	}
+	if copySourceACL {
+		for _, acl := range gcsObjectACLEntries(restored.Bucket, restored.Name) {
+			acl.Generation = restored.Generation
+			acl.ID = restored.Bucket + "/" + restored.Name + "/" + restored.Generation + "/" + acl.Entity
+			gcsObjectACLs.Put(gcsObjectACLKey(restored.Bucket, restored.Name, acl.Entity), acl)
+		}
+	} else {
+		gcsDropObjectACL(restored.Bucket, restored.Name)
+		gcsSeedObjectACL(restored.Bucket, restored.Name, restored.Generation)
+	}
 	gcsMirror(restored)
+	gcsNotifyWrite(restored, replaced, existed)
 	return restored
 }
 
@@ -179,13 +201,21 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 				"no soft-deleted object %q with generation %s in bucket %q", objectName, generation, bucketName)
 			return
 		}
-		defer gcsObjectWriters.Lock(bucketName + "/" + objectName)()
-		if _, live := objects.Get(bucketName + "/" + objectName); live {
-			GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
-				"object %q already exists in bucket %q", objectName, bucketName)
+		pre, err := parseGCSPreconditions(r.URL.Query(), false)
+		if err != nil {
+			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 			return
 		}
-		restored := gcsRestoreGeneration(objects, bucket, entry)
+		defer gcsObjectWriters.Lock(bucketName + "/" + objectName)()
+		// The preconditions judge the live object the restore would replace.
+		// objects.restore documents ifGenerationNotMatch as failing when no
+		// live object exists, unlike a write's.
+		live, exists := objects.Get(bucketName + "/" + objectName)
+		if !pre.holds(live, exists) || (pre.GenerationNotMatch != nil && !exists) {
+			writeGCSPreconditionFailed(w)
+			return
+		}
+		restored := gcsRestoreGeneration(objects, bucket, entry, gcpQueryBool(r, "copySourceAcl"))
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, restored))
 	})
 
@@ -224,14 +254,8 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 				continue
 			}
 			release := gcsObjectWriters.Lock(bucketName + "/" + name)
-			object := gcsRestoreGeneration(objects, bucket, entry)
+			gcsRestoreGeneration(objects, bucket, entry, request.CopySourceAcl)
 			release()
-			// Without copySourceAcl the restored object takes the bucket
-			// default, the rule a freshly written object follows.
-			if !request.CopySourceAcl {
-				gcsDropObjectACL(bucketName, name)
-				gcsSeedObjectACL(bucketName, name, object.Generation)
-			}
 			restored++
 		}
 		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, bucketName, map[string]any{
@@ -278,6 +302,7 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 			gcsUnmirror(bucketName, source)
 			gcsReleaseBody(current.Body)
 			gcsDropObjectACL(bucketName, source)
+			gcsNotify(gcsEventDelete, current, nil)
 		}
 		release()
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, moved))

@@ -1,7 +1,9 @@
 package gcp_sdk_test
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/cloudbuild/v1"
+	"google.golang.org/api/googleapi"
 )
 
 // TestCloudBuild_WorkerPoolCRUD round-trips a Cloud Build private worker
@@ -72,6 +75,29 @@ func TestCloudBuild_WorkerPoolCRUD(t *testing.T) {
 
 	_, err = svc.Projects.Locations.WorkerPools.Get(name).Do()
 	require.Error(t, err, "get after delete must fail")
+
+	// Each mutation is an operation of its own, which operations.get reads
+	// back with the metadata message the method declares.
+	for _, tc := range []struct {
+		op       *cloudbuild.Operation
+		metadata string
+	}{
+		{op, "CreateWorkerPoolOperationMetadata"},
+		{patchOp, "UpdateWorkerPoolOperationMetadata"},
+		{delOp, "DeleteWorkerPoolOperationMetadata"},
+	} {
+		fetched, err := svc.Projects.Locations.Operations.Get(tc.op.Name).Do()
+		require.NoError(t, err)
+		var metadata struct {
+			Type       string `json:"@type"`
+			WorkerPool string `json:"workerPool"`
+		}
+		require.NoError(t, json.Unmarshal(fetched.Metadata, &metadata))
+		assert.Equal(t, "type.googleapis.com/google.devtools.cloudbuild.v1."+tc.metadata, metadata.Type)
+		assert.Equal(t, name, metadata.WorkerPool)
+	}
+	assert.NotEqual(t, op.Name, patchOp.Name, "create and patch are distinct operations")
+	assert.NotEqual(t, patchOp.Name, delOp.Name, "patch and delete are distinct operations")
 }
 
 // TestCloudBuild_GitHubEnterpriseConfigCRUD round-trips a GitHub Enterprise
@@ -117,10 +143,25 @@ func TestCloudBuild_GitHubEnterpriseConfigCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "renamed ghe", got2.DisplayName)
 
-	_, err = svc.Projects.GithubEnterpriseConfigs.Delete(name).Do()
+	delOp, err := svc.Projects.GithubEnterpriseConfigs.Delete(name).Do()
 	require.NoError(t, err)
 	_, err = svc.Projects.GithubEnterpriseConfigs.Get(name).Do()
 	require.Error(t, err)
+
+	fetched, err := svc.Projects.Locations.Operations.Get(delOp.Name).Do()
+	require.NoError(t, err)
+	var metadata struct {
+		Type   string `json:"@type"`
+		Config string `json:"githubEnterpriseConfig"`
+	}
+	require.NoError(t, json.Unmarshal(fetched.Metadata, &metadata))
+	assert.Equal(t, "type.googleapis.com/google.devtools.cloudbuild.v1.DeleteGitHubEnterpriseConfigOperationMetadata", metadata.Type)
+	assert.Equal(t, name, metadata.Config)
+
+	_, err = svc.Projects.GithubEnterpriseConfigs.Delete(name).Do()
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Code, "deleting a config twice finds nothing the second time")
 }
 
 // TestCloudBuild_GitHubEnterpriseConfigRegional covers the regional

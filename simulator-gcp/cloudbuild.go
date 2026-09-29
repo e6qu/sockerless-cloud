@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -411,42 +410,19 @@ func registerCloudBuild(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}/repos", handleListBitbucketRepos)
 }
 
-// cbDoneOperation returns a done=true LRO carrying a typed resource as its
-// response. Cloud Build's source-host-config and worker-pool mutations are
-// LROs; the Go SDK returns the *Operation without auto-polling, so the
-// simulator resolves it synchronously and embeds the resource so callers can
-// read it straight from operation.response.
-// cbConfigOperationName is the operations-collection name of the long-running
-// operation a source-host config mutation returns, matching the name its
-// create counterpart mints. The path parameter naming the config differs per
-// family, so the caller supplies the prefix and the id comes from whichever
-// parameter the matched route populated.
-func cbConfigOperationName(r *http.Request, prefix string) string {
-	return fmt.Sprintf("projects/%s/locations/%s/operations/%s-%s",
-		sim.PathParam(r, "project"), buildTriggerLocation(r), prefix, sim.PathParam(r, "config"))
-}
-
-// cbDoneOperation records a settled Cloud Build long-running operation and
-// returns it. Cloud Build's worker-pool and source-host operations live in the
-// regional operations collection every service the simulator serves under that
-// URI shares, so the record goes into that store: a client can then poll it
-// with operations.get and address it with operations.cancel, and a name no
-// operation was minted under is NOT_FOUND rather than a fabricated success.
-func cbDoneOperation(name, typeURL string, resource any) CloudBuildOperation {
-	resp := map[string]any{"@type": typeURL}
-	if b, err := json.Marshal(resource); err == nil {
-		var raw map[string]any
-		if json.Unmarshal(b, &raw) == nil {
-			for k, v := range raw {
-				resp[k] = v
-			}
-		}
-	}
-	op := CloudBuildOperation{Name: name, Done: true, Response: resp}
-	if crOperations != nil {
-		crOperations.Put(name, Operation{Name: name, Done: true, Response: resp})
-	}
-	return op
+// cbConfigLRO records a settled worker-pool or source-host configuration
+// operation in the regional operations collection, under an id of its own, so
+// every mutation is a distinct operation operations.get can read. Its metadata
+// is the {Create,Update,Delete}<Kind>OperationMetadata the method declares,
+// whose member naming the resource is member.
+func cbConfigLRO(project, location, message, member, target string, resource any, typeURL string) Operation {
+	started := nowTimestamp()
+	return newLRO(project, location, resource, typeURL, gcpFixedOperationMetadata(map[string]any{
+		"@type":        "type.googleapis.com/google.devtools.cloudbuild.v1." + message,
+		member:         target,
+		"createTime":   started,
+		"completeTime": nowTimestamp(),
+	}))
 }
 
 func handleCloudBuildGetOperation(w http.ResponseWriter, r *http.Request) {
@@ -504,10 +480,8 @@ func handleCreateWorkerPool(w http.ResponseWriter, r *http.Request) {
 	pool.UpdateTime = pool.CreateTime
 	pool.Etag = sim.NewUUID()
 	cbWorkerPools.Put(pool.Name, pool)
-	op := cbDoneOperation(
-		fmt.Sprintf("projects/%s/locations/%s/operations/workerpool-%s", project, location, id),
-		"type.googleapis.com/google.devtools.cloudbuild.v1.WorkerPool", pool)
-	sim.WriteJSON(w, http.StatusOK, op)
+	sim.WriteJSON(w, http.StatusOK, cbConfigLRO(project, location, "CreateWorkerPoolOperationMetadata", "workerPool", pool.Name,
+		pool, "type.googleapis.com/google.devtools.cloudbuild.v1.WorkerPool"))
 }
 
 func handleGetWorkerPool(w http.ResponseWriter, r *http.Request) {
@@ -563,29 +537,20 @@ func handlePatchWorkerPool(w http.ResponseWriter, r *http.Request) {
 	prior.UpdateTime = nowTimestamp()
 	prior.Etag = sim.NewUUID()
 	cbWorkerPools.Put(key, prior)
-	op := cbDoneOperation(
-		fmt.Sprintf("projects/%s/locations/%s/operations/workerpool-%s",
-			sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "pool")),
-		"type.googleapis.com/google.devtools.cloudbuild.v1.WorkerPool", prior)
-	sim.WriteJSON(w, http.StatusOK, op)
+	sim.WriteJSON(w, http.StatusOK, cbConfigLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"),
+		"UpdateWorkerPoolOperationMetadata", "workerPool", key, prior, "type.googleapis.com/google.devtools.cloudbuild.v1.WorkerPool"))
 }
 
 func handleDeleteWorkerPool(w http.ResponseWriter, r *http.Request) {
 	key := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s",
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "pool"))
-	if _, ok := cbWorkerPools.Get(key); !ok {
-		if r.URL.Query().Get("allowMissing") == "true" {
-			sim.WriteJSON(w, http.StatusOK, CloudBuildOperation{Name: key, Done: true})
-			return
-		}
+	if _, ok := cbWorkerPools.Get(key); !ok && r.URL.Query().Get("allowMissing") != "true" {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "workerPool %s not found", key)
 		return
 	}
 	cbWorkerPools.Delete(key)
-	sim.WriteJSON(w, http.StatusOK, cbDoneOperation(
-		fmt.Sprintf("projects/%s/locations/%s/operations/workerpool-%s",
-			sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "pool")),
-		"type.googleapis.com/google.protobuf.Empty", nil))
+	sim.WriteJSON(w, http.StatusOK, cbConfigLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"),
+		"DeleteWorkerPoolOperationMetadata", "workerPool", key, nil, gcpEmptyType))
 }
 
 func handleCreateGHEConfig(w http.ResponseWriter, r *http.Request) {
@@ -603,10 +568,8 @@ func handleCreateGHEConfig(w http.ResponseWriter, r *http.Request) {
 	cfg.Name = cbConfigKey(project, location, "githubEnterpriseConfigs", id)
 	cfg.CreateTime = nowTimestamp()
 	cbGHEConfigs.Put(cfg.Name, cfg)
-	op := cbDoneOperation(
-		fmt.Sprintf("projects/%s/locations/%s/operations/ghe-%s", project, location, id),
-		"type.googleapis.com/google.devtools.cloudbuild.v1.GitHubEnterpriseConfig", cfg)
-	sim.WriteJSON(w, http.StatusOK, op)
+	sim.WriteJSON(w, http.StatusOK, cbConfigLRO(project, location, "CreateGitHubEnterpriseConfigOperationMetadata",
+		"githubEnterpriseConfig", cfg.Name, cfg, "type.googleapis.com/google.devtools.cloudbuild.v1.GitHubEnterpriseConfig"))
 }
 
 func handleGetGHEConfig(w http.ResponseWriter, r *http.Request) {
@@ -658,17 +621,19 @@ func handlePatchGHEConfig(w http.ResponseWriter, r *http.Request) {
 		prior.SslCa = update.SslCa
 	}
 	cbGHEConfigs.Put(key, prior)
-	// The operation a patch returns is named in the operations collection, as
-	// its create counterpart's is — never the resource's own name.
-	op := cbDoneOperation(cbConfigOperationName(r, "ghe"),
-		"type.googleapis.com/google.devtools.cloudbuild.v1.GitHubEnterpriseConfig", prior)
-	sim.WriteJSON(w, http.StatusOK, op)
+	sim.WriteJSON(w, http.StatusOK, cbConfigLRO(sim.PathParam(r, "project"), buildTriggerLocation(r),
+		"UpdateGitHubEnterpriseConfigOperationMetadata", "githubEnterpriseConfig", key,
+		prior, "type.googleapis.com/google.devtools.cloudbuild.v1.GitHubEnterpriseConfig"))
 }
 
 func handleDeleteGHEConfig(w http.ResponseWriter, r *http.Request) {
 	key := cbConfigKey(sim.PathParam(r, "project"), buildTriggerLocation(r), "githubEnterpriseConfigs", sim.PathParam(r, "config"))
-	cbGHEConfigs.Delete(key)
-	sim.WriteJSON(w, http.StatusOK, CloudBuildOperation{Name: key, Done: true})
+	if !cbGHEConfigs.Delete(key) {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "githubEnterpriseConfig %s not found", key)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, cbConfigLRO(sim.PathParam(r, "project"), buildTriggerLocation(r),
+		"DeleteGitHubEnterpriseConfigOperationMetadata", "githubEnterpriseConfig", key, nil, gcpEmptyType))
 }
 
 func handleCreateBitbucketConfig(w http.ResponseWriter, r *http.Request) {
@@ -686,10 +651,8 @@ func handleCreateBitbucketConfig(w http.ResponseWriter, r *http.Request) {
 	cfg.Name = cbConfigKey(project, location, "bitbucketServerConfigs", id)
 	cfg.CreateTime = nowTimestamp()
 	cbBitbucketConfigs.Put(cfg.Name, cfg)
-	op := cbDoneOperation(
-		fmt.Sprintf("projects/%s/locations/%s/operations/bitbucket-%s", project, location, id),
-		"type.googleapis.com/google.devtools.cloudbuild.v1.BitbucketServerConfig", cfg)
-	sim.WriteJSON(w, http.StatusOK, op)
+	sim.WriteJSON(w, http.StatusOK, cbConfigLRO(project, location, "CreateBitbucketServerConfigOperationMetadata",
+		"bitbucketServerConfig", cfg.Name, cfg, "type.googleapis.com/google.devtools.cloudbuild.v1.BitbucketServerConfig"))
 }
 
 func handleGetBitbucketConfig(w http.ResponseWriter, r *http.Request) {
@@ -749,15 +712,19 @@ func handlePatchBitbucketConfig(w http.ResponseWriter, r *http.Request) {
 		prior.SslCa = update.SslCa
 	}
 	cbBitbucketConfigs.Put(key, prior)
-	op := cbDoneOperation(cbConfigOperationName(r, "bitbucket"),
-		"type.googleapis.com/google.devtools.cloudbuild.v1.BitbucketServerConfig", prior)
-	sim.WriteJSON(w, http.StatusOK, op)
+	sim.WriteJSON(w, http.StatusOK, cbConfigLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"),
+		"UpdateBitbucketServerConfigOperationMetadata", "bitbucketServerConfig", key,
+		prior, "type.googleapis.com/google.devtools.cloudbuild.v1.BitbucketServerConfig"))
 }
 
 func handleDeleteBitbucketConfig(w http.ResponseWriter, r *http.Request) {
 	key := cbConfigKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"), "bitbucketServerConfigs", sim.PathParam(r, "config"))
-	cbBitbucketConfigs.Delete(key)
-	sim.WriteJSON(w, http.StatusOK, CloudBuildOperation{Name: key, Done: true})
+	if !cbBitbucketConfigs.Delete(key) {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bitbucketServerConfig %s not found", key)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, cbConfigLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"),
+		"DeleteBitbucketServerConfigOperationMetadata", "bitbucketServerConfig", key, nil, gcpEmptyType))
 }
 
 func handleListBitbucketRepos(w http.ResponseWriter, r *http.Request) {

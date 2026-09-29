@@ -53,20 +53,47 @@ func grpcRecordOperation(op *longrunningpb.Operation) error {
 func grpcOperationToStored(op *longrunningpb.Operation) (Operation, error) {
 	out := Operation{Name: op.GetName(), Done: op.GetDone()}
 	if response := op.GetResponse(); response != nil {
-		raw, err := protojson.Marshal(response)
+		body, err := grpcAnyToJSON(response)
 		if err != nil {
 			return Operation{}, status.Errorf(codes.Internal, "could not render operation response: %v", err)
 		}
-		var body map[string]any
-		if err := json.Unmarshal(raw, &body); err != nil {
-			return Operation{}, status.Errorf(codes.Internal, "could not render operation response: %v", err)
-		}
 		out.Response = body
+	}
+	if metadata := op.GetMetadata(); metadata != nil {
+		body, err := grpcAnyToJSON(metadata)
+		if err != nil {
+			return Operation{}, status.Errorf(codes.Internal, "could not render operation metadata: %v", err)
+		}
+		out.Metadata = body
 	}
 	if opErr := op.GetError(); opErr != nil {
 		out.Error = &OperationError{Code: int(opErr.GetCode()), Message: opErr.GetMessage()}
 	}
 	return out, nil
+}
+
+func grpcAnyToJSON(value *anypb.Any) (map[string]any, error) {
+	raw, err := protojson.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+func grpcAnyFromJSON(body any) (*anypb.Any, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	value := &anypb.Any{}
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(raw, value); err != nil {
+		return nil, err
+	}
+	return value, nil
 }
 
 // grpcOperationFromStored reads a stored operation back into its protobuf
@@ -75,15 +102,18 @@ func grpcOperationToStored(op *longrunningpb.Operation) (Operation, error) {
 func grpcOperationFromStored(stored Operation) (*longrunningpb.Operation, error) {
 	op := &longrunningpb.Operation{Name: stored.Name, Done: stored.Done}
 	if stored.Response != nil {
-		raw, err := json.Marshal(stored.Response)
+		response, err := grpcAnyFromJSON(stored.Response)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "could not read operation response: %v", err)
 		}
-		response := &anypb.Any{}
-		if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(raw, response); err != nil {
-			return nil, status.Errorf(codes.Internal, "could not read operation response: %v", err)
-		}
 		op.Result = &longrunningpb.Operation_Response{Response: response}
+	}
+	if stored.Metadata != nil {
+		metadata, err := grpcAnyFromJSON(stored.Metadata)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "could not read operation metadata: %v", err)
+		}
+		op.Metadata = metadata
 	}
 	if stored.Error != nil {
 		op.Result = &longrunningpb.Operation_Error{Error: &statuspb.Status{
@@ -126,6 +156,7 @@ func registerBigtableGRPC(gs *grpc.Server) {
 }
 
 func (s *bigtableInstanceAdminGRPC) CreateInstance(_ context.Context, req *btadmin.CreateInstanceRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	project, err := bigtableProjectFromParent(req.GetParent())
 	if err != nil {
 		return nil, err
@@ -176,7 +207,11 @@ func (s *bigtableInstanceAdminGRPC) CreateInstance(_ context.Context, req *btadm
 		})
 	}
 
-	return bigtableDoneOperation(stored.Name, bigtableInstanceToPB(stored))
+	return bigtableDoneOperation(stored.Name, bigtableInstanceToPB(stored), &btadmin.CreateInstanceMetadata{
+		OriginalRequest: proto.CloneOf(req),
+		RequestTime:     timestamppb.New(requested),
+		FinishTime:      timestamppb.Now(),
+	})
 }
 
 func (s *bigtableInstanceAdminGRPC) GetInstance(_ context.Context, req *btadmin.GetInstanceRequest) (*btadmin.Instance, error) {
@@ -218,6 +253,7 @@ func (s *bigtableInstanceAdminGRPC) DeleteInstance(_ context.Context, req *btadm
 }
 
 func (s *bigtableInstanceAdminGRPC) CreateCluster(_ context.Context, req *btadmin.CreateClusterRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	project, instance, err := bigtableInstanceParts(req.GetParent())
 	if err != nil {
 		return nil, err
@@ -248,7 +284,31 @@ func (s *bigtableInstanceAdminGRPC) CreateCluster(_ context.Context, req *btadmi
 		stored.ServeNodes = 1
 	}
 	bigtableClusters.Put(name, stored)
-	return bigtableDoneOperation(name, bigtableClusterToPB(stored))
+	return bigtableDoneOperation(name, bigtableClusterToPB(stored), &btadmin.CreateClusterMetadata{
+		OriginalRequest: proto.CloneOf(req),
+		RequestTime:     timestamppb.New(requested),
+		FinishTime:      timestamppb.Now(),
+		Tables:          bigtableClusterTableProgress(req.GetParent()),
+	})
+}
+
+// bigtableClusterTableProgress reports, for each table the instance holds, how
+// much of it a new cluster has copied. The copy completes inside CreateCluster,
+// so every table is COMPLETED with all of its bytes copied.
+func bigtableClusterTableProgress(instance string) map[string]*btadmin.CreateClusterMetadata_TableProgress {
+	progress := map[string]*btadmin.CreateClusterMetadata_TableProgress{}
+	for _, table := range bigtableTables.List() {
+		if !strings.HasPrefix(table.Name, instance+"/tables/") {
+			continue
+		}
+		size := btTableSizeBytes(table.Name)
+		progress[table.Name] = &btadmin.CreateClusterMetadata_TableProgress{
+			EstimatedSizeBytes:   size,
+			EstimatedCopiedBytes: size,
+			State:                btadmin.CreateClusterMetadata_TableProgress_COMPLETED,
+		}
+	}
+	return progress
 }
 
 func (s *bigtableInstanceAdminGRPC) GetCluster(_ context.Context, req *btadmin.GetClusterRequest) (*btadmin.Cluster, error) {
@@ -383,12 +443,16 @@ func (s *grpcOperationsService) DeleteOperation(_ context.Context, req *longrunn
 // operation name this service issues is the resource's own name followed by
 // "/operations/<id>", so the parent is a prefix of its operations' names.
 func (s *grpcOperationsService) ListOperations(_ context.Context, req *longrunningpb.ListOperationsRequest) (*longrunningpb.ListOperationsResponse, error) {
-	if req.GetFilter() != "" {
-		return nil, status.Error(codes.Unimplemented, "the operations list filter is not supported")
+	filter, err := gcpParseFilterExpr(req.GetFilter())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	stored := grpcStoredOperations(req.GetName())
 	matched := make([]*longrunningpb.Operation, 0, len(stored))
 	for _, entry := range stored {
+		if !filter.Eval(gcpOperationFilterDoc(entry)) {
+			continue
+		}
 		op, err := grpcOperationFromStored(entry)
 		if err != nil {
 			return nil, err
@@ -413,28 +477,24 @@ func (s *grpcOperationsService) CancelOperation(_ context.Context, req *longrunn
 	return &emptypb.Empty{}, nil
 }
 
-func bigtableDoneOperation(resourceName string, resource proto.Message) (*longrunningpb.Operation, error) {
-	return bigtableDoneOperationWithMetadata(resourceName, resource, nil)
-}
-
-// bigtableDoneOperationWithMetadata is bigtableDoneOperation carrying the
-// method's operation metadata; nil carries none.
-func bigtableDoneOperationWithMetadata(resourceName string, resource, metadata proto.Message) (*longrunningpb.Operation, error) {
+// bigtableDoneOperation records a finished admin operation carrying its result
+// and the metadata message the method declares in its operation_info.
+func bigtableDoneOperation(resourceName string, resource, metadata proto.Message) (*longrunningpb.Operation, error) {
 	resp, err := anypb.New(resource)
 	if err != nil {
 		return nil, err
 	}
+	meta, err := anypb.New(metadata)
+	if err != nil {
+		return nil, err
+	}
 	op := &longrunningpb.Operation{
-		Name: bigtableOperationName(resourceName),
-		Done: true,
+		Name:     bigtableOperationName(resourceName),
+		Metadata: meta,
+		Done:     true,
 		Result: &longrunningpb.Operation_Response{
 			Response: resp,
 		},
-	}
-	if metadata != nil {
-		if op.Metadata, err = anypb.New(metadata); err != nil {
-			return nil, err
-		}
 	}
 	if err := grpcRecordOperation(op); err != nil {
 		return nil, err
@@ -916,7 +976,7 @@ func (s *bigtableInstanceAdminGRPC) UpdateAppProfile(_ context.Context, req *bta
 	if err != nil {
 		return nil, err
 	}
-	return bigtableDoneOperation(profile.GetName(), updated)
+	return bigtableDoneOperation(profile.GetName(), updated, &btadmin.UpdateAppProfileMetadata{})
 }
 
 func (s *bigtableInstanceAdminGRPC) DeleteAppProfile(_ context.Context, req *btadmin.DeleteAppProfileRequest) (*emptypb.Empty, error) {
@@ -929,6 +989,7 @@ func (s *bigtableInstanceAdminGRPC) DeleteAppProfile(_ context.Context, req *bta
 // Instance admin: logical views
 
 func (s *bigtableInstanceAdminGRPC) CreateLogicalView(_ context.Context, req *btadmin.CreateLogicalViewRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	name, err := bigtableInstanceChild(req.GetParent(), "logicalViews", req.GetLogicalViewId(), "logical_view_id")
 	if err != nil {
 		return nil, err
@@ -944,7 +1005,11 @@ func (s *bigtableInstanceAdminGRPC) CreateLogicalView(_ context.Context, req *bt
 	if err != nil {
 		return nil, err
 	}
-	return bigtableDoneOperation(name, created)
+	return bigtableDoneOperation(name, created, &btadmin.CreateLogicalViewMetadata{
+		OriginalRequest: proto.CloneOf(req),
+		StartTime:       timestamppb.New(requested),
+		EndTime:         timestamppb.Now(),
+	})
 }
 
 func (s *bigtableInstanceAdminGRPC) GetLogicalView(_ context.Context, req *btadmin.GetLogicalViewRequest) (*btadmin.LogicalView, error) {
@@ -964,6 +1029,7 @@ func (s *bigtableInstanceAdminGRPC) ListLogicalViews(_ context.Context, req *bta
 }
 
 func (s *bigtableInstanceAdminGRPC) UpdateLogicalView(_ context.Context, req *btadmin.UpdateLogicalViewRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	view := req.GetLogicalView()
 	if view.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "logical_view.name is required")
@@ -976,7 +1042,11 @@ func (s *bigtableInstanceAdminGRPC) UpdateLogicalView(_ context.Context, req *bt
 	if err != nil {
 		return nil, err
 	}
-	return bigtableDoneOperation(view.GetName(), updated)
+	return bigtableDoneOperation(view.GetName(), updated, &btadmin.UpdateLogicalViewMetadata{
+		OriginalRequest: proto.CloneOf(req),
+		StartTime:       timestamppb.New(requested),
+		EndTime:         timestamppb.Now(),
+	})
 }
 
 func (s *bigtableInstanceAdminGRPC) DeleteLogicalView(_ context.Context, req *btadmin.DeleteLogicalViewRequest) (*emptypb.Empty, error) {
@@ -989,6 +1059,7 @@ func (s *bigtableInstanceAdminGRPC) DeleteLogicalView(_ context.Context, req *bt
 // Instance admin: materialized views
 
 func (s *bigtableInstanceAdminGRPC) CreateMaterializedView(_ context.Context, req *btadmin.CreateMaterializedViewRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	name, err := bigtableInstanceChild(req.GetParent(), "materializedViews", req.GetMaterializedViewId(), "materialized_view_id")
 	if err != nil {
 		return nil, err
@@ -1004,7 +1075,11 @@ func (s *bigtableInstanceAdminGRPC) CreateMaterializedView(_ context.Context, re
 	if err != nil {
 		return nil, err
 	}
-	return bigtableDoneOperation(name, created)
+	return bigtableDoneOperation(name, created, &btadmin.CreateMaterializedViewMetadata{
+		OriginalRequest: proto.CloneOf(req),
+		StartTime:       timestamppb.New(requested),
+		EndTime:         timestamppb.Now(),
+	})
 }
 
 func (s *bigtableInstanceAdminGRPC) GetMaterializedView(_ context.Context, req *btadmin.GetMaterializedViewRequest) (*btadmin.MaterializedView, error) {
@@ -1024,6 +1099,7 @@ func (s *bigtableInstanceAdminGRPC) ListMaterializedViews(_ context.Context, req
 }
 
 func (s *bigtableInstanceAdminGRPC) UpdateMaterializedView(_ context.Context, req *btadmin.UpdateMaterializedViewRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	view := req.GetMaterializedView()
 	if view.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "materialized_view.name is required")
@@ -1036,7 +1112,11 @@ func (s *bigtableInstanceAdminGRPC) UpdateMaterializedView(_ context.Context, re
 	if err != nil {
 		return nil, err
 	}
-	return bigtableDoneOperation(view.GetName(), updated)
+	return bigtableDoneOperation(view.GetName(), updated, &btadmin.UpdateMaterializedViewMetadata{
+		OriginalRequest: proto.CloneOf(req),
+		StartTime:       timestamppb.New(requested),
+		EndTime:         timestamppb.Now(),
+	})
 }
 
 func (s *bigtableInstanceAdminGRPC) DeleteMaterializedView(_ context.Context, req *btadmin.DeleteMaterializedViewRequest) (*emptypb.Empty, error) {
@@ -1066,6 +1146,7 @@ func (s *bigtableInstanceAdminGRPC) UpdateInstance(_ context.Context, req *btadm
 }
 
 func (s *bigtableInstanceAdminGRPC) PartialUpdateInstance(_ context.Context, req *btadmin.PartialUpdateInstanceRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	instance := req.GetInstance()
 	if instance.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "instance.name is required")
@@ -1087,12 +1168,17 @@ func (s *bigtableInstanceAdminGRPC) PartialUpdateInstance(_ context.Context, req
 		}
 	}
 	bigtableInstances.Put(stored.Name, stored)
-	return bigtableDoneOperation(stored.Name, bigtableInstanceToPB(stored))
+	return bigtableDoneOperation(stored.Name, bigtableInstanceToPB(stored), &btadmin.UpdateInstanceMetadata{
+		OriginalRequest: proto.CloneOf(req),
+		RequestTime:     timestamppb.New(requested),
+		FinishTime:      timestamppb.Now(),
+	})
 }
 
 // UpdateCluster replaces a cluster. Serve nodes are the mutable part of a
 // cluster; its location and storage type are fixed at creation.
 func (s *bigtableInstanceAdminGRPC) UpdateCluster(_ context.Context, req *btadmin.Cluster) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	stored, ok := bigtableClusters.Get(req.GetName())
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "cluster %q not found", req.GetName())
@@ -1102,10 +1188,15 @@ func (s *bigtableInstanceAdminGRPC) UpdateCluster(_ context.Context, req *btadmi
 	}
 	stored.State = "READY"
 	bigtableClusters.Put(stored.Name, stored)
-	return bigtableDoneOperation(stored.Name, bigtableClusterToPB(stored))
+	return bigtableDoneOperation(stored.Name, bigtableClusterToPB(stored), &btadmin.UpdateClusterMetadata{
+		OriginalRequest: proto.CloneOf(req),
+		RequestTime:     timestamppb.New(requested),
+		FinishTime:      timestamppb.Now(),
+	})
 }
 
 func (s *bigtableInstanceAdminGRPC) PartialUpdateCluster(_ context.Context, req *btadmin.PartialUpdateClusterRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	cluster := req.GetCluster()
 	if cluster.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "cluster.name is required")
@@ -1126,7 +1217,11 @@ func (s *bigtableInstanceAdminGRPC) PartialUpdateCluster(_ context.Context, req 
 	}
 	stored.State = "READY"
 	bigtableClusters.Put(stored.Name, stored)
-	return bigtableDoneOperation(stored.Name, bigtableClusterToPB(stored))
+	return bigtableDoneOperation(stored.Name, bigtableClusterToPB(stored), &btadmin.PartialUpdateClusterMetadata{
+		OriginalRequest: proto.CloneOf(req),
+		RequestTime:     timestamppb.New(requested),
+		FinishTime:      timestamppb.Now(),
+	})
 }
 
 // ListHotTablets reports the tablets a cluster measured as hot over the
@@ -1158,6 +1253,7 @@ func bigtableUnsupportedMaskPath(md protoreflect.MessageDescriptor, path string)
 // Table admin: table lifecycle beyond create/read/delete
 
 func (s *bigtableTableAdminGRPC) UpdateTable(_ context.Context, req *btadmin.UpdateTableRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	update := req.GetTable()
 	if update.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "table.name is required")
@@ -1178,7 +1274,11 @@ func (s *bigtableTableAdminGRPC) UpdateTable(_ context.Context, req *btadmin.Upd
 		}
 	}
 	bigtableTables.Put(table.Name, table)
-	return bigtableDoneOperation(table.Name, bigtableTableToPB(table))
+	return bigtableDoneOperation(table.Name, bigtableTableToPB(table), &btadmin.UpdateTableMetadata{
+		Name:      table.Name,
+		StartTime: timestamppb.New(requested),
+		EndTime:   timestamppb.Now(),
+	})
 }
 
 // UndeleteTable restores a table that DeleteTable removed. DeleteTable drops
@@ -1186,11 +1286,16 @@ func (s *bigtableTableAdminGRPC) UpdateTable(_ context.Context, req *btadmin.Upd
 // bring back and reports NotFound; a table still present is returned as it
 // stands.
 func (s *bigtableTableAdminGRPC) UndeleteTable(_ context.Context, req *btadmin.UndeleteTableRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	table, err := bigtableRequireTable(req.GetName())
 	if err != nil {
 		return nil, err
 	}
-	return bigtableDoneOperation(table.Name, bigtableTableToPB(table))
+	return bigtableDoneOperation(table.Name, bigtableTableToPB(table), &btadmin.UndeleteTableMetadata{
+		Name:      table.Name,
+		StartTime: timestamppb.New(requested),
+		EndTime:   timestamppb.Now(),
+	})
 }
 
 // DropRowRange permanently deletes rows from a table — every row, or those
@@ -1252,6 +1357,7 @@ func (s *bigtableTableAdminGRPC) CheckConsistency(_ context.Context, req *btadmi
 // Table admin: backups
 
 func (s *bigtableTableAdminGRPC) CreateBackup(_ context.Context, req *btadmin.CreateBackupRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	name, err := bigtableClusterChild(req.GetParent(), "backups", req.GetBackupId(), "backup_id")
 	if err != nil {
 		return nil, err
@@ -1266,9 +1372,14 @@ func (s *bigtableTableAdminGRPC) CreateBackup(_ context.Context, req *btadmin.Cr
 	if _, err := bigtableRequireTable(backup.GetSourceTable()); err != nil {
 		return nil, err
 	}
+	// The backup captures the table's rows inside this call, so its start and
+	// end times bound this request.
 	stored := &btadmin.Backup{}
 	proto.Merge(stored, backup)
 	stored.State = btadmin.Backup_READY
+	stored.StartTime = timestamppb.New(requested)
+	stored.SizeBytes = btTableSizeBytes(backup.GetSourceTable())
+	stored.EndTime = timestamppb.Now()
 	body, err := bigtableCreateResource(bigtableBackupKind(), name, stored)
 	if err != nil {
 		return nil, err
@@ -1278,7 +1389,34 @@ func (s *bigtableTableAdminGRPC) CreateBackup(_ context.Context, req *btadmin.Cr
 	if err != nil {
 		return nil, err
 	}
-	return bigtableDoneOperation(name, created)
+	return bigtableDoneOperation(name, created, &btadmin.CreateBackupMetadata{
+		Name:        name,
+		SourceTable: backup.GetSourceTable(),
+		StartTime:   stored.GetStartTime(),
+		EndTime:     stored.GetEndTime(),
+	})
+}
+
+// bigtableBackupInfo describes a backup as the operations that read from it
+// report it.
+func bigtableBackupInfo(backup *btadmin.Backup) *btadmin.BackupInfo {
+	return &btadmin.BackupInfo{
+		Backup:       backup.GetName(),
+		StartTime:    backup.GetStartTime(),
+		EndTime:      backup.GetEndTime(),
+		SourceTable:  backup.GetSourceTable(),
+		SourceBackup: backup.GetSourceBackup(),
+	}
+}
+
+// bigtableCompleteProgress is the progress of an operation that finished
+// inside the request that started it.
+func bigtableCompleteProgress(requested time.Time) *btadmin.OperationProgress {
+	return &btadmin.OperationProgress{
+		ProgressPercent: 100,
+		StartTime:       timestamppb.New(requested),
+		EndTime:         timestamppb.Now(),
+	}
 }
 
 func (s *bigtableTableAdminGRPC) GetBackup(_ context.Context, req *btadmin.GetBackupRequest) (*btadmin.Backup, error) {
@@ -1338,6 +1476,7 @@ func bigtableSnapshotKind() bigtableResourceKind {
 
 // SnapshotTable copies a table into a snapshot in the named cluster.
 func (s *bigtableTableAdminGRPC) SnapshotTable(_ context.Context, req *btadmin.SnapshotTableRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	table, err := bigtableRequireTable(req.GetName())
 	if err != nil {
 		return nil, err
@@ -1353,6 +1492,8 @@ func (s *bigtableTableAdminGRPC) SnapshotTable(_ context.Context, req *btadmin.S
 		CreateTime:  timestamppb.New(now),
 		State:       btadmin.Snapshot_READY,
 		Description: req.GetDescription(),
+		// data_size_bytes is the size of the table's data the snapshot holds.
+		DataSizeBytes: btTableSizeBytes(table.Name),
 	}
 	// A snapshot's ttl is how long it lives; the delete time it implies is what
 	// a client reads back.
@@ -1370,8 +1511,11 @@ func (s *bigtableTableAdminGRPC) SnapshotTable(_ context.Context, req *btadmin.S
 	if err != nil {
 		return nil, err
 	}
-	created.DataSizeBytes = int64(btCaptureRowCount(name))
-	return bigtableDoneOperation(name, created)
+	return bigtableDoneOperation(name, created, &btadmin.SnapshotTableMetadata{
+		OriginalRequest: proto.CloneOf(req),
+		RequestTime:     timestamppb.New(requested),
+		FinishTime:      timestamppb.Now(),
+	})
 }
 
 func (s *bigtableTableAdminGRPC) GetSnapshot(_ context.Context, req *btadmin.GetSnapshotRequest) (*btadmin.Snapshot, error) {
@@ -1401,6 +1545,7 @@ func (s *bigtableTableAdminGRPC) DeleteSnapshot(_ context.Context, req *btadmin.
 // CreateTableFromSnapshot creates a table holding the rows its snapshot
 // captured.
 func (s *bigtableTableAdminGRPC) CreateTableFromSnapshot(_ context.Context, req *btadmin.CreateTableFromSnapshotRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	name, err := bigtableInstanceChild(req.GetParent(), "tables", req.GetTableId(), "table_id")
 	if err != nil {
 		return nil, err
@@ -1418,12 +1563,17 @@ func (s *bigtableTableAdminGRPC) CreateTableFromSnapshot(_ context.Context, req 
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "snapshot %q not found", req.GetSourceSnapshot())
 	}
-	return bigtableDoneOperation(name, bigtableTableToPB(table))
+	return bigtableDoneOperation(name, bigtableTableToPB(table), &btadmin.CreateTableFromSnapshotMetadata{
+		OriginalRequest: proto.CloneOf(req),
+		RequestTime:     timestamppb.New(requested),
+		FinishTime:      timestamppb.Now(),
+	})
 }
 
 // CopyBackup copies a backup into a cluster, carrying the source's table and
 // size across and taking a new expiry from the request.
 func (s *bigtableTableAdminGRPC) CopyBackup(_ context.Context, req *btadmin.CopyBackupRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	name, err := bigtableClusterChild(req.GetParent(), "backups", req.GetBackupId(), "backup_id")
 	if err != nil {
 		return nil, err
@@ -1435,10 +1585,14 @@ func (s *bigtableTableAdminGRPC) CopyBackup(_ context.Context, req *btadmin.Copy
 	if err != nil {
 		return nil, err
 	}
+	// A copy holds the source's data as of the source's own capture, so it
+	// carries the source's start and end times.
 	body, err := bigtableCreateResource(bigtableBackupKind(), name, &btadmin.Backup{
 		SourceTable:  source.GetSourceTable(),
 		SourceBackup: req.GetSourceBackup(),
 		ExpireTime:   req.GetExpireTime(),
+		StartTime:    source.GetStartTime(),
+		EndTime:      source.GetEndTime(),
 		SizeBytes:    source.GetSizeBytes(),
 		State:        btadmin.Backup_READY,
 	})
@@ -1450,13 +1604,18 @@ func (s *bigtableTableAdminGRPC) CopyBackup(_ context.Context, req *btadmin.Copy
 	if err != nil {
 		return nil, err
 	}
-	return bigtableDoneOperation(name, created)
+	return bigtableDoneOperation(name, created, &btadmin.CopyBackupMetadata{
+		Name:             name,
+		SourceBackupInfo: bigtableBackupInfo(source),
+		Progress:         bigtableCompleteProgress(requested),
+	})
 }
 
 // RestoreTable creates a table from a backup. A backup records the metadata of
 // the table it was taken from — this store keeps no copy of the rows — so the
 // restored table arrives with the instance's cluster states and no data.
 func (s *bigtableTableAdminGRPC) RestoreTable(_ context.Context, req *btadmin.RestoreTableRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	name, err := bigtableInstanceChild(req.GetParent(), "tables", req.GetTableId(), "table_id")
 	if err != nil {
 		return nil, err
@@ -1467,6 +1626,10 @@ func (s *bigtableTableAdminGRPC) RestoreTable(_ context.Context, req *btadmin.Re
 	if _, ok := bigtableBackups.Get(req.GetBackup()); !ok {
 		return nil, status.Errorf(codes.NotFound, "backup %q not found", req.GetBackup())
 	}
+	backup, err := bigtableReadResource(bigtableBackupKind(), req.GetBackup(), &btadmin.Backup{})
+	if err != nil {
+		return nil, err
+	}
 	if _, ok := bigtableTables.Get(name); ok {
 		return nil, status.Errorf(codes.AlreadyExists, "table %q already exists", name)
 	}
@@ -1474,12 +1637,20 @@ func (s *bigtableTableAdminGRPC) RestoreTable(_ context.Context, req *btadmin.Re
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "backup %q not found", req.GetBackup())
 	}
-	return bigtableDoneOperation(name, bigtableTableToPB(table))
+	// No optimization follows the restore, so optimize_table_operation_name
+	// stays empty.
+	return bigtableDoneOperation(name, bigtableTableToPB(table), &btadmin.RestoreTableMetadata{
+		Name:       name,
+		SourceType: btadmin.RestoreSourceType_BACKUP,
+		SourceInfo: &btadmin.RestoreTableMetadata_BackupInfo{BackupInfo: bigtableBackupInfo(backup)},
+		Progress:   bigtableCompleteProgress(requested),
+	})
 }
 
 // Table admin: authorized views
 
 func (s *bigtableTableAdminGRPC) CreateAuthorizedView(_ context.Context, req *btadmin.CreateAuthorizedViewRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	name, err := bigtableTableChild(req.GetParent(), "authorizedViews", req.GetAuthorizedViewId(), "authorized_view_id")
 	if err != nil {
 		return nil, err
@@ -1495,7 +1666,11 @@ func (s *bigtableTableAdminGRPC) CreateAuthorizedView(_ context.Context, req *bt
 	if err != nil {
 		return nil, err
 	}
-	return bigtableDoneOperation(name, created)
+	return bigtableDoneOperation(name, created, &btadmin.CreateAuthorizedViewMetadata{
+		OriginalRequest: proto.CloneOf(req),
+		RequestTime:     timestamppb.New(requested),
+		FinishTime:      timestamppb.Now(),
+	})
 }
 
 func (s *bigtableTableAdminGRPC) GetAuthorizedView(_ context.Context, req *btadmin.GetAuthorizedViewRequest) (*btadmin.AuthorizedView, error) {
@@ -1532,6 +1707,7 @@ func bigtableAuthorizedViewForResponseView(view *btadmin.AuthorizedView, respons
 }
 
 func (s *bigtableTableAdminGRPC) UpdateAuthorizedView(_ context.Context, req *btadmin.UpdateAuthorizedViewRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	view := req.GetAuthorizedView()
 	if view.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "authorized_view.name is required")
@@ -1544,7 +1720,11 @@ func (s *bigtableTableAdminGRPC) UpdateAuthorizedView(_ context.Context, req *bt
 	if err != nil {
 		return nil, err
 	}
-	return bigtableDoneOperation(view.GetName(), updated)
+	return bigtableDoneOperation(view.GetName(), updated, &btadmin.UpdateAuthorizedViewMetadata{
+		OriginalRequest: proto.CloneOf(req),
+		RequestTime:     timestamppb.New(requested),
+		FinishTime:      timestamppb.Now(),
+	})
 }
 
 func (s *bigtableTableAdminGRPC) DeleteAuthorizedView(_ context.Context, req *btadmin.DeleteAuthorizedViewRequest) (*emptypb.Empty, error) {
@@ -1557,6 +1737,7 @@ func (s *bigtableTableAdminGRPC) DeleteAuthorizedView(_ context.Context, req *bt
 // Table admin: schema bundles
 
 func (s *bigtableTableAdminGRPC) CreateSchemaBundle(_ context.Context, req *btadmin.CreateSchemaBundleRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	name, err := bigtableTableChild(req.GetParent(), "schemaBundles", req.GetSchemaBundleId(), "schema_bundle_id")
 	if err != nil {
 		return nil, err
@@ -1572,7 +1753,11 @@ func (s *bigtableTableAdminGRPC) CreateSchemaBundle(_ context.Context, req *btad
 	if err != nil {
 		return nil, err
 	}
-	return bigtableDoneOperation(name, created)
+	return bigtableDoneOperation(name, created, &btadmin.CreateSchemaBundleMetadata{
+		Name:      name,
+		StartTime: timestamppb.New(requested),
+		EndTime:   timestamppb.Now(),
+	})
 }
 
 func (s *bigtableTableAdminGRPC) GetSchemaBundle(_ context.Context, req *btadmin.GetSchemaBundleRequest) (*btadmin.SchemaBundle, error) {
@@ -1592,6 +1777,7 @@ func (s *bigtableTableAdminGRPC) ListSchemaBundles(_ context.Context, req *btadm
 }
 
 func (s *bigtableTableAdminGRPC) UpdateSchemaBundle(_ context.Context, req *btadmin.UpdateSchemaBundleRequest) (*longrunningpb.Operation, error) {
+	requested := time.Now()
 	bundle := req.GetSchemaBundle()
 	if bundle.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "schema_bundle.name is required")
@@ -1604,7 +1790,11 @@ func (s *bigtableTableAdminGRPC) UpdateSchemaBundle(_ context.Context, req *btad
 	if err != nil {
 		return nil, err
 	}
-	return bigtableDoneOperation(bundle.GetName(), updated)
+	return bigtableDoneOperation(bundle.GetName(), updated, &btadmin.UpdateSchemaBundleMetadata{
+		Name:      bundle.GetName(),
+		StartTime: timestamppb.New(requested),
+		EndTime:   timestamppb.Now(),
+	})
 }
 
 func (s *bigtableTableAdminGRPC) DeleteSchemaBundle(_ context.Context, req *btadmin.DeleteSchemaBundleRequest) (*emptypb.Empty, error) {

@@ -120,6 +120,7 @@ func handleBigtableGetMemoryLayer(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtableUpdateMemoryLayer(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	name := bigtableClusterName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster")) + bigtableMemoryLayerSuffix
 	var req bigtableMemoryLayer
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -139,7 +140,16 @@ func handleBigtableUpdateMemoryLayer(w http.ResponseWriter, r *http.Request) {
 		GCPStatusError(w, err)
 		return
 	}
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), layer, "type.googleapis.com/google.bigtable.admin.v2.MemoryLayer")
+	requestLayer := map[string]any{"name": name}
+	if req.MemoryConfig != nil {
+		requestLayer["memoryConfig"] = req.MemoryConfig
+	}
+	if req.Etag != "" {
+		requestLayer["etag"] = req.Etag
+	}
+	original := map[string]any{"memoryLayer": requestLayer, "updateMask": r.URL.Query().Get("updateMask")}
+	op := newBigtableAdminLRO(sim.PathParam(r, "project"), layer, "type.googleapis.com/google.bigtable.admin.v2.MemoryLayer",
+		bigtableAdminMetadata("UpdateMemoryLayerMetadata", bigtableRequestTimes(original, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -195,7 +205,7 @@ func (s *bigtableInstanceAdminGRPC) UpdateMemoryLayer(_ context.Context, req *bt
 		RequestTime:     timestamppb.New(requested),
 		FinishTime:      timestamppb.Now(),
 	}
-	return bigtableDoneOperationWithMetadata(layer.Name, bigtableMemoryLayerToPB(layer), metadata)
+	return bigtableDoneOperation(layer.Name, bigtableMemoryLayerToPB(layer), metadata)
 }
 
 func (s *bigtableInstanceAdminGRPC) ListMemoryLayers(_ context.Context, req *btadmin.ListMemoryLayersRequest) (*btadmin.ListMemoryLayersResponse, error) {

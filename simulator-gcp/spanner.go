@@ -563,23 +563,34 @@ func handleSpannerCreateInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	inst.State = "READY"
 	spannerInstances.Put(inst.Name, inst)
-	op := newSpannerInstanceLRO(project, instanceID, inst, "type.googleapis.com/google.spanner.admin.instance.v1.Instance")
+	op := newSpannerInstanceLRO(project, instanceID, inst, "type.googleapis.com/google.spanner.admin.instance.v1.Instance", "CreateInstanceMetadata")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
-func newSpannerInstanceLRO(project, instance string, resource any, typeName string) Operation {
-	op := newLRO(project, "global", resource, typeName)
+// newSpannerInstanceLRO records a finished instance operation. Its
+// CreateInstanceMetadata or UpdateInstanceMetadata carries the instance and
+// the operation's start and end times.
+func newSpannerInstanceLRO(project, instance string, resource any, typeName, metadataMessage string) Operation {
+	op := newLRO(project, "global", resource, typeName, func(response map[string]any) map[string]any {
+		now := nowTimestamp()
+		instance := cloneAnyMap(response)
+		delete(instance, "@type")
+		return map[string]any{
+			"@type":     "type.googleapis.com/google.spanner.admin.instance.v1." + metadataMessage,
+			"instance":  instance,
+			"startTime": now,
+			"endTime":   now,
+		}
+	})
 	return renameGCPOperation(op, fmt.Sprintf("projects/%s/instances/%s/operations", project, instance))
 }
 
 func newSpannerDatabaseLRO(project, instance, database string, resource any, typeName string) Operation {
-	op := newLRO(project, "global", resource, typeName)
 	databaseName := spannerDatabaseName(project, instance, database)
-	op.Metadata = map[string]any{
+	op := newLRO(project, "global", resource, typeName, gcpFixedOperationMetadata(map[string]any{
 		"@type":    "type.googleapis.com/google.spanner.admin.database.v1.CreateDatabaseMetadata",
 		"database": databaseName,
-		"resource": databaseName,
-	}
+	}))
 	return renameGCPOperation(op, fmt.Sprintf("projects/%s/instances/%s/databases/%s/operations", project, instance, database))
 }
 
@@ -664,7 +675,7 @@ func handleSpannerUpdateInstance(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	spannerInstances.Put(name, inst)
-	op := newSpannerInstanceLRO(project, instanceID, inst, "type.googleapis.com/google.spanner.admin.instance.v1.Instance")
+	op := newSpannerInstanceLRO(project, instanceID, inst, "type.googleapis.com/google.spanner.admin.instance.v1.Instance", "UpdateInstanceMetadata")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -913,8 +924,20 @@ func spannerInstanceConfigName(project, config string) string {
 	return fmt.Sprintf("projects/%s/instanceConfigs/%s", project, config)
 }
 
-func newSpannerInstanceConfigLRO(project, config string, resource any, typeName string) Operation {
-	op := newLRO(project, "global", resource, typeName)
+// newSpannerInstanceConfigLRO records a finished instance configuration
+// operation. Its CreateInstanceConfigMetadata or UpdateInstanceConfigMetadata
+// carries the configuration and the operation's completed progress.
+func newSpannerInstanceConfigLRO(project, config string, resource any, typeName, metadataMessage string) Operation {
+	op := newLRO(project, "global", resource, typeName, func(response map[string]any) map[string]any {
+		now := nowTimestamp()
+		instanceConfig := cloneAnyMap(response)
+		delete(instanceConfig, "@type")
+		return map[string]any{
+			"@type":          "type.googleapis.com/google.spanner.admin.instance.v1." + metadataMessage,
+			"instanceConfig": instanceConfig,
+			"progress":       map[string]any{"progressPercent": 100, "startTime": now, "endTime": now},
+		}
+	})
 	return renameGCPOperation(op, fmt.Sprintf("projects/%s/instanceConfigs/%s/operations", project, config))
 }
 
@@ -950,12 +973,12 @@ func handleSpannerCreateInstanceConfig(w http.ResponseWriter, r *http.Request) {
 		cfg.Etag = sim.NewUUID()
 	}
 	if req.ValidateOnly {
-		op := newSpannerInstanceConfigLRO(project, configID, cfg, "type.googleapis.com/google.spanner.admin.instance.v1.InstanceConfig")
+		op := newSpannerInstanceConfigLRO(project, configID, cfg, "type.googleapis.com/google.spanner.admin.instance.v1.InstanceConfig", "CreateInstanceConfigMetadata")
 		sim.WriteJSON(w, http.StatusOK, op)
 		return
 	}
 	spannerInstanceConfigs.Put(cfg.Name, cfg)
-	op := newSpannerInstanceConfigLRO(project, configID, cfg, "type.googleapis.com/google.spanner.admin.instance.v1.InstanceConfig")
+	op := newSpannerInstanceConfigLRO(project, configID, cfg, "type.googleapis.com/google.spanner.admin.instance.v1.InstanceConfig", "CreateInstanceConfigMetadata")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1005,7 +1028,7 @@ func handleSpannerUpdateInstanceConfig(w http.ResponseWriter, r *http.Request) {
 	if !req.ValidateOnly {
 		spannerInstanceConfigs.Put(name, cfg)
 	}
-	op := newSpannerInstanceConfigLRO(project, configID, cfg, "type.googleapis.com/google.spanner.admin.instance.v1.InstanceConfig")
+	op := newSpannerInstanceConfigLRO(project, configID, cfg, "type.googleapis.com/google.spanner.admin.instance.v1.InstanceConfig", "UpdateInstanceConfigMetadata")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 

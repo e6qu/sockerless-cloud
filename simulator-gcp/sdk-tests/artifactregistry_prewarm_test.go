@@ -1,6 +1,8 @@
 package gcp_sdk_test
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
@@ -41,6 +43,13 @@ func TestArtifactRegistry_PrewarmedArtifactLifecycle(t *testing.T) {
 		&artifactregistry.PrewarmArtifactRequest{Tag: tagName, StreamLocation: "us-west4"}).Do()
 	require.NoError(t, err)
 	assert.True(t, op.Done)
+	require.True(t, strings.HasPrefix(op.Name, parent+"/operations/"), "operation %q is not in the operations collection", op.Name)
+	fetched, err := svc.Projects.Locations.Operations.Get(op.Name).Do()
+	require.NoError(t, err, "operations.get reads the prewarm operation")
+	var prewarmed artifactregistry.PrewarmArtifactResponse
+	require.NoError(t, json.Unmarshal(fetched.Response, &prewarmed))
+	require.NotNil(t, prewarmed.PrewarmedArtifact)
+	assert.Equal(t, "us-west4", prewarmed.PrewarmedArtifact.Location)
 
 	// The uri is the registry address, not the resource name.
 	list, err = svc.Projects.Locations.Repositories.PrewarmedArtifacts.List(repoName).Do()

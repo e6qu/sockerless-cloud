@@ -885,6 +885,13 @@ func TestIAM_WorkloadIdentityPoolCRUD(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, prov.Done)
 	provName := name + "/providers/github-provider"
+	var poolMeta, provMeta map[string]any
+	require.NoError(t, json.Unmarshal(op.Metadata, &poolMeta))
+	assert.Equal(t, map[string]any{"@type": "type.googleapis.com/google.iam.v1.WorkloadIdentityPoolOperationMetadata"}, poolMeta)
+	require.NoError(t, json.Unmarshal(prov.Metadata, &provMeta))
+	assert.Equal(t, "type.googleapis.com/google.iam.v1.OperationMetadata", provMeta["@type"])
+	assert.Equal(t, "create", provMeta["verb"])
+	assert.Equal(t, provName, provMeta["target"])
 	gotProv, err := svc.Projects.Locations.WorkloadIdentityPools.Providers.Get(provName).Do()
 	require.NoError(t, err)
 	assert.Equal(t, provName, gotProv.Name)

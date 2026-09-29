@@ -39,7 +39,15 @@ func (r *AWSRouter) Targets() []string {
 // as an external SDK request without making a loopback HTTP call.
 func (r *AWSRouter) Handler(target string) (http.HandlerFunc, bool) {
 	handler, ok := r.handlers[target]
-	return handler, ok
+	if !ok {
+		return nil, false
+	}
+	// An in-process caller serves the handler on its own writer, which no
+	// request middleware saw, so scope that writer to the target's service.
+	model := awsErrorModelForTarget(target)
+	return func(w http.ResponseWriter, req *http.Request) {
+		awsErrorModelScope(w, model, func() { handler(w, req) })
+	}, true
 }
 
 // ServeHTTP dispatches to the handler matching the X-Amz-Target header.

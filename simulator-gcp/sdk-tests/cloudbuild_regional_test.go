@@ -2,6 +2,7 @@ package gcp_sdk_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	cloudbuild "google.golang.org/api/cloudbuild/v1"
@@ -141,6 +142,16 @@ func TestCloudBuild_BitbucketConnectedRepositories(t *testing.T) {
 		}).Do()
 	require.NoError(t, err)
 	require.True(t, op.Done)
+	require.True(t, strings.HasPrefix(op.Name, parent+"/operations/"), "operation %q is not in the regional operations collection", op.Name)
+	fetched, err := svc.Projects.Locations.Operations.Get(op.Name).Do()
+	require.NoError(t, err)
+	var response cloudbuild.BatchCreateBitbucketServerConnectedRepositoriesResponse
+	require.NoError(t, json.Unmarshal(fetched.Response, &response))
+	require.Len(t, response.BitbucketServerConnectedRepositories, 1)
+	assert.Equal(t, "app", response.BitbucketServerConnectedRepositories[0].Repo.RepoSlug)
+	var metadata cloudbuild.BatchCreateBitbucketServerConnectedRepositoriesResponseMetadata
+	require.NoError(t, json.Unmarshal(fetched.Metadata, &metadata))
+	assert.Equal(t, configName, metadata.Config)
 
 	// The connection is recorded on the config, not just acknowledged.
 	config, err := svc.Projects.Locations.BitbucketServerConfigs.Get(configName).Do()

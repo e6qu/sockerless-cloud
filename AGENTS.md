@@ -110,6 +110,10 @@ Because subdirectory Go modules can only be version-tagged with `<subdir>/vX.Y.Z
 
 If CI fails or tests fail, fix the issue — even if the failure is "pre-existing" and not caused by the current change. We do not tolerate broken CI on any branch.
 
+A flaky test and a slow test are bugs too. A test that fails only sometimes has a cause: find it and fix it, in the simulator or in the test, instead of re-running, raising a timeout or loosening an assertion. A test that runs slowly is waiting on something: a fixed sleep, a poll interval, a timer the cloud does not have, or work repeated per test. Remove the wait at its root, by waiting on the event itself or honouring the cloud's own configuration knob, never by trimming a sleep to a smaller constant. Until the fix lands, the flake or the slow test has a row in `BUGS.md`.
+
+Fixed sleeps and polling loops in tests are a pattern to avoid. A test waits on the event it cares about: the SDK's own waiter or poller, the long-running operation's completion, a long-poll or watch API the cloud offers, a receive that blocks until delivery, or a channel or hook the test itself controls in a unit test. Poll only where the cloud exposes nothing to wait on, and then poll the cloud's own status field on the cloud's own documented cadence — never sleep a fixed time and then assert.
+
 ## Never ignore or work around a pre-commit / pre-push failure
 
 A hook failure — even one that looks incidental — is flagging a real problem. **Fix the underlying problem the hook points at.** Never bypass it: no `--no-verify`, no commenting the hook out, no narrowing its scope. If you believe a hook is genuinely wrong, **stop and ask the user**.

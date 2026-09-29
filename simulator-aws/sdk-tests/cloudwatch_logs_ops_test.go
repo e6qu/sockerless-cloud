@@ -286,3 +286,40 @@ func TestLogs_DataProtectionPolicy(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// TestLogs_TestMetricFilterJSONKeywordTests runs the JSON pattern tests IS
+// NULL, NOT EXISTS, IS TRUE and IS FALSE through TestMetricFilter.
+func TestLogs_TestMetricFilterJSONKeywordTests(t *testing.T) {
+	cw := cwLogsClient()
+	events := []string{
+		`{"user":"alice","admin":true,"sourceIp":null}`,
+		`{"user":"bob","admin":false,"sourceIp":"10.0.0.7"}`,
+		`{"user":"carol","admin":"true"}`,
+	}
+	for pattern, want := range map[string][]int64{
+		`{ $.sourceIp IS NULL }`:                       {1},
+		`{ $.sourceIp NOT EXISTS }`:                    {3},
+		`{ $.admin IS TRUE }`:                          {1},
+		`{ $.admin IS FALSE }`:                         {2},
+		`{ $.admin IS TRUE || $.sourceIp NOT EXISTS }`: {1, 3},
+	} {
+		out, err := cw.TestMetricFilter(ctx, &cloudwatchlogs.TestMetricFilterInput{
+			FilterPattern:    aws.String(pattern),
+			LogEventMessages: events,
+		})
+		require.NoError(t, err, pattern)
+		var got []int64
+		for _, match := range out.Matches {
+			got = append(got, match.EventNumber)
+		}
+		assert.Equal(t, want, got, pattern)
+	}
+
+	_, err := cw.TestMetricFilter(ctx, &cloudwatchlogs.TestMetricFilterInput{
+		FilterPattern:    aws.String(`{ $.admin IS MAYBE }`),
+		LogEventMessages: events,
+	})
+	var invalid *cwlogtypes.InvalidParameterException
+	require.ErrorAs(t, err, &invalid)
+	assert.Contains(t, invalid.ErrorMessage(), `IS on "$.admin" must be followed by NULL, TRUE or FALSE`)
+}

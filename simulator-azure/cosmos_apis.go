@@ -294,12 +294,8 @@ func cosmosMigrateThroughput(w http.ResponseWriter, r *http.Request, toAutoscale
 	id = strings.TrimSuffix(id, "/migrateToManualThroughput")
 	t, ok := cosmosThroughputs.Get(id)
 	if !ok {
-		t = CosmosThroughput{
-			ID:         id,
-			Name:       "default",
-			Type:       cosmosThroughputTypeFromPath(id),
-			Properties: map[string]any{"resource": map[string]any{"throughput": float64(400)}},
-		}
+		cosmosThroughputNotFound(w, id)
+		return
 	}
 	if t.Properties == nil {
 		t.Properties = map[string]any{}

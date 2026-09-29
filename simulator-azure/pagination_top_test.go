@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -54,6 +56,44 @@ func TestAzurePageRejectsForeignSkipToken(t *testing.T) {
 		}
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), c.code) {
 			t.Errorf("got %d %s, want 400 %s", rec.Code, rec.Body.String(), c.code)
+		}
+	}
+}
+
+// Key Vault declares maxresults from 1 to 25 on every data-plane list, and
+// refuses a page size outside that range instead of serving it.
+func TestKvPageRefusesMaxResultsOutsideOneToTwentyFive(t *testing.T) {
+	items := make([]int, 40)
+	for i := range items {
+		items[i] = i
+	}
+	for _, raw := range []string{"26", "100", "0", "-1", "ten"} {
+		rec := httptest.NewRecorder()
+		if page, _, ok := kvPage(rec, httptest.NewRequest("GET", "/secrets?maxresults="+raw, nil), items); ok {
+			t.Fatalf("maxresults=%s was served as a page of %d", raw, len(page))
+		}
+		var body struct {
+			Error struct{ Code, Message string } `json:"error"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("maxresults=%s: error body %q: %v", raw, rec.Body.String(), err)
+		}
+		if rec.Code != http.StatusBadRequest || body.Error.Code != "BadParameter" || !strings.Contains(body.Error.Message, "maxresults") {
+			t.Errorf("maxresults=%s: got %d %+v, want 400 BadParameter naming maxresults", raw, rec.Code, body.Error)
+		}
+	}
+	for raw, want := range map[string]int{"1": 1, "25": 25, "": 25} {
+		target := "/secrets"
+		if raw != "" {
+			target += "?maxresults=" + raw
+		}
+		rec := httptest.NewRecorder()
+		page, next, ok := kvPage(rec, httptest.NewRequest("GET", target, nil), items)
+		if !ok {
+			t.Fatalf("maxresults=%q refused: %d %s", raw, rec.Code, rec.Body.String())
+		}
+		if len(page) != want || page[0] != 0 || next != strconv.Itoa(want) {
+			t.Errorf("maxresults=%q: page of %d next %q, want %d next %q", raw, len(page), next, want, strconv.Itoa(want))
 		}
 	}
 }

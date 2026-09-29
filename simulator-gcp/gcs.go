@@ -343,6 +343,7 @@ func persistGCSObject(objects sim.PrefixStore[GCSObject], bucketName, objectName
 		gcsSeedObjectACL(bucketName, objectName, obj.Generation)
 	}
 	gcsMirror(obj)
+	gcsNotifyWrite(obj, existing, existed)
 	return obj, nil
 }
 
@@ -936,6 +937,7 @@ func registerGCS(srv *sim.Server) {
 		if res.Acl != nil {
 			gcsReplaceObjectACL(bucketName, objectName, obj.Generation, *res.Acl)
 		}
+		gcsNotify(gcsEventMetadataUpdate, obj, nil)
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, obj))
 	}
 	srv.HandleFunc("PATCH /storage/v1/b/{bucket}/o/{object...}", patchObject)
@@ -973,6 +975,7 @@ func registerGCS(srv *sim.Server) {
 		// destroyed, and its payload is retained for objects.restore to bring
 		// back. Without one it is destroyed here, bytes included.
 		gcsRetireObject(bucket, bucketName, obj)
+		gcsNotify(gcsEventDelete, obj, nil)
 
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -1572,8 +1575,6 @@ type GCSNotification struct {
 	CustomAttributes map[string]string `json:"custom_attributes,omitempty"`
 	ObjectNamePrefix string            `json:"object_name_prefix,omitempty"`
 	Etag             string            `json:"etag,omitempty"`
-
-	bucket string // unexported: store-key scoping, never serialized
 }
 
 // GCSHmacKey mirrors the storage#hmacKeyMetadata resource. The secret is
@@ -2141,24 +2142,17 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 }
 
 func registerGCSNotifications(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
-	key := func(bucket, id string) string { return bucket + "\x00" + id }
-
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/notificationConfigs", func(w http.ResponseWriter, r *http.Request) {
 		bucket := sim.PathParam(r, "bucket")
 		if !bucketExists(w, bucket) {
 			return
 		}
-		items := gcsNotifications.Filter(func(n GCSNotification) bool { return n.bucket == bucket })
-		sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-		if items == nil {
-			items = []GCSNotification{}
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "storage#notifications", "items": items})
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "storage#notifications", "items": gcsBucketNotifications(bucket)})
 	})
 
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/notificationConfigs/{notification}", func(w http.ResponseWriter, r *http.Request) {
 		bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "notification")
-		n, ok := gcsNotifications.Get(key(bucket, id))
+		n, ok := gcsNotifications.Get(gcsNotificationKey(bucket, id))
 		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "notification %q not found in bucket %q", id, bucket)
 			return
@@ -2180,21 +2174,20 @@ func registerGCSNotifications(srv *sim.Server, buckets sim.Store[Bucket], bucket
 			GCPError(w, http.StatusBadRequest, "topic is required", "INVALID_ARGUMENT")
 			return
 		}
-		id := strconv.FormatInt(int64(gcsNotifications.Len()+1), 10)
+		id := gcsNextNotificationID(bucket)
 		in.Kind = "storage#notification"
 		in.ID = id
-		in.bucket = bucket
 		if in.PayloadFormat == "" {
 			in.PayloadFormat = "JSON_API_V1"
 		}
 		in.SelfLink = gcpSelfLink(r, "/storage/v1/b/"+bucket+"/notificationConfigs/"+id)
-		gcsNotifications.Put(key(bucket, id), in)
+		gcsNotifications.Put(gcsNotificationKey(bucket, id), in)
 		sim.WriteJSON(w, http.StatusOK, in)
 	})
 
 	srv.HandleFunc("DELETE /storage/v1/b/{bucket}/notificationConfigs/{notification}", func(w http.ResponseWriter, r *http.Request) {
 		bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "notification")
-		if !gcsNotifications.Delete(key(bucket, id)) {
+		if !gcsNotifications.Delete(gcsNotificationKey(bucket, id)) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "notification %q not found in bucket %q", id, bucket)
 			return
 		}

@@ -772,7 +772,7 @@ func TestAmplifyDeploymentFlow(t *testing.T) {
 	require.NotEmpty(t, zipURL)
 	require.NotNil(t, createDep.FileUploadUrls)
 
-	zipBytes := []byte("PK\x03\x04 sdk deployment payload " + depJobID)
+	zipBytes := amplifyZipBytes(t, map[string][]byte{"index.html": []byte("<h1>sdk deployment " + depJobID + "</h1>")})
 	putReq, err := http.NewRequestWithContext(ctx, http.MethodPut, zipURL, bytes.NewReader(zipBytes))
 	require.NoError(t, err)
 	putReq.Header.Set("Content-Type", "application/zip")
@@ -830,7 +830,7 @@ func TestAmplifyDeploymentFlow(t *testing.T) {
 	require.ErrorAs(t, err, &notFound)
 
 	// sourceUrl-style deployment fetches real bytes from the external source.
-	sourceBytes := []byte("PK\x03\x04 external deployment archive")
+	sourceBytes := amplifyZipBytes(t, map[string][]byte{"index.html": []byte("<h1>external deployment archive</h1>")})
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
 		w.Header().Set("Content-Type", "application/zip")

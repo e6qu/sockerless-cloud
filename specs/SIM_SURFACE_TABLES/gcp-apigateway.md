@@ -17,22 +17,22 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v1/projects/{project}/locations/global/apis` | ✓ `simulator-gcp/apigateway.go:58::handleGCPAPIGWCreateApi` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/global/apis/{api}` | ✓ `simulator-gcp/apigateway.go:59::handleGCPAPIGWGetApi` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/global/apis` | ✓ `simulator-gcp/apigateway.go:60::handleGCPAPIGWListApis` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v1/projects/{project}/locations/global/apis/{api}` | ✓ `simulator-gcp/apigateway.go:61::handleGCPAPIGWPatchApi` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}/locations/global/apis/{api}` | ✓ `simulator-gcp/apigateway.go:62::handleGCPAPIGWDeleteApi` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/locations/global/apis/{api}/configs` | ✓ `simulator-gcp/apigateway.go:65::handleGCPAPIGWCreateConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/global/apis/{api}/configs/{cfg}` | ✓ `simulator-gcp/apigateway.go:66::handleGCPAPIGWGetConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/global/apis/{api}/configs` | ✓ `simulator-gcp/apigateway.go:67::handleGCPAPIGWListConfigs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v1/projects/{project}/locations/global/apis/{api}/configs/{cfg}` | ✓ `simulator-gcp/apigateway.go:68::handleGCPAPIGWPatchConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}/locations/global/apis/{api}/configs/{cfg}` | ✓ `simulator-gcp/apigateway.go:69::handleGCPAPIGWDeleteConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/locations/{location}/gateways` | ✓ `simulator-gcp/apigateway.go:72::handleGCPAPIGWCreateGateway` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/{location}/gateways/{gw}` | ✓ `simulator-gcp/apigateway.go:73::handleGCPAPIGWGetGateway` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/{location}/gateways` | ✓ `simulator-gcp/apigateway.go:74::handleGCPAPIGWListGateways` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v1/projects/{project}/locations/{location}/gateways/{gw}` | ✓ `simulator-gcp/apigateway.go:75::handleGCPAPIGWPatchGateway` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}/locations/{location}/gateways/{gw}` | ✓ `simulator-gcp/apigateway.go:76::handleGCPAPIGWDeleteGateway` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/locations/{location}/gateways/{gwAction}` | ✓ `simulator-gcp/apigateway.go:83::handleGCPAPIGWIamAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/global/apis` | ✓ `simulator-gcp/apigateway.go:63::handleGCPAPIGWCreateApi` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/global/apis/{api}` | ✓ `simulator-gcp/apigateway.go:64::handleGCPAPIGWGetApi` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/global/apis` | ✓ `simulator-gcp/apigateway.go:65::handleGCPAPIGWListApis` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v1/projects/{project}/locations/global/apis/{api}` | ✓ `simulator-gcp/apigateway.go:66::handleGCPAPIGWPatchApi` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/projects/{project}/locations/global/apis/{api}` | ✓ `simulator-gcp/apigateway.go:67::handleGCPAPIGWDeleteApi` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/global/apis/{api}/configs` | ✓ `simulator-gcp/apigateway.go:70::handleGCPAPIGWCreateConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/global/apis/{api}/configs/{cfg}` | ✓ `simulator-gcp/apigateway.go:71::handleGCPAPIGWGetConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/global/apis/{api}/configs` | ✓ `simulator-gcp/apigateway.go:72::handleGCPAPIGWListConfigs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v1/projects/{project}/locations/global/apis/{api}/configs/{cfg}` | ✓ `simulator-gcp/apigateway.go:73::handleGCPAPIGWPatchConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/projects/{project}/locations/global/apis/{api}/configs/{cfg}` | ✓ `simulator-gcp/apigateway.go:74::handleGCPAPIGWDeleteConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/gateways` | ✓ `simulator-gcp/apigateway.go:77::handleGCPAPIGWCreateGateway` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/{location}/gateways/{gw}` | ✓ `simulator-gcp/apigateway.go:78::handleGCPAPIGWGetGateway` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/{location}/gateways` | ✓ `simulator-gcp/apigateway.go:79::handleGCPAPIGWListGateways` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v1/projects/{project}/locations/{location}/gateways/{gw}` | ✓ `simulator-gcp/apigateway.go:80::handleGCPAPIGWPatchGateway` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/projects/{project}/locations/{location}/gateways/{gw}` | ✓ `simulator-gcp/apigateway.go:81::handleGCPAPIGWDeleteGateway` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/gateways/{gwAction}` | ✓ `simulator-gcp/apigateway.go:88::handleGCPAPIGWIamAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

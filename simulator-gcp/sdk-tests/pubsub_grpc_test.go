@@ -206,10 +206,10 @@ func TestPubSub_GRPC_AckDeadlineRedelivery(t *testing.T) {
 	require.NoError(t, err)
 	defer topic.Delete(ctx)
 
-	// Short ack deadline so the sweeper requeues promptly.
+	// The shortest ack deadline a subscription takes, so the sweeper requeues promptly.
 	subName := "projects/ps-grpc-proj/subscriptions/rd-sub"
 	_, err = sc.CreateSubscription(ctx, &pubsubpb.Subscription{
-		Name: subName, Topic: topic.String(), AckDeadlineSeconds: 2,
+		Name: subName, Topic: topic.String(), AckDeadlineSeconds: 10,
 	})
 	require.NoError(t, err)
 	defer sc.DeleteSubscription(ctx, &pubsubpb.DeleteSubscriptionRequest{Subscription: subName})
@@ -222,7 +222,7 @@ func TestPubSub_GRPC_AckDeadlineRedelivery(t *testing.T) {
 	require.Len(t, first, 1, "first pull must return the published message")
 	require.Equal(t, "will-redeliver", string(first[0].GetMessage().GetData()))
 
-	// The sweeper runs every 1s; the deadline is 2s. Poll-until the message is
+	// The sweeper runs every 1s; the deadline is 10s. Poll-until the message is
 	// redelivered with a fresh ackId.
 	var redelivered *pubsubpb.ReceivedMessage
 	require.Eventually(t, func() bool {
@@ -232,7 +232,7 @@ func TestPubSub_GRPC_AckDeadlineRedelivery(t *testing.T) {
 		}
 		redelivered = got[0]
 		return true
-	}, 15*time.Second, 500*time.Millisecond, "unacked message must be redelivered after ack deadline")
+	}, 30*time.Second, 500*time.Millisecond, "unacked message must be redelivered after ack deadline")
 	require.Equal(t, "will-redeliver", string(redelivered.GetMessage().GetData()), "redelivered payload must match")
 	require.NotEqual(t, first[0].GetAckId(), redelivered.GetAckId(), "redelivery must carry a fresh ackId")
 }
@@ -256,7 +256,7 @@ func TestPubSub_GRPC_ModifyAckDeadline(t *testing.T) {
 
 	subName := "projects/ps-grpc-proj/subscriptions/mod-sub"
 	_, err = sc.CreateSubscription(ctx, &pubsubpb.Subscription{
-		Name: subName, Topic: topic.String(), AckDeadlineSeconds: 2,
+		Name: subName, Topic: topic.String(), AckDeadlineSeconds: 10,
 	})
 	require.NoError(t, err)
 	defer sc.DeleteSubscription(ctx, &pubsubpb.DeleteSubscriptionRequest{Subscription: subName})
@@ -273,9 +273,9 @@ func TestPubSub_GRPC_ModifyAckDeadline(t *testing.T) {
 	})
 	require.NoError(t, err, "ModifyAckDeadline")
 
-	// Within the original short deadline window, the message must NOT be
+	// Past the original 10-second deadline, the message must NOT be
 	// redelivered because the deadline was extended.
-	time.Sleep(4 * time.Second)
+	time.Sleep(12 * time.Second)
 	require.Empty(t, psPullN(t, sc, subName, 1), "extended message must not be redelivered before the new deadline")
 
 	// The same call in the other direction: a zero deadline expires the message

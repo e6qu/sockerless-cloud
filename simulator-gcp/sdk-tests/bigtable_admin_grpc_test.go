@@ -818,7 +818,9 @@ func TestBigtableAdminGRPC_SnapshotsAndCreateTableFromSnapshot(t *testing.T) {
 	assert.Equal(t, "before the migration", created.GetDescription())
 	assert.Equal(t, table, created.GetSourceTable().GetName())
 	assert.NotNil(t, created.GetDeleteTime(), "a ttl gives the snapshot a delete time")
-	assert.Equal(t, int64(2), created.GetDataSizeBytes(), "the snapshot reports what it captured")
+	// Two cells, each a three-byte row key, "cf", "name", an eight-byte
+	// timestamp and a three-byte value: 20 bytes apiece.
+	assert.Equal(t, int64(40), created.GetDataSizeBytes(), "the snapshot reports the bytes it captured")
 
 	_, err = ta.SnapshotTable(ctx, &adminpb.SnapshotTableRequest{
 		Name: instance + "/tables/missing", Cluster: cluster, SnapshotId: "bogus",
@@ -912,8 +914,20 @@ func TestBigtableAdminGRPC_Operations(t *testing.T) {
 	_, err = ops.CancelOperation(ctx, &longrunningpb.CancelOperationRequest{Name: operationsParent + "/operations/404"})
 	requireGRPCCode(t, err, codes.NotFound)
 
-	_, err = ops.ListOperations(ctx, &longrunningpb.ListOperationsRequest{Name: operationsParent, Filter: "done=true"})
-	requireGRPCCode(t, err, codes.Unimplemented)
+	// The filter is AIP-160 over the Operation message, and `done` is its proto
+	// bool: every operation here is done, so `done = false` selects none.
+	finished, err := ops.ListOperations(ctx, &longrunningpb.ListOperationsRequest{Name: operationsParent, Filter: "done=true"})
+	require.NoError(t, err)
+	finishedNames := make([]string, 0, len(finished.GetOperations()))
+	for _, op := range finished.GetOperations() {
+		finishedNames = append(finishedNames, op.GetName())
+	}
+	assert.ElementsMatch(t, names, finishedNames)
+	running, err := ops.ListOperations(ctx, &longrunningpb.ListOperationsRequest{Name: operationsParent, Filter: "done = false"})
+	require.NoError(t, err)
+	assert.Empty(t, running.GetOperations())
+	_, err = ops.ListOperations(ctx, &longrunningpb.ListOperationsRequest{Name: operationsParent, Filter: "done = (true"})
+	requireGRPCCode(t, err, codes.InvalidArgument)
 
 	_, err = ops.DeleteOperation(ctx, &longrunningpb.DeleteOperationRequest{Name: created.GetName()})
 	require.NoError(t, err)

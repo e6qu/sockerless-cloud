@@ -17,6 +17,7 @@ import (
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google/externalaccount"
 	"google.golang.org/api/iam/v1"
 )
@@ -294,4 +295,60 @@ func postTokenExchange(t *testing.T, form map[string]string) tokenExchangeRespon
 	var body map[string]string
 	_ = json.NewDecoder(resp.Body).Decode(&body)
 	return tokenExchangeResponse{status: resp.StatusCode, body: body}
+}
+
+// TestSTS_RevokeSessionsRevokesTheSubjectsTokens proves
+// workforcePools.subjects.revokeSessions revokes every access token already
+// issued to that subject: introspection reports the token inactive, and a
+// fresh exchange issues a token that works.
+func TestSTS_RevokeSessionsRevokesTheSubjectsTokens(t *testing.T) {
+	issuer := newOIDCIssuer(t)
+	const audience = "sockerless-console"
+	providerName := createWorkforceProvider(t, issuer.server.URL, audience)
+	exchange := func() string {
+		t.Helper()
+		source, err := externalaccount.NewTokenSource(context.Background(), externalaccount.Config{
+			Audience:             "//iam.googleapis.com/" + providerName,
+			SubjectTokenType:     "urn:ietf:params:oauth:token-type:jwt",
+			TokenURL:             baseURL + "/v1/token",
+			SubjectTokenSupplier: staticSubjectToken{token: issuer.mintAssertion(t, "revoked@example.test", audience, time.Now().Add(10*time.Minute))},
+			Scopes:               []string{"https://www.googleapis.com/auth/cloud-platform"},
+		})
+		require.NoError(t, err)
+		token, err := source.Token()
+		require.NoError(t, err)
+		return token.AccessToken
+	}
+	active := func(token string) any {
+		t.Helper()
+		status, body := postIntrospect(t, url.Values{"token": {token}}, true)
+		require.Equal(t, http.StatusOK, status)
+		return body["active"]
+	}
+
+	issued := exchange()
+	require.Equal(t, true, active(issued))
+
+	subjectName := strings.TrimSuffix(providerName, "/providers/idp") + "/subjects/revoked@example.test"
+	resp, err := oauth2.NewClient(ctx, simTokenSource()).Post(
+		baseURL+"/v1/"+subjectName+":revokeSessions", "application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var op struct {
+		Name     string         `json:"name"`
+		Done     bool           `json:"done"`
+		Response map[string]any `json:"response"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&op))
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.True(t, op.Done)
+	assert.True(t, strings.HasPrefix(op.Name, subjectName+"/operations/"), op.Name)
+	assert.Equal(t, "type.googleapis.com/google.protobuf.Empty", op.Response["@type"])
+
+	assert.Equal(t, false, active(issued), "a token issued before revokeSessions must be revoked")
+
+	// Revocation covers tokens issued up to its second; a token from a later
+	// second is a new session.
+	require.Eventually(t, func() bool { return active(exchange()) == true }, 5*time.Second, 200*time.Millisecond,
+		"a token issued after revokeSessions starts a new session")
 }

@@ -21,9 +21,19 @@ func gcpResourceToMap(it any) map[string]any {
 // gcpApplyListParams applies the request's `filter` and `orderBy` to items,
 // answering INVALID_ARGUMENT for either one the grammar does not admit.
 func gcpApplyListParams[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, bool) {
+	return gcpApplyListParamsWith(w, r, items, gcpParseFilterExpr)
+}
+
+// gcpApplyComputeListParams is gcpApplyListParams for a Compute Engine list,
+// whose filter also admits the eq/ne regular-expression form.
+func gcpApplyComputeListParams[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, bool) {
+	return gcpApplyListParamsWith(w, r, items, gcpParseComputeFilter)
+}
+
+func gcpApplyListParamsWith[T any](w http.ResponseWriter, r *http.Request, items []T, parse func(string) (listq.Node, error)) ([]T, bool) {
 	var node listq.Node
 	if filter := strings.TrimSpace(r.URL.Query().Get("filter")); filter != "" {
-		parsed, err := gcpParseFilterExpr(filter)
+		parsed, err := parse(filter)
 		if err != nil {
 			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 			return nil, false

@@ -534,6 +534,32 @@ func TestKV_ListSecrets_Pagination(t *testing.T) {
 	assert.Equal(t, 3, len(seen), "all 3 secrets should appear via pagination")
 }
 
+// Key Vault's data-plane lists declare maxresults from 1 to 25.
+func TestKV_Lists_RefuseMaxResultsAboveTwentyFive(t *testing.T) {
+	vault := "maxres-secret-vault"
+	createKVViaARM(t, "kv-maxres-rg", vault)
+	host := kvDataPlaneHost(vault)
+
+	for _, path := range []string{"/secrets", "/keys", "/certificates", "/deletedsecrets"} {
+		status, raw := kvGET(t, host, path+"?maxresults=26&api-version=7.4")
+		var body struct {
+			Error struct{ Code, Message string } `json:"error"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &body), "%s: %s", path, raw)
+		assert.Equal(t, http.StatusBadRequest, status, "%s: %s", path, raw)
+		assert.Equal(t, "BadParameter", body.Error.Code, path)
+		assert.Contains(t, body.Error.Message, "maxresults", path)
+
+		status, raw = kvGET(t, host, path+"?maxresults=25&api-version=7.4")
+		var page struct {
+			Value []json.RawMessage `json:"value"`
+		}
+		require.Equal(t, http.StatusOK, status, "%s: %s", path, raw)
+		require.NoError(t, json.Unmarshal(raw, &page), "%s: %s", path, raw)
+		assert.NotNil(t, page.Value, path)
+	}
+}
+
 func TestKV_ListKeys_Pagination(t *testing.T) {
 	rg := "kv-key-pag-rg"
 	vault := "pag-key-vault"

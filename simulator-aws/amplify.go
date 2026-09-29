@@ -1384,8 +1384,8 @@ func amplifyScheduleDeploymentMode(appID, branch, jobID, urlBase string, uploads
 			amplifySetJobStepArtifactsURL(jobID, "DEPLOY",
 				amplifyPresignedS3URLBase(urlBase, uploads[0].Key, http.MethodGet))
 		}
-		if manifestErr := amplifyDeploymentManifestError(appID, branch, jobID); manifestErr != nil {
-			amplifyFailJobDeployStep(appID, branch, jobID, urlBase, manifestErr)
+		if failure := amplifyDeploymentValidationFailure(appID, branch, jobID); failure != "" {
+			amplifyFailJobDeployStep(appID, branch, jobID, urlBase, failure)
 			return
 		}
 		if !amplifyAdvanceJob(jobID, AmplifyJobStatusRunning, AmplifyJobStatusSucceed) {
@@ -1396,30 +1396,36 @@ func amplifyScheduleDeploymentMode(appID, branch, jobID, urlBase string, uploads
 	})
 }
 
-// amplifyDeploymentManifestError reports why a settling deployment's
-// deploy-manifest.json is invalid for a manifest-consuming platform; nil
-// when the platform doesn't consume the manifest, the bundle carries none,
-// or the manifest parses.
-func amplifyDeploymentManifestError(appID, branch, jobID string) error {
+// amplifyDeploymentValidationFailure returns the DEPLOY step's failure line
+// for a settling deployment whose artifacts cannot be read or whose
+// deploy-manifest.json is invalid for a manifest-consuming platform, and ""
+// for a deployment that can serve.
+func amplifyDeploymentValidationFailure(appID, branch, jobID string) string {
+	files, err := amplifyJobArtifactFiles(appID, branch, jobID)
+	if err != nil {
+		return fmt.Sprintf("!!! Failed to read the deployment artifacts: %v", err)
+	}
 	stored, ok := amplifyApps.Get(appID)
 	if !ok || !amplifyPlatformUsesManifest(stored.App.Platform) {
-		return nil
+		return ""
 	}
-	manifestData, ok := amplifyJobArtifactFiles(appID, branch, jobID)["deploy-manifest.json"]
+	manifestData, ok := files["deploy-manifest.json"]
 	if !ok {
-		return nil
+		return ""
 	}
-	_, err := amplifyParseDeployManifest(manifestData)
-	return err
+	if _, err := amplifyParseDeployManifest(manifestData); err != nil {
+		return fmt.Sprintf("!!! CustomerError: We failed to validate the deploy-manifest.json file found in your build output directory. %v", err)
+	}
+	return ""
 }
 
 // amplifyFailJobDeployStep lands a deployment job FAILED the way real
 // Amplify rejects an invalid deployment bundle: the DEPLOY step fails with
 // the validation error in its log, the job summary lands FAILED, and the
 // bundle never becomes servable content.
-func amplifyFailJobDeployStep(appID, branch, jobID, urlBase string, cause error) {
+func amplifyFailJobDeployStep(appID, branch, jobID, urlBase, failure string) {
 	stepLog := &amplifyStepLog{}
-	stepLog.Printf("!!! CustomerError: We failed to validate the deploy-manifest.json file found in your build output directory. %v", cause)
+	stepLog.Printf("%s", failure)
 	logURL, err := amplifyStoreStepLog(urlBase, appID, branch, jobID, "DEPLOY", stepLog)
 	if err != nil {
 		// The job fails either way; this only means its failed step has no log.

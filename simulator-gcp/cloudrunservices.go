@@ -673,7 +673,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		reconcileServiceRevision(revisions, name, serviceID+"-00001-abc", svc)
 		projectCloudRunV2ToV1(svc)
 
-		lro := newLRO(project, location, svc, "type.googleapis.com/google.cloud.run.v2.Service")
+		lro := cloudRunLRO(project, location, svc, "type.googleapis.com/google.cloud.run.v2.Service")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -751,7 +751,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		for _, rev := range revisions.Filter(func(r RevisionV2) bool { return strings.HasPrefix(r.Name, revPrefix) }) {
 			revisions.Delete(rev.Name)
 		}
-		lro := newLRO(project, location, svc, "type.googleapis.com/google.cloud.run.v2.Service")
+		lro := cloudRunLRO(project, location, svc, "type.googleapis.com/google.cloud.run.v2.Service")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -835,7 +835,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		services.Put(name, update)
 		reconcileServiceRevision(revisions, name, revName, update)
 		projectCloudRunV2ToV1(update)
-		lro := newLRO(project, location, update, "type.googleapis.com/google.cloud.run.v2.Service")
+		lro := cloudRunLRO(project, location, update, "type.googleapis.com/google.cloud.run.v2.Service")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -887,7 +887,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			return
 		}
 		revisions.Delete(name)
-		lro := newLRO(project, location, rev, "type.googleapis.com/google.cloud.run.v2.Revision")
+		lro := cloudRunLRO(project, location, rev, "type.googleapis.com/google.cloud.run.v2.Revision")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 

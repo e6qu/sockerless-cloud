@@ -164,6 +164,9 @@ var (
 	iamSAKeys          sim.Store[GCPServiceAccountKey]
 	iamSAKeyPublics    sim.Store[GCPServiceAccountKeyMaterial]
 	iamSASystemKeys    sim.Store[serviceAccountSystemKey]
+	// iamSessionRevocations holds, per workforce principal, the Unix second at
+	// or before which every access token issued to it is revoked.
+	iamSessionRevocations sim.Store[int64]
 	// iamCustomRoles is read outside registerIAM by the permission check, which
 	// resolves a binding's role to the permissions it includes.
 	iamCustomRoles sim.Store[GCPCustomRole]
@@ -177,6 +180,7 @@ func registerIAM(srv *sim.Server) {
 	iamSAKeys = saKeys
 	iamSAKeyPublics = saKeyPublics
 	iamSASystemKeys = sim.MakeStore[serviceAccountSystemKey](srv.DB(), "iam_sa_system_keys")
+	iamSessionRevocations = sim.MakeStore[int64](srv.DB(), "iam_workforce_session_revocations")
 	projectPolicies := sim.MakeStore[IAMPolicy](srv.DB(), "iam_project_policies")
 	gcpResourcePolicies = sim.MakeStore[IAMPolicy](srv.DB(), "iam_resource_policies")
 	resourcePolicies := gcpResourcePolicies
@@ -1289,15 +1293,15 @@ const (
 // (GET /v3/operations/{op}, the path the resourcemanager GAPIC LRO poller
 // uses) reads the same record.
 func crmLRO(resource any, typeName, metadataType string) Operation {
-	resp := map[string]any{}
-	b, _ := json.Marshal(resource)
-	_ = json.Unmarshal(b, &resp)
+	return crmLROWithMetadata(resource, typeName, map[string]any{"@type": metadataType})
+}
+
+func crmLROWithMetadata(resource any, typeName string, metadata map[string]any) Operation {
+	resp := cloneAnyMap(anyToMap(resource))
 	resp["@type"] = typeName
 	op := Operation{
-		Name: "operations/cp." + gcpNumericID(19),
-		Metadata: map[string]any{
-			"@type": metadataType,
-		},
+		Name:     "operations/cp." + gcpNumericID(19),
+		Metadata: metadata,
 		Done:     true,
 		Response: resp,
 	}
@@ -3024,7 +3028,7 @@ var iamResources sim.Store[map[string]any]
 // {opCollection}/operations/{id}, and returns it. opCollection is the resource
 // path the operation hangs off (e.g. the pool name), matching real GCP where a
 // pool operation's name is .../workloadIdentityPools/{p}/operations/{id}.
-func newIAMLRO(opCollection string, resource map[string]any, typeName string) Operation {
+func newIAMLRO(r *http.Request, opCollection string, resource map[string]any, typeName string) Operation {
 	if iamLROs == nil {
 		// The operations store is created in registerIAM; a nil here means a
 		// handler ran before registration, which never happens at runtime.
@@ -3035,22 +3039,33 @@ func newIAMLRO(opCollection string, resource map[string]any, typeName string) Op
 	for k, v := range resource {
 		response[k] = v
 	}
-	var target string
-	if n, ok := resource["name"].(string); ok {
-		target = n
-	}
 	op := Operation{
-		Name: opCollection + "/operations/" + opID,
-		Metadata: map[string]any{
-			"@type":      "type.googleapis.com/google.iam.admin.v1.OperationMetadata",
-			"createTime": nowTimestamp(),
-			"target":     target,
-		},
+		Name:     opCollection + "/operations/" + opID,
+		Metadata: iamOperationMetadata(r, opCollection, typeName),
 		Done:     true,
 		Response: response,
 	}
 	iamLROs.Put(op.Name, op)
 	return op
+}
+
+// iamOperationMetadata is the metadata message of an IAM operation. The iam v1
+// document declares two: WorkloadIdentityPoolOperationMetadata, which the pool
+// methods carry as the google.iam.v1beta protos' operation_info declares and
+// which holds no fields, and the standard OperationMetadata for every other
+// method. Both live in google.iam.v1, the package of every response type.
+func iamOperationMetadata(r *http.Request, target, typeName string) map[string]any {
+	if typeName == "type.googleapis.com/google.iam.v1.WorkloadIdentityPool" {
+		return map[string]any{"@type": "type.googleapis.com/google.iam.v1.WorkloadIdentityPoolOperationMetadata"}
+	}
+	now := nowTimestamp()
+	return map[string]any{
+		"@type":      "type.googleapis.com/google.iam.v1.OperationMetadata",
+		"createTime": now,
+		"endTime":    now,
+		"target":     target,
+		"verb":       gcpOperationVerb(r),
+	}
 }
 
 // iamApplyMask copies the masked fields from src into dst. An empty mask copies
@@ -3196,7 +3211,7 @@ func (c iamCollection) register() {
 			res["state"] = "ACTIVE"
 		}
 		iamResources.Put(name, res)
-		op := newIAMLRO(name, res, c.resType)
+		op := newIAMLRO(r, name, res, c.resType)
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
@@ -3221,7 +3236,7 @@ func (c iamCollection) register() {
 				res["state"] = "ACTIVE"
 				iamResources.Put(name, res)
 			}
-			op := newIAMLRO(name, res, c.resType)
+			op := newIAMLRO(r, name, res, c.resType)
 			sim.WriteJSON(w, http.StatusOK, op)
 		case "addAttestationRule", "removeAttestationRule", "setAttestationRules":
 			res, ok := iamResources.Get(name)
@@ -3229,7 +3244,7 @@ func (c iamCollection) register() {
 				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
 				return
 			}
-			op := newIAMLRO(name, res, c.resType)
+			op := newIAMLRO(r, name, res, c.resType)
 			sim.WriteJSON(w, http.StatusOK, op)
 		case "getIamPolicy", "setIamPolicy", "testIamPermissions":
 			// The pool/provider is itself an IAM resource; reuse the shared
@@ -3255,7 +3270,7 @@ func (c iamCollection) register() {
 		}
 		iamApplyMask(res, body, r.URL.Query().Get("updateMask"))
 		iamResources.Put(name, res)
-		op := newIAMLRO(name, res, c.resType)
+		op := newIAMLRO(r, name, res, c.resType)
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
@@ -3274,7 +3289,7 @@ func (c iamCollection) register() {
 		} else {
 			iamResources.Delete(name)
 		}
-		op := newIAMLRO(name, res, c.resType)
+		op := newIAMLRO(r, name, res, c.resType)
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
@@ -3453,7 +3468,7 @@ func registerWorkforcePools(srv *sim.Server) {
 			sim.PathParam(r, "location"), sim.PathParam(r, "pool"), sim.PathParam(r, "subject"))
 		res := map[string]any{"name": name, "state": "DELETED"}
 		iamResources.Put(name, res)
-		op := newIAMLRO(name, res, "type.googleapis.com/google.iam.v1.WorkforcePoolSubject")
+		op := newIAMLRO(r, name, res, "type.googleapis.com/google.iam.v1.WorkforcePoolSubject")
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 	// subjects.undelete — the collection's one POST custom method. Go's mux
@@ -3462,12 +3477,22 @@ func registerWorkforcePools(srv *sim.Server) {
 	// the resource.
 	srv.HandleFunc("POST "+base+"/workforcePools/{pool}/subjects/{subjectAction}", func(w http.ResponseWriter, r *http.Request) {
 		subject, verb, found := gcpCustomMethod(sim.PathParam(r, "subjectAction"))
-		if !found || verb != "undelete" {
+		if !found || (verb != "undelete" && verb != "revokeSessions") {
 			gcpMethodNotFound(w)
 			return
 		}
 		name := fmt.Sprintf("locations/%s/workforcePools/%s/subjects/%s",
 			sim.PathParam(r, "location"), sim.PathParam(r, "pool"), subject)
+		if verb == "revokeSessions" {
+			var req struct{}
+			if err := sim.ReadJSON(r, &req); err != nil {
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				return
+			}
+			iamSessionRevocations.Put(workforceSubjectPrincipal(name), time.Now().Unix())
+			sim.WriteJSON(w, http.StatusOK, newIAMLRO(r, name, map[string]any{}, "type.googleapis.com/google.protobuf.Empty"))
+			return
+		}
 		res, ok := iamResources.Get(name)
 		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
@@ -3479,7 +3504,7 @@ func registerWorkforcePools(srv *sim.Server) {
 		}
 		res["state"] = "ACTIVE"
 		iamResources.Put(name, res)
-		op := newIAMLRO(name, res, "type.googleapis.com/google.iam.v1.WorkforcePoolSubject")
+		op := newIAMLRO(r, name, res, "type.googleapis.com/google.iam.v1.WorkforcePoolSubject")
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 	srv.HandleFunc("GET "+base+"/workforcePools/{pool}/subjects/{subject}/operations/{op}", func(w http.ResponseWriter, r *http.Request) {

@@ -1211,6 +1211,30 @@ func tableEntitiesUnder(prefix string) []TableEntity {
 	return out
 }
 
+// tableEntitiesByPartition reads a table's entities one partition at a time,
+// each under that partition's read lock, so a query never sees an entity group
+// transaction half-applied. A partition a batch creates after the first pass is
+// read as it was before the batch, which is equally consistent.
+func tableEntitiesByPartition(account, table string) []TableEntity {
+	prefix := tableKey(account, table) + "/"
+	var partitions []string
+	seen := map[string]bool{}
+	for _, e := range tableEntitiesUnder(prefix) {
+		if !seen[e.PartitionKey] {
+			seen[e.PartitionKey] = true
+			partitions = append(partitions, e.PartitionKey)
+		}
+	}
+	sort.Strings(partitions)
+	var out []TableEntity
+	for _, pk := range partitions {
+		release := tablePartitionLocks.Lock(false, tablePartitionKey(account, table, pk))
+		out = append(out, tableEntitiesUnder(prefix+pk+"/")...)
+		release()
+	}
+	return out
+}
+
 func tableEntityKey(account, table, pk, rk string) string {
 	return account + "/" + table + "/" + pk + "/" + rk
 }
@@ -1571,11 +1595,9 @@ func handleEntityQuery(w http.ResponseWriter, r *http.Request, account, table st
 		writeTableODataError(w, "TableNotFound", "The table specified does not exist.", http.StatusNotFound)
 		return
 	}
-	prefix := account + "/" + table + "/"
-
 	// Gather this table's entities, sorted by (PartitionKey, RowKey) — the
 	// canonical Tables ordering real Azure pages over.
-	matching := tableEntitiesUnder(prefix)
+	matching := tableEntitiesByPartition(account, table)
 	sort.Slice(matching, func(i, j int) bool {
 		if matching[i].PartitionKey != matching[j].PartitionKey {
 			return matching[i].PartitionKey < matching[j].PartitionKey
@@ -1619,8 +1641,15 @@ func handleEntityQuery(w http.ResponseWriter, r *http.Request, account, table st
 		if nextPK != "" && (e.PartitionKey < nextPK || e.PartitionKey == nextPK && e.RowKey < nextRK) {
 			continue
 		}
-		if filterNode != nil && !filterNode.Eval(tableEntityFilterMap(e)) {
-			continue
+		if filterNode != nil {
+			props, err := tableEntityFilterMap(e)
+			if err != nil {
+				writeTableODataError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if !filterNode.Eval(props) {
+				continue
+			}
 		}
 		if limit >= 0 && len(entries) >= limit {
 			w.Header().Set("x-ms-continuation-NextPartitionKey", e.PartitionKey)
@@ -1643,19 +1672,22 @@ func handleEntityQuery(w http.ResponseWriter, r *http.Request, account, table st
 
 // tableEntityFilterMap builds the property map an OData $filter is evaluated
 // against: every stored property (unmarshalled from its raw JSON) plus the
-// PartitionKey/RowKey/Timestamp system properties.
-func tableEntityFilterMap(e TableEntity) map[string]any {
+// PartitionKey/RowKey/Timestamp system properties. A stored property that is
+// not JSON is an error: dropping it would evaluate the filter against an
+// entity the table does not hold.
+func tableEntityFilterMap(e TableEntity) (map[string]any, error) {
 	m := make(map[string]any, len(e.Properties)+3)
 	for k, raw := range e.Properties {
 		var v any
-		if err := json.Unmarshal(raw, &v); err == nil {
-			m[k] = v
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return nil, fmt.Errorf("entity (PartitionKey=%q, RowKey=%q) property %q holds malformed JSON: %w", e.PartitionKey, e.RowKey, k, err)
 		}
+		m[k] = v
 	}
 	m["PartitionKey"] = e.PartitionKey
 	m["RowKey"] = e.RowKey
 	m["Timestamp"] = e.Timestamp
-	return m
+	return m, nil
 }
 
 // parseTableSelect builds the set of property names a $select restricts to, or
