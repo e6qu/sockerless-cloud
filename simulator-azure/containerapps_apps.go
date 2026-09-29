@@ -260,7 +260,7 @@ func stampContainerAppServerDefaults(app *ContainerApp, fqdn string) {
 // served by the shared ARM async-operation handler.
 func acaAsyncOpHeaders(w http.ResponseWriter, r *http.Request, sub, loc, opID string) {
 	apiVersion := r.URL.Query().Get("api-version")
-	writeAzureAsyncCreateHeaders(w,
+	writeAzureAsyncCreateHeaders(w, opID,
 		azureAsyncOperationHeader(r, sub, "Microsoft.App", loc, "operationStatuses", opID, apiVersion),
 		azureAsyncOperationHeader(r, sub, "Microsoft.App", loc, "operationResults", opID, apiVersion))
 }
@@ -451,12 +451,13 @@ func registerContainerAppsApps(srv *sim.Server) {
 		}
 		app.Properties.ProvisioningState = "Deleting"
 		apps.Put(resourceID, app)
-		opID := issueAzureAsyncOperation(func() {
+		opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 			// A concurrent PUT is rejected with 409 while the state is
 			// Deleting, so the record present here is still the one this
 			// operation owns.
 			apps.Delete(resourceID)
 			stopACAAppReplicas(resourceID)
+			return nil
 		})
 		acaAsyncOpHeaders(w, r, sub, app.Location, opID)
 		w.WriteHeader(http.StatusAccepted)

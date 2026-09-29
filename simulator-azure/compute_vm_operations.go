@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -212,27 +213,38 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 			// A machine that was never started, or was deliberately stopped,
 			// stays stopped: these operations restore a machine to the state it
 			// was in, they do not start a stopped one.
-			state, known := azureVMStates.Get(id)
-			wasRunning := !known || state == "PowerState/running"
-
-			if err := azureStopRealVM(r.Context(), id); err != nil {
-				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable,
-					"failed to stop the virtual machine for %s: %v", action, err)
+			priorState, known := azureVMStates.Get(id)
+			if !known {
+				priorState = "PowerState/running"
+			}
+			wasRunning := priorState == "PowerState/running"
+			transition := ""
+			if wasRunning {
+				transition = "PowerState/stopping"
+			}
+			if !azureClaimVMOperation(id, transition) {
+				azureVMOperationConflict(w, action, id)
 				return
 			}
-			if !wasRunning {
-				sim.WriteJSON(w, http.StatusOK, map[string]any{"status": "Succeeded"})
-				return
-			}
-			if err := azureStartRealVM(r.Context(), vm); err != nil {
-				logger.Error().Err(err).Str("vm", id).Str("action", action).
-					Msg("failed to bring the virtual machine back up")
-				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable,
-					"failed to bring the virtual machine back up after %s: %v", action, err)
-				return
-			}
-			azureVMStates.Put(id, "PowerState/running")
-			sim.WriteJSON(w, http.StatusOK, map[string]any{"status": "Succeeded"})
+			opID := azureRunVMOperation(id, func(ctx context.Context) *AsyncOperationError {
+				if err := azureHaltVM(ctx, id); err != nil {
+					azureVMStates.Put(id, priorState)
+					return azureVMHaltFailure(id, err)
+				}
+				if !wasRunning {
+					return nil
+				}
+				azureVMStates.Put(id, "PowerState/starting")
+				if err := azureBootVM(ctx, vm); err != nil {
+					logger.Error().Err(err).Str("vm", id).Str("action", action).
+						Msg("failed to bring the virtual machine back up")
+					azureVMStates.Put(id, "PowerState/stopped")
+					return azureVMBootFailure(id, err)
+				}
+				azureVMStates.Put(id, "PowerState/running")
+				return nil
+			})
+			writeAzureVMOperationAccepted(w, r, vm, opID)
 		})
 	}
 
@@ -261,6 +273,7 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 			_ = azureDeleteRealVM(r.Context(), vm)
 			azureVMs.Delete(id)
 			azureVMStates.Delete(id)
+			azureVMProvisioningErrors.Delete(id)
 		} else {
 			azureVMStates.Put(id, "PowerState/deallocated")
 		}

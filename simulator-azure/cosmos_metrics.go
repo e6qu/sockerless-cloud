@@ -371,6 +371,6 @@ func cosmosRegionTransition(w http.ResponseWriter, r *http.Request, online bool)
 	location := strings.ToLower(strings.ReplaceAll(req.Region, " ", ""))
 	opURL := azureAsyncOperationHeader(r, sub, "Microsoft.DocumentDB", location, "operationStatuses", opID, apiVersion)
 	resultURL := azureAsyncOperationHeader(r, sub, "Microsoft.DocumentDB", location, "operationResults", opID, apiVersion)
-	writeAzureAsyncCreateHeaders(w, opURL, resultURL)
+	writeAzureAsyncCreateHeaders(w, opID, opURL, resultURL)
 	w.WriteHeader(http.StatusAccepted)
 }

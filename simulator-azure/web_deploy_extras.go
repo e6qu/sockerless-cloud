@@ -441,7 +441,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 				InProgress:   1,
 			})
 
-			opID := issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
+			opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 				written, err := webApplyDeploymentPackage(resID, req.Properties.PackageURI)
 				end := time.Now().UTC().Format(time.RFC3339)
 				if err != nil {
@@ -479,7 +479,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 
 			opURL := azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"),
 				"Microsoft.Web", webSiteOperationLocation(resID), "operationStatuses", opID, r.URL.Query().Get("api-version"))
-			writeAzureAsyncCreateHeaders(w, opURL, azureCurrentRequestURL(r))
+			writeAzureAsyncCreateHeaders(w, opID, opURL, azureCurrentRequestURL(r))
 			sim.WriteJSON(w, http.StatusCreated, msDeployStatusWire(rec))
 		}
 	}
@@ -601,7 +601,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 					r.URL.Query().Get("api-version")))
 			}
 			w.Header().Set("Location", azureCurrentRequestURL(r))
-			w.Header().Set("Retry-After", "1")
+			w.Header().Set("Retry-After", azureAsyncOperationRetryAfter)
 			sim.WriteJSON(w, http.StatusAccepted, deploymentStatusWire(rec))
 			return
 		}

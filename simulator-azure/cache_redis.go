@@ -276,7 +276,7 @@ func handleRedisCacheCreate(w http.ResponseWriter, r *http.Request) {
 		})
 	})
 	opURL := azureAsyncOperationHeader(r, sub, "Microsoft.Cache", cache.Location, "asyncOperations", opID, r.URL.Query().Get("api-version"))
-	writeAzureAsyncCreateHeaders(w, opURL, azureCurrentRequestURL(r))
+	writeAzureAsyncCreateHeaders(w, opID, opURL, azureCurrentRequestURL(r))
 	sim.WriteJSON(w, http.StatusCreated, cache)
 }
 
@@ -571,12 +571,7 @@ func handleRedisAsyncOperationStatus(w http.ResponseWriter, r *http.Request) {
 			"Operation %q not found.", sim.PathParam(r, "operationId"))
 		return
 	}
-	// Real Azure returns Retry-After on async-operation polls; advertising a
-	// zero delay lets the SDK poller re-poll immediately instead of falling
-	// back to its 30s default frequency.
-	if op.Status == "InProgress" {
-		w.Header().Set("Retry-After", "1")
-	}
+	setAzureAsyncOperationRetryAfter(w, op.Name)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 

@@ -307,12 +307,13 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		}
 		env.Properties.ProvisioningState = "Deleting"
 		environments.Put(resourceID, env)
-		opID := issueAzureAsyncOperation(func() {
+		opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 			// Drop the backing Docker network when the env is removed.
 			if env.DockerNetworkName != "" {
 				_ = sim.RemoveDockerNetwork(env.DockerNetworkName)
 			}
 			environments.Delete(resourceID)
+			return nil
 		})
 		acaAsyncOpHeaders(w, r, sub, env.Location, opID)
 		w.WriteHeader(http.StatusAccepted)

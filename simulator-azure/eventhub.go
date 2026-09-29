@@ -220,7 +220,7 @@ func handleEHCreateNamespace(w http.ResponseWriter, r *http.Request) {
 		})
 	})
 	opURL := azureAsyncOperationHeader(r, sub, "Microsoft.EventHub", n.Location, "operationStatuses", opID, r.URL.Query().Get("api-version"))
-	writeAzureAsyncCreateHeaders(w, opURL, azureCurrentRequestURL(r))
+	writeAzureAsyncCreateHeaders(w, opID, opURL, azureCurrentRequestURL(r))
 	sim.WriteJSON(w, http.StatusCreated, n)
 }
 

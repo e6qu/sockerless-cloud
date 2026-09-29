@@ -509,7 +509,7 @@ func handleLogicWorkflowMove(w http.ResponseWriter, r *http.Request) {
 	// reads the operation status rather than re-GETting the POST action path.
 	opURL := azureAsyncOperationHeader(r, sub, "Microsoft.Logic", logicResLocation(wf.Location), "operationStatuses", opID, r.URL.Query().Get("api-version"))
 	w.Header().Set("Azure-AsyncOperation", opURL)
-	w.Header().Set("Retry-After", "0")
+	setAzureAsyncOperationRetryAfter(w, opID)
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -960,7 +960,7 @@ func handleLogicServiceEnvPut(w http.ResponseWriter, r *http.Request) {
 		})
 	})
 	opURL := azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"), "Microsoft.Logic", logicResLocation(req.Location), "operationStatuses", opID, r.URL.Query().Get("api-version"))
-	writeAzureAsyncCreateHeaders(w, opURL, azureCurrentRequestURL(r))
+	writeAzureAsyncCreateHeaders(w, opID, opURL, azureCurrentRequestURL(r))
 	res, _ := logicServiceEnvs.Get(id)
 	sim.WriteJSON(w, http.StatusCreated, res)
 }
@@ -995,7 +995,7 @@ func handleLogicServiceEnvPatch(w http.ResponseWriter, r *http.Request) {
 	})
 	opID := issueAzureAsyncOperation(nil)
 	opURL := azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"), "Microsoft.Logic", logicResLocation(res.Location), "operationStatuses", opID, r.URL.Query().Get("api-version"))
-	writeAzureAsyncCreateHeaders(w, opURL, azureCurrentRequestURL(r))
+	writeAzureAsyncCreateHeaders(w, opID, opURL, azureCurrentRequestURL(r))
 	updated, _ := logicServiceEnvs.Get(id)
 	sim.WriteJSON(w, http.StatusOK, updated)
 }
@@ -1053,7 +1053,7 @@ func handleLogicServiceEnvManagedApiPut(w http.ResponseWriter, r *http.Request) 
 	})
 	opID := issueAzureAsyncOperation(nil)
 	opURL := azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"), "Microsoft.Logic", logicResLocation(req.Location), "operationStatuses", opID, r.URL.Query().Get("api-version"))
-	writeAzureAsyncCreateHeaders(w, opURL, azureCurrentRequestURL(r))
+	writeAzureAsyncCreateHeaders(w, opID, opURL, azureCurrentRequestURL(r))
 	res, _ := logicSEManagedApis.Get(id)
 	sim.WriteJSON(w, http.StatusCreated, res)
 }
@@ -1067,7 +1067,7 @@ func handleLogicServiceEnvManagedApiDelete(w http.ResponseWriter, r *http.Reques
 	}
 	opID := issueAzureAsyncOperation(func() { logicSEManagedApis.Delete(id) })
 	opURL := azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"), "Microsoft.Logic", logicResLocation(res.Location), "operationStatuses", opID, r.URL.Query().Get("api-version"))
-	writeAzureAsyncCreateHeaders(w, opURL, azureCurrentRequestURL(r))
+	writeAzureAsyncCreateHeaders(w, opID, opURL, azureCurrentRequestURL(r))
 	w.WriteHeader(http.StatusAccepted)
 }
 

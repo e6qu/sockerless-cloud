@@ -2,10 +2,12 @@ package azure_sdk_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -43,11 +45,11 @@ func armReq(t *testing.T, method, path string, body string) *http.Response {
 	return resp
 }
 
+// waitAzureAsyncOperation polls an Azure-AsyncOperation URL on the cadence
+// the service sets, as azcore's poller does: a running operation advertises
+// Retry-After and is read again after it, a terminal one ends the wait.
 func waitAzureAsyncOperation(t *testing.T, opURL string) {
 	t.Helper()
-	// Generous deadline so a loaded CI runner doesn't expire before the async
-	// operation reports Succeeded; the loop still returns immediately on success.
-	deadline := time.Now().Add(30 * time.Second)
 	for {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, opURL, nil)
 		require.NoError(t, err)
@@ -57,11 +59,22 @@ func waitAzureAsyncOperation(t *testing.T, opURL string) {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
-		if strings.Contains(string(body), `"status":"Succeeded"`) {
+		var op struct {
+			Status string `json:"status"`
+		}
+		require.NoError(t, json.Unmarshal(body, &op), string(body))
+		if op.Status == "Succeeded" {
 			return
 		}
-		require.True(t, time.Now().Before(deadline), "operation did not succeed: %s", string(body))
-		time.Sleep(20 * time.Millisecond)
+		require.Equal(t, "InProgress", op.Status, "operation did not succeed: %s", string(body))
+		retryAfter, err := strconv.Atoi(resp.Header.Get("Retry-After"))
+		require.NoError(t, err, "a running operation advertises Retry-After in seconds")
+		require.Positive(t, retryAfter)
+		select {
+		case <-time.After(time.Duration(retryAfter) * time.Second):
+		case <-ctx.Done():
+			t.Fatalf("operation still running when the test context ended: %s", string(body))
+		}
 	}
 }
 
@@ -77,7 +90,7 @@ func TestAzureRedisCache_ARMLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	opURL := resp.Header.Get("Azure-AsyncOperation")
 	require.NotEmpty(t, opURL)
-	assert.Equal(t, "0", resp.Header.Get("Retry-After"))
+	assert.Empty(t, resp.Header.Get("Retry-After"), "an operation already complete advertises no Retry-After")
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	assert.Contains(t, string(body), `"provisioningState":"Creating"`)
@@ -124,7 +137,7 @@ func TestAzurePGFlexibleServer_ARMLifecycle(t *testing.T) {
 	opURL := resp.Header.Get("Azure-AsyncOperation")
 	require.NotEmpty(t, opURL)
 	require.NotEmpty(t, resp.Header.Get("Location"))
-	assert.Equal(t, "0", resp.Header.Get("Retry-After"))
+	assert.Empty(t, resp.Header.Get("Retry-After"), "an operation already complete advertises no Retry-After")
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	assert.Empty(t, string(body), "PUT flexibleServers must not return a success body")

@@ -324,7 +324,7 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 		source := *restore
 		failCode := cloneFailCode
 		settle := settleClone
-		opID = issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
+		opID = startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 			if err := azurePGCloneForRestore(rg, name, source); err != nil {
 				return &AsyncOperationError{Code: failCode, Message: err.Error()}
 			}
@@ -392,7 +392,7 @@ func pgCreateSourceServer(w http.ResponseWriter, props map[string]any, rg, name 
 // operation-status poll URL and Location at the resource URL.
 func pgWriteAsyncAccepted(w http.ResponseWriter, r *http.Request, sub, location, opID string) {
 	opURL := azureAsyncOperationHeader(r, sub, "Microsoft.DBforPostgreSQL", location, "operationStatuses", opID, r.URL.Query().Get("api-version"))
-	writeAzureAsyncCreateHeaders(w, opURL, azureCurrentRequestURL(r))
+	writeAzureAsyncCreateHeaders(w, opID, opURL, azureCurrentRequestURL(r))
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -513,7 +513,7 @@ func handlePGCreateDatabase(w http.ResponseWriter, r *http.Request) {
 	serverName := sim.PathParam(r, "name")
 	// A running engine gets the declared database immediately; a cold one
 	// receives it when readiness reconciles the declared state.
-	opID := issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
+	opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 		if err := azurePGEnsureDatabaseIfRunning(sub, rg, serverName, dbName); err != nil {
 			return &AsyncOperationError{Code: "DatabaseCreateFailed", Message: err.Error()}
 		}
@@ -547,7 +547,7 @@ func handlePGDeleteDatabase(w http.ResponseWriter, r *http.Request) {
 	// A running engine drops the database now; a cold data directory keeps
 	// the bytes, but readiness reconciles only databases the control plane
 	// still declares.
-	opID := issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
+	opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 		if err := azurePGDropDatabaseIfRunning(sub, rg, serverName, dbName); err != nil {
 			return &AsyncOperationError{Code: "DatabaseDeleteFailed", Message: err.Error()}
 		}
