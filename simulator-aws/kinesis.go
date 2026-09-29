@@ -756,7 +756,7 @@ func handleKinesisGetShardIterator(w http.ResponseWriter, r *http.Request) {
 	default:
 		index = 0
 	}
-	token := generateUUID()
+	token := sim.NewUUID()
 	kinesisIterators.Put(token, kinesisIterator{StreamName: stream.StreamName, ShardID: req.ShardId, Index: index})
 	writeKinesisJSON(w, http.StatusOK, map[string]any{"ShardIterator": token})
 }
@@ -803,7 +803,7 @@ func handleKinesisGetRecords(w http.ResponseWriter, r *http.Request) {
 			"EncryptionType":              "NONE",
 		})
 	}
-	next := generateUUID()
+	next := sim.NewUUID()
 	kinesisIterators.Put(next, kinesisIterator{StreamName: it.StreamName, ShardID: it.ShardID, Index: end})
 	writeKinesisJSON(w, http.StatusOK, map[string]any{
 		"Records":            out,

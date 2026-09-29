@@ -179,19 +179,11 @@ func ecrAuthorizeV2(w http.ResponseWriter, r *http.Request, _ string) bool {
 // carrying the authorization token as its Basic credential. The user half must
 // be `AWS`, the only user Amazon ECR's token decodes to.
 func ecrPresentedPassword(authorization string) (string, bool) {
-	authorization = strings.TrimSpace(authorization)
-	const scheme = "Basic"
-	if len(authorization) <= len(scheme) || !strings.EqualFold(authorization[:len(scheme)], scheme) {
+	scheme, credential := sim.ParseAuthorization(authorization)
+	if !strings.EqualFold(scheme, "Basic") {
 		return "", false
 	}
-	if authorization[len(scheme)] != ' ' {
-		return "", false
-	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(authorization[len(scheme)+1:]))
-	if err != nil {
-		return "", false
-	}
-	username, password, ok := strings.Cut(string(raw), ":")
+	username, password, ok := sim.BasicCredential(credential)
 	if !ok || username != ecrDockerLoginUsername || password == "" {
 		return "", false
 	}
@@ -202,8 +194,7 @@ func ecrPresentedPassword(authorization string) (string, bool) {
 // unaccepted credential with. The realm is the registry the request reached and
 // the service is the constant Amazon ECR names itself by.
 func ecrRegistryChallenge(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Www-Authenticate",
-		`Basic realm="`+awsRequestURLBase(r)+`/",service="`+ecrRegistryService+`"`)
+	w.Header().Set("Www-Authenticate", sim.BasicChallenge(awsRequestURLBase(r)+"/", ecrRegistryService))
 	w.Header().Set("Docker-Distribution-Api-Version", "registry/2.0")
 }
 
@@ -224,10 +215,6 @@ func ecrRegistryUnauthorized(w http.ResponseWriter, r *http.Request) {
 // and try again.`
 func ecrRegistryTokenExpired(w http.ResponseWriter, r *http.Request) {
 	ecrRegistryChallenge(w, r)
-	sim.WriteJSON(w, http.StatusUnauthorized, map[string]any{
-		"errors": []map[string]any{{
-			"code":    "DENIED",
-			"message": "Your authorization token has expired. Reauthenticate and try again.",
-		}},
-	})
+	sim.RegistryError(w, http.StatusUnauthorized, "DENIED",
+		"Your authorization token has expired. Reauthenticate and try again.", nil)
 }

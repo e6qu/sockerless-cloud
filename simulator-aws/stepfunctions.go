@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/google/uuid"
 )
 
@@ -349,7 +350,10 @@ func handleSFNListStateMachines(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, sfnBadToken, all, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 
 	items := make([]map[string]any, 0, len(page))
 	for _, sm := range page {
@@ -571,7 +575,10 @@ func handleSFNListStateMachineVersions(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxResults = *req.MaxResults
 	}
-	page, nextToken := awsPage(versions, req.NextToken, maxResults, 100)
+	page, nextToken, pageOK := awsPage(w, sfnBadToken, versions, req.NextToken, maxResults, 100)
+	if !pageOK {
+		return
+	}
 	items := make([]map[string]any, 0, len(page))
 	for _, version := range page {
 		items = append(items, map[string]any{
@@ -1017,7 +1024,7 @@ func sfnRunTopLevelDefinition(def sfnDefinition, input string, cancel <-chan str
 	timeoutFired := make(chan struct{})
 	done := make(chan struct{})
 	defer close(done)
-	simGo(func() {
+	bg.Go(func() {
 		select {
 		case <-cancel:
 			close(combined)
@@ -1522,7 +1529,10 @@ func handleSFNGetExecutionHistory(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxResults = *req.MaxResults
 	}
-	page, nextToken := awsPage(events, req.NextToken, maxResults, 100)
+	page, nextToken, pageOK := awsPage(w, sfnBadToken, events, req.NextToken, maxResults, 100)
+	if !pageOK {
+		return
+	}
 	response := map[string]any{"events": page}
 	if nextToken != "" {
 		response["nextToken"] = nextToken
@@ -1580,7 +1590,10 @@ func handleSFNListExecutions(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(filtered, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, sfnBadToken, filtered, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 
 	items := make([]map[string]any, 0, len(page))
 	for _, e := range page {
@@ -1817,7 +1830,10 @@ func handleSFNListActivities(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, sfnBadToken, all, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	items := make([]map[string]any, 0, len(page))
 	for _, a := range page {
 		items = append(items, map[string]any{
@@ -2226,7 +2242,10 @@ func handleSFNListStateMachineAliases(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(owned, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, sfnBadToken, owned, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	items := make([]map[string]any, 0, len(page))
 	for _, a := range page {
 		items = append(items, map[string]any{
@@ -2556,7 +2575,10 @@ func handleSFNListMapRuns(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(owned, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, sfnBadToken, owned, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	items := make([]map[string]any, 0, len(page))
 	for _, mr := range page {
 		item := map[string]any{

@@ -248,7 +248,7 @@ func handleSpannerCreateAdapterSession(w http.ResponseWriter, r *http.Request, d
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", database)
 		return
 	}
-	name := fmt.Sprintf("%s/sessions/adapter-%s", database, generateUUID()[:8])
+	name := fmt.Sprintf("%s/sessions/adapter-%s", database, sim.NewUUID()[:8])
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"name": name})
 }
 

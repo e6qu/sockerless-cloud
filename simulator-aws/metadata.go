@@ -5,16 +5,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // AWS host-metadata services.
@@ -42,7 +40,7 @@ import (
 // per-instance binding.
 var (
 	imdsTokens        sync.Map // map[string]time.Time (issued-at)
-	imdsInstancesByIP sync.Map // map[string]EC2Instance
+	imdsInstancesByIP workloadhost.MetadataIndex[EC2Instance]
 )
 
 func registerHostMetadata(srv *sim.Server) {
@@ -91,7 +89,7 @@ func registerHostMetadata(srv *sim.Server) {
 		if !mustToken(w, r) {
 			return
 		}
-		if inst, ok := imdsInstanceForRequest(r); ok {
+		if inst, ok := imdsInstancesByIP.ForRequest(r); ok {
 			writeText(w, inst.InstanceId)
 			return
 		}
@@ -101,7 +99,7 @@ func registerHostMetadata(srv *sim.Server) {
 		if !mustToken(w, r) {
 			return
 		}
-		if inst, ok := imdsInstanceForRequest(r); ok && inst.InstanceType != "" {
+		if inst, ok := imdsInstancesByIP.ForRequest(r); ok && inst.InstanceType != "" {
 			writeText(w, inst.InstanceType)
 			return
 		}
@@ -111,7 +109,7 @@ func registerHostMetadata(srv *sim.Server) {
 		if !mustToken(w, r) {
 			return
 		}
-		if inst, ok := imdsInstanceForRequest(r); ok && inst.ImageId != "" {
+		if inst, ok := imdsInstancesByIP.ForRequest(r); ok && inst.ImageId != "" {
 			writeText(w, inst.ImageId)
 			return
 		}
@@ -164,7 +162,7 @@ func registerHostMetadata(srv *sim.Server) {
 		instanceType := "t3.micro"
 		imageID := "ami-0123456789abcdef0"
 		arch := "x86_64"
-		if inst, ok := imdsInstanceForRequest(r); ok {
+		if inst, ok := imdsInstancesByIP.ForRequest(r); ok {
 			instanceID = inst.InstanceId
 			instanceType = inst.InstanceType
 			imageID = inst.ImageId
@@ -297,19 +295,6 @@ func ecsTaskRoleArn(taskID string) string {
 	return definition.TaskRoleArn
 }
 
-func imdsInstanceForRequest(r *http.Request) (EC2Instance, bool) {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	v, ok := imdsInstancesByIP.Load(host)
-	if !ok {
-		return EC2Instance{}, false
-	}
-	inst, ok := v.(EC2Instance)
-	return inst, ok
-}
-
 func defaultIMDSRegion(r *http.Request) string {
 	if v := r.URL.Query().Get("region"); v != "" {
 		return v
@@ -317,77 +302,15 @@ func defaultIMDSRegion(r *http.Request) string {
 	return "eu-west-1"
 }
 
-// simHostMetadataAddr returns the address workload containers use to
-// reach the sim's metadata services.
+// simListenAddr is the listen address main() serves on.
 var simListenAddr string
 
-func simHostMetadataAddr() (string, error) {
-	port := simListenAddr
-	if idx := strings.LastIndex(simListenAddr, ":"); idx >= 0 {
-		port = simListenAddr[idx+1:]
-	}
-	host, err := workloadCallbackHost()
-	if err != nil {
-		return "", err
-	}
-	return net.JoinHostPort(host, port), nil
-}
-
-func simHostMetadataPort() (int, error) {
-	port := simListenAddr
-	if idx := strings.LastIndex(simListenAddr, ":"); idx >= 0 {
-		port = simListenAddr[idx+1:]
-	}
-	n, err := strconv.Atoi(port)
-	if err != nil || n <= 0 || n > 65535 {
-		return 0, fmt.Errorf("invalid simulator metadata listen port %q", port)
-	}
-	return n, nil
-}
-
-// hostMetadataExtraHosts returns ExtraHosts entries needed for the
-// workload to resolve host.docker.internal through the same outer-host
-// coordinate visible to a containerized simulator. Docker and Podman can use
-// different networks for the simulator and its nested workload containers, so
-// the simulator's default route is only a fallback when neither standard host
-// alias exists. The AWS SDK respects AWS_EC2_METADATA_SERVICE_ENDPOINT, so
-// workloads that go through the SDK don't need the link-local hostname;
-// ExtraHosts is best-effort for raw HTTP clients.
-func hostMetadataExtraHosts() []string {
-	if entries := hostMetadataHostEntries(); len(entries) > 0 {
-		out := make([]string, 0, len(entries))
-		for _, entry := range entries {
-			out = append(out, entry.Name+":"+entry.IP)
-		}
-		return out
-	}
-	info := strings.ToLower(sim.RuntimeInfo())
-	if strings.Contains(info, "podman") {
-		return nil
-	}
-	return []string{"host.docker.internal:host-gateway"}
-}
-
-func hostMetadataHostEntries() []sim.HostEntry {
-	if !runningInsideContainer() {
-		return nil
-	}
-	gateway := workloadHostGatewayIPv4(net.LookupHost, defaultRouteGatewayIPv4)
-	if gateway == "" {
-		return nil
-	}
-	return []sim.HostEntry{
-		{IP: gateway, Name: "host.docker.internal"},
-		{IP: gateway, Name: "host.containers.internal"},
-	}
-}
-
 func rewriteHostDockerInternalEnv(env map[string]string) map[string]string {
-	containerized := runningInsideContainer()
+	containerized := workloadhost.InContainer()
 	if !containerized {
 		return env
 	}
-	gateway := workloadHostGatewayIPv4(net.LookupHost, defaultRouteGatewayIPv4)
+	gateway := workloadhost.OuterHostGatewayIPv4()
 	return rewriteHostDockerInternalEnvForRuntime(env, containerized, gateway)
 }
 
@@ -396,23 +319,6 @@ func rewriteHostDockerInternalEnvForRuntime(env map[string]string, containerized
 		return env
 	}
 	return rewriteHostDockerInternalEnvWithGateway(env, gateway)
-}
-
-func workloadHostGatewayIPv4(lookup func(string) ([]string, error), fallback func() string) string {
-	for _, hostname := range []string{"host.docker.internal", "host.containers.internal"} {
-		addresses, err := lookup(hostname)
-		if err != nil {
-			continue
-		}
-		for _, address := range addresses {
-			ip := net.ParseIP(strings.TrimSpace(address))
-			if ip == nil || ip.To4() == nil || !ip.IsGlobalUnicast() || ip.IsLoopback() {
-				continue
-			}
-			return ip.To4().String()
-		}
-	}
-	return fallback()
 }
 
 func rewriteHostDockerInternalEnvWithGateway(env map[string]string, gateway string) map[string]string {
@@ -443,34 +349,6 @@ func rewriteSimulatorEndpointForRealVPC(env map[string]string, simulatorPort int
 	return out
 }
 
-func defaultRouteGatewayIPv4() string {
-	content, err := os.ReadFile("/proc/net/route")
-	if err != nil {
-		return ""
-	}
-	return parseDefaultRouteGatewayIPv4(string(content))
-}
-
-func parseDefaultRouteGatewayIPv4(content string) string {
-	for _, line := range strings.Split(content, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 || fields[1] != "00000000" {
-			continue
-		}
-		gateway, err := strconv.ParseUint(fields[2], 16, 32)
-		if err != nil || gateway == 0 {
-			continue
-		}
-		return net.IPv4(
-			byte(gateway),
-			byte(gateway>>8),
-			byte(gateway>>16),
-			byte(gateway>>24),
-		).String()
-	}
-	return ""
-}
-
 // hostMetadataEnv returns env vars for every AWS workload host so SDKs
 // route metadata reads to the sim. Cloud-product translators merge
 // these onto the workload's ContainerConfig.Env.
@@ -479,7 +357,7 @@ func parseDefaultRouteGatewayIPv4(content string) string {
 // ECS_CONTAINER_METADATA_URI_V4 token. For non-ECS hosts (Lambda)
 // pass empty and the env var is omitted.
 func hostMetadataEnv(taskID string) (map[string]string, error) {
-	addr, err := simHostMetadataAddr()
+	addr, err := workloadhost.CallbackAddr(simListenAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -511,17 +389,4 @@ func hostMetadataLinkLocalEnv(taskID string) map[string]string {
 		}
 	}
 	return env
-}
-
-// mergeEnv returns a new map with all keys from `base` and `extra`,
-// where `extra` wins on conflict. Both inputs may be nil.
-func mergeEnv(base, extra map[string]string) map[string]string {
-	out := make(map[string]string, len(base)+len(extra))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range extra {
-		out[k] = v
-	}
-	return out
 }

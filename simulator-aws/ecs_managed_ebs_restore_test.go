@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // RunTask is asynchronous on real ECS: it returns while the task is still
@@ -24,7 +25,7 @@ func TestPrepareManagedEBSVolumesDefersSnapshotRestore(t *testing.T) {
 	t.Setenv("SIM_EBS_DATA_DIR", t.TempDir())
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ec2Snapshots = sim.MakeStore[EC2Snapshot](nil, "ec2_snapshots")
 	ec2Volumes = sim.MakeStore[EC2Volume](nil, "ec2_volumes")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")

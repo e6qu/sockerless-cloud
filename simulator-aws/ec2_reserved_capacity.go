@@ -204,7 +204,7 @@ func registerEC2ReservedCapacity(r *AWSQueryRouter, srv *sim.Server) {
 func ec2WriteResponse(w http.ResponseWriter, action, body string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse %s><requestId>%s</requestId>%s</%sResponse>`,
-		action, ec2Xmlns(), generateUUID(), body, action)
+		action, ec2Xmlns(), sim.NewUUID(), body, action)
 }
 
 // ec2WriteReturnTrue writes the standard <return>true</return> ec2Query reply.

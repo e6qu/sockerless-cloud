@@ -306,6 +306,8 @@ var allowedNonSpecGCPRoutes = map[string]string{
 	// go to the returned session URI on the same /upload path. Real,
 	// documented surface (resumable-uploads protocol).
 	"PUT /upload/storage/v1/b/{bucket}/o": "GCS resumable upload session continuation",
+	// Cancelling a resumable upload is a DELETE on the same session URI.
+	"DELETE /upload/storage/v1/b/{bucket}/o": "GCS resumable upload session cancellation",
 }
 
 var allowedNonSpecGCPPrefixes = map[string]string{

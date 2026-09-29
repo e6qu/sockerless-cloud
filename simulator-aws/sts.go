@@ -60,6 +60,7 @@ const stsTokenKeyID = "session-token-mac"
 func registerSTS(r *AWSQueryRouter, srv *sim.Server) {
 	iamTempCreds = sim.MakeStore[IAMTempCred](srv.DB(), "iam_temp_creds")
 	stsTokenKeys = sim.MakeStore[string](srv.DB(), "sts_token_keys")
+	registerSTSOutboundFederationState(srv)
 	startTempCredSweeper(srv)
 	r.Register("GetCallerIdentity", handleGetCallerIdentity)
 	r.Register("AssumeRole", handleSTSAssumeRole)
@@ -101,13 +102,18 @@ func iamPrincipalForAccessKey(akid string) (arn string, docs []iamPolicyDoc, use
 	return "", nil, "", false
 }
 
+// stsCallerArn is the ARN of the identity that signed the request.
+func stsCallerArn(r *http.Request) string {
+	if principalArn, _, _, ok := iamPrincipalForAccessKey(iamAccessKeyIDFromRequest(r)); ok {
+		return principalArn
+	}
+	return fmt.Sprintf("arn:aws:iam::%s:user/simulator", awsAccountID())
+}
+
 func handleGetCallerIdentity(w http.ResponseWriter, r *http.Request) {
 	acct := awsAccountID()
-	arn := fmt.Sprintf("arn:aws:iam::%s:user/simulator", acct)
+	arn := stsCallerArn(r)
 	userID := "AIDASIMULATORCALLER0"
-	if principalArn, _, _, ok := iamPrincipalForAccessKey(iamAccessKeyIDFromRequest(r)); ok {
-		arn = principalArn
-	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
   <GetCallerIdentityResult>
@@ -116,7 +122,7 @@ func handleGetCallerIdentity(w http.ResponseWriter, r *http.Request) {
     <Account>%s</Account>
   </GetCallerIdentityResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetCallerIdentityResponse>`, xmlEscape(arn), userID, acct, generateUUID())
+</GetCallerIdentityResponse>`, xmlEscape(arn), userID, acct, sim.NewUUID())
 }
 
 func stsDurationSeconds(r *http.Request) int {
@@ -328,7 +334,7 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
   </AssumeRoleResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </AssumeRoleResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339),
-		xmlEscape(assumedArn), assumedRoleID, generateUUID())
+		xmlEscape(assumedArn), assumedRoleID, sim.NewUUID())
 }
 
 func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) {
@@ -369,7 +375,7 @@ func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) 
   </AssumeRoleWithWebIdentityResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </AssumeRoleWithWebIdentityResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339),
-		xmlEscape(assumedArn), role.RoleId+":"+sessionName, xmlEscape(tokenSubject), generateUUID())
+		xmlEscape(assumedArn), role.RoleId+":"+sessionName, xmlEscape(tokenSubject), sim.NewUUID())
 }
 
 func handleSTSGetSessionToken(w http.ResponseWriter, r *http.Request) {
@@ -391,7 +397,7 @@ func handleSTSGetSessionToken(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetSessionTokenResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
   <GetSessionTokenResult><Credentials><AccessKeyId>%s</AccessKeyId><SecretAccessKey>%s</SecretAccessKey><SessionToken>%s</SessionToken><Expiration>%s</Expiration></Credentials></GetSessionTokenResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetSessionTokenResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339), generateUUID())
+</GetSessionTokenResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339), sim.NewUUID())
 }
 
 // handleSTSGetFederationToken mints temporary credentials for a federated user
@@ -420,7 +426,7 @@ func handleSTSGetFederationToken(w http.ResponseWriter, r *http.Request) {
   </GetFederationTokenResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </GetFederationTokenResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339),
-		xmlEscape(fedArn), xmlEscape(fedUserID), generateUUID())
+		xmlEscape(fedArn), xmlEscape(fedUserID), sim.NewUUID())
 }
 
 // handleSTSAssumeRoleWithSAML assumes a role from a SAML assertion, minting
@@ -490,25 +496,7 @@ func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
 </AssumeRoleWithSAMLResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339),
 		xmlEscape(assumedArn), role.RoleId+":"+xmlEscape(sessionName), xmlEscape(assertion.Subject),
 		xmlEscape(assertion.SubjectType), xmlEscape(assertion.Issuer), xmlEscape(assertion.Recipient),
-		xmlEscape(assertion.nameQualifier(awsAccountID())), generateUUID())
-}
-
-// handleSTSGetWebIdentityToken issues a signed web-identity token (a JWT) and
-// its expiration. Unlike the assume-role variants this returns the token
-// itself, not credentials.
-func handleSTSGetWebIdentityToken(w http.ResponseWriter, r *http.Request) {
-	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
-	// A simulator JWT: three base64url segments so a client parsing the dot-form
-	// gets a structurally-valid token. Not cryptographically signed.
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	claims := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(
-		`{"iss":"https://sim.local","aud":%q,"exp":%d}`, r.FormValue("Audience"), exp.Unix())))
-	jwt := header + "." + claims + "." + base64.RawURLEncoding.EncodeToString([]byte("sim-signature"))
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<GetWebIdentityTokenResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
-  <GetWebIdentityTokenResult><WebIdentityToken>%s</WebIdentityToken><Expiration>%s</Expiration></GetWebIdentityTokenResult>
-  <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetWebIdentityTokenResponse>`, xmlEscape(jwt), exp.Format(time.RFC3339), generateUUID())
+		xmlEscape(assertion.nameQualifier(awsAccountID())), sim.NewUUID())
 }
 
 // handleSTSGetDelegatedAccessToken trades a token in for temporary credentials,
@@ -534,7 +522,7 @@ func handleSTSGetDelegatedAccessToken(w http.ResponseWriter, r *http.Request) {
   </GetDelegatedAccessTokenResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </GetDelegatedAccessTokenResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339),
-		xmlEscape(principal), generateUUID())
+		xmlEscape(principal), sim.NewUUID())
 }
 
 // handleSTSAssumeRoot mints temporary credentials for a member account's root
@@ -560,7 +548,7 @@ func handleSTSAssumeRoot(w http.ResponseWriter, r *http.Request) {
   </AssumeRootResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </AssumeRootResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339),
-		xmlEscape(target), generateUUID())
+		xmlEscape(target), sim.NewUUID())
 }
 
 // handleSTSDecodeAuthorizationMessage decodes an encoded authorization failure
@@ -583,7 +571,7 @@ func handleSTSDecodeAuthorizationMessage(w http.ResponseWriter, r *http.Request)
 	fmt.Fprintf(w, `<DecodeAuthorizationMessageResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
   <DecodeAuthorizationMessageResult><DecodedMessage>%s</DecodedMessage></DecodeAuthorizationMessageResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</DecodeAuthorizationMessageResponse>`, xmlEscape(decoded), generateUUID())
+</DecodeAuthorizationMessageResponse>`, xmlEscape(decoded), sim.NewUUID())
 }
 
 // handleSTSGetAccessKeyInfo returns the account that owns a supplied access key
@@ -597,12 +585,12 @@ func handleSTSGetAccessKeyInfo(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetAccessKeyInfoResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
   <GetAccessKeyInfoResult><Account>%s</Account></GetAccessKeyInfoResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetAccessKeyInfoResponse>`, awsAccountID(), generateUUID())
+</GetAccessKeyInfoResponse>`, awsAccountID(), sim.NewUUID())
 }
 
 func stsErrorXML(w http.ResponseWriter, code, message string, status int) {
 	w.Header().Set("Content-Type", "text/xml")
 	w.WriteHeader(status)
 	fmt.Fprintf(w, `<ErrorResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error><RequestId>%s</RequestId></ErrorResponse>`,
-		code, xmlEscape(message), generateUUID())
+		code, xmlEscape(message), sim.NewUUID())
 }

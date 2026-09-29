@@ -263,7 +263,10 @@ func handleSSMDescribePatchBaselines(w http.ResponseWriter, r *http.Request) {
 		all = []SSMPatchBaseline{}
 	}
 	sortBy(all, func(p SSMPatchBaseline) string { return p.BaselineId })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, p := range page {
 		def, _ := ssmDefaultBaselines.Get(p.OperatingSystem)

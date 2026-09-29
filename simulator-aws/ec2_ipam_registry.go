@@ -153,7 +153,7 @@ func handleCreateIpamInternetRegistryAssociation(w http.ResponseWriter, r *http.
 	fmt.Fprintf(w, `<CreateIpamInternetRegistryAssociationResponse %s>
   <requestId>%s</requestId>
   <ipamInternetRegistryAssociation>%s</ipamInternetRegistryAssociation>
-</CreateIpamInternetRegistryAssociationResponse>`, ec2Xmlns(), generateUUID(), ipamRegistryAssociationXML(association))
+</CreateIpamInternetRegistryAssociationResponse>`, ec2Xmlns(), sim.NewUUID(), ipamRegistryAssociationXML(association))
 }
 
 func handleDescribeIpamInternetRegistryAssociations(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +169,7 @@ func handleDescribeIpamInternetRegistryAssociations(w http.ResponseWriter, r *ht
 	fmt.Fprintf(w, `<DescribeIpamInternetRegistryAssociationsResponse %s>
   <requestId>%s</requestId>
   <ipamInternetRegistryAssociationSet>%s</ipamInternetRegistryAssociationSet>
-</DescribeIpamInternetRegistryAssociationsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeIpamInternetRegistryAssociationsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDeleteIpamInternetRegistryAssociation(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +193,7 @@ func handleDeleteIpamInternetRegistryAssociation(w http.ResponseWriter, r *http.
 	fmt.Fprintf(w, `<DeleteIpamInternetRegistryAssociationResponse %s>
   <requestId>%s</requestId>
   <ipamInternetRegistryAssociation>%s</ipamInternetRegistryAssociation>
-</DeleteIpamInternetRegistryAssociationResponse>`, ec2Xmlns(), generateUUID(), ipamRegistryAssociationXML(association))
+</DeleteIpamInternetRegistryAssociationResponse>`, ec2Xmlns(), sim.NewUUID(), ipamRegistryAssociationXML(association))
 }
 
 func handleEnableIpamInternetRegistryAssociation(w http.ResponseWriter, r *http.Request) {
@@ -229,7 +229,7 @@ func ec2RequireIpamRegistryAssociation(w http.ResponseWriter, r *http.Request, a
 	fmt.Fprintf(w, `<%sResponse %s>
   <requestId>%s</requestId>
   <%s></%s>
-</%sResponse>`, action, ec2Xmlns(), generateUUID(), setName, setName, action)
+</%sResponse>`, action, ec2Xmlns(), sim.NewUUID(), setName, setName, action)
 }
 
 func ipamRoutingRegistrationXML(registration EC2IpamRoutingPolicyRegistration) string {
@@ -288,7 +288,7 @@ func handleCreateIpamRoutingPolicyRegistration(w http.ResponseWriter, r *http.Re
 	fmt.Fprintf(w, `<CreateIpamRoutingPolicyRegistrationResponse %s>
   <requestId>%s</requestId>
   <ipamRoutingPolicyRegistrationDelta>%s</ipamRoutingPolicyRegistrationDelta>
-</CreateIpamRoutingPolicyRegistrationResponse>`, ec2Xmlns(), generateUUID(), ipamRoutingDeltaXML(delta))
+</CreateIpamRoutingPolicyRegistrationResponse>`, ec2Xmlns(), sim.NewUUID(), ipamRoutingDeltaXML(delta))
 }
 
 // ec2RecordRoutingRegistrationDelta records the single-operation counterpart
@@ -350,7 +350,7 @@ func handleModifyIpamRoutingPolicyRegistration(w http.ResponseWriter, r *http.Re
 	fmt.Fprintf(w, `<ModifyIpamRoutingPolicyRegistrationResponse %s>
   <requestId>%s</requestId>
   <ipamRoutingPolicyRegistrationDelta>%s</ipamRoutingPolicyRegistrationDelta>
-</ModifyIpamRoutingPolicyRegistrationResponse>`, ec2Xmlns(), generateUUID(), ipamRoutingDeltaXML(delta))
+</ModifyIpamRoutingPolicyRegistrationResponse>`, ec2Xmlns(), sim.NewUUID(), ipamRoutingDeltaXML(delta))
 }
 
 func ipamRoutingDeltaXML(delta EC2IpamRoutingPolicyRegistrationDelta) string {
@@ -428,7 +428,7 @@ func handleBatchModifyIpamRoutingPolicyRegistrations(w http.ResponseWriter, r *h
 	fmt.Fprintf(w, `<BatchModifyIpamRoutingPolicyRegistrationsResponse %s>
   <requestId>%s</requestId>
   <ipamRoutingPolicyRegistrationDelta>%s</ipamRoutingPolicyRegistrationDelta>
-</BatchModifyIpamRoutingPolicyRegistrationsResponse>`, ec2Xmlns(), generateUUID(), ipamRoutingDeltaXML(delta))
+</BatchModifyIpamRoutingPolicyRegistrationsResponse>`, ec2Xmlns(), sim.NewUUID(), ipamRoutingDeltaXML(delta))
 }
 
 func handleDeleteIpamRoutingPolicyRegistration(w http.ResponseWriter, r *http.Request) {
@@ -453,7 +453,7 @@ func handleDeleteIpamRoutingPolicyRegistration(w http.ResponseWriter, r *http.Re
 	fmt.Fprintf(w, `<DeleteIpamRoutingPolicyRegistrationResponse %s>
   <requestId>%s</requestId>
   <ipamRoutingPolicyRegistrationDelta>%s</ipamRoutingPolicyRegistrationDelta>
-</DeleteIpamRoutingPolicyRegistrationResponse>`, ec2Xmlns(), generateUUID(), ipamRoutingDeltaXML(delta))
+</DeleteIpamRoutingPolicyRegistrationResponse>`, ec2Xmlns(), sim.NewUUID(), ipamRoutingDeltaXML(delta))
 }
 
 func handleGetIpamRoutingPolicyRegistrations(w http.ResponseWriter, r *http.Request) {
@@ -474,7 +474,7 @@ func handleGetIpamRoutingPolicyRegistrations(w http.ResponseWriter, r *http.Requ
 	fmt.Fprintf(w, `<GetIpamRoutingPolicyRegistrationsResponse %s>
   <requestId>%s</requestId>
   <ipamRoutingPolicyRegistrationSet>%s</ipamRoutingPolicyRegistrationSet>
-</GetIpamRoutingPolicyRegistrationsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</GetIpamRoutingPolicyRegistrationsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 // handleGetIpamRoutingPolicyRegistrationDeltas lists the batch-modification
@@ -494,7 +494,7 @@ func handleGetIpamRoutingPolicyRegistrationDeltas(w http.ResponseWriter, r *http
 	fmt.Fprintf(w, `<GetIpamRoutingPolicyRegistrationDeltasResponse %s>
   <requestId>%s</requestId>
   <ipamRoutingPolicyRegistrationDeltaSet>%s</ipamRoutingPolicyRegistrationDeltaSet>
-</GetIpamRoutingPolicyRegistrationDeltasResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</GetIpamRoutingPolicyRegistrationDeltasResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 // handleGetIpamDiscoveredRoutes reports the routes IPAM's resource discovery
@@ -516,7 +516,7 @@ func handleGetIpamDiscoveredRoutes(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetIpamDiscoveredRoutesResponse %s>
   <requestId>%s</requestId>
   <ipamDiscoveredRouteSet>%s</ipamDiscoveredRouteSet>
-</GetIpamDiscoveredRoutesResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</GetIpamDiscoveredRoutesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 // Route origin authorizations are RPKI objects published by the Regional
@@ -540,5 +540,5 @@ func handleGetIpamRouteProtectionFindings(w http.ResponseWriter, r *http.Request
 	fmt.Fprintf(w, `<GetIpamRouteProtectionFindingsResponse %s>
   <requestId>%s</requestId>
   <routeProtectionFindingSet></routeProtectionFindingSet>
-</GetIpamRouteProtectionFindingsResponse>`, ec2Xmlns(), generateUUID())
+</GetIpamRouteProtectionFindingsResponse>`, ec2Xmlns(), sim.NewUUID())
 }

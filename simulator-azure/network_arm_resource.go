@@ -216,7 +216,7 @@ func azureNetworkResourceNotFound(w http.ResponseWriter, resourceType, name, rg 
 // resource and child resource; clients treat it as opaque and only compare it
 // for change detection.
 func azureNetworkEtag() string {
-	return `W/"` + generateUUID() + `"`
+	return `W/"` + sim.NewUUID() + `"`
 }
 
 // azureNetworkChildID composes the ARM id of a child resource collection member.

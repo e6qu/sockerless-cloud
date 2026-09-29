@@ -389,7 +389,10 @@ func handleBatchDescribeComputeEnvironments(w http.ResponseWriter, r *http.Reque
 	if result == nil {
 		result = []BatchComputeEnvironment{}
 	}
-	page, next := awsPageExplicit(result, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"computeEnvironments": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -523,7 +526,10 @@ func handleBatchDescribeJobQueues(w http.ResponseWriter, r *http.Request) {
 	if result == nil {
 		result = []BatchJobQueue{}
 	}
-	page, next := awsPageExplicit(result, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"jobQueues": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -675,7 +681,10 @@ func handleBatchDescribeJobDefinitions(w http.ResponseWriter, r *http.Request) {
 	if result == nil {
 		result = []BatchJobDefinition{}
 	}
-	page, next := awsPageExplicit(result, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"jobDefinitions": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -902,7 +911,10 @@ func handleBatchListJobs(w http.ResponseWriter, r *http.Request) {
 	if result == nil {
 		result = []map[string]any{}
 	}
-	page, next := awsPageExplicit(result, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"jobSummaryList": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -1084,7 +1096,10 @@ func handleBatchListSchedulingPolicies(w http.ResponseWriter, r *http.Request) {
 	for _, sp := range all {
 		result = append(result, map[string]any{"arn": sp.Arn})
 	}
-	page, next := awsPageExplicit(result, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"schedulingPolicies": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -1341,7 +1356,10 @@ func handleBatchListConsumableResources(w http.ResponseWriter, r *http.Request) 
 			"resourceType":           cr.ResourceType,
 		})
 	}
-	page, next := awsPageExplicit(result, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"consumableResources": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -1421,7 +1439,10 @@ func handleBatchListJobsByConsumableResource(w http.ResponseWriter, r *http.Requ
 	// simulator's container jobs do not draw against named consumable
 	// resources, so this returns an empty (but well-formed) page.
 	result := []map[string]any{}
-	page, next := awsPageExplicit(result, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"jobs": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -1506,7 +1527,10 @@ func handleBatchDescribeServiceEnvironments(w http.ResponseWriter, r *http.Reque
 	if result == nil {
 		result = []BatchServiceEnvironment{}
 	}
-	page, next := awsPageExplicit(result, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"serviceEnvironments": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -1726,7 +1750,10 @@ func handleBatchListServiceJobs(w http.ResponseWriter, r *http.Request) {
 	if result == nil {
 		result = []map[string]any{}
 	}
-	page, next := awsPageExplicit(result, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"jobSummaryList": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -1905,7 +1932,10 @@ func handleBatchListQuotaShares(w http.ResponseWriter, r *http.Request) {
 		}
 		result = append(result, entry)
 	}
-	page, next := awsPageExplicit(result, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"quotaShares": page}
 	if next != "" {
 		out["nextToken"] = next

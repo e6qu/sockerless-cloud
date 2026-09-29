@@ -12,39 +12,34 @@ import (
 	"sync"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
+	"github.com/e6qu/sockerless-cloud/realexec/fabric"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 var (
-	ec2RealHost = realexec.NewHost()
-	// ec2RealMu guards the real-execution fabric maps. Reads — resolving a
+	// ec2Fabric realizes VPCs, subnets, the taps behind instance ENIs, the
+	// namespaces behind NAT gateways, and the instances' Firecracker machines.
+	ec2Fabric = fabric.New[string](fabric.Options{
+		NetworkPrefix: "avn",
+		SubnetPrefix:  "asb",
+		Reserved:      ec2SubnetReservation,
+		OnTapClosed:   func(tap *realexec.TapNIC) { imdsInstancesByIP.Delete(tap.PrivateIP.String()) },
+	})
+	// ec2RealMu guards the attachments only AWS makes. Reads — resolving a
 	// security group's member addresses, listing the attachments to reapply —
-	// exclude nothing but a writer. Anything that creates, mutates or tears
-	// down fabric keeps taking Lock; neither is reentrant, and no section here
-	// calls another.
+	// exclude nothing but a writer.
 	ec2RealMu         sync.RWMutex
-	ec2RealVPCs       = map[string]*realexec.Network{}
-	ec2RealSubnets    = map[string]*realexec.Subnet{}
-	ec2RealNICs       = map[string]*realexec.NamespaceNIC{}
-	ec2RealVMNICs     = map[string]*realexec.TapNIC{}
-	ec2RealVMs        = map[string]*realexec.FirecrackerVM{}
 	ec2RealEBSSlots   = map[string]map[string]string{}
-	ec2RealNATNICs    = map[string]*realexec.NamespaceNIC{}
 	ec2RealECSNICs    = map[string]*realexec.NamespaceNIC{} // taskID -> veth into the container netns
 	ec2RealLambdaNICs = map[string]ec2RealLambdaNIC{}       // invocation ID -> Hyperplane ENI realization
-
-	// ec2RealVMStartLocks serializes ec2StartRealVM per instance id so two
-	// concurrent starts of the same instance can't both pass the not-running
-	// check and both AttachTapNIC the same tap (the second failing "File
-	// exists" / "IP already leased").
-	ec2RealVMStartLocks sync.Map // instanceID -> *sync.Mutex
-
-	// ec2RealVPCLocks gates VPC teardown against in-flight attaches: an attach
-	// (RLock) provisions netns resources and only records the NIC at the end, so
-	// a concurrent ec2DeleteRealVPC (Lock) must wait for in-flight attaches —
-	// otherwise it closes the netns mid-attach, orphaning the veth/tap and
-	// leaking the NIC map entry. RLock allows parallel attaches in the same VPC.
-	ec2RealVPCLocks sync.Map // vpcID -> *sync.RWMutex
 )
+
+// ec2SubnetReservation is what Amazon VPC keeps in every subnet: the network
+// address, the VPC router, the DNS server, one address for future use, and
+// the broadcast address.
+var ec2SubnetReservation = realexec.HostReservation{First: 4, Last: 1}
+
+const ec2MACPrefix = "02:0a:ec"
 
 type ec2RealLambdaNIC struct {
 	NIC              *realexec.NamespaceNIC
@@ -52,26 +47,6 @@ type ec2RealLambdaNIC struct {
 	PrivateIP        string
 	SecurityGroupIDs []string
 	RuntimeDNATTable string
-}
-
-func ec2RealVMStartLock(instanceID string) *sync.Mutex {
-	m, _ := ec2RealVMStartLocks.LoadOrStore(instanceID, &sync.Mutex{})
-	mu, ok := m.(*sync.Mutex)
-	if !ok {
-		mu = &sync.Mutex{}
-		ec2RealVMStartLocks.Store(instanceID, mu)
-	}
-	return mu
-}
-
-func ec2RealVPCLock(vpcID string) *sync.RWMutex {
-	m, _ := ec2RealVPCLocks.LoadOrStore(vpcID, &sync.RWMutex{})
-	mu, ok := m.(*sync.RWMutex)
-	if !ok {
-		mu = &sync.RWMutex{}
-		ec2RealVPCLocks.Store(vpcID, mu)
-	}
-	return mu
 }
 
 // ec2ECSRealNetAvailable reports whether ECS tasks can be plumbed into real VPC
@@ -91,10 +66,9 @@ func ec2ECSRealNetAvailable() bool {
 // without real-exec capabilities, ec2ApplyRealECSTaskSecurityGroups is a no-op
 // and SG rules remain metadata-only — enforced faithfully by the API surface
 // (validation, DescribeSecurityGroups) but not at the host firewall level.
-// ec2AttachRealECSTaskNIC plumbs the task's elastic network interface into the
-// namespace its pause container holds. mark, when non-nil, is called after each
-// step with that step's name, so the caller's phase timer attributes the attach
-// instead of reporting it as one opaque window.
+// mark, when non-nil, receives each step's name after the step, so the
+// caller's phase timer attributes the attach instead of reporting it as one
+// opaque window.
 func ec2AttachRealECSTaskNIC(
 	ctx context.Context,
 	taskID, subnetID string,
@@ -113,44 +87,35 @@ func ec2AttachRealECSTaskNIC(
 	if !ok {
 		return fmt.Errorf("subnet %s not found", subnetID)
 	}
-	// Hold the per-VPC read lock for the whole attach so a concurrent VPC
-	// teardown waits for us instead of closing the netns mid-attach.
-	vpcLk := ec2RealVPCLock(sn.VpcId)
-	vpcLk.RLock()
-	defer vpcLk.RUnlock()
-	if err := ec2CreateRealSubnet(ctx, sn); err != nil {
+	defer ec2Fabric.HoldNetwork(sn.VpcId)()
+	subnet, err := ec2CreateRealSubnet(ctx, sn)
+	if err != nil {
 		return err
 	}
 	step("vpc:subnet")
-	ec2RealMu.Lock()
-	subnet := ec2RealSubnets[subnetID]
-	ec2RealMu.Unlock()
-	if subnet == nil {
-		return fmt.Errorf("real subnet %s not provisioned", subnetID)
-	}
 	nic, err := subnet.AttachExternalNamespaceNIC(ctx, realexec.ExternalNamespaceNICSpec{
 		PID:           pid,
-		HostVethName:  ec2RealName("eh", taskID),
-		GuestVethName: ec2RealName("eg", taskID),
+		HostVethName:  fabric.LinuxName("eh", taskID),
+		GuestVethName: fabric.LinuxName("eg", taskID),
 		GuestIfName:   "eth0",
-		MAC:           ec2ENIMAC(taskID),
+		MAC:           fabric.DeriveMAC(ec2MACPrefix, taskID),
 		PrivateIP:     net.ParseIP(eniIP),
 	})
 	if err != nil {
 		return err
 	}
 	step("vpc:veth")
-	metadataPort, err := simHostMetadataPort()
+	metadataPort, err := workloadhost.ListenPort(simListenAddr)
 	if err != nil {
 		_ = nic.Close(context.Background())
 		return err
 	}
-	if err := subnet.ConfigureAddressDNAT(ctx, realexec.ECSTaskMetadataIPv4, metadataPort, ec2RealName("emd", sn.VpcId)); err != nil {
+	if err := subnet.ConfigureAddressDNAT(ctx, realexec.ECSTaskMetadataIPv4, metadataPort, fabric.LinuxName("emd", sn.VpcId)); err != nil {
 		_ = nic.Close(context.Background())
 		return fmt.Errorf("configure ECS task metadata routing for %s: %w", taskID, err)
 	}
 	step("vpc:task-metadata")
-	if err := subnet.ConfigureMetadataDNAT(ctx, metadataPort, ec2RealName("imd", sn.VpcId)); err != nil {
+	if err := subnet.ConfigureMetadataDNAT(ctx, metadataPort, fabric.LinuxName("imd", sn.VpcId)); err != nil {
 		_ = nic.Close(context.Background())
 		return fmt.Errorf("configure ECS IMDS routing for %s: %w", taskID, err)
 	}
@@ -211,39 +176,32 @@ func ec2AttachRealLambdaNIC(
 	if !ok {
 		return fmt.Errorf("subnet %s not found", subnetID)
 	}
-	vpcLk := ec2RealVPCLock(sn.VpcId)
-	vpcLk.RLock()
-	defer vpcLk.RUnlock()
-	if err := ec2CreateRealSubnet(ctx, sn); err != nil {
+	defer ec2Fabric.HoldNetwork(sn.VpcId)()
+	subnet, err := ec2CreateRealSubnet(ctx, sn)
+	if err != nil {
 		return err
-	}
-	ec2RealMu.Lock()
-	subnet := ec2RealSubnets[subnetID]
-	ec2RealMu.Unlock()
-	if subnet == nil {
-		return fmt.Errorf("real subnet %s not provisioned", subnetID)
 	}
 	nic, err := subnet.AttachExternalNamespaceNIC(ctx, realexec.ExternalNamespaceNICSpec{
 		PID:           pid,
-		HostVethName:  ec2RealName("lh", invocationID),
-		GuestVethName: ec2RealName("lg", invocationID),
+		HostVethName:  fabric.LinuxName("lh", invocationID),
+		GuestVethName: fabric.LinuxName("lg", invocationID),
 		GuestIfName:   "eth0",
-		MAC:           ec2ENIMAC(invocationID),
+		MAC:           fabric.DeriveMAC(ec2MACPrefix, invocationID),
 		PrivateIP:     net.ParseIP(eniIP),
 	})
 	if err != nil {
 		return err
 	}
-	metadataPort, err := simHostMetadataPort()
+	metadataPort, err := workloadhost.ListenPort(simListenAddr)
 	if err != nil {
 		_ = nic.Close(context.Background())
 		return err
 	}
-	if err := subnet.ConfigureMetadataDNAT(ctx, metadataPort, ec2RealName("imd", sn.VpcId)); err != nil {
+	if err := subnet.ConfigureMetadataDNAT(ctx, metadataPort, fabric.LinuxName("imd", sn.VpcId)); err != nil {
 		_ = nic.Close(context.Background())
 		return fmt.Errorf("configure AWS Lambda instance metadata routing for %s: %w", invocationID, err)
 	}
-	runtimeTable := ec2RealName("lrd", invocationID)
+	runtimeTable := fabric.LinuxName("lrd", invocationID)
 	if err := subnet.ConfigureAddressDNAT(ctx, runtimeIPv4, runtimePort, runtimeTable); err != nil {
 		_ = nic.Close(context.Background())
 		return fmt.Errorf("configure AWS Lambda Runtime API routing for %s: %w", invocationID, err)
@@ -274,12 +232,11 @@ func ec2DetachRealLambdaNIC(ctx context.Context, invocationID string) {
 	ec2RealMu.Lock()
 	attachment, ok := ec2RealLambdaNICs[invocationID]
 	delete(ec2RealLambdaNICs, invocationID)
-	subnet := ec2RealSubnets[attachment.SubnetID]
 	ec2RealMu.Unlock()
 	if !ok {
 		return
 	}
-	if subnet != nil {
+	if subnet := ec2Fabric.Subnet(attachment.SubnetID); subnet != nil {
 		_ = subnet.RemoveAddressDNAT(ctx, attachment.RuntimeDNATTable)
 	}
 	if attachment.NIC != nil {
@@ -303,93 +260,32 @@ func ec2RealVMHostAvailable() bool {
 	return realexec.DetectFirecrackerCapabilities().Require() == nil
 }
 
-func ec2RealName(prefix, id string) string {
-	id = strings.NewReplacer("/", "", "-", "", "_", "", ".", "").Replace(id)
-	if len(id) > 10 {
-		id = id[len(id)-10:]
-	}
-	name := prefix + id
-	if len(name) > 15 {
-		return name[:15]
-	}
-	return name
-}
-
-func ec2CreateRealVPC(ctx context.Context, vpc EC2Vpc) error {
-	ec2RealMu.Lock()
-	defer ec2RealMu.Unlock()
-	if _, ok := ec2RealVPCs[vpc.VpcId]; ok {
-		return nil
-	}
-
-	network, err := ec2RealHost.CreateNetworkNamespace(ctx, ec2RealName("avn", vpc.VpcId))
-	if err != nil {
-		return err
-	}
-	ec2RealVPCs[vpc.VpcId] = network
-	return nil
-}
-
+// ec2DeleteRealVPC tears the VPC's namespace down with everything in it,
+// closing the Amazon ECS task and AWS Lambda interfaces that joined it first.
 func ec2DeleteRealVPC(ctx context.Context, vpcID string) error {
-	// Wait for in-flight attaches/starts in this VPC before tearing down the
-	// netns, so we don't orphan a half-attached veth/tap.
-	vpcLk := ec2RealVPCLock(vpcID)
-	vpcLk.Lock()
-	defer vpcLk.Unlock()
-	ec2RealMu.Lock()
-	network := ec2RealVPCs[vpcID]
-	delete(ec2RealVPCs, vpcID)
-	for taskID, nic := range ec2RealECSNICs {
-		if ec2ECSTaskVPCID(taskID) == vpcID {
-			delete(ec2RealECSNICs, taskID)
-			_ = nic.Close(ctx)
-		}
-	}
-	for invocationID, attachment := range ec2RealLambdaNICs {
-		if subnet, ok := ec2Subnets.Get(attachment.SubnetID); ok && subnet.VpcId == vpcID {
-			delete(ec2RealLambdaNICs, invocationID)
-			if attachment.NIC != nil {
-				_ = attachment.NIC.Close(ctx)
+	return ec2Fabric.TeardownNetwork(ctx, vpcID, func(ctx context.Context) {
+		ec2RealMu.Lock()
+		defer ec2RealMu.Unlock()
+		for taskID, nic := range ec2RealECSNICs {
+			if ec2ECSTaskVPCID(taskID) == vpcID {
+				delete(ec2RealECSNICs, taskID)
+				_ = nic.Close(ctx)
 			}
 		}
-	}
-	for natID, nic := range ec2RealNATNICs {
-		if nat, ok := ec2NatGateways.Get(natID); ok && nat.VpcId == vpcID {
-			delete(ec2RealNATNICs, natID)
-			_ = nic.Close(ctx)
+		for invocationID, attachment := range ec2RealLambdaNICs {
+			if subnet, ok := ec2Subnets.Get(attachment.SubnetID); ok && subnet.VpcId == vpcID {
+				delete(ec2RealLambdaNICs, invocationID)
+				if attachment.NIC != nil {
+					_ = attachment.NIC.Close(ctx)
+				}
+			}
 		}
-	}
-	for eniID, nic := range ec2RealNICs {
-		if eni, ok := ec2NetworkInterfaces.Get(eniID); ok && eni.VpcId == vpcID {
-			delete(ec2RealNICs, eniID)
-			_ = nic.Close(ctx)
+		for instanceID := range ec2RealEBSSlots {
+			if inst, ok := ec2Instances.Get(instanceID); ok && inst.VpcId == vpcID {
+				delete(ec2RealEBSSlots, instanceID)
+			}
 		}
-	}
-	for eniID, nic := range ec2RealVMNICs {
-		if eni, ok := ec2NetworkInterfaces.Get(eniID); ok && eni.VpcId == vpcID {
-			delete(ec2RealVMNICs, eniID)
-			imdsInstancesByIP.Delete(nic.PrivateIP.String())
-			_ = nic.Close(ctx)
-		}
-	}
-	for instanceID, vm := range ec2RealVMs {
-		if inst, ok := ec2Instances.Get(instanceID); ok && inst.VpcId == vpcID {
-			delete(ec2RealVMs, instanceID)
-			delete(ec2RealEBSSlots, instanceID)
-			_ = vm.Stop(ctx)
-		}
-	}
-	for subnetID, subnet := range ec2RealSubnets {
-		if subnetForID, ok := ec2Subnets.Get(subnetID); ok && subnetForID.VpcId == vpcID {
-			delete(ec2RealSubnets, subnetID)
-			_ = subnet.Close(ctx)
-		}
-	}
-	ec2RealMu.Unlock()
-	if network == nil {
-		return nil
-	}
-	return network.Close(ctx)
+	})
 }
 
 func ec2ECSTaskVPCID(taskID string) string {
@@ -413,92 +309,29 @@ func ec2ECSTaskVPCID(taskID string) string {
 	return ""
 }
 
-func ec2CreateRealSubnet(ctx context.Context, subnet EC2Subnet) error {
-	ec2RealMu.Lock()
-	if _, ok := ec2RealSubnets[subnet.SubnetId]; ok {
-		ec2RealMu.Unlock()
-		return nil
+// ec2CreateRealSubnet realizes the subnet's bridge, and its VPC's namespace
+// when that is not realized yet.
+func ec2CreateRealSubnet(ctx context.Context, subnet EC2Subnet) (*realexec.Subnet, error) {
+	if s := ec2Fabric.Subnet(subnet.SubnetId); s != nil {
+		return s, nil
 	}
-	network := ec2RealVPCs[subnet.VpcId]
-	ec2RealMu.Unlock()
-	if network == nil {
-		vpc, ok := ec2Vpcs.Get(subnet.VpcId)
-		if !ok {
-			return fmt.Errorf("VPC %s not found", subnet.VpcId)
-		}
-		if err := ec2CreateRealVPC(ctx, vpc); err != nil {
-			return err
-		}
+	if _, ok := ec2Vpcs.Get(subnet.VpcId); !ok {
+		return nil, fmt.Errorf("VPC %s not found", subnet.VpcId)
 	}
-	ec2RealMu.Lock()
-	defer ec2RealMu.Unlock()
-	if _, ok := ec2RealSubnets[subnet.SubnetId]; ok {
-		return nil
-	}
-	network = ec2RealVPCs[subnet.VpcId]
-	if network == nil {
-		return fmt.Errorf("real VPC %s not provisioned", subnet.VpcId)
-	}
-	realSubnet, err := network.CreateSubnet(ctx, realexec.SubnetSpec{
-		Name:       subnet.SubnetId,
-		BridgeName: ec2RealName("asb", subnet.SubnetId),
-		CIDR:       subnet.CidrBlock,
-		Gateway:    ec2AWSSubnetGateway(subnet.CidrBlock),
-	})
-	if err != nil {
-		return err
-	}
-	ec2RealSubnets[subnet.SubnetId] = realSubnet
-	return nil
+	return ec2Fabric.EnsureSubnet(ctx, subnet.VpcId, subnet.SubnetId, subnet.CidrBlock, fabric.FirstHostGateway(subnet.CidrBlock))
 }
 
-func ec2DeleteRealSubnet(ctx context.Context, subnetID string) error {
-	ec2RealMu.Lock()
-	subnet := ec2RealSubnets[subnetID]
-	delete(ec2RealSubnets, subnetID)
-	ec2RealMu.Unlock()
-	if subnet == nil {
-		return nil
-	}
-	return subnet.Close(ctx)
-}
-
+// ec2DeleteRealNIC stops the instance the ENI is attached to and closes the
+// ENI's fabric.
 func ec2DeleteRealNIC(ctx context.Context, eniID string) error {
-	instanceIDForENI := ""
+	var errs []error
 	for _, inst := range ec2Instances.List() {
 		if inst.NetworkInterfaceId == eniID {
-			instanceIDForENI = inst.InstanceId
+			errs = append(errs, ec2StopRealVM(ctx, inst.InstanceId))
 			break
 		}
 	}
-	ec2RealMu.Lock()
-	nic := ec2RealNICs[eniID]
-	delete(ec2RealNICs, eniID)
-	tap := ec2RealVMNICs[eniID]
-	delete(ec2RealVMNICs, eniID)
-	var vm *realexec.FirecrackerVM
-	if instanceIDForENI != "" {
-		vm = ec2RealVMs[instanceIDForENI]
-		delete(ec2RealVMs, instanceIDForENI)
-		delete(ec2RealEBSSlots, instanceIDForENI)
-	}
-	ec2RealMu.Unlock()
-	var errs []error
-	if vm != nil {
-		errs = append(errs, vm.Stop(ctx))
-	}
-	if nic == nil {
-		if tap != nil {
-			imdsInstancesByIP.Delete(tap.PrivateIP.String())
-			errs = append(errs, tap.Close(ctx))
-		}
-		return errors.Join(errs...)
-	}
-	errs = append(errs, nic.Close(ctx))
-	if tap != nil {
-		imdsInstancesByIP.Delete(tap.PrivateIP.String())
-		errs = append(errs, tap.Close(ctx))
-	}
+	errs = append(errs, ec2Fabric.DeleteNIC(ctx, eniID))
 	return errors.Join(errs...)
 }
 
@@ -646,43 +479,18 @@ func ecsTaskUsesSecurityGroup(task ECSTask, groupID string) bool {
 	return false
 }
 
+// ec2ApplyRealNICSecurityGroups filters the ENI's tap. No security groups
+// leaves the ENI open: AWS would assign the VPC's default group, which the
+// simulator does not model.
 func ec2ApplyRealNICSecurityGroups(ctx context.Context, eniID string, securityGroupIDs []string) error {
-	ec2RealMu.Lock()
-	nic := ec2RealNICs[eniID]
-	tap := ec2RealVMNICs[eniID]
-	ec2RealMu.Unlock()
-	if nic == nil && tap == nil {
+	if !ec2Fabric.Realized(eniID) {
 		return nil
 	}
-	// No security groups means default-allow (no host-level ingress filter).
-	// This matches the pre-enforcement behaviour and avoids breaking tasks
-	// launched without an explicit SG, which AWS would assign to the VPC's
-	// default SG but the simulator does not model yet.
-	if len(securityGroupIDs) == 0 {
-		if nic != nil {
-			if err := nic.ClearIngressFilter(ctx); err != nil {
-				return err
-			}
-		}
-		if tap != nil {
-			if err := tap.ClearIngressFilter(ctx); err != nil {
-				return err
-			}
-		}
-		return nil
+	var stages [][]realexec.PacketRule
+	if len(securityGroupIDs) > 0 {
+		stages = [][]realexec.PacketRule{ec2BuildIngressPacketRules(securityGroupIDs)}
 	}
-	rules := ec2BuildIngressPacketRules(securityGroupIDs)
-	if nic != nil {
-		if err := nic.ConfigureIngressFilter(ctx, rules); err != nil {
-			return err
-		}
-	}
-	if tap != nil {
-		if err := tap.ConfigureIngressFilter(ctx, rules); err != nil {
-			return err
-		}
-	}
-	return nil
+	return ec2Fabric.ApplyIngress(ctx, eniID, stages)
 }
 
 // ec2ApplyRealECSTaskSecurityGroups programs the nftables ingress filter for an
@@ -728,96 +536,74 @@ func ec2StartRealVM(ctx context.Context, inst EC2Instance) error {
 	if inst.NetworkInterfaceId == "" {
 		return fmt.Errorf("instance %s has no network interface", inst.InstanceId)
 	}
-	// Hold the per-VPC read lock so a concurrent teardown waits for this start.
-	vpcLk := ec2RealVPCLock(inst.VpcId)
-	vpcLk.RLock()
-	defer vpcLk.RUnlock()
-	// Serialize concurrent starts of the same instance so the tap-NIC
-	// check-then-create below can't double-attach.
-	startLk := ec2RealVMStartLock(inst.InstanceId)
-	startLk.Lock()
-	defer startLk.Unlock()
-	ec2RealMu.Lock()
-	if vm := ec2RealVMs[inst.InstanceId]; vm != nil && vm.Alive() {
-		ec2RealMu.Unlock()
-		return nil
+	metadataPort, err := workloadhost.ListenPort(simListenAddr)
+	if err != nil {
+		return err
 	}
-	tap := ec2RealVMNICs[inst.NetworkInterfaceId]
-	subnet := ec2RealSubnets[inst.SubnetId]
-	ec2RealMu.Unlock()
-	if subnet == nil {
-		sn, ok := ec2Subnets.Get(inst.SubnetId)
-		if !ok {
-			return fmt.Errorf("subnet %s not found", inst.SubnetId)
-		}
-		if err := ec2CreateRealSubnet(ctx, sn); err != nil {
+	vcpus, memMiB := ec2InstanceMachineShape(inst.InstanceType)
+	var slots map[string]string
+	_, _, started, err := ec2Fabric.StartVM(ctx, fabric.VMSpec[string]{
+		Key:     inst.InstanceId,
+		Network: inst.VpcId,
+		Subnet:  inst.SubnetId,
+		NIC:     inst.NetworkInterfaceId,
+		EnsureSubnet: func(ctx context.Context) error {
+			sn, ok := ec2Subnets.Get(inst.SubnetId)
+			if !ok {
+				return fmt.Errorf("subnet %s not found", inst.SubnetId)
+			}
+			_, err := ec2CreateRealSubnet(ctx, sn)
 			return err
-		}
-		ec2RealMu.Lock()
-		subnet = ec2RealSubnets[inst.SubnetId]
-		ec2RealMu.Unlock()
-	}
-	if subnet == nil {
-		// A concurrent VPC/subnet teardown removed it between the re-read above.
-		return fmt.Errorf("subnet %s no longer exists", inst.SubnetId)
-	}
-	if tap == nil {
-		created, err := subnet.AttachTapNIC(ctx, realexec.TapNICSpec{
-			TapName:   ec2RealName("at", inst.NetworkInterfaceId),
+		},
+		Tap: realexec.TapNICSpec{
+			TapName:   fabric.LinuxName("at", inst.NetworkInterfaceId),
 			PrivateIP: net.ParseIP(inst.PrivateIpAddress),
-			MAC:       ec2ENIMAC(inst.NetworkInterfaceId),
-		})
-		if err != nil {
-			return err
-		}
-		tap = created
-		ec2RealMu.Lock()
-		ec2RealVMNICs[inst.NetworkInterfaceId] = tap
-		ec2RealMu.Unlock()
-	}
-	imdsInstancesByIP.Store(tap.PrivateIP.String(), inst)
-	metadataPort, err := simHostMetadataPort()
-	if err != nil {
-		return err
-	}
-	if err := subnet.ConfigureMetadataDNAT(ctx, metadataPort, ec2RealName("amd", inst.VpcId)); err != nil {
-		return fmt.Errorf("configure EC2 IMDS routing for %s: %w", inst.InstanceId, err)
-	}
-	blockDrives, slots, err := ec2RealEBSBlockDrives(inst)
-	if err != nil {
-		return err
-	}
-	vm, err := realexec.StartFirecrackerVM(ctx, realexec.FirecrackerVMConfig{
-		ID:          "aws-" + inst.InstanceId,
-		Tap:         tap,
-		MAC:         ec2ENIMAC(inst.NetworkInterfaceId),
-		VCPUCount:   1,
-		MemoryMiB:   512,
-		BlockDrives: blockDrives,
+			MAC:       fabric.DeriveMAC(ec2MACPrefix, inst.NetworkInterfaceId),
+		},
+		MetadataPort:  metadataPort,
+		MetadataTable: fabric.LinuxName("amd", inst.VpcId),
+		Machine: realexec.FirecrackerVMConfig{
+			ID:        "aws-" + inst.InstanceId,
+			VCPUCount: vcpus,
+			MemoryMiB: memMiB,
+		},
+		BeforeBoot: func(tap *realexec.TapNIC, machine *realexec.FirecrackerVMConfig) error {
+			imdsInstancesByIP.Store(tap.PrivateIP.String(), inst)
+			drives, driveSlots, err := ec2RealEBSBlockDrives(inst)
+			if err != nil {
+				return err
+			}
+			machine.BlockDrives = drives
+			slots = driveSlots
+			return nil
+		},
 	})
-	if err != nil {
+	if err != nil || !started {
 		return err
 	}
 	ec2RealMu.Lock()
-	if old := ec2RealVMs[inst.InstanceId]; old != nil {
-		_ = old.Stop(context.Background())
-	}
-	ec2RealVMs[inst.InstanceId] = vm
 	ec2RealEBSSlots[inst.InstanceId] = slots
 	ec2RealMu.Unlock()
 	return ec2ApplyRealNICSecurityGroups(ctx, inst.NetworkInterfaceId, inst.SecurityGroupIds)
 }
 
+// ec2InstanceMachineShape sizes the instance's machine from the instance-type
+// catalog DescribeInstanceTypes and the requirements matcher serve. A type the
+// catalog does not carry boots at the substrate's smallest shape.
+func ec2InstanceMachineShape(instanceType string) (vcpus, memMiB int) {
+	for _, entry := range ec2InstanceTypeCatalog() {
+		if entry.name == instanceType {
+			return entry.vcpus, entry.memMiB
+		}
+	}
+	return 1, 512
+}
+
 func ec2StopRealVM(ctx context.Context, instanceID string) error {
 	ec2RealMu.Lock()
-	vm := ec2RealVMs[instanceID]
-	delete(ec2RealVMs, instanceID)
 	delete(ec2RealEBSSlots, instanceID)
 	ec2RealMu.Unlock()
-	if vm == nil {
-		return nil
-	}
-	return vm.Stop(ctx)
+	return ec2Fabric.StopVM(ctx, instanceID, nil)
 }
 
 func ec2RealEBSBlockDrives(inst EC2Instance) ([]realexec.FirecrackerBlockDrive, map[string]string, error) {
@@ -881,7 +667,7 @@ func ec2AttachRealVolume(ctx context.Context, instanceID string, vol *EC2Volume)
 		return err
 	}
 	ec2RealMu.Lock()
-	vm := ec2RealVMs[instanceID]
+	vm := ec2Fabric.VM(instanceID)
 	slots := ec2RealEBSSlots[instanceID]
 	if slots == nil {
 		slots = map[string]string{}
@@ -916,7 +702,7 @@ func ec2DetachRealVolume(ctx context.Context, instanceID, volumeID string) error
 		return nil
 	}
 	ec2RealMu.Lock()
-	vm := ec2RealVMs[instanceID]
+	vm := ec2Fabric.VM(instanceID)
 	slot := ""
 	if slots := ec2RealEBSSlots[instanceID]; slots != nil {
 		slot = slots[volumeID]
@@ -952,7 +738,7 @@ func ec2RefreshRealVolume(ctx context.Context, vol EC2Volume) error {
 		return nil
 	}
 	ec2RealMu.Lock()
-	vm := ec2RealVMs[inst.InstanceId]
+	vm := ec2Fabric.VM(inst.InstanceId)
 	slot := ""
 	if slots := ec2RealEBSSlots[inst.InstanceId]; slots != nil {
 		slot = slots[vol.VolumeId]
@@ -1004,13 +790,6 @@ func ec2PrepareRealEBSSlotPlaceholder(path string) error {
 	return f.Close()
 }
 
-func ec2RealVMAlive(instanceID string) bool {
-	ec2RealMu.Lock()
-	vm := ec2RealVMs[instanceID]
-	ec2RealMu.Unlock()
-	return vm != nil && vm.Alive()
-}
-
 // ec2ReapplyRealSecurityGroup reprograms the nftables ingress filter on every
 // network path currently bound to groupID — ENIs attached to EC2 instances,
 // Amazon ECS task NICs, and AWS Lambda Hyperplane ENIs in the real network
@@ -1060,56 +839,52 @@ func ec2ReapplyRealSecurityGroup(ctx context.Context, groupID string) error {
 }
 
 func ec2CreateRealNATGateway(ctx context.Context, nat EC2NatGateway) error {
-	ec2RealMu.Lock()
-	if _, ok := ec2RealNATNICs[nat.NatGatewayId]; ok {
-		ec2RealMu.Unlock()
+	if ec2Fabric.NIC(nat.NatGatewayId) != nil {
 		return nil
 	}
-	subnet := ec2RealSubnets[nat.SubnetId]
-	ec2RealMu.Unlock()
-	if subnet == nil {
-		sn, ok := ec2Subnets.Get(nat.SubnetId)
-		if !ok {
-			return fmt.Errorf("subnet %s not found", nat.SubnetId)
-		}
-		if err := ec2CreateRealSubnet(ctx, sn); err != nil {
-			return err
-		}
-		ec2RealMu.Lock()
-		subnet = ec2RealSubnets[nat.SubnetId]
-		ec2RealMu.Unlock()
+	sn, ok := ec2Subnets.Get(nat.SubnetId)
+	if !ok {
+		return fmt.Errorf("subnet %s not found", nat.SubnetId)
+	}
+	if _, err := ec2CreateRealSubnet(ctx, sn); err != nil {
+		return err
 	}
 	if len(nat.NatGatewayAddresses) == 0 {
 		return fmt.Errorf("NAT gateway %s has no address attachment", nat.NatGatewayId)
 	}
 	addr := nat.NatGatewayAddresses[0]
-	nic, err := subnet.AttachNamespaceNIC(ctx, realexec.NamespaceNICSpec{
-		NamespaceName: ec2RealName("an", nat.NatGatewayId),
-		HostVethName:  ec2RealName("nh", nat.NatGatewayId),
-		GuestVethName: ec2RealName("ng", nat.NatGatewayId),
+	_, err := ec2Fabric.AttachNamespaceNIC(ctx, nat.SubnetId, nat.NatGatewayId, realexec.NamespaceNICSpec{
+		NamespaceName: fabric.LinuxName("an", nat.NatGatewayId),
+		HostVethName:  fabric.LinuxName("nh", nat.NatGatewayId),
+		GuestVethName: fabric.LinuxName("ng", nat.NatGatewayId),
 		PrivateIP:     net.ParseIP(addr.PrivateIp),
-		MAC:           ec2ENIMAC(addr.NetworkInterfaceId),
+		MAC:           fabric.DeriveMAC(ec2MACPrefix, addr.NetworkInterfaceId),
 	})
-	if err != nil {
-		return err
-	}
-	ec2RealMu.Lock()
-	ec2RealNATNICs[nat.NatGatewayId] = nic
-	ec2RealMu.Unlock()
-	return nil
+	return err
 }
 
+// ec2DeleteRealNATGateway closes the gateway's interface and withdraws the
+// translation of every route through it: AWS turns those routes into
+// blackholes, and a blackhole translates nothing.
 func ec2DeleteRealNATGateway(ctx context.Context, natID string) error {
-	ec2RealMu.Lock()
-	nic := ec2RealNATNICs[natID]
-	delete(ec2RealNATNICs, natID)
-	ec2RealMu.Unlock()
-	if nic == nil {
-		return nil
+	var errs []error
+	for _, rt := range ec2RouteTables.List() {
+		for _, route := range rt.Routes {
+			if route.NatGatewayId == natID {
+				errs = append(errs, ec2ReleaseRealNATRoute(ctx, rt.RouteTableId, route.DestinationCidrBlock))
+			}
+		}
 	}
-	return nic.Close(ctx)
+	errs = append(errs, ec2Fabric.DeleteNIC(ctx, natID))
+	return errors.Join(errs...)
 }
 
+func ec2NATRouteOwner(routeTableID, destinationCIDR string) string {
+	return routeTableID + "|" + destinationCIDR
+}
+
+// ec2ConfigureRealNATRoute translates the traffic of every subnet associated
+// with the route table to the NAT gateway's public address.
 func ec2ConfigureRealNATRoute(ctx context.Context, routeTableID, destinationCIDR, natID string) error {
 	nat, ok := ec2NatGateways.Get(natID)
 	if !ok {
@@ -1122,44 +897,35 @@ func ec2ConfigureRealNATRoute(ctx context.Context, routeTableID, destinationCIDR
 	if !ok {
 		return fmt.Errorf("route table %s not found", routeTableID)
 	}
-	var network *realexec.Network
-	ec2RealMu.Lock()
-	network = ec2RealVPCs[rt.VpcId]
-	ec2RealMu.Unlock()
-	if network == nil {
-		vpc, ok := ec2Vpcs.Get(rt.VpcId)
-		if !ok {
-			return fmt.Errorf("VPC %s not found", rt.VpcId)
-		}
-		if err := ec2CreateRealVPC(ctx, vpc); err != nil {
-			return err
-		}
-		ec2RealMu.Lock()
-		network = ec2RealVPCs[rt.VpcId]
-		ec2RealMu.Unlock()
+	if _, ok := ec2Vpcs.Get(rt.VpcId); !ok {
+		return fmt.Errorf("VPC %s not found", rt.VpcId)
 	}
-	sourceCIDR := ""
+	if _, err := ec2Fabric.EnsureNetwork(ctx, rt.VpcId); err != nil {
+		return err
+	}
+	var sources []string
 	for _, assoc := range rt.Associations {
 		if subnet, ok := ec2Subnets.Get(assoc.SubnetId); ok {
-			sourceCIDR = subnet.CidrBlock
-			break
+			sources = append(sources, subnet.CidrBlock)
 		}
 	}
-	if sourceCIDR == "" {
+	if len(sources) == 0 {
 		if subnet, ok := ec2Subnets.Get(nat.SubnetId); ok {
-			sourceCIDR = subnet.CidrBlock
+			sources = append(sources, subnet.CidrBlock)
 		}
 	}
-	if sourceCIDR == "" {
+	if len(sources) == 0 {
 		return fmt.Errorf("route table %s has no subnet CIDR for NAT source", routeTableID)
 	}
-	return network.ConfigureSNAT(ctx, sourceCIDR, net.ParseIP(nat.NatGatewayAddresses[0].PublicIp), ec2RealName("sn", routeTableID+destinationCIDR))
+	return ec2Fabric.ConfigureSNAT(ctx, rt.VpcId, ec2NATRouteOwner(routeTableID, destinationCIDR), sources, net.ParseIP(nat.NatGatewayAddresses[0].PublicIp))
+}
+
+func ec2ReleaseRealNATRoute(ctx context.Context, routeTableID, destinationCIDR string) error {
+	return ec2Fabric.ReleaseOwned(ctx, ec2NATRouteOwner(routeTableID, destinationCIDR))
 }
 
 func ec2ApplyRealVPCEgressPolicy(ctx context.Context, vpcID string) error {
-	ec2RealMu.Lock()
-	network := ec2RealVPCs[vpcID]
-	ec2RealMu.Unlock()
+	network := ec2Fabric.Network(vpcID)
 	if network == nil {
 		return nil
 	}
@@ -1168,7 +934,7 @@ func ec2ApplyRealVPCEgressPolicy(ctx context.Context, vpcID string) error {
 		return err
 	}
 	realexec.MarkFrom(ctx)("egress:sources")
-	return network.ConfigureEgressPolicy(ctx, allowed, ec2RealName("eg", vpcID))
+	return network.ConfigureEgressPolicy(ctx, allowed, fabric.LinuxName("eg", vpcID))
 }
 
 func ec2ApplyRealRouteTableEgressPolicy(ctx context.Context, routeTableID string) error {
@@ -1339,27 +1105,8 @@ func ec2ConfigureTaskResolver(ctx context.Context, subnet *realexec.Subnet, vpcI
 	if err != nil {
 		return fmt.Errorf("configure task resolver for %s: %w", taskID, err)
 	}
-	if err := subnet.ConfigureResolverDNAT(ctx, port, ec2RealName("dns", vpcID)); err != nil {
+	if err := subnet.ConfigureResolverDNAT(ctx, port, fabric.LinuxName("dns", vpcID)); err != nil {
 		return fmt.Errorf("configure task resolver for %s: %w", taskID, err)
 	}
 	return nil
-}
-
-func ec2AWSSubnetGateway(cidr string) net.IP {
-	ip, _, err := net.ParseCIDR(cidr)
-	if err != nil || ip.To4() == nil {
-		return nil
-	}
-	out := append(net.IP(nil), ip.To4()...)
-	out[3]++
-	return out
-}
-
-func ec2ENIMAC(id string) string {
-	id = strings.NewReplacer("-", "", "_", "").Replace(id)
-	var b [3]byte
-	for i := range id {
-		b[i%3] ^= id[i]
-	}
-	return fmt.Sprintf("02:0a:ec:%02x:%02x:%02x", b[0], b[1], b[2])
 }

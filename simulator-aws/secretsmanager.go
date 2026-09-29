@@ -115,7 +115,7 @@ type SMSecretVersion struct {
 // version when SecretString or SecretBinary changes.
 func (s *SMSecret) addNewVersion(secretString string, secretBinary []byte) string {
 	now := float64(time.Now().Unix())
-	newID := generateUUID()
+	newID := sim.NewUUID()
 
 	// Demote prior AWSCURRENT → AWSPREVIOUS; drop AWSPREVIOUS off
 	// older versions (real SM keeps them but with empty stages
@@ -186,7 +186,7 @@ func smArnForRegion(name, region string) string {
 	// The suffix is a per-secret random string; we use a deterministic
 	// 6-char slice so tests can match on prefix.
 	return fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:%s-%s",
-		region, awsAccountID(), name, generateUUID()[:6])
+		region, awsAccountID(), name, sim.NewUUID()[:6])
 }
 
 func registerSecretsManager(r *AWSRouter, srv *sim.Server) {
@@ -859,7 +859,10 @@ func handleSMListSecrets(w http.ResponseWriter, r *http.Request) {
 		all = filtered
 	}
 	sortBy(all, func(s SMSecret) string { return s.Name })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, smBadToken, all, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, s := range page {
 		item := map[string]any{

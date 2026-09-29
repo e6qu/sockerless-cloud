@@ -359,7 +359,10 @@ func handleCWDescribeLogGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	sortBy(groups, func(g CWLogGroup) string { return g.LogGroupName })
 
-	page, next := awsPage(groups, req.NextToken, req.Limit, 50)
+	page, next, pageOK := awsPage(w, logsBadToken, groups, req.NextToken, req.Limit, 50)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"logGroups": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -495,7 +498,10 @@ func handleCWDescribeLogStreams(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	page, next := awsPage(streams, req.NextToken, req.Limit, 50)
+	page, next, pageOK := awsPage(w, logsBadToken, streams, req.NextToken, req.Limit, 50)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"logStreams": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -781,7 +787,7 @@ func handleCWFilterLogEvents(w http.ResponseWriter, r *http.Request) {
 				"timestamp":     e.Timestamp,
 				"message":       e.Message,
 				"ingestionTime": e.IngestionTime,
-				"eventId":       generateUUID(),
+				"eventId":       sim.NewUUID(),
 			})
 		}
 	}

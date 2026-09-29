@@ -299,7 +299,7 @@ func handleAllocateHosts(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("</hostIdSet>")
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AllocateHostsResponse %s><requestId>%s</requestId>%s</AllocateHostsResponse>`,
-		ec2Xmlns(), generateUUID(), b.String())
+		ec2Xmlns(), sim.NewUUID(), b.String())
 }
 
 func ec2HostFieldsXML(h EC2Host) string {
@@ -377,7 +377,10 @@ func handleDescribeHosts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].HostId < results[j].HostId })
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, h := range results {
 		items.WriteString("<item>")
@@ -390,7 +393,7 @@ func handleDescribeHosts(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeHostsResponse %s><requestId>%s</requestId><hostSet>%s</hostSet>%s</DescribeHostsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nt)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nt)
 }
 
 // ec2HostFilters reads the "Filter.N.Name/Value.M" form DescribeHosts uses (it
@@ -479,7 +482,7 @@ func handleModifyHosts(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyHostsResponse %s><requestId>%s</requestId>%s%s</ModifyHostsResponse>`,
-		ec2Xmlns(), generateUUID(), ec2SuccessfulIDsXML(successful), ec2UnsuccessfulItemsXML(unsuccessful))
+		ec2Xmlns(), sim.NewUUID(), ec2SuccessfulIDsXML(successful), ec2UnsuccessfulItemsXML(unsuccessful))
 }
 
 func handleReleaseHosts(w http.ResponseWriter, r *http.Request) {
@@ -506,7 +509,7 @@ func handleReleaseHosts(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ReleaseHostsResponse %s><requestId>%s</requestId>%s%s</ReleaseHostsResponse>`,
-		ec2Xmlns(), generateUUID(), ec2SuccessfulIDsXML(successful), ec2UnsuccessfulItemsXML(unsuccessful))
+		ec2Xmlns(), sim.NewUUID(), ec2SuccessfulIDsXML(successful), ec2UnsuccessfulItemsXML(unsuccessful))
 }
 
 func handleDescribeMacHosts(w http.ResponseWriter, r *http.Request) {
@@ -526,7 +529,10 @@ func handleDescribeMacHosts(w http.ResponseWriter, r *http.Request) {
 		results = append(results, h)
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].HostId < results[j].HostId })
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, h := range results {
 		items.WriteString("<item><hostId>")
@@ -545,7 +551,7 @@ func handleDescribeMacHosts(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeMacHostsResponse %s><requestId>%s</requestId><macHostSet>%s</macHostSet>%s</DescribeMacHostsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nt)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nt)
 }
 
 // ec2UnsuccessfulItem is the shared UnsuccessfulItem shape returned by the
@@ -620,7 +626,7 @@ func handleCreateInstanceEventWindow(w http.ResponseWriter, r *http.Request) {
 	ec2EventWindows.Put(ew.InstanceEventWindowId, ew)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateInstanceEventWindowResponse %s><requestId>%s</requestId><instanceEventWindow>%s</instanceEventWindow></CreateInstanceEventWindowResponse>`,
-		ec2Xmlns(), generateUUID(), ec2EventWindowFieldsXML(ew))
+		ec2Xmlns(), sim.NewUUID(), ec2EventWindowFieldsXML(ew))
 }
 
 func ec2EventWindowFieldsXML(ew EC2InstanceEventWindow) string {
@@ -688,7 +694,11 @@ func handleDescribeInstanceEventWindows(w http.ResponseWriter, r *http.Request) 
 	sort.Slice(results, func(i, j int) bool { return results[i].InstanceEventWindowId < results[j].InstanceEventWindowId })
 	nextToken := ""
 	if len(ids) == 0 {
-		results, nextToken = awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+		paged, pageNext, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+		if !pageOK {
+			return
+		}
+		results, nextToken = paged, pageNext
 	}
 	var items strings.Builder
 	for _, ew := range results {
@@ -702,7 +712,7 @@ func handleDescribeInstanceEventWindows(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeInstanceEventWindowsResponse %s><requestId>%s</requestId><instanceEventWindowSet>%s</instanceEventWindowSet>%s</DescribeInstanceEventWindowsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nt)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nt)
 }
 
 func ec2EventWindowMatchesFilters(ew EC2InstanceEventWindow, filters map[string][]string) bool {
@@ -771,7 +781,7 @@ func handleModifyInstanceEventWindow(w http.ResponseWriter, r *http.Request) {
 	ec2EventWindows.Put(id, ew)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyInstanceEventWindowResponse %s><requestId>%s</requestId><instanceEventWindow>%s</instanceEventWindow></ModifyInstanceEventWindowResponse>`,
-		ec2Xmlns(), generateUUID(), ec2EventWindowFieldsXML(ew))
+		ec2Xmlns(), sim.NewUUID(), ec2EventWindowFieldsXML(ew))
 }
 
 func handleDeleteInstanceEventWindow(w http.ResponseWriter, r *http.Request) {
@@ -783,7 +793,7 @@ func handleDeleteInstanceEventWindow(w http.ResponseWriter, r *http.Request) {
 	ec2EventWindows.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteInstanceEventWindowResponse %s><requestId>%s</requestId><instanceEventWindowState><instanceEventWindowId>%s</instanceEventWindowId><state>deleting</state></instanceEventWindowState></DeleteInstanceEventWindowResponse>`,
-		ec2Xmlns(), generateUUID(), id)
+		ec2Xmlns(), sim.NewUUID(), id)
 }
 
 func handleAssociateInstanceEventWindow(w http.ResponseWriter, r *http.Request) {
@@ -815,7 +825,7 @@ func handleAssociateInstanceEventWindow(w http.ResponseWriter, r *http.Request) 
 	ec2EventWindows.Put(id, ew)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssociateInstanceEventWindowResponse %s><requestId>%s</requestId><instanceEventWindow>%s</instanceEventWindow></AssociateInstanceEventWindowResponse>`,
-		ec2Xmlns(), generateUUID(), ec2EventWindowFieldsXML(ew))
+		ec2Xmlns(), sim.NewUUID(), ec2EventWindowFieldsXML(ew))
 }
 
 func handleDisassociateInstanceEventWindow(w http.ResponseWriter, r *http.Request) {
@@ -848,7 +858,7 @@ func handleDisassociateInstanceEventWindow(w http.ResponseWriter, r *http.Reques
 	ec2EventWindows.Put(id, ew)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisassociateInstanceEventWindowResponse %s><requestId>%s</requestId><instanceEventWindow>%s</instanceEventWindow></DisassociateInstanceEventWindowResponse>`,
-		ec2Xmlns(), generateUUID(), ec2EventWindowFieldsXML(ew))
+		ec2Xmlns(), sim.NewUUID(), ec2EventWindowFieldsXML(ew))
 }
 
 // Image attributes + lifecycle
@@ -908,7 +918,7 @@ func handleDescribeImageAttribute(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeImageAttributeResponse %s><requestId>%s</requestId>%s</DescribeImageAttributeResponse>`,
-		ec2Xmlns(), generateUUID(), body.String())
+		ec2Xmlns(), sim.NewUUID(), body.String())
 }
 
 func handleModifyImageAttribute(w http.ResponseWriter, r *http.Request) {
@@ -967,7 +977,7 @@ func handleModifyImageAttribute(w http.ResponseWriter, r *http.Request) {
 	ec2ImageAttrs.Put(imageID, ia)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyImageAttributeResponse %s><requestId>%s</requestId><return>true</return></ModifyImageAttributeResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // ec2IndexedField reads "<prefix>.N.<field>" values (e.g. the structured
@@ -1023,7 +1033,7 @@ func handleResetImageAttribute(w http.ResponseWriter, r *http.Request) {
 	ec2Images.Put(imageID, img)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ResetImageAttributeResponse %s><requestId>%s</requestId><return>true</return></ResetImageAttributeResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDisableImage(w http.ResponseWriter, r *http.Request) {
@@ -1037,7 +1047,7 @@ func handleDisableImage(w http.ResponseWriter, r *http.Request) {
 	ec2Images.Put(imageID, img)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisableImageResponse %s><requestId>%s</requestId><return>true</return></DisableImageResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleEnableImage(w http.ResponseWriter, r *http.Request) {
@@ -1051,7 +1061,7 @@ func handleEnableImage(w http.ResponseWriter, r *http.Request) {
 	ec2Images.Put(imageID, img)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<EnableImageResponse %s><requestId>%s</requestId><return>true</return></EnableImageResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleExportImage(w http.ResponseWriter, r *http.Request) {
@@ -1087,7 +1097,7 @@ func handleExportImage(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ExportImageResponse %s><requestId>%s</requestId><exportImageTaskId>%s</exportImageTaskId><imageId>%s</imageId><roleName>%s</roleName><diskImageFormat>%s</diskImageFormat><description>%s</description><s3ExportLocation><s3Bucket>%s</s3Bucket><s3Prefix>%s</s3Prefix></s3ExportLocation><status>active</status><progress>0</progress>%s</ExportImageResponse>`,
-		ec2Xmlns(), generateUUID(), taskID, imageID, xmlEscape(r.FormValue("RoleName")), format,
+		ec2Xmlns(), sim.NewUUID(), taskID, imageID, xmlEscape(r.FormValue("RoleName")), format,
 		xmlEscape(r.FormValue("Description")), xmlEscape(bucket), xmlEscape(prefix), writeTagSetXML(tags))
 }
 
@@ -1125,7 +1135,7 @@ func handleImportImage(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ImportImageResponse %s><requestId>%s</requestId><importTaskId>%s</importTaskId><architecture>%s</architecture><platform>%s</platform><description>%s</description><licenseType>%s</licenseType><hypervisor>xen</hypervisor><status>active</status><statusMessage>pending</statusMessage><progress>2</progress><snapshotDetailSet/>%s</ImportImageResponse>`,
-		ec2Xmlns(), generateUUID(), taskID, arch, platform, xmlEscape(r.FormValue("Description")),
+		ec2Xmlns(), sim.NewUUID(), taskID, arch, platform, xmlEscape(r.FormValue("Description")),
 		licenseType, writeTagSetXML(tags))
 }
 
@@ -1151,7 +1161,7 @@ func handleCreateRestoreImageTask(w http.ResponseWriter, r *http.Request) {
 	ec2Images.Put(img.ImageId, img)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateRestoreImageTaskResponse %s><requestId>%s</requestId><imageId>%s</imageId></CreateRestoreImageTaskResponse>`,
-		ec2Xmlns(), generateUUID(), img.ImageId)
+		ec2Xmlns(), sim.NewUUID(), img.ImageId)
 }
 
 func handleRestoreImageFromRecycleBin(w http.ResponseWriter, r *http.Request) {
@@ -1162,7 +1172,7 @@ func handleRestoreImageFromRecycleBin(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RestoreImageFromRecycleBinResponse %s><requestId>%s</requestId><return>true</return></RestoreImageFromRecycleBinResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func ec2Default(v, def string) string {
@@ -1202,7 +1212,7 @@ func handleDescribeSnapshotAttribute(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeSnapshotAttributeResponse %s><requestId>%s</requestId>%s</DescribeSnapshotAttributeResponse>`,
-		ec2Xmlns(), generateUUID(), body.String())
+		ec2Xmlns(), sim.NewUUID(), body.String())
 }
 
 func handleModifySnapshotAttribute(w http.ResponseWriter, r *http.Request) {
@@ -1242,7 +1252,7 @@ func handleModifySnapshotAttribute(w http.ResponseWriter, r *http.Request) {
 	ec2SnapshotAttrs.Put(snapID, sa)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifySnapshotAttributeResponse %s><requestId>%s</requestId><return>true</return></ModifySnapshotAttributeResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleResetSnapshotAttribute(w http.ResponseWriter, r *http.Request) {
@@ -1262,7 +1272,7 @@ func handleResetSnapshotAttribute(w http.ResponseWriter, r *http.Request) {
 	ec2SnapshotAttrs.Put(snapID, sa)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ResetSnapshotAttributeResponse %s><requestId>%s</requestId><return>true</return></ResetSnapshotAttributeResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeSnapshotTierStatus(w http.ResponseWriter, r *http.Request) {
@@ -1275,7 +1285,10 @@ func handleDescribeSnapshotTierStatus(w http.ResponseWriter, r *http.Request) {
 		results = append(results, s)
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].SnapshotId < results[j].SnapshotId })
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, s := range results {
 		owner := s.OwnerId
@@ -1294,7 +1307,7 @@ func handleDescribeSnapshotTierStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeSnapshotTierStatusResponse %s><requestId>%s</requestId><snapshotTierStatusSet>%s</snapshotTierStatusSet>%s</DescribeSnapshotTierStatusResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nt)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nt)
 }
 
 func handleLockSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -1323,7 +1336,7 @@ func handleLockSnapshot(w http.ResponseWriter, r *http.Request) {
 	ec2SnapshotAttrs.Put(snapID, sa)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<LockSnapshotResponse %s><requestId>%s</requestId><snapshotId>%s</snapshotId><lockState>%s</lockState><lockDuration>%d</lockDuration><lockCreatedOn>%s</lockCreatedOn><lockDurationStartTime>%s</lockDurationStartTime></LockSnapshotResponse>`,
-		ec2Xmlns(), generateUUID(), snapID, lockState, ec2AtoiOr(r.FormValue("LockDuration"), 0), created, created)
+		ec2Xmlns(), sim.NewUUID(), snapID, lockState, ec2AtoiOr(r.FormValue("LockDuration"), 0), created, created)
 }
 
 func handleUnlockSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -1342,7 +1355,7 @@ func handleUnlockSnapshot(w http.ResponseWriter, r *http.Request) {
 	ec2SnapshotAttrs.Put(snapID, sa)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<UnlockSnapshotResponse %s><requestId>%s</requestId><snapshotId>%s</snapshotId></UnlockSnapshotResponse>`,
-		ec2Xmlns(), generateUUID(), snapID)
+		ec2Xmlns(), sim.NewUUID(), snapID)
 }
 
 func handleImportSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -1368,7 +1381,7 @@ func handleImportSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ImportSnapshotResponse %s><requestId>%s</requestId><importTaskId>%s</importTaskId><description>%s</description><snapshotTaskDetail><snapshotId>%s</snapshotId><status>completed</status><progress>100</progress><diskImageSize>8.0</diskImageSize><format>%s</format><userBucket><s3Bucket>%s</s3Bucket><s3Key>%s</s3Key></userBucket></snapshotTaskDetail>%s</ImportSnapshotResponse>`,
-		ec2Xmlns(), generateUUID(), taskID, xmlEscape(snap.Description), snap.SnapshotId, format,
+		ec2Xmlns(), sim.NewUUID(), taskID, xmlEscape(snap.Description), snap.SnapshotId, format,
 		xmlEscape(bucket), xmlEscape(key), writeTagSetXML(snap.Tags))
 }
 
@@ -1400,7 +1413,7 @@ func handleDescribeVpcClassicLink(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeVpcClassicLinkResponse %s><requestId>%s</requestId><vpcSet>%s</vpcSet></DescribeVpcClassicLinkResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func ec2SetVpcClassicLink(w http.ResponseWriter, r *http.Request, op, dns string, enable bool) {
@@ -1424,7 +1437,7 @@ func ec2SetVpcClassicLink(w http.ResponseWriter, r *http.Request, op, dns string
 	ec2VpcClassicLinks.Put(vpcID, cl)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse %s><requestId>%s</requestId><return>true</return></%sResponse>`,
-		op, ec2Xmlns(), generateUUID(), op)
+		op, ec2Xmlns(), sim.NewUUID(), op)
 }
 
 func handleEnableVpcClassicLink(w http.ResponseWriter, r *http.Request) {
@@ -1469,7 +1482,7 @@ func handleDescribeVpcClassicLinkDnsSupport(w http.ResponseWriter, r *http.Reque
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeVpcClassicLinkDnsSupportResponse %s><requestId>%s</requestId><vpcs>%s</vpcs></DescribeVpcClassicLinkDnsSupportResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 // VPC endpoint connections + notifications
@@ -1506,7 +1519,10 @@ func handleDescribeVpcEndpointConnections(w http.ResponseWriter, r *http.Request
 		results = append(results, c)
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].VpcEndpointConnectionId < results[j].VpcEndpointConnectionId })
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, c := range results {
 		items.WriteString("<item>")
@@ -1519,7 +1535,7 @@ func handleDescribeVpcEndpointConnections(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeVpcEndpointConnectionsResponse %s><requestId>%s</requestId><vpcEndpointConnectionSet>%s</vpcEndpointConnectionSet>%s</DescribeVpcEndpointConnectionsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nt)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nt)
 }
 
 func ec2SetVpcEndpointConnState(w http.ResponseWriter, r *http.Request, op, newState string) {
@@ -1551,7 +1567,7 @@ func ec2SetVpcEndpointConnState(w http.ResponseWriter, r *http.Request, op, newS
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse %s><requestId>%s</requestId>%s</%sResponse>`,
-		op, ec2Xmlns(), generateUUID(), ec2UnsuccessfulItemsXML(unsuccessful), op)
+		op, ec2Xmlns(), sim.NewUUID(), ec2UnsuccessfulItemsXML(unsuccessful), op)
 }
 
 func handleAcceptVpcEndpointConnections(w http.ResponseWriter, r *http.Request) {
@@ -1607,7 +1623,7 @@ func handleCreateVpcEndpointConnectionNotification(w http.ResponseWriter, r *htt
 	ec2ConnNotifications.Put(n.ConnectionNotificationId, n)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateVpcEndpointConnectionNotificationResponse %s><requestId>%s</requestId><connectionNotification>%s</connectionNotification><clientToken>%s</clientToken></CreateVpcEndpointConnectionNotificationResponse>`,
-		ec2Xmlns(), generateUUID(), ec2ConnNotificationFieldsXML(n), generateUUID())
+		ec2Xmlns(), sim.NewUUID(), ec2ConnNotificationFieldsXML(n), sim.NewUUID())
 }
 
 func handleDescribeVpcEndpointConnectionNotifications(w http.ResponseWriter, r *http.Request) {
@@ -1629,7 +1645,10 @@ func handleDescribeVpcEndpointConnectionNotifications(w http.ResponseWriter, r *
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].ConnectionNotificationId < results[j].ConnectionNotificationId
 	})
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, n := range results {
 		items.WriteString("<item>")
@@ -1642,7 +1661,7 @@ func handleDescribeVpcEndpointConnectionNotifications(w http.ResponseWriter, r *
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeVpcEndpointConnectionNotificationsResponse %s><requestId>%s</requestId><connectionNotificationSet>%s</connectionNotificationSet>%s</DescribeVpcEndpointConnectionNotificationsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nt)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nt)
 }
 
 func handleModifyVpcEndpointConnectionNotification(w http.ResponseWriter, r *http.Request) {
@@ -1661,7 +1680,7 @@ func handleModifyVpcEndpointConnectionNotification(w http.ResponseWriter, r *htt
 	ec2ConnNotifications.Put(id, n)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVpcEndpointConnectionNotificationResponse %s><requestId>%s</requestId><return>true</return></ModifyVpcEndpointConnectionNotificationResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDeleteVpcEndpointConnectionNotifications(w http.ResponseWriter, r *http.Request) {
@@ -1676,7 +1695,7 @@ func handleDeleteVpcEndpointConnectionNotifications(w http.ResponseWriter, r *ht
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteVpcEndpointConnectionNotificationsResponse %s><requestId>%s</requestId>%s</DeleteVpcEndpointConnectionNotificationsResponse>`,
-		ec2Xmlns(), generateUUID(), ec2UnsuccessfulItemsXML(unsuccessful))
+		ec2Xmlns(), sim.NewUUID(), ec2UnsuccessfulItemsXML(unsuccessful))
 }
 
 // VPC Block Public Access
@@ -1734,7 +1753,7 @@ func handleCreateVpcBlockPublicAccessExclusion(w http.ResponseWriter, r *http.Re
 	ec2VpcBpaExclusions.Put(e.ExclusionId, e)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateVpcBlockPublicAccessExclusionResponse %s><requestId>%s</requestId><vpcBlockPublicAccessExclusion>%s</vpcBlockPublicAccessExclusion></CreateVpcBlockPublicAccessExclusionResponse>`,
-		ec2Xmlns(), generateUUID(), ec2VpcBpaExclusionFieldsXML(e))
+		ec2Xmlns(), sim.NewUUID(), ec2VpcBpaExclusionFieldsXML(e))
 }
 
 func handleDescribeVpcBlockPublicAccessExclusions(w http.ResponseWriter, r *http.Request) {
@@ -1759,7 +1778,10 @@ func handleDescribeVpcBlockPublicAccessExclusions(w http.ResponseWriter, r *http
 		}
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].ExclusionId < results[j].ExclusionId })
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, e := range results {
 		items.WriteString("<item>")
@@ -1772,7 +1794,7 @@ func handleDescribeVpcBlockPublicAccessExclusions(w http.ResponseWriter, r *http
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeVpcBlockPublicAccessExclusionsResponse %s><requestId>%s</requestId><vpcBlockPublicAccessExclusionSet>%s</vpcBlockPublicAccessExclusionSet>%s</DescribeVpcBlockPublicAccessExclusionsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nt)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nt)
 }
 
 func handleModifyVpcBlockPublicAccessExclusion(w http.ResponseWriter, r *http.Request) {
@@ -1790,7 +1812,7 @@ func handleModifyVpcBlockPublicAccessExclusion(w http.ResponseWriter, r *http.Re
 	ec2VpcBpaExclusions.Put(id, e)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVpcBlockPublicAccessExclusionResponse %s><requestId>%s</requestId><vpcBlockPublicAccessExclusion>%s</vpcBlockPublicAccessExclusion></ModifyVpcBlockPublicAccessExclusionResponse>`,
-		ec2Xmlns(), generateUUID(), ec2VpcBpaExclusionFieldsXML(e))
+		ec2Xmlns(), sim.NewUUID(), ec2VpcBpaExclusionFieldsXML(e))
 }
 
 func handleDeleteVpcBlockPublicAccessExclusion(w http.ResponseWriter, r *http.Request) {
@@ -1805,7 +1827,7 @@ func handleDeleteVpcBlockPublicAccessExclusion(w http.ResponseWriter, r *http.Re
 	ec2VpcBpaExclusions.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteVpcBlockPublicAccessExclusionResponse %s><requestId>%s</requestId><vpcBlockPublicAccessExclusion>%s</vpcBlockPublicAccessExclusion></DeleteVpcBlockPublicAccessExclusionResponse>`,
-		ec2Xmlns(), generateUUID(), ec2VpcBpaExclusionFieldsXML(e))
+		ec2Xmlns(), sim.NewUUID(), ec2VpcBpaExclusionFieldsXML(e))
 }
 
 const ec2VpcBpaOptionsKey = "default"
@@ -1861,12 +1883,12 @@ func handleModifyVpcBlockPublicAccessOptions(w http.ResponseWriter, r *http.Requ
 	ec2VpcBpaOptions.Put(ec2VpcBpaOptionsKey, o)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVpcBlockPublicAccessOptionsResponse %s><requestId>%s</requestId><vpcBlockPublicAccessOptions>%s</vpcBlockPublicAccessOptions></ModifyVpcBlockPublicAccessOptionsResponse>`,
-		ec2Xmlns(), generateUUID(), ec2VpcBpaOptionsFieldsXML(o))
+		ec2Xmlns(), sim.NewUUID(), ec2VpcBpaOptionsFieldsXML(o))
 }
 
 func handleDescribeVpcBlockPublicAccessOptions(w http.ResponseWriter, r *http.Request) {
 	o := ec2CurrentVpcBpaOptions()
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeVpcBlockPublicAccessOptionsResponse %s><requestId>%s</requestId><vpcBlockPublicAccessOptions>%s</vpcBlockPublicAccessOptions></DescribeVpcBlockPublicAccessOptionsResponse>`,
-		ec2Xmlns(), generateUUID(), ec2VpcBpaOptionsFieldsXML(o))
+		ec2Xmlns(), sim.NewUUID(), ec2VpcBpaOptionsFieldsXML(o))
 }

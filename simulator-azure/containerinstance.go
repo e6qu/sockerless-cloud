@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/gorilla/websocket"
 	dockerclient "github.com/moby/moby/client"
 )
@@ -311,8 +313,8 @@ func handleACIContainerExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionID := generateUUID()
-	password := generateUUID()
+	sessionID := sim.NewUUID()
+	password := sim.NewUUID()
 	aciExecSessions.Store(sessionID, aciExecSession{
 		ContainerID: rec.ContainerID,
 		Command:     req.Command,
@@ -552,8 +554,8 @@ func handleACIContainerAttach(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "ContainerNotRunning", http.StatusBadRequest, "Container %q is not running.", containerName)
 		return
 	}
-	sessionID := generateUUID()
-	password := generateUUID()
+	sessionID := sim.NewUUID()
+	password := sim.NewUUID()
 	aciAttachSessions.Store(sessionID, aciAttachSession{ContainerID: rec.ContainerID, Password: password})
 	scheme := "ws"
 	if strings.EqualFold(azureRequestScheme(r), "https") {
@@ -827,7 +829,7 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 		// architecture instead runs an image on a platform it may not have been
 		// built for, and reports a container group as running an image the
 		// engine actually resolved to a different variant.
-		platform, err := localImagePlatform(context.Background(), localImage)
+		platform, err := workload.LocalImagePlatform(context.Background(), localImage, "")
 		if err != nil {
 			return fmt.Errorf("inspect container %q image platform: %w", name, err)
 		}
@@ -856,8 +858,9 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 		}
 		start := time.Now().UTC().Format(time.RFC3339Nano)
 		aciRuntimeRecords.Put(key, aciRuntimeRecord{ContainerID: handle.ContainerID, State: ACIStateRunning, StartTime: start})
-		go func(groupID, containerName, key string, h *sim.ContainerHandle) {
-			res := h.Wait()
+		groupID, h := group.ID, handle
+		var res sim.ProcessResult
+		bg.WatchThen(func() { res = h.Wait() }, func() {
 			aciRuntimeRecords.Update(key, func(rec *aciRuntimeRecord) {
 				rec.State = ACIStateTerminated
 				rec.ExitCode = res.ExitCode
@@ -866,7 +869,7 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 			aciContainerGroups.Update(groupID, func(stored *ACIContainerGroup) {
 				aciSetGroupState(stored, ACIStateTerminated)
 			})
-		}(group.ID, name, key, handle)
+		})
 	}
 	aciContainerGroups.Update(group.ID, func(stored *ACIContainerGroup) {
 		aciSetGroupState(stored, ACIStateRunning)
@@ -979,7 +982,7 @@ func sanitizeContainerName(s string) string {
 		}
 	}
 	if b.Len() == 0 {
-		return generateUUID()
+		return sim.NewUUID()
 	}
 	return b.String()
 }

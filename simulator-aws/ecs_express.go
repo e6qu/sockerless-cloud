@@ -191,7 +191,7 @@ func handleECSCreateExpressGatewayService(w http.ResponseWriter, r *http.Request
 
 	serviceName := req.ServiceName
 	if serviceName == "" {
-		serviceName = "express-" + generateUUID()[:8]
+		serviceName = "express-" + sim.NewUUID()[:8]
 	}
 	serviceArn := ecsExpressArn(clusterName, serviceName)
 	if existing, ok := ecsExpressServices.Get(serviceArn); ok && existing.Status.StatusCode != "INACTIVE" {
@@ -784,7 +784,7 @@ func expressEnsureLoadBalancer(serviceName, scheme string, subnets, sgs []string
 
 	// Create a new ALB + cert.
 	name := "express-" + serviceName
-	id := generateUUID()[:12]
+	id := sim.NewUUID()[:12]
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:loadbalancer/app/%s/%s", awsRegion(), awsAccountID(), name, id)
 	dnsName := fmt.Sprintf("%s-%s.elb.%s.amazonaws.com", name, id[:8], awsRegion())
 	lb := ELBv2LoadBalancer{
@@ -834,7 +834,7 @@ func expressCreateCertificate(domain string) string {
 // awsvpc default) in the real elbv2TargetGroups store and returns its ARN.
 func expressCreateTargetGroup(serviceName string, port int, healthCheckPath, vpcID string) string {
 	name := "express-" + serviceName
-	id := generateUUID()[:12]
+	id := sim.NewUUID()[:12]
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:targetgroup/%s/%s", awsRegion(), awsAccountID(), name, id)
 	tg := ELBv2TargetGroup{
 		Arn:                     arn,
@@ -867,7 +867,7 @@ func expressCreateListener(lbArn, certArn, tgArn string) string {
 	if !ok {
 		return ""
 	}
-	id := generateUUID()[:12]
+	id := sim.NewUUID()[:12]
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:listener/%s/%s/%s/%s",
 		awsRegion(), awsAccountID(), elbv2LoadBalancerKind(lb), lb.Name, elbv2LoadBalancerID(lb.Arn), id)
 	listener := ELBv2Listener{
@@ -959,7 +959,7 @@ func expressCreateAutoScaling(clusterName, serviceName string, st *expressScalin
 		MinCapacity:       minCap,
 		MaxCapacity:       maxCap,
 		CreationTime:      float64(time.Now().Unix()),
-		ARN:               appScalableTargetARN(generateUUID()),
+		ARN:               appScalableTargetARN(sim.NewUUID()),
 	}
 	appScalableTargets.Put(appScalableTargetKey(ns, resourceID, dim), target)
 

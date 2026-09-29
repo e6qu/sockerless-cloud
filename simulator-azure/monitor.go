@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"fmt"
 	"net/http"
 	"sort"
@@ -203,7 +202,7 @@ func registerAzureMonitor(srv *sim.Server) {
 		}
 
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", sub, rg, name)
-		customerID := generateUUID()
+		customerID := sim.NewUUID()
 
 		boolTrue := true
 		boolFalse := false
@@ -539,15 +538,6 @@ func logAnalyticsMetadata(workspaceID string) map[string]any {
 		"tables":     tables,
 		"workspaces": []map[string]any{entry},
 	}
-}
-
-func generateUUID() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	b[6] = (b[6] & 0x0f) | 0x40 // Version 4
-	b[8] = (b[8] & 0x3f) | 0x80 // Variant 1
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 // logAnalyticsResourceQueryPath reports whether a request addresses the

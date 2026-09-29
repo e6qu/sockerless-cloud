@@ -130,7 +130,7 @@ func handleEnableEbsEncryptionByDefault(w http.ResponseWriter, r *http.Request) 
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<EnableEbsEncryptionByDefaultResponse %s><requestId>%s</requestId><ebsEncryptionByDefault>%t</ebsEncryptionByDefault></EnableEbsEncryptionByDefaultResponse>`,
-		ec2Xmlns(), generateUUID(), true)
+		ec2Xmlns(), sim.NewUUID(), true)
 }
 
 func handleDisableEbsEncryptionByDefault(w http.ResponseWriter, r *http.Request) {
@@ -139,14 +139,14 @@ func handleDisableEbsEncryptionByDefault(w http.ResponseWriter, r *http.Request)
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisableEbsEncryptionByDefaultResponse %s><requestId>%s</requestId><ebsEncryptionByDefault>%t</ebsEncryptionByDefault></DisableEbsEncryptionByDefaultResponse>`,
-		ec2Xmlns(), generateUUID(), false)
+		ec2Xmlns(), sim.NewUUID(), false)
 }
 
 func handleGetEbsEncryptionByDefault(w http.ResponseWriter, r *http.Request) {
 	state, _ := ec2EBSEncryption.Get("account")
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetEbsEncryptionByDefaultResponse %s><requestId>%s</requestId><ebsEncryptionByDefault>%t</ebsEncryptionByDefault><sseType>sse-ebs</sseType></GetEbsEncryptionByDefaultResponse>`,
-		ec2Xmlns(), generateUUID(), state.EnabledByDefault)
+		ec2Xmlns(), sim.NewUUID(), state.EnabledByDefault)
 }
 
 func handleModifyEbsDefaultKmsKeyId(w http.ResponseWriter, r *http.Request) {
@@ -162,7 +162,7 @@ func handleModifyEbsDefaultKmsKeyId(w http.ResponseWriter, r *http.Request) {
 	out := state.defaultKeyID()
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyEbsDefaultKmsKeyIdResponse %s><requestId>%s</requestId><kmsKeyId>%s</kmsKeyId></ModifyEbsDefaultKmsKeyIdResponse>`,
-		ec2Xmlns(), generateUUID(), xmlEscape(out))
+		ec2Xmlns(), sim.NewUUID(), xmlEscape(out))
 }
 
 func handleGetEbsDefaultKmsKeyId(w http.ResponseWriter, r *http.Request) {
@@ -170,7 +170,7 @@ func handleGetEbsDefaultKmsKeyId(w http.ResponseWriter, r *http.Request) {
 	out := state.defaultKeyID()
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetEbsDefaultKmsKeyIdResponse %s><requestId>%s</requestId><kmsKeyId>%s</kmsKeyId></GetEbsDefaultKmsKeyIdResponse>`,
-		ec2Xmlns(), generateUUID(), xmlEscape(out))
+		ec2Xmlns(), sim.NewUUID(), xmlEscape(out))
 }
 
 func handleResetEbsDefaultKmsKeyId(w http.ResponseWriter, r *http.Request) {
@@ -181,7 +181,7 @@ func handleResetEbsDefaultKmsKeyId(w http.ResponseWriter, r *http.Request) {
 	out := state.defaultKeyID()
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ResetEbsDefaultKmsKeyIdResponse %s><requestId>%s</requestId><kmsKeyId>%s</kmsKeyId></ResetEbsDefaultKmsKeyIdResponse>`,
-		ec2Xmlns(), generateUUID(), xmlEscape(out))
+		ec2Xmlns(), sim.NewUUID(), xmlEscape(out))
 }
 
 // Fast snapshot restores
@@ -247,7 +247,7 @@ func handleEnableFastSnapshotRestores(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<EnableFastSnapshotRestoresResponse %s><requestId>%s</requestId><successful>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<EnableFastSnapshotRestoresResponse %s><requestId>%s</requestId><successful>`, ec2Xmlns(), sim.NewUUID())
 	for _, s := range successful {
 		b.WriteString(fsrItemXML(*s.f))
 	}
@@ -288,7 +288,7 @@ func handleDisableFastSnapshotRestores(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<DisableFastSnapshotRestoresResponse %s><requestId>%s</requestId><successful>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<DisableFastSnapshotRestoresResponse %s><requestId>%s</requestId><successful>`, ec2Xmlns(), sim.NewUUID())
 	for _, s := range successful {
 		b.WriteString(fsrItemXML(s))
 	}
@@ -324,7 +324,7 @@ func handleDescribeFastSnapshotRestores(w http.ResponseWriter, r *http.Request) 
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<DescribeFastSnapshotRestoresResponse %s><requestId>%s</requestId><fastSnapshotRestoreSet>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<DescribeFastSnapshotRestoresResponse %s><requestId>%s</requestId><fastSnapshotRestoreSet>`, ec2Xmlns(), sim.NewUUID())
 	for _, f := range matched {
 		b.WriteString(fsrItemXML(f))
 	}
@@ -400,7 +400,7 @@ func handleModifySnapshotTier(w http.ResponseWriter, r *http.Request) {
 	ec2SnapTier.Put(snapID, snapshotTierState{StorageTier: "archive", TieringStartTime: now})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifySnapshotTierResponse %s><requestId>%s</requestId><snapshotId>%s</snapshotId><tieringStartTime>%s</tieringStartTime></ModifySnapshotTierResponse>`,
-		ec2Xmlns(), generateUUID(), snapID, now.Format(time.RFC3339))
+		ec2Xmlns(), sim.NewUUID(), snapID, now.Format(time.RFC3339))
 }
 
 func handleRestoreSnapshotTier(w http.ResponseWriter, r *http.Request) {
@@ -432,7 +432,7 @@ func handleRestoreSnapshotTier(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
 	fmt.Fprintf(&b, `<RestoreSnapshotTierResponse %s><requestId>%s</requestId><snapshotId>%s</snapshotId><restoreStartTime>%s</restoreStartTime>`,
-		ec2Xmlns(), generateUUID(), snapID, now.Format(time.RFC3339))
+		ec2Xmlns(), sim.NewUUID(), snapID, now.Format(time.RFC3339))
 	if !permanent {
 		fmt.Fprintf(&b, "<restoreDuration>%d</restoreDuration>", restoreDays)
 	}
@@ -474,7 +474,7 @@ func handleRestoreSnapshotFromRecycleBin(w http.ResponseWriter, r *http.Request)
 func writeRestoreSnapshotFromRecycleBinXML(w http.ResponseWriter, snap EC2Snapshot) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RestoreSnapshotFromRecycleBinResponse %s><requestId>%s</requestId><snapshotId>%s</snapshotId><description>%s</description><encrypted>%t</encrypted><ownerId>%s</ownerId><progress>%s</progress><startTime>%s</startTime><status>%s</status><volumeId>%s</volumeId><volumeSize>%d</volumeSize></RestoreSnapshotFromRecycleBinResponse>`,
-		ec2Xmlns(), generateUUID(), snap.SnapshotId, xmlEscape(snap.Description), snap.Encrypted,
+		ec2Xmlns(), sim.NewUUID(), snap.SnapshotId, xmlEscape(snap.Description), snap.Encrypted,
 		snap.OwnerId, snap.Progress, snap.StartTime, snap.State, snap.VolumeId, snap.VolumeSize)
 }
 
@@ -489,14 +489,14 @@ func handleEnableSnapshotBlockPublicAccess(w http.ResponseWriter, r *http.Reques
 	ec2SnapshotBPA.Put("account", state)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<EnableSnapshotBlockPublicAccessResponse %s><requestId>%s</requestId><state>%s</state></EnableSnapshotBlockPublicAccessResponse>`,
-		ec2Xmlns(), generateUUID(), state)
+		ec2Xmlns(), sim.NewUUID(), state)
 }
 
 func handleDisableSnapshotBlockPublicAccess(w http.ResponseWriter, r *http.Request) {
 	ec2SnapshotBPA.Put("account", "unblocked")
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisableSnapshotBlockPublicAccessResponse %s><requestId>%s</requestId><state>unblocked</state></DisableSnapshotBlockPublicAccessResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleGetSnapshotBlockPublicAccessState(w http.ResponseWriter, r *http.Request) {
@@ -506,7 +506,7 @@ func handleGetSnapshotBlockPublicAccessState(w http.ResponseWriter, r *http.Requ
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetSnapshotBlockPublicAccessStateResponse %s><requestId>%s</requestId><state>%s</state><managedBy>account</managedBy></GetSnapshotBlockPublicAccessStateResponse>`,
-		ec2Xmlns(), generateUUID(), state)
+		ec2Xmlns(), sim.NewUUID(), state)
 }
 
 // Volume attributes
@@ -525,7 +525,7 @@ func handleDescribeVolumeAttribute(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
 	fmt.Fprintf(&b, `<DescribeVolumeAttributeResponse %s><requestId>%s</requestId><volumeId>%s</volumeId>`,
-		ec2Xmlns(), generateUUID(), volID)
+		ec2Xmlns(), sim.NewUUID(), volID)
 	switch attr {
 	case "autoEnableIO":
 		val, _ := ec2VolAutoEnableIO.Get(volID)
@@ -555,5 +555,5 @@ func handleModifyVolumeAttribute(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVolumeAttributeResponse %s><requestId>%s</requestId><return>true</return></ModifyVolumeAttributeResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }

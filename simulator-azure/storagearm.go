@@ -169,7 +169,7 @@ func registerStorageAccounts(srv *sim.Server) {
 	srv.HandleFunc("PUT "+acct+"/objectReplicationPolicies/{objectReplicationPolicyId}",
 		storageChildPut(objectReplicationPolicies, "objectReplicationPolicies", "Microsoft.Storage/storageAccounts/objectReplicationPolicies", "objectReplicationPolicyId", func(p map[string]any) {
 			if _, ok := p["policyId"]; !ok {
-				p["policyId"] = generateUUID()
+				p["policyId"] = sim.NewUUID()
 			}
 			p["enabledTime"] = storageNow()
 		}))
@@ -201,7 +201,7 @@ func registerStorageAccounts(srv *sim.Server) {
 	srv.HandleFunc("PUT "+acct+"/localUsers/{username}",
 		storageChildPut(localUsers, "localUsers", "Microsoft.Storage/storageAccounts/localUsers", "username", func(p map[string]any) {
 			if _, ok := p["sid"]; !ok {
-				p["sid"] = "S-1-5-21-" + strings.ReplaceAll(generateUUID(), "-", "")[:24]
+				p["sid"] = "S-1-5-21-" + strings.ReplaceAll(sim.NewUUID(), "-", "")[:24]
 			}
 		}))
 	srv.HandleFunc("GET "+acct+"/localUsers/{username}",
@@ -816,7 +816,7 @@ func handleStorageContainerLease(w http.ResponseWriter, r *http.Request) {
 			leaseID = req.LeaseID
 		}
 		if leaseID == "" {
-			leaseID = generateUUID()
+			leaseID = sim.NewUUID()
 		}
 		resp["leaseId"] = leaseID
 	}
@@ -852,7 +852,7 @@ func storageImmutabilityPut(store sim.Store[storageARMChild]) http.HandlerFunc {
 			ID:         id,
 			Name:       "default",
 			Type:       "Microsoft.Storage/storageAccounts/blobServices/containers/immutabilityPolicies",
-			Etag:       fmt.Sprintf("%q", generateUUID()),
+			Etag:       fmt.Sprintf("%q", sim.NewUUID()),
 			Properties: props,
 		}
 		store.Put(id, policy)
@@ -919,7 +919,7 @@ func storageImmutabilityMutate(store sim.Store[storageARMChild], lock bool) http
 				}
 			}
 		}
-		policy.Etag = fmt.Sprintf("%q", generateUUID())
+		policy.Etag = fmt.Sprintf("%q", sim.NewUUID())
 		store.Put(id, policy)
 		w.Header().Set("ETag", policy.Etag)
 		sim.WriteJSON(w, http.StatusOK, policy)
@@ -1041,7 +1041,7 @@ func handleStorageFileShareLease(w http.ResponseWriter, r *http.Request) {
 			leaseID = req.LeaseID
 		}
 		if leaseID == "" {
-			leaseID = generateUUID()
+			leaseID = sim.NewUUID()
 		}
 		resp["leaseId"] = leaseID
 	}

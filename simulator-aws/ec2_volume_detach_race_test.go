@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // An instance reaching "running" or "stopped" restamps every volume attached to
@@ -19,7 +20,7 @@ import (
 func TestEC2DetachIsNotUndoneByAConcurrentInstanceTransition(t *testing.T) {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ec2Volumes = sim.MakeStore[EC2Volume](nil, "ec2_volumes")
 
 	const instanceID = "i-0race"
@@ -69,7 +70,7 @@ func TestEC2DetachIsNotUndoneByAConcurrentInstanceTransition(t *testing.T) {
 func TestEC2TerminationReleaseIsNotUndoneByAConcurrentDetach(t *testing.T) {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ec2Volumes = sim.MakeStore[EC2Volume](nil, "ec2_volumes")
 
 	const instanceID = "i-0term"

@@ -1,12 +1,9 @@
 package main
 
 import (
-	"archive/zip"
-	"bytes"
 	"crypto/md5"
 	"crypto/subtle"
 	"encoding/hex"
-	"io"
 	"mime"
 	"net"
 	"net/http"
@@ -17,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/archive"
 )
 
 // Amplify Hosting data plane. Serves each branch's ACTIVE deployment — the
@@ -244,6 +242,9 @@ func amplifyLatestSucceededJob(appID, branch string) (amplifyStoredJob, bool) {
 	return jobs[0], true
 }
 
+// amplifyDeploymentMaxBytes bounds a deployment the simulator fetches or unpacks.
+const amplifyDeploymentMaxBytes = 1 << 30
+
 // amplifyJobArtifactFiles assembles a job's hosted-content file map: a
 // single zip artifact (build output / zip deployment) is expanded, a
 // multi-file artifact set (fileMap deployment) is used directly. End-to-end
@@ -268,28 +269,15 @@ func amplifyJobArtifactFiles(appID, branch, jobID string) map[string][]byte {
 		if !ok {
 			return nil
 		}
-		archive, err := s3ObjectData(obj)
+		data, err := s3ObjectData(obj)
 		if err != nil {
 			return nil
 		}
-		zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
-		if err != nil {
+		if err := archive.ReadZip(data, amplifyDeploymentMaxBytes, func(f archive.File) error {
+			files[f.Name] = f.Data
 			return nil
-		}
-		for _, f := range zr.File {
-			if f.FileInfo().IsDir() {
-				continue
-			}
-			rc, err := f.Open()
-			if err != nil {
-				return nil
-			}
-			data, err := io.ReadAll(rc)
-			_ = rc.Close()
-			if err != nil {
-				return nil
-			}
-			files[path.Clean(strings.TrimPrefix(f.Name, "/"))] = data
+		}); err != nil {
+			return nil
 		}
 	} else {
 		for _, a := range stored {

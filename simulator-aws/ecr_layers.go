@@ -139,7 +139,7 @@ func handleECRInitiateLayerUpload(w http.ResponseWriter, r *http.Request) {
 			"The repository with name '%s' does not exist in the registry with id '%s'", req.RepositoryName, ecrRegistryId())
 		return
 	}
-	uploadId := generateUUID()
+	uploadId := sim.NewUUID()
 	ecrLayerUploads.Put(uploadId, ecrLayerUpload{UploadId: uploadId, RepositoryName: req.RepositoryName})
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"uploadId": uploadId,

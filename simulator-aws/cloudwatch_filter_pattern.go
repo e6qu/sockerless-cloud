@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/e6qu/sockerless-cloud/sim/listq"
+
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -29,8 +31,8 @@ import (
 // cwCompiledPattern is a parsed, validated filter pattern ready to test against
 // many log events. A nil *cwCompiledPattern matches every event (empty pattern).
 type cwCompiledPattern struct {
-	structured cwPatNode // non-nil for a {…} JSON pattern
-	terms      []string  // unstructured terms (raw, incl. -/? prefixes & quotes)
+	structured listq.Node // non-nil for a {…} JSON pattern
+	terms      []string   // unstructured terms (raw, incl. -/? prefixes & quotes)
 }
 
 // cwCompileLogPattern parses a filterPattern. A malformed structured pattern
@@ -65,12 +67,10 @@ func (c *cwCompiledPattern) match(message string) bool {
 		if err := json.Unmarshal([]byte(message), &doc); err != nil {
 			return false // a structured pattern only matches JSON events
 		}
-		return c.structured.eval(doc)
+		return c.structured.Eval(listq.Doc{cwPatRoot: doc})
 	}
 	return cwMatchUnstructuredTerms(message, c.terms)
 }
-
-// ── unstructured ───────────────────────────────────────────────────────────
 
 func cwMatchUnstructuredTerms(message string, terms []string) bool {
 	anyOptional, optionalMatched := false, false
@@ -136,13 +136,11 @@ func cwSplitPatternTerms(s string) []string {
 	return terms
 }
 
-// ── structured (JSON) ──────────────────────────────────────────────────────
-
 // cwParseStructuredPattern parses the body of a {…} structured pattern into an
 // evaluable node, returning an error for a malformed pattern (unbalanced
 // parentheses, a comparison missing its operator/value, trailing garbage, or
 // nesting too deep) instead of silently matching nothing.
-func cwParseStructuredPattern(expr string) (cwPatNode, error) {
+func cwParseStructuredPattern(expr string) (listq.Node, error) {
 	p := &cwPatParser{toks: cwPatTokenize(expr), guard: sim.NewParseGuard(maxExprParseDepth, 1<<62)}
 	node := p.parseOr()
 	if p.err == nil && p.peek().kind != cwPatEOF {
@@ -154,63 +152,31 @@ func cwParseStructuredPattern(expr string) (cwPatNode, error) {
 	return node, nil
 }
 
-type cwPatNode interface{ eval(doc any) bool }
-
-type cwPatTrue struct{}
-
-func (cwPatTrue) eval(any) bool { return true }
-
-type cwPatOr struct{ l, r cwPatNode }
-
-func (n cwPatOr) eval(d any) bool { return n.l.eval(d) || n.r.eval(d) }
-
-type cwPatAnd struct{ l, r cwPatNode }
-
-func (n cwPatAnd) eval(d any) bool { return n.l.eval(d) && n.r.eval(d) }
+// cwPatRoot keys the decoded event in the document a structured pattern
+// evaluates, so a selector can address a top-level array as well as an object.
+const cwPatRoot = "$"
 
 type cwPatCmp struct{ selector, op, value string }
 
-func (n cwPatCmp) eval(d any) bool {
-	actual, present := cwSelectJSON(d, n.selector)
+func (n cwPatCmp) Eval(d listq.Doc) bool {
+	actual, present := cwSelectJSON(d[cwPatRoot], n.selector)
+	value := listq.ScalarString(actual)
 	switch n.op {
 	case "=":
 		if strings.HasSuffix(n.value, "*") {
-			return present && strings.HasPrefix(cwJSONScalar(actual), strings.TrimSuffix(n.value, "*"))
+			return present && strings.HasPrefix(value, strings.TrimSuffix(n.value, "*"))
 		}
-		return present && cwJSONScalar(actual) == n.value
+		return present && value == n.value
 	case "!=":
-		return !present || cwJSONScalar(actual) != n.value
-	case "<", "<=", ">", ">=":
-		return present && cwNumCompare(cwJSONScalar(actual), n.op, n.value)
-	}
-	return false
-}
-
-func cwNumCompare(a, op, b string) bool {
-	af, aerr := strconv.ParseFloat(a, 64)
-	bf, berr := strconv.ParseFloat(b, 64)
-	if aerr != nil || berr != nil {
-		switch op {
-		case ">":
-			return a > b
-		case "<":
-			return a < b
-		case ">=":
-			return a >= b
-		case "<=":
-			return a <= b
-		}
-		return false
-	}
-	switch op {
-	case ">":
-		return af > bf
+		return !present || value != n.value
 	case "<":
-		return af < bf
-	case ">=":
-		return af >= bf
+		return present && listq.CompareOrdered(value, n.value) < 0
 	case "<=":
-		return af <= bf
+		return present && listq.CompareOrdered(value, n.value) <= 0
+	case ">":
+		return present && listq.CompareOrdered(value, n.value) > 0
+	case ">=":
+		return present && listq.CompareOrdered(value, n.value) >= 0
 	}
 	return false
 }
@@ -313,31 +279,31 @@ func (p *cwPatParser) fail(format string, args ...any) {
 func (p *cwPatParser) peek() cwPatTok { return p.toks[p.pos] }
 func (p *cwPatParser) next() cwPatTok { t := p.toks[p.pos]; p.pos++; return t }
 
-func (p *cwPatParser) parseOr() cwPatNode {
+func (p *cwPatParser) parseOr() listq.Node {
 	left := p.parseAnd()
-	for p.peek().kind == cwPatOrOp {
+	for p.err == nil && p.peek().kind == cwPatOrOp {
 		p.next()
-		left = cwPatOr{left, p.parseAnd()}
+		left = listq.Or{L: left, R: p.parseAnd()}
 	}
 	return left
 }
 
-func (p *cwPatParser) parseAnd() cwPatNode {
+func (p *cwPatParser) parseAnd() listq.Node {
 	left := p.parseTerm()
-	for p.peek().kind == cwPatAndOp {
+	for p.err == nil && p.peek().kind == cwPatAndOp {
 		p.next()
-		left = cwPatAnd{left, p.parseTerm()}
+		left = listq.And{L: left, R: p.parseTerm()}
 	}
 	return left
 }
 
-func (p *cwPatParser) parseTerm() cwPatNode {
+func (p *cwPatParser) parseTerm() listq.Node {
 	if p.peek().kind == cwPatLParen {
 		p.next()
 		if !p.guard.Enter() {
 			p.guard.Leave()
 			p.fail("invalid filter pattern: nesting too deep")
-			return cwPatTrue{}
+			return listq.True{}
 		}
 		inner := p.parseOr()
 		p.guard.Leave()
@@ -358,16 +324,16 @@ func (p *cwPatParser) parseTerm() cwPatNode {
 		return cwPatCmp{op: "="}
 	}
 	selector := p.next().text
-	op, value := "", ""
-	if p.peek().kind == cwPatOp {
-		op = p.next().text
-		if p.peek().kind == cwPatWord {
-			value = p.next().text
-		} else {
-			p.fail("invalid filter pattern: comparison on %q is missing its value", selector)
-		}
+	if p.peek().kind != cwPatOp {
+		p.fail("invalid filter pattern: %q is missing a comparison", selector)
+		return listq.True{}
 	}
-	return cwPatCmp{selector: selector, op: op, value: value}
+	op := p.next().text
+	if p.peek().kind != cwPatWord {
+		p.fail("invalid filter pattern: comparison on %q is missing its value", selector)
+		return listq.True{}
+	}
+	return cwPatCmp{selector: selector, op: op, value: p.next().text}
 }
 
 // cwSelectJSON resolves a "$.a.b[0]" selector into a decoded JSON document.
@@ -425,20 +391,4 @@ func cwSplitSelectorPath(s string) []string {
 	}
 	flush()
 	return segs
-}
-
-func cwJSONScalar(v any) string {
-	switch t := v.(type) {
-	case nil:
-		return ""
-	case string:
-		return t
-	case bool:
-		return strconv.FormatBool(t)
-	case float64:
-		return strconv.FormatFloat(t, 'f', -1, 64)
-	default:
-		b, _ := json.Marshal(t)
-		return string(b)
-	}
 }

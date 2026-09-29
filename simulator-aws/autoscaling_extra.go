@@ -169,7 +169,7 @@ func asxRequireGroup(w http.ResponseWriter, group string) (AutoScalingGroup, boo
 func asxActivity(group, description, cause string) ScalingActivity {
 	now := time.Now().UTC().Format(time.RFC3339)
 	a := ScalingActivity{
-		ActivityId:           generateUUID(),
+		ActivityId:           sim.NewUUID(),
 		AutoScalingGroupName: group,
 		Description:          description,
 		Cause:                cause,
@@ -487,7 +487,7 @@ func handleASXStartInstanceRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	ref := ASInstanceRefresh{
-		InstanceRefreshId:    generateUUID(),
+		InstanceRefreshId:    sim.NewUUID(),
 		AutoScalingGroupName: group,
 		Status:               "Successful",
 		StartTime:            now,
@@ -563,7 +563,10 @@ func handleASXDescribeInstanceRefreshes(w http.ResponseWriter, r *http.Request) 
 	}
 	// Sorted by creation timestamp descending, matching the real API contract.
 	sort.Slice(refs, func(i, j int) bool { return refs[i].StartTime > refs[j].StartTime })
-	page, next := awsPageExplicit(refs, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0))
+	page, next, pageOK := awsPage(w, asBadToken, refs, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, ref := range page {
 		fmt.Fprintf(&items, "<member><InstanceRefreshId>%s</InstanceRefreshId><AutoScalingGroupName>%s</AutoScalingGroupName><Status>%s</Status><StatusReason>%s</StatusReason><StartTime>%s</StartTime><EndTime>%s</EndTime><PercentageComplete>100</PercentageComplete><InstancesToUpdate>0</InstancesToUpdate></member>",
@@ -697,7 +700,10 @@ func handleASXDescribeNotificationConfigurations(w http.ResponseWriter, r *http.
 			configs = append(configs, nc{group: ex.GroupName, cfg: n})
 		}
 	}
-	page, next := awsPageExplicit(configs, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0))
+	page, next, pageOK := awsPage(w, asBadToken, configs, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, c := range page {
 		fmt.Fprintf(&items, "<member><AutoScalingGroupName>%s</AutoScalingGroupName><NotificationType>%s</NotificationType><TopicARN>%s</TopicARN></member>",
@@ -943,7 +949,7 @@ func handleASXLaunchInstances(w http.ResponseWriter, r *http.Request) {
 	if asg.InstanceIds != nil {
 		instances = fmt.Sprintf("<member><InstanceIds>%s</InstanceIds><AvailabilityZone>%s</AvailabilityZone></member>", ids.String(), xmlEscape(awsAvailabilityZone()))
 	}
-	clientToken := firstNonEmpty(r.FormValue("ClientToken"), generateUUID())
+	clientToken := firstNonEmpty(r.FormValue("ClientToken"), sim.NewUUID())
 	body := fmt.Sprintf("<AutoScalingGroupName>%s</AutoScalingGroupName><ClientToken>%s</ClientToken><Instances>%s</Instances><Errors/>",
 		xmlEscape(group), xmlEscape(clientToken), instances)
 	asResponse(w, "LaunchInstances", body)

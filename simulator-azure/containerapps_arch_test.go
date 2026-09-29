@@ -33,9 +33,19 @@ func TestWorkloadContainersDeriveTheirPlatformFromTheImage(t *testing.T) {
 
 	// The identifiers a platform may legitimately come from: the helper that
 	// inspects the image manifest, and the local variable each caller assigns
-	// its result to.
-	const platformHelper = "localImagePlatform"
+	// its result to. A workload.Container's Config names no platform at all:
+	// workload.StartGroup reads it off the image with the same helper.
+	const platformHelper = "workload.LocalImagePlatform"
+	isPlatformHelper := func(fun ast.Expr) bool {
+		sel, ok := fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "LocalImagePlatform" {
+			return false
+		}
+		pkg, ok := sel.X.(*ast.Ident)
+		return ok && pkg.Name == "workload"
+	}
 	derived := map[string]bool{}
+	groupMembers := map[*ast.CompositeLit]bool{}
 	found := 0
 
 	for _, pkg := range pkgs {
@@ -50,13 +60,32 @@ func TestWorkloadContainersDeriveTheirPlatformFromTheImage(t *testing.T) {
 					if !ok {
 						continue
 					}
-					ident, ok := call.Fun.(*ast.Ident)
-					if !ok || ident.Name != platformHelper {
+					if !isPlatformHelper(call.Fun) {
 						continue
 					}
 					for _, lhs := range assign.Lhs {
 						if name, ok := lhs.(*ast.Ident); ok {
 							derived[name.Name] = true
+						}
+					}
+				}
+				return true
+			})
+
+			ast.Inspect(file, func(n ast.Node) bool {
+				lit, ok := n.(*ast.CompositeLit)
+				if !ok {
+					return true
+				}
+				if sel, ok := lit.Type.(*ast.SelectorExpr); !ok || sel.Sel.Name != "Container" {
+					return true
+				}
+				for _, elt := range lit.Elts {
+					if kv, ok := elt.(*ast.KeyValueExpr); ok {
+						if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "Config" {
+							if cfg, ok := kv.Value.(*ast.CompositeLit); ok {
+								groupMembers[cfg] = true
+							}
 						}
 					}
 				}
@@ -84,6 +113,13 @@ func TestWorkloadContainersDeriveTheirPlatformFromTheImage(t *testing.T) {
 						value = kv.Value
 					}
 				}
+				if groupMembers[lit] {
+					if value != nil {
+						t.Errorf("%s:%d: a workload.Container names its Architecture; workload.StartGroup reads it off the image",
+							path, pos.Line)
+					}
+					return true
+				}
 				if value == nil {
 					t.Errorf("%s:%d: a ContainerConfig starts a workload without naming its Architecture, so the engine picks one; read it off the image with %s",
 						path, pos.Line, platformHelper)
@@ -96,7 +132,7 @@ func TestWorkloadContainersDeriveTheirPlatformFromTheImage(t *testing.T) {
 							path, pos.Line, v.Name, platformHelper)
 					}
 				case *ast.CallExpr:
-					if ident, ok := v.Fun.(*ast.Ident); !ok || ident.Name != platformHelper {
+					if !isPlatformHelper(v.Fun) {
 						t.Errorf("%s:%d: Architecture is computed by a call other than %s", path, pos.Line, platformHelper)
 					}
 				default:

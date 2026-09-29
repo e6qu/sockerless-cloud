@@ -372,7 +372,10 @@ func handleSSMGetParametersByPath(w http.ResponseWriter, r *http.Request) {
 		return ssmMatchesParameterFilters(p, req.ParameterFilters)
 	})
 	sortBy(all, func(p SSMParameter) string { return p.Name })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 10)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 10)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Parameters": ssmParametersWire(page)}
 	if next != "" {
 		resp["NextToken"] = next
@@ -439,7 +442,10 @@ func handleSSMDescribeParameters(w http.ResponseWriter, r *http.Request) {
 		all = []SSMParameter{}
 	}
 	sortBy(all, func(p SSMParameter) string { return p.Name })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, p := range page {
 		out = append(out, map[string]any{

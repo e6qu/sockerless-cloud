@@ -101,8 +101,8 @@ func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 		return true
 	}
 
-	sessionID := generateUUID()
-	requestID := generateUUID()
+	sessionID := sim.NewUUID()
+	requestID := sim.NewUUID()
 
 	// The logGroupIdentifiers echoed in the sessionStart are the canonical ARNs
 	// of the resolved groups (real Live Tail reports names+ARNs of included

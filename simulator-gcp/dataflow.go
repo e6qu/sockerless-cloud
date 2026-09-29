@@ -133,7 +133,7 @@ func createDataflowJob(w http.ResponseWriter, project, location string, req data
 		return
 	}
 	if req.ID == "" {
-		req.ID = generateUUID()
+		req.ID = sim.NewUUID()
 	}
 	now := nowRFC3339()
 	req.ProjectID = project
@@ -320,7 +320,7 @@ func dataflowJobPostAction(w http.ResponseWriter, r *http.Request, project, loca
 		region = req.Location
 	}
 	snap := dataflowSnapshot{
-		ID:           generateUUID(),
+		ID:           sim.NewUUID(),
 		ProjectID:    project,
 		SourceJobID:  job.ID,
 		CreationTime: nowRFC3339(),
@@ -500,7 +500,7 @@ func dataflowLaunchTemplate(w http.ResponseWriter, r *http.Request, project, loc
 		GCPError(w, http.StatusBadRequest, "job name is required", "INVALID_ARGUMENT")
 		return
 	}
-	job.ID = generateUUID()
+	job.ID = sim.NewUUID()
 	now := nowRFC3339()
 	job.ProjectID = project
 	job.Location = loc
@@ -538,7 +538,7 @@ func handleDataflowLaunchFlexTemplate(w http.ResponseWriter, r *http.Request) {
 		name = "flex-template-launch"
 	}
 	job := dataflowJob{
-		ID:           generateUUID(),
+		ID:           sim.NewUUID(),
 		Name:         name,
 		Type:         "JOB_TYPE_BATCH",
 		ProjectID:    project,
@@ -583,7 +583,7 @@ func handleDataflowGetTemplate(w http.ResponseWriter, r *http.Request) {
 	// template, and Dataflow answers for it with no metadata rather than
 	// inventing a name for it.
 	if meta, ok := gcsObjects.Get(bucket + "/" + object + "_metadata"); ok {
-		if body, err := gcsObjectBytes(meta, bucket, object+"_metadata"); err == nil {
+		if body, err := gcsObjectBytes(meta); err == nil {
 			var parsed map[string]any
 			if err := json.Unmarshal(body, &parsed); err == nil {
 				resp["metadata"] = parsed

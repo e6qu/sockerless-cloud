@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
 // Snapshot Blob, Undelete Blob and Restore Container.
@@ -27,7 +29,7 @@ func handleCreateBlobSnapshot(w http.ResponseWriter, r *http.Request, account, c
 			"The specified blob does not exist.", http.StatusNotFound)
 		return
 	}
-	if !blobConditionsMet(w, r, base, true, blobModify) {
+	if !blobConditionsMet(w, r, base, true, blobstore.Modify) {
 		return
 	}
 	if !blobLeaseAccessOK(w, r, base.Lease, "blob") {
@@ -37,10 +39,12 @@ func handleCreateBlobSnapshot(w http.ResponseWriter, r *http.Request, account, c
 	snap := base
 	snap.Snapshot = blobSnapshotStamp(time.Now())
 	// A snapshot is a row of its own, so it gets a file of its own.
-	if err := blobCopyContents(&snap, base); err != nil {
+	_, copied, digests, err := blobCopyContents(base)
+	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
+	snap.Body, snap.Size = copied, digests.Size
 	snap.PageRanges = append([]BlobPageRange(nil), base.PageRanges...)
 	snap.Metadata = cloneBlobMetadata(base.Metadata)
 	snap.Tags = cloneBlobMetadata(base.Tags)

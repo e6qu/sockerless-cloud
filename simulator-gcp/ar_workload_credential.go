@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // cloudRunServiceAgent is the Google-managed identity Cloud Run pulls
@@ -33,16 +34,16 @@ func workloadRegistryAuth(project, image string) string {
 // Registry or Container Registry: by their hosts, or by this simulator's own
 // port, at which a coordinate that relocates the registry reaches it.
 func imageOnGoogleRegistry(image string) bool {
-	host, _, _ := strings.Cut(image, "/")
-	if !strings.Contains(image, "/") {
+	host, _, found := strings.Cut(image, "/")
+	if !found {
 		return false
+	}
+	if port, err := workloadhost.ListenPort(simListenAddr); err == nil && sim.ImageOnPort(image, port) {
+		return true
 	}
 	hostname := host
 	if i := strings.LastIndex(host, ":"); i >= 0 {
 		hostname = host[:i]
-		if port, err := hostMetadataPort(); err == nil && host[i+1:] == fmt.Sprint(port) {
-			return true
-		}
 	}
 	return strings.HasSuffix(hostname, "-docker.pkg.dev") || hostname == "gcr.io" || strings.HasSuffix(hostname, ".gcr.io")
 }

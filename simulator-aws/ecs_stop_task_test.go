@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // awaitECSTaskStop waits for a stop StopTask has already accepted to finish.
@@ -54,7 +55,7 @@ func TestStopTaskAnswersWhileTheTaskIsStillStopping(t *testing.T) {
 		ClusterName:          "stop-cluster",
 		RunningTasksCount:    1,
 	})
-	taskID := generateUUID()
+	taskID := sim.NewUUID()
 	taskArn := ecsArn("task", "stop-cluster/"+taskID)
 	ecsTasks.Put(taskID, ECSTask{
 		TaskArn:              taskArn,
@@ -204,7 +205,7 @@ func TestServiceSchedulerDoesNotStopAnotherTaskForAStopInProgress(t *testing.T) 
 		t.Fatalf("the scheduler stopped the service's only remaining task (%s: %s) while %s was already stopping",
 			got.StopCode, got.StoppedReason, stopping.TaskID())
 	}
-	AwaitSimulatorBackground()
+	bg.Await()
 }
 
 // StopTask answers before the containers have stopped, so a restart inside a
@@ -212,7 +213,7 @@ func TestServiceSchedulerDoesNotStopAnotherTaskForAStopInProgress(t *testing.T) 
 // resumed a pending one as if nobody had asked, and stopped a running one as
 // though its workload had vanished.
 func TestRecoverECSTasksFinishesAStopThatWasInProgress(t *testing.T) {
-	AwaitSimulatorBackground()
+	bg.Await()
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")
 	ecsContainerInstances = sim.MakeStore[ECSContainerInstance](nil, "ecs_container_instances")

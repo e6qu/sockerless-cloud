@@ -455,7 +455,10 @@ func handleSBListNamespacesByRG(w http.ResponseWriter, r *http.Request) {
 // when the client supplies an explicit $top (armPage returns the full list
 // otherwise).
 func writeSBPagedList[T any](w http.ResponseWriter, r *http.Request, items []T) {
-	page, next := armPage(r, items)
+	page, next, pageOK := armPage(w, r, items)
+	if !pageOK {
+		return
+	}
 	if page == nil {
 		page = []T{}
 	}

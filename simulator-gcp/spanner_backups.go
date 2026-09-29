@@ -395,7 +395,11 @@ func handleSpannerListBackups(w http.ResponseWriter, r *http.Request, instance s
 	prefix := spannerInstanceName(sim.PathParam(r, "project"), instance) + "/backups/"
 	out := spannerBackups.Filter(func(b spannerBackup) bool { return strings.HasPrefix(b.Name, prefix) })
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	out = gcpApplyListParams(out, r)
+	listed, listOK := gcpApplyListParams(w, r, out)
+	if !listOK {
+		return
+	}
+	out = listed
 	page, next, ok := paginateList(w, r, out)
 	if !ok {
 		return
@@ -665,7 +669,11 @@ func handleSpannerListBackupSchedules(w http.ResponseWriter, r *http.Request, in
 	prefix := dbName + "/backupSchedules/"
 	out := spannerBackupSchedules.Filter(func(s spannerBackupSchedule) bool { return strings.HasPrefix(s.Name, prefix) })
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	out = gcpApplyListParams(out, r)
+	listed, listOK := gcpApplyListParams(w, r, out)
+	if !listOK {
+		return
+	}
+	out = listed
 	page, next, ok := paginateList(w, r, out)
 	if !ok {
 		return
@@ -949,10 +957,15 @@ func spannerLatestCronOccurrence(cron spannerCrontab, after, now time.Time) (tim
 // wakes often enough to catch every minute a crontab can name and takes the
 // backups that are due. Started from main, so building the server in-process
 // (route conformance, coverage probing) does not start a clock.
-func spannerRunBackupScheduleLoop() {
+func spannerRunBackupScheduleLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	for range ticker.C {
-		spannerRunDueBackupSchedules(time.Now())
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			spannerRunDueBackupSchedules(now)
+		}
 	}
 }

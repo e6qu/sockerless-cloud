@@ -392,7 +392,7 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 		if instance.Status != ComputeInstanceRunning {
 			return errComputeInvalid("only a running instance can be suspended")
 		}
-		if err := gcpStopRealVM(r.Context(), instance.SelfLink); err != nil {
+		if err := gcpFabric.StopVM(r.Context(), instance.SelfLink, nil); err != nil {
 			return fmt.Errorf("failed to suspend real Compute Engine instance: %w", err)
 		}
 		instance.Status = "SUSPENDED"

@@ -2,11 +2,10 @@ package main
 
 import (
 	"fmt"
-	"net"
-	"strconv"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // cbEnvironmentImage returns the image a build environment runs: a curated
@@ -31,15 +30,11 @@ func cbEnvironmentServiceEnv() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	host, err := workloadCallbackHost()
+	addr, err := workloadhost.CallbackAddr(simListenAddr)
 	if err != nil {
 		return nil, err
 	}
-	port, err := simHostMetadataPort()
-	if err != nil {
-		return nil, err
-	}
-	env["AWS_ENDPOINT_URL"] = "http://" + net.JoinHostPort(host, strconv.Itoa(port))
+	env["AWS_ENDPOINT_URL"] = "http://" + addr
 	return env, nil
 }
 

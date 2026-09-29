@@ -832,7 +832,7 @@ func handleSpannerUpdateDatabaseDdl(w http.ResponseWriter, r *http.Request) {
 
 func newSpannerDatabaseDDLOperation(database, operationID string, statements []string, operationErr error) Operation {
 	if operationID == "" {
-		operationID = "_" + strings.ReplaceAll(generateUUID(), "-", "_")
+		operationID = "_" + strings.ReplaceAll(sim.NewUUID(), "-", "_")
 	}
 	name := fmt.Sprintf("%s/operations/%s", database, operationID)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -872,7 +872,7 @@ func handleSpannerCreateSession(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
-	sessionID := generateUUID()
+	sessionID := sim.NewUUID()
 	sess := req.Session
 	sess.Name = spannerSessionName(project, instance, database, sessionID)
 	sess.CreateTime = time.Now().UTC().Format(time.RFC3339Nano)
@@ -945,7 +945,7 @@ func handleSpannerCreateInstanceConfig(w http.ResponseWriter, r *http.Request) {
 	cfg.State = "READY"
 	cfg.Reconciling = false
 	if cfg.Etag == "" {
-		cfg.Etag = generateUUID()
+		cfg.Etag = sim.NewUUID()
 	}
 	if req.ValidateOnly {
 		op := newSpannerInstanceConfigLRO(project, configID, cfg, "type.googleapis.com/google.spanner.admin.instance.v1.InstanceConfig")
@@ -999,7 +999,7 @@ func handleSpannerUpdateInstanceConfig(w http.ResponseWriter, r *http.Request) {
 			cfg.Labels = req.InstanceConfig.Labels
 		}
 	}
-	cfg.Etag = generateUUID()
+	cfg.Etag = sim.NewUUID()
 	if !req.ValidateOnly {
 		spannerInstanceConfigs.Put(name, cfg)
 	}

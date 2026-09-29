@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
+	"github.com/e6qu/sockerless-cloud/sim/simjwt"
 )
 
 type GCPServiceAccount struct {
@@ -372,7 +374,7 @@ func registerIAM(srv *sim.Server) {
 				"Key creation is not allowed on this service account.", "FAILED_PRECONDITION")
 			return
 		}
-		keyID := generateUUID()
+		keyID := sim.NewUUID()
 		keyName := fmt.Sprintf("%s/keys/%s", saName, keyID)
 		now := time.Now().UTC()
 		key := GCPServiceAccountKey{
@@ -811,23 +813,14 @@ func registerIAM(srv *sim.Server) {
 				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "resolve signing key: %v", err)
 				return
 			}
-			headerJSON, err := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT", "kid": material.keyID})
-			if err != nil {
-				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "encode JWT header: %v", err)
-				return
-			}
-			headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
-			payloadB64 := base64.RawURLEncoding.EncodeToString([]byte(req.Payload))
-			signingInput := headerB64 + "." + payloadB64
-			digest := sha256.Sum256([]byte(signingInput))
-			sig, err := rsa.SignPKCS1v15(rand.Reader, material.key, crypto.SHA256, digest[:])
+			signed, err := material.jwt.SignPayload([]byte(req.Payload))
 			if err != nil {
 				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "sign JWT: %v", err)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
 				"keyId":     material.keyID,
-				"signedJwt": signingInput + "." + base64.RawURLEncoding.EncodeToString(sig),
+				"signedJwt": signed,
 			})
 		default:
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported service-account action %q", action)
@@ -1040,32 +1033,15 @@ func registerIAM(srv *sim.Server) {
 			return ni < nj
 		})
 
-		// Body-carried pagination: the token is the start offset the previous
-		// page ended at. The documented default page size is 300, ceiling
-		// 2,000.
-		start := 0
-		if req.PageToken != "" {
-			decoded, err := strconv.Atoi(req.PageToken)
-			if err != nil || decoded < 0 || decoded > len(roles) {
-				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", req.PageToken)
-				return
-			}
-			start = decoded
+		// The documented default page size is 300, the ceiling 2,000.
+		page, next, err := listq.TokenPage(listq.Decimal.Strictly(), roles, req.PageToken, req.PageSize, 300, 2000)
+		if err != nil {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", req.PageToken)
+			return
 		}
-		size := req.PageSize
-		if size <= 0 {
-			size = 300
-		}
-		if size > 2000 {
-			size = 2000
-		}
-		end := start + size
-		if end > len(roles) {
-			end = len(roles)
-		}
-		resp := map[string]any{"roles": roles[start:end]}
-		if end < len(roles) {
-			resp["nextPageToken"] = strconv.Itoa(end)
+		resp := map[string]any{"roles": page}
+		if next != "" {
+			resp["nextPageToken"] = next
 		}
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
@@ -1333,7 +1309,7 @@ func crmLRO(resource any, typeName, metadataType string) Operation {
 
 // crmEtag mints an etag for a Cloud Resource Manager resource.
 func crmEtag() string {
-	return base64.StdEncoding.EncodeToString([]byte(generateUUID()))
+	return base64.StdEncoding.EncodeToString([]byte(sim.NewUUID()))
 }
 
 // crmIamVerb dispatches a Cloud Resource Manager v3 IAM colon-verb captured in
@@ -2199,9 +2175,23 @@ var saSystemKeyMu sync.Mutex
 // surface serves.
 type saSigningMaterial struct {
 	key            *rsa.PrivateKey
+	jwt            *simjwt.Signer
 	keyID          string
 	publicKeyPEM   string
 	certificatePEM string
+}
+
+// serviceAccountSystemKeyStore persists system-managed keys in the record
+// shape iamSASystemKeys has always held, keyed by service-account name.
+type serviceAccountSystemKeyStore struct{}
+
+func (serviceAccountSystemKeyStore) Get(saName string) (string, bool) {
+	rec, ok := iamSASystemKeys.Get(saName)
+	return rec.PrivateKeyPEM, ok
+}
+
+func (serviceAccountSystemKeyStore) Put(saName, pemText string) {
+	iamSASystemKeys.Put(saName, serviceAccountSystemKey{Name: saName, PrivateKeyPEM: pemText})
 }
 
 // serviceAccountSigningKey returns the system-managed key Google holds for a
@@ -2213,33 +2203,20 @@ func serviceAccountSigningKey(saName, email string) (saSigningMaterial, error) {
 	saSystemKeyMu.Lock()
 	defer saSystemKeyMu.Unlock()
 
-	var key *rsa.PrivateKey
-	if rec, ok := iamSASystemKeys.Get(saName); ok {
-		block, _ := pem.Decode([]byte(rec.PrivateKeyPEM))
-		if block == nil {
-			return saSigningMaterial{}, fmt.Errorf("persisted system-managed key for %s is not PEM", saName)
-		}
-		parsed, err := x509.ParsePKCS1PrivateKey(block.Bytes)
-		if err != nil {
-			return saSigningMaterial{}, fmt.Errorf("parse persisted system-managed key for %s: %w", saName, err)
-		}
-		key = parsed
-	} else {
-		generated, err := rsa.GenerateKey(rand.Reader, 2048)
-		if err != nil {
-			return saSigningMaterial{}, fmt.Errorf("generate system-managed key for %s: %w", saName, err)
-		}
-		iamSASystemKeys.Put(saName, serviceAccountSystemKey{
-			Name: saName,
-			PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{
-				Type:  "RSA PRIVATE KEY",
-				Bytes: x509.MarshalPKCS1PrivateKey(generated),
-			})),
-		})
-		key = generated
+	loaded, err := simjwt.LoadOrCreate(serviceAccountSystemKeyStore{}, saName, simjwt.RS256)
+	if err != nil {
+		return saSigningMaterial{}, fmt.Errorf("system-managed key for %s: %w", saName, err)
+	}
+	key, ok := loaded.Key().(*rsa.PrivateKey)
+	if !ok {
+		return saSigningMaterial{}, fmt.Errorf("system-managed key for %s is not RSA", saName)
 	}
 
 	id, err := serviceAccountKeyID(&key.PublicKey)
+	if err != nil {
+		return saSigningMaterial{}, err
+	}
+	jwtSigner, err := simjwt.NewSigner(key, id)
 	if err != nil {
 		return saSigningMaterial{}, err
 	}
@@ -2253,6 +2230,7 @@ func serviceAccountSigningKey(saName, email string) (saSigningMaterial, error) {
 	}
 	return saSigningMaterial{
 		key:            key,
+		jwt:            jwtSigner,
 		keyID:          id,
 		publicKeyPEM:   string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})),
 		certificatePEM: certPEM,
@@ -3052,7 +3030,7 @@ func newIAMLRO(opCollection string, resource map[string]any, typeName string) Op
 		// handler ran before registration, which never happens at runtime.
 		panic("newIAMLRO: iamLROs store not initialized")
 	}
-	opID := generateUUID()
+	opID := sim.NewUUID()
 	response := map[string]any{"@type": typeName}
 	for k, v := range resource {
 		response[k] = v
@@ -3677,7 +3655,7 @@ func registerOAuthClients(srv *sim.Server) {
 			res[k] = v
 		}
 		res["name"] = name
-		res["clientSecret"] = "sim-secret-" + generateUUID()
+		res["clientSecret"] = "sim-secret-" + sim.NewUUID()
 		iamResources.Put(name, res)
 		sim.WriteJSON(w, http.StatusOK, res)
 	})

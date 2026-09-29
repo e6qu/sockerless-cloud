@@ -1,133 +1,126 @@
 package main
 
 import (
+	"fmt"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// parseFilter splits a GCP logging filter string into individual clauses
-// joined by AND. Supports: field="value", field>"value", field>="value".
-func parseFilter(filter string) []filterClause {
-	filter = strings.TrimSpace(filter)
-	if filter == "" {
-		return nil
-	}
+// parseLogFilter parses a Cloud Logging query
+// (https://cloud.google.com/logging/docs/view/logging-query-language). It
+// shares the AIP-160 expression grammar and differs in its leaves: a bare
+// value is a global restriction that matches any field containing it,
+// `=~`/`!~` match an RE2 expression, severity compares by level, timestamp
+// compares as a time, and a comparison on a field the entry lacks is false.
+func parseLogFilter(filter string) (listq.Node, error) {
+	return gcpParseFilter(filter, logFilterLeaf)
+}
 
-	// Split on " AND " (case-sensitive, as GCP requires uppercase AND)
-	parts := strings.Split(filter, " AND ")
-	var clauses []filterClause
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
+func logFilterLeaf(field, op, value string) (listq.Node, error) {
+	if op == "" {
+		return logGlobalRestriction(field), nil
+	}
+	var test listq.Test
+	switch op {
+	case "=~", "!~":
+		re, err := regexp.Compile(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid regular expression %q: %v", value, err)
 		}
-		c := parseClause(part)
-		clauses = append(clauses, c)
-	}
-	return clauses
-}
-
-type filterOp int
-
-const (
-	opEq  filterOp = iota // =
-	opGt                  // >
-	opGe                  // >=
-	opHas                 // : (Cloud Logging substring/has operator)
-)
-
-type filterClause struct {
-	field string
-	op    filterOp
-	value string
-}
-
-// parseClause parses a single clause like `field="value"`, `field >= "value"`,
-// `field > "value"`, or `field:"value"`. Handles optional whitespace around
-// the operator.
-//
-// The `:` operator is Cloud Logging's "has" / substring-match form
-// (https://cloud.google.com/logging/docs/view/logging-query-language#operators).
-// Real Cloud Logging supports it natively; the sockerless cloudrun backend
-// uses it for the `logName:"run.googleapis.com"` clause that filters out
-// Cloud Audit Logs. The sim must accept it too — without this
-// branch the clause falls through to the wildcard `*` and silently matches
-// nothing, dropping every container's stdout from `docker logs`.
-func parseClause(s string) filterClause {
-	// Try >= first (before > to avoid partial match)
-	if idx := strings.Index(s, ">="); idx > 0 {
-		field := strings.TrimSpace(s[:idx])
-		value := unquote(strings.TrimSpace(s[idx+2:]))
-		return filterClause{field: field, op: opGe, value: value}
-	}
-	if idx := strings.Index(s, ">"); idx > 0 {
-		field := strings.TrimSpace(s[:idx])
-		value := unquote(strings.TrimSpace(s[idx+1:]))
-		return filterClause{field: field, op: opGt, value: value}
-	}
-	if idx := strings.Index(s, "="); idx > 0 {
-		field := strings.TrimSpace(s[:idx])
-		value := unquote(strings.TrimSpace(s[idx+1:]))
-		return filterClause{field: field, op: opEq, value: value}
-	}
-	if idx := strings.Index(s, ":"); idx > 0 {
-		field := strings.TrimSpace(s[:idx])
-		value := unquote(strings.TrimSpace(s[idx+1:]))
-		return filterClause{field: field, op: opHas, value: value}
-	}
-	// Fallback: bare string without operator — do a substring search
-	// across textPayload, logName, and severity (like GCP's simple filter).
-	return filterClause{field: "*", op: opEq, value: s}
-}
-
-// unquote removes surrounding double quotes from a string.
-func unquote(s string) string {
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
-	}
-	return s
-}
-
-// resolveField extracts the value of a dot-notation field path from a LogEntry.
-func resolveField(entry LogEntry, field string) (string, bool) {
-	switch field {
-	case "resource.type":
-		if entry.Resource != nil {
-			return entry.Resource.Type, true
+		want := op == "=~"
+		test = func(v string, present bool) bool { return present && re.MatchString(v) == want }
+	case ":":
+		test = func(v string, present bool) bool { return present && (value == "*" || strings.Contains(v, value)) }
+	case "=", "!=", "<", "<=", ">", ">=":
+		cmp := logCompare(field)
+		test = func(v string, present bool) bool {
+			if field == "severity" && (!present || v == "") {
+				v, present = "DEFAULT", true
+			}
+			if !present {
+				return false
+			}
+			c, ok := cmp(v, value)
+			if !ok {
+				return op == "!="
+			}
+			return logOrdered(op, c)
 		}
-		return "", false
-	case "logName":
-		return entry.LogName, true
-	case "severity":
-		return entry.Severity, true
-	case "textPayload":
-		return entry.TextPayload, true
-	case "timestamp":
-		return entry.Timestamp, true
 	default:
-		// Handle resource.labels.X
-		if strings.HasPrefix(field, "resource.labels.") {
-			labelKey := field[len("resource.labels."):]
-			if entry.Resource != nil && entry.Resource.Labels != nil {
-				v, ok := entry.Resource.Labels[labelKey]
-				return v, ok
-			}
-			return "", false
-		}
-		// Handle labels.X
-		if strings.HasPrefix(field, "labels.") {
-			labelKey := field[len("labels."):]
-			if entry.Labels != nil {
-				v, ok := entry.Labels[labelKey]
-				return v, ok
-			}
-			return "", false
-		}
-		return "", false
+		return nil, fmt.Errorf("unsupported operator %q", op)
 	}
+	return listq.Cmp{Path: field, Sep: ".", Test: test}, nil
 }
 
-// parseTimestamp parses a timestamp string in RFC3339 or RFC3339Nano format.
+func logOrdered(op string, c int) bool {
+	switch op {
+	case "=":
+		return c == 0
+	case "!=":
+		return c != 0
+	case "<":
+		return c < 0
+	case "<=":
+		return c <= 0
+	case ">":
+		return c > 0
+	}
+	return c >= 0
+}
+
+// logCompare returns how the query language orders two values of field:
+// severity by level, timestamp by instant, everything else as text or,
+// when both sides are numbers, numerically.
+func logCompare(field string) func(a, b string) (int, bool) {
+	switch field {
+	case "severity":
+		return func(a, b string) (int, bool) {
+			x, xok := severityRank(a)
+			y, yok := severityRank(b)
+			return x - y, xok && yok
+		}
+	case "timestamp", "receiveTimestamp":
+		return func(a, b string) (int, bool) {
+			x, xerr := parseTimestamp(a)
+			y, yerr := parseTimestamp(b)
+			if xerr != nil || yerr != nil {
+				return strings.Compare(a, b), true
+			}
+			return x.Compare(y), true
+		}
+	}
+	return func(a, b string) (int, bool) { return listq.CompareOrdered(a, b), true }
+}
+
+type logGlobalRestriction string
+
+func (g logGlobalRestriction) Eval(d listq.Doc) bool {
+	return logAnyValueContains(d, string(g))
+}
+
+func logAnyValueContains(v any, needle string) bool {
+	switch t := v.(type) {
+	case map[string]any:
+		for _, e := range t {
+			if logAnyValueContains(e, needle) {
+				return true
+			}
+		}
+		return false
+	case []any:
+		for _, e := range t {
+			if logAnyValueContains(e, needle) {
+				return true
+			}
+		}
+		return false
+	}
+	return strings.Contains(listq.ScalarString(v), needle)
+}
+
 func parseTimestamp(s string) (time.Time, error) {
 	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
@@ -159,71 +152,4 @@ func severityRank(s string) (int, bool) {
 	default:
 		return 0, false
 	}
-}
-
-// matchesFilter checks whether a LogEntry matches a structured filter string.
-// Supports: field="value" AND field>"value" AND field>="value"
-// with dot-notation paths (resource.type, resource.labels.X, timestamp, etc.)
-func matchesFilter(entry LogEntry, filter string) bool {
-	clauses := parseFilter(filter)
-	if len(clauses) == 0 {
-		return true // empty filter matches all
-	}
-	for _, c := range clauses {
-		// Wildcard field: bare filter string — substring match across all text fields
-		if c.field == "*" {
-			found := strings.Contains(entry.TextPayload, c.value) ||
-				strings.Contains(entry.LogName, c.value) ||
-				strings.Contains(entry.Severity, c.value)
-			if !found {
-				return false
-			}
-			continue
-		}
-		val, ok := resolveField(entry, c.field)
-		if !ok {
-			return false
-		}
-		switch c.op {
-		case opEq:
-			if val != c.value {
-				return false
-			}
-		case opGt:
-			if c.field == "severity" {
-				left, lok := severityRank(val)
-				right, rok := severityRank(c.value)
-				if !lok || !rok || left <= right {
-					return false
-				}
-				continue
-			}
-			if val <= c.value {
-				return false
-			}
-		case opGe:
-			if c.field == "severity" {
-				left, lok := severityRank(val)
-				right, rok := severityRank(c.value)
-				if !lok || !rok || left < right {
-					return false
-				}
-				continue
-			}
-			if val < c.value {
-				return false
-			}
-		case opHas:
-			// Cloud Logging's `:` operator is substring-match: the
-			// clause matches when the field's value CONTAINS the
-			// query string. Real Cloud Logging additionally supports
-			// glob/colon-prefix tokenisation; the sim implements the
-			// substring subset since that's what the cloudrun + gcf
-			// backends emit (`logName:"run.googleapis.com"`).
-			if !strings.Contains(val, c.value) {
-				return false
-			}
-		}
-	}
-	return true
 }

@@ -40,13 +40,14 @@ func fsHandleListCollectionIds(w http.ResponseWriter, r *http.Request, parentPat
 		PageSize  int    `json:"pageSize"`
 		PageToken string `json:"pageToken"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		GCPError(w, http.StatusBadRequest, "Invalid JSON payload received. "+err.Error(), "INVALID_ARGUMENT")
+		return
+	}
 
 	prefix := strings.TrimSuffix(parent, "/") + "/"
 	seen := map[string]bool{}
-	for _, doc := range fsDocuments.Filter(func(d FSDocument) bool {
-		return strings.HasPrefix(d.Name, prefix)
-	}) {
+	for _, doc := range fsDocumentsUnder(prefix, func(FSDocument) bool { return true }) {
 		rest := strings.TrimPrefix(doc.Name, prefix)
 		if collection, _, found := strings.Cut(rest, "/"); found || rest != "" {
 			seen[collection] = true
@@ -112,7 +113,7 @@ func fsHandleRunAggregationQuery(w http.ResponseWriter, r *http.Request, parentP
 		return
 	}
 	collection := strings.TrimSuffix(parent, "/") + "/" + query.From[0].CollectionID
-	docs := fsDocuments.Filter(func(d FSDocument) bool {
+	docs := fsDocumentsUnder(collection+"/", func(d FSDocument) bool {
 		return fsCollectionParent(d.Name) == collection && fsWhereMatches(d, query.Where)
 	})
 	if query.Limit != nil && *query.Limit > 0 && len(docs) > *query.Limit {
@@ -229,10 +230,9 @@ func fsHandlePartitionQuery(w http.ResponseWriter, r *http.Request, parentPath s
 	}
 	collection := req.StructuredQuery.From[0].CollectionID
 	prefix := strings.TrimSuffix(parent, "/") + "/"
-	docs := fsDocuments.Filter(func(d FSDocument) bool {
-		return strings.HasPrefix(d.Name, prefix) && fsCollectionID(d.Name) == collection
+	docs := fsDocumentsUnder(prefix, func(d FSDocument) bool {
+		return fsCollectionID(d.Name) == collection
 	})
-	sort.Slice(docs, func(i, j int) bool { return docs[i].Name < docs[j].Name })
 
 	response := map[string]any{}
 	if stride := int64(len(docs)) / partitions; stride > 0 && partitions > 1 {
@@ -298,7 +298,7 @@ func registerFSDocumentVerbs(srv *sim.Server) {
 		// streamId comes back only on the message that opened the stream,
 		// which for a REST caller is the one that carried no id.
 		if req.StreamID == "" {
-			response["streamId"] = generateUUID()
+			response["streamId"] = sim.NewUUID()
 		}
 		sim.WriteJSON(w, http.StatusOK, response)
 	}
@@ -378,7 +378,7 @@ func handleFSDatabasesVerb(w http.ResponseWriter, r *http.Request) {
 		body[k] = v
 	}
 	body["name"] = destination
-	body["uid"] = generateUUID()
+	body["uid"] = sim.NewUUID()
 	body["createTime"] = now
 	body["updateTime"] = now
 	if len(req.Tags) > 0 {

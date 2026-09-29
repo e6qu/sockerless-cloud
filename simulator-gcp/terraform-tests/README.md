@@ -24,7 +24,7 @@ Resources covered:
 - `google_service_account` (via `iam_beta_custom_endpoint`)
 - `google_service_account_key` (via `iam_custom_endpoint`)
 
-`google_compute_instance` is covered by the cross-cloud VM compute parity phase. Instance templates remain out of the foundational slice until a real sockerless flow or provider path requires them.
+`google_compute_instance` runs a real Firecracker guest and needs a Linux host with `/dev/kvm`; CI's Linux runner applies it.
 
 ## Running
 
@@ -46,7 +46,7 @@ The test harness (`helpers_test.go`) handles simulator binary build, port alloca
 
 ## Prerequisites
 
-- Go 1.23+
+- The Go toolchain this module's `go.mod` names
 - `terraform` CLI installed and on `PATH`
 - The `simulator-gcp/` parent module (built automatically by `TestMain`)
 - `caddy` installed and on `PATH` for `make terraform-https-test`

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/sim/listq"
+
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -69,7 +71,7 @@ func handleCWStartQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	qid := generateUUID()
+	qid := sim.NewUUID()
 	cwQueries.Put(qid, CWQuery{
 		QueryID:    qid,
 		QueryStr:   req.QueryString,
@@ -217,7 +219,7 @@ func cwFlattenJSONInto(rec cwInsightsRecord, message string) {
 			}
 			return
 		}
-		rec[prefix] = cwJSONScalar(v)
+		rec[prefix] = listq.ScalarString(v)
 	}
 	for k, v := range doc {
 		walk(k, v, 0)
@@ -527,12 +529,20 @@ func cwDedup(records []cwInsightsRecord, fields []string) []cwInsightsRecord {
 	return out
 }
 
-func cwFilterRecords(records []cwInsightsRecord, node cwInsightsNode) []cwInsightsRecord {
+func cwFilterRecords(records []cwInsightsRecord, node listq.Node) []cwInsightsRecord {
 	out := records[:0]
 	for _, r := range records {
-		if node.eval(r) {
+		if node.Eval(r.doc()) {
 			out = append(out, r)
 		}
 	}
 	return out
+}
+
+func (r cwInsightsRecord) doc() listq.Doc {
+	d := make(listq.Doc, len(r))
+	for k, v := range r {
+		d[k] = v
+	}
+	return d
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -728,6 +729,9 @@ func registerNetworkApplicationGateways(srv *sim.Server) {
 	registerApplicationGatewayCatalogs(srv)
 	registerApplicationGatewayWafRuleSets(srv)
 	registerApplicationGatewayDataPlane(srv)
+	srv.StartBackground("Azure Application Gateway health prober", func(ctx context.Context) {
+		lbplane.SweepEvery(ctx, applicationGatewayProbeSweep, applicationGatewaySweepProbes)
+	})
 }
 
 // validateApplicationGateway applies the request validation the resource
@@ -972,7 +976,7 @@ func stampApplicationGatewayChildren(gw *ApplicationGateway) {
 func provisionApplicationGateway(ctx context.Context, gw *ApplicationGateway, previous *ApplicationGateway) error {
 	// The resource GUID and the operational state are assigned once, at
 	// creation: an update of a stopped gateway must not silently restart it.
-	gw.Properties.ResourceGUID = generateUUID()
+	gw.Properties.ResourceGUID = sim.NewUUID()
 	gw.Properties.OperationalState = "Running"
 	if previous != nil {
 		if previous.Properties.ResourceGUID != "" {

@@ -326,9 +326,7 @@ func azureCustomScriptCommand(properties VirtualMachineExtensionProperties) stri
 // ready rather than failing on the first connection. The same bounded wait
 // happens here before the guest is handed to the caller.
 func azureGuestFor(ctx context.Context, vmID string) (*realexec.FirecrackerVM, error) {
-	azureRealMu.Lock()
-	guest := azureRealVMs[vmID]
-	azureRealMu.Unlock()
+	guest := azureFabric.VM(vmID)
 	if guest == nil || !guest.Alive() {
 		return nil, fmt.Errorf(
 			"virtual machine %q is not running, so nothing can be executed inside it", vmID)

@@ -110,7 +110,10 @@ func handleECSListAttributes(w http.ResponseWriter, r *http.Request) {
 		attrs = append(attrs, a)
 	}
 	sort.Slice(attrs, func(i, j int) bool { return attrs[i].Name < attrs[j].Name })
-	page, next := awsPage(attrs, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecsBadToken, attrs, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"attributes": page}
 	if next != "" {
 		out["nextToken"] = next

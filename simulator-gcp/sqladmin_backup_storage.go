@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -44,22 +43,7 @@ func sqlBackupVolume(project, backupID string) string {
 // that does not exist — the modeled tier, or an engine that never started —
 // captures nothing, which is that instance's whole state.
 func sqlCaptureVolume(project, instance, backupVolume string) error {
-	if sim.RequireContainerRuntime("capturing a Cloud SQL backup") != nil {
-		return nil
-	}
-	if !sim.VolumeExists(sqlInstanceVolume(project, instance)) {
-		return nil
-	}
-	filesystem, err := sim.SnapshotVolume(context.Background(), sqlInstanceVolume(project, instance), backupVolume)
-	if err != nil {
-		return err
-	}
-	if sim.VolumeSnapshotIsInstant(filesystem) {
-		fmt.Fprintf(os.Stderr, "[sim-cloudsql] backup %s captured copy-on-write on %s\n", backupVolume, filesystem)
-	} else {
-		fmt.Fprintf(os.Stderr, "[sim-cloudsql] backup %s captured by full copy on %s (put the engine's volume store on btrfs, XFS with reflinks, or OpenZFS block cloning for instant backups)\n", backupVolume, filesystem)
-	}
-	return nil
+	return sim.CaptureVolume(context.Background(), sqlInstanceVolume(project, instance), backupVolume, "cloudsql")
 }
 
 // sqlRestoreVolume stops the instance's engine, replaces its data volume
@@ -71,7 +55,7 @@ func sqlRestoreVolume(project, instance, backupVolume string) error {
 		return nil
 	}
 	sqlStopEngine(project, instance)
-	sqlRemoveVolumeSettled(sqlInstanceVolume(project, instance))
+	sim.RemoveVolumeSettled(sqlInstanceVolume(project, instance), "cloudsql")
 	if !sim.VolumeExists(backupVolume) {
 		return nil
 	}
@@ -105,5 +89,5 @@ func sqlRemoveBackupVolume(name string) {
 	if !sim.VolumeExists(name) {
 		return
 	}
-	sqlRemoveVolumeSettled(name)
+	sim.RemoveVolumeSettled(name, "cloudsql")
 }

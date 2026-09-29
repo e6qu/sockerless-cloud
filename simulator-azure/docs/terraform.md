@@ -10,10 +10,10 @@
 The Azure Terraform providers (`azurestack`, `azurerm`) hardcode `https://` for metadata endpoint calls. The recommended local path is the repo's Caddy HTTPS gateway:
 
 ```sh
-make stack-https-up
+caddy run --config make/https-gateway/Caddyfile --adapter caddyfile
 ```
 
-The gateway fronts the Azure simulator at `https://azure.sockerless.localhost:8443` and preserves Azure host-addressed data-plane names such as `{account}.blob.azure.sockerless.localhost`, `{vault}.vault.azure.sockerless.localhost`, and `{account}.documents.azure.sockerless.localhost`. It is local transport infrastructure; the simulator's public ARM, metadata, and data-plane API shapes remain unchanged. See [`docs/LOCAL_HTTPS_GATEWAY.md`](https://github.com/e6qu/sockerless/blob/main/docs/LOCAL_HTTPS_GATEWAY.md).
+The gateway fronts the Azure simulator at `https://azure.sockerless.localhost:8443` and preserves Azure host-addressed data-plane names such as `{account}.blob.azure.sockerless.localhost`, `{vault}.vault.azure.sockerless.localhost`, and `{account}.documents.azure.sockerless.localhost`. It is local transport infrastructure; the simulator's public ARM, metadata, and data-plane API shapes remain unchanged. The gateway configuration is [`make/https-gateway/Caddyfile`](../../make/https-gateway/Caddyfile).
 
 Direct simulator TLS remains supported when a test needs to exercise the simulator's own TLS listener:
 
@@ -54,7 +54,7 @@ export SSL_CERT_FILE=$(pwd)/ca.pem
 
 ## Provider configuration
 
-Use the `hashicorp/azurerm` provider through the simulator's custom Azure cloud metadata and OAuth2 endpoints for the cloud resources sockerless exercises. The test suite also retains `azurestack` coverage for Azure Stack-compatible ARM resources.
+Use the `hashicorp/azurerm` provider through the simulator's custom Azure cloud metadata and OAuth2 endpoints. The test suite also retains `azurestack` coverage for Azure Stack-compatible ARM resources.
 
 ```hcl
 terraform {
@@ -91,7 +91,7 @@ export ARM_CLIENT_SECRET=test-client-secret
 export ARM_TENANT_ID=11111111-1111-1111-1111-111111111111
 export ARM_SUBSCRIPTION_ID=00000000-0000-0000-0000-000000000001
 export ARM_ENDPOINT=https://azure.sockerless.localhost:8443
-export SSL_CERT_FILE="$(make -s stack-https-ca)"
+export SSL_CERT_FILE="$HOME/.local/share/caddy/pki/authorities/local/root.crt"  # Caddy's local root CA (macOS: ~/Library/Application Support/Caddy/)
 ```
 
 ## Example resources
@@ -170,7 +170,7 @@ The simulator supports the Azure API operations that these Terraform resources u
 | Storage | `azurestack_storage_account` |
 | Azure Cache for Redis | `azurerm_redis_cache`, `azurerm_redis_firewall_rule` |
 
-The automated terraform tests cover both Azure Stack-compatible ARM resources and AzureRM resources that sockerless depends on: ACA managed environments, ACA Jobs/Apps, ACR, Azure Cache for Redis, managed identity, Private DNS, Log Analytics, Application Insights, App Service plans, Linux Function Apps, and Storage Accounts.
+The automated terraform tests cover both Azure Stack-compatible ARM resources and AzureRM resources, among them Azure Container Apps managed environments, jobs and apps, Azure Container Registry, Azure Cache for Redis, managed identity, Private DNS, Log Analytics, Application Insights, App Service plans, Linux Function Apps, and Storage Accounts.
 
 ## Notes
 

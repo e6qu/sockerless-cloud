@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
 // Dapr sidecar assembly for the Container Apps "Apps" slice. Real Azure
@@ -70,7 +71,7 @@ func startACAAppDaprSidecar(ctx context.Context, resourceID string, app Containe
 		args = append(args, "--read-buffer-size", fmt.Sprintf("%dKi", *d.HTTPReadBufferSize))
 	}
 
-	platform, err := localImagePlatform(ctx, daprdSidecarImage)
+	platform, err := workload.LocalImagePlatform(ctx, daprdSidecarImage, "")
 	if err != nil {
 		return nil, err
 	}

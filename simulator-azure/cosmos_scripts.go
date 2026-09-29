@@ -214,10 +214,8 @@ func handleCosmosReplaceScript(kind string) http.HandlerFunc {
 			cosmosDataError(w, "NotFound", "Entity with the specified id does not exist", http.StatusNotFound)
 			return
 		}
-		if !cosmosIfMatchOK(r, existing.ETag) {
-			cosmosDataError(w, "PreconditionFailed",
-				"Operation cannot be performed because one of the specified precondition is not met.",
-				http.StatusPreconditionFailed)
+		if !cosmosIfMatch(r, existing.ETag) {
+			cosmosPreconditionFailed(w)
 			return
 		}
 		var body map[string]any
@@ -292,10 +290,12 @@ func handleCosmosExecuteSproc(w http.ResponseWriter, r *http.Request) {
 	// The request body is a JSON array of the sproc's positional arguments.
 	var args []any
 	if err := sim.ReadJSON(r, &args); err != nil {
-		// An empty body is a no-arg call; only a malformed non-empty body is a 400.
-		args = nil
+		cosmosDataError(w, "BadRequest", "The stored procedure arguments must be a JSON array: "+err.Error(), http.StatusBadRequest)
+		return
 	}
+	release := cosmosLockColl(account, db, coll)
 	result, eerr := cosmosExecuteSproc(r, s, account, db, coll, pkComponent, hasPK, args)
+	release()
 	if eerr != nil {
 		cosmosDataError(w, eerr.code, eerr.msg, eerr.status)
 		return
@@ -337,7 +337,7 @@ func cosmosExecuteSproc(r *http.Request, s CosmosScript, account, db, coll, pkCo
 		}
 		id, _ := docArg["id"].(string)
 		if id == "" {
-			id = generateUUID()
+			id = sim.NewUUID()
 			docArg["id"] = id
 		}
 		// Determine the partition from the document body (the sproc runs within
@@ -347,7 +347,7 @@ func cosmosExecuteSproc(r *http.Request, s CosmosScript, account, db, coll, pkCo
 			return nil, werr
 		}
 		key := cosmosDocKeyPK(account, db, coll, pkKey, id)
-		if _, exists := cosmosDocs.Get(key); exists {
+		if _, exists := cosmosLiveDoc(key); exists {
 			return nil, &cosmosWriteError{code: "Conflict",
 				msg: "Resource with specified id or name already exists.", status: http.StatusConflict}
 		}
@@ -362,7 +362,7 @@ func cosmosExecuteSproc(r *http.Request, s CosmosScript, account, db, coll, pkCo
 		docs := cosmosSprocPartitionDocs(account, db, coll, pkComponent, hasPK)
 		deleted := 0
 		for _, d := range docs {
-			cosmosDocs.Delete(cosmosStoredDocKey(d))
+			cosmosDeleteDoc(d, cosmosStoredDocKey(d))
 			deleted++
 		}
 		return map[string]any{"deleted": deleted, "continuation": false}, nil

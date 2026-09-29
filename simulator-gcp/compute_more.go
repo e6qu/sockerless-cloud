@@ -337,7 +337,11 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				nj, _ := items[j]["name"].(string)
 				return ni < nj
 			})
-			items = gcpApplyListParams(items, r)
+			listed, listOK := gcpApplyListParams(w, r, items)
+			if !listOK {
+				return
+			}
+			items = listed
 			page, next, ok := paginateListCompute(w, r, items)
 			if !ok {
 				return
@@ -370,7 +374,11 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				nj, _ := items[j]["name"].(string)
 				return ni < nj
 			})
-			items = gcpApplyListParams(items, r)
+			listed, listOK := gcpApplyListParams(w, r, items)
+			if !listOK {
+				return
+			}
+			items = listed
 			page, next, ok := paginateListCompute(w, r, items)
 			if !ok {
 				return

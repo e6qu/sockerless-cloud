@@ -2,18 +2,16 @@ package main
 
 import (
 	"fmt"
-	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-var gcpMetadataInstancesByIP sync.Map // map[string]ComputeInstance
+var gcpMetadataInstancesByIP workloadhost.MetadataIndex[ComputeInstance]
 
 // registerComputeMetadata serves the GCE metadata server endpoints used
 // by every GCP compute primitive that runs a workload (GCE, Cloud Run,
@@ -434,7 +432,7 @@ var (
 
 // metadataProjectID is the project the reading workload belongs to.
 func metadataProjectID(r *http.Request) string {
-	if inst, ok := gcpMetadataInstanceForRequest(r); ok {
+	if inst, ok := gcpMetadataInstancesByIP.ForRequest(r); ok {
 		return gcpMetadataProject(inst.SelfLink, defaultMetadataProject(r))
 	}
 	return defaultMetadataProject(r)
@@ -442,7 +440,7 @@ func metadataProjectID(r *http.Request) string {
 
 // metadataInstanceZone is the fully-qualified zone the reading workload runs in.
 func metadataInstanceZone(r *http.Request) string {
-	if inst, ok := gcpMetadataInstanceForRequest(r); ok && inst.Zone != "" {
+	if inst, ok := gcpMetadataInstancesByIP.ForRequest(r); ok && inst.Zone != "" {
 		return inst.Zone
 	}
 	return fmt.Sprintf("projects/%s/zones/%s", defaultMetadataProject(r), defaultMetadataZone(r))
@@ -450,7 +448,7 @@ func metadataInstanceZone(r *http.Request) string {
 
 // metadataInstanceName is the reading workload's instance name.
 func metadataInstanceName(r *http.Request) string {
-	if inst, ok := gcpMetadataInstanceForRequest(r); ok && inst.Name != "" {
+	if inst, ok := gcpMetadataInstancesByIP.ForRequest(r); ok && inst.Name != "" {
 		return inst.Name
 	}
 	return metadataDefaultName
@@ -458,7 +456,7 @@ func metadataInstanceName(r *http.Request) string {
 
 // metadataInstanceHostname is the internal DNS name of the reading workload.
 func metadataInstanceHostname(r *http.Request) string {
-	if inst, ok := gcpMetadataInstanceForRequest(r); ok && inst.Name != "" {
+	if inst, ok := gcpMetadataInstancesByIP.ForRequest(r); ok && inst.Name != "" {
 		zone := defaultMetadataZone(r)
 		if inst.Zone != "" {
 			zone = inst.Zone[strings.LastIndex(inst.Zone, "/")+1:]
@@ -476,19 +474,6 @@ func metadataServiceAccountEmail(r *http.Request, account string) string {
 		return fmt.Sprintf("default@%s.iam.gserviceaccount.com", defaultMetadataProject(r))
 	}
 	return account
-}
-
-func gcpMetadataInstanceForRequest(r *http.Request) (ComputeInstance, bool) {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	v, ok := gcpMetadataInstancesByIP.Load(host)
-	if !ok {
-		return ComputeInstance{}, false
-	}
-	inst, ok := v.(ComputeInstance)
-	return inst, ok
 }
 
 func gcpMetadataProject(selfLink, defaultProject string) string {
@@ -512,118 +497,31 @@ func defaultMetadataZone(r *http.Request) string {
 	return "us-central1-a"
 }
 
-// simListenAddr is captured by main() so host translators can wire it
-// into workload-host env. Workloads in Docker reach the sim host via
-// host.docker.internal.
+// simListenAddr is the listen address main() serves on.
 var simListenAddr string
 
-// hostMetadataAddr returns the address workloads use to reach the sim's
-// metadata service. Cloud-product translators inject this as
-// GCE_METADATA_HOST on the workload host so the GCP SDKs route metadata
-// reads here instead of attempting metadata.google.internal:80.
-func hostMetadataAddr() string {
-	port := simListenAddr
-	if idx := strings.LastIndex(simListenAddr, ":"); idx >= 0 {
-		port = simListenAddr[idx+1:]
-	}
-	return workloadCallbackHost() + ":" + port
-}
-
-func hostMetadataPort() (int, error) {
-	port := simListenAddr
-	if idx := strings.LastIndex(simListenAddr, ":"); idx >= 0 {
-		port = simListenAddr[idx+1:]
-	}
-	n, err := strconv.Atoi(port)
-	if err != nil || n <= 0 || n > 65535 {
-		return 0, fmt.Errorf("invalid simulator metadata listen port %q", port)
-	}
-	return n, nil
-}
-
-// hostMetadataExtraHosts returns ExtraHosts entries needed for the
-// workload to resolve host.docker.internal AND metadata.google.internal
-// to the sim's host gateway. Workloads that read GCE_METADATA_HOST will
-// use the explicit address; workloads that hard-code metadata.google.internal
-// will resolve it to host.docker.internal via /etc/hosts.
-func hostMetadataExtraHosts() []string {
-	if host := workloadCallbackHost(); host != "host.docker.internal" {
-		return []string{
-			"metadata.google.internal:" + host,
-			"metadata:" + host,
-		}
-	}
-	info := strings.ToLower(sim.RuntimeInfo())
-	if strings.Contains(info, "podman") {
-		// Podman exposes host.docker.internal natively.
-		return []string{"metadata.google.internal:host.docker.internal"}
-	}
-	return []string{
-		"host.docker.internal:host-gateway",
-		"metadata.google.internal:host-gateway",
-		"metadata:host-gateway",
-	}
-}
-
-func workloadCallbackHost() string {
-	if runningInsideContainer() {
-		if host := firstNonLoopbackIPv4(); host != "" {
-			return host
-		}
-	}
-	return "host.docker.internal"
-}
-
-func runningInsideContainer() bool {
-	if _, err := os.Stat("/run/.containerenv"); err == nil {
-		return true
-	}
-	if _, err := os.Stat("/.dockerenv"); err == nil {
-		return true
-	}
-	return os.Getenv("container") != ""
-}
-
-func firstNonLoopbackIPv4() string {
-	addrs, err := net.InterfaceAddrs()
+// hostMetadataExtraHosts resolves the outer host's aliases and the metadata
+// server's names, metadata.google.internal and metadata, for a workload that
+// dials them directly instead of reading GCE_METADATA_HOST.
+func hostMetadataExtraHosts() ([]string, error) {
+	aliases, err := workloadhost.AliasHosts("metadata.google.internal", "metadata")
 	if err != nil {
-		return ""
+		return nil, err
 	}
-	for _, addr := range addrs {
-		ipNet, ok := addr.(*net.IPNet)
-		if !ok {
-			continue
-		}
-		ip := ipNet.IP.To4()
-		if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-			continue
-		}
-		return ip.String()
-	}
-	return ""
+	return append(workloadhost.ExtraHosts(), aliases...), nil
 }
 
 // hostMetadataEnv returns env vars to inject on every GCP workload host
 // so the GCP SDKs route metadata-server reads to the sim. Apply on every
 // Cloud Run / Cloud Run Jobs / Cloud Functions / GCE-style workload host.
-func hostMetadataEnv() map[string]string {
-	addr := hostMetadataAddr()
+func hostMetadataEnv() (map[string]string, error) {
+	addr, err := workloadhost.CallbackAddr(simListenAddr)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]string{
 		"GCE_METADATA_HOST": addr,
 		"GCE_METADATA_IP":   addr,
 		"GCE_METADATA_ROOT": addr,
-	}
-}
-
-// mergeEnv returns a new map with all keys from `base` and `extra`,
-// where `extra` wins on conflict. Both inputs may be nil.
-func mergeEnv(base, extra map[string]string) map[string]string {
-	out := make(map[string]string, len(base)+len(extra))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range extra {
-		out[k] = v
-	}
-	return out
+	}, nil
 }

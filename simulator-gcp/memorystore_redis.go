@@ -278,7 +278,7 @@ func handleMSRedisClusterCreate(w http.ResponseWriter, r *http.Request) {
 		Name:                      name,
 		CreateTime:                nowTimestamp(),
 		State:                     "ACTIVE",
-		Uid:                       generateUUID(),
+		Uid:                       sim.NewUUID(),
 		ReplicaCount:              replicaCount,
 		AuthorizationMode:         defaultStr(req.AuthorizationMode, "AUTH_MODE_DISABLED"),
 		TransitEncryptionMode:     defaultStr(req.TransitEncryptionMode, "TRANSIT_ENCRYPTION_MODE_DISABLED"),
@@ -427,13 +427,13 @@ func handleMSRedisClusterBackup(w http.ResponseWriter, r *http.Request, project,
 			Name:       bcName,
 			Cluster:    cluster.Name,
 			ClusterUid: cluster.Uid,
-			Uid:        generateUUID(),
+			Uid:        sim.NewUUID(),
 			CreateTime: nowTimestamp(),
 		})
 	}
 	backupID := req.BackupID
 	if backupID == "" {
-		backupID = "backup-" + generateUUID()
+		backupID = "backup-" + sim.NewUUID()
 	}
 	backupName := bcName + "/backups/" + backupID
 	backup := MSRedisBackup{
@@ -448,7 +448,7 @@ func handleMSRedisClusterBackup(w http.ResponseWriter, r *http.Request, project,
 		ShardCount:     cluster.ShardCount,
 		BackupType:     "ON_DEMAND",
 		State:          "ACTIVE",
-		Uid:            generateUUID(),
+		Uid:            sim.NewUUID(),
 	}
 	msRedisBackups.Put(backupName, backup)
 	op := newLRO(project, location, cluster, msRedisClusterType)
@@ -501,7 +501,7 @@ func handleMSRedisAddTokenAuthUser(w http.ResponseWriter, r *http.Request, proje
 	}
 	userID := req.TokenAuthUser
 	if userID == "" {
-		userID = "user-" + generateUUID()
+		userID = "user-" + sim.NewUUID()
 	}
 	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s/tokenAuthUsers/%s", project, location, clusterID, userID)
 	msRedisTokenAuthUsers.Put(name, MSRedisTokenAuthUser{Name: name, State: "ACTIVE"})
@@ -576,12 +576,12 @@ func handleMSRedisTokenAuthUserAction(w http.ResponseWriter, r *http.Request) {
 	}
 	tokenID := req.AuthToken.Name
 	if tokenID == "" {
-		tokenID = "token-" + generateUUID()
+		tokenID = "token-" + sim.NewUUID()
 	}
 	tokenName := userName + "/authTokens/" + tokenID
 	token := MSRedisAuthToken{
 		Name:       tokenName,
-		Token:      generateUUID(),
+		Token:      sim.NewUUID(),
 		CreateTime: nowTimestamp(),
 		State:      "ACTIVE",
 	}
@@ -736,7 +736,7 @@ func handleMSRedisAclPolicyCreate(w http.ResponseWriter, r *http.Request) {
 		// version is a drift-resolution counter (int64 serialized as a
 		// string on the wire); a freshly created policy starts at 1.
 		Version:    defaultStr(req.Version, "1"),
-		Etag:       generateUUID(),
+		Etag:       sim.NewUUID(),
 		CreateTime: time.Now().UTC().Format(time.RFC3339),
 		UpdateTime: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -796,7 +796,7 @@ func handleMSRedisAclPolicyPatch(w http.ResponseWriter, r *http.Request) {
 		if wants("version") && req.Version != "" {
 			p.Version = req.Version
 		}
-		p.Etag = generateUUID()
+		p.Etag = sim.NewUUID()
 		p.UpdateTime = time.Now().UTC().Format(time.RFC3339)
 	})
 	updated, _ := msRedisAclPolicies.Get(name)
@@ -941,7 +941,7 @@ func handleMSRedisUpgrade(w http.ResponseWriter, r *http.Request, id string) {
 	msRedisInstances.Put(key, inst)
 	now := nowTimestamp()
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"name":     "operations/upgrade-" + generateUUID(),
+		"name":     "operations/upgrade-" + sim.NewUUID(),
 		"done":     true,
 		"metadata": map[string]any{"operationType": "UPGRADE_INSTANCE", "startTime": now, "endTime": now},
 		"response": inst,
@@ -962,7 +962,7 @@ func handleMSRedisFailover(w http.ResponseWriter, r *http.Request, id string) {
 	msRedisInstances.Put(key, inst)
 	now := nowTimestamp()
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"name":     "operations/failover-" + generateUUID(),
+		"name":     "operations/failover-" + sim.NewUUID(),
 		"done":     true,
 		"metadata": map[string]any{"operationType": "FAILOVER_INSTANCE", "startTime": now, "endTime": now},
 		"response": inst,
@@ -1027,7 +1027,7 @@ func handleMSRedisTransfer(w http.ResponseWriter, r *http.Request, id, direction
 	msRedisInstances.Put(key, inst)
 	now := nowTimestamp()
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"name": "operations/" + direction + "-" + generateUUID(),
+		"name": "operations/" + direction + "-" + sim.NewUUID(),
 		"done": true,
 		"metadata": map[string]any{
 			"operationType": strings.ToUpper(direction) + "_INSTANCE",
@@ -1246,7 +1246,7 @@ func handleMSRedisRescheduleMaintenance(w http.ResponseWriter, r *http.Request, 
 	msRedisInstances.Put(key, inst)
 	now := nowTimestamp()
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"name":     "operations/reschedule-maintenance-" + generateUUID(),
+		"name":     "operations/reschedule-maintenance-" + sim.NewUUID(),
 		"done":     true,
 		"metadata": map[string]any{"operationType": "RESCHEDULE_MAINTENANCE", "startTime": now, "endTime": now},
 		"response": inst,

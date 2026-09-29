@@ -735,7 +735,13 @@ func handleAzureResourceList(w http.ResponseWriter, r *http.Request, sub, resour
 		rows = append(rows, row)
 	}
 
-	page, next := armPage(r, rows)
+	page, next, pageOK := armPage(w, r, rows)
+
+	if !pageOK {
+
+		return
+
+	}
 	body := map[string]any{"value": page}
 	if next != "" {
 		body["nextLink"] = armNextLink(r, next)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Blob data-plane behaviours the SDK and CLI suites cannot reach: the lease
@@ -131,7 +132,7 @@ func TestBlobDataPlaneStateSurvivesRestart(t *testing.T) {
 		// Long-running operations complete in a goroutine. One still running
 		// when this test ends would read and write the stores while the next
 		// test rebuilds them.
-		t.Cleanup(AwaitAzureAsyncOperations)
+		t.Cleanup(bg.Await)
 		return srv
 	}
 
@@ -299,7 +300,7 @@ func TestBlobRecordIndexAgreesWithAContainerScan(t *testing.T) {
 		if err != nil {
 			t.Fatalf("build simulator: %v", err)
 		}
-		t.Cleanup(AwaitAzureAsyncOperations)
+		t.Cleanup(bg.Await)
 		return srv
 	}
 	agree := func(stage string) {

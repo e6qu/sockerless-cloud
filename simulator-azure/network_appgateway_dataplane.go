@@ -2,37 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
+	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
 )
-
-// returnRedirectsToClient stops a forwarding client following a backend's
-// redirect. A gateway hands the 3xx back to the caller; it never chases one
-// itself. Following it fetches the redirect TARGET and answers with that
-// instead, and because the forwarding client keeps no cookie jar, any
-// Set-Cookie the redirect carried is discarded on the way. That silently breaks
-// every OpenID Connect sign-in behind the data plane: the browser gets a 200 at
-// the callback URL with no session and no error to explain it.
-//
-// Go replays a redirected request only when it can rewind the body. A request
-// forwarded from a server has no rewindable body, so in production 307 and 308
-// happen to survive while 301, 302 and 303 — the set every OpenID Connect
-// library uses — are followed. That accident is why the live symptom looked
-// selective; the defect itself is not status-specific.
-func returnRedirectsToClient(*http.Request, []*http.Request) error {
-	return http.ErrUseLastResponse
-}
 
 // The application gateway data plane. A client reaches an application gateway
 // at the address of one of its frontend IP configurations — the address of the
@@ -56,12 +38,12 @@ func returnRedirectsToClient(*http.Request, []*http.Request) error {
 //     rule's conditions evaluated against the request's own server variables;
 //   - the backend settings decide the backend protocol, port, host header, path
 //     prefix and request timeout;
-//   - and the pool member the request is forwarded to is one the gateway has
-//     just probed, using the probe the settings reference or the default probe
-//     Azure applies when they reference none.
+//   - and the pool member the request is forwarded to is one the gateway's
+//     probes have found Up, using the probe the settings reference or the
+//     default probe Azure applies when they reference none.
 //
-// BackendHealth answers from those same probes, so the health a caller reads is
-// the health of the servers as of that call.
+// BackendHealth answers from those same probes, which run on each probe's own
+// interval; an on-demand probe runs when it is asked for.
 
 func registerApplicationGatewayDataPlane(srv *sim.Server) {
 	srv.WrapHandler(func(next http.Handler) http.Handler {
@@ -166,14 +148,19 @@ func handleApplicationGatewayDataPlane(w http.ResponseWriter, r *http.Request, g
 		http.Error(w, "the matched routing rule names no backend", http.StatusBadGateway)
 		return
 	}
-	server, ok := applicationGatewayHealthyServer(r.Context(), gw, *target.pool, *target.settings)
+	server, ok := applicationGatewayHealthyServer(gw, *target.pool, *target.settings)
 	if !ok {
 		// A gateway with no healthy pool member answers 502, the status a real
 		// Application Gateway returns when it cannot reach any backend server.
 		http.Error(w, "no healthy backend servers in pool "+target.pool.Name, http.StatusBadGateway)
 		return
 	}
-	if err := applicationGatewayForward(w, r, *target.settings, target.rewrite, server); err != nil {
+	err := applicationGatewayForward(w, r, *target.settings, target.rewrite, server)
+	switch {
+	case err == nil:
+	case errors.Is(err, lbplane.ErrClientWentAway):
+		w.WriteHeader(lbplane.StatusClientClosedRequest)
+	default:
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	}
 }
@@ -546,36 +533,98 @@ func applicationGatewayServers(pool ApplicationGatewayBackendAddressPool) []appl
 	return servers
 }
 
-// applicationGatewayHealthyServer returns the first pool member that answers
-// the settings' probe.
-func applicationGatewayHealthyServer(ctx context.Context, gw ApplicationGateway, pool ApplicationGatewayBackendAddressPool, settings ApplicationGatewayBackendHTTPSettings) (applicationGatewayServer, bool) {
+// applicationGatewayHealthyServer returns the first pool member the gateway's
+// health probes have found Up.
+func applicationGatewayHealthyServer(gw ApplicationGateway, pool ApplicationGatewayBackendAddressPool, settings ApplicationGatewayBackendHTTPSettings) (applicationGatewayServer, bool) {
 	for _, server := range applicationGatewayServers(pool) {
-		if health, _ := applicationGatewayProbeServer(ctx, gw, settings, server, nil); health == "Up" {
+		if health, _ := applicationGatewayRecordedHealth(gw, settings, server); health == "Up" {
 			return server, true
 		}
 	}
 	return applicationGatewayServer{}, false
 }
 
-// applicationGatewayProbeServer runs one health probe against a pool member and
-// reports the health and the probe log a real gateway records. The probe is the
-// one the backend settings reference; when they reference none, the gateway
-// applies its default probe — a request for "/" on the settings' protocol and
-// port, healthy on any 2xx or 3xx response. An explicit on-demand probe
-// overrides both.
+// applicationGatewayProbeSweep is how often the prober looks for pool members
+// whose next probe has come due; each probe's own interval sets how often one
+// member is probed.
+const applicationGatewayProbeSweep = 250 * time.Millisecond
+
+// applicationGatewayHealth holds what the health probes last recorded for each
+// pool member under each backend settings member, keyed by
+// applicationGatewayHealthKey.
+var applicationGatewayHealth = lbplane.NewHealthTracker[string]()
+
+func applicationGatewayHealthKey(gw ApplicationGateway, settings ApplicationGatewayBackendHTTPSettings, server applicationGatewayServer) string {
+	return strings.ToLower(gw.ID) + "|" + strings.ToLower(settings.ID) + "|" + strings.ToLower(server.address)
+}
+
+// applicationGatewaySweepProbes probes every member of every pool a routing
+// rule pairs with backend settings, on every running gateway, whose next probe
+// has come due at now. A stopped gateway probes nothing, so it starts again
+// from Unknown.
+func applicationGatewaySweepProbes(ctx context.Context, now time.Time) {
+	if azureApplicationGateways == nil {
+		return
+	}
+	var targets []lbplane.HealthTarget[string]
+	for _, gw := range azureApplicationGateways.List() {
+		if !strings.EqualFold(gw.Properties.OperationalState, "Running") {
+			continue
+		}
+		projectApplicationGateway(&gw)
+		for _, pool := range gw.Properties.BackendAddressPools {
+			for _, settings := range applicationGatewaySettingsForPool(gw, pool) {
+				for _, server := range applicationGatewayServers(pool) {
+					spec := applicationGatewayProbeSpec(gw, settings, server, nil)
+					targets = append(targets, lbplane.HealthTarget[string]{
+						Key: applicationGatewayHealthKey(gw, settings, server),
+						// A member returns to service on its first successful
+						// probe and leaves it after unhealthyThreshold
+						// consecutive failures.
+						Policy: lbplane.HealthPolicy{
+							Interval:                spec.interval,
+							InitialHealthyThreshold: 1,
+							HealthyThreshold:        1,
+							UnhealthyThreshold:      spec.unhealthyThreshold,
+						},
+						Probe: func(ctx context.Context) (int, error) {
+							return applicationGatewayRunProbe(ctx, spec, server)
+						},
+					})
+				}
+			}
+		}
+	}
+	applicationGatewayHealth.Sweep(ctx, now, targets)
+}
+
+// applicationGatewayRecordedHealth reports the health and probe log the
+// gateway's probes last recorded for a pool member: Unknown until the probes
+// reach a verdict, then Up or Down.
+func applicationGatewayRecordedHealth(gw ApplicationGateway, settings ApplicationGatewayBackendHTTPSettings, server applicationGatewayServer) (string, string) {
+	record, ok := applicationGatewayHealth.Health(applicationGatewayHealthKey(gw, settings, server))
+	if !ok || record.Checks == 0 {
+		return "Unknown", ""
+	}
+	spec := applicationGatewayProbeSpec(gw, settings, server, nil)
+	_, log := applicationGatewayProbeVerdict(spec, server, record.LastStatus, record.LastErr)
+	switch record.State {
+	case lbplane.HealthHealthy:
+		return "Up", log
+	case lbplane.HealthUnhealthy:
+		return "Down", log
+	default:
+		return "Unknown", log
+	}
+}
+
+// applicationGatewayProbeServer runs one probe against a pool member now and
+// reports the health and the probe log a real gateway records, which is what an
+// on-demand probe answers with.
 func applicationGatewayProbeServer(ctx context.Context, gw ApplicationGateway, settings ApplicationGatewayBackendHTTPSettings, server applicationGatewayServer, override *ApplicationGatewayOnDemandProbe) (string, string) {
 	spec := applicationGatewayProbeSpec(gw, settings, server, override)
-	if strings.EqualFold(spec.protocol, "Tcp") || strings.EqualFold(spec.protocol, "Tls") {
-		if err := realexec.ProbeTarget(ctx, realexec.ProbeSpec{
-			Protocol: "TCP",
-			Address:  net.JoinHostPort(server.address, strconv.Itoa(int(spec.port))),
-			Timeout:  spec.timeout,
-		}); err != nil {
-			return "Down", fmt.Sprintf("TCP connect to %s:%d failed: %v", server.address, spec.port, err)
-		}
-		return "Up", fmt.Sprintf("TCP connect to %s:%d succeeded", server.address, spec.port)
-	}
-	return applicationGatewayHTTPProbe(ctx, spec, server)
+	status, err := applicationGatewayRunProbe(ctx, spec, server)
+	return applicationGatewayProbeVerdict(spec, server, status, err)
 }
 
 // applicationGatewayResolvedProbe is the probe one pool member is checked with,
@@ -589,6 +638,9 @@ type applicationGatewayResolvedProbe struct {
 	timeout     time.Duration
 	statusCodes []string
 	body        string
+	// interval and unhealthyThreshold schedule the gateway's own probes.
+	interval           time.Duration
+	unhealthyThreshold int
 }
 
 // applicationGatewayProbeSpec resolves the probe for one pool member. The
@@ -603,6 +655,10 @@ func applicationGatewayProbeSpec(gw ApplicationGateway, settings ApplicationGate
 		port:     settings.Properties.Port,
 		timeout:  30 * time.Second,
 		host:     settings.Properties.HostName,
+		// The default probe runs every 30 seconds and marks a server down
+		// after 3 consecutive failures.
+		interval:           30 * time.Second,
+		unhealthyThreshold: 3,
 	}
 	if spec.protocol == "" {
 		spec.protocol = "Http"
@@ -643,6 +699,12 @@ func applicationGatewayProbeSpec(gw ApplicationGateway, settings ApplicationGate
 		p := probe.Properties
 		apply(p.Protocol, p.Host, p.Path, p.Timeout, p.Port,
 			p.PickHostNameFromBackendHTTPSettings || p.PickHostNameFromBackendSettings, p.Match)
+		if p.Interval > 0 {
+			spec.interval = time.Duration(p.Interval) * time.Second
+		}
+		if p.UnhealthyThreshold > 0 {
+			spec.unhealthyThreshold = int(p.UnhealthyThreshold)
+		}
 	}
 	if override != nil {
 		apply(override.Protocol, override.Host, override.Path, override.Timeout, 0,
@@ -651,77 +713,72 @@ func applicationGatewayProbeSpec(gw ApplicationGateway, settings ApplicationGate
 	return spec
 }
 
-// applicationGatewayHTTPProbe issues the probe request and classifies the
-// response against the probe's match criterion.
-func applicationGatewayHTTPProbe(ctx context.Context, spec applicationGatewayResolvedProbe, server applicationGatewayServer) (string, string) {
+// applicationGatewayRunProbe issues one probe. A Tcp or Tls probe is a
+// connection test; an Http or Https probe reads the status the server itself
+// returned — the gateway does not follow a redirect — and grades it, and the
+// body, against the probe's match criterion.
+func applicationGatewayRunProbe(ctx context.Context, spec applicationGatewayResolvedProbe, server applicationGatewayServer) (int, error) {
+	address := net.JoinHostPort(server.address, strconv.Itoa(int(spec.port)))
+	if strings.EqualFold(spec.protocol, "Tcp") || strings.EqualFold(spec.protocol, "Tls") {
+		return 0, lbplane.ProbeTCP(ctx, address, spec.timeout)
+	}
+	match := lbplane.StatusRange(200, 399)
+	if len(spec.statusCodes) > 0 {
+		parsed, err := lbplane.ParseStatusMatcher(spec.statusCodes...)
+		if err != nil {
+			return 0, fmt.Errorf("probe match status codes: %w", err)
+		}
+		match = parsed
+	}
 	scheme := "http"
 	if strings.EqualFold(spec.protocol, "Https") {
 		scheme = "https"
 	}
-	address := net.JoinHostPort(server.address, strconv.Itoa(int(spec.port)))
-	probeURL := url.URL{Scheme: scheme, Host: address, Path: spec.path}
-	reqCtx, cancel := context.WithTimeout(ctx, spec.timeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, probeURL.String(), nil)
-	if err != nil {
-		return "Down", err.Error()
-	}
-	if spec.host != "" {
-		req.Host = spec.host
-	}
-	// A health probe evaluates the status code the backend actually returned
-	// against its match rules. Following a redirect would score the redirect
-	// TARGET instead, so a backend answering 302 could be marked Down because
-	// something else behind it failed.
-	client := http.Client{Timeout: spec.timeout, CheckRedirect: returnRedirectsToClient}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "Down", fmt.Sprintf("Received %v while probing %s", err, probeURL.String())
-	}
-	defer resp.Body.Close()
-	payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	if readErr != nil {
-		// A response the gateway could not finish reading is a response it
-		// cannot match against the probe criterion, which is a failed probe.
-		return "Down", fmt.Sprintf("Received %v while reading the probe response from %s", readErr, probeURL.String())
-	}
-	if !applicationGatewayStatusMatches(spec.statusCodes, resp.StatusCode) {
-		return "Down", fmt.Sprintf("Received status code %d while probing %s", resp.StatusCode, probeURL.String())
-	}
-	if spec.body != "" && !strings.Contains(string(payload), spec.body) {
-		return "Down", fmt.Sprintf("Probe response body from %s did not contain %q", probeURL.String(), spec.body)
-	}
-	return "Up", fmt.Sprintf("Received status code %d while probing %s", resp.StatusCode, probeURL.String())
+	return lbplane.ProbeHTTP(ctx, lbplane.HTTPProbe{
+		Scheme: scheme,
+		// A v2 gateway accepts an Https backend only when its certificate is
+		// trusted.
+		VerifyCertificate: true,
+		Address:           address,
+		Host:              spec.host,
+		Path:              spec.path,
+		Timeout:           spec.timeout,
+		Match:             match,
+		BodyContains:      spec.body,
+		BodyLimit:         64 * 1024,
+	})
 }
 
-// applicationGatewayStatusMatches applies a probe's status-code criterion. Each
-// entry is either a single code or an inclusive "low-high" range, and an empty
-// criterion accepts any 2xx or 3xx response — the default a gateway applies.
-func applicationGatewayStatusMatches(codes []string, status int) bool {
-	if len(codes) == 0 {
-		return status >= 200 && status < 400
-	}
-	for _, entry := range codes {
-		low, high, ranged := strings.Cut(strings.TrimSpace(entry), "-")
-		lowValue, err := strconv.Atoi(strings.TrimSpace(low))
+// applicationGatewayProbeVerdict turns one probe's result into the health and
+// the probe log the gateway reports for it.
+func applicationGatewayProbeVerdict(spec applicationGatewayResolvedProbe, server applicationGatewayServer, status int, err error) (string, string) {
+	if strings.EqualFold(spec.protocol, "Tcp") || strings.EqualFold(spec.protocol, "Tls") {
 		if err != nil {
-			continue
+			return "Down", fmt.Sprintf("TCP connect to %s:%d failed: %v", server.address, spec.port, err)
 		}
-		if !ranged {
-			if status == lowValue {
-				return true
-			}
-			continue
-		}
-		highValue, err := strconv.Atoi(strings.TrimSpace(high))
-		if err != nil {
-			continue
-		}
-		if status >= lowValue && status <= highValue {
-			return true
-		}
+		return "Up", fmt.Sprintf("TCP connect to %s:%d succeeded", server.address, spec.port)
 	}
-	return false
+	scheme := "http"
+	if strings.EqualFold(spec.protocol, "Https") {
+		scheme = "https"
+	}
+	path := spec.path
+	if path == "" {
+		path = "/"
+	}
+	probeURL := scheme + "://" + net.JoinHostPort(server.address, strconv.Itoa(int(spec.port))) + path
+	var mismatch *lbplane.StatusMismatchError
+	var body *lbplane.BodyMismatchError
+	switch {
+	case err == nil:
+		return "Up", fmt.Sprintf("Received status code %d while probing %s", status, probeURL)
+	case errors.As(err, &mismatch):
+		return "Down", fmt.Sprintf("Received status code %d while probing %s", mismatch.StatusCode, probeURL)
+	case errors.As(err, &body):
+		return "Down", fmt.Sprintf("Probe response body from %s did not contain %q", probeURL, body.Want)
+	default:
+		return "Down", fmt.Sprintf("Received %v while probing %s", err, probeURL)
+	}
 }
 
 // applicationGatewayForward sends the request to the chosen pool member the way
@@ -750,58 +807,25 @@ func applicationGatewayForward(w http.ResponseWriter, r *http.Request, settings 
 		vars := applicationGatewayServerVariables(r, host, 0)
 		path, query = applicationGatewayApplyRequestRewrites(rewrite, vars, headers, path, query)
 	}
-	upstream := url.URL{
-		Scheme:   scheme,
-		Host:     net.JoinHostPort(server.address, strconv.Itoa(int(port))),
-		Path:     path,
-		RawQuery: query,
-	}
 	timeout := time.Duration(settings.Properties.RequestTimeout) * time.Second
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	// The backend HTTP settings' request timeout bounds a request/response
-	// exchange; an upgraded connection is not one and must not inherit it.
-	ctx := r.Context()
-	upgrade := sim.IsUpgradeRequest(r)
-	if !upgrade {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
+	up := lbplane.Upstream{
+		Scheme:   scheme,
+		Address:  net.JoinHostPort(server.address, strconv.Itoa(int(port))),
+		Path:     path,
+		RawQuery: query,
+		Host:     host,
+		Header:   headers,
+		Timeout:  timeout,
 	}
-	req, err := http.NewRequestWithContext(ctx, r.Method, upstream.String(), r.Body)
-	if err != nil {
-		return err
-	}
-	req.Header = headers
-	req.Host = host
-	client := http.Client{CheckRedirect: returnRedirectsToClient}
-	if !upgrade {
-		client.Timeout = timeout
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("forward to backend %s: %w", upstream.Host, err)
-	}
-	defer resp.Body.Close()
-	// Response rewrites shape headers; an upgrade hands the connection over
-	// instead, so it tunnels before they would apply.
-	if resp.StatusCode == http.StatusSwitchingProtocols {
-		return sim.TunnelUpgradedResponse(w, resp)
-	}
-	responseHeaders := resp.Header.Clone()
 	if rewrite != nil {
-		vars := applicationGatewayServerVariables(r, host, resp.StatusCode)
-		applicationGatewayApplyResponseRewrites(rewrite, vars, responseHeaders)
-	}
-	for key, values := range responseHeaders {
-		for _, value := range values {
-			w.Header().Add(key, value)
+		up.ResponseHeader = func(status int, header http.Header) {
+			applicationGatewayApplyResponseRewrites(rewrite, applicationGatewayServerVariables(r, host, status), header)
 		}
 	}
-	w.WriteHeader(resp.StatusCode)
-	_, err = io.Copy(w, resp.Body)
-	return err
+	return lbplane.Forward(w, r, up)
 }
 
 // applicationGatewayBackendHost decides the Host header the gateway sends to
@@ -951,9 +975,9 @@ func applicationGatewayPatternMatches(pattern, value string, ignoreCase bool) bo
 	return re.MatchString(value)
 }
 
-// applicationGatewayBackendHealth probes every pool member through every set of
-// backend settings a routing rule pairs the pool with, which is the pairing the
-// gateway actually uses and therefore the pairing whose health it reports.
+// applicationGatewayBackendHealth reports what the gateway's probes last
+// recorded for every pool member under every set of backend settings a routing
+// rule pairs the pool with, which is the pairing the gateway actually uses.
 func applicationGatewayBackendHealth(ctx context.Context, gw ApplicationGateway) map[string]any {
 	pools := make([]map[string]any, 0, len(gw.Properties.BackendAddressPools))
 	for _, pool := range gw.Properties.BackendAddressPools {
@@ -1000,12 +1024,15 @@ func applicationGatewaySettingsForPool(gw ApplicationGateway, pool ApplicationGa
 	return out
 }
 
-// applicationGatewayServerHealth probes each member of the pool and reports what
-// the probe found.
+// applicationGatewayServerHealth reports each pool member's health: what the
+// gateway's own probes recorded, or what an on-demand probe finds now.
 func applicationGatewayServerHealth(ctx context.Context, gw ApplicationGateway, settings ApplicationGatewayBackendHTTPSettings, pool ApplicationGatewayBackendAddressPool, override *ApplicationGatewayOnDemandProbe) []map[string]any {
 	servers := make([]map[string]any, 0)
 	for _, server := range applicationGatewayServers(pool) {
-		health, log := applicationGatewayProbeServer(ctx, gw, settings, server, override)
+		health, log := applicationGatewayRecordedHealth(gw, settings, server)
+		if override != nil {
+			health, log = applicationGatewayProbeServer(ctx, gw, settings, server, override)
+		}
 		entry := map[string]any{
 			"address":        server.address,
 			"health":         health,

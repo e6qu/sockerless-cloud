@@ -143,7 +143,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 			return
 		}
 		pool = seedWorkerPoolV2Defaults(pool, project, location, poolID)
-		pool.Etag = generateUUID()
+		pool.Etag = sim.NewUUID()
 		pools.Put(name, pool)
 		reconcileWorkerPoolRevision(revisions, name, poolID+"-00001-abc", pool)
 		lro := newLRO(project, location, pool, wpType)
@@ -241,7 +241,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		revName := fmt.Sprintf("%s-%05d-abc", poolID, update.Generation)
 		update.LatestCreatedRevision = fmt.Sprintf("%s/revisions/%s", name, revName)
 		update.LatestReadyRevision = update.LatestCreatedRevision
-		update.Etag = generateUUID()
+		update.Etag = sim.NewUUID()
 		pools.Put(name, update)
 		reconcileWorkerPoolRevision(revisions, name, revName, update)
 		lro := newLRO(project, location, update, wpType)
@@ -394,7 +394,7 @@ func workerPoolIAM(w http.ResponseWriter, r *http.Request, pools sim.Store[Worke
 func seedWorkerPoolV2Defaults(pool WorkerPoolV2, project, location, poolID string) WorkerPoolV2 {
 	now := nowTimestamp()
 	pool.Name = fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", project, location, poolID)
-	pool.UID = generateUUID()
+	pool.UID = sim.NewUUID()
 	pool.Generation = 1
 	pool.ObservedGeneration = 1
 	pool.CreateTime = now
@@ -426,7 +426,7 @@ func reconcileWorkerPoolRevision(store sim.Store[RevisionV2], poolName, revName 
 	full := poolName + "/revisions/" + revName
 	rev := RevisionV2{
 		Name:        full,
-		UID:         generateUUID(),
+		UID:         sim.NewUUID(),
 		Generation:  pool.Generation,
 		CreateTime:  now,
 		UpdateTime:  now,
@@ -434,7 +434,7 @@ func reconcileWorkerPoolRevision(store sim.Store[RevisionV2], poolName, revName 
 		Conditions: []Condition{
 			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
 		},
-		Etag: generateUUID(),
+		Etag: sim.NewUUID(),
 	}
 	if pool.Template != nil {
 		rev.Labels = pool.Template.Labels

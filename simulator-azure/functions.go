@@ -7,15 +7,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // Site represents an Azure Function App (Web App).
@@ -467,7 +467,7 @@ func registerAzureFunctions(srv *sim.Server) {
 					return
 				}
 				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				w.Header().Set("X-Sockerless-Exit-Code", strconv.Itoa(exitCode))
+				w.Header().Set(workload.ExitCodeHeader, strconv.Itoa(exitCode))
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write(body)
 				return
@@ -1150,7 +1150,7 @@ func invokeAzureFunctionHTTP(site *Site, body io.Reader, contentType string) ([]
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 230*time.Second)
 	defer cancel()
-	return postBootstrapWithRetry(ctx, bootstrapURL, body, contentType, 230*time.Second)
+	return workload.PostBootstrap(ctx, bootstrapURL, body, contentType, 230*time.Second)
 }
 
 // ensureStarted starts the site's persistent container if it isn't already
@@ -1205,7 +1205,11 @@ func (inst *azureFunctionInstance) startRawServiceLocked(site *Site) error {
 	localImage := sim.ResolveLocalImage(image)
 	ctx, cancel := context.WithTimeout(context.Background(), 230*time.Second)
 	defer cancel()
-	platform, err := localImagePlatform(ctx, localImage)
+	platform, err := workload.LocalImagePlatform(ctx, localImage, "")
+	if err != nil {
+		return err
+	}
+	metadataEnv, err := hostMetadataEnv()
 	if err != nil {
 		return err
 	}
@@ -1218,7 +1222,7 @@ func (inst *azureFunctionInstance) startRawServiceLocked(site *Site) error {
 		CancelGracePeriod: siteStopGrace(site),
 		Image:             localImage,
 		Architecture:      platform,
-		Env:               mergeEnv(siteAppSettings(site), hostMetadataEnv()),
+		Env:               workloadhost.MergeEnv(siteAppSettings(site), metadataEnv),
 		Binds:             siteAzureStorageBinds(site),
 		Name:              fmt.Sprintf("sockerless-sim-azure-svc-%s-%s", site.Name, randomSuffix(6)),
 		Labels:            map[string]string{"sockerless-sim-type": "azure-service", "sockerless-site": site.Name},
@@ -1290,21 +1294,24 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	// for its registry — its Azure Container Registry managed identity or
 	// its DOCKER_REGISTRY_SERVER_* settings — as App Service does.
 	registryAuth := acrWorkloadRegistryAuth(containerImage, siteWorkloadRegistries(site, containerImage))
-	platform, err := localImagePlatform(ctx, localImage, registryAuth)
+	platform, err := workload.LocalImagePlatform(ctx, localImage, registryAuth)
 	if err != nil {
 		return err
 	}
-	hostPort, err := pickFreeTCPPort()
+	hostPort, err := workload.FreeTCPPort()
 	if err != nil {
 		return fmt.Errorf("pick free port: %w", err)
 	}
 
-	env := mergeEnv(map[string]string{
+	env := workloadhost.MergeEnv(map[string]string{
 		"PORT":          "8080",
 		"WEBSITES_PORT": "8080",
 	}, siteAppSettings(site))
-	env = mergeEnv(env, hostMetadataEnv())
-	env = mergeEnv(env, mainEnv)
+	metadataEnv, err := hostMetadataEnv()
+	if err != nil {
+		return err
+	}
+	env = workloadhost.MergeEnv(env, metadataEnv, mainEnv)
 	sink := &funcLogSink{appName: site.Name}
 
 	containerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{
@@ -1319,7 +1326,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 			"sockerless-sim-type": "azure-function-http",
 			"sockerless-site":     site.Name,
 		},
-		ExtraHosts: hostMetadataExtraHosts(),
+		ExtraHosts: workloadhost.ExtraHosts(),
 		Sandbox:    SandboxAZF,
 	})
 	if err != nil {
@@ -1345,7 +1352,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		cands = append(cands, fmt.Sprintf("http://%s:8080/api/function", ip))
 	}
 	cands = append(cands, fmt.Sprintf("http://127.0.0.1:%d/api/function", hostPort))
-	bootstrapURL, err := firstReachableHTTP(ctx, cands, 30*time.Second)
+	bootstrapURL, err := workload.FirstReachable(ctx, cands, 30*time.Second)
 	if err != nil {
 		// Failed to come up — reap the partial container set.
 		cancelLogs()
@@ -1390,47 +1397,6 @@ func (inst *azureFunctionInstance) teardownLocked() {
 	inst.sidecarHandles = nil
 	inst.rawHandle = nil
 	inst.bootstrapURL = ""
-}
-
-// firstReachableHTTP polls the candidate URLs (each round, in order) and
-// returns the first whose host:port accepts a TCP connection within timeout.
-func firstReachableHTTP(ctx context.Context, cands []string, timeout time.Duration) (string, error) {
-	deadline := time.Now().Add(timeout)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		default:
-		}
-		for _, cand := range cands {
-			parsed, perr := url.Parse(cand)
-			if perr != nil {
-				lastErr = perr
-				continue
-			}
-			host := parsed.Host
-			if _, _, splitErr := net.SplitHostPort(host); splitErr != nil {
-				switch parsed.Scheme {
-				case "https":
-					host = net.JoinHostPort(host, "443")
-				default:
-					host = net.JoinHostPort(host, "80")
-				}
-			}
-			conn, derr := net.DialTimeout("tcp", host, time.Second)
-			if derr == nil {
-				_ = conn.Close()
-				return cand, nil
-			}
-			lastErr = derr
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("timeout after %s", timeout)
-	}
-	return "", lastErr
 }
 
 func stopAzureFunctionInstance(siteName string) {
@@ -1526,102 +1492,6 @@ func siteAppSettings(site *Site) map[string]string {
 	return out
 }
 
-// A registryAuth is the credential the workload declared for the image's
-// registry, which the host pulls with; none means an anonymous pull.
-func localImagePlatform(ctx context.Context, imageRef string, registryAuth ...string) (string, error) {
-	credential := ""
-	if len(registryAuth) > 0 {
-		credential = registryAuth[0]
-	}
-	cli := sim.DockerClient()
-	if cli == nil {
-		return "", fmt.Errorf("docker client not initialized")
-	}
-	inspect, err := cli.ImageInspect(ctx, imageRef)
-	if err != nil {
-		// The pull surfaces failures the daemon reports inside the stream;
-		// draining and discarding that stream turned a failed pull into a
-		// misleading "No such image" from the re-inspect.
-		if pullErr := sim.PullImageWithCredential(ctx, imageRef, "", credential); pullErr != nil {
-			return "", fmt.Errorf("inspect image %q platform: %w; pull image: %w", imageRef, err, pullErr)
-		}
-		inspect, err = cli.ImageInspect(ctx, imageRef)
-		if err != nil {
-			return "", fmt.Errorf("inspect pulled image %q platform: %w", imageRef, err)
-		}
-	}
-	if inspect.Os == "" || inspect.Architecture == "" {
-		return "", fmt.Errorf("inspect image %q platform: missing os/architecture", imageRef)
-	}
-	return inspect.Os + "/" + inspect.Architecture, nil
-}
-
-func pickFreeTCPPort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	addr, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		_ = l.Close()
-		return 0, fmt.Errorf("listener address is not a *net.TCPAddr: %T", l.Addr())
-	}
-	port := addr.Port
-	_ = l.Close()
-	return port, nil
-}
-
-func postBootstrapWithRetry(ctx context.Context, bootstrapURL string, body io.Reader, contentType string, timeout time.Duration) ([]byte, int, error) {
-	var bodyBytes []byte
-	if body != nil {
-		var err error
-		bodyBytes, err = io.ReadAll(body)
-		if err != nil {
-			return nil, -1, fmt.Errorf("read invoke body: %w", err)
-		}
-	}
-	if contentType == "" {
-		contentType = "application/json"
-	}
-	httpClient := &http.Client{Timeout: timeout}
-	deadline := time.Now().Add(30 * time.Second)
-	var lastErr error
-	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, bootstrapURL, bytes.NewReader(bodyBytes))
-		if err != nil {
-			return nil, -1, fmt.Errorf("build request: %w", err)
-		}
-		req.Header.Set("Content-Type", contentType)
-		resp, err := httpClient.Do(req)
-		if err == nil {
-			defer resp.Body.Close()
-			respBytes, _ := io.ReadAll(resp.Body)
-			return respBytes, bootstrapExitCode(resp), nil
-		}
-		lastErr = err
-		if time.Now().After(deadline) {
-			return nil, -1, fmt.Errorf("invoke bootstrap: %w", lastErr)
-		}
-		select {
-		case <-ctx.Done():
-			return nil, -1, ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-}
-
-func bootstrapExitCode(resp *http.Response) int {
-	if hdr := resp.Header.Get("X-Sockerless-Exit-Code"); hdr != "" {
-		if n, err := strconv.Atoi(hdr); err == nil {
-			return n
-		}
-	}
-	if resp.StatusCode >= 400 {
-		return 1
-	}
-	return 0
-}
-
 // invokeAzureFunctionProcess executes a function app's container via sim.StartContainerSync
 // and returns the stdout output as the response body plus the process exit code.
 func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
@@ -1696,7 +1566,7 @@ func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
 	// The host pulls the site's image with the credential the site declared
 	// for its registry, as App Service does.
 	registryAuth := acrWorkloadRegistryAuth(containerImage, siteWorkloadRegistries(site, containerImage))
-	platform, err := localImagePlatform(context.Background(), localImage, registryAuth)
+	platform, err := workload.LocalImagePlatform(context.Background(), localImage, registryAuth)
 	if err != nil {
 		injectAppTrace(site.Name,
 			fmt.Sprintf("Function execution error: resolve image platform failed: %v", err))
@@ -1707,6 +1577,12 @@ func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
 	// integration network — the per-invocation container included, exactly
 	// like the persistent-site container, so the function reaches the VNet's
 	// other members by name.
+	metadataEnv, err := hostMetadataEnv()
+	if err != nil {
+		injectAppTrace(site.Name,
+			fmt.Sprintf("Function execution error: resolve the metadata endpoint failed: %v", err))
+		return []byte("{}"), -1
+	}
 	networks := instanceNetworks(site.Name)
 	var primaryNetwork string
 	var networkAliases []string
@@ -1723,14 +1599,14 @@ func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
 		Architecture:      platform,
 		Command:           entrypoint,
 		Args:              cmd,
-		Env:               mergeEnv(cmdEnv, hostMetadataEnv()),
+		Env:               workloadhost.MergeEnv(cmdEnv, metadataEnv),
 		Timeout:           timeout,
 		Name:              containerName,
 		Labels: map[string]string{
 			"sockerless-sim-type": "azure-function-invocation",
 			"sockerless-site":     site.Name,
 		},
-		ExtraHosts:     hostMetadataExtraHosts(),
+		ExtraHosts:     workloadhost.ExtraHosts(),
 		Network:        primaryNetwork,
 		NetworkAliases: networkAliases,
 		Sandbox:        SandboxAZF,

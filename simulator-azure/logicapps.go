@@ -68,7 +68,7 @@ func registerLogicApps(srv *sim.Server) {
 // nothing about the resource's address is encoded in it, a callback URL issued
 // before a move keeps working after one.
 func logicNewWorkflowAccessIdentifier() string {
-	return strings.ReplaceAll(generateUUID(), "-", "")
+	return strings.ReplaceAll(sim.NewUUID(), "-", "")
 }
 
 // logicAccessEndpoint is the workflow's advertised endpoint: the service host
@@ -103,7 +103,7 @@ func handleLogicWorkflowPut(w http.ResponseWriter, r *http.Request) {
 		"state":             "Enabled",
 		"createdTime":       now,
 		"changedTime":       now,
-		"version":           generateUUID(),
+		"version":           sim.NewUUID(),
 		"accessEndpoint":    logicAccessEndpoint(r, logicNewWorkflowAccessIdentifier()),
 	}
 	if existing, ok := logicWorkflows.Get(id); ok && existing.Properties != nil {

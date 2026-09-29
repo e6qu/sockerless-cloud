@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -245,7 +244,7 @@ func handleDDBCreateBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := float64(time.Now().Unix())
-	id := generateUUID()
+	id := sim.NewUUID()
 	items := ddbTableItemsSnapshot(req.TableName)
 	size := int64(0)
 	for _, it := range items {
@@ -375,16 +374,7 @@ func handleDDBListBackups(w http.ResponseWriter, r *http.Request) {
 	}
 	sortBy(filtered, func(b DDBBackup) string { return b.BackupArn })
 
-	token := ""
-	if req.ExclusiveStartBackupArn != "" {
-		for i, b := range filtered {
-			if b.BackupArn == req.ExclusiveStartBackupArn {
-				token = strconv.Itoa(i + 1)
-				break
-			}
-		}
-	}
-	page, next := awsPage(filtered, token, req.Limit, 100)
+	page, lastEvaluated := ddbKeyPage(filtered, func(b DDBBackup) string { return b.BackupArn }, req.ExclusiveStartBackupArn, req.Limit, 100)
 	summaries := make([]map[string]any, 0, len(page))
 	for _, b := range page {
 		summaries = append(summaries, map[string]any{
@@ -400,11 +390,8 @@ func handleDDBListBackups(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	out := map[string]any{"BackupSummaries": summaries}
-	if next != "" {
-		idx, _ := strconv.Atoi(next)
-		if idx > 0 && idx <= len(filtered) {
-			out["LastEvaluatedBackupArn"] = filtered[idx-1].BackupArn
-		}
+	if lastEvaluated != "" {
+		out["LastEvaluatedBackupArn"] = lastEvaluated
 	}
 	writeDDBJSON(w, http.StatusOK, out)
 }
@@ -414,7 +401,7 @@ func handleDDBListBackups(w http.ResponseWriter, r *http.Request) {
 // build holds its items under that build's key encoding.
 func ddbRestoreItems(items map[string]map[string]any, srcTable string, target DDBTable) {
 	// Both tables: the source is read from and the target is written to.
-	defer ddbLockTables(true, srcTable, target.TableName)()
+	defer ddbItemLocks.Lock(true, srcTable, target.TableName)()
 	for _, item := range items {
 		clone := ddbCloneItem(item)
 		key := ddbItemKey(target, clone)
@@ -508,7 +495,7 @@ func ddbRecreateTable(name string, keySchema []DDBKeySchemaEntry, attrs []DDBAtt
 	}
 	t := DDBTable{
 		TableName:            name,
-		TableId:              generateUUID(),
+		TableId:              sim.NewUUID(),
 		TableArn:             ddbTableArn(name),
 		TableStatus:          "ACTIVE",
 		CreationDateTime:     now,
@@ -637,16 +624,7 @@ func handleDDBListGlobalTables(w http.ResponseWriter, r *http.Request) {
 	}
 	sortBy(filtered, func(gt DDBGlobalTable) string { return gt.GlobalTableName })
 
-	token := ""
-	if req.ExclusiveStartGlobalTableName != "" {
-		for i, gt := range filtered {
-			if gt.GlobalTableName == req.ExclusiveStartGlobalTableName {
-				token = strconv.Itoa(i + 1)
-				break
-			}
-		}
-	}
-	page, next := awsPage(filtered, token, req.Limit, 100)
+	page, lastEvaluated := ddbKeyPage(filtered, func(gt DDBGlobalTable) string { return gt.GlobalTableName }, req.ExclusiveStartGlobalTableName, req.Limit, 100)
 	out := make([]map[string]any, 0, len(page))
 	for _, gt := range page {
 		replicas := make([]map[string]any, 0, len(gt.Replicas))
@@ -659,11 +637,8 @@ func handleDDBListGlobalTables(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	resp := map[string]any{"GlobalTables": out}
-	if next != "" {
-		idx, _ := strconv.Atoi(next)
-		if idx > 0 && idx <= len(filtered) {
-			resp["LastEvaluatedGlobalTableName"] = filtered[idx-1].GlobalTableName
-		}
+	if lastEvaluated != "" {
+		resp["LastEvaluatedGlobalTableName"] = lastEvaluated
 	}
 	writeDDBJSON(w, http.StatusOK, resp)
 }
@@ -885,7 +860,7 @@ func handleDDBPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 			"Requested resource not found: %s", req.ResourceArn)
 		return
 	}
-	rev := generateUUID()
+	rev := sim.NewUUID()
 	ddbResourcePols.Put(req.ResourceArn, IAMResourcePolicy{ARN: req.ResourceArn, Policy: req.Policy})
 	// Mirror into the central IAM resource-policy store so the enforcement gate
 	// sees it, exactly as SQS/SNS do.
@@ -909,7 +884,7 @@ func handleDDBGetResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	writeDDBJSON(w, http.StatusOK, map[string]any{
 		"Policy":     rp.Policy,
-		"RevisionId": generateUUID(),
+		"RevisionId": sim.NewUUID(),
 	})
 }
 
@@ -928,7 +903,7 @@ func handleDDBDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	ddbResourcePols.Delete(req.ResourceArn)
 	iamDeleteResourcePolicy(req.ResourceArn)
-	writeDDBJSON(w, http.StatusOK, map[string]any{"RevisionId": generateUUID()})
+	writeDDBJSON(w, http.StatusOK, map[string]any{"RevisionId": sim.NewUUID()})
 }
 
 // ddbResourceExistsForPolicy reports whether a table or stream ARN names a real
@@ -1153,7 +1128,7 @@ func handleDDBExportTableToPointInTime(w http.ResponseWriter, r *http.Request) {
 	now := float64(time.Now().Unix())
 	items := ddbTableItemsSnapshot(name)
 	e := DDBExport{
-		ExportArn:    ddbExportArn(t.TableArn, generateUUID()),
+		ExportArn:    ddbExportArn(t.TableArn, sim.NewUUID()),
 		TableArn:     t.TableArn,
 		TableId:      t.TableId,
 		ExportStatus: "COMPLETED",
@@ -1206,7 +1181,10 @@ func handleDDBListExports(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sortBy(filtered, func(e DDBExport) string { return e.ExportArn })
-	page, next := awsPageExplicit(filtered, req.NextToken, req.MaxResults)
+	page, next, pageOK := awsPage(w, ddbBadToken, filtered, req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
 	summaries := make([]map[string]any, 0, len(page))
 	for _, e := range page {
 		summaries = append(summaries, map[string]any{
@@ -1302,7 +1280,7 @@ func handleDDBImportTable(w http.ResponseWriter, r *http.Request) {
 	}
 	now := float64(time.Now().Unix())
 	im := DDBImport{
-		ImportArn:          ddbImportArn(t.TableArn, generateUUID()),
+		ImportArn:          ddbImportArn(t.TableArn, sim.NewUUID()),
 		ImportStatus:       "COMPLETED",
 		TableArn:           t.TableArn,
 		TableId:            t.TableId,
@@ -1358,7 +1336,10 @@ func handleDDBListImports(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sortBy(filtered, func(im DDBImport) string { return im.ImportArn })
-	page, next := awsPageExplicit(filtered, req.NextToken, req.PageSize)
+	page, next, pageOK := awsPage(w, ddbBadToken, filtered, req.NextToken, req.PageSize, 0)
+	if !pageOK {
+		return
+	}
 	summaries := make([]map[string]any, 0, len(page))
 	for _, im := range page {
 		summaries = append(summaries, map[string]any{
@@ -1491,7 +1472,10 @@ func handleDDBListContributorInsights(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sortBy(filtered, func(ci DDBContributorInsight) string { return ci.TableName + "\x00" + ci.IndexName })
-	page, next := awsPageExplicit(filtered, req.NextToken, req.MaxResults)
+	page, next, pageOK := awsPage(w, ddbBadToken, filtered, req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
 	summaries := make([]map[string]any, 0, len(page))
 	for _, ci := range page {
 		s := map[string]any{

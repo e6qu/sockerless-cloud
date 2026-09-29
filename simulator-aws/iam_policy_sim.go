@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // IAM policy simulation: SimulateCustomPolicy / SimulatePrincipalPolicy.
@@ -750,7 +752,7 @@ func iamWriteSimulationResponse(w http.ResponseWriter, op string, docs []iamPoli
     <EvaluationResults>%s</EvaluationResults>
   </%sResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</%sResponse>`, op, op, members.String(), op, generateUUID(), op)
+</%sResponse>`, op, op, members.String(), op, sim.NewUUID(), op)
 }
 
 // iamRoleNameFromArn extracts the role name from an arn:aws:iam::acct:role/Name

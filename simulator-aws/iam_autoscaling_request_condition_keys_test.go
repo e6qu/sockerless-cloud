@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // queryServiceConditionContext runs a query-protocol service's registered
@@ -39,7 +40,7 @@ func assertServiceConditionContext(t *testing.T, ctx, want map[string][]string) 
 }
 
 func resetAutoScalingLaunchSources() {
-	AwaitSimulatorBackground()
+	bg.Await()
 	asLaunchConfigurations = sim.MakeStore[ASLaunchConfiguration](nil, "autoscaling_launch_configurations")
 	ec2LaunchTemplates = sim.MakeStore[EC2LaunchTemplate](nil, "ec2_launch_templates")
 }

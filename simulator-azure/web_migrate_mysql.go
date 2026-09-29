@@ -97,7 +97,7 @@ func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, ht
 		// work nothing is performing.
 		migration := webMySQLMigration{
 			Site:        id,
-			OperationID: generateUUID(),
+			OperationID: sim.NewUUID(),
 			Status:      "Succeeded",
 		}
 		webMySQLMigrations.Put(id, migration)
@@ -148,7 +148,7 @@ func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, ht
 		}
 
 		id := webResourceID(r)
-		migration := webMySQLMigration{Site: id, OperationID: generateUUID(), Status: "Succeeded"}
+		migration := webMySQLMigration{Site: id, OperationID: sim.NewUUID(), Status: "Succeeded"}
 		webStorageMigrations.Put(id, migration)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"id":   id + "/migrate",

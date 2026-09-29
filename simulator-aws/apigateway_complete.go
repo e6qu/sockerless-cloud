@@ -449,7 +449,7 @@ func handleAPIGWUpdateDomainName(w http.ResponseWriter, r *http.Request) {
 		// applied below, exactly as a real custom-domain update carries them.
 		d = APIGWv1DomainName{
 			DomainName:       name,
-			DomainNameId:     generateUUID()[:10],
+			DomainNameId:     sim.NewUUID()[:10],
 			DomainNameArn:    apigwDomainNameARN(name),
 			SecurityPolicy:   "TLS_1_2",
 			DomainNameStatus: "AVAILABLE",
@@ -690,7 +690,7 @@ func apigwBuildRestApiFromOpenAPI(api *APIGWRestApi, body []byte) {
 	root, _ := apigwResources.Get(api.Id + "/" + api.RootResourceId)
 	for rawPath, methods := range doc.Paths {
 		res := APIGWResource{
-			Id:        generateUUID()[:10],
+			Id:        sim.NewUUID()[:10],
 			RestApiId: api.Id,
 			ParentId:  api.RootResourceId,
 			PathPart:  strings.Trim(rawPath, "/"),
@@ -712,12 +712,12 @@ func apigwBuildRestApiFromOpenAPI(api *APIGWRestApi, body []byte) {
 func handleAPIGWImportRestApi(w http.ResponseWriter, r *http.Request) {
 	body := apigwReadRawBody(r)
 	api := APIGWRestApi{
-		Id:          generateUUID()[:10],
+		Id:          sim.NewUUID()[:10],
 		CreatedDate: time.Now().Unix(),
 		ApiStatus:   apigwStatusAvailable,
 	}
 	root := APIGWResource{
-		Id:        generateUUID()[:10],
+		Id:        sim.NewUUID()[:10],
 		RestApiId: api.Id,
 		Path:      "/",
 	}
@@ -784,10 +784,10 @@ func handleAPIGWImportApiKeys(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows {
 		value := row["key"]
 		if value == "" {
-			value = generateUUID() + generateUUID()[:8]
+			value = sim.NewUUID() + sim.NewUUID()[:8]
 		}
 		key := APIGWApiKey{
-			Id:              generateUUID()[:10],
+			Id:              sim.NewUUID()[:10],
 			Value:           value,
 			Name:            row["name"],
 			Description:     row["description"],
@@ -923,7 +923,7 @@ func handleAPIGWCreateDomainNameAccessAssociation(w http.ResponseWriter, r *http
 		return
 	}
 	assoc := APIGWDomainNameAccessAssociation{
-		DomainNameAccessAssociationArn: apigwAccessAssocARN(generateUUID()[:10]),
+		DomainNameAccessAssociationArn: apigwAccessAssocARN(sim.NewUUID()[:10]),
 		DomainNameArn:                  req.DomainNameArn,
 		AccessAssociationSource:        req.AccessAssociationSource,
 		AccessAssociationSourceType:    req.AccessAssociationSourceType,

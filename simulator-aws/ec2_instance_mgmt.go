@@ -187,7 +187,7 @@ func handleCreateInstanceConnectEndpoint(w http.ResponseWriter, r *http.Request)
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateInstanceConnectEndpointResponse %s><requestId>%s</requestId><instanceConnectEndpoint>%s</instanceConnectEndpoint>%s</CreateInstanceConnectEndpointResponse>`,
-		ec2Xmlns(), generateUUID(), ec2InstanceConnectEndpointFieldsXML(eice), clientToken)
+		ec2Xmlns(), sim.NewUUID(), ec2InstanceConnectEndpointFieldsXML(eice), clientToken)
 }
 
 // ec2InstanceConnectEndpointArn renders the endpoint ARN
@@ -275,7 +275,11 @@ func handleDescribeInstanceConnectEndpoints(w http.ResponseWriter, r *http.Reque
 	})
 	nextToken := ""
 	if len(ids) == 0 {
-		results, nextToken = awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+		paged, pageNext, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+		if !pageOK {
+			return
+		}
+		results, nextToken = paged, pageNext
 	}
 	var items strings.Builder
 	for _, eice := range results {
@@ -289,7 +293,7 @@ func handleDescribeInstanceConnectEndpoints(w http.ResponseWriter, r *http.Reque
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeInstanceConnectEndpointsResponse %s><requestId>%s</requestId><instanceConnectEndpointSet>%s</instanceConnectEndpointSet>%s</DescribeInstanceConnectEndpointsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nextTokenXML)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nextTokenXML)
 }
 
 func handleModifyInstanceConnectEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -308,7 +312,7 @@ func handleModifyInstanceConnectEndpoint(w http.ResponseWriter, r *http.Request)
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyInstanceConnectEndpointResponse %s><requestId>%s</requestId><return>true</return></ModifyInstanceConnectEndpointResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDeleteInstanceConnectEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -327,7 +331,7 @@ func handleDeleteInstanceConnectEndpoint(w http.ResponseWriter, r *http.Request)
 	ec2InstanceConnectEndpoints.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteInstanceConnectEndpointResponse %s><requestId>%s</requestId><instanceConnectEndpoint>%s</instanceConnectEndpoint></DeleteInstanceConnectEndpointResponse>`,
-		ec2Xmlns(), generateUUID(), ec2InstanceConnectEndpointFieldsXML(eice))
+		ec2Xmlns(), sim.NewUUID(), ec2InstanceConnectEndpointFieldsXML(eice))
 }
 
 // ec2InstanceTagAttributeXML renders the account's registered tag keys as the
@@ -361,7 +365,7 @@ func handleRegisterInstanceEventNotificationAttributes(w http.ResponseWriter, r 
 	ec2PutAccountSettings(s)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RegisterInstanceEventNotificationAttributesResponse %s><requestId>%s</requestId>%s</RegisterInstanceEventNotificationAttributesResponse>`,
-		ec2Xmlns(), generateUUID(), ec2InstanceTagAttributeXML(s))
+		ec2Xmlns(), sim.NewUUID(), ec2InstanceTagAttributeXML(s))
 }
 
 func handleDeregisterInstanceEventNotificationAttributes(w http.ResponseWriter, r *http.Request) {
@@ -382,14 +386,14 @@ func handleDeregisterInstanceEventNotificationAttributes(w http.ResponseWriter, 
 	ec2PutAccountSettings(s)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeregisterInstanceEventNotificationAttributesResponse %s><requestId>%s</requestId>%s</DeregisterInstanceEventNotificationAttributesResponse>`,
-		ec2Xmlns(), generateUUID(), ec2InstanceTagAttributeXML(s))
+		ec2Xmlns(), sim.NewUUID(), ec2InstanceTagAttributeXML(s))
 }
 
 func handleDescribeInstanceEventNotificationAttributes(w http.ResponseWriter, r *http.Request) {
 	s := ec2AccountSettings()
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeInstanceEventNotificationAttributesResponse %s><requestId>%s</requestId>%s</DescribeInstanceEventNotificationAttributesResponse>`,
-		ec2Xmlns(), generateUUID(), ec2InstanceTagAttributeXML(s))
+		ec2Xmlns(), sim.NewUUID(), ec2InstanceTagAttributeXML(s))
 }
 
 func handleEnableSerialConsoleAccess(w http.ResponseWriter, r *http.Request) {
@@ -398,7 +402,7 @@ func handleEnableSerialConsoleAccess(w http.ResponseWriter, r *http.Request) {
 	ec2PutAccountSettings(s)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<EnableSerialConsoleAccessResponse %s><requestId>%s</requestId><serialConsoleAccessEnabled>true</serialConsoleAccessEnabled></EnableSerialConsoleAccessResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDisableSerialConsoleAccess(w http.ResponseWriter, r *http.Request) {
@@ -407,14 +411,14 @@ func handleDisableSerialConsoleAccess(w http.ResponseWriter, r *http.Request) {
 	ec2PutAccountSettings(s)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisableSerialConsoleAccessResponse %s><requestId>%s</requestId><serialConsoleAccessEnabled>false</serialConsoleAccessEnabled></DisableSerialConsoleAccessResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleGetSerialConsoleAccessStatus(w http.ResponseWriter, r *http.Request) {
 	s := ec2AccountSettings()
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetSerialConsoleAccessStatusResponse %s><requestId>%s</requestId><serialConsoleAccessEnabled>%t</serialConsoleAccessEnabled><managedBy>account</managedBy></GetSerialConsoleAccessStatusResponse>`,
-		ec2Xmlns(), generateUUID(), s.SerialConsoleAccess)
+		ec2Xmlns(), sim.NewUUID(), s.SerialConsoleAccess)
 }
 
 func handleGetInstanceMetadataDefaults(w http.ResponseWriter, r *http.Request) {
@@ -439,7 +443,7 @@ func handleGetInstanceMetadataDefaults(w http.ResponseWriter, r *http.Request) {
 		body = "<accountLevel>" + fields.String() + "</accountLevel>"
 	}
 	fmt.Fprintf(w, `<GetInstanceMetadataDefaultsResponse %s><requestId>%s</requestId>%s</GetInstanceMetadataDefaultsResponse>`,
-		ec2Xmlns(), generateUUID(), body)
+		ec2Xmlns(), sim.NewUUID(), body)
 }
 
 func handleModifyInstanceMetadataDefaults(w http.ResponseWriter, r *http.Request) {
@@ -463,7 +467,7 @@ func handleModifyInstanceMetadataDefaults(w http.ResponseWriter, r *http.Request
 	ec2PutAccountSettings(s)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyInstanceMetadataDefaultsResponse %s><requestId>%s</requestId><return>true</return></ModifyInstanceMetadataDefaultsResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // ec2MonitoringResponse flips detailed monitoring on each named instance and
@@ -489,7 +493,7 @@ func ec2MonitoringResponse(w http.ResponseWriter, r *http.Request, root string, 
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%s %s><requestId>%s</requestId><instancesSet>%s</instancesSet></%s>`,
-		root, ec2Xmlns(), generateUUID(), items.String(), root)
+		root, ec2Xmlns(), sim.NewUUID(), items.String(), root)
 }
 
 func handleMonitorInstances(w http.ResponseWriter, r *http.Request) {
@@ -513,7 +517,7 @@ func handleRebootInstances(w http.ResponseWriter, r *http.Request) {
 	// returns success, faithful to the API contract.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RebootInstancesResponse %s><requestId>%s</requestId><return>true</return></RebootInstancesResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleReportInstanceStatus(w http.ResponseWriter, r *http.Request) {
@@ -544,7 +548,7 @@ func handleReportInstanceStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ReportInstanceStatusResponse %s><requestId>%s</requestId><return>true</return></ReportInstanceStatusResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleResetInstanceAttribute(w http.ResponseWriter, r *http.Request) {
@@ -567,7 +571,7 @@ func handleResetInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ResetInstanceAttributeResponse %s><requestId>%s</requestId><return>true</return></ResetInstanceAttributeResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // handleDescribeClassicLinkInstances returns an honest-empty set: the sim runs
@@ -576,5 +580,5 @@ func handleResetInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 func handleDescribeClassicLinkInstances(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeClassicLinkInstancesResponse %s><requestId>%s</requestId><instancesSet/></DescribeClassicLinkInstancesResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }

@@ -568,7 +568,10 @@ func handleWAFListWebACLs(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sortBy(items, func(s summary) string { return s.Name })
-	page, next := awsPage(items, req.NextMarker, req.Limit, 100)
+	page, next, pageOK := awsPage(w, wafBadToken, items, req.NextMarker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"WebACLs": page}
 	if next != "" {
 		resp["NextMarker"] = next
@@ -854,7 +857,10 @@ func handleWAFListIPSets(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sortBy(items, func(s summary) string { return s.Name })
-	page, next := awsPage(items, req.NextMarker, req.Limit, 100)
+	page, next, pageOK := awsPage(w, wafBadToken, items, req.NextMarker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"IPSets": page}
 	if next != "" {
 		resp["NextMarker"] = next
@@ -1022,7 +1028,10 @@ func handleWAFListRuleGroups(w http.ResponseWriter, r *http.Request) {
 		items = append(items, summary{Name: s.RuleGroup.Name, Id: s.RuleGroup.Id, Description: s.RuleGroup.Description, LockToken: s.LockToken, ARN: s.RuleGroup.ARN})
 	}
 	sortBy(items, func(s summary) string { return s.Name })
-	page, next := awsPage(items, req.NextMarker, req.Limit, 100)
+	page, next, pageOK := awsPage(w, wafBadToken, items, req.NextMarker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"RuleGroups": page}
 	if next != "" {
 		resp["NextMarker"] = next
@@ -1158,7 +1167,10 @@ func handleWAFListRegexSets(w http.ResponseWriter, r *http.Request) {
 		items = append(items, summary{Name: s.RegexSet.Name, Id: s.RegexSet.Id, Description: s.RegexSet.Description, LockToken: s.LockToken, ARN: s.RegexSet.ARN})
 	}
 	sortBy(items, func(s summary) string { return s.Name })
-	page, next := awsPage(items, req.NextMarker, req.Limit, 100)
+	page, next, pageOK := awsPage(w, wafBadToken, items, req.NextMarker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"RegexPatternSets": page}
 	if next != "" {
 		resp["NextMarker"] = next
@@ -1425,7 +1437,10 @@ func handleWAFListLoggingConfigurations(w http.ResponseWriter, r *http.Request) 
 		_ = json.Unmarshal(c, &m)
 		return m.ResourceArn
 	})
-	page, next := awsPage(items, req.NextMarker, req.Limit, 100)
+	page, next, pageOK := awsPage(w, wafBadToken, items, req.NextMarker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"LoggingConfigurations": page}
 	if next != "" {
 		resp["NextMarker"] = next
@@ -1857,7 +1872,10 @@ func handleWAFListAPIKeys(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sortBy(items, func(s apiKeySummary) string { return s.APIKey })
-	page, next := awsPage(items, req.NextMarker, req.Limit, 100)
+	page, next, pageOK := awsPage(w, wafBadToken, items, req.NextMarker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{
 		"APIKeySummaries":           page,
 		"ApplicationIntegrationURL": "https://" + awsRegion() + ".console.aws.amazon.com/wafv2/integration/",
@@ -2187,7 +2205,10 @@ func handleWAFListAvailableManagedRuleGroups(w http.ResponseWriter, r *http.Requ
 		})
 	}
 	sortBy(items, func(s managedSummary) string { return s.Name })
-	page, next := awsPage(items, req.NextMarker, req.Limit, 100)
+	page, next, pageOK := awsPage(w, wafBadToken, items, req.NextMarker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"ManagedRuleGroups": page}
 	if next != "" {
 		resp["NextMarker"] = next
@@ -2225,7 +2246,10 @@ func handleWAFListAvailableManagedRuleGroupVersions(w http.ResponseWriter, r *ht
 		items = append(items, versionSummary{Name: v, LastUpdateTimestamp: base + int64(i*86400)})
 	}
 	sortBy(items, func(s versionSummary) string { return s.Name })
-	page, next := awsPage(items, req.NextMarker, req.Limit, 100)
+	page, next, pageOK := awsPage(w, wafBadToken, items, req.NextMarker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{
 		"Versions":              page,
 		"CurrentDefaultVersion": entry.DefaultVersion,
@@ -2338,7 +2362,10 @@ func handleWAFListManagedRuleSets(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sortBy(items, func(s summary) string { return s.Name })
-	page, next := awsPage(items, req.NextMarker, req.Limit, 100)
+	page, next, pageOK := awsPage(w, wafBadToken, items, req.NextMarker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"ManagedRuleSets": page}
 	if next != "" {
 		resp["NextMarker"] = next
@@ -2626,7 +2653,10 @@ func handleWAFListMobileSdkReleases(w http.ResponseWriter, r *http.Request) {
 		items = append(items, releaseSummary{ReleaseVersion: rel.ReleaseVersion, Timestamp: rel.Timestamp.Unix()})
 	}
 	sortBy(items, func(s releaseSummary) string { return s.ReleaseVersion })
-	page, next := awsPage(items, req.NextMarker, req.Limit, 100)
+	page, next, pageOK := awsPage(w, wafBadToken, items, req.NextMarker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"ReleaseSummaries": page}
 	if next != "" {
 		resp["NextMarker"] = next

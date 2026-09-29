@@ -658,7 +658,10 @@ func writeASECollection(w http.ResponseWriter, r *http.Request, prefix string) {
 // writeARMCollection writes one page of an ARM collection with the nextLink
 // the specification's paged collections carry.
 func writeARMCollection[T any](w http.ResponseWriter, r *http.Request, items []T) {
-	page, token := armPage(r, items)
+	page, token, pageOK := armPage(w, r, items)
+	if !pageOK {
+		return
+	}
 	body := map[string]any{"value": page}
 	if token != "" {
 		body["nextLink"] = armNextLink(r, token)
@@ -1479,7 +1482,10 @@ func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc))
 // answers 202 here, and the specification documents it; matching that is what
 // makes the operation readable.
 func aseAcceptedCollection(w http.ResponseWriter, r *http.Request, row AppServiceEnvironmentResource, sites []Site) {
-	page, token := armPage(r, sites)
+	page, token, pageOK := armPage(w, r, sites)
+	if !pageOK {
+		return
+	}
 	body := map[string]any{"value": page}
 	if token != "" {
 		body["nextLink"] = armNextLink(r, token)

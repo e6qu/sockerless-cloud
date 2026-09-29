@@ -178,7 +178,7 @@ func provisionPrivateLinkService(ctx context.Context, pls *PrivateLinkService, p
 		pls.Properties.Alias = previous.Properties.Alias
 	} else {
 		pls.Properties.Alias = fmt.Sprintf("%s.%s.%s.azure.privatelinkservice",
-			pls.Name, generateUUID(), strings.ToLower(pls.Location))
+			pls.Name, sim.NewUUID(), strings.ToLower(pls.Location))
 	}
 	if pls.Properties.AccessMode == "" {
 		pls.Properties.AccessMode = "Default"

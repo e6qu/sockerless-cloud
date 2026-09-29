@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // TestACIProcessRuntimeRejectsWorkloadExecution asserts the refusal itself, not
@@ -30,7 +31,7 @@ func TestACIProcessRuntimeRejectsWorkloadExecution(t *testing.T) {
 	// Long-running operations complete in a goroutine. One still running
 	// when this test ends would read and write the stores while the next
 	// test rebuilds them.
-	t.Cleanup(AwaitAzureAsyncOperations)
+	t.Cleanup(bg.Await)
 
 	// The ARM plane requires a valid bearer; mint one the way a client acquires
 	// it from the token endpoint so the request reaches the container-group

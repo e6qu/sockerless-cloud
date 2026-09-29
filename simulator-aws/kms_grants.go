@@ -62,7 +62,7 @@ func handleKMSCreateGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	grant := KMSGrant{
-		GrantId:           generateUUID(),
+		GrantId:           sim.NewUUID(),
 		KeyId:             keyId,
 		Name:              req.Name,
 		GranteePrincipal:  req.GranteePrincipal,
@@ -110,7 +110,10 @@ func handleKMSListGrants(w http.ResponseWriter, r *http.Request) {
 		matched = append(matched, g)
 	}
 	sort.Slice(matched, func(i, j int) bool { return matched[i].GrantId < matched[j].GrantId })
-	page, next := awsPage(matched, req.Marker, req.Limit, 100)
+	page, next, pageOK := awsPage(w, kmsBadToken, matched, req.Marker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{
 		"Grants":    page,
 		"Truncated": next != "",

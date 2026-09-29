@@ -280,7 +280,7 @@ func sqsEnqueueRedrives(dlqARN string, msgs []SQSMessage) {
 		for _, m := range msgs {
 			delayUntil := now + int64(sqsQueueIntAttribute(*d, "DelaySeconds", sqsDefaultDelaySeconds))*1000
 			d.Messages = append(d.Messages, SQSMessage{
-				MessageId:              generateUUID(),
+				MessageId:              sim.NewUUID(),
 				Body:                   m.Body,
 				MD5OfBody:              m.MD5OfBody,
 				SentTimestamp:          now,
@@ -531,7 +531,10 @@ func handleSQSListQueues(w http.ResponseWriter, r *http.Request) {
 		}
 		filtered = append(filtered, q)
 	}
-	page, next := awsPage(filtered, req.NextToken, req.MaxResults, 1000)
+	page, next, pageOK := awsPage(w, sqsBadToken, filtered, req.NextToken, req.MaxResults, 1000)
+	if !pageOK {
+		return
+	}
 	urls := make([]string, 0, len(page))
 	for _, q := range page {
 		urls = append(urls, q.URL)
@@ -755,7 +758,7 @@ func sqsEnqueue(name string, e sqsSendEntry) (result sqsEnqueueResult) {
 			result.SequenceNumber = strconv.FormatUint(q.NextSequence, 10)
 		}
 
-		result.MessageID = generateUUID()
+		result.MessageID = sim.NewUUID()
 		delaySeconds := sqsQueueIntAttribute(*q, "DelaySeconds", sqsDefaultDelaySeconds)
 		if e.DelaySeconds != nil {
 			delaySeconds = *e.DelaySeconds
@@ -1056,7 +1059,7 @@ func sqsReceiveAvailableMessages(name string, maxN int, visTimeout int) []SQSMes
 				kept = append(kept, m)
 				continue
 			}
-			m.ReceiptHandle = generateUUID()
+			m.ReceiptHandle = sim.NewUUID()
 			m.VisibleAt = now + int64(visTimeout)*1000
 			m.ApproximateReceiveCount++
 			if m.FirstReceivedAt == 0 {

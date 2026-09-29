@@ -44,10 +44,7 @@ var cosmosConsistencyRank = map[string]int{
 // by account name; the ARM account row (if created) carries the authoritative
 // consistencyPolicy.
 func cosmosAccountMaxConsistency(account string) string {
-	for _, a := range cosmosAccounts.List() {
-		if a.Name != account {
-			continue
-		}
+	if a, ok := cosmosAccountByName(account); ok {
 		if cp, ok := a.Properties["consistencyPolicy"].(map[string]any); ok {
 			if lvl, ok := cp["defaultConsistencyLevel"].(string); ok && lvl != "" {
 				return lvl

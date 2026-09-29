@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,7 +37,7 @@ func TestRunTaskReportsContainerTaskImageSizingAndDefaultGroup(t *testing.T) {
 	require.Equal(t, "512", side.Cpu)
 	require.Empty(t, side.Memory)
 	require.Equal(t, "512", side.MemoryReservation)
-	AwaitSimulatorBackground()
+	bg.Await()
 }
 
 func TestRunTaskKeepsTheGroupTheRequestNamed(t *testing.T) {
@@ -49,7 +50,7 @@ func TestRunTaskKeepsTheGroupTheRequestNamed(t *testing.T) {
 	require.Equal(t, "service:web", tasks[0].Group)
 	// A container with no CPU units in its definition reports "0", as ECS does.
 	require.Equal(t, "0", ecsSizedContainer(ECSContainerDefinition{Name: "x"}).Cpu)
-	AwaitSimulatorBackground()
+	bg.Await()
 }
 
 func ecsSizedContainer(cd ECSContainerDefinition) ECSTaskContainer {

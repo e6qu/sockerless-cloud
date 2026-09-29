@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // EC2VpcEndpoint models an AWS VPC endpoint (gateway, interface, or
@@ -115,8 +117,8 @@ func handleCreateVpcEndpoint(w http.ResponseWriter, r *http.Request) {
 			ep.NetworkInterfaceIds = append(ep.NetworkInterfaceIds, ec2ID("eni"))
 		}
 		ep.DnsEntries = []EC2DnsEntry{{
-			DnsName:      fmt.Sprintf("%s-%s.%s.vpce.amazonaws.com", id, generateUUID()[:8], serviceName),
-			HostedZoneId: "Z" + strings.ToUpper(generateUUID()[:13]),
+			DnsName:      fmt.Sprintf("%s-%s.%s.vpce.amazonaws.com", id, sim.NewUUID()[:8], serviceName),
+			HostedZoneId: "Z" + strings.ToUpper(sim.NewUUID()[:13]),
 		}}
 	}
 
@@ -141,7 +143,7 @@ func handleCreateVpcEndpoint(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateVpcEndpointResponse %s>
   <requestId>%s</requestId>
   <vpcEndpoint>%s</vpcEndpoint>
-</CreateVpcEndpointResponse>`, ec2Xmlns(), generateUUID(), vpcEndpointFieldsXML(ep))
+</CreateVpcEndpointResponse>`, ec2Xmlns(), sim.NewUUID(), vpcEndpointFieldsXML(ep))
 }
 
 func handleDescribeVpcEndpoints(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +176,7 @@ func handleDescribeVpcEndpoints(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeVpcEndpointsResponse %s>
   <requestId>%s</requestId>
   <vpcEndpointSet>%s</vpcEndpointSet>
-</DescribeVpcEndpointsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeVpcEndpointsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDeleteVpcEndpoints(w http.ResponseWriter, r *http.Request) {
@@ -199,7 +201,7 @@ func handleDeleteVpcEndpoints(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteVpcEndpointsResponse %s>
   <requestId>%s</requestId>
   <unsuccessful>%s</unsuccessful>
-</DeleteVpcEndpointsResponse>`, ec2Xmlns(), generateUUID(), unsuccessful.String())
+</DeleteVpcEndpointsResponse>`, ec2Xmlns(), sim.NewUUID(), unsuccessful.String())
 }
 
 // vpcEndpointFieldsXML renders the VpcEndpoint shape shared by

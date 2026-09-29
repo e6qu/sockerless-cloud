@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func s3ConditionContext(r *http.Request, body string) map[string][]string {
@@ -115,7 +116,7 @@ func TestS3ConditionKeysReadBucketRequests(t *testing.T) {
 func TestS3ConditionKeysReadTheAccessPointTags(t *testing.T) {
 	previous := s3ControlResourceTags
 	t.Cleanup(func() { s3ControlResourceTags = previous })
-	AwaitSimulatorBackground()
+	bg.Await()
 	s3ControlResourceTags = sim.MakeStore[map[string]string](nil, "s3_control_resource_tags")
 	ap := S3AccessPoint{Name: "finance", AccountID: "123456789012", Bucket: "b"}
 	s3ControlResourceTags.Put(s3AccessPointARN(ap.AccountID, ap.Name), map[string]string{"team": "ledger"})

@@ -118,7 +118,7 @@ func handleIAMCreateSAMLProvider(w http.ResponseWriter, r *http.Request) {
 		Arn:                  arn,
 		Name:                 name,
 		SAMLMetadataDocument: doc,
-		UUID:                 strings.ToLower(generateUUID()),
+		UUID:                 strings.ToLower(sim.NewUUID()),
 		CreateDate:           now.Format(time.RFC3339),
 		ValidUntil:           now.AddDate(5, 0, 0).Format(time.RFC3339),
 		Tags:                 iamParseTags(r),
@@ -131,7 +131,7 @@ func handleIAMCreateSAMLProvider(w http.ResponseWriter, r *http.Request) {
     %s
   </CreateSAMLProviderResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</CreateSAMLProviderResponse>`, iamXmlns, xmlEscape(provider.Arn), iamTagsXML(provider.Tags), generateUUID())
+</CreateSAMLProviderResponse>`, iamXmlns, xmlEscape(provider.Arn), iamTagsXML(provider.Tags), sim.NewUUID())
 }
 
 func handleIAMGetSAMLProvider(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +153,7 @@ func handleIAMGetSAMLProvider(w http.ResponseWriter, r *http.Request) {
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </GetSAMLProviderResponse>`, iamXmlns, xmlEscape(provider.UUID),
 		xmlEscape(provider.SAMLMetadataDocument), provider.CreateDate, provider.ValidUntil,
-		iamTagsXML(provider.Tags), generateUUID())
+		iamTagsXML(provider.Tags), sim.NewUUID())
 }
 
 func handleIAMUpdateSAMLProvider(w http.ResponseWriter, r *http.Request) {
@@ -173,7 +173,7 @@ func handleIAMUpdateSAMLProvider(w http.ResponseWriter, r *http.Request) {
     <SAMLProviderArn>%s</SAMLProviderArn>
   </UpdateSAMLProviderResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</UpdateSAMLProviderResponse>`, iamXmlns, xmlEscape(arn), generateUUID())
+</UpdateSAMLProviderResponse>`, iamXmlns, xmlEscape(arn), sim.NewUUID())
 }
 
 func handleIAMDeleteSAMLProvider(w http.ResponseWriter, r *http.Request) {
@@ -185,7 +185,7 @@ func handleIAMDeleteSAMLProvider(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteSAMLProviderResponse %s>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</DeleteSAMLProviderResponse>`, iamXmlns, generateUUID())
+</DeleteSAMLProviderResponse>`, iamXmlns, sim.NewUUID())
 }
 
 func handleIAMListSAMLProviders(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +202,7 @@ func handleIAMListSAMLProviders(w http.ResponseWriter, r *http.Request) {
     <SAMLProviderList>%s</SAMLProviderList>
   </ListSAMLProvidersResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListSAMLProvidersResponse>`, iamXmlns, members.String(), generateUUID())
+</ListSAMLProvidersResponse>`, iamXmlns, members.String(), sim.NewUUID())
 }
 
 func handleIAMListSAMLProviderTags(w http.ResponseWriter, r *http.Request) {
@@ -303,7 +303,7 @@ func handleIAMUploadServerCertificate(w http.ResponseWriter, r *http.Request) {
     %s
   </UploadServerCertificateResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</UploadServerCertificateResponse>`, iamXmlns, iamServerCertMetadataXML(cert), iamTagsXML(cert.Tags), generateUUID())
+</UploadServerCertificateResponse>`, iamXmlns, iamServerCertMetadataXML(cert), iamTagsXML(cert.Tags), sim.NewUUID())
 }
 
 func handleIAMGetServerCertificate(w http.ResponseWriter, r *http.Request) {
@@ -329,7 +329,7 @@ func handleIAMGetServerCertificate(w http.ResponseWriter, r *http.Request) {
   </GetServerCertificateResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </GetServerCertificateResponse>`, iamXmlns, iamServerCertMetadataXML(cert),
-		xmlEscape(cert.CertificateBody), chain, iamTagsXML(cert.Tags), generateUUID())
+		xmlEscape(cert.CertificateBody), chain, iamTagsXML(cert.Tags), sim.NewUUID())
 }
 
 func handleIAMUpdateServerCertificate(w http.ResponseWriter, r *http.Request) {
@@ -359,7 +359,7 @@ func handleIAMUpdateServerCertificate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<UpdateServerCertificateResponse %s>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</UpdateServerCertificateResponse>`, iamXmlns, generateUUID())
+</UpdateServerCertificateResponse>`, iamXmlns, sim.NewUUID())
 }
 
 func handleIAMDeleteServerCertificate(w http.ResponseWriter, r *http.Request) {
@@ -371,13 +371,16 @@ func handleIAMDeleteServerCertificate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteServerCertificateResponse %s>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</DeleteServerCertificateResponse>`, iamXmlns, generateUUID())
+</DeleteServerCertificateResponse>`, iamXmlns, sim.NewUUID())
 }
 
 func handleIAMListServerCertificates(w http.ResponseWriter, r *http.Request) {
 	certs := iamServerCerts.List()
 	sort.Slice(certs, func(i, j int) bool { return certs[i].Name < certs[j].Name })
-	page, next := awsPageExplicit(certs, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0))
+	page, next, pageOK := awsPage(w, iamBadToken, certs, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var members strings.Builder
 	for _, c := range page {
 		fmt.Fprintf(&members, "<member>%s</member>", iamServerCertMetadataXML(c))
@@ -389,7 +392,7 @@ func handleIAMListServerCertificates(w http.ResponseWriter, r *http.Request) {
     <IsTruncated>%t</IsTruncated>%s
   </ListServerCertificatesResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListServerCertificatesResponse>`, iamXmlns, members.String(), next != "", iamMarkerXML(next), generateUUID())
+</ListServerCertificatesResponse>`, iamXmlns, members.String(), next != "", iamMarkerXML(next), sim.NewUUID())
 }
 
 func handleIAMListServerCertificateTags(w http.ResponseWriter, r *http.Request) {
@@ -444,7 +447,7 @@ func handleIAMCreateAccountAlias(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateAccountAliasResponse %s>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</CreateAccountAliasResponse>`, iamXmlns, generateUUID())
+</CreateAccountAliasResponse>`, iamXmlns, sim.NewUUID())
 }
 
 func handleIAMDeleteAccountAlias(w http.ResponseWriter, r *http.Request) {
@@ -456,7 +459,7 @@ func handleIAMDeleteAccountAlias(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteAccountAliasResponse %s>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</DeleteAccountAliasResponse>`, iamXmlns, generateUUID())
+</DeleteAccountAliasResponse>`, iamXmlns, sim.NewUUID())
 }
 
 func handleIAMListAccountAliases(w http.ResponseWriter, r *http.Request) {
@@ -473,7 +476,7 @@ func handleIAMListAccountAliases(w http.ResponseWriter, r *http.Request) {
     <IsTruncated>false</IsTruncated>
   </ListAccountAliasesResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListAccountAliasesResponse>`, iamXmlns, members.String(), generateUUID())
+</ListAccountAliasesResponse>`, iamXmlns, members.String(), sim.NewUUID())
 }
 
 // iamTagListResultXML emits the ListXxxTags response shape (Tags member list +
@@ -486,7 +489,7 @@ func iamTagListResultXML(w http.ResponseWriter, op string, tags []IAMTag) {
     <IsTruncated>false</IsTruncated>
   </%sResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</%sResponse>`, op, iamXmlns, op, iamTagsXML(tags), op, generateUUID(), op)
+</%sResponse>`, op, iamXmlns, op, iamTagsXML(tags), op, sim.NewUUID(), op)
 }
 
 func iamParseTagKeys(r *http.Request) map[string]bool {

@@ -6,6 +6,9 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // nowTimestamp returns a protobuf JSON Timestamp-compatible UTC value.
@@ -33,43 +36,40 @@ func paginateListGCS[T any](w http.ResponseWriter, r *http.Request, items []T) (
 	return paginateListParam(w, r, items, "maxResults")
 }
 
-// paginateListParam slices items by an opaque numeric index page token. It only
-// paginates when the client supplies an explicit positive page size under
-// sizeParam; an unset/zero size returns the full list with no token.
+// paginateListParam pages items by a decimal offset token. It pages only when
+// the client names a positive size under sizeParam; otherwise it returns the
+// whole remaining list.
 func paginateListParam[T any](w http.ResponseWriter, r *http.Request, items []T, sizeParam string) ([]T, string, bool) {
-	start := 0
-	if token := r.URL.Query().Get("pageToken"); token != "" {
-		n, err := strconv.Atoi(token)
-		if err != nil || n < 0 || n > len(items) {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
-			return nil, "", false
-		}
-		start = n
+	size, ok := gcpPageSizeParam(w, r, sizeParam)
+	if !ok {
+		return nil, "", false
 	}
+	return gcpOffsetPage(w, items, r.URL.Query().Get("pageToken"), size, 0)
+}
 
-	pageSize := len(items)
-	if raw := r.URL.Query().Get(sizeParam); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 0 {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s %q", sizeParam, raw)
-			return nil, "", false
-		}
-		if n > 0 && n < pageSize {
-			pageSize = n
-		}
+// gcpPageSizeParam reads a non-negative page size from the query string.
+func gcpPageSizeParam(w http.ResponseWriter, r *http.Request, param string) (int, bool) {
+	raw := r.URL.Query().Get(param)
+	if raw == "" {
+		return 0, true
 	}
-	if start > len(items) {
-		start = len(items)
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s %q", param, raw)
+		return 0, false
 	}
-	end := len(items)
-	if pageSize > 0 && start+pageSize < end {
-		end = start + pageSize
+	return n, true
+}
+
+// gcpOffsetPage pages items by a decimal offset token, capping the page at max
+// when max is positive, and answers INVALID_ARGUMENT for a token it never issued.
+func gcpOffsetPage[T any](w http.ResponseWriter, items []T, token string, size, max int) ([]T, string, bool) {
+	page, next, err := listq.TokenPage(listq.Decimal.Strictly(), items, token, size, 0, max)
+	if err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
+		return nil, "", false
 	}
-	next := ""
-	if end < len(items) {
-		next = strconv.Itoa(end)
-	}
-	return items[start:end], next, true
+	return page, next, true
 }
 
 func sortCloudRunJobs(items []Job) {
@@ -114,5 +114,5 @@ func gcpOperationMetadataType(responseType string) string {
 }
 
 func gcpPolicyETag() string {
-	return base64.StdEncoding.EncodeToString([]byte(generateUUID()))
+	return base64.StdEncoding.EncodeToString([]byte(sim.NewUUID()))
 }

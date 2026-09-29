@@ -377,7 +377,7 @@ func handleCreateCapacityReservationDateChangeQuote(w http.ResponseWriter, r *ht
 func ec2WriteQuoteResponse(w http.ResponseWriter, quote EC2CapacityReservationQuote, now time.Time) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateCapacityReservationDateChangeQuoteResponse %s><requestId>%s</requestId><capacityReservationModificationQuote>%s</capacityReservationModificationQuote></CreateCapacityReservationDateChangeQuoteResponse>`,
-		ec2Xmlns(), generateUUID(), ec2QuoteFieldsXML(quote, now))
+		ec2Xmlns(), sim.NewUUID(), ec2QuoteFieldsXML(quote, now))
 }
 
 func ec2QuoteFieldsXML(q EC2CapacityReservationQuote, now time.Time) string {
@@ -450,7 +450,7 @@ func handleDescribeCapacityReservationDateChangeQuotes(w http.ResponseWriter, r 
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeCapacityReservationDateChangeQuotesResponse %s><requestId>%s</requestId><capacityReservationModificationQuoteSet>%s</capacityReservationModificationQuoteSet>%s</DescribeCapacityReservationDateChangeQuotesResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), next)
+		ec2Xmlns(), sim.NewUUID(), items.String(), next)
 }
 
 // ec2CapacityReservationPage pages reservations sorted by ID: MaxResults of 1

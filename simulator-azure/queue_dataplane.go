@@ -226,7 +226,7 @@ func handleQueueUpdateMessage(w http.ResponseWriter, r *http.Request, account, q
 				mismatched = true
 				return
 			}
-			newReceipt = generateUUID()
+			newReceipt = sim.NewUUID()
 			nextVisible = time.Now().Add(time.Duration(visibilityTimeout) * time.Second).UTC()
 			qq.Messages[i].PopReceipt = newReceipt
 			qq.Messages[i].VisibleAt = nextVisible.Unix()

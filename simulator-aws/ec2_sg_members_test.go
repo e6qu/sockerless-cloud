@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func sgMemberTask(id, status, ip string, groups ...string) ECSTask {
@@ -30,7 +31,7 @@ func sgMemberTask(id, status, ip string, groups ...string) ECSTask {
 // deployment the scheduled reconciler stops every five minutes, so counting
 // stopped tasks tripled the workspace task's rule count.
 func TestSecurityGroupMembersExcludeStoppedTasks(t *testing.T) {
-	AwaitSimulatorBackground()
+	bg.Await()
 	ec2NetworkInterfaces = sim.MakeStore[EC2NetworkInterface](nil, "ec2_network_interfaces")
 	ec2Instances = sim.MakeStore[EC2Instance](nil, "ec2_instances")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")

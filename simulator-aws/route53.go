@@ -578,7 +578,10 @@ func handleR53ListHostedZones(w http.ResponseWriter, r *http.Request) {
 		return r53ZoneIDFromPath(items[i].Id) < r53ZoneIDFromPath(items[j].Id)
 	})
 
-	page, next := awsPageExplicit(items, q.Get("marker"), maxItems)
+	page, next, pageOK := awsPage(w, r53BadToken, items, q.Get("marker"), maxItems, 0)
+	if !pageOK {
+		return
+	}
 	r53WriteXML(w, http.StatusOK, R53HostedZoneList{
 		Xmlns:       r53Namespace,
 		HostedZones: page,

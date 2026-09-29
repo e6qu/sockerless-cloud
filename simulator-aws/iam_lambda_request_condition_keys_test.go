@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func useLambdaConditionStores(t *testing.T) {
 	t.Helper()
 	previousPolicies, previousSubnets := lambdaPolicies, ec2Subnets
 	t.Cleanup(func() { lambdaPolicies, ec2Subnets = previousPolicies, previousSubnets })
-	AwaitSimulatorBackground()
+	bg.Await()
 	lambdaPolicies = sim.MakeStore[[]LambdaPolicyStatement](nil, "lambda_policies")
 	ec2Subnets = sim.MakeStore[EC2Subnet](nil, "ec2_subnets")
 }

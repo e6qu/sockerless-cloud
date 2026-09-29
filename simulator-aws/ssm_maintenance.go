@@ -310,7 +310,10 @@ func handleSSMDescribeMaintenanceWindows(w http.ResponseWriter, r *http.Request)
 		all = []SSMMaintenanceWindow{}
 	}
 	sortBy(all, func(m SSMMaintenanceWindow) string { return m.WindowId })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, m := range page {
 		out = append(out, ssmWindowIdentityWire(m))
@@ -464,7 +467,10 @@ func handleSSMDescribeTargets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sortBy(all, func(t SSMMaintenanceWindowTarget) string { return t.WindowTargetId })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, t := range page {
 		row := map[string]any{
@@ -508,7 +514,10 @@ func handleSSMDescribeTasks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sortBy(all, func(t SSMMaintenanceWindowTask) string { return t.WindowTaskId })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, t := range page {
 		row := map[string]any{

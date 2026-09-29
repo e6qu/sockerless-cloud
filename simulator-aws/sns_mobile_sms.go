@@ -245,7 +245,10 @@ func handleSNSListPlatformApplications(w http.ResponseWriter, r *http.Request) {
 	token := r.FormValue("NextToken")
 	all := snsPlatformApps.List()
 	sortBy(all, func(a SNSPlatformApplication) string { return a.ARN })
-	page, next := awsPage(all, token, 0, 100)
+	page, next, pageOK := awsPage(w, snsBadToken(r), all, token, 0, 100)
+	if !pageOK {
+		return
+	}
 
 	var b strings.Builder
 	b.WriteString("<ListPlatformApplicationsResult><PlatformApplications>")
@@ -268,7 +271,7 @@ func handleSNSListPlatformApplications(w http.ResponseWriter, r *http.Request) {
 // UUID, matching the real-SNS endpoint ARN shape.
 func snsPlatformEndpointARN(appARN string) string {
 	base := strings.Replace(appARN, ":app/", ":endpoint/", 1)
-	return fmt.Sprintf("%s/%s", base, generateUUID())
+	return fmt.Sprintf("%s/%s", base, sim.NewUUID())
 }
 
 func handleSNSCreatePlatformEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -370,7 +373,10 @@ func handleSNSListEndpointsByPlatformApplication(w http.ResponseWriter, r *http.
 		return ep.PlatformApplicationARN == appARN
 	})
 	sortBy(matching, func(ep SNSPlatformEndpoint) string { return ep.ARN })
-	page, next := awsPage(matching, r.FormValue("NextToken"), 0, 100)
+	page, next, pageOK := awsPage(w, snsBadToken(r), matching, r.FormValue("NextToken"), 0, 100)
+	if !pageOK {
+		return
+	}
 
 	var b strings.Builder
 	b.WriteString("<ListEndpointsByPlatformApplicationResult><Endpoints>")
@@ -431,7 +437,10 @@ func handleSNSListSMSSandboxPhoneNumbers(w http.ResponseWriter, r *http.Request)
 	_ = r.ParseForm()
 	all := snsSandboxNumbers.List()
 	sortBy(all, func(n SNSSandboxPhoneNumber) string { return n.PhoneNumber })
-	page, next := awsPageExplicit(all, r.FormValue("NextToken"), snsMaxResults(r))
+	page, next, pageOK := awsPage(w, snsBadToken(r), all, r.FormValue("NextToken"), snsMaxResults(r), 0)
+	if !pageOK {
+		return
+	}
 
 	var b strings.Builder
 	b.WriteString("<ListSMSSandboxPhoneNumbersResult><PhoneNumbers>")
@@ -529,7 +538,10 @@ func handleSNSListPhoneNumbersOptedOut(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	all := snsOptedOutNumbers.List()
 	sortBy(all, func(e snsOptOutEntry) string { return e.PhoneNumber })
-	page, next := awsPage(all, r.FormValue("nextToken"), 0, 100)
+	page, next, pageOK := awsPage(w, snsBadToken(r), all, r.FormValue("nextToken"), 0, 100)
+	if !pageOK {
+		return
+	}
 
 	var b strings.Builder
 	b.WriteString("<ListPhoneNumbersOptedOutResult><phoneNumbers>")
@@ -561,7 +573,10 @@ func handleSNSListOriginationNumbers(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	all := snsOriginationNums.List()
 	sortBy(all, func(n SNSOriginationNumber) string { return n.PhoneNumber })
-	page, next := awsPageExplicit(all, r.FormValue("NextToken"), snsMaxResults(r))
+	page, next, pageOK := awsPage(w, snsBadToken(r), all, r.FormValue("NextToken"), snsMaxResults(r), 0)
+	if !pageOK {
+		return
+	}
 
 	var b strings.Builder
 	b.WriteString("<ListOriginationNumbersResult><PhoneNumbers>")

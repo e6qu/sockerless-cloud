@@ -114,7 +114,7 @@ func registerPublicDNS(srv *sim.Server) {
 			Name:     zoneName,
 			Type:     "Microsoft.Network/dnsZones",
 			Location: strings.ToLower(location),
-			Etag:     generateUUID(),
+			Etag:     sim.NewUUID(),
 			Tags:     req.Tags,
 			Properties: PublicDnsZoneProperties{
 				MaxNumberOfRecordSets:          5000,
@@ -313,7 +313,7 @@ func createPublicDNSDefaultRecords(recordSets sim.Store[PublicRecordSet], zoneID
 		ID:   publicDNSRecordID(zoneID, "NS", "@"),
 		Name: "@",
 		Type: "Microsoft.Network/dnsZones/NS",
-		Etag: generateUUID(),
+		Etag: sim.NewUUID(),
 		Properties: PublicRecordSetProperties{
 			TTL:       172800,
 			Fqdn:      zoneName + ".",
@@ -324,7 +324,7 @@ func createPublicDNSDefaultRecords(recordSets sim.Store[PublicRecordSet], zoneID
 		ID:   publicDNSRecordID(zoneID, "SOA", "@"),
 		Name: "@",
 		Type: "Microsoft.Network/dnsZones/SOA",
-		Etag: generateUUID(),
+		Etag: sim.NewUUID(),
 		Properties: PublicRecordSetProperties{
 			TTL:  3600,
 			Fqdn: zoneName + ".",
@@ -350,7 +350,7 @@ func publicDNSRecordFromRequest(recordID, zoneName, recordType, recordName strin
 		ID:   recordID,
 		Name: recordName,
 		Type: "Microsoft.Network/dnsZones/" + recordType,
-		Etag: generateUUID(),
+		Etag: sim.NewUUID(),
 		Properties: PublicRecordSetProperties{
 			TTL:               ttl,
 			Fqdn:              publicDNSFQDN(zoneName, recordName),

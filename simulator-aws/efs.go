@@ -21,7 +21,7 @@ import (
 // <SIM_DATA_DIR>/efs (so file contents survive a simulator restart
 // alongside the SQLite control-plane state), then a temp directory.
 func efsHostRoot() string {
-	return simScopedDataDir("SIM_EFS_DATA_DIR", "efs", "sockerless-sim-efs")
+	return sim.ScopedDataDir("SIM_EFS_DATA_DIR", "efs", "sockerless-sim-efs")
 }
 
 // EFSFileSystemHostDir returns the on-disk directory backing a
@@ -29,16 +29,13 @@ func efsHostRoot() string {
 // callers. Exported for use by the ECS task runner.
 func EFSFileSystemHostDir(fsID string) string {
 	dir := filepath.Join(efsHostRoot(), fsID)
-	created := false
+	// A directly-mounted filesystem must be writable by a non-root or
+	// uid-mapped workload; only a new directory gets the mode, so a workload's
+	// own chmod of the root persists.
 	if _, err := os.Stat(dir); err != nil {
-		created = true
-	}
-	_ = os.MkdirAll(dir, 0o777)
-	if created {
-		// MkdirAll's mode is masked by the umask; chmod (which isn't) so a
-		// directly-mounted filesystem (an EFS volume without an access point)
-		// is writable by a non-root / uid-mapped workload.
-		_ = os.Chmod(dir, 0o777)
+		if err := sim.EnsureWritableDir(dir); err != nil {
+			fmt.Fprintf(os.Stderr, "[sim-efs] file system directory %s: %v\n", dir, err)
+		}
 	}
 	return dir
 }
@@ -472,11 +469,11 @@ func handleEFSCreateReplicationConfiguration(w http.ResponseWriter, r *http.Requ
 		destFsId := d.FileSystemId
 		if destFsId == "" {
 			// No destination specified: EFS creates a new destination file system.
-			destFsId = "fs-" + generateUUID()[:8]
+			destFsId = "fs-" + sim.NewUUID()[:8]
 			destFs := EFSFileSystem{
 				FileSystemId:    destFsId,
 				FileSystemArn:   efsArn("file-system", destFsId),
-				CreationToken:   generateUUID(),
+				CreationToken:   sim.NewUUID(),
 				CreationTime:    now,
 				LifeCycleState:  "available",
 				OwnerId:         awsAccountID(),
@@ -531,7 +528,10 @@ func handleEFSDescribeReplicationConfigurations(w http.ResponseWriter, r *http.R
 	if reps == nil {
 		reps = []EFSReplicationConfig{}
 	}
-	page, next := awsPageExplicit(reps, r.URL.Query().Get("NextToken"), atoiDefault(r.URL.Query().Get("MaxResults"), 0))
+	page, next, pageOK := awsPage(w, efsBadToken, reps, r.URL.Query().Get("NextToken"), atoiDefault(r.URL.Query().Get("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Replications": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -619,7 +619,10 @@ func handleEFSListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	if tags == nil {
 		tags = []EFSTag{}
 	}
-	page, next := awsPageExplicit(tags, r.URL.Query().Get("NextToken"), atoiDefault(r.URL.Query().Get("MaxResults"), 0))
+	page, next, pageOK := awsPage(w, efsBadToken, tags, r.URL.Query().Get("NextToken"), atoiDefault(r.URL.Query().Get("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Tags": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -681,7 +684,10 @@ func handleEFSDescribeTags(w http.ResponseWriter, r *http.Request) {
 	if tags == nil {
 		tags = []EFSTag{}
 	}
-	page, next := awsPageExplicit(tags, r.URL.Query().Get("Marker"), atoiDefault(r.URL.Query().Get("MaxItems"), 0))
+	page, next, pageOK := awsPage(w, efsBadToken, tags, r.URL.Query().Get("Marker"), atoiDefault(r.URL.Query().Get("MaxItems"), 0), 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Tags": page}
 	if next != "" {
 		resp["NextMarker"] = next
@@ -731,7 +737,7 @@ func handleEFSCreateFileSystem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.CreationToken == "" {
-		req.CreationToken = generateUUID()
+		req.CreationToken = sim.NewUUID()
 	}
 	if req.PerformanceMode == "" {
 		req.PerformanceMode = "generalPurpose"
@@ -740,7 +746,7 @@ func handleEFSCreateFileSystem(w http.ResponseWriter, r *http.Request) {
 		req.ThroughputMode = "bursting"
 	}
 
-	fsId := "fs-" + generateUUID()[:8]
+	fsId := "fs-" + sim.NewUUID()[:8]
 
 	// Extract name from tags
 	var name string
@@ -813,7 +819,10 @@ func handleEFSDescribeFileSystems(w http.ResponseWriter, r *http.Request) {
 		fileSystems = []EFSFileSystem{}
 	}
 
-	page, next := awsPageExplicit(fileSystems, r.URL.Query().Get("Marker"), atoiDefault(r.URL.Query().Get("MaxItems"), 0))
+	page, next, pageOK := awsPage(w, efsBadToken, fileSystems, r.URL.Query().Get("Marker"), atoiDefault(r.URL.Query().Get("MaxItems"), 0), 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"FileSystems": page}
 	if next != "" {
 		resp["NextMarker"] = next
@@ -984,7 +993,7 @@ func handleEFSCreateMountTarget(w http.ResponseWriter, r *http.Request) {
 		req.IpAddress = ip
 	}
 
-	mtId := "fsmt-" + generateUUID()[:8]
+	mtId := "fsmt-" + sim.NewUUID()[:8]
 	vpcId := ""
 	if sn, ok := ec2Subnets.Get(req.SubnetId); ok {
 		vpcId = sn.VpcId
@@ -996,7 +1005,7 @@ func handleEFSCreateMountTarget(w http.ResponseWriter, r *http.Request) {
 		VpcId:                vpcId,
 		IpAddress:            req.IpAddress,
 		LifeCycleState:       "available",
-		NetworkInterfaceId:   "eni-" + generateUUID()[:8],
+		NetworkInterfaceId:   "eni-" + sim.NewUUID()[:8],
 		AvailabilityZoneId:   "use1-az1",
 		AvailabilityZoneName: awsAvailabilityZone(),
 		OwnerId:              awsAccountID(),
@@ -1013,13 +1022,14 @@ func handleEFSCreateMountTarget(w http.ResponseWriter, r *http.Request) {
 // Shared by DescribeMountTargets and DescribeAccessPoints (which differ only
 // in element type, id field, and the marker/token query+response key names).
 func efsDescribeList[T any](
+	w http.ResponseWriter,
 	r *http.Request,
 	store sim.Store[T],
 	idParam, fsParam string,
 	matchesFS func(item T, fsID string) bool,
 	less func(a, b T) bool,
 	markerParam, maxParam, listKey, tokenKey string,
-) map[string]any {
+) (map[string]any, bool) {
 	var items []T
 	if id := r.URL.Query().Get(idParam); id != "" {
 		if it, ok := store.Get(id); ok {
@@ -1035,19 +1045,25 @@ func efsDescribeList[T any](
 	if items == nil {
 		items = []T{}
 	}
-	page, next := awsPageExplicit(items, r.URL.Query().Get(markerParam), atoiDefault(r.URL.Query().Get(maxParam), 0))
+	page, next, pageOK := awsPage(w, efsBadToken, items, r.URL.Query().Get(markerParam), atoiDefault(r.URL.Query().Get(maxParam), 0), 0)
+	if !pageOK {
+		return nil, false
+	}
 	resp := map[string]any{listKey: page}
 	if next != "" {
 		resp[tokenKey] = next
 	}
-	return resp
+	return resp, true
 }
 
 func handleEFSDescribeMountTargets(w http.ResponseWriter, r *http.Request) {
-	resp := efsDescribeList(r, efsMountTargets, "MountTargetId", "FileSystemId",
+	resp, ok := efsDescribeList(w, r, efsMountTargets, "MountTargetId", "FileSystemId",
 		func(mt EFSMountTarget, fsID string) bool { return mt.FileSystemId == fsID },
 		func(a, b EFSMountTarget) bool { return a.MountTargetId < b.MountTargetId },
 		"Marker", "MaxItems", "MountTargets", "NextMarker")
+	if !ok {
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
@@ -1074,7 +1090,7 @@ func handleEFSCreateAccessPoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apId := "fsap-" + generateUUID()[:8]
+	apId := "fsap-" + sim.NewUUID()[:8]
 
 	var name string
 	for _, tag := range req.Tags {
@@ -1105,10 +1121,13 @@ func handleEFSCreateAccessPoint(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEFSDescribeAccessPoints(w http.ResponseWriter, r *http.Request) {
-	resp := efsDescribeList(r, efsAccessPoints, "AccessPointId", "FileSystemId",
+	resp, ok := efsDescribeList(w, r, efsAccessPoints, "AccessPointId", "FileSystemId",
 		func(ap EFSAccessPoint, fsID string) bool { return ap.FileSystemId == fsID },
 		func(a, b EFSAccessPoint) bool { return a.AccessPointId < b.AccessPointId },
 		"NextToken", "MaxResults", "AccessPoints", "NextToken")
+	if !ok {
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 

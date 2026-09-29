@@ -135,7 +135,7 @@ func appScalableTargetARN(id string) string {
 // resource path and policy name.
 func appScalingPolicyARN(ns, resourceID, name string) string {
 	return fmt.Sprintf("arn:aws:autoscaling:%s:%s:scalingPolicy:%s:resource/%s/%s:policyName/%s",
-		awsRegion(), awsAccountID(), generateUUID(), ns, resourceID, name)
+		awsRegion(), awsAccountID(), sim.NewUUID(), ns, resourceID, name)
 }
 
 func handleAppASRegisterScalableTarget(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +168,7 @@ func handleAppASRegisterScalableTarget(w http.ResponseWriter, r *http.Request) {
 			ResourceId:        req.ResourceId,
 			ScalableDimension: req.ScalableDimension,
 			CreationTime:      float64(time.Now().Unix()),
-			ARN:               appScalableTargetARN(generateUUID()),
+			ARN:               appScalableTargetARN(sim.NewUUID()),
 		}
 	}
 	if req.MinCapacity != nil {
@@ -267,7 +267,10 @@ func handleAppASDescribeScalableTargets(w http.ResponseWriter, r *http.Request) 
 		return true
 	})
 	matched = sortBy(matched, func(t AppScalableTarget) string { return t.ResourceId })
-	page, next := awsPageExplicit(matched, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, appASBadToken, matched, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 
 	out := make([]map[string]any, 0, len(page))
 	for _, t := range page {
@@ -398,7 +401,10 @@ func appASDescribePage[T any](
 		return true
 	})
 	matched = sortBy(matched, nameOf)
-	page, next := awsPageExplicit(matched, nextToken, awsMaxResults(maxResults))
+	page, next, pageOK := awsPage(w, appASBadToken, matched, nextToken, awsMaxResults(maxResults), 0)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, x := range page {
 		out = append(out, toJSON(x))
@@ -549,7 +555,7 @@ func appScheduledActionKey(ns, resourceID, name string) string {
 
 func appScheduledActionARN(ns, resourceID, name string) string {
 	return fmt.Sprintf("arn:aws:autoscaling:%s:%s:scheduledAction:%s:resource/%s/%s:scheduledActionName/%s",
-		awsRegion(), awsAccountID(), generateUUID(), ns, resourceID, name)
+		awsRegion(), awsAccountID(), sim.NewUUID(), ns, resourceID, name)
 }
 
 func handleAppASPutScheduledAction(w http.ResponseWriter, r *http.Request) {
@@ -719,7 +725,10 @@ func handleAppASDescribeScalingActivities(w http.ResponseWriter, r *http.Request
 	})
 	// Most-recent-first ordering, matching real AWS.
 	matched = sortBy(matched, func(a AppScalingActivity) string { return a.ActivityId })
-	page, next := awsPageExplicit(matched, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, appASBadToken, matched, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 
 	out := make([]map[string]any, 0, len(page))
 	for _, a := range page {

@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Amazon ECS deployment lifecycle hooks.
@@ -155,7 +158,7 @@ func ecsAdvanceDeploymentLifecycle(deployment *ECSServiceDeploymentRec, service 
 			continue
 		}
 		detail := ECSDeploymentHookDetail{
-			HookId:     generateUUID(),
+			HookId:     sim.NewUUID(),
 			TargetType: hook.TargetType,
 			TargetArn:  hook.HookTargetArn,
 			Status:     "AWAITING_ACTION",
@@ -210,7 +213,7 @@ func ecsInvokeDeploymentHook(
 	}
 	// Off the request path: the caller is creating a deployment, and the hook
 	// is the deployment's own work.
-	simGo(func() {
+	bg.Go(func() {
 		name := hook.HookTargetArn
 		if strings.Contains(name, ":function:") {
 			name = strings.SplitN(name, ":function:", 2)[1]

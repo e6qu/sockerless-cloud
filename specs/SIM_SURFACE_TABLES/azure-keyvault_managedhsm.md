@@ -21,8 +21,8 @@ The extractor reads the route out of a single string literal, so a registration 
 | `PATCH /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/managedHSMs/{name}` | ✓ `simulator-azure/keyvault_managedhsm.go:145::upsert` | ✓ (direct; see coverage matrix) | ✗ (coverage matrix row missing) | n/a | |
 | `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/managedHSMs/{name}` | ✓ `simulator-azure/keyvault_managedhsm.go:148::func` | ✓ (direct; see coverage matrix) | ✗ (coverage matrix row missing) | n/a | |
 | `DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/managedHSMs/{name}` | ✓ `simulator-azure/keyvault_managedhsm.go:162::func` | ✓ (direct; see coverage matrix) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/managedHSMs` | ✓ `simulator-azure/keyvault_managedhsm.go:206::list` | ✓ (direct; see coverage matrix) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/managedHSMs` | ✓ `simulator-azure/keyvault_managedhsm.go:207::list` | ✓ (direct; see coverage matrix) | ✗ (coverage matrix row missing) | n/a | |
+| `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/managedHSMs` | ✓ `simulator-azure/keyvault_managedhsm.go:209::list` | ✓ (direct; see coverage matrix) | ✗ (coverage matrix row missing) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/managedHSMs` | ✓ `simulator-azure/keyvault_managedhsm.go:210::list` | ✓ (direct; see coverage matrix) | ✗ (coverage matrix row missing) | n/a | |
 
 ## Coverage status
 

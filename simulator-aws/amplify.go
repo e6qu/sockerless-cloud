@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // AWS Amplify. Wire: REST + JSON, versionless paths (/apps, /apps/{id},
@@ -412,11 +413,14 @@ func amplifyPageQuery(w http.ResponseWriter, r *http.Request) (token string, max
 	return token, maxResults, true
 }
 
-// amplifyWriteListPage pages a sorted slice with awsPageExplicit (paginate
+// amplifyWriteListPage pages a sorted slice with awsPage (paginate
 // only on an explicit positive maxResults) and writes the {key: page[,
 // nextToken]} envelope.
 func amplifyWriteListPage[T any](w http.ResponseWriter, key string, items []T, token string, maxResults int) {
-	page, next := awsPageExplicit(items, token, maxResults)
+	page, next, pageOK := awsPage(w, amplifyBadToken, items, token, maxResults, 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{key: page}
 	if next != "" {
 		out["nextToken"] = next
@@ -1360,7 +1364,7 @@ func amplifyScheduleDeployment(appID, branch, jobID, urlBase string, uploads []a
 }
 
 func amplifyScheduleDeploymentMode(appID, branch, jobID, urlBase string, uploads []amplifyUploadedArtifact, recovering bool) {
-	simGo(func() {
+	bg.Go(func() {
 		if recovering {
 			stored, ok := amplifyJobs.Get(jobID)
 			if !ok || (stored.Job.Summary.Status != AmplifyJobStatusPending && stored.Job.Summary.Status != AmplifyJobStatusRunning) {
@@ -1589,13 +1593,11 @@ func amplifyArtifactBucketName() string {
 
 func amplifyPutS3Object(key, contentType string, data []byte) error {
 	storeKey := s3ObjectKey(amplifyArtifactBucketName(), key)
-	hash := md5.Sum(data)
 	release := s3ObjectWriters.Lock(storeKey)
 	defer release()
-	_, err := s3StoreObject(S3Object{
+	_, err := s3StoreObjectData(S3Object{
 		Key:          storeKey,
 		ContentType:  contentType,
-		ETag:         fmt.Sprintf("\"%x\"", hash),
 		LastModified: time.Now().UTC(),
 		Metadata:     map[string]string{"amplify": "true"},
 	}, data)
@@ -2096,9 +2098,12 @@ func amplifyResolveDeploymentSource(r *http.Request, appID, branch, jobID, sourc
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("fetch sourceUrl returned HTTP %d", response.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, 1024*1024*1024))
+	data, err := io.ReadAll(io.LimitReader(response.Body, amplifyDeploymentMaxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read sourceUrl: %w", err)
+	}
+	if len(data) > amplifyDeploymentMaxBytes {
+		return nil, fmt.Errorf("sourceUrl deployment exceeds %d bytes", amplifyDeploymentMaxBytes)
 	}
 	if len(data) == 0 {
 		return nil, fmt.Errorf("sourceUrl returned an empty deployment")

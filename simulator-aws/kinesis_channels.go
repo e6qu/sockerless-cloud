@@ -148,7 +148,7 @@ func handleKinesisCreateChannel(w http.ResponseWriter, r *http.Request) {
 		logging = map[string]any{"CloudWatchLogs": map[string]any{"Enabled": false}}
 	}
 	channel := KinesisChannel{
-		ChannelName: req.ChannelName, ChannelID: generateUUID(),
+		ChannelName: req.ChannelName, ChannelID: sim.NewUUID(),
 		ChannelARN: kinesisChannelARN(req.ChannelName),
 		// A channel is usable as soon as it is created here: there is no
 		// provisioning to wait for behind it.

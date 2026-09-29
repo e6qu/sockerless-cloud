@@ -384,7 +384,10 @@ func handleCosmosListAccountsBySubscription(w http.ResponseWriter, r *http.Reque
 		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
-	page, next := armPage(r, filtered)
+	page, next, pageOK := armPage(w, r, filtered)
+	if !pageOK {
+		return
+	}
 	if page == nil {
 		page = []CosmosAccount{}
 	}

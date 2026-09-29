@@ -37,7 +37,7 @@ func FuzzCWInsightsFilter(f *testing.F) {
 			return
 		}
 		if node != nil {
-			_ = node.eval(rec)
+			_ = node.Eval(rec.doc())
 		}
 	})
 }

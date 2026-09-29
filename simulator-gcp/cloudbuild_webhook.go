@@ -212,7 +212,7 @@ func cbStartTriggeredBuild(r *http.Request, trigger BuildTrigger, delivery cbWeb
 	}
 	project := cbTriggerProject(trigger)
 	started := *trigger.Build
-	started.ID = generateUUID()
+	started.ID = sim.NewUUID()
 	started.ProjectID = project
 	started.Status = "QUEUED"
 	started.CreateTime = time.Now().UTC().Format(time.RFC3339)

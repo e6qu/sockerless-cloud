@@ -248,7 +248,7 @@ func TestAzureEntra_TokenRS256VerifiesWithJWKS(t *testing.T) {
 	require.NoError(t, json.NewDecoder(jwksResp.Body).Decode(&jwks))
 	require.Len(t, jwks.Keys, 1)
 	key := jwks.Keys[0]
-	assert.Equal(t, "sockerless-sim-key-1", key.Kid)
+	require.NotEmpty(t, key.Kid)
 	assert.Equal(t, "RSA", key.Kty)
 	assert.Equal(t, "RS256", key.Alg)
 	assert.Equal(t, "sig", key.Use)

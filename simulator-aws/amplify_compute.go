@@ -1,13 +1,11 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -18,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -456,49 +455,18 @@ func amplifyServeManifestTarget(w http.ResponseWriter, r *http.Request, app Ampl
 // (nothing written) so the caller's fallback target applies; every other
 // response streams through untouched.
 func amplifyProxyToCompute(w http.ResponseWriter, r *http.Request, port int, interceptNotFound bool) (bool, error) {
-	upstreamURL := url.URL{
+	err := lbplane.Forward(w, r, lbplane.Upstream{
 		Scheme:   "http",
-		Host:     net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
+		Address:  net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
 		Path:     r.URL.EscapedPath(),
 		RawQuery: r.URL.RawQuery,
-	}
-	// An upgraded connection is long-lived, so the request deadline that bounds an
-	// ordinary proxied request must not be imposed on it.
-	ctx := r.Context()
-	upgrade := sim.IsUpgradeRequest(r)
-	if !upgrade {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-	}
-	req, err := http.NewRequestWithContext(ctx, r.Method, upstreamURL.String(), r.Body)
-	if err != nil {
-		return false, err
-	}
-	req.Header = r.Header.Clone()
-	req.Host = r.Host
-	client := http.Client{CheckRedirect: returnRedirectsToClient}
-	if !upgrade {
-		client.Timeout = 30 * time.Second
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("forward to compute %s: %w", upstreamURL.Host, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusSwitchingProtocols {
-		return true, sim.TunnelUpgradedResponse(w, resp)
-	}
-	if interceptNotFound && resp.StatusCode == http.StatusNotFound {
-		_, _ = io.Copy(io.Discard, resp.Body)
+		Timeout:  30 * time.Second,
+		Decline: func(status int) bool {
+			return interceptNotFound && status == http.StatusNotFound
+		},
+	})
+	if errors.Is(err, lbplane.ErrDeclined) {
 		return false, nil
 	}
-	for key, values := range resp.Header {
-		for _, value := range values {
-			w.Header().Add(key, value)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	_, err = io.Copy(w, resp.Body)
 	return true, err
 }

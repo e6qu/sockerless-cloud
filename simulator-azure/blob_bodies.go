@@ -2,19 +2,20 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
 // blobBodies holds the contents of every blob, snapshot and staged or
 // committed block. Each file belongs to exactly one row: a copy or a snapshot
 // writes a file of its own, so releasing one row's contents never takes
 // another's.
-var blobBodies *sim.Payloads
+var blobBodies *blobstore.Payloads
 
 // blobOpenBodies opens the payload store and adopts it; it runs once, as the
 // Blob Storage slice registers and before anything is served.
@@ -30,118 +31,118 @@ func blobOpenBodies(srv *sim.Server) {
 
 // blobAdoptBodies makes bodies the payload store, moves the contents rows
 // written before it out of them, and removes the files no row references.
-func blobAdoptBodies(bodies *sim.Payloads) error {
+func blobAdoptBodies(bodies *blobstore.Payloads) error {
 	blobBodies = bodies
-	referenced := map[string]bool{}
-	for _, row := range blobObjects.ListPrefix("") {
-		b := row.Item
-		if len(b.LegacyData) > 0 {
-			if err := blobSetContents(&b, b.LegacyData); err != nil {
-				return fmt.Errorf("move the contents of %s out of its row: %w", row.ID, err)
+	return bodies.Adopt(func(adoption *blobstore.Adoption) error {
+		for _, row := range blobObjects.ListPrefix("") {
+			b := row.Item
+			if len(b.LegacyData) > 0 {
+				ref, digests, err := adoption.Move(b.LegacyData)
+				if err != nil {
+					return fmt.Errorf("move the contents of %s out of its row: %w", row.ID, err)
+				}
+				b.Body, b.Size, b.LegacyData = ref, digests.Size, nil
+				blobObjects.Put(row.ID, b)
 			}
-			blobObjects.Put(row.ID, b)
+			adoption.Keep(b.Body)
 		}
-		referenced[b.Body] = true
-	}
-	for _, block := range blobBlocks.List() {
-		moved := false
-		if len(block.LegacyUncommittedData) > 0 {
-			ref, err := blobWriteBody(block.LegacyUncommittedData)
-			if err != nil {
-				return fmt.Errorf("move staged block %s out of its row: %w", block.BlockID, err)
+		for _, block := range blobBlocks.List() {
+			moved := false
+			if len(block.LegacyUncommittedData) > 0 {
+				ref, digests, err := adoption.Move(block.LegacyUncommittedData)
+				if err != nil {
+					return fmt.Errorf("move staged block %s out of its row: %w", block.BlockID, err)
+				}
+				block.UncommittedBody, block.UncommittedSize, block.LegacyUncommittedData = ref, digests.Size, nil
+				moved = true
 			}
-			block.UncommittedBody, block.UncommittedSize, block.LegacyUncommittedData = ref, int64(len(block.LegacyUncommittedData)), nil
-			moved = true
-		}
-		if len(block.LegacyCommittedData) > 0 {
-			ref, err := blobWriteBody(block.LegacyCommittedData)
-			if err != nil {
-				return fmt.Errorf("move committed block %s out of its row: %w", block.BlockID, err)
+			if len(block.LegacyCommittedData) > 0 {
+				ref, digests, err := adoption.Move(block.LegacyCommittedData)
+				if err != nil {
+					return fmt.Errorf("move committed block %s out of its row: %w", block.BlockID, err)
+				}
+				block.CommittedBody, block.CommittedSize, block.LegacyCommittedData = ref, digests.Size, nil
+				moved = true
 			}
-			block.CommittedBody, block.CommittedSize, block.LegacyCommittedData = ref, int64(len(block.LegacyCommittedData)), nil
-			moved = true
+			if moved {
+				blobBlocks.Put(blobBlockKey(block.Account, block.Container, block.Blob, block.BlockID), block)
+			}
+			adoption.Keep(block.UncommittedBody, block.CommittedBody)
 		}
-		if moved {
-			blobBlocks.Put(blobBlockKey(block.Account, block.Container, block.Blob, block.BlockID), block)
-		}
-		referenced[block.UncommittedBody] = true
-		referenced[block.CommittedBody] = true
-	}
-	_, err := blobBodies.Sweep(func(ref string) bool { return referenced[ref] })
-	return err
+		return nil
+	})
 }
 
-// blobWriteBody stores data and returns its reference; empty data has none.
-func blobWriteBody(data []byte) (string, error) {
-	if len(data) == 0 {
-		return "", nil
-	}
-	return blobBodies.Write(data)
-}
-
-// blobSetContents gives b new contents. The row still has to be stored with
-// putBlobObject, which releases the contents it replaces.
-func blobSetContents(b *BlobObject, data []byte) error {
-	ref, err := blobWriteBody(data)
+// blobSetContentsFrom gives b the contents r yields and returns their
+// digests. The row still has to be stored with putBlobObject, which releases
+// the contents it replaces.
+func blobSetContentsFrom(b *BlobObject, r io.Reader) (blobstore.Digests, error) {
+	ref, digests, err := blobBodies.WriteFrom(r)
 	if err != nil {
-		return err
+		return blobstore.Digests{}, err
 	}
-	b.Body, b.Size, b.LegacyData = ref, int64(len(data)), nil
-	return nil
+	b.Body, b.Size, b.LegacyData = ref, digests.Size, nil
+	return digests, nil
 }
 
-// blobOpen opens b's contents for reading, so a ranged read touches only its
-// range. An overwrite between reading the row and opening its file removes
-// the file; the row is read again then, and the new blob is what it returns,
-// so a caller describes the contents it serves.
-func blobOpen(b BlobObject) (BlobObject, io.ReadSeeker, func(), error) {
-	for attempt := 0; attempt < 2; attempt++ {
-		if b.Body == "" {
-			return b, bytes.NewReader(nil), func() {}, nil
-		}
-		file, err := blobBodies.Open(b.Body)
-		if err == nil {
-			return b, file, func() { _ = file.Close() }, nil
-		}
-		if !errors.Is(err, sim.ErrPayloadGone) {
-			return b, nil, nil, err
-		}
-		current, ok := blobObjects.Get(blobObjectKeyOf(b))
-		if !ok || current.Body == b.Body {
-			return b, nil, nil, fmt.Errorf("the contents of %s: %w", blobObjectKeyOf(b), err)
-		}
-		b = current
-	}
-	return b, nil, nil, fmt.Errorf("the contents of %s changed twice while being read", blobObjectKeyOf(b))
+// blobSetContents gives b data as its contents.
+func blobSetContents(b *BlobObject, data []byte) (blobstore.Digests, error) {
+	return blobSetContentsFrom(b, bytes.NewReader(data))
 }
 
-// blobData returns b's whole contents together with the blob they belong to,
+// blobOpen opens b's contents for reading, returning the blob they belong to,
 // which is a newer one when b was overwritten before its file was opened.
+func blobOpen(b BlobObject) (BlobObject, blobstore.Reader, error) {
+	return blobstore.OpenCurrent(blobBodies, b,
+		func(b BlobObject) string { return b.Body },
+		func(b BlobObject) (BlobObject, bool) { return blobObjects.Get(blobObjectKeyOf(b)) },
+		blobObjectKeyOf(b))
+}
+
+// blobData returns b's whole contents together with the blob they belong to.
 func blobData(b BlobObject) (BlobObject, []byte, error) {
-	current, reader, closeBody, err := blobOpen(b)
+	current, reader, err := blobOpen(b)
 	if err != nil {
 		return b, nil, err
 	}
-	defer closeBody()
+	defer func() { _ = reader.Close() }()
 	data, err := io.ReadAll(reader)
 	return current, data, err
 }
 
-// blobCopyContents gives dst a copy of src's contents in a file of its own.
-func blobCopyContents(dst *BlobObject, src BlobObject) error {
-	_, data, err := blobData(src)
+// blobCopyContents gives the contents of src a payload of their own,
+// returning the blob they were read from, which is a newer one when src was
+// overwritten before its file was opened.
+func blobCopyContents(src BlobObject) (BlobObject, string, blobstore.Digests, error) {
+	current, reader, err := blobOpen(src)
 	if err != nil {
-		return err
+		return src, "", blobstore.Digests{}, err
 	}
-	return blobSetContents(dst, data)
+	defer func() { _ = reader.Close() }()
+	ref, digests, err := blobBodies.WriteFrom(reader)
+	return current, ref, digests, err
 }
 
-// blockData returns the contents a block reference names.
-func blockData(ref string) ([]byte, error) {
-	if ref == "" {
-		return nil, nil
+// blobZeros reads as an endless run of zero bytes.
+type blobZeros struct{}
+
+func (blobZeros) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
+// blobContentMD5Matches checks the Content-MD5 a write states against the
+// contents that arrived, writing Md5Mismatch and returning false when they
+// differ.
+func blobContentMD5Matches(w http.ResponseWriter, r *http.Request, digests blobstore.Digests) bool {
+	stated := r.Header.Get("Content-MD5")
+	if stated == "" || stated == digests.MD5Base64() {
+		return true
 	}
-	return blobBodies.Read(ref)
+	writeStorageError(w, "Md5Mismatch",
+		"The MD5 value specified in the request did not match with the MD5 value calculated by the server.",
+		http.StatusBadRequest)
+	return false
 }
 
 // blobReleaseBody releases contents no row references any more. A failure
@@ -160,7 +161,8 @@ func blobEditContents(b *BlobObject, edit func(data []byte) []byte) error {
 	if err != nil {
 		return err
 	}
-	return blobSetContents(b, edit(data))
+	_, err = blobSetContents(b, edit(data))
+	return err
 }
 
 // putBlobWithContents stores b with data as its contents, releasing the
@@ -170,7 +172,7 @@ func blobEditContents(b *BlobObject, edit func(data []byte) []byte) error {
 // must not store it back over it.
 func putBlobWithContents(b BlobObject, data []byte) error {
 	defer blobWriters.Lock(blobObjectKey(b.Account, b.Container, b.Name))()
-	if err := blobSetContents(&b, data); err != nil {
+	if _, err := blobSetContents(&b, data); err != nil {
 		return err
 	}
 	putBlobObject(b)

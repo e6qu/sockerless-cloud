@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	pspb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -55,29 +55,20 @@ func registerPubSubGRPC(gs *grpc.Server) {
 	pspb.RegisterSchemaServiceServer(gs, &pubsubSchemaGRPC{})
 }
 
-// pubsubStartAckDeadlineSweeper starts the sweeper, once per process.
-//
-// It runs from the point the simulator begins serving rather than from
-// registration, because registration must only mount handlers. Anything that
-// enumerates the mounted surface without serving it — the gRPC coverage
-// ratchet does exactly that, and the route conformance tests build a
-// simulator for the same reason — would otherwise set another sweeper running
-// against the same stores, racing the first.
-var pubsubSweeperOnce sync.Once
-
-func pubsubStartAckDeadlineSweeper() {
-	pubsubSweeperOnce.Do(func() { go pubsubAckDeadlineSweeper() })
-}
-
 // pubsubAckDeadlineSweeper periodically returns inflight messages whose ack
 // deadline has elapsed to their subscription's queue, implementing at-least-once
 // delivery. It serves both the REST and gRPC surfaces, since they share the
 // inflight store.
-func pubsubAckDeadlineSweeper() {
+func pubsubAckDeadlineSweeper(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
+	for {
+		var now time.Time
+		select {
+		case <-ctx.Done():
+			return
+		case now = <-ticker.C:
+		}
 		for _, m := range psInFlight.List() {
 			if m.AckDeadline.After(now) {
 				continue
@@ -554,18 +545,15 @@ func (s *pubsubPublisherGRPC) ListTopics(_ context.Context, req *pspb.ListTopics
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start, end, err := psPaging(len(all), req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcOffsetPage(all, req.GetPageSize(), req.GetPageToken())
 	if err != nil {
 		return nil, err
 	}
-	page := all[start:end]
 	resp := &pspb.ListTopicsResponse{Topics: make([]*pspb.Topic, 0, len(page))}
 	for _, t := range page {
 		resp.Topics = append(resp.Topics, psTopicToProto(t))
 	}
-	if end < len(all) {
-		resp.NextPageToken = fmt.Sprintf("%d", end)
-	}
+	resp.NextPageToken = next
 	return resp, nil
 }
 
@@ -581,14 +569,12 @@ func (s *pubsubPublisherGRPC) ListTopicSubscriptions(_ context.Context, req *psp
 		}
 	}
 	sort.Strings(names)
-	start, end, err := psPaging(len(names), req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcOffsetPage(names, req.GetPageSize(), req.GetPageToken())
 	if err != nil {
 		return nil, err
 	}
-	resp := &pspb.ListTopicSubscriptionsResponse{Subscriptions: names[start:end]}
-	if end < len(names) {
-		resp.NextPageToken = fmt.Sprintf("%d", end)
-	}
+	resp := &pspb.ListTopicSubscriptionsResponse{Subscriptions: page}
+	resp.NextPageToken = next
 	return resp, nil
 }
 
@@ -604,14 +590,12 @@ func (s *pubsubPublisherGRPC) ListTopicSnapshots(_ context.Context, req *pspb.Li
 		}
 	}
 	sort.Strings(names)
-	start, end, err := psPaging(len(names), req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcOffsetPage(names, req.GetPageSize(), req.GetPageToken())
 	if err != nil {
 		return nil, err
 	}
-	resp := &pspb.ListTopicSnapshotsResponse{Snapshots: names[start:end]}
-	if end < len(names) {
-		resp.NextPageToken = fmt.Sprintf("%d", end)
-	}
+	resp := &pspb.ListTopicSnapshotsResponse{Snapshots: page}
+	resp.NextPageToken = next
 	return resp, nil
 }
 
@@ -722,18 +706,15 @@ func (s *pubsubSubscriberGRPC) ListSubscriptions(_ context.Context, req *pspb.Li
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start, end, err := psPaging(len(all), req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcOffsetPage(all, req.GetPageSize(), req.GetPageToken())
 	if err != nil {
 		return nil, err
 	}
-	page := all[start:end]
 	resp := &pspb.ListSubscriptionsResponse{Subscriptions: make([]*pspb.Subscription, 0, len(page))}
 	for _, sub := range page {
 		resp.Subscriptions = append(resp.Subscriptions, psSubscriptionToProto(sub))
 	}
-	if end < len(all) {
-		resp.NextPageToken = fmt.Sprintf("%d", end)
-	}
+	resp.NextPageToken = next
 	return resp, nil
 }
 
@@ -834,9 +815,9 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 	// Reader loop: applies acks and modacks embedded in client messages, and
 	// signals shutdown when the stream closes.
 	clientErr := make(chan error, 1)
-	go func() {
+	bg.JoinedGo(func() {
 		clientErr <- psStreamingPullReadLoop(stream)
-	}()
+	})
 
 	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
@@ -1048,18 +1029,15 @@ func (s *pubsubSubscriberGRPC) ListSnapshots(_ context.Context, req *pspb.ListSn
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start, end, err := psPaging(len(all), req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcOffsetPage(all, req.GetPageSize(), req.GetPageToken())
 	if err != nil {
 		return nil, err
 	}
-	page := all[start:end]
 	resp := &pspb.ListSnapshotsResponse{Snapshots: make([]*pspb.Snapshot, 0, len(page))}
 	for _, snap := range page {
 		resp.Snapshots = append(resp.Snapshots, psSnapshotToProto(snap))
 	}
-	if end < len(all) {
-		resp.NextPageToken = fmt.Sprintf("%d", end)
-	}
+	resp.NextPageToken = next
 	return resp, nil
 }
 
@@ -1135,18 +1113,15 @@ func (s *pubsubSchemaGRPC) ListSchemas(_ context.Context, req *pspb.ListSchemasR
 		all = append(all, sc)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start, end, err := psPaging(len(all), req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcOffsetPage(all, req.GetPageSize(), req.GetPageToken())
 	if err != nil {
 		return nil, err
 	}
-	page := all[start:end]
 	resp := &pspb.ListSchemasResponse{Schemas: make([]*pspb.Schema, 0, len(page))}
 	for _, sc := range page {
 		resp.Schemas = append(resp.Schemas, psSchemaToProto(sc))
 	}
-	if end < len(all) {
-		resp.NextPageToken = fmt.Sprintf("%d", end)
-	}
+	resp.NextPageToken = next
 	return resp, nil
 }
 
@@ -1204,18 +1179,15 @@ func (s *pubsubSchemaGRPC) ListSchemaRevisions(_ context.Context, req *pspb.List
 			revs[i].Definition = ""
 		}
 	}
-	start, end, err := psPaging(len(revs), req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcOffsetPage(revs, req.GetPageSize(), req.GetPageToken())
 	if err != nil {
 		return nil, err
 	}
-	page := revs[start:end]
 	resp := &pspb.ListSchemaRevisionsResponse{Schemas: make([]*pspb.Schema, 0, len(page))}
 	for _, sc := range page {
 		resp.Schemas = append(resp.Schemas, psSchemaToProto(sc))
 	}
-	if end < len(revs) {
-		resp.NextPageToken = fmt.Sprintf("%d", end)
-	}
+	resp.NextPageToken = next
 	return resp, nil
 }
 
@@ -1285,22 +1257,15 @@ func psNormalizeProject(s string) string {
 	return s
 }
 
-// paging helper
-
-func psPaging(total int, pageSize int32, pageToken string) (start, end int, err error) {
+// grpcOffsetPage pages a gRPC list by a decimal offset token, answering
+// INVALID_ARGUMENT for a negative size or a token it never issued.
+func grpcOffsetPage[T any](items []T, pageSize int32, pageToken string) ([]T, string, error) {
 	if pageSize < 0 {
-		return 0, 0, status.Errorf(codes.InvalidArgument, "page_size must not be negative, got %d", pageSize)
+		return nil, "", status.Errorf(codes.InvalidArgument, "page_size must not be negative, got %d", pageSize)
 	}
-	end = total
-	if pageToken != "" {
-		n, convErr := strconv.Atoi(pageToken)
-		if convErr != nil || n < 0 || n > total {
-			return 0, 0, status.Errorf(codes.InvalidArgument, "invalid page_token %q", pageToken)
-		}
-		start = n
+	page, next, err := listq.TokenPage(listq.Decimal.Strictly(), items, pageToken, int(pageSize), 0, 0)
+	if err != nil {
+		return nil, "", status.Errorf(codes.InvalidArgument, "invalid page_token %q", pageToken)
 	}
-	if size := int(pageSize); size > 0 && start+size < end {
-		end = start + size
-	}
-	return start, end, nil
+	return page, next, nil
 }

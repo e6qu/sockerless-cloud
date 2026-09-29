@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/oidcfed"
 )
 
 // registerSTS mounts the Security Token Service token-exchange endpoint that
@@ -31,6 +31,11 @@ func registerSTS(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/token", handleSTSTokenExchange)
 	srv.HandleFunc("POST /v1/introspect", handleSTSIntrospect)
 }
+
+// stsOIDCVerifiers caches the workforce pool providers' OpenID Connect
+// issuers, whose discovery metadata and keys the Security Token Service reuses
+// across exchanges.
+var stsOIDCVerifiers = oidcfed.New()
 
 const (
 	grantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange"
@@ -234,18 +239,18 @@ func workforceProviderOIDC(provider map[string]any) (config map[string]any, issu
 // attribute mapping — `google.subject`, defaulting to the assertion subject
 // exactly as Google does when no mapping is configured.
 func verifyWorkforceSubjectToken(ctx context.Context, rawToken, issuerURI string, allowedAudiences []string, oidcConfig map[string]any) (string, error) {
-	provider, err := oidc.NewProvider(ctx, issuerURI)
+	verifier, err := stsOIDCVerifiers.Verifier(ctx, issuerURI)
 	if err != nil {
 		return "", fmt.Errorf("issuer %q could not be discovered: %w", issuerURI, err)
 	}
 	// The audience is checked against the provider's allowed set below rather
 	// than against a single client ID, since a workforce provider may permit
 	// several audiences.
-	verified, err := provider.Verifier(&oidc.Config{SkipClientIDCheck: true}).Verify(ctx, rawToken)
+	verified, err := verifier.Verify(ctx, rawToken)
 	if err != nil {
 		return "", fmt.Errorf("subject token failed verification: %w", err)
 	}
-	if len(allowedAudiences) > 0 && !audienceAllowed(verified.Audience, allowedAudiences) {
+	if len(allowedAudiences) > 0 && !oidcfed.AudienceIntersects(verified.Audience, allowedAudiences) {
 		return "", fmt.Errorf("subject token audience is not permitted by the provider")
 	}
 
@@ -258,17 +263,6 @@ func verifyWorkforceSubjectToken(ctx context.Context, rawToken, issuerURI string
 		return "", fmt.Errorf("subject token did not yield a federated subject")
 	}
 	return subject, nil
-}
-
-func audienceAllowed(tokenAudiences, allowed []string) bool {
-	for _, aud := range tokenAudiences {
-		for _, candidate := range allowed {
-			if aud == candidate {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // mapWorkforceSubject applies the provider's `google.subject` attribute

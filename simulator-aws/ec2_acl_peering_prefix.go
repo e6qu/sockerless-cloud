@@ -176,7 +176,7 @@ func handleCreateNetworkAcl(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateNetworkAclResponse %s>
   <requestId>%s</requestId>
   <networkAcl>%s</networkAcl>
-</CreateNetworkAclResponse>`, ec2Xmlns(), generateUUID(), networkAclBodyXML(acl))
+</CreateNetworkAclResponse>`, ec2Xmlns(), sim.NewUUID(), networkAclBodyXML(acl))
 }
 
 func networkAclBodyXML(acl EC2NetworkAcl) string {
@@ -243,7 +243,7 @@ func handleDescribeNetworkAcls(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeNetworkAclsResponse %s>
   <requestId>%s</requestId>
   <networkAclSet>%s</networkAclSet>
-</DescribeNetworkAclsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeNetworkAclsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func networkAclMatchesFilters(acl EC2NetworkAcl, filters map[string][]string) bool {
@@ -288,7 +288,7 @@ func handleDeleteNetworkAcl(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2NetworkAcls.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteNetworkAclResponse %s><requestId>%s</requestId><return>true</return></DeleteNetworkAclResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteNetworkAclResponse %s><requestId>%s</requestId><return>true</return></DeleteNetworkAclResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func parseNetworkAclEntry(r *http.Request) EC2NetworkAclEntry {
@@ -329,7 +329,7 @@ func handleCreateNetworkAclEntry(w http.ResponseWriter, r *http.Request) {
 		acl.Entries = next
 	})
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<CreateNetworkAclEntryResponse %s><requestId>%s</requestId><return>true</return></CreateNetworkAclEntryResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<CreateNetworkAclEntryResponse %s><requestId>%s</requestId><return>true</return></CreateNetworkAclEntryResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleReplaceNetworkAclEntry(w http.ResponseWriter, r *http.Request) {
@@ -350,7 +350,7 @@ func handleReplaceNetworkAclEntry(w http.ResponseWriter, r *http.Request) {
 		acl.Entries = next
 	})
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<ReplaceNetworkAclEntryResponse %s><requestId>%s</requestId><return>true</return></ReplaceNetworkAclEntryResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<ReplaceNetworkAclEntryResponse %s><requestId>%s</requestId><return>true</return></ReplaceNetworkAclEntryResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDeleteNetworkAclEntry(w http.ResponseWriter, r *http.Request) {
@@ -372,7 +372,7 @@ func handleDeleteNetworkAclEntry(w http.ResponseWriter, r *http.Request) {
 		acl.Entries = next
 	})
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteNetworkAclEntryResponse %s><requestId>%s</requestId><return>true</return></DeleteNetworkAclEntryResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteNetworkAclEntryResponse %s><requestId>%s</requestId><return>true</return></DeleteNetworkAclEntryResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCreateVpcPeeringConnection(w http.ResponseWriter, r *http.Request) {
@@ -422,7 +422,7 @@ func handleCreateVpcPeeringConnection(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateVpcPeeringConnectionResponse %s>
   <requestId>%s</requestId>
   <vpcPeeringConnection>%s</vpcPeeringConnection>
-</CreateVpcPeeringConnectionResponse>`, ec2Xmlns(), generateUUID(), vpcPeeringBodyXML(pcx))
+</CreateVpcPeeringConnectionResponse>`, ec2Xmlns(), sim.NewUUID(), vpcPeeringBodyXML(pcx))
 }
 
 func vpcPeeringBodyXML(pcx EC2VpcPeeringConnection) string {
@@ -458,7 +458,7 @@ func handleDescribeVpcPeeringConnections(w http.ResponseWriter, r *http.Request)
 	fmt.Fprintf(w, `<DescribeVpcPeeringConnectionsResponse %s>
   <requestId>%s</requestId>
   <vpcPeeringConnectionSet>%s</vpcPeeringConnectionSet>
-</DescribeVpcPeeringConnectionsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeVpcPeeringConnectionsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func vpcPeeringMatchesFilters(pcx EC2VpcPeeringConnection, filters map[string][]string) bool {
@@ -506,7 +506,7 @@ func handleAcceptVpcPeeringConnection(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<AcceptVpcPeeringConnectionResponse %s>
   <requestId>%s</requestId>
   <vpcPeeringConnection>%s</vpcPeeringConnection>
-</AcceptVpcPeeringConnectionResponse>`, ec2Xmlns(), generateUUID(), vpcPeeringBodyXML(pcx))
+</AcceptVpcPeeringConnectionResponse>`, ec2Xmlns(), sim.NewUUID(), vpcPeeringBodyXML(pcx))
 }
 
 func handleDeleteVpcPeeringConnection(w http.ResponseWriter, r *http.Request) {
@@ -517,7 +517,7 @@ func handleDeleteVpcPeeringConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2VpcPeerings.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteVpcPeeringConnectionResponse %s><requestId>%s</requestId><return>true</return></DeleteVpcPeeringConnectionResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteVpcPeeringConnectionResponse %s><requestId>%s</requestId><return>true</return></DeleteVpcPeeringConnectionResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCreateManagedPrefixList(w http.ResponseWriter, r *http.Request) {
@@ -550,7 +550,7 @@ func handleCreateManagedPrefixList(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateManagedPrefixListResponse %s>
   <requestId>%s</requestId>
   <prefixList>%s</prefixList>
-</CreateManagedPrefixListResponse>`, ec2Xmlns(), generateUUID(), managedPrefixListBodyXML(pl))
+</CreateManagedPrefixListResponse>`, ec2Xmlns(), sim.NewUUID(), managedPrefixListBodyXML(pl))
 }
 
 func managedPrefixListBodyXML(pl EC2ManagedPrefixList) string {
@@ -581,7 +581,7 @@ func handleDescribeManagedPrefixLists(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeManagedPrefixListsResponse %s>
   <requestId>%s</requestId>
   <prefixListSet>%s</prefixListSet>
-</DescribeManagedPrefixListsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeManagedPrefixListsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func managedPrefixListMatchesFilters(pl EC2ManagedPrefixList, filters map[string][]string) bool {
@@ -624,7 +624,7 @@ func handleDeleteManagedPrefixList(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteManagedPrefixListResponse %s>
   <requestId>%s</requestId>
   <prefixList>%s</prefixList>
-</DeleteManagedPrefixListResponse>`, ec2Xmlns(), generateUUID(), managedPrefixListBodyXML(pl))
+</DeleteManagedPrefixListResponse>`, ec2Xmlns(), sim.NewUUID(), managedPrefixListBodyXML(pl))
 }
 
 func handleGetManagedPrefixListEntries(w http.ResponseWriter, r *http.Request) {
@@ -646,7 +646,7 @@ func handleGetManagedPrefixListEntries(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetManagedPrefixListEntriesResponse %s>
   <requestId>%s</requestId>
   <entrySet>%s</entrySet>
-</GetManagedPrefixListEntriesResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</GetManagedPrefixListEntriesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleCreateFlowLogs(w http.ResponseWriter, r *http.Request) {
@@ -700,7 +700,7 @@ func handleCreateFlowLogs(w http.ResponseWriter, r *http.Request) {
   <requestId>%s</requestId>
   %s
   <unsuccessful/>
-</CreateFlowLogsResponse>`, ec2Xmlns(), generateUUID(), idSet.String())
+</CreateFlowLogsResponse>`, ec2Xmlns(), sim.NewUUID(), idSet.String())
 }
 
 func flowLogBodyXML(fl EC2FlowLog) string {
@@ -740,7 +740,7 @@ func handleDescribeFlowLogs(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeFlowLogsResponse %s>
   <requestId>%s</requestId>
   <flowLogSet>%s</flowLogSet>
-</DescribeFlowLogsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeFlowLogsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func flowLogMatchesFilters(fl EC2FlowLog, filters map[string][]string) bool {
@@ -785,7 +785,7 @@ func handleDeleteFlowLogs(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteFlowLogsResponse %s>
   <requestId>%s</requestId>
   %s
-</DeleteFlowLogsResponse>`, ec2Xmlns(), generateUUID(), unsuccessful.String())
+</DeleteFlowLogsResponse>`, ec2Xmlns(), sim.NewUUID(), unsuccessful.String())
 }
 
 func handleCreateEgressOnlyInternetGateway(w http.ResponseWriter, r *http.Request) {
@@ -809,7 +809,7 @@ func handleCreateEgressOnlyInternetGateway(w http.ResponseWriter, r *http.Reques
 	fmt.Fprintf(w, `<CreateEgressOnlyInternetGatewayResponse %s>
   <requestId>%s</requestId>
   <egressOnlyInternetGateway>%s</egressOnlyInternetGateway>
-</CreateEgressOnlyInternetGatewayResponse>`, ec2Xmlns(), generateUUID(), egressOnlyGatewayBodyXML(eigw))
+</CreateEgressOnlyInternetGatewayResponse>`, ec2Xmlns(), sim.NewUUID(), egressOnlyGatewayBodyXML(eigw))
 }
 
 func egressOnlyGatewayBodyXML(eigw EC2EgressOnlyInternetGateway) string {
@@ -846,7 +846,7 @@ func handleDescribeEgressOnlyInternetGateways(w http.ResponseWriter, r *http.Req
 	fmt.Fprintf(w, `<DescribeEgressOnlyInternetGatewaysResponse %s>
   <requestId>%s</requestId>
   <egressOnlyInternetGatewaySet>%s</egressOnlyInternetGatewaySet>
-</DescribeEgressOnlyInternetGatewaysResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeEgressOnlyInternetGatewaysResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func egressOnlyGatewayMatchesFilters(eigw EC2EgressOnlyInternetGateway, filters map[string][]string) bool {
@@ -882,5 +882,5 @@ func handleDeleteEgressOnlyInternetGateway(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteEgressOnlyInternetGatewayResponse %s><requestId>%s</requestId><returnCode>true</returnCode></DeleteEgressOnlyInternetGatewayResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteEgressOnlyInternetGatewayResponse %s><requestId>%s</requestId><returnCode>true</returnCode></DeleteEgressOnlyInternetGatewayResponse>`, ec2Xmlns(), sim.NewUUID())
 }

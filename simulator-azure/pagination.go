@@ -5,32 +5,15 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// kvPage reads maxresults and $skiptoken from r, pages the slice,
-// and returns the page and the next offset token (empty = last page).
-// Default page size matches real Azure Key Vault (25).
-func kvPage[T any](r *http.Request, items []T) ([]T, string) {
-	start := 0
-	if tok := r.URL.Query().Get("$skiptoken"); tok != "" {
-		if n, err := strconv.Atoi(tok); err == nil && n >= 0 {
-			start = n
-		}
-	}
-	if start >= len(items) {
-		return []T{}, ""
-	}
-	items = items[start:]
-	limit := 25
-	if raw := r.URL.Query().Get("maxresults"); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			limit = n
-		}
-	}
-	if limit >= len(items) {
-		return items, ""
-	}
-	return items[:limit], strconv.Itoa(start + limit)
+// kvPage pages a Key Vault data-plane list by maxresults and $skiptoken,
+// 25 to a page by default as the service does, and answers 400 BadParameter
+// for a $skiptoken it never issued.
+func kvPage[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, string, bool) {
+	return azurePage(w, r, items, "maxresults", 25, "BadParameter")
 }
 
 // kvNextLink builds the nextLink URL for a Key Vault data-plane list response.
@@ -41,30 +24,25 @@ func kvNextLink(r *http.Request, skipToken string) string {
 	return fmt.Sprintf("https://%s%s?%s", r.Host, r.URL.Path, q.Encode())
 }
 
-// armPage reads $top and $skiptoken from r, pages the slice,
-// and returns the page and the next offset token (empty = last page).
-// Default page size matches real Azure ARM list APIs (100).
-func armPage[T any](r *http.Request, items []T) ([]T, string) {
-	start := 0
-	if tok := r.URL.Query().Get("$skiptoken"); tok != "" {
-		if n, err := strconv.Atoi(tok); err == nil && n >= 0 {
-			start = n
-		}
+// armPage pages an Azure Resource Manager list by $top and $skiptoken, 100
+// to a page by default, and answers 400 BadRequest for a $skiptoken it never
+// issued.
+func armPage[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, string, bool) {
+	return azurePage(w, r, items, "$top", 100, "BadRequest")
+}
+
+func azurePage[T any](w http.ResponseWriter, r *http.Request, items []T, sizeParam string, def int, badTokenCode string) ([]T, string, bool) {
+	size := 0
+	if n, err := strconv.Atoi(r.URL.Query().Get(sizeParam)); err == nil && n > 0 {
+		size = n
 	}
-	if start >= len(items) {
-		return []T{}, ""
+	token := r.URL.Query().Get("$skiptoken")
+	page, next, err := listq.OffsetPage(items, token, size, def, 0)
+	if err != nil {
+		AzureErrorf(w, badTokenCode, http.StatusBadRequest, "The $skiptoken %q is not valid.", token)
+		return nil, "", false
 	}
-	items = items[start:]
-	limit := 100
-	if raw := r.URL.Query().Get("$top"); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			limit = n
-		}
-	}
-	if limit >= len(items) {
-		return items, ""
-	}
-	return items[:limit], strconv.Itoa(start + limit)
+	return page, next, true
 }
 
 // armNextLink builds the nextLink URL for an ARM management-plane list response.

@@ -208,7 +208,7 @@ func handleDescribeIdFormat(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeIdFormatResponse %s><requestId>%s</requestId>%s</DescribeIdFormatResponse>`,
-		ec2Xmlns(), generateUUID(), idFormatStatusSetXML(resources))
+		ec2Xmlns(), sim.NewUUID(), idFormatStatusSetXML(resources))
 }
 
 func handleModifyIdFormat(w http.ResponseWriter, r *http.Request) {
@@ -227,7 +227,7 @@ func handleModifyIdFormat(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyIdFormatResponse %s><requestId>%s</requestId><return>true</return></ModifyIdFormatResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeIdentityIdFormat(w http.ResponseWriter, r *http.Request) {
@@ -237,7 +237,7 @@ func handleDescribeIdentityIdFormat(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeIdentityIdFormatResponse %s><requestId>%s</requestId>%s</DescribeIdentityIdFormatResponse>`,
-		ec2Xmlns(), generateUUID(), idFormatStatusSetXML(resources))
+		ec2Xmlns(), sim.NewUUID(), idFormatStatusSetXML(resources))
 }
 
 func handleModifyIdentityIdFormat(w http.ResponseWriter, r *http.Request) {
@@ -256,7 +256,7 @@ func handleModifyIdentityIdFormat(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyIdentityIdFormatResponse %s><requestId>%s</requestId><return>true</return></ModifyIdentityIdFormatResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeAggregateIdFormat(w http.ResponseWriter, r *http.Request) {
@@ -269,7 +269,7 @@ func handleDescribeAggregateIdFormat(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeAggregateIdFormatResponse %s><requestId>%s</requestId><useLongIdsAggregated>%t</useLongIdsAggregated>%s</DescribeAggregateIdFormatResponse>`,
-		ec2Xmlns(), generateUUID(), aggregated, idFormatStatusSetXML(ec2IdFormatResources))
+		ec2Xmlns(), sim.NewUUID(), aggregated, idFormatStatusSetXML(ec2IdFormatResources))
 }
 
 func handleDescribePrincipalIdFormat(w http.ResponseWriter, r *http.Request) {
@@ -280,7 +280,7 @@ func handleDescribePrincipalIdFormat(w http.ResponseWriter, r *http.Request) {
 	arn := fmt.Sprintf("arn:aws:iam::%s:root", awsAccountID())
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribePrincipalIdFormatResponse %s><requestId>%s</requestId><principalSet><item><arn>%s</arn>%s</item></principalSet></DescribePrincipalIdFormatResponse>`,
-		ec2Xmlns(), generateUUID(), arn, idFormatStatusSetXML(resources))
+		ec2Xmlns(), sim.NewUUID(), arn, idFormatStatusSetXML(resources))
 }
 
 // ec2AddrAttr loads the stored PTR attribute for an allocation, synthesizing one
@@ -326,7 +326,7 @@ func handleModifyAddressAttribute(w http.ResponseWriter, r *http.Request) {
 	ec2AddressAttributes.Put(allocID, a)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyAddressAttributeResponse %s><requestId>%s</requestId><address>%s</address></ModifyAddressAttributeResponse>`,
-		ec2Xmlns(), generateUUID(), addressAttributeBodyXML(a, a.PtrRecord))
+		ec2Xmlns(), sim.NewUUID(), addressAttributeBodyXML(a, a.PtrRecord))
 }
 
 func handleResetAddressAttribute(w http.ResponseWriter, r *http.Request) {
@@ -340,7 +340,7 @@ func handleResetAddressAttribute(w http.ResponseWriter, r *http.Request) {
 	a.PtrRecord = ""
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ResetAddressAttributeResponse %s><requestId>%s</requestId><address>%s</address></ResetAddressAttributeResponse>`,
-		ec2Xmlns(), generateUUID(), addressAttributeBodyXML(a, ""))
+		ec2Xmlns(), sim.NewUUID(), addressAttributeBodyXML(a, ""))
 }
 
 func handleMoveAddressToVpc(w http.ResponseWriter, r *http.Request) {
@@ -360,7 +360,7 @@ func handleMoveAddressToVpc(w http.ResponseWriter, r *http.Request) {
 	ec2ElasticIPs.Update(found.AllocationId, func(e *EC2ElasticIP) { e.Domain = "vpc" })
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<MoveAddressToVpcResponse %s><requestId>%s</requestId><allocationId>%s</allocationId><status>InVpc</status></MoveAddressToVpcResponse>`,
-		ec2Xmlns(), generateUUID(), found.AllocationId)
+		ec2Xmlns(), sim.NewUUID(), found.AllocationId)
 }
 
 func handleRestoreAddressToClassic(w http.ResponseWriter, r *http.Request) {
@@ -380,7 +380,7 @@ func handleRestoreAddressToClassic(w http.ResponseWriter, r *http.Request) {
 	ec2ElasticIPs.Update(found.AllocationId, func(e *EC2ElasticIP) { e.Domain = "standard" })
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RestoreAddressToClassicResponse %s><requestId>%s</requestId><publicIp>%s</publicIp><status>InClassic</status></RestoreAddressToClassicResponse>`,
-		ec2Xmlns(), generateUUID(), publicIP)
+		ec2Xmlns(), sim.NewUUID(), publicIP)
 }
 
 func handleDescribeMovingAddresses(w http.ResponseWriter, r *http.Request) {
@@ -401,7 +401,7 @@ func handleDescribeMovingAddresses(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("</movingAddressStatusSet>")
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeMovingAddressesResponse %s><requestId>%s</requestId>%s</DescribeMovingAddressesResponse>`,
-		ec2Xmlns(), generateUUID(), b.String())
+		ec2Xmlns(), sim.NewUUID(), b.String())
 }
 
 func handleAttachClassicLinkVpc(w http.ResponseWriter, r *http.Request) {
@@ -422,7 +422,7 @@ func handleAttachClassicLinkVpc(w http.ResponseWriter, r *http.Request) {
 	ec2ClassicLinks.Put(instanceID, EC2ClassicLink{InstanceId: instanceID, VpcId: vpcID, GroupIds: groups})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AttachClassicLinkVpcResponse %s><requestId>%s</requestId><return>true</return></AttachClassicLinkVpcResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDetachClassicLinkVpc(w http.ResponseWriter, r *http.Request) {
@@ -434,7 +434,7 @@ func handleDetachClassicLinkVpc(w http.ResponseWriter, r *http.Request) {
 	ec2ClassicLinks.Delete(instanceID)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DetachClassicLinkVpcResponse %s><requestId>%s</requestId><return>true</return></DetachClassicLinkVpcResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // enclaveCertKey is the composite store key: certificate ARN + role ARN, since
@@ -453,7 +453,7 @@ func handleAssociateEnclaveCertificateIamRole(w http.ResponseWriter, r *http.Req
 	// private key with a KMS key.
 	bucket := fmt.Sprintf("aws-ec2-enclave-certificate-%s", awsRegion())
 	objectKey := roleArn + "/" + certArn
-	kmsKey := fmt.Sprintf("arn:aws:kms:%s:%s:key/%s", awsRegion(), awsAccountID(), generateUUID())
+	kmsKey := fmt.Sprintf("arn:aws:kms:%s:%s:key/%s", awsRegion(), awsAccountID(), sim.NewUUID())
 	assoc := EC2EnclaveCertRole{
 		CertificateArn:          certArn,
 		RoleArn:                 roleArn,
@@ -464,7 +464,7 @@ func handleAssociateEnclaveCertificateIamRole(w http.ResponseWriter, r *http.Req
 	ec2EnclaveCertRoles.Put(enclaveCertKey(certArn, roleArn), assoc)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssociateEnclaveCertificateIamRoleResponse %s><requestId>%s</requestId><certificateS3BucketName>%s</certificateS3BucketName><certificateS3ObjectKey>%s</certificateS3ObjectKey><encryptionKmsKeyId>%s</encryptionKmsKeyId></AssociateEnclaveCertificateIamRoleResponse>`,
-		ec2Xmlns(), generateUUID(), bucket, objectKey, kmsKey)
+		ec2Xmlns(), sim.NewUUID(), bucket, objectKey, kmsKey)
 }
 
 func handleDisassociateEnclaveCertificateIamRole(w http.ResponseWriter, r *http.Request) {
@@ -473,7 +473,7 @@ func handleDisassociateEnclaveCertificateIamRole(w http.ResponseWriter, r *http.
 	ec2EnclaveCertRoles.Delete(enclaveCertKey(certArn, roleArn))
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisassociateEnclaveCertificateIamRoleResponse %s><requestId>%s</requestId><return>true</return></DisassociateEnclaveCertificateIamRoleResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleGetAssociatedEnclaveCertificateIamRoles(w http.ResponseWriter, r *http.Request) {
@@ -494,7 +494,7 @@ func handleGetAssociatedEnclaveCertificateIamRoles(w http.ResponseWriter, r *htt
 	b.WriteString("</associatedRoleSet>")
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetAssociatedEnclaveCertificateIamRolesResponse %s><requestId>%s</requestId>%s</GetAssociatedEnclaveCertificateIamRolesResponse>`,
-		ec2Xmlns(), generateUUID(), b.String())
+		ec2Xmlns(), sim.NewUUID(), b.String())
 }
 
 func handleExportClientVpnClientCertificateRevocationList(w http.ResponseWriter, r *http.Request) {
@@ -513,10 +513,10 @@ func handleExportClientVpnClientCertificateRevocationList(w http.ResponseWriter,
 	w.Header().Set("Content-Type", "text/xml")
 	if pem != "" {
 		fmt.Fprintf(w, `<ExportClientVpnClientCertificateRevocationListResponse %s><requestId>%s</requestId><certificateRevocationList>%s</certificateRevocationList><status><code>%s</code></status></ExportClientVpnClientCertificateRevocationListResponse>`,
-			ec2Xmlns(), generateUUID(), pem, statusCode)
+			ec2Xmlns(), sim.NewUUID(), pem, statusCode)
 	} else {
 		fmt.Fprintf(w, `<ExportClientVpnClientCertificateRevocationListResponse %s><requestId>%s</requestId><status><code>%s</code></status></ExportClientVpnClientCertificateRevocationListResponse>`,
-			ec2Xmlns(), generateUUID(), statusCode)
+			ec2Xmlns(), sim.NewUUID(), statusCode)
 	}
 }
 
@@ -530,7 +530,7 @@ func handleImportClientVpnClientCertificateRevocationList(w http.ResponseWriter,
 	ec2ClientVpnCertCRLs.Put(epID, EC2ClientVpnCertRevocationList{ClientVpnEndpointId: epID, Pem: pem})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ImportClientVpnClientCertificateRevocationListResponse %s><requestId>%s</requestId><return>true</return></ImportClientVpnClientCertificateRevocationListResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleExportClientVpnClientConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -558,7 +558,7 @@ func handleExportClientVpnClientConfiguration(w http.ResponseWriter, r *http.Req
 	cfg := fmt.Sprintf("client\ndev tun\nproto %s\nremote %s %d\nremote-random-hostname\nresolv-retry infinite\nnobind\nremote-cert-tls server\ncipher AES-256-GCM\nverb 3\n", proto, dnsName, port)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ExportClientVpnClientConfigurationResponse %s><requestId>%s</requestId><clientConfiguration>%s</clientConfiguration></ExportClientVpnClientConfigurationResponse>`,
-		ec2Xmlns(), generateUUID(), ec2EscapeXML(cfg))
+		ec2Xmlns(), sim.NewUUID(), ec2EscapeXML(cfg))
 }
 
 // ec2EscapeXML escapes a string for embedding as XML character data.
@@ -593,7 +593,7 @@ func handleGetVpnTunnelReplacementStatus(w http.ResponseWriter, r *http.Request)
 	b.WriteString("<maintenanceDetails></maintenanceDetails>")
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetVpnTunnelReplacementStatusResponse %s><requestId>%s</requestId>%s</GetVpnTunnelReplacementStatusResponse>`,
-		ec2Xmlns(), generateUUID(), b.String())
+		ec2Xmlns(), sim.NewUUID(), b.String())
 }
 
 func handleModifyVpnTunnelCertificate(w http.ResponseWriter, r *http.Request) {
@@ -615,7 +615,7 @@ func handleModifyVpnTunnelCertificate(w http.ResponseWriter, r *http.Request) {
 	conn, _ := ec2VpnConnections.Get(vpnID)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVpnTunnelCertificateResponse %s><requestId>%s</requestId><vpnConnection>%s</vpnConnection></ModifyVpnTunnelCertificateResponse>`,
-		ec2Xmlns(), generateUUID(), ec2VpnConnectionFieldsXML(conn))
+		ec2Xmlns(), sim.NewUUID(), ec2VpnConnectionFieldsXML(conn))
 }
 
 func handleReplaceVpnTunnel(w http.ResponseWriter, r *http.Request) {
@@ -634,7 +634,7 @@ func handleReplaceVpnTunnel(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ReplaceVpnTunnelResponse %s><requestId>%s</requestId><return>true</return></ReplaceVpnTunnelResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func tgwConnectPeerBodyXML(p EC2TransitGatewayConnectPeer) string {
@@ -691,7 +691,7 @@ func handleCreateTransitGatewayConnectPeer(w http.ResponseWriter, r *http.Reques
 	ec2TGWConnectPeers.Put(id, p)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateTransitGatewayConnectPeerResponse %s><requestId>%s</requestId><transitGatewayConnectPeer>%s</transitGatewayConnectPeer></CreateTransitGatewayConnectPeerResponse>`,
-		ec2Xmlns(), generateUUID(), tgwConnectPeerBodyXML(p))
+		ec2Xmlns(), sim.NewUUID(), tgwConnectPeerBodyXML(p))
 }
 
 func handleDeleteTransitGatewayConnectPeer(w http.ResponseWriter, r *http.Request) {
@@ -705,7 +705,7 @@ func handleDeleteTransitGatewayConnectPeer(w http.ResponseWriter, r *http.Reques
 	ec2TGWConnectPeers.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteTransitGatewayConnectPeerResponse %s><requestId>%s</requestId><transitGatewayConnectPeer>%s</transitGatewayConnectPeer></DeleteTransitGatewayConnectPeerResponse>`,
-		ec2Xmlns(), generateUUID(), tgwConnectPeerBodyXML(p))
+		ec2Xmlns(), sim.NewUUID(), tgwConnectPeerBodyXML(p))
 }
 
 func handleDescribeTransitGatewayConnectPeers(w http.ResponseWriter, r *http.Request) {
@@ -729,7 +729,7 @@ func handleDescribeTransitGatewayConnectPeers(w http.ResponseWriter, r *http.Req
 	b.WriteString("</transitGatewayConnectPeerSet>")
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeTransitGatewayConnectPeersResponse %s><requestId>%s</requestId>%s</DescribeTransitGatewayConnectPeersResponse>`,
-		ec2Xmlns(), generateUUID(), b.String())
+		ec2Xmlns(), sim.NewUUID(), b.String())
 }
 
 func tgwConnectPeerMatchesFilters(p EC2TransitGatewayConnectPeer, filters map[string][]string) bool {
@@ -771,21 +771,21 @@ func handleAcceptTransitGatewayClientVpnAttachment(w http.ResponseWriter, r *htt
 	attachID := r.FormValue("TransitGatewayAttachmentId")
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AcceptTransitGatewayClientVpnAttachmentResponse %s><requestId>%s</requestId><transitGatewayClientVpnAttachment>%s</transitGatewayClientVpnAttachment></AcceptTransitGatewayClientVpnAttachmentResponse>`,
-		ec2Xmlns(), generateUUID(), tgwClientVpnAttachmentXML(attachID, "available"))
+		ec2Xmlns(), sim.NewUUID(), tgwClientVpnAttachmentXML(attachID, "available"))
 }
 
 func handleRejectTransitGatewayClientVpnAttachment(w http.ResponseWriter, r *http.Request) {
 	attachID := r.FormValue("TransitGatewayAttachmentId")
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RejectTransitGatewayClientVpnAttachmentResponse %s><requestId>%s</requestId><transitGatewayClientVpnAttachment>%s</transitGatewayClientVpnAttachment></RejectTransitGatewayClientVpnAttachmentResponse>`,
-		ec2Xmlns(), generateUUID(), tgwClientVpnAttachmentXML(attachID, "rejected"))
+		ec2Xmlns(), sim.NewUUID(), tgwClientVpnAttachmentXML(attachID, "rejected"))
 }
 
 func handleDeleteTransitGatewayClientVpnAttachment(w http.ResponseWriter, r *http.Request) {
 	attachID := r.FormValue("TransitGatewayAttachmentId")
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteTransitGatewayClientVpnAttachmentResponse %s><requestId>%s</requestId><transitGatewayClientVpnAttachment>%s</transitGatewayClientVpnAttachment></DeleteTransitGatewayClientVpnAttachmentResponse>`,
-		ec2Xmlns(), generateUUID(), tgwClientVpnAttachmentXML(attachID, "deleted"))
+		ec2Xmlns(), sim.NewUUID(), tgwClientVpnAttachmentXML(attachID, "deleted"))
 }
 
 func handleDescribeTransitGatewayMeteringPolicies(w http.ResponseWriter, r *http.Request) {
@@ -793,7 +793,7 @@ func handleDescribeTransitGatewayMeteringPolicies(w http.ResponseWriter, r *http
 	// honestly empty.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeTransitGatewayMeteringPoliciesResponse %s><requestId>%s</requestId><transitGatewayMeteringPolicies/></DescribeTransitGatewayMeteringPoliciesResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func parsePeeringOptions(r *http.Request, prefix string) (dns, classicOut, vpcToClassic bool, present bool) {
@@ -837,7 +837,7 @@ func handleModifyVpcPeeringConnectionOptions(w http.ResponseWriter, r *http.Requ
 		opts.RequesterAllowDnsResolutionFromRemoteVpc, opts.RequesterAllowEgressLocalClassicLinkToRemoteVpc, opts.RequesterAllowEgressLocalVpcToRemoteClassicLink)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVpcPeeringConnectionOptionsResponse %s><requestId>%s</requestId>%s%s</ModifyVpcPeeringConnectionOptionsResponse>`,
-		ec2Xmlns(), generateUUID(), accepter, requester)
+		ec2Xmlns(), sim.NewUUID(), accepter, requester)
 }
 
 func handleRejectVpcPeeringConnection(w http.ResponseWriter, r *http.Request) {
@@ -852,7 +852,7 @@ func handleRejectVpcPeeringConnection(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RejectVpcPeeringConnectionResponse %s><requestId>%s</requestId><return>true</return></RejectVpcPeeringConnectionResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleReplaceNetworkAclAssociation(w http.ResponseWriter, r *http.Request) {
@@ -892,7 +892,7 @@ func handleReplaceNetworkAclAssociation(w http.ResponseWriter, r *http.Request) 
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ReplaceNetworkAclAssociationResponse %s><requestId>%s</requestId><newAssociationId>%s</newAssociationId></ReplaceNetworkAclAssociationResponse>`,
-		ec2Xmlns(), generateUUID(), newAssocID)
+		ec2Xmlns(), sim.NewUUID(), newAssocID)
 }
 
 // ---- Honest-empty / template / org-sharing / visibility / encryption ----
@@ -900,7 +900,7 @@ func handleReplaceNetworkAclAssociation(w http.ResponseWriter, r *http.Request) 
 func handleDescribeVpcEndpointAssociations(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeVpcEndpointAssociationsResponse %s><requestId>%s</requestId><vpcEndpointAssociationSet/></DescribeVpcEndpointAssociationsResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleGetFlowLogsIntegrationTemplate(w http.ResponseWriter, r *http.Request) {
@@ -909,13 +909,13 @@ func handleGetFlowLogsIntegrationTemplate(w http.ResponseWriter, r *http.Request
 	tmpl := `{"AWSTemplateFormatVersion":"2010-09-09","Description":"VPC Flow Logs Athena integration","Resources":{}}`
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetFlowLogsIntegrationTemplateResponse %s><requestId>%s</requestId><result>%s</result></GetFlowLogsIntegrationTemplateResponse>`,
-		ec2Xmlns(), generateUUID(), ec2EscapeXML(tmpl))
+		ec2Xmlns(), sim.NewUUID(), ec2EscapeXML(tmpl))
 }
 
 func handleEnableReachabilityAnalyzerOrganizationSharing(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<EnableReachabilityAnalyzerOrganizationSharingResponse %s><requestId>%s</requestId><returnValue>true</returnValue></EnableReachabilityAnalyzerOrganizationSharingResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // ec2ManagedResourceVisibility loads the account's managed-resource default
@@ -930,7 +930,7 @@ func ec2ManagedResourceVisibility() string {
 func handleGetManagedResourceVisibility(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetManagedResourceVisibilityResponse %s><requestId>%s</requestId><visibility><defaultVisibility>%s</defaultVisibility></visibility></GetManagedResourceVisibilityResponse>`,
-		ec2Xmlns(), generateUUID(), ec2ManagedResourceVisibility())
+		ec2Xmlns(), sim.NewUUID(), ec2ManagedResourceVisibility())
 }
 
 func handleModifyManagedResourceVisibility(w http.ResponseWriter, r *http.Request) {
@@ -942,35 +942,35 @@ func handleModifyManagedResourceVisibility(w http.ResponseWriter, r *http.Reques
 	ec2ManagedResourceVis.Put("default", EC2IdFormatSetting{Resource: vis})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyManagedResourceVisibilityResponse %s><requestId>%s</requestId><visibility><defaultVisibility>%s</defaultVisibility></visibility></ModifyManagedResourceVisibilityResponse>`,
-		ec2Xmlns(), generateUUID(), vis)
+		ec2Xmlns(), sim.NewUUID(), vis)
 }
 
 func handleGetVpcResourcesBlockingEncryptionEnforcement(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetVpcResourcesBlockingEncryptionEnforcementResponse %s><requestId>%s</requestId><nonCompliantResourceSet/></GetVpcResourcesBlockingEncryptionEnforcementResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeElasticGpus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeElasticGpusResponse %s><requestId>%s</requestId><elasticGpuSet/></DescribeElasticGpusResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeOutpostLags(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeOutpostLagsResponse %s><requestId>%s</requestId><outpostLagSet/></DescribeOutpostLagsResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeSecondaryInterfaces(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeSecondaryInterfacesResponse %s><requestId>%s</requestId><secondaryInterfaceSet/></DescribeSecondaryInterfacesResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeServiceLinkVirtualInterfaces(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeServiceLinkVirtualInterfacesResponse %s><requestId>%s</requestId><serviceLinkVirtualInterfaceSet/></DescribeServiceLinkVirtualInterfacesResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }

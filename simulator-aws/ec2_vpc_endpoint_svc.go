@@ -242,7 +242,7 @@ func handleCreateVpcEndpointServiceConfiguration(w http.ResponseWriter, r *http.
   <requestId>%s</requestId>
   <serviceConfiguration>%s</serviceConfiguration>
   <clientToken>%s</clientToken>
-</CreateVpcEndpointServiceConfigurationResponse>`, ec2Xmlns(), generateUUID(), serviceConfigurationXML(cfg), r.FormValue("ClientToken"))
+</CreateVpcEndpointServiceConfigurationResponse>`, ec2Xmlns(), sim.NewUUID(), serviceConfigurationXML(cfg), r.FormValue("ClientToken"))
 }
 
 func handleDescribeVpcEndpointServiceConfigurations(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +268,7 @@ func handleDescribeVpcEndpointServiceConfigurations(w http.ResponseWriter, r *ht
 	fmt.Fprintf(w, `<DescribeVpcEndpointServiceConfigurationsResponse %s>
   <requestId>%s</requestId>
   <serviceConfigurationSet>%s</serviceConfigurationSet>
-</DescribeVpcEndpointServiceConfigurationsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeVpcEndpointServiceConfigurationsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleModifyVpcEndpointServiceConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -297,7 +297,7 @@ func handleModifyVpcEndpointServiceConfiguration(w http.ResponseWriter, r *http.
 	fmt.Fprintf(w, `<ModifyVpcEndpointServiceConfigurationResponse %s>
   <requestId>%s</requestId>
   <return>true</return>
-</ModifyVpcEndpointServiceConfigurationResponse>`, ec2Xmlns(), generateUUID())
+</ModifyVpcEndpointServiceConfigurationResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDeleteVpcEndpointServiceConfigurations(w http.ResponseWriter, r *http.Request) {
@@ -314,7 +314,7 @@ func handleDeleteVpcEndpointServiceConfigurations(w http.ResponseWriter, r *http
 	fmt.Fprintf(w, `<DeleteVpcEndpointServiceConfigurationsResponse %s>
   <requestId>%s</requestId>
   <unsuccessful>%s</unsuccessful>
-</DeleteVpcEndpointServiceConfigurationsResponse>`, ec2Xmlns(), generateUUID(), unsuccessful.String())
+</DeleteVpcEndpointServiceConfigurationsResponse>`, ec2Xmlns(), sim.NewUUID(), unsuccessful.String())
 }
 
 func handleDescribeVpcEndpointServicePermissions(w http.ResponseWriter, r *http.Request) {
@@ -333,7 +333,7 @@ func handleDescribeVpcEndpointServicePermissions(w http.ResponseWriter, r *http.
 	fmt.Fprintf(w, `<DescribeVpcEndpointServicePermissionsResponse %s>
   <requestId>%s</requestId>
   <allowedPrincipals>%s</allowedPrincipals>
-</DescribeVpcEndpointServicePermissionsResponse>`, ec2Xmlns(), generateUUID(), principals.String())
+</DescribeVpcEndpointServicePermissionsResponse>`, ec2Xmlns(), sim.NewUUID(), principals.String())
 }
 
 func handleModifyVpcEndpointServicePermissions(w http.ResponseWriter, r *http.Request) {
@@ -387,7 +387,7 @@ func handleModifyVpcEndpointServicePermissions(w http.ResponseWriter, r *http.Re
   <requestId>%s</requestId>
   <addedPrincipalSet>%s</addedPrincipalSet>
   <return>true</return>
-</ModifyVpcEndpointServicePermissionsResponse>`, ec2Xmlns(), generateUUID(), addedSet.String())
+</ModifyVpcEndpointServicePermissionsResponse>`, ec2Xmlns(), sim.NewUUID(), addedSet.String())
 }
 
 func handleModifyVpcEndpointServicePayerResponsibility(w http.ResponseWriter, r *http.Request) {
@@ -405,7 +405,7 @@ func handleModifyVpcEndpointServicePayerResponsibility(w http.ResponseWriter, r 
 	fmt.Fprintf(w, `<ModifyVpcEndpointServicePayerResponsibilityResponse %s>
   <requestId>%s</requestId>
   <return>true</return>
-</ModifyVpcEndpointServicePayerResponsibilityResponse>`, ec2Xmlns(), generateUUID())
+</ModifyVpcEndpointServicePayerResponsibilityResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleModifyVpcEndpointPayerResponsibility(w http.ResponseWriter, r *http.Request) {
@@ -477,7 +477,7 @@ func handleModifyVpcEndpointPayerResponsibility(w http.ResponseWriter, r *http.R
   <requestId>%s</requestId>
   <vpcEndpointId>%s</vpcEndpointId>
   %s
-</ModifyVpcEndpointPayerResponsibilityResponse>`, ec2Xmlns(), generateUUID(), endpointID, vpcePayerResponsibilitiesXML(entries))
+</ModifyVpcEndpointPayerResponsibilityResponse>`, ec2Xmlns(), sim.NewUUID(), endpointID, vpcePayerResponsibilitiesXML(entries))
 }
 
 func handleStartVpcEndpointServicePrivateDnsVerification(w http.ResponseWriter, r *http.Request) {
@@ -498,7 +498,7 @@ func handleStartVpcEndpointServicePrivateDnsVerification(w http.ResponseWriter, 
 	fmt.Fprintf(w, `<StartVpcEndpointServicePrivateDnsVerificationResponse %s>
   <requestId>%s</requestId>
   <return>true</return>
-</StartVpcEndpointServicePrivateDnsVerificationResponse>`, ec2Xmlns(), generateUUID())
+</StartVpcEndpointServicePrivateDnsVerificationResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeVpcEndpointServices(w http.ResponseWriter, r *http.Request) {
@@ -521,7 +521,7 @@ func handleDescribeVpcEndpointServices(w http.ResponseWriter, r *http.Request) {
   <requestId>%s</requestId>
   <serviceNameSet>%s</serviceNameSet>
   <serviceDetailSet>%s</serviceDetailSet>
-</DescribeVpcEndpointServicesResponse>`, ec2Xmlns(), generateUUID(), nameSet.String(), details.String())
+</DescribeVpcEndpointServicesResponse>`, ec2Xmlns(), sim.NewUUID(), nameSet.String(), details.String())
 }
 
 // serviceConfigurationXML renders the ServiceConfiguration shape (CreateVpcEndpointServiceConfiguration
@@ -544,7 +544,7 @@ func serviceConfigurationXML(cfg EC2VpcEndpointServiceConfiguration) string {
 		fmt.Fprintf(&b, "<privateDnsName>%s</privateDnsName>", cfg.PrivateDnsName)
 	}
 	if cfg.PrivateDnsNameState != "" {
-		fmt.Fprintf(&b, "<privateDnsNameConfiguration><state>%s</state><type>TXT</type><value>%s</value><name>_amazonaws</name></privateDnsNameConfiguration>", cfg.PrivateDnsNameState, generateUUID()[:8])
+		fmt.Fprintf(&b, "<privateDnsNameConfiguration><state>%s</state><type>TXT</type><value>%s</value><name>_amazonaws</name></privateDnsNameConfiguration>", cfg.PrivateDnsNameState, sim.NewUUID()[:8])
 	}
 	fmt.Fprintf(&b, "<payerResponsibility>%s</payerResponsibility>", cfg.PayerResponsibility)
 	b.WriteString(writeTagSetXML(cfg.Tags))
@@ -620,7 +620,7 @@ func handleAssociateVpcCidrBlock(w http.ResponseWriter, r *http.Request) {
 	if ipv6 != "" || amazonIpv6 {
 		if ipv6 == "" {
 			// Amazon hands out a /56 from its pool.
-			ipv6 = "2600:1f00:" + generateUUID()[:4] + "::/56"
+			ipv6 = "2600:1f00:" + sim.NewUUID()[:4] + "::/56"
 		}
 		assocID := ec2ID("vpc-cidr-assoc")
 		ipv6XML = fmt.Sprintf("<ipv6CidrBlockAssociation><associationId>%s</associationId><ipv6CidrBlock>%s</ipv6CidrBlock><ipv6CidrBlockState><state>associated</state></ipv6CidrBlockState><networkBorderGroup>%s</networkBorderGroup><ipv6Pool>Amazon</ipv6Pool></ipv6CidrBlockAssociation>", assocID, ipv6, awsRegion())
@@ -630,7 +630,7 @@ func handleAssociateVpcCidrBlock(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<AssociateVpcCidrBlockResponse %s>
   <requestId>%s</requestId>
   %s%s<vpcId>%s</vpcId>
-</AssociateVpcCidrBlockResponse>`, ec2Xmlns(), generateUUID(), cidrXML, ipv6XML, vpcId)
+</AssociateVpcCidrBlockResponse>`, ec2Xmlns(), sim.NewUUID(), cidrXML, ipv6XML, vpcId)
 }
 
 func handleDisassociateVpcCidrBlock(w http.ResponseWriter, r *http.Request) {
@@ -646,7 +646,7 @@ func handleDisassociateVpcCidrBlock(w http.ResponseWriter, r *http.Request) {
   <requestId>%s</requestId>
   <cidrBlockAssociation><associationId>%s</associationId><cidrBlock>%s</cidrBlock><cidrBlockState><state>disassociating</state></cidrBlockState></cidrBlockAssociation>
   <vpcId>%s</vpcId>
-</DisassociateVpcCidrBlockResponse>`, ec2Xmlns(), generateUUID(), assoc.AssociationId, assoc.CidrBlock, assoc.VpcId)
+</DisassociateVpcCidrBlockResponse>`, ec2Xmlns(), sim.NewUUID(), assoc.AssociationId, assoc.CidrBlock, assoc.VpcId)
 }
 
 func handleAssociateSubnetCidrBlock(w http.ResponseWriter, r *http.Request) {
@@ -660,7 +660,7 @@ func handleAssociateSubnetCidrBlock(w http.ResponseWriter, r *http.Request) {
 	// association.
 	ipv6 := r.FormValue("Ipv6CidrBlock")
 	if ipv6 == "" {
-		ipv6 = "2600:1f00:" + generateUUID()[:4] + "::/64"
+		ipv6 = "2600:1f00:" + sim.NewUUID()[:4] + "::/64"
 	}
 	assocID := ec2ID("subnet-cidr-assoc")
 	ec2VpcCidrAssocs.Put(assocID, EC2VpcCidrAssoc{AssociationId: assocID, VpcId: subnetId, CidrBlock: ipv6, State: "associated"})
@@ -669,7 +669,7 @@ func handleAssociateSubnetCidrBlock(w http.ResponseWriter, r *http.Request) {
   <requestId>%s</requestId>
   <ipv6CidrBlockAssociation><associationId>%s</associationId><ipv6CidrBlock>%s</ipv6CidrBlock><ipv6CidrBlockState><state>associated</state></ipv6CidrBlockState></ipv6CidrBlockAssociation>
   <subnetId>%s</subnetId>
-</AssociateSubnetCidrBlockResponse>`, ec2Xmlns(), generateUUID(), assocID, ipv6, subnetId)
+</AssociateSubnetCidrBlockResponse>`, ec2Xmlns(), sim.NewUUID(), assocID, ipv6, subnetId)
 }
 
 func handleDisassociateSubnetCidrBlock(w http.ResponseWriter, r *http.Request) {
@@ -685,7 +685,7 @@ func handleDisassociateSubnetCidrBlock(w http.ResponseWriter, r *http.Request) {
   <requestId>%s</requestId>
   <ipv6CidrBlockAssociation><associationId>%s</associationId><ipv6CidrBlock>%s</ipv6CidrBlock><ipv6CidrBlockState><state>disassociating</state></ipv6CidrBlockState></ipv6CidrBlockAssociation>
   <subnetId>%s</subnetId>
-</DisassociateSubnetCidrBlockResponse>`, ec2Xmlns(), generateUUID(), assoc.AssociationId, assoc.CidrBlock, assoc.VpcId)
+</DisassociateSubnetCidrBlockResponse>`, ec2Xmlns(), sim.NewUUID(), assoc.AssociationId, assoc.CidrBlock, assoc.VpcId)
 }
 
 func handleCreateSubnetCidrReservation(w http.ResponseWriter, r *http.Request) {
@@ -712,7 +712,7 @@ func handleCreateSubnetCidrReservation(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateSubnetCidrReservationResponse %s>
   <requestId>%s</requestId>
   <subnetCidrReservation>%s</subnetCidrReservation>
-</CreateSubnetCidrReservationResponse>`, ec2Xmlns(), generateUUID(), subnetCidrReservationXML(res))
+</CreateSubnetCidrReservationResponse>`, ec2Xmlns(), sim.NewUUID(), subnetCidrReservationXML(res))
 }
 
 func handleDeleteSubnetCidrReservation(w http.ResponseWriter, r *http.Request) {
@@ -727,7 +727,7 @@ func handleDeleteSubnetCidrReservation(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteSubnetCidrReservationResponse %s>
   <requestId>%s</requestId>
   <deletedSubnetCidrReservation>%s</deletedSubnetCidrReservation>
-</DeleteSubnetCidrReservationResponse>`, ec2Xmlns(), generateUUID(), subnetCidrReservationXML(res))
+</DeleteSubnetCidrReservationResponse>`, ec2Xmlns(), sim.NewUUID(), subnetCidrReservationXML(res))
 }
 
 func handleGetSubnetCidrReservations(w http.ResponseWriter, r *http.Request) {
@@ -748,7 +748,7 @@ func handleGetSubnetCidrReservations(w http.ResponseWriter, r *http.Request) {
   <requestId>%s</requestId>
   <subnetIpv4CidrReservationSet>%s</subnetIpv4CidrReservationSet>
   <subnetIpv6CidrReservationSet>%s</subnetIpv6CidrReservationSet>
-</GetSubnetCidrReservationsResponse>`, ec2Xmlns(), generateUUID(), ipv4.String(), ipv6.String())
+</GetSubnetCidrReservationsResponse>`, ec2Xmlns(), sim.NewUUID(), ipv4.String(), ipv6.String())
 }
 
 func subnetCidrReservationXML(res EC2SubnetCidrReservation) string {
@@ -790,7 +790,7 @@ func handleCreateSecondaryNetwork(w http.ResponseWriter, r *http.Request) {
   <requestId>%s</requestId>
   <secondaryNetwork>%s</secondaryNetwork>
   <clientToken>%s</clientToken>
-</CreateSecondaryNetworkResponse>`, ec2Xmlns(), generateUUID(), secondaryNetworkXML(sn), r.FormValue("ClientToken"))
+</CreateSecondaryNetworkResponse>`, ec2Xmlns(), sim.NewUUID(), secondaryNetworkXML(sn), r.FormValue("ClientToken"))
 }
 
 func handleDeleteSecondaryNetwork(w http.ResponseWriter, r *http.Request) {
@@ -807,7 +807,7 @@ func handleDeleteSecondaryNetwork(w http.ResponseWriter, r *http.Request) {
   <requestId>%s</requestId>
   <secondaryNetwork>%s</secondaryNetwork>
   <clientToken>%s</clientToken>
-</DeleteSecondaryNetworkResponse>`, ec2Xmlns(), generateUUID(), secondaryNetworkXML(sn), r.FormValue("ClientToken"))
+</DeleteSecondaryNetworkResponse>`, ec2Xmlns(), sim.NewUUID(), secondaryNetworkXML(sn), r.FormValue("ClientToken"))
 }
 
 func handleDescribeSecondaryNetworks(w http.ResponseWriter, r *http.Request) {
@@ -823,7 +823,7 @@ func handleDescribeSecondaryNetworks(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeSecondaryNetworksResponse %s>
   <requestId>%s</requestId>
   <secondaryNetworkSet>%s</secondaryNetworkSet>
-</DescribeSecondaryNetworksResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeSecondaryNetworksResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func secondaryNetworkXML(sn EC2SecondaryNetwork) string {
@@ -870,7 +870,7 @@ func handleCreateSecondarySubnet(w http.ResponseWriter, r *http.Request) {
   <requestId>%s</requestId>
   <secondarySubnet>%s</secondarySubnet>
   <clientToken>%s</clientToken>
-</CreateSecondarySubnetResponse>`, ec2Xmlns(), generateUUID(), secondarySubnetXML(ss), r.FormValue("ClientToken"))
+</CreateSecondarySubnetResponse>`, ec2Xmlns(), sim.NewUUID(), secondarySubnetXML(ss), r.FormValue("ClientToken"))
 }
 
 func handleDeleteSecondarySubnet(w http.ResponseWriter, r *http.Request) {
@@ -887,7 +887,7 @@ func handleDeleteSecondarySubnet(w http.ResponseWriter, r *http.Request) {
   <requestId>%s</requestId>
   <secondarySubnet>%s</secondarySubnet>
   <clientToken>%s</clientToken>
-</DeleteSecondarySubnetResponse>`, ec2Xmlns(), generateUUID(), secondarySubnetXML(ss), r.FormValue("ClientToken"))
+</DeleteSecondarySubnetResponse>`, ec2Xmlns(), sim.NewUUID(), secondarySubnetXML(ss), r.FormValue("ClientToken"))
 }
 
 func handleDescribeSecondarySubnets(w http.ResponseWriter, r *http.Request) {
@@ -903,7 +903,7 @@ func handleDescribeSecondarySubnets(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeSecondarySubnetsResponse %s>
   <requestId>%s</requestId>
   <secondarySubnetSet>%s</secondarySubnetSet>
-</DescribeSecondarySubnetsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeSecondarySubnetsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func secondarySubnetXML(ss EC2SecondarySubnet) string {
@@ -954,7 +954,7 @@ func handleAssociateSecurityGroupVpc(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<AssociateSecurityGroupVpcResponse %s>
   <requestId>%s</requestId>
   <state>associated</state>
-</AssociateSecurityGroupVpcResponse>`, ec2Xmlns(), generateUUID())
+</AssociateSecurityGroupVpcResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDisassociateSecurityGroupVpc(w http.ResponseWriter, r *http.Request) {
@@ -970,7 +970,7 @@ func handleDisassociateSecurityGroupVpc(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<DisassociateSecurityGroupVpcResponse %s>
   <requestId>%s</requestId>
   <state>disassociating</state>
-</DisassociateSecurityGroupVpcResponse>`, ec2Xmlns(), generateUUID())
+</DisassociateSecurityGroupVpcResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeSecurityGroupVpcAssociations(w http.ResponseWriter, r *http.Request) {
@@ -987,7 +987,7 @@ func handleDescribeSecurityGroupVpcAssociations(w http.ResponseWriter, r *http.R
 	fmt.Fprintf(w, `<DescribeSecurityGroupVpcAssociationsResponse %s>
   <requestId>%s</requestId>
   <securityGroupVpcAssociationSet>%s</securityGroupVpcAssociationSet>
-</DescribeSecurityGroupVpcAssociationsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeSecurityGroupVpcAssociationsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func ec2SgVpcAssocMatchesFilters(a EC2SecurityGroupVpcAssociation, filters map[string][]string) bool {
@@ -1072,7 +1072,7 @@ func handleDescribeAccountVpcEncryptionControl(w http.ResponseWriter, r *http.Re
 	fmt.Fprintf(w, `<DescribeAccountVpcEncryptionControlResponse %s>
   <requestId>%s</requestId>
   <accountVpcEncryptionControl>%s</accountVpcEncryptionControl>
-</DescribeAccountVpcEncryptionControlResponse>`, ec2Xmlns(), generateUUID(), accountVpcEncryptionControlXML(control))
+</DescribeAccountVpcEncryptionControlResponse>`, ec2Xmlns(), sim.NewUUID(), accountVpcEncryptionControlXML(control))
 }
 
 func handleModifyAccountVpcEncryptionControl(w http.ResponseWriter, r *http.Request) {
@@ -1127,7 +1127,7 @@ func handleModifyAccountVpcEncryptionControl(w http.ResponseWriter, r *http.Requ
 	fmt.Fprintf(w, `<ModifyAccountVpcEncryptionControlResponse %s>
   <requestId>%s</requestId>
   <accountVpcEncryptionControl>%s</accountVpcEncryptionControl>
-</ModifyAccountVpcEncryptionControlResponse>`, ec2Xmlns(), generateUUID(), accountVpcEncryptionControlXML(control))
+</ModifyAccountVpcEncryptionControlResponse>`, ec2Xmlns(), sim.NewUUID(), accountVpcEncryptionControlXML(control))
 }
 
 func vpcEncryptionConfigurationFromCreateRequest(r *http.Request) (string, map[string]string, bool, error) {
@@ -1264,7 +1264,7 @@ func handleCreateVpcEncryptionControl(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateVpcEncryptionControlResponse %s>
   <requestId>%s</requestId>
   <vpcEncryptionControl>%s</vpcEncryptionControl>
-</CreateVpcEncryptionControlResponse>`, ec2Xmlns(), generateUUID(), vpcEncryptionControlXML(ctrl))
+</CreateVpcEncryptionControlResponse>`, ec2Xmlns(), sim.NewUUID(), vpcEncryptionControlXML(ctrl))
 }
 
 func handleDeleteVpcEncryptionControl(w http.ResponseWriter, r *http.Request) {
@@ -1280,7 +1280,7 @@ func handleDeleteVpcEncryptionControl(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteVpcEncryptionControlResponse %s>
   <requestId>%s</requestId>
   <vpcEncryptionControl>%s</vpcEncryptionControl>
-</DeleteVpcEncryptionControlResponse>`, ec2Xmlns(), generateUUID(), vpcEncryptionControlXML(ctrl))
+</DeleteVpcEncryptionControlResponse>`, ec2Xmlns(), sim.NewUUID(), vpcEncryptionControlXML(ctrl))
 }
 
 func handleModifyVpcEncryptionControl(w http.ResponseWriter, r *http.Request) {
@@ -1316,7 +1316,7 @@ func handleModifyVpcEncryptionControl(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ModifyVpcEncryptionControlResponse %s>
   <requestId>%s</requestId>
   <vpcEncryptionControl>%s</vpcEncryptionControl>
-</ModifyVpcEncryptionControlResponse>`, ec2Xmlns(), generateUUID(), vpcEncryptionControlXML(ctrl))
+</ModifyVpcEncryptionControlResponse>`, ec2Xmlns(), sim.NewUUID(), vpcEncryptionControlXML(ctrl))
 }
 
 func handleDescribeVpcEncryptionControls(w http.ResponseWriter, r *http.Request) {
@@ -1336,7 +1336,7 @@ func handleDescribeVpcEncryptionControls(w http.ResponseWriter, r *http.Request)
 	fmt.Fprintf(w, `<DescribeVpcEncryptionControlsResponse %s>
   <requestId>%s</requestId>
   <vpcEncryptionControlSet>%s</vpcEncryptionControlSet>
-</DescribeVpcEncryptionControlsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeVpcEncryptionControlsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func vpcEncryptionControlXML(ctrl EC2VpcEncryptionControl) string {

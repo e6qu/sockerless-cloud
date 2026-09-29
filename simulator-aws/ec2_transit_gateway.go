@@ -252,7 +252,7 @@ func tgwOptOrDefault(v, def string) string {
 func tgwResponse(w http.ResponseWriter, action, body string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, "<%sResponse %s><requestId>%s</requestId>%s</%sResponse>",
-		action, ec2Xmlns(), generateUUID(), body, action)
+		action, ec2Xmlns(), sim.NewUUID(), body, action)
 }
 
 func tgwBodyXML(tgw EC2TransitGateway) string {

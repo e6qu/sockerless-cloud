@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Amazon ECS answers DescribeServices from the service record its control plane
@@ -36,7 +37,7 @@ import (
 func ecsSchedulerTestStores() {
 	// Reconciliations requested by whatever ran before this must finish before
 	// the stores they read are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ecsClusters = sim.MakeStore[ECSCluster](nil, "ecs_clusters")
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")
@@ -83,7 +84,7 @@ func ecsSchedulerTestCluster(clusterName, family string) (ECSCluster, string) {
 func ecsSchedulerTestRunningTask(cluster ECSCluster, serviceName, taskDefinitionArn, containerIP string) ECSTask {
 	startedAt := float64(time.Now().Add(-time.Minute).UnixMilli()) / 1000
 	createdAt := float64(startedAt)
-	taskID := generateUUID()
+	taskID := sim.NewUUID()
 	task := ECSTask{
 		TaskArn:           ecsArn("task", cluster.ClusterName+"/"+taskID),
 		TaskDefinitionArn: taskDefinitionArn,

@@ -210,7 +210,7 @@ func handleAttachImageWatermark(w http.ResponseWriter, r *http.Request) {
 	ec2ImageWatermarks.Put(wm.WatermarkKey, wm)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AttachImageWatermarkResponse %s><requestId>%s</requestId><watermarkKey>%s</watermarkKey></AttachImageWatermarkResponse>`,
-		ec2Xmlns(), generateUUID(), wm.WatermarkKey)
+		ec2Xmlns(), sim.NewUUID(), wm.WatermarkKey)
 }
 
 func handleDetachImageWatermark(w http.ResponseWriter, r *http.Request) {
@@ -231,7 +231,7 @@ func handleDetachImageWatermark(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DetachImageWatermarkResponse %s><requestId>%s</requestId><return>true</return></DetachImageWatermarkResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // handleCancelImageLaunchPermission resets an AMI's launch permissions to
@@ -245,7 +245,7 @@ func handleCancelImageLaunchPermission(w http.ResponseWriter, r *http.Request) {
 	ec2Images.Put(img.ImageId, img)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CancelImageLaunchPermissionResponse %s><requestId>%s</requestId><return>true</return></CancelImageLaunchPermissionResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCreateImageUsageReport(w http.ResponseWriter, r *http.Request) {
@@ -302,7 +302,7 @@ func handleCreateImageUsageReport(w http.ResponseWriter, r *http.Request) {
 	ec2ImageUsageReports.Put(rep.ReportId, rep)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateImageUsageReportResponse %s><requestId>%s</requestId><reportId>%s</reportId></CreateImageUsageReportResponse>`,
-		ec2Xmlns(), generateUUID(), rep.ReportId)
+		ec2Xmlns(), sim.NewUUID(), rep.ReportId)
 }
 
 // ec2ImageUsageCount derives a real usage count for a resource type from the
@@ -334,7 +334,7 @@ func handleDeleteImageUsageReport(w http.ResponseWriter, r *http.Request) {
 	ec2ImageUsageReports.Delete(reportID)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteImageUsageReportResponse %s><requestId>%s</requestId><return>true</return></DeleteImageUsageReportResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeImageUsageReports(w http.ResponseWriter, r *http.Request) {
@@ -351,7 +351,10 @@ func handleDescribeImageUsageReports(w http.ResponseWriter, r *http.Request) {
 		results = append(results, rep)
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].ReportId < results[j].ReportId })
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, rep := range results {
 		items.WriteString("<item>")
@@ -360,7 +363,7 @@ func handleDescribeImageUsageReports(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeImageUsageReportsResponse %s><requestId>%s</requestId><imageUsageReportSet>%s</imageUsageReportSet>%s</DescribeImageUsageReportsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), ec2NextTokenXML(nextToken))
+		ec2Xmlns(), sim.NewUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
 
 func ec2ImageUsageReportXML(rep EC2ImageUsageReport) string {
@@ -427,7 +430,10 @@ func handleDescribeImageUsageReportEntries(w http.ResponseWriter, r *http.Reques
 		}
 		return results[i].ResourceType < results[j].ResourceType
 	})
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, e := range results {
 		fmt.Fprintf(&items, "<item><resourceType>%s</resourceType><reportId>%s</reportId><usageCount>%d</usageCount><accountId>%s</accountId><imageId>%s</imageId><reportCreationTime>%s</reportCreationTime></item>",
@@ -435,7 +441,7 @@ func handleDescribeImageUsageReportEntries(w http.ResponseWriter, r *http.Reques
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeImageUsageReportEntriesResponse %s><requestId>%s</requestId><imageUsageReportEntrySet>%s</imageUsageReportEntrySet>%s</DescribeImageUsageReportEntriesResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), ec2NextTokenXML(nextToken))
+		ec2Xmlns(), sim.NewUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
 
 // ExportImage / ImportImage themselves are registered by the AMI host file
@@ -472,7 +478,10 @@ func handleDescribeExportImageTasks(w http.ResponseWriter, r *http.Request) {
 		results = append(results, t)
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].ExportImageTaskId < results[j].ExportImageTaskId })
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, t := range results {
 		items.WriteString("<item>")
@@ -481,7 +490,7 @@ func handleDescribeExportImageTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeExportImageTasksResponse %s><requestId>%s</requestId><exportImageTaskSet>%s</exportImageTaskSet>%s</DescribeExportImageTasksResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), ec2NextTokenXML(nextToken))
+		ec2Xmlns(), sim.NewUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
 
 func ec2ImportImageFieldsXML(t EC2ImportImageTask) string {
@@ -536,7 +545,10 @@ func handleDescribeImportImageTasks(w http.ResponseWriter, r *http.Request) {
 		results = append(results, t)
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].ImportTaskId < results[j].ImportTaskId })
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, t := range results {
 		items.WriteString("<item>")
@@ -545,7 +557,7 @@ func handleDescribeImportImageTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeImportImageTasksResponse %s><requestId>%s</requestId><importImageTaskSet>%s</importImageTaskSet>%s</DescribeImportImageTasksResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), ec2NextTokenXML(nextToken))
+		ec2Xmlns(), sim.NewUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
 
 func handleEnableFastLaunch(w http.ResponseWriter, r *http.Request) {
@@ -573,7 +585,7 @@ func handleEnableFastLaunch(w http.ResponseWriter, r *http.Request) {
 	ec2FastLaunchImages.Put(fl.ImageId, fl)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<EnableFastLaunchResponse %s><requestId>%s</requestId>%s</EnableFastLaunchResponse>`,
-		ec2Xmlns(), generateUUID(), ec2FastLaunchFieldsXML(fl))
+		ec2Xmlns(), sim.NewUUID(), ec2FastLaunchFieldsXML(fl))
 }
 
 func handleDisableFastLaunch(w http.ResponseWriter, r *http.Request) {
@@ -592,7 +604,7 @@ func handleDisableFastLaunch(w http.ResponseWriter, r *http.Request) {
 	ec2FastLaunchImages.Delete(img.ImageId)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisableFastLaunchResponse %s><requestId>%s</requestId>%s</DisableFastLaunchResponse>`,
-		ec2Xmlns(), generateUUID(), ec2FastLaunchFieldsXML(fl))
+		ec2Xmlns(), sim.NewUUID(), ec2FastLaunchFieldsXML(fl))
 }
 
 func ec2FastLaunchFieldsXML(fl EC2FastLaunch) string {
@@ -627,7 +639,10 @@ func handleDescribeFastLaunchImages(w http.ResponseWriter, r *http.Request) {
 		results = append(results, fl)
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].ImageId < results[j].ImageId })
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, fl := range results {
 		items.WriteString("<item>")
@@ -636,7 +651,7 @@ func handleDescribeFastLaunchImages(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeFastLaunchImagesResponse %s><requestId>%s</requestId><fastLaunchImageSet>%s</fastLaunchImageSet>%s</DescribeFastLaunchImagesResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), ec2NextTokenXML(nextToken))
+		ec2Xmlns(), sim.NewUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
 
 // handleDescribeImageReferences returns the EC2 resources that reference each
@@ -666,7 +681,10 @@ func handleDescribeImageReferences(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sort.Slice(refs, func(i, j int) bool { return refs[i].Arn < refs[j].Arn })
-	refs, nextToken := awsPageExplicit(refs, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	refs, nextToken, pageOK := awsPage(w, ec2BadToken, refs, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, rf := range refs {
 		fmt.Fprintf(&items, "<item><imageId>%s</imageId><resourceType>%s</resourceType><arn>%s</arn></item>",
@@ -674,7 +692,7 @@ func handleDescribeImageReferences(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeImageReferencesResponse %s><requestId>%s</requestId><imageReferenceSet>%s</imageReferenceSet>%s</DescribeImageReferencesResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), ec2NextTokenXML(nextToken))
+		ec2Xmlns(), sim.NewUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
 
 // DescribeInstanceImageMetadata is registered by the instance-extras file
@@ -714,7 +732,7 @@ func handleGetImageAncestry(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetImageAncestryResponse %s><requestId>%s</requestId><imageAncestryEntrySet>%s</imageAncestryEntrySet></GetImageAncestryResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleEnableImageDeprecation(w http.ResponseWriter, r *http.Request) {
@@ -730,7 +748,7 @@ func handleEnableImageDeprecation(w http.ResponseWriter, r *http.Request) {
 	ec2ImageDeprecations.Put(img.ImageId, EC2ImageDeprecation{ImageId: img.ImageId, DeprecationTime: deprecateAt})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<EnableImageDeprecationResponse %s><requestId>%s</requestId><return>true</return></EnableImageDeprecationResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDisableImageDeprecation(w http.ResponseWriter, r *http.Request) {
@@ -741,7 +759,7 @@ func handleDisableImageDeprecation(w http.ResponseWriter, r *http.Request) {
 	ec2ImageDeprecations.Delete(img.ImageId)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisableImageDeprecationResponse %s><requestId>%s</requestId><return>true</return></DisableImageDeprecationResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleListImagesInRecycleBin(w http.ResponseWriter, r *http.Request) {
@@ -754,7 +772,10 @@ func handleListImagesInRecycleBin(w http.ResponseWriter, r *http.Request) {
 		results = append(results, img)
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].ImageId < results[j].ImageId })
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, img := range results {
 		desc := ""
@@ -766,7 +787,7 @@ func handleListImagesInRecycleBin(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListImagesInRecycleBinResponse %s><requestId>%s</requestId><imageSet>%s</imageSet>%s</ListImagesInRecycleBinResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), ec2NextTokenXML(nextToken))
+		ec2Xmlns(), sim.NewUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
 
 // ec2NextTokenXML renders an optional <nextToken> element, omitted when empty.

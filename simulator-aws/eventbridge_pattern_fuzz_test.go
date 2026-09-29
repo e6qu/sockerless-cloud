@@ -49,6 +49,13 @@ func FuzzEBEventPatternMatches(f *testing.F) {
 		}
 	}
 	f.Fuzz(func(t *testing.T, pattern, source, detailType, detail string) {
-		_ = ebEventPatternMatches(pattern, source, detailType, detail)
+		event := ebBuildEvent(EBEventRecord{ID: "e", Source: source, DetailType: detailType, Detail: detail})
+		got := ebEventPatternMatches(pattern, event)
+		if again := ebEventPatternMatches(pattern, event); again != got {
+			t.Fatalf("pattern %q is not deterministic over one event", pattern)
+		}
+		if got && ebValidateEventPattern(pattern) != nil {
+			t.Fatalf("pattern %q matched although validation rejects it", pattern)
+		}
 	})
 }

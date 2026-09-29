@@ -125,7 +125,10 @@ func handleCWListSyslogConfigurations(w http.ResponseWriter, r *http.Request) {
 		return cwSyslogKey(configurations[i].LogGroupArn, configurations[i].VpcEndpointId) <
 			cwSyslogKey(configurations[j].LogGroupArn, configurations[j].VpcEndpointId)
 	})
-	page, next := awsPage(configurations, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, logsBadToken, configurations, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	response := map[string]any{"syslogConfigurations": page}
 	if next != "" {
 		response["nextToken"] = next

@@ -164,7 +164,10 @@ func handleGlueGetUnfilteredPartitionsMetadata(w http.ResponseWriter, r *http.Re
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(unfiltered, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, unfiltered, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"UnfilteredPartitions": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -286,7 +289,10 @@ func handleGlueListDataQualityStatisticAnnotations(w http.ResponseWriter, r *htt
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(annotations, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, annotations, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Annotations": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // resetTagStores re-creates the in-memory stores the resolvers read, so each
@@ -14,7 +15,7 @@ import (
 func resetTagStores() {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	lambdaFunctions = sim.MakeStore[LambdaFunction](nil, "lambda_functions")
 	sqsQueues = sim.MakeStore[SQSQueue](nil, "sqs_queues")
 	snsTopics = sim.MakeStore[SNSTopic](nil, "sns_topics")

@@ -368,7 +368,7 @@ func handleAPIGWGenerateClientCertificate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	now := time.Now()
-	id := generateUUID()[:10]
+	id := sim.NewUUID()[:10]
 	c := APIGWClientCertificate{
 		ClientCertificateId:   id,
 		Description:           req.Description,
@@ -474,7 +474,7 @@ func handleAPIGWCreateDocumentationPart(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	p := APIGWDocumentationPart{
-		Id:         generateUUID()[:10],
+		Id:         sim.NewUUID()[:10],
 		Location:   req.Location,
 		Properties: req.Properties,
 		RestApiId:  restApiId,
@@ -567,7 +567,7 @@ func handleAPIGWImportDocumentationParts(w http.ResponseWriter, r *http.Request)
 	// The import body is an OpenAPI/Swagger document; create a single
 	// API-level documentation part recording the imported content.
 	p := APIGWDocumentationPart{
-		Id:         generateUUID()[:10],
+		Id:         sim.NewUUID()[:10],
 		Location:   APIGWDocumentationPartLocation{Type: "API"},
 		Properties: req.Body,
 		RestApiId:  restApiId,

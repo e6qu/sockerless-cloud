@@ -61,7 +61,7 @@ func handleKMSCreateCustomKeyStore(w http.ResponseWriter, r *http.Request) {
 	if cksType == "" {
 		cksType = "AWS_CLOUDHSM"
 	}
-	id := "cks-" + generateUUID()
+	id := "cks-" + sim.NewUUID()
 	ks := KMSCustomKeyStore{
 		CustomKeyStoreId:   id,
 		CustomKeyStoreName: req.CustomKeyStoreName,
@@ -114,7 +114,10 @@ func handleKMSDescribeCustomKeyStores(w http.ResponseWriter, r *http.Request) {
 			"No custom key store matched the request.")
 		return
 	}
-	page, next := awsPageExplicit(matched, req.Marker, req.Limit)
+	page, next, pageOK := awsPage(w, kmsBadToken, matched, req.Marker, req.Limit, 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"CustomKeyStores": page, "Truncated": next != ""}
 	if next != "" {
 		resp["NextMarker"] = next

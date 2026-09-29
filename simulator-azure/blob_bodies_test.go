@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
 // A database written before contents left the rows holds them under "Data",
@@ -31,7 +32,7 @@ func TestBlobAdoptBodiesMovesRowContentsOutAndSweepsOrphans(t *testing.T) {
 		HasUncommitted: true, HasCommitted: true,
 	})
 
-	store, err := sim.OpenPayloads(dir)
+	store, err := blobstore.OpenPayloads(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +54,7 @@ func TestBlobAdoptBodiesMovesRowContentsOutAndSweepsOrphans(t *testing.T) {
 		t.Fatalf("the block kept its contents in the row: %+v", block)
 	}
 	for ref, want := range map[string]string{block.UncommittedBody: "staged", block.CommittedBody: "committed"} {
-		if data, err := blockData(ref); err != nil || string(data) != want {
+		if data, err := blobBodies.Read(ref); err != nil || string(data) != want {
 			t.Fatalf("block contents %q, %v; want %q", data, err, want)
 		}
 	}

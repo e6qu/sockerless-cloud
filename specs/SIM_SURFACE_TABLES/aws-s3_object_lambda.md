@@ -17,7 +17,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /WriteGetObjectResponse` | ✓ `simulator-aws/s3_object_lambda.go:143::handleS3WriteGetObjectResponse` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /WriteGetObjectResponse` | ✓ `simulator-aws/s3_object_lambda.go:144::handleS3WriteGetObjectResponse` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

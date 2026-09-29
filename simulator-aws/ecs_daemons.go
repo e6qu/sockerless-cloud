@@ -140,9 +140,9 @@ func handleECSCreateDaemon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := float64(time.Now().Unix())
-	daemonID := req.DaemonName + "/" + generateUUID()
+	daemonID := req.DaemonName + "/" + sim.NewUUID()
 	daemonArn := ecsArn("daemon", daemonID)
-	deploymentArn := ecsArn("daemon-deployment", daemonID+"/"+generateUUID())
+	deploymentArn := ecsArn("daemon-deployment", daemonID+"/"+sim.NewUUID())
 	revisionArn := ecsArn("daemon-revision", daemonID+"/1")
 
 	d := ECSDaemon{
@@ -315,7 +315,10 @@ func handleECSListDaemons(w http.ResponseWriter, r *http.Request) {
 			"updatedAt": d.UpdatedAt,
 		})
 	}
-	page, next := awsPage(summaries, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecsBadToken, summaries, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"daemonSummariesList": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -395,7 +398,10 @@ func handleECSListDaemonDeployments(w http.ResponseWriter, r *http.Request) {
 			"finishedAt":              dep.FinishedAt,
 		})
 	}
-	page, next := awsPage(summaries, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecsBadToken, summaries, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"daemonDeployments": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -561,7 +567,10 @@ func handleECSListDaemonTaskDefinitions(w http.ResponseWriter, r *http.Request) 
 			"status":       td.Status,
 		})
 	}
-	page, next := awsPage(summaries, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecsBadToken, summaries, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"daemonTaskDefinitions": page}
 	if next != "" {
 		out["nextToken"] = next

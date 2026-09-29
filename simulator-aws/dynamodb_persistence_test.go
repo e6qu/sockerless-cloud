@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func callDynamoDBHandler(t *testing.T, handler http.HandlerFunc, body string) {
@@ -85,7 +86,7 @@ func TestDynamoDBTableSettingsPersistAcrossStoreReopen(t *testing.T) {
 
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ddbItems = sim.MakeStore[map[string]any](nil, "ddb_items")
 	ddbItemNames = sim.MakeStore[string](nil, "ddb_item_names")
 	callDynamoDBHandler(t, handleDDBDeleteTable, `{"TableName":"jobs"}`)

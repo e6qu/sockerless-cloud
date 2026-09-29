@@ -9,7 +9,6 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
-	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -18,8 +17,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/sim/listq"
+
 	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
 	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -355,8 +357,10 @@ func (s *cloudKmsGRPC) ListKeyRings(ctx context.Context, req *kmspb.ListKeyRings
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start := kmsPageOffset(req.GetPageToken())
-	end, next := kmsPageBounds(start, int(req.GetPageSize()), len(all))
+	start, end, next, err := kmsPageWindow(len(all), req.GetPageToken(), req.GetPageSize())
+	if err != nil {
+		return nil, err
+	}
 	return &kmspb.ListKeyRingsResponse{
 		KeyRings:      all[start:end],
 		NextPageToken: next,
@@ -400,8 +404,10 @@ func (s *cloudKmsGRPC) ListCryptoKeys(ctx context.Context, req *kmspb.ListCrypto
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start := kmsPageOffset(req.GetPageToken())
-	end, next := kmsPageBounds(start, int(req.GetPageSize()), len(all))
+	start, end, next, err := kmsPageWindow(len(all), req.GetPageToken(), req.GetPageSize())
+	if err != nil {
+		return nil, err
+	}
 	return &kmspb.ListCryptoKeysResponse{
 		CryptoKeys:    all[start:end],
 		NextPageToken: next,
@@ -530,8 +536,10 @@ func (s *cloudKmsGRPC) ListCryptoKeyVersions(ctx context.Context, req *kmspb.Lis
 		nb, _ := kmsVersionNumber(all[j].Name)
 		return na < nb
 	})
-	start := kmsPageOffset(req.GetPageToken())
-	end, next := kmsPageBounds(start, int(req.GetPageSize()), len(all))
+	start, end, next, err := kmsPageWindow(len(all), req.GetPageToken(), req.GetPageSize())
+	if err != nil {
+		return nil, err
+	}
 	return &kmspb.ListCryptoKeyVersionsResponse{
 		CryptoKeyVersions: all[start:end],
 		NextPageToken:     next,
@@ -1121,8 +1129,10 @@ func (s *cloudKmsGRPC) ListImportJobs(ctx context.Context, req *kmspb.ListImport
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start := kmsPageOffset(req.GetPageToken())
-	end, next := kmsPageBounds(start, int(req.GetPageSize()), len(all))
+	start, end, next, err := kmsPageWindow(len(all), req.GetPageToken(), req.GetPageSize())
+	if err != nil {
+		return nil, err
+	}
 	return &kmspb.ListImportJobsResponse{
 		ImportJobs:    all[start:end],
 		NextPageToken: next,
@@ -1342,8 +1352,10 @@ func (s *cloudKmsGRPC) ListRetiredResources(ctx context.Context, req *kmspb.List
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start := kmsPageOffset(req.GetPageToken())
-	end, next := kmsPageBounds(start, int(req.GetPageSize()), len(all))
+	start, end, next, err := kmsPageWindow(len(all), req.GetPageToken(), req.GetPageSize())
+	if err != nil {
+		return nil, err
+	}
 	return &kmspb.ListRetiredResourcesResponse{
 		RetiredResources: all[start:end],
 		NextPageToken:    next,
@@ -1488,25 +1500,17 @@ func kmsDurationString(d *durationpb.Duration) string {
 	return fmt.Sprintf("%ds", int64(d.AsDuration().Seconds()))
 }
 
-// kmsPageOffset decodes a page token into a list offset. An empty or invalid
-// token means "start at the beginning". The token is an opaque base64 of the
-// offset; it is never parsed by clients.
-func kmsPageOffset(token string) int {
-	if token == "" {
-		return 0
+// kmsPageWindow pages a Cloud KMS list by the base64 offset token the service
+// hands out, answering INVALID_ARGUMENT for a token it never issued.
+func kmsPageWindow(total int, token string, size int32) (start, end int, next string, err error) {
+	if size < 0 {
+		return 0, 0, "", status.Errorf(codes.InvalidArgument, "page_size must not be negative, got %d", size)
 	}
-	raw, err := base64.StdEncoding.DecodeString(token)
+	start, end, next, err = listq.Window(listq.Base64Decimal.Strictly(), total, token, int(size), 0, 0)
 	if err != nil {
-		return 0
+		return 0, 0, "", status.Errorf(codes.InvalidArgument, "invalid page_token %q", token)
 	}
-	var n int
-	if _, err := fmt.Sscanf(string(raw), "%d", &n); err != nil {
-		return 0
-	}
-	if n < 0 {
-		return 0
-	}
-	return n
+	return start, end, next, nil
 }
 
 // kmsImportJobToProto converts the REST-store ImportJob to the proto ImportJob.
@@ -1648,7 +1652,7 @@ func kmsCompletedOperation(resourceName string) (*longrunningpb.Operation, error
 		return nil, status.Errorf(codes.Internal, "could not build operation result: %v", err)
 	}
 	op := &longrunningpb.Operation{
-		Name:   kmsLocationFromName(resourceName) + "/operations/" + generateUUID(),
+		Name:   kmsLocationFromName(resourceName) + "/operations/" + sim.NewUUID(),
 		Done:   true,
 		Result: &longrunningpb.Operation_Response{Response: result},
 	}
@@ -1667,20 +1671,6 @@ func kmsLocationFromName(name string) string {
 		return name
 	}
 	return strings.Join(parts[:4], "/")
-}
-
-// kmsPageBounds returns the end index and next-page token for a page starting
-// at `start`, given the page size and total. When pageSize <= 0 the whole
-// remaining slice is returned.
-func kmsPageBounds(start, pageSize, total int) (end int, nextToken string) {
-	end = total
-	if pageSize > 0 && start+pageSize < total {
-		end = start + pageSize
-	}
-	if end < total {
-		nextToken = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%d", end)))
-	}
-	return end, nextToken
 }
 
 // kmsParentLocation returns the location segment of a

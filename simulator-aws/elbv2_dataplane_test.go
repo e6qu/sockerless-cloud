@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -313,7 +315,7 @@ func TestELBv2DataPlaneTunnelsUpgradedConnectionsBothWays(t *testing.T) {
 			_, _ = w.Write([]byte("ok"))
 			return
 		}
-		if !sim.IsUpgradeRequest(r) {
+		if !lbplane.IsUpgradeRequest(r) {
 			http.Error(w, "expected an upgrade request", http.StatusBadRequest)
 			return
 		}
@@ -450,7 +452,7 @@ func TestELBv2DataPlaneRecordsAClientDisconnectAsClientClosedRequest(t *testing.
 	elbv2LoadBalancers.Put(lb.Arn, lb)
 	elbv2TargetGroups.Put(tg.Arn, tg)
 	elbv2Listeners.Put(listener.Arn, listener)
-	elbv2TestMarkTargetHealthy(tg)
+	elbv2CheckTargetHealth(context.Background(), time.Now())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodGet, "/prefetch?_rsc=abc", nil).WithContext(ctx)
@@ -466,8 +468,8 @@ func TestELBv2DataPlaneRecordsAClientDisconnectAsClientClosedRequest(t *testing.
 	cancel()
 	<-done
 
-	if rr.Code != elbv2StatusClientClosedRequest {
-		t.Errorf("client disconnect recorded as %d, want %d", rr.Code, elbv2StatusClientClosedRequest)
+	if rr.Code != lbplane.StatusClientClosedRequest {
+		t.Errorf("client disconnect recorded as %d, want %d", rr.Code, lbplane.StatusClientClosedRequest)
 	}
 }
 
@@ -498,7 +500,7 @@ func TestELBv2DataPlaneReportsATargetThatClosesAFreshConnection(t *testing.T) {
 	elbv2LoadBalancers.Put(lb.Arn, lb)
 	elbv2TargetGroups.Put(tg.Arn, tg)
 	elbv2Listeners.Put(listener.Arn, listener)
-	elbv2TestMarkTargetHealthy(tg)
+	elbv2CheckTargetHealth(context.Background(), time.Now())
 
 	req := httptest.NewRequest(http.MethodGet, "/asset.js", nil)
 	req.Host = lb.DNSName
@@ -510,6 +512,85 @@ func TestELBv2DataPlaneReportsATargetThatClosesAFreshConnection(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "EOF") {
 		t.Errorf("body does not name the failure: %q", rr.Body.String())
+	}
+}
+
+// An HTTPS target group's targets present certificates the load balancer does
+// not validate — "you can use self-signed certificates or certificates that
+// have expired" — so a self-signed target serves traffic, and the escaped path
+// reaches it unchanged.
+func TestELBv2DataPlaneForwardsToASelfSignedHTTPSTarget(t *testing.T) {
+	srv := newELBv2DataPlaneServer(t)
+
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+		_, _ = w.Write([]byte("tls-target " + r.URL.RequestURI()))
+	}))
+	defer target.Close()
+
+	lb, tg, listener := elbv2TestTopologyForTarget(t, target, "tls-target")
+	tg.Protocol = "HTTPS"
+	tg.HealthCheckProtocol = "HTTPS"
+	elbv2LoadBalancers.Put(lb.Arn, lb)
+	elbv2TargetGroups.Put(tg.Arn, tg)
+	elbv2Listeners.Put(listener.Arn, listener)
+	elbv2CheckTargetHealth(context.Background(), time.Now())
+
+	req := httptest.NewRequest(http.MethodGet, "/files/a%2Fb?x=1", nil)
+	req.Host = lb.DNSName
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d, body %q", rr.Code, rr.Body.String())
+	}
+	if rr.Body.String() != "tls-target /files/a%2Fb?x=1" {
+		t.Fatalf("target saw %q", rr.Body.String())
+	}
+}
+
+// An AWS WAF web ACL associated with an Application Load Balancer inspects
+// every request the load balancer receives, so a request arriving on an HTTPS
+// listener is blocked exactly as one arriving over HTTP is.
+func TestELBv2HTTPSListenerAppliesTheAssociatedWebACL(t *testing.T) {
+	newELBv2DataPlaneServer(t)
+	priorACLs, priorAssociations := wafWebACLs, wafAssociations
+	wafWebACLs = sim.MakeStore[wafStoredWebACL](nil, "test_waf_webacls")
+	wafAssociations = sim.MakeStore[wafAssociation](nil, "test_waf_associations")
+	t.Cleanup(func() { wafWebACLs, wafAssociations = priorACLs, priorAssociations })
+
+	reached := false
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			reached = true
+		}
+	}))
+	defer target.Close()
+	lb, tg, listener := elbv2TestTopologyForTarget(t, target, "waf-https")
+	listener.Protocol, listener.Port = "HTTPS", 443
+	elbv2LoadBalancers.Put(lb.Arn, lb)
+	elbv2TargetGroups.Put(tg.Arn, tg)
+	elbv2Listeners.Put(listener.Arn, listener)
+	elbv2CheckTargetHealth(context.Background(), time.Now())
+
+	const aclARN = "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/deny-all/abc"
+	wafWebACLs.Put("REGIONAL/abc", wafStoredWebACL{Scope: "REGIONAL", WebACL: WAFWebACL{
+		Name: "deny-all", Id: "abc", ARN: aclARN,
+		DefaultAction:    json.RawMessage(`{"Block":{}}`),
+		VisibilityConfig: json.RawMessage(`{}`),
+	}})
+	wafAssociations.Put(lb.Arn, wafAssociation{ResourceARN: lb.Arn, WebACLARN: aclARN})
+
+	req := httptest.NewRequest(http.MethodGet, "https://"+lb.DNSName+"/", nil)
+	rr := httptest.NewRecorder()
+	elbv2HTTPSListenerHandler(listener.Arn).ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("HTTPS listener answered %d, want 403 from the web ACL", rr.Code)
+	}
+	if reached {
+		t.Fatal("a request the web ACL blocks reached the target")
 	}
 }
 
@@ -553,15 +634,4 @@ func elbv2TestTopologyForTarget(t *testing.T, target *httptest.Server, name stri
 		DefaultActions:  []ELBv2Action{{Type: "forward", TargetGroupArn: tg.Arn}},
 	}
 	return lb, tg, listener
-}
-
-// elbv2TestMarkTargetHealthy records the verdict the health checker would
-// reach, so the data plane forwards without waiting for a real check.
-func elbv2TestMarkTargetHealthy(tg ELBv2TargetGroup) {
-	elbv2TargetHealthMu.Lock()
-	defer elbv2TargetHealthMu.Unlock()
-	for _, target := range tg.Targets {
-		elbv2TargetHealthRecords[elbv2TargetHealthKey(tg.Arn, target)] =
-			&ELBv2TargetHealth{State: elbv2TargetStateHealthy}
-	}
 }

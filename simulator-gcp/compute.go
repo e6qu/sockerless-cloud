@@ -9,12 +9,12 @@ import (
 	"net"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // gcpInt64 round-trips int64 quoted-as-string (real GCP discovery
@@ -286,7 +286,7 @@ func newComputeOpWithType(project, scope string, targetLink string, operationTyp
 func newComputeOpRecord(project, scope, targetLink, operationType string) ComputeOperationRecord {
 	now := time.Now().UTC().Format(time.RFC3339)
 	return ComputeOperationRecord{
-		Name:          "operation-" + generateUUID()[:8],
+		Name:          "operation-" + sim.NewUUID()[:8],
 		ID:            computeNumericID(),
 		Project:       project,
 		Scope:         scope,
@@ -655,18 +655,28 @@ type ComputeHealthCheck struct {
 	HealthyThreshold   int64                   `json:"healthyThreshold,omitempty"`
 	UnhealthyThreshold int64                   `json:"unhealthyThreshold,omitempty"`
 	HttpHealthCheck    *ComputeHTTPHealthCheck `json:"httpHealthCheck,omitempty"`
+	HttpsHealthCheck   *ComputeHTTPHealthCheck `json:"httpsHealthCheck,omitempty"`
+	Http2HealthCheck   *ComputeHTTPHealthCheck `json:"http2HealthCheck,omitempty"`
 	TcpHealthCheck     *ComputeTCPHealthCheck  `json:"tcpHealthCheck,omitempty"`
 }
 
+// ComputeHTTPHealthCheck is the shape the HTTP, HTTPS and HTTP/2 health check
+// settings share.
 type ComputeHTTPHealthCheck struct {
-	Port        int64  `json:"port,omitempty"`
-	RequestPath string `json:"requestPath,omitempty"`
-	ProxyHeader string `json:"proxyHeader,omitempty"`
+	Port              int64  `json:"port,omitempty"`
+	PortName          string `json:"portName,omitempty"`
+	PortSpecification string `json:"portSpecification,omitempty"`
+	Host              string `json:"host,omitempty"`
+	RequestPath       string `json:"requestPath,omitempty"`
+	Response          string `json:"response,omitempty"`
+	ProxyHeader       string `json:"proxyHeader,omitempty"`
 }
 
 type ComputeTCPHealthCheck struct {
-	Port        int64  `json:"port,omitempty"`
-	ProxyHeader string `json:"proxyHeader,omitempty"`
+	Port              int64  `json:"port,omitempty"`
+	PortName          string `json:"portName,omitempty"`
+	PortSpecification string `json:"portSpecification,omitempty"`
+	ProxyHeader       string `json:"proxyHeader,omitempty"`
 }
 
 type ComputeBackendService struct {
@@ -870,6 +880,10 @@ func registerCompute(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
+		if req.Name == "" {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name is required")
+			return
+		}
 
 		selfLink := computeNetworkSelfLink(project, req.Name)
 		net := ComputeNetwork{
@@ -891,7 +905,7 @@ func registerCompute(srv *sim.Server) {
 		if !gcpRequireNetworkHost(w) {
 			return
 		}
-		if err := gcpCreateRealNetwork(r.Context(), selfLink); err != nil {
+		if _, err := gcpFabric.EnsureNetwork(r.Context(), selfLink); err != nil {
 			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to create real VPC network fabric: %v", err)
 			return
 		}
@@ -923,7 +937,11 @@ func registerCompute(srv *sim.Server) {
 			return strings.HasPrefix(n.SelfLink, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		all = gcpApplyListParams(all, r)
+		listed, listOK := gcpApplyListParams(w, r, all)
+		if !listOK {
+			return
+		}
+		all = listed
 		page, next, ok := paginateListCompute(w, r, all)
 		if !ok {
 			return
@@ -944,7 +962,7 @@ func registerCompute(srv *sim.Server) {
 		if computeNotFound(w, networks.Delete(selfLink), "network", name) {
 			return
 		}
-		if err := gcpDeleteRealNetwork(r.Context(), selfLink); err != nil {
+		if err := gcpFabric.TeardownNetwork(r.Context(), selfLink, nil); err != nil {
 			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to delete real VPC network fabric: %v", err)
 			return
 		}
@@ -1026,7 +1044,11 @@ func registerCompute(srv *sim.Server) {
 			return strings.HasPrefix(t.SelfLink, "https://www.googleapis.com/compute/v1/"+prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		all = gcpApplyListParams(all, r)
+		listed, listOK := gcpApplyListParams(w, r, all)
+		if !listOK {
+			return
+		}
+		all = listed
 		page, next, ok := paginateListCompute(w, r, all)
 		if !ok {
 			return
@@ -1138,7 +1160,11 @@ func registerCompute(srv *sim.Server) {
 			return strings.HasPrefix(subnet.SelfLink, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		all = gcpApplyListParams(all, r)
+		listed, listOK := gcpApplyListParams(w, r, all)
+		if !listOK {
+			return
+		}
+		all = listed
 		page, next, ok := paginateListCompute(w, r, all)
 		if !ok {
 			return
@@ -1239,7 +1265,7 @@ func registerCompute(srv *sim.Server) {
 		if computeNotFound(w, subnetworks.Delete(selfLink), "subnetwork", name) {
 			return
 		}
-		if err := gcpDeleteRealSubnetwork(r.Context(), selfLink); err != nil {
+		if err := gcpFabric.DeleteSubnet(r.Context(), selfLink); err != nil {
 			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to delete real subnet network fabric: %v", err)
 			return
 		}
@@ -1268,6 +1294,10 @@ func registerCompute(srv *sim.Server) {
 		}
 		if fw.Name == "" {
 			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			return
+		}
+		if msg := gcpInvalidFirewallPort(fw); msg != "" {
+			GCPError(w, http.StatusBadRequest, msg, "INVALID_ARGUMENT")
 			return
 		}
 		fw.Kind = "compute#firewall"
@@ -1311,7 +1341,11 @@ func registerCompute(srv *sim.Server) {
 			return strings.HasPrefix(f.SelfLink, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		all = gcpApplyListParams(all, r)
+		listed, listOK := gcpApplyListParams(w, r, all)
+		if !listOK {
+			return
+		}
+		all = listed
 		page, next, ok := paginateListCompute(w, r, all)
 		if !ok {
 			return
@@ -1348,6 +1382,10 @@ func registerCompute(srv *sim.Server) {
 		var patch ComputeFirewall
 		if err := sim.ReadJSON(r, &patch); err != nil {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		if msg := gcpInvalidFirewallPort(patch); msg != "" {
+			GCPError(w, http.StatusBadRequest, msg, "INVALID_ARGUMENT")
 			return
 		}
 		ok := firewalls.Update(selfLink, func(fw *ComputeFirewall) {
@@ -1469,7 +1507,11 @@ func registerCompute(srv *sim.Server) {
 			return strings.HasPrefix(addr.SelfLink, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		all = gcpApplyListParams(all, r)
+		listed, listOK := gcpApplyListParams(w, r, all)
+		if !listOK {
+			return
+		}
+		all = listed
 		page, next, ok := paginateListCompute(w, r, all)
 		if !ok {
 			return
@@ -1579,7 +1621,11 @@ func registerCompute(srv *sim.Server) {
 			return strings.HasPrefix(rt.SelfLink, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		all = gcpApplyListParams(all, r)
+		listed, listOK := gcpApplyListParams(w, r, all)
+		if !listOK {
+			return
+		}
+		all = listed
 		page, next, ok := paginateListCompute(w, r, all)
 		if !ok {
 			return
@@ -1596,8 +1642,15 @@ func registerCompute(srv *sim.Server) {
 		region := sim.PathParam(r, "region")
 		name := sim.PathParam(r, "name")
 		selfLink := fmt.Sprintf("projects/%s/regions/%s/routers/%s", project, region, name)
+		existing, found := routers.Get(selfLink)
 		if computeNotFound(w, routers.Delete(selfLink), "router", name) {
 			return
+		}
+		if found {
+			if err := gcpReleaseRealRouterNAT(r.Context(), existing, nil); err != nil {
+				GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to withdraw real Cloud NAT fabric: %v", err)
+				return
+			}
 		}
 		op := newComputeOpWithType(project, "regions/"+region, selfLink, "delete")
 		sim.WriteJSON(w, http.StatusOK, op)
@@ -1617,6 +1670,7 @@ func registerCompute(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err)
 			return
 		}
+		before, _ := routers.Get(selfLink)
 		ok := routers.Update(selfLink, func(rt *ComputeRouter) {
 			if patch.Description != "" {
 				rt.Description = patch.Description
@@ -1636,7 +1690,12 @@ func registerCompute(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", name)
 			return
 		}
-		if rt, ok := routers.Get(selfLink); ok && len(rt.Nats) > 0 {
+		rt, _ := routers.Get(selfLink)
+		if err := gcpReleaseRealRouterNAT(r.Context(), before, rt.Nats); err != nil {
+			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to withdraw real Cloud NAT fabric: %v", err)
+			return
+		}
+		if len(rt.Nats) > 0 {
 			if !gcpRequireNetworkHost(w) {
 				return
 			}
@@ -1695,33 +1754,30 @@ func gcpReapplyRealFirewalls(ctx context.Context) error {
 	}
 	for _, inst := range gcpInstances.List() {
 		for _, ni := range inst.NetworkInterfaces {
-			nicID := inst.SelfLink + "/" + ni.Name
-			gcpRealMu.Lock()
-			nic := gcpRealNICs[nicID]
-			tap := gcpRealVMNICs[nicID]
-			gcpRealMu.Unlock()
-			if nic == nil && tap == nil {
+			nicID := gcpNICKey(&inst, ni)
+			if !gcpFabric.Realized(nicID) {
 				continue
 			}
-			rules := gcpIngressPacketRules(inst, ni)
-			if nic != nil {
-				if err := nic.ConfigureIngressFilter(ctx, rules); err != nil {
-					return fmt.Errorf("configure firewall on %s: %w", nicID, err)
-				}
+			rules, err := gcpIngressPacketRules(inst, ni)
+			if err != nil {
+				return fmt.Errorf("compile firewall for %s: %w", nicID, err)
 			}
-			if tap != nil {
-				if err := tap.ConfigureIngressFilter(ctx, rules); err != nil {
-					return fmt.Errorf("configure firewall on %s: %w", nicID, err)
-				}
+			// Compute Engine's implied ingress rule denies what no firewall
+			// rule allows, so an empty rule set still filters.
+			if err := gcpFabric.ApplyIngress(ctx, nicID, [][]realexec.PacketRule{rules}); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
 }
 
-func gcpIngressPacketRules(target ComputeInstance, targetNIC ComputeNetworkInterface) []realexec.PacketRule {
+// gcpIngressPacketRules compiles the enabled ingress firewall rules of the
+// interface's network that target the instance, in Compute Engine's order:
+// lower priority value first, and a deny before an allow of equal priority.
+func gcpIngressPacketRules(target ComputeInstance, targetNIC ComputeNetworkInterface) ([]realexec.PacketRule, error) {
 	if gcpFirewalls == nil {
-		return nil
+		return nil, nil
 	}
 	firewalls := gcpFirewalls.Filter(func(fw ComputeFirewall) bool {
 		if fw.Disabled || !strings.EqualFold(gcpDefaultString(fw.Direction, "INGRESS"), "INGRESS") {
@@ -1729,26 +1785,51 @@ func gcpIngressPacketRules(target ComputeInstance, targetNIC ComputeNetworkInter
 		}
 		return gcpCanonicalComputeRef(fw.Network, gcpProjectFromSelfLink(fw.SelfLink), "global", "networks", "default") == targetNIC.Network
 	})
-	sort.SliceStable(firewalls, func(i, j int) bool {
-		if firewalls[i].Priority == firewalls[j].Priority {
-			return firewalls[i].Name < firewalls[j].Name
+	sort.SliceStable(firewalls, func(i, j int) bool { return firewalls[i].Name < firewalls[j].Name })
+	var rules []realexec.PrioritizedRule
+	add := func(priority int, actions []ComputeFirewallAction, sources []string, verdict string) error {
+		for _, action := range actions {
+			expanded, err := realexec.ExpandRules(action.IPProtocol, sources, action.Ports, verdict)
+			if err != nil {
+				return err
+			}
+			for _, rule := range expanded {
+				rules = append(rules, realexec.PrioritizedRule{Priority: priority, Rule: rule})
+			}
 		}
-		return firewalls[i].Priority < firewalls[j].Priority
-	})
-	var rules []realexec.PacketRule
+		return nil
+	}
 	for _, fw := range firewalls {
 		if !gcpFirewallTargetsInstance(fw, target) {
 			continue
 		}
 		sources := gcpFirewallSources(fw, targetNIC.Network)
-		for _, action := range fw.Denied {
-			rules = append(rules, gcpPacketRulesForAction(action, sources, "drop")...)
+		if err := add(int(fw.Priority), fw.Denied, sources, "drop"); err != nil {
+			return nil, fmt.Errorf("firewall %s: %w", fw.Name, err)
 		}
-		for _, action := range fw.Allowed {
-			rules = append(rules, gcpPacketRulesForAction(action, sources, "accept")...)
+		if err := add(int(fw.Priority), fw.Allowed, sources, "accept"); err != nil {
+			return nil, fmt.Errorf("firewall %s: %w", fw.Name, err)
 		}
 	}
-	return rules
+	return realexec.FlattenByPriority(rules), nil
+}
+
+// gcpInvalidFirewallPort names the first port specification Compute Engine
+// would not accept, as its invalid-field message, or returns "".
+func gcpInvalidFirewallPort(fw ComputeFirewall) string {
+	for _, list := range []struct {
+		field   string
+		actions []ComputeFirewallAction
+	}{{"allowed", fw.Allowed}, {"denied", fw.Denied}} {
+		for i, action := range list.actions {
+			for j, port := range action.Ports {
+				if _, _, err := realexec.PortRange(port); err != nil || port == "" || port == "*" {
+					return fmt.Sprintf("Invalid value for field 'resource.%s[%d].ports[%d]': '%s'.", list.field, i, j, port)
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func gcpFirewallTargetsInstance(fw ComputeFirewall, inst ComputeInstance) bool {
@@ -1782,27 +1863,6 @@ func gcpFirewallSources(fw ComputeFirewall, network string) []string {
 		return []string{"0.0.0.0/0"}
 	}
 	return out
-}
-
-func gcpPacketRulesForAction(action ComputeFirewallAction, sources []string, verdict string) []realexec.PacketRule {
-	ports := action.Ports
-	if len(ports) == 0 {
-		ports = []string{""}
-	}
-	var rules []realexec.PacketRule
-	for _, source := range sources {
-		for _, port := range ports {
-			from, to := parsePortRange(port)
-			rules = append(rules, realexec.PacketRule{
-				Protocol:   action.IPProtocol,
-				SourceCIDR: source,
-				FromPort:   from,
-				ToPort:     to,
-				Action:     verdict,
-			})
-		}
-	}
-	return rules
 }
 
 func gcpInstanceHasAnyTag(inst ComputeInstance, tags []string) bool {
@@ -1848,19 +1908,6 @@ func gcpCanonicalComputeRef(ref, project, scope, collection, fallbackName string
 		return ref
 	}
 	return fmt.Sprintf("projects/%s/%s/%s/%s", project, scope, collection, ref)
-}
-
-func parsePortRange(port string) (int, int) {
-	if port == "" || port == "*" {
-		return 0, 0
-	}
-	if from, to, ok := strings.Cut(port, "-"); ok {
-		start, _ := strconv.Atoi(from)
-		end, _ := strconv.Atoi(to)
-		return start, end
-	}
-	value, _ := strconv.Atoi(port)
-	return value, value
 }
 
 func gcpDefaultString(value, fallback string) string {
@@ -2154,7 +2201,7 @@ func ensureGCPAutoModeSubnetwork(ctx context.Context, networks sim.Store[Compute
 			CreationTimestamp:     time.Now().UTC().Format(time.RFC3339),
 		}
 		net.RoutingConfig.RoutingMode = "REGIONAL"
-		if err := gcpCreateRealNetwork(ctx, networkLink); err != nil {
+		if _, err := gcpFabric.EnsureNetwork(ctx, networkLink); err != nil {
 			return "", err
 		}
 		networks.Put(networkLink, net)
@@ -2389,7 +2436,7 @@ func recoverComputeInstances(instances sim.Store[ComputeInstance]) {
 		if inst.Status != ComputeInstanceRunning && !computeInstancePreRunning(inst.Status) {
 			continue
 		}
-		if gcpRealVMAlive(inst.SelfLink) {
+		if gcpFabric.VMAlive(inst.SelfLink) {
 			continue
 		}
 		instances.Update(inst.SelfLink, func(in *ComputeInstance) {
@@ -2446,20 +2493,20 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		}
 		inst.Status = ComputeInstanceRunning
 		if inst.LabelFingerprint == "" {
-			inst.LabelFingerprint = generateUUID()[:8]
+			inst.LabelFingerprint = sim.NewUUID()[:8]
 		}
 		if inst.Tags == nil {
 			inst.Tags = &ComputeInstanceTags{}
 		}
 		if inst.Tags.Fingerprint == "" {
-			inst.Tags.Fingerprint = generateUUID()[:8]
+			inst.Tags.Fingerprint = sim.NewUUID()[:8]
 		}
 		if inst.Metadata == nil {
 			inst.Metadata = &ComputeInstanceMetadata{}
 		}
 		inst.Metadata.Kind = "compute#metadata"
 		if inst.Metadata.Fingerprint == "" {
-			inst.Metadata.Fingerprint = generateUUID()[:8]
+			inst.Metadata.Fingerprint = sim.NewUUID()[:8]
 		}
 		for i := range inst.Disks {
 			if inst.Disks[i].Kind == "" {
@@ -2523,7 +2570,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 				inst.NetworkInterfaces[i].StackType = "IPV4_ONLY"
 			}
 			if inst.NetworkInterfaces[i].Fingerprint == "" {
-				inst.NetworkInterfaces[i].Fingerprint = generateUUID()[:8]
+				inst.NetworkInterfaces[i].Fingerprint = sim.NewUUID()[:8]
 			}
 			for j := range inst.NetworkInterfaces[i].AccessConfigs {
 				if inst.NetworkInterfaces[i].AccessConfigs[j].Kind == "" {
@@ -2584,7 +2631,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		recordComputeOp(op)
 
 		booting := inst
-		go func() {
+		bg.Go(func() {
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), computeInstanceBootBudget)
 			defer cancel()
 			err := gcpStartRealVM(ctx, &booting)
@@ -2607,7 +2654,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			booting.Status = ComputeInstanceRunning
 			instances.Put(booting.SelfLink, booting)
 			computeOpFinish(op.Name, nil)
-		}()
+		})
 
 		sim.WriteJSON(w, http.StatusOK, computeOpJSON(op))
 	})
@@ -2622,7 +2669,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
 			return
 		}
-		if inst.Status == ComputeInstanceRunning && !gcpRealVMAlive(inst.SelfLink) {
+		if inst.Status == ComputeInstanceRunning && !gcpFabric.VMAlive(inst.SelfLink) {
 			inst.Status = ComputeInstanceTerminated
 			instances.Put(selfLink, inst)
 		}
@@ -2637,7 +2684,11 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			return strings.HasPrefix(inst.SelfLink, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		all = gcpApplyListParams(all, r)
+		listed, listOK := gcpApplyListParams(w, r, all)
+		if !listOK {
+			return
+		}
+		all = listed
 		page, next, ok := paginateListCompute(w, r, all)
 		if !ok {
 			return
@@ -2697,7 +2748,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		zone := sim.PathParam(r, "zone")
 		name := sim.PathParam(r, "name")
 		selfLink := instanceSelfLink(project, zone, name)
-		if err := gcpStopRealVM(r.Context(), selfLink); err != nil {
+		if err := gcpFabric.StopVM(r.Context(), selfLink, nil); err != nil {
 			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to stop real Compute Engine instance: %v", err)
 			return
 		}
@@ -2841,7 +2892,7 @@ func registerComputeDisks(srv *sim.Server) {
 		if d.Type == "" {
 			d.Type = fmt.Sprintf("projects/%s/zones/%s/diskTypes/pd-standard", project, zone)
 		}
-		d.LabelFingerprint = generateUUID()[:8]
+		d.LabelFingerprint = sim.NewUUID()[:8]
 		disks.Put(d.SelfLink, d)
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, d.SelfLink, "insert"))
 	})

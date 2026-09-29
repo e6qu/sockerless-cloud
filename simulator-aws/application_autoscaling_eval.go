@@ -193,7 +193,7 @@ func appScalingRecordActivity(policy AppScalingPolicy, target AppScalableTarget,
 // DescribeScalingActivities handler sorts ascending), embedding epoch nanos so
 // successive evaluations never collide.
 func appScalingActivityID(now time.Time) string {
-	return generateUUID() + "-" + strconv.Itoa(int(now.UnixNano()))
+	return sim.NewUUID() + "-" + strconv.Itoa(int(now.UnixNano()))
 }
 
 // targetTrackingConfig is the typed view over the raw

@@ -342,7 +342,7 @@ func fireStepFunctionsTarget(stateMachineArn, input string) {
 	if input == "" {
 		input = "{}"
 	}
-	execution, executionErr := sfnStartNestedExecution(stateMachineArn, generateUUID(), input)
+	execution, executionErr := sfnStartNestedExecution(stateMachineArn, sim.NewUUID(), input)
 	if executionErr != nil {
 		cloudTrailRecordSchedulerFireErr(
 			"StartExecution",

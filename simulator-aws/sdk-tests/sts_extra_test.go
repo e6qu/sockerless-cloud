@@ -2,6 +2,8 @@ package aws_sdk_test
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/aws/smithy-go"
 	"github.com/e6qu/sockerless-cloud/testutil/samlidp"
+	"github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -128,19 +131,71 @@ func TestSTS_AssumeRoleWithSAML(t *testing.T) {
 	assert.Equal(t, "ExpiredTokenException", code(err), "an assertion past its validity is refused as expired")
 }
 
-// TestSTS_GetWebIdentityToken issues a signed web-identity JWT + its expiration.
+// TestSTS_GetWebIdentityToken enables IAM outbound identity federation and
+// verifies the issued JWT the way a relying party does: against the key set
+// the account issuer publishes at its own host. The HTTP client reaches that
+// host at the simulator's address, the one coordinate a relocated issuer has.
 func TestSTS_GetWebIdentityToken(t *testing.T) {
+	admin := iamClient()
 	client := stsClient()
-	out, err := client.GetWebIdentityToken(ctx, &sts.GetWebIdentityTokenInput{
-		Audience:         []string{"https://example.com"},
-		SigningAlgorithm: aws.String("RS256"),
+	_, err := client.GetWebIdentityToken(ctx, &sts.GetWebIdentityTokenInput{
+		Audience: []string{"https://example.com"}, SigningAlgorithm: aws.String("RS256"),
 	})
+	var disabled *ststypes.OutboundWebIdentityFederationDisabledException
+	require.ErrorAs(t, err, &disabled, "tokens are refused until the account enables outbound federation")
+
+	fed, err := admin.EnableOutboundWebIdentityFederation(ctx, &iam.EnableOutboundWebIdentityFederationInput{})
 	require.NoError(t, err)
-	tok := aws.ToString(out.WebIdentityToken)
-	assert.NotEmpty(t, tok)
-	// A structurally valid JWT has three dot-separated segments.
-	assert.Equal(t, 3, strings.Count(tok, ".")+1)
-	require.NotNil(t, out.Expiration)
+	t.Cleanup(func() {
+		_, _ = admin.DisableOutboundWebIdentityFederation(ctx, &iam.DisableOutboundWebIdentityFederationInput{})
+	})
+	issuer := aws.ToString(fed.IssuerIdentifier)
+	require.True(t, strings.HasSuffix(issuer, ".tokens.sts.global.api.aws"), issuer)
+
+	fetch := func(path string, into any) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
+		require.NoError(t, err)
+		req.Host = strings.TrimPrefix(issuer, "https://")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode, path)
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(into))
+	}
+	var discovery struct {
+		Issuer  string `json:"issuer"`
+		JWKSURI string `json:"jwks_uri"`
+	}
+	fetch("/.well-known/openid-configuration", &discovery)
+	assert.Equal(t, issuer, discovery.Issuer)
+	assert.Equal(t, issuer+"/.well-known/jwks.json", discovery.JWKSURI)
+	var keys jose.JSONWebKeySet
+	fetch("/.well-known/jwks.json", &keys)
+
+	for _, alg := range []jose.SignatureAlgorithm{jose.RS256, jose.ES384} {
+		out, err := client.GetWebIdentityToken(ctx, &sts.GetWebIdentityTokenInput{
+			Audience:         []string{"https://example.com"},
+			SigningAlgorithm: aws.String(string(alg)),
+			DurationSeconds:  aws.Int32(120),
+		})
+		require.NoError(t, err)
+		require.NotNil(t, out.Expiration)
+		signed, err := jose.ParseSigned(aws.ToString(out.WebIdentityToken), []jose.SignatureAlgorithm{alg})
+		require.NoError(t, err)
+		payload, err := signed.Verify(&keys)
+		require.NoError(t, err, "the %s token verifies against the issuer's key set", alg)
+		var claims struct {
+			Iss string `json:"iss"`
+			Aud string `json:"aud"`
+			Exp int64  `json:"exp"`
+			Iat int64  `json:"iat"`
+		}
+		require.NoError(t, json.Unmarshal(payload, &claims))
+		assert.Equal(t, issuer, claims.Iss)
+		assert.Equal(t, "https://example.com", claims.Aud)
+		assert.Equal(t, int64(120), claims.Exp-claims.Iat)
+		assert.Equal(t, claims.Exp, out.Expiration.Unix())
+	}
 }
 
 // TestSTS_GetDelegatedAccessToken trades a token in for temporary credentials

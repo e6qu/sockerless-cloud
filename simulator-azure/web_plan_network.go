@@ -506,7 +506,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		}
 		now := time.Now().UTC().Format(time.RFC3339Nano)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"id":           generateUUID(),
+			"id":           sim.NewUUID(),
 			"name":         "RecycleManagedInstanceWorker",
 			"status":       "Succeeded",
 			"createdTime":  now,

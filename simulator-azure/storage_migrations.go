@@ -247,7 +247,7 @@ func handleStorageRestoreBlobRanges(w http.ResponseWriter, r *http.Request) {
 	account, _ := azStorageAccounts.Get(acctID)
 	restoredCount := storageRestoreBlobs(account.Name, restoreTo, req.BlobRanges)
 
-	restoreID := "restore-" + generateUUID()
+	restoreID := "restore-" + sim.NewUUID()
 	ranges := []any{}
 	for _, rng := range req.BlobRanges {
 		ranges = append(ranges, map[string]any{

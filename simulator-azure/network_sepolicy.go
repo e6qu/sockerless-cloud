@@ -73,7 +73,7 @@ func registerNetworkServiceEndpointPolicies(srv *sim.Server) {
 			return &p.azureNetworkResourceHeader
 		},
 		provision: func(_ context.Context, p *ServiceEndpointPolicy, previous *ServiceEndpointPolicy) error {
-			p.Properties.ResourceGUID = generateUUID()
+			p.Properties.ResourceGUID = sim.NewUUID()
 			if previous != nil && previous.Properties.ResourceGUID != "" {
 				p.Properties.ResourceGUID = previous.Properties.ResourceGUID
 			}

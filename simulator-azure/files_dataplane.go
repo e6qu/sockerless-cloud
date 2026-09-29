@@ -423,7 +423,7 @@ func filesHandleLease(w http.ResponseWriter, r *http.Request, account, share, en
 			}
 		}
 		if proposed == "" {
-			proposed = generateUUID()
+			proposed = sim.NewUUID()
 		}
 		newLease := FileLeaseData{
 			Account: account, Share: share, Path: entryPath,
@@ -646,7 +646,7 @@ func handleFilesCreateShareSnapshot(w http.ResponseWriter, r *http.Request, acco
 		Created:  time.Now().UTC().Format(http.TimeFormat),
 		Quota:    s.Quota,
 		Metadata: metadata,
-		ETag:     `"` + generateUUID() + `"`,
+		ETag:     `"` + sim.NewUUID() + `"`,
 	}
 	fileShareSnapshots.Put(fileShareSnapshotKey(account, share, snapshot), entry)
 	w.Header().Set("x-ms-snapshot", snapshot)
@@ -689,7 +689,7 @@ func handleFilesSetShareProperties(w http.ResponseWriter, r *http.Request, accou
 	s.Quota = quota
 	s.AccessTier = accessTier
 	s.RootSquash = rootSquash
-	s.ETag = `"` + generateUUID() + `"`
+	s.ETag = `"` + sim.NewUUID() + `"`
 	s.Created = time.Now().UTC().Format(http.TimeFormat)
 	fileShareData.Put(key, s)
 	upsertFileShareARMProjection(account, share, s.Quota, s.Metadata)
@@ -712,7 +712,7 @@ func handleFilesSetShareMetadata(w http.ResponseWriter, r *http.Request, account
 		return
 	}
 	s.Metadata = collectMetadata(r)
-	s.ETag = `"` + generateUUID() + `"`
+	s.ETag = `"` + sim.NewUUID() + `"`
 	s.Created = time.Now().UTC().Format(http.TimeFormat)
 	fileShareData.Put(key, s)
 	upsertFileShareARMProjection(account, share, s.Quota, s.Metadata)
@@ -886,7 +886,7 @@ func handleFilesRestoreShare(w http.ResponseWriter, r *http.Request, account, sh
 		Metadata: deleted.Metadata,
 		ACLs:     deleted.ACLs,
 		Created:  time.Now().UTC().Format(http.TimeFormat),
-		ETag:     `"` + generateUUID() + `"`,
+		ETag:     `"` + sim.NewUUID() + `"`,
 	}
 	fileShareData.Put(fileShareKey(account, share), restored)
 	fileDeletedShares.Delete(fileDeletedShareKey(account, name, version))
@@ -1121,61 +1121,6 @@ func filesApplyLastWriteTime(r *http.Request, hostPath string) error {
 		return err
 	}
 	return os.Chtimes(hostPath, ts, ts)
-}
-
-// filesClearFileRange is what `x-ms-write: clear` does to a range of an Azure
-// file: the range stops holding data. The share's files are real files and List
-// Ranges reads the filesystem's own extent map, so clearing has to deallocate
-// the range rather than fill it with zeros — a zero-filled extent is still an
-// allocated extent, and the service would go on reporting a range the caller
-// was told it had cleared.
-//
-// Only whole allocation units can be deallocated. The partial blocks at either
-// edge of the range are therefore zeroed in place, which is exactly what the
-// kernel does for the unaligned edges of a hole punch, and the aligned interior
-// is deallocated.
-func filesClearFileRange(f *os.File, info os.FileInfo, start, length int64) error {
-	if length <= 0 {
-		return nil
-	}
-	blockSize, ok := fileAllocationBlockSize(info)
-	if !ok {
-		return fmt.Errorf("clear the range of %s: the filesystem does not report an allocation block size", f.Name())
-	}
-	end := start + length
-	alignedStart := ((start + blockSize - 1) / blockSize) * blockSize
-	alignedEnd := (end / blockSize) * blockSize
-	if alignedEnd <= alignedStart {
-		// The range does not span a whole allocation unit, so there is nothing
-		// the filesystem can take back; its bytes still have to read as zeros.
-		return filesZeroFileRange(f, start, length)
-	}
-	if alignedStart > start {
-		if err := filesZeroFileRange(f, start, alignedStart-start); err != nil {
-			return err
-		}
-	}
-	if end > alignedEnd {
-		if err := filesZeroFileRange(f, alignedEnd, end-alignedEnd); err != nil {
-			return err
-		}
-	}
-	return filePunchHole(f, alignedStart, alignedEnd-alignedStart)
-}
-
-// filesZeroFileRange writes zeros over a range without changing the file's
-// size.
-func filesZeroFileRange(f *os.File, start, length int64) error {
-	const chunk = 1 << 20
-	zeros := make([]byte, min(length, int64(chunk)))
-	for written := int64(0); written < length; {
-		n := min(length-written, int64(len(zeros)))
-		if _, err := f.WriteAt(zeros[:n], start+written); err != nil {
-			return err
-		}
-		written += n
-	}
-	return nil
 }
 
 // filesSortedNames returns the entries of a directory in the lexical order the

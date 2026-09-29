@@ -1493,7 +1493,7 @@ func handleDDBExecuteStatement(w http.ResponseWriter, r *http.Request) {
 	}
 	// The parsed statement names its table, so only that table's stripe is
 	// taken. A SELECT reads; everything else writes.
-	release := ddbLockTables(st.Kind != pqlSelect, st.Table)
+	release := ddbItemLocks.Lock(st.Kind != pqlSelect, st.Table)
 	res, perr := executePartiQL(st, req.Limit, req.NextToken)
 	release()
 	if perr != nil {
@@ -1562,7 +1562,7 @@ func handleDDBBatchExecuteStatement(w http.ResponseWriter, r *http.Request) {
 			batchTables = append(batchTables, st.Table)
 		}
 	}
-	defer ddbLockTables(true, batchTables...)()
+	defer ddbItemLocks.Lock(true, batchTables...)()
 	for i := range req.Statements {
 		entry := map[string]any{}
 		st, perr := parsed[i], parseErrs[i]
@@ -1652,7 +1652,7 @@ func handleDDBExecuteTransaction(w http.ResponseWriter, r *http.Request) {
 	for _, st := range stmts {
 		transactTables = append(transactTables, st.Table)
 	}
-	defer ddbLockTables(true, transactTables...)()
+	defer ddbItemLocks.Lock(true, transactTables...)()
 
 	// Validation pass: confirm each statement would succeed without mutating.
 	reasons := make([]map[string]any, len(stmts))

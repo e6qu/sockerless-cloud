@@ -95,6 +95,10 @@ func handleLambdaCreateEventSourceMapping(w http.ResponseWriter, r *http.Request
 			"Function not found: %s", req.FunctionName)
 		return
 	}
+	if _, err := lambdaESMFilters(req.FilterCriteria); err != nil {
+		AWSError(w, "InvalidParameterValueException", err.Error(), http.StatusBadRequest)
+		return
+	}
 	if strings.HasPrefix(req.EventSourceArn, "arn:aws:sqs:") {
 		queueName := snsTopicNameFromARN(req.EventSourceArn)
 		if _, exists := sqsQueues.Get(queueName); !exists {
@@ -104,7 +108,7 @@ func handleLambdaCreateEventSourceMapping(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	uuid := generateUUID()
+	uuid := sim.NewUUID()
 	state := "Enabled"
 	if req.Enabled != nil && !*req.Enabled {
 		state = "Disabled"
@@ -176,7 +180,10 @@ func handleLambdaListEventSourceMappings(w http.ResponseWriter, r *http.Request)
 			maxItems = n
 		}
 	}
-	page, next := awsPage(all, marker, maxItems, 100)
+	page, next, pageOK := awsPage(w, lambdaBadToken, all, marker, maxItems, 100)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"EventSourceMappings": page}
 	if next != "" {
 		out["NextMarker"] = next
@@ -203,6 +210,10 @@ func handleLambdaUpdateEventSourceMapping(w http.ResponseWriter, r *http.Request
 	if !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Event source mapping not found: %s", uuid)
+		return
+	}
+	if _, err := lambdaESMFilters(req.FilterCriteria); err != nil {
+		AWSError(w, "InvalidParameterValueException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.FunctionName != "" {

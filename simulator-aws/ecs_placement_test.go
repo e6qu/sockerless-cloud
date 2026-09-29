@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,7 +24,7 @@ import (
 // these tests on their own panicked in elbv2NLBHostEntries.
 func placementHostForTest(t *testing.T) {
 	t.Helper()
-	AwaitSimulatorBackground()
+	bg.Await()
 	buildConformanceSimulator(t)
 	ecsClusters = sim.MakeStore[ECSCluster](nil, "ecs_clusters")
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
@@ -171,5 +172,5 @@ func TestRunTaskRefusesPlacementWithTheRealShape(t *testing.T) {
 		return ""
 	}())
 	require.Equal(t, "2048", placed.Memory, "the placed task carries the commitment it holds")
-	AwaitSimulatorBackground()
+	bg.Await()
 }

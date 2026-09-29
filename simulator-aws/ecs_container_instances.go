@@ -107,7 +107,7 @@ func handleECSRegisterContainerInstance(w http.ResponseWriter, r *http.Request) 
 	// instance it runs on — the join every autoscaling integration makes.
 	ec2InstanceID, identityRegion := ecsInstanceIdentity(req.InstanceIdentityDoc)
 	_ = identityRegion
-	id := generateUUID()
+	id := sim.NewUUID()
 	ci := ECSContainerInstance{
 		ContainerInstanceArn: ecsArn("container-instance", clusterName+"/"+id),
 		Ec2InstanceId:        ec2InstanceID,
@@ -186,7 +186,10 @@ func handleECSListContainerInstances(w http.ResponseWriter, r *http.Request) {
 		arns = append(arns, ci.ContainerInstanceArn)
 	}
 	sort.Strings(arns)
-	page, next := awsPage(arns, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecsBadToken, arns, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"containerInstanceArns": page}
 	if next != "" {
 		out["nextToken"] = next

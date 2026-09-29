@@ -241,11 +241,8 @@ func dispatchSBMessagesOp(w http.ResponseWriter, r *http.Request, key string, ta
 
 func handleSBSendMessage(w http.ResponseWriter, r *http.Request, key string) {
 	defer r.Body.Close()
-	// Service Bus REST sends the message body opaquely with
-	// Content-Length framing; metadata travels in BrokerProperties
-	// header. azservicebus's REST transcoder does not gzip-encode
-	// or chunk-envelope, so a raw read is safe (no openStreamingBody
-	// wrap required).
+	// The message body is opaque; its metadata travels in the
+	// BrokerProperties header.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		AzureError(w, "BadRequest", "Failed to read body: "+err.Error(), http.StatusBadRequest)
@@ -255,7 +252,7 @@ func handleSBSendMessage(w http.ResponseWriter, r *http.Request, key string) {
 	st.mu.Lock()
 	st.nextSeq++
 	msg := sbMessage{
-		MessageID:      generateUUID(),
+		MessageID:      sim.NewUUID(),
 		Body:           body,
 		ContentType:    r.Header.Get("Content-Type"),
 		BrokerHeader:   r.Header.Get("BrokerProperties"),
@@ -309,7 +306,7 @@ func handleSBPeekLock(w http.ResponseWriter, r *http.Request, key string) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	st.messages[idx].LockToken = generateUUID()
+	st.messages[idx].LockToken = sim.NewUUID()
 	st.messages[idx].LockedUntilUtc = now.Add(60 * time.Second)
 	st.persistLocked()
 	msg := st.messages[idx]

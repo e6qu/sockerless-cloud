@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // BigQuery v2 REST surface. The simulator implements dataset/table
@@ -409,7 +410,11 @@ func handleBQListDatasets(w http.ResponseWriter, r *http.Request) {
 		return d.DatasetReference.ProjectID == project
 	})
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-	all = gcpApplyListParams(all, r)
+	listed, listOK := gcpApplyListParams(w, r, all)
+	if !listOK {
+		return
+	}
+	all = listed
 	items := make([]map[string]any, 0, len(all))
 	for _, d := range all {
 		items = append(items, map[string]any{
@@ -638,6 +643,16 @@ func handleBQTableDataList(w http.ResponseWriter, r *http.Request) {
 		}
 		start = v
 	}
+	// The Go and Python clients follow pageToken, not startIndex, past the
+	// first page.
+	if tok := r.URL.Query().Get("pageToken"); tok != "" {
+		v, ok := listq.Decimal.Decode(tok)
+		if !ok || v < 0 {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid page token: %s", tok)
+			return
+		}
+		start = v
+	}
 	max := 0
 	if s := r.URL.Query().Get("maxResults"); s != "" {
 		v, err := strconv.Atoi(s)
@@ -684,7 +699,7 @@ func handleBQQuery(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return
 	}
-	jobID := "job_" + generateUUID()
+	jobID := "job_" + sim.NewUUID()
 	job := bqDoneQueryJob(r, project, jobID, req.Location, req.Query, result)
 	bqJobs.Put(bqJobKey(project, jobID), job)
 	result.Kind = "bigquery#queryResponse"
@@ -700,7 +715,7 @@ func handleBQInsertJob(w http.ResponseWriter, r *http.Request) {
 	}
 	jobID := req.JobReference.JobID
 	if jobID == "" {
-		jobID = "job_" + generateUUID()
+		jobID = "job_" + sim.NewUUID()
 	}
 	location := req.JobReference.Location
 	query := ""

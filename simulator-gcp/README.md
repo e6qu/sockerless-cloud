@@ -1,6 +1,6 @@
 # simulator-gcp
 
-Local reimplementation of the GCP slice that sockerless touches. Not a mock — Cloud Run job executions respect the task template `timeout` for completion, Cloud Functions invoke and produce real log entries, Cloud Logging entries are written and queryable with the standard filter syntax, and Artifact Registry stores real OCI manifests.
+Local reimplementation of a slice of Google Cloud. Not a mock — Cloud Run job executions respect the task template `timeout` for completion, Cloud Functions invoke and produce real log entries, Cloud Logging entries are written and queryable with the standard filter syntax, and Artifact Registry stores real OCI manifests.
 
 ## Reference adaptor
 
@@ -17,12 +17,12 @@ Anything any of these three tools does against the real GCP endpoint, it must do
 
 ## Validation
 
-| Test path | What runs | Last green |
-|---|---|---|
-| `sdk-tests/` | Real `cloud.google.com/go/*` clients against the sim. Per-op assertions on response shape + error codes, including Artifact Registry remote-repository and OCI paths. | 2026-05-18 |
-| `cli-tests/` | Real `gcloud` CLI invoked via `os/exec`, parses CLI JSON output, including Artifact Registry endpoint overrides. | 2026-05-18 |
-| `terraform-tests/` | Real Terraform `google` provider against the sim. `terraform apply` → assert resource state → `destroy`. | 2026-05-13 |
-| `make simulator-gcp/test` | Leaf-Makefile unit + integration suite per [`docs/MAKEFILE_STANDARD.md`](../docs/MAKEFILE_STANDARD.md). | 2026-05-13 |
+| Test path | What runs |
+|---|---|
+| `sdk-tests/` | Real `cloud.google.com/go/*` clients against the simulator. Per-operation assertions on response shape and error codes, including Artifact Registry remote-repository and OCI paths. |
+| `cli-tests/` | The real `gcloud` CLI invoked via `os/exec`, parsing its JSON output, including Artifact Registry endpoint overrides. `TestMain` installs gcloud and `cbt` when they are absent. |
+| `terraform-tests/` | The real Terraform `google` provider: `terraform apply`, assert resource state, `terraform destroy`. |
+| `make simulator-gcp/test` | The module's unit tests, per [`docs/MAKEFILE_STANDARD.md`](../docs/MAKEFILE_STANDARD.md). |
 
 CI runs all four on every PR (`.github/workflows/ci.yml`).
 
@@ -244,7 +244,7 @@ Open simulator bugs live in [BUGS.md](../BUGS.md).
 
 ## What's out of scope
 
-- **Three gRPC methods**: the gRPC door (default `:4569`) serves 210 of 213 declared methods; `Bigtable.OpenMaterializedView`, `Firestore.ExecutePipeline` and `Spanner.FetchCacheUpdate` each need state the simulator does not hold and answer `Unimplemented`.
+- **Three gRPC methods**: the gRPC door (default `:4569`) serves 213 of 216 declared methods; `Bigtable.OpenMaterializedView`, `Firestore.ExecutePipeline` and `Spanner.FetchCacheUpdate` each need state the simulator does not hold and answer `Unimplemented`.
 - **DNS resolution at UDP/53**: Cloud DNS private zones resolve inside the workload networks through the container engine's embedded DNS; the simulator serves no UDP/53 listener of its own.
 - **Google's interactive consent screen**: `gcloud auth login` and `gcloud auth
   application-default login` are browser flows against accounts.google.com. The

@@ -23,7 +23,6 @@ import (
 	"math/big"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -668,7 +667,7 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 
 	table := DDBTable{
 		TableName:            req.TableName,
-		TableId:              generateUUID(),
+		TableId:              sim.NewUUID(),
 		TableArn:             ddbTableArn(req.TableName),
 		TableStatus:          "ACTIVE",
 		CreationDateTime:     now,
@@ -863,7 +862,7 @@ func handleDDBUpdateTable(w http.ResponseWriter, r *http.Request) {
 	ddbTables.Put(req.TableName, t)
 	if len(req.GlobalSecondaryIndexUpdates) > 0 {
 		func() {
-			defer ddbLockTables(true, req.TableName)()
+			defer ddbItemLocks.Lock(true, req.TableName)()
 			ddbRebuildTableIndexes(t)
 		}()
 	}
@@ -912,30 +911,37 @@ func handleDDBListTables(w http.ResponseWriter, r *http.Request) {
 	all := ddbTables.List()
 	sortBy(all, func(t DDBTable) string { return t.TableName })
 
-	// ExclusiveStartTableName is a name-based cursor; convert to offset token.
-	token := ""
-	if req.ExclusiveStartTableName != "" {
-		for i, t := range all {
-			if t.TableName == req.ExclusiveStartTableName {
-				token = strconv.Itoa(i + 1)
-				break
-			}
-		}
-	}
-	page, next := awsPage(all, token, req.Limit, 100)
+	page, lastEvaluated := ddbKeyPage(all, func(t DDBTable) string { return t.TableName }, req.ExclusiveStartTableName, req.Limit, 100)
 	names := make([]string, 0, len(page))
 	for _, t := range page {
 		names = append(names, t.TableName)
 	}
 	out := map[string]any{"TableNames": names}
-	if next != "" {
-		// Convert token back to a table name for LastEvaluatedTableName.
-		idx, _ := strconv.Atoi(next)
-		if idx > 0 && idx <= len(all) {
-			out["LastEvaluatedTableName"] = all[idx-1].TableName
-		}
+	if lastEvaluated != "" {
+		out["LastEvaluatedTableName"] = lastEvaluated
 	}
 	writeDDBJSON(w, http.StatusOK, out)
+}
+
+// ddbKeyPage pages a list sorted by key from just after exclusiveStart, the
+// cursor DynamoDB's list operations take: listing resumes at the first key
+// greater than it whether or not that key still exists, and lastEvaluated
+// names the page's last key when more remain. A limit of zero or less, or
+// above max, takes max.
+func ddbKeyPage[T any](sorted []T, key func(T) string, exclusiveStart string, limit, max int) (page []T, lastEvaluated string) {
+	start := 0
+	if exclusiveStart != "" {
+		start = sort.Search(len(sorted), func(i int) bool { return key(sorted[i]) > exclusiveStart })
+	}
+	rest := sorted[start:]
+	if limit <= 0 || limit > max {
+		limit = max
+	}
+	if len(rest) <= limit {
+		return rest, ""
+	}
+	page = rest[:limit]
+	return page, key(page[len(page)-1])
 }
 
 // ddbAttrValueSize returns the stored byte size DynamoDB assigns an attribute
@@ -1172,7 +1178,7 @@ func handleDDBPutItem(w http.ResponseWriter, r *http.Request) {
 		ddbWriteThrottled(w, index)
 		return
 	}
-	defer ddbLockTables(true, req.TableName)()
+	defer ddbItemLocks.Lock(true, req.TableName)()
 	itemKey := ddbItemKey(t, req.Item)
 	old, exists := ddbItems.Get(itemKey)
 
@@ -1302,7 +1308,7 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", message, http.StatusBadRequest)
 		return
 	}
-	defer ddbLockTables(true, req.TableName)()
+	defer ddbItemLocks.Lock(true, req.TableName)()
 	itemKey := ddbItemKey(t, req.Key)
 	item, existed := ddbItems.Get(itemKey)
 	if condOK, err := ddbEvalCondition(item, existed, req.ConditionExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues); err != nil {
@@ -1543,7 +1549,7 @@ func handleDDBDeleteItem(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", message, http.StatusBadRequest)
 		return
 	}
-	defer ddbLockTables(true, req.TableName)()
+	defer ddbItemLocks.Lock(true, req.TableName)()
 	itemKey := ddbItemKey(t, req.Key)
 	oldItem, existed := ddbItems.Get(itemKey)
 	if index, ok := ddbTakeWrite(t, oldItem, ddbWriteUnits(oldItem)); !ok {
@@ -1683,7 +1689,7 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	// cloned, which is what callers may keep.
 	var matched []map[string]any
 	func() {
-		defer ddbLockTables(false, req.TableName)()
+		defer ddbItemLocks.Lock(false, req.TableName)()
 		var lastScannedStored map[string]any
 		for _, k := range remaining {
 			stored, ok2 := ddbItems.Get(k)
@@ -2165,7 +2171,7 @@ func handleDDBBatchWriteItem(w http.ResponseWriter, r *http.Request) {
 	for table := range req.RequestItems {
 		batchTables = append(batchTables, table)
 	}
-	defer ddbLockTables(true, batchTables...)()
+	defer ddbItemLocks.Lock(true, batchTables...)()
 	// Validate the whole batch first (real DynamoDB rejects before applying):
 	// 1..25 total requests, every table exists, every put item within depth.
 	total := 0
@@ -2362,7 +2368,7 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	defer ddbLockTables(true, transactTables...)()
+	defer ddbItemLocks.Lock(true, transactTables...)()
 	// A transaction spends twice a single write's capacity on every item it
 	// touches, and it spends it before it writes anything: the service refuses
 	// the whole transaction when the table cannot cover it.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -64,7 +66,10 @@ func TestGCPFirewallCompilerPreservesPriorityDenyAndSourceTags(t *testing.T) {
 		}},
 	})
 
-	rules := gcpIngressPacketRules(target, ComputeNetworkInterface{Name: "nic0", Network: network})
+	rules, err := gcpIngressPacketRules(target, ComputeNetworkInterface{Name: "nic0", Network: network})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(rules) != 2 {
 		t.Fatalf("compiled rules = %d, want 2: %+v", len(rules), rules)
 	}
@@ -76,7 +81,18 @@ func TestGCPFirewallCompilerPreservesPriorityDenyAndSourceTags(t *testing.T) {
 	}
 }
 
-func TestGCPComputeLoadBalancerDataPlaneProxiesHealthyInstanceGroupMember(t *testing.T) {
+// gcpLBFixture is one external Application Load Balancer chain — forwarding
+// rule, target HTTP proxy, URL map, backend service, health check and an
+// instance group whose one member is the httptest target.
+type gcpLBFixture struct {
+	srv *sim.Server
+	fr  ComputeForwardingRule
+	bs  ComputeBackendService
+	hc  ComputeHealthCheck
+}
+
+func newGCPLBFixture(t *testing.T, target http.Handler, healthPath string) gcpLBFixture {
+	t.Helper()
 	srv, err := sim.NewServer(sim.Config{Provider: "gcp", LogLevel: "disabled"})
 	if err != nil {
 		t.Fatalf("new server: %v", err)
@@ -88,7 +104,8 @@ func TestGCPComputeLoadBalancerDataPlaneProxiesHealthyInstanceGroupMember(t *tes
 	gcpForwardingRules = sim.MakeStore[ComputeForwardingRule](nil, "test_fr")
 	gcpInstanceGroups = sim.MakeStore[storedComputeInstanceGroup](nil, "test_ig")
 	gcpInstances = sim.MakeStore[ComputeInstance](nil, "test_instances")
-	defer func() {
+	gcpBackendHealth.Reset()
+	t.Cleanup(func() {
 		gcpHealthChecks = nil
 		gcpBackendServices = nil
 		gcpURLMaps = nil
@@ -96,18 +113,13 @@ func TestGCPComputeLoadBalancerDataPlaneProxiesHealthyInstanceGroupMember(t *tes
 		gcpForwardingRules = nil
 		gcpInstanceGroups = nil
 		gcpInstances = nil
-	}()
+		gcpBackendHealth.Reset()
+	})
 	registerGCPComputeLoadBalancerDataPlane(srv)
 
-	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" {
-			_, _ = w.Write([]byte("ok"))
-			return
-		}
-		_, _ = w.Write([]byte("gcp-lb-target"))
-	}))
-	defer target.Close()
-	targetURL, err := url.Parse(target.URL)
+	backend := httptest.NewServer(target)
+	t.Cleanup(backend.Close)
+	targetURL, err := url.Parse(backend.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,13 +149,16 @@ func TestGCPComputeLoadBalancerDataPlaneProxiesHealthyInstanceGroupMember(t *tes
 		Instances: []ComputeInstanceGroupInstance{{Instance: instance.SelfLink}},
 	}
 	hc := ComputeHealthCheck{
-		Name:       "hc",
-		SelfLink:   "projects/test-project/global/healthChecks/hc",
-		Type:       "HTTP",
-		TimeoutSec: 2,
+		Name:               "hc",
+		SelfLink:           "projects/test-project/global/healthChecks/hc",
+		Type:               "HTTP",
+		CheckIntervalSec:   5,
+		TimeoutSec:         2,
+		HealthyThreshold:   2,
+		UnhealthyThreshold: 2,
 		HttpHealthCheck: &ComputeHTTPHealthCheck{
-			Port:        int64(port),
-			RequestPath: "/healthz",
+			PortSpecification: "USE_SERVING_PORT",
+			RequestPath:       healthPath,
 		},
 	}
 	bs := ComputeBackendService{
@@ -166,15 +181,112 @@ func TestGCPComputeLoadBalancerDataPlaneProxiesHealthyInstanceGroupMember(t *tes
 	gcpURLMaps.Put(urlMap.SelfLink, urlMap)
 	gcpTargetHTTPProxies.Put(proxy.SelfLink, proxy)
 	gcpForwardingRules.Put(fr.SelfLink, fr)
+	return gcpLBFixture{srv: srv, fr: fr, bs: bs, hc: hc}
+}
 
-	req := httptest.NewRequest(http.MethodGet, "http://simulator/work", nil)
-	req.Host = fr.IPAddress
+// sweep runs the health checker n times, one checkIntervalSec apart.
+func (f gcpLBFixture) sweep(start time.Time, n int) time.Time {
+	for range n {
+		gcpSweepBackendHealth(context.Background(), start)
+		start = start.Add(time.Duration(f.hc.CheckIntervalSec) * time.Second)
+	}
+	return start
+}
+
+func (f gcpLBFixture) request(host, path string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "http://simulator"+path, nil)
+	req.Host = host
 	rr := httptest.NewRecorder()
-	srv.Mux().ServeHTTP(rr, req)
+	f.srv.Mux().ServeHTTP(rr, req)
+	return rr
+}
+
+func (f gcpLBFixture) healthState(t *testing.T) string {
+	t.Helper()
+	health := gcpBackendServiceHealth(f.bs, "")
+	if len(health) != 1 {
+		t.Fatalf("health entries = %+v, want one", health)
+	}
+	state, _ := health[0]["healthState"].(string)
+	return state
+}
+
+func TestGCPComputeLoadBalancerDataPlaneProxiesHealthyInstanceGroupMember(t *testing.T) {
+	f := newGCPLBFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+		_, _ = w.Write([]byte("gcp-lb-target host=" + r.Host))
+	}), "/healthz")
+
+	// The backend enters service only after healthyThreshold consecutive
+	// successful probes, each checkIntervalSec apart.
+	now := f.sweep(time.Now(), 1)
+	if rr := f.request(f.fr.IPAddress, "/work"); rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status before healthyThreshold = %d, want 503", rr.Code)
+	}
+	if state := f.healthState(t); state != "UNHEALTHY" {
+		t.Fatalf("healthState before healthyThreshold = %q", state)
+	}
+	f.sweep(now, 1)
+	if state := f.healthState(t); state != "HEALTHY" {
+		t.Fatalf("healthState after healthyThreshold = %q", state)
+	}
+
+	rr := f.request(f.fr.IPAddress, "/work")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("data-plane status = %d, body = %q", rr.Code, rr.Body.String())
 	}
-	if strings.TrimSpace(rr.Body.String()) != "gcp-lb-target" {
+	// The load balancer passes the client's Host header to the backend.
+	if strings.TrimSpace(rr.Body.String()) != "gcp-lb-target host="+f.fr.IPAddress {
 		t.Fatalf("data-plane body = %q", rr.Body.String())
+	}
+}
+
+// A health check succeeds on HTTP 200 alone and never follows a redirect: a
+// backend answering its health path with a 302 is unhealthy even though the
+// page it redirects to answers 200.
+func TestGCPHealthCheckJudgesARedirectAsUnhealthy(t *testing.T) {
+	f := newGCPLBFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	}), "/healthz")
+
+	f.sweep(time.Now(), 3)
+	if state := f.healthState(t); state != "UNHEALTHY" {
+		t.Fatalf("healthState = %q, want UNHEALTHY", state)
+	}
+	if rr := f.request(f.fr.IPAddress, "/"); rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 with no healthy backend", rr.Code)
+	}
+}
+
+// Two forwarding rules may share one address on different ports; the port the
+// request arrived on picks between them.
+func TestGCPForwardingRulesShareAnAddressAcrossPorts(t *testing.T) {
+	f := newGCPLBFixture(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}), "/")
+	other := ComputeForwardingRule{
+		Name: "early", SelfLink: "projects/test-project/global/forwardingRules/early",
+		IPAddress: f.fr.IPAddress, PortRange: "8080", Target: "projects/test-project/global/targetHttpProxies/absent",
+	}
+	// The 8080 rule lists first, so an address lookup that ignored the port
+	// would pick it for a request on port 80.
+	gcpForwardingRules.Put(other.SelfLink, other)
+	f.sweep(time.Now(), 2)
+
+	if rr := f.request(f.fr.IPAddress, "/"); rr.Code != http.StatusOK {
+		t.Fatalf("port 80 status = %d, body = %q", rr.Code, rr.Body.String())
+	}
+	if rr := f.request(f.fr.IPAddress+":8080", "/"); rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("port 8080 status = %d, want the 8080 rule's missing proxy to answer 503", rr.Code)
+	}
+	if rr := f.request(f.fr.IPAddress+":9090", "/"); rr.Code != http.StatusNotFound {
+		t.Fatalf("port 9090 status = %d, want 404 for an address no rule serves on that port", rr.Code)
 	}
 }

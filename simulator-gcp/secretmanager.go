@@ -241,7 +241,11 @@ func secretManagerListSecrets(w http.ResponseWriter, r *http.Request, parent str
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 	// Honor the `filter` query param (e.g. labels.env=prod) the Secret
 	// Manager ListSecrets API supports.
-	all = gcpApplyListParams(all, r)
+	listed, listOK := gcpApplyListParams(w, r, all)
+	if !listOK {
+		return
+	}
+	all = listed
 	page, next, ok := paginateList(w, r, all)
 	if !ok {
 		return
@@ -560,11 +564,6 @@ func secretManagerListVersions(w http.ResponseWriter, r *http.Request, parent st
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", secretName)
 		return
 	}
-	if filter := strings.TrimSpace(r.URL.Query().Get("filter")); filter != "" {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unsupported filter %q", filter)
-		return
-	}
-
 	prefix := secretName + "/versions/"
 	var versions []SecretVersion
 	for _, v := range smSecretVersions.List() {
@@ -584,24 +583,24 @@ func secretManagerListVersions(w http.ResponseWriter, r *http.Request, parent st
 		return versions[i].Name > versions[j].Name
 	})
 
-	start, pageSize, ok := secretManagerPagination(w, r, len(versions))
+	versions, ok := gcpApplyListParams(w, r, versions)
 	if !ok {
 		return
 	}
-	end := len(versions)
-	if pageSize > 0 && start+pageSize < end {
-		end = start + pageSize
+	size, ok := gcpPageSizeParam(w, r, "pageSize")
+	if !ok {
+		return
 	}
-	page := versions[start:end]
-	if page == nil {
-		page = []SecretVersion{}
+	page, next, ok := gcpOffsetPage(w, versions, r.URL.Query().Get("pageToken"), size, secretManagerMaxPageSize)
+	if !ok {
+		return
 	}
 	resp := map[string]any{
 		"versions":  page,
 		"totalSize": len(versions),
 	}
-	if end < len(versions) {
-		resp["nextPageToken"] = strconv.Itoa(end)
+	if next != "" {
+		resp["nextPageToken"] = next
 	}
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
@@ -742,31 +741,8 @@ func secretVersionNumber(name, prefix string) (int, bool) {
 	return n, err == nil
 }
 
-func secretManagerPagination(w http.ResponseWriter, r *http.Request, total int) (int, int, bool) {
-	start := 0
-	if token := r.URL.Query().Get("pageToken"); token != "" {
-		n, err := strconv.Atoi(token)
-		if err != nil || n < 0 || n > total {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
-			return 0, 0, false
-		}
-		start = n
-	}
-
-	pageSize := 0
-	if raw := r.URL.Query().Get("pageSize"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 0 {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageSize %q", raw)
-			return 0, 0, false
-		}
-		if n > 25000 {
-			n = 25000
-		}
-		pageSize = n
-	}
-	return start, pageSize, true
-}
+// secretManagerMaxPageSize is the largest page ListSecretVersions returns.
+const secretManagerMaxPageSize = 25000
 
 // accessSecretPayload resolves a secret-version reference to its raw
 // payload. Handles both explicit versions (e.g. "3") and the special

@@ -255,7 +255,7 @@ func handleAPIGWv2CreateApi(w http.ResponseWriter, r *http.Request) {
 	if req.ApiKeySelectionExpression == "" {
 		req.ApiKeySelectionExpression = "$request.header.x-api-key"
 	}
-	apiID := generateUUID()[:10]
+	apiID := sim.NewUUID()[:10]
 	api := APIGWv2Api{
 		ApiId:                     apiID,
 		ApiKeySelectionExpression: req.ApiKeySelectionExpression,
@@ -338,7 +338,7 @@ func handleAPIGWv2CreateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	route := APIGWv2Route{
-		RouteId:           generateUUID()[:10],
+		RouteId:           sim.NewUUID()[:10],
 		ApiId:             apiId,
 		RouteKey:          req.RouteKey,
 		Target:            req.Target,
@@ -450,7 +450,7 @@ func handleAPIGWv2CreateIntegration(w http.ResponseWriter, r *http.Request) {
 		req.ConnectionType = "INTERNET"
 	}
 	in := APIGWv2Integration{
-		IntegrationId:        generateUUID()[:10],
+		IntegrationId:        sim.NewUUID()[:10],
 		ApiId:                apiId,
 		ConnectionType:       req.ConnectionType,
 		IntegrationType:      req.IntegrationType,
@@ -656,7 +656,7 @@ func handleAPIGWv2CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := APIGWv2Deployment{
-		DeploymentId:     generateUUID()[:10],
+		DeploymentId:     sim.NewUUID()[:10],
 		ApiId:            apiId,
 		Description:      req.Description,
 		DeploymentStatus: "DEPLOYED",
@@ -726,7 +726,7 @@ func handleAPIGWv2CreateAuthorizer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a := APIGWv2Authorizer{
-		AuthorizerId:                   generateUUID()[:10],
+		AuthorizerId:                   sim.NewUUID()[:10],
 		ApiId:                          apiId,
 		Name:                           req.Name,
 		AuthorizerType:                 req.AuthorizerType,
@@ -857,7 +857,7 @@ func handleAPIGWv2CreateModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m := APIGWv2Model{
-		ModelId:     generateUUID()[:10],
+		ModelId:     sim.NewUUID()[:10],
 		ApiId:       apiId,
 		Name:        req.Name,
 		Description: req.Description,
@@ -930,7 +930,7 @@ func handleAPIGWv2CreateDomainName(w http.ResponseWriter, r *http.Request) {
 			cfgs[i].DomainNameStatus = "AVAILABLE"
 		}
 		if cfgs[i].ApiGatewayDomainName == "" {
-			cfgs[i].ApiGatewayDomainName = fmt.Sprintf("d-%s.execute-api.%s.amazonaws.com", generateUUID()[:10], awsRegion())
+			cfgs[i].ApiGatewayDomainName = fmt.Sprintf("d-%s.execute-api.%s.amazonaws.com", sim.NewUUID()[:10], awsRegion())
 		}
 	}
 	d := APIGWv2DomainName{
@@ -995,7 +995,7 @@ func handleAPIGWv2CreateApiMapping(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m := APIGWv2ApiMapping{
-		ApiMappingId:  generateUUID()[:10],
+		ApiMappingId:  sim.NewUUID()[:10],
 		ApiId:         req.ApiId,
 		ApiMappingKey: req.ApiMappingKey,
 		Stage:         req.Stage,
@@ -1058,7 +1058,7 @@ func handleAPIGWv2CreateVpcLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := APIGWv2VpcLink{
-		VpcLinkId:        generateUUID()[:10],
+		VpcLinkId:        sim.NewUUID()[:10],
 		Name:             req.Name,
 		SecurityGroupIds: req.SecurityGroupIds,
 		SubnetIds:        req.SubnetIds,

@@ -15,12 +15,12 @@ schemas, and error codes for all required API actions.
 5. [Cloud Map (Service Discovery)](#5-cloud-map-service-discovery)
 6. [Lambda](#6-lambda)
 7. [S3 (Simple Storage Service)](#7-s3-simple-storage-service)
-8. [CloudFront](#8-cloudfront) (Phase 159)
-9. [ACM (Certificate Manager)](#9-acm-certificate-manager) (Phase 159)
-10. [Route 53](#10-route-53) (Phase 159)
-11. [WAFv2](#11-wafv2) (Phase 159)
-12. [Amplify](#12-amplify) (Phase 159)
-13. [IAM extensions — Service-Linked Roles + OIDC](#13-iam-extensions--service-linked-roles--oidc) (Phase 159)
+8. [CloudFront](#8-cloudfront)
+9. [ACM (Certificate Manager)](#9-acm-certificate-manager)
+10. [Route 53](#10-route-53)
+11. [WAFv2](#11-wafv2)
+12. [Amplify](#12-amplify)
+13. [IAM extensions — Service-Linked Roles + OIDC](#13-iam-extensions--service-linked-roles--oidc)
 
 ---
 

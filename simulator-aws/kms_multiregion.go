@@ -118,7 +118,10 @@ func handleKMSListRetirableGrants(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sortBy(matched, func(g KMSGrant) string { return g.GrantId })
-	page, next := awsPage(matched, req.Marker, req.Limit, 100)
+	page, next, pageOK := awsPage(w, kmsBadToken, matched, req.Marker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Grants": page, "Truncated": next != ""}
 	if next != "" {
 		resp["NextMarker"] = next
@@ -268,8 +271,8 @@ func handleKMSGetKeyLastUsage(w http.ResponseWriter, r *http.Request) {
 		resp["KeyLastUsage"] = map[string]any{
 			"Operation":         key.LastUsedOperation,
 			"Timestamp":         key.LastUsedDate,
-			"KmsRequestId":      generateUUID(),
-			"CloudTrailEventId": generateUUID(),
+			"KmsRequestId":      sim.NewUUID(),
+			"CloudTrailEventId": sim.NewUUID(),
 		}
 	}
 	sim.WriteJSON(w, http.StatusOK, resp)

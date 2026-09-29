@@ -1,20 +1,19 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // Cloud Functions v2 types
@@ -186,7 +185,7 @@ func registerCloudFunctions(srv *sim.Server) {
 			return
 		}
 		fn.ServiceConfig.Service = backingService.Name
-		backingService.Etag = generateUUID()
+		backingService.Etag = sim.NewUUID()
 		crv2Services.Put(backingService.Name, backingService)
 		projectCloudRunV2ToV1(backingService)
 
@@ -214,7 +213,7 @@ func registerCloudFunctions(srv *sim.Server) {
 		}
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
-		object := "uploads/" + generateUUID() + ".zip"
+		object := "uploads/" + sim.NewUUID() + ".zip"
 		bucket := fmt.Sprintf("gcf-sources-%s-%s", project, location)
 		uploadURL := fmt.Sprintf("http://%s/upload/storage/v1/b/%s/o?uploadType=resumable&name=%s",
 			r.Host, bucket, url.QueryEscape(object))
@@ -288,20 +287,19 @@ func registerCloudFunctions(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		prefix := fmt.Sprintf("projects/%s/locations/%s/functions/", project, location)
-		filter := r.URL.Query().Get("filter")
-
 		stored := functions.Filter(func(fn storedFunction) bool {
-			if !strings.HasPrefix(fn.Name, prefix) {
-				return false
-			}
-			return matchesFunctionFilter(&fn, filter)
+			return strings.HasPrefix(fn.Name, prefix)
 		})
 		result := make([]Function, 0, len(stored))
 		for _, fn := range stored {
 			result = append(result, fn.wire())
 		}
 		sortCloudFunctions(result)
-		result = gcpApplyOrderBy(result, r)
+		listed, listOK := gcpApplyListParams(w, r, result)
+		if !listOK {
+			return
+		}
+		result = listed
 		page, next, ok := paginateList(w, r, result)
 		if !ok {
 			return
@@ -610,7 +608,7 @@ func invokeCloudFunctionProcess(fn *storedFunction, project, functionID string) 
 	// Cloud-faithful: HTTP-invoke the overlay's bootstrap.
 	env := serviceEnv
 	if fn.ServiceConfig != nil {
-		env = mergeEnv(fn.ServiceConfig.EnvironmentVariables, serviceEnv)
+		env = workloadhost.MergeEnv(fn.ServiceConfig.EnvironmentVariables, serviceEnv)
 	}
 	body, exitCode, err := invokeOverlayContainerHTTP(project, image, functionID, timeout, sink, env)
 	if err != nil {
@@ -671,95 +669,6 @@ func applyFunctionPatch(fn, patch *storedFunction, mask string) {
 	}
 }
 
-// matchesFunctionFilter evaluates a Cloud Functions ListFunctions
-// `filter` query against a Function. Supports the subset the gcf
-// backend uses for pool-claim and allocation lookup:
-//
-//   - `labels.<key>:"<value>"` — Cloud Logging-style "has" / substring
-//     match against the label value (the `:` operator).
-//   - `labels.<key>="<value>"` — exact match.
-//   - `-labels.<key>:*` — negation + wildcard: clause matches when the
-//     label is unset or empty (i.e. the function is "free" of an
-//     allocation claim, used by claimFreeFunction).
-//   - Multiple clauses joined by ` AND `.
-//
-// Empty filter matches every Function. Real Cloud Functions supports
-// the full Cloud Logging filter syntax; this is the operator subset
-// the backend exercises today.
-func matchesFunctionFilter(fn *storedFunction, filter string) bool {
-	filter = strings.TrimSpace(filter)
-	if filter == "" {
-		return true
-	}
-	for _, raw := range strings.Split(filter, " AND ") {
-		clause := strings.TrimSpace(raw)
-		if clause == "" {
-			continue
-		}
-		negate := false
-		if strings.HasPrefix(clause, "-") {
-			negate = true
-			clause = clause[1:]
-		}
-		// Wildcard form `labels.<key>:*` — clause is true when the
-		// label is set to anything non-empty. With `-` prefix, true
-		// when the label is unset/empty.
-		if strings.HasSuffix(clause, ":*") {
-			field := strings.TrimSuffix(clause, ":*")
-			val := lookupFunctionField(fn, field)
-			present := val != ""
-			matched := present
-			if negate {
-				matched = !present
-			}
-			if !matched {
-				return false
-			}
-			continue
-		}
-		c := parseClause(clause)
-		val := lookupFunctionField(fn, c.field)
-		var matched bool
-		switch c.op {
-		case opEq:
-			matched = val == c.value
-		case opHas:
-			matched = strings.Contains(val, c.value)
-		default:
-			// Functions don't have ordered fields the backend
-			// filters on — > / >= are unsupported here.
-			matched = false
-		}
-		if negate {
-			matched = !matched
-		}
-		if !matched {
-			return false
-		}
-	}
-	return true
-}
-
-// lookupFunctionField resolves a dot-notation field path on a Function.
-// Currently supports `labels.<key>` and `name`; extend as the backend
-// surfaces new filter shapes.
-func lookupFunctionField(fn *storedFunction, field string) string {
-	if strings.HasPrefix(field, "labels.") {
-		key := field[len("labels."):]
-		if fn.Labels != nil {
-			return fn.Labels[key]
-		}
-		return ""
-	}
-	switch field {
-	case "name":
-		return fn.Name
-	case "state":
-		return fn.State
-	}
-	return ""
-}
-
 // injectCloudFunctionLog writes a log entry to the Cloud Logging store for a
 // Cloud Function invocation, using the resource type and labels that the
 // Cloud Functions backend's log filter expects.
@@ -814,7 +723,7 @@ func invokeOverlayContainerHTTPWithBody(project, image, functionID string, timeo
 
 	// Bootstrap listens on $PORT (defaults 8080). Bind to a random host
 	// port so concurrent invocations on the same host don't collide.
-	hostPort, err := pickFreeTCPPort()
+	hostPort, err := workload.FreeTCPPort()
 	if err != nil {
 		return nil, -1, fmt.Errorf("pick free port: %w", err)
 	}
@@ -824,7 +733,15 @@ func invokeOverlayContainerHTTPWithBody(project, image, functionID string, timeo
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	platform, err := localImagePlatform(ctx, localImage, workloadRegistryAuth(project, localImage))
+	platform, err := workload.LocalImagePlatform(ctx, localImage, workloadRegistryAuth(project, localImage))
+	if err != nil {
+		return nil, -1, err
+	}
+	metadataEnv, err := hostMetadataEnv()
+	if err != nil {
+		return nil, -1, err
+	}
+	extraHosts, err := hostMetadataExtraHosts()
 	if err != nil {
 		return nil, -1, err
 	}
@@ -832,14 +749,12 @@ func invokeOverlayContainerHTTPWithBody(project, image, functionID string, timeo
 		Image:        localImage,
 		Architecture: platform,
 		HostPort:     hostPort,
-		Env: mergeEnv(mergeEnv(map[string]string{
-			"PORT": "8080",
-		}, env), hostMetadataEnv()),
-		Name: containerName,
+		Env:          workloadhost.MergeEnv(map[string]string{"PORT": "8080"}, env, metadataEnv),
+		Name:         containerName,
 		Labels: map[string]string{
 			"sockerless-sim-function": functionID,
 		},
-		ExtraHosts: hostMetadataExtraHosts(),
+		ExtraHosts: extraHosts,
 		Sandbox:    SandboxGCFGen2,
 	})
 	if err != nil {
@@ -867,7 +782,7 @@ func invokeOverlayContainerHTTPWithBody(project, image, functionID string, timeo
 		cands = append(cands, fmt.Sprintf("http://%s:8080", ip))
 	}
 	cands = append(cands, fmt.Sprintf("http://127.0.0.1:%d", hostPort))
-	base, err := firstReachableBase(ctx, cands, 60*time.Second)
+	base, err := workload.FirstReachable(ctx, cands, 60*time.Second)
 	if err != nil {
 		return nil, -1, fmt.Errorf("bootstrap not ready (tried %d address(es)): %w", len(cands), err)
 	}
@@ -876,114 +791,5 @@ func invokeOverlayContainerHTTPWithBody(project, image, functionID string, timeo
 	// POST the invocation. Body is forwarded from the caller (the gcf
 	// backend's exec envelope) when present. Cloud Functions Gen2
 	// invocations pass nil here.
-	return postBootstrapWithRetry(ctx, bootstrapURL, body, contentType, timeout)
-}
-
-// localImagePlatform reports the platform of image, pulling it with
-// registryAuth — the credential the workload host holds for its registry —
-// when the host does not hold it yet.
-func localImagePlatform(ctx context.Context, image, registryAuth string) (string, error) {
-	cli := sim.DockerClient()
-	if cli == nil {
-		return "", fmt.Errorf("docker client not initialized")
-	}
-	inspect, err := cli.ImageInspect(ctx, image)
-	if err != nil {
-		if pullErr := sim.PullImageWithCredential(ctx, image, "", registryAuth); pullErr != nil {
-			return "", fmt.Errorf("inspect image %q platform: %w; pull image: %w", image, err, pullErr)
-		}
-		inspect, err = cli.ImageInspect(ctx, image)
-		if err != nil {
-			return "", fmt.Errorf("inspect pulled image %q platform: %w", image, err)
-		}
-	}
-	if inspect.Os == "" || inspect.Architecture == "" {
-		return "", fmt.Errorf("inspect image %q platform: missing os/architecture", image)
-	}
-	return inspect.Os + "/" + inspect.Architecture, nil
-}
-
-func postBootstrapWithRetry(ctx context.Context, bootstrapURL string, body io.Reader, contentType string, timeout time.Duration) ([]byte, int, error) {
-	var bodyBytes []byte
-	if body != nil {
-		var err error
-		bodyBytes, err = io.ReadAll(body)
-		if err != nil {
-			return nil, -1, fmt.Errorf("read invoke body: %w", err)
-		}
-	}
-	if contentType == "" {
-		contentType = "application/json"
-	}
-
-	httpClient := &http.Client{Timeout: timeout}
-	deadline := time.Now().Add(30 * time.Second)
-	var lastErr error
-	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, bootstrapURL, bytes.NewReader(bodyBytes))
-		if err != nil {
-			return nil, -1, fmt.Errorf("build request: %w", err)
-		}
-		req.Header.Set("Content-Type", contentType)
-		resp, err := httpClient.Do(req)
-		if err == nil {
-			defer resp.Body.Close()
-			respBytes, readErr := io.ReadAll(resp.Body)
-			if readErr != nil {
-				return nil, -1, fmt.Errorf("read bootstrap response: %w", readErr)
-			}
-			return respBytes, bootstrapExitCode(resp), nil
-		}
-		lastErr = err
-		if time.Now().After(deadline) {
-			return nil, -1, fmt.Errorf("invoke bootstrap: %w", lastErr)
-		}
-		select {
-		case <-ctx.Done():
-			return nil, -1, ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-}
-
-func bootstrapExitCode(resp *http.Response) int {
-	if hdr := resp.Header.Get("X-Sockerless-Exit-Code"); hdr != "" {
-		if n, parseErr := strconv.Atoi(hdr); parseErr == nil {
-			return n
-		}
-	}
-	if resp.StatusCode >= 400 {
-		return 1
-	}
-	return 0
-}
-
-// pickFreeTCPPort opens a transient TCP listener to discover a
-// free port number, then closes it. The OS may reassign the port
-// before the caller binds it (TOCTOU); on a single-host sim this is
-// vanishingly rare and reusing it is safe.
-func pickFreeTCPPort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	addr, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		_ = l.Close()
-		return 0, fmt.Errorf("listener address is not a *net.TCPAddr: %T", l.Addr())
-	}
-	port := addr.Port
-	_ = l.Close()
-	return port, nil
-}
-
-func urlpkgParse(raw string) (*url.URL, error) {
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return nil, fmt.Errorf("parse url %q: %w", raw, err)
-	}
-	if parsed.Host == "" {
-		return nil, fmt.Errorf("url %q has no host", raw)
-	}
-	return parsed, nil
+	return workload.PostBootstrap(ctx, bootstrapURL, body, contentType, timeout)
 }

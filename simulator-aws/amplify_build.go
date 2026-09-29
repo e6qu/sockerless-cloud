@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
@@ -323,7 +324,7 @@ func amplifyScheduleRealBuild(appID, branch, jobID, urlBase, repo, specText stri
 }
 
 func amplifyScheduleRealBuildMode(appID, branch, jobID, urlBase, repo, specText string, env map[string]string, commitID string, recovering bool) {
-	simGo(func() {
+	bg.Go(func() {
 		if !amplifyStartJobSummary(jobID, recovering) {
 			return // stopped before it started
 		}
@@ -703,7 +704,7 @@ func amplifyBuildProjectDirectory(workDir, appRoot, buildPath string) (string, e
 // persistence coordinate the shared server config reads — is set, and a temp
 // directory otherwise.
 func amplifyBuildCacheRoot() string {
-	return simScopedDataDir("", "amplify-cache", "sockerless-amplify-cache")
+	return sim.ScopedDataDir("", "amplify-cache", "sockerless-amplify-cache")
 }
 
 func amplifyBuildCacheDirectory(appID, branch string) string {

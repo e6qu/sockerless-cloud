@@ -1,6 +1,6 @@
 # simulator-azure
 
-Local reimplementation of the Azure slice that sockerless touches. Not a mock — Container Apps job executions respect `replicaTimeout` for completion, Azure Functions invoke and produce real AppTraces entries, Kusto Query Language (KQL) queries parse and filter against real log data, and Azure Container Registry (ACR) stores real OCI manifests with chunked upload support.
+Local reimplementation of a slice of Microsoft Azure. Not a mock — Container Apps job executions respect `replicaTimeout` for completion, Azure Functions invoke and produce real AppTraces entries, Kusto Query Language (KQL) queries parse and filter against real log data, and Azure Container Registry (ACR) stores real OCI manifests with chunked upload support.
 
 ## Reference adaptor
 
@@ -22,12 +22,12 @@ copies the stored source bytes, and returns Azure copy ID/status headers.
 
 ## Validation
 
-| Test path | What runs | Last green |
-|---|---|---|
-| `sdk-tests/` (31 tests) | Real Azure SDK for Go clients against the sim. Per-op assertions on ARM response shape + error envelopes. | 2026-05-13 |
-| `cli-tests/` (17 tests) | Real `az` CLI invoked via `os/exec` (using `az rest` for raw ARM calls). | 2026-05-13 |
-| `terraform-tests/` (TLS; Docker delegation on macOS) | Real Terraform `azurerm` provider against the sim. | 2026-05-28 |
-| `make simulator-azure/test` | Leaf-Makefile unit + integration suite per [`docs/MAKEFILE_STANDARD.md`](../docs/MAKEFILE_STANDARD.md). | 2026-05-13 |
+| Test path | What runs |
+|---|---|
+| `sdk-tests/` | Real Azure SDK for Go clients against the simulator. Per-operation assertions on ARM response shape and error envelopes. |
+| `cli-tests/` | The real `az` CLI invoked via `os/exec`, including `az rest` for raw ARM calls. |
+| `terraform-tests/` (TLS; Docker delegation on macOS) | The real Terraform `azurerm` and `azuread` providers. |
+| `make simulator-azure/test` | The module's unit tests, per [`docs/MAKEFILE_STANDARD.md`](../docs/MAKEFILE_STANDARD.md). |
 
 ## Wiring the adaptor
 

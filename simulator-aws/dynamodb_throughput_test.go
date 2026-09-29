@@ -17,14 +17,10 @@ func throughputClock(t *testing.T) *time.Time {
 	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	previous := ddbNow
 	ddbNow = func() time.Time { return now }
-	ddbBucketMu.Lock()
-	ddbBuckets = map[string]*ddbBucket{}
-	ddbBucketMu.Unlock()
+	ddbBuckets.Forget("")
 	t.Cleanup(func() {
 		ddbNow = previous
-		ddbBucketMu.Lock()
-		ddbBuckets = map[string]*ddbBucket{}
-		ddbBucketMu.Unlock()
+		ddbBuckets.Forget("")
 	})
 	return &now
 }

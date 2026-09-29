@@ -230,6 +230,19 @@ func fsCollectionParent(name string) string {
 	return name[:idx]
 }
 
+// fsDocumentsUnder returns the documents keep accepts among those whose names
+// begin with prefix. Documents are stored under their names, so the documents
+// under one parent are one key range of the store and a query reads no others.
+func fsDocumentsUnder(prefix string, keep func(FSDocument) bool) []FSDocument {
+	docs := make([]FSDocument, 0)
+	for _, entry := range fsDocuments.ListPrefix(prefix) {
+		if keep(entry.Item) {
+			docs = append(docs, entry.Item)
+		}
+	}
+	return docs
+}
+
 func fsPutDocument(doc FSDocument) FSDocument {
 	now := fsNow()
 	if doc.CreateTime == "" {
@@ -264,7 +277,7 @@ func handleFSPostDocuments(w http.ResponseWriter, r *http.Request) {
 	project, database := sim.PathParam(r, "project"), sim.PathParam(r, "database")
 	docID := r.URL.Query().Get("documentId")
 	if docID == "" {
-		docID = generateUUID()
+		docID = sim.NewUUID()
 	}
 	var req FSDocument
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -297,14 +310,10 @@ func handleFSGetOrList(w http.ResponseWriter, r *http.Request) {
 
 func handleFSListDocuments(w http.ResponseWriter, r *http.Request, collection string) {
 	prefix := strings.TrimSuffix(collection, "/") + "/"
-	docs := fsDocuments.Filter(func(d FSDocument) bool {
-		if !strings.HasPrefix(d.Name, prefix) {
-			return false
-		}
+	docs := fsDocumentsUnder(prefix, func(d FSDocument) bool {
 		rest := strings.TrimPrefix(d.Name, prefix)
 		return rest != "" && !strings.Contains(rest, "/")
 	})
-	sort.Slice(docs, func(i, j int) bool { return docs[i].Name < docs[j].Name })
 	page, next, ok := paginateList(w, r, docs)
 	if !ok {
 		return
@@ -772,7 +781,7 @@ func handleFSRunQuery(w http.ResponseWriter, r *http.Request, parentPath string)
 		return
 	}
 	collection := strings.TrimSuffix(parent, "/") + "/" + q.From[0].CollectionID
-	docs := fsDocuments.Filter(func(d FSDocument) bool {
+	docs := fsDocumentsUnder(collection+"/", func(d FSDocument) bool {
 		return fsCollectionParent(d.Name) == collection && fsWhereMatches(d, q.Where)
 	})
 
@@ -1387,7 +1396,7 @@ func fsNormalizeAdminEnums(body map[string]any) {
 // schema's fields; a nil metadata omits the field (database operations, whose
 // metadata messages are not part of this client's registry).
 func fsNewAdminOp(project, database string, resource map[string]any, typeName string, metadata map[string]any) fsAdminOp {
-	opID := generateUUID()
+	opID := sim.NewUUID()
 	resp := map[string]any{}
 	for k, v := range resource {
 		resp[k] = v
@@ -1450,7 +1459,7 @@ func handleFSDatabasesCollection(w http.ResponseWriter, r *http.Request) {
 	}
 	now := fsNow()
 	body["name"] = name
-	body["uid"] = generateUUID()
+	body["uid"] = sim.NewUUID()
 	body["createTime"] = now
 	body["updateTime"] = now
 	fsDatabases.Put(name, fsResource{Name: name, Body: body})
@@ -1549,11 +1558,11 @@ func handleFSDatabaseVerb(w http.ResponseWriter, r *http.Request) {
 		// database id rides the request body (databaseId).
 		newID, _ := body["databaseId"].(string)
 		if newID == "" {
-			newID = generateUUID()
+			newID = sim.NewUUID()
 		}
 		name := fsDatabaseName(project, newID)
 		now := fsNow()
-		db := map[string]any{"name": name, "uid": generateUUID(), "createTime": now, "updateTime": now}
+		db := map[string]any{"name": name, "uid": sim.NewUUID(), "createTime": now, "updateTime": now}
 		fsDatabases.Put(name, fsResource{Name: name, Body: db})
 		op := fsNewAdminOp(project, newID, db, "type.googleapis.com/google.firestore.admin.v1.Database", nil)
 		sim.WriteJSON(w, http.StatusOK, op)
@@ -1569,7 +1578,7 @@ func handleFSCreateIndex(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid index body: %v", err)
 		return
 	}
-	indexID := generateUUID()
+	indexID := sim.NewUUID()
 	name := fmt.Sprintf("projects/%s/databases/%s/collectionGroups/%s/indexes/%s", project, database, cg, indexID)
 	body["name"] = name
 	body["state"] = "READY"
@@ -1673,7 +1682,7 @@ func handleFSCreateBackupSchedule(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid backupSchedule body: %v", err)
 		return
 	}
-	bsID := generateUUID()
+	bsID := sim.NewUUID()
 	name := fsBackupScheduleName(project, database, bsID)
 	now := fsNow()
 	body["name"] = name
@@ -1778,7 +1787,7 @@ func handleFSUserCredsCollection(w http.ResponseWriter, r *http.Request) {
 	project, database := sim.PathParam(r, "project"), sim.PathParam(r, "database")
 	ucID := r.URL.Query().Get("userCredsId")
 	if ucID == "" {
-		ucID = generateUUID()
+		ucID = sim.NewUUID()
 	}
 	body, err := fsReadBody(r)
 	if err != nil {
@@ -1789,7 +1798,7 @@ func handleFSUserCredsCollection(w http.ResponseWriter, r *http.Request) {
 	body["name"] = name
 	body["state"] = "ENABLED"
 	body["createTime"] = fsNow()
-	body["securePassword"] = generateUUID()
+	body["securePassword"] = sim.NewUUID()
 	fsUserCreds.Put(name, fsResource{Name: name, Body: body})
 	sim.WriteJSON(w, http.StatusOK, body)
 }
@@ -1848,7 +1857,7 @@ func handleFSUserCredsVerb(w http.ResponseWriter, r *http.Request) {
 	case "disable":
 		d.Body["state"] = "DISABLED"
 	case "resetPassword":
-		d.Body["securePassword"] = generateUUID()
+		d.Body["securePassword"] = sim.NewUUID()
 	default:
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Unknown userCreds verb: %s", verb)
 		return

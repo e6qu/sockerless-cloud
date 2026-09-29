@@ -176,7 +176,7 @@ func handleCreateFpgaImage(w http.ResponseWriter, r *http.Request) {
 	ec2FpgaImages.Put(img.FpgaImageId, img)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateFpgaImageResponse %s><requestId>%s</requestId><fpgaImageId>%s</fpgaImageId><fpgaImageGlobalId>%s</fpgaImageGlobalId></CreateFpgaImageResponse>`,
-		ec2Xmlns(), generateUUID(), img.FpgaImageId, img.FpgaImageGlobalId)
+		ec2Xmlns(), sim.NewUUID(), img.FpgaImageId, img.FpgaImageGlobalId)
 }
 
 func handleDescribeFpgaImages(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +193,10 @@ func handleDescribeFpgaImages(w http.ResponseWriter, r *http.Request) {
 		results = append(results, img)
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].FpgaImageId < results[j].FpgaImageId })
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, img := range results {
 		items.WriteString(ec2FpgaImageXML(img))
@@ -204,7 +207,7 @@ func handleDescribeFpgaImages(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeFpgaImagesResponse %s><requestId>%s</requestId><fpgaImageSet>%s</fpgaImageSet>%s</DescribeFpgaImagesResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nextTokenXML)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nextTokenXML)
 }
 
 func ec2FpgaImageMatchesFilters(img EC2FpgaImage, filters map[string][]string) bool {
@@ -268,7 +271,7 @@ func handleCopyFpgaImage(w http.ResponseWriter, r *http.Request) {
 	ec2FpgaImages.Put(img.FpgaImageId, img)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CopyFpgaImageResponse %s><requestId>%s</requestId><fpgaImageId>%s</fpgaImageId></CopyFpgaImageResponse>`,
-		ec2Xmlns(), generateUUID(), img.FpgaImageId)
+		ec2Xmlns(), sim.NewUUID(), img.FpgaImageId)
 }
 
 func handleDeleteFpgaImage(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +286,7 @@ func handleDeleteFpgaImage(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2FpgaImages.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteFpgaImageResponse %s><requestId>%s</requestId><return>true</return></DeleteFpgaImageResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteFpgaImageResponse %s><requestId>%s</requestId><return>true</return></DeleteFpgaImageResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 // ec2FpgaImageAttributeXML renders the FpgaImageAttribute structure scoped to
@@ -317,7 +320,7 @@ func handleDescribeFpgaImageAttribute(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeFpgaImageAttributeResponse %s><requestId>%s</requestId><fpgaImageAttribute>%s</fpgaImageAttribute></DescribeFpgaImageAttributeResponse>`,
-		ec2Xmlns(), generateUUID(), ec2FpgaImageAttributeXML(img, attr))
+		ec2Xmlns(), sim.NewUUID(), ec2FpgaImageAttributeXML(img, attr))
 }
 
 func handleModifyFpgaImageAttribute(w http.ResponseWriter, r *http.Request) {
@@ -387,7 +390,7 @@ func handleModifyFpgaImageAttribute(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyFpgaImageAttributeResponse %s><requestId>%s</requestId><fpgaImageAttribute>%s</fpgaImageAttribute></ModifyFpgaImageAttributeResponse>`,
-		ec2Xmlns(), generateUUID(), ec2FpgaImageAttributeXML(img, attr))
+		ec2Xmlns(), sim.NewUUID(), ec2FpgaImageAttributeXML(img, attr))
 }
 
 func ec2AddLoadPermission(perms []EC2LoadPermission, p EC2LoadPermission) []EC2LoadPermission {
@@ -423,7 +426,7 @@ func handleResetFpgaImageAttribute(w http.ResponseWriter, r *http.Request) {
 	img.UpdateTime = ec2NowRFC3339Milli()
 	ec2FpgaImages.Put(id, img)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<ResetFpgaImageAttributeResponse %s><requestId>%s</requestId><return>true</return></ResetFpgaImageAttributeResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<ResetFpgaImageAttributeResponse %s><requestId>%s</requestId><return>true</return></ResetFpgaImageAttributeResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func ec2GetAllowedImagesSettings() EC2AllowedImagesSettings {
@@ -445,7 +448,7 @@ func handleEnableAllowedImagesSettings(w http.ResponseWriter, r *http.Request) {
 	ec2AllowedImagesSettings.Put(ec2AllowedImagesSettingsKey, s)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<EnableAllowedImagesSettingsResponse %s><requestId>%s</requestId><allowedImagesSettingsState>%s</allowedImagesSettingsState></EnableAllowedImagesSettingsResponse>`,
-		ec2Xmlns(), generateUUID(), state)
+		ec2Xmlns(), sim.NewUUID(), state)
 }
 
 func handleDisableAllowedImagesSettings(w http.ResponseWriter, r *http.Request) {
@@ -454,7 +457,7 @@ func handleDisableAllowedImagesSettings(w http.ResponseWriter, r *http.Request) 
 	ec2AllowedImagesSettings.Put(ec2AllowedImagesSettingsKey, s)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisableAllowedImagesSettingsResponse %s><requestId>%s</requestId><allowedImagesSettingsState>disabled</allowedImagesSettingsState></DisableAllowedImagesSettingsResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func ec2ImageCriterionXML(c EC2ImageCriterion) string {
@@ -493,7 +496,7 @@ func handleGetAllowedImagesSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetAllowedImagesSettingsResponse %s><requestId>%s</requestId><state>%s</state><imageCriterionSet>%s</imageCriterionSet><managedBy>account</managedBy></GetAllowedImagesSettingsResponse>`,
-		ec2Xmlns(), generateUUID(), s.State, crit.String())
+		ec2Xmlns(), sim.NewUUID(), s.State, crit.String())
 }
 
 // ec2ParseImageCriteria reads the indexed ImageCriterion.N request params.
@@ -546,7 +549,7 @@ func handleReplaceImageCriteriaInAllowedImagesSettings(w http.ResponseWriter, r 
 	ec2AllowedImagesSettings.Put(ec2AllowedImagesSettingsKey, s)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ReplaceImageCriteriaInAllowedImagesSettingsResponse %s><requestId>%s</requestId><return>true</return></ReplaceImageCriteriaInAllowedImagesSettingsResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func ec2GetImageBlockPublicAccessState() string {
@@ -566,20 +569,20 @@ func handleEnableImageBlockPublicAccess(w http.ResponseWriter, r *http.Request) 
 	ec2ImageBlockPublicAccess.Put(ec2AllowedImagesSettingsKey, state)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<EnableImageBlockPublicAccessResponse %s><requestId>%s</requestId><imageBlockPublicAccessState>%s</imageBlockPublicAccessState></EnableImageBlockPublicAccessResponse>`,
-		ec2Xmlns(), generateUUID(), state)
+		ec2Xmlns(), sim.NewUUID(), state)
 }
 
 func handleDisableImageBlockPublicAccess(w http.ResponseWriter, r *http.Request) {
 	ec2ImageBlockPublicAccess.Put(ec2AllowedImagesSettingsKey, "unblocked")
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisableImageBlockPublicAccessResponse %s><requestId>%s</requestId><imageBlockPublicAccessState>unblocked</imageBlockPublicAccessState></DisableImageBlockPublicAccessResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleGetImageBlockPublicAccessState(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetImageBlockPublicAccessStateResponse %s><requestId>%s</requestId><imageBlockPublicAccessState>%s</imageBlockPublicAccessState><managedBy>account</managedBy></GetImageBlockPublicAccessStateResponse>`,
-		ec2Xmlns(), generateUUID(), ec2GetImageBlockPublicAccessState())
+		ec2Xmlns(), sim.NewUUID(), ec2GetImageBlockPublicAccessState())
 }
 
 func handleEnableImageDeregistrationProtection(w http.ResponseWriter, r *http.Request) {
@@ -599,7 +602,7 @@ func handleEnableImageDeregistrationProtection(w http.ResponseWriter, r *http.Re
 	ec2ImageDeregProtection.Put(id, state)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<EnableImageDeregistrationProtectionResponse %s><requestId>%s</requestId><return>%s</return></EnableImageDeregistrationProtectionResponse>`,
-		ec2Xmlns(), generateUUID(), state)
+		ec2Xmlns(), sim.NewUUID(), state)
 }
 
 func handleDisableImageDeregistrationProtection(w http.ResponseWriter, r *http.Request) {
@@ -615,7 +618,7 @@ func handleDisableImageDeregistrationProtection(w http.ResponseWriter, r *http.R
 	ec2ImageDeregProtection.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisableImageDeregistrationProtectionResponse %s><requestId>%s</requestId><return>disabled</return></DisableImageDeregistrationProtectionResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // handleDescribeBundleTasks returns an honest-empty list: the sim has no live
@@ -623,7 +626,7 @@ func handleDisableImageDeregistrationProtection(w http.ResponseWriter, r *http.R
 func handleDescribeBundleTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeBundleTasksResponse %s><requestId>%s</requestId><bundleInstanceTasksSet/></DescribeBundleTasksResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCancelBundleTask(w http.ResponseWriter, r *http.Request) {
@@ -641,7 +644,7 @@ func handleCancelBundleTask(w http.ResponseWriter, r *http.Request) {
 func handleDescribeConversionTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeConversionTasksResponse %s><requestId>%s</requestId><conversionTasks/></DescribeConversionTasksResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCancelConversionTask(w http.ResponseWriter, r *http.Request) {
@@ -680,7 +683,7 @@ func handleCreateStoreImageTask(w http.ResponseWriter, r *http.Request) {
 	ec2StoreImageTasks.Put(imageID, task)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateStoreImageTaskResponse %s><requestId>%s</requestId><objectKey>%s</objectKey></CreateStoreImageTaskResponse>`,
-		ec2Xmlns(), generateUUID(), objectKey)
+		ec2Xmlns(), sim.NewUUID(), objectKey)
 }
 
 func handleDescribeStoreImageTasks(w http.ResponseWriter, r *http.Request) {
@@ -693,7 +696,10 @@ func handleDescribeStoreImageTasks(w http.ResponseWriter, r *http.Request) {
 		results = append(results, t)
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].AmiId < results[j].AmiId })
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, t := range results {
 		fmt.Fprintf(&items, `<item><amiId>%s</amiId><taskStartTime>%s</taskStartTime><bucket>%s</bucket><s3objectKey>%s</s3objectKey><progressPercentage>%d</progressPercentage><storeTaskState>%s</storeTaskState></item>`,
@@ -705,5 +711,5 @@ func handleDescribeStoreImageTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeStoreImageTasksResponse %s><requestId>%s</requestId><storeImageTaskResultSet>%s</storeImageTaskResultSet>%s</DescribeStoreImageTasksResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nextTokenXML)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nextTokenXML)
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // ecrAuthTestToken re-seeds the authorization-token store and issues one token,
@@ -19,7 +20,7 @@ func ecrAuthTestToken(t *testing.T) (authorizationToken, password string) {
 	t.Helper()
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ecrAuthorizationTokens = sim.MakeStore[ECRAuthorizationToken](nil, "ecr_authorization_tokens")
 	token, expires, err := ecrIssueAuthorizationToken()
 	if err != nil {
@@ -190,7 +191,7 @@ func TestECRDataPlaneRefusesAnExpiredAuthorizationToken(t *testing.T) {
 func TestECRAuthorizationTokensAreUnguessableAndDistinct(t *testing.T) {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ecrAuthorizationTokens = sim.MakeStore[ECRAuthorizationToken](nil, "ecr_authorization_tokens")
 	seen := map[string]bool{}
 	for i := 0; i < 8; i++ {

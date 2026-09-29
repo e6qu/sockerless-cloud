@@ -94,7 +94,11 @@ func registerServiceUsage(srv *sim.Server) {
 		})
 		sort.Slice(svcs, func(i, j int) bool { return svcs[i].Name < svcs[j].Name })
 		// Honor the `filter` (e.g. state:ENABLED) and `orderBy` query params.
-		svcs = gcpApplyListParams(svcs, r)
+		listed, listOK := gcpApplyListParams(w, r, svcs)
+		if !listOK {
+			return
+		}
+		svcs = listed
 
 		page, next, ok := paginateList(w, r, svcs)
 		if !ok {

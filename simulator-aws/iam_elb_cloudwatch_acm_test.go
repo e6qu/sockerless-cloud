@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Elastic Load Balancing, Amazon CloudWatch and AWS Certificate Manager address
@@ -269,7 +270,7 @@ func TestIAMResourceARNs_CloudMapTakesTheIdOrResolvesTheName(t *testing.T) {
 func TestIAMResourceARNs_SQSResolvesACancelledMoveThroughItsTask(t *testing.T) {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	sqsMoveTasks = sim.MakeStore[SQSMessageMoveTask](nil, "sqs_move_tasks")
 	const dead = "arn:aws:sqs:us-east-1:123456789012:orders-dlq"
 	sqsMoveTasks.Put("f81d4fae-7dec-11d0-a765-00a0c91e6bf6", SQSMessageMoveTask{
@@ -289,7 +290,7 @@ func TestIAMResourceARNs_SQSResolvesACancelledMoveThroughItsTask(t *testing.T) {
 func TestIAMResourceARNs_CloudMapResolvesAnOperationToWhatItActedOn(t *testing.T) {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	cmNamespaces = sim.MakeStore[CMNamespace](nil, "cloudmap_namespaces")
 	cmServices = sim.MakeStore[CMService](nil, "cloudmap_services")
 	cmOperations = sim.MakeStore[CMOperation](nil, "cloudmap_operations")

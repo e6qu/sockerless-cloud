@@ -109,10 +109,10 @@ func TestELBv2NLBProxyForwardsRawTCP(t *testing.T) {
 	// service, so run the check the checker would have run by now.
 	elbv2CheckTargetHealth(context.Background(), time.Now())
 
-	if err := elbv2StartNLBProxy(listener); err != nil {
+	if err := elbv2StartListenerProxy(listener); err != nil {
 		t.Fatalf("start NLB proxy: %v", err)
 	}
-	defer elbv2StopNLBProxy(listenerArn)
+	defer elbv2StopListenerProxy(listenerArn)
 
 	// Discover the endpoint the way an in-network client does: resolve the
 	// stable AWS-shaped DNSName (what DescribeLoadBalancers returns) to the
@@ -163,10 +163,10 @@ func TestELBv2NLBProxyNoHealthyTargets(t *testing.T) {
 		DefaultActions: []ELBv2Action{{Type: "forward", TargetGroupArn: tgArn}}}
 	elbv2Listeners.Put(listenerArn, listener)
 
-	if err := elbv2StartNLBProxy(listener); err != nil {
+	if err := elbv2StartListenerProxy(listener); err != nil {
 		t.Fatalf("start NLB proxy: %v", err)
 	}
-	defer elbv2StopNLBProxy(listenerArn)
+	defer elbv2StopListenerProxy(listenerArn)
 
 	lb, ok := elbv2LoadBalancers.Get(lbArn)
 	if !ok {

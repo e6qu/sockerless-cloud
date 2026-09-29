@@ -51,6 +51,7 @@ func TestCWLogPatternFailsLoud(t *testing.T) {
 		`{ $.a = 1 && }`, // trailing operator
 		`{ ($.a = 1 }`,   // unbalanced parenthesis
 		`{ = 1 }`,        // missing selector
+		`{ $.a }`,        // selector with no comparison
 	}
 	for _, pat := range bad {
 		if _, err := cwCompileLogPattern(pat); err == nil {

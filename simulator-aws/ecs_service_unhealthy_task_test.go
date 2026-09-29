@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
+	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,21 +65,36 @@ func ecsHealthTestTargetGroup(t *testing.T, containerPort int, addresses ...stri
 	})
 }
 
-// ecsHealthTestRecordTargetHealth is the verdict the Elastic Load Balancing
-// health checker reached for a target. The checker's own tests cover how it
-// gets there; these tests are about what the Amazon ECS service scheduler does
-// once it has.
-func ecsHealthTestRecordTargetHealth(address string, containerPort int, state string) {
-	key := elbv2TargetHealthKey(ecsHealthTestTargetGroupArn,
-		ELBv2TargetDescription{ID: address, Port: containerPort})
-	elbv2TargetHealthMu.Lock()
-	defer elbv2TargetHealthMu.Unlock()
-	record := &ELBv2TargetHealth{State: state}
-	if state == elbv2TargetStateUnhealthy {
-		record.Reason = elbv2ReasonFailedHealthChecks
-		record.Description = elbv2DescriptionFailedHealthChecks
+// ecsHealthTestRecordTargetHealth runs the Elastic Load Balancing health
+// checker until it reaches the given verdict for each address, with each
+// target's check answering the way its verdict needs. The checker's own tests
+// cover probing a real target; these tests are about what the Amazon ECS
+// service scheduler does once the checker has reached a verdict.
+func ecsHealthTestRecordTargetHealth(t *testing.T, containerPort int, verdicts map[string]string) {
+	t.Helper()
+	tg, ok := elbv2TargetGroups.Get(ecsHealthTestTargetGroupArn)
+	require.True(t, ok)
+	policy := elbv2HealthPolicy(tg)
+	var targets []lbplane.HealthTarget[string]
+	for address, state := range verdicts {
+		var result error
+		if state == elbv2TargetStateUnhealthy {
+			result = errors.New("connection refused")
+		}
+		targets = append(targets, lbplane.HealthTarget[string]{
+			Key:    elbv2TargetHealthKey(tg.Arn, ELBv2TargetDescription{ID: address, Port: containerPort}),
+			Policy: policy,
+			Probe:  func(context.Context) (int, error) { return 0, result },
+		})
 	}
-	elbv2TargetHealthRecords[key] = record
+	now := time.Now()
+	for range max(policy.UnhealthyThreshold, policy.InitialHealthyThreshold) {
+		elbv2TargetHealthTracker.Sweep(context.Background(), now, targets)
+		now = now.Add(policy.Interval)
+	}
+	for address, state := range verdicts {
+		require.Equal(t, state, elbv2TargetHealthFor(tg, ELBv2TargetDescription{ID: address, Port: containerPort}).State)
+	}
 }
 
 // ecsHealthTestService stores an Amazon ECS service whose rollout has already
@@ -123,7 +143,7 @@ func ecsHealthTestTaskAged(
 ) ECSTask {
 	startedAt := float64(time.Now().Add(-age).UnixMilli()) / 1000
 	createdAt := float64(startedAt)
-	taskID := generateUUID()
+	taskID := sim.NewUUID()
 	task := ECSTask{
 		TaskArn:           ecsArn("task", cluster.ClusterName+"/"+taskID),
 		TaskDefinitionArn: taskDefinitionArn,
@@ -159,7 +179,7 @@ func TestCompletedDeploymentSurvivesAFailedTargetHealthCheck(t *testing.T) {
 	ecsHealthTestTargetGroup(t, containerPort, taskAddress)
 	key := ecsHealthTestService(t, cluster, serviceName, taskDefinitionArn, containerPort)
 	failing := ecsHealthTestTaskAged(cluster, serviceName, taskDefinitionArn, taskAddress, time.Minute)
-	ecsHealthTestRecordTargetHealth(taskAddress, containerPort, elbv2TargetStateUnhealthy)
+	ecsHealthTestRecordTargetHealth(t, containerPort, map[string]string{taskAddress: elbv2TargetStateUnhealthy})
 
 	ecsReconcileService(key)
 
@@ -200,8 +220,10 @@ func TestSchedulerStopsTheUnhealthyTaskOnceItsReplacementIsInService(t *testing.
 	// instead of by health stops the wrong one.
 	failing := ecsHealthTestTaskAged(cluster, serviceName, taskDefinitionArn, failingAddress, 10*time.Minute)
 	replacement := ecsHealthTestTaskAged(cluster, serviceName, taskDefinitionArn, healthyAddress, time.Minute)
-	ecsHealthTestRecordTargetHealth(failingAddress, containerPort, elbv2TargetStateUnhealthy)
-	ecsHealthTestRecordTargetHealth(healthyAddress, containerPort, elbv2TargetStateHealthy)
+	ecsHealthTestRecordTargetHealth(t, containerPort, map[string]string{
+		failingAddress: elbv2TargetStateUnhealthy,
+		healthyAddress: elbv2TargetStateHealthy,
+	})
 
 	ecsReconcileService(key)
 
@@ -216,7 +238,7 @@ func TestSchedulerStopsTheUnhealthyTaskOnceItsReplacementIsInService(t *testing.
 	// Once it has stopped, the reconciliation its stop requests settles the
 	// deployment.
 	awaitECSTaskStop(t, failing.TaskID())
-	AwaitSimulatorBackground()
+	bg.Await()
 
 	stopped, ok := ecsTasks.Get(failing.TaskID())
 	require.True(t, ok)

@@ -78,15 +78,17 @@ func main() {
 	if p := os.Getenv("SIM_GCP_GRPC_PORT"); p != "" {
 		grpcPort = p
 	}
-	go startGRPCServer(grpcPort)
+	if err := startGRPCServer(srv, grpcPort); err != nil {
+		log.Fatal(err)
+	}
 
 	// Cloud Spanner backup schedules produce real backups on their crontab
 	// occurrences, and Cloud Pub/Sub returns messages whose ack deadline has
 	// elapsed to their subscription. Both clocks run only in the serving
 	// process — building the route table in-process (route conformance,
 	// coverage probing) must not start one.
-	go spannerRunBackupScheduleLoop()
-	pubsubStartAckDeadlineSweeper()
+	srv.StartBackground("Cloud Spanner backup schedules", spannerRunBackupScheduleLoop)
+	srv.StartBackground("Pub/Sub ack deadline sweeper", pubsubAckDeadlineSweeper)
 
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
@@ -230,17 +232,24 @@ func registerAllGRPCServices(gs *grpc.Server) {
 	registerSecretManagerGRPC(gs)
 }
 
-func startGRPCServer(port string) {
+// startGRPCServer serves the gRPC surface on the server's lifecycle, so a
+// shutdown stops it with the other background workers.
+func startGRPCServer(srv *sim.Server, port string) error {
 	lis, err := net.Listen("tcp", ":"+port)
 	if err != nil {
-		log.Fatalf("gRPC: failed to listen on :%s: %v", port, err)
+		return fmt.Errorf("gRPC: listen on :%s: %w", port, err)
 	}
 
 	gs := grpc.NewServer()
 	registerAllGRPCServices(gs)
 
 	fmt.Fprintf(os.Stderr, "  gRPC Cloud Logging, Bigtable Admin + Data, Firestore, Pub/Sub, Spanner, Cloud KMS, Secret Manager on :%s\n", port)
-	if err := gs.Serve(lis); err != nil {
-		log.Fatalf("gRPC: failed to serve: %v", err)
-	}
+	srv.StartBackground("gRPC server", func(ctx context.Context) {
+		stop := context.AfterFunc(ctx, gs.Stop)
+		defer stop()
+		if err := gs.Serve(lis); err != nil {
+			log.Fatalf("gRPC: failed to serve: %v", err)
+		}
+	})
+	return nil
 }

@@ -8,13 +8,13 @@ import (
 	"io"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 	monitoredres "google.golang.org/genproto/googleapis/api/monitoredres"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -111,18 +111,27 @@ type LoggingMetric struct {
 // page plus an opaque numeric next-page token (empty when no more entries
 // remain). The token is a start index into the deterministically-ordered,
 // filtered entry set; pageSize/pageToken only take effect when pageSize > 0.
-func listLogEntries(filter string, resourceNames []string, pageSize int, pageToken string, orderBy string) ([]LogEntry, string) {
+// A filter the query language does not admit, or a token it never issued,
+// answers an error whose text names the argument.
+func listLogEntries(filter string, resourceNames []string, pageSize int, pageToken string, orderBy string) ([]LogEntry, string, error) {
+	node, err := parseLogFilter(filter)
+	if err != nil {
+		return nil, "", err
+	}
 	var allEntries []LogEntry
 	all := logEntries.List()
 	for _, entries := range all {
 		allEntries = append(allEntries, entries...)
 	}
 
-	// Apply structured filter
-	if filter != "" {
+	if strings.TrimSpace(filter) != "" {
 		var filtered []LogEntry
 		for _, entry := range allEntries {
-			if matchesFilter(entry, filter) {
+			doc, err := listq.ToDoc(entry)
+			if err != nil {
+				return nil, "", err
+			}
+			if node.Eval(doc) {
 				filtered = append(filtered, entry)
 			}
 		}
@@ -157,24 +166,11 @@ func listLogEntries(filter string, resourceNames []string, pageSize int, pageTok
 		return allEntries[i].InsertID < allEntries[j].InsertID
 	})
 
-	start := 0
-	if pageToken != "" {
-		if n, err := strconv.Atoi(pageToken); err == nil && n >= 0 && n <= len(allEntries) {
-			start = n
-		}
+	page, next, err := listq.TokenPage(listq.Decimal.Strictly(), allEntries, pageToken, pageSize, 0, 0)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid pageToken %q: %w", pageToken, err)
 	}
-	allEntries = allEntries[start:]
-
-	next := ""
-	if pageSize > 0 && len(allEntries) > pageSize {
-		next = strconv.Itoa(start + pageSize)
-		allEntries = allEntries[:pageSize]
-	}
-
-	if allEntries == nil {
-		allEntries = []LogEntry{}
-	}
-	return allEntries, next
+	return page, next, nil
 }
 
 // writeLogEntries is the shared implementation for writing log entries,
@@ -192,7 +188,7 @@ func writeLogEntries(logName string, resource *MonitoredResource, labels map[str
 			entry.Timestamp = nowTimestamp()
 		}
 		if entry.InsertID == "" {
-			entry.InsertID = generateUUID()
+			entry.InsertID = sim.NewUUID()
 		}
 		if len(labels) > 0 && entry.Labels == nil {
 			entry.Labels = make(map[string]string)
@@ -268,7 +264,11 @@ func registerCloudLogging(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		entries, next := listLogEntries(req.Filter, req.ResourceNames, req.PageSize, req.PageToken, req.OrderBy)
+		entries, next, err := listLogEntries(req.Filter, req.ResourceNames, req.PageSize, req.PageToken, req.OrderBy)
+		if err != nil {
+			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			return
+		}
 		sim.WriteJSON(w, http.StatusOK, ListLogEntriesRESTResponse{
 			Entries:       entries,
 			NextPageToken: next,
@@ -328,7 +328,7 @@ func loggingMetricRequestKey(project, metric string) string {
 func normalizeLoggingSink(project string, sink LoggingSink, uniqueWriter bool) LoggingSink {
 	short := strings.TrimPrefix(sink.Name, fmt.Sprintf("projects/%s/sinks/", project))
 	if short == "" {
-		short = generateUUID()
+		short = sim.NewUUID()
 	}
 	sink.Name = loggingSinkKey(project, short)
 	if sink.WriterIdentity == "" {
@@ -354,7 +354,7 @@ func loggingUniqueWriter(r *http.Request, sink LoggingSink) bool {
 func normalizeLoggingMetric(project string, metric LoggingMetric) LoggingMetric {
 	short := strings.TrimPrefix(metric.Name, fmt.Sprintf("projects/%s/metrics/", project))
 	if short == "" {
-		short = generateUUID()
+		short = sim.NewUUID()
 	}
 	metric.Name = loggingMetricKey(project, short)
 	return metric
@@ -534,7 +534,10 @@ func (s *loggingServer) WriteLogEntries(_ context.Context, req *loggingpb.WriteL
 }
 
 func (s *loggingServer) ListLogEntries(_ context.Context, req *loggingpb.ListLogEntriesRequest) (*loggingpb.ListLogEntriesResponse, error) {
-	entries, next := listLogEntries(req.Filter, req.ResourceNames, int(req.PageSize), req.PageToken, req.OrderBy)
+	entries, next, err := listLogEntries(req.Filter, req.ResourceNames, int(req.PageSize), req.PageToken, req.OrderBy)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 
 	var pbEntries []*loggingpb.LogEntry
 	for _, e := range entries {
@@ -648,7 +651,10 @@ func (s *loggingServer) TailLogEntries(stream loggingpb.LoggingServiceV2_TailLog
 		filter, resourceNames := params.GetFilter(), params.GetResourceNames()
 		paramsMu.Unlock()
 
-		entries, _ := listLogEntries(filter, resourceNames, 0, "", "")
+		entries, _, err := listLogEntries(filter, resourceNames, 0, "", "")
+		if err != nil {
+			return status.Error(codes.InvalidArgument, err.Error())
+		}
 		var fresh []*loggingpb.LogEntry
 		for _, e := range entries {
 			if sent[e.InsertID] {
@@ -691,24 +697,7 @@ func loggingTailBufferWindow(req *loggingpb.TailLogEntriesRequest) (time.Duratio
 // loggingPageOfNames slices a sorted name list by the numeric offset page token
 // the REST list handlers use, so both doors read and mint the same tokens.
 func loggingPageOfNames(names []string, pageSize int, pageToken string) ([]string, string, error) {
-	start := 0
-	if pageToken != "" {
-		n, err := strconv.Atoi(pageToken)
-		if err != nil || n < 0 || n > len(names) {
-			return nil, "", status.Errorf(codes.InvalidArgument, "invalid page_token %q", pageToken)
-		}
-		start = n
-	}
-	if pageSize < 0 {
-		return nil, "", status.Errorf(codes.InvalidArgument, "invalid page_size %d", pageSize)
-	}
-	page := names[start:]
-	next := ""
-	if pageSize > 0 && len(page) > pageSize {
-		next = strconv.Itoa(start + pageSize)
-		page = page[:pageSize]
-	}
-	return page, next, nil
+	return grpcOffsetPage(names, int32(pageSize), pageToken)
 }
 
 func registerCloudLoggingGRPC(gs *grpc.Server) {

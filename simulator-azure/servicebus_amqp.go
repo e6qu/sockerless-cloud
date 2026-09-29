@@ -19,6 +19,7 @@ import (
 	"time"
 
 	amqp "github.com/Azure/go-amqp"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/gorilla/websocket"
 )
 
@@ -480,7 +481,7 @@ func (c *sbAMQPConn) handleTransfer(ctx context.Context, frame amqpFrame) error 
 			amqpDescribed{code: amqpDescAccepted, value: []any{}},
 		}))
 	}
-	msgID := generateUUID()
+	msgID := sim.NewUUID()
 	if msg.Properties != nil {
 		if id, ok := msg.Properties.MessageID.(string); ok && id != "" {
 			msgID = id
@@ -748,7 +749,7 @@ func (c *sbAMQPConn) popMessage(namespace, address string) ([]byte, bool) {
 	st.messages = st.messages[1:]
 	st.persistLocked()
 	out := &amqp.Message{
-		DeliveryTag: []byte(generateUUID()),
+		DeliveryTag: []byte(sim.NewUUID()),
 		Properties:  &amqp.MessageProperties{MessageID: msg.MessageID},
 		Annotations: amqp.Annotations{
 			"x-opt-sequence-number": msg.SequenceNumber,

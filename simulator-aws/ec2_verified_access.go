@@ -304,7 +304,7 @@ func handleCreateVerifiedAccessInstance(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<CreateVerifiedAccessInstanceResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessInstance>%s</verifiedAccessInstance>
-</CreateVerifiedAccessInstanceResponse>`, ec2Xmlns(), generateUUID(), vaInstanceBodyXML(inst))
+</CreateVerifiedAccessInstanceResponse>`, ec2Xmlns(), sim.NewUUID(), vaInstanceBodyXML(inst))
 }
 
 func handleDescribeVerifiedAccessInstances(w http.ResponseWriter, r *http.Request) {
@@ -326,7 +326,7 @@ func handleDescribeVerifiedAccessInstances(w http.ResponseWriter, r *http.Reques
 	fmt.Fprintf(w, `<DescribeVerifiedAccessInstancesResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessInstanceSet>%s</verifiedAccessInstanceSet>
-</DescribeVerifiedAccessInstancesResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeVerifiedAccessInstancesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleModifyVerifiedAccessInstance(w http.ResponseWriter, r *http.Request) {
@@ -345,7 +345,7 @@ func handleModifyVerifiedAccessInstance(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<ModifyVerifiedAccessInstanceResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessInstance>%s</verifiedAccessInstance>
-</ModifyVerifiedAccessInstanceResponse>`, ec2Xmlns(), generateUUID(), vaInstanceBodyXML(inst))
+</ModifyVerifiedAccessInstanceResponse>`, ec2Xmlns(), sim.NewUUID(), vaInstanceBodyXML(inst))
 }
 
 func handleDeleteVerifiedAccessInstance(w http.ResponseWriter, r *http.Request) {
@@ -360,7 +360,7 @@ func handleDeleteVerifiedAccessInstance(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<DeleteVerifiedAccessInstanceResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessInstance>%s</verifiedAccessInstance>
-</DeleteVerifiedAccessInstanceResponse>`, ec2Xmlns(), generateUUID(), vaInstanceBodyXML(inst))
+</DeleteVerifiedAccessInstanceResponse>`, ec2Xmlns(), sim.NewUUID(), vaInstanceBodyXML(inst))
 }
 
 func vaTrustProviderBodyXML(tp EC2VerifiedAccessTrustProvider) string {
@@ -403,7 +403,7 @@ func handleCreateVerifiedAccessTrustProvider(w http.ResponseWriter, r *http.Requ
 	fmt.Fprintf(w, `<CreateVerifiedAccessTrustProviderResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessTrustProvider>%s</verifiedAccessTrustProvider>
-</CreateVerifiedAccessTrustProviderResponse>`, ec2Xmlns(), generateUUID(), vaTrustProviderBodyXML(tp))
+</CreateVerifiedAccessTrustProviderResponse>`, ec2Xmlns(), sim.NewUUID(), vaTrustProviderBodyXML(tp))
 }
 
 func handleDescribeVerifiedAccessTrustProviders(w http.ResponseWriter, r *http.Request) {
@@ -425,7 +425,7 @@ func handleDescribeVerifiedAccessTrustProviders(w http.ResponseWriter, r *http.R
 	fmt.Fprintf(w, `<DescribeVerifiedAccessTrustProvidersResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessTrustProviderSet>%s</verifiedAccessTrustProviderSet>
-</DescribeVerifiedAccessTrustProvidersResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeVerifiedAccessTrustProvidersResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleModifyVerifiedAccessTrustProvider(w http.ResponseWriter, r *http.Request) {
@@ -444,7 +444,7 @@ func handleModifyVerifiedAccessTrustProvider(w http.ResponseWriter, r *http.Requ
 	fmt.Fprintf(w, `<ModifyVerifiedAccessTrustProviderResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessTrustProvider>%s</verifiedAccessTrustProvider>
-</ModifyVerifiedAccessTrustProviderResponse>`, ec2Xmlns(), generateUUID(), vaTrustProviderBodyXML(tp))
+</ModifyVerifiedAccessTrustProviderResponse>`, ec2Xmlns(), sim.NewUUID(), vaTrustProviderBodyXML(tp))
 }
 
 func handleDeleteVerifiedAccessTrustProvider(w http.ResponseWriter, r *http.Request) {
@@ -459,7 +459,7 @@ func handleDeleteVerifiedAccessTrustProvider(w http.ResponseWriter, r *http.Requ
 	fmt.Fprintf(w, `<DeleteVerifiedAccessTrustProviderResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessTrustProvider>%s</verifiedAccessTrustProvider>
-</DeleteVerifiedAccessTrustProviderResponse>`, ec2Xmlns(), generateUUID(), vaTrustProviderBodyXML(tp))
+</DeleteVerifiedAccessTrustProviderResponse>`, ec2Xmlns(), sim.NewUUID(), vaTrustProviderBodyXML(tp))
 }
 
 func handleAttachVerifiedAccessTrustProvider(w http.ResponseWriter, r *http.Request) {
@@ -487,7 +487,7 @@ func handleAttachVerifiedAccessTrustProvider(w http.ResponseWriter, r *http.Requ
   <requestId>%s</requestId>
   <verifiedAccessTrustProvider>%s</verifiedAccessTrustProvider>
   <verifiedAccessInstance>%s</verifiedAccessInstance>
-</AttachVerifiedAccessTrustProviderResponse>`, ec2Xmlns(), generateUUID(), vaTrustProviderBodyXML(tp), vaInstanceBodyXML(inst))
+</AttachVerifiedAccessTrustProviderResponse>`, ec2Xmlns(), sim.NewUUID(), vaTrustProviderBodyXML(tp), vaInstanceBodyXML(inst))
 }
 
 func handleDetachVerifiedAccessTrustProvider(w http.ResponseWriter, r *http.Request) {
@@ -519,7 +519,7 @@ func handleDetachVerifiedAccessTrustProvider(w http.ResponseWriter, r *http.Requ
   <requestId>%s</requestId>
   <verifiedAccessTrustProvider>%s</verifiedAccessTrustProvider>
   <verifiedAccessInstance>%s</verifiedAccessInstance>
-</DetachVerifiedAccessTrustProviderResponse>`, ec2Xmlns(), generateUUID(), vaTrustProviderBodyXML(tp), vaInstanceBodyXML(inst))
+</DetachVerifiedAccessTrustProviderResponse>`, ec2Xmlns(), sim.NewUUID(), vaTrustProviderBodyXML(tp), vaInstanceBodyXML(inst))
 }
 
 func vaGroupBodyXML(g EC2VerifiedAccessGroup) string {
@@ -563,7 +563,7 @@ func handleCreateVerifiedAccessGroup(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateVerifiedAccessGroupResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessGroup>%s</verifiedAccessGroup>
-</CreateVerifiedAccessGroupResponse>`, ec2Xmlns(), generateUUID(), vaGroupBodyXML(g))
+</CreateVerifiedAccessGroupResponse>`, ec2Xmlns(), sim.NewUUID(), vaGroupBodyXML(g))
 }
 
 func handleDescribeVerifiedAccessGroups(w http.ResponseWriter, r *http.Request) {
@@ -589,7 +589,7 @@ func handleDescribeVerifiedAccessGroups(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<DescribeVerifiedAccessGroupsResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessGroupSet>%s</verifiedAccessGroupSet>
-</DescribeVerifiedAccessGroupsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeVerifiedAccessGroupsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleModifyVerifiedAccessGroup(w http.ResponseWriter, r *http.Request) {
@@ -611,7 +611,7 @@ func handleModifyVerifiedAccessGroup(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ModifyVerifiedAccessGroupResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessGroup>%s</verifiedAccessGroup>
-</ModifyVerifiedAccessGroupResponse>`, ec2Xmlns(), generateUUID(), vaGroupBodyXML(g))
+</ModifyVerifiedAccessGroupResponse>`, ec2Xmlns(), sim.NewUUID(), vaGroupBodyXML(g))
 }
 
 func handleDeleteVerifiedAccessGroup(w http.ResponseWriter, r *http.Request) {
@@ -626,7 +626,7 @@ func handleDeleteVerifiedAccessGroup(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteVerifiedAccessGroupResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessGroup>%s</verifiedAccessGroup>
-</DeleteVerifiedAccessGroupResponse>`, ec2Xmlns(), generateUUID(), vaGroupBodyXML(g))
+</DeleteVerifiedAccessGroupResponse>`, ec2Xmlns(), sim.NewUUID(), vaGroupBodyXML(g))
 }
 
 func handleGetVerifiedAccessGroupPolicy(w http.ResponseWriter, r *http.Request) {
@@ -645,7 +645,7 @@ func handleGetVerifiedAccessGroupPolicy(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<GetVerifiedAccessGroupPolicyResponse %s>
   <requestId>%s</requestId>
   %s
-</GetVerifiedAccessGroupPolicyResponse>`, ec2Xmlns(), generateUUID(), b.String())
+</GetVerifiedAccessGroupPolicyResponse>`, ec2Xmlns(), sim.NewUUID(), b.String())
 }
 
 func handleModifyVerifiedAccessGroupPolicy(w http.ResponseWriter, r *http.Request) {
@@ -672,7 +672,7 @@ func handleModifyVerifiedAccessGroupPolicy(w http.ResponseWriter, r *http.Reques
 	fmt.Fprintf(w, `<ModifyVerifiedAccessGroupPolicyResponse %s>
   <requestId>%s</requestId>
   %s
-</ModifyVerifiedAccessGroupPolicyResponse>`, ec2Xmlns(), generateUUID(), b.String())
+</ModifyVerifiedAccessGroupPolicyResponse>`, ec2Xmlns(), sim.NewUUID(), b.String())
 }
 
 func vaEndpointBodyXML(e EC2VerifiedAccessEndpoint) string {
@@ -760,7 +760,7 @@ func handleCreateVerifiedAccessEndpoint(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<CreateVerifiedAccessEndpointResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessEndpoint>%s</verifiedAccessEndpoint>
-</CreateVerifiedAccessEndpointResponse>`, ec2Xmlns(), generateUUID(), vaEndpointBodyXML(e))
+</CreateVerifiedAccessEndpointResponse>`, ec2Xmlns(), sim.NewUUID(), vaEndpointBodyXML(e))
 }
 
 func handleDescribeVerifiedAccessEndpoints(w http.ResponseWriter, r *http.Request) {
@@ -790,7 +790,7 @@ func handleDescribeVerifiedAccessEndpoints(w http.ResponseWriter, r *http.Reques
 	fmt.Fprintf(w, `<DescribeVerifiedAccessEndpointsResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessEndpointSet>%s</verifiedAccessEndpointSet>
-</DescribeVerifiedAccessEndpointsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeVerifiedAccessEndpointsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleModifyVerifiedAccessEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -812,7 +812,7 @@ func handleModifyVerifiedAccessEndpoint(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<ModifyVerifiedAccessEndpointResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessEndpoint>%s</verifiedAccessEndpoint>
-</ModifyVerifiedAccessEndpointResponse>`, ec2Xmlns(), generateUUID(), vaEndpointBodyXML(e))
+</ModifyVerifiedAccessEndpointResponse>`, ec2Xmlns(), sim.NewUUID(), vaEndpointBodyXML(e))
 }
 
 func handleDeleteVerifiedAccessEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -828,7 +828,7 @@ func handleDeleteVerifiedAccessEndpoint(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<DeleteVerifiedAccessEndpointResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessEndpoint>%s</verifiedAccessEndpoint>
-</DeleteVerifiedAccessEndpointResponse>`, ec2Xmlns(), generateUUID(), vaEndpointBodyXML(e))
+</DeleteVerifiedAccessEndpointResponse>`, ec2Xmlns(), sim.NewUUID(), vaEndpointBodyXML(e))
 }
 
 func handleGetVerifiedAccessEndpointPolicy(w http.ResponseWriter, r *http.Request) {
@@ -847,7 +847,7 @@ func handleGetVerifiedAccessEndpointPolicy(w http.ResponseWriter, r *http.Reques
 	fmt.Fprintf(w, `<GetVerifiedAccessEndpointPolicyResponse %s>
   <requestId>%s</requestId>
   %s
-</GetVerifiedAccessEndpointPolicyResponse>`, ec2Xmlns(), generateUUID(), b.String())
+</GetVerifiedAccessEndpointPolicyResponse>`, ec2Xmlns(), sim.NewUUID(), b.String())
 }
 
 func handleModifyVerifiedAccessEndpointPolicy(w http.ResponseWriter, r *http.Request) {
@@ -874,7 +874,7 @@ func handleModifyVerifiedAccessEndpointPolicy(w http.ResponseWriter, r *http.Req
 	fmt.Fprintf(w, `<ModifyVerifiedAccessEndpointPolicyResponse %s>
   <requestId>%s</requestId>
   %s
-</ModifyVerifiedAccessEndpointPolicyResponse>`, ec2Xmlns(), generateUUID(), b.String())
+</ModifyVerifiedAccessEndpointPolicyResponse>`, ec2Xmlns(), sim.NewUUID(), b.String())
 }
 
 func handleGetVerifiedAccessEndpointTargets(w http.ResponseWriter, r *http.Request) {
@@ -895,7 +895,7 @@ func handleGetVerifiedAccessEndpointTargets(w http.ResponseWriter, r *http.Reque
 	fmt.Fprintf(w, `<GetVerifiedAccessEndpointTargetsResponse %s>
   <requestId>%s</requestId>
   <verifiedAccessEndpointTargetSet>%s</verifiedAccessEndpointTargetSet>
-</GetVerifiedAccessEndpointTargetsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</GetVerifiedAccessEndpointTargetsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func vaLoggingBodyXML(lc EC2VerifiedAccessLogging) string {
@@ -955,7 +955,7 @@ func handleDescribeVerifiedAccessInstanceLoggingConfigurations(w http.ResponseWr
 	fmt.Fprintf(w, `<DescribeVerifiedAccessInstanceLoggingConfigurationsResponse %s>
   <requestId>%s</requestId>
   <loggingConfigurationSet>%s</loggingConfigurationSet>
-</DescribeVerifiedAccessInstanceLoggingConfigurationsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeVerifiedAccessInstanceLoggingConfigurationsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleModifyVerifiedAccessInstanceLoggingConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -997,7 +997,7 @@ func handleModifyVerifiedAccessInstanceLoggingConfiguration(w http.ResponseWrite
 	fmt.Fprintf(w, `<ModifyVerifiedAccessInstanceLoggingConfigurationResponse %s>
   <requestId>%s</requestId>
   <loggingConfiguration>%s</loggingConfiguration>
-</ModifyVerifiedAccessInstanceLoggingConfigurationResponse>`, ec2Xmlns(), generateUUID(), vaLoggingBodyXML(lc))
+</ModifyVerifiedAccessInstanceLoggingConfigurationResponse>`, ec2Xmlns(), sim.NewUUID(), vaLoggingBodyXML(lc))
 }
 
 func handleExportVerifiedAccessInstanceClientConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -1012,7 +1012,7 @@ func handleExportVerifiedAccessInstanceClientConfiguration(w http.ResponseWriter
   <version>1.0</version>
   <verifiedAccessInstanceId>%s</verifiedAccessInstanceId>
   <region>%s</region>
-</ExportVerifiedAccessInstanceClientConfigurationResponse>`, ec2Xmlns(), generateUUID(), instID, awsRegion())
+</ExportVerifiedAccessInstanceClientConfigurationResponse>`, ec2Xmlns(), sim.NewUUID(), instID, awsRegion())
 }
 
 func tmTargetBodyXML(t EC2TrafficMirrorTarget) string {
@@ -1062,7 +1062,7 @@ func handleCreateTrafficMirrorTarget(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateTrafficMirrorTargetResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorTarget>%s</trafficMirrorTarget>
-</CreateTrafficMirrorTargetResponse>`, ec2Xmlns(), generateUUID(), tmTargetBodyXML(t))
+</CreateTrafficMirrorTargetResponse>`, ec2Xmlns(), sim.NewUUID(), tmTargetBodyXML(t))
 }
 
 func handleDescribeTrafficMirrorTargets(w http.ResponseWriter, r *http.Request) {
@@ -1084,7 +1084,7 @@ func handleDescribeTrafficMirrorTargets(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<DescribeTrafficMirrorTargetsResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorTargetSet>%s</trafficMirrorTargetSet>
-</DescribeTrafficMirrorTargetsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeTrafficMirrorTargetsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDeleteTrafficMirrorTarget(w http.ResponseWriter, r *http.Request) {
@@ -1098,7 +1098,7 @@ func handleDeleteTrafficMirrorTarget(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteTrafficMirrorTargetResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorTargetId>%s</trafficMirrorTargetId>
-</DeleteTrafficMirrorTargetResponse>`, ec2Xmlns(), generateUUID(), id)
+</DeleteTrafficMirrorTargetResponse>`, ec2Xmlns(), sim.NewUUID(), id)
 }
 
 func tmPortRangeXML(tag string, pr *EC2TrafficMirrorPortRange) string {
@@ -1178,7 +1178,7 @@ func handleCreateTrafficMirrorFilter(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateTrafficMirrorFilterResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorFilter>%s</trafficMirrorFilter>
-</CreateTrafficMirrorFilterResponse>`, ec2Xmlns(), generateUUID(), tmFilterBodyXML(f))
+</CreateTrafficMirrorFilterResponse>`, ec2Xmlns(), sim.NewUUID(), tmFilterBodyXML(f))
 }
 
 func handleDescribeTrafficMirrorFilters(w http.ResponseWriter, r *http.Request) {
@@ -1200,7 +1200,7 @@ func handleDescribeTrafficMirrorFilters(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<DescribeTrafficMirrorFiltersResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorFilterSet>%s</trafficMirrorFilterSet>
-</DescribeTrafficMirrorFiltersResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeTrafficMirrorFiltersResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDeleteTrafficMirrorFilter(w http.ResponseWriter, r *http.Request) {
@@ -1220,7 +1220,7 @@ func handleDeleteTrafficMirrorFilter(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteTrafficMirrorFilterResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorFilterId>%s</trafficMirrorFilterId>
-</DeleteTrafficMirrorFilterResponse>`, ec2Xmlns(), generateUUID(), id)
+</DeleteTrafficMirrorFilterResponse>`, ec2Xmlns(), sim.NewUUID(), id)
 }
 
 // ec2ParseTmPortRange reads a TrafficMirrorPortRange request param block.
@@ -1260,7 +1260,7 @@ func handleCreateTrafficMirrorFilterRule(w http.ResponseWriter, r *http.Request)
 	fmt.Fprintf(w, `<CreateTrafficMirrorFilterRuleResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorFilterRule>%s</trafficMirrorFilterRule>
-</CreateTrafficMirrorFilterRuleResponse>`, ec2Xmlns(), generateUUID(), tmFilterRuleBodyXML(rule))
+</CreateTrafficMirrorFilterRuleResponse>`, ec2Xmlns(), sim.NewUUID(), tmFilterRuleBodyXML(rule))
 }
 
 func handleDescribeTrafficMirrorFilterRules(w http.ResponseWriter, r *http.Request) {
@@ -1280,7 +1280,7 @@ func handleDescribeTrafficMirrorFilterRules(w http.ResponseWriter, r *http.Reque
 	fmt.Fprintf(w, `<DescribeTrafficMirrorFilterRulesResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorFilterRuleSet>%s</trafficMirrorFilterRuleSet>
-</DescribeTrafficMirrorFilterRulesResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeTrafficMirrorFilterRulesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleModifyTrafficMirrorFilterRule(w http.ResponseWriter, r *http.Request) {
@@ -1323,7 +1323,7 @@ func handleModifyTrafficMirrorFilterRule(w http.ResponseWriter, r *http.Request)
 	fmt.Fprintf(w, `<ModifyTrafficMirrorFilterRuleResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorFilterRule>%s</trafficMirrorFilterRule>
-</ModifyTrafficMirrorFilterRuleResponse>`, ec2Xmlns(), generateUUID(), tmFilterRuleBodyXML(rule))
+</ModifyTrafficMirrorFilterRuleResponse>`, ec2Xmlns(), sim.NewUUID(), tmFilterRuleBodyXML(rule))
 }
 
 func handleDeleteTrafficMirrorFilterRule(w http.ResponseWriter, r *http.Request) {
@@ -1337,7 +1337,7 @@ func handleDeleteTrafficMirrorFilterRule(w http.ResponseWriter, r *http.Request)
 	fmt.Fprintf(w, `<DeleteTrafficMirrorFilterRuleResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorFilterRuleId>%s</trafficMirrorFilterRuleId>
-</DeleteTrafficMirrorFilterRuleResponse>`, ec2Xmlns(), generateUUID(), id)
+</DeleteTrafficMirrorFilterRuleResponse>`, ec2Xmlns(), sim.NewUUID(), id)
 }
 
 func handleModifyTrafficMirrorFilterNetworkServices(w http.ResponseWriter, r *http.Request) {
@@ -1368,7 +1368,7 @@ func handleModifyTrafficMirrorFilterNetworkServices(w http.ResponseWriter, r *ht
 	fmt.Fprintf(w, `<ModifyTrafficMirrorFilterNetworkServicesResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorFilter>%s</trafficMirrorFilter>
-</ModifyTrafficMirrorFilterNetworkServicesResponse>`, ec2Xmlns(), generateUUID(), tmFilterBodyXML(f))
+</ModifyTrafficMirrorFilterNetworkServicesResponse>`, ec2Xmlns(), sim.NewUUID(), tmFilterBodyXML(f))
 }
 
 func tmSessionBodyXML(s EC2TrafficMirrorSession) string {
@@ -1427,7 +1427,7 @@ func handleCreateTrafficMirrorSession(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateTrafficMirrorSessionResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorSession>%s</trafficMirrorSession>
-</CreateTrafficMirrorSessionResponse>`, ec2Xmlns(), generateUUID(), tmSessionBodyXML(s))
+</CreateTrafficMirrorSessionResponse>`, ec2Xmlns(), sim.NewUUID(), tmSessionBodyXML(s))
 }
 
 func handleDescribeTrafficMirrorSessions(w http.ResponseWriter, r *http.Request) {
@@ -1449,7 +1449,7 @@ func handleDescribeTrafficMirrorSessions(w http.ResponseWriter, r *http.Request)
 	fmt.Fprintf(w, `<DescribeTrafficMirrorSessionsResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorSessionSet>%s</trafficMirrorSessionSet>
-</DescribeTrafficMirrorSessionsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeTrafficMirrorSessionsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleModifyTrafficMirrorSession(w http.ResponseWriter, r *http.Request) {
@@ -1483,7 +1483,7 @@ func handleModifyTrafficMirrorSession(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ModifyTrafficMirrorSessionResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorSession>%s</trafficMirrorSession>
-</ModifyTrafficMirrorSessionResponse>`, ec2Xmlns(), generateUUID(), tmSessionBodyXML(s))
+</ModifyTrafficMirrorSessionResponse>`, ec2Xmlns(), sim.NewUUID(), tmSessionBodyXML(s))
 }
 
 func handleDeleteTrafficMirrorSession(w http.ResponseWriter, r *http.Request) {
@@ -1497,5 +1497,5 @@ func handleDeleteTrafficMirrorSession(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteTrafficMirrorSessionResponse %s>
   <requestId>%s</requestId>
   <trafficMirrorSessionId>%s</trafficMirrorSessionId>
-</DeleteTrafficMirrorSessionResponse>`, ec2Xmlns(), generateUUID(), id)
+</DeleteTrafficMirrorSessionResponse>`, ec2Xmlns(), sim.NewUUID(), id)
 }

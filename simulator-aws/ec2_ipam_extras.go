@@ -235,7 +235,7 @@ func handleCreateIpamPolicy(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateIpamPolicyResponse %s>
   <requestId>%s</requestId>
   <ipamPolicy>%s</ipamPolicy>
-</CreateIpamPolicyResponse>`, ec2Xmlns(), generateUUID(), ipamPolicyBodyXML(pol))
+</CreateIpamPolicyResponse>`, ec2Xmlns(), sim.NewUUID(), ipamPolicyBodyXML(pol))
 }
 
 func ipamPolicyBodyXML(p EC2IpamPolicy) string {
@@ -264,7 +264,7 @@ func handleDescribeIpamPolicies(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeIpamPoliciesResponse %s>
   <requestId>%s</requestId>
   <ipamPolicySet>%s</ipamPolicySet>
-</DescribeIpamPoliciesResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeIpamPoliciesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDeleteIpamPolicy(w http.ResponseWriter, r *http.Request) {
@@ -280,7 +280,7 @@ func handleDeleteIpamPolicy(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteIpamPolicyResponse %s>
   <requestId>%s</requestId>
   <ipamPolicy>%s</ipamPolicy>
-</DeleteIpamPolicyResponse>`, ec2Xmlns(), generateUUID(), ipamPolicyBodyXML(pol))
+</DeleteIpamPolicyResponse>`, ec2Xmlns(), sim.NewUUID(), ipamPolicyBodyXML(pol))
 }
 
 func handleEnableIpamPolicy(w http.ResponseWriter, r *http.Request) {
@@ -300,7 +300,7 @@ func handleEnableIpamPolicy(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<EnableIpamPolicyResponse %s>
   <requestId>%s</requestId>
   <ipamPolicyId>%s</ipamPolicyId>
-</EnableIpamPolicyResponse>`, ec2Xmlns(), generateUUID(), id)
+</EnableIpamPolicyResponse>`, ec2Xmlns(), sim.NewUUID(), id)
 }
 
 func handleDisableIpamPolicy(w http.ResponseWriter, r *http.Request) {
@@ -314,7 +314,7 @@ func handleDisableIpamPolicy(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DisableIpamPolicyResponse %s>
   <requestId>%s</requestId>
   <return>true</return>
-</DisableIpamPolicyResponse>`, ec2Xmlns(), generateUUID())
+</DisableIpamPolicyResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleGetEnabledIpamPolicy(w http.ResponseWriter, r *http.Request) {
@@ -331,7 +331,7 @@ func handleGetEnabledIpamPolicy(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<GetEnabledIpamPolicyResponse %s>
   <requestId>%s</requestId>
   <ipamPolicyEnabled>false</ipamPolicyEnabled>
-</GetEnabledIpamPolicyResponse>`, ec2Xmlns(), generateUUID())
+</GetEnabledIpamPolicyResponse>`, ec2Xmlns(), sim.NewUUID())
 		return
 	}
 	fmt.Fprintf(w, `<GetEnabledIpamPolicyResponse %s>
@@ -339,7 +339,7 @@ func handleGetEnabledIpamPolicy(w http.ResponseWriter, r *http.Request) {
   <ipamPolicyEnabled>true</ipamPolicyEnabled>
   <ipamPolicyId>%s</ipamPolicyId>
   <managedBy>account</managedBy>
-</GetEnabledIpamPolicyResponse>`, ec2Xmlns(), generateUUID(), enabled.IpamPolicyId)
+</GetEnabledIpamPolicyResponse>`, ec2Xmlns(), sim.NewUUID(), enabled.IpamPolicyId)
 }
 
 func ipamPolicyDocumentXML(d EC2IpamPolicyDocument) string {
@@ -382,7 +382,7 @@ func handleGetIpamPolicyAllocationRules(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<GetIpamPolicyAllocationRulesResponse %s>
   <requestId>%s</requestId>
   <ipamPolicyDocumentSet>%s</ipamPolicyDocumentSet>
-</GetIpamPolicyAllocationRulesResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</GetIpamPolicyAllocationRulesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleModifyIpamPolicyAllocationRules(w http.ResponseWriter, r *http.Request) {
@@ -411,7 +411,7 @@ func handleModifyIpamPolicyAllocationRules(w http.ResponseWriter, r *http.Reques
 	fmt.Fprintf(w, `<ModifyIpamPolicyAllocationRulesResponse %s>
   <requestId>%s</requestId>
   <ipamPolicyDocument>%s</ipamPolicyDocument>
-</ModifyIpamPolicyAllocationRulesResponse>`, ec2Xmlns(), generateUUID(), ipamPolicyDocumentXML(doc))
+</ModifyIpamPolicyAllocationRulesResponse>`, ec2Xmlns(), sim.NewUUID(), ipamPolicyDocumentXML(doc))
 }
 
 func handleGetIpamPolicyOrganizationTargets(w http.ResponseWriter, r *http.Request) {
@@ -426,7 +426,7 @@ func handleGetIpamPolicyOrganizationTargets(w http.ResponseWriter, r *http.Reque
 	fmt.Fprintf(w, `<GetIpamPolicyOrganizationTargetsResponse %s>
   <requestId>%s</requestId>
   <organizationTargetSet/>
-</GetIpamPolicyOrganizationTargetsResponse>`, ec2Xmlns(), generateUUID())
+</GetIpamPolicyOrganizationTargetsResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func ipamByoasnBodyXML(b EC2IpamByoasn) string {
@@ -456,7 +456,7 @@ func handleProvisionIpamByoasn(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ProvisionIpamByoasnResponse %s>
   <requestId>%s</requestId>
   <byoasn>%s</byoasn>
-</ProvisionIpamByoasnResponse>`, ec2Xmlns(), generateUUID(), ipamByoasnBodyXML(byo))
+</ProvisionIpamByoasnResponse>`, ec2Xmlns(), sim.NewUUID(), ipamByoasnBodyXML(byo))
 }
 
 func handleDeprovisionIpamByoasn(w http.ResponseWriter, r *http.Request) {
@@ -472,7 +472,7 @@ func handleDeprovisionIpamByoasn(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeprovisionIpamByoasnResponse %s>
   <requestId>%s</requestId>
   <byoasn>%s</byoasn>
-</DeprovisionIpamByoasnResponse>`, ec2Xmlns(), generateUUID(), ipamByoasnBodyXML(byo))
+</DeprovisionIpamByoasnResponse>`, ec2Xmlns(), sim.NewUUID(), ipamByoasnBodyXML(byo))
 }
 
 func handleDescribeIpamByoasn(w http.ResponseWriter, r *http.Request) {
@@ -484,7 +484,7 @@ func handleDescribeIpamByoasn(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeIpamByoasnResponse %s>
   <requestId>%s</requestId>
   <byoasnSet>%s</byoasnSet>
-</DescribeIpamByoasnResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeIpamByoasnResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func ipamAsnAssociationXML(a EC2IpamAsnAssociation) string {
@@ -509,7 +509,7 @@ func handleAssociateIpamByoasn(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<AssociateIpamByoasnResponse %s>
   <requestId>%s</requestId>
   <asnAssociation>%s</asnAssociation>
-</AssociateIpamByoasnResponse>`, ec2Xmlns(), generateUUID(), ipamAsnAssociationXML(assoc))
+</AssociateIpamByoasnResponse>`, ec2Xmlns(), sim.NewUUID(), ipamAsnAssociationXML(assoc))
 }
 
 func handleDisassociateIpamByoasn(w http.ResponseWriter, r *http.Request) {
@@ -524,7 +524,7 @@ func handleDisassociateIpamByoasn(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DisassociateIpamByoasnResponse %s>
   <requestId>%s</requestId>
   <asnAssociation>%s</asnAssociation>
-</DisassociateIpamByoasnResponse>`, ec2Xmlns(), generateUUID(), ipamAsnAssociationXML(assoc))
+</DisassociateIpamByoasnResponse>`, ec2Xmlns(), sim.NewUUID(), ipamAsnAssociationXML(assoc))
 }
 
 func handleMoveByoipCidrToIpam(w http.ResponseWriter, r *http.Request) {
@@ -543,7 +543,7 @@ func handleMoveByoipCidrToIpam(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<MoveByoipCidrToIpamResponse %s>
   <requestId>%s</requestId>
   <byoipCidr>%s</byoipCidr>
-</MoveByoipCidrToIpamResponse>`, ec2Xmlns(), generateUUID(), ipamByoipCidrXML(byo))
+</MoveByoipCidrToIpamResponse>`, ec2Xmlns(), sim.NewUUID(), ipamByoipCidrXML(byo))
 }
 
 func ipamByoipCidrXML(b EC2IpamByoipCidr) string {
@@ -637,7 +637,7 @@ func handleCreateIpamPrefixListResolver(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<CreateIpamPrefixListResolverResponse %s>
   <requestId>%s</requestId>
   <ipamPrefixListResolver>%s</ipamPrefixListResolver>
-</CreateIpamPrefixListResolverResponse>`, ec2Xmlns(), generateUUID(), ipamPLResolverBodyXML(res))
+</CreateIpamPrefixListResolverResponse>`, ec2Xmlns(), sim.NewUUID(), ipamPLResolverBodyXML(res))
 }
 
 func handleDescribeIpamPrefixListResolvers(w http.ResponseWriter, r *http.Request) {
@@ -653,7 +653,7 @@ func handleDescribeIpamPrefixListResolvers(w http.ResponseWriter, r *http.Reques
 	fmt.Fprintf(w, `<DescribeIpamPrefixListResolversResponse %s>
   <requestId>%s</requestId>
   <ipamPrefixListResolverSet>%s</ipamPrefixListResolverSet>
-</DescribeIpamPrefixListResolversResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeIpamPrefixListResolversResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleModifyIpamPrefixListResolver(w http.ResponseWriter, r *http.Request) {
@@ -677,7 +677,7 @@ func handleModifyIpamPrefixListResolver(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<ModifyIpamPrefixListResolverResponse %s>
   <requestId>%s</requestId>
   <ipamPrefixListResolver>%s</ipamPrefixListResolver>
-</ModifyIpamPrefixListResolverResponse>`, ec2Xmlns(), generateUUID(), ipamPLResolverBodyXML(res))
+</ModifyIpamPrefixListResolverResponse>`, ec2Xmlns(), sim.NewUUID(), ipamPLResolverBodyXML(res))
 }
 
 func handleDeleteIpamPrefixListResolver(w http.ResponseWriter, r *http.Request) {
@@ -699,7 +699,7 @@ func handleDeleteIpamPrefixListResolver(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<DeleteIpamPrefixListResolverResponse %s>
   <requestId>%s</requestId>
   <ipamPrefixListResolver>%s</ipamPrefixListResolver>
-</DeleteIpamPrefixListResolverResponse>`, ec2Xmlns(), generateUUID(), ipamPLResolverBodyXML(res))
+</DeleteIpamPrefixListResolverResponse>`, ec2Xmlns(), sim.NewUUID(), ipamPLResolverBodyXML(res))
 }
 
 func ipamPLResolverTargetXML(t EC2IpamPrefixListResolverTarget) string {
@@ -756,7 +756,7 @@ func handleCreateIpamPrefixListResolverTarget(w http.ResponseWriter, r *http.Req
 	fmt.Fprintf(w, `<CreateIpamPrefixListResolverTargetResponse %s>
   <requestId>%s</requestId>
   <ipamPrefixListResolverTarget>%s</ipamPrefixListResolverTarget>
-</CreateIpamPrefixListResolverTargetResponse>`, ec2Xmlns(), generateUUID(), ipamPLResolverTargetXML(tgt))
+</CreateIpamPrefixListResolverTargetResponse>`, ec2Xmlns(), sim.NewUUID(), ipamPLResolverTargetXML(tgt))
 }
 
 func handleDescribeIpamPrefixListResolverTargets(w http.ResponseWriter, r *http.Request) {
@@ -776,7 +776,7 @@ func handleDescribeIpamPrefixListResolverTargets(w http.ResponseWriter, r *http.
 	fmt.Fprintf(w, `<DescribeIpamPrefixListResolverTargetsResponse %s>
   <requestId>%s</requestId>
   <ipamPrefixListResolverTargetSet>%s</ipamPrefixListResolverTargetSet>
-</DescribeIpamPrefixListResolverTargetsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeIpamPrefixListResolverTargetsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleModifyIpamPrefixListResolverTarget(w http.ResponseWriter, r *http.Request) {
@@ -802,7 +802,7 @@ func handleModifyIpamPrefixListResolverTarget(w http.ResponseWriter, r *http.Req
 	fmt.Fprintf(w, `<ModifyIpamPrefixListResolverTargetResponse %s>
   <requestId>%s</requestId>
   <ipamPrefixListResolverTarget>%s</ipamPrefixListResolverTarget>
-</ModifyIpamPrefixListResolverTargetResponse>`, ec2Xmlns(), generateUUID(), ipamPLResolverTargetXML(tgt))
+</ModifyIpamPrefixListResolverTargetResponse>`, ec2Xmlns(), sim.NewUUID(), ipamPLResolverTargetXML(tgt))
 }
 
 func handleDeleteIpamPrefixListResolverTarget(w http.ResponseWriter, r *http.Request) {
@@ -818,7 +818,7 @@ func handleDeleteIpamPrefixListResolverTarget(w http.ResponseWriter, r *http.Req
 	fmt.Fprintf(w, `<DeleteIpamPrefixListResolverTargetResponse %s>
   <requestId>%s</requestId>
   <ipamPrefixListResolverTarget>%s</ipamPrefixListResolverTarget>
-</DeleteIpamPrefixListResolverTargetResponse>`, ec2Xmlns(), generateUUID(), ipamPLResolverTargetXML(tgt))
+</DeleteIpamPrefixListResolverTargetResponse>`, ec2Xmlns(), sim.NewUUID(), ipamPLResolverTargetXML(tgt))
 }
 
 func ipamPLResolverRuleXML(rule EC2IpamPrefixListResolverRule) string {
@@ -868,7 +868,7 @@ func handleGetIpamPrefixListResolverRules(w http.ResponseWriter, r *http.Request
 	fmt.Fprintf(w, `<GetIpamPrefixListResolverRulesResponse %s>
   <requestId>%s</requestId>
   <ruleSet>%s</ruleSet>
-</GetIpamPrefixListResolverRulesResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</GetIpamPrefixListResolverRulesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleGetIpamPrefixListResolverVersions(w http.ResponseWriter, r *http.Request) {
@@ -882,7 +882,7 @@ func handleGetIpamPrefixListResolverVersions(w http.ResponseWriter, r *http.Requ
 	fmt.Fprintf(w, `<GetIpamPrefixListResolverVersionsResponse %s>
   <requestId>%s</requestId>
   <ipamPrefixListResolverVersionSet><item><version>1</version></item></ipamPrefixListResolverVersionSet>
-</GetIpamPrefixListResolverVersionsResponse>`, ec2Xmlns(), generateUUID())
+</GetIpamPrefixListResolverVersionsResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleGetIpamPrefixListResolverVersionEntries(w http.ResponseWriter, r *http.Request) {
@@ -904,7 +904,7 @@ func handleGetIpamPrefixListResolverVersionEntries(w http.ResponseWriter, r *htt
 	fmt.Fprintf(w, `<GetIpamPrefixListResolverVersionEntriesResponse %s>
   <requestId>%s</requestId>
   <entrySet>%s</entrySet>
-</GetIpamPrefixListResolverVersionEntriesResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</GetIpamPrefixListResolverVersionEntriesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func ipamExtResTokenXML(t EC2IpamExternalResourceVerificationToken) string {
@@ -936,7 +936,7 @@ func handleCreateIpamExternalResourceVerificationToken(w http.ResponseWriter, r 
 		IpamId:                                   ipamID,
 		IpamArn:                                  ipam.IpamArn,
 		IpamRegion:                               ipam.IpamRegion,
-		TokenValue:                               generateUUID(),
+		TokenValue:                               sim.NewUUID(),
 		TokenName:                                id,
 		NotAfter:                                 ec2NowRFC3339Milli(),
 		Status:                                   "valid",
@@ -948,7 +948,7 @@ func handleCreateIpamExternalResourceVerificationToken(w http.ResponseWriter, r 
 	fmt.Fprintf(w, `<CreateIpamExternalResourceVerificationTokenResponse %s>
   <requestId>%s</requestId>
   <ipamExternalResourceVerificationToken>%s</ipamExternalResourceVerificationToken>
-</CreateIpamExternalResourceVerificationTokenResponse>`, ec2Xmlns(), generateUUID(), ipamExtResTokenXML(tok))
+</CreateIpamExternalResourceVerificationTokenResponse>`, ec2Xmlns(), sim.NewUUID(), ipamExtResTokenXML(tok))
 }
 
 func handleDescribeIpamExternalResourceVerificationTokens(w http.ResponseWriter, r *http.Request) {
@@ -964,7 +964,7 @@ func handleDescribeIpamExternalResourceVerificationTokens(w http.ResponseWriter,
 	fmt.Fprintf(w, `<DescribeIpamExternalResourceVerificationTokensResponse %s>
   <requestId>%s</requestId>
   <ipamExternalResourceVerificationTokenSet>%s</ipamExternalResourceVerificationTokenSet>
-</DescribeIpamExternalResourceVerificationTokensResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeIpamExternalResourceVerificationTokensResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDeleteIpamExternalResourceVerificationToken(w http.ResponseWriter, r *http.Request) {
@@ -980,7 +980,7 @@ func handleDeleteIpamExternalResourceVerificationToken(w http.ResponseWriter, r 
 	fmt.Fprintf(w, `<DeleteIpamExternalResourceVerificationTokenResponse %s>
   <requestId>%s</requestId>
   <ipamExternalResourceVerificationToken>%s</ipamExternalResourceVerificationToken>
-</DeleteIpamExternalResourceVerificationTokenResponse>`, ec2Xmlns(), generateUUID(), ipamExtResTokenXML(tok))
+</DeleteIpamExternalResourceVerificationTokenResponse>`, ec2Xmlns(), sim.NewUUID(), ipamExtResTokenXML(tok))
 }
 
 // The sim has no live cross-account discovery backend, so these return
@@ -992,7 +992,7 @@ func handleGetIpamDiscoveredAccounts(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetIpamDiscoveredAccountsResponse %s>
   <requestId>%s</requestId>
   <ipamDiscoveredAccountSet/>
-</GetIpamDiscoveredAccountsResponse>`, ec2Xmlns(), generateUUID())
+</GetIpamDiscoveredAccountsResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleGetIpamDiscoveredPublicAddresses(w http.ResponseWriter, r *http.Request) {
@@ -1000,7 +1000,7 @@ func handleGetIpamDiscoveredPublicAddresses(w http.ResponseWriter, r *http.Reque
 	fmt.Fprintf(w, `<GetIpamDiscoveredPublicAddressesResponse %s>
   <requestId>%s</requestId>
   <ipamDiscoveredPublicAddressSet/>
-</GetIpamDiscoveredPublicAddressesResponse>`, ec2Xmlns(), generateUUID())
+</GetIpamDiscoveredPublicAddressesResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleGetIpamDiscoveredResourceCidrs(w http.ResponseWriter, r *http.Request) {
@@ -1008,7 +1008,7 @@ func handleGetIpamDiscoveredResourceCidrs(w http.ResponseWriter, r *http.Request
 	fmt.Fprintf(w, `<GetIpamDiscoveredResourceCidrsResponse %s>
   <requestId>%s</requestId>
   <ipamDiscoveredResourceCidrSet/>
-</GetIpamDiscoveredResourceCidrsResponse>`, ec2Xmlns(), generateUUID())
+</GetIpamDiscoveredResourceCidrsResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleModifyIpamPoolAllocation(w http.ResponseWriter, r *http.Request) {
@@ -1048,5 +1048,5 @@ func handleModifyIpamPoolAllocation(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ModifyIpamPoolAllocationResponse %s>
   <requestId>%s</requestId>
   <ipamPoolAllocation>%s</ipamPoolAllocation>
-</ModifyIpamPoolAllocationResponse>`, ec2Xmlns(), generateUUID(), ipamPoolAllocationBodyXML(*found))
+</ModifyIpamPoolAllocationResponse>`, ec2Xmlns(), sim.NewUUID(), ipamPoolAllocationBodyXML(*found))
 }

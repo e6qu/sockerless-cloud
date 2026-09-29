@@ -188,7 +188,7 @@ func webUpsertSiteWorkflow(resID, name string, fileContent any) {
 		"state":             "Enabled",
 		"createdTime":       now,
 		"changedTime":       now,
-		"version":           generateUUID(),
+		"version":           sim.NewUUID(),
 	}
 	if existing, ok := logicWorkflows.Get(id); ok && existing.Properties != nil {
 		if created, ok := existing.Properties["createdTime"]; ok {

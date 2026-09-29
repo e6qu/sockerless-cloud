@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // Cloud Run Admin v1 (Knative) surface for the Cloud Run Jobs family:
@@ -117,30 +117,15 @@ func knativeLabelSelectorMatches(selector string, labels map[string]string) bool
 // and returns the page plus the continue token for the next one. A malformed
 // cursor is rejected rather than silently reset.
 func knativeListPage[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, string, bool) {
-	start := 0
-	if token := r.URL.Query().Get("continue"); token != "" {
-		n, err := strconv.Atoi(token)
-		if err != nil || n < 0 || n > len(items) {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid continue token %q", token)
-			return nil, "", false
-		}
-		start = n
+	size, ok := gcpPageSizeParam(w, r, "limit")
+	if !ok {
+		return nil, "", false
 	}
-	end := len(items)
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 0 {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid limit %q", raw)
-			return nil, "", false
-		}
-		if n > 0 && start+n < end {
-			end = start + n
-		}
-	}
-	page := items[start:end]
-	next := ""
-	if end < len(items) {
-		next = strconv.Itoa(end)
+	token := r.URL.Query().Get("continue")
+	page, next, err := listq.TokenPage(listq.Decimal.Strictly(), items, token, size, 0, 0)
+	if err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid continue token %q", token)
+		return nil, "", false
 	}
 	return page, next, true
 }
@@ -214,7 +199,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		now := nowTimestamp()
 		job := cloudRunV1JobToV2(body)
 		job.Name = name
-		job.UID = generateUUID()
+		job.UID = sim.NewUUID()
 		job.Generation = 1
 		job.CreateTime = now
 		job.UpdateTime = now
@@ -232,7 +217,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 				job.Template.TaskCount = 1
 			}
 		}
-		job.Etag = generateUUID()
+		job.Etag = sim.NewUUID()
 		if !dryRun {
 			crjJobs.Put(name, job)
 		}
@@ -323,7 +308,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 				update.Template.TaskCount = 1
 			}
 		}
-		update.Etag = generateUUID()
+		update.Etag = sim.NewUUID()
 		if !dryRun {
 			crjJobs.Put(name, update)
 		}

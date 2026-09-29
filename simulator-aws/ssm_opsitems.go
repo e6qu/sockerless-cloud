@@ -483,7 +483,10 @@ func handleSSMDescribeOpsItems(w http.ResponseWriter, r *http.Request) {
 		all = []SSMOpsItem{}
 	}
 	sortBy(all, func(o SSMOpsItem) string { return o.OpsItemId })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, o := range page {
 		out = append(out, ssmOpsItemSummaryWire(o))
@@ -588,7 +591,10 @@ func handleSSMListOpsItemEvents(w http.ResponseWriter, r *http.Request) {
 		all = append(all, ev)
 	}
 	sortBy(all, func(e SSMOpsItemEvent) string { return e.EventId })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, ev := range page {
 		out = append(out, map[string]any{
@@ -626,7 +632,10 @@ func handleSSMListOpsItemRelatedItems(w http.ResponseWriter, r *http.Request) {
 		all = append(all, rel)
 	}
 	sortBy(all, func(rel SSMOpsItemRelatedItem) string { return rel.AssociationId })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, rel := range page {
 		out = append(out, map[string]any{
@@ -734,7 +743,10 @@ func handleSSMDescribeMaintenanceWindowExecutions(w http.ResponseWriter, r *http
 		"StartTime":         m.CreatedDate,
 		"EndTime":           m.CreatedDate + 60,
 	}}
-	page, next := awsPage(out, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, out, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"WindowExecutions": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -773,7 +785,10 @@ func handleSSMDescribeMaintenanceWindowExecutionTasks(w http.ResponseWriter, r *
 	if rows == nil {
 		rows = []map[string]any{}
 	}
-	page, next := awsPage(rows, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, rows, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"WindowExecutionTaskIdentities": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -819,7 +834,10 @@ func handleSSMDescribeMaintenanceWindowExecutionTaskInvocations(w http.ResponseW
 	if rows == nil {
 		rows = []map[string]any{}
 	}
-	page, next := awsPage(rows, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, rows, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"WindowExecutionTaskInvocationIdentities": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -1013,7 +1031,10 @@ func handleSSMDescribeMaintenanceWindowSchedule(w http.ResponseWriter, r *http.R
 	if rows == nil {
 		rows = []map[string]any{}
 	}
-	page, next := awsPage(rows, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, rows, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"ScheduledWindowExecutions": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -1055,7 +1076,10 @@ func handleSSMDescribeMaintenanceWindowsForTarget(w http.ResponseWriter, r *http
 	if rows == nil {
 		rows = []map[string]any{}
 	}
-	page, next := awsPage(rows, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, rows, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"WindowIdentities": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -1341,7 +1365,10 @@ func handleSSMDescribeSessions(w http.ResponseWriter, r *http.Request) {
 		all = append(all, s)
 	}
 	sortBy(all, func(s SSMSession) string { return s.SessionId })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, s := range page {
 		row := map[string]any{
@@ -1485,7 +1512,10 @@ func handleSSMDescribeActivations(w http.ResponseWriter, r *http.Request) {
 		all = []SSMActivation{}
 	}
 	sortBy(all, func(a SSMActivation) string { return a.ActivationId })
-	page, next := awsPageExplicit(all, req.NextToken, req.MaxResults)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, a := range page {
 		expired := a.ExpirationDate != 0 && now > a.ExpirationDate

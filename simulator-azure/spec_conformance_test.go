@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // These tests enforce the simulator's core fidelity invariant: every HTTP
@@ -329,7 +330,7 @@ func TestRoutesExistInSwaggerSpecs(t *testing.T) {
 	// Long-running operations complete in a goroutine. One still running
 	// when this test ends would read and write the stores while the next
 	// test rebuilds them.
-	t.Cleanup(AwaitAzureAsyncOperations)
+	t.Cleanup(bg.Await)
 
 	var offenders []string
 	for _, pattern := range srv.RoutePatterns() {
@@ -380,7 +381,7 @@ func TestVendoredSwaggerSpecsAreConsumed(t *testing.T) {
 	// Long-running operations complete in a goroutine. One still running
 	// when this test ends would read and write the stores while the next
 	// test rebuilds them.
-	t.Cleanup(AwaitAzureAsyncOperations)
+	t.Cleanup(bg.Await)
 
 	used := map[string]bool{}
 	for _, pattern := range srv.RoutePatterns() {

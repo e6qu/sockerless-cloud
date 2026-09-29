@@ -1,7 +1,6 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -14,14 +13,16 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/archive"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // lambdaInvocation represents a single pending Lambda invocation served
@@ -81,7 +82,7 @@ func startRuntimeAPISidecar(inv *lambdaInvocation) (*runtimeAPISidecar, error) {
 	if err != nil {
 		return nil, fmt.Errorf("runtime API listen: %w", err)
 	}
-	host, err := runtimeAPIHost()
+	host, err := workloadhost.CallbackHost()
 	if err != nil {
 		_ = ln.Close()
 		return nil, err
@@ -116,7 +117,7 @@ func startRuntimeAPISidecar(inv *lambdaInvocation) (*runtimeAPISidecar, error) {
 		WriteTimeout: 0,
 	}
 
-	simJoinedGo(func() {
+	bg.JoinedGo(func() {
 		_ = s.server.Serve(ln)
 	})
 
@@ -242,30 +243,6 @@ func (s *runtimeAPISidecar) handleInitError(w http.ResponseWriter, r *http.Reque
 	_, _ = w.Write([]byte(`{"status":"OK"}`))
 }
 
-// runtimeAPIHost returns the coordinate the function container uses to reach
-// the simulator host. Linux uses the runtime-reported bridge gateway; desktop
-// runtimes use their standard host callback name.
-func runtimeAPIHost() (string, error) {
-	if v := os.Getenv("SIM_LAMBDA_RUNTIME_HOST"); v != "" {
-		return v, nil
-	}
-	return workloadCallbackHost()
-}
-
-// runtimeAPIExtraHosts returns the Docker --add-host entries needed
-// for the container to resolve host.docker.internal. Podman 4+ and
-// Docker Desktop expose it natively; Linux Docker needs the magic
-// `host-gateway` replacement. Podman doesn't support that magic value
-// and will error if passed, so we skip ExtraHosts on Podman.
-func runtimeAPIExtraHosts() []string {
-	info := strings.ToLower(sim.RuntimeInfo())
-	if strings.Contains(info, "podman") {
-		// Podman already exposes host.docker.internal + host.containers.internal.
-		return nil
-	}
-	return []string{"host.docker.internal:host-gateway"}
-}
-
 var (
 	lambdaRuntimeAPIAddressSequence atomic.Uint32
 	lambdaRuntimeIPMu               sync.Mutex
@@ -344,7 +321,7 @@ func lambdaRuntimeLinkLocalAddress() string {
 
 func startLambdaVpcPauseContainer(invocationID string, sink sim.LogSink) (*sim.ContainerHandle, error) {
 	img := sim.ResolveLocalImage(ecsPauseImage())
-	platform, err := localImagePlatform(context.Background(), img)
+	platform, err := workload.LocalImagePlatform(context.Background(), img, ecrWorkloadRegistryAuth(img))
 	if err != nil {
 		return nil, fmt.Errorf("resolve AWS Lambda VPC pause image platform: %w", err)
 	}
@@ -375,7 +352,7 @@ func prepareLambdaInvocationNetwork(
 	out := &lambdaInvocationNetwork{
 		runtimeAPIAddr: sidecar.ContainerAddr(),
 		metadataEnv:    metadataEnv,
-		extraHosts:     runtimeAPIExtraHosts(),
+		extraHosts:     workloadhost.ExtraHosts(),
 		invocationID:   invocationID,
 	}
 	if fn.VpcConfig == nil || len(fn.VpcConfig.SubnetIds) == 0 {
@@ -516,7 +493,7 @@ func materializeLambdaDeploymentPackage(fn LambdaFunction) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := extractLambdaZIP(dir, archiveBytes); err != nil {
+	if err := archive.ExtractZip(archiveBytes, dir, lambdaUnzippedCodeLimit); err != nil {
 		_ = os.RemoveAll(dir)
 		return "", err
 	}
@@ -537,7 +514,7 @@ func materializeLambdaLayers(layerARNs []string) (string, error) {
 			_ = os.RemoveAll(dir)
 			return "", fmt.Errorf("layer version %s no longer exists", arn)
 		}
-		if err := extractLambdaZIP(dir, layer.Content); err != nil {
+		if err := archive.ExtractZip(layer.Content, dir, lambdaUnzippedCodeLimit); err != nil {
 			_ = os.RemoveAll(dir)
 			return "", fmt.Errorf("extract layer version %s: %w", arn, err)
 		}
@@ -561,51 +538,9 @@ func createLambdaMountRoot(pattern, description string) (string, error) {
 	return dir, nil
 }
 
-func extractLambdaZIP(dir string, archiveBytes []byte) error {
-	zr, err := zip.NewReader(bytes.NewReader(archiveBytes), int64(len(archiveBytes)))
-	if err != nil {
-		return fmt.Errorf("deployment package is not a valid ZIP archive: %w", err)
-	}
-	cleanRoot := filepath.Clean(dir) + string(os.PathSeparator)
-	for _, entry := range zr.File {
-		target := filepath.Join(dir, filepath.FromSlash(entry.Name))
-		if !strings.HasPrefix(filepath.Clean(target)+string(os.PathSeparator), cleanRoot) {
-			return fmt.Errorf("deployment package entry %q escapes the task root", entry.Name)
-		}
-		if entry.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0755); err != nil {
-				return fmt.Errorf("create deployment-package directory %q: %w", entry.Name, err)
-			}
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			return fmt.Errorf("create deployment-package parent for %q: %w", entry.Name, err)
-		}
-		src, err := entry.Open()
-		if err != nil {
-			return fmt.Errorf("open deployment-package entry %q: %w", entry.Name, err)
-		}
-		mode := entry.Mode().Perm()
-		if mode == 0 {
-			mode = 0644
-		}
-		dst, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
-		if err != nil {
-			_ = src.Close()
-			return fmt.Errorf("create deployment-package entry %q: %w", entry.Name, err)
-		}
-		_, copyErr := io.Copy(dst, src)
-		closeErr := dst.Close()
-		_ = src.Close()
-		if copyErr != nil {
-			return fmt.Errorf("extract deployment-package entry %q: %w", entry.Name, copyErr)
-		}
-		if closeErr != nil {
-			return fmt.Errorf("close deployment-package entry %q: %w", entry.Name, closeErr)
-		}
-	}
-	return nil
-}
+// lambdaUnzippedCodeLimit is the most a function's deployment package and its
+// layers may unzip to, the CodeSizeUnzipped account limit.
+const lambdaUnzippedCodeLimit = 262144000
 
 // invokeLambdaViaRuntimeAPI launches the function container with
 // AWS_LAMBDA_RUNTIME_API pointing at a per-invocation sidecar, feeds
@@ -645,7 +580,7 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 	}
 
 	// Build invocation + sidecar.
-	requestID := generateUUID()
+	requestID := sim.NewUUID()
 	timeoutSec := fn.Timeout
 	if timeoutSec == 0 {
 		timeoutSec = 3
@@ -655,7 +590,7 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 		FunctionArn: fn.FunctionArn,
 		Payload:     payload,
 		TimeoutSec:  timeoutSec,
-		TraceID:     generateUUID(),
+		TraceID:     sim.NewUUID(),
 		initialized: make(chan struct{}),
 		done:        make(chan struct{}),
 	}
@@ -708,9 +643,11 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 	// host; here the services live in this simulator, so the container is given
 	// the address it can reach the simulator on. The function's own environment
 	// still wins, so a function configured for a specific endpoint keeps it.
-	if endpoint := lambdaWorkloadEndpointURL(); endpoint != "" {
-		cmdEnv["AWS_ENDPOINT_URL"] = endpoint
+	endpoint, err := workloadhost.CallbackAddr(simListenAddr)
+	if err != nil {
+		return lambdaErrorPayload(fmt.Sprintf("resolve the simulator endpoint: %v", err)), true, 1
 	}
+	cmdEnv["AWS_ENDPOINT_URL"] = "http://" + endpoint
 	if fn.Environment != nil {
 		for k, v := range fn.Environment.Variables {
 			cmdEnv[k] = v
@@ -755,7 +692,7 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 			Architecture: platform,
 			Command:      entrypoint,
 			Args:         args,
-			Env:          mergeEnv(cmdEnv, invocationNetwork.metadataEnv),
+			Env:          workloadhost.MergeEnv(cmdEnv, invocationNetwork.metadataEnv),
 			// Timeout is enforced by the sidecar (waiting for /response or
 			// error with a deadline); the container itself is given a
 			// generous wall-clock budget so slow handlers still surface a
@@ -808,7 +745,7 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 	)
 	waitForContainer := make(chan int, 1)
 	watchContainer := func(h *sim.ContainerHandle) {
-		simJoinedGo(func() {
+		bg.JoinedGo(func() {
 			res := h.Wait()
 			waitForContainer <- res.ExitCode
 		})
@@ -1082,20 +1019,4 @@ func lambdaErrorPayload(msg string) []byte {
 		"errorType":    "Runtime.ExitError",
 	})
 	return body
-}
-
-// lambdaWorkloadEndpointURL is the simulator's address as a function container
-// sees it — the same host its Runtime API arrives on, at the simulator's own
-// port. Empty when neither can be determined, in which case the container is
-// left with the SDK's own resolution rather than a wrong address.
-func lambdaWorkloadEndpointURL() string {
-	host, err := runtimeAPIHost()
-	if err != nil {
-		return ""
-	}
-	port, err := simHostMetadataPort()
-	if err != nil {
-		return ""
-	}
-	return "http://" + net.JoinHostPort(host, strconv.Itoa(port))
 }

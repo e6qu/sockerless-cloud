@@ -214,7 +214,7 @@ func ec2ResourceArn(resourceType, id string) string {
 func ec2Response(w http.ResponseWriter, action, body string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, "<%sResponse %s><requestId>%s</requestId>%s</%sResponse>",
-		action, ec2Xmlns(), generateUUID(), body, action)
+		action, ec2Xmlns(), sim.NewUUID(), body, action)
 }
 
 // Network Insights paths

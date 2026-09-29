@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/md5"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -235,7 +236,7 @@ func handleS3InitiateMultipart(w http.ResponseWriter, r *http.Request) {
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
-	uploadID := generateUUID()
+	uploadID := sim.NewUUID()
 	contentType := r.Header.Get("Content-Type")
 	s3MultipartUploads.Put(uploadID, S3MultipartUpload{
 		UploadID:     uploadID,
@@ -291,16 +292,15 @@ func handleS3UploadPart(w http.ResponseWriter, r *http.Request) {
 	if isAWSChunkedRequest(r.Header) {
 		bodyReader = newAWSChunkedReader(r.Body)
 	}
-	body, err := io.ReadAll(bodyReader)
+	ref, digests, err := s3Bodies.WriteFrom(bodyReader)
 	if err != nil {
 		S3ErrorXML(w, "InternalError", "Failed to read part body: "+err.Error(),
 			mp.Bucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
 		return
 	}
-	hash := md5.Sum(body)
-	etag := fmt.Sprintf(`"%x"`, hash)
+	etag := `"` + digests.MD5Hex() + `"`
 
-	stored, err := s3StorePart(uploadID, partNum, body, etag)
+	stored, err := s3StorePart(uploadID, partNum, ref, digests, etag)
 	if !stored {
 		S3ErrorXML(w, "NoSuchUpload", "The specified multipart upload does not exist",
 			mp.Bucket, sim.RequestID(r.Context()), http.StatusNotFound)
@@ -362,7 +362,7 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var assembled []byte
+	refs := make([]string, 0, len(req.Parts))
 	// partMD5s accumulates the raw 16-byte MD5 digests of each part
 	// in part-number order; the final ETag hashes their concatenation.
 	partMD5s := make([]byte, 0, len(req.Parts)*md5.Size)
@@ -383,15 +383,19 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
-		data, err := s3PartData(part)
-		if err != nil {
-			S3ErrorXML(w, "InternalError", fmt.Sprintf("part %d: %v", p.PartNumber, err),
+		partMD5, err := hex.DecodeString(strings.Trim(part.ETag, `"`))
+		if err != nil || len(partMD5) != md5.Size {
+			S3ErrorXML(w, "InternalError", fmt.Sprintf("part %d carries the ETag %s", p.PartNumber, part.ETag),
 				bucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
 			return
 		}
-		assembled = append(assembled, data...)
-		partHash := md5.Sum(data)
-		partMD5s = append(partMD5s, partHash[:]...)
+		refs = append(refs, part.Body)
+		partMD5s = append(partMD5s, partMD5...)
+	}
+	assembled, digests, err := s3Bodies.Concat(refs...)
+	if err != nil {
+		S3ErrorXML(w, "InternalError", err.Error(), bucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
+		return
 	}
 
 	// S3 multipart ETag: `"<hex(md5(concat(part_md5_bytes)))>-<numParts>"`.
@@ -408,7 +412,7 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 		ContentType:  mp.ContentType,
 		LastModified: time.Now().UTC(),
 		StorageClass: mp.StorageClass,
-	}, assembled)
+	}, assembled, digests)
 	release()
 	if err != nil {
 		S3ErrorXML(w, "InternalError", err.Error(), bucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
@@ -736,16 +740,13 @@ func handleS3DeleteObjectTagging(w http.ResponseWriter, r *http.Request) {
 // ── CopyObject ───────────────────────────────────────────────────────
 
 func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
-	srcRaw := r.Header.Get("x-amz-copy-source")
-	srcRaw = strings.TrimPrefix(srcRaw, "/")
-	parts := strings.SplitN(srcRaw, "/", 2)
-	if len(parts) != 2 {
+	srcBucket, srcKey, ok := s3CopySource(r)
+	if !ok {
 		S3ErrorXML(w, "InvalidArgument",
 			"x-amz-copy-source must be of the form /<bucket>/<key>",
 			"", sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
-	srcBucket, srcKey := parts[0], parts[1]
 	dstBucket := sim.PathParam(r, "bucket")
 	dstKey := sim.PathParam(r, "key")
 
@@ -774,7 +775,7 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	src, data, err := s3OpenObjectData(src)
+	src, copied, digests, err := s3CopyContents(src)
 	if err != nil {
 		S3ErrorXML(w, "InternalError", err.Error(), srcBucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
 		return
@@ -800,7 +801,7 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 		Metadata:     metadata,
 		LastModified: now,
 		StorageClass: storageClass,
-	}, data)
+	}, copied, digests)
 	release()
 	if err != nil {
 		S3ErrorXML(w, "InternalError", err.Error(), dstBucket, sim.RequestID(r.Context()), http.StatusInternalServerError)

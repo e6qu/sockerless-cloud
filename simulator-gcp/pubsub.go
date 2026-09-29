@@ -1005,7 +1005,7 @@ func psSchemaHead(name string) (PSSchema, bool) {
 // psNewRevisionID derives a short hex revision id (real Pub/Sub uses an
 // 8-hex-char id, e.g. "c7cfa2a8").
 func psNewRevisionID() string {
-	return randHex(8)
+	return sim.RandomHex(8)
 }
 
 func handlePSCreateSchema(w http.ResponseWriter, r *http.Request) {
@@ -1336,19 +1336,7 @@ func gcpError(w http.ResponseWriter, status int, code, message string) {
 	fmt.Fprintf(w, `{"error":{"code":%d,"message":%q,"status":%q,"details":[]}}`, status, message, code)
 }
 
-// generateUUIDLocal is a Pub/Sub-scoped UUID helper that produces
-// short opaque IDs for messageId / ackId. Independent of the GCS
-// generateUUID helper to avoid a cross-file dependency tangle.
+// generateUUIDLocal returns an opaque, unique messageId or ackId.
 func generateUUIDLocal() string {
-	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), randHex(8))
-}
-
-func randHex(n int) string {
-	const hexChars = "0123456789abcdef"
-	out := make([]byte, n)
-	t := time.Now().UnixNano()
-	for i := 0; i < n; i++ {
-		out[i] = hexChars[(t>>uint(i*4))&0xf]
-	}
-	return string(out)
+	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), sim.RandomHex(8))
 }

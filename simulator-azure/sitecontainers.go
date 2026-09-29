@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	dockerclient "github.com/moby/moby/client"
 )
 
@@ -190,10 +192,15 @@ func startSidecarContainers(site *Site, mainContainerID string, sink sim.LogSink
 	if len(sidecars) == 0 {
 		return nil
 	}
+	metadataEnv, err := hostMetadataEnv()
+	if err != nil {
+		injectAppTrace(site.Name, fmt.Sprintf("sidecars: resolve the metadata endpoint failed: %v", err))
+		return nil
+	}
 	var handles []*sim.ContainerHandle
 	for _, sc := range sidecars {
 		localImage := sim.ResolveLocalImage(sc.Properties.Image)
-		platform, err := localImagePlatform(context.Background(), localImage)
+		platform, err := workload.LocalImagePlatform(context.Background(), localImage, "")
 		if err != nil {
 			injectAppTrace(site.Name, fmt.Sprintf("sidecar %q: resolve image platform failed: %v", sc.Name, err))
 			continue
@@ -203,7 +210,7 @@ func startSidecarContainers(site *Site, mainContainerID string, sink sim.LogSink
 			Image:             localImage,
 			Architecture:      platform,
 			Args:              splitStartUpCommand(sc.Properties.StartUpCommand),
-			Env:               mergeEnv(envVarsMap(sc.Properties.EnvironmentVariables), hostMetadataEnv()),
+			Env:               workloadhost.MergeEnv(envVarsMap(sc.Properties.EnvironmentVariables), metadataEnv),
 			Binds:             siteContainerVolumeBinds(site.Name, sc.Properties.VolumeMounts),
 			Name:              fmt.Sprintf("sockerless-sim-azure-func-sidecar-%s-%s-%d", site.Name, sc.Name, time.Now().UnixNano()),
 			Labels: map[string]string{

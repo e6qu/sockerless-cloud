@@ -7,6 +7,7 @@ import (
 	"testing/fstest"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	uiauth "github.com/e6qu/sockerless-cloud/ui-auth"
 )
 
@@ -83,7 +84,7 @@ func TestShauthIsMountedAlongsideAzureAuth(t *testing.T) {
 	// Long-running operations complete in a goroutine. One still running
 	// when this test ends would read and write the stores while the next
 	// test rebuilds them.
-	t.Cleanup(AwaitAzureAsyncOperations)
+	t.Cleanup(bg.Await)
 	ensureConsoleRegistered(srv)
 
 	get := func(path string) int {
@@ -140,7 +141,7 @@ func TestShauthAbsentWhenUnconfiguredAzure(t *testing.T) {
 	// Long-running operations complete in a goroutine. One still running
 	// when this test ends would read and write the stores while the next
 	// test rebuilds them.
-	t.Cleanup(AwaitAzureAsyncOperations)
+	t.Cleanup(bg.Await)
 	ensureConsoleRegistered(srv)
 	req := httptest.NewRequest(http.MethodGet, uiauth.SessionPath, nil)
 	rec := httptest.NewRecorder()

@@ -81,12 +81,16 @@ func TestMintAzureSimJWT_SignatureVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("signature decode: %v", err)
 	}
-	key, err := azureSimSigningKey()
+	signer, err := azureSimSigner()
 	if err != nil {
 		t.Fatalf("signing key: %v", err)
 	}
+	key, ok := signer.Key().Public().(*rsa.PublicKey)
+	if !ok {
+		t.Fatalf("signing key is %T, want RSA", signer.Key().Public())
+	}
 	digest := sha256.Sum256([]byte(signingInput))
-	if err := rsa.VerifyPKCS1v15(&key.PublicKey, crypto.SHA256, digest[:], sig); err != nil {
+	if err := rsa.VerifyPKCS1v15(key, crypto.SHA256, digest[:], sig); err != nil {
 		t.Errorf("signature verify: %v", err)
 	}
 }
@@ -156,18 +160,20 @@ func TestAzureTokenAudienceFromForm(t *testing.T) {
 }
 
 func TestAzureSimJWK_PublishesRS256PublicKey(t *testing.T) {
-	jwk, err := azureSimJWK()
+	signer, err := azureSimSigner()
 	if err != nil {
-		t.Fatalf("jwk: %v", err)
+		t.Fatalf("signing key: %v", err)
 	}
+	jwk := signer.JWK()
 	if jwk["kty"] != "RSA" {
 		t.Errorf("kty = %v, want RSA", jwk["kty"])
 	}
 	if jwk["alg"] != "RS256" {
 		t.Errorf("alg = %v, want RS256", jwk["alg"])
 	}
-	if jwk["kid"] != "sockerless-sim-key-1" {
-		t.Errorf("kid = %v, want sockerless-sim-key-1", jwk["kid"])
+	// Entra names each signing key by a thumbprint of the key itself.
+	if jwk["kid"] != signer.KeyID() || signer.KeyID() == "" {
+		t.Errorf("kid = %v, want the key's thumbprint %q", jwk["kid"], signer.KeyID())
 	}
 	if jwk["n"] == "" || jwk["e"] == "" {
 		t.Errorf("n/e missing from RSA JWK: %#v", jwk)

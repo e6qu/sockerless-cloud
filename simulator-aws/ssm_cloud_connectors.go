@@ -137,7 +137,7 @@ func handleSSMCreateCloudConnector(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	id := generateUUID()
+	id := sim.NewUUID()
 	now := float64(time.Now().UTC().Unix())
 	ssmCloudConnectors.Put(id, SSMCloudConnector{
 		CloudConnectorId:   id,
@@ -257,7 +257,10 @@ func handleSSMListCloudConnectors(w http.ResponseWriter, r *http.Request) {
 			matched = append(matched, c)
 		}
 	}
-	page, next := awsPageExplicit(matched, req.NextToken, req.MaxResults)
+	page, next, pageOK := awsPage(w, ssmBadToken, matched, req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
 	summaries := make([]map[string]any, 0, len(page))
 	for _, c := range page {
 		s := map[string]any{
@@ -405,7 +408,10 @@ func handleSSMValidateCloudConnector(w http.ResponseWriter, r *http.Request) {
 			"Cloud connector %s does not exist", req.CloudConnectorId)
 		return
 	}
-	page, next := awsPageExplicit(ssmCloudConnectorFindings(c), req.NextToken, req.MaxResults)
+	page, next, pageOK := awsPage(w, ssmBadToken, ssmCloudConnectorFindings(c), req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"ValidationFindings": page}
 	if next != "" {
 		out["NextToken"] = next

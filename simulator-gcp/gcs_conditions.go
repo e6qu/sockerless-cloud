@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
 // gcsPreconditions are the generation and metageneration preconditions a JSON
@@ -190,21 +191,33 @@ func gcsNextGeneration() int64 {
 	return gcsGenerations.last
 }
 
+// gcsRangeGrammar is the Range grammar a download accepts. Cloud Storage cuts
+// a range that runs past the end at the end, and answers 416 for any range it
+// cannot serve, malformed or unsatisfiable alike.
+var gcsRangeGrammar = blobstore.RangeOpts{AllowSuffix: true, AllowOpenEnd: true, ClampEnd: true}
+
 // serveGCSObjectMedia answers a download of the object — the XML API's GET
 // Object, or the JSON API's alt=media — with the headers Cloud Storage
 // documents for it, honoring a Range.
 // https://cloud.google.com/storage/docs/xml-api/get-object-download
 // https://cloud.google.com/storage/docs/xml-api/reference-headers
-func serveGCSObjectMedia(w http.ResponseWriter, r *http.Request, obj GCSObject, body []byte) {
+func serveGCSObjectMedia(w http.ResponseWriter, r *http.Request, obj GCSObject) {
+	obj, body, err := gcsOpenObject(obj)
+	if err != nil {
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+		return
+	}
+	defer func() { _ = body.Close() }()
+	size := gcsObjectSize(obj)
 	h := w.Header()
-	setGCSObjectResponseHeaders(h, obj, len(body))
+	setGCSObjectResponseHeaders(h, obj)
 	h.Set("ETag", gcsXMLETag(obj))
 	if updated, err := time.Parse(time.RFC3339Nano, obj.Updated); err == nil {
 		h.Set("Last-Modified", updated.UTC().Format(http.TimeFormat))
 	}
 	h.Set("x-goog-generation", defaultStr(obj.Generation, "1"))
 	h.Set("x-goog-metageneration", defaultStr(obj.Metageneration, "1"))
-	h.Set("x-goog-stored-content-length", strconv.Itoa(len(body)))
+	h.Set("x-goog-stored-content-length", strconv.FormatInt(size, 10))
 	h.Set("x-goog-stored-content-encoding", defaultStr(obj.ContentEncoding, "identity"))
 	h.Set("x-goog-storage-class", defaultStr(obj.StorageClass, "STANDARD"))
 	h.Add("x-goog-hash", "crc32c="+obj.Crc32c)
@@ -215,60 +228,24 @@ func serveGCSObjectMedia(w http.ResponseWriter, r *http.Request, obj GCSObject, 
 
 	requested := r.Header.Get("Range")
 	if requested == "" {
-		w.WriteHeader(http.StatusOK)
-		if r.Method != http.MethodHead {
-			_, _ = w.Write(body)
-		}
+		blobstore.ServeWhole(w, r, body, size)
 		return
 	}
-	start, end, ok := parseGCSByteRange(requested, int64(len(body)))
+	parsed, err := blobstore.ParseRange(requested, gcsRangeGrammar)
+	start, end, ok := int64(0), int64(0), err == nil
+	if ok {
+		start, end, ok = parsed.Resolve(size)
+	}
 	if !ok {
 		h.Del("Content-Length")
-		h.Set("Content-Range", fmt.Sprintf("bytes */%d", len(body)))
+		h.Set("Content-Range", fmt.Sprintf("bytes */%d", size))
 		writeGCSXMLError(w, http.StatusRequestedRangeNotSatisfiable, "InvalidRange",
 			"The requested range cannot be satisfied.")
 		return
 	}
-	h.Set("Content-Length", strconv.FormatInt(end-start+1, 10))
-	h.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(body)))
-	w.WriteHeader(http.StatusPartialContent)
-	if r.Method != http.MethodHead {
-		_, _ = w.Write(body[start : end+1])
+	if err := blobstore.ServeRange(w, r, body, start, end, size); err != nil {
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
 	}
-}
-
-// parseGCSByteRange resolves one byte range — first-last, first-, or -suffix —
-// against an object of size bytes. A range that begins at or past the end is
-// not satisfiable; one that runs past it is cut at the end.
-func parseGCSByteRange(header string, size int64) (start, end int64, ok bool) {
-	spec, found := strings.CutPrefix(strings.TrimSpace(header), "bytes=")
-	if !found || strings.Contains(spec, ",") {
-		return 0, 0, false
-	}
-	first, last, found := strings.Cut(spec, "-")
-	if !found {
-		return 0, 0, false
-	}
-	if first == "" {
-		suffix, err := strconv.ParseInt(last, 10, 64)
-		if err != nil || suffix <= 0 || size == 0 {
-			return 0, 0, false
-		}
-		return max(size-suffix, 0), size - 1, true
-	}
-	start, err := strconv.ParseInt(first, 10, 64)
-	if err != nil || start < 0 || start >= size {
-		return 0, 0, false
-	}
-	end = size - 1
-	if last != "" {
-		stated, err := strconv.ParseInt(last, 10, 64)
-		if err != nil || stated < start {
-			return 0, 0, false
-		}
-		end = min(stated, size-1)
-	}
-	return start, end, true
 }
 
 // gcsXMLETag is the entity tag the XML API gives an object: the hex MD5 of its
@@ -300,36 +277,16 @@ func gcsXMLReadConditionsMet(w http.ResponseWriter, r *http.Request, obj GCSObje
 	}
 	etag := gcsXMLETag(obj)
 	updated, _ := time.Parse(time.RFC3339Nano, obj.Updated)
-	if match := r.Header.Get("If-Match"); match != "" {
-		if !gcsETagListNames(match, etag) {
-			return failed()
-		}
-	} else if since, err := http.ParseTime(r.Header.Get("If-Unmodified-Since")); err == nil && updated.Truncate(time.Second).After(since) {
+	switch blobstore.EvaluateHTTP(r.Header, blobstore.Validators{ETag: etag, Modified: updated, Exists: true}, blobstore.Read) {
+	case blobstore.PreconditionFailed:
 		return failed()
-	}
-	unchanged := false
-	if noneMatch := r.Header.Get("If-None-Match"); noneMatch != "" {
-		unchanged = gcsETagListNames(noneMatch, etag)
-	} else if since, err := http.ParseTime(r.Header.Get("If-Modified-Since")); err == nil {
-		unchanged = !updated.Truncate(time.Second).After(since)
-	}
-	if unchanged {
+	case blobstore.NotModified:
 		w.Header().Set("ETag", etag)
 		w.Header().Set("x-goog-generation", defaultStr(obj.Generation, "1"))
 		w.WriteHeader(http.StatusNotModified)
 		return false
 	}
 	return true
-}
-
-func gcsETagListNames(header, etag string) bool {
-	for _, candidate := range strings.Split(header, ",") {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "*" || strings.Trim(candidate, `"`) == strings.Trim(etag, `"`) {
-			return true
-		}
-	}
-	return false
 }
 
 type gcsXMLErrorBody struct {

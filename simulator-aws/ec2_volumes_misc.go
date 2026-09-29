@@ -224,7 +224,7 @@ func handleCreateSnapshots(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<CreateSnapshotsResponse %s><requestId>%s</requestId><snapshotSet>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<CreateSnapshotsResponse %s><requestId>%s</requestId><snapshotSet>`, ec2Xmlns(), sim.NewUUID())
 	for _, snap := range snapshots {
 		b.WriteString(snapshotInfoItemXML(snap))
 	}
@@ -285,7 +285,7 @@ func handleCopyVolumes(w http.ResponseWriter, r *http.Request) {
 	copies := []EC2Volume{cp}
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<CopyVolumesResponse %s><requestId>%s</requestId><volumeSet>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<CopyVolumesResponse %s><requestId>%s</requestId><volumeSet>`, ec2Xmlns(), sim.NewUUID())
 	for _, v := range copies {
 		b.WriteString(ec2VolumeXML(v))
 	}
@@ -319,7 +319,7 @@ func handleDescribeVolumeStatus(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(vols, func(i, j int) bool { return vols[i].VolumeId < vols[j].VolumeId })
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<DescribeVolumeStatusResponse %s><requestId>%s</requestId><volumeStatusSet>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<DescribeVolumeStatusResponse %s><requestId>%s</requestId><volumeStatusSet>`, ec2Xmlns(), sim.NewUUID())
 	for _, vol := range vols {
 		// A healthy volume reports an "ok" status with the io-enabled /
 		// io-performance checks AWS surfaces.
@@ -346,7 +346,7 @@ func handleEnableVolumeIO(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<EnableVolumeIOResponse %s><requestId>%s</requestId><return>true</return></EnableVolumeIOResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // ImportVolume — VM-import conversion task that materializes a new volume.
@@ -376,7 +376,7 @@ func handleImportVolume(w http.ResponseWriter, r *http.Request) {
 		`<image><format>VMDK</format><size>%d</size><importManifestUrl></importManifestUrl></image>`+
 		`<volume><id>%s</id><size>%d</size></volume></importVolume>`+
 		`<state>active</state></conversionTask></ImportVolumeResponse>`,
-		ec2Xmlns(), generateUUID(), taskID, time.Now().UTC().Add(24*time.Hour).Format(time.RFC3339),
+		ec2Xmlns(), sim.NewUUID(), taskID, time.Now().UTC().Add(24*time.Hour).Format(time.RFC3339),
 		az, bytes, xmlEscape(desc), bytes, vol.VolumeId, size)
 }
 
@@ -394,7 +394,7 @@ func handleRestoreVolumeFromRecycleBin(w http.ResponseWriter, r *http.Request) {
 		ec2Volumes.Put(volID, vol)
 		w.Header().Set("Content-Type", "text/xml")
 		fmt.Fprintf(w, `<RestoreVolumeFromRecycleBinResponse %s><requestId>%s</requestId><return>true</return></RestoreVolumeFromRecycleBinResponse>`,
-			ec2Xmlns(), generateUUID())
+			ec2Xmlns(), sim.NewUUID())
 		return
 	}
 	ec2ErrorXML(w, "InvalidVolume.NotFound", fmt.Sprintf("The volume %q is not in the Recycle Bin", volID), http.StatusBadRequest)
@@ -412,7 +412,7 @@ func handleListVolumesInRecycleBin(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(vols, func(i, j int) bool { return vols[i].VolumeId < vols[j].VolumeId })
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<ListVolumesInRecycleBinResponse %s><requestId>%s</requestId><volumeSet>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<ListVolumesInRecycleBinResponse %s><requestId>%s</requestId><volumeSet>`, ec2Xmlns(), sim.NewUUID())
 	for _, vol := range vols {
 		fmt.Fprintf(&b, `<item><volumeId>%s</volumeId><volumeType>%s</volumeType><size>%d</size><availabilityZone>%s</availabilityZone><recycleBinEnterTime>%s</recycleBinEnterTime></item>`,
 			vol.VolumeId, vol.VolumeType, vol.Size, vol.AvailabilityZone, vol.CreateTime)
@@ -433,7 +433,7 @@ func handleListSnapshotsInRecycleBin(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(snaps, func(i, j int) bool { return snaps[i].SnapshotId < snaps[j].SnapshotId })
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<ListSnapshotsInRecycleBinResponse %s><requestId>%s</requestId><snapshotSet>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<ListSnapshotsInRecycleBinResponse %s><requestId>%s</requestId><snapshotSet>`, ec2Xmlns(), sim.NewUUID())
 	for _, snap := range snaps {
 		fmt.Fprintf(&b, `<item><snapshotId>%s</snapshotId><recycleBinEnterTime>%s</recycleBinEnterTime><description>%s</description><volumeId>%s</volumeId></item>`,
 			snap.SnapshotId, snap.StartTime, xmlEscape(snap.Description), snap.VolumeId)
@@ -447,7 +447,7 @@ func handleDescribeLockedSnapshots(w http.ResponseWriter, r *http.Request) {
 	// snapshot is in a locked state and the read-back is an empty set.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeLockedSnapshotsResponse %s><requestId>%s</requestId><snapshotSet/></DescribeLockedSnapshotsResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeImportSnapshotTasks(w http.ResponseWriter, r *http.Request) {
@@ -455,7 +455,7 @@ func handleDescribeImportSnapshotTasks(w http.ResponseWriter, r *http.Request) {
 	// is empty; the shape (importSnapshotTaskSet) round-trips through the SDK.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeImportSnapshotTasksResponse %s><requestId>%s</requestId><importSnapshotTaskSet/></DescribeImportSnapshotTasksResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // Replace-root-volume + Mac-dedicated-host tasks.
@@ -483,7 +483,7 @@ func handleCreateReplaceRootVolumeTask(w http.ResponseWriter, r *http.Request) {
 	ec2ReplaceRootVolumeTasks.Put(task.ReplaceRootVolumeTaskId, task)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateReplaceRootVolumeTaskResponse %s><requestId>%s</requestId><replaceRootVolumeTask>%s</replaceRootVolumeTask></CreateReplaceRootVolumeTaskResponse>`,
-		ec2Xmlns(), generateUUID(), replaceRootVolumeTaskBodyXML(task))
+		ec2Xmlns(), sim.NewUUID(), replaceRootVolumeTaskBodyXML(task))
 }
 
 func replaceRootVolumeTaskBodyXML(t EC2ReplaceRootVolumeTask) string {
@@ -523,7 +523,7 @@ func handleDescribeReplaceRootVolumeTasks(w http.ResponseWriter, r *http.Request
 	sort.Slice(tasks, func(i, j int) bool { return tasks[i].ReplaceRootVolumeTaskId < tasks[j].ReplaceRootVolumeTaskId })
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<DescribeReplaceRootVolumeTasksResponse %s><requestId>%s</requestId><replaceRootVolumeTaskSet>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<DescribeReplaceRootVolumeTasksResponse %s><requestId>%s</requestId><replaceRootVolumeTaskSet>`, ec2Xmlns(), sim.NewUUID())
 	for _, t := range tasks {
 		b.WriteString("<item>" + replaceRootVolumeTaskBodyXML(t) + "</item>")
 	}
@@ -567,7 +567,7 @@ func createMacModificationTask(w http.ResponseWriter, r *http.Request, taskType 
 	ec2MacModificationTasks.Put(task.MacModificationTaskId, task)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse %s><requestId>%s</requestId><macModificationTask>%s</macModificationTask></%sResponse>`,
-		action, ec2Xmlns(), generateUUID(), macModificationTaskBodyXML(task), action)
+		action, ec2Xmlns(), sim.NewUUID(), macModificationTaskBodyXML(task), action)
 }
 
 func macModificationTaskBodyXML(t EC2MacModificationTask) string {
@@ -606,7 +606,7 @@ func handleDescribeMacModificationTasks(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeMacModificationTasksResponse %s><requestId>%s</requestId><macModificationTaskSet>%s</macModificationTaskSet></DescribeMacModificationTasksResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 // Customer-Owned IP (CoIP) CIDRs on an existing CoIP pool.
@@ -627,7 +627,7 @@ func handleCreateCoipCidr(w http.ResponseWriter, r *http.Request) {
 	ec2CoipPools.Put(poolID, pool)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateCoipCidrResponse %s><requestId>%s</requestId><coipCidr><cidr>%s</cidr><coipPoolId>%s</coipPoolId><localGatewayRouteTableId>%s</localGatewayRouteTableId></coipCidr></CreateCoipCidrResponse>`,
-		ec2Xmlns(), generateUUID(), cidr, poolID, pool.LocalGatewayRouteTableId)
+		ec2Xmlns(), sim.NewUUID(), cidr, poolID, pool.LocalGatewayRouteTableId)
 }
 
 func handleDeleteCoipCidr(w http.ResponseWriter, r *http.Request) {
@@ -652,7 +652,7 @@ func handleDeleteCoipCidr(w http.ResponseWriter, r *http.Request) {
 	ec2CoipPools.Put(poolID, pool)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteCoipCidrResponse %s><requestId>%s</requestId><coipCidr><cidr>%s</cidr><coipPoolId>%s</coipPoolId><localGatewayRouteTableId>%s</localGatewayRouteTableId></coipCidr></DeleteCoipCidrResponse>`,
-		ec2Xmlns(), generateUUID(), cidr, poolID, pool.LocalGatewayRouteTableId)
+		ec2Xmlns(), sim.NewUUID(), cidr, poolID, pool.LocalGatewayRouteTableId)
 }
 
 // Default VPC / subnet.
@@ -680,7 +680,7 @@ func handleCreateDefaultVpc(w http.ResponseWriter, r *http.Request) {
 	ec2Vpcs.Put(vpc.VpcId, vpc)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateDefaultVpcResponse %s><requestId>%s</requestId><vpc>%s</vpc></CreateDefaultVpcResponse>`,
-		ec2Xmlns(), generateUUID(), vpcItemBodyXML(vpc))
+		ec2Xmlns(), sim.NewUUID(), vpcItemBodyXML(vpc))
 }
 
 func handleCreateDefaultSubnet(w http.ResponseWriter, r *http.Request) {
@@ -716,7 +716,7 @@ func handleCreateDefaultSubnet(w http.ResponseWriter, r *http.Request) {
 	ec2Subnets.Put(subnet.SubnetId, subnet)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateDefaultSubnetResponse %s><requestId>%s</requestId><subnet>%s</subnet></CreateDefaultSubnetResponse>`,
-		ec2Xmlns(), generateUUID(), subnetItemBodyXML(subnet))
+		ec2Xmlns(), sim.NewUUID(), subnetItemBodyXML(subnet))
 }
 
 // Prefix lists (AWS-managed + customer-managed).
@@ -745,7 +745,7 @@ func handleDescribePrefixLists(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<DescribePrefixListsResponse %s><requestId>%s</requestId><prefixListSet>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<DescribePrefixListsResponse %s><requestId>%s</requestId><prefixListSet>`, ec2Xmlns(), sim.NewUUID())
 	for _, pl := range lists {
 		if len(ids) > 0 && !ec2StrInValues(pl.id, ids) {
 			continue
@@ -798,7 +798,7 @@ func handleGetManagedPrefixListAssociations(w http.ResponseWriter, r *http.Reque
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<GetManagedPrefixListAssociationsResponse %s><requestId>%s</requestId><prefixListAssociationSet>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<GetManagedPrefixListAssociationsResponse %s><requestId>%s</requestId><prefixListAssociationSet>`, ec2Xmlns(), sim.NewUUID())
 	for _, a := range assoc {
 		fmt.Fprintf(&b, `<item><resourceId>%s</resourceId><resourceOwner>%s</resourceOwner></item>`, a.resID, a.owner)
 	}
@@ -820,7 +820,7 @@ func handleRestoreManagedPrefixListVersion(w http.ResponseWriter, r *http.Reques
 	ec2ManagedPrefixLists.Put(id, pl)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RestoreManagedPrefixListVersionResponse %s><requestId>%s</requestId><prefixList>%s</prefixList></RestoreManagedPrefixListVersionResponse>`,
-		ec2Xmlns(), generateUUID(), managedPrefixListBodyXML(pl))
+		ec2Xmlns(), sim.NewUUID(), managedPrefixListBodyXML(pl))
 }
 
 // Security-group references / stale / for-vpc — derived from the SG store.
@@ -829,7 +829,7 @@ func handleDescribeSecurityGroupReferences(w http.ResponseWriter, r *http.Reques
 	ids := ec2ParamList(r, "GroupId")
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<DescribeSecurityGroupReferencesResponse %s><requestId>%s</requestId><securityGroupReferenceSet>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<DescribeSecurityGroupReferencesResponse %s><requestId>%s</requestId><securityGroupReferenceSet>`, ec2Xmlns(), sim.NewUUID())
 	// A reference exists when another SG's rules name one of the queried groups in
 	// a UserIdGroupPair. Derive these honestly from the SG store.
 	for _, target := range ids {
@@ -857,7 +857,7 @@ func handleDescribeStaleSecurityGroups(w http.ResponseWriter, r *http.Request) {
 	// a deleted VPC peering). Derive honestly: a rule referencing an absent group.
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<DescribeStaleSecurityGroupsResponse %s><requestId>%s</requestId><staleSecurityGroupSet>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<DescribeStaleSecurityGroupsResponse %s><requestId>%s</requestId><staleSecurityGroupSet>`, ec2Xmlns(), sim.NewUUID())
 	for _, sg := range ec2SecurityGroups.List() {
 		if sg.VpcId != vpcID {
 			continue
@@ -911,7 +911,7 @@ func handleGetSecurityGroupsForVpc(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<GetSecurityGroupsForVpcResponse %s><requestId>%s</requestId><securityGroupForVpcSet>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<GetSecurityGroupsForVpcResponse %s><requestId>%s</requestId><securityGroupForVpcSet>`, ec2Xmlns(), sim.NewUUID())
 	for _, sg := range ec2SecurityGroups.List() {
 		if sg.VpcId != vpcID {
 			continue
@@ -934,7 +934,7 @@ func handleGetLaunchTemplateData(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<GetLaunchTemplateDataResponse %s><requestId>%s</requestId><launchTemplateData>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<GetLaunchTemplateDataResponse %s><requestId>%s</requestId><launchTemplateData>`, ec2Xmlns(), sim.NewUUID())
 	if inst.ImageId != "" {
 		fmt.Fprintf(&b, `<imageId>%s</imageId>`, inst.ImageId)
 	}
@@ -1003,7 +1003,7 @@ func handleDeleteLaunchTemplateVersions(w http.ResponseWriter, r *http.Request) 
 	ec2LaunchTemplates.Put(lt.LaunchTemplateId, lt)
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<DeleteLaunchTemplateVersionsResponse %s><requestId>%s</requestId><successfullyDeletedLaunchTemplateVersionSet>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(&b, `<DeleteLaunchTemplateVersionsResponse %s><requestId>%s</requestId><successfullyDeletedLaunchTemplateVersionSet>`, ec2Xmlns(), sim.NewUUID())
 	for _, s := range success {
 		fmt.Fprintf(&b, `<item><launchTemplateId>%s</launchTemplateId><launchTemplateName>%s</launchTemplateName><versionNumber>%d</versionNumber></item>`,
 			lt.LaunchTemplateId, lt.LaunchTemplateName, s.num)
@@ -1031,7 +1031,7 @@ func handleModifyPrivateDnsNameOptions(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyPrivateDnsNameOptionsResponse %s><requestId>%s</requestId><return>true</return></ModifyPrivateDnsNameOptionsResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleModifyPublicIpDnsNameOptions(w http.ResponseWriter, r *http.Request) {
@@ -1046,7 +1046,7 @@ func handleModifyPublicIpDnsNameOptions(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyPublicIpDnsNameOptionsResponse %s><requestId>%s</requestId><successful>true</successful></ModifyPublicIpDnsNameOptionsResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleModifyVpcEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -1068,7 +1068,7 @@ func handleModifyVpcEndpoint(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVpcEndpointResponse %s><requestId>%s</requestId><return>true</return></ModifyVpcEndpointResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleReplaceRouteTableAssociation(w http.ResponseWriter, r *http.Request) {
@@ -1115,7 +1115,7 @@ func handleReplaceRouteTableAssociation(w http.ResponseWriter, r *http.Request) 
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ReplaceRouteTableAssociationResponse %s><requestId>%s</requestId><newAssociationId>%s</newAssociationId><associationState><state>associated</state></associationState></ReplaceRouteTableAssociationResponse>`,
-		ec2Xmlns(), generateUUID(), newAssocID)
+		ec2Xmlns(), sim.NewUUID(), newAssocID)
 }
 
 func handleResetNetworkInterfaceAttribute(w http.ResponseWriter, r *http.Request) {
@@ -1134,7 +1134,7 @@ func handleResetNetworkInterfaceAttribute(w http.ResponseWriter, r *http.Request
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ResetNetworkInterfaceAttributeResponse %s><requestId>%s</requestId><return>true</return></ResetNetworkInterfaceAttributeResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeNetworkInterfaceAttribute(w http.ResponseWriter, r *http.Request) {
@@ -1148,7 +1148,7 @@ func handleDescribeNetworkInterfaceAttribute(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
 	fmt.Fprintf(&b, `<DescribeNetworkInterfaceAttributeResponse %s><requestId>%s</requestId><networkInterfaceId>%s</networkInterfaceId>`,
-		ec2Xmlns(), generateUUID(), eniID)
+		ec2Xmlns(), sim.NewUUID(), eniID)
 	switch attr {
 	case "description":
 		fmt.Fprintf(&b, `<description><value>%s</value></description>`, xmlEscape(eni.Description))
@@ -1190,7 +1190,7 @@ func handleSendDiagnosticInterrupt(w http.ResponseWriter, r *http.Request) {
 	// SendDiagnosticInterrupt has a Unit output: an empty success response.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<SendDiagnosticInterruptResponse %s><requestId>%s</requestId></SendDiagnosticInterruptResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // IPv6 address management on an ENI.
@@ -1232,7 +1232,7 @@ func handleAssignIpv6Addresses(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
 	fmt.Fprintf(&b, `<AssignIpv6AddressesResponse %s><requestId>%s</requestId><networkInterfaceId>%s</networkInterfaceId><assignedIpv6Addresses>`,
-		ec2Xmlns(), generateUUID(), eniID)
+		ec2Xmlns(), sim.NewUUID(), eniID)
 	for _, a := range assigned {
 		fmt.Fprintf(&b, `<item>%s</item>`, a)
 	}
@@ -1259,7 +1259,7 @@ func handleUnassignIpv6Addresses(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
 	fmt.Fprintf(&b, `<UnassignIpv6AddressesResponse %s><requestId>%s</requestId><networkInterfaceId>%s</networkInterfaceId><unassignedIpv6Addresses>`,
-		ec2Xmlns(), generateUUID(), eniID)
+		ec2Xmlns(), sim.NewUUID(), eniID)
 	for _, a := range toRemove {
 		fmt.Fprintf(&b, `<item>%s</item>`, a)
 	}
@@ -1284,7 +1284,7 @@ func handleUnassignPrivateIpAddresses(w http.ResponseWriter, r *http.Request) {
 	// UnassignPrivateIpAddresses has a Unit output: an empty success response.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<UnassignPrivateIpAddressesResponse %s><requestId>%s</requestId><return>true</return></UnassignPrivateIpAddressesResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeIpv6Pools(w http.ResponseWriter, r *http.Request) {
@@ -1292,7 +1292,7 @@ func handleDescribeIpv6Pools(w http.ResponseWriter, r *http.Request) {
 	// the ipv6PoolSet shape round-trips through the SDK.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeIpv6PoolsResponse %s><requestId>%s</requestId><ipv6PoolSet/></DescribeIpv6PoolsResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleGetAssociatedIpv6PoolCidrs(w http.ResponseWriter, r *http.Request) {
@@ -1303,7 +1303,7 @@ func handleGetAssociatedIpv6PoolCidrs(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetAssociatedIpv6PoolCidrsResponse %s><requestId>%s</requestId><ipv6CidrAssociationSet/></GetAssociatedIpv6PoolCidrsResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // AZ group / default credit specification / VPC tenancy.
@@ -1317,7 +1317,7 @@ func handleModifyAvailabilityZoneGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyAvailabilityZoneGroupResponse %s><requestId>%s</requestId><return>true</return></ModifyAvailabilityZoneGroupResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // ec2DefaultCredit is the account-level default credit specification per
@@ -1341,7 +1341,7 @@ func handleGetDefaultCreditSpecification(w http.ResponseWriter, r *http.Request)
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetDefaultCreditSpecificationResponse %s><requestId>%s</requestId><instanceFamilyCreditSpecification><instanceFamily>%s</instanceFamily><cpuCredits>%s</cpuCredits></instanceFamilyCreditSpecification></GetDefaultCreditSpecificationResponse>`,
-		ec2Xmlns(), generateUUID(), family, cpuCredits)
+		ec2Xmlns(), sim.NewUUID(), family, cpuCredits)
 }
 
 func handleModifyDefaultCreditSpecification(w http.ResponseWriter, r *http.Request) {
@@ -1354,7 +1354,7 @@ func handleModifyDefaultCreditSpecification(w http.ResponseWriter, r *http.Reque
 	ec2DefaultCredit.Put(family, cpuCredits)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyDefaultCreditSpecificationResponse %s><requestId>%s</requestId><instanceFamilyCreditSpecification><instanceFamily>%s</instanceFamily><cpuCredits>%s</cpuCredits></instanceFamilyCreditSpecification></ModifyDefaultCreditSpecificationResponse>`,
-		ec2Xmlns(), generateUUID(), family, cpuCredits)
+		ec2Xmlns(), sim.NewUUID(), family, cpuCredits)
 }
 
 func handleModifyVpcTenancy(w http.ResponseWriter, r *http.Request) {
@@ -1372,7 +1372,7 @@ func handleModifyVpcTenancy(w http.ResponseWriter, r *http.Request) {
 	ec2Vpcs.Put(vpcID, vpc)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVpcTenancyResponse %s><requestId>%s</requestId><return>true</return></ModifyVpcTenancyResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // Interruptible capacity-reservation allocation.
@@ -1386,7 +1386,7 @@ func handleCreateInterruptibleCapacityReservationAllocation(w http.ResponseWrite
 	target := ec2AtoiOr(r.FormValue("InstanceCount"), 1)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateInterruptibleCapacityReservationAllocationResponse %s><requestId>%s</requestId><sourceCapacityReservationId>%s</sourceCapacityReservationId><targetInstanceCount>%d</targetInstanceCount><status>active</status><interruptionType>spot</interruptionType></CreateInterruptibleCapacityReservationAllocationResponse>`,
-		ec2Xmlns(), generateUUID(), srcID, target)
+		ec2Xmlns(), sim.NewUUID(), srcID, target)
 }
 
 func handleUpdateInterruptibleCapacityReservationAllocation(w http.ResponseWriter, r *http.Request) {
@@ -1398,7 +1398,7 @@ func handleUpdateInterruptibleCapacityReservationAllocation(w http.ResponseWrite
 	target := ec2AtoiOr(r.FormValue("TargetInstanceCount"), 1)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<UpdateInterruptibleCapacityReservationAllocationResponse %s><requestId>%s</requestId><interruptibleCapacityReservationId>%s</interruptibleCapacityReservationId><targetInstanceCount>%d</targetInstanceCount><status>updating</status><interruptionType>spot</interruptionType></UpdateInterruptibleCapacityReservationAllocationResponse>`,
-		ec2Xmlns(), generateUUID(), id, target)
+		ec2Xmlns(), sim.NewUUID(), id, target)
 }
 
 // Export / import tasks.
@@ -1412,7 +1412,7 @@ func handleCancelExportTask(w http.ResponseWriter, r *http.Request) {
 	// CancelExportTask has a Unit output: an empty success response.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CancelExportTaskResponse %s><requestId>%s</requestId><return>true</return></CancelExportTaskResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeExportTasks(w http.ResponseWriter, r *http.Request) {
@@ -1420,7 +1420,7 @@ func handleDescribeExportTasks(w http.ResponseWriter, r *http.Request) {
 	// the exportTaskSet shape round-trips through the SDK.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeExportTasksResponse %s><requestId>%s</requestId><exportTaskSet/></DescribeExportTasksResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCancelImportTask(w http.ResponseWriter, r *http.Request) {
@@ -1431,7 +1431,7 @@ func handleCancelImportTask(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CancelImportTaskResponse %s><requestId>%s</requestId><importTaskId>%s</importTaskId><previousState>active</previousState><state>deleting</state></CancelImportTaskResponse>`,
-		ec2Xmlns(), generateUUID(), id)
+		ec2Xmlns(), sim.NewUUID(), id)
 }
 
 // Small shared helpers.

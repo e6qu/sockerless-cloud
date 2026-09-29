@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func glueConditionContext(operation, body string) map[string][]string {
@@ -14,7 +15,7 @@ func useGlueConditionStores(t *testing.T) {
 	t.Helper()
 	previousConnections, previousSubnets := glueConnections, ec2Subnets
 	t.Cleanup(func() { glueConnections, ec2Subnets = previousConnections, previousSubnets })
-	AwaitSimulatorBackground()
+	bg.Await()
 	glueConnections = sim.MakeStore[GlueConnection](nil, "glue_connections")
 	ec2Subnets = sim.MakeStore[EC2Subnet](nil, "ec2_subnets")
 	ec2Subnets.Put("subnet-a", EC2Subnet{SubnetId: "subnet-a", VpcId: "vpc-a"})

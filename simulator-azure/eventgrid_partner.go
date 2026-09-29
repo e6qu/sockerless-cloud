@@ -97,7 +97,7 @@ func handleEventGridPutPartnerRegistration(w http.ResponseWriter, r *http.Reques
 		sim.PathParam(r, "partnerRegistrationName"), "Microsoft.EventGrid/partnerRegistrations", http.StatusOK, func(props map[string]any) {
 			props["provisioningState"] = "Succeeded"
 			if _, ok := props["partnerRegistrationImmutableId"]; !ok {
-				props["partnerRegistrationImmutableId"] = generateUUID()
+				props["partnerRegistrationImmutableId"] = sim.NewUUID()
 			}
 		})
 }

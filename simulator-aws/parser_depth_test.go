@@ -31,6 +31,10 @@ func TestParserDepthGuards(t *testing.T) {
 	require.Error(t, err, "an Insights filter nested %d deep must be refused", depth)
 	require.Contains(t, err.Error(), "nesting too deep")
 
+	_, err = cwParseInsightsFilter(strings.Repeat("not ", depth) + "level = ERROR")
+	require.Error(t, err, "a chain of %d nots must meet the same guard", depth)
+	require.Contains(t, err.Error(), "nesting too deep")
+
 	// CloudWatch metric-filter pattern (structured JSON).
 	compiled, err := cwCompileLogPattern("{" + opens + "$.a = 1" + strings.Repeat(")", depth) + "}")
 	require.Error(t, err, "a filter pattern nested %d deep must be refused", depth)

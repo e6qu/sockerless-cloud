@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -49,28 +48,13 @@ func azurePGLtrBackupVolume(rg, name, backupName string) string {
 // that does not exist — the modeled tier, or an engine that never started —
 // captures nothing, which is that server's whole state.
 func azurePGCaptureVolume(rg, name, backupVolume string) error {
-	if sim.RequireContainerRuntime("capturing a flexible-server backup") != nil {
-		return nil
-	}
-	if !sim.VolumeExists(azurePGServerVolume(rg, name)) {
-		return nil
-	}
-	filesystem, err := sim.SnapshotVolume(context.Background(), azurePGServerVolume(rg, name), backupVolume)
-	if err != nil {
-		return err
-	}
-	if sim.VolumeSnapshotIsInstant(filesystem) {
-		fmt.Fprintf(os.Stderr, "[sim-azurepg] backup %s captured copy-on-write on %s\n", backupVolume, filesystem)
-	} else {
-		fmt.Fprintf(os.Stderr, "[sim-azurepg] backup %s captured by full copy on %s (put the engine's volume store on btrfs, XFS with reflinks, or OpenZFS block cloning for instant backups)\n", backupVolume, filesystem)
-	}
-	return nil
+	return sim.CaptureVolume(context.Background(), azurePGServerVolume(rg, name), backupVolume, "azurepg")
 }
 
 // azurePGRemoveBackupVolume removes a backup's volume when the backup is
 // deleted. A volume that never existed — the modeled tier — needs nothing.
 func azurePGRemoveBackupVolume(name string) {
-	azurePGRemoveVolumeSettled(name)
+	sim.RemoveVolumeSettled(name, "azurepg")
 }
 
 // azurePGRestoreSource is the volume a PointInTimeRestore create clones the

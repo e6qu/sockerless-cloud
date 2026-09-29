@@ -376,7 +376,7 @@ func registerCloudRun(srv *sim.Server) {
 			return CRServiceMetadata{
 				Name:              name,
 				Namespace:         namespace,
-				UID:               generateUUID(),
+				UID:               sim.NewUUID(),
 				Generation:        svc.Metadata.Generation,
 				ResourceVersion:   svc.Metadata.ResourceVersion,
 				Labels:            svc.Metadata.Labels,
@@ -468,7 +468,7 @@ func registerCloudRun(srv *sim.Server) {
 
 		svc.APIVersion = "serving.knative.dev/v1"
 		svc.Kind = "Service"
-		svc.Metadata.UID = generateUUID()
+		svc.Metadata.UID = sim.NewUUID()
 		svc.Metadata.Generation = 1
 		svc.Metadata.ResourceVersion = "1"
 		svc.Metadata.CreationTimestamp = time.Now().UTC().Format(time.RFC3339)
@@ -713,7 +713,7 @@ func registerCloudRun(srv *sim.Server) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		dm.APIVersion = "domains.cloudrun.com/v1"
 		dm.Kind = "DomainMapping"
-		dm.Metadata.UID = generateUUID()
+		dm.Metadata.UID = sim.NewUUID()
 		dm.Metadata.Generation = 1
 		dm.Metadata.ResourceVersion = "1"
 		dm.Metadata.CreationTimestamp = now
@@ -808,7 +808,7 @@ func registerCloudRun(srv *sim.Server) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		svc.APIVersion = "serving.knative.dev/v1"
 		svc.Kind = "Service"
-		svc.Metadata.UID = generateUUID()
+		svc.Metadata.UID = sim.NewUUID()
 		svc.Metadata.Generation = 1
 		svc.Metadata.ResourceVersion = "1"
 		svc.Metadata.CreationTimestamp = now

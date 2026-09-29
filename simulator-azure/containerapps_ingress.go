@@ -2,13 +2,15 @@ package main
 
 import (
 	"bytes"
-	"context"
-	"fmt"
+	"errors"
 	"io"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -96,72 +98,40 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp) {
 	}
 
 	// Route to the App's configured ingress target port — exactly what real
-	// ACA ingress forwards to (the container's listening port).
-	target := fmt.Sprintf("http://%s:%d%s", ip, acaIngressTargetPort(app), r.URL.RequestURI())
-	// An upgraded connection outlives any request deadline, so it gets none.
-	ctx := r.Context()
-	upgrade := sim.IsUpgradeRequest(r)
-	client := &http.Client{CheckRedirect: returnRedirectsToClient}
-	if !upgrade {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 10*time.Minute)
-		defer cancel()
-		client.Timeout = 10 * time.Minute
+	// ACA ingress forwards to (the container's listening port). Ingress passes
+	// the client's Host header and carries WebSocket upgrades through.
+	up := lbplane.Upstream{
+		Scheme:   "http",
+		Address:  net.JoinHostPort(ip, strconv.Itoa(int(acaIngressTargetPort(app)))),
+		Path:     r.URL.EscapedPath(),
+		RawQuery: r.URL.RawQuery,
+		Timeout:  10 * time.Minute,
 	}
 
 	// The replica's HTTP listener binds a moment after the container starts;
-	// retry the connection briefly so an invoke racing replica startup doesn't
-	// surface as a transient 502 (the managed front-end likewise buffers).
-	var resp *http.Response
+	// retry a connection that reached no listener briefly so an invoke racing
+	// replica startup doesn't surface as a transient 502 (the managed front-end
+	// likewise buffers).
 	deadline := time.Now().Add(30 * time.Second)
 	for {
-		req, rerr := http.NewRequestWithContext(ctx, r.Method, target, bytes.NewReader(body))
-		if rerr != nil {
-			AzureErrorf(w, "InternalServerError", http.StatusInternalServerError, "build proxy request: %v", rerr)
-			return
-		}
-		copyProxyHeaders(req.Header, r.Header)
-		resp, err = client.Do(req)
-		if err == nil || time.Now().After(deadline) {
+		up.Body = bytes.NewReader(body)
+		err = lbplane.Forward(w, r, up)
+		var sendErr *lbplane.SendError
+		if !errors.As(err, &sendErr) || time.Now().After(deadline) {
 			break
 		}
 		select {
-		case <-ctx.Done():
-			AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, ctx.Err())
+		case <-r.Context().Done():
+			AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, r.Context().Err())
 			return
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	if err != nil {
+	switch {
+	case err == nil:
+	case errors.Is(err, lbplane.ErrClientWentAway):
+		w.WriteHeader(lbplane.StatusClientClosedRequest)
+	default:
 		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusSwitchingProtocols {
-		if terr := sim.TunnelUpgradedResponse(w, resp); terr != nil {
-			AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, terr)
-		}
-		return
-	}
-	for k, vs := range resp.Header {
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
-}
-
-func copyProxyHeaders(dst, src http.Header) {
-	for k, vs := range src {
-		// Hop-by-hop / host headers are not forwarded to the upstream.
-		switch http.CanonicalHeaderKey(k) {
-		case "Host", "Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "Te", "Trailer", "Transfer-Encoding", "Upgrade":
-			continue
-		}
-		for _, v := range vs {
-			dst.Add(k, v)
-		}
 	}
 }

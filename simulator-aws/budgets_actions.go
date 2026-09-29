@@ -126,7 +126,7 @@ func handleBudgetsCreateBudgetAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action := budgetsAction{
-		ActionId:         generateUUID(),
+		ActionId:         sim.NewUUID(),
 		BudgetName:       req.BudgetName,
 		NotificationType: req.NotificationType,
 		ActionType:       req.ActionType,

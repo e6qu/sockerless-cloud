@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
 // Handler-level tests for the Amplify sim: explicit-maxResults pagination,
@@ -19,7 +21,7 @@ import (
 func amplifyResetStores() {
 	// Work started by whatever ran before this must finish before the
 	// stores it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	amplifyApps = sim.MakeStore[amplifyStoredApp](nil, "amplify_apps")
 	amplifyWebhooks = sim.MakeStore[amplifyStoredWebhook](nil, "amplify_webhooks")
 	amplifyJobs = sim.MakeStore[amplifyStoredJob](nil, "amplify_jobs")
@@ -35,7 +37,7 @@ func amplifyResetStores() {
 	if err != nil {
 		panic(err)
 	}
-	if s3Bodies, err = sim.OpenPayloads(dir); err != nil {
+	if s3Bodies, err = blobstore.OpenPayloads(dir); err != nil {
 		panic(err)
 	}
 }
@@ -388,7 +390,7 @@ func TestAmplifyStartDeploymentValidation(t *testing.T) {
 	}
 
 	s3Buckets_.Put("bucket", S3Bucket{Name: "bucket"})
-	if _, err := s3StoreObject(S3Object{Key: s3ObjectKey("bucket", "prefix/index.html")},
+	if _, err := s3StoreObjectData(S3Object{Key: s3ObjectKey("bucket", "prefix/index.html")},
 		[]byte("<html>source prefix</html>")); err != nil {
 		t.Fatal(err)
 	}

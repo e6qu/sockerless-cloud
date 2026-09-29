@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -376,7 +377,10 @@ func azureSecurityPortMatches(ranges []string, port string) bool {
 		if entry == "" || entry == "*" {
 			return true
 		}
-		from, to := azureParsePortRange(entry)
+		from, to, err := realexec.PortRange(entry)
+		if err != nil {
+			continue
+		}
 		if from == 0 && to == 0 {
 			return true
 		}

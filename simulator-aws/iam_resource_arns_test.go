@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // These pin the ARN the gate requests for the services BUG-2907 named. The
@@ -912,7 +913,7 @@ func TestIAMResourceARNs_EC2TagsDeriveEachIdFromItsPrefix(t *testing.T) {
 func TestIAMResourceARNs_EC2ResolvesAssociationsToTheirParents(t *testing.T) {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ec2RouteTables = sim.MakeStore[EC2RouteTable](nil, "ec2_route_tables")
 	ec2ElasticIPs = sim.MakeStore[EC2ElasticIP](nil, "ec2_elastic_ips")
 	ec2NetworkInterfaces = sim.MakeStore[EC2NetworkInterface](nil, "ec2_network_interfaces")
@@ -1121,7 +1122,7 @@ func TestIAMEnforce_SSMParameterScopedGrant(t *testing.T) {
 func TestIAMResourceARNs_RDSResolvesTheIdentifiersNoRequestNames(t *testing.T) {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	rdsCustomEngineVersions = sim.MakeStore[RDSCustomEngineVersion](nil, "rds_custom_engine_versions")
 	rdsProxyTargetGroups = sim.MakeStore[RDSProxyTargetGroup](nil, "rds_proxy_target_groups")
 
@@ -1478,7 +1479,7 @@ func iamAutoScalingRequest(action string, params map[string]string) *http.Reques
 func TestIAMResourceARNs_AutoScalingResolvesTheARNTheResourceHas(t *testing.T) {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	autoScalingGroups = sim.MakeStore[AutoScalingGroup](nil, "autoscaling_groups")
 	asLaunchConfigurations = sim.MakeStore[ASLaunchConfiguration](nil, "autoscaling_launch_configurations")
 

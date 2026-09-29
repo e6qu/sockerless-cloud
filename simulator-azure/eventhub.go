@@ -1170,7 +1170,7 @@ func ehAMQPNextEvent(namespace, address string, index int) ([]byte, bool) {
 	}
 	rec := plog.Records[pos]
 	out := &amqp.Message{
-		DeliveryTag: []byte(generateUUID()),
+		DeliveryTag: []byte(sim.NewUUID()),
 		Annotations: amqp.Annotations{
 			"x-opt-sequence-number": rec.SequenceNumber,
 			"x-opt-enqueued-time":   rec.EnqueuedTime,

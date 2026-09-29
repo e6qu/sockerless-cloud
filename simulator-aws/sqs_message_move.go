@@ -105,7 +105,10 @@ func handleSQSListDeadLetterSourceQueues(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	sources := sqsSourceQueuesForDLQ(dlq.ARN)
-	page, next := awsPage(sources, req.NextToken, req.MaxResults, 1000)
+	page, next, pageOK := awsPage(w, sqsBadToken, sources, req.NextToken, req.MaxResults, 1000)
+	if !pageOK {
+		return
+	}
 	urls := make([]string, 0, len(page))
 	for _, q := range page {
 		urls = append(urls, q.URL)
@@ -199,7 +202,7 @@ func handleSQSStartMessageMoveTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	task := SQSMessageMoveTask{
-		TaskHandle:                        generateUUID(),
+		TaskHandle:                        sim.NewUUID(),
 		SourceArn:                         source.ARN,
 		Status:                            "COMPLETED",
 		MaxNumberOfMessagesPerSecond:      req.MaxNumberOfMessagesPerSecond,

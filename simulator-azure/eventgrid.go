@@ -926,12 +926,12 @@ func deliverEventGridValidation(es EventGridEventSubscription) {
 		return
 	}
 	event := []map[string]any{{
-		"id":        generateUUID(),
+		"id":        sim.NewUUID(),
 		"eventType": "Microsoft.EventGrid.SubscriptionValidationEvent",
 		"subject":   "",
 		"eventTime": time.Now().UTC().Format(time.RFC3339Nano),
 		"data": map[string]any{
-			"validationCode": generateUUID(),
+			"validationCode": sim.NewUUID(),
 			"validationUrl":  endpoint,
 		},
 		"dataVersion": "1",

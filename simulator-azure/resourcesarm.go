@@ -421,7 +421,7 @@ func azureMoveErrorStatus(code string) int {
 func writeAzureMoveValidationError(w http.ResponseWriter, sub string, moveErr *AsyncOperationError) {
 	message := fmt.Sprintf(
 		"Resource move validation failed. Please see details. Diagnostic information: timestamp '%s', subscription id '%s', tracking id '%s', request correlation id '%s'.",
-		time.Now().UTC().Format("20060102T150405Z"), sub, generateUUID(), generateUUID())
+		time.Now().UTC().Format("20060102T150405Z"), sub, sim.NewUUID(), sim.NewUUID())
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(azureMoveErrorStatus(moveErr.Code))
 	_ = json.NewEncoder(w).Encode(map[string]any{

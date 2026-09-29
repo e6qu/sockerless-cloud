@@ -3,7 +3,6 @@ package main
 import (
 	"archive/zip"
 	"bytes"
-	"crypto/md5"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -594,7 +593,7 @@ func handleLambdaCreateFunction(w http.ResponseWriter, r *http.Request) {
 		State:                  "Active",
 		LastUpdateStatus:       "Successful",
 		LastModified:           time.Now().UTC().Format(time.RFC3339),
-		RevisionId:             generateUUID(),
+		RevisionId:             sim.NewUUID(),
 		Version:                "$LATEST",
 		PackageType:            req.PackageType,
 		Architectures:          req.Architectures,
@@ -697,7 +696,7 @@ func validateLambdaDeploymentPackage(code *LambdaFunctionCode) error {
 	var uncompressed uint64
 	for _, entry := range zr.File {
 		uncompressed += entry.UncompressedSize64
-		if uncompressed > 250*1024*1024 {
+		if uncompressed > lambdaUnzippedCodeLimit {
 			return lambdaDeploymentPackageError("Unzipped size must be smaller than 262144000 bytes")
 		}
 	}
@@ -775,14 +774,12 @@ func lambdaPutArtifact(key string, data []byte) error {
 			CreationDate: time.Now().UTC().Format(time.RFC3339),
 		})
 	}
-	digest := md5.Sum(data)
 	storeKey := s3ObjectKey(bucket, key)
 	release := s3ObjectWriters.Lock(storeKey)
 	defer release()
-	_, err := s3StoreObject(S3Object{
+	_, err := s3StoreObjectData(S3Object{
 		Key:          storeKey,
 		ContentType:  "application/zip",
-		ETag:         fmt.Sprintf("\"%x\"", digest),
 		LastModified: time.Now().UTC(),
 		Metadata:     map[string]string{"aws-service": "lambda"},
 	}, data)
@@ -1031,7 +1028,7 @@ func handleLambdaUpdateFunctionConfiguration(w http.ResponseWriter, r *http.Requ
 		}
 		fn.LastModified = time.Now().UTC().Format(time.RFC3339)
 		fn.LastUpdateStatus = "Successful"
-		fn.RevisionId = generateUUID()
+		fn.RevisionId = sim.NewUUID()
 	})
 
 	if !found {
@@ -1176,7 +1173,10 @@ func handleLambdaListFunctions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	page, next := awsPage(all, marker, maxItems, 50)
+	page, next, pageOK := awsPage(w, lambdaBadToken, all, marker, maxItems, 50)
+	if !pageOK {
+		return
+	}
 
 	out := map[string]any{"Functions": page}
 	if next != "" {

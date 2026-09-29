@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"net/http"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ValidateSecurityGroupQuotasForInterface answers whether a set of security
@@ -64,5 +66,5 @@ func handleValidateSecurityGroupQuotasForInterface(w http.ResponseWriter, r *htt
 	fmt.Fprintf(w, `<ValidateSecurityGroupQuotasForInterfaceResponse %s>
   <requestId>%s</requestId>
   <valid>%t</valid>
-</ValidateSecurityGroupQuotasForInterfaceResponse>`, ec2Xmlns(), generateUUID(), valid)
+</ValidateSecurityGroupQuotasForInterfaceResponse>`, ec2Xmlns(), sim.NewUUID(), valid)
 }

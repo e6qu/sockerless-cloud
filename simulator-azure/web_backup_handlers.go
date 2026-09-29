@@ -232,7 +232,7 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 			StorageAccountURL: storageURL,
 			Created:           created,
 			Scheduled:         scheduled,
-			CorrelationID:     generateUUID(),
+			CorrelationID:     sim.NewUUID(),
 			Databases:         databases,
 		}
 		if err != nil {

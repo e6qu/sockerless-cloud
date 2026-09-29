@@ -1,10 +1,8 @@
 package main
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // imageOnSimulatorRegistry reports whether an image reference names this
@@ -14,19 +12,11 @@ import (
 // reached where it points, as a pull-through-cache reference is resolved
 // through its rule.
 func imageOnSimulatorRegistry(image string) bool {
-	host, _, found := strings.Cut(image, "/")
-	if !found {
-		return false
-	}
-	i := strings.LastIndex(host, ":")
-	if i < 0 {
-		return false
-	}
-	port, err := simHostMetadataPort()
+	port, err := workloadhost.ListenPort(simListenAddr)
 	if err != nil {
 		return false
 	}
-	return host[i+1:] == fmt.Sprint(port)
+	return sim.ImageOnPort(image, port)
 }
 
 // ecrWorkloadRegistryAuth is the credential an AWS workload host presents when

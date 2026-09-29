@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
 func TestRecoverCloudRunJobExecutionsFailsRunningExecutionsWithoutProcesses(t *testing.T) {
@@ -58,7 +59,7 @@ func TestRecoverCloudRunJobExecutionsFailsRunningExecutionsWithoutProcesses(t *t
 
 	// An execution whose workload processes are still tracked must not be
 	// touched by recovery.
-	crjProcessHandles.Store(liveExec, &cloudRunJobProcesses{})
+	crjProcessHandles.Store(liveExec, &workload.Group{})
 	defer crjProcessHandles.Delete(liveExec)
 
 	recoverCloudRunJobExecutions(jobs, executions, tasks)

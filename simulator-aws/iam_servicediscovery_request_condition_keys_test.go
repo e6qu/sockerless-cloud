@@ -4,10 +4,11 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func TestCloudMapRequestConditionKeysReadTheNamedNamespaceAndService(t *testing.T) {
-	AwaitSimulatorBackground()
+	bg.Await()
 	cmNamespaces = sim.MakeStore[CMNamespace](nil, "cloudmap_namespaces")
 	cmServices = sim.MakeStore[CMService](nil, "cloudmap_services")
 	const nsARN = "arn:aws:servicediscovery:us-east-1:123456789012:namespace/ns-orders"

@@ -281,7 +281,7 @@ func handleEventarcCreateTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 	now := nowTimestamp()
 	req.Name = eventarcTriggerName(project, location, triggerID)
-	req.Uid = generateUUID()
+	req.Uid = sim.NewUUID()
 	req.CreateTime = now
 	req.UpdateTime = now
 	eventarcTriggers.Put(eventarcTriggerKey(project, location, triggerID), req)
@@ -395,11 +395,11 @@ func handleEventarcCreateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	now := nowTimestamp()
 	req.Name = eventarcChannelName(project, location, channelID)
-	req.Uid = generateUUID()
+	req.Uid = sim.NewUUID()
 	req.CreateTime = now
 	req.UpdateTime = now
 	req.State = "ACTIVE"
-	req.ActivationToken = generateUUID()
+	req.ActivationToken = sim.NewUUID()
 	eventarcChannels.Put(eventarcChannelKey(project, location, channelID), req)
 	op := newLRO(project, location, req, "type.googleapis.com/google.cloud.eventarc.v1.Channel")
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -551,7 +551,7 @@ func handleEventarcCreateChannelConnection(w http.ResponseWriter, r *http.Reques
 	}
 	now := nowTimestamp()
 	req.Name = eventarcChannelConnectionName(project, location, connectionID)
-	req.Uid = generateUUID()
+	req.Uid = sim.NewUUID()
 	req.CreateTime = now
 	req.UpdateTime = now
 	eventarcChannelConnections.Put(eventarcChannelConnectionKey(project, location, connectionID), req)
@@ -766,8 +766,8 @@ func handleEventarcCreateEnrollment(w http.ResponseWriter, r *http.Request) {
 	}
 	now := nowTimestamp()
 	req.Name = eventarcEnrollmentName(project, location, id)
-	req.Uid = generateUUID()
-	req.Etag = generateUUID()
+	req.Uid = sim.NewUUID()
+	req.Etag = sim.NewUUID()
 	req.CreateTime = now
 	req.UpdateTime = now
 	eventarcEnrollments.Put(key, req)
@@ -886,8 +886,8 @@ func handleEventarcCreateMessageBus(w http.ResponseWriter, r *http.Request) {
 	}
 	now := nowTimestamp()
 	req.Name = eventarcMessageBusName(project, location, id)
-	req.Uid = generateUUID()
-	req.Etag = generateUUID()
+	req.Uid = sim.NewUUID()
+	req.Etag = sim.NewUUID()
 	req.CreateTime = now
 	req.UpdateTime = now
 	eventarcMessageBuses.Put(key, req)
@@ -1030,8 +1030,8 @@ func handleEventarcCreatePipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	now := nowTimestamp()
 	req.Name = eventarcPipelineName(project, location, id)
-	req.Uid = generateUUID()
-	req.Etag = generateUUID()
+	req.Uid = sim.NewUUID()
+	req.Etag = sim.NewUUID()
 	req.CreateTime = now
 	req.UpdateTime = now
 	eventarcPipelines.Put(key, req)
@@ -1162,8 +1162,8 @@ func handleEventarcCreateGoogleAPISource(w http.ResponseWriter, r *http.Request)
 	}
 	now := nowTimestamp()
 	req.Name = eventarcGoogleAPISourceName(project, location, id)
-	req.Uid = generateUUID()
-	req.Etag = generateUUID()
+	req.Uid = sim.NewUUID()
+	req.Etag = sim.NewUUID()
 	req.CreateTime = now
 	req.UpdateTime = now
 	eventarcGoogleAPISources.Put(key, req)

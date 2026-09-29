@@ -250,7 +250,10 @@ func handleECSListServiceDeployments(w http.ResponseWriter, r *http.Request) {
 		}
 		briefs = append(briefs, brief)
 	}
-	page, next := awsPage(briefs, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecsBadToken, briefs, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"serviceDeployments": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -377,7 +380,10 @@ func handleECSListServicesByNamespace(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Strings(arns)
-	page, next := awsPage(arns, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecsBadToken, arns, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"serviceArns": page}
 	if next != "" {
 		out["nextToken"] = next

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Microsoft.Subscription ownership acceptance, driven through the simulator's
@@ -43,7 +44,7 @@ func newSubscriptionTestClient(t *testing.T) *subscriptionTestClient {
 	// Long-running operations complete in a goroutine. One still running
 	// when this test ends would read and write the stores while the next
 	// test rebuilds them.
-	t.Cleanup(AwaitAzureAsyncOperations)
+	t.Cleanup(bg.Await)
 	now := time.Now()
 	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
@@ -305,7 +306,7 @@ func TestSubscriptionAcceptOwnershipRequiresDisplayName(t *testing.T) {
 // found, rather than reported as a settled operation with no link.
 func TestSubscriptionOperationGetUnknown(t *testing.T) {
 	c := newSubscriptionTestClient(t)
-	rec := c.do(http.MethodGet, "/providers/Microsoft.Subscription/subscriptionOperations/"+generateUUID(), nil)
+	rec := c.do(http.MethodGet, "/providers/Microsoft.Subscription/subscriptionOperations/"+sim.NewUUID(), nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown operation: status %d, want 404: %s", rec.Code, rec.Body.String())
 	}

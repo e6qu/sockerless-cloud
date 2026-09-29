@@ -652,7 +652,10 @@ func handleSSMListAssociations(w http.ResponseWriter, r *http.Request) {
 		return true
 	})
 	sortBy(all, func(a SSMAssociation) string { return a.AssociationId })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, a := range page {
 		a = ssmSettleAssociation(a)
@@ -706,7 +709,10 @@ func handleSSMListAssociationVersions(w http.ResponseWriter, r *http.Request) {
 	}
 	all := make([]SSMAssociationVersion, len(a.Versions))
 	copy(all, a.Versions)
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, v := range page {
 		entry := map[string]any{
@@ -754,7 +760,10 @@ func handleSSMDescribeAssociationExecutions(w http.ResponseWriter, r *http.Reque
 	a = ssmSettleAssociation(a)
 	all := make([]SSMAssociationExec, len(a.Executions))
 	copy(all, a.Executions)
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, e := range page {
 		out = append(out, map[string]any{
@@ -822,7 +831,10 @@ func handleSSMDescribeAssociationExecutionTargets(w http.ResponseWriter, r *http
 			},
 		})
 	}
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"AssociationExecutionTargets": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -860,7 +872,10 @@ func handleSSMDescribeEffectiveInstanceAssociations(w http.ResponseWriter, r *ht
 			"AssociationVersion": a.AssociationVersion,
 		})
 	}
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 5)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 5)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Associations": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -903,7 +918,10 @@ func handleSSMDescribeInstanceAssociationsStatus(w http.ResponseWriter, r *http.
 		}
 		all = append(all, entry)
 	}
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"InstanceAssociationStatusInfos": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -1105,7 +1123,10 @@ func handleSSMDescribeAutomationExecutions(w http.ResponseWriter, r *http.Reques
 		all = []SSMAutomationExecution{}
 	}
 	sortBy(all, func(e SSMAutomationExecution) string { return e.AutomationExecutionId })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, e := range page {
 		entry := map[string]any{
@@ -1157,7 +1178,10 @@ func handleSSMDescribeAutomationStepExecutions(w http.ResponseWriter, r *http.Re
 			steps[i], steps[j] = steps[j], steps[i]
 		}
 	}
-	page, next := awsPage(steps, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, steps, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"StepExecutions": ssmAutomationStepsWire(page)}
 	if next != "" {
 		resp["NextToken"] = next
@@ -1420,7 +1444,10 @@ func handleSSMListCommands(w http.ResponseWriter, r *http.Request) {
 		return true
 	})
 	sortBy(all, func(c SSMCommand) string { return c.CommandId })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, c := range page {
 		out = append(out, ssmCommandWire(c))
@@ -1461,7 +1488,10 @@ func handleSSMListCommandInvocations(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sortBy(all, func(v inv) string { return v.cmd.CommandId + "/" + v.i.InstanceId })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, v := range page {
 		entry := map[string]any{

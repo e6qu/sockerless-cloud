@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // cloudBuildServiceAccount is the identity a build runs as: the service
@@ -39,7 +40,7 @@ func cloudBuildDockerConfig(b Build, workDir string) (string, error) {
 	token := signAccessToken(cloudBuildServiceAccount(b), now, now.Add(time.Hour))
 	// The registry hosts imageOnGoogleRegistry names.
 	patterns := []string{"*-docker.pkg.dev", "gcr.io", "*.gcr.io"}
-	if port, err := hostMetadataPort(); err == nil {
+	if port, err := workloadhost.ListenPort(simListenAddr); err == nil {
 		patterns = append(patterns, fmt.Sprintf("*:%d", port))
 	}
 	return sim.WriteDockerConfig(sim.DockerConfigSpec{

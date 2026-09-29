@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v8"
@@ -286,6 +287,11 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	assert.Equal(t, gatewayID+"/urlPathMaps/site-paths/pathRules/api",
 		*created.Properties.URLPathMaps[0].Properties.PathRules[0].ID)
 
+	// The gateway forwards only to servers its health probes have found Up, and
+	// its first probes run after it starts, as on a real gateway.
+	awaitGatewayServing(t, frontendAddress, "/")
+	awaitGatewayServing(t, frontendAddress, "/api/orders")
+
 	// A request for a path the URL path map does not name goes to the map's
 	// default pool, and the rewrite rule set attached to that default runs.
 	body, resp := gatewayRequest(t, http.MethodGet, frontendAddress, "/", nil)
@@ -369,6 +375,7 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	require.NoError(t, err)
 	_, err = startPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
+	awaitGatewayServing(t, frontendAddress, "/")
 	body, resp = gatewayRequest(t, http.MethodGet, frontendAddress, "/", nil)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Contains(t, body, "blue /")
@@ -653,6 +660,23 @@ func applicationGatewayNames(t *testing.T, client *armnetwork.ApplicationGateway
 // address. The TCP connection goes to the simulator's endpoint — the one
 // coordinate that differs from real Azure — while the Host header carries the
 // gateway address, exactly as a client that resolved that address would send.
+// awaitGatewayServing waits for the gateway to answer path with 200, which it
+// does once its health probes have found the backend Up.
+func awaitGatewayServing(t *testing.T, gatewayHost, path string) {
+	t.Helper()
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		_, resp := gatewayRequest(t, http.MethodGet, gatewayHost, path, nil)
+		if resp.StatusCode == http.StatusOK {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("gateway never served %s: last status %d", path, resp.StatusCode)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
 func gatewayRequest(t *testing.T, method, gatewayHost, target string, body *strings.Reader) (string, *http.Response) {
 	t.Helper()
 	var reader *strings.Reader

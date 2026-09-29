@@ -109,7 +109,7 @@ func handleIAMUpdateRoleDescription(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<UpdateRoleDescriptionResponse %s>
   <UpdateRoleDescriptionResult>%s</UpdateRoleDescriptionResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</UpdateRoleDescriptionResponse>`, iamXmlns, iamRoleXML(role), generateUUID())
+</UpdateRoleDescriptionResponse>`, iamXmlns, iamRoleXML(role), sim.NewUUID())
 }
 
 func handleIAMTagInstanceProfile(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +165,7 @@ func handleIAMListInstanceProfileTags(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ListInstanceProfileTagsResponse %s>
   <ListInstanceProfileTagsResult>%s<IsTruncated>false</IsTruncated></ListInstanceProfileTagsResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListInstanceProfileTagsResponse>`, iamXmlns, iamTagsXML(set.Tags), generateUUID())
+</ListInstanceProfileTagsResponse>`, iamXmlns, iamTagsXML(set.Tags), sim.NewUUID())
 }
 
 // iamPolicyVersionList returns every stored version of the policy, including
@@ -250,7 +250,7 @@ func handleIAMCreatePolicyVersion(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreatePolicyVersionResponse %s>
   <CreatePolicyVersionResult>%s</CreatePolicyVersionResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</CreatePolicyVersionResponse>`, iamXmlns, iamPolicyVersionXML(ver, setAsDefault), generateUUID())
+</CreatePolicyVersionResponse>`, iamXmlns, iamPolicyVersionXML(ver, setAsDefault), sim.NewUUID())
 }
 
 // iamPolicyVersionXML renders a <PolicyVersion>. CreatePolicyVersion omits the
@@ -409,7 +409,7 @@ func handleIAMListEntitiesForPolicy(w http.ResponseWriter, r *http.Request) {
     <IsTruncated>false</IsTruncated>
   </ListEntitiesForPolicyResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListEntitiesForPolicyResponse>`, iamXmlns, groups.String(), users.String(), roles.String(), generateUUID())
+</ListEntitiesForPolicyResponse>`, iamXmlns, groups.String(), users.String(), roles.String(), sim.NewUUID())
 }
 
 // handleIAMListPoliciesGrantingServiceAccess reports, per requested service
@@ -465,7 +465,7 @@ func handleIAMListPoliciesGrantingServiceAccess(w http.ResponseWriter, r *http.R
     <IsTruncated>false</IsTruncated>
   </ListPoliciesGrantingServiceAccessResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListPoliciesGrantingServiceAccessResponse>`, iamXmlns, entries.String(), generateUUID())
+</ListPoliciesGrantingServiceAccessResponse>`, iamXmlns, entries.String(), sim.NewUUID())
 }
 
 // iamGrantingPolicy bundles a policy document with the metadata
@@ -613,5 +613,5 @@ func iamWriteContextKeys(w http.ResponseWriter, op string, docs []iamPolicyDoc) 
 	fmt.Fprintf(w, `<%sResponse %s>
   <%sResult><ContextKeyNames>%s</ContextKeyNames></%sResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</%sResponse>`, op, iamXmlns, op, members.String(), op, generateUUID(), op)
+</%sResponse>`, op, iamXmlns, op, members.String(), op, sim.NewUUID(), op)
 }

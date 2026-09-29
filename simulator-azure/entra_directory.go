@@ -216,7 +216,7 @@ func graphFilterDocs(w http.ResponseWriter, r *http.Request, docs []map[string]a
 			AzureError(w, "Request_UnsupportedQuery", err.Error(), http.StatusBadRequest)
 			return nil, false
 		}
-		if node.eval(flat) {
+		if node.Eval(flat) {
 			out = append(out, doc)
 		}
 	}

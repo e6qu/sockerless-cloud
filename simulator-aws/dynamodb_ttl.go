@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"math"
 	"strconv"
 	"sync"
@@ -9,6 +8,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 )
 
 // DynamoDB Time to Live, the deleting half.
@@ -39,17 +40,8 @@ const ddbTTLSweepInterval = 5 * time.Second
 const ddbTTLMaxAgeYears = 5
 
 func startDDBTTLSweeper(srv *sim.Server) {
-	srv.StartBackground("DynamoDB TTL sweeper", func(ctx context.Context) {
-		ticker := time.NewTicker(ddbTTLSweepInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case now := <-ticker.C:
-				ddbSweepExpiredItems(now)
-			}
-		}
+	kvstore.StartSweeper(srv, "DynamoDB TTL sweeper", ddbTTLSweepInterval, func(now time.Time) {
+		ddbSweepExpiredItems(now)
 	})
 }
 
@@ -75,7 +67,7 @@ func ddbSweepExpiredItems(now time.Time) int {
 }
 
 func ddbDeleteIfStillExpired(table DDBTable, itemKey, attribute string, now time.Time) bool {
-	defer ddbLockTables(true, table.TableName)()
+	defer ddbItemLocks.Lock(true, table.TableName)()
 	item, ok := ddbItems.Get(itemKey)
 	if !ok || !ddbItemExpired(item, attribute, now) {
 		return false
@@ -174,15 +166,10 @@ func ddbProjectedSize(item map[string]any, tableKeys, indexKeys []DDBKeySchemaEn
 }
 
 // DescribeTable's usage figures are served from a cache refreshed off the
-// request path.
-//
-// BUG-3000 made DescribeTable compute them on every call, which read and copied
-// every item in the table. On a table of 2,501 items in the deployed simulator
-// (SQLite-backed, so each item read is a query) DescribeTable took 1.6 s where
-// ListTables took 0.7 s. ecs-dev-desktop's health ping is a DescribeTable, and
-// its monitoring endpoint, which Shauth abandons at five seconds, took 5.8 s.
-// The figures now come from the last refresh; a refresh runs in the background,
-// at most once per interval per table, and a table described before its first
+// request path. Computing them per call reads every item in the table: on a
+// SQLite-backed table of 2,501 items DescribeTable took 1.6 s, long enough for
+// a health ping built on it to time out. A refresh runs in the background at
+// most once per interval per table, and a table described before its first
 // refresh reports zero, as a newly created DynamoDB table does.
 const ddbUsageRefreshInterval = time.Minute
 
@@ -211,10 +198,10 @@ func ddbDescribedUsage(t DDBTable, now time.Time) DDBTable {
 		ddbUsageByTable[t.TableName] = entry
 	}
 	stale := entry.computedAt.IsZero() || now.Sub(entry.computedAt) >= ddbUsageRefreshInterval
-	if stale && !entry.refreshing && !simDraining.Load() {
+	if stale && !entry.refreshing && !bg.Draining() {
 		entry.refreshing = true
 		name := t.TableName
-		simGo(func() { ddbRefreshTableUsage(name) })
+		bg.Go(func() { ddbRefreshTableUsage(name) })
 	}
 	cached, computed := entry.usage, !entry.computedAt.IsZero()
 	ddbUsageMu.Unlock()

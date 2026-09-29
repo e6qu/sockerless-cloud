@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // Container Apps "Apps" slice (Microsoft.App/containerApps). Parallel
@@ -394,7 +396,10 @@ func registerContainerAppsApps(srv *sim.Server) {
 			return strings.HasPrefix(a.ID, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next := armPage(r, all)
+		page, next, pageOK := armPage(w, r, all)
+		if !pageOK {
+			return
+		}
 		out := map[string]any{"value": page}
 		if next != "" {
 			out["nextLink"] = armNextLink(r, next)
@@ -466,7 +471,10 @@ func registerContainerAppsApps(srv *sim.Server) {
 			return strings.HasPrefix(a.ID, prefix) && strings.Contains(a.ID, "/providers/Microsoft.App/containerApps/")
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next := armPage(r, all)
+		page, next, pageOK := armPage(w, r, all)
+		if !pageOK {
+			return
+		}
 		out := map[string]any{"value": page}
 		if next != "" {
 			out["nextLink"] = armNextLink(r, next)
@@ -583,7 +591,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 			Type:     "Microsoft.App/containerApps",
 			Location: app.Location,
 			Properties: ContainerAppAuthTokenProps{
-				Token:   generateUUID(),
+				Token:   sim.NewUUID(),
 				Expires: time.Now().Add(8 * time.Hour).UTC().Format(time.RFC3339),
 			},
 		}
@@ -656,32 +664,33 @@ func startACAAppReplicas(ctx context.Context, resourceID string, app ContainerAp
 		}
 	}
 
+	metadataEnv, err := hostMetadataEnv()
+	if err != nil {
+		return err
+	}
 	handles := make([]*sim.ContainerHandle, 0, int(minReplicas)*len(app.Properties.Template.Containers))
+	containers := app.Properties.Template.Containers
+	sink := &acaAppLogSink{appName: app.Name}
 	for replica := int32(0); replica < minReplicas; replica++ {
-		var mainContainerID string
-		for i, c := range app.Properties.Template.Containers {
-			networkMode := ""
-			containerNetName := netName
-			containerAliases := netAliases
-			if i > 0 && mainContainerID != "" {
-				networkMode = "container:" + mainContainerID
-				containerNetName = ""
-				containerAliases = nil
-			}
-			handle, err := startACAAppContainer(ctx, resourceID, app, c, replica, envID, containerNetName, containerAliases, networkMode)
-			if err != nil {
-				for _, h := range handles {
-					h.Cancel()
-				}
-				return err
-			}
-			if i == 0 {
-				mainContainerID = handle.ContainerID
-			}
-			handles = append(handles, handle)
+		main := acaAppContainer(resourceID, app, containers[0], replica, envID, metadataEnv)
+		main.Config.Network = netName
+		main.Config.NetworkAliases = netAliases
+		main.Config.ExtraHosts = workloadhost.ExtraHosts()
+		sidecars := make([]workload.Container, 0, len(containers)-1)
+		for _, c := range containers[1:] {
+			sidecars = append(sidecars, acaAppContainer(resourceID, app, c, replica, envID, metadataEnv))
 		}
-		if d := containerAppDaprSpec(app); d != nil && mainContainerID != "" {
-			handle, err := startACAAppDaprSidecar(ctx, resourceID, app, d, replica, mainContainerID)
+		group, err := workload.StartGroup(ctx, main, sidecars, sink)
+		if err != nil {
+			for _, h := range handles {
+				h.Cancel()
+			}
+			return err
+		}
+		handles = append(handles, group.Main)
+		handles = append(handles, group.Sidecars...)
+		if d := containerAppDaprSpec(app); d != nil {
+			handle, err := startACAAppDaprSidecar(ctx, resourceID, app, d, replica, group.Main.ContainerID)
 			if err != nil {
 				for _, h := range handles {
 					h.Cancel()
@@ -698,7 +707,7 @@ func startACAAppReplicas(ctx context.Context, resourceID string, app ContainerAp
 	return nil
 }
 
-func startACAAppContainer(ctx context.Context, resourceID string, app ContainerApp, c JobContainer, replica int32, envID, netName string, netAliases []string, networkMode string) (*sim.ContainerHandle, error) {
+func acaAppContainer(resourceID string, app ContainerApp, c JobContainer, replica int32, envID string, metadataEnv map[string]string) workload.Container {
 	cmdEnv := make(map[string]string, len(c.Env)+1)
 	for _, ev := range c.Env {
 		cmdEnv[ev.Name] = ev.Value
@@ -734,40 +743,24 @@ func startACAAppContainer(ctx context.Context, resourceID string, app ContainerA
 		shortName = shortName[:24]
 	}
 	containerName := fmt.Sprintf("sockerless-sim-azure-app-%s-%d-%s-%s", shortName, replica, c.Name, randomSuffix(6))
-	sink := &acaAppLogSink{appName: app.Name}
-	localImage := sim.ResolveLocalImage(c.Image)
-	extraHosts := hostMetadataExtraHosts()
-	if networkMode != "" {
-		extraHosts = nil
-	}
 	// The host pulls the replica's image with the credential the app
 	// declared for its registry, as Container Apps does.
-	registryAuth := acrWorkloadRegistryAuth(c.Image, acaAppWorkloadRegistries(app))
-	platform, err := localImagePlatform(ctx, localImage, registryAuth)
-	if err != nil {
-		return nil, err
-	}
-	return sim.StartContainerSync(sim.ContainerConfig{
+	return workload.Container{Name: c.Name, Config: sim.ContainerConfig{
 		CancelGracePeriod: acaAppStopGrace(app),
-		Image:             localImage,
-		RegistryAuth:      registryAuth,
-		Architecture:      platform,
+		Image:             sim.ResolveLocalImage(c.Image),
+		RegistryAuth:      acrWorkloadRegistryAuth(c.Image, acaAppWorkloadRegistries(app)),
 		Command:           c.Command,
 		Args:              c.Args,
-		Env:               mergeEnv(cmdEnv, hostMetadataEnv()),
+		Env:               workloadhost.MergeEnv(cmdEnv, metadataEnv),
 		Name:              containerName,
 		Labels: map[string]string{
 			"sockerless-sim-type": "aca-app-replica",
 			"sockerless-app-id":   resourceID,
 			"sockerless-app-name": app.Name,
 		},
-		Network:        netName,
-		NetworkAliases: netAliases,
-		NetworkMode:    networkMode,
-		Binds:          binds,
-		ExtraHosts:     extraHosts,
-		Sandbox:        SandboxACA,
-	}, sink)
+		Binds:   binds,
+		Sandbox: SandboxACA,
+	}}
 }
 
 func stopACAAppReplicas(resourceID string) {

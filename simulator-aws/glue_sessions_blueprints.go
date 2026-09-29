@@ -292,7 +292,10 @@ func handleGlueListSessions(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	ids := make([]string, 0, len(page))
 	for _, s := range page {
 		ids = append(ids, s.Id)
@@ -485,7 +488,10 @@ func handleGlueListStatements(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Slice(filtered, func(i, j int) bool { return filtered[i].Id < filtered[j].Id })
-	page, nextTok := awsPage(filtered, req.NextToken, 0, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, filtered, req.NextToken, 0, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Statements": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -634,7 +640,10 @@ func handleGlueGetDevEndpoints(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"DevEndpoints": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -685,7 +694,10 @@ func handleGlueListDevEndpoints(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	names := make([]string, 0, len(page))
 	for _, de := range page {
 		names = append(names, de.EndpointName)
@@ -872,7 +884,10 @@ func handleGlueListBlueprints(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 25)
+	if !pageOK {
+		return
+	}
 	names := make([]string, 0, len(page))
 	for _, bp := range page {
 		names = append(names, bp.Name)
@@ -1017,7 +1032,10 @@ func handleGlueGetBlueprintRuns(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(filtered, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, filtered, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"BlueprintRuns": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok

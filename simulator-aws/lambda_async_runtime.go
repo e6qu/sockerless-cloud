@@ -61,7 +61,7 @@ func lambdaInvokeAsynchronously(function LambdaFunction, payload []byte, qualifi
 		}
 		destination = config.DestinationConfig
 	}
-	requestID := generateUUID()
+	requestID := sim.NewUUID()
 	invocation := LambdaAsyncInvocation{
 		ID:            requestID,
 		Function:      function,
@@ -217,7 +217,7 @@ func lambdaDeliverAsyncDestination(destinationARN string, body []byte) {
 		}
 	case strings.HasPrefix(destinationARN, "arn:aws:sns:"):
 		if _, ok := snsTopics.Get(snsTopicNameFromARN(destinationARN)); ok {
-			snsFanout(destinationARN, generateUUID(), "", string(body), nil)
+			snsFanout(destinationARN, sim.NewUUID(), "", string(body), nil)
 		}
 	case strings.HasPrefix(destinationARN, "arn:aws:events:"):
 		_, _ = sfnInvokeJSONService(handleEBPutEvents, map[string]any{"Entries": []map[string]any{{

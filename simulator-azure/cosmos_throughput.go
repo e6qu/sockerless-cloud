@@ -209,10 +209,8 @@ func handleCosmosReplaceOffer(w http.ResponseWriter, r *http.Request) {
 		cosmosDataError(w, "BadRequest", "invalid offer body", http.StatusBadRequest)
 		return
 	}
-	if !cosmosIfMatchOK(r, o.ETag) {
-		cosmosDataError(w, "PreconditionFailed",
-			"Operation cannot be performed because one of the specified precondition is not met.",
-			http.StatusPreconditionFailed)
+	if !cosmosIfMatch(r, o.ETag) {
+		cosmosPreconditionFailed(w)
 		return
 	}
 	if req.Content == nil || (req.Content["offerThroughput"] == nil && req.Content["offerAutopilotSettings"] == nil) {
