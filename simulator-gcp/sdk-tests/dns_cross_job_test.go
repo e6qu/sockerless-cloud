@@ -1,14 +1,15 @@
 package gcp_sdk_test
 
 import (
-	"fmt"
-	"net"
+	"encoding/json"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	run "cloud.google.com/go/run/apiv2"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/dns/v1"
 	"google.golang.org/api/option"
@@ -21,14 +22,12 @@ import (
 // with the record's short name as DNS alias. Two Cloud Run Jobs on the
 // same private zone resolve each other by short hostname via Docker's
 // embedded DNS.
-//
-// Everything the test learns about the jobs it learns through Cloud Logging,
-// as a client of the real service would: each job logs its own address, and
-// alpha logs the marker once "beta" resolves.
 func TestDNS_CrossJobResolution(t *testing.T) {
-	// Cloud Logging keeps a deleted job's entries, so each run uses a project
-	// of its own rather than read an earlier run's addresses.
-	project := fmt.Sprintf("xjob-dns-%d", time.Now().UnixNano()%1_000_000_000)
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Fatalf("docker CLI required for cross-job DNS test (no fallback): %v", err)
+	}
+
+	project := "xjob-dns-project"
 
 	// 1. Create the private zone (simulator auto-backs it with a real
 	// Docker network).
@@ -45,15 +44,10 @@ func TestDNS_CrossJobResolution(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, zone.Id, "zone should get a numeric ID")
-	t.Cleanup(func() {
-		for _, name := range []string{"alpha.xjob.local.", "beta.xjob.local."} {
-			_, _ = dnsSvc.ResourceRecordSets.Delete(project, "xjob-zone", name, "A").Do()
-		}
-		_ = dnsSvc.ManagedZones.Delete(project, "xjob-zone").Do()
-	})
+	defer dnsSvc.ManagedZones.Delete(project, "xjob-zone").Do()
 
-	// 2. Run two Cloud Run Jobs that report their own addresses and stay up
-	// while the records are created.
+	// 2. Create two Cloud Run Jobs with long-running containers so we
+	// can inspect them + exec into them during the test.
 	jobsClient, err := run.NewJobsRESTClient(ctx,
 		option.WithEndpoint(baseURL),
 		option.WithTokenSource(simTokenSource()),
@@ -61,8 +55,7 @@ func TestDNS_CrossJobResolution(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { jobsClient.Close() })
 
-	runJob := func(name, script string) {
-		jobName := "projects/" + project + "/locations/us-central1/jobs/" + name
+	createJob := func(name string, args []string) string {
 		createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{
 			Parent: "projects/" + project + "/locations/us-central1",
 			JobId:  name,
@@ -70,8 +63,8 @@ func TestDNS_CrossJobResolution(t *testing.T) {
 				Template: &runpb.ExecutionTemplate{
 					Template: &runpb.TaskTemplate{
 						Containers: []*runpb.Container{{
-							Image:   simWorkloadImage,
-							Command: []string{"sh", "-c", script},
+							Image: commandImageName,
+							Args:  args,
 						}},
 						Timeout: durationpb.New(60 * time.Second),
 					},
@@ -81,29 +74,40 @@ func TestDNS_CrossJobResolution(t *testing.T) {
 		require.NoError(t, err)
 		_, err = createOp.Wait(ctx)
 		require.NoError(t, err)
-		t.Cleanup(func() {
-			if op, err := jobsClient.DeleteJob(ctx, &runpb.DeleteJobRequest{Name: jobName}); err == nil {
-				_, _ = op.Wait(ctx)
-			}
-		})
 
-		runOp, err := jobsClient.RunJob(ctx, &runpb.RunJobRequest{Name: jobName})
+		runOp, err := jobsClient.RunJob(ctx, &runpb.RunJobRequest{
+			Name: "projects/" + project + "/locations/us-central1/jobs/" + name,
+		})
 		require.NoError(t, err)
-		_, err = runOp.Wait(ctx)
+		exec, err := runOp.Wait(ctx)
 		require.NoError(t, err)
+		return exec.Name
 	}
 
-	const reportAddress = `echo "address=$(hostname -i | cut -d' ' -f1)"; `
-	runJob("alpha", reportAddress+
-		`for i in $(seq 1 300); do `+
-		`if nslookup beta >/dev/null 2>&1; then echo gcp-cross-job-dns-ok; exit 0; fi; `+
-		`sleep 0.1; done; echo "beta never resolved" >&2; exit 1`)
-	runJob("beta", reportAddress+`sleep 60`)
+	alphaExec := createJob("alpha", []string{"resolve", "beta", "30", "gcp-cross-job-dns-ok", "10"})
+	betaExec := createJob("beta", []string{"sleep", "60"})
 
-	alphaIP := jobAddress(t, project, "alpha")
-	betaIP := jobAddress(t, project, "beta")
+	// 3. Wait for the Docker containers to exist + inspect their IPs.
+	// Container name convention: sockerless-sim-gcp-job-<execID[:12]>
+	// where execID is the last path segment of the execution Name.
+	alphaContainer := jobContainerName(alphaExec)
+	betaContainer := jobContainerName(betaExec)
 
-	// 3. Create A records — simulator connects each container to the
+	require.Eventually(t, func() bool {
+		for _, n := range []string{alphaContainer, betaContainer} {
+			if err := exec.Command("docker", "inspect", n).Run(); err != nil {
+				return false
+			}
+		}
+		return true
+	}, 30*time.Second, 300*time.Millisecond, "Docker containers should be running")
+
+	alphaIP := containerIP(t, alphaContainer)
+	betaIP := containerIP(t, betaContainer)
+	require.NotEmpty(t, alphaIP, "alpha container should have an IP")
+	require.NotEmpty(t, betaIP, "beta container should have an IP")
+
+	// 4. Create A records — simulator connects each container to the
 	// zone's Docker network with the short name as DNS alias.
 	_, err = dnsSvc.ResourceRecordSets.Create(project, "xjob-zone", &dns.ResourceRecordSet{
 		Name:    "alpha.xjob.local.",
@@ -120,28 +124,56 @@ func TestDNS_CrossJobResolution(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
-	// 4. Cross-job DNS lookup: alpha resolves "beta" through the
-	// container's own resolver once both A records have connected the
+	// 5. Cross-job DNS lookup: alpha resolves "beta" through the
+	// container's own resolver after both A records have connected the
 	// containers to the zone's Docker network.
-	waitForProjectJobLogEntries(t, project, "alpha", func(entries []jobLogEntry) bool {
-		return containsString(jobLogMessages(entries), "gcp-cross-job-dns-ok")
-	})
+	var logs []byte
+	require.Eventually(t, func() bool {
+		var err error
+		logs, err = exec.Command("docker", "logs", alphaContainer).CombinedOutput()
+		return err == nil && strings.Contains(string(logs), "gcp-cross-job-dns-ok")
+	}, 30*time.Second, 500*time.Millisecond, "alpha should resolve 'beta' via Cloud DNS private zone: %s", logs)
+	assert.Contains(t, string(logs), "gcp-cross-job-dns-ok")
 }
 
-// jobAddress waits for the job's container to log the address it reports and
-// returns it.
-func jobAddress(t *testing.T, project, job string) string {
+// jobContainerName derives the simulator's Docker container name from
+// a Cloud Run Job execution resource name. Matches the convention in
+// simulator-gcp/cloudrunjobs.go (line ~412):
+//
+//	name := "sockerless-sim-gcp-job-" + execShort[:12]
+func jobContainerName(executionName string) string {
+	last := executionName
+	if idx := strings.LastIndex(executionName, "/"); idx >= 0 {
+		last = executionName[idx+1:]
+	}
+	if len(last) > 12 {
+		last = last[:12]
+	}
+	return "sockerless-sim-gcp-job-" + last
+}
+
+// containerIP returns the container's IPv4 on its default Docker
+// network. Used by the cross-job DNS test to build A records that
+// point at the real container IPs so the simulator's private-zone
+// handler can map IP → container → alias.
+func containerIP(t *testing.T, name string) string {
 	t.Helper()
-	var address string
-	waitForProjectJobLogEntries(t, project, job, func(entries []jobLogEntry) bool {
-		for _, message := range jobLogMessages(entries) {
-			if value, ok := strings.CutPrefix(message, "address="); ok && value != "" {
-				address = value
-				return true
-			}
+	out, err := exec.Command("docker", "inspect", name).Output()
+	require.NoError(t, err)
+
+	var inspected []struct {
+		NetworkSettings struct {
+			Networks map[string]struct {
+				IPAddress string `json:"IPAddress"`
+			} `json:"Networks"`
+		} `json:"NetworkSettings"`
+	}
+	require.NoError(t, json.Unmarshal(out, &inspected))
+	require.NotEmpty(t, inspected)
+	for _, net := range inspected[0].NetworkSettings.Networks {
+		if net.IPAddress != "" {
+			return net.IPAddress
 		}
-		return false
-	})
-	require.NotNil(t, net.ParseIP(address), "job %s reported address %q", job, address)
-	return address
+	}
+	return ""
 }
