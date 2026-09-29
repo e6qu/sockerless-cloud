@@ -5,6 +5,7 @@ import (
 	"net"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -139,4 +140,14 @@ func tcpPair(t *testing.T) (net.Conn, net.Conn) {
 	other := <-accepted
 	t.Cleanup(func() { _ = dialed.Close(); _ = other.Close() })
 	return dialed, other
+}
+
+func TestAnEngineWithoutAnImageIsRefused(t *testing.T) {
+	i := &Instance{Name: "no-image", Engine: Postgres16}
+	if _, _, err := i.start(); err == nil || !strings.Contains(err.Error(), "names no image") {
+		t.Fatalf("an engine with no image started: %v", err)
+	}
+	if got := Postgres16.WithImage("example/postgres:16").Image; got != "example/postgres:16" {
+		t.Fatalf("WithImage: %q", got)
+	}
 }

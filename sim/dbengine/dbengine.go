@@ -51,21 +51,29 @@ type Engine struct {
 	Client string
 }
 
+// The presets name no image: which image a managed service runs is that
+// cloud's choice, and each simulator's image scan must see it in its own tree.
 var (
 	Postgres16 = Engine{
-		Family: Postgres, Image: "public.ecr.aws/docker/library/postgres:16-alpine",
-		Port: 5432, DataPath: "/var/lib/postgresql/data", Client: "psql",
+		Family: Postgres,
+		Port:   5432, DataPath: "/var/lib/postgresql/data", Client: "psql",
 	}
 	MySQL80 = Engine{
-		Family: MySQL, Image: "public.ecr.aws/docker/library/mysql:8.0",
-		Port: 3306, DataPath: "/var/lib/mysql", Client: "mysql",
+		Family: MySQL,
+		Port:   3306, DataPath: "/var/lib/mysql", Client: "mysql",
 		Args: []string{"--default-authentication-plugin=mysql_native_password"},
 	}
 	MariaDB114 = Engine{
-		Family: MySQL, Image: "public.ecr.aws/docker/library/mariadb:11.4",
-		Port: 3306, DataPath: "/var/lib/mysql", Client: "mariadb",
+		Family: MySQL,
+		Port:   3306, DataPath: "/var/lib/mysql", Client: "mariadb",
 	}
 )
+
+// WithImage is the engine run from image.
+func (e Engine) WithImage(image string) Engine {
+	e.Image = image
+	return e
+}
 
 // PostgresEnvironment initialises a PostgreSQL engine whose superuser is user.
 // The engine trusts every connection because the endpoint authenticated the
@@ -239,6 +247,9 @@ func (i *Instance) bringUp() error {
 }
 
 func (i *Instance) start() (string, *sim.ContainerHandle, error) {
+	if i.Engine.Image == "" {
+		return "", nil, fmt.Errorf("%s: the database engine names no image", i.Name)
+	}
 	environment, err := i.Environment()
 	if err != nil {
 		return "", nil, err
