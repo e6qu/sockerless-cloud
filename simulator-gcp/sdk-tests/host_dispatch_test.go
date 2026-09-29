@@ -44,7 +44,7 @@ var execCallForms = []string{
 func TestNoOsExecOfWorkloads(t *testing.T) {
 	allowed := []execCallSite{
 		{
-			file: filepath.Join("simulator-gcp", "cloudbuild.go"),
+			file: filepath.Join("sim", "workload", "build.go"),
 			call: `exec.CommandContext(ctx, "docker", "buildx", "version")`,
 			why:  "probes the docker CLI's buildx driver; runs no workload",
 		},
@@ -54,11 +54,16 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 			why:  "reports whether the docker CLI Cloud Build steps need is installed",
 		},
 		{
-			file: filepath.Join("simulator-gcp", "cloudbuild.go"),
+			file: filepath.Join("sim", "workload", "build.go"),
 			call: `exec.CommandContext(ctx, "docker", args...)`,
 			why: "the one docker invocation every Cloud Build step goes through — the build itself, " +
 				"the push of its image, and the drop of the local tag afterwards — dispatched to the " +
 				"Docker host by the docker CLI, and interruptible so a cancelled build stops the engine's work",
+		},
+		{
+			file: filepath.Join("sim", "workloadhost", "workloadhost.go"),
+			call: `exec.CommandContext(ctx, "podman", "machine", "ssh", "--", "ip", "-4", "route", "show", "default")`,
+			why:  "reads the Podman machine's default route to find the address workloads reach the host at; runs no workload",
 		},
 		{
 			file: filepath.Join("sim", "container_reaper.go"),

@@ -842,12 +842,11 @@ func registerGCS(srv *sim.Server) {
 		}
 		marker := ""
 		if token := r.URL.Query().Get("pageToken"); token != "" {
-			decoded, err := base64.RawURLEncoding.DecodeString(token)
-			if err != nil {
+			var ok bool
+			if marker, ok = gcsObjectPageMarker(token); !ok {
 				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
 				return
 			}
-			marker = string(decoded)
 		}
 		// maxResults bounds items and prefixes together, and a page token
 		// resumes past both.
@@ -868,7 +867,7 @@ func registerGCS(srv *sim.Server) {
 			resp["prefixes"] = prefixes
 		}
 		if next != "" {
-			resp["nextPageToken"] = base64.RawURLEncoding.EncodeToString([]byte(next))
+			resp["nextPageToken"] = gcsObjectPageToken(next)
 		}
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
@@ -2892,4 +2891,20 @@ func gcsRandHex(n int) string {
 	buf := make([]byte, (n+1)/2)
 	_, _ = rand.Read(buf)
 	return hex.EncodeToString(buf)[:n]
+}
+
+// gcsObjectPageTag marks an object-listing page token as one this simulator
+// issued, so a token that merely decodes as base64 is still refused.
+const gcsObjectPageTag = "objects\x00"
+
+func gcsObjectPageToken(marker string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(gcsObjectPageTag + marker))
+}
+
+func gcsObjectPageMarker(token string) (string, bool) {
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return "", false
+	}
+	return strings.CutPrefix(string(decoded), gcsObjectPageTag)
 }
