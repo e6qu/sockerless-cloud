@@ -1,14 +1,14 @@
 package main
 
 import (
-	"math"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 )
 
-// Provisioned throughput (BUG-2995). A PROVISIONED table promises a number of
+// Provisioned throughput. A PROVISIONED table promises a number of
 // read and write capacity units per second, and Amazon DynamoDB enforces the
 // promise: a request that would spend more than the table has accrued is
 // refused with ProvisionedThroughputExceededException, and every SDK retries
@@ -35,14 +35,8 @@ import (
 // ddbBurstSeconds is how much unused capacity a bucket retains.
 const ddbBurstSeconds = 300.0
 
-type ddbBucket struct {
-	tokens float64
-	last   time.Time
-}
-
 var (
-	ddbBucketMu sync.Mutex
-	ddbBuckets  = map[string]*ddbBucket{}
+	ddbBuckets kvstore.Buckets
 	// ddbNow is the clock the buckets refill by; tests substitute it.
 	ddbNow = time.Now
 )
@@ -88,25 +82,7 @@ func ddbTake(t DDBTable, index string, units float64, write bool) bool {
 	if write {
 		rate, kind = wr, "write"
 	}
-	now := ddbNow()
-	capacity := rate * ddbBurstSeconds
-	ddbBucketMu.Lock()
-	defer ddbBucketMu.Unlock()
-	key := ddbBucketKey(t.TableName, index, kind)
-	b, ok := ddbBuckets[key]
-	if !ok {
-		b = &ddbBucket{tokens: capacity, last: now}
-		ddbBuckets[key] = b
-	}
-	if elapsed := now.Sub(b.last).Seconds(); elapsed > 0 {
-		b.tokens = math.Min(capacity, b.tokens+rate*elapsed)
-		b.last = now
-	}
-	if b.tokens < units {
-		return false
-	}
-	b.tokens -= units
-	return true
+	return ddbBuckets.Take(ddbBucketKey(t.TableName, index, kind), kvstore.Limit{Rate: rate, Burst: rate * ddbBurstSeconds}, units, ddbNow())
 }
 
 // ddbTakeWrite spends a write against the table and against every global
@@ -146,14 +122,7 @@ func ddbItemInIndex(g DDBGlobalSecondaryIndex, item map[string]any) bool {
 // ddbForgetBuckets drops a table's buckets — its provisioning changed, or it
 // is gone — so the next request starts from a full bucket at the new rate.
 func ddbForgetBuckets(table string) {
-	ddbBucketMu.Lock()
-	defer ddbBucketMu.Unlock()
-	prefix := table + "|"
-	for key := range ddbBuckets {
-		if strings.HasPrefix(key, prefix) {
-			delete(ddbBuckets, key)
-		}
-	}
+	ddbBuckets.Forget(table + "|")
 }
 
 // ddbWriteThrottled answers a throttled request with the service's error and

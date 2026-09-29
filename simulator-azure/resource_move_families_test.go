@@ -130,9 +130,11 @@ func eventHubMoveRecordExists(id string) bool {
 // simulator is built here because the site hook re-keys the whole
 // Microsoft.Web child subtree, which is more stores than a seeded subset.
 func TestWebSiteMovePinsSiteDerivedCredentials(t *testing.T) {
-	if _, err := buildSimulator(sim.Config{Provider: "azure", ListenAddr: ":0", LogLevel: "error"}); err != nil {
+	srv, err := buildSimulator(sim.Config{Provider: "azure", ListenAddr: ":0", LogLevel: "error"})
+	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 
 	const siteName = "web-move-site"
 	oldID := moveTestResourceID("web-src", "Microsoft.Web", "sites", siteName)

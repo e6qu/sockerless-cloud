@@ -1174,7 +1174,7 @@ func kmsRegisterKeyHandles(srv *sim.Server) {
 		project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
 		id := r.URL.Query().Get("keyHandleId")
 		if id == "" {
-			id = generateUUID()
+			id = sim.NewUUID()
 		}
 		var req kmsKeyHandle
 		if err := sim.ReadJSON(r, &req); err != nil {
@@ -1383,7 +1383,7 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 		project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
 		id := r.URL.Query().Get("singleTenantHsmInstanceId")
 		if id == "" {
-			id = generateUUID()
+			id = sim.NewUUID()
 		}
 		name := kmsLocationName(r) + "/singleTenantHsmInstances/" + id
 		if _, exists := kmsHsmInstances.Get(name); exists {
@@ -1435,7 +1435,7 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 		}
 		id := r.URL.Query().Get("proposalId")
 		if id == "" {
-			id = generateUUID()
+			id = sim.NewUUID()
 		}
 		name := instName + "/proposals/" + id
 		prop := kmsHsmProposal{Name: name, State: "PENDING"}

@@ -10,7 +10,9 @@ import (
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
+	"github.com/e6qu/sockerless-cloud/realexec/fabric"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // TestEC2RealSecurityGroupHostFirewall verifies the host-firewall SG enforcement
@@ -26,7 +28,7 @@ func TestEC2RealSecurityGroupHostFirewall(t *testing.T) {
 
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ec2Vpcs = sim.MakeStore[EC2Vpc](nil, "ec2_vpcs")
 	ec2Subnets = sim.MakeStore[EC2Subnet](nil, "ec2_subnets")
 	ec2SecurityGroups = sim.MakeStore[EC2SecurityGroup](nil, "ec2_security_groups")
@@ -41,35 +43,20 @@ func TestEC2RealSecurityGroupHostFirewall(t *testing.T) {
 	subnet := EC2Subnet{SubnetId: "subnet-sgfwhw", VpcId: vpc.VpcId, CidrBlock: "10.220.1.0/24", State: "available"}
 	ec2Subnets.Put(subnet.SubnetId, subnet)
 
-	if err := ec2CreateRealVPC(ctx, vpc); err != nil {
-		t.Fatalf("ec2CreateRealVPC: %v", err)
-	}
-	if err := ec2CreateRealSubnet(ctx, subnet); err != nil {
+	sub, err := ec2CreateRealSubnet(ctx, subnet)
+	if err != nil {
 		t.Fatalf("ec2CreateRealSubnet: %v", err)
 	}
-	t.Cleanup(func() {
-		ec2RealMu.Lock()
-		network := ec2RealVPCs[vpc.VpcId]
-		ec2RealMu.Unlock()
-		if network != nil {
-			_ = network.Close(context.Background())
-		}
-	})
+	t.Cleanup(func() { _ = ec2DeleteRealVPC(context.Background(), vpc.VpcId) })
 
 	const taskID = "task-sgfwhw"
 	const eniIP = "10.220.1.10"
-	ec2RealMu.Lock()
-	sub := ec2RealSubnets[subnet.SubnetId]
-	ec2RealMu.Unlock()
-	if sub == nil {
-		t.Fatal("real subnet not provisioned")
-	}
 	nic, err := sub.AttachNamespaceNIC(ctx, realexec.NamespaceNICSpec{
 		NamespaceName: "ns-sgfwhw",
 		HostVethName:  "nshcsgfwhw",
 		GuestVethName: "nsgcsgfwhw",
 		PrivateIP:     net.ParseIP(eniIP),
-		MAC:           ec2ENIMAC(eniIP),
+		MAC:           fabric.DeriveMAC(ec2MACPrefix, eniIP),
 	})
 	if err != nil {
 		t.Fatalf("attach task namespace NIC: %v", err)
@@ -122,9 +109,7 @@ func TestEC2RealSecurityGroupHostFirewall(t *testing.T) {
 	// The task NIC's namespace nftables ruleset must now match tcp dport 8080
 	// for the source CIDR. Listing it directly through the realexec runner
 	// mirrors how the NAT data-plane test verifies SNAT.
-	ec2RealMu.Lock()
-	network := ec2RealVPCs[vpc.VpcId]
-	ec2RealMu.Unlock()
+	network := ec2Fabric.Network(vpc.VpcId)
 	if network == nil {
 		t.Fatal("real VPC network namespace missing after SG application")
 	}
@@ -169,7 +154,7 @@ func TestEC2RealSecurityGroupHostFirewall(t *testing.T) {
 func TestEC2RealSecurityGroupBuildRules(t *testing.T) {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ec2SecurityGroups = sim.MakeStore[EC2SecurityGroup](nil, "ec2_security_groups")
 	ec2NetworkInterfaces = sim.MakeStore[EC2NetworkInterface](nil, "ec2_network_interfaces")
 	ec2Instances = sim.MakeStore[EC2Instance](nil, "ec2_instances")

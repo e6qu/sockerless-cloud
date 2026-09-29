@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 
 	"golang.org/x/net/dns/dnsmessage"
 )
@@ -67,7 +68,7 @@ func withEmptyZoneStore(t *testing.T) {
 	t.Cleanup(func() { r53Zones = previous })
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	r53Zones = sim.MakeStore[r53StoredZone](nil, "route53_zones")
 }
 

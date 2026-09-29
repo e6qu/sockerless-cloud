@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/md5"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
 // S3 types
@@ -134,7 +134,7 @@ func s3ObjectKey(bucket, key string) string {
 // AWS Private CA audit reports, and certificate-revocation lists use the same
 // durable object representation and notification pipeline as PutObject.
 func s3PutServiceObject(bucket, key string, body []byte, contentType string, metadata map[string]string) (S3Object, error) {
-	return s3PutObjectIf(bucket, key, body, contentType, metadata, "STANDARD", nil)
+	return s3PutObjectIf(bucket, key, bytes.NewReader(body), contentType, metadata, "STANDARD", nil)
 }
 
 var (
@@ -148,10 +148,56 @@ var (
 // one succeeds.
 var s3ObjectWriters = sim.NewKeyedLocks()
 
-// s3PutObjectIf stores body under bucket/key when condition, given the object
-// as it stands, holds; a nil condition always does. It fails with
-// errS3NoSuchBucket or errS3PreconditionFailed.
-func s3PutObjectIf(bucket, key string, body []byte, contentType string, metadata map[string]string,
+// s3ListLimit is the most keys one page of a listing holds; a larger max-keys
+// is cut to it.
+const s3ListLimit = 1000
+
+// s3ListPage lists one page of a bucket: the objects under prefix after
+// marker, with the keys that continue past prefix to delimiter rolled up into
+// common prefixes, at most maxKeys entries of both kinds. It returns the
+// cursor the next page resumes from when the page is truncated.
+func s3ListPage(bucket, prefix, delimiter, marker string, maxKeys int) (contents []s3ObjectInfo, prefixes []s3CommonPrefix, truncated bool, next string) {
+	bucketPrefix := bucket + "/"
+	entries := blobstore.RollUp(s3Objects.ListPrefix(bucketPrefix+prefix),
+		func(row sim.Keyed[S3Object]) string { return row.ID[len(bucketPrefix):] }, nil, prefix, delimiter)
+	page, truncated, next := blobstore.PageAfter(entries, marker, min(maxKeys, s3ListLimit))
+	contents = []s3ObjectInfo{}
+	for _, entry := range page {
+		if entry.Prefix {
+			prefixes = append(prefixes, s3CommonPrefix{Prefix: entry.Key})
+			continue
+		}
+		obj := entry.Item.Item
+		contents = append(contents, s3ObjectInfo{
+			Key:          entry.Key,
+			LastModified: obj.LastModified.UTC().Format(time.RFC3339),
+			ETag:         obj.ETag,
+			Size:         obj.Size,
+			StorageClass: obj.storageClassOf(),
+		})
+	}
+	return contents, prefixes, truncated, next
+}
+
+// s3WriteCondition is the condition a write's If-Match and If-None-Match
+// state on the object it replaces. S3 evaluates no date condition on a write.
+func s3WriteCondition(h http.Header) func(existing S3Object, exists bool) bool {
+	conditional := http.Header{}
+	for _, name := range []string{"If-Match", "If-None-Match"} {
+		if value := h.Get(name); value != "" {
+			conditional.Set(name, value)
+		}
+	}
+	return func(existing S3Object, exists bool) bool {
+		return blobstore.EvaluateHTTP(conditional, blobstore.Validators{ETag: existing.ETag, Exists: exists},
+			blobstore.Create) == blobstore.Proceed
+	}
+}
+
+// s3PutObjectIf stores what body yields under bucket/key when condition,
+// given the object as it stands, holds; a nil condition always does. It fails
+// with errS3NoSuchBucket or errS3PreconditionFailed.
+func s3PutObjectIf(bucket, key string, body io.Reader, contentType string, metadata map[string]string,
 	storageClass string, condition func(existing S3Object, exists bool) bool,
 ) (S3Object, error) {
 	if _, ok := s3Buckets_.Get(bucket); !ok {
@@ -160,15 +206,18 @@ func s3PutObjectIf(bucket, key string, body []byte, contentType string, metadata
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	hash := md5.Sum(body)
-	etag := fmt.Sprintf("\"%x\"", hash)
 	storeKey := s3ObjectKey(bucket, key)
+	ref, digests, err := s3Bodies.WriteFrom(body)
+	if err != nil {
+		return S3Object{}, fmt.Errorf("store %s: %w", storeKey, err)
+	}
+	etag := `"` + digests.MD5Hex() + `"`
 	release := s3ObjectWriters.Lock(storeKey)
 	if condition != nil {
 		existing, exists := s3Objects.Get(storeKey)
 		if !condition(existing, exists) {
 			release()
-			return S3Object{}, errS3PreconditionFailed
+			return S3Object{}, errors.Join(errS3PreconditionFailed, s3Bodies.Remove(ref))
 		}
 	}
 	obj, err := s3StoreObject(S3Object{
@@ -178,7 +227,7 @@ func s3PutObjectIf(bucket, key string, body []byte, contentType string, metadata
 		LastModified: time.Now(),
 		Metadata:     metadata,
 		StorageClass: storageClass,
-	}, body)
+	}, ref, digests)
 	release()
 	if err != nil {
 		return S3Object{}, err
@@ -332,7 +381,7 @@ func s3WriteIAMDeny(w http.ResponseWriter, r *http.Request, principalArn, action
 	S3ErrorXML(w, "AccessDenied",
 		"User: "+principalArn+" is not authorized to perform: "+action+
 			" because no identity-based policy or resource-based policy allows the "+action+" action",
-		strings.TrimPrefix(r.URL.Path, "/"), generateUUID(), http.StatusForbidden)
+		strings.TrimPrefix(r.URL.Path, "/"), sim.NewUUID(), http.StatusForbidden)
 }
 
 func s3BucketOperationName(r *http.Request, _ []byte) string {
@@ -977,90 +1026,11 @@ func handleS3GetBucket(w http.ResponseWriter, r *http.Request) {
 		maxKeys = 0
 	}
 
-	bucketPrefix := bucket + "/"
-	objects := s3Objects.ListPrefix(bucketPrefix + prefix)
-
-	var contents []s3ObjectInfo
-	for _, row := range objects {
-		obj := row.Item
-		relKey := row.ID[len(bucketPrefix):]
-		contents = append(contents, s3ObjectInfo{
-			Key:          relKey,
-			LastModified: obj.LastModified.UTC().Format(time.RFC3339),
-			ETag:         obj.ETag,
-			Size:         obj.Size,
-			StorageClass: obj.storageClassOf(),
-		})
-	}
-	if contents == nil {
-		contents = []s3ObjectInfo{}
-	}
-	sort.Slice(contents, func(i, j int) bool {
-		return contents[i].Key < contents[j].Key
-	})
-
 	cursor := continuationToken
 	if cursor == "" {
 		cursor = startAfter
 	}
-	if cursor != "" {
-		next := contents[:0]
-		for _, obj := range contents {
-			if obj.Key > cursor && (delimiter == "" || !strings.HasPrefix(obj.Key, cursor)) {
-				next = append(next, obj)
-			}
-		}
-		contents = next
-	}
-
-	type listEntry struct {
-		key          string
-		object       s3ObjectInfo
-		commonPrefix string
-		isPrefix     bool
-	}
-	entries := make([]listEntry, 0, len(contents))
-	if delimiter != "" {
-		prefixes := map[string]bool{}
-		for _, obj := range contents {
-			rest := strings.TrimPrefix(obj.Key, prefix)
-			if idx := strings.Index(rest, delimiter); idx >= 0 {
-				cp := prefix + rest[:idx+len(delimiter)]
-				if !prefixes[cp] {
-					prefixes[cp] = true
-					entries = append(entries, listEntry{key: cp, commonPrefix: cp, isPrefix: true})
-				}
-				continue
-			}
-			entries = append(entries, listEntry{key: obj.Key, object: obj})
-		}
-	} else {
-		for _, obj := range contents {
-			entries = append(entries, listEntry{key: obj.Key, object: obj})
-		}
-	}
-
-	isTruncated := false
-	nextContinuationToken := ""
-	if len(entries) > maxKeys {
-		if maxKeys > 0 {
-			nextContinuationToken = entries[maxKeys-1].key
-		}
-		entries = entries[:maxKeys]
-		isTruncated = true
-	}
-	contents = contents[:0]
-	var commonPrefixes []s3CommonPrefix
-	for _, entry := range entries {
-		if entry.isPrefix {
-			commonPrefixes = append(commonPrefixes, s3CommonPrefix{Prefix: entry.commonPrefix})
-			continue
-		}
-		contents = append(contents, entry.object)
-	}
-	if contents == nil {
-		contents = []s3ObjectInfo{}
-	}
+	contents, commonPrefixes, isTruncated, nextContinuationToken := s3ListPage(bucket, prefix, delimiter, cursor, maxKeys)
 
 	result := s3ListBucketResult{
 		Xmlns:                 "http://s3.amazonaws.com/doc/2006-03-01/",
@@ -1098,13 +1068,7 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
-	ifNoneMatch, ifMatch := r.Header.Get("If-None-Match"), r.Header.Get("If-Match")
-	condition := func(existing S3Object, exists bool) bool {
-		if ifNoneMatch == "*" && exists {
-			return false
-		}
-		return ifMatch == "" || (exists && strings.Trim(ifMatch, `"`) == strings.Trim(existing.ETag, `"`))
-	}
+	condition := s3WriteCondition(r.Header)
 
 	defer r.Body.Close()
 	// AWS SDKs switch to aws-chunked encoding when the request body
@@ -1117,13 +1081,6 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 	if isAWSChunkedRequest(r.Header) {
 		bodyReader = newAWSChunkedReader(r.Body)
 	}
-	body, err := io.ReadAll(bodyReader)
-	if err != nil {
-		S3ErrorXML(w, "InternalError", "Failed to read request body: "+err.Error(),
-			key, sim.RequestID(r.Context()), http.StatusInternalServerError)
-		return
-	}
-
 	contentType := r.Header.Get("Content-Type")
 
 	// Collect user metadata from x-amz-meta-* headers
@@ -1136,7 +1093,7 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	obj, err := s3PutObjectIf(bucket, key, body, contentType, metadata, storageClass, condition)
+	obj, err := s3PutObjectIf(bucket, key, bodyReader, contentType, metadata, storageClass, condition)
 	switch {
 	case errors.Is(err, errS3NoSuchBucket):
 		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
@@ -1156,11 +1113,8 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleS3GetObject(w http.ResponseWriter, r *http.Request) {
-	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
-
-	storeKey := s3ObjectKey(bucket, key)
-	obj, ok := s3Objects.Get(storeKey)
+	obj, ok := s3Objects.Get(s3ObjectKey(sim.PathParam(r, "bucket"), key))
 	if !ok {
 		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
@@ -1171,48 +1125,67 @@ func handleS3GetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	obj, body, closeBody, err := s3OpenObject(obj)
-	if err != nil {
-		S3ErrorXML(w, "InternalError", err.Error(), key, sim.RequestID(r.Context()), http.StatusInternalServerError)
-		return
-	}
-	defer closeBody()
-
-	w.Header().Set("Content-Type", obj.ContentType)
-	w.Header().Set("ETag", obj.ETag)
-	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
-
-	for k, v := range obj.Metadata {
-		w.Header().Set("x-amz-meta-"+k, v)
-	}
-	s3SetObjectStateHeaders(w, obj)
-
-	http.ServeContent(w, r, key, obj.LastModified, body)
+	s3ServeObject(w, r, obj, key)
 }
 
 func handleS3HeadObject(w http.ResponseWriter, r *http.Request) {
-	bucket := sim.PathParam(r, "bucket")
-	key := sim.PathParam(r, "key")
-
-	storeKey := s3ObjectKey(bucket, key)
-	obj, ok := s3Objects.Get(storeKey)
+	obj, ok := s3Objects.Get(s3ObjectKey(sim.PathParam(r, "bucket"), sim.PathParam(r, "key")))
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+	s3ServeObject(w, r, obj, sim.PathParam(r, "key"))
+}
 
-	w.Header().Set("Content-Type", obj.ContentType)
-	w.Header().Set("ETag", obj.ETag)
-	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
+// s3RangeGrammar is the Range grammar GetObject and HeadObject accept.
+var s3RangeGrammar = blobstore.RangeOpts{AllowSuffix: true, AllowOpenEnd: true, ClampEnd: true}
 
+// s3ServeObject answers GetObject or HeadObject for obj: the conditional
+// headers first, then a Range. S3 serves a single range and serves the whole
+// object for a Range it cannot parse, a list of ranges included.
+func s3ServeObject(w http.ResponseWriter, r *http.Request, obj S3Object, key string) {
+	obj, body, err := s3OpenObject(obj)
+	if err != nil {
+		S3ErrorXML(w, "InternalError", err.Error(), key, sim.RequestID(r.Context()), http.StatusInternalServerError)
+		return
+	}
+	defer func() { _ = body.Close() }()
+
+	outcome := blobstore.EvaluateHTTP(r.Header, blobstore.Validators{ETag: obj.ETag, Modified: obj.LastModified, Exists: true}, blobstore.Read)
+	if outcome == blobstore.PreconditionFailed {
+		S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
+			key, sim.RequestID(r.Context()), http.StatusPreconditionFailed)
+		return
+	}
+	h := w.Header()
+	h.Set("ETag", obj.ETag)
+	h.Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
+	if outcome == blobstore.NotModified {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	h.Set("Content-Type", obj.ContentType)
+	h.Set("Accept-Ranges", "bytes")
 	for k, v := range obj.Metadata {
-		w.Header().Set("x-amz-meta-"+k, v)
+		h.Set("x-amz-meta-"+k, v)
 	}
 	s3SetObjectStateHeaders(w, obj)
 
-	w.WriteHeader(http.StatusOK)
+	if raw := r.Header.Get("Range"); raw != "" {
+		if requested, err := blobstore.ParseRange(raw, s3RangeGrammar); err == nil {
+			start, end, ok := requested.Resolve(obj.Size)
+			if !ok {
+				S3ErrorXML(w, "InvalidRange", "The requested range is not satisfiable",
+					key, sim.RequestID(r.Context()), http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
+			if err := blobstore.ServeRange(w, r, body, start, end, obj.Size); err != nil {
+				S3ErrorXML(w, "InternalError", err.Error(), key, sim.RequestID(r.Context()), http.StatusInternalServerError)
+			}
+			return
+		}
+	}
+	blobstore.ServeWhole(w, r, body, obj.Size)
 }
 
 // s3SetObjectEncryptionHeaders emits the x-amz-server-side-encryption

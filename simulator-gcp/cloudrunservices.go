@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -15,6 +14,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // enumString accepts both proto-JSON enum encodings: the canonical
@@ -333,13 +334,21 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	localImage := sim.ResolveLocalImage(main.Image)
 	env := containerEnvMap(main.Env)
 	bindsFor := serviceBindsFor(volumes)
-	platform, err := localImagePlatform(ctx, localImage, workloadRegistryAuth(project, localImage))
+	platform, err := workload.LocalImagePlatform(ctx, localImage, workloadRegistryAuth(project, localImage))
 	if err != nil {
 		return nil, err
 	}
-	hostPort, err := pickFreeTCPPort()
+	hostPort, err := workload.FreeTCPPort()
 	if err != nil {
 		return nil, fmt.Errorf("pick free port: %w", err)
+	}
+	metadataEnv, err := hostMetadataEnv()
+	if err != nil {
+		return nil, err
+	}
+	extraHosts, err := hostMetadataExtraHosts()
+	if err != nil {
+		return nil, err
 	}
 	containerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{
 		Image:        localImage,
@@ -347,14 +356,12 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		HostPort:     hostPort,
 		Command:      main.Command,
 		Args:         main.Args,
-		Env: mergeEnv(mergeEnv(map[string]string{
-			"PORT": "8080",
-		}, env), hostMetadataEnv()),
-		Name:       fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-%d", serviceID, hostPort),
-		Labels:     map[string]string{"sockerless-sim-service": serviceID},
-		Binds:      bindsFor(main),
-		ExtraHosts: hostMetadataExtraHosts(),
-		Sandbox:    SandboxCloudRun,
+		Env:          workloadhost.MergeEnv(map[string]string{"PORT": "8080"}, env, metadataEnv),
+		Name:         fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-%d", serviceID, hostPort),
+		Labels:       map[string]string{"sockerless-sim-service": serviceID},
+		Binds:        bindsFor(main),
+		ExtraHosts:   extraHosts,
+		Sandbox:      SandboxCloudRun,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("start service container: %w", err)
@@ -369,43 +376,29 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	}()
 	go sim.StreamContainerLogs(logCtx, containerID, sink)
 
-	var sidecars []*sim.ContainerHandle
+	members := make([]workload.Container, 0, len(containers)-1)
 	for i, sidecar := range containers[1:] {
 		sidecarImage := sim.ResolveLocalImage(sidecar.Image)
-		sidecarAuth := workloadRegistryAuth(project, sidecarImage)
-		sidecarPlatform, err := localImagePlatform(ctx, sidecarImage, sidecarAuth)
-		if err != nil {
-			sim.StopAndRemoveContainer(containerID, cloudRunStopGrace)
-			for _, h := range sidecars {
-				h.Cancel()
-			}
-			return nil, err
-		}
-		handle, err := sim.StartContainerSync(sim.ContainerConfig{
+		members = append(members, workload.Container{Name: sidecar.Name, Config: sim.ContainerConfig{
 			CancelGracePeriod: cloudRunStopGrace,
 			Image:             sidecarImage,
-			Architecture:      sidecarPlatform,
-			RegistryAuth:      sidecarAuth,
+			RegistryAuth:      workloadRegistryAuth(project, sidecarImage),
 			Command:           sidecar.Command,
 			Args:              sidecar.Args,
-			Env:               mergeEnv(containerEnvMap(sidecar.Env), hostMetadataEnv()),
+			Env:               workloadhost.MergeEnv(containerEnvMap(sidecar.Env), metadataEnv),
 			Name:              fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-sidecar-%d-%d", serviceID, i, hostPort),
 			Labels: map[string]string{
 				"sockerless-sim-service":           serviceID,
 				"sockerless-sim-service-container": sidecar.Name,
 			},
-			NetworkMode: "container:" + containerID,
-			Binds:       bindsFor(sidecar),
-			Sandbox:     SandboxCloudRun,
-		}, sink)
-		if err != nil {
-			sim.StopAndRemoveContainer(containerID, cloudRunStopGrace)
-			for _, h := range sidecars {
-				h.Cancel()
-			}
-			return nil, fmt.Errorf("start service sidecar %q: %w", sidecar.Name, err)
-		}
-		sidecars = append(sidecars, handle)
+			Binds:   bindsFor(sidecar),
+			Sandbox: SandboxCloudRun,
+		}})
+	}
+	sidecars, err := workload.StartSidecars(ctx, containerID, members, sink)
+	if err != nil {
+		sim.StopAndRemoveContainer(containerID, cloudRunStopGrace)
+		return nil, err
 	}
 
 	inst := &cloudRunServiceInstance{
@@ -462,7 +455,7 @@ func postCloudRunServiceInstance(ctx context.Context, inst *cloudRunServiceInsta
 	}
 	cands = append(cands, fmt.Sprintf("http://127.0.0.1:%d", inst.hostPort))
 
-	base, err := firstReachableBase(ctx, cands, 60*time.Second)
+	base, err := workload.FirstReachable(ctx, cands, 60*time.Second)
 	if err != nil {
 		return nil, -1, fmt.Errorf("bootstrap not ready (tried %d address(es)): %w", len(cands), err)
 	}
@@ -470,39 +463,7 @@ func postCloudRunServiceInstance(ctx context.Context, inst *cloudRunServiceInsta
 	if rawQuery != "" {
 		bootstrapURL += "?" + rawQuery
 	}
-	return postBootstrapWithRetry(ctx, bootstrapURL, body, contentType, 5*time.Minute)
-}
-
-// firstReachableBase polls the candidate base URLs (each round, in order) and
-// returns the first whose host:port accepts a TCP connection within timeout.
-func firstReachableBase(ctx context.Context, cands []string, timeout time.Duration) (string, error) {
-	deadline := time.Now().Add(timeout)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		default:
-		}
-		for _, base := range cands {
-			parsed, perr := urlpkgParse(base)
-			if perr != nil {
-				lastErr = perr
-				continue
-			}
-			conn, derr := net.DialTimeout("tcp", parsed.Host, 1*time.Second)
-			if derr == nil {
-				_ = conn.Close()
-				return base, nil
-			}
-			lastErr = derr
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("timeout after %s", timeout)
-	}
-	return "", lastErr
+	return workload.PostBootstrap(ctx, bootstrapURL, body, contentType, 5*time.Minute)
 }
 
 func envSignature(env map[string]string) string {
@@ -608,7 +569,7 @@ var crv2Services sim.Store[ServiceV2]
 func seedServiceV2Defaults(svc ServiceV2, host, project, location, serviceID string) ServiceV2 {
 	now := nowTimestamp()
 	svc.Name = fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID)
-	svc.UID = generateUUID()
+	svc.UID = sim.NewUUID()
 	svc.Generation = 1
 	svc.CreateTime = now
 	svc.UpdateTime = now
@@ -639,7 +600,7 @@ func reconcileServiceRevision(store sim.Store[RevisionV2], serviceName, revName 
 	full := serviceName + "/revisions/" + revName
 	rev := RevisionV2{
 		Name:        full,
-		UID:         generateUUID(),
+		UID:         sim.NewUUID(),
 		Generation:  svc.Generation,
 		CreateTime:  now,
 		UpdateTime:  now,
@@ -650,7 +611,7 @@ func reconcileServiceRevision(store sim.Store[RevisionV2], serviceName, revName 
 		},
 		// A revision is immutable, but a fresh deploy replaces the record under
 		// the same name, so the fingerprint is minted with it.
-		Etag: generateUUID(),
+		Etag: sim.NewUUID(),
 	}
 	if svc.Template != nil {
 		rev.Labels = svc.Template.Labels
@@ -706,7 +667,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		}
 
 		svc = seedServiceV2Defaults(svc, r.Host, project, location, serviceID)
-		svc.Etag = generateUUID()
+		svc.Etag = sim.NewUUID()
 
 		services.Put(name, svc)
 		reconcileServiceRevision(revisions, name, serviceID+"-00001-abc", svc)
@@ -869,7 +830,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		update.LatestCreatedRevision = fmt.Sprintf("%s/revisions/%s", name, revName)
 		update.LatestReadyRevision = update.LatestCreatedRevision
 		update.URI = existing.URI
-		update.Etag = generateUUID()
+		update.Etag = sim.NewUUID()
 
 		services.Put(name, update)
 		reconcileServiceRevision(revisions, name, revName, update)
@@ -1066,7 +1027,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "invoke service %q: %v", name, err)
 			return
 		}
-		w.Header().Set("X-Sockerless-Exit-Code", strconv.Itoa(exitCode))
+		w.Header().Set(workload.ExitCodeHeader, strconv.Itoa(exitCode))
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(respBody)
 	}

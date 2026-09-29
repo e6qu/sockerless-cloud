@@ -2,22 +2,16 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 
-	"github.com/coreos/go-oidc/v3/oidc"
-	"golang.org/x/sync/singleflight"
+	"github.com/e6qu/sockerless-cloud/sim/oidcfed"
 )
 
-var (
-	stsOIDCVerifiers sync.Map
-	stsOIDCDiscovery singleflight.Group
-)
+// stsOIDCVerifiers caches the external issuers AWS STS federates.
+var stsOIDCVerifiers = oidcfed.New()
 
 // verifyWebIdentityToken verifies a web identity token the way STS does for
 // AssumeRoleWithWebIdentity: it finds the IAM OpenID Connect identity provider
@@ -30,16 +24,16 @@ var (
 // deployment's identity provider exchanges that assertion for temporary
 // credentials, exactly as a workload federating into AWS does.
 func verifyWebIdentityToken(ctx context.Context, rawToken string) (webIdentity, error) {
-	issuer, err := unverifiedIssuer(rawToken)
+	issuer, err := oidcfed.UnverifiedIssuer(rawToken)
 	if err != nil {
-		return webIdentity{}, err
+		return webIdentity{}, fmt.Errorf("web identity token %w", err)
 	}
 	provider, ok := oidcProviderForIssuer(issuer)
 	if !ok {
 		return webIdentity{}, fmt.Errorf("no OpenID Connect provider is registered for issuer %q", issuer)
 	}
 
-	verifier, err := stsOIDCVerifier(ctx, issuer)
+	verifier, err := stsOIDCVerifiers.Verifier(ctx, issuer)
 	if err != nil {
 		return webIdentity{}, fmt.Errorf("issuer %q could not be discovered: %w", issuer, err)
 	}
@@ -47,7 +41,7 @@ func verifyWebIdentityToken(ctx context.Context, rawToken string) (webIdentity, 
 	if err != nil {
 		return webIdentity{}, fmt.Errorf("web identity token failed verification: %w", err)
 	}
-	if len(provider.ClientIDList) > 0 && !audienceInList(verified.Audience, provider.ClientIDList) {
+	if len(provider.ClientIDList) > 0 && !oidcfed.AudienceIntersects(verified.Audience, provider.ClientIDList) {
 		return webIdentity{}, fmt.Errorf("web identity token audience is not in the provider's client ID list")
 	}
 	if verified.Subject == "" {
@@ -70,7 +64,7 @@ type webIdentity struct {
 // providerName is how IAM names the provider in its ARN and in its condition
 // keys: the issuer URL without its scheme.
 func (id webIdentity) providerName() string {
-	return normalizeIssuer(id.Provider.URL)
+	return oidcfed.NormalizeIssuer(id.Provider.URL)
 }
 
 // conditionContext is the request context a role's trust policy is evaluated
@@ -142,91 +136,15 @@ func webIdentityClaimValues(claim any) []string {
 	return nil
 }
 
-// stsOIDCVerifier reuses issuer discovery metadata and its remote JSON Web Key
-// Set across web-identity exchanges. The verifier validates every token's
-// signature, issuer, expiry, and claims; only the issuer-scoped network client
-// is retained. singleflight prevents concurrent first exchanges from repeating
-// discovery for the same issuer.
-func stsOIDCVerifier(ctx context.Context, issuer string) (*oidc.IDTokenVerifier, error) {
-	cacheKey := strings.TrimSuffix(strings.TrimSpace(issuer), "/")
-	if cached, ok := stsOIDCVerifiers.Load(cacheKey); ok {
-		return stsCachedOIDCVerifier(cached)
-	}
-	value, err, _ := stsOIDCDiscovery.Do(cacheKey, func() (any, error) {
-		if cached, ok := stsOIDCVerifiers.Load(cacheKey); ok {
-			return stsCachedOIDCVerifier(cached)
-		}
-		provider, err := oidc.NewProvider(ctx, issuer)
-		if err != nil {
-			return nil, err
-		}
-		// The audience is checked against the IAM provider's current client ID
-		// list after cryptographic verification, rather than one fixed client.
-		verifier := provider.Verifier(&oidc.Config{SkipClientIDCheck: true})
-		stsOIDCVerifiers.Store(cacheKey, verifier)
-		return verifier, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return stsCachedOIDCVerifier(value)
-}
-
-func stsCachedOIDCVerifier(value any) (*oidc.IDTokenVerifier, error) {
-	verifier, ok := value.(*oidc.IDTokenVerifier)
-	if !ok {
-		return nil, fmt.Errorf("cached OpenID Connect verifier has unexpected type %T", value)
-	}
-	return verifier, nil
-}
-
-// unverifiedIssuer reads the `iss` claim without verifying the signature, so the
-// right provider can be located before the token is verified against it.
-func unverifiedIssuer(rawToken string) (string, error) {
-	parts := strings.Split(rawToken, ".")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("web identity token is not a JWT")
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return "", fmt.Errorf("web identity token payload could not be decoded: %w", err)
-	}
-	var claims struct {
-		Issuer string `json:"iss"`
-	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", fmt.Errorf("web identity token claims could not be read: %w", err)
-	}
-	if claims.Issuer == "" {
-		return "", fmt.Errorf("web identity token has no issuer")
-	}
-	return claims.Issuer, nil
-}
-
 // oidcProviderForIssuer finds the IAM OpenID Connect provider registered for an
 // issuer. AWS stores a provider's URL without its scheme, so the issuer is
 // matched with the scheme stripped.
 func oidcProviderForIssuer(issuer string) (IAMOIDCProvider, bool) {
-	want := normalizeIssuer(issuer)
+	want := oidcfed.NormalizeIssuer(issuer)
 	for _, provider := range iamOIDCProviders.List() {
-		if normalizeIssuer(provider.URL) == want {
+		if oidcfed.NormalizeIssuer(provider.URL) == want {
 			return provider, true
 		}
 	}
 	return IAMOIDCProvider{}, false
-}
-
-func normalizeIssuer(value string) string {
-	return strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(value, "https://"), "http://"), "/")
-}
-
-func audienceInList(audiences, allowed []string) bool {
-	for _, aud := range audiences {
-		for _, candidate := range allowed {
-			if aud == candidate {
-				return true
-			}
-		}
-	}
-	return false
 }

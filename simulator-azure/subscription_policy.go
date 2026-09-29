@@ -135,7 +135,7 @@ func azureSubscriptionTenantPolicy(tenantID string) SubscriptionTenantPolicyReco
 	}
 	rec := SubscriptionTenantPolicyRecord{
 		TenantID:           tenantID,
-		PolicyID:           generateUUID(),
+		PolicyID:           sim.NewUUID(),
 		ExemptedPrincipals: []string{},
 	}
 	azureSubscriptionTenantPolicies.Put(tenantID, rec)

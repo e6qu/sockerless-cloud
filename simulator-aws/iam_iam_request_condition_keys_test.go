@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func iamConditionContext(form url.Values) map[string][]string {
@@ -58,7 +59,7 @@ func TestIAMConditionKeysReadTheRequestParameters(t *testing.T) {
 func TestIAMConditionKeysReadTheStoredCredentialService(t *testing.T) {
 	previous := iamServiceCreds
 	t.Cleanup(func() { iamServiceCreds = previous })
-	AwaitSimulatorBackground()
+	bg.Await()
 	iamServiceCreds = sim.MakeStore[IAMServiceSpecificCredential](nil, "iam_service_specific_credentials")
 	iamServiceCreds.Put("ACCAEXAMPLE", IAMServiceSpecificCredential{
 		ServiceSpecificCredentialId: "ACCAEXAMPLE",

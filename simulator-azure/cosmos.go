@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // cosmosETagSeq makes document ETags unique even within the same wall-clock
@@ -28,16 +29,6 @@ func cosmosRaiseETagFloor(seq uint64) {
 			return
 		}
 	}
-}
-
-// cosmosIfMatchOK reports whether the request's If-Match precondition is
-// satisfied against the current ETag (an absent header always passes).
-func cosmosIfMatchOK(r *http.Request, currentETag string) bool {
-	im := r.Header.Get("If-Match")
-	if im == "" {
-		return true
-	}
-	return strings.Trim(im, `"`) == strings.Trim(currentETag, `"`)
 }
 
 // Azure Cosmos DB for NoSQL. The simulator exposes both the
@@ -122,6 +113,7 @@ func registerCosmosDB(srv *sim.Server) {
 	for _, d := range cosmosDocs.List() {
 		cosmosRaiseETagFloor(cosmosETagSeqOf(d.ETag))
 	}
+	registerCosmosItems(srv)
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.DocumentDB/databaseAccounts"
 	srv.HandleFunc("PUT "+armBase+"/{account}", handleCosmosCreateAccount)
@@ -168,12 +160,12 @@ func registerCosmosDB(srv *sim.Server) {
 	srv.HandleFunc("GET /dbs/{database}/colls", handleCosmosDataListColls)
 	srv.HandleFunc("GET /dbs/{database}/colls/{container}", handleCosmosDataGetColl)
 	srv.HandleFunc("DELETE /dbs/{database}/colls/{container}", handleCosmosDataDeleteColl)
-	srv.HandleFunc("POST /dbs/{database}/colls/{container}/docs", handleCosmosDataCreateOrQueryDoc)
-	srv.HandleFunc("GET /dbs/{database}/colls/{container}/docs", handleCosmosDataListDocs)
-	srv.HandleFunc("GET /dbs/{database}/colls/{container}/docs/{doc}", handleCosmosDataGetDoc)
-	srv.HandleFunc("PUT /dbs/{database}/colls/{container}/docs/{doc}", handleCosmosDataReplaceDoc)
-	srv.HandleFunc("PATCH /dbs/{database}/colls/{container}/docs/{doc}", handleCosmosDataPatchDoc)
-	srv.HandleFunc("DELETE /dbs/{database}/colls/{container}/docs/{doc}", handleCosmosDataDeleteDoc)
+	srv.HandleFunc("POST /dbs/{database}/colls/{container}/docs", cosmosMetered(handleCosmosDataCreateOrQueryDoc))
+	srv.HandleFunc("GET /dbs/{database}/colls/{container}/docs", cosmosMetered(handleCosmosDataListDocs))
+	srv.HandleFunc("GET /dbs/{database}/colls/{container}/docs/{doc}", cosmosMetered(handleCosmosDataGetDoc))
+	srv.HandleFunc("PUT /dbs/{database}/colls/{container}/docs/{doc}", cosmosMetered(handleCosmosDataReplaceDoc))
+	srv.HandleFunc("PATCH /dbs/{database}/colls/{container}/docs/{doc}", cosmosMetered(handleCosmosDataPatchDoc))
+	srv.HandleFunc("DELETE /dbs/{database}/colls/{container}/docs/{doc}", cosmosMetered(handleCosmosDataDeleteDoc))
 
 	registerCosmosThroughput(srv)
 }
@@ -419,7 +411,10 @@ func handleCosmosListAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all = filtered
-	page, next := armPage(r, all)
+	page, next, pageOK := armPage(w, r, all)
+	if !pageOK {
+		return
+	}
 	if page == nil {
 		page = []CosmosAccount{}
 	}
@@ -608,6 +603,7 @@ func handleCosmosCreateSQLDatabase(w http.ResponseWriter, r *http.Request) {
 		Type:       "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
 		Properties: ensureResourceProperty(req.Properties, database),
 	}
+	cosmosStoreThroughputFromProps(db.Properties, id, db.Type)
 	cosmosDatabases.Put(id, db)
 	sim.WriteJSON(w, http.StatusOK, db)
 }
@@ -640,8 +636,11 @@ func handleCosmosDeleteSQLDatabase(w http.ResponseWriter, r *http.Request) {
 	for _, c := range cosmosContainers.List() {
 		if strings.HasPrefix(c.ID, id+"/") {
 			cosmosContainers.Delete(c.ID)
+			cosmosThroughputs.Delete(c.ID + "/throughputSettings/default")
 		}
 	}
+	cosmosThroughputs.Delete(id + "/throughputSettings/default")
+	cosmosDropItems(cosmosDataDBKey(account, database) + "/")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -669,6 +668,7 @@ func handleCosmosCreateSQLContainer(w http.ResponseWriter, r *http.Request) {
 	if res, ok := c.Properties["resource"].(map[string]any); ok && res["partitionKey"] == nil {
 		res["partitionKey"] = map[string]any{"paths": []string{"/id"}, "kind": "Hash"}
 	}
+	cosmosStoreThroughputFromProps(c.Properties, id, c.Type)
 	cosmosContainers.Put(id, c)
 	sim.WriteJSON(w, http.StatusOK, c)
 }
@@ -695,10 +695,16 @@ func handleCosmosListSQLContainers(w http.ResponseWriter, r *http.Request) {
 func handleCosmosDeleteSQLContainer(w http.ResponseWriter, r *http.Request) {
 	sub, rg, account, database := cosmosARMParts(r)
 	container := sim.PathParam(r, "container")
-	if !cosmosContainers.Delete(cosmosSQLContainerID(sub, rg, account, database, container)) {
+	id := cosmosSQLContainerID(sub, rg, account, database, container)
+	if !cosmosContainers.Delete(id) {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos SQL container not found: %s", container)
 		return
 	}
+	cosmosThroughputs.Delete(id + "/throughputSettings/default")
+	release := cosmosLockColl(account, database, container)
+	defer release()
+	cosmosForgetContainer(account, database, container)
+	cosmosDropItems(cosmosDataCollKey(account, database, container) + "/")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -806,20 +812,19 @@ func handleCosmosDataCreateDB(w http.ResponseWriter, r *http.Request) {
 func handleCosmosDataListDBs(w http.ResponseWriter, r *http.Request) {
 	account := cosmosDataAccount(r)
 	dbs := map[string]map[string]any{}
-	for _, d := range cosmosDataDBs.List() {
-		if d.Account == account {
-			dbs[d.DB] = cosmosDataDB(account, d.DB)
-		}
+	for _, d := range cosmosDataDBs.ListPrefix(account + "/") {
+		dbs[d.Item.DB] = cosmosDataDB(account, d.Item.DB)
 	}
 	for _, c := range cosmosContainers.List() {
 		if acc, db, _, ok := cosmosARMIDNames(c.ID); ok && acc == account {
 			dbs[db] = cosmosDataDB(account, db)
 		}
 	}
-	for _, d := range cosmosDocs.List() {
-		if d.Account == account {
-			dbs[d.DB] = cosmosDataDB(account, d.DB)
-		}
+	for _, c := range cosmosDataColls.ListPrefix(account + "/") {
+		dbs[c.Item.DB] = cosmosDataDB(account, c.Item.DB)
+	}
+	for _, d := range cosmosDocs.ListPrefix(account + "/") {
+		dbs[d.Item.DB] = cosmosDataDB(account, d.Item.DB)
 	}
 	items := make([]map[string]any, 0, len(dbs))
 	for _, db := range dbs {
@@ -836,22 +841,10 @@ func cosmosDataDBExists(account, db string) bool {
 	if _, created := cosmosDataDBs.Get(cosmosDataDBKey(account, db)); created {
 		return true
 	}
-	for _, c := range cosmosContainers.List() {
-		if acc, name, _, ok := cosmosARMIDNames(c.ID); ok && acc == account && name == db {
-			return true
-		}
-	}
-	for _, c := range cosmosDataColls.List() {
-		if c.Account == account && c.DB == db {
-			return true
-		}
-	}
-	for _, d := range cosmosDocs.List() {
-		if d.Account == account && d.DB == db {
-			return true
-		}
-	}
-	return false
+	under := cosmosDataDBKey(account, db) + "/"
+	return cosmosARMDatabaseHasContainers(account, db) ||
+		len(cosmosDataColls.ListPrefix(under)) > 0 ||
+		len(cosmosDocs.ListPrefix(under)) > 0
 }
 
 func handleCosmosDataGetDB(w http.ResponseWriter, r *http.Request) {
@@ -869,11 +862,12 @@ func handleCosmosDataGetDB(w http.ResponseWriter, r *http.Request) {
 func handleCosmosDataDeleteDB(w http.ResponseWriter, r *http.Request) {
 	account, db := cosmosDataAccount(r), sim.PathParam(r, "database")
 	cosmosDataDBs.Delete(cosmosDataDBKey(account, db))
-	for _, d := range cosmosDocs.List() {
-		if d.Account == account && d.DB == db {
-			cosmosDocs.Delete(cosmosStoredDocKey(d))
-		}
+	under := cosmosDataDBKey(account, db) + "/"
+	for _, c := range cosmosDataColls.ListPrefix(under) {
+		cosmosForgetContainer(account, db, c.Item.Coll)
 	}
+	cosmosOffers.Delete(cosmosOfferKey(account, account+"-"+db))
+	cosmosDropItems(under)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -897,7 +891,17 @@ func handleCosmosDataCreateColl(w http.ResponseWriter, r *http.Request) {
 			pkPath, _ = paths[0].(string)
 		}
 	}
-	cosmosDataColls.Put(cosmosDataCollKey(account, db, id), CosmosDataColl{Account: account, DB: db, Coll: id, PKPath: pkPath})
+	collection := CosmosDataColl{Account: account, DB: db, Coll: id, PKPath: pkPath}
+	if raw, present := body["defaultTtl"]; present && raw != nil {
+		ttl, ok := cosmosNumberOf(raw)
+		if !ok || ttl == 0 || ttl < -1 || ttl != float64(int64(ttl)) {
+			cosmosDataError(w, "BadRequest", "The value of defaultTtl must be -1 or a positive integer.", http.StatusBadRequest)
+			return
+		}
+		seconds := int64(ttl)
+		collection.DefaultTTL = &seconds
+	}
+	cosmosDataColls.Put(cosmosDataCollKey(account, db, id), collection)
 	coll := cosmosDataColl(account, db, id)
 	if rid, ok := coll["_rid"].(string); ok {
 		cosmosProvisionOfferFromHeaders(r, account, rid)
@@ -908,10 +912,12 @@ func handleCosmosDataCreateColl(w http.ResponseWriter, r *http.Request) {
 func handleCosmosDataListColls(w http.ResponseWriter, r *http.Request) {
 	account, db := cosmosDataAccount(r), sim.PathParam(r, "database")
 	colls := map[string]map[string]any{}
-	for _, d := range cosmosDocs.List() {
-		if d.Account == account && d.DB == db {
-			colls[d.Coll] = cosmosDataColl(account, db, d.Coll)
-		}
+	under := cosmosDataDBKey(account, db) + "/"
+	for _, c := range cosmosDataColls.ListPrefix(under) {
+		colls[c.Item.Coll] = cosmosDataColl(account, db, c.Item.Coll)
+	}
+	for _, d := range cosmosDocs.ListPrefix(under) {
+		colls[d.Item.Coll] = cosmosDataColl(account, db, d.Item.Coll)
 	}
 	items := make([]map[string]any, 0, len(colls))
 	for _, c := range colls {
@@ -927,13 +933,7 @@ func handleCosmosDataGetColl(w http.ResponseWriter, r *http.Request) {
 	// name nobody used.
 	_, created := cosmosDataColls.Get(cosmosDataCollKey(account, db, coll))
 	if !created {
-		for _, c := range cosmosContainers.List() {
-			if acc, name, container, ok := cosmosARMIDNames(c.ID); ok &&
-				acc == account && name == db && container == coll {
-				created = true
-				break
-			}
-		}
+		_, created = cosmosARMContainer(account, db, coll)
 	}
 	if !created {
 		cosmosDataError(w, "NotFound", "Owner resource does not exist", http.StatusNotFound)
@@ -944,11 +944,10 @@ func handleCosmosDataGetColl(w http.ResponseWriter, r *http.Request) {
 
 func handleCosmosDataDeleteColl(w http.ResponseWriter, r *http.Request) {
 	account, db, coll := cosmosDataAccount(r), sim.PathParam(r, "database"), sim.PathParam(r, "container")
-	for _, d := range cosmosDocs.List() {
-		if d.Account == account && d.DB == db && d.Coll == coll {
-			cosmosDocs.Delete(cosmosStoredDocKey(d))
-		}
-	}
+	release := cosmosLockColl(account, db, coll)
+	defer release()
+	cosmosForgetContainer(account, db, coll)
+	cosmosDropItems(cosmosDataCollKey(account, db, coll) + "/")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -969,7 +968,7 @@ func handleCosmosDataCreateOrQueryDoc(w http.ResponseWriter, r *http.Request) {
 	}
 	id, _ := body["id"].(string)
 	if id == "" {
-		id = generateUUID()
+		id = sim.NewUUID()
 		body["id"] = id
 	}
 	pkComponent, werr := cosmosResolvePKForWrite(r, account, db, coll, body)
@@ -979,7 +978,9 @@ func handleCosmosDataCreateOrQueryDoc(w http.ResponseWriter, r *http.Request) {
 	}
 	upsert := strings.EqualFold(r.Header.Get("x-ms-documentdb-is-upsert"), "true")
 	key := cosmosDocKeyPK(account, db, coll, pkComponent, id)
-	existing, exists := cosmosDocs.Get(key)
+	release := cosmosLockColl(account, db, coll)
+	defer release()
+	existing, exists := cosmosLiveDoc(key)
 	if exists && !upsert {
 		// Real Cosmos: a plain create (no upsert header) of an existing id is
 		// a 409 Conflict.
@@ -989,10 +990,8 @@ func handleCosmosDataCreateOrQueryDoc(w http.ResponseWriter, r *http.Request) {
 	}
 	if exists && upsert {
 		// Upsert of an existing id honors an If-Match precondition like Replace.
-		if !cosmosIfMatchOK(r, existing.ETag) {
-			cosmosDataError(w, "PreconditionFailed",
-				"Operation cannot be performed because one of the specified precondition is not met.",
-				http.StatusPreconditionFailed)
+		if !cosmosIfMatch(r, existing.ETag) {
+			cosmosPreconditionFailed(w)
 			return
 		}
 	}
@@ -1054,7 +1053,7 @@ func cosmosResolvePointDoc(r *http.Request, account, db, coll, docID string) (Co
 	}
 	if hasHeader {
 		key := cosmosDocKeyPK(account, db, coll, pkComponent, docID)
-		doc, ok := cosmosDocs.Get(key)
+		doc, ok := cosmosLiveDoc(key)
 		return doc, key, ok, nil
 	}
 	doc, ok := cosmosFindDocByID(account, db, coll, docID)
@@ -1081,13 +1080,16 @@ func handleCosmosDataReplaceDoc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := cosmosDocKeyPK(account, db, coll, pkComponent, docID)
-	if existing, ok := cosmosDocs.Get(key); ok {
-		if !cosmosIfMatchOK(r, existing.ETag) {
-			cosmosDataError(w, "PreconditionFailed",
-				"Operation cannot be performed because one of the specified precondition is not met.",
-				http.StatusPreconditionFailed)
-			return
-		}
+	release := cosmosLockColl(account, db, coll)
+	defer release()
+	existing, ok := cosmosLiveDoc(key)
+	if !ok {
+		cosmosDataError(w, "NotFound", "Entity with the specified id does not exist", http.StatusNotFound)
+		return
+	}
+	if !cosmosIfMatch(r, existing.ETag) {
+		cosmosPreconditionFailed(w)
+		return
 	}
 	doc := cosmosStoreDocKey(key, account, db, coll, docID, body)
 	out := cosmosDocBody(doc)
@@ -1100,6 +1102,8 @@ func handleCosmosDataDeleteDoc(w http.ResponseWriter, r *http.Request) {
 	if cosmosGuardConsistency(w, r, account) {
 		return
 	}
+	release := cosmosLockColl(account, db, coll)
+	defer release()
 	existing, key, ok, werr := cosmosResolvePointDoc(r, account, db, coll, docID)
 	if werr != nil {
 		cosmosDataError(w, werr.code, werr.msg, werr.status)
@@ -1109,13 +1113,11 @@ func handleCosmosDataDeleteDoc(w http.ResponseWriter, r *http.Request) {
 		cosmosDataError(w, "NotFound", "Entity with the specified id does not exist", http.StatusNotFound)
 		return
 	}
-	if !cosmosIfMatchOK(r, existing.ETag) {
-		cosmosDataError(w, "PreconditionFailed",
-			"Operation cannot be performed because one of the specified precondition is not met.",
-			http.StatusPreconditionFailed)
+	if !cosmosIfMatch(r, existing.ETag) {
+		cosmosPreconditionFailed(w)
 		return
 	}
-	cosmosDocs.Delete(key)
+	cosmosDeleteDoc(existing, key)
 	w.Header().Set("x-ms-request-charge", cosmosFormatCharge(cosmosDeleteCharge()))
 	cosmosSetWriteSession(w, account, db, coll, cosmosDocPKComponent(account, db, coll, existing))
 	w.WriteHeader(http.StatusNoContent)
@@ -1164,23 +1166,16 @@ func handleCosmosDataQueryDocs(w http.ResponseWriter, r *http.Request) {
 
 	// Pagination: honor x-ms-max-item-count + x-ms-continuation. A COUNT
 	// aggregate is a single scalar row and is never paged.
-	offset, oerr := cosmosContinuationOffset(r)
-	if oerr != nil {
-		cosmosDataError(w, "BadRequest", oerr.Error(), http.StatusBadRequest)
+	start, end, continuation, err := listq.Window(listq.Base64Decimal, len(out), r.Header.Get("x-ms-continuation"), cosmosMaxItemCount(r), 0, 0)
+	if err != nil {
+		cosmosDataError(w, "BadRequest", "invalid continuation token", http.StatusBadRequest)
 		return
 	}
-	maxItems := cosmosMaxItemCount(r)
 	page := out
-	var continuation string
-	if !plan.countAll {
-		if offset > len(out) {
-			offset = len(out)
-		}
-		page = out[offset:]
-		if maxItems >= 0 && maxItems < len(page) {
-			page = page[:maxItems]
-			continuation = cosmosEncodeContinuation(offset + maxItems)
-		}
+	if plan.countAll {
+		continuation = ""
+	} else {
+		page = out[start:end]
 	}
 	if continuation != "" {
 		w.Header().Set("x-ms-continuation", continuation)
@@ -1197,6 +1192,8 @@ func handleCosmosDataPatchDoc(w http.ResponseWriter, r *http.Request) {
 	if cosmosGuardConsistency(w, r, account) {
 		return
 	}
+	release := cosmosLockColl(account, db, coll)
+	defer release()
 	existing, key, ok, werr := cosmosResolvePointDoc(r, account, db, coll, docID)
 	if werr != nil {
 		cosmosDataError(w, werr.code, werr.msg, werr.status)
@@ -1206,10 +1203,8 @@ func handleCosmosDataPatchDoc(w http.ResponseWriter, r *http.Request) {
 		cosmosDataError(w, "NotFound", "Entity with the specified id does not exist", http.StatusNotFound)
 		return
 	}
-	if !cosmosIfMatchOK(r, existing.ETag) {
-		cosmosDataError(w, "PreconditionFailed",
-			"Operation cannot be performed because one of the specified precondition is not met.",
-			http.StatusPreconditionFailed)
+	if !cosmosIfMatch(r, existing.ETag) {
+		cosmosPreconditionFailed(w)
 		return
 	}
 	var req struct {
@@ -1323,26 +1318,6 @@ func cosmosCloneBody(in map[string]any) map[string]any {
 	return out
 }
 
-// cosmosStoreDocKey stores a document under an explicit, partition-scoped store
-// key (built by cosmosDocKeyPK) so two docs with the same id in different
-// partitions remain distinct items.
-func cosmosStoreDocKey(key, account, db, coll, id string, body map[string]any) CosmosDocument {
-	now := time.Now().UTC().Unix()
-	doc := CosmosDocument{
-		ID:      id,
-		Account: account,
-		DB:      db,
-		Coll:    coll,
-		Body:    body,
-		ETag:    fmt.Sprintf(`"%x-%x"`, now, cosmosETagSeq.Add(1)),
-		RID:     account + "-" + db + "-" + coll + "-" + id,
-		Self:    "dbs/" + db + "/colls/" + coll + "/docs/" + id + "/",
-		TS:      now,
-	}
-	cosmosDocs.Put(key, doc)
-	return doc
-}
-
 func cosmosDocBody(doc CosmosDocument) map[string]any {
 	body := make(map[string]any, len(doc.Body)+4)
 	for k, v := range doc.Body {
@@ -1356,20 +1331,19 @@ func cosmosDocBody(doc CosmosDocument) map[string]any {
 	return body
 }
 
-func cosmosDocsFor(account, db, coll string) []CosmosDocument {
-	docs := cosmosDocs.Filter(func(d CosmosDocument) bool {
-		return d.Account == account && d.DB == db && d.Coll == coll
-	})
-	sort.Slice(docs, func(i, j int) bool { return docs[i].ID < docs[j].ID })
-	return docs
-}
-
 func cosmosDataDB(account, id string) map[string]any {
 	return map[string]any{"id": id, "_rid": account + "-" + id, "_self": "dbs/" + id + "/", "_etag": `"db"`, "_ts": time.Now().UTC().Unix()}
 }
 
 func cosmosDataColl(account, db, id string) map[string]any {
-	return map[string]any{"id": id, "_rid": account + "-" + db + "-" + id, "_self": "dbs/" + db + "/colls/" + id + "/", "_etag": `"coll"`, "_ts": time.Now().UTC().Unix()}
+	coll := map[string]any{"id": id, "_rid": account + "-" + db + "-" + id, "_self": "dbs/" + db + "/colls/" + id + "/", "_etag": `"coll"`, "_ts": time.Now().UTC().Unix()}
+	if path, declared := cosmosContainerPKPath(account, db, id); declared {
+		coll["partitionKey"] = map[string]any{"paths": []string{path}, "kind": "Hash"}
+	}
+	if ttl := cosmosContainerTTLOf(account, db, id); ttl.enabled {
+		coll["defaultTtl"] = ttl.seconds
+	}
+	return coll
 }
 
 // cosmosIsDataPlaneRequest reports whether a request is a Cosmos data-plane call.
@@ -1440,7 +1414,7 @@ func cosmosWriteData(w http.ResponseWriter, status int, v any) {
 // cosmos_throughput.go.
 func cosmosWriteDataCharge(w http.ResponseWriter, status int, v any, charge float64) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("x-ms-activity-id", generateUUID())
+	w.Header().Set("x-ms-activity-id", sim.NewUUID())
 	w.Header().Set("x-ms-request-charge", cosmosFormatCharge(charge))
 	// Real Cosmos returns the resource ETag in the HTTP ETag header (the azcosmos
 	// SDK reads it from there, not the body); surface it for any single-resource
@@ -1456,7 +1430,7 @@ func cosmosWriteDataCharge(w http.ResponseWriter, status int, v any, charge floa
 
 func cosmosDataError(w http.ResponseWriter, code, message string, status int) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("x-ms-activity-id", generateUUID())
+	w.Header().Set("x-ms-activity-id", sim.NewUUID())
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{"code": code, "message": message})
 }

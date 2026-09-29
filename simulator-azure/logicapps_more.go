@@ -729,7 +729,7 @@ func handleLogicRunActionList(w http.ResponseWriter, r *http.Request) {
 // trigger history entry, mirroring what a single workflow execution produces.
 func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 	logicSyncTriggers(wf)
-	runName := generateUUID()
+	runName := sim.NewUUID()
 	now := logicNow()
 	runID := wf.ID + "/runs/" + runName
 	logicRuns.Put(runID, LogicWorkflowRun{
@@ -739,7 +739,7 @@ func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 			"endTime":       now,
 			"waitEndTime":   now,
 			"status":        "Succeeded",
-			"correlationId": generateUUID(),
+			"correlationId": sim.NewUUID(),
 			"trigger": map[string]any{
 				"name": triggerName, "startTime": now, "endTime": now, "status": "Succeeded",
 			},
@@ -760,7 +760,7 @@ func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 		})
 	}
 
-	histName := generateUUID()
+	histName := sim.NewUUID()
 	histID := wf.ID + "/triggers/" + triggerName + "/histories/" + histName
 	logicTriggerHistories.Put(histID, LogicResource{
 		ID: histID, Name: histName, Type: wf.Type + "/triggers/histories",

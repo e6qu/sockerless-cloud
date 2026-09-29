@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	"github.com/google/uuid"
 )
 
@@ -582,7 +584,10 @@ func handleGlueGetDatabases(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"DatabaseList": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -791,7 +796,10 @@ func handleGlueGetTables(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(filtered, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, filtered, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"TableList": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -1094,7 +1102,10 @@ func handleGlueGetPartitions(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(filtered, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, filtered, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Partitions": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -1337,7 +1348,10 @@ func handleGlueGetJobs(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 25)
+	if !pageOK {
+		return
+	}
 	jobs := make([]glueJobWire, 0, len(page))
 	for _, job := range page {
 		jobs = append(jobs, glueJobWire{job})
@@ -1468,7 +1482,7 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 		return
 	}
 
-	platform, err := localImagePlatform(context.Background(), image)
+	platform, err := workload.LocalImagePlatform(context.Background(), image, ecrWorkloadRegistryAuth(image))
 	if err != nil {
 		glueCompleteRun(jobName, runID, "FAILED", 0, err.Error())
 		return
@@ -1486,7 +1500,7 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 			"AWS_DEFAULT_REGION": awsRegion(),
 			"AWS_REGION":         awsRegion(),
 		},
-		ExtraHosts: hostMetadataExtraHosts(),
+		ExtraHosts: workloadhost.ExtraHosts(),
 		Labels:     map[string]string{"sockerless-glue-job-run": runID},
 		Sandbox:    SandboxFargate,
 	}, sim.NoopSink{})
@@ -1571,7 +1585,10 @@ func handleGlueGetJobRuns(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(runs, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, runs, req.NextToken, maxR, 25)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"JobRuns": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -1640,7 +1657,10 @@ func handleGlueListJobs(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(names, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, names, req.NextToken, maxR, 25)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"JobNames": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -1792,7 +1812,10 @@ func handleGlueGetCrawlers(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 25)
+	if !pageOK {
+		return
+	}
 	crawlers := make([]glueCrawlerWire, 0, len(page))
 	for _, c := range page {
 		crawlers = append(crawlers, glueCrawlerWire{c})
@@ -1951,7 +1974,10 @@ func handleGlueListCrawlers(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(names, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, names, req.NextToken, maxR, 25)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"CrawlerNames": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -2064,7 +2090,10 @@ func handleGlueGetTriggers(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 25)
+	if !pageOK {
+		return
+	}
 	triggers := make([]glueTriggerWire, 0, len(page))
 	for _, t := range page {
 		triggers = append(triggers, glueTriggerWire{t})
@@ -2210,7 +2239,10 @@ func handleGlueGetConnections(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 25)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"ConnectionList": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -2636,7 +2668,10 @@ func handleGlueGetSecurityConfigurations(w http.ResponseWriter, r *http.Request)
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"SecurityConfigurations": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -2734,7 +2769,10 @@ func handleGlueListWorkflows(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(names, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, names, req.NextToken, maxR, 25)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Workflows": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -2946,7 +2984,10 @@ func handleGlueGetClassifiers(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Classifiers": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -3102,7 +3143,10 @@ func handleGlueGetUserDefinedFunctions(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(filtered, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, filtered, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"UserDefinedFunctions": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -3239,7 +3283,10 @@ func handleGlueListRegistries(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(items, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, items, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Registries": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -3548,7 +3595,10 @@ func handleGlueGetTableVersions(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(versions, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, versions, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, v := range page {
 		out = append(out, map[string]any{
@@ -4102,7 +4152,10 @@ func handleGlueListSchemaVersions(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(versions, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, versions, req.NextToken, maxR, 25)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, v := range page {
 		out = append(out, map[string]any{

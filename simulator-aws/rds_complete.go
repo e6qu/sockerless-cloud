@@ -308,7 +308,7 @@ func handleRDSCreateCustomEngineVersion(w http.ResponseWriter, r *http.Request) 
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	cevID := generateUUID()
+	cevID := sim.NewUUID()
 	cev := RDSCustomEngineVersion{
 		Engine:                  engine,
 		CustomDBEngineVersionId: cevID,
@@ -397,7 +397,7 @@ func renderRDSRecommendation(rec RDSRecommendation, elem string) string {
 // Describe/Modify lifecycle is exercisable end-to-end against real
 // stored state.
 func rdsSeedRecommendation(resourceArn string) RDSRecommendation {
-	id := "rec-" + strings.ToLower(strings.ReplaceAll(generateUUID(), "-", ""))[:17]
+	id := "rec-" + strings.ToLower(strings.ReplaceAll(sim.NewUUID(), "-", ""))[:17]
 	now := time.Now().UTC().Format(time.RFC3339)
 	rec := RDSRecommendation{
 		RecommendationId: id,

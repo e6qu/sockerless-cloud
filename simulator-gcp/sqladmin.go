@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Cloud SQL Admin v1 — REST surface. Real API path prefix is
@@ -340,7 +341,7 @@ func handleSQLInsertBackupRun(w http.ResponseWriter, r *http.Request) {
 	sqlBackupRuns.Put(sqlBackupRunKey(project, instance, id), br)
 	op := newSQLOperationRunning(project, "BACKUP_VOLUME", instance)
 	opName := op.Name
-	simGo(func() {
+	bg.Go(func() {
 		sqlBackupRuns.Update(sqlBackupRunKey(project, instance, id), func(b *SQLBackupRun) {
 			b.Status = "RUNNING"
 			b.StartTime = nowTimestamp()
@@ -478,7 +479,7 @@ func handleSQLCloneInstance(w http.ResponseWriter, r *http.Request) {
 	sqlInstances.Put(sqlInstanceKey(project, dest), cloned)
 	op := newSQLOperationRunning(project, "CLONE", dest)
 	opName := op.Name
-	simGo(func() {
+	bg.Go(func() {
 		sqlSettleOperation(project, opName, sqlCloneVolume(project, source, dest))
 	})
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -627,7 +628,7 @@ func handleSQLPointInTimeRestore(w http.ResponseWriter, r *http.Request, project
 	op := newSQLOperationRunning(project, "CLONE", target)
 	opName := op.Name
 	backupVolume := sqlBackupRunVolume(sourceProject, sourceInstance, backupRun.ID)
-	simGo(func() {
+	bg.Go(func() {
 		sqlSettleOperation(project, opName, sqlRestoreVolume(project, target, backupVolume))
 	})
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -675,7 +676,7 @@ func newSQLOperation(project, opType, targetID string) SQLOperation {
 	now := nowTimestamp()
 	op := SQLOperation{
 		Kind:          "sql#operation",
-		Name:          generateUUID(),
+		Name:          sim.NewUUID(),
 		OperationType: opType,
 		Status:        "DONE",
 		TargetProject: project,
@@ -708,7 +709,7 @@ type SQLOperationError struct {
 func newSQLOperationRunning(project, opType, targetID string) SQLOperation {
 	op := SQLOperation{
 		Kind:          "sql#operation",
-		Name:          generateUUID(),
+		Name:          sim.NewUUID(),
 		OperationType: opType,
 		Status:        "RUNNING",
 		TargetProject: project,
@@ -1439,7 +1440,7 @@ func handleSQLRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	op := newSQLOperationRunning(project, "RESTORE_VOLUME", instance)
 	opName := op.Name
-	simGo(func() {
+	bg.Go(func() {
 		sqlSettleOperation(project, opName, sqlRestoreVolume(project, instance, backupVolume))
 	})
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -1917,7 +1918,7 @@ func handleSQLCreateBackup(w http.ResponseWriter, r *http.Request) {
 	sqlBackups.Put(sqlBackupKey(project, id), b)
 	op := newSQLOperationRunning(project, "BACKUP", id)
 	opName := op.Name
-	simGo(func() {
+	bg.Go(func() {
 		captureErr := sqlCaptureVolume(project, instanceName, sqlBackupVolume(project, id))
 		state := "SUCCESSFUL"
 		if captureErr != nil {

@@ -168,7 +168,7 @@ func registerPrivateDNS(srv *sim.Server) {
 			Name:     zoneName,
 			Type:     "Microsoft.Network/privateDnsZones",
 			Location: strings.ToLower(location),
-			Etag:     generateUUID(),
+			Etag:     sim.NewUUID(),
 			Tags:     req.Tags,
 			Properties: DnsZoneProperties{
 				MaxNumberOfRecordSets:                 25000,
@@ -197,7 +197,7 @@ func registerPrivateDNS(srv *sim.Server) {
 					ID:   soaID,
 					Name: "@",
 					Type: "Microsoft.Network/privateDnsZones/SOA",
-					Etag: generateUUID(),
+					Etag: sim.NewUUID(),
 					Properties: RecordSetProperties{
 						TTL:  3600,
 						Fqdn: zoneName + ".",
@@ -230,7 +230,10 @@ func registerPrivateDNS(srv *sim.Server) {
 			return strings.HasPrefix(z.ID, prefix)
 		})
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next := armPage(r, all)
+		page, next, pageOK := armPage(w, r, all)
+		if !pageOK {
+			return
+		}
 		out := map[string]any{"value": page}
 		if next != "" {
 			out["nextLink"] = armNextLink(r, next)
@@ -333,7 +336,7 @@ func registerPrivateDNS(srv *sim.Server) {
 			ID:   recordID,
 			Name: recordName,
 			Type: "Microsoft.Network/privateDnsZones/A",
-			Etag: generateUUID(),
+			Etag: sim.NewUUID(),
 			Properties: RecordSetProperties{
 				TTL:              ttl,
 				Fqdn:             recordName + "." + zoneName + ".",
@@ -458,7 +461,7 @@ func registerPrivateDNS(srv *sim.Server) {
 					ID:   recordID,
 					Name: recordName,
 					Type: "Microsoft.Network/privateDnsZones/" + recordType,
-					Etag: generateUUID(),
+					Etag: sim.NewUUID(),
 					Properties: RecordSetProperties{
 						TTL:              ttl,
 						Fqdn:             recordName + "." + zoneName + ".",

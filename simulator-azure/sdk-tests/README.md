@@ -1,31 +1,23 @@
-# simulator-azure-sdk-tests
+# simulator-azure SDK tests
 
-Integration tests for the Azure simulator using the official Azure SDK for Go. Each test builds the simulator binary, starts it on a free port, runs SDK calls, and verifies responses.
+Integration tests for the Azure simulator through the official Azure SDK for Go (`github.com/Azure/azure-sdk-for-go/sdk`). `TestMain`
+builds the simulator into `.build/sdk-tests/`, starts it on a free port, and
+stops it when the suite ends; each test drives the real client against it.
 
-## Services tested
-
-| Test file | Service | Operations |
-|-----------|---------|------------|
-| `resourcegroup_test.go` | Resource Manager | Resource group create/delete/exists |
-| `storage_test.go` | Storage | Storage account create/get |
-| `containerapps_test.go` | Container Apps | Container Apps job create/get |
-| `identity_test.go` | Managed Identity | User-assigned identity create/get/delete |
-| `network_test.go` | Virtual Network | VNet, subnet, NSG create |
+One file covers one service family. The suite is a separate Go module with a
+relative `replace` onto the simulator; it is never installed.
 
 ## Running
 
 ```sh
 cd simulator-azure/sdk-tests
-go test -v ./...
+go test ./...
 ```
 
-The test harness (`helpers_test.go`) handles binary build, port allocation, server startup, and shutdown. No external services required.
+CI runs the suite through `make -C simulator-azure sdk-test`, sharded by the
+jobs in `.github/workflows/ci.yml`. A container engine (Docker or Podman) must
+be reachable, because workloads run as real containers.
 
-## Prerequisites
+## Client configuration
 
-- Go 1.24+
-- The `simulator-azure/` parent module (built automatically by `TestMain`)
-
-## SDK configuration
-
-Tests configure Azure SDK clients to use the local simulator by overriding the endpoint URL and using local-test credentials accepted by the simulator's OAuth2 slice.
+Clients take a cloud configuration whose Azure Resource Manager and Microsoft Entra endpoints are the simulator, and credentials the simulator's Microsoft Entra slice issues — the configuration a client of a sovereign Azure cloud takes, with different coordinates. Microsoft's Cosmos DB emulator runs once for the suite, started from `TestMain`, for the Cosmos DB differential tests. No test branches on running against the simulator.

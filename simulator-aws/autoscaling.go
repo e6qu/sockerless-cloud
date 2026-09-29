@@ -258,7 +258,10 @@ func handleASDescribeAutoScalingGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		groups = kept
 	}
-	page, next := awsPageExplicit(groups, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0))
+	page, next, pageOK := awsPage(w, asBadToken, groups, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, asg := range page {
 		items.WriteString(autoScalingGroupXML(asg))
@@ -329,7 +332,10 @@ func handleASDescribeScalingActivities(w http.ResponseWriter, r *http.Request) {
 		activities = append(activities, activity)
 	}
 	sort.Slice(activities, func(i, j int) bool { return activities[i].ActivityId < activities[j].ActivityId })
-	page, next := awsPageExplicit(activities, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0))
+	page, next, pageOK := awsPage(w, asBadToken, activities, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, activity := range page {
 		fmt.Fprintf(&items, `<member><ActivityId>%s</ActivityId><AutoScalingGroupName>%s</AutoScalingGroupName><Description>%s</Description><Cause>%s</Cause><StartTime>%s</StartTime><EndTime>%s</EndTime><StatusCode>%s</StatusCode></member>`,
@@ -482,7 +488,10 @@ func handleASDescribePolicies(w http.ResponseWriter, r *http.Request) {
 		policies = append(policies, p)
 	}
 	sort.Slice(policies, func(i, j int) bool { return policies[i].ARN < policies[j].ARN })
-	page, next := awsPageExplicit(policies, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0))
+	page, next, pageOK := awsPage(w, asBadToken, policies, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, p := range page {
 		items.WriteString(scalingPolicyXML(p))
@@ -611,7 +620,10 @@ func handleASDescribeScheduledActions(w http.ResponseWriter, r *http.Request) {
 		actions = append(actions, a)
 	}
 	sort.Slice(actions, func(i, j int) bool { return actions[i].ARN < actions[j].ARN })
-	page, next := awsPageExplicit(actions, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0))
+	page, next, pageOK := awsPage(w, asBadToken, actions, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, a := range page {
 		items.WriteString(scheduledActionXML(a))
@@ -701,7 +713,10 @@ func handleASDescribeAutoScalingInstances(w http.ResponseWriter, r *http.Request
 			instances = append(instances, asgInstance{instanceID: id, asg: asg})
 		}
 	}
-	page, next := awsPageExplicit(instances, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0))
+	page, next, pageOK := awsPage(w, asBadToken, instances, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, ai := range page {
 		items.WriteString(autoScalingInstanceXML(ai.instanceID, ai.asg))
@@ -771,7 +786,7 @@ func handleASTerminateInstanceInAutoScalingGroup(w http.ResponseWriter, r *http.
 	autoScalingGroups.Put(owner.Name, *owner)
 	now := time.Now().UTC().Format(time.RFC3339)
 	activity := ScalingActivity{
-		ActivityId:           generateUUID(),
+		ActivityId:           sim.NewUUID(),
 		AutoScalingGroupName: owner.Name,
 		Description:          cause,
 		Cause:                cause,
@@ -802,12 +817,12 @@ func terminateASGInstance(instanceID string) {
 
 func scalingPolicyARN(group, name string) string {
 	return fmt.Sprintf("arn:aws:autoscaling:%s:%s:scalingPolicy:%s:autoScalingGroupName/%s:policyName/%s",
-		awsRegion(), awsAccountID(), generateUUID(), group, name)
+		awsRegion(), awsAccountID(), sim.NewUUID(), group, name)
 }
 
 func scheduledActionARN(group, name string) string {
 	return fmt.Sprintf("arn:aws:autoscaling:%s:%s:scheduledUpdateGroupAction:%s:autoScalingGroupName/%s:scheduledActionName/%s",
-		awsRegion(), awsAccountID(), generateUUID(), group, name)
+		awsRegion(), awsAccountID(), sim.NewUUID(), group, name)
 }
 
 func scalingPolicyXML(p ASScalingPolicy) string {
@@ -1018,7 +1033,7 @@ func reconcileAutoScalingGroup(asg *AutoScalingGroup, cause string) error {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	activity := ScalingActivity{
-		ActivityId:           generateUUID(),
+		ActivityId:           sim.NewUUID(),
 		AutoScalingGroupName: asg.Name,
 		Description:          fmt.Sprintf("%s to %d instances", cause, asg.DesiredCapacity),
 		Cause:                cause,
@@ -1037,12 +1052,12 @@ func reconcileAutoScalingGroup(asg *AutoScalingGroup, cause string) error {
 // real ARN matched nothing.
 func launchConfigurationARN(name string) string {
 	return fmt.Sprintf("arn:aws:autoscaling:%s:%s:launchConfiguration:%s:launchConfigurationName/%s",
-		awsRegion(), awsAccountID(), generateUUID(), name)
+		awsRegion(), awsAccountID(), sim.NewUUID(), name)
 }
 
 func autoScalingGroupARN(name string) string {
 	return fmt.Sprintf("arn:aws:autoscaling:%s:%s:autoScalingGroup:%s:autoScalingGroupName/%s",
-		awsRegion(), awsAccountID(), generateUUID(), name)
+		awsRegion(), awsAccountID(), sim.NewUUID(), name)
 }
 
 func autoScalingGroupXML(asg AutoScalingGroup) string {
@@ -1190,12 +1205,12 @@ func asEmptyResponse(w http.ResponseWriter, action string) {
 func asResponse(w http.ResponseWriter, action, body string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse xmlns="https://autoscaling.amazonaws.com/doc/2011-01-01/"><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata><%sResult>%s</%sResult></%sResponse>`,
-		action, generateUUID(), action, body, action, action)
+		action, sim.NewUUID(), action, body, action, action)
 }
 
 func asError(w http.ResponseWriter, code, message string, status int) {
 	w.Header().Set("Content-Type", "text/xml")
 	w.WriteHeader(status)
 	fmt.Fprintf(w, `<ErrorResponse xmlns="https://autoscaling.amazonaws.com/doc/2011-01-01/"><Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error><RequestId>%s</RequestId></ErrorResponse>`,
-		code, xmlEscape(message), generateUUID())
+		code, xmlEscape(message), sim.NewUUID())
 }

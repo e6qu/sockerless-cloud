@@ -6,14 +6,14 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func TestDDBItemSnapshotIsIndependentUnderConcurrentMutation(t *testing.T) {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ddbItems = sim.MakeStore[map[string]any](nil, "ddb_items")
-	ddbResetItemLocks()
 
 	const itemKey = "snap/S#item"
 	item := map[string]any{
@@ -72,9 +72,8 @@ func TestDDBItemSnapshotIsIndependentUnderConcurrentMutation(t *testing.T) {
 func TestDDBBatchedSnapshotsSpanBatchBoundaries(t *testing.T) {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ddbItems = sim.MakeStore[map[string]any](nil, "ddb_items")
-	ddbResetItemLocks()
 
 	// Deliberately more than two batches, with holes so absent keys are covered.
 	const total = ddbSnapshotBatch*2 + 37

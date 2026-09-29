@@ -54,7 +54,7 @@ func handleFSBeginTransaction(w http.ResponseWriter, r *http.Request) {
 	if readOnly && req.Options.ReadOnly.ReadTime != "" {
 		readTime = req.Options.ReadOnly.ReadTime
 	}
-	token := base64.StdEncoding.EncodeToString([]byte(generateUUID()))
+	token := base64.StdEncoding.EncodeToString([]byte(sim.NewUUID()))
 	fsTransactions.Put(token, fsTxn{ID: token, ReadTime: readTime, ReadOnly: readOnly})
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"transaction": token})
 }

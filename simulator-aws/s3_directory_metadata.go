@@ -484,13 +484,7 @@ func handleS3RenameObject(w http.ResponseWriter, r *http.Request) {
 	}
 	srcStoreKey := s3ObjectKey(bucket, srcKey)
 	// Destination conditional headers (optimistic concurrency on the target).
-	ifNoneMatch, ifMatch := r.Header.Get("If-None-Match"), r.Header.Get("If-Match")
-	condition := func(existing S3Object, exists bool) bool {
-		if ifNoneMatch == "*" && exists {
-			return false
-		}
-		return ifMatch == "" || (exists && strings.Trim(ifMatch, `"`) == strings.Trim(existing.ETag, `"`))
-	}
+	condition := s3WriteCondition(r.Header)
 	// The object's annotations travel with it — a rename moves the object, it
 	// does not strip metadata.
 	annotations := s3ObjectAnnotationsOf(bucket, srcKey)

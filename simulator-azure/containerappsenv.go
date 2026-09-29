@@ -259,7 +259,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 				ZoneRedundant:          req.Properties.ZoneRedundant,
 				WorkloadProfiles:       req.Properties.WorkloadProfiles,
 				CustomDomainConfiguration: &CustomDomainConfiguration{
-					CustomDomainVerificationId: generateUUID(),
+					CustomDomainVerificationId: sim.NewUUID(),
 				},
 				PeerAuthentication: &PeerAuthentication{
 					Mtls: &Mtls{Enabled: false},
@@ -407,7 +407,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 			Type:     "Microsoft.App/managedEnvironments",
 			Location: env.Location,
 			Properties: EnvironmentAuthTokenProps{
-				Token:   generateUUID(),
+				Token:   sim.NewUUID(),
 				Expires: time.Now().Add(8 * time.Hour).UTC().Format(time.RFC3339),
 			},
 		}
@@ -751,7 +751,7 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 				ProvisioningState:       "Succeeded",
 				SubjectName:             req.Properties.SubjectName,
 				DomainControlValidation: dcv,
-				ValidationToken:         generateUUID(),
+				ValidationToken:         sim.NewUUID(),
 			},
 		}
 		acaEnvManagedCertificates.Put(id, cert)

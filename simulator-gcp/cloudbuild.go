@@ -1,16 +1,14 @@
 package main
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -18,6 +16,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/archive"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
 // Cloud Build v1 slice: a client submits a build, the simulator fetches the
@@ -225,7 +225,7 @@ func registerCloudBuild(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid build body: %v", err)
 			return
 		}
-		build.ID = generateUUID()
+		build.ID = sim.NewUUID()
 		build.ProjectID = project
 		build.Status = "QUEUED"
 		build.CreateTime = time.Now().UTC().Format(time.RFC3339)
@@ -490,7 +490,7 @@ func handleCreateWorkerPool(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	id := r.URL.Query().Get("workerPoolId")
 	if id == "" {
-		id = generateUUID()
+		id = sim.NewUUID()
 	}
 	var pool WorkerPool
 	if err := sim.ReadJSON(r, &pool); err != nil {
@@ -498,11 +498,11 @@ func handleCreateWorkerPool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pool.Name = fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", project, location, id)
-	pool.UID = generateUUID()
+	pool.UID = sim.NewUUID()
 	pool.State = "RUNNING"
 	pool.CreateTime = nowTimestamp()
 	pool.UpdateTime = pool.CreateTime
-	pool.Etag = generateUUID()
+	pool.Etag = sim.NewUUID()
 	cbWorkerPools.Put(pool.Name, pool)
 	op := cbDoneOperation(
 		fmt.Sprintf("projects/%s/locations/%s/operations/workerpool-%s", project, location, id),
@@ -561,7 +561,7 @@ func handlePatchWorkerPool(w http.ResponseWriter, r *http.Request) {
 		prior.PrivatePoolV1Config = update.PrivatePoolV1Config
 	}
 	prior.UpdateTime = nowTimestamp()
-	prior.Etag = generateUUID()
+	prior.Etag = sim.NewUUID()
 	cbWorkerPools.Put(key, prior)
 	op := cbDoneOperation(
 		fmt.Sprintf("projects/%s/locations/%s/operations/workerpool-%s",
@@ -593,7 +593,7 @@ func handleCreateGHEConfig(w http.ResponseWriter, r *http.Request) {
 	location := buildTriggerLocation(r)
 	id := r.URL.Query().Get("gheConfigId")
 	if id == "" {
-		id = generateUUID()
+		id = sim.NewUUID()
 	}
 	var cfg GitHubEnterpriseConfig
 	if err := sim.ReadJSON(r, &cfg); err != nil {
@@ -676,7 +676,7 @@ func handleCreateBitbucketConfig(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	id := r.URL.Query().Get("bitbucketServerConfigId")
 	if id == "" {
-		id = generateUUID()
+		id = sim.NewUUID()
 	}
 	var cfg BitbucketServerConfig
 	if err := sim.ReadJSON(r, &cfg); err != nil {
@@ -794,7 +794,7 @@ func buildTriggerKey(project, location, id string) string {
 
 func normalizeBuildTrigger(project, location string, trigger BuildTrigger) BuildTrigger {
 	if trigger.ID == "" {
-		trigger.ID = generateUUID()
+		trigger.ID = sim.NewUUID()
 	}
 	if trigger.Name == "" {
 		trigger.Name = trigger.ID
@@ -1093,7 +1093,7 @@ func executeBuild(ctx context.Context, b Build) Build {
 	}
 	defer os.RemoveAll(workDir)
 
-	if err := extractTarball(data, workDir); err != nil {
+	if err := archive.ExtractTar(bytes.NewReader(data), workDir, cloudBuildWorkerDiskBytes); err != nil {
 		return fail(fmt.Sprintf("extract source: %v", err))
 	}
 	dockerConfigDir, err := cloudBuildDockerConfig(b, workDir)
@@ -1162,56 +1162,6 @@ func executeBuild(ctx context.Context, b Build) Build {
 	return b
 }
 
-// extractTarball unpacks a gzip-compressed tar archive into dir.
-// Cloud Build context uploads use .tar.gz convention.
-func extractTarball(data []byte, dir string) error {
-	var r io.Reader = bytes.NewReader(data)
-	// Best-effort gzip detection: Cloud Build uploads are typically
-	// gzipped; skip the gzip layer if magic doesn't match.
-	if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
-		gz, err := gzip.NewReader(r)
-		if err != nil {
-			return err
-		}
-		defer gz.Close()
-		r = gz
-	}
-	tr := tar.NewReader(r)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		path := filepath.Join(dir, hdr.Name)
-		// Prevent path traversal.
-		if !strings.HasPrefix(path, dir) {
-			return fmt.Errorf("tarball contains path traversal: %s", hdr.Name)
-		}
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(path, 0o755); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-				return err
-			}
-			f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(f, tr); err != nil {
-				f.Close()
-				return err
-			}
-			f.Close()
-		}
-	}
-}
-
 // runDockerStep executes one `gcr.io/cloud-builders/docker` step.
 // Args are the docker sub-command args (e.g. ["build","-t","img","."]).
 // secretValues map env-var-name → resolved secret payload; these are
@@ -1225,55 +1175,36 @@ func extractTarball(data []byte, dir string) error {
 // then drops the local copy, so the workload pulls from the registry — not a
 // local-daemon shortcut. The ref's host routes to the registry's /v2/ (the
 // configured AR endpoint / the harness's published sim registry).
-// dockerBuildxAvailable reports whether the host's docker CLI has the buildx
-// plugin, which decides how a `docker build` step must be invoked so the result
-// lands in the daemon image store on every builder driver (see runDockerStep).
-func dockerBuildxAvailable(ctx context.Context, env []string) bool {
-	probe := exec.CommandContext(ctx, "docker", "buildx", "version")
-	probe.Env = env
-	return probe.Run() == nil
-}
-
 func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretValues map[string]string, dockerEnv []string) error {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return fmt.Errorf("docker CLI not available: %w", err)
 	}
 	if len(step.Args) >= 2 && step.Args[0] == "push" {
 		target := step.Args[1]
-		push := cancellableDockerCommand(ctx, "push", target)
-		push.Env = append(os.Environ(), dockerEnv...)
+		push := workload.DockerCommand(ctx, append(os.Environ(), dockerEnv...), "push", target)
 		if out, err := push.CombinedOutput(); err != nil {
 			return fmt.Errorf("docker push %s failed: %w: %s", target, err, strings.TrimSpace(string(out)))
 		}
 		// Drop the local copy so the run pulls from the registry, not the
 		// build host's daemon. Best-effort — a failure here doesn't fail the
 		// build (the push already succeeded).
-		if out, err := cancellableDockerCommand(ctx, "rmi", "-f", target).CombinedOutput(); err != nil {
+		if out, err := workload.DockerCommand(ctx, nil, "rmi", "-f", target).CombinedOutput(); err != nil {
 			fmt.Fprintf(os.Stderr, "cloudbuild: could not remove local build output %s after push: %v: %s\n",
 				target, err, strings.TrimSpace(string(out)))
 		}
 		return nil
 	}
-	// A `docker build` step must leave the image in the daemon image store so a
-	// later push step finds it — exactly as real Cloud Build's docker daemon
-	// does. On a host whose default builder is the docker-container buildx
-	// driver, plain `docker build` leaves the result in the build cache only and
-	// the push fails "image not known". When the buildx plugin is present, route
-	// the build through `docker buildx build --load` (loads to the store for
-	// every driver); when it's absent (the legacy `docker.io` builder), plain
-	// `docker build` writes to the store natively and rejects the buildx-only
-	// `--load` flag. Other steps run verbatim.
 	env := append(os.Environ(), dockerEnv...)
 	args := step.Args
-	if len(args) >= 1 && args[0] == "build" && dockerBuildxAvailable(ctx, env) {
-		args = append([]string{"buildx", "build", "--load"}, args[1:]...)
-		fmt.Fprintf(os.Stderr, "cloudbuild: building via `docker buildx build --load` (buildx present)\n")
+	if len(args) >= 1 && args[0] == "build" {
+		args = append(workload.DockerBuildInvocation(ctx, env), args[1:]...)
 	}
-	cmd := cancellableDockerCommand(ctx, args...)
-	cmd.Dir = workDir
-	if step.Dir != "" {
-		cmd.Dir = filepath.Join(workDir, step.Dir)
+	dir, err := cloudBuildStepDir(workDir, step.Dir)
+	if err != nil {
+		return err
 	}
+	cmd := workload.DockerCommand(ctx, nil, args...)
+	cmd.Dir = dir
 	for _, e := range step.Env {
 		env = append(env, e)
 	}
@@ -1290,25 +1221,35 @@ func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretV
 	return nil
 }
 
-// cancellableDockerCommand builds a docker invocation a cancelled build can
-// actually stop. Two things have to be true for the cancel to end the work
-// rather than only the client. The build itself runs in the engine, not in the
-// CLI — buildx hands it to buildkit and only tells buildkit to stop when the
-// CLI unwinds, which it does on an interrupt and not on a kill, so the cancel
-// interrupts. And a killed CLI can leave a child holding the write end of the
-// output pipe, which makes Wait block after the process is gone; WaitDelay
-// bounds the unwind and closes those descriptors, so the call that started the
-// build returns instead of hanging for the length of the build.
-func cancellableDockerCommand(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
-	cmd.WaitDelay = dockerStepCancelGrace
-	return cmd
-}
+// cloudBuildWorkspace is where Cloud Build mounts the build's source in every
+// step's container; the simulator runs steps on the host in workDir instead.
+const cloudBuildWorkspace = "/workspace"
 
-// dockerStepCancelGrace is how long an interrupted docker step has to tell the
-// engine to stop before it is killed outright.
-const dockerStepCancelGrace = 10 * time.Second
+// cloudBuildWorkerDiskBytes is the disk of a default-pool Cloud Build worker,
+// which bounds how far a source archive can expand.
+const cloudBuildWorkerDiskBytes = 100 << 30
+
+// cloudBuildStepDir resolves a step's dir against the host directory that
+// stands in for /workspace. Cloud Build resolves a relative dir against
+// /workspace; an absolute dir names a path in the step's container, which on
+// the simulator's host exists only inside /workspace.
+func cloudBuildStepDir(workDir, dir string) (string, error) {
+	rel := dir
+	if path.IsAbs(dir) {
+		var ok bool
+		if rel, ok = strings.CutPrefix(path.Clean(dir), cloudBuildWorkspace); !ok || (rel != "" && rel[0] != '/') {
+			return "", fmt.Errorf("step dir %q is outside %s, which is all a step on this host can reach", dir, cloudBuildWorkspace)
+		}
+		rel = strings.TrimPrefix(rel, "/")
+	}
+	if rel == "" {
+		return workDir, nil
+	}
+	if !filepath.IsLocal(filepath.FromSlash(rel)) {
+		return "", fmt.Errorf("step dir %q leaves %s", dir, cloudBuildWorkspace)
+	}
+	return filepath.Join(workDir, filepath.FromSlash(rel)), nil
+}
 
 // structToMap converts a Build to a generic map[string]any for
 // embedding inside the LRO's response envelope. The real API wraps

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +12,9 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // Cloud Run Jobs v2 types
@@ -424,19 +426,13 @@ type OperationError struct {
 	Message string `json:"message"`
 }
 
-func generateUUID() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-}
-
 // newLRO creates a completed Long-Running Operation and persists it so
 // subsequent GET /operations/{op} polls return the same record. The sim does
 // no asynchronous work, so the operation is always returned with `done=true`
 // and the embedded response — that matches what real Cloud Run returns once
 // the underlying resource has settled.
 func newLRO(project, location string, resource any, typeName string) Operation {
-	opID := generateUUID()
+	opID := sim.NewUUID()
 	// Convert resource to a map and add @type for protobuf Any compatibility.
 	// GCP REST clients expect the response field to be a google.protobuf.Any
 	// which requires @type in the JSON representation.
@@ -512,33 +508,13 @@ func cloneAnyMap(src map[string]any) map[string]any {
 }
 
 // Container handle tracker for Cloud Run Jobs real execution
-var crjProcessHandles sync.Map // map[execName]*cloudRunJobProcesses
+var crjProcessHandles sync.Map // map[execName]*workload.Group
 
 // cloudRunStopGrace is the grace Cloud Run gives a container between the
 // SIGTERM that stops it — a cancelled execution, a retired instance — and the
 // SIGKILL that follows: ten seconds, as Google documents for jobs and services
 // alike. Cloud Functions runs on Cloud Run and gets the same.
 const cloudRunStopGrace = 10 * time.Second
-
-type cloudRunJobProcesses struct {
-	Main     *sim.ContainerHandle
-	Sidecars []*sim.ContainerHandle
-}
-
-func stopCloudRunJobProcesses(p *cloudRunJobProcesses) {
-	if p == nil {
-		return
-	}
-	if p.Main != nil {
-		sim.StopContainer(p.Main.ContainerID, cloudRunStopGrace)
-		p.Main.Cancel()
-	}
-	for _, h := range p.Sidecars {
-		if h != nil {
-			h.Cancel()
-		}
-	}
-}
 
 // crOperations holds long-running Operation records so the SDK can
 // `GetOperation` against the LRO returned by Create/Run/Delete, matching
@@ -577,7 +553,7 @@ func recoverCloudRunJobExecutions(jobs sim.Store[Job], executions sim.Store[Exec
 				{Type: "Completed", State: "CONDITION_FAILED", LastTransitionTime: completionTime, Message: message},
 			}
 			e.Reconciling = false
-			e.Etag = generateUUID()
+			e.Etag = sim.NewUUID()
 		})
 		if !transitioned {
 			continue
@@ -593,14 +569,14 @@ func recoverCloudRunJobExecutions(jobs sim.Store[Job], executions sim.Store[Exec
 					{Type: "Completed", State: "CONDITION_FAILED", LastTransitionTime: completionTime, Message: message},
 				}
 				t.Reconciling = false
-				t.Etag = generateUUID()
+				t.Etag = sim.NewUUID()
 			})
 		}
 		if jobName, _, ok := strings.Cut(exec.Name, "/executions/"); ok {
 			jobs.Update(jobName, func(j *Job) {
 				if j.LatestCreatedExecution != nil && j.LatestCreatedExecution.Name == exec.Name && j.LatestCreatedExecution.CompletionTime == "" {
 					j.LatestCreatedExecution.CompletionTime = completionTime
-					j.Etag = generateUUID()
+					j.Etag = sim.NewUUID()
 				}
 			})
 		}
@@ -654,7 +630,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 
 		now := nowTimestamp()
 		job.Name = name
-		job.UID = generateUUID()
+		job.UID = sim.NewUUID()
 		job.Generation = 1
 		job.CreateTime = now
 		job.UpdateTime = now
@@ -690,7 +666,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		}
 		// The etag is the fingerprint of this version of the resource, so a
 		// fresh one is minted for every version the store holds.
-		job.Etag = generateUUID()
+		job.Etag = sim.NewUUID()
 
 		jobs.Put(name, job)
 
@@ -982,7 +958,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime},
 		}
 		update.Reconciling = false
-		update.Etag = generateUUID()
+		update.Etag = sim.NewUUID()
 		jobs.Put(name, update)
 		lro := newLRO(project, location, update, "type.googleapis.com/google.cloud.run.v2.Job")
 		sim.WriteJSON(w, http.StatusOK, lro)
@@ -1065,7 +1041,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrides) Execution {
 	name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
 	now := nowTimestamp()
-	execName := fmt.Sprintf("%s/executions/%s", name, generateUUID())
+	execName := fmt.Sprintf("%s/executions/%s", name, sim.NewUUID())
 
 	var taskCount int32 = 1
 	var parallelism int32 = 1
@@ -1090,7 +1066,7 @@ func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrid
 
 	exec := Execution{
 		Name:         execName,
-		UID:          generateUUID(),
+		UID:          sim.NewUUID(),
 		Generation:   1,
 		Labels:       job.Labels,
 		Parallelism:  parallelism,
@@ -1102,7 +1078,7 @@ func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrid
 		Conditions: []Condition{
 			{Type: "Ready", State: "CONDITION_PENDING", LastTransitionTime: now},
 		},
-		Etag:        generateUUID(),
+		Etag:        sim.NewUUID(),
 		Reconciling: true,
 	}
 	crjExecutions.Put(execName, exec)
@@ -1110,10 +1086,10 @@ func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrid
 	// Materialize one Task per index, mirroring how Cloud Run creates
 	// TaskCount tasks when an execution starts.
 	for i := int32(0); i < taskCount; i++ {
-		taskName := fmt.Sprintf("%s/tasks/%s", execName, generateUUID())
+		taskName := fmt.Sprintf("%s/tasks/%s", execName, sim.NewUUID())
 		task := Task{
 			Name:       taskName,
-			UID:        generateUUID(),
+			UID:        sim.NewUUID(),
 			Generation: 1,
 			Labels:     job.Labels,
 			CreateTime: now,
@@ -1124,7 +1100,7 @@ func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrid
 			Conditions: []Condition{
 				{Type: "Started", State: "CONDITION_PENDING", LastTransitionTime: now},
 			},
-			Etag:        generateUUID(),
+			Etag:        sim.NewUUID(),
 			Reconciling: true,
 		}
 		if tmpl != nil {
@@ -1138,7 +1114,7 @@ func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrid
 	}
 
 	injectCloudRunJobLog(project, jobID, "Container started")
-	go settleCloudRunJobExecution(execName, taskCount, project, jobID, tmpl)
+	bg.Go(func() { settleCloudRunJobExecution(execName, taskCount, project, jobID, tmpl) })
 
 	crjJobs.Update(name, func(j *Job) {
 		j.ExecutionCount++
@@ -1147,7 +1123,7 @@ func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrid
 			Name:       execName,
 			CreateTime: now,
 		}
-		j.Etag = generateUUID()
+		j.Etag = sim.NewUUID()
 	})
 	return exec
 }
@@ -1237,15 +1213,15 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 				execShort = last
 			}
 		}
-		handle, sidecars, err := startCloudRunJobContainers(execName, execShort, taskTmpl, timeout, sink)
+		group, err := startCloudRunJobContainers(execName, execShort, taskTmpl, timeout, sink)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: failed to start containers for execution: err=%v\n", err)
 			succeeded = false
 		} else {
-			crjProcessHandles.Store(execName, &cloudRunJobProcesses{Main: handle, Sidecars: sidecars})
-			result := handle.Wait()
+			crjProcessHandles.Store(execName, group)
+			result := group.Main.Wait()
 			crjProcessHandles.Delete(execName)
-			for _, h := range sidecars {
+			for _, h := range group.Sidecars {
 				h.Cancel()
 			}
 			succeeded = result.ExitCode == 0
@@ -1277,7 +1253,7 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 			{Type: "Completed", State: enumString(state), LastTransitionTime: completionTime, Reason: reason},
 		}
 		e.Reconciling = false
-		e.Etag = generateUUID()
+		e.Etag = sim.NewUUID()
 	})
 	if !completed {
 		return
@@ -1306,14 +1282,14 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 				ExitCode: exitCode,
 			}
 			t.Reconciling = false
-			t.Etag = generateUUID()
+			t.Etag = sim.NewUUID()
 		})
 	}
 	if jobKey, _, ok := strings.Cut(execName, "/executions/"); ok {
 		crjJobs.Update(jobKey, func(j *Job) {
 			if j.LatestCreatedExecution != nil && j.LatestCreatedExecution.Name == execName {
 				j.LatestCreatedExecution.CompletionTime = nowTimestamp()
-				j.Etag = generateUUID()
+				j.Etag = sim.NewUUID()
 			}
 		})
 	}
@@ -1335,8 +1311,8 @@ func cancelCloudRunExecution(project, location, jobID, execID string) (Execution
 	name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s/executions/%s", project, location, jobID, execID)
 
 	if v, ok := crjProcessHandles.LoadAndDelete(name); ok {
-		if procs, ok := v.(*cloudRunJobProcesses); ok {
-			stopCloudRunJobProcesses(procs)
+		if group, ok := v.(*workload.Group); ok {
+			group.Stop(cloudRunStopGrace)
 		}
 	}
 
@@ -1355,7 +1331,7 @@ func cancelCloudRunExecution(project, location, jobID, execID string) (Execution
 			{Type: "Completed", State: "CONDITION_FAILED", LastTransitionTime: now, Reason: "Cancelled"},
 		}
 		e.Reconciling = false
-		e.Etag = generateUUID()
+		e.Etag = sim.NewUUID()
 	})
 	if !ok {
 		return Execution{}, false
@@ -1365,7 +1341,7 @@ func cancelCloudRunExecution(project, location, jobID, execID string) (Execution
 	crjJobs.Update(jobName, func(j *Job) {
 		if j.LatestCreatedExecution != nil && j.LatestCreatedExecution.Name == name {
 			j.LatestCreatedExecution.CompletionTime = nowTimestamp()
-			j.Etag = generateUUID()
+			j.Etag = sim.NewUUID()
 		}
 	})
 	injectCloudRunJobLog(project, jobID, "Execution cancelled")
@@ -1374,16 +1350,25 @@ func cancelCloudRunExecution(project, location, jobID, execID string) (Execution
 	return exec, true
 }
 
-func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate, timeout time.Duration, sink sim.LogSink) (*sim.ContainerHandle, []*sim.ContainerHandle, error) {
+func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate, timeout time.Duration, sink sim.LogSink) (*workload.Group, error) {
 	if taskTmpl == nil || len(taskTmpl.Containers) == 0 {
-		return nil, nil, fmt.Errorf("execution has no containers")
+		return nil, fmt.Errorf("execution has no containers")
 	}
 
 	volByName := make(map[string]Volume)
 	for _, v := range taskTmpl.Volumes {
 		volByName[v.Name] = v
 	}
-	bindsFor := func(c Container) []string {
+	project := resourceProject(execID)
+	metadataEnv, err := hostMetadataEnv()
+	if err != nil {
+		return nil, err
+	}
+	extraHosts, err := hostMetadataExtraHosts()
+	if err != nil {
+		return nil, err
+	}
+	member := func(c Container, name string) workload.Container {
 		var binds []string
 		for _, mp := range c.VolumeMounts {
 			v, ok := volByName[mp.Name]
@@ -1396,86 +1381,36 @@ func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate
 			}
 			binds = append(binds, bind)
 		}
-		return binds
-	}
-	envFor := func(c Container) map[string]string {
 		cmdEnv := make(map[string]string, len(c.Env))
 		for _, ev := range c.Env {
 			cmdEnv[ev.Name] = ev.Value
 		}
-		return mergeEnv(cmdEnv, hostMetadataEnv())
-	}
-
-	project := resourceProject(execID)
-	main := taskTmpl.Containers[0]
-	mainImage := sim.ResolveLocalImage(main.Image)
-	mainAuth := workloadRegistryAuth(project, mainImage)
-	mainPlatform, err := localImagePlatform(context.Background(), mainImage, mainAuth)
-	if err != nil {
-		return nil, nil, fmt.Errorf("resolve main container %q image platform: %w", main.Name, err)
-	}
-	mainHandle, err := sim.StartContainerSync(sim.ContainerConfig{
-		CancelGracePeriod: cloudRunStopGrace,
-		Image:             mainImage,
-		Architecture:      mainPlatform,
-		RegistryAuth:      mainAuth,
-		Command:           main.Command,
-		Args:              main.Args,
-		Env:               envFor(main),
-		Timeout:           timeout,
-		Name:              fmt.Sprintf("sockerless-sim-gcp-job-%s", execShort),
-		Labels: map[string]string{
-			"sockerless-sim-execution":           execID,
-			"sockerless-sim-execution-container": main.Name,
-		},
-		Binds:      bindsFor(main),
-		ExtraHosts: hostMetadataExtraHosts(),
-		Sandbox:    SandboxCloudRun,
-	}, sink)
-	if err != nil {
-		return nil, nil, fmt.Errorf("start main container %q: %w", main.Name, err)
-	}
-
-	var sidecars []*sim.ContainerHandle
-	for i, c := range taskTmpl.Containers[1:] {
-		sidecarImage := sim.ResolveLocalImage(c.Image)
-		sidecarAuth := workloadRegistryAuth(project, sidecarImage)
-		sidecarPlatform, err := localImagePlatform(context.Background(), sidecarImage, sidecarAuth)
-		if err != nil {
-			mainHandle.Cancel()
-			for _, h := range sidecars {
-				h.Cancel()
-			}
-			return nil, nil, fmt.Errorf("resolve sidecar container %q image platform: %w", c.Name, err)
-		}
-		handle, err := sim.StartContainerSync(sim.ContainerConfig{
+		image := sim.ResolveLocalImage(c.Image)
+		return workload.Container{Name: c.Name, Config: sim.ContainerConfig{
 			CancelGracePeriod: cloudRunStopGrace,
-			Image:             sidecarImage,
-			Architecture:      sidecarPlatform,
-			RegistryAuth:      sidecarAuth,
+			Image:             image,
+			RegistryAuth:      workloadRegistryAuth(project, image),
 			Command:           c.Command,
 			Args:              c.Args,
-			Env:               envFor(c),
+			Env:               workloadhost.MergeEnv(cmdEnv, metadataEnv),
 			Timeout:           timeout,
-			Name:              fmt.Sprintf("sockerless-sim-gcp-job-%s-sidecar-%d", execShort, i),
+			Name:              name,
 			Labels: map[string]string{
 				"sockerless-sim-execution":           execID,
 				"sockerless-sim-execution-container": c.Name,
 			},
-			NetworkMode: "container:" + mainHandle.ContainerID,
-			Binds:       bindsFor(c),
-			Sandbox:     SandboxCloudRun,
-		}, sink)
-		if err != nil {
-			mainHandle.Cancel()
-			for _, h := range sidecars {
-				h.Cancel()
-			}
-			return nil, nil, fmt.Errorf("start sidecar container %q: %w", c.Name, err)
-		}
-		sidecars = append(sidecars, handle)
+			Binds:   binds,
+			Sandbox: SandboxCloudRun,
+		}}
 	}
-	return mainHandle, sidecars, nil
+
+	main := member(taskTmpl.Containers[0], fmt.Sprintf("sockerless-sim-gcp-job-%s", execShort))
+	main.Config.ExtraHosts = extraHosts
+	sidecars := make([]workload.Container, 0, len(taskTmpl.Containers)-1)
+	for i, c := range taskTmpl.Containers[1:] {
+		sidecars = append(sidecars, member(c, fmt.Sprintf("sockerless-sim-gcp-job-%s-sidecar-%d", execShort, i)))
+	}
+	return workload.StartGroup(context.Background(), main, sidecars, sink)
 }
 
 // injectCloudRunJobLog writes a log entry to the Cloud Logging store for a

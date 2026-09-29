@@ -20,6 +20,7 @@ import (
 	"time"
 
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/e6qu/sockerless-cloud/sim"
 	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -894,7 +895,7 @@ func spannerBeginTxn(session, dbName string, readOnly, partitionedDML bool) ([]b
 	if err != nil {
 		return nil, nil, status.Errorf(codes.Internal, "begin Cloud Spanner transaction: %v", err)
 	}
-	id := generateUUID()
+	id := sim.NewUUID()
 	runtime := &spannerTxnRuntime{
 		session:        session,
 		database:       dbName,
@@ -982,7 +983,7 @@ func (s *spannerDataGRPC) CreateSession(_ context.Context, req *sppb.CreateSessi
 	if sess == nil {
 		sess = &sppb.Session{}
 	}
-	sessionID := generateUUID()
+	sessionID := sim.NewUUID()
 	out := &sppb.Session{
 		Name:        dbName + "/sessions/" + sessionID,
 		Labels:      sess.GetLabels(),
@@ -1012,7 +1013,7 @@ func (s *spannerDataGRPC) BatchCreateSessions(_ context.Context, req *sppb.Batch
 	tmpl := req.GetSessionTemplate()
 	resp := &sppb.BatchCreateSessionsResponse{Session: make([]*sppb.Session, 0, count)}
 	for i := 0; i < count; i++ {
-		sessionID := generateUUID()
+		sessionID := sim.NewUUID()
 		sess := &sppb.Session{
 			Name:        dbName + "/sessions/" + sessionID,
 			Labels:      tmpl.GetLabels(),
@@ -1879,7 +1880,7 @@ func spannerCreatePartition(session string, selector *sppb.TransactionSelector, 
 	if runtime == nil || !runtime.readOnly || runtime.partitionedDML {
 		return nil, status.Error(codes.FailedPrecondition, "partitioning requires a read-only transaction")
 	}
-	token := generateUUID()
+	token := sim.NewUUID()
 	partition := spannerPartitionRuntime{
 		session:       session,
 		transactionID: append([]byte(nil), transactionID...),

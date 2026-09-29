@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // This file completes the Lambda restJson1 control-plane slice: the
@@ -173,7 +174,7 @@ func handleLambdaUpdateFunctionCode(w http.ResponseWriter, r *http.Request) {
 		}
 		fn.LastModified = time.Now().UTC().Format(time.RFC3339)
 		fn.LastUpdateStatus = "Successful"
-		fn.RevisionId = generateUUID()
+		fn.RevisionId = sim.NewUUID()
 	})
 	fn, _ = lambdaFunctions.Get(name)
 	if req.Publish {
@@ -502,7 +503,10 @@ func handleLambdaListFunctionVersionsByCapacityProvider(w http.ResponseWriter, r
 			maxItems = parsed
 		}
 	}
-	page, nextMarker := awsPage(functionVersions, r.URL.Query().Get("Marker"), maxItems, 50)
+	page, nextMarker, pageOK := awsPage(w, lambdaBadToken, functionVersions, r.URL.Query().Get("Marker"), maxItems, 50)
+	if !pageOK {
+		return
+	}
 	response := map[string]any{
 		"CapacityProviderArn": cp.CapacityProviderArn,
 		"FunctionVersions":    page,
@@ -723,7 +727,7 @@ func lambdaBeginDurableExecution(
 	payload []byte,
 ) (string, bool, string) {
 	if executionName == "" {
-		executionName = generateUUID()
+		executionName = sim.NewUUID()
 	}
 	if len(executionName) > 64 {
 		return "", false, "DurableExecutionName must not exceed 64 characters"
@@ -744,7 +748,7 @@ func lambdaBeginDurableExecution(
 		}
 		return execution.Arn, true, ""
 	}
-	executionID := generateUUID()
+	executionID := sim.NewUUID()
 	arn := qualifiedFunctionARN + "/durable-execution/" + executionName + "/" + executionID
 	now := lambdaNowEpoch()
 	execution := &lambdaDurableExecution{
@@ -965,7 +969,7 @@ func lambdaStartDurableCoordinator(arn string, function LambdaFunction) {
 	changeCh := execution.ChangeCh
 	lambdaDurableMu.Unlock()
 
-	simGo(func() {
+	bg.Go(func() {
 		var executionTimer <-chan time.Time
 		if timeoutSeconds > 0 {
 			timer := time.NewTimer(timeoutRemaining)
@@ -1319,7 +1323,7 @@ func handleLambdaCheckpointDurableExecution(w http.ResponseWriter, r *http.Reque
 						"Callback timeout values must be non-negative integers", http.StatusBadRequest)
 					return
 				}
-				callbackID := generateUUID()
+				callbackID := sim.NewUUID()
 				op.CallbackDetails = map[string]any{"CallbackId": callbackID}
 				op.callbackStartedAt = time.Now()
 				op.callbackHeartbeatAt = op.callbackStartedAt
@@ -1566,7 +1570,10 @@ func handleLambdaGetDurableExecutionHistory(w http.ResponseWriter, r *http.Reque
 			maxItems = parsed
 		}
 	}
-	page, nextMarker := awsPage(events, r.URL.Query().Get("Marker"), maxItems, 100)
+	page, nextMarker, pageOK := awsPage(w, lambdaBadToken, events, r.URL.Query().Get("Marker"), maxItems, 100)
+	if !pageOK {
+		return
+	}
 	response := map[string]any{"Events": page}
 	if nextMarker != "" {
 		response["NextMarker"] = nextMarker
@@ -1607,7 +1614,10 @@ func handleLambdaGetDurableExecutionState(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	page, nextMarker := awsPage(ops, r.URL.Query().Get("Marker"), maxItems, 100)
+	page, nextMarker, pageOK := awsPage(w, lambdaBadToken, ops, r.URL.Query().Get("Marker"), maxItems, 100)
+	if !pageOK {
+		return
+	}
 	response := map[string]any{"Operations": page}
 	if nextMarker != "" {
 		response["NextMarker"] = nextMarker
@@ -1713,7 +1723,10 @@ func handleLambdaListDurableExecutionsByFunction(w http.ResponseWriter, r *http.
 		}
 		maxItems = parsed
 	}
-	page, nextMarker := awsPage(executions, r.URL.Query().Get("Marker"), maxItems, 100)
+	page, nextMarker, pageOK := awsPage(w, lambdaBadToken, executions, r.URL.Query().Get("Marker"), maxItems, 100)
+	if !pageOK {
+		return
+	}
 	response := map[string]any{"DurableExecutions": page}
 	if nextMarker != "" {
 		response["NextMarker"] = nextMarker

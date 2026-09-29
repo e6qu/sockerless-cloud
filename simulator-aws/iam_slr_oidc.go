@@ -202,7 +202,7 @@ func handleIAMCreateServiceLinkedRole(w http.ResponseWriter, r *http.Request) {
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </CreateServiceLinkedRoleResponse>`,
 		role.Path, role.RoleName, role.RoleId, role.Arn, role.CreateDate,
-		url.QueryEscape(role.AssumeRolePolicyDocument), html.EscapeString(role.Description), generateUUID())
+		url.QueryEscape(role.AssumeRolePolicyDocument), html.EscapeString(role.Description), sim.NewUUID())
 }
 
 func handleIAMDeleteServiceLinkedRole(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +219,7 @@ func handleIAMDeleteServiceLinkedRole(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteServiceLinkedRoleResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <DeleteServiceLinkedRoleResult><DeletionTaskId>%s</DeletionTaskId></DeleteServiceLinkedRoleResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</DeleteServiceLinkedRoleResponse>`, taskID, generateUUID())
+</DeleteServiceLinkedRoleResponse>`, taskID, sim.NewUUID())
 }
 
 func handleIAMGetSLRDeletionStatus(w http.ResponseWriter, r *http.Request) {
@@ -233,7 +233,7 @@ func handleIAMGetSLRDeletionStatus(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetServiceLinkedRoleDeletionStatusResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <GetServiceLinkedRoleDeletionStatusResult><Status>%s</Status></GetServiceLinkedRoleDeletionStatusResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetServiceLinkedRoleDeletionStatusResponse>`, status, generateUUID())
+</GetServiceLinkedRoleDeletionStatusResponse>`, status, sim.NewUUID())
 }
 
 func iamOIDCArn(providerURL string) string {
@@ -295,7 +295,7 @@ func handleIAMCreateOIDCProvider(w http.ResponseWriter, r *http.Request) {
     <OpenIDConnectProviderArn>%s</OpenIDConnectProviderArn>
   </CreateOpenIDConnectProviderResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</CreateOpenIDConnectProviderResponse>`, arn, generateUUID())
+</CreateOpenIDConnectProviderResponse>`, arn, sim.NewUUID())
 }
 
 func iamOIDCMembers(values []string, elemName string) string {
@@ -331,7 +331,7 @@ func handleIAMGetOIDCProvider(w http.ResponseWriter, r *http.Request) {
 		iamOIDCMembers(provider.ClientIDList, "member"),
 		iamOIDCMembers(provider.ThumbprintList, "member"),
 		iamMapTagsXML(provider.Tags),
-		generateUUID())
+		sim.NewUUID())
 }
 
 // iamMapTagsXML renders a map-backed tag set (OIDC providers store tags as a
@@ -403,7 +403,7 @@ func handleIAMUpdateOIDCThumbprint(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<UpdateOpenIDConnectProviderThumbprintResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</UpdateOpenIDConnectProviderThumbprintResponse>`, generateUUID())
+</UpdateOpenIDConnectProviderThumbprintResponse>`, sim.NewUUID())
 }
 
 func handleIAMAddOIDCClientID(w http.ResponseWriter, r *http.Request) {
@@ -423,7 +423,7 @@ func handleIAMAddOIDCClientID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AddClientIDToOpenIDConnectProviderResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</AddClientIDToOpenIDConnectProviderResponse>`, generateUUID())
+</AddClientIDToOpenIDConnectProviderResponse>`, sim.NewUUID())
 }
 
 func handleIAMRemoveOIDCClientID(w http.ResponseWriter, r *http.Request) {
@@ -444,7 +444,7 @@ func handleIAMRemoveOIDCClientID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RemoveClientIDFromOpenIDConnectProviderResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</RemoveClientIDFromOpenIDConnectProviderResponse>`, generateUUID())
+</RemoveClientIDFromOpenIDConnectProviderResponse>`, sim.NewUUID())
 }
 
 func handleIAMDeleteOIDCProvider(w http.ResponseWriter, r *http.Request) {
@@ -457,7 +457,7 @@ func handleIAMDeleteOIDCProvider(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteOpenIDConnectProviderResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</DeleteOpenIDConnectProviderResponse>`, generateUUID())
+</DeleteOpenIDConnectProviderResponse>`, sim.NewUUID())
 }
 
 func handleIAMListOIDCProviders(w http.ResponseWriter, r *http.Request) {
@@ -473,5 +473,5 @@ func handleIAMListOIDCProviders(w http.ResponseWriter, r *http.Request) {
     <OpenIDConnectProviderList>%s</OpenIDConnectProviderList>
   </ListOpenIDConnectProvidersResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListOpenIDConnectProvidersResponse>`, b.String(), generateUUID())
+</ListOpenIDConnectProvidersResponse>`, b.String(), sim.NewUUID())
 }

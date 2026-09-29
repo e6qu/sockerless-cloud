@@ -340,7 +340,7 @@ type cmSOAProperties struct {
 // cmDnsPropertiesFor builds a new DNS namespace's DnsProperties: a fresh
 // hosted zone plus the SOA the request configured, if any.
 func cmDnsPropertiesFor(props *cmSOAProperties) *CMDnsProperties {
-	dns := &CMDnsProperties{HostedZoneId: "Z" + generateUUID()[:12]}
+	dns := &CMDnsProperties{HostedZoneId: "Z" + sim.NewUUID()[:12]}
 	if props != nil && props.DnsProperties != nil && props.DnsProperties.SOA != nil {
 		dns.SOA = &struct {
 			TTL int64 `json:"TTL"`
@@ -367,7 +367,7 @@ func cmCreateNamespace(w http.ResponseWriter, ns CMNamespace, tags []cmTag) {
 	cmNamespaces.Put(ns.Id, ns)
 	cmPutResourceTags(ns.Arn, tags)
 
-	operationId := generateUUID()
+	operationId := sim.NewUUID()
 	now := time.Now().Unix()
 	cmOperations.Put(operationId, CMOperation{
 		OperationId: operationId,
@@ -410,7 +410,7 @@ func handleCMCreatePrivateDnsNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nsId := "ns-" + generateUUID()[:16]
+	nsId := "ns-" + sim.NewUUID()[:16]
 	cmNamespaceVPCs.Put(nsId, req.Vpc)
 	cmCreateNamespace(w, CMNamespace{
 		Id:               nsId,
@@ -451,7 +451,7 @@ func handleCMCreatePublicDnsNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nsId := "ns-" + generateUUID()[:16]
+	nsId := "ns-" + sim.NewUUID()[:16]
 	cmCreateNamespace(w, CMNamespace{
 		Id:               nsId,
 		Arn:              cmArn("namespace", nsId),
@@ -490,7 +490,7 @@ func handleCMCreateHttpNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nsId := "ns-" + generateUUID()[:16]
+	nsId := "ns-" + sim.NewUUID()[:16]
 	cmCreateNamespace(w, CMNamespace{
 		Id:               nsId,
 		Arn:              cmArn("namespace", nsId),
@@ -559,7 +559,7 @@ func handleCMDeleteNamespace(w http.ResponseWriter, r *http.Request) {
 	cmNamespaceVPCs.Delete(req.Id)
 	cmNamespaceNetworks.Delete(req.Id)
 	cmTags.Delete(ns.Arn)
-	operationId := generateUUID()
+	operationId := sim.NewUUID()
 	now := time.Now().Unix()
 	cmOperations.Put(operationId, CMOperation{
 		OperationId: operationId,
@@ -579,7 +579,7 @@ func handleCMDeleteNamespace(w http.ResponseWriter, r *http.Request) {
 // cmUpdateNamespaceOp records a successful UPDATE_NAMESPACE operation and writes
 // the OperationId response shared by all three Update*Namespace ops.
 func cmUpdateNamespaceOp(w http.ResponseWriter, nsId string) {
-	operationId := generateUUID()
+	operationId := sim.NewUUID()
 	now := time.Now().Unix()
 	cmOperations.Put(operationId, CMOperation{
 		OperationId: operationId,
@@ -722,7 +722,7 @@ func handleCMCreateService(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	svcId := "srv-" + generateUUID()[:16]
+	svcId := "srv-" + sim.NewUUID()[:16]
 	if req.HealthCheckCustomConfig != nil {
 		// AWS Cloud Map always uses a failure threshold of one for custom
 		// health checks, regardless of the value supplied by the caller.
@@ -836,7 +836,7 @@ func handleCMUpdateService(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 
-	operationId := generateUUID()
+	operationId := sim.NewUUID()
 	now := time.Now().Unix()
 	cmOperations.Put(operationId, CMOperation{
 		OperationId: operationId,
@@ -1039,7 +1039,7 @@ func handleCMRegisterInstance(w http.ResponseWriter, r *http.Request) {
 // (REGISTER_INSTANCE / DEREGISTER_INSTANCE) a caller polls with GetOperation
 // and writes the OperationId response.
 func cmWriteInstanceOperation(w http.ResponseWriter, opType string, svc CMService, instanceId string) {
-	operationId := generateUUID()
+	operationId := sim.NewUUID()
 	now := time.Now().Unix()
 	targets := map[string]string{
 		"INSTANCE": instanceId,
@@ -1414,7 +1414,10 @@ func handleCMListInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, next := awsPage(cmServiceInstances(req.ServiceId), req.NextToken, awsMaxResults(req.MaxResults), 100)
+	page, next, pageOK := awsPage(w, cloudMapBadToken, cmServiceInstances(req.ServiceId), req.NextToken, awsMaxResults(req.MaxResults), 100)
+	if !pageOK {
+		return
+	}
 	summaries := make([]map[string]any, 0, len(page))
 	for _, inst := range page {
 		summaries = append(summaries, cmInstanceSummary(inst))
@@ -1476,7 +1479,10 @@ func handleCMListNamespaces(w http.ResponseWriter, r *http.Request) {
 		namespaces = filtered
 	}
 
-	page, next := awsPage(namespaces, req.NextToken, awsMaxResults(req.MaxResults), 100)
+	page, next, pageOK := awsPage(w, cloudMapBadToken, namespaces, req.NextToken, awsMaxResults(req.MaxResults), 100)
+	if !pageOK {
+		return
+	}
 	summaries := make([]map[string]any, 0, len(page))
 	for _, ns := range page {
 		summaries = append(summaries, cmNamespaceSummary(ns))
@@ -1533,7 +1539,10 @@ func handleCMListServices(w http.ResponseWriter, r *http.Request) {
 		services = filtered
 	}
 
-	page, next := awsPage(services, req.NextToken, awsMaxResults(req.MaxResults), 100)
+	page, next, pageOK := awsPage(w, cloudMapBadToken, services, req.NextToken, awsMaxResults(req.MaxResults), 100)
+	if !pageOK {
+		return
+	}
 	summaries := make([]map[string]any, 0, len(page))
 	for _, svc := range page {
 		summaries = append(summaries, cmServiceSummary(svc))
@@ -2062,7 +2071,10 @@ func handleCMGetInstancesHealthStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	page, next := awsPage(selected, req.NextToken, awsMaxResults(req.MaxResults), 100)
+	page, next, pageOK := awsPage(w, cloudMapBadToken, selected, req.NextToken, awsMaxResults(req.MaxResults), 100)
+	if !pageOK {
+		return
+	}
 	status := map[string]string{}
 	for _, inst := range page {
 		status[inst.Id] = cmInstanceHealth(inst)
@@ -2167,7 +2179,10 @@ func handleCMListOperations(w http.ResponseWriter, r *http.Request) {
 		}
 		selected = append(selected, op)
 	}
-	page, next := awsPage(selected, req.NextToken, awsMaxResults(req.MaxResults), 100)
+	page, next, pageOK := awsPage(w, cloudMapBadToken, selected, req.NextToken, awsMaxResults(req.MaxResults), 100)
+	if !pageOK {
+		return
+	}
 	operations := make([]map[string]any, 0, len(page))
 	for _, op := range page {
 		operations = append(operations, map[string]any{

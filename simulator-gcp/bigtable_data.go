@@ -1764,7 +1764,7 @@ func (s *bigtableDataGRPC) PrepareQuery(_ context.Context, req *btpb.PrepareQuer
 	if err != nil {
 		return nil, err
 	}
-	prepared := []byte(generateUUID())
+	prepared := []byte(sim.NewUUID())
 	validUntil := time.Now().Add(btPreparedQueryLifetime)
 	bigtablePreparedQueries.mu.Lock()
 	// An expired plan can never be executed again, so it is dropped here rather

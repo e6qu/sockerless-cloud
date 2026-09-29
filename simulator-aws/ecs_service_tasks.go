@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Amazon ECS services own long-lived tasks. Reconciliation uses the same
@@ -21,7 +23,7 @@ import (
 
 var (
 	ecsServiceReconcileLocks  sync.Map // map[service store key]*sync.Mutex
-	ecsServiceStabilityTimers sync.Map // map[service store key]*simTimer
+	ecsServiceStabilityTimers sync.Map // map[service store key]*bg.Timer
 )
 
 // ecsUnhealthyTaskReplacedReason is the stopped reason the service scheduler
@@ -109,7 +111,7 @@ func ecsRequestServiceReconcile(key string) {
 	if key == "" {
 		return
 	}
-	simGo(func() { ecsReconcileService(key) })
+	bg.Go(func() { ecsReconcileService(key) })
 }
 
 func ecsServiceLock(key string) *sync.Mutex {
@@ -133,7 +135,7 @@ func ecsContinueServiceStabilization(key string) {
 		ecsCancelServiceStabilization(key)
 		return
 	}
-	timer := simAfterFunc(ecsServiceSteadyStateWindow, func() {
+	timer := bg.AfterFunc(ecsServiceSteadyStateWindow, func() {
 		ecsServiceStabilityTimers.Delete(key)
 		ecsRequestServiceReconcile(key)
 	})
@@ -147,7 +149,7 @@ func ecsCancelServiceStabilization(key string) {
 	if !ok {
 		return
 	}
-	if timer, timerOK := value.(*simTimer); timerOK {
+	if timer, timerOK := value.(*bg.Timer); timerOK {
 		timer.Stop()
 	}
 }
@@ -183,7 +185,7 @@ func ecsRequestServiceReconcileForTask(task ECSTask) {
 	if task.LastStatus == ECSTaskStatusRunning && task.StartedAt != nil {
 		delay := time.Until(ecsTaskSteadyStateAt(*task.StartedAt))
 		if delay > 0 {
-			simAfterFunc(delay, func() { ecsRequestServiceReconcile(key) })
+			bg.AfterFunc(delay, func() { ecsRequestServiceReconcile(key) })
 		}
 	}
 }

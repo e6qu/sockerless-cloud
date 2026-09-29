@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Docker-free hosting data-plane tests: host matcher, custom-rule matcher,
@@ -19,7 +20,7 @@ func amplifyResetHostingState() {
 	amplifyResetStores()
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	r53Zones = sim.MakeStore[r53StoredZone](nil, "route53_zones")
 	wafAssociations = sim.MakeStore[wafAssociation](nil, "wafv2_associations")
 	amplifyHostingMu.Lock()

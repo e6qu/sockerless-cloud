@@ -1,6 +1,6 @@
 # simulator-aws
 
-Local reimplementation of the AWS slice that sockerless touches. Not a mock — workloads execute through real Docker, Amazon Elastic Container Service (ECS) / AWS Lambda tasks run with real exit semantics, Amazon Elastic Container Registry (ECR) stores real image manifests, and the broader CDN / DNS / cert / AWS WAF / AWS Amplify / AWS Identity and Access Management (IAM) surfaces respond on the real wire shapes that the AWS SDK v2 + AWS CLI + Terraform `aws` provider expect.
+Local reimplementation of a slice of AWS. Not a mock — workloads execute through real Docker, Amazon Elastic Container Service (ECS) / AWS Lambda tasks run with real exit semantics, Amazon Elastic Container Registry (ECR) stores real image manifests, and the broader CDN / DNS / cert / AWS WAF / AWS Amplify / AWS Identity and Access Management (IAM) surfaces respond on the real wire shapes that the AWS SDK v2 + AWS CLI + Terraform `aws` provider expect.
 
 ## Reference adaptor
 
@@ -8,22 +8,22 @@ The simulator exposes one HTTP endpoint (default `:4566`) that fronts all AWS se
 
 | Adaptor | Min version | What it proves |
 |---|---|---|
-| [AWS SDK for Go v2](https://github.com/aws/aws-sdk-go-v2) (`github.com/aws/aws-sdk-go-v2/service/*`) | v1.30 | Wire-level SDK compatibility — request/response shapes, error envelopes, pagination, optimistic concurrency tokens. Covers 30+ services. |
-| [`aws` CLI](https://docs.aws.amazon.com/cli/latest/reference/) | 2.17+ | Endpoint-override fidelity (`--endpoint-url`). CLI uses the same SDK but exercises a different argument-marshaling path. Some endpoints differ (e.g. Route 53 `/rrset/` with trailing slash). |
-| [Terraform `aws` provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) | v6.50.0 | Full plan → apply → destroy round-trip across 60+ resource types (`aws_ecs_*`, `aws_lambda_*`, `aws_cloudfront_*`, `aws_route53_*`, `aws_wafv2_*`, `aws_amplify_*`, `aws_acm_*`, `aws_iam_*`, `aws_ecr_*`, `aws_s3_*`). Stresses cross-resource references, Lambda invocation through the Runtime API, and stateful drift detection. |
+| [AWS SDK for Go v2](https://github.com/aws/aws-sdk-go-v2) (`github.com/aws/aws-sdk-go-v2/service/*`) | the release `sdk-tests/go.mod` pins | Wire-level SDK compatibility — request/response shapes, error envelopes, pagination, optimistic concurrency tokens. Covers 30+ services. |
+| [`aws` CLI](https://docs.aws.amazon.com/cli/latest/reference/) | the current v2 release (`cli-tests` installs it when absent) | Endpoint-override fidelity (`--endpoint-url`). CLI uses the same SDK but exercises a different argument-marshaling path. Some endpoints differ (e.g. Route 53 `/rrset/` with trailing slash). |
+| [Terraform `aws` provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) | the version `terraform-tests` pins | Full plan → apply → destroy round-trip across 60+ resource types (`aws_ecs_*`, `aws_lambda_*`, `aws_cloudfront_*`, `aws_route53_*`, `aws_wafv2_*`, `aws_amplify_*`, `aws_acm_*`, `aws_iam_*`, `aws_ecr_*`, `aws_s3_*`). Stresses cross-resource references, Lambda invocation through the Runtime API, and stateful drift detection. |
 
 Anything any of these three tools does against the real AWS endpoint, it must do against this simulator. Gaps from that contract are real bugs (see [BUGS.md](../BUGS.md)).
 
 ## Validation
 
-| Test path | What runs | Last green |
-|---|---|---|
-| `sdk-tests/` — 30 packages (`ecs_test.go`, `ecr_test.go`, `cloudfront_test.go`, `route53_test.go`, `wafv2_test.go`, `amplify_test.go`, `acm_test.go`, `iam_slr_oidc_test.go`, …) | Real `aws-sdk-go-v2` clients against the sim. Per-op assertions on response shape + error codes. | 2026-05-15 (PR #159 P159.10) |
-| `cli-tests/` — 30 packages (`ecs_test.go`, `iam_slr_oidc_test.go`, …) | Real `aws` CLI invoked via `os/exec`, parses CLI JSON output. | 2026-05-15 |
-| `terraform-tests/` — `TestStackProductionShape` | Real Terraform `aws` v6.50.0 against the sim. Provisions CloudFront + ACM + WAFv2 + Route 53 ALIAS + Amplify + IAM SLR/OIDC + ECS + ECR + Cloud Map + Lambda resources together, asserts cross-resource outputs and Lambda Runtime API invocation output, then `terraform destroy`. | 2026-07-29 |
-| `make simulator-aws/test` | Leaf-Makefile unit + integration suite per `docs/MAKEFILE_STANDARD.md`. | 2026-05-15 |
+| Test path | What runs |
+|---|---|
+| `sdk-tests/` — one file per service family (`ecs_test.go`, `ecr_test.go`, `cloudfront_test.go`, `route53_test.go`, `wafv2_test.go`, `amplify_test.go`, …) | Real `aws-sdk-go-v2` clients against the simulator. Per-operation assertions on response shape and error codes. |
+| `cli-tests/` | The real `aws` CLI invoked via `os/exec`, parsing its JSON output. |
+| `terraform-tests/` — `TestStackProductionShape` and per-resource packages | The real Terraform `aws` provider. Provisions CloudFront, ACM, WAFv2, Route 53 ALIAS, Amplify, IAM service-linked roles and OIDC providers, ECS, ECR, Cloud Map and Lambda resources together, asserts cross-resource outputs and Lambda Runtime API invocation output, then runs `terraform destroy`. |
+| `make simulator-aws/test` | The module's unit tests, per [`docs/MAKEFILE_STANDARD.md`](../docs/MAKEFILE_STANDARD.md). |
 
-The SDK + Terraform tests are the load-bearing validation. CI runs all four on every PR (`.github/workflows/ci.yml`).
+CI runs all four on every pull request (`.github/workflows/ci.yml`).
 
 ## Wiring the adaptor
 
@@ -52,7 +52,7 @@ aws iam create-service-linked-role --aws-service-name cloudfront.amazonaws.com
 | `SIM_TLS_CERT`, `SIM_TLS_KEY` | unset | Enable HTTPS with the given cert/key. |
 | `SIM_RUNTIME` | `docker` | Initializes Docker/Podman for workload execution. Set `process` only for explicit API-only runs that do not invoke ECS/Lambda workload execution. |
 | `SIM_DATA_DIR` | unset | Persistence root: the SQLite control-plane store, plus the default location of every bulk-data root below (`<SIM_DATA_DIR>/efs`, `/ebs`, `/amplify-cache`), so file contents survive restarts alongside the metadata that describes them. |
-| `SIM_EBS_DATA_DIR` | `<SIM_DATA_DIR>/ebs`, else `$TMPDIR/sockerless-sim-ebs` | Explicit override for the EC2/Firecracker EBS block-image root (volume backing files and snapshots). **Not used for ECS managed EBS volumes** — those use Docker named volumes (`sockerless-ebs-*`) so they are topology-independent. |
+| `SIM_EBS_DATA_DIR` | `<SIM_DATA_DIR>/ebs`, else `$TMPDIR/sockerless-sim-ebs` | Explicit override for the EC2/Firecracker EBS block-image root (volume backing files and snapshots). Amazon ECS managed EBS volumes live in engine volumes instead (see below). |
 | `SIM_EFS_DATA_DIR` | `<SIM_DATA_DIR>/efs`, else `$TMPDIR/sockerless-sim-efs` | Explicit override for the EFS file-system content root. |
 | `AWS_ENDPOINT_URL` | (client-side) | The AWS SDKs and AWS CLI's standard global endpoint setting. It routes every supported service to the simulator. |
 | `AWS_ENDPOINT_URL_<SERVICE>` | (client-side) | The AWS SDKs' standard per-service setting (for example `AWS_ENDPOINT_URL_SQS`). It overrides the global coordinate for that service. |
@@ -71,9 +71,9 @@ credentials through the real workload configuration surface—Amazon ECS
 container overrides, AWS CodeBuild environment overrides, or AWS Lambda
 function environment variables. The simulator does not inject or broker a
 private endpoint variable. In the Linux real-VPC tier, an explicitly supplied
-the outer-host simulator-listener authority maps onto the existing managed
-task-local route because the isolated namespace intentionally has no route to
-Docker's host gateway; other host authorities remain unreachable. The
+endpoint that names the simulator's own listener on the outer host maps onto
+the managed task-local route, because the isolated namespace has no route to
+Docker's host gateway; other host addresses stay unreachable. The
 official-client suite proves this by
 having an AWS Step Functions-launched AWS CodeBuild process invoke the vendor
 AWS CLI against Amazon SQS and by having explicitly deployed AWS Lambda code
@@ -90,9 +90,9 @@ host. An end-to-end SDK test deploys code and environment explicitly, invokes
 the managed runtime, and observes its authenticated downstream Amazon SQS
 write.
 
-**ECS managed EBS volumes** use Docker named volumes (`sockerless-ebs-<id>`) rather than bind-mounting the sim process's filesystem. This means the sim can run in a container (with the Docker socket mounted) and task containers will see the correct volume data — no path-sharing between host and sim container is required.
+**Amazon ECS managed EBS volumes** are block devices of the requested size and filesystem: an image file held in an engine volume (`sockerless-ebs-<id>`), attached to a loop device by a privileged helper container and mounted by the engine. The simulator therefore needs no privilege of its own and can run in a container with the engine socket mounted; nothing is shared by path between the host and the simulator's container.
 
-**VPC and Subnet creation** (`CreateVpc`, `CreateSubnet`) always succeeds at the control-plane level, recording API state. Real Linux network-namespace fabric is set up lazily when a data-plane resource attaches to the VPC/subnet and host networking capabilities (`ip`, `nft`, `sysctl`) are present. Without those capabilities the API calls still succeed and `awsvpc` tasks fall to the per-VPC Docker-network fabric described below.
+**VPC and subnet creation** (`CreateVpc`, `CreateSubnet`) records API state. The simulator builds the Linux network-namespace fabric when a data-plane resource attaches to the VPC or subnet on a host with the networking capabilities (`ip`, `nft`, `sysctl`); on any other host, `awsvpc` tasks run on the per-VPC Docker-network fabric described below.
 
 ### ECS task networking
 
@@ -184,7 +184,7 @@ provider "aws" {
 | **KMS** | `TrentService` | `kms.go` |
 | **Secrets Manager** | `secretsmanager` | `secretsmanager.go` |
 | **DynamoDB** | `DynamoDB_20120810` | `dynamodb.go` |
-| **SSM** | `AmazonSSM` | `ssm.go` |
+| **SSM** | `AmazonSSM` | `ssm_*.go` |
 
 ### AWS Query Protocol (POST / + Action=)
 
@@ -238,7 +238,7 @@ Full per-verb wire shape: see [API_SPEC.md](API_SPEC.md).
 
 ## Sample — end-to-end production-shape stack
 
-The `terraform-tests/TestStackProductionShape` exercise provisions a CloudFront-fronted application with WAF + ACM + Route 53 + Amplify + IAM SLR in a single `terraform apply`. Captured 2026-05-15 (sim port `:NNNN` shown as `:46241` here):
+The `terraform-tests` `TestStackProductionShape` test provisions a CloudFront-fronted application with AWS WAF, ACM, Route 53, Amplify and an IAM service-linked role in a single `terraform apply` (simulator port shown as `:46241`):
 
 ```bash
 # Boot the sim
@@ -310,7 +310,7 @@ Open simulator bugs live in [BUGS.md](../BUGS.md).
 - **Edge propagation timing** — CloudFront distributions report `Status: Deployed` immediately; invalidations report `Completed` immediately. Real CloudFront cycles `InProgress → Deployed` over 5–15 minutes.
 - **Multi-region routing** — sim is single-region (defaults to `us-east-1`). Cross-region replication / failover is not modelled.
 - **Cost / billing surfaces** — `cur`, `pricing` and `cost-explorer` are absent; AWS Budgets is served.
-- **Outbound delivery to carriers and push services** — Amazon SNS SMS and mobile push need a telecommunications carrier or Apple's and Google's hosts, which no AWS API provisions; those publishes fail naming the missing dependency (BUG-2712).
+- **Outbound delivery to carriers and push services** — Amazon SNS SMS and mobile push need a telecommunications carrier or Apple's and Google's hosts, which no AWS API provisions; those publishes fail naming the missing dependency.
 
 A stopped Amazon ECS task's containers get SIGTERM and then SIGKILL after each container definition's `stopTimeout` (30 seconds when unset). Route 53 serves the zones it holds over UDP and TCP on `SIM_DNS_PORT` (default `5353`), a DNS-validated ACM certificate is issued once its validation CNAME is present in Route 53, WAFv2 web ACLs are evaluated against the traffic of the resources they are associated with, and every request is SigV4-verified against the principal's stored secret.
 

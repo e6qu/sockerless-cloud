@@ -406,7 +406,10 @@ func handleECRDescribeRepositoryCreationTemplates(w http.ResponseWriter, r *http
 	for _, t := range tmpls {
 		out = append(out, ecrNormalizeTemplate(t))
 	}
-	page, next := awsPage(out, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecrBadToken, out, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{
 		"registryId":                  ecrRegistryId(),
 		"repositoryCreationTemplates": page,
@@ -636,7 +639,10 @@ func handleECRListPullTimeUpdateExclusions(w http.ResponseWriter, r *http.Reques
 	for _, e := range exclusions {
 		arns = append(arns, e.PrincipalArn)
 	}
-	page, next := awsPage(arns, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecrBadToken, arns, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"pullTimeUpdateExclusions": page}
 	if next != "" {
 		resp["nextToken"] = next

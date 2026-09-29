@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // SigV4 request-authentication gate.
@@ -489,13 +491,13 @@ func sigv4WriteS3Error(w http.ResponseWriter, r *http.Request, serr *sigv4Error)
 	case sigErrInvalidClientToken:
 		S3ErrorXML(w, "InvalidAccessKeyId",
 			"The AWS Access Key Id you provided does not exist in our records.",
-			resource, generateUUID(), http.StatusForbidden)
+			resource, sim.NewUUID(), http.StatusForbidden)
 	case sigErrExpiredToken:
 		S3ErrorXML(w, "ExpiredToken", "The provided token has expired.",
-			resource, generateUUID(), http.StatusForbidden)
+			resource, sim.NewUUID(), http.StatusForbidden)
 	default:
 		S3ErrorXML(w, "SignatureDoesNotMatch", serr.message,
-			resource, generateUUID(), http.StatusForbidden)
+			resource, sim.NewUUID(), http.StatusForbidden)
 	}
 }
 

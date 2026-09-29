@@ -3,9 +3,11 @@ package azure_sdk_test
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/aztables"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -153,3 +155,68 @@ func TestTableSelectProjection(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// TestTableConditionalWrites pins the Table service's optimistic concurrency
+// through the aztables client: an insert over an existing entity conflicts, an
+// update or delete conditioned on a superseded ETag fails with
+// UpdateConditionNotSatisfied, and the default `*` condition always applies.
+func TestTableConditionalWrites(t *testing.T) {
+	client := newTableClient(t, "sdktableifmatch", "IfMatchTable")
+	entity := func(v int) []byte {
+		b, _ := json.Marshal(map[string]any{"PartitionKey": "p", "RowKey": "r", "V": v})
+		return b
+	}
+	added, err := client.AddEntity(ctx, entity(1), nil)
+	require.NoError(t, err)
+	var respErr *azcore.ResponseError
+	_, err = client.AddEntity(ctx, entity(1), nil)
+	require.ErrorAs(t, err, &respErr)
+	assert.Equal(t, http.StatusConflict, respErr.StatusCode)
+	assert.Equal(t, string(aztables.EntityAlreadyExists), respErr.ErrorCode)
+
+	stale := added.ETag
+	_, err = client.UpdateEntity(ctx, entity(2), &aztables.UpdateEntityOptions{IfMatch: &stale, UpdateMode: aztables.UpdateModeReplace})
+	require.NoError(t, err, "an update conditioned on the current ETag applies")
+	_, err = client.UpdateEntity(ctx, entity(3), &aztables.UpdateEntityOptions{IfMatch: &stale, UpdateMode: aztables.UpdateModeMerge})
+	require.ErrorAs(t, err, &respErr)
+	assert.Equal(t, http.StatusPreconditionFailed, respErr.StatusCode)
+	assert.Equal(t, string(aztables.UpdateConditionNotSatisfied), respErr.ErrorCode)
+	_, err = client.DeleteEntity(ctx, "p", "r", &aztables.DeleteEntityOptions{IfMatch: &stale})
+	require.ErrorAs(t, err, &respErr)
+	assert.Equal(t, http.StatusPreconditionFailed, respErr.StatusCode)
+
+	got, err := client.GetEntity(ctx, "p", "r", nil)
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(got.Value, &m))
+	assert.EqualValues(t, 2, m["V"], "the refused writes changed nothing")
+	_, err = client.DeleteEntity(ctx, "p", "r", nil)
+	require.NoError(t, err, "a delete without an ETag deletes any version")
+}
+
+// TestTableTransactionalBatchRollsBackAndStaysInOnePartition pins the entity
+// group transaction's rules: a change set spanning two partitions is refused,
+// and one whose last operation fails leaves none of its earlier writes.
+func TestTableTransactionalBatchRollsBackAndStaysInOnePartition(t *testing.T) {
+	client := newTableClient(t, "sdktablebatchtx", "BatchTxTable")
+	mk := func(pk, rk string) []byte {
+		b, _ := json.Marshal(map[string]any{"PartitionKey": pk, "RowKey": rk, "Val": rk})
+		return b
+	}
+	_, err := client.SubmitTransaction(ctx, []aztables.TransactionAction{
+		{ActionType: aztables.TransactionTypeAdd, Entity: mk("a", "r1")},
+		{ActionType: aztables.TransactionTypeAdd, Entity: mk("b", "r2")},
+	}, nil)
+	require.Error(t, err, "a change set spans one partition")
+
+	anyVersion := azcore.ETagAny
+	_, err = client.SubmitTransaction(ctx, []aztables.TransactionAction{
+		{ActionType: aztables.TransactionTypeAdd, Entity: mk("a", "r1")},
+		{ActionType: aztables.TransactionTypeUpdateReplace, Entity: mk("a", "missing"), IfMatch: &anyVersion},
+	}, nil)
+	require.Error(t, err, "updating an entity that does not exist fails the change set")
+	_, err = client.GetEntity(ctx, "a", "r1", nil)
+	var respErr *azcore.ResponseError
+	require.ErrorAs(t, err, &respErr, "the failed change set's insert was rolled back")
+	assert.Equal(t, http.StatusNotFound, respErr.StatusCode)
+}

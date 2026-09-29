@@ -579,7 +579,7 @@ func handleRDSPurchaseReservedInstancesOffering(w http.ResponseWriter, r *http.R
 	}
 	resID := r.FormValue("ReservedDBInstanceId")
 	if resID == "" {
-		resID = "ri-" + strings.ToLower(strings.ReplaceAll(generateUUID(), "-", ""))[:17]
+		resID = "ri-" + strings.ToLower(strings.ReplaceAll(sim.NewUUID(), "-", ""))[:17]
 	}
 	ri := RDSReservedInstance{
 		ReservedDBInstanceId:          resID,
@@ -640,7 +640,7 @@ func handleRDSCreateBlueGreenDeployment(w http.ResponseWriter, r *http.Request) 
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	id := "bgd-" + strings.ToLower(strings.ReplaceAll(generateUUID(), "-", ""))[:17]
+	id := "bgd-" + strings.ToLower(strings.ReplaceAll(sim.NewUUID(), "-", ""))[:17]
 	target := source + "-green"
 	d := RDSBlueGreenDeployment{
 		BlueGreenDeploymentIdentifier: id,
@@ -759,7 +759,7 @@ func handleRDSCreateIntegration(w http.ResponseWriter, r *http.Request) {
 	}
 	in := RDSIntegration{
 		IntegrationName: name,
-		IntegrationArn:  fmt.Sprintf("arn:aws:rds:%s:%s:integration:%s", awsRegion(), awsAccountID(), generateUUID()),
+		IntegrationArn:  fmt.Sprintf("arn:aws:rds:%s:%s:integration:%s", awsRegion(), awsAccountID(), sim.NewUUID()),
 		SourceArn:       source,
 		TargetArn:       target,
 		KMSKeyId:        r.FormValue("KMSKeyId"),
@@ -882,7 +882,7 @@ func handleRDSCreateTenantDatabase(w http.ResponseWriter, r *http.Request) {
 	t := RDSTenantDatabase{
 		DBInstanceIdentifier:     instID,
 		TenantDBName:             tenantName,
-		TenantDatabaseResourceId: "tdb-" + strings.ToUpper(strings.ReplaceAll(generateUUID(), "-", ""))[:24],
+		TenantDatabaseResourceId: "tdb-" + strings.ToUpper(strings.ReplaceAll(sim.NewUUID(), "-", ""))[:24],
 		DbiResourceId:            rdsResourceID(),
 		Status:                   "available",
 		MasterUsername:           r.FormValue("MasterUsername"),
@@ -1008,7 +1008,7 @@ func handleRDSCreateShardGroup(w http.ResponseWriter, r *http.Request) {
 	g := RDSShardGroup{
 		DBShardGroupIdentifier: id,
 		DBClusterIdentifier:    clusterID,
-		DBShardGroupResourceId: "shardgroup-" + strings.ToLower(strings.ReplaceAll(generateUUID(), "-", ""))[:17],
+		DBShardGroupResourceId: "shardgroup-" + strings.ToLower(strings.ReplaceAll(sim.NewUUID(), "-", ""))[:17],
 		ComputeRedundancy:      atoiOrZero(r.FormValue("ComputeRedundancy")),
 		MaxACU:                 maxACU,
 		MinACU:                 minACU,
@@ -1106,7 +1106,7 @@ func handleRDSStartActivityStream(w http.ResponseWriter, r *http.Request) {
 	}
 	kmsKeyID := r.FormValue("KmsKeyId")
 	rdsActivityStreamStatus.Put(resourceArn, "starting")
-	streamName := "aws-rds-das-" + strings.ToLower(strings.ReplaceAll(generateUUID(), "-", ""))[:17]
+	streamName := "aws-rds-das-" + strings.ToLower(strings.ReplaceAll(sim.NewUUID(), "-", ""))[:17]
 	var b strings.Builder
 	fmt.Fprintf(&b, "<KmsKeyId>%s</KmsKeyId>", xmlEscape(kmsKeyID))
 	fmt.Fprintf(&b, "<KinesisStreamName>%s</KinesisStreamName>", xmlEscape(streamName))
@@ -1201,7 +1201,7 @@ func handleRDSBacktrackCluster(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	bt := rdsBacktrack{
-		BacktrackIdentifier: generateUUID(),
+		BacktrackIdentifier: sim.NewUUID(),
 		DBClusterIdentifier: clusterID,
 		BacktrackTo:         backtrackTo,
 		BacktrackedFrom:     now,

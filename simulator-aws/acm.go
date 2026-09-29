@@ -634,7 +634,10 @@ func handleACMSearchCertificates(w http.ResponseWriter, r *http.Request) {
 		b, _ := results[j]["CertificateArn"].(string)
 		return a < b
 	})
-	page, next := awsPageExplicit(results, req.NextToken, req.MaxResults)
+	page, next, pageOK := awsPage(w, acmBadToken, results, req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Results": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -1097,7 +1100,10 @@ func handleACMListCertificates(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sortBy(items, func(s acmCertSummary) string { return s.CertificateArn })
-	page, next := awsPageExplicit(items, req.NextToken, req.MaxItems)
+	page, next, pageOK := awsPage(w, acmBadToken, items, req.NextToken, req.MaxItems, 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"CertificateSummaryList": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -1538,7 +1544,10 @@ func handleACMListCertificateDomainValidations(w http.ResponseWriter, r *http.Re
 		summaries = append(summaries, summary)
 	}
 
-	page, next := awsPageExplicit(summaries, req.NextToken, req.MaxItems)
+	page, next, pageOK := awsPage(w, acmBadToken, summaries, req.NextToken, req.MaxItems, 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"DomainValidationSummaryList": page}
 	if next != "" {
 		out["NextToken"] = next

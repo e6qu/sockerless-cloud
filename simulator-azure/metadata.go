@@ -1,24 +1,18 @@
 package main
 
 import (
-	"context"
 	"crypto"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
-	"os"
-	"os/exec"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 type azureMetadataVM struct {
@@ -27,7 +21,7 @@ type azureMetadataVM struct {
 	SubnetID string
 }
 
-var azureMetadataVMsByIP sync.Map // map[string]azureMetadataVM
+var azureMetadataVMsByIP workloadhost.MetadataIndex[azureMetadataVM]
 
 // registerMetadata serves the Azure cloud metadata endpoint used by both:
 //   - azurestack provider (via ARM_METADATA_HOST): expects JSON array, api-version=2020-06-01
@@ -111,7 +105,7 @@ func registerMetadata(srv *sim.Server) {
 		if loc == "" {
 			loc = "westeurope"
 		}
-		vmMeta, ok := azureMetadataVMForRequest(r)
+		vmMeta, ok := azureMetadataVMsByIP.ForRequest(r)
 		if ok {
 			sub = azureSubscriptionFromID(vmMeta.VM.ID, sub)
 			loc = vmMeta.VM.Location
@@ -189,7 +183,7 @@ func registerMetadata(srv *sim.Server) {
 		if !mustMetadataHeader(w, r) {
 			return
 		}
-		if vmMeta, ok := azureMetadataVMForRequest(r); ok {
+		if vmMeta, ok := azureMetadataVMsByIP.ForRequest(r); ok {
 			sub := azureSubscriptionFromID(vmMeta.VM.ID, "00000000-0000-0000-0000-000000000001")
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
 				"location":          vmMeta.VM.Location,
@@ -210,19 +204,6 @@ func registerMetadata(srv *sim.Server) {
 			"azEnvironment":     "AzurePublicCloud",
 		})
 	})
-}
-
-func azureMetadataVMForRequest(r *http.Request) (azureMetadataVM, bool) {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	v, ok := azureMetadataVMsByIP.Load(host)
-	if !ok {
-		return azureMetadataVM{}, false
-	}
-	vm, ok := v.(azureMetadataVM)
-	return vm, ok
 }
 
 func azureSubscriptionFromID(id, defaultSubscription string) string {
@@ -253,60 +234,17 @@ func azureCIDRAddressPrefix(cidr, defaultAddress, defaultPrefix string) (string,
 	return parts[0], parts[1]
 }
 
-// simListenAddr is captured by main() so host translators can wire it
-// into workload-host env.
+// simListenAddr is the listen address main() serves on.
 var simListenAddr string
-
-func simHostMetadataAddr() string {
-	port := simListenAddr
-	if idx := strings.LastIndex(simListenAddr, ":"); idx >= 0 {
-		port = simListenAddr[idx+1:]
-	}
-	return workloadCallbackHost() + ":" + port
-}
-
-func simHostMetadataPort() (int, error) {
-	port := simListenAddr
-	if idx := strings.LastIndex(simListenAddr, ":"); idx >= 0 {
-		port = simListenAddr[idx+1:]
-	}
-	n, err := strconv.Atoi(port)
-	if err != nil || n <= 0 || n > 65535 {
-		return 0, fmt.Errorf("invalid simulator metadata listen port %q", port)
-	}
-	return n, nil
-}
-
-// hostMetadataExtraHosts returns ExtraHosts entries needed for Docker
-// workloads to resolve host.docker.internal to the sim's host gateway.
-// Real Azure IMDS uses 169.254.169.254 (a link-local IP); workloads
-// that hard-code that address need a routing override which Linux
-// Docker can't easily express. The Azure SDK respects IDENTITY_ENDPOINT
-// + IDENTITY_HEADER + AZURE_INSTANCE_METADATA_ENDPOINT for redirection,
-// so SDK-based workloads route via env without needing the link-local.
-func hostMetadataExtraHosts() []string {
-	host := workloadCallbackHost()
-	if host != "host.docker.internal" && host != "host.containers.internal" {
-		return nil
-	}
-	info := strings.ToLower(sim.RuntimeInfo())
-	if strings.Contains(info, "podman") {
-		if ip := podmanMachineHostIPv4(); ip != "" {
-			return []string{
-				"host.containers.internal:" + ip,
-				"host.docker.internal:" + ip,
-			}
-		}
-		return nil
-	}
-	return []string{"host.docker.internal:host-gateway"}
-}
 
 // hostMetadataEnv returns env vars to inject on every Azure workload
 // host so the Azure SDKs route metadata + identity reads to the sim.
 // Apply on every ACA / AZF / App Service workload host.
-func hostMetadataEnv() map[string]string {
-	addr := simHostMetadataAddr()
+func hostMetadataEnv() (map[string]string, error) {
+	addr, err := workloadhost.CallbackAddr(simListenAddr)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]string{
 		// DefaultAzureCredential picks up these two for managed-identity
 		// token acquisition (App Service / Container Apps style).
@@ -314,90 +252,7 @@ func hostMetadataEnv() map[string]string {
 		"IDENTITY_HEADER":   "sim-identity-header",
 		// Azure SDK respects this for IMDS instance metadata routing.
 		"AZURE_INSTANCE_METADATA_ENDPOINT": "http://" + addr + "/metadata/instance",
-	}
-}
-
-func workloadCallbackHost() string {
-	if runningInsideContainer() {
-		if host := firstNonLoopbackIPv4(); host != "" {
-			return host
-		}
-	}
-	if strings.Contains(strings.ToLower(sim.RuntimeInfo()), "podman") {
-		return "host.containers.internal"
-	}
-	return "host.docker.internal"
-}
-
-func podmanMachineHostIPv4() string {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "podman", "machine", "ssh", "--", "ip", "-4", "route", "show", "default").Output()
-	if err != nil {
-		return ""
-	}
-	return parsePodmanMachineHostIPv4(string(out))
-}
-
-func parsePodmanMachineHostIPv4(route string) string {
-	for _, line := range strings.Split(route, "\n") {
-		fields := strings.Fields(line)
-		for i := 0; i+1 < len(fields); i++ {
-			if fields[i] != "src" {
-				continue
-			}
-			ip := net.ParseIP(fields[i+1]).To4()
-			if ip == nil {
-				continue
-			}
-			// Podman machine user-mode networking exposes the macOS host at
-			// the final usable address on the VM's host subnet.
-			return net.IPv4(ip[0], ip[1], ip[2], 254).String()
-		}
-	}
-	return ""
-}
-
-func runningInsideContainer() bool {
-	if _, err := os.Stat("/run/.containerenv"); err == nil {
-		return true
-	}
-	if _, err := os.Stat("/.dockerenv"); err == nil {
-		return true
-	}
-	return os.Getenv("container") != ""
-}
-
-func firstNonLoopbackIPv4() string {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return ""
-	}
-	for _, addr := range addrs {
-		ipNet, ok := addr.(*net.IPNet)
-		if !ok {
-			continue
-		}
-		ip := ipNet.IP.To4()
-		if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-			continue
-		}
-		return ip.String()
-	}
-	return ""
-}
-
-// mergeEnv returns a new map with all keys from `base` and `extra`,
-// where `extra` wins on conflict. Both inputs may be nil.
-func mergeEnv(base, extra map[string]string) map[string]string {
-	out := make(map[string]string, len(base)+len(extra))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range extra {
-		out[k] = v
-	}
-	return out
+	}, nil
 }
 
 // mustMetadataHeader enforces the header every instance-metadata read requires.
@@ -455,7 +310,7 @@ func registerAzureInstanceAttestation(srv *sim.Server) {
 // azureSignAttestedDocument signs the instance's identity, with the caller's
 // nonce inside the signed content so the document answers that challenge only.
 func azureSignAttestedDocument(r *http.Request, nonce string) (string, error) {
-	key, err := azureSimSigningKey()
+	signer, err := azureSimSigner()
 	if err != nil {
 		return "", err
 	}
@@ -463,7 +318,7 @@ func azureSignAttestedDocument(r *http.Request, nonce string) (string, error) {
 	// same way the instance document resolves it — a document attesting some
 	// other machine would prove nothing about this one.
 	subscription, vmID := "00000000-0000-0000-0000-000000000001", "sim-vm-id-0001"
-	if vmMeta, ok := azureMetadataVMForRequest(r); ok {
+	if vmMeta, ok := azureMetadataVMsByIP.ForRequest(r); ok {
 		subscription = azureSubscriptionFromID(vmMeta.VM.ID, subscription)
 		vmID = vmMeta.VM.Name
 	}
@@ -481,7 +336,7 @@ func azureSignAttestedDocument(r *http.Request, nonce string) (string, error) {
 		return "", err
 	}
 	digest := sha256.Sum256(document)
-	signed, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
+	signed, err := signer.Key().Sign(rand.Reader, digest[:], crypto.SHA256)
 	if err != nil {
 		return "", err
 	}

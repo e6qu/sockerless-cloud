@@ -5,6 +5,9 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
 // The copy family. Azure addresses Copy Blob and Copy Blob From URL at the bare
@@ -113,13 +116,13 @@ func handlePageBlobCopyIncremental(w http.ResponseWriter, r *http.Request, accou
 		return
 	}
 
-	source, data, err := blobData(source)
+	source, copied, digests, err := blobCopyContents(source)
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 	completion := blobNowHTTP()
-	copyID := generateUUID()
+	copyID := sim.NewUUID()
 	dst := source
 	dst.Account, dst.Container, dst.Name, dst.Snapshot = account, container, blob, ""
 	dst.PageRanges = append([]BlobPageRange(nil), source.PageRanges...)
@@ -130,7 +133,7 @@ func handlePageBlobCopyIncremental(w http.ResponseWriter, r *http.Request, accou
 	dst.CopyID = copyID
 	dst.CopyStatus = "success"
 	dst.CopySource = sourceURL
-	dst.CopyProgress = fmt.Sprintf("%d/%d", len(data), len(data))
+	dst.CopyProgress = fmt.Sprintf("%d/%d", digests.Size, digests.Size)
 	dst.CopyCompletionTime = completion
 	blobTouch(&dst)
 
@@ -141,14 +144,14 @@ func handlePageBlobCopyIncremental(w http.ResponseWriter, r *http.Request, accou
 	destSnapshot.Lease = BlobLease{}
 	dst.CopyDestinationSnapshot = destSnapshot.Snapshot
 	// The destination and its snapshot are two rows, so each gets a file.
-	if err := blobSetContents(&dst, data); err != nil {
+	dst.Body, dst.Size = copied, digests.Size
+	snapshotBody, _, err := blobBodies.Concat(copied)
+	if err != nil {
+		blobReleaseBody(copied)
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := blobSetContents(&destSnapshot, data); err != nil {
-		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
-		return
-	}
+	destSnapshot.Body, destSnapshot.Size = snapshotBody, digests.Size
 	putBlobObject(destSnapshot)
 	putBlobObject(dst)
 
@@ -181,15 +184,15 @@ func handleStageBlockFromURL(w http.ResponseWriter, r *http.Request, account, co
 	key := blobBlockKey(account, container, blob, blockID)
 	block, _ := blobBlocks.Get(key)
 	block.Account, block.Container, block.Blob, block.BlockID = account, container, blob, blockID
-	ref, err := blobWriteBody(data)
+	ref, digests, err := blobBodies.Write(data)
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
-	block.UncommittedBody, block.UncommittedSize, block.LegacyUncommittedData = ref, int64(len(data)), nil
+	block.UncommittedBody, block.UncommittedSize, block.LegacyUncommittedData = ref, digests.Size, nil
 	block.HasUncommitted = true
 	putBlobBlock(account, container, blob, blockID, block)
-	w.Header().Set("Content-MD5", blobContentMD5(data))
+	w.Header().Set("Content-MD5", digests.MD5Base64())
 	w.Header().Set("x-ms-request-server-encrypted", "true")
 	w.WriteHeader(http.StatusCreated)
 }
@@ -215,22 +218,32 @@ func blobReadCopySourceRange(w http.ResponseWriter, r *http.Request, sourceURL, 
 		writeCopySourceBlobNotFound(w)
 		return nil, false
 	}
-	_, data, err := blobData(source)
+	source, reader, err := blobOpen(source)
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return nil, false
 	}
-	if sourceRange == "" {
-		return data, true
+	defer func() { _ = reader.Close() }()
+	start, end := int64(0), source.Size-1
+	if sourceRange != "" {
+		requested, err := blobstore.ParseRange(sourceRange, blobstore.RangeOpts{})
+		resolved := err == nil
+		if resolved {
+			start, end, resolved = requested.Resolve(source.Size)
+		}
+		if !resolved {
+			writeStorageError(w, "InvalidRange",
+				"The range specified is invalid for the current size of the resource.",
+				http.StatusRequestedRangeNotSatisfiable)
+			return nil, false
+		}
 	}
-	start, end, ok := parseBlobByteRange(sourceRange)
-	if !ok || start < 0 || start > end || end >= int64(len(data)) {
-		writeStorageError(w, "InvalidRange",
-			"The range specified is invalid for the current size of the resource.",
-			http.StatusRequestedRangeNotSatisfiable)
+	data, err := io.ReadAll(io.NewSectionReader(reader, start, end-start+1))
+	if err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return nil, false
 	}
-	return data[start : end+1], true
+	return data, true
 }
 
 // blobDrainBody consumes and discards a request body, so a handler that ignores

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"sync"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -97,27 +97,33 @@ const (
 	elbv2TargetHealthSweep = 250 * time.Millisecond
 )
 
-// ELBv2TargetHealth is one target's recorded health, as DescribeTargetHealth
-// reports it.
+// ELBv2TargetHealth is one target's health, as DescribeTargetHealth reports
+// it.
 type ELBv2TargetHealth struct {
 	State       string
 	Reason      string
 	Description string
-
-	// successes and failures count the consecutive checks since the last
-	// result of the other kind; nextCheck is when this target is next due.
-	successes int
-	failures  int
-	nextCheck time.Time
 }
 
-var (
-	elbv2TargetHealthMu      sync.Mutex
-	elbv2TargetHealthRecords = map[string]*ELBv2TargetHealth{}
-)
+// elbv2TargetHealthTracker holds what the checker last recorded for every
+// target it checks, keyed by elbv2TargetHealthKey.
+var elbv2TargetHealthTracker = lbplane.NewHealthTracker[string]()
 
 func elbv2TargetHealthKey(targetGroupArn string, target ELBv2TargetDescription) string {
 	return targetGroupArn + "|" + target.ID + ":" + strconv.Itoa(target.Port)
+}
+
+// elbv2HealthPolicy is the target group's health check schedule. A target that
+// has never been in service enters it on its first successful check; one taken
+// out of service returns only after HealthyThresholdCount consecutive
+// successes.
+func elbv2HealthPolicy(tg ELBv2TargetGroup) lbplane.HealthPolicy {
+	return lbplane.HealthPolicy{
+		Interval:                elbv2HealthCheckInterval(tg),
+		InitialHealthyThreshold: 1,
+		HealthyThreshold:        elbv2HealthyThreshold(tg),
+		UnhealthyThreshold:      elbv2UnhealthyThreshold(tg),
+	}
 }
 
 func elbv2HealthCheckInterval(tg ELBv2TargetGroup) time.Duration {
@@ -231,10 +237,20 @@ func elbv2TargetHealthFor(tg ELBv2TargetGroup, target ELBv2TargetDescription) EL
 			Description: elbv2DescriptionHealthCheckDisabled,
 		}
 	}
-	elbv2TargetHealthMu.Lock()
-	defer elbv2TargetHealthMu.Unlock()
-	if record, ok := elbv2TargetHealthRecords[elbv2TargetHealthKey(tg.Arn, target)]; ok {
-		return *record
+	health, _ := elbv2TargetHealthTracker.Health(elbv2TargetHealthKey(tg.Arn, target))
+	switch health.State {
+	case lbplane.HealthHealthy:
+		return ELBv2TargetHealth{State: elbv2TargetStateHealthy}
+	case lbplane.HealthUnhealthy:
+		reason, description := elbv2HealthCheckFailureReason(health.LastFailure)
+		return ELBv2TargetHealth{State: elbv2TargetStateUnhealthy, Reason: reason, Description: description}
+	}
+	if health.Failures > 0 {
+		return ELBv2TargetHealth{
+			State:       elbv2TargetStateInitial,
+			Reason:      elbv2ReasonInitialHealthChecking,
+			Description: elbv2DescriptionInitialHealthChecking,
+		}
 	}
 	return ELBv2TargetHealth{
 		State:       elbv2TargetStateInitial,
@@ -260,16 +276,7 @@ func elbv2TargetReceivesTraffic(tg ELBv2TargetGroup, target ELBv2TargetDescripti
 // the simulator.
 func startELBv2TargetHealthChecker(srv *sim.Server) {
 	srv.StartBackground("ELB target health checker", func(ctx context.Context) {
-		ticker := time.NewTicker(elbv2TargetHealthSweep)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				elbv2SweepTargets(ctx, time.Now())
-			}
-		}
+		lbplane.SweepEvery(ctx, elbv2TargetHealthSweep, elbv2SweepTargets)
 	})
 }
 
@@ -311,20 +318,12 @@ func elbv2CompleteDueDeregistrations(now time.Time) {
 	}
 }
 
-// elbv2TargetHealthCheck is one due check the sweep issues.
-type elbv2TargetHealthCheck struct {
-	key    string
-	group  ELBv2TargetGroup
-	target ELBv2TargetDescription
-}
-
 // elbv2CheckTargetHealth is one sweep: every registered target whose next
 // check has come due at now is checked, and the result folded into its
-// recorded health. Checks run concurrently, so one unresponsive target costs
-// the sweep its own health-check timeout rather than the sum of them.
+// recorded health.
 func elbv2CheckTargetHealth(ctx context.Context, now time.Time) {
-	registered := map[string]bool{}
-	var due []elbv2TargetHealthCheck
+	var targets []lbplane.HealthTarget[string]
+	groupOf := map[string]string{}
 	for _, tg := range elbv2TargetGroups.List() {
 		// Turning health checks off leaves no checker behind, and neither does
 		// a target group no listener forwards to, so the verdicts either had
@@ -333,6 +332,7 @@ func elbv2CheckTargetHealth(ctx context.Context, now time.Time) {
 		if !tg.HealthCheckEnabled || !elbv2TargetGroupInUse(tg.Arn) {
 			continue
 		}
+		policy := elbv2HealthPolicy(tg)
 		for _, target := range tg.Targets {
 			if !target.DeregisteringAt.IsZero() {
 				// A deregistering target reports `draining` for the whole
@@ -340,35 +340,26 @@ func elbv2CheckTargetHealth(ctx context.Context, now time.Time) {
 				continue
 			}
 			key := elbv2TargetHealthKey(tg.Arn, target)
-			registered[key] = true
-			if elbv2ScheduleTargetHealthCheck(key, tg, now) {
-				due = append(due, elbv2TargetHealthCheck{key: key, group: tg, target: target})
-			}
+			groupOf[key] = tg.Arn
+			group, member := tg, target
+			targets = append(targets, lbplane.HealthTarget[string]{
+				Key:    key,
+				Policy: policy,
+				Probe: func(ctx context.Context) (int, error) {
+					return elbv2ProbeTarget(ctx, group, member)
+				},
+			})
 		}
 	}
-	elbv2ForgetDeregisteredTargets(registered)
-
-	var pending sync.WaitGroup
-	changed := make(chan string, len(due))
-	for _, check := range due {
-		pending.Add(1)
-		go func(check elbv2TargetHealthCheck) {
-			defer pending.Done()
-			if elbv2RecordTargetHealthCheck(check.key, check.group,
-				elbv2ProbeTarget(ctx, check.group, check.target)) {
-				changed <- check.group.Arn
-			}
-		}(check)
-	}
-	pending.Wait()
-	close(changed)
+	changed := elbv2TargetHealthTracker.Sweep(ctx, now, targets)
 
 	// A target entering or leaving service is what decides whether an Amazon
 	// ECS service's task is in service, and whether its scheduler has to
 	// replace it. Nothing else wakes the scheduler for it: target health moves
 	// without any task lifecycle transition.
 	woken := map[string]bool{}
-	for targetGroupArn := range changed {
+	for _, key := range changed {
+		targetGroupArn := groupOf[key]
 		if woken[targetGroupArn] {
 			continue
 		}
@@ -377,76 +368,13 @@ func elbv2CheckTargetHealth(ctx context.Context, now time.Time) {
 	}
 }
 
-// elbv2ScheduleTargetHealthCheck reports whether the target is due for a check
-// at now, and books its next one. Each health check request is independent and
-// its result lasts for the whole interval, so the next check is scheduled when
-// this one is issued rather than when it answers.
-func elbv2ScheduleTargetHealthCheck(key string, tg ELBv2TargetGroup, now time.Time) bool {
-	elbv2TargetHealthMu.Lock()
-	defer elbv2TargetHealthMu.Unlock()
-	record, ok := elbv2TargetHealthRecords[key]
-	if !ok {
-		record = &ELBv2TargetHealth{
-			State:       elbv2TargetStateInitial,
-			Reason:      elbv2ReasonRegistrationInProgress,
-			Description: elbv2DescriptionRegistrationInProgress,
-		}
-		elbv2TargetHealthRecords[key] = record
-	} else if now.Before(record.nextCheck) {
-		return false
-	}
-	record.nextCheck = now.Add(elbv2HealthCheckInterval(tg))
-	return true
-}
-
-// elbv2RecordTargetHealthCheck folds one check result into a target's recorded
-// health, and reports whether that moved the target into or out of service.
-func elbv2RecordTargetHealthCheck(key string, tg ELBv2TargetGroup, err error) (changed bool) {
-	elbv2TargetHealthMu.Lock()
-	defer elbv2TargetHealthMu.Unlock()
-	record, ok := elbv2TargetHealthRecords[key]
-	if !ok {
-		// The target was deregistered while its check was in flight.
-		return false
-	}
-	previous := record.State
-	defer func() { changed = record.State != previous }()
-
-	if err == nil {
-		record.failures = 0
-		record.successes++
-		// A target that has never been in service enters it on its first
-		// successful check; one taken out of service returns only after
-		// HealthyThresholdCount consecutive successes.
-		if record.State != elbv2TargetStateUnhealthy ||
-			record.successes >= elbv2HealthyThreshold(tg) {
-			record.State = elbv2TargetStateHealthy
-			record.Reason = ""
-			record.Description = ""
-		}
-		return
-	}
-	record.successes = 0
-	record.failures++
-	if record.failures < elbv2UnhealthyThreshold(tg) {
-		if record.State == elbv2TargetStateInitial {
-			record.Reason = elbv2ReasonInitialHealthChecking
-			record.Description = elbv2DescriptionInitialHealthChecking
-		}
-		return
-	}
-	record.State = elbv2TargetStateUnhealthy
-	record.Reason, record.Description = elbv2HealthCheckFailureReason(err)
-	return
-}
-
 // elbv2HealthCheckFailureReason maps a failed check to the reason code and
 // description Elastic Load Balancing publishes for it. A target that answered
 // with a code outside the target group's Matcher is a response code mismatch —
 // "Target.ResponseCodeMismatch - The health checks did not return an expected
 // HTTP code" — and its description names the code the target returned.
 func elbv2HealthCheckFailureReason(err error) (reason, description string) {
-	var mismatch elbv2ResponseCodeMismatch
+	var mismatch *lbplane.StatusMismatchError
 	if errors.As(err, &mismatch) {
 		return elbv2ReasonResponseCodeMismatch,
 			fmt.Sprintf(elbv2DescriptionResponseCodeMismatchFormat, mismatch.StatusCode)
@@ -465,21 +393,7 @@ func elbv2HealthCheckFailureReason(err error) (reason, description string) {
 // target can receive requests from the load balancer, it must pass the initial
 // health checks."
 func elbv2ForgetTargetHealth(targetGroupArn string, target ELBv2TargetDescription) {
-	elbv2TargetHealthMu.Lock()
-	defer elbv2TargetHealthMu.Unlock()
-	delete(elbv2TargetHealthRecords, elbv2TargetHealthKey(targetGroupArn, target))
-}
-
-// elbv2ForgetDeregisteredTargets drops the records of targets that are no
-// longer registered, so a target registered again is checked from scratch.
-func elbv2ForgetDeregisteredTargets(registered map[string]bool) {
-	elbv2TargetHealthMu.Lock()
-	defer elbv2TargetHealthMu.Unlock()
-	for key := range elbv2TargetHealthRecords {
-		if !registered[key] {
-			delete(elbv2TargetHealthRecords, key)
-		}
-	}
+	elbv2TargetHealthTracker.Forget(elbv2TargetHealthKey(targetGroupArn, target))
 }
 
 // elbv2EffectiveHealthCheckPort is the port the checker connects to, which

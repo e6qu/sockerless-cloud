@@ -94,7 +94,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			return
 		}
 		inst = seedInstanceV2Defaults(inst, r.Host, project, location, instanceID)
-		inst.Etag = generateUUID()
+		inst.Etag = sim.NewUUID()
 		instances.Put(name, inst)
 		lro := newLRO(project, location, inst, instType)
 		sim.WriteJSON(w, http.StatusOK, lro)
@@ -193,7 +193,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		update.Conditions = []Condition{
 			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime},
 		}
-		update.Etag = generateUUID()
+		update.Etag = sim.NewUUID()
 		instances.Put(name, update)
 		lro := newLRO(project, location, update, instType)
 		sim.WriteJSON(w, http.StatusOK, lro)
@@ -267,7 +267,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			instances.Update(name, func(i *InstanceV2) {
 				i.UpdateTime = now
 				i.TerminalCondition = &Condition{Type: "Ready", State: state, LastTransitionTime: now, Reason: reason}
-				i.Etag = generateUUID()
+				i.Etag = sim.NewUUID()
 			})
 			inst, _ := instances.Get(name)
 			lro := newLRO(project, location, inst, instType)
@@ -312,7 +312,7 @@ func instanceIAM(w http.ResponseWriter, r *http.Request, instances sim.Store[Ins
 func seedInstanceV2Defaults(inst InstanceV2, host, project, location, instanceID string) InstanceV2 {
 	now := nowTimestamp()
 	inst.Name = fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, instanceID)
-	inst.UID = generateUUID()
+	inst.UID = sim.NewUUID()
 	inst.Generation = 1
 	inst.ObservedGeneration = 1
 	inst.CreateTime = now

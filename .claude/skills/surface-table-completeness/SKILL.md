@@ -21,7 +21,7 @@ Apply it when ANY of these are true in the current change:
 
 1. The work touches a file under `simulator-<cloud>/<service>.go` AND adds, removes, or modifies a handler.
 2. The work claims to "close" a community-filed issue against a service surface.
-3. The work is part of a phase whose PLAN.md / BUGS.md entry names a service surface.
+3. The work closes a `BUGS.md` row that names a service surface.
 4. A reopen of a previously "fixed" issue lands in the user's queue.
 
 Do **not** apply this skill to bugfixes that don't touch a service surface (test refactors, lint fixes, docs, CI wiring). The full-enumeration rule has a cost; spending it on changes that don't touch a closed operation table is overhead.
@@ -30,7 +30,7 @@ Do **not** apply this skill to bugfixes that don't touch a service surface (test
 
 **Before declaring a surface fixed, the corresponding table in `specs/SIM_SURFACE_TABLES/<surface>.md` must be up-to-date and have no silent `✗` rows.**
 
-Silent ✗ means: the row exists in the table, the op is not implemented, AND there is no corresponding deferred sub-task in PLAN.md or BUG entry in BUGS.md. A row that's ✗ with an explicit deferral pointer is fine — that's *visible* incomplete coverage, not silent.
+Silent ✗ means: the row exists in the table, the op is not implemented, AND there is no corresponding row in `BUGS.md` and no declared 501 naming what is missing. A row that's ✗ with an explicit deferral pointer is fine — that's *visible* incomplete coverage, not silent.
 
 ## How to apply
 
@@ -40,7 +40,7 @@ Silent ✗ means: the row exists in the table, the op is not implemented, AND th
 2. **Mark the user-named rows.** Verify they're ✗ in the table; if they're ✓, the issue is a different shape (regression, wire-quirk, etc.) — apply a different skill.
 3. **Look at the user-named rows' siblings.** For each row the user named, ask: *what's the symmetric DELETE? what's the GET? what's the LIST? what's the variant under a different query param?* The reopen risk is in those siblings.
 4. **Fix the user-named rows AND every reasonable sibling in the same PR.** "Reasonable" = same handler shape, same dispatcher, same store; landing them together is cheaper than two PRs.
-5. **For siblings that ARE bigger** (need new infrastructure, different protocol shape, real-cloud-only quirks), stage them forward: a deferred sub-task in PLAN.md with a BUG number, or a 501 NotImplemented stub that surfaces the gap on the wire.
+5. **For siblings that ARE bigger** (need new infrastructure, different protocol shape, real-cloud-only quirks), stage them forward: a `BUGS.md` row with the fix shape, or a declared 501 that names what is missing on the wire.
 6. **Update the table** with the new statuses *in the same PR*. Don't claim "fixed" until the table reflects the fix.
 
 ### When the table doesn't exist yet
@@ -71,10 +71,10 @@ ls specs/SIM_SURFACE_TABLES/ | grep -E "<cloud>-<service>"
 For each row in each table:
 
 - **✓ rows:** verify the pointer file/line still exists and the linked test still runs.
-- **✗ rows:** check PLAN.md / BUGS.md mentions them by section name or BUG number.
+- **✗ rows:** check `BUGS.md` names them by BUG number, or the simulator answers them with a declared 501.
 - **501 rows:** check the sim returns the canonical NotImplemented shape.
 
-A silent ✗ row (no PLAN.md / BUG reference) is a finding — file it as a BUG before merging.
+A silent ✗ row (no BUG reference, no declared 501) is a finding — file it as a BUG before merging.
 
 ## Refused shortcuts
 
@@ -90,4 +90,4 @@ A silent ✗ row (no PLAN.md / BUG reference) is a finding — file it as a BUG 
 
 ## Example
 
-When PR #200 closed BUG-1138 (AWS S3 multipart + object-tagging + CopyObject), the table `specs/SIM_SURFACE_TABLES/aws-s3-bucket-subresources.md` did not exist yet. Phase 177 adds it, with every bucket-level row populated. The user-named ops are ✓; siblings the user didn't name but the table now flags as ✗ (replication round-trip test, logging tf-test, etc.) get explicit "deferred under <BUG-N>" notes. Issue #201's class of miss — *partial coverage shipped as fixed* — cannot recur because the table is now load-bearing.
+When BUG-1138 (AWS S3 multipart, object tagging and CopyObject) was fixed, the table `specs/SIM_SURFACE_TABLES/aws-s3-bucket-subresources.md` did not exist yet. The follow-up added it, with every bucket-level row populated. The user-named ops are ✓; siblings the user didn't name but the table now flags as ✗ (replication round-trip test, logging tf-test, etc.) get explicit "deferred under <BUG-N>" notes. The class of miss that followed — *partial coverage shipped as fixed* — cannot recur because the table is now load-bearing.

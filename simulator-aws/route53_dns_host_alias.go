@@ -4,6 +4,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	"golang.org/x/net/dns/dnsmessage"
 )
 
@@ -27,7 +28,7 @@ import (
 // answer with. It is a variable so a test can supply the entries a containerized
 // simulator computes; the real function returns nothing anywhere else, which
 // would otherwise leave this code untested on every machine it is written on.
-var workloadHostAliasEntries = hostMetadataHostEntries
+var workloadHostAliasEntries = workloadhost.OuterHostEntries
 
 func resolveWorkloadHostAlias(q dnsmessage.Question) ([]dnsmessage.Resource, bool) {
 	if q.Class != dnsmessage.ClassINET {

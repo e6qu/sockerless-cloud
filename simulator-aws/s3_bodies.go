@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -9,11 +8,12 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
 // s3Bodies holds the contents of every object and every uploaded part. The
-// rows in s3Objects and s3MultipartUploads reference them; see sim.Payloads.
-var s3Bodies *sim.Payloads
+// rows in s3Objects and s3MultipartUploads reference them.
+var s3Bodies *blobstore.Payloads
 
 // s3OpenBodies opens the payload store and adopts it; it runs once, as the S3
 // slice registers and before anything is served.
@@ -29,70 +29,81 @@ func s3OpenBodies(srv *sim.Server) {
 
 // s3AdoptBodies makes bodies the payload store, moves the contents rows
 // written before it out of them, and removes the files no row references.
-func s3AdoptBodies(bodies *sim.Payloads) error {
+func s3AdoptBodies(bodies *blobstore.Payloads) error {
 	s3Bodies = bodies
-	referenced := map[string]bool{}
-	for _, row := range s3Objects.ListPrefix("") {
-		obj := row.Item
-		if len(obj.LegacyData) > 0 {
-			ref, err := s3Bodies.Write(obj.LegacyData)
-			if err != nil {
-				return fmt.Errorf("move the contents of %s out of its row: %w", row.ID, err)
-			}
-			obj.Body, obj.LegacyData = ref, nil
-			s3Objects.Put(row.ID, obj)
-		}
-		referenced[obj.Body] = true
-	}
-	for _, upload := range s3MultipartUploads.List() {
-		moved := false
-		for number, part := range upload.Parts {
-			if len(part.LegacyData) > 0 {
-				ref, err := s3Bodies.Write(part.LegacyData)
+	return bodies.Adopt(func(adoption *blobstore.Adoption) error {
+		for _, row := range s3Objects.ListPrefix("") {
+			obj := row.Item
+			if len(obj.LegacyData) > 0 {
+				ref, _, err := adoption.Move(obj.LegacyData)
 				if err != nil {
-					return fmt.Errorf("move part %d of upload %s out of its row: %w", number, upload.UploadID, err)
+					return fmt.Errorf("move the contents of %s out of its row: %w", row.ID, err)
 				}
-				part.Body, part.Size, part.LegacyData = ref, int64(len(part.LegacyData)), nil
-				upload.Parts[number] = part
-				moved = true
+				obj.Body, obj.LegacyData = ref, nil
+				s3Objects.Put(row.ID, obj)
 			}
-			referenced[part.Body] = true
+			adoption.Keep(obj.Body)
 		}
-		if moved {
-			s3MultipartUploads.Put(upload.UploadID, upload)
+		for _, upload := range s3MultipartUploads.List() {
+			moved := false
+			for number, part := range upload.Parts {
+				if len(part.LegacyData) > 0 {
+					ref, digests, err := adoption.Move(part.LegacyData)
+					if err != nil {
+						return fmt.Errorf("move part %d of upload %s out of its row: %w", number, upload.UploadID, err)
+					}
+					part.Body, part.Size, part.LegacyData = ref, digests.Size, nil
+					upload.Parts[number] = part
+					moved = true
+				}
+				adoption.Keep(part.Body)
+			}
+			if moved {
+				s3MultipartUploads.Put(upload.UploadID, upload)
+			}
 		}
-	}
-	_, err := s3Bodies.Sweep(func(ref string) bool { return referenced[ref] })
-	return err
+		return nil
+	})
 }
 
-// s3WriteBody stores data and returns its reference; an empty body has none.
-func s3WriteBody(data []byte) (string, error) {
-	if len(data) == 0 {
-		return "", nil
-	}
-	return s3Bodies.Write(data)
-}
-
-// s3StoreObject stores obj under obj.Key with data as its contents, sets its
-// Body and Size, and releases the contents of the object it replaces.
-func s3StoreObject(obj S3Object, data []byte) (S3Object, error) {
-	ref, err := s3WriteBody(data)
-	if err != nil {
-		return S3Object{}, fmt.Errorf("store %s: %w", obj.Key, err)
-	}
-	obj.Body, obj.LegacyData, obj.Size = ref, nil, int64(len(data))
+// s3StoreObject stores obj under obj.Key with the contents body references,
+// which the row takes over, and releases the contents of the object it
+// replaces.
+func s3StoreObject(obj S3Object, body string, digests blobstore.Digests) (S3Object, error) {
+	obj.Body, obj.LegacyData, obj.Size = body, nil, digests.Size
 	var replaced string
 	s3Objects.Upsert(obj.Key, func(current *S3Object) {
 		replaced = current.Body
 		*current = obj
 	})
-	if replaced != "" && replaced != ref {
-		if err := s3Bodies.Remove(replaced); err != nil {
-			return obj, err
-		}
+	return obj, s3Bodies.Release(replaced, body)
+}
+
+// s3StoreObjectData stores obj with data as its contents. An object stated
+// without an ETag takes the one S3 gives a single-part upload, the hex MD5 of
+// its contents.
+func s3StoreObjectData(obj S3Object, data []byte) (S3Object, error) {
+	ref, digests, err := s3Bodies.Write(data)
+	if err != nil {
+		return S3Object{}, fmt.Errorf("store %s: %w", obj.Key, err)
 	}
-	return obj, nil
+	if obj.ETag == "" {
+		obj.ETag = `"` + digests.MD5Hex() + `"`
+	}
+	return s3StoreObject(obj, ref, digests)
+}
+
+// s3CopyContents gives the contents of src a payload of their own, returning
+// the object they were read from, which is a newer one when src was
+// overwritten before its file was opened.
+func s3CopyContents(src S3Object) (S3Object, string, blobstore.Digests, error) {
+	current, reader, err := s3OpenObject(src)
+	if err != nil {
+		return src, "", blobstore.Digests{}, err
+	}
+	defer func() { _ = reader.Close() }()
+	ref, digests, err := s3Bodies.WriteFrom(reader)
+	return current, ref, digests, err
 }
 
 // s3DeleteObjectRow deletes the object stored under key and releases its
@@ -111,66 +122,40 @@ func s3DeleteObjectRow(key string) bool {
 	return true
 }
 
-// s3OpenObject opens obj's contents for reading, so a ranged read touches only
-// its range. An overwrite between reading the row and opening its file
-// removes the file; the row is read again then, and the new object is what it
-// returns, so a caller describes the contents it serves.
-func s3OpenObject(obj S3Object) (S3Object, io.ReadSeeker, func(), error) {
-	for attempt := 0; attempt < 2; attempt++ {
-		if obj.Body == "" {
-			return obj, bytes.NewReader(nil), func() {}, nil
-		}
-		file, err := s3Bodies.Open(obj.Body)
-		if err == nil {
-			return obj, file, func() { _ = file.Close() }, nil
-		}
-		if !errors.Is(err, sim.ErrPayloadGone) {
-			return obj, nil, nil, err
-		}
-		current, ok := s3Objects.Get(obj.Key)
-		if !ok || current.Body == obj.Body {
-			return obj, nil, nil, fmt.Errorf("the contents of %s: %w", obj.Key, err)
-		}
-		obj = current
-	}
-	return obj, nil, nil, fmt.Errorf("the contents of %s changed twice while being read", obj.Key)
+// s3OpenObject opens obj's contents for reading, returning the object they
+// belong to, which is a newer one when obj was overwritten before its file was
+// opened.
+func s3OpenObject(obj S3Object) (S3Object, blobstore.Reader, error) {
+	return blobstore.OpenCurrent(s3Bodies, obj,
+		func(o S3Object) string { return o.Body },
+		func(o S3Object) (S3Object, bool) { return s3Objects.Get(o.Key) },
+		obj.Key)
 }
 
 // s3ObjectData returns obj's whole contents, for the callers that parse or
 // copy them.
 func s3ObjectData(obj S3Object) ([]byte, error) {
-	_, reader, closeBody, err := s3OpenObject(obj)
-	if err != nil {
-		return nil, err
-	}
-	defer closeBody()
-	return io.ReadAll(reader)
+	_, data, err := s3OpenObjectData(obj)
+	return data, err
 }
 
-// s3StorePart stores body as part number of the upload and releases the
-// contents of the part it replaces. It reports false when the upload is gone.
-func s3StorePart(uploadID string, number int, body []byte, etag string) (bool, error) {
-	ref, err := s3WriteBody(body)
-	if err != nil {
-		return false, fmt.Errorf("part %d of upload %s: %w", number, uploadID, err)
-	}
+// s3StorePart stores the contents body references as part number of the
+// upload and releases the contents of the part it replaces. It reports false,
+// and releases body, when the upload is gone.
+func s3StorePart(uploadID string, number int, body string, digests blobstore.Digests, etag string) (bool, error) {
 	replaced := ""
 	stored := s3MultipartUploads.Update(uploadID, func(upload *S3MultipartUpload) {
 		replaced = upload.Parts[number].Body
-		upload.Parts[number] = s3MultipartPart{Body: ref, Size: int64(len(body)), ETag: etag}
+		upload.Parts[number] = s3MultipartPart{Body: body, Size: digests.Size, ETag: etag}
 	})
 	if !stored {
-		// The upload was aborted while the part was being written.
-		return false, s3Bodies.Remove(ref)
+		return false, s3Bodies.Remove(body)
 	}
-	return true, s3Bodies.Remove(replaced)
+	return true, s3Bodies.Release(replaced, body)
 }
 
 // s3PartData returns a part's whole contents.
 func s3PartData(part s3MultipartPart) ([]byte, error) {
-	if part.Body == "" {
-		return nil, nil
-	}
 	return s3Bodies.Read(part.Body)
 }
 
@@ -190,14 +175,13 @@ func s3DeleteUpload(uploadID string) bool {
 }
 
 // s3OpenObjectData returns obj's whole contents together with the object they
-// belong to, which is a newer one when obj was overwritten before its file was
-// opened.
+// belong to.
 func s3OpenObjectData(obj S3Object) (S3Object, []byte, error) {
-	current, reader, closeBody, err := s3OpenObject(obj)
+	current, reader, err := s3OpenObject(obj)
 	if err != nil {
 		return obj, nil, err
 	}
-	defer closeBody()
+	defer func() { _ = reader.Close() }()
 	data, err := io.ReadAll(reader)
 	return current, data, err
 }
@@ -237,8 +221,5 @@ func s3MoveObject(from, to string, condition func(existing S3Object, exists bool
 	if from != to {
 		s3Objects.Delete(from)
 	}
-	if replaced != obj.Body {
-		return obj, s3Bodies.Remove(replaced)
-	}
-	return obj, nil
+	return obj, s3Bodies.Release(replaced, obj.Body)
 }

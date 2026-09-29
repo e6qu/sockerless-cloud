@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
@@ -328,7 +329,7 @@ func registerNetwork(srv *sim.Server) {
 		// netns lets an App Service VNet be created on a host without netns
 		// capabilities; a compute subnet added later still requires the host.
 		if realexec.DetectNetworkCapabilities().Require() == nil {
-			if err := azureCreateRealVnet(r.Context(), vnet); err != nil {
+			if _, err := azureFabric.EnsureNetwork(r.Context(), vnet.ID); err != nil {
 				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to create real virtual network fabric: %v", err)
 				return
 			}
@@ -407,7 +408,7 @@ func registerNetwork(srv *sim.Server) {
 			}
 			subnets.Delete(s.ID)
 		}
-		if err := azureDeleteRealVnet(r.Context(), resourceID); err != nil {
+		if err := azureFabric.TeardownNetwork(r.Context(), resourceID, nil); err != nil {
 			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real virtual network fabric: %v", err)
 			return
 		}
@@ -500,6 +501,12 @@ func registerNetwork(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
 			sub, rg, nsgName)
 
+		for _, rule := range req.Properties.SecurityRules {
+			if port := azureInvalidSecurityRulePort(rule.Properties); port != "" {
+				azureWriteInvalidPortRange(w, port)
+				return
+			}
+		}
 		// Set IDs on security rules
 		for i := range req.Properties.SecurityRules {
 			req.Properties.SecurityRules[i].ID = fmt.Sprintf("%s/securityRules/%s", resourceID, req.Properties.SecurityRules[i].Name)
@@ -592,6 +599,10 @@ func registerNetwork(srv *sim.Server) {
 			if err := sim.ReadJSON(r, &req); err != nil {
 				AzureError(w, "InvalidRequestContent",
 					"Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			if port := azureInvalidSecurityRulePort(req.Properties); port != "" {
+				azureWriteInvalidPortRange(w, port)
 				return
 			}
 			req.ID = ruleID
@@ -833,7 +844,10 @@ func registerNetwork(srv *sim.Server) {
 		resourceID := fmt.Sprintf(
 			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/natGateways/%s",
 			sub, rg, name)
-		azureDeleteRealNATGateway(resourceID)
+		if err := azureDeleteRealNATGateway(r.Context(), resourceID); err != nil {
+			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to withdraw real NAT gateway fabric: %v", err)
+			return
+		}
 		natGateways.Delete(resourceID)
 		w.WriteHeader(http.StatusOK)
 	})
@@ -1618,6 +1632,16 @@ func azureBuildSubnet(resourceID, subnetName string, req Subnet) Subnet {
 // It returns an empty code on success, and the ARM error triple to write
 // otherwise.
 func azureMaterializeSubnet(ctx context.Context, vnetName string, sn Subnet) (string, string, int) {
+	if sn.Properties.AddressPrefix == "" && len(sn.Properties.AddressPrefixes) == 0 {
+		return "NoAddressPrefixOrPoolProvided",
+			fmt.Sprintf("Either address prefix or IPAM pool must be provided for subnet %s.", sn.ID), http.StatusBadRequest
+	}
+	for _, prefix := range append([]string{sn.Properties.AddressPrefix}, sn.Properties.AddressPrefixes...) {
+		if _, _, err := net.ParseCIDR(prefix); prefix != "" && err != nil {
+			return "InvalidAddressPrefixFormat",
+				fmt.Sprintf("Address prefix %s of resource %s is not formatted correctly.", prefix, sn.ID), http.StatusBadRequest
+		}
+	}
 	if subnetIsWebDelegated(sn) {
 		if _, err := sim.EnsureDockerNetwork(dockerNetForVNet(vnetName)); err != nil {
 			return "InternalServerError", fmt.Sprintf("failed to realize App Service subnet network: %v", err), http.StatusInternalServerError

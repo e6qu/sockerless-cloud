@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/google/uuid"
 )
 
@@ -260,7 +261,7 @@ func sfnRunTaskValue(state sfnState, input, context any, cancel <-chan struct{})
 		err   *sfnExecutionError
 	}
 	done := make(chan taskResult, 1)
-	simJoinedGo(func() {
+	bg.JoinedGo(func() {
 		value, taskErr := sfnInvokeTaskResource(
 			state.Resource, input, inputJSON, context, cancel, sfnTaskHeartbeat(state, input, context),
 		)
@@ -1210,13 +1211,13 @@ func sfnRunMap(state sfnState, stateName string, input, context any, cancel <-ch
 	work := make(chan int)
 	resultCh := make(chan itemResult, len(items))
 	var workers sync.WaitGroup
-	// The map's own fan-out is joined below, so it goes through simJoinedGo: a
+	// The map's own fan-out is joined below, so it goes through bg.JoinedGo: a
 	// dropped worker leaves the feed blocked on a channel nobody reads, and a
 	// dropped feed leaves the collector blocked on a channel nobody closes.
 	// Either way the map run stays RUNNING for good rather than finishing late.
 	for worker := 0; worker < maxConcurrency; worker++ {
 		workers.Add(1)
-		simJoinedGo(func() {
+		bg.JoinedGo(func() {
 			defer workers.Done()
 			for index := range work {
 				if mapRun != nil {
@@ -1298,7 +1299,7 @@ func sfnRunMap(state sfnState, stateName string, input, context any, cancel <-ch
 			}
 		})
 	}
-	simJoinedGo(func() {
+	bg.JoinedGo(func() {
 		for index := range items {
 			work <- index
 		}

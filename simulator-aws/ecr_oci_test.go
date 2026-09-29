@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // ecrOCITestStores re-seeds the ECR control-plane stores the registry data
@@ -14,11 +15,12 @@ import (
 func ecrOCITestStores() {
 	// Work started by whatever ran before this must finish before the
 	// stores it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ecrRepositories = sim.MakeStore[ECRRepository](nil, "ecr_repositories")
 	ecrRepoCreationTemplates = sim.MakeStore[ECRRepositoryCreationTemplate](nil, "ecr_repo_creation_templates")
 	ecrRepoPolicies = sim.MakeStore[string](nil, "ecr_repo_policies")
 	ecrLifecyclePolicies = sim.MakeStore[ECRLifecyclePolicy](nil, "ecr_lifecycle_policies")
+	ecrPullThroughCacheRules = sim.MakeStore[ECRPullThroughCacheRule](nil, "ecr_pull_through_cache_rules")
 }
 
 // ecrAdmitProbe runs one repository through the data plane's admission and

@@ -43,8 +43,12 @@ func FuzzSchedulerExpression(f *testing.F) {
 	}
 	after := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	f.Fuzz(func(t *testing.T, expr string) {
-		_ = schedulerExpressionValid(expr)
-		_ = schedulerCronValid(expr)
-		_, _ = schedulerCronNext(expr, after)
+		for _, allowAt := range []bool{true, false} {
+			if plan, err := parseAWSSchedule(expr, "", allowAt); err == nil {
+				if first, ok := plan.first(after); ok {
+					_, _ = plan.next(first)
+				}
+			}
+		}
 	})
 }

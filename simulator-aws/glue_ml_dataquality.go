@@ -339,7 +339,10 @@ func handleGlueGetMLTransforms(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	transforms := make([]glueMLTransformWire, 0, len(page))
 	for _, t := range page {
 		transforms = append(transforms, glueMLTransformWire{t})
@@ -365,7 +368,10 @@ func handleGlueListMLTransforms(w http.ResponseWriter, r *http.Request) {
 	for _, t := range all {
 		ids = append(ids, t.TransformId)
 	}
-	page, nextTok := awsPage(ids, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, ids, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"TransformIds": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -564,7 +570,10 @@ func handleGlueListDataQualityRulesets(w http.ResponseWriter, r *http.Request) {
 		}
 		details = append(details, d)
 	}
-	page, nextTok := awsPage(details, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, details, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Rulesets": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -759,7 +768,10 @@ func handleGlueListDataQualityRulesetEvaluationRuns(w http.ResponseWriter, r *ht
 		}
 		runs = append(runs, d)
 	}
-	page, nextTok := awsPage(runs, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, runs, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Runs": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -882,7 +894,10 @@ func handleGlueListDataQualityRuleRecommendationRuns(w http.ResponseWriter, r *h
 		}
 		runs = append(runs, d)
 	}
-	page, nextTok := awsPage(runs, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, runs, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Runs": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -975,7 +990,10 @@ func handleGlueListDataQualityResults(w http.ResponseWriter, r *http.Request) {
 		}
 		descs = append(descs, d)
 	}
-	page, nextTok := awsPage(descs, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, descs, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Results": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -1292,7 +1310,10 @@ func handleGlueGetColumnStatisticsTaskRuns(w http.ResponseWriter, r *http.Reques
 			filtered = append(filtered, run)
 		}
 	}
-	page, nextTok := awsPage(filtered, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, filtered, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"ColumnStatisticsTaskRuns": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -1314,7 +1335,10 @@ func handleGlueListColumnStatisticsTaskRuns(w http.ResponseWriter, r *http.Reque
 	for _, run := range all {
 		ids = append(ids, run.ColumnStatisticsTaskRunId)
 	}
-	page, nextTok := awsPage(ids, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, ids, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"ColumnStatisticsTaskRunIds": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok

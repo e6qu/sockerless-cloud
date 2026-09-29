@@ -188,7 +188,7 @@ func handleAPIGWv2CreateIntegrationResponse(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	ir := APIGWv2IntegrationResponse{
-		IntegrationResponseId:       generateUUID()[:10],
+		IntegrationResponseId:       sim.NewUUID()[:10],
 		ApiId:                       apiId,
 		IntegrationId:               integrationId,
 		IntegrationResponseKey:      req.IntegrationResponseKey,
@@ -308,7 +308,7 @@ func handleAPIGWv2CreateRouteResponse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rr := APIGWv2RouteResponse{
-		RouteResponseId:          generateUUID()[:10],
+		RouteResponseId:          sim.NewUUID()[:10],
 		ApiId:                    apiId,
 		RouteId:                  routeId,
 		RouteResponseKey:         req.RouteResponseKey,
@@ -461,7 +461,7 @@ func apigwv2APIFromOpenAPI(r *http.Request, apiId string) (APIGWv2Api, error) {
 	}
 	name := apigwv2OpenAPITitle(req.Body)
 	if apiId == "" {
-		apiId = generateUUID()[:10]
+		apiId = sim.NewUUID()[:10]
 	}
 	return APIGWv2Api{
 		ApiId:        apiId,

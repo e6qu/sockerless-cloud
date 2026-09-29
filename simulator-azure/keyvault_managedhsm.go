@@ -193,7 +193,10 @@ func registerKeyVaultManagedHSM(srv *sim.Server) {
 			all = []ManagedHSM{}
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-		page, next := armPage(r, all)
+		page, next, pageOK := armPage(w, r, all)
+		if !pageOK {
+			return
+		}
 		if page == nil {
 			page = []ManagedHSM{}
 		}

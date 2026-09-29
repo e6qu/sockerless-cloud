@@ -17,30 +17,29 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /compute/v1/projects/{project}/global/backendServices` | ✓ `simulator-gcp/compute_loadbalancing.go:103::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/backendServices/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:134::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/backendServices` | ✓ `simulator-gcp/compute_loadbalancing.go:137::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/backendServices/listUsable` | ✓ `simulator-gcp/compute_loadbalancing.go:143::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /compute/v1/projects/{project}/global/backendServices/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:146::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/backendServices/{name}/getHealth` | ✓ `simulator-gcp/compute_loadbalancing.go:183::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /compute/v1/projects/{project}/global/backendServices/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:204::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/urlMaps` | ✓ `simulator-gcp/compute_loadbalancing.go:208::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/urlMaps/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:230::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/urlMaps` | ✓ `simulator-gcp/compute_loadbalancing.go:233::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /compute/v1/projects/{project}/global/urlMaps/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:236::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/targetHttpProxies` | ✓ `simulator-gcp/compute_loadbalancing.go:240::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/targetHttpProxies/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:261::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/targetHttpProxies` | ✓ `simulator-gcp/compute_loadbalancing.go:264::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /compute/v1/projects/{project}/global/targetHttpProxies/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:267::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/forwardingRules` | ✓ `simulator-gcp/compute_loadbalancing.go:271::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/forwardingRules/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:309::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/forwardingRules` | ✓ `simulator-gcp/compute_loadbalancing.go:312::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /compute/v1/projects/{project}/global/forwardingRules/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:315::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action /{path...}` | ✓ `simulator-gcp/compute_loadbalancing.go:429::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/healthChecks` | ✓ `simulator-gcp/compute_loadbalancing.go:50::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/healthChecks/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:93::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/healthChecks` | ✓ `simulator-gcp/compute_loadbalancing.go:96::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /compute/v1/projects/{project}/global/healthChecks/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:99::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/backendServices/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:119::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/backendServices` | ✓ `simulator-gcp/compute_loadbalancing.go:122::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/backendServices/listUsable` | ✓ `simulator-gcp/compute_loadbalancing.go:128::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /compute/v1/projects/{project}/global/backendServices/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:131::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/backendServices/{name}/getHealth` | ✓ `simulator-gcp/compute_loadbalancing.go:168::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /compute/v1/projects/{project}/global/backendServices/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:189::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/urlMaps` | ✓ `simulator-gcp/compute_loadbalancing.go:193::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/urlMaps/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:215::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/urlMaps` | ✓ `simulator-gcp/compute_loadbalancing.go:218::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /compute/v1/projects/{project}/global/urlMaps/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:221::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/targetHttpProxies` | ✓ `simulator-gcp/compute_loadbalancing.go:225::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/targetHttpProxies/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:246::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/targetHttpProxies` | ✓ `simulator-gcp/compute_loadbalancing.go:249::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /compute/v1/projects/{project}/global/targetHttpProxies/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:252::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/forwardingRules` | ✓ `simulator-gcp/compute_loadbalancing.go:256::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/forwardingRules/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:294::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/forwardingRules` | ✓ `simulator-gcp/compute_loadbalancing.go:297::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/healthChecks` | ✓ `simulator-gcp/compute_loadbalancing.go:30::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /compute/v1/projects/{project}/global/forwardingRules/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:300::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/healthChecks/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:78::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/healthChecks` | ✓ `simulator-gcp/compute_loadbalancing.go:81::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /compute/v1/projects/{project}/global/healthChecks/{name}` | ✓ `simulator-gcp/compute_loadbalancing.go:84::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/backendServices` | ✓ `simulator-gcp/compute_loadbalancing.go:88::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

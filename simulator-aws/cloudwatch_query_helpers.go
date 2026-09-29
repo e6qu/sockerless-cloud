@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Shared query-protocol (legacy aws CLI / botocore) response helpers for the
@@ -17,7 +19,7 @@ import (
 func cwQueryEmptyResponse(w http.ResponseWriter, op string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse %s><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></%sResponse>`,
-		op, cwQueryXmlns, generateUUID(), op)
+		op, cwQueryXmlns, sim.NewUUID(), op)
 }
 
 // cwQueryResult writes the metadata-plus-result envelope for an operation with
@@ -25,7 +27,7 @@ func cwQueryEmptyResponse(w http.ResponseWriter, op string) {
 func cwQueryResult(w http.ResponseWriter, op, resultXML string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse %s><%sResult>%s</%sResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></%sResponse>`,
-		op, cwQueryXmlns, op, resultXML, op, generateUUID(), op)
+		op, cwQueryXmlns, op, resultXML, op, sim.NewUUID(), op)
 }
 
 // cwQueryAppendf is a fmt.Sprintf-into-a-byte-slice helper for building XML

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CloudWatch metrics — query-protocol surface (the aws CLI / botocore path).
@@ -79,7 +81,7 @@ func handleCWQueryPutMetricData(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<PutMetricDataResponse %s><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></PutMetricDataResponse>`,
-		cwQueryXmlns, generateUUID())
+		cwQueryXmlns, sim.NewUUID())
 }
 
 func handleCWQueryGetMetricStatistics(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +144,7 @@ func handleCWQueryGetMetricStatistics(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetMetricStatisticsResponse %s><GetMetricStatisticsResult><Label>%s</Label><Datapoints>%s</Datapoints></GetMetricStatisticsResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetMetricStatisticsResponse>`,
-		cwQueryXmlns, xmlEscape(metricName), points.String(), generateUUID())
+		cwQueryXmlns, xmlEscape(metricName), points.String(), sim.NewUUID())
 }
 
 func handleCWQueryListMetrics(w http.ResponseWriter, r *http.Request) {
@@ -187,7 +189,7 @@ func handleCWQueryListMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListMetricsResponse %s><ListMetricsResult><Metrics>%s</Metrics></ListMetricsResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListMetricsResponse>`,
-		cwQueryXmlns, members.String(), generateUUID())
+		cwQueryXmlns, members.String(), sim.NewUUID())
 }
 
 func cwParseTimeUnix(s string) float64 {
@@ -208,5 +210,5 @@ func cwQueryError(w http.ResponseWriter, code, message string) {
 	w.Header().Set("Content-Type", "text/xml")
 	w.WriteHeader(http.StatusBadRequest)
 	fmt.Fprintf(w, `<ErrorResponse %s><Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error><RequestId>%s</RequestId></ErrorResponse>`,
-		cwQueryXmlns, code, xmlEscape(message), generateUUID())
+		cwQueryXmlns, code, xmlEscape(message), sim.NewUUID())
 }

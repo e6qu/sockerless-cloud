@@ -106,8 +106,8 @@ func registerApplicationInsights(srv *sim.Server) {
 		}
 
 		// Preserve stable IDs across upserts (real App Insights keeps the same instrumentation key).
-		appID := generateUUID()
-		instrumentationKey := generateUUID()
+		appID := sim.NewUUID()
+		instrumentationKey := sim.NewUUID()
 		if existing, exists := components.Get(resourceID); exists {
 			appID = existing.Properties.ApplicationID
 			instrumentationKey = existing.Properties.InstrumentationKey
@@ -284,7 +284,7 @@ func registerApplicationInsights(srv *sim.Server) {
 			AzureError(w, "InvalidRequestContent", "The 'table' property is required.", http.StatusBadRequest)
 			return
 		}
-		purgeID := generateUUID()
+		purgeID := sim.NewUUID()
 		purges.Put(purgeID, AppInsightsPurge{OperationID: purgeID, Status: "completed"})
 		// Real App Insights returns the purge id in both the body and the
 		// x-ms-status-location header pointing at the operations status URL.

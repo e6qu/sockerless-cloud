@@ -77,7 +77,10 @@ func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 				return strings.HasPrefix(vm.ID, prefix) && strings.EqualFold(vm.Location, location)
 			})
 			sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-			page, next := armPage(r, all)
+			page, next, pageOK := armPage(w, r, all)
+			if !pageOK {
+				return
+			}
 			if page == nil {
 				page = []VirtualMachine{}
 			}
@@ -98,7 +101,7 @@ func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 			return
 		}
 		state, _ := azureVMStates.Get(id)
-		if state == "PowerState/running" && azureRealVMAlive(id) {
+		if state == "PowerState/running" && azureFabric.VMAlive(id) {
 			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
 				"Generalize is not allowed on VM %q because it is not in a stopped state.", id)
 			return
@@ -117,7 +120,7 @@ func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 			return
 		}
 		state, _ := azureVMStates.Get(id)
-		if state == "PowerState/running" && azureRealVMAlive(id) {
+		if state == "PowerState/running" && azureFabric.VMAlive(id) {
 			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
 				"ConvertToManagedDisks is not allowed on VM %q because it is not in a deallocated state.", id)
 			return
@@ -358,9 +361,7 @@ func azureBootDiagnosticsPath(vm VirtualMachine) (container, blob string) {
 // saying so is the honest answer — an empty log would be indistinguishable from
 // a guest that booted silently.
 func azureGuestConsoleOutput(vmID string) ([]byte, error) {
-	azureRealMu.Lock()
-	guest := azureRealVMs[vmID]
-	azureRealMu.Unlock()
+	guest := azureFabric.VM(vmID)
 	if guest == nil {
 		return nil, fmt.Errorf(
 			"virtual machine %q has no running guest, so it has produced no console output", vmID)

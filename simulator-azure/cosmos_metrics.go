@@ -206,7 +206,7 @@ func handleCosmosListPartitionMetrics(w http.ResponseWriter, r *http.Request) {
 		pkRange = "0"
 	}
 	for _, m := range metrics {
-		m["partitionId"] = generateUUID()
+		m["partitionId"] = sim.NewUUID()
 		m["partitionKeyRangeId"] = pkRange
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": metrics})
@@ -275,7 +275,7 @@ func handleCosmosListUsages(w http.ResponseWriter, _ *http.Request) {
 func handleCosmosListPartitionUsages(w http.ResponseWriter, _ *http.Request) {
 	usages := cosmosBuildUsages()
 	for _, u := range usages {
-		u["partitionId"] = generateUUID()
+		u["partitionId"] = sim.NewUUID()
 		u["partitionKeyRangeId"] = "0"
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": usages})

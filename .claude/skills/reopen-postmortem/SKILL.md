@@ -21,20 +21,20 @@ Apply it when ANY of these are true:
 
 1. A community-filed GitHub issue is reopened after a previous "fixed" claim. The reopen comment usually quotes a previous merge commit or PR.
 2. A new GitHub issue is filed against a surface that an earlier issue claimed to fix (adjacent reopen — different issue ID, same shape).
-3. A BUG entry in BUGS.md is converted from `~~CLOSED~~` back to Open after the user reports the fix doesn't hold.
+3. A bug whose fix left `BUGS.md` has to be filed again because the user reports the fix doesn't hold.
 4. The current PR includes a "BUG-NNNN reopened" line in the commit messages.
 
 Do **not** apply this skill to first-time issues, scope-expansion issues (different surface than the original), or process / skill / continuity-doc improvements.
 
 ## The rule
 
-**Every reopen BUG entry in BUGS.md must contain three additional fields beyond the standard one-liner:**
+**Every reopened bug's row in `BUGS.md` must carry three additional fields beyond the standard symptom and fix shape:**
 
 1. **What test passed but should have failed?** Quote the test name + file:line. Explain why it didn't catch the regression — what was it actually asserting?
 2. **What client code path did the test miss?** Reference the specific function / parser / policy in the SDK / CLI / provider that the original test bypassed.
 3. **What new test (using the canonical client) catches the regression?** This is the load-bearing requirement — the fix isn't complete until this test exists, fails on the pre-fix build, and passes on the post-fix build.
 
-These three fields go in the BUG one-liner column itself, prefixed with `Postmortem:`. They are NOT footnotes or optional context — without them, the reopen is unsupported and the next reopen is foreseeable.
+These three fields go in the row's symptom-and-cause column itself, prefixed with `Postmortem:`. They are NOT footnotes or optional context — without them, the reopen is unsupported and the next reopen is foreseeable.
 
 ## How to apply
 
@@ -43,26 +43,24 @@ These three fields go in the BUG one-liner column itself, prefixed with `Postmor
 1. Identify the previous BUG that claimed to fix the issue (e.g., BUG-1135 → BUG-1143 chain).
 2. Read the previous BUG's commit + the test file it added.
 3. Run the test under the *new* canonical client (the one the user's reopen used). If it doesn't fail, the test is not the regression guard — find one that does.
-4. Write the three postmortem fields into the new BUG one-liner.
+4. Write the three postmortem fields into the new row.
 5. **Don't start coding the fix yet.** Confirm the new test fails on the pre-fix build; *that* is the regression guard. Then start the fix; the test passes when the fix is right.
 
 ### When closing a reopen BUG
 
-The strikethrough form mirrors the original BUG style but explicitly references the original BUG and the postmortem fields:
-
-```markdown
-| ~~1143~~ | ~~P0~~ | ~~Azure KV WWW-Authenticate authorization URL breaks Azure SDK parser (issue #193 reopened — postmortem of BUG-1135)~~ — **FIXED** in Phase 177 ... | 36 |
-```
-
-The "postmortem of BUG-NNNN" suffix preserves the chain so future readers can find the prior fix that didn't hold.
+`BUGS.md` keeps only open bugs, so the row leaves it with the fix. The fixing
+commit's message carries the postmortem — the three fields and "postmortem of
+BUG-NNNN" naming the prior fix that didn't hold — so `git log` preserves the
+chain. If the reopen taught a rule, record the rule in `WHAT_WE_DID.md` in the
+same commit.
 
 ### When auditing a PR that touches a reopen
 
-For each commit that says "BUG-NNNN reopened" or references a strikethrough BUG:
+For each commit that says "BUG-NNNN reopened" or names a prior fix that didn't hold:
 
 1. Find the new canonical-client test added in the PR. If none, the fix is incomplete.
 2. Confirm the new test would have failed on the pre-fix build. The simplest verification: `git stash` the fix, run the test, see it fail; `git stash pop` to restore the fix.
-3. Verify the BUG entry carries the three postmortem fields. If not, file a sub-finding before merge.
+3. Verify the `BUGS.md` row, or the fixing commit's message, carries the three postmortem fields. If not, add them before merge.
 
 ## Refused shortcuts
 
@@ -84,4 +82,4 @@ For each commit that says "BUG-NNNN reopened" or references a strikethrough BUG:
 2. *What client code path did the test miss?* `github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/internal.parseTenant` at `challenge_policy.go:104` — `parts := strings.Split(url, "/"); tenant := parts[3]`. The function panics on a URL with < 4 path segments. None of PR #200's tests called any code that walked through this function.
 3. *What new test catches the regression?* `simulator-azure/sdk-tests/keyvault_sdk_test.go::TestKeyVault_SDK_Secrets_ChallengeRoundTrip` (plus the Keys and Certificates siblings). Each test constructs an `azsecrets.NewClient` with a canonical `azcore.TokenCredential` and exercises SetSecret → GetSecret → DeleteSecret. The challenge policy fires on the first call; `parseTenant` runs on the response; pre-fix the test panics with `index out of range [3] with length 3`; post-fix the test extracts the zero-UUID tenant and passes.
 
-The BUG-1143 row in BUGS.md carries this postmortem inline. The next reopen — should one happen — must do the same.
+The BUG-1143 fix carried this postmortem inline. The next reopen — should one happen — must do the same.

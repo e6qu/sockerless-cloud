@@ -2,8 +2,6 @@ package main
 
 import (
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -21,9 +19,11 @@ import (
 const gcsDefaultSoftDeleteRetention = 7 * 24 * time.Hour
 
 type gcsSoftDeleted struct {
-	Object         GCSObject `json:"object"`
-	SoftDeleteTime string    `json:"softDeleteTime"`
-	HardDeleteTime string    `json:"hardDeleteTime"`
+	Object GCSObject `json:"object"`
+	// Body references the retired generation's contents in gcsBodies.
+	Body           string `json:"body,omitempty"`
+	SoftDeleteTime string `json:"softDeleteTime"`
+	HardDeleteTime string `json:"hardDeleteTime"`
 }
 
 var gcsSoftDeletedObjects sim.Store[gcsSoftDeleted]
@@ -71,27 +71,51 @@ func gcsApplyDefaultSoftDeletePolicy(data map[string]any) {
 	}
 }
 
-// Call only where the object is destroyed, never where it is retired: restore
-// reads this same path.
-func gcsRemoveObjectPayload(bucket, object string) {
-	_ = os.Remove(filepath.Join(GCSBucketHostDir(bucket), object))
-}
-
-// Reports whether the object was retained.
-func gcsRetireObject(bucket Bucket, bucketName string, obj GCSObject) bool {
+// gcsRetireGeneration retires a generation a delete or an overwrite replaced:
+// under a soft-delete policy it is kept, contents and all, for restore to
+// bring back; without one its contents are released. It reports whether the
+// generation was kept.
+func gcsRetireGeneration(bucket Bucket, obj GCSObject) bool {
 	retention := gcsSoftDeleteRetention(bucket)
 	if retention == 0 {
-		gcsRemoveObjectPayload(bucketName, obj.Name)
-		gcsDropObjectACL(bucketName, obj.Name)
+		gcsReleaseBody(obj.Body)
 		return false
 	}
 	now := time.Now().UTC()
-	gcsSoftDeletedObjects.Put(gcsSoftDeleteKey(bucketName, obj.Name, obj.Generation), gcsSoftDeleted{
+	gcsSoftDeletedObjects.Put(gcsSoftDeleteKey(obj.Bucket, obj.Name, obj.Generation), gcsSoftDeleted{
 		Object:         obj,
+		Body:           obj.Body,
 		SoftDeleteTime: now.Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z"),
 		HardDeleteTime: now.Add(retention).Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z"),
 	})
 	return true
+}
+
+// gcsRetireObject retires a deleted object. An object that is not kept loses
+// its access controls with it.
+func gcsRetireObject(bucket Bucket, bucketName string, obj GCSObject) bool {
+	if gcsRetireGeneration(bucket, obj) {
+		return true
+	}
+	gcsDropObjectACL(bucketName, obj.Name)
+	return false
+}
+
+// gcsRestoreGeneration makes a soft-deleted generation the live object again.
+// A live object it replaces is retired as an overwrite retires it.
+func gcsRestoreGeneration(objects sim.PrefixStore[GCSObject], bucket Bucket, entry gcsSoftDeleted) GCSObject {
+	restored := entry.Object
+	restored.Body = entry.Body
+	restored.Updated = gcsTimestamp()
+	key := restored.Bucket + "/" + restored.Name
+	replaced, existed := objects.Get(key)
+	objects.Put(key, restored)
+	gcsSoftDeletedObjects.Delete(gcsSoftDeleteKey(restored.Bucket, restored.Name, restored.Generation))
+	if existed {
+		gcsRetireGeneration(bucket, replaced)
+	}
+	gcsMirror(restored)
+	return restored
 }
 
 // Past hardDeleteTime the service has deleted them permanently, so neither
@@ -106,8 +130,10 @@ func gcsPurgeExpiredSoftDeletes(bucketName string) {
 			continue
 		}
 		gcsSoftDeletedObjects.Delete(gcsSoftDeleteKey(bucketName, entry.Object.Name, entry.Object.Generation))
-		gcsRemoveObjectPayload(bucketName, entry.Object.Name)
-		gcsDropObjectACL(bucketName, entry.Object.Name)
+		gcsReleaseBody(entry.Body)
+		if _, live := gcsObjects.Get(bucketName + "/" + entry.Object.Name); !live {
+			gcsDropObjectACL(bucketName, entry.Object.Name)
+		}
 	}
 }
 
@@ -137,7 +163,8 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/o/{object}/restore", func(w http.ResponseWriter, r *http.Request) {
 		bucketName, objectName := sim.PathParam(r, "bucket"), sim.PathParam(r, "object")
-		if _, ok := bucketOr404(w, bucketName); !ok {
+		bucket, ok := bucketOr404(w, bucketName)
+		if !ok {
 			return
 		}
 		generation := strings.TrimSpace(r.URL.Query().Get("generation"))
@@ -158,16 +185,14 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 				"object %q already exists in bucket %q", objectName, bucketName)
 			return
 		}
-		restored := entry.Object
-		restored.Updated = gcsTimestamp()
-		objects.Put(bucketName+"/"+objectName, restored)
-		gcsSoftDeletedObjects.Delete(gcsSoftDeleteKey(bucketName, objectName, generation))
+		restored := gcsRestoreGeneration(objects, bucket, entry)
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, restored))
 	})
 
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/o/bulkRestore", func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
-		if _, ok := bucketOr404(w, bucketName); !ok {
+		bucket, ok := bucketOr404(w, bucketName)
+		if !ok {
 			return
 		}
 		var request struct {
@@ -198,10 +223,9 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 			if _, live := objects.Get(bucketName + "/" + name); live && !request.AllowOverwrite {
 				continue
 			}
-			object := entry.Object
-			object.Updated = gcsTimestamp()
-			objects.Put(bucketName+"/"+name, object)
-			gcsSoftDeletedObjects.Delete(gcsSoftDeleteKey(bucketName, name, entry.Object.Generation))
+			release := gcsObjectWriters.Lock(bucketName + "/" + name)
+			object := gcsRestoreGeneration(objects, bucket, entry)
+			release()
 			// Without copySourceAcl the restored object takes the bucket
 			// default, the rule a freshly written object follows.
 			if !request.CopySourceAcl {
@@ -235,7 +259,7 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", source, bucketName)
 			return
 		}
-		data, err := gcsObjectBytes(obj, bucketName, source)
+		obj, copied, digests, err := gcsCopyContents(obj)
 		if err != nil {
 			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "read source object: %v", err)
 			return
@@ -243,7 +267,7 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 		// The destination must not exist when the move lands, which is the
 		// precondition the write states rather than a look taken beforehand.
 		absent := int64(0)
-		moved, err := persistGCSObject(objects, bucketName, destination, data, obj, gcsPreconditions{GenerationMatch: &absent})
+		moved, err := persistGCSObject(objects, bucketName, destination, copied, digests, obj, gcsPreconditions{GenerationMatch: &absent})
 		if err != nil {
 			writeGCSPersistError(w, "move object", err)
 			return
@@ -251,7 +275,8 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 		release := gcsObjectWriters.Lock(bucketName + "/" + source)
 		if current, ok := objects.Get(bucketName + "/" + source); ok && current.Generation == obj.Generation {
 			objects.Delete(bucketName + "/" + source)
-			gcsRemoveObjectPayload(bucketName, source)
+			gcsUnmirror(bucketName, source)
+			gcsReleaseBody(current.Body)
 			gcsDropObjectACL(bucketName, source)
 		}
 		release()

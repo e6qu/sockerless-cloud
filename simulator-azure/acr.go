@@ -743,15 +743,15 @@ type acrTokenIdentity struct {
 // identity a registry with anonymous pull enabled serves. It writes the
 // refusal and reports false when neither authenticates.
 func acrPasswordGrantIdentity(w http.ResponseWriter, r *http.Request, reg Registry) (acrTokenIdentity, bool) {
-	basic := acrSchemeValue(strings.TrimSpace(r.Header.Get("Authorization")), "Basic")
-	if basic == "" {
+	scheme, basic := sim.ParseAuthorization(r.Header.Get("Authorization"))
+	if !strings.EqualFold(scheme, "Basic") || basic == "" {
 		if acrAnonymousPullEnabled(reg) {
 			return acrTokenIdentity{subject: "anonymous"}, true
 		}
 		acrOAuthUnauthorized(w, "authentication required")
 		return acrTokenIdentity{}, false
 	}
-	username, password, decoded := acrBasicCredential(basic)
+	username, password, decoded := sim.BasicCredential(basic)
 	if !decoded {
 		acrOAuthUnauthorized(w, "the Basic credential is malformed")
 		return acrTokenIdentity{}, false
@@ -772,7 +772,7 @@ func acrPasswordGrantIdentity(w http.ResponseWriter, r *http.Request, reg Regist
 // acrWriteAccessToken mints the access token for the scopes the credential
 // authorizes and writes the token service's response.
 func acrWriteAccessToken(w http.ResponseWriter, reg Registry, identity acrTokenIdentity, scopes []string) {
-	granted := acrGrantScopes(acrParseScopes(scopes), identity.owner)
+	granted := acrGrantScopes(sim.ParseRegistryScopes(scopes), identity.owner)
 	accessToken, err := acrMintAccessToken(reg, identity.subject, granted, identity.credential, identity.slot)
 	if err != nil {
 		AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
@@ -787,7 +787,10 @@ func acrWriteAccessToken(w http.ResponseWriter, reg Registry, identity acrTokenI
 func writeACRRegistryList(w http.ResponseWriter, r *http.Request, registries sim.Store[Registry], keep func(Registry) bool) {
 	matched := registries.Filter(keep)
 	sort.Slice(matched, func(i, j int) bool { return matched[i].ID < matched[j].ID })
-	page, next := armPage(r, matched)
+	page, next, pageOK := armPage(w, r, matched)
+	if !pageOK {
+		return
+	}
 	if page == nil {
 		page = []Registry{}
 	}
@@ -1241,7 +1244,7 @@ func registerACRWebhooks(srv *sim.Server) {
 
 	// POST .../webhooks/{name}/ping — fires a ping notification, returns EventInfo.
 	srv.HandleFunc("POST "+base+"/{webhookName}/ping", func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"id": generateUUID()})
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"id": sim.NewUUID()})
 	})
 
 	// POST .../webhooks/{name}/getCallbackConfig — returns the stored secrets.

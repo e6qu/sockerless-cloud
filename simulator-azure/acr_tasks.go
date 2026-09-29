@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/rs/zerolog"
 )
 
@@ -224,7 +225,7 @@ func registerACRTasks(srv *sim.Server) {
 			acrRegistryNotFound(w, r)
 			return
 		}
-		rel := "source/" + generateUUID() + ".tar.gz"
+		rel := "source/" + sim.NewUUID() + ".tar.gz"
 		scheme := "https"
 		if r.TLS == nil {
 			scheme = "http"
@@ -261,7 +262,7 @@ func handleACRScheduleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID := "cb" + generateUUID()[:8]
+	runID := "cb" + sim.NewUUID()[:8]
 	now := time.Now().UTC().Format(time.RFC3339)
 	run := acrRun{
 		ID:   fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s/runs/%s", sub, rg, registry, runID),
@@ -326,15 +327,6 @@ func handleACRGetRun(w http.ResponseWriter, r *http.Request) {
 // host, is the source of truth; the workload later pulls the image from the
 // registry over the standard /v2/ API. The build context is a gzipped tar
 // (Dockerfile + COPY'd files) streamed to `docker build -` on stdin.
-// dockerBuildxAvailable reports whether the host's docker CLI has the buildx
-// plugin, which decides how the ACR Tasks build must invoke docker (see
-// executeACRBuild). Probed per build — cheap relative to the build itself.
-func dockerBuildxAvailable(ctx context.Context, env []string) bool {
-	probe := exec.CommandContext(ctx, "docker", "buildx", "version")
-	probe.Env = env
-	return probe.Run() == nil
-}
-
 func executeACRBuild(ctx context.Context, req acrDockerBuildRequest, reg Registry, runID string) (string, error) {
 	var runLog strings.Builder
 	logf := func(format string, args ...any) {
@@ -378,22 +370,8 @@ func executeACRBuild(ctx context.Context, req acrDockerBuildRequest, reg Registr
 		dockerfile = "Dockerfile"
 	}
 
-	// Choose the build invocation that lands the image in the daemon store on
-	// whatever docker CLI the host has, so the subsequent `docker push` finds
-	// it. When the buildx plugin is present, `docker buildx build --load`
-	// exports the result into the daemon store for every driver (the default
-	// docker-container buildx driver otherwise leaves it in the build cache only
-	// → push "image not known"). When buildx is absent (the legacy builder,
-	// e.g. the `docker.io` package), plain `docker build` writes to the store
-	// natively and rejects the buildx-only `--load` flag, so it must be omitted.
-	var args []string
-	if dockerBuildxAvailable(ctx, dockerEnv) {
-		args = []string{"buildx", "build", "--load", "-f", dockerfile}
-	} else {
-		args = []string{"build", "-f", dockerfile}
-	}
-	acrTasksLogger.Info().Str("invocation", "docker "+args[0]).Bool("load", args[0] == "buildx").
-		Strs("images", req.ImageNames).Msg("ACR Tasks: building overlay")
+	args := append(workload.DockerBuildInvocation(ctx, dockerEnv), "-f", dockerfile)
+	acrTasksLogger.Info().Strs("invocation", args).Strs("images", req.ImageNames).Msg("ACR Tasks: building overlay")
 	for _, img := range req.ImageNames {
 		args = append(args, "-t", img)
 	}
@@ -415,13 +393,12 @@ func executeACRBuild(ctx context.Context, req acrDockerBuildRequest, reg Registr
 	}
 	args = append(args, "-") // build context from stdin (gzipped tar)
 
-	_, context, closeContext, err := blobOpen(obj)
+	_, context, err := blobOpen(obj)
 	if err != nil {
 		return runLog.String(), fmt.Errorf("read the build context: %w", err)
 	}
-	defer closeContext()
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	cmd.Env = dockerEnv
+	defer func() { _ = context.Close() }()
+	cmd := workload.DockerCommand(ctx, dockerEnv, args...)
 	cmd.Stdin = context
 	out, err := cmd.CombinedOutput()
 	runLog.Write(out)
@@ -438,16 +415,13 @@ func executeACRBuild(ctx context.Context, req acrDockerBuildRequest, reg Registr
 	}
 	for _, img := range req.ImageNames {
 		logf("The push refers to repository [%s]", img)
-		push := exec.CommandContext(ctx, "docker", "push", img)
-		push.Env = dockerEnv
+		push := workload.DockerCommand(ctx, dockerEnv, "push", img)
 		out, err := push.CombinedOutput()
 		runLog.Write(out)
 		if err != nil {
 			return runLog.String(), fmt.Errorf("docker push %s failed: %w: %s", img, err, strings.TrimSpace(string(out)))
 		}
-		rmi := exec.CommandContext(ctx, "docker", "rmi", "-f", img)
-		rmi.Env = dockerEnv
-		if out, err := rmi.CombinedOutput(); err != nil {
+		if out, err := workload.DockerCommand(ctx, dockerEnv, "rmi", "-f", img).CombinedOutput(); err != nil {
 			acrTasksLogger.Warn().Str("image", img).Str("out", strings.TrimSpace(string(out))).
 				Msg("could not remove local ACR Task build output after push")
 		}

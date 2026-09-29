@@ -170,7 +170,7 @@ func handleCreateLaunchTemplateVersion(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateLaunchTemplateVersionResponse %s>
   <requestId>%s</requestId>
   <launchTemplateVersion>%s</launchTemplateVersion>
-</CreateLaunchTemplateVersionResponse>`, ec2Xmlns(), generateUUID(), ltVersionFieldsXML(lt, version))
+</CreateLaunchTemplateVersionResponse>`, ec2Xmlns(), sim.NewUUID(), ltVersionFieldsXML(lt, version))
 }
 
 // handleModifyLaunchTemplate moves the default version (the second half of an
@@ -213,7 +213,7 @@ func handleModifyLaunchTemplate(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ModifyLaunchTemplateResponse %s>
   <requestId>%s</requestId>
   <launchTemplate>%s</launchTemplate>
-</ModifyLaunchTemplateResponse>`, ec2Xmlns(), generateUUID(), ltSummaryXML(lt))
+</ModifyLaunchTemplateResponse>`, ec2Xmlns(), sim.NewUUID(), ltSummaryXML(lt))
 }
 
 func ltHasVersion(lt EC2LaunchTemplate, n int64) bool {
@@ -540,7 +540,7 @@ func handleCreateLaunchTemplate(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateLaunchTemplateResponse %s>
   <requestId>%s</requestId>
   <launchTemplate>%s</launchTemplate>
-</CreateLaunchTemplateResponse>`, ec2Xmlns(), generateUUID(), ltSummaryXML(lt))
+</CreateLaunchTemplateResponse>`, ec2Xmlns(), sim.NewUUID(), ltSummaryXML(lt))
 }
 
 func handleDescribeLaunchTemplates(w http.ResponseWriter, r *http.Request) {
@@ -579,7 +579,7 @@ func handleDescribeLaunchTemplates(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeLaunchTemplatesResponse %s>
   <requestId>%s</requestId>
   <launchTemplates>%s</launchTemplates>
-</DescribeLaunchTemplatesResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeLaunchTemplatesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDescribeLaunchTemplateVersions(w http.ResponseWriter, r *http.Request) {
@@ -611,7 +611,7 @@ func handleDescribeLaunchTemplateVersions(w http.ResponseWriter, r *http.Request
 	fmt.Fprintf(w, `<DescribeLaunchTemplateVersionsResponse %s>
   <requestId>%s</requestId>
   <launchTemplateVersionSet>%s</launchTemplateVersionSet>
-</DescribeLaunchTemplateVersionsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeLaunchTemplateVersionsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDeleteLaunchTemplate(w http.ResponseWriter, r *http.Request) {
@@ -632,7 +632,7 @@ func handleDeleteLaunchTemplate(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteLaunchTemplateResponse %s>
   <requestId>%s</requestId>
   <launchTemplate>%s</launchTemplate>
-</DeleteLaunchTemplateResponse>`, ec2Xmlns(), generateUUID(), ltSummaryXML(lt))
+</DeleteLaunchTemplateResponse>`, ec2Xmlns(), sim.NewUUID(), ltSummaryXML(lt))
 }
 
 func lookupLaunchTemplate(id, name string) (EC2LaunchTemplate, bool) {

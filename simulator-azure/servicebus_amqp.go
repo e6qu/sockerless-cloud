@@ -19,6 +19,7 @@ import (
 	"time"
 
 	amqp "github.com/Azure/go-amqp"
+	"github.com/e6qu/sockerless-cloud/sim/msgq"
 	"github.com/gorilla/websocket"
 )
 
@@ -40,6 +41,9 @@ const (
 	amqpDescSASLMechanism = 0x40
 	amqpDescSASLOutcome   = 0x44
 	amqpDescAccepted      = 0x24
+	amqpDescRejected      = 0x25
+	amqpDescReleased      = 0x26
+	amqpDescModified      = 0x27
 	amqpDescError         = 0x1d
 )
 
@@ -61,9 +65,17 @@ type sbAMQPConn struct {
 	// claims holds the audiences this connection has authenticated through the
 	// CBS put-token handshake. An entity link may only be attached once a
 	// claim covering it has been granted, exactly as the real services require.
-	claims  []string
-	mu      sync.Mutex
-	writeMu sync.Mutex
+	claims []string
+	// deliveries maps the delivery id of each unsettled peek-lock transfer to
+	// the message lock it carries, for the receiver's disposition.
+	deliveries map[uint32]sbAMQPDelivery
+	mu         sync.Mutex
+	writeMu    sync.Mutex
+}
+
+type sbAMQPDelivery struct {
+	path      string
+	lockToken string
 }
 
 type sbAMQPTransport interface {
@@ -81,7 +93,8 @@ type sbAMQPLink struct {
 	clientRole   bool
 	settledSend  bool
 	credit       uint32
-	readIndex    int
+	// readSeq is the next sequence number an Event Hubs consumer link reads.
+	readSeq int64
 }
 
 type amqpFrame struct {
@@ -161,6 +174,7 @@ func newSBAMQPConn(namespace string, transport sbAMQPTransport) *sbAMQPConn {
 		transport:    transport,
 		nextDelivery: 1,
 		links:        map[uint64]*sbAMQPLink{},
+		deliveries:   map[uint32]sbAMQPDelivery{},
 	}
 }
 
@@ -304,6 +318,8 @@ func (c *sbAMQPConn) handleFrame(ctx context.Context, frame amqpFrame) error {
 		return c.handleFlow(ctx, frame)
 	case amqpDescTransfer:
 		return c.handleTransfer(ctx, frame)
+	case amqpDescDisposition:
+		return c.handleDisposition(frame)
 	case amqpDescDetach:
 		handle := asUint32(field(frame.fields, 0))
 		c.mu.Lock()
@@ -356,15 +372,24 @@ func (c *sbAMQPConn) handleAttach(frame amqpFrame) error {
 		clientRole:   clientRole,
 		settledSend:  clientRole && asUint8(field(frame.fields, 3)) == 1,
 	}
+	if clientRole && ehAMQPIsReceiverAddress(c.namespace, link.address) {
+		link.readSeq = ehStartPosition(c.namespace, link.address, sbAMQPSelectorFilter(field(frame.fields, 5)))
+	}
 	c.links[sbAMQPLinkKey(frame.channel, clientHandle)] = link
 	c.mu.Unlock()
 
 	if clientRole {
+		// Echo the sender settle mode the receiver asked for: settled is
+		// receive-and-delete, anything else peek-lock. AMQP's default is mixed.
+		sndSettleMode := uint8(2)
+		if field(frame.fields, 3) != nil {
+			sndSettleMode = asUint8(field(frame.fields, 3))
+		}
 		return c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescAttach, []any{
 			name,
 			serverHandle,
 			false,
-			uint8(1),
+			sndSettleMode,
 			field(frame.fields, 4),
 			encodeSource(sourceAddress),
 			nil,
@@ -457,7 +482,7 @@ func (c *sbAMQPConn) handleTransfer(ctx context.Context, frame amqpFrame) error 
 	if err := msg.UnmarshalBinary(frame.payload); err != nil {
 		return err
 	}
-	if link.address == "$cbs" || link.address == "$management" {
+	if link.address == "$cbs" || link.address == "$management" || sbAMQPIsManagementAddress(link.address) {
 		if err := c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescDisposition, []any{
 			true,
 			deliveryID,
@@ -467,11 +492,14 @@ func (c *sbAMQPConn) handleTransfer(ctx context.Context, frame amqpFrame) error 
 		})); err != nil {
 			return err
 		}
-		return c.respondRPC(frame.channel, &msg)
+		return c.respondRPC(frame.channel, link.address, &msg)
 	}
 	namespace := c.currentNamespace()
 	if ehAMQPIsSenderAddress(namespace, link.address) {
 		ehAMQPEnqueue(namespace, link.address, &msg)
+		if err := sbAMQPDeliverEventHubEvents(namespace); err != nil {
+			return err
+		}
 		return c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescDisposition, []any{
 			true,
 			deliveryID,
@@ -480,17 +508,25 @@ func (c *sbAMQPConn) handleTransfer(ctx context.Context, frame amqpFrame) error 
 			amqpDescribed{code: amqpDescAccepted, value: []any{}},
 		}))
 	}
-	msgID := generateUUID()
-	if msg.Properties != nil {
-		if id, ok := msg.Properties.MessageID.(string); ok && id != "" {
-			msgID = id
+	messages := []*amqp.Message{&msg}
+	raws := [][]byte{frame.payload}
+	if asUint32(field(frame.fields, 3)) == sbAMQPBatchFormat {
+		messages, raws = nil, nil
+		for _, data := range msg.Data {
+			var one amqp.Message
+			if err := one.UnmarshalBinary(data); err != nil {
+				return err
+			}
+			messages = append(messages, &one)
+			raws = append(raws, data)
 		}
 	}
-	if err := c.enqueue(link.address, sbMessage{
-		MessageID:    msgID,
-		Body:         msg.GetData(),
-		EnqueuedTime: time.Now().UTC(),
-	}); err != nil {
+	path := sbAMQPEntityPath(link.address)
+	var reached []string
+	for i, m := range messages {
+		reached = append(reached, sbSend(namespace, path, sbOutgoingFromAMQP(m, raws[i]))...)
+	}
+	if err := sbAMQPDeliverAvailableMessages(namespace, reached); err != nil {
 		return err
 	}
 	return c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescDisposition, []any{
@@ -502,31 +538,29 @@ func (c *sbAMQPConn) handleTransfer(ctx context.Context, frame amqpFrame) error 
 	}))
 }
 
-func (c *sbAMQPConn) enqueue(address string, msg sbMessage) error {
-	namespace := c.currentNamespace()
-	paths := c.enqueuePaths(namespace, address)
-	for _, path := range paths {
-		st := sbQueueStateFor(sbQueueKey(namespace, path))
-		st.mu.Lock()
-		st.nextSeq++
-		msg.SequenceNumber = st.nextSeq
-		st.messages = append(st.messages, msg)
-		st.persistLocked()
-		st.mu.Unlock()
-	}
-	return sbAMQPDeliverAvailableMessages(namespace, paths)
-}
+// sbAMQPBatchFormat is the message-format of a transfer whose data sections
+// are each an encoded message, as a batch send produces.
+const sbAMQPBatchFormat = 0x80013700
 
-func (c *sbAMQPConn) enqueuePaths(namespace, address string) []string {
-	path := sbAMQPEntityPath(address)
-	if strings.Contains(path, "/") {
-		return []string{path}
+// sbOutgoingFromAMQP reads what the broker acts on from an AMQP message:
+// its id, time to live and scheduled enqueue time.
+func sbOutgoingFromAMQP(msg *amqp.Message, raw []byte) sbOutgoing {
+	out := sbOutgoing{payload: sbPayload{Body: msg.GetData(), AMQP: append([]byte(nil), raw...)}}
+	if msg.Properties != nil {
+		if id, ok := msg.Properties.MessageID.(string); ok {
+			out.messageID = id
+		}
+		if msg.Properties.ContentType != nil {
+			out.payload.ContentType = *msg.Properties.ContentType
+		}
 	}
-	subs := sbAMQPTopicSubscriptions(namespace, path)
-	if len(subs) == 0 {
-		return []string{path}
+	if msg.Header != nil && msg.Header.TTL > 0 {
+		out.ttl = msg.Header.TTL
 	}
-	return subs
+	if at, ok := msg.Annotations["x-opt-scheduled-enqueue-time"].(time.Time); ok {
+		out.delay = time.Until(at)
+	}
+	return out
 }
 
 // sbAMQPPutTokenOutcome verifies a CBS put-token request against the
@@ -581,7 +615,7 @@ func (c *sbAMQPConn) authorizedForManagement(req *amqp.Message) bool {
 	return false
 }
 
-func (c *sbAMQPConn) respondRPC(channel uint16, req *amqp.Message) error {
+func (c *sbAMQPConn) respondRPC(channel uint16, address string, req *amqp.Message) error {
 	replyTo := ""
 	corr := any(nil)
 	if req.Properties != nil {
@@ -590,7 +624,10 @@ func (c *sbAMQPConn) respondRPC(channel uint16, req *amqp.Message) error {
 		}
 		corr = req.Properties.MessageID
 	}
-	link := c.receiverForAddressOnChannel(replyTo, channel)
+	link := c.receiverForAddressOnChannel(address, channel)
+	if link == nil {
+		link = c.receiverForAddressOnChannel(replyTo, channel)
+	}
 	if link == nil {
 		link = c.receiverForAddressOnChannel("$cbs", channel)
 	}
@@ -644,19 +681,13 @@ func (c *sbAMQPConn) respondRPC(channel uint16, req *amqp.Message) error {
 		}
 		return c.writeTransfer(channel, link, body, true)
 	}
-	if resp, ok := ehAMQPHandleRPC(c.currentNamespace(), req); ok {
-		body, err := resp.MarshalBinary()
-		if err != nil {
-			return err
-		}
-		return c.writeTransfer(channel, link, body, true)
+	resp, ok := ehAMQPHandleRPC(c.currentNamespace(), req)
+	if !ok && sbAMQPIsManagementAddress(address) {
+		resp = sbAMQPHandleRPC(c.currentNamespace(), sbAMQPEntityPath(strings.TrimSuffix(address, "/$management")), req)
+		ok = true
 	}
-	resp := &amqp.Message{
-		Properties: &amqp.MessageProperties{CorrelationID: corr},
-		ApplicationProperties: map[string]any{
-			"status-code":        int32(202),
-			"status-description": "Accepted",
-		},
+	if !ok {
+		resp = sbAMQPRPCStatus(req, 501, fmt.Sprintf("The operation %v is not supported.", req.ApplicationProperties["operation"]))
 	}
 	body, err := resp.MarshalBinary()
 	if err != nil {
@@ -685,27 +716,54 @@ func (c *sbAMQPConn) handleFlow(ctx context.Context, frame amqpFrame) error {
 	}
 	link.credit += credit
 	if ehAMQPIsReceiverAddress(namespace, link.address) {
-		for link.credit > 0 {
-			msg, ok := ehAMQPNextEvent(namespace, link.address, link.readIndex)
-			if !ok {
-				c.mu.Unlock()
-				return nil
-			}
-			link.readIndex++
-			link.credit--
-			if err := c.writeTransfer(channelOrDefault(frame.channel), link, msg, link.settledSend); err != nil {
-				c.mu.Unlock()
-				return err
-			}
-		}
+		err := c.deliverEventHubEventsLocked(namespace, link)
 		c.mu.Unlock()
-		_ = ctx
-		return nil
+		return err
 	}
 	path := sbAMQPEntityPath(link.address)
 	c.mu.Unlock()
 	_ = ctx
 	return c.deliverAvailableMessages([]string{path})
+}
+
+// deliverEventHubEventsLocked sends an Event Hubs consumer link the events
+// its credit covers. The caller holds c.mu.
+func (c *sbAMQPConn) deliverEventHubEventsLocked(namespace string, link *sbAMQPLink) error {
+	for link.credit > 0 {
+		msg, next, ok := ehAMQPNextEvent(namespace, link.address, link.readSeq)
+		if !ok {
+			return nil
+		}
+		link.readSeq = next
+		link.credit--
+		if err := c.writeTransferTagged(link.channel, link, msg, link.settledSend, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sbAMQPDeliverEventHubEvents pushes newly published events to the Event Hubs
+// consumer links of the namespace that still hold credit.
+func sbAMQPDeliverEventHubEvents(namespace string) error {
+	var firstErr error
+	sbAMQPActiveConns.Range(func(key, _ any) bool {
+		conn, ok := key.(*sbAMQPConn)
+		if !ok || conn.currentNamespace() != namespace {
+			return true
+		}
+		conn.mu.Lock()
+		for _, link := range conn.links {
+			if link.clientRole && link.credit > 0 && ehAMQPIsReceiverAddress(namespace, link.address) {
+				if err := conn.deliverEventHubEventsLocked(namespace, link); err != nil && firstErr == nil {
+					firstErr = err
+				}
+			}
+		}
+		conn.mu.Unlock()
+		return true
+	})
+	return firstErr
 }
 
 func (c *sbAMQPConn) deliverAvailableMessages(paths []string) error {
@@ -720,47 +778,185 @@ func (c *sbAMQPConn) deliverAvailableMessages(paths []string) error {
 		if !link.clientRole || link.credit == 0 {
 			continue
 		}
-		if _, ok := pathSet[sbAMQPEntityPath(link.address)]; !ok {
+		path := sbAMQPEntityPath(link.address)
+		if _, ok := pathSet[path]; !ok {
 			continue
 		}
-		for link.credit > 0 {
-			msg, ok := c.popMessage(namespace, link.address)
-			if !ok {
-				break
+		// A receiver whose transfers arrive settled is receive-and-delete;
+		// otherwise every message is delivered under a peek-lock.
+		peekLock := !link.settledSend
+		msgs, _ := sbReceive(namespace, path, int(link.credit), peekLock)
+		for _, m := range msgs {
+			body, err := sbAMQPMessage(m, peekLock).MarshalBinary()
+			if err != nil {
+				return err
 			}
 			link.credit--
-			if err := c.writeTransfer(link.channel, link, msg, link.settledSend); err != nil {
+			var tag []byte
+			if peekLock {
+				tag = sbLockTokenTag(m.Receipt)
+			}
+			id, err := c.writeTransferTaggedLocked(link.channel, link, body, link.settledSend, tag)
+			if err != nil {
 				return err
+			}
+			if peekLock {
+				c.deliveries[id] = sbAMQPDelivery{path: path, lockToken: m.Receipt}
 			}
 		}
 	}
 	return nil
 }
 
-func (c *sbAMQPConn) popMessage(namespace, address string) ([]byte, bool) {
-	st := sbQueueStateFor(sbQueueKey(namespace, sbAMQPEntityPath(address)))
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	if len(st.messages) == 0 {
-		return nil, false
+// sbAMQPMessage renders a stored message for an AMQP receiver: the message
+// as its sender sent it, with the broker's annotations over it.
+func sbAMQPMessage(m msgq.Message[sbPayload], peekLock bool) *amqp.Message {
+	out := &amqp.Message{}
+	if len(m.Payload.AMQP) > 0 {
+		if err := out.UnmarshalBinary(m.Payload.AMQP); err != nil {
+			out = &amqp.Message{}
+		}
 	}
-	msg := st.messages[0]
-	st.messages = st.messages[1:]
-	st.persistLocked()
-	out := &amqp.Message{
-		DeliveryTag: []byte(generateUUID()),
-		Properties:  &amqp.MessageProperties{MessageID: msg.MessageID},
-		Annotations: amqp.Annotations{
-			"x-opt-sequence-number": msg.SequenceNumber,
-			"x-opt-enqueued-time":   msg.EnqueuedTime,
-		},
-		Data: [][]byte{msg.Body},
+	if len(out.Data) == 0 && out.Value == nil && out.Sequence == nil {
+		out.Data = [][]byte{m.Payload.Body}
 	}
-	body, err := out.MarshalBinary()
-	if err != nil {
-		return nil, false
+	if out.Properties == nil {
+		out.Properties = &amqp.MessageProperties{}
 	}
-	return body, true
+	out.Properties.MessageID = m.ID
+	if out.Header == nil {
+		out.Header = &amqp.MessageHeader{}
+	}
+	// AMQP counts the failed deliveries before this one.
+	if m.Deliveries > 0 {
+		out.Header.DeliveryCount = uint32(m.Deliveries - 1)
+	}
+	if out.Annotations == nil {
+		out.Annotations = amqp.Annotations{}
+	}
+	out.Annotations["x-opt-sequence-number"] = int64(m.Seq)
+	out.Annotations["x-opt-enqueued-time"] = time.UnixMilli(m.EnqueuedAt).UTC()
+	if peekLock {
+		out.Annotations["x-opt-locked-until"] = time.UnixMilli(m.AvailableAt).UTC()
+	}
+	if m.Payload.DeadLetterSource != "" {
+		out.Annotations["x-opt-deadletter-source"] = m.Payload.DeadLetterSource
+	}
+	if m.Payload.Deferred {
+		out.Annotations["x-opt-message-state"] = int32(1)
+	}
+	if len(m.Payload.Properties) > 0 || m.Payload.DeadLetterReason != "" {
+		if out.ApplicationProperties == nil {
+			out.ApplicationProperties = map[string]any{}
+		}
+		for k, v := range m.Payload.Properties {
+			out.ApplicationProperties[k] = v
+		}
+		if m.Payload.DeadLetterReason != "" {
+			out.ApplicationProperties["DeadLetterReason"] = m.Payload.DeadLetterReason
+			out.ApplicationProperties["DeadLetterErrorDescription"] = m.Payload.DeadLetterErrorDescription
+		}
+	}
+	return out
+}
+
+// handleDisposition settles the peek-locked messages a receiver's
+// disposition names, and confirms each outcome the way Service Bus does when
+// the receiver settles second.
+func (c *sbAMQPConn) handleDisposition(frame amqpFrame) error {
+	if !asBool(field(frame.fields, 0)) {
+		return nil
+	}
+	first := asUint32(field(frame.fields, 1))
+	last := first
+	if field(frame.fields, 2) != nil {
+		last = asUint32(field(frame.fields, 2))
+	}
+	receiverSettled := asBool(field(frame.fields, 3))
+	settlement, ok := sbSettlementFromState(field(frame.fields, 4))
+	namespace := c.currentNamespace()
+	for id := first; ; id++ {
+		c.mu.Lock()
+		d, tracked := c.deliveries[id]
+		delete(c.deliveries, id)
+		c.mu.Unlock()
+		outcome := field(frame.fields, 4)
+		if tracked && ok {
+			if err := sbSettle(namespace, d.path, d.lockToken, settlement); err != nil {
+				outcome = amqpDescribed{code: amqpDescRejected, value: []any{
+					amqpDescribed{code: amqpDescError, value: []any{amqpSymbol("com.microsoft:message-lock-lost"), err.Error()}},
+				}}
+			}
+		}
+		if !receiverSettled {
+			if err := c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescDisposition, []any{
+				false, id, nil, true, outcome,
+			})); err != nil {
+				return err
+			}
+		}
+		if id == last {
+			return nil
+		}
+	}
+}
+
+// sbSettlementFromState maps an AMQP delivery outcome to the Service Bus
+// settlement it stands for: accepted completes, released returns the message
+// uncounted, modified abandons it (or defers it when undeliverable-here), and
+// rejected dead-letters it.
+func sbSettlementFromState(state any) (sbSettlement, bool) {
+	d, ok := state.(amqpDescribed)
+	if !ok {
+		return sbSettlement{}, false
+	}
+	fields, _ := d.value.([]any)
+	switch d.code {
+	case amqpDescAccepted:
+		return sbSettlement{kind: sbComplete}, true
+	case amqpDescReleased:
+		return sbSettlement{kind: sbRelease}, true
+	case amqpDescModified:
+		s := sbSettlement{kind: sbAbandon, properties: sbAMQPStringMap(field(fields, 2))}
+		if asBool(field(fields, 1)) {
+			s.kind = sbDefer
+		}
+		return s, true
+	case amqpDescRejected:
+		s := sbSettlement{kind: sbDeadLetterIt}
+		if e, ok := field(fields, 0).(amqpDescribed); ok {
+			errFields, _ := e.value.([]any)
+			info := sbAMQPStringMap(field(errFields, 2))
+			if v, ok := info["DeadLetterReason"].(string); ok {
+				s.deadLetterReason = v
+			}
+			if v, ok := info["DeadLetterErrorDescription"].(string); ok {
+				s.deadLetterErrorDescription = v
+			}
+			delete(info, "DeadLetterReason")
+			delete(info, "DeadLetterErrorDescription")
+			s.properties = info
+		}
+		return s, true
+	}
+	return sbSettlement{}, false
+}
+
+func sbAMQPStringMap(v any) map[string]any {
+	m, _ := v.(map[any]any)
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, val := range m {
+		switch key := k.(type) {
+		case string:
+			out[key] = val
+		case amqpSymbol:
+			out[string(key)] = val
+		}
+	}
+	return out
 }
 
 func sbAMQPEntityPath(address string) string {
@@ -769,10 +965,42 @@ func sbAMQPEntityPath(address string) string {
 		return ""
 	}
 	parts := strings.Split(address, "/")
-	if len(parts) == 3 && strings.EqualFold(parts[1], "subscriptions") {
-		return parts[0] + "/" + parts[2]
+	if len(parts) >= 3 && strings.EqualFold(parts[1], "subscriptions") {
+		path := parts[0] + "/" + parts[2]
+		if len(parts) == 4 && strings.EqualFold(parts[3], sbDeadLetterSuffix) {
+			path = sbDeadLetterPath(path)
+		}
+		return path
+	}
+	if len(parts) == 2 && strings.EqualFold(parts[1], sbDeadLetterSuffix) {
+		return sbDeadLetterPath(parts[0])
 	}
 	return address
+}
+
+// sbAMQPSelectorFilter returns the selector-filter expression of an attach's
+// source terminus, empty when it sets none.
+func sbAMQPSelectorFilter(source any) string {
+	d, ok := source.(amqpDescribed)
+	if !ok {
+		return ""
+	}
+	fields, _ := d.value.([]any)
+	filters, _ := field(fields, 7).(map[any]any)
+	for _, v := range filters {
+		if f, ok := v.(amqpDescribed); ok {
+			if expr, ok := f.value.(string); ok {
+				return expr
+			}
+		}
+	}
+	return ""
+}
+
+// sbAMQPIsManagementAddress reports whether an address is an entity's
+// management node, `<entity>/$management`.
+func sbAMQPIsManagementAddress(address string) bool {
+	return strings.HasSuffix(strings.ToLower(address), "/$management")
 }
 
 func sbAMQPTopicSubscriptions(namespace, topic string) []string {
@@ -780,9 +1008,7 @@ func sbAMQPTopicSubscriptions(namespace, topic string) []string {
 		return nil
 	}
 	prefix := sbAdminTopicID(namespace, topic) + "/subscriptions/"
-	subs := sbSubscriptions.Filter(func(sub SBSubscription) bool {
-		return strings.HasPrefix(sub.ID, prefix)
-	})
+	subs := sbSubscriptionsUnder(prefix)
 	paths := make([]string, 0, len(subs))
 	for _, sub := range subs {
 		name := strings.TrimPrefix(sub.ID, prefix)
@@ -824,11 +1050,25 @@ func (c *sbAMQPConn) receiverForAddressMatch(address string, channel *uint16) *s
 }
 
 func (c *sbAMQPConn) writeTransfer(channel uint16, link *sbAMQPLink, payload []byte, settled bool) error {
+	return c.writeTransferTagged(channel, link, payload, settled, nil)
+}
+
+func (c *sbAMQPConn) writeTransferTagged(channel uint16, link *sbAMQPLink, payload []byte, settled bool, tag []byte) error {
+	_, err := c.writeTransferTaggedLocked(channel, link, payload, settled, tag)
+	return err
+}
+
+// writeTransferTaggedLocked sends one transfer and returns its delivery id; a
+// nil tag gets a unique one.
+func (c *sbAMQPConn) writeTransferTaggedLocked(channel uint16, link *sbAMQPLink, payload []byte, settled bool, tag []byte) (uint32, error) {
 	deliveryID := atomic.AddUint32(&c.nextDelivery, 1) - 1
-	return c.writeFrame(amqpFrameTypeAMQP, channel, append(encodeDescribedList(amqpDescTransfer, []any{
+	if tag == nil {
+		tag = []byte(fmt.Sprintf("tag-%d", deliveryID))
+	}
+	return deliveryID, c.writeFrame(amqpFrameTypeAMQP, channel, append(encodeDescribedList(amqpDescTransfer, []any{
 		link.serverHandle,
 		deliveryID,
-		[]byte(fmt.Sprintf("tag-%d", deliveryID)),
+		tag,
 		uint32(0),
 		settled,
 	}), payload...))
@@ -1047,8 +1287,28 @@ func (r *amqpValueReader) readValue() (any, error) {
 	case 0x56:
 		b, err := r.byte()
 		return b != 0, err
+	case 0x51:
+		b, err := r.byte()
+		return int8(b), err
+	case 0x54:
+		b, err := r.byte()
+		return int32(int8(b)), err
+	case 0x55:
+		b, err := r.byte()
+		return int64(int8(b)), err
 	case 0x60:
 		return r.u16()
+	case 0x61:
+		v, err := r.u16()
+		return int16(v), err
+	case 0x71:
+		return int32(r.u32()), nil
+	case 0x72:
+		return math.Float32frombits(r.u32()), nil
+	case 0x81:
+		return int64(r.u64()), nil
+	case 0x82:
+		return math.Float64frombits(r.u64()), nil
 	case 0x70:
 		return r.u32(), nil
 	case 0x80:
@@ -1431,10 +1691,6 @@ func asUint64(v any) uint64 {
 	default:
 		return 0
 	}
-}
-
-func channelOrDefault(channel uint16) uint16 {
-	return channel
 }
 
 func sbAMQPLinkKey(channel uint16, handle uint32) uint64 {

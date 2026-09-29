@@ -263,7 +263,10 @@ func handleSSMGetInventory(w http.ResponseWriter, r *http.Request) {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	page, next := awsPage(ids, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, ids, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	entities := make([]map[string]any, 0, len(page))
 	for _, id := range page {
 		entries := byNode[id]
@@ -340,7 +343,10 @@ func handleSSMGetInventorySchema(w http.ResponseWriter, r *http.Request) {
 		}
 		types = filtered
 	}
-	page, next := awsPage(types, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, types, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	schemas := make([]map[string]any, 0, len(page))
 	for _, t := range page {
 		schemas = append(schemas, map[string]any{
@@ -483,7 +489,10 @@ func handleSSMDescribeInventoryDeletions(w http.ResponseWriter, r *http.Request)
 		all = filtered
 	}
 	sortBy(all, func(d SSMInventoryDeletion) string { return d.DeletionId })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, d := range page {
 		out = append(out, map[string]any{
@@ -529,7 +538,10 @@ func handleSSMListInventoryEntries(w http.ResponseWriter, r *http.Request) {
 		}
 		captureTime = entry.CaptureTime
 	}
-	page, next := awsPage(rows, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, rows, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{
 		"TypeName":      req.TypeName,
 		"InstanceId":    req.InstanceId,
@@ -647,7 +659,10 @@ func handleSSMListComplianceItems(w http.ResponseWriter, r *http.Request) {
 	sortBy(filtered, func(c SSMComplianceItem) string {
 		return c.ResourceId + "\x00" + c.ComplianceType + "\x00" + c.Id
 	})
-	page, next := awsPage(filtered, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, filtered, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, c := range page {
 		out = append(out, map[string]any{
@@ -738,7 +753,10 @@ func handleSSMListComplianceSummaries(w http.ResponseWriter, r *http.Request) {
 		types = append(types, t)
 	}
 	sort.Strings(types)
-	page, next := awsPage(types, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, types, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, t := range page {
 		compliant, nonCompliant := ssmCompliantSplit(byType[t])
@@ -787,7 +805,10 @@ func handleSSMListResourceComplianceSummaries(w http.ResponseWriter, r *http.Req
 		}
 		return keys[i].ctype < keys[j].ctype
 	})
-	page, next := awsPage(keys, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, keys, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, k := range page {
 		items := byKey[k]
@@ -859,7 +880,10 @@ func handleSSMListNodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := ssmManagedInstanceList()
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, m := range page {
 		out = append(out, map[string]any{
@@ -961,7 +985,10 @@ func handleSSMDescribeInstanceInformation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	all := ssmManagedInstanceList()
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, m := range page {
 		info := map[string]any{
@@ -1008,7 +1035,10 @@ func handleSSMDescribeInstanceProperties(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	all := ssmManagedInstanceList()
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, m := range page {
 		prop := map[string]any{

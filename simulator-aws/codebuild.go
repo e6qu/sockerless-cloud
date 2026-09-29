@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
@@ -341,7 +343,7 @@ func cbAdoptBuildWorkload(
 		return false, fmt.Errorf("adopt %s %s container: %w", resourceName, id, err)
 	}
 	cbRegisterBuildCancel(id, handle.Cancel)
-	simGo(func() {
+	bg.Go(func() {
 		result := handle.Wait()
 		cbUnregisterBuildCancel(id)
 		reason := ""
@@ -518,7 +520,10 @@ func handleCBListProjects(w http.ResponseWriter, r *http.Request) {
 	if strings.EqualFold(req.SortOrder, "DESCENDING") {
 		reverseStrings(names)
 	}
-	page, nextTok := awsPage(names, req.NextToken, 0, 100)
+	page, nextTok, pageOK := awsPage(w, cbBadToken, names, req.NextToken, 0, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"projects": page}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
@@ -884,7 +889,7 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 	}
 	// The project's and the build's own variables win over what the
 	// environment provides.
-	env = mergeEnv(mergeEnv(serviceEnv, engineEnv), env)
+	env = workloadhost.MergeEnv(serviceEnv, engineEnv, env)
 	env["CODEBUILD_BUILD_ID"] = buildID
 	env["CODEBUILD_PROJECT_NAME"] = project.Name
 	env["CODEBUILD_SRC_DIR"] = "/codebuild/output/src"
@@ -906,7 +911,7 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 		WorkingDir:   "/codebuild/output/src",
 		Binds:        append([]string{filepath.Clean(workDir) + ":/codebuild/output/src:z"}, engineBinds...),
 		Env:          env,
-		ExtraHosts:   hostMetadataExtraHosts(),
+		ExtraHosts:   workloadhost.ExtraHosts(),
 		Timeout:      cbBuildTimeout(project),
 		Labels:       map[string]string{"sockerless-codebuild-build": buildID},
 		Sandbox:      sandbox,
@@ -1249,7 +1254,10 @@ func handleCBListBuildsForProject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ids := cbSortBuildIDs(builds, req.SortOrder)
-	page, nextTok := awsPage(ids, req.NextToken, 0, 100)
+	page, nextTok, pageOK := awsPage(w, cbBadToken, ids, req.NextToken, 0, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"ids": page}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
@@ -1269,7 +1277,10 @@ func handleCBListBuilds(w http.ResponseWriter, r *http.Request) {
 
 	all := cbBuilds.List()
 	ids := cbSortBuildIDs(all, req.SortOrder)
-	page, nextTok := awsPage(ids, req.NextToken, 0, 100)
+	page, nextTok, pageOK := awsPage(w, cbBadToken, ids, req.NextToken, 0, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"ids": page}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
@@ -1413,7 +1424,10 @@ func handleCBListReportGroups(w http.ResponseWriter, r *http.Request) {
 	if strings.EqualFold(req.SortOrder, "DESCENDING") {
 		reverseStrings(arns)
 	}
-	page, nextTok := awsPage(arns, req.NextToken, req.MaxResults, 100)
+	page, nextTok, pageOK := awsPage(w, cbBadToken, arns, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"reportGroups": page}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
@@ -1509,7 +1523,10 @@ func cbWriteReportArnsPage(w http.ResponseWriter, all []CBReport, groupArn, sort
 	for _, rep := range reports {
 		arns = append(arns, rep.Arn)
 	}
-	page, nextTok := awsPage(arns, nextToken, maxResults, 100)
+	page, nextTok, pageOK := awsPage(w, cbBadToken, arns, nextToken, maxResults, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"reports": page}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok

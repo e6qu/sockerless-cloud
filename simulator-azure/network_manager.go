@@ -149,7 +149,7 @@ func validateNetworkManager(w http.ResponseWriter, _ *http.Request, nm *NetworkM
 // terminal provisioning state.
 func provisionNetworkManager(_ context.Context, nm *NetworkManager, previous *NetworkManager) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	nm.Properties.ResourceGUID = generateUUID()
+	nm.Properties.ResourceGUID = sim.NewUUID()
 	nm.SystemData = &SystemData{CreatedAt: now, LastModifiedAt: now}
 	if previous != nil {
 		if previous.Properties.ResourceGUID != "" {
@@ -208,7 +208,7 @@ func registerNetworkManagerCommits(srv *sim.Server) {
 		if !validateNetworkManagerCommit(w, nm, commit) {
 			return
 		}
-		commit.CommitID = generateUUID()
+		commit.CommitID = sim.NewUUID()
 		commitTime := time.Now().UTC().Format(time.RFC3339Nano)
 		for _, region := range commit.TargetLocations {
 			azureNetworkManagerDeployments.Put(

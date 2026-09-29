@@ -143,7 +143,7 @@ func cwDispatchAlarmActions(a CWAlarm, oldState, newState, reason string) {
 			cwEvalLogger.Info().Str("alarmName", a.AlarmName).Str("topicARN", topicARN).Msg("CloudWatch alarm action topic not found")
 			continue
 		}
-		snsFanout(topicARN, generateUUID(), subject, message, nil)
+		snsFanout(topicARN, sim.NewUUID(), subject, message, nil)
 	}
 }
 

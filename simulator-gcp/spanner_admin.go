@@ -124,7 +124,11 @@ func handleSpannerInstanceConfigOperationAction(w http.ResponseWriter, r *http.R
 func handleSpannerListOperationsUnder(w http.ResponseWriter, r *http.Request, prefix string) {
 	out := crOperations.Filter(func(op Operation) bool { return strings.HasPrefix(op.Name, prefix) })
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	out = gcpApplyListParams(out, r)
+	listed, listOK := gcpApplyListParams(w, r, out)
+	if !listOK {
+		return
+	}
+	out = listed
 	page, next, ok := paginateList(w, r, out)
 	if !ok {
 		return
@@ -213,7 +217,7 @@ func handleSpannerMoveInstance(w http.ResponseWriter, r *http.Request, name stri
 // and response the corresponding Cloud Spanner method documents.
 func newSpannerOperation(collection string, metadata, response map[string]any) Operation {
 	op := Operation{
-		Name:     strings.TrimRight(collection, "/") + "/_" + strings.ReplaceAll(generateUUID(), "-", "_"),
+		Name:     strings.TrimRight(collection, "/") + "/_" + strings.ReplaceAll(sim.NewUUID(), "-", "_"),
 		Metadata: metadata,
 		Done:     true,
 		Response: response,
@@ -227,7 +231,7 @@ func newSpannerOperation(collection string, metadata, response map[string]any) O
 // work it started could not be finished.
 func newSpannerFailedOperation(collection string, metadata map[string]any, code int, message string) Operation {
 	op := Operation{
-		Name:     strings.TrimRight(collection, "/") + "/_" + strings.ReplaceAll(generateUUID(), "-", "_"),
+		Name:     strings.TrimRight(collection, "/") + "/_" + strings.ReplaceAll(sim.NewUUID(), "-", "_"),
 		Metadata: metadata,
 		Done:     true,
 		Error:    &OperationError{Code: code, Message: message},
@@ -447,7 +451,11 @@ func handleSpannerListDatabaseRoles(w http.ResponseWriter, r *http.Request, inst
 	for _, role := range spannerDatabaseRoleNames(name) {
 		roles = append(roles, databaseRole{Name: name + "/databaseRoles/" + role})
 	}
-	roles = gcpApplyListParams(roles, r)
+	listed, listOK := gcpApplyListParams(w, r, roles)
+	if !listOK {
+		return
+	}
+	roles = listed
 	page, next, ok := paginateList(w, r, roles)
 	if !ok {
 		return
@@ -515,7 +523,7 @@ func handleSpannerCreateInstancePartition(w http.ResponseWriter, r *http.Request
 	partition.CreateTime = now
 	partition.UpdateTime = now
 	partition.State = "READY"
-	partition.Etag = generateUUID()
+	partition.Etag = sim.NewUUID()
 	spannerInstancePartitions.Put(partition.Name, partition)
 	op := newSpannerOperation(partition.Name+"/operations", map[string]any{
 		"@type":             "type.googleapis.com/google.spanner.admin.instance.v1.CreateInstancePartitionMetadata",
@@ -536,7 +544,11 @@ func handleSpannerListInstancePartitions(w http.ResponseWriter, r *http.Request,
 	prefix := spannerInstanceName(sim.PathParam(r, "project"), instance) + "/instancePartitions/"
 	out := spannerInstancePartitions.Filter(func(p spannerInstancePartition) bool { return strings.HasPrefix(p.Name, prefix) })
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	out = gcpApplyListParams(out, r)
+	listed, listOK := gcpApplyListParams(w, r, out)
+	if !listOK {
+		return
+	}
+	out = listed
 	page, next, ok := paginateList(w, r, out)
 	if !ok {
 		return
@@ -592,7 +604,7 @@ func handleSpannerUpdateInstancePartition(w http.ResponseWriter, r *http.Request
 		}
 	}
 	stored.UpdateTime = nowTimestamp()
-	stored.Etag = generateUUID()
+	stored.Etag = sim.NewUUID()
 	spannerInstancePartitions.Put(name, stored)
 	op := newSpannerOperation(name+"/operations", map[string]any{
 		"@type":             "type.googleapis.com/google.spanner.admin.instance.v1.UpdateInstancePartitionMetadata",

@@ -239,7 +239,10 @@ func handleGlueGetMLTaskRuns(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(runs, req.NextToken, maxR, 20)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, runs, req.NextToken, maxR, 20)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"TaskRuns": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -455,7 +458,10 @@ func handleGlueGetCrawlerMetrics(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(metrics, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, metrics, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"CrawlerMetricsList": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -488,7 +494,10 @@ func handleGlueListCrawls(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(crawls, req.NextToken, maxR, 20)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, crawls, req.NextToken, maxR, 20)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Crawls": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -640,7 +649,10 @@ func handleGlueListMaterializedViewRefreshTaskRuns(w http.ResponseWriter, r *htt
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(runs, req.NextToken, maxR, 20)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, runs, req.NextToken, maxR, 20)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"MaterializedViewRefreshTaskRuns": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -681,7 +693,10 @@ func handleGlueGetWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(runs, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, runs, req.NextToken, maxR, 25)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Runs": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -851,7 +866,10 @@ func handleGlueListTriggers(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(names, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, names, req.NextToken, maxR, 25)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"TriggerNames": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -1078,7 +1096,10 @@ func handleGlueListConnectionTypes(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(briefs, req.NextToken, maxR, 50)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, briefs, req.NextToken, maxR, 50)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"ConnectionTypes": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok

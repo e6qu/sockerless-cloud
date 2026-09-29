@@ -144,7 +144,7 @@ func handleIAMCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user := IAMUser{
 		UserName:   name,
-		UserId:     "AIDA" + strings.ToUpper(generateUUID()[:16]),
+		UserId:     "AIDA" + strings.ToUpper(sim.NewUUID()[:16]),
 		Arn:        iamUserArn(name, path),
 		Path:       path,
 		CreateDate: time.Now().UTC().Format(time.RFC3339),
@@ -153,7 +153,7 @@ func handleIAMCreateUser(w http.ResponseWriter, r *http.Request) {
 	iamUsers.Put(name, user)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateUserResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><CreateUserResult>%s</CreateUserResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></CreateUserResponse>`,
-		iamUserXML(user), generateUUID())
+		iamUserXML(user), sim.NewUUID())
 }
 
 func handleIAMGetUser(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +165,7 @@ func handleIAMGetUser(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetUserResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetUserResult>%s</GetUserResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetUserResponse>`,
-		iamUserXML(user), generateUUID())
+		iamUserXML(user), sim.NewUUID())
 }
 
 func handleIAMDeleteUser(w http.ResponseWriter, r *http.Request) {
@@ -231,7 +231,7 @@ func handleIAMCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 	iamAccessKeys.Put(akid, key)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateAccessKeyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><CreateAccessKeyResult><AccessKey><UserName>%s</UserName><AccessKeyId>%s</AccessKeyId><Status>Active</Status><SecretAccessKey>%s</SecretAccessKey><CreateDate>%s</CreateDate></AccessKey></CreateAccessKeyResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></CreateAccessKeyResponse>`,
-		xmlEscape(name), akid, xmlEscape(secret), key.CreateDate, generateUUID())
+		xmlEscape(name), akid, xmlEscape(secret), key.CreateDate, sim.NewUUID())
 }
 
 func handleIAMDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
@@ -256,7 +256,7 @@ func handleIAMListAccessKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListAccessKeysResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><ListAccessKeysResult><AccessKeyMetadata>%s</AccessKeyMetadata><IsTruncated>false</IsTruncated></ListAccessKeysResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListAccessKeysResponse>`,
-		members.String(), generateUUID())
+		members.String(), sim.NewUUID())
 }
 
 func handleIAMPutUserPolicy(w http.ResponseWriter, r *http.Request) {
@@ -287,7 +287,7 @@ func handleIAMGetUserPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetUserPolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetUserPolicyResult><UserName>%s</UserName><PolicyName>%s</PolicyName><PolicyDocument>%s</PolicyDocument></GetUserPolicyResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetUserPolicyResponse>`,
-		xmlEscape(name), xmlEscape(policyName), url.QueryEscape(p.PolicyDocument), generateUUID())
+		xmlEscape(name), xmlEscape(policyName), url.QueryEscape(p.PolicyDocument), sim.NewUUID())
 }
 
 func handleIAMDeleteUserPolicy(w http.ResponseWriter, r *http.Request) {
@@ -306,7 +306,7 @@ func handleIAMListUserPolicies(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListUserPoliciesResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><ListUserPoliciesResult><PolicyNames>%s</PolicyNames><IsTruncated>false</IsTruncated></ListUserPoliciesResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListUserPoliciesResponse>`,
-		members.String(), generateUUID())
+		members.String(), sim.NewUUID())
 }
 
 func handleIAMAttachUserPolicy(w http.ResponseWriter, r *http.Request) {
@@ -341,7 +341,7 @@ func handleIAMListAttachedUserPolicies(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListAttachedUserPoliciesResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><ListAttachedUserPoliciesResult><AttachedPolicies>%s</AttachedPolicies><IsTruncated>false</IsTruncated></ListAttachedUserPoliciesResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListAttachedUserPoliciesResponse>`,
-		members.String(), generateUUID())
+		members.String(), sim.NewUUID())
 }
 
 func iamUserXML(u IAMUser) string {

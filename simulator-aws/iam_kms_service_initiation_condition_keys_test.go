@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // serviceInitiatedKMSContext is the condition context a KMS operation settles
@@ -114,7 +115,7 @@ func TestKMSGrantIsForAWSResourceOnAServiceInitiatedGrant(t *testing.T) {
 // the principal's behalf, so the delivery role may hold a KMS permission scoped
 // to use through Firehose and nothing else.
 func TestIAMServiceRoleKMSPermissionCarriesViaService(t *testing.T) {
-	AwaitSimulatorBackground()
+	bg.Await()
 	iamRoles = sim.MakeStore[IAMRole](nil, "iam_roles")
 	iamRolePolicies = sim.MakeStore[IAMRolePolicy](nil, "iam_role_policies")
 	iamAttachedPolicies = sim.MakeStore[IAMAttachedPolicy](nil, "iam_attached_policies")

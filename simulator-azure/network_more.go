@@ -135,9 +135,9 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"inboundNatRulePortMappings": mappings})
 	})
 
-	// LoadBalancerLoadBalancingRules_Health — live health of the backend
-	// instances behind a load-balancing rule, computed by probing each
-	// target exactly as the data-plane proxy does.
+	// LoadBalancerLoadBalancingRules_Health — the health of the backend
+	// instances behind a load-balancing rule, as the rule's health probe last
+	// recorded it and the data plane routes by it.
 	srv.HandleFunc("POST "+armBase+"/loadBalancers/{loadBalancerName}/loadBalancingRules/{loadBalancingRuleName}/health", func(w http.ResponseWriter, r *http.Request) {
 		lb, ok := azureLBs.Get(lbID(r))
 		if !ok {
@@ -166,7 +166,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		addresses := []addressHealth{}
 		for _, target := range azureLoadBalancerTargets(lb, rule) {
 			ip, _, _ := strings.Cut(target.Address, ":")
-			if azureProbeLoadBalancerTarget(r.Context(), lb, rule, target) {
+			if azureLoadBalancerTargetInRotation(lb, rule, target) {
 				up++
 				addresses = append(addresses, addressHealth{IPAddress: ip, State: "Up"})
 			} else {

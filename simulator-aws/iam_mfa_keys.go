@@ -182,7 +182,7 @@ func handleIAMCreateVirtualMFADevice(w http.ResponseWriter, r *http.Request) {
 	qr := iamMFAQRCodePNG(name, seed)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateVirtualMFADeviceResponse %s><CreateVirtualMFADeviceResult><VirtualMFADevice><SerialNumber>%s</SerialNumber><Base32StringSeed>%s</Base32StringSeed><QRCodePNG>%s</QRCodePNG>%s</VirtualMFADevice></CreateVirtualMFADeviceResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></CreateVirtualMFADeviceResponse>`,
-		iamXmlns, xmlEscape(serial), xmlEscape(base64.StdEncoding.EncodeToString([]byte(seed))), xmlEscape(qr), iamTagsXML(dev.Tags), generateUUID())
+		iamXmlns, xmlEscape(serial), xmlEscape(base64.StdEncoding.EncodeToString([]byte(seed))), xmlEscape(qr), iamTagsXML(dev.Tags), sim.NewUUID())
 }
 
 func handleIAMEnableMFADevice(w http.ResponseWriter, r *http.Request) {
@@ -266,7 +266,7 @@ func handleIAMGetMFADevice(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetMFADeviceResponse %s><GetMFADeviceResult><SerialNumber>%s</SerialNumber>%s</GetMFADeviceResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetMFADeviceResponse>`,
-		iamXmlns, xmlEscape(serial), extra, generateUUID())
+		iamXmlns, xmlEscape(serial), extra, sim.NewUUID())
 }
 
 func iamMFADeviceMemberXML(dev IAMVirtualMFADevice) string {
@@ -278,14 +278,17 @@ func handleIAMListMFADevices(w http.ResponseWriter, r *http.Request) {
 	userName := r.FormValue("UserName")
 	devices := iamVirtualMFADevices.Filter(func(d IAMVirtualMFADevice) bool { return d.UserName == userName && d.EnableDate != "" })
 	sort.Slice(devices, func(i, j int) bool { return devices[i].SerialNumber < devices[j].SerialNumber })
-	page, next := awsPageExplicit(devices, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0))
+	page, next, pageOK := awsPage(w, iamBadToken, devices, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var members strings.Builder
 	for _, d := range page {
 		members.WriteString(iamMFADeviceMemberXML(d))
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListMFADevicesResponse %s><ListMFADevicesResult><MFADevices>%s</MFADevices><IsTruncated>%t</IsTruncated>%s</ListMFADevicesResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListMFADevicesResponse>`,
-		iamXmlns, members.String(), next != "", iamMarkerXML(next), generateUUID())
+		iamXmlns, members.String(), next != "", iamMarkerXML(next), sim.NewUUID())
 }
 
 func handleIAMListVirtualMFADevices(w http.ResponseWriter, r *http.Request) {
@@ -308,7 +311,10 @@ func handleIAMListVirtualMFADevices(w http.ResponseWriter, r *http.Request) {
 		}
 		filtered = append(filtered, d)
 	}
-	page, next := awsPageExplicit(filtered, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0))
+	page, next, pageOK := awsPage(w, iamBadToken, filtered, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	if !pageOK {
+		return
+	}
 	for _, d := range page {
 		var userBlock, enableBlock string
 		if d.UserName != "" {
@@ -324,7 +330,7 @@ func handleIAMListVirtualMFADevices(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListVirtualMFADevicesResponse %s><ListVirtualMFADevicesResult><VirtualMFADevices>%s</VirtualMFADevices><IsTruncated>%t</IsTruncated>%s</ListVirtualMFADevicesResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListVirtualMFADevicesResponse>`,
-		iamXmlns, members.String(), next != "", iamMarkerXML(next), generateUUID())
+		iamXmlns, members.String(), next != "", iamMarkerXML(next), sim.NewUUID())
 }
 
 func handleIAMTagMFADevice(w http.ResponseWriter, r *http.Request) {
@@ -373,7 +379,7 @@ func handleIAMListMFADeviceTags(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListMFADeviceTagsResponse %s><ListMFADeviceTagsResult>%s<IsTruncated>false</IsTruncated></ListMFADeviceTagsResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListMFADeviceTagsResponse>`,
-		iamXmlns, iamTagsXML(dev.Tags), generateUUID())
+		iamXmlns, iamTagsXML(dev.Tags), sim.NewUUID())
 }
 
 // ── SSH public keys ─────────────────────────────────────────────────────────
@@ -417,7 +423,7 @@ func handleIAMUploadSSHPublicKey(w http.ResponseWriter, r *http.Request) {
 	bodyXML := "<SSHPublicKeyBody>" + xmlEscape(body) + "</SSHPublicKeyBody>"
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<UploadSSHPublicKeyResponse %s><UploadSSHPublicKeyResult><SSHPublicKey>%s</SSHPublicKey></UploadSSHPublicKeyResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></UploadSSHPublicKeyResponse>`,
-		iamXmlns, iamSSHPublicKeyXML(key, bodyXML), generateUUID())
+		iamXmlns, iamSSHPublicKeyXML(key, bodyXML), sim.NewUUID())
 }
 
 func handleIAMGetSSHPublicKey(w http.ResponseWriter, r *http.Request) {
@@ -449,14 +455,17 @@ func handleIAMGetSSHPublicKey(w http.ResponseWriter, r *http.Request) {
 	bodyXML := "<SSHPublicKeyBody>" + xmlEscape(body) + "</SSHPublicKeyBody>"
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetSSHPublicKeyResponse %s><GetSSHPublicKeyResult><SSHPublicKey>%s</SSHPublicKey></GetSSHPublicKeyResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetSSHPublicKeyResponse>`,
-		iamXmlns, iamSSHPublicKeyXML(key, bodyXML), generateUUID())
+		iamXmlns, iamSSHPublicKeyXML(key, bodyXML), sim.NewUUID())
 }
 
 func handleIAMListSSHPublicKeys(w http.ResponseWriter, r *http.Request) {
 	userName := r.FormValue("UserName")
 	keys := iamSSHPublicKeys.Filter(func(k IAMSSHPublicKey) bool { return k.UserName == userName })
 	sort.Slice(keys, func(i, j int) bool { return keys[i].SSHPublicKeyId < keys[j].SSHPublicKeyId })
-	page, next := awsPageExplicit(keys, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0))
+	page, next, pageOK := awsPage(w, iamBadToken, keys, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var members strings.Builder
 	for _, k := range page {
 		fmt.Fprintf(&members, "<member><UserName>%s</UserName><SSHPublicKeyId>%s</SSHPublicKeyId><Status>%s</Status><UploadDate>%s</UploadDate></member>",
@@ -464,7 +473,7 @@ func handleIAMListSSHPublicKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListSSHPublicKeysResponse %s><ListSSHPublicKeysResult><SSHPublicKeys>%s</SSHPublicKeys><IsTruncated>%t</IsTruncated>%s</ListSSHPublicKeysResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListSSHPublicKeysResponse>`,
-		iamXmlns, members.String(), next != "", iamMarkerXML(next), generateUUID())
+		iamXmlns, members.String(), next != "", iamMarkerXML(next), sim.NewUUID())
 }
 
 func handleIAMUpdateSSHPublicKey(w http.ResponseWriter, r *http.Request) {
@@ -521,21 +530,24 @@ func handleIAMUploadSigningCertificate(w http.ResponseWriter, r *http.Request) {
 	iamSigningCerts.Put(cert.CertificateId, cert)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<UploadSigningCertificateResponse %s><UploadSigningCertificateResult><Certificate>%s</Certificate></UploadSigningCertificateResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></UploadSigningCertificateResponse>`,
-		iamXmlns, iamSigningCertXML(cert), generateUUID())
+		iamXmlns, iamSigningCertXML(cert), sim.NewUUID())
 }
 
 func handleIAMListSigningCertificates(w http.ResponseWriter, r *http.Request) {
 	userName := r.FormValue("UserName")
 	certs := iamSigningCerts.Filter(func(c IAMSigningCertificate) bool { return c.UserName == userName })
 	sort.Slice(certs, func(i, j int) bool { return certs[i].CertificateId < certs[j].CertificateId })
-	page, next := awsPageExplicit(certs, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0))
+	page, next, pageOK := awsPage(w, iamBadToken, certs, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var members strings.Builder
 	for _, c := range page {
 		members.WriteString("<member>" + iamSigningCertXML(c) + "</member>")
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListSigningCertificatesResponse %s><ListSigningCertificatesResult><Certificates>%s</Certificates><IsTruncated>%t</IsTruncated>%s</ListSigningCertificatesResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListSigningCertificatesResponse>`,
-		iamXmlns, members.String(), next != "", iamMarkerXML(next), generateUUID())
+		iamXmlns, members.String(), next != "", iamMarkerXML(next), sim.NewUUID())
 }
 
 func handleIAMUpdateSigningCertificate(w http.ResponseWriter, r *http.Request) {
@@ -606,7 +618,7 @@ func handleIAMCreateServiceSpecificCredential(w http.ResponseWriter, r *http.Req
 	iamServiceCreds.Put(cred.ServiceSpecificCredentialId, cred)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateServiceSpecificCredentialResponse %s><CreateServiceSpecificCredentialResult><ServiceSpecificCredential>%s</ServiceSpecificCredential></CreateServiceSpecificCredentialResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></CreateServiceSpecificCredentialResponse>`,
-		iamXmlns, iamServiceCredXML(cred, true), generateUUID())
+		iamXmlns, iamServiceCredXML(cred, true), sim.NewUUID())
 }
 
 func handleIAMListServiceSpecificCredentials(w http.ResponseWriter, r *http.Request) {
@@ -630,7 +642,7 @@ func handleIAMListServiceSpecificCredentials(w http.ResponseWriter, r *http.Requ
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListServiceSpecificCredentialsResponse %s><ListServiceSpecificCredentialsResult><ServiceSpecificCredentials>%s</ServiceSpecificCredentials><IsTruncated>false</IsTruncated></ListServiceSpecificCredentialsResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListServiceSpecificCredentialsResponse>`,
-		iamXmlns, members.String(), generateUUID())
+		iamXmlns, members.String(), sim.NewUUID())
 }
 
 func handleIAMUpdateServiceSpecificCredential(w http.ResponseWriter, r *http.Request) {
@@ -659,7 +671,7 @@ func handleIAMResetServiceSpecificCredential(w http.ResponseWriter, r *http.Requ
 	iamServiceCreds.Put(credID, cred)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ResetServiceSpecificCredentialResponse %s><ResetServiceSpecificCredentialResult><ServiceSpecificCredential>%s</ServiceSpecificCredential></ResetServiceSpecificCredentialResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ResetServiceSpecificCredentialResponse>`,
-		iamXmlns, iamServiceCredXML(cred, true), generateUUID())
+		iamXmlns, iamServiceCredXML(cred, true), sim.NewUUID())
 }
 
 func handleIAMDeleteServiceSpecificCredential(w http.ResponseWriter, r *http.Request) {

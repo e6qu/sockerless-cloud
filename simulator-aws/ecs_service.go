@@ -242,7 +242,10 @@ func handleECSListTaskDefinitionFamilies(w http.ResponseWriter, r *http.Request)
 		families = append(families, family)
 	}
 	sort.Strings(families)
-	page, next := awsPage(families, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecsBadToken, families, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"families": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -471,7 +474,7 @@ func ecsServiceDeployment(svc ECSService, now float64) ECSDeployment {
 	// would start its next rollout finished. The scheduler completes the
 	// rollout once the deployment's own tasks are running and in service.
 	return ECSDeployment{
-		Id:                          "ecs-svc/" + generateUUID(),
+		Id:                          "ecs-svc/" + sim.NewUUID(),
 		Status:                      "PRIMARY",
 		TaskDefinition:              svc.TaskDefinition,
 		DesiredCount:                svc.DesiredCount,
@@ -545,7 +548,10 @@ func handleECSListServices(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Strings(all)
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecsBadToken, all, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"serviceArns": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -567,7 +573,10 @@ func handleECSListClusters(w http.ResponseWriter, r *http.Request) {
 		all = append(all, c.ClusterArn)
 	}
 	sort.Strings(all)
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecsBadToken, all, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"clusterArns": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -634,7 +643,10 @@ func handleECSListTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 	for _, d := range defs {
 		all = append(all, d.arn)
 	}
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecsBadToken, all, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"taskDefinitionArns": page}
 	if next != "" {
 		out["nextToken"] = next

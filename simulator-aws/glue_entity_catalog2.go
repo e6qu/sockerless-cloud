@@ -189,7 +189,10 @@ func handleGlueListCustomEntityTypes(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, cet := range page {
 		item := map[string]any{
@@ -305,7 +308,10 @@ func handleGlueListUsageProfiles(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, up := range page {
 		item := map[string]any{
@@ -546,7 +552,10 @@ func handleGlueSearchTables(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(matched, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, matched, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"TableList": page}
 	if nextTok != "" {
 		resp["NextToken"] = nextTok
@@ -635,7 +644,10 @@ func handleGlueListSchemas(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(schemas, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, schemas, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, sc := range page {
 		item := map[string]any{
@@ -1219,7 +1231,10 @@ func handleGlueGetResourcePolicies(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, rp := range page {
 		out = append(out, map[string]any{

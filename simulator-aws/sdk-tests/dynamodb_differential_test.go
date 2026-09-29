@@ -827,9 +827,10 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 	// limit, which times the pull out on a shared CI runner and fails this
 	// oracle-backed test for a reason that has nothing to do with DynamoDB.
 	// Pinned by digest: the oracle is only an oracle if it stays the same one.
-	const image = "public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab"
-	if !diffDockerPull(image) {
-		t.Fatalf("docker is present but %s could not be pulled after retries", image)
+	const pinned = "public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab"
+	image, err := baseimage.EnsureRef(pinned)
+	if err != nil {
+		t.Fatalf("docker is present but %s could not be pulled after retries: %v", pinned, err)
 	}
 	// A digest copied from one machine can name that machine's platform
 	// manifest rather than the index, and another architecture then pulls an
@@ -940,10 +941,6 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 			endpoint, probeErr, stateOut, imageOut, logsOut)
 	}
 	return endpoint, stop
-}
-
-func diffDockerPull(image string) bool {
-	return baseimage.Ensure(image) == nil
 }
 
 func trimNL(b []byte) []byte {

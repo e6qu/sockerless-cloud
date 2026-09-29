@@ -1,32 +1,23 @@
-# simulator-gcp-cli-tests
+# simulator-gcp CLI tests
 
-Integration tests for the GCP simulator using the `gcloud` CLI. Each test builds the simulator binary, starts it on a free port, and runs `gcloud` commands against it.
+Integration tests for the Google Cloud simulator through the Google Cloud CLI (`gcloud`) and `cbt`. `TestMain`
+builds the simulator into `.build/cli-tests/`, starts it on a free port, and
+stops it when the suite ends; each test shells out to the real CLI through
+`runCLI`, which returns the command's standard output and reports both streams
+when the command fails.
 
-## Services tested
-
-| Test file | Service | Operations |
-|-----------|---------|------------|
-| `dns_test.go` | Cloud DNS | Zone and record set create/list/delete |
-| `functions_test.go` | Cloud Functions | Function create/list/delete |
-| `logging_test.go` | Cloud Logging | Log write and read with filtering |
-| `serviceusage_test.go` | Service Usage | Service enable/disable/list |
-| `vpcaccess_test.go` | VPC Access | Connector create/describe/list/delete |
+`TestMain` installs gcloud when it is not on `PATH` and builds `cbt`, retrying each download before believing a failure.
 
 ## Running
 
 ```sh
 cd simulator-gcp/cli-tests
-go test -v ./...
+go test ./...
 ```
 
-The test harness (`helpers_test.go`) handles binary build, port allocation, server startup, and shutdown. No external services required.
-
-## Prerequisites
-
-- Go 1.23+
-- `gcloud` CLI installed and on `PATH`
-- The `simulator-gcp/` parent module (built automatically by `TestMain`)
+CI runs the suite through `make -C simulator-gcp cli-test`, sharded by the
+jobs in `.github/workflows/ci.yml`.
 
 ## CLI configuration
 
-Tests configure gcloud with environment variables and flags to point at the local simulator endpoint.
+Each command runs with an isolated `CLOUDSDK_CONFIG`, an access token the simulator issued, and `CLOUDSDK_API_ENDPOINT_OVERRIDES_*` pointing each API at the simulator.

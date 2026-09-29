@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/sim/listq"
+
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -230,7 +232,10 @@ func handleCWDescribeMetricFilters(w http.ResponseWriter, r *http.Request) {
 		filters = []CWMetricFilter{}
 	}
 	sortBy(filters, func(f CWMetricFilter) string { return f.FilterName })
-	page, next := awsPage(filters, req.NextToken, req.Limit, 50)
+	page, next, pageOK := awsPage(w, logsBadToken, filters, req.NextToken, req.Limit, 50)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"metricFilters": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -373,7 +378,10 @@ func handleCWDescribeSubscriptionFilters(w http.ResponseWriter, r *http.Request)
 		filters = []CWSubscriptionFilter{}
 	}
 	sortBy(filters, func(f CWSubscriptionFilter) string { return f.FilterName })
-	page, next := awsPage(filters, req.NextToken, req.Limit, 50)
+	page, next, pageOK := awsPage(w, logsBadToken, filters, req.NextToken, req.Limit, 50)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"subscriptionFilters": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -537,7 +545,7 @@ func handleCWCreateExportTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().UnixMilli()
-	taskId := generateUUID()
+	taskId := sim.NewUUID()
 	task := CWExportTask{
 		TaskId:            taskId,
 		TaskName:          req.TaskName,
@@ -577,7 +585,10 @@ func handleCWDescribeExportTasks(w http.ResponseWriter, r *http.Request) {
 		tasks = []CWExportTask{}
 	}
 	sortBy(tasks, func(t CWExportTask) string { return t.TaskId })
-	page, next := awsPage(tasks, req.NextToken, req.Limit, 50)
+	page, next, pageOK := awsPage(w, logsBadToken, tasks, req.NextToken, req.Limit, 50)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"exportTasks": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -779,7 +790,7 @@ func cwResolveMetricValue(token, message string) (float64, bool) {
 		if !present {
 			return 0, false
 		}
-		if f, err := strconv.ParseFloat(cwJSONScalar(got), 64); err == nil {
+		if f, err := strconv.ParseFloat(listq.ScalarString(got), 64); err == nil {
 			return f, true
 		}
 	}
@@ -800,5 +811,5 @@ func cwResolveDimValue(token, message string) string {
 	if !present {
 		return token
 	}
-	return cwJSONScalar(got)
+	return listq.ScalarString(got)
 }

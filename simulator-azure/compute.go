@@ -3,17 +3,17 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
+	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -375,7 +375,7 @@ func registerPublicIPPrefixes(srv *sim.Server) {
 				PrefixLength:           req.Properties.PrefixLength,
 				PublicIPAddressVersion: req.Properties.PublicIPAddressVersion,
 				ProvisioningState:      "Succeeded",
-				ResourceGUID:           generateUUID(),
+				ResourceGUID:           sim.NewUUID(),
 			},
 		}
 		azureDefaultSkuTier(&prefix.Sku, "Standard")
@@ -444,6 +444,9 @@ func azurePublicIPPrefixCIDR(prefixLength int32, index int) string {
 func registerLoadBalancers(srv *sim.Server) {
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network"
 	registerAzureLoadBalancerDataPlane(srv)
+	srv.StartBackground("Azure Load Balancer health prober", func(ctx context.Context) {
+		lbplane.SweepEvery(ctx, azureHealthProbeSweep, azureSweepLoadBalancerProbes)
+	})
 
 	srv.HandleFunc("PUT "+armBase+"/loadBalancers/{loadBalancerName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
@@ -686,11 +689,7 @@ func azureLoadBalancerFrontendAddresses(lb LoadBalancer) []string {
 }
 
 func azureLoadBalancerFromDataPlaneHost(host string) (LoadBalancer, LoadBalancerChild, bool) {
-	hostname := host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		hostname = h
-	}
-	hostname = strings.TrimSuffix(strings.ToLower(hostname), ".")
+	hostname := lbplane.Hostname(host)
 	if hostname == "" {
 		return LoadBalancer{}, LoadBalancerChild{}, false
 	}
@@ -720,12 +719,30 @@ func handleAzureLoadBalancerDataPlane(w http.ResponseWriter, r *http.Request, lb
 		http.Error(w, "no matching load-balancing rule", http.StatusNotFound)
 		return
 	}
-	target, ok := azureHealthyLoadBalancerTarget(r.Context(), lb, rule)
+	target, ok := azureHealthyLoadBalancerTarget(lb, rule)
 	if !ok {
 		http.Error(w, "no healthy backends", http.StatusServiceUnavailable)
 		return
 	}
-	if err := azureProxyHTTPRequest(w, r, rule, target); err != nil {
+	// A load balancer forwards at layer 4, so the backend receives the request
+	// exactly as the client sent it, Host header included, bounded only by the
+	// rule's idle timeout.
+	idle := time.Duration(intProperty(rule.Properties, "idleTimeoutInMinutes")) * time.Minute
+	if idle <= 0 {
+		idle = 4 * time.Minute
+	}
+	err := lbplane.Forward(w, r, lbplane.Upstream{
+		Scheme:   "http",
+		Address:  target.Address,
+		Path:     r.URL.EscapedPath(),
+		RawQuery: r.URL.RawQuery,
+		Timeout:  idle,
+	})
+	switch {
+	case err == nil:
+	case errors.Is(err, lbplane.ErrClientWentAway):
+		w.WriteHeader(lbplane.StatusClientClosedRequest)
+	default:
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	}
 }
@@ -753,13 +770,25 @@ type azureLBTarget struct {
 	Port    int
 }
 
-func azureHealthyLoadBalancerTarget(ctx context.Context, lb LoadBalancer, rule LoadBalancerChild) (azureLBTarget, bool) {
+func azureHealthyLoadBalancerTarget(lb LoadBalancer, rule LoadBalancerChild) (azureLBTarget, bool) {
 	for _, target := range azureLoadBalancerTargets(lb, rule) {
-		if azureProbeLoadBalancerTarget(ctx, lb, rule, target) {
+		if azureLoadBalancerTargetInRotation(lb, rule, target) {
 			return target, true
 		}
 	}
 	return azureLBTarget{}, false
+}
+
+// azureLoadBalancerTargetInRotation reports whether the rule sends the backend
+// traffic: one its health probe has marked up, or any backend of a rule with
+// no probe.
+func azureLoadBalancerTargetInRotation(lb LoadBalancer, rule LoadBalancerChild, target azureLBTarget) bool {
+	probe, hasProbe := azureLoadBalancerRuleProbe(lb, rule)
+	if !hasProbe {
+		return true
+	}
+	health, _ := azureLoadBalancerHealth.Health(azureLoadBalancerHealthKey(lb, probe, target))
+	return health.State == lbplane.HealthHealthy
 }
 
 func azureLoadBalancerTargets(lb LoadBalancer, rule LoadBalancerChild) []azureLBTarget {
@@ -812,76 +841,121 @@ func azureIPConfigInBackendPool(ipcfg NetworkInterfaceIPConfiguration, poolID st
 	return false
 }
 
-func azureProbeLoadBalancerTarget(ctx context.Context, lb LoadBalancer, rule LoadBalancerChild, target azureLBTarget) bool {
+// azureHealthProbeSweep is how often the prober looks for backends whose next
+// probe has come due; each probe's own intervalInSeconds sets how often one
+// backend is probed.
+const azureHealthProbeSweep = 250 * time.Millisecond
+
+// azureLoadBalancerHealth holds what the health probes last recorded for each
+// backend of each load balancer probe, keyed by azureLoadBalancerHealthKey.
+var azureLoadBalancerHealth = lbplane.NewHealthTracker[string]()
+
+func azureLoadBalancerHealthKey(lb LoadBalancer, probe LoadBalancerChild, target azureLBTarget) string {
+	return strings.ToLower(lb.ID) + "|" + strings.ToLower(probe.ID) + "|" + target.Address
+}
+
+// azureLoadBalancerRuleProbe returns the health probe a load-balancing rule
+// names. A rule without one has no prober, and every backend in its pool
+// receives traffic.
+func azureLoadBalancerRuleProbe(lb LoadBalancer, rule LoadBalancerChild) (LoadBalancerChild, bool) {
 	probeID := propertySubResourceID(rule.Properties, "probe")
 	if probeID == "" {
-		conn, err := net.DialTimeout("tcp", target.Address, 2*time.Second)
-		if err != nil {
-			return false
-		}
-		_ = conn.Close()
-		return true
+		return LoadBalancerChild{}, false
 	}
 	for _, probe := range lb.Properties.Probes {
-		if !strings.EqualFold(probe.ID, probeID) {
-			continue
+		if strings.EqualFold(probe.ID, probeID) {
+			return probe, true
 		}
-		port := intProperty(probe.Properties, "port")
-		if port == 0 {
-			port = target.Port
-		}
-		protocol := stringProperty(probe.Properties, "protocol")
-		path := stringProperty(probe.Properties, "requestPath")
-		if err := realexec.ProbeTarget(ctx, realexec.ProbeSpec{
-			Protocol: azureProbeProtocol(protocol),
-			Address:  replacePort(target.Address, port),
-			Path:     path,
-			Timeout:  2 * time.Second,
-		}); err != nil {
-			return false
-		}
-		return true
 	}
-	return false
+	// A rule naming a probe that does not exist has no probe that could pass.
+	return LoadBalancerChild{ID: probeID}, true
 }
 
-func azureProbeProtocol(protocol string) string {
-	switch strings.ToLower(protocol) {
-	case "http":
-		return "HTTP"
+// azureProbePolicy is a probe's schedule: a probe every intervalInSeconds
+// (default 15), and probeThreshold consecutive results — numberOfProbes on a
+// probe that predates probeThreshold, default 1 — to move a backend into or
+// out of rotation.
+func azureProbePolicy(probe LoadBalancerChild) lbplane.HealthPolicy {
+	interval := time.Duration(intProperty(probe.Properties, "intervalInSeconds")) * time.Second
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+	threshold := intProperty(probe.Properties, "probeThreshold")
+	if threshold <= 0 {
+		threshold = intProperty(probe.Properties, "numberOfProbes")
+	}
+	if threshold <= 0 {
+		threshold = 1
+	}
+	return lbplane.HealthPolicy{
+		Interval:                interval,
+		InitialHealthyThreshold: threshold,
+		HealthyThreshold:        threshold,
+		UnhealthyThreshold:      threshold,
+	}
+}
+
+// azureSweepLoadBalancerProbes probes every backend of every load-balancing
+// rule's health probe that has come due at now.
+func azureSweepLoadBalancerProbes(ctx context.Context, now time.Time) {
+	if azureLBs == nil {
+		return
+	}
+	var targets []lbplane.HealthTarget[string]
+	seen := map[string]bool{}
+	for _, lb := range azureLBs.List() {
+		for _, rule := range lb.Properties.LoadBalancingRules {
+			probe, ok := azureLoadBalancerRuleProbe(lb, rule)
+			if !ok {
+				continue
+			}
+			policy := azureProbePolicy(probe)
+			for _, target := range azureLoadBalancerTargets(lb, rule) {
+				key := azureLoadBalancerHealthKey(lb, probe, target)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				targets = append(targets, lbplane.HealthTarget[string]{
+					Key:    key,
+					Policy: policy,
+					Probe: func(ctx context.Context) (int, error) {
+						return azureProbeBackend(ctx, probe, target)
+					},
+				})
+			}
+		}
+	}
+	azureLoadBalancerHealth.Sweep(ctx, now, targets)
+}
+
+// azureProbeBackend runs one health probe. A Tcp probe succeeds when the
+// backend accepts the connection; an Http or Https probe succeeds on a 200
+// response alone — any other code, a redirect included, marks the backend
+// down — and does not validate an Https backend's certificate. A probe times
+// out after its interval or 30 seconds, whichever is shorter.
+func azureProbeBackend(ctx context.Context, probe LoadBalancerChild, target azureLBTarget) (int, error) {
+	if probe.Properties == nil {
+		return 0, fmt.Errorf("health probe %s does not exist", probe.ID)
+	}
+	port := intProperty(probe.Properties, "port")
+	if port == 0 {
+		port = target.Port
+	}
+	address := replacePort(target.Address, port)
+	timeout := min(azureProbePolicy(probe).Interval, 30*time.Second)
+	switch strings.ToLower(stringProperty(probe.Properties, "protocol")) {
+	case "http", "https":
+		return lbplane.ProbeHTTP(ctx, lbplane.HTTPProbe{
+			Scheme:  strings.ToLower(stringProperty(probe.Properties, "protocol")),
+			Address: address,
+			Path:    stringProperty(probe.Properties, "requestPath"),
+			Timeout: timeout,
+			Match:   lbplane.StatusRange(http.StatusOK, http.StatusOK),
+		})
 	default:
-		return "TCP"
+		return 0, lbplane.ProbeTCP(ctx, address, timeout)
 	}
-}
-
-func azureProxyHTTPRequest(w http.ResponseWriter, r *http.Request, rule LoadBalancerChild, target azureLBTarget) error {
-	upstreamURL := url.URL{
-		Scheme:   "http",
-		Host:     target.Address,
-		Path:     r.URL.EscapedPath(),
-		RawQuery: r.URL.RawQuery,
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, r.Method, upstreamURL.String(), r.Body)
-	if err != nil {
-		return err
-	}
-	req.Header = r.Header.Clone()
-	client := http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("forward to backend %s: %w", target.Address, err)
-	}
-	defer resp.Body.Close()
-	for key, values := range resp.Header {
-		for _, value := range values {
-			w.Header().Add(key, value)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	_, err = io.Copy(w, resp.Body)
-	return err
 }
 
 func propertySubResourceID(props map[string]any, key string) string {
@@ -1110,7 +1184,7 @@ func registerVirtualMachines(srv *sim.Server) {
 		vm.Properties.ProvisioningState = "Succeeded"
 		stripVMAdminPassword(&vm)
 		if vm.Properties.VMID == "" {
-			vm.Properties.VMID = generateUUID()
+			vm.Properties.VMID = sim.NewUUID()
 		}
 		// Request validation precedes provisioning, as it does in Azure: a
 		// networkProfile the Compute resource provider cannot accept is the
@@ -1199,9 +1273,7 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
-		if state, _ := azureVMStates.Get(id); state == "PowerState/running" && !azureRealVMAlive(id) {
-			azureVMStates.Put(id, "PowerState/stopped")
-		}
+		azureReconcileVMPowerState(id)
 		if strings.EqualFold(r.URL.Query().Get("$expand"), "instanceView") {
 			vm = virtualMachineWithInstanceView(vm)
 		}
@@ -1216,9 +1288,7 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
-		if state, _ := azureVMStates.Get(id); state == "PowerState/running" && !azureRealVMAlive(id) {
-			azureVMStates.Put(id, "PowerState/stopped")
-		}
+		azureReconcileVMPowerState(id)
 		sim.WriteJSON(w, http.StatusOK, virtualMachineWithInstanceView(vm).Properties.InstanceView)
 	})
 
@@ -1247,14 +1317,15 @@ func registerVirtualMachines(srv *sim.Server) {
 		sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 		statusOnly := strings.EqualFold(r.URL.Query().Get("statusOnly"), "true")
 		for i := range all {
-			if state, _ := azureVMStates.Get(all[i].ID); state == "PowerState/running" && !azureRealVMAlive(all[i].ID) {
-				azureVMStates.Put(all[i].ID, "PowerState/stopped")
-			}
+			azureReconcileVMPowerState(all[i].ID)
 			if statusOnly {
 				all[i] = virtualMachineWithInstanceView(all[i])
 			}
 		}
-		page, next := armPage(r, all)
+		page, next, pageOK := armPage(w, r, all)
+		if !pageOK {
+			return
+		}
 		if page == nil {
 			page = []VirtualMachine{}
 		}

@@ -100,3 +100,8 @@ GET /compute/v1/projects/{project}/regions/{region}/projectViews
 POST /compute/v1/projects/{project}/regions/{region}/advice/capacity
 # regions.advice.capacityHistory: same AdviceService gap.
 POST /compute/v1/projects/{project}/regions/{region}/advice/capacityHistory
+
+# Cancelling a resumable upload is a DELETE on the session URI. The Cloud
+# Storage Go SDK, gcloud and the Terraform provider never send it: a cancelled
+# writer abandons its session. TestGCSResumableUploadStagesChunks covers it.
+DELETE /upload/storage/v1/b/{bucket}/o

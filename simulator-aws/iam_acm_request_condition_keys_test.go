@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // jsonServiceConditionContext runs a JSON-protocol service's registered
@@ -67,7 +68,7 @@ func TestACMConditionKeysAreAbsentForAbsentMembers(t *testing.T) {
 // ExportCertificate and RevokeCertificate name a certificate, and its domains
 // are the ones it was issued for.
 func TestACMConditionKeysReadTheNamedCertificatesDomains(t *testing.T) {
-	AwaitSimulatorBackground()
+	bg.Await()
 	acmCertificates = sim.MakeStore[acmStoredCert](nil, "acm_certificates")
 	acmCertificates.Put("c-1", acmStoredCert{Cert: ACMCertificate{
 		CertificateArn:          acmCertARN("c-1"),

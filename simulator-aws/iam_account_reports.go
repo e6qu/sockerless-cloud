@@ -123,7 +123,7 @@ func registerIAMAccountReports(r *AWSQueryRouter, srv *sim.Server) {
 func iamResultXML(w http.ResponseWriter, op, inner string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><%sResult>%s</%sResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></%sResponse>`,
-		op, op, inner, op, generateUUID(), op)
+		op, op, inner, op, sim.NewUUID(), op)
 }
 
 // Account summary
@@ -488,7 +488,7 @@ func handleIAMGenerateServiceLastAccessed(w http.ResponseWriter, r *http.Request
 		granularity = "SERVICE_LEVEL"
 	}
 	job := IAMServiceJob{
-		JobId:      generateUUID(),
+		JobId:      sim.NewUUID(),
 		JobType:    granularity,
 		Arn:        arn,
 		CreateDate: time.Now().UTC().Format(time.RFC3339),
@@ -667,7 +667,7 @@ func handleIAMGenerateOrganizationsAccessReport(w http.ResponseWriter, r *http.R
 		return
 	}
 	job := IAMServiceJob{
-		JobId:      generateUUID(),
+		JobId:      sim.NewUUID(),
 		EntityPath: entityPath,
 		PolicyId:   r.FormValue("OrganizationsPolicyId"),
 		CreateDate: time.Now().UTC().Format(time.RFC3339),
@@ -730,7 +730,7 @@ func iamOrgId() string {
 	if f, ok := iamAccountFlags.Get("OrganizationId"); ok && f.Value != "" {
 		return f.Value
 	}
-	orgId := "o-" + strings.ToLower(generateUUID()[:10])
+	orgId := "o-" + strings.ToLower(sim.NewUUID()[:10])
 	iamAccountFlags.Put("OrganizationId", IAMAccountFeature{Key: "OrganizationId", Value: orgId})
 	return orgId
 }
@@ -832,7 +832,7 @@ func iamDelegationRequestXML(d IAMDelegationRequest) string {
 func handleIAMCreateDelegationRequest(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	d := IAMDelegationRequest{
-		DelegationRequestId: "dr-" + strings.ToLower(generateUUID()[:16]),
+		DelegationRequestId: "dr-" + strings.ToLower(sim.NewUUID()[:16]),
 		OwnerAccountId:      r.FormValue("OwnerAccountId"),
 		Description:         r.FormValue("Description"),
 		RequestMessage:      r.FormValue("RequestMessage"),
@@ -875,7 +875,10 @@ func handleIAMListDelegationRequests(w http.ResponseWriter, r *http.Request) {
 		reqs = filtered
 	}
 	sort.Slice(reqs, func(i, j int) bool { return reqs[i].DelegationRequestId < reqs[j].DelegationRequestId })
-	page, next := awsPageExplicit(reqs, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0))
+	page, next, pageOK := awsPage(w, iamBadToken, reqs, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	if !pageOK {
+		return
+	}
 
 	var b strings.Builder
 	b.WriteString("<DelegationRequests>")
@@ -948,41 +951,6 @@ func handleIAMSendDelegationToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	iamEmptyResultXML(w, "SendDelegationToken")
-}
-
-// Outbound web-identity federation
-
-// iamIssuerIdentifier returns the deterministic outbound-web-identity issuer
-// URL for this account.
-func iamIssuerIdentifier() string {
-	return fmt.Sprintf("https://oidc.iam.%s.amazonaws.com/%s", iamRegion(), awsAccountID())
-}
-
-// iamRegion is the region the sim presents; AWS scopes the outbound issuer to a
-// region. The account-flag store keeps a single deterministic value.
-func iamRegion() string {
-	if f, ok := iamAccountFlags.Get("region"); ok && f.Value != "" {
-		return f.Value
-	}
-	return "us-east-1"
-}
-
-func handleIAMEnableOutboundWebIdentityFederation(w http.ResponseWriter, r *http.Request) {
-	iamAccountFlags.Put("OutboundWebIdentityFederation", IAMAccountFeature{Key: "OutboundWebIdentityFederation", Value: "enabled"})
-	iamResultXML(w, "EnableOutboundWebIdentityFederation",
-		fmt.Sprintf("<IssuerIdentifier>%s</IssuerIdentifier>", xmlEscape(iamIssuerIdentifier())))
-}
-
-func handleIAMDisableOutboundWebIdentityFederation(w http.ResponseWriter, r *http.Request) {
-	iamAccountFlags.Delete("OutboundWebIdentityFederation")
-	iamEmptyResultXML(w, "DisableOutboundWebIdentityFederation")
-}
-
-func handleIAMGetOutboundWebIdentityFederationInfo(w http.ResponseWriter, r *http.Request) {
-	_, enabled := iamAccountFlags.Get("OutboundWebIdentityFederation")
-	inner := fmt.Sprintf("<IssuerIdentifier>%s</IssuerIdentifier><JwtVendingEnabled>%t</JwtVendingEnabled>",
-		xmlEscape(iamIssuerIdentifier()), enabled)
-	iamResultXML(w, "GetOutboundWebIdentityFederationInfo", inner)
 }
 
 // STS preferences + human-readable summary

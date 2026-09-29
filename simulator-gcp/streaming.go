@@ -8,16 +8,9 @@ import (
 	"strings"
 )
 
-// openStreamingBody wraps r.Body with a sentinel-aware reader that
-// transparently decodes the encodings real GCS / Cloud Run / AR
-// clients put on the wire — currently `Content-Encoding: gzip`.
-// Other shapes (multipart/related for GCS metadata-prefix upload,
-// Content-Range for resumable uploads, OCI Distribution PATCH
-// chunked uploads for AR) carry semantics each handler decides
-// per-op; this helper only handles transparent-decode encodings.
-//
-// The skill
-// `sim-streaming-body-handler` codifies the pre-write check.
+// openStreamingBody decodes a gzip transport encoding, which Cloud Storage
+// removes before it stores an upload. Multipart framing and Content-Range
+// carry per-operation semantics each handler applies itself.
 func openStreamingBody(r *http.Request) (io.ReadCloser, error) {
 	ce := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding")))
 	switch ce {

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 const s3ControlConditionAccount = "123456789012"
@@ -32,7 +33,7 @@ func s3ControlConditionStores(t *testing.T) {
 	t.Cleanup(func() {
 		s3BatchJobs, s3AccessGrants, s3AccessGrantsLocations = jobs, grants, locations
 	})
-	AwaitSimulatorBackground()
+	bg.Await()
 	s3BatchJobs = sim.MakeStore[S3BatchJob](nil, "s3_batch_jobs")
 	s3AccessGrants = sim.MakeStore[S3AccessGrant](nil, "s3_access_grants")
 	s3AccessGrantsLocations = sim.MakeStore[S3AccessGrantsLocation](nil, "s3_access_grants_locations")

@@ -19,6 +19,7 @@ func gcpCustomMethodTestServer(t *testing.T) *sim.Server {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	return srv
 }
 

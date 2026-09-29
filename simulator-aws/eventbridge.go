@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -154,6 +153,7 @@ func registerEventBridge(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSEvents.CancelReplay", handleEBCancelReplay)
 
 	registerEventBridgeConnectivity(r, srv)
+	registerEventBridgeDelivery(srv)
 }
 
 func ebRuleArn(name string) string {
@@ -301,7 +301,10 @@ func handleEBListEventBuses(w http.ResponseWriter, r *http.Request) {
 		buses = append(buses, bus)
 	}
 	sort.Slice(buses, func(i, j int) bool { return buses[i].Name < buses[j].Name })
-	page, next := awsPageExplicit(buses, req.NextToken, req.Limit)
+	page, next, pageOK := awsPage(w, ebBadToken, buses, req.NextToken, req.Limit, 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"EventBuses": page}
 	if next != "" {
 		out["NextToken"] = next
@@ -504,8 +507,18 @@ func handleEBPutRule(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Name is required", http.StatusBadRequest)
 		return
 	}
+	if req.EventPattern != "" {
+		if err := ebValidateEventPattern(req.EventPattern); err != nil {
+			AWSError(w, "InvalidEventPatternException", "Event pattern is not valid. Reason: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	if _, ok := ebGetBus(req.EventBusName); !ok {
 		AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
+		return
+	}
+	if problem := ebRuleScheduleProblem(req.ScheduleExpression, req.EventPattern, req.EventBusName); problem != "" {
+		AWSError(w, "ValidationException", problem, http.StatusBadRequest)
 		return
 	}
 	state := req.State
@@ -575,7 +588,10 @@ func handleEBListRules(w http.ResponseWriter, r *http.Request) {
 		rules = append(rules, rule)
 	}
 	sort.Slice(rules, func(i, j int) bool { return rules[i].Name < rules[j].Name })
-	page, next := awsPageExplicit(rules, req.NextToken, req.Limit)
+	page, next, pageOK := awsPage(w, ebBadToken, rules, req.NextToken, req.Limit, 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"Rules": page}
 	if next != "" {
 		out["NextToken"] = next
@@ -617,7 +633,10 @@ func handleEBListRuleNamesByTarget(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Strings(names)
-	page, next := awsPageExplicit(names, req.NextToken, req.Limit)
+	page, next, pageOK := awsPage(w, ebBadToken, names, req.NextToken, req.Limit, 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"RuleNames": page}
 	if next != "" {
 		out["NextToken"] = next
@@ -650,51 +669,20 @@ func handleEBTestEventPattern(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidEventPatternException", "Event pattern is not valid. Reason: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	var event struct {
-		Source     string          `json:"source"`
-		DetailType string          `json:"detail-type"`
-		Detail     json.RawMessage `json:"detail"`
-	}
+	var event map[string]any
 	if err := json.Unmarshal([]byte(req.Event), &event); err != nil {
 		AWSError(w, "InvalidEventPatternException", "Event is not valid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	result := ebEventPatternMatches(req.EventPattern, event.Source, event.DetailType, string(event.Detail))
+	result := ebEventPatternMatches(req.EventPattern, event)
 	writeEBJSON(w, http.StatusOK, map[string]any{"Result": result})
 }
 
-// ebValidateEventPattern reports whether a pattern is structurally valid per
-// EventBridge's content-filtering grammar: the pattern is a JSON object whose
-// every value is either an OR array of leaf matchers or a nested pattern object
-// (which recurses). A scalar pattern value (e.g. {"source":"x"} instead of
-// {"source":["x"]}) is invalid, matching real EventBridge.
+// ebValidateEventPattern reports why a pattern is not one EventBridge
+// accepts.
 func ebValidateEventPattern(patternJSON string) error {
-	var pattern map[string]any
-	if err := json.Unmarshal([]byte(patternJSON), &pattern); err != nil {
-		return fmt.Errorf("event pattern is not valid JSON: %w", err)
-	}
-	return ebValidatePatternObject(pattern)
-}
-
-func ebValidatePatternObject(pattern map[string]any) error {
-	if len(pattern) == 0 {
-		return fmt.Errorf(`"%s" must be an object or an array`, "pattern")
-	}
-	for key, val := range pattern {
-		switch v := val.(type) {
-		case map[string]any:
-			if err := ebValidatePatternObject(v); err != nil {
-				return err
-			}
-		case []any:
-			if len(v) == 0 {
-				return fmt.Errorf(`"%s" must be a non-empty array`, key)
-			}
-		default:
-			return fmt.Errorf(`"%s" must be an object or an array`, key)
-		}
-	}
-	return nil
+	_, err := awsParsePattern(ebPatternDialect, patternJSON)
+	return err
 }
 
 // handleEBUpdateEventBus updates a named (or default) event bus's mutable
@@ -849,7 +837,10 @@ func handleEBListTargetsByRule(w http.ResponseWriter, r *http.Request) {
 		targets = []EBTarget{}
 	}
 	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
-	page, next := awsPageExplicit(targets, req.NextToken, req.Limit)
+	page, next, pageOK := awsPage(w, ebBadToken, targets, req.NextToken, req.Limit, 0)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"Targets": page}
 	if next != "" {
 		out["NextToken"] = next
@@ -915,7 +906,7 @@ func handleEBPutEvents(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		eventID := generateUUID()
+		eventID := sim.NewUUID()
 		now := time.Now().Unix()
 		record := EBEventRecord{
 			ID:         eventID,
@@ -938,7 +929,7 @@ func handleEBPutEvents(w http.ResponseWriter, r *http.Request) {
 		events = append(events, record)
 		ebEvents.Put(bus, events)
 		archiveEBEvent(bus, record)
-		deliverEBEvent(bus, entry.Source, entry.DetailType, entry.Detail, eventID)
+		deliverEBEvent(bus, record)
 		entries = append(entries, map[string]string{"EventId": eventID})
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{"FailedEntryCount": failed, "Entries": entries})
@@ -959,7 +950,7 @@ func archiveEBEvent(bus string, record EBEventRecord) {
 		if archive.EventSourceArn != sourceArn || archive.State != "ENABLED" {
 			continue
 		}
-		if archive.EventPattern != "" && !ebEventPatternMatches(archive.EventPattern, record.Source, record.DetailType, record.Detail) {
+		if archive.EventPattern != "" && !ebEventPatternMatches(archive.EventPattern, ebBuildEvent(record)) {
 			continue
 		}
 		archive.ArchivedEvents = append(archive.ArchivedEvents, record)
@@ -997,38 +988,44 @@ func ebApplyRetention(events []EBEventRecord, retentionDays *int32) []EBEventRec
 	return events
 }
 
-func deliverEBEvent(bus, source, detailType, detail, eventID string) {
+func deliverEBEvent(bus string, record EBEventRecord) {
+	event := ebBuildEvent(record)
 	for _, rule := range ebRules.List() {
 		if rule.EventBusName != bus || rule.State == "DISABLED" {
 			continue
 		}
-		if !ebRuleMatches(rule, source, detailType, detail) {
+		if rule.EventPattern != "" && !ebEventPatternMatches(rule.EventPattern, event) {
 			continue
 		}
 		targets, _ := ebTargets.Get(ebRuleKey(rule.EventBusName, rule.Name))
 		for _, target := range targets {
-			body := ebApplyInput(target, source, detailType, detail, eventID)
-			deliverEBTarget(rule.Arn, target, body, source, detailType, eventID)
+			ebSubmitTargetDelivery(rule.Arn, target, record)
 		}
 	}
 }
 
-// ebBuildEvent assembles the full EventBridge event object that a target's
-// InputPath / InputTransformer JSONPaths resolve against.
-func ebBuildEvent(source, detailType, detail, eventID string) map[string]any {
+// ebBuildEvent assembles the full EventBridge event object that rule and
+// archive patterns match and a target's InputPath / InputTransformer
+// JSONPaths resolve against. PutEvents has already rejected a Detail that is
+// not JSON.
+func ebBuildEvent(record EBEventRecord) map[string]any {
 	var detailObj any
-	if detail != "" {
-		_ = json.Unmarshal([]byte(detail), &detailObj)
+	if record.Detail != "" {
+		_ = json.Unmarshal([]byte(record.Detail), &detailObj)
+	}
+	resources := make([]any, 0, len(record.Resources))
+	for _, r := range record.Resources {
+		resources = append(resources, r)
 	}
 	return map[string]any{
 		"version":     "0",
-		"id":          eventID,
-		"detail-type": detailType,
-		"source":      source,
+		"id":          record.ID,
+		"detail-type": record.DetailType,
+		"source":      record.Source,
 		"account":     awsAccountID(),
-		"time":        time.Now().UTC().Format(time.RFC3339),
+		"time":        time.Unix(record.Time, 0).UTC().Format(time.RFC3339),
 		"region":      awsRegion(),
-		"resources":   []any{},
+		"resources":   resources,
 		"detail":      detailObj,
 	}
 }
@@ -1080,15 +1077,15 @@ func ebJSONPath(root any, path string) (any, bool) {
 
 // ebApplyInput computes the body delivered to a target per its mutually
 // exclusive Input / InputPath / InputTransformer, in real-EventBridge priority.
-func ebApplyInput(target EBTarget, source, detailType, detail, eventID string) string {
+func ebApplyInput(target EBTarget, record EBEventRecord) string {
 	if target.Input != "" {
 		return target.Input
 	}
 	if target.InputPath == "" && len(target.InputTransformer) == 0 {
-		event, _ := json.Marshal(ebBuildEvent(source, detailType, detail, eventID))
+		event, _ := json.Marshal(ebBuildEvent(record))
 		return string(event)
 	}
-	event := ebBuildEvent(source, detailType, detail, eventID)
+	event := ebBuildEvent(record)
 	if target.InputPath != "" {
 		if v, ok := ebJSONPath(event, target.InputPath); ok {
 			raw, _ := json.Marshal(v)
@@ -1101,7 +1098,7 @@ func ebApplyInput(target EBTarget, source, detailType, detail, eventID string) s
 		InputTemplate string            `json:"InputTemplate"`
 	}
 	if json.Unmarshal(target.InputTransformer, &it) != nil || it.InputTemplate == "" {
-		return detail
+		return record.Detail
 	}
 	out := it.InputTemplate
 	for varName, jp := range it.InputPathsMap {
@@ -1119,237 +1116,14 @@ func ebApplyInput(target EBTarget, source, detailType, detail, eventID string) s
 	return out
 }
 
-func ebRuleMatches(rule EBRule, source, detailType, detail string) bool {
-	if rule.EventPattern == "" {
-		return true
-	}
-	return ebEventPatternMatches(rule.EventPattern, source, detailType, detail)
-}
-
-// ebEventPatternMatches evaluates an EventBridge event pattern against an event.
-// It builds the event as the same nested JSON object EventBridge matches against
-// (top-level "source"/"detail-type"/"resources" plus the parsed "detail" object)
-// and recurses through the pattern. Per the EventBridge content-filtering rules
-// (https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-event-patterns.html):
-//   - a pattern value array is an OR — the event value matches if it satisfies
-//     any element (an exact string or a content-matcher object);
-//   - sibling keys (including nested keys inside "detail") are ANDed;
-//   - a pattern value that is an object recurses into the event's matching key.
-func ebEventPatternMatches(patternJSON, source, detailType, detail string) bool {
-	var pattern map[string]any
-	if err := json.Unmarshal([]byte(patternJSON), &pattern); err != nil {
-		return false
-	}
-	event := map[string]any{
-		"source":      source,
-		"detail-type": detailType,
-	}
-	if detail != "" {
-		var d any
-		if err := json.Unmarshal([]byte(detail), &d); err == nil {
-			event["detail"] = d
-		}
-	}
-	return ebMatchObject(pattern, event)
-}
-
-// ebMatchObject ANDs every key in the pattern against the event object.
-func ebMatchObject(pattern map[string]any, event any) bool {
-	obj, ok := event.(map[string]any)
-	if !ok {
-		return false
-	}
-	for key, patVal := range pattern {
-		eventVal, present := obj[key]
-		if !ebMatchValue(patVal, eventVal, present) {
-			return false
-		}
-	}
-	return true
-}
-
-// ebMatchValue dispatches on the pattern node shape: a nested object recurses,
-// an array is an OR of leaf matchers, anything else is invalid.
-func ebMatchValue(patVal, eventVal any, present bool) bool {
-	switch pv := patVal.(type) {
-	case map[string]any:
-		// Nested key path: recurse into the event's sub-object.
-		return ebMatchObject(pv, eventVal)
-	case []any:
-		// OR list: the event value matches if it satisfies any element.
-		for _, candidate := range pv {
-			if ebMatchLeaf(candidate, eventVal, present) {
-				return true
-			}
-		}
-		return false
-	default:
-		return false
-	}
-}
-
-// ebMatchLeaf evaluates one element of a pattern's value array against the event
-// value: either an exact value (string/number/bool/null) or a content-matcher
-// object ({"prefix":...}, {"suffix":...}, {"anything-but":...}, {"numeric":...},
-// {"exists":...}, {"cidr":...}, {"equals-ignore-case":...}).
-func ebMatchLeaf(candidate, eventVal any, present bool) bool {
-	if m, ok := candidate.(map[string]any); ok {
-		return ebMatchContentFilter(m, eventVal, present)
-	}
-	// Exact match. EventBridge compares decoded JSON values, so a string
-	// pattern matches a string event value, a number matches a number, etc.
-	if !present {
-		return false
-	}
-	return ebValuesEqual(candidate, eventVal)
-}
-
-func ebValuesEqual(a, b any) bool {
-	switch av := a.(type) {
-	case string:
-		bv, ok := b.(string)
-		return ok && av == bv
-	case bool:
-		bv, ok := b.(bool)
-		return ok && av == bv
-	case float64:
-		bv, ok := ebToFloat(b)
-		return ok && av == bv
-	case nil:
-		return b == nil
-	default:
-		return false
-	}
-}
-
-// ebMatchContentFilter implements EventBridge's content-matcher objects.
-func ebMatchContentFilter(filter map[string]any, eventVal any, present bool) bool {
-	// exists is evaluated on presence/absence, not on the value.
-	if want, ok := filter["exists"]; ok {
-		wantBool, _ := want.(bool)
-		return present == wantBool
-	}
-	if prefix, ok := filter["prefix"]; ok {
-		s, sok := eventVal.(string)
-		p, pok := prefix.(string)
-		return present && sok && pok && strings.HasPrefix(s, p)
-	}
-	if suffix, ok := filter["suffix"]; ok {
-		s, sok := eventVal.(string)
-		p, pok := suffix.(string)
-		return present && sok && pok && strings.HasSuffix(s, p)
-	}
-	if ci, ok := filter["equals-ignore-case"]; ok {
-		s, sok := eventVal.(string)
-		p, pok := ci.(string)
-		return present && sok && pok && strings.EqualFold(s, p)
-	}
-	if ab, ok := filter["anything-but"]; ok {
-		return present && ebMatchAnythingBut(ab, eventVal)
-	}
-	if num, ok := filter["numeric"]; ok {
-		return present && ebMatchNumeric(num, eventVal)
-	}
-	if c, ok := filter["cidr"]; ok {
-		s, sok := eventVal.(string)
-		cidr, cok := c.(string)
-		return present && sok && cok && ebMatchCIDR(cidr, s)
-	}
-	return false
-}
-
-// ebMatchAnythingBut matches when the event value differs from every excluded
-// value. The exclusion can be a single scalar or a list of scalars.
-func ebMatchAnythingBut(exclude, eventVal any) bool {
-	switch ex := exclude.(type) {
-	case []any:
-		for _, e := range ex {
-			if ebValuesEqual(e, eventVal) {
-				return false
-			}
-		}
-		return true
-	default:
-		return !ebValuesEqual(exclude, eventVal)
-	}
-}
-
-// ebMatchNumeric implements {"numeric": [op, value, ...]} where op is one of
-// "=", "!=", "<", "<=", ">", ">=" and pairs can be chained (e.g.
-// [">", 0, "<=", 5]). All chained conditions are ANDed.
-func ebMatchNumeric(spec, eventVal any) bool {
-	terms, ok := spec.([]any)
-	if !ok || len(terms)%2 != 0 {
-		return false
-	}
-	val, ok := ebToFloat(eventVal)
-	if !ok {
-		return false
-	}
-	for i := 0; i < len(terms); i += 2 {
-		op, ok := terms[i].(string)
-		if !ok {
-			return false
-		}
-		bound, ok := ebToFloat(terms[i+1])
-		if !ok {
-			return false
-		}
-		switch op {
-		case "=":
-			if val != bound {
-				return false
-			}
-		case "!=":
-			if val == bound {
-				return false
-			}
-		case "<":
-			if !(val < bound) {
-				return false
-			}
-		case "<=":
-			if !(val <= bound) {
-				return false
-			}
-		case ">":
-			if !(val > bound) {
-				return false
-			}
-		case ">=":
-			if !(val >= bound) {
-				return false
-			}
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-func ebToFloat(v any) (float64, bool) {
-	switch n := v.(type) {
-	case float64:
-		return n, true
-	case json.Number:
-		f, err := n.Float64()
-		return f, err == nil
-	default:
-		return 0, false
-	}
-}
-
-// ebMatchCIDR reports whether ip falls inside the cidr block.
-func ebMatchCIDR(cidr, ip string) bool {
-	_, network, err := net.ParseCIDR(cidr)
+// ebEventPatternMatches reports whether event satisfies a pattern
+// PutRule or CreateArchive stored after validating it.
+func ebEventPatternMatches(patternJSON string, event map[string]any) bool {
+	pattern, err := awsParsePattern(ebPatternDialect, patternJSON)
 	if err != nil {
 		return false
 	}
-	addr := net.ParseIP(ip)
-	if addr == nil {
-		return false
-	}
-	return network.Contains(addr)
+	return awsPatternMatches(pattern, event)
 }
 
 // ebLambdaNameFromARN extracts the function name from a Lambda function ARN
@@ -1368,81 +1142,6 @@ func ebLambdaNameFromARN(arn string) string {
 	return name
 }
 
-// deliverEBTarget delivers one matched event to one rule target. EventBridge
-// delivers as the events.amazonaws.com service on the rule's behalf, so each
-// delivery is authorized against the TARGET's resource-based policy with the
-// service-initiation condition context (aws:SourceArn = the matched rule's ARN,
-// aws:SourceAccount = this account). A target whose resource policy does not
-// admit events.amazonaws.com for that source rule receives nothing — exactly as
-// real AWS, which silently drops the delivery rather than enqueuing it.
-func deliverEBTarget(ruleArn string, target EBTarget, body, source, detailType, eventID string) {
-	src := iamServiceSource{
-		Service:       "events.amazonaws.com",
-		SourceArn:     ruleArn,
-		SourceAccount: awsAccountID(),
-	}
-	if strings.HasPrefix(target.Arn, "arn:aws:sqs:") {
-		if !iamAuthorizeServiceDelivery(target.Arn, "sqs:SendMessage", src) {
-			return
-		}
-		queue := snsTopicNameFromARN(target.Arn)
-		sqsEnqueue(queue, sqsSendEntry{MessageBody: body})
-		return
-	}
-	if strings.HasPrefix(target.Arn, "arn:aws:lambda:") {
-		if !iamAuthorizeServiceDelivery(target.Arn, "lambda:InvokeFunction", src) {
-			return
-		}
-		name := ebLambdaNameFromARN(target.Arn)
-		fn, ok := lambdaFunctions.Get(name)
-		if !ok {
-			return
-		}
-		// Real in-process invoke. EventBridge invokes asynchronously (an
-		// "Event" invocation): the rule delivery does not wait on the function
-		// result, so run the invoke in the background exactly as the async
-		// Lambda Invoke path does.
-		go func() { _, _, _ = invokeLambdaViaRuntimeAPI(fn, []byte(body)) }()
-		return
-	}
-	if strings.HasPrefix(target.Arn, "arn:aws:sns:") {
-		if !iamAuthorizeServiceDelivery(target.Arn, "sns:Publish", src) {
-			return
-		}
-		if _, ok := snsTopics.Get(snsTopicNameFromARN(target.Arn)); !ok {
-			return
-		}
-		snsFanout(target.Arn, eventID, detailType, body, nil)
-		return
-	}
-	if strings.HasPrefix(target.Arn, "arn:aws:states:") {
-		_, _ = sfnStartNestedExecution(target.Arn, eventID, body)
-		return
-	}
-	if strings.HasPrefix(target.Arn, "arn:aws:logs:") && strings.Contains(target.Arn, ":log-group:") {
-		group := strings.SplitN(target.Arn, ":log-group:", 2)[1]
-		group = strings.TrimSuffix(group, ":*")
-		if _, ok := cwLogGroups.Get(group); !ok {
-			return
-		}
-		stream := "eventbridge/" + cloudTrailShortName(ruleArn)
-		key := cwEventsKey(group, stream)
-		now := time.Now().UnixMilli()
-		if _, ok := cwLogStreams.Get(key); !ok {
-			cwLogStreams.Put(key, CWLogStream{
-				LogStreamName: stream,
-				LogGroupName:  group,
-				CreationTime:  now,
-				Arn:           cwLogStreamArn(group, stream),
-			})
-			cwLogEvents.Put(key, []CWLogEvent{})
-		}
-		cwAppendLogEvents(key, []CWLogEvent{{Timestamp: now, IngestionTime: now, Message: body}}, nil)
-		return
-	}
-	_, _, _ = source, detailType, eventID
-}
-
 func handleEBCreateArchive(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ArchiveName      string `json:"ArchiveName"`
@@ -1459,6 +1158,12 @@ func handleEBCreateArchive(w http.ResponseWriter, r *http.Request) {
 	if req.ArchiveName == "" || req.EventSourceArn == "" {
 		AWSError(w, "ValidationException", "ArchiveName and EventSourceArn are required", http.StatusBadRequest)
 		return
+	}
+	if req.EventPattern != "" {
+		if err := ebValidateEventPattern(req.EventPattern); err != nil {
+			AWSError(w, "InvalidEventPatternException", "Event pattern is not valid. Reason: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 	if _, ok := ebArchives.Get(req.ArchiveName); ok {
 		AWSError(w, "ResourceAlreadyExistsException", "Archive already exists", http.StatusConflict)
@@ -1505,34 +1210,9 @@ func handleEBDescribeArchive(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEBListArchives(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		EventSourceArn string `json:"EventSourceArn"`
-		NamePrefix     string `json:"NamePrefix"`
-		Limit          int    `json:"Limit"`
-		NextToken      string `json:"NextToken"`
-	}
-	_ = sim.ReadJSON(r, &req)
-	archives := make([]EBArchive, 0)
-	for _, archive := range ebArchives.List() {
-		if req.EventSourceArn != "" && archive.EventSourceArn != req.EventSourceArn {
-			continue
-		}
-		if req.NamePrefix != "" && !strings.HasPrefix(archive.ArchiveName, req.NamePrefix) {
-			continue
-		}
-		archives = append(archives, archive)
-	}
-	sort.Slice(archives, func(i, j int) bool { return archives[i].ArchiveName < archives[j].ArchiveName })
-	page, next := awsPageExplicit(archives, req.NextToken, req.Limit)
-	summaries := make([]map[string]any, 0, len(page))
-	for _, archive := range page {
-		summaries = append(summaries, ebArchiveSummary(archive))
-	}
-	out := map[string]any{"Archives": summaries}
-	if next != "" {
-		out["NextToken"] = next
-	}
-	writeEBJSON(w, http.StatusOK, out)
+	ebListBySource(w, r, "Archives", ebArchives.List(), func(a EBArchive) (string, string, string) {
+		return a.ArchiveName, a.EventSourceArn, a.State
+	}, ebArchiveSummary)
 }
 
 // ebArchiveSummary projects an archive onto the list-shape Archive
@@ -1703,30 +1383,50 @@ func handleEBDescribeReplay(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEBListReplays(w http.ResponseWriter, r *http.Request) {
+	ebListBySource(w, r, "Replays", ebReplays.List(), func(rp EBReplay) (string, string, string) {
+		return rp.ReplayName, rp.EventSourceArn, rp.State
+	}, ebReplaySummary)
+}
+
+// ebListBySource answers ListArchives and ListReplays, which filter by the
+// same three members and page the same way.
+func ebListBySource[T any](w http.ResponseWriter, r *http.Request, member string, items []T,
+	fields func(T) (name, source, state string), summary func(T) map[string]any) {
 	var req struct {
 		EventSourceArn string `json:"EventSourceArn"`
 		NamePrefix     string `json:"NamePrefix"`
+		State          string `json:"State"`
 		Limit          int    `json:"Limit"`
 		NextToken      string `json:"NextToken"`
 	}
-	_ = sim.ReadJSON(r, &req)
-	replays := make([]EBReplay, 0)
-	for _, replay := range ebReplays.List() {
-		if req.EventSourceArn != "" && replay.EventSourceArn != req.EventSourceArn {
-			continue
-		}
-		if req.NamePrefix != "" && !strings.HasPrefix(replay.ReplayName, req.NamePrefix) {
-			continue
-		}
-		replays = append(replays, replay)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		return
 	}
-	sort.Slice(replays, func(i, j int) bool { return replays[i].ReplayName < replays[j].ReplayName })
-	page, next := awsPageExplicit(replays, req.NextToken, req.Limit)
+	matched := make([]T, 0, len(items))
+	for _, item := range items {
+		name, source, state := fields(item)
+		if req.EventSourceArn != "" && source != req.EventSourceArn ||
+			req.NamePrefix != "" && !strings.HasPrefix(name, req.NamePrefix) ||
+			req.State != "" && state != req.State {
+			continue
+		}
+		matched = append(matched, item)
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		a, _, _ := fields(matched[i])
+		b, _, _ := fields(matched[j])
+		return a < b
+	})
+	page, next, ok := awsPage(w, ebBadToken, matched, req.NextToken, req.Limit, 0)
+	if !ok {
+		return
+	}
 	summaries := make([]map[string]any, 0, len(page))
-	for _, replay := range page {
-		summaries = append(summaries, ebReplaySummary(replay))
+	for _, item := range page {
+		summaries = append(summaries, summary(item))
 	}
-	out := map[string]any{"Replays": summaries}
+	out := map[string]any{member: summaries}
 	if next != "" {
 		out["NextToken"] = next
 	}
@@ -1839,7 +1539,7 @@ func replayArchivedEvents(archive EBArchive, destinationBusArn string) {
 		return
 	}
 	for _, event := range archive.ArchivedEvents {
-		deliverEBEvent(bus.Name, event.Source, event.DetailType, event.Detail, event.ID)
+		deliverEBEvent(bus.Name, event)
 	}
 }
 

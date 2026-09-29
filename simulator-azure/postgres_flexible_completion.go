@@ -507,7 +507,7 @@ func handlePGMigrationCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	props := map[string]any{
-		"migrationId":   generateUUID(),
+		"migrationId":   sim.NewUUID(),
 		"migrationMode": "Offline",
 	}
 	for k, v := range req.Properties {

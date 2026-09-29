@@ -13,6 +13,8 @@ import (
 	"sync"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	"github.com/google/uuid"
 )
 
@@ -584,7 +586,10 @@ func cbWriteBuildBatchIDsPage(w http.ResponseWriter, all []CBBuildBatch, project
 	for _, b := range batches {
 		ids = append(ids, b.ID)
 	}
-	page, nextTok := awsPage(ids, nextToken, maxResults, 100)
+	page, nextTok, pageOK := awsPage(w, cbBadToken, ids, nextToken, maxResults, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"ids": page}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
@@ -772,7 +777,10 @@ func handleCBListFleets(w http.ResponseWriter, r *http.Request) {
 	if strings.EqualFold(req.SortOrder, "DESCENDING") {
 		reverseStrings(arns)
 	}
-	page, nextTok := awsPage(arns, req.NextToken, req.MaxResults, 100)
+	page, nextTok, pageOK := awsPage(w, cbBadToken, arns, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"fleets": page}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
@@ -965,7 +973,10 @@ func cbWriteSandboxIDsPage(w http.ResponseWriter, all []CBSandbox, project, sort
 	for _, sb := range boxes {
 		ids = append(ids, sb.ID)
 	}
-	page, nextTok := awsPage(ids, nextToken, maxResults, 100)
+	page, nextTok, pageOK := awsPage(w, cbBadToken, ids, nextToken, maxResults, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"ids": page}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
@@ -1047,7 +1058,7 @@ func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 	}
 	defer os.RemoveAll(workDir)
 
-	platform, err := localImagePlatform(context.Background(), image)
+	platform, err := workload.LocalImagePlatform(context.Background(), image, ecrWorkloadRegistryAuth(image))
 	if err != nil {
 		cbCompleteCommandExecution(id, -1, "", err.Error())
 		return
@@ -1076,7 +1087,7 @@ func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 			"AWS_DEFAULT_REGION": awsRegion(),
 			"AWS_REGION":         awsRegion(),
 		},
-		ExtraHosts: hostMetadataExtraHosts(),
+		ExtraHosts: workloadhost.ExtraHosts(),
 		Labels:     map[string]string{"sockerless-codebuild-command": id},
 		Sandbox:    SandboxFargate,
 	}, sink)
@@ -1162,7 +1173,10 @@ func handleCBListCommandExecutionsForSandbox(w http.ResponseWriter, r *http.Requ
 		}
 		return execs[i].Seq > execs[j].Seq
 	})
-	page, nextTok := awsPage(execs, req.NextToken, req.MaxResults, 100)
+	page, nextTok, pageOK := awsPage(w, cbBadToken, execs, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	if page == nil {
 		page = []CBCommandExecution{}
 	}
@@ -1322,7 +1336,10 @@ func handleCBDescribeTestCases(w http.ResponseWriter, r *http.Request) {
 		}
 		cases = append(cases, testCase)
 	}
-	page, nextTok := awsPage(cases, req.NextToken, req.MaxResults, 100)
+	page, nextTok, pageOK := awsPage(w, cbBadToken, cases, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"testCases": page}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
@@ -1378,7 +1395,10 @@ func handleCBDescribeCodeCoverages(w http.ResponseWriter, r *http.Request) {
 			coverages[i], coverages[j] = coverages[j], coverages[i]
 		}
 	}
-	page, nextTok := awsPage(coverages, req.NextToken, req.MaxResults, 100)
+	page, nextTok, pageOK := awsPage(w, cbBadToken, coverages, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"codeCoverages": page}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
@@ -1685,7 +1705,10 @@ func handleCBListSharedProjects(w http.ResponseWriter, r *http.Request) {
 	if strings.EqualFold(req.SortOrder, "DESCENDING") {
 		reverseStrings(arns)
 	}
-	page, nextTok := awsPage(arns, req.NextToken, req.MaxResults, 100)
+	page, nextTok, pageOK := awsPage(w, cbBadToken, arns, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"projects": page}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
@@ -1715,7 +1738,10 @@ func handleCBListSharedReportGroups(w http.ResponseWriter, r *http.Request) {
 	if strings.EqualFold(req.SortOrder, "DESCENDING") {
 		reverseStrings(arns)
 	}
-	page, nextTok := awsPage(arns, req.NextToken, req.MaxResults, 100)
+	page, nextTok, pageOK := awsPage(w, cbBadToken, arns, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"reportGroups": page}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok

@@ -1,17 +1,12 @@
 package main
 
 import (
-	"crypto"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"html"
-	"math/big"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,20 +14,21 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/simjwt"
 )
 
-// azureSimSigningKey is the RS256 key used to sign Azure AD tokens the sim
-// mints. Real Azure AD publishes public RSA signing keys via JWKS and keeps
-// them stable across service restarts; the simulator does the same — the key
-// PEM is persisted in azureAuthSigningKeys on first use, so bearers minted
-// before a restart still verify against the JWKS afterwards.
+// azureSimSigner holds the RS256 key that signs every Microsoft Entra token
+// the simulator mints. Entra keeps its signing keys stable across service
+// restarts and publishes them as a JWKS; the simulator persists the key PEM in
+// azureAuthSigningKeys on first use, so bearers minted before a restart still
+// verify against the JWKS afterwards.
 //
 // Authorization codes stay in a plain map: they live for 60 seconds and are
 // consumed exactly once, so they are genuinely transient process state.
 var (
-	azureSimSigningKeyOnce sync.Once
-	azureSimSigningKeyVal  *rsa.PrivateKey
-	azureSimSigningKeyErr  error
+	azureSimSignerOnce sync.Once
+	azureSimSignerVal  *simjwt.Signer
+	azureSimSignerErr  error
 
 	azureAuthCodeMu    sync.Mutex
 	azureAuthCodeStore = map[string]azureAuthCode{}
@@ -91,39 +87,11 @@ var azureScopeAudienceOverrides = map[string]string{
 	"https://storage.azure.com":    "https://storage.azure.com/",
 }
 
-func azureSimSigningKey() (*rsa.PrivateKey, error) {
-	azureSimSigningKeyOnce.Do(func() {
-		azureSimSigningKeyVal, azureSimSigningKeyErr = loadOrCreateAzureSimSigningKey()
+func azureSimSigner() (*simjwt.Signer, error) {
+	azureSimSignerOnce.Do(func() {
+		azureSimSignerVal, azureSimSignerErr = simjwt.LoadOrCreate(azureAuthSigningKeys, azureSigningKeyStoreID, simjwt.RS256)
 	})
-	return azureSimSigningKeyVal, azureSimSigningKeyErr
-}
-
-// loadOrCreateAzureSimSigningKey returns the durable RS256 signing key: the
-// PEM persisted in azureAuthSigningKeys when one exists, otherwise a freshly
-// generated key that is persisted for subsequent boots. A stored PEM that no
-// longer parses is corrupt simulator state and fails loudly — regenerating
-// would silently invalidate every outstanding bearer.
-func loadOrCreateAzureSimSigningKey() (*rsa.PrivateKey, error) {
-	if pemText, ok := azureAuthSigningKeys.Get(azureSigningKeyStoreID); ok {
-		block, _ := pem.Decode([]byte(pemText))
-		if block == nil || block.Type != "RSA PRIVATE KEY" {
-			return nil, fmt.Errorf("persisted Azure simulator signing key is not an RSA PRIVATE KEY PEM block")
-		}
-		key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
-		if err != nil {
-			return nil, fmt.Errorf("parse persisted Azure simulator signing key: %w", err)
-		}
-		return key, nil
-	}
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, err
-	}
-	azureAuthSigningKeys.Put(azureSigningKeyStoreID, string(pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
-	})))
-	return key, nil
+	return azureSimSignerVal, azureSimSignerErr
 }
 
 // CleanPathMiddleware removes double slashes from request paths.
@@ -237,12 +205,12 @@ func AzureAuthMiddleware(next http.Handler) http.Handler {
 		// JWKS endpoint — publish the public key that verifies freshly
 		// minted RS256 tokens, matching Azure AD's verifier contract.
 		if r.Method == http.MethodGet && (strings.HasSuffix(path, "/discovery/v2.0/keys") || strings.HasSuffix(path, "/discovery/keys")) {
-			jwk, err := azureSimJWK()
+			signer, err := azureSimSigner()
 			if err != nil {
 				AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 				return
 			}
-			sim.WriteJSON(w, http.StatusOK, map[string]any{"keys": []map[string]any{jwk}})
+			sim.WriteJSON(w, http.StatusOK, simjwt.JWKS(signer))
 			return
 		}
 
@@ -390,32 +358,13 @@ func azureUserInfoEndpoint(baseURL, tenant string, v2 bool) string {
 // rejects malformed tokens, bad signatures, and expired tokens — there is no
 // fallback to an unauthenticated identity.
 func verifyAzureSimJWT(token string) (map[string]any, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("malformed JWT")
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
-	if err != nil {
-		return nil, fmt.Errorf("decode signature: %w", err)
-	}
-	key, err := azureSimSigningKey()
+	signer, err := azureSimSigner()
 	if err != nil {
 		return nil, err
 	}
-	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
-	if err := rsa.VerifyPKCS1v15(&key.PublicKey, crypto.SHA256, digest[:], sig); err != nil {
-		return nil, fmt.Errorf("signature verification failed")
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return nil, fmt.Errorf("decode payload: %w", err)
-	}
 	var claims map[string]any
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return nil, fmt.Errorf("parse claims: %w", err)
-	}
-	if exp, ok := claims["exp"].(float64); ok && time.Now().Unix() > int64(exp) {
-		return nil, fmt.Errorf("token expired")
+	if err := simjwt.Verify(token, &claims, simjwt.Options{}, signer); err != nil {
+		return nil, err
 	}
 	return claims, nil
 }
@@ -1002,26 +951,11 @@ func handleAzureROPC(w http.ResponseWriter, r *http.Request, tenantID, clientID 
 }
 
 func mintAzureSimSignedJWT(claims map[string]any) (string, error) {
-	headerJSON, _ := json.Marshal(map[string]string{
-		"alg": "RS256",
-		"typ": "JWT",
-		"kid": "sockerless-sim-key-1",
-	})
-	payloadJSON, _ := json.Marshal(claims)
-	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
-	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
-	signingInput := headerB64 + "." + payloadB64
-	digest := sha256.Sum256([]byte(signingInput))
-	key, err := azureSimSigningKey()
+	signer, err := azureSimSigner()
 	if err != nil {
-		return "", fmt.Errorf("generate Azure simulator signing key: %w", err)
+		return "", fmt.Errorf("load Azure simulator signing key: %w", err)
 	}
-	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
-	if err != nil {
-		return "", fmt.Errorf("sign Azure simulator JWT: %w", err)
-	}
-	sigB64 := base64.RawURLEncoding.EncodeToString(sig)
-	return signingInput + "." + sigB64, nil
+	return signer.Sign(claims)
 }
 
 func redirectAzureAuthError(w http.ResponseWriter, redirectURI, responseMode, state, code, description string) {
@@ -1095,20 +1029,4 @@ func azureOAuthError(w http.ResponseWriter, code, description string, status int
 		"error":             code,
 		"error_description": description,
 	})
-}
-
-func azureSimJWK() (map[string]any, error) {
-	key, err := azureSimSigningKey()
-	if err != nil {
-		return nil, fmt.Errorf("generate Azure simulator signing key: %w", err)
-	}
-	pub := key.PublicKey
-	return map[string]any{
-		"kid": "sockerless-sim-key-1",
-		"kty": "RSA",
-		"alg": "RS256",
-		"use": "sig",
-		"n":   base64.RawURLEncoding.EncodeToString(pub.N.Bytes()),
-		"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes()),
-	}, nil
 }

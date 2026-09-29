@@ -4,15 +4,12 @@ import (
 	"encoding/xml"
 	"io"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Azure Queues data plane — the operations beyond queue and message CRUD:
-// updating a message in flight, the queue's stored access policies, and the
+// Azure Queues data plane — the queue's stored access policies and the
 // service-level configuration and statistics.
 //
 // Wire reference: https://learn.microsoft.com/rest/api/storageservices/queue-service-rest-api
@@ -154,100 +151,4 @@ func handleQueueACL(w http.ResponseWriter, r *http.Request, account, queue strin
 	default:
 		writeStorageOperationNotImplemented(w, r, "Queues")
 	}
-}
-
-// handleQueueUpdateMessage is Update Message: the operation a consumer that is
-// still working on a message calls to extend the time the message stays
-// invisible, and to replace its content. It takes effect only for the holder of
-// the pop receipt the dequeue handed out, and it issues a fresh pop receipt
-// that supersedes it.
-func handleQueueUpdateMessage(w http.ResponseWriter, r *http.Request, account, queue, messageID string) {
-	key := queueKey(account, queue)
-	if _, ok := queueData.Get(key); !ok {
-		writeStorageError(w, "QueueNotFound", "The specified queue does not exist.", http.StatusNotFound)
-		return
-	}
-	q := r.URL.Query()
-	popReceipt := q.Get("popreceipt")
-	if popReceipt == "" {
-		writeStorageError(w, "InvalidQueryParameterValue",
-			"Value for one of the query parameters specified in the request URI is invalid: popreceipt.",
-			http.StatusBadRequest)
-		return
-	}
-	rawTimeout := q.Get("visibilitytimeout")
-	if rawTimeout == "" {
-		writeStorageError(w, "MissingRequiredQueryParameter",
-			"A query parameter that's mandatory for this request is not specified: visibilitytimeout.",
-			http.StatusBadRequest)
-		return
-	}
-	visibilityTimeout, err := strconv.ParseInt(rawTimeout, 10, 64)
-	if err != nil || visibilityTimeout < 0 || visibilityTimeout > 7*24*60*60 {
-		writeStorageError(w, "OutOfRangeQueryParameterValue",
-			"One of the query parameters specified in the request URI is outside the permissible range: visibilitytimeout.",
-			http.StatusBadRequest)
-		return
-	}
-
-	// The body is optional; when it carries a QueueMessage the message text is
-	// replaced along with the visibility change.
-	defer r.Body.Close()
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeStorageError(w, "RequestBodyInvalid",
-			"Failed to read request body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	var replacement QueueMessageRequest
-	hasReplacement := false
-	if len(strings.TrimSpace(string(body))) > 0 {
-		if err := xml.Unmarshal(body, &replacement); err != nil {
-			writeStorageError(w, "InvalidXmlDocument",
-				"The specified XML is not syntactically valid: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		hasReplacement = true
-	}
-
-	var (
-		found       bool
-		mismatched  bool
-		newReceipt  string
-		nextVisible time.Time
-	)
-	queueData.Update(key, func(qq *QueueData) {
-		for i := range qq.Messages {
-			if qq.Messages[i].MessageID != messageID {
-				continue
-			}
-			found = true
-			if qq.Messages[i].PopReceipt != popReceipt {
-				mismatched = true
-				return
-			}
-			newReceipt = generateUUID()
-			nextVisible = time.Now().Add(time.Duration(visibilityTimeout) * time.Second).UTC()
-			qq.Messages[i].PopReceipt = newReceipt
-			qq.Messages[i].VisibleAt = nextVisible.Unix()
-			if hasReplacement {
-				qq.Messages[i].MessageText = replacement.MessageText
-			}
-			return
-		}
-	})
-	if !found {
-		writeStorageError(w, "MessageNotFound",
-			"The specified message does not exist.", http.StatusNotFound)
-		return
-	}
-	if mismatched {
-		writeStorageError(w, "PopReceiptMismatch",
-			"The specified pop receipt did not match the pop receipt for a dequeued message.",
-			http.StatusBadRequest)
-		return
-	}
-	w.Header().Set("x-ms-popreceipt", newReceipt)
-	w.Header().Set("x-ms-time-next-visible", nextVisible.Format(http.TimeFormat))
-	w.WriteHeader(http.StatusNoContent)
 }

@@ -77,6 +77,7 @@ func newFuzzSim(t testing.TB) *sim.Server {
 	if err != nil {
 		t.Fatalf("build sim: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	return srv
 }
 

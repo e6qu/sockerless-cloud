@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // IAM list ops + tag reads.
@@ -95,7 +97,7 @@ func handleIAMListPolicyVersions(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ListPolicyVersionsResponse %s>
   <ListPolicyVersionsResult><Versions>%s</Versions><IsTruncated>false</IsTruncated></ListPolicyVersionsResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListPolicyVersionsResponse>`, iamXmlns, members.String(), generateUUID())
+</ListPolicyVersionsResponse>`, iamXmlns, members.String(), sim.NewUUID())
 }
 
 func handleIAMListRoles(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +122,10 @@ func handleIAMListRoles(w http.ResponseWriter, r *http.Request) {
 		}
 		maxItems = n
 	}
-	page, next := awsPage(roles, r.FormValue("Marker"), maxItems, 100)
+	page, next, pageOK := awsPage(w, iamBadToken, roles, r.FormValue("Marker"), maxItems, 100)
+	if !pageOK {
+		return
+	}
 
 	var members strings.Builder
 	for _, role := range page {
@@ -134,7 +139,7 @@ func handleIAMListRoles(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ListRolesResponse %s>
   <ListRolesResult><Roles>%s</Roles><IsTruncated>%t</IsTruncated>%s</ListRolesResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListRolesResponse>`, iamXmlns, members.String(), next != "", marker, generateUUID())
+</ListRolesResponse>`, iamXmlns, members.String(), next != "", marker, sim.NewUUID())
 }
 
 func handleIAMListRoleTags(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +152,7 @@ func handleIAMListRoleTags(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ListRoleTagsResponse %s>
   <ListRoleTagsResult>%s<IsTruncated>false</IsTruncated></ListRoleTagsResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListRoleTagsResponse>`, iamXmlns, iamTagsXML(role.Tags), generateUUID())
+</ListRoleTagsResponse>`, iamXmlns, iamTagsXML(role.Tags), sim.NewUUID())
 }
 
 func handleIAMListPolicyTags(w http.ResponseWriter, r *http.Request) {
@@ -161,5 +166,5 @@ func handleIAMListPolicyTags(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ListPolicyTagsResponse %s>
   <ListPolicyTagsResult>%s<IsTruncated>false</IsTruncated></ListPolicyTagsResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListPolicyTagsResponse>`, iamXmlns, iamTagsXML(policy.Tags), generateUUID())
+</ListPolicyTagsResponse>`, iamXmlns, iamTagsXML(policy.Tags), sim.NewUUID())
 }

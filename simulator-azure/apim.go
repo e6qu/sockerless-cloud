@@ -488,7 +488,10 @@ func handleAPIMListServicesByRG(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all = filtered
-	page, next := armPage(r, all)
+	page, next, pageOK := armPage(w, r, all)
+	if !pageOK {
+		return
+	}
 	if page == nil {
 		page = []APIMService{}
 	}
@@ -580,7 +583,10 @@ func handleAPIMListApis(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all = filtered
-	page, next := armPage(r, all)
+	page, next, pageOK := armPage(w, r, all)
+	if !pageOK {
+		return
+	}
 	if page == nil {
 		page = []APIMApi{}
 	}

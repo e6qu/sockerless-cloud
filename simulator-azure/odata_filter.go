@@ -1,23 +1,17 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// Azure ARM `$filter` (OData) support + the `$top`/`$skiptoken` and `$orderby`
-// query options. azureApplyListQuery evaluates `$filter` against each resource's
-// JSON, sorts by `$orderby`, then pages via armPage — so a list handler gets the
-// full documented query-option surface from one call. Previously $filter was
-// ignored (and most lists ignored $top too).
-//
-// $filter grammar (the ARM/OData subset clients use):
+// azureApplyListQuery applies `$filter` and `$orderby` to items. The $filter
+// grammar is the Azure Resource Manager / OData subset clients use:
 //
 //	expr       = or
 //	or         = and { "or" and }
@@ -30,135 +24,51 @@ import (
 //	field      = name { "/" name }                 (nested via '/')
 //	value      = 'string' | number | true | false | null
 func azureApplyListQuery[T any](items []T, r *http.Request) ([]T, error) {
-	filter := strings.TrimSpace(r.URL.Query().Get("$filter"))
-	orderby := strings.TrimSpace(r.URL.Query().Get("$orderby"))
-
-	if filter != "" {
-		node, err := azureParseODataFilter(filter)
+	var node listq.Node
+	if filter := strings.TrimSpace(r.URL.Query().Get("$filter")); filter != "" {
+		parsed, err := azureParseODataFilter(filter)
 		if err != nil {
 			return nil, err
 		}
-		kept := make([]T, 0, len(items))
-		for _, it := range items {
-			m, err := azureItemToMap(it)
-			if err != nil {
-				return nil, err
-			}
-			if node.eval(m) {
-				kept = append(kept, it)
-			}
-		}
-		items = kept
+		node = parsed
 	}
-	if orderby != "" {
-		field, desc := azureParseOrderBy(orderby)
-		maps := make([]map[string]any, len(items))
-		for i, it := range items {
-			m, err := azureItemToMap(it)
-			if err != nil {
-				return nil, err
-			}
-			maps[i] = m
-		}
-		idx := make([]int, len(items))
-		for i := range idx {
-			idx[i] = i
-		}
-		sort.SliceStable(idx, func(a, b int) bool {
-			x, y := azureFieldString(maps[idx[a]], field), azureFieldString(maps[idx[b]], field)
-			if desc {
-				return x > y
-			}
-			return x < y
-		})
-		out := make([]T, len(items))
-		for i, j := range idx {
-			out[i] = items[j]
-		}
-		items = out
-	}
-	return items, nil
-}
-
-// azureItemToMap round-trips a list item through JSON into a generic map so the
-// OData filter/orderby evaluator can read its fields. A round-trip failure means
-// the sim's own resource value is corrupt — surface it loudly rather than
-// evaluating the filter against an empty map (which would silently match or
-// mis-sort).
-func azureItemToMap[T any](it T) (map[string]any, error) {
-	b, err := json.Marshal(it)
+	order, err := listq.ParseOrderBy(r.URL.Query().Get("$orderby"), true)
 	if err != nil {
-		return nil, fmt.Errorf("marshal list item for $filter/$orderby: %w", err)
+		return nil, fmt.Errorf("invalid $orderby: %w", err)
 	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, fmt.Errorf("unmarshal list item for $filter/$orderby: %w", err)
-	}
-	return m, nil
+	return listq.ApplyList(items, node, order, "/")
 }
 
-func azureParseOrderBy(s string) (field string, desc bool) {
-	s = strings.TrimSpace(strings.Split(s, ",")[0])
-	if strings.HasSuffix(strings.ToLower(s), " desc") {
-		return strings.TrimSpace(s[:len(s)-5]), true
-	}
-	if strings.HasSuffix(strings.ToLower(s), " asc") {
-		return strings.TrimSpace(s[:len(s)-4]), false
-	}
-	return s, false
-}
-
-// ── AST ────────────────────────────────────────────────────────────────────
-
-type odataNode interface{ eval(m map[string]any) bool }
-
-type odataTrue struct{}
-
-func (odataTrue) eval(map[string]any) bool { return true }
-
-type odataOr struct{ l, r odataNode }
-
-func (n odataOr) eval(m map[string]any) bool { return n.l.eval(m) || n.r.eval(m) }
-
-type odataAnd struct{ l, r odataNode }
-
-func (n odataAnd) eval(m map[string]any) bool { return n.l.eval(m) && n.r.eval(m) }
-
-type odataNot struct{ inner odataNode }
-
-func (n odataNot) eval(m map[string]any) bool { return !n.inner.eval(m) }
-
-type odataCmp struct{ field, op, value string }
-
-func (n odataCmp) eval(m map[string]any) bool {
-	actual, present := azureFieldLookup(m, n.field)
-	switch n.op {
+func odataCmp(field, op, value string) listq.Node {
+	var test listq.Test
+	switch op {
 	case "eq":
-		return present && actual == n.value
+		test = func(v string, present bool) bool { return present && v == value }
 	case "ne":
-		return !present || actual != n.value
-	case "gt", "ge", "lt", "le":
-		return present && azureNumCompare(actual, n.op, n.value)
+		test = func(v string, present bool) bool { return !present || v != value }
+	case "gt":
+		test = func(v string, present bool) bool { return present && listq.CompareOrdered(v, value) > 0 }
+	case "ge":
+		test = func(v string, present bool) bool { return present && listq.CompareOrdered(v, value) >= 0 }
+	case "lt":
+		test = func(v string, present bool) bool { return present && listq.CompareOrdered(v, value) < 0 }
+	case "le":
+		test = func(v string, present bool) bool { return present && listq.CompareOrdered(v, value) <= 0 }
 	}
-	return false
+	return listq.Cmp{Path: field, Sep: "/", Test: test}
 }
 
-type odataFunc struct{ name, field, value string }
-
-func (n odataFunc) eval(m map[string]any) bool {
-	actual, present := azureFieldLookup(m, n.field)
-	if !present {
-		return false
-	}
-	switch n.name {
+func odataFunc(name, field, value string) listq.Node {
+	var test listq.Test
+	switch name {
 	case "startswith":
-		return strings.HasPrefix(actual, n.value)
+		test = func(v string, present bool) bool { return present && strings.HasPrefix(v, value) }
 	case "endswith":
-		return strings.HasSuffix(actual, n.value)
-	case "contains", "substringof":
-		return strings.Contains(actual, n.value)
+		test = func(v string, present bool) bool { return present && strings.HasSuffix(v, value) }
+	default:
+		test = func(v string, present bool) bool { return present && strings.Contains(v, value) }
 	}
-	return false
+	return listq.Cmp{Path: field, Sep: "/", Test: test}
 }
 
 // ── tokenizer ──────────────────────────────────────────────────────────────
@@ -318,10 +228,10 @@ const maxODataParseDepth = 1000
 // $filter") rather than matching every item, so this returns an error the
 // callers surface as 400 BadRequest. An empty filter is the documented
 // "no filter" case and matches everything.
-func azureParseODataFilter(s string) (odataNode, error) {
+func azureParseODataFilter(s string) (listq.Node, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return odataTrue{}, nil
+		return listq.True{}, nil
 	}
 	p := &odataParser{toks: azureODataTokenize(s), guard: sim.NewParseGuard(maxODataParseDepth, -1)}
 	node := p.parseOr()
@@ -341,42 +251,49 @@ func (p *odataParser) isKeyword(kw string) bool {
 	return p.peek().kind == odataWord && strings.EqualFold(p.peek().text, kw)
 }
 
-func (p *odataParser) parseOr() odataNode {
+func (p *odataParser) parseOr() listq.Node {
 	left := p.parseAnd()
-	for p.isKeyword("or") {
+	for p.err == nil && p.isKeyword("or") {
 		p.next()
-		left = odataOr{left, p.parseAnd()}
+		left = listq.Or{L: left, R: p.parseAnd()}
 	}
 	return left
 }
 
-func (p *odataParser) parseAnd() odataNode {
+func (p *odataParser) parseAnd() listq.Node {
 	left := p.parseNot()
-	for p.isKeyword("and") {
+	for p.err == nil && p.isKeyword("and") {
 		p.next()
-		left = odataAnd{left, p.parseNot()}
+		left = listq.And{L: left, R: p.parseNot()}
 	}
 	return left
 }
 
-func (p *odataParser) parseNot() odataNode {
-	if p.isKeyword("not") {
+func (p *odataParser) parseNot() listq.Node {
+	if p.err == nil && p.isKeyword("not") {
 		p.next()
-		return odataNot{p.parseNot()}
+		if !p.guard.Enter() {
+			p.guard.Leave()
+			p.fail("Invalid syntax in $filter: expression nesting too deep")
+			return listq.True{}
+		}
+		inner := p.parseNot()
+		p.guard.Leave()
+		return listq.Not{Inner: inner}
 	}
 	return p.parseTerm()
 }
 
-func (p *odataParser) parseTerm() odataNode {
+func (p *odataParser) parseTerm() listq.Node {
 	if p.err != nil {
-		return odataTrue{}
+		return listq.True{}
 	}
 	if p.peek().kind == odataLParen {
 		p.next()
 		if !p.guard.Enter() {
 			p.guard.Leave()
 			p.fail("Invalid syntax in $filter: expression nesting too deep")
-			return odataTrue{}
+			return listq.True{}
 		}
 		inner := p.parseOr()
 		p.guard.Leave()
@@ -393,35 +310,35 @@ func (p *odataParser) parseTerm() odataNode {
 		case "startswith", "endswith", "contains":
 			name := strings.ToLower(p.next().text)
 			field, value := p.parseFuncFieldValue()
-			return odataFunc{name: name, field: field, value: value}
+			return odataFunc(name, field, value)
 		case "substringof":
 			p.next()
 			// substringof('value', field)
 			value, field := p.parseFuncValueField()
-			return odataFunc{name: "substringof", field: field, value: value}
+			return odataFunc("substringof", field, value)
 		}
 	}
 	// comparison: field op value
 	if p.peek().kind != odataWord {
 		p.fail("Invalid syntax in $filter: expected a field name, got %q", p.peek().text)
-		return odataTrue{}
+		return listq.True{}
 	}
 	field := p.next().text
 	if p.peek().kind != odataWord {
 		p.fail("Invalid syntax in $filter: expected a comparison operator after %q", field)
-		return odataTrue{}
+		return listq.True{}
 	}
 	op := strings.ToLower(p.next().text)
 	if !odataIsComparisonOp(op) {
 		p.fail("Invalid syntax in $filter: unknown operator %q", op)
-		return odataTrue{}
+		return listq.True{}
 	}
 	if p.peek().kind != odataString && p.peek().kind != odataWord {
 		p.fail("Invalid syntax in $filter: expected a value after %q %s", field, op)
-		return odataTrue{}
+		return listq.True{}
 	}
 	value := p.next().text
-	return odataCmp{field: field, op: op, value: value}
+	return odataCmp(field, op, value)
 }
 
 // odataIsComparisonOp reports whether op is one of the OData scalar comparison
@@ -490,73 +407,4 @@ func (p *odataParser) parseFuncValueField() (value, field string) {
 	}
 	p.next()
 	return value, field
-}
-
-// ── helpers ────────────────────────────────────────────────────────────────
-
-func azureFieldLookup(m map[string]any, path string) (string, bool) {
-	// OData paths nest via '/'.
-	var cur any = m
-	for _, seg := range strings.Split(path, "/") {
-		mm, ok := cur.(map[string]any)
-		if !ok {
-			return "", false
-		}
-		v, ok := mm[seg]
-		if !ok {
-			return "", false
-		}
-		cur = v
-	}
-	return azureScalarString(cur), true
-}
-
-func azureFieldString(m map[string]any, path string) string {
-	v, _ := azureFieldLookup(m, path)
-	return v
-}
-
-func azureScalarString(v any) string {
-	switch t := v.(type) {
-	case nil:
-		return ""
-	case string:
-		return t
-	case bool:
-		return strconv.FormatBool(t)
-	case float64:
-		return strconv.FormatFloat(t, 'f', -1, 64)
-	default:
-		b, _ := json.Marshal(t)
-		return string(b)
-	}
-}
-
-func azureNumCompare(a, op, b string) bool {
-	af, aerr := strconv.ParseFloat(a, 64)
-	bf, berr := strconv.ParseFloat(b, 64)
-	if aerr != nil || berr != nil {
-		switch op {
-		case "gt":
-			return a > b
-		case "lt":
-			return a < b
-		case "ge":
-			return a >= b
-		case "le":
-			return a <= b
-		}
-		return false
-	}
-	switch op {
-	case "gt":
-		return af > bf
-	case "lt":
-		return af < bf
-	case "ge":
-		return af >= bf
-	case "le":
-		return af <= bf
-	}
-	return false
 }

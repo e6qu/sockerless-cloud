@@ -103,7 +103,7 @@ func registerNetworkProfiles(srv *sim.Server) {
 			return true
 		},
 		provision: func(_ context.Context, np *NetworkProfile, previous *NetworkProfile) error {
-			np.Properties.ResourceGUID = generateUUID()
+			np.Properties.ResourceGUID = sim.NewUUID()
 			if previous != nil && previous.Properties.ResourceGUID != "" {
 				np.Properties.ResourceGUID = previous.Properties.ResourceGUID
 			}

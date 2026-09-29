@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/md5"
 	"encoding/csv"
 	"encoding/json"
 	"encoding/xml"
@@ -10,12 +9,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
 // Object-level S3 subresources that ride on the stored S3Object:
@@ -388,15 +389,13 @@ func handleS3UploadPartCopy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	srcRaw := strings.TrimPrefix(r.Header.Get("x-amz-copy-source"), "/")
-	srcParts := strings.SplitN(srcRaw, "/", 2)
-	if len(srcParts) != 2 {
+	srcBucket, srcKey, ok := s3CopySource(r)
+	if !ok {
 		S3ErrorXML(w, "InvalidArgument",
 			"x-amz-copy-source must be of the form /<bucket>/<key>",
 			"", sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
-	srcBucket, srcKey := srcParts[0], srcParts[1]
 	src, ok := s3Objects.Get(srcBucket + "/" + srcKey)
 	if !ok {
 		S3ErrorXML(w, "NoSuchKey", "The specified source object does not exist",
@@ -411,28 +410,37 @@ func handleS3UploadPartCopy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, data, err := s3OpenObjectData(src)
+	src, reader, err := s3OpenObject(src)
 	if err != nil {
 		S3ErrorXML(w, "InternalError", err.Error(), srcBucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
 		return
 	}
-	// Optional x-amz-copy-source-range: bytes=<start>-<end> (inclusive).
-	if rng := r.Header.Get("x-amz-copy-source-range"); rng != "" {
-		start, end, ok := parseCopySourceRange(rng, int64(len(data)))
-		if !ok {
+	defer func() { _ = reader.Close() }()
+	start, end := int64(0), src.Size-1
+	// x-amz-copy-source-range names both ends, and both must fall in the
+	// source.
+	if raw := r.Header.Get("x-amz-copy-source-range"); raw != "" {
+		requested, err := blobstore.ParseRange(raw, blobstore.RangeOpts{})
+		resolved := err == nil
+		if resolved {
+			start, end, resolved = requested.Resolve(src.Size)
+		}
+		if !resolved {
 			S3ErrorXML(w, "InvalidArgument",
 				"The x-amz-copy-source-range value must be of the form bytes=first-last",
 				"", sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
-		data = data[start : end+1]
 	}
-
-	hash := md5.Sum(data)
-	etag := fmt.Sprintf(`"%x"`, hash)
+	ref, digests, err := s3Bodies.WriteFrom(io.NewSectionReader(reader, start, end-start+1))
+	if err != nil {
+		S3ErrorXML(w, "InternalError", err.Error(), srcBucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
+		return
+	}
+	etag := `"` + digests.MD5Hex() + `"`
 	now := time.Now().UTC()
 
-	stored, err := s3StorePart(uploadID, partNum, data, etag)
+	stored, err := s3StorePart(uploadID, partNum, ref, digests, etag)
 	if !stored {
 		S3ErrorXML(w, "NoSuchUpload", "The specified multipart upload does not exist",
 			sim.PathParam(r, "bucket"), sim.RequestID(r.Context()), http.StatusNotFound)
@@ -457,28 +465,17 @@ func handleS3UploadPartCopy(w http.ResponseWriter, r *http.Request) {
 	WriteXML(w, http.StatusOK, out)
 }
 
-// parseCopySourceRange parses a `bytes=first-last` range header against the
-// object length, returning the inclusive [start, end] byte offsets.
-func parseCopySourceRange(rng string, length int64) (int64, int64, bool) {
-	spec, ok := strings.CutPrefix(rng, "bytes=")
-	if !ok {
-		return 0, 0, false
+// s3CopySource reads the object a copy reads from its x-amz-copy-source
+// header, "/bucket/key" with the key URL-encoded, as the SDKs and the CLI
+// send it, and optionally a versionId query.
+func s3CopySource(r *http.Request) (bucket, key string, ok bool) {
+	path, _, _ := strings.Cut(strings.TrimPrefix(r.Header.Get("x-amz-copy-source"), "/"), "?")
+	path, err := url.PathUnescape(path)
+	if err != nil {
+		return "", "", false
 	}
-	firstStr, lastStr, ok := strings.Cut(spec, "-")
-	if !ok {
-		return 0, 0, false
-	}
-	var first, last int64
-	if _, err := fmt.Sscanf(firstStr, "%d", &first); err != nil {
-		return 0, 0, false
-	}
-	if _, err := fmt.Sscanf(lastStr, "%d", &last); err != nil {
-		return 0, 0, false
-	}
-	if first < 0 || last < first || last >= length {
-		return 0, 0, false
-	}
-	return first, last, true
+	bucket, key, ok = strings.Cut(path, "/")
+	return bucket, key, ok && bucket != "" && key != ""
 }
 
 // ── ListObjects (V1) ─────────────────────────────────────────────────
@@ -517,83 +514,7 @@ func handleS3ListObjectsV1(w http.ResponseWriter, r *http.Request, bucket string
 		maxKeys = 0
 	}
 
-	bucketPrefix := bucket + "/"
-	objects := s3Objects.ListPrefix(bucketPrefix + prefix)
-
-	var contents []s3ObjectInfo
-	for _, row := range objects {
-		obj := row.Item
-		contents = append(contents, s3ObjectInfo{
-			Key:          row.ID[len(bucketPrefix):],
-			LastModified: obj.LastModified.UTC().Format(time.RFC3339),
-			ETag:         obj.ETag,
-			Size:         obj.Size,
-			StorageClass: obj.storageClassOf(),
-		})
-	}
-	sort.Slice(contents, func(i, j int) bool {
-		return contents[i].Key < contents[j].Key
-	})
-
-	if marker != "" {
-		next := contents[:0]
-		for _, obj := range contents {
-			if obj.Key > marker {
-				next = append(next, obj)
-			}
-		}
-		contents = next
-	}
-
-	type listEntry struct {
-		key          string
-		object       s3ObjectInfo
-		commonPrefix string
-		isPrefix     bool
-	}
-	entries := make([]listEntry, 0, len(contents))
-	if delimiter != "" {
-		prefixes := map[string]bool{}
-		for _, obj := range contents {
-			rest := strings.TrimPrefix(obj.Key, prefix)
-			if idx := strings.Index(rest, delimiter); idx >= 0 {
-				cp := prefix + rest[:idx+len(delimiter)]
-				if !prefixes[cp] {
-					prefixes[cp] = true
-					entries = append(entries, listEntry{key: cp, commonPrefix: cp, isPrefix: true})
-				}
-				continue
-			}
-			entries = append(entries, listEntry{key: obj.Key, object: obj})
-		}
-	} else {
-		for _, obj := range contents {
-			entries = append(entries, listEntry{key: obj.Key, object: obj})
-		}
-	}
-
-	isTruncated := false
-	nextMarker := ""
-	if len(entries) > maxKeys {
-		if maxKeys > 0 {
-			nextMarker = entries[maxKeys-1].key
-		}
-		entries = entries[:maxKeys]
-		isTruncated = true
-	}
-
-	var outContents []s3ObjectInfo
-	var commonPrefixes []s3CommonPrefix
-	for _, entry := range entries {
-		if entry.isPrefix {
-			commonPrefixes = append(commonPrefixes, s3CommonPrefix{Prefix: entry.commonPrefix})
-			continue
-		}
-		outContents = append(outContents, entry.object)
-	}
-	if outContents == nil {
-		outContents = []s3ObjectInfo{}
-	}
+	outContents, commonPrefixes, isTruncated, nextMarker := s3ListPage(bucket, prefix, delimiter, marker, maxKeys)
 
 	result := s3ListBucketResultV1{
 		Xmlns:          "http://s3.amazonaws.com/doc/2006-03-01/",

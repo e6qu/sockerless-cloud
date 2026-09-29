@@ -1,11 +1,11 @@
 package main
 
 import (
-	"crypto/md5"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
+	"math"
 	"math/big"
 	"net/http"
 	"sort"
@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/streamlog"
 )
 
 type KinesisStream struct {
@@ -71,18 +72,20 @@ type KinesisShard struct {
 	ParentShardId       string            `json:"ParentShardId,omitempty"`
 }
 
+// kinesisRecord is a record as a producer put it. The shard's log assigns its
+// sequence number and arrival time.
 type kinesisRecord struct {
-	SequenceNumber              string
-	ApproximateArrivalTimestamp float64
-	Data                        []byte
-	PartitionKey                string
-	ExplicitHashKey             string
+	Data            []byte `json:"data"`
+	PartitionKey    string `json:"partitionKey"`
+	ExplicitHashKey string `json:"explicitHashKey,omitempty"`
 }
 
+// kinesisIterator names the position in a shard the next GetRecords reads
+// from, as a log sequence number.
 type kinesisIterator struct {
 	StreamName string
 	ShardID    string
-	Index      int
+	Next       int64
 }
 
 // KinesisConsumer is an enhanced fan-out consumer registered against a stream
@@ -109,7 +112,7 @@ type KinesisAccountSettings struct {
 
 var (
 	kinesisStreams   sim.Store[KinesisStream]
-	kinesisRecords   sim.Store[[]kinesisRecord]
+	kinesisLog       *streamlog.Log[kinesisRecord]
 	kinesisIterators sim.Store[kinesisIterator]
 	kinesisConsumers sim.Store[KinesisConsumer]
 	kinesisAccount   sim.Store[KinesisAccountSettings]
@@ -121,8 +124,13 @@ func registerKinesis(r *AWSRouter, srv *sim.Server) {
 	cloudTrailDeclareDataEvents("kinesis.amazonaws.com",
 		"PutRecord", "PutRecords", "GetRecords", "GetShardIterator", "SubscribeToShard")
 	kinesisStreams = sim.MakeStore[KinesisStream](srv.DB(), "kinesis_streams")
-	kinesisRecords = sim.MakeStore[[]kinesisRecord](srv.DB(), "kinesis_records")
+	kinesisLog = streamlog.New(
+		sim.MakeStore[streamlog.Record[kinesisRecord]](srv.DB(), "kinesis_shard_records"),
+		sim.MakeStore[streamlog.Head](srv.DB(), "kinesis_shard_heads"))
 	kinesisIterators = sim.MakeStore[kinesisIterator](srv.DB(), "kinesis_iterators")
+	if err := kinesisMigrateRecords(srv.DB()); err != nil {
+		log.Fatalf("kinesis: %v", err)
+	}
 	kinesisConsumers = sim.MakeStore[KinesisConsumer](srv.DB(), "kinesis_consumers")
 	kinesisAccount = sim.MakeStore[KinesisAccountSettings](srv.DB(), "kinesis_account_settings")
 
@@ -333,7 +341,7 @@ func handleKinesisCreateStream(w http.ResponseWriter, r *http.Request) {
 		StreamStatus:               "ACTIVE",
 		StreamModeDetails:          mode,
 		Shards:                     kinesisMakeShards(shardCount),
-		RetentionPeriodHours:       24,
+		RetentionPeriodHours:       kinesisDefaultRetentionHours,
 		EnhancedMonitoring:         []map[string]any{{"ShardLevelMetrics": []string{}}},
 		CreationTimestamp:          float64(time.Now().Unix()),
 		Tags:                       map[string]string{},
@@ -363,7 +371,7 @@ func handleKinesisDeleteStream(w http.ResponseWriter, r *http.Request) {
 	}
 	kinesisStreams.Delete(stream.StreamName)
 	for _, shard := range stream.Shards {
-		kinesisRecords.Delete(kinesisShardRecordKey(stream.StreamName, shard.ShardId))
+		kinesisLog.Drop(kinesisShardRecordKey(stream.StreamName, shard.ShardId))
 	}
 	writeKinesisJSON(w, http.StatusOK, map[string]any{})
 }
@@ -658,25 +666,47 @@ func kinesisAppendRecord(streamName, streamARN string, data []byte, partitionKey
 	if !ok {
 		return "", "", fmt.Errorf("stream not found")
 	}
-	var shard KinesisShard
+	var shardID string
 	if stream.recordDistributionStrategy() == kinesisDistributionAuto {
-		shard = kinesisLeastLoadedOpenShard(stream)
+		shardID = kinesisLeastLoadedOpenShard(stream).ShardId
 	} else {
-		shard = kinesisSelectShard(stream, partitionKey, explicitHashKey)
+		shardID = kinesisSelectShard(stream, partitionKey, explicitHashKey)
 	}
-	key := kinesisShardRecordKey(stream.StreamName, shard.ShardId)
-	records, _ := kinesisRecords.Get(key)
-	seq := strconv.FormatInt(int64(len(records)+1), 10)
-	records = append(records, kinesisRecord{
-		SequenceNumber:              seq,
-		ApproximateArrivalTimestamp: float64(time.Now().Unix()),
-		Data:                        data,
-		PartitionKey:                partitionKey,
-		ExplicitHashKey:             explicitHashKey,
-	})
-	kinesisRecords.Put(key, records)
-	return shard.ShardId, seq, nil
+	partition := kinesisShardRecordKey(stream.StreamName, shardID)
+	now := time.Now()
+	kinesisTrim(stream, shardID, now)
+	rec := kinesisLog.Append(partition, now, kinesisRecord{Data: data, PartitionKey: partitionKey, ExplicitHashKey: explicitHashKey})[0]
+	return shardID, kinesisSequenceNumber(rec.Seq), nil
 }
+
+// kinesisSequenceNumber spells a shard log position as the record's
+// SequenceNumber: its ordinal in the shard, from 1.
+func kinesisSequenceNumber(seq int64) string {
+	return strconv.FormatInt(seq+1, 10)
+}
+
+func kinesisParseSequenceNumber(s string) (int64, bool) {
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n < 1 {
+		return 0, false
+	}
+	return n - 1, true
+}
+
+// kinesisTrim ages out the shard's records older than the stream's
+// retention period.
+func kinesisTrim(stream KinesisStream, shardID string, now time.Time) {
+	hours := stream.RetentionPeriodHours
+	if hours <= 0 {
+		hours = kinesisDefaultRetentionHours
+	}
+	kinesisLog.Trim(kinesisShardRecordKey(stream.StreamName, shardID), now.Add(-time.Duration(hours)*time.Hour))
+}
+
+const (
+	kinesisDefaultRetentionHours = 24
+	kinesisMaxRetentionHours     = 8760
+)
 
 // kinesisLeastLoadedOpenShard places a record under the AUTO strategy, which
 // spreads records evenly across the open shards and ignores the partition key
@@ -685,46 +715,77 @@ func kinesisAppendRecord(streamName, streamARN string, data []byte, partitionKey
 // The caller holds kinesisMu.
 func kinesisLeastLoadedOpenShard(stream KinesisStream) KinesisShard {
 	var chosen KinesisShard
-	fewest := -1
+	fewest := int64(-1)
 	for _, shard := range stream.Shards {
 		if _, closed := shard.SequenceNumberRange["EndingSequenceNumber"]; closed {
 			continue
 		}
-		records, _ := kinesisRecords.Get(kinesisShardRecordKey(stream.StreamName, shard.ShardId))
-		if fewest < 0 || len(records) < fewest {
-			chosen, fewest = shard, len(records)
+		h := kinesisLog.Head(kinesisShardRecordKey(stream.StreamName, shard.ShardId))
+		if n := h.Next - h.First; fewest < 0 || n < fewest {
+			chosen, fewest = shard, n
 		}
 	}
 	return chosen
 }
 
-func kinesisSelectShard(stream KinesisStream, partitionKey, explicitHashKey string) KinesisShard {
-	hash := new(big.Int)
-	if explicitHashKey != "" {
-		hash.SetString(explicitHashKey, 10)
-	} else {
-		sum := md5.Sum([]byte(partitionKey))
-		hash.SetString(hex.EncodeToString(sum[:]), 16)
-	}
+// kinesisSelectShard maps a record to the open shard whose hash key range
+// holds its explicit hash key, or the MD5 hash of its partition key. A closed
+// parent shard keeps its range for readers but takes no new records.
+func kinesisSelectShard(stream KinesisStream, partitionKey, explicitHashKey string) string {
+	var ranges streamlog.HashRanges
 	for _, shard := range stream.Shards {
-		start := new(big.Int)
-		end := new(big.Int)
-		start.SetString(shard.HashKeyRange["StartingHashKey"], 10)
-		end.SetString(shard.HashKeyRange["EndingHashKey"], 10)
-		if hash.Cmp(start) >= 0 && hash.Cmp(end) <= 0 {
-			return shard
+		if _, closed := shard.SequenceNumberRange["EndingSequenceNumber"]; closed {
+			continue
+		}
+		start, _ := new(big.Int).SetString(shard.HashKeyRange["StartingHashKey"], 10)
+		end, _ := new(big.Int).SetString(shard.HashKeyRange["EndingHashKey"], 10)
+		if start == nil || end == nil {
+			continue
+		}
+		ranges = append(ranges, streamlog.HashRange{ID: shard.ShardId, Start: start, End: end})
+	}
+	if explicitHashKey != "" {
+		if hash, ok := new(big.Int).SetString(explicitHashKey, 10); ok {
+			return ranges.PartitionHash(hash)
 		}
 	}
-	return stream.Shards[0]
+	return ranges.Partition(partitionKey)
+}
+
+// kinesisStartPosition resolves a shard iterator type — GetShardIterator's or
+// SubscribeToShard's StartingPosition — to the shard log position it starts
+// at.
+func kinesisStartPosition(stream KinesisStream, shardID, iteratorType, sequenceNumber string, timestamp float64) (int64, string) {
+	partition := kinesisShardRecordKey(stream.StreamName, shardID)
+	kinesisTrim(stream, shardID, time.Now())
+	switch iteratorType {
+	case "TRIM_HORIZON":
+		return kinesisLog.Head(partition).First, ""
+	case "LATEST":
+		return kinesisLog.Head(partition).Next, ""
+	case "AT_SEQUENCE_NUMBER", "AFTER_SEQUENCE_NUMBER":
+		seq, ok := kinesisParseSequenceNumber(sequenceNumber)
+		if !ok {
+			return 0, "StartingSequenceNumber " + sequenceNumber + " used in GetShardIterator on shard " + shardID + " in stream " + stream.StreamName + " is invalid."
+		}
+		if iteratorType == "AFTER_SEQUENCE_NUMBER" {
+			seq++
+		}
+		return seq, ""
+	case "AT_TIMESTAMP":
+		return kinesisLog.SeekTime(partition, time.UnixMilli(int64(math.Round(timestamp*1000)))), ""
+	}
+	return 0, "1 validation error detected: Value '" + iteratorType + "' at 'shardIteratorType' failed to satisfy constraint: Member must satisfy enum value set: [AT_SEQUENCE_NUMBER, AFTER_SEQUENCE_NUMBER, TRIM_HORIZON, LATEST, AT_TIMESTAMP]"
 }
 
 func handleKinesisGetShardIterator(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		StreamName             string `json:"StreamName"`
-		StreamARN              string `json:"StreamARN"`
-		ShardId                string `json:"ShardId"`
-		ShardIteratorType      string `json:"ShardIteratorType"`
-		StartingSequenceNumber string `json:"StartingSequenceNumber"`
+		StreamName             string  `json:"StreamName"`
+		StreamARN              string  `json:"StreamARN"`
+		ShardId                string  `json:"ShardId"`
+		ShardIteratorType      string  `json:"ShardIteratorType"`
+		StartingSequenceNumber string  `json:"StartingSequenceNumber"`
+		Timestamp              float64 `json:"Timestamp"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
@@ -739,26 +800,40 @@ func handleKinesisGetShardIterator(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ResourceNotFoundException", "Shard not found", http.StatusBadRequest)
 		return
 	}
-	records, _ := kinesisRecords.Get(kinesisShardRecordKey(stream.StreamName, req.ShardId))
-	index := 0
-	switch req.ShardIteratorType {
-	case "LATEST":
-		index = len(records)
-	case "AT_SEQUENCE_NUMBER", "AFTER_SEQUENCE_NUMBER":
-		if seq, err := strconv.Atoi(req.StartingSequenceNumber); err == nil && seq > 0 {
-			index = seq - 1
-			if req.ShardIteratorType == "AFTER_SEQUENCE_NUMBER" {
-				index = seq
-			}
-		}
-	case "", "TRIM_HORIZON":
-		index = 0
-	default:
-		index = 0
+	next, problem := kinesisStartPosition(stream, req.ShardId, req.ShardIteratorType, req.StartingSequenceNumber, req.Timestamp)
+	if problem != "" {
+		AWSError(w, "InvalidArgumentException", problem, http.StatusBadRequest)
+		return
 	}
-	token := generateUUID()
-	kinesisIterators.Put(token, kinesisIterator{StreamName: stream.StreamName, ShardID: req.ShardId, Index: index})
+	token := sim.NewUUID()
+	kinesisIterators.Put(token, kinesisIterator{StreamName: stream.StreamName, ShardID: req.ShardId, Next: next})
 	writeKinesisJSON(w, http.StatusOK, map[string]any{"ShardIterator": token})
+}
+
+// kinesisRecordJSON renders a shard log record as GetRecords and
+// SubscribeToShard return it.
+func kinesisRecordJSON(rec streamlog.Record[kinesisRecord]) map[string]any {
+	return map[string]any{
+		"SequenceNumber":              kinesisSequenceNumber(rec.Seq),
+		"ApproximateArrivalTimestamp": float64(rec.Time) / 1000,
+		"Data":                        rec.Value.Data,
+		"PartitionKey":                rec.Value.PartitionKey,
+		"EncryptionType":              "NONE",
+	}
+}
+
+// kinesisMillisBehind is how far a reader that stops before position next is
+// behind the shard's newest record: the age of the oldest record it has not
+// read, or zero when it has read them all.
+func kinesisMillisBehind(partition string, next int64, now time.Time) int64 {
+	if next >= kinesisLog.Head(partition).Next {
+		return 0
+	}
+	unread := kinesisLog.Read(partition, next, 1)
+	if len(unread) == 0 {
+		return 0
+	}
+	return max(now.UnixMilli()-unread[0].Time, 0)
 }
 
 func kinesisHasShard(stream KinesisStream, shardID string) bool {
@@ -784,31 +859,28 @@ func handleKinesisGetRecords(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ExpiredIteratorException", "Shard iterator expired", http.StatusBadRequest)
 		return
 	}
-	records, _ := kinesisRecords.Get(kinesisShardRecordKey(it.StreamName, it.ShardID))
 	limit := req.Limit
 	if limit <= 0 || limit > 10000 {
 		limit = 10000
 	}
-	end := it.Index + limit
-	if end > len(records) {
-		end = len(records)
+	now := time.Now()
+	partition := kinesisShardRecordKey(it.StreamName, it.ShardID)
+	if stream, ok := kinesisStreams.Get(it.StreamName); ok {
+		kinesisTrim(stream, it.ShardID, now)
 	}
-	out := make([]map[string]any, 0, end-it.Index)
-	for _, rec := range records[it.Index:end] {
-		out = append(out, map[string]any{
-			"SequenceNumber":              rec.SequenceNumber,
-			"ApproximateArrivalTimestamp": rec.ApproximateArrivalTimestamp,
-			"Data":                        rec.Data,
-			"PartitionKey":                rec.PartitionKey,
-			"EncryptionType":              "NONE",
-		})
+	next := max(it.Next, kinesisLog.Head(partition).First)
+	records := kinesisLog.Read(partition, next, limit)
+	out := make([]map[string]any, 0, len(records))
+	for _, rec := range records {
+		out = append(out, kinesisRecordJSON(rec))
+		next = rec.Seq + 1
 	}
-	next := generateUUID()
-	kinesisIterators.Put(next, kinesisIterator{StreamName: it.StreamName, ShardID: it.ShardID, Index: end})
+	token := sim.NewUUID()
+	kinesisIterators.Put(token, kinesisIterator{StreamName: it.StreamName, ShardID: it.ShardID, Next: next})
 	writeKinesisJSON(w, http.StatusOK, map[string]any{
 		"Records":            out,
-		"NextShardIterator":  next,
-		"MillisBehindLatest": 0,
+		"NextShardIterator":  token,
+		"MillisBehindLatest": kinesisMillisBehind(partition, next, now),
 	})
 }
 
@@ -889,14 +961,14 @@ func handleKinesisListTagsForStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleKinesisIncreaseStreamRetentionPeriod(w http.ResponseWriter, r *http.Request) {
-	kinesisUpdateRetention(w, r)
+	kinesisUpdateRetention(w, r, true)
 }
 
 func handleKinesisDecreaseStreamRetentionPeriod(w http.ResponseWriter, r *http.Request) {
-	kinesisUpdateRetention(w, r)
+	kinesisUpdateRetention(w, r, false)
 }
 
-func kinesisUpdateRetention(w http.ResponseWriter, r *http.Request) {
+func kinesisUpdateRetention(w http.ResponseWriter, r *http.Request, increase bool) {
 	var req struct {
 		StreamName           string `json:"StreamName"`
 		StreamARN            string `json:"StreamARN"`
@@ -911,7 +983,25 @@ func kinesisUpdateRetention(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
-	stream.RetentionPeriodHours = req.RetentionPeriodHours
+	requested, current := req.RetentionPeriodHours, stream.RetentionPeriodHours
+	switch {
+	case requested < kinesisDefaultRetentionHours || requested > kinesisMaxRetentionHours:
+		AWSError(w, "InvalidArgumentException", fmt.Sprintf(
+			"Minimum allowed retention period is %d hours. Maximum allowed retention period is %d hours. Requested retention period (%d hours) is outside the allowed range.",
+			kinesisDefaultRetentionHours, kinesisMaxRetentionHours, requested), http.StatusBadRequest)
+		return
+	case increase && requested < current:
+		AWSError(w, "InvalidArgumentException", fmt.Sprintf(
+			"Requested retention period (%d hours) for stream %s can not be shorter than existing retention period (%d hours). Use DecreaseRetentionPeriod API.",
+			requested, stream.StreamName, current), http.StatusBadRequest)
+		return
+	case !increase && requested > current:
+		AWSError(w, "InvalidArgumentException", fmt.Sprintf(
+			"Requested retention period (%d hours) for stream %s can not be longer than existing retention period (%d hours). Use IncreaseRetentionPeriod API.",
+			requested, stream.StreamName, current), http.StatusBadRequest)
+		return
+	}
+	stream.RetentionPeriodHours = requested
 	kinesisStreams.Put(stream.StreamName, stream)
 	writeKinesisJSON(w, http.StatusOK, map[string]any{})
 }

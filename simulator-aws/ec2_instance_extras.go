@@ -221,7 +221,7 @@ func handleAssociateIamInstanceProfile(w http.ResponseWriter, r *http.Request) {
 	_ = inst
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssociateIamInstanceProfileResponse %s><requestId>%s</requestId><iamInstanceProfileAssociation>%s</iamInstanceProfileAssociation></AssociateIamInstanceProfileResponse>`,
-		ec2Xmlns(), generateUUID(), ec2IamInstanceProfileAssocXML(assoc))
+		ec2Xmlns(), sim.NewUUID(), ec2IamInstanceProfileAssocXML(assoc))
 }
 
 func handleDisassociateIamInstanceProfile(w http.ResponseWriter, r *http.Request) {
@@ -239,7 +239,7 @@ func handleDisassociateIamInstanceProfile(w http.ResponseWriter, r *http.Request
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisassociateIamInstanceProfileResponse %s><requestId>%s</requestId><iamInstanceProfileAssociation>%s</iamInstanceProfileAssociation></DisassociateIamInstanceProfileResponse>`,
-		ec2Xmlns(), generateUUID(), ec2IamInstanceProfileAssocXML(assoc))
+		ec2Xmlns(), sim.NewUUID(), ec2IamInstanceProfileAssocXML(assoc))
 }
 
 func handleReplaceIamInstanceProfileAssociation(w http.ResponseWriter, r *http.Request) {
@@ -266,7 +266,7 @@ func handleReplaceIamInstanceProfileAssociation(w http.ResponseWriter, r *http.R
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ReplaceIamInstanceProfileAssociationResponse %s><requestId>%s</requestId><iamInstanceProfileAssociation>%s</iamInstanceProfileAssociation></ReplaceIamInstanceProfileAssociationResponse>`,
-		ec2Xmlns(), generateUUID(), ec2IamInstanceProfileAssocXML(old))
+		ec2Xmlns(), sim.NewUUID(), ec2IamInstanceProfileAssocXML(old))
 }
 
 func handleDescribeIamInstanceProfileAssociations(w http.ResponseWriter, r *http.Request) {
@@ -295,7 +295,10 @@ func handleDescribeIamInstanceProfileAssociations(w http.ResponseWriter, r *http
 		}
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].AssociationId < results[j].AssociationId })
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, a := range results {
 		items.WriteString("<item>")
@@ -308,7 +311,7 @@ func handleDescribeIamInstanceProfileAssociations(w http.ResponseWriter, r *http
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeIamInstanceProfileAssociationsResponse %s><requestId>%s</requestId><iamInstanceProfileAssociationSet>%s</iamInstanceProfileAssociationSet>%s</DescribeIamInstanceProfileAssociationsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nextTokenXML)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nextTokenXML)
 }
 
 func handleBundleInstance(w http.ResponseWriter, r *http.Request) {
@@ -330,7 +333,7 @@ func handleBundleInstance(w http.ResponseWriter, r *http.Request) {
 	ec2BundleTasks.Put(task.BundleId, task)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<BundleInstanceResponse %s><requestId>%s</requestId><bundleInstanceTask>%s</bundleInstanceTask></BundleInstanceResponse>`,
-		ec2Xmlns(), generateUUID(), ec2BundleTaskXML(task))
+		ec2Xmlns(), sim.NewUUID(), ec2BundleTaskXML(task))
 }
 
 func ec2BundleTaskXML(t EC2BundleTask) string {
@@ -358,7 +361,7 @@ func handleConfirmProductInstance(w http.ResponseWriter, r *http.Request) {
 	_ = inst
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ConfirmProductInstanceResponse %s><requestId>%s</requestId><return>false</return></ConfirmProductInstanceResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCreateInstanceExportTask(w http.ResponseWriter, r *http.Request) {
@@ -386,7 +389,7 @@ func handleCreateInstanceExportTask(w http.ResponseWriter, r *http.Request) {
 	ec2InstanceExportTasks.Put(task.ExportTaskId, task)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateInstanceExportTaskResponse %s><requestId>%s</requestId><exportTask>%s</exportTask></CreateInstanceExportTaskResponse>`,
-		ec2Xmlns(), generateUUID(), ec2InstanceExportTaskXML(task))
+		ec2Xmlns(), sim.NewUUID(), ec2InstanceExportTaskXML(task))
 }
 
 func ec2InstanceExportTaskXML(t EC2InstanceExportTask) string {
@@ -418,7 +421,7 @@ func handleImportInstance(w http.ResponseWriter, r *http.Request) {
 	ec2ConversionTasks.Put(task.ConversionTaskId, task)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ImportInstanceResponse %s><requestId>%s</requestId><conversionTask>%s</conversionTask></ImportInstanceResponse>`,
-		ec2Xmlns(), generateUUID(), ec2ConversionTaskXML(task))
+		ec2Xmlns(), sim.NewUUID(), ec2ConversionTaskXML(task))
 }
 
 func ec2ConversionTaskXML(t EC2ConversionTask) string {
@@ -451,7 +454,10 @@ func handleDescribeInstanceCreditSpecifications(w http.ResponseWriter, r *http.R
 		insts = ec2Instances.List()
 		sort.Slice(insts, func(i, j int) bool { return insts[i].InstanceId < insts[j].InstanceId })
 	}
-	results, nextToken := awsPageExplicit(insts, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, insts, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, inst := range results {
 		fmt.Fprintf(&items, "<item><instanceId>%s</instanceId><cpuCredits>%s</cpuCredits></item>",
@@ -463,7 +469,7 @@ func handleDescribeInstanceCreditSpecifications(w http.ResponseWriter, r *http.R
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeInstanceCreditSpecificationsResponse %s><requestId>%s</requestId><instanceCreditSpecificationSet>%s</instanceCreditSpecificationSet>%s</DescribeInstanceCreditSpecificationsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nextTokenXML)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nextTokenXML)
 }
 
 func handleModifyInstanceCreditSpecification(w http.ResponseWriter, r *http.Request) {
@@ -485,7 +491,7 @@ func handleModifyInstanceCreditSpecification(w http.ResponseWriter, r *http.Requ
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyInstanceCreditSpecificationResponse %s><requestId>%s</requestId><successfulInstanceCreditSpecificationSet>%s</successfulInstanceCreditSpecificationSet><unsuccessfulInstanceCreditSpecificationSet>%s</unsuccessfulInstanceCreditSpecificationSet></ModifyInstanceCreditSpecificationResponse>`,
-		ec2Xmlns(), generateUUID(), success.String(), unsuccessful.String())
+		ec2Xmlns(), sim.NewUUID(), success.String(), unsuccessful.String())
 }
 
 func handleModifyInstanceCpuOptions(w http.ResponseWriter, r *http.Request) {
@@ -506,7 +512,7 @@ func handleModifyInstanceCpuOptions(w http.ResponseWriter, r *http.Request) {
 	inst, _ := ec2Instances.Get(instanceID)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyInstanceCpuOptionsResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><coreCount>%d</coreCount><threadsPerCore>%d</threadsPerCore></ModifyInstanceCpuOptionsResponse>`,
-		ec2Xmlns(), generateUUID(), instanceID, inst.CpuCoreCount, inst.CpuThreadsPerCore)
+		ec2Xmlns(), sim.NewUUID(), instanceID, inst.CpuCoreCount, inst.CpuThreadsPerCore)
 }
 
 func handleModifyInstancePlacement(w http.ResponseWriter, r *http.Request) {
@@ -536,7 +542,7 @@ func handleModifyInstancePlacement(w http.ResponseWriter, r *http.Request) {
 	ec2InstanceAttributes.Put(instanceID, a)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyInstancePlacementResponse %s><requestId>%s</requestId><return>true</return></ModifyInstancePlacementResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleModifyInstanceMaintenanceOptions(w http.ResponseWriter, r *http.Request) {
@@ -562,7 +568,7 @@ func handleModifyInstanceMaintenanceOptions(w http.ResponseWriter, r *http.Reque
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyInstanceMaintenanceOptionsResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><autoRecovery>%s</autoRecovery><rebootMigration>%s</rebootMigration></ModifyInstanceMaintenanceOptionsResponse>`,
-		ec2Xmlns(), generateUUID(), instanceID, autoRecovery, rebootMigration)
+		ec2Xmlns(), sim.NewUUID(), instanceID, autoRecovery, rebootMigration)
 }
 
 func handleModifyInstanceNetworkPerformanceOptions(w http.ResponseWriter, r *http.Request) {
@@ -579,7 +585,7 @@ func handleModifyInstanceNetworkPerformanceOptions(w http.ResponseWriter, r *htt
 	ec2InstanceAttributes.Put(instanceID, a)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyInstanceNetworkPerformanceOptionsResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><bandwidthWeighting>%s</bandwidthWeighting></ModifyInstanceNetworkPerformanceOptionsResponse>`,
-		ec2Xmlns(), generateUUID(), instanceID, weighting)
+		ec2Xmlns(), sim.NewUUID(), instanceID, weighting)
 }
 
 func handleModifyInstanceEventStartTime(w http.ResponseWriter, r *http.Request) {
@@ -599,7 +605,7 @@ func handleModifyInstanceEventStartTime(w http.ResponseWriter, r *http.Request) 
 	// IDs.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyInstanceEventStartTimeResponse %s><requestId>%s</requestId><event><instanceEventId>%s</instanceEventId><code>system-maintenance</code><description>scheduled maintenance</description><notBefore>%s</notBefore></event></ModifyInstanceEventStartTimeResponse>`,
-		ec2Xmlns(), generateUUID(), eventID, notBefore)
+		ec2Xmlns(), sim.NewUUID(), eventID, notBefore)
 }
 
 func handleGetConsoleOutput(w http.ResponseWriter, r *http.Request) {
@@ -613,7 +619,7 @@ func handleGetConsoleOutput(w http.ResponseWriter, r *http.Request) {
 	encoded := base64.StdEncoding.EncodeToString([]byte(output))
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetConsoleOutputResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><timestamp>%s</timestamp><output>%s</output></GetConsoleOutputResponse>`,
-		ec2Xmlns(), generateUUID(), instanceID, ec2NowRFC3339Milli(), encoded)
+		ec2Xmlns(), sim.NewUUID(), instanceID, ec2NowRFC3339Milli(), encoded)
 }
 
 func handleGetConsoleScreenshot(w http.ResponseWriter, r *http.Request) {
@@ -625,7 +631,7 @@ func handleGetConsoleScreenshot(w http.ResponseWriter, r *http.Request) {
 	imageData := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetConsoleScreenshotResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><imageData>%s</imageData></GetConsoleScreenshotResponse>`,
-		ec2Xmlns(), generateUUID(), instanceID, imageData)
+		ec2Xmlns(), sim.NewUUID(), instanceID, imageData)
 }
 
 func handleGetPasswordData(w http.ResponseWriter, r *http.Request) {
@@ -639,7 +645,7 @@ func handleGetPasswordData(w http.ResponseWriter, r *http.Request) {
 	// passwordData with the current timestamp.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetPasswordDataResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><timestamp>%s</timestamp><passwordData></passwordData></GetPasswordDataResponse>`,
-		ec2Xmlns(), generateUUID(), instanceID, ec2NowRFC3339Milli())
+		ec2Xmlns(), sim.NewUUID(), instanceID, ec2NowRFC3339Milli())
 }
 
 func handleGetInstanceTpmEkPub(w http.ResponseWriter, r *http.Request) {
@@ -659,7 +665,7 @@ func handleGetInstanceTpmEkPub(w http.ResponseWriter, r *http.Request) {
 	keyValue := base64.StdEncoding.EncodeToString([]byte("tpm-ek-pub:" + instanceID))
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetInstanceTpmEkPubResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><keyType>%s</keyType><keyFormat>%s</keyFormat><keyValue>%s</keyValue></GetInstanceTpmEkPubResponse>`,
-		ec2Xmlns(), generateUUID(), instanceID, keyType, keyFormat, keyValue)
+		ec2Xmlns(), sim.NewUUID(), instanceID, keyType, keyFormat, keyValue)
 }
 
 func handleGetInstanceUefiData(w http.ResponseWriter, r *http.Request) {
@@ -671,7 +677,7 @@ func handleGetInstanceUefiData(w http.ResponseWriter, r *http.Request) {
 	uefiData := base64.StdEncoding.EncodeToString([]byte("uefi-vars:" + instanceID))
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetInstanceUefiDataResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><uefiData>%s</uefiData></GetInstanceUefiDataResponse>`,
-		ec2Xmlns(), generateUUID(), instanceID, uefiData)
+		ec2Xmlns(), sim.NewUUID(), instanceID, uefiData)
 }
 
 // handleEC2DescribeInstanceImageMetadata returns each instance with the
@@ -692,7 +698,10 @@ func handleEC2DescribeInstanceImageMetadata(w http.ResponseWriter, r *http.Reque
 		}
 		results = append(results, inst)
 	}
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, inst := range results {
 		launch := inst.LaunchTime
@@ -718,7 +727,7 @@ func handleEC2DescribeInstanceImageMetadata(w http.ResponseWriter, r *http.Reque
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeInstanceImageMetadataResponse %s><requestId>%s</requestId><instanceImageMetadataSet>%s</instanceImageMetadataSet>%s</DescribeInstanceImageMetadataResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nextTokenXML)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nextTokenXML)
 }
 
 // ec2InstanceStateCode maps an instance-state name to its 16-bit state code.
@@ -760,7 +769,10 @@ func handleDescribeInstanceTopology(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, inst)
 	}
-	results, nextToken := awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, inst := range results {
 		// NetworkNodes are hashed strings identifying the instance's place in the
@@ -779,7 +791,7 @@ func handleDescribeInstanceTopology(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeInstanceTopologyResponse %s><requestId>%s</requestId><instanceSet>%s</instanceSet>%s</DescribeInstanceTopologyResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nextTokenXML)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nextTokenXML)
 }
 
 // ec2SqlHaState fetches (or seeds) the SQL-HA registration for an instance.
@@ -830,7 +842,10 @@ func ec2SqlHaSelected(r *http.Request) []EC2InstanceSqlHaState {
 
 func handleDescribeInstanceSqlHaStates(w http.ResponseWriter, r *http.Request) {
 	states := ec2SqlHaSelected(r)
-	results, nextToken := awsPageExplicit(states, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, states, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, s := range results {
 		items.WriteString("<item>")
@@ -843,12 +858,15 @@ func handleDescribeInstanceSqlHaStates(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeInstanceSqlHaStatesResponse %s><requestId>%s</requestId><instanceSet>%s</instanceSet>%s</DescribeInstanceSqlHaStatesResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nextTokenXML)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nextTokenXML)
 }
 
 func handleDescribeInstanceSqlHaHistoryStates(w http.ResponseWriter, r *http.Request) {
 	states := ec2SqlHaSelected(r)
-	results, nextToken := awsPageExplicit(states, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+	results, nextToken, pageOK := awsPage(w, ec2BadToken, states, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var items strings.Builder
 	for _, s := range results {
 		items.WriteString("<item>")
@@ -861,7 +879,7 @@ func handleDescribeInstanceSqlHaHistoryStates(w http.ResponseWriter, r *http.Req
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeInstanceSqlHaHistoryStatesResponse %s><requestId>%s</requestId><instanceSet>%s</instanceSet>%s</DescribeInstanceSqlHaHistoryStatesResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nextTokenXML)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nextTokenXML)
 }
 
 func ec2SqlHaStandbyDetection(w http.ResponseWriter, r *http.Request, root string, enable bool) {
@@ -888,7 +906,7 @@ func ec2SqlHaStandbyDetection(w http.ResponseWriter, r *http.Request, root strin
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%s %s><requestId>%s</requestId><instanceSet>%s</instanceSet></%s>`,
-		root, ec2Xmlns(), generateUUID(), items.String(), root)
+		root, ec2Xmlns(), sim.NewUUID(), items.String(), root)
 }
 
 func handleEnableInstanceSqlHaStandbyDetections(w http.ResponseWriter, r *http.Request) {
@@ -932,7 +950,7 @@ func handleGetInstanceTypesFromInstanceRequirements(w http.ResponseWriter, r *ht
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetInstanceTypesFromInstanceRequirementsResponse %s><requestId>%s</requestId><instanceTypeSet>%s</instanceTypeSet></GetInstanceTypesFromInstanceRequirementsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 // ec2InstanceTypeCatalogEntry is one entry in the instance-type catalog the

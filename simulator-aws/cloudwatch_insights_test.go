@@ -74,3 +74,23 @@ func TestCWInsightsQuery(t *testing.T) {
 		t.Fatalf("boolean filter → %d rows", len(out))
 	}
 }
+
+// An Insights filter comparison without a value is a malformed query, not a
+// comparison against the empty string.
+func TestCWInsightsFilterRejectsMissingValue(t *testing.T) {
+	for _, f := range []string{"status =", "level = ERROR and code >"} {
+		if _, err := cwParseInsightsFilter(f); err == nil {
+			t.Errorf("%q parsed", f)
+		}
+	}
+	node, err := cwParseInsightsFilter(`status >= 500 and not level = "info"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !node.Eval(cwInsightsRecord{"status": "503", "level": "error"}.doc()) {
+		t.Error("a record the filter admits was dropped")
+	}
+	if node.Eval(cwInsightsRecord{"status": "99", "level": "error"}.doc()) {
+		t.Error("statuses compare numerically")
+	}
+}

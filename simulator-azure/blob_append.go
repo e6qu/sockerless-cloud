@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"strconv"
+
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
 // Append blob blocks. Append Block adds bytes at the end of the blob and reports
@@ -31,7 +34,7 @@ func blobAppendBlobFor(w http.ResponseWriter, r *http.Request, account, containe
 			"The blob is sealed and no further appends are allowed.", http.StatusConflict)
 		return BlobObject{}, false
 	}
-	if !blobWriteAllowed(w, r, b, true, blobModify) {
+	if !blobWriteAllowed(w, r, b, true, blobstore.Modify) {
 		return BlobObject{}, false
 	}
 	if raw := r.Header.Get("x-ms-blob-condition-appendpos"); raw != "" {
@@ -68,13 +71,7 @@ func blobAppendBlobFor(w http.ResponseWriter, r *http.Request, account, containe
 }
 
 func handleAppendBlock(w http.ResponseWriter, r *http.Request, account, container, blob string) {
-	body, err := openStreamingBody(r)
-	if err != nil {
-		writeStorageError(w, "UnsupportedHttpVerb", err.Error(), http.StatusUnsupportedMediaType)
-		return
-	}
-	defer body.Close()
-	data, err := io.ReadAll(body)
+	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
@@ -99,25 +96,26 @@ func handleAppendBlockFromURL(w http.ResponseWriter, r *http.Request, account, c
 }
 
 func blobAppendBytes(w http.ResponseWriter, b BlobObject, data []byte) {
-	b, existing, err := blobData(b)
+	b, existing, err := blobOpen(b)
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
-	offset := int64(len(existing))
-	appended := append(existing, data...)
+	defer func() { _ = existing.Close() }()
+	offset := b.Size
 	b.CommittedBlockCount++
-	b.ContentMD5 = blobContentMD5(appended)
 	blobTouch(&b)
-	if err := blobSetContents(&b, appended); err != nil {
+	digests, err := blobSetContentsFrom(&b, io.MultiReader(existing, bytes.NewReader(data)))
+	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
+	b.ContentMD5 = digests.MD5Base64()
 	putBlobObject(b)
 
 	w.Header().Set("ETag", b.ETag)
 	w.Header().Set("Last-Modified", b.LastModified)
-	w.Header().Set("Content-MD5", blobContentMD5(data))
+	w.Header().Set("Content-MD5", blobstore.Digest(data).MD5Base64())
 	w.Header().Set("x-ms-blob-append-offset", strconv.FormatInt(offset, 10))
 	w.Header().Set("x-ms-blob-committed-block-count", strconv.FormatInt(int64(b.CommittedBlockCount), 10))
 	w.Header().Set("x-ms-request-server-encrypted", "true")
@@ -137,7 +135,7 @@ func handleAppendBlobSeal(w http.ResponseWriter, r *http.Request, account, conta
 			"The blob type is invalid for this operation.", http.StatusConflict)
 		return
 	}
-	if !blobWriteAllowed(w, r, b, true, blobModify) {
+	if !blobWriteAllowed(w, r, b, true, blobstore.Modify) {
 		return
 	}
 	if raw := r.Header.Get("x-ms-blob-condition-appendpos"); raw != "" {

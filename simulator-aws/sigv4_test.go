@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // resetCredentialStores re-creates the in-memory credential stores the SigV4
@@ -16,7 +17,7 @@ import (
 func resetCredentialStores() {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	iamAccessKeys = sim.MakeStore[IAMAccessKey](nil, "iam_access_keys")
 	iamTempCreds = sim.MakeStore[IAMTempCred](nil, "iam_temp_creds")
 	stsTokenKeys = sim.MakeStore[string](nil, "sts_token_keys")

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -122,12 +123,14 @@ func TestNetworkApplicationGatewayCLI(t *testing.T) {
         "frontendIPConfigurations": [{"name": "public", "properties": {"publicIPAddress": {"id": %q}}}],
         "frontendPorts": [{"name": "port-80", "properties": {"port": 80}}],
         "backendAddressPools": [{"name": "web", "properties": {"backendAddresses": [{"ipAddress": "10.80.1.10"}]}}],
-        "backendHttpSettingsCollection": [{"name": "http", "properties": {"port": 80, "protocol": "Http"}}],
+        "probes": [{"name": "fast", "properties": {"protocol": "Http", "host": "10.80.1.10", "path": "/", "interval": 1, "timeout": 1, "unhealthyThreshold": 1}}],
+        "backendHttpSettingsCollection": [{"name": "http", "properties": {"port": 80, "protocol": "Http", "probe": {"id": %q}}}],
         "httpListeners": [{"name": "listener", "properties": {"frontendIPConfiguration": {"id": %q}, "frontendPort": {"id": %q}, "protocol": "Http"}}],
         "requestRoutingRules": [{"name": "rule", "properties": {"ruleType": "Basic", "priority": 100, "httpListener": {"id": %q}, "backendAddressPool": {"id": %q}, "backendHttpSettings": {"id": %q}}}]
       }
     }`,
 		subnetID, pipID,
+		gatewayID+"/probes/fast",
 		gatewayID+"/frontendIPConfigurations/public",
 		gatewayID+"/frontendPorts/port-80",
 		gatewayID+"/httpListeners/listener",
@@ -183,9 +186,8 @@ func TestNetworkApplicationGatewayCLI(t *testing.T) {
 	out = runCLI(t, azRest("GET", gatewayURL, ""))
 	assert.Contains(t, out, `"Running"`)
 
-	// The backend server the pool names is not listening, so the gateway's
-	// probe must report it Down rather than assume it healthy.
-	out = runCLI(t, azRest("POST", strings.Replace(gatewayURL, "?api-version=", "/backendhealth?api-version=", 1), ""))
+	// The backend server the pool names is not listening, so once the gateway's
+	// probe reaches a verdict it reports the server Down rather than healthy.
 	var health struct {
 		BackendAddressPools []struct {
 			BackendAddressPool struct {
@@ -199,7 +201,14 @@ func TestNetworkApplicationGatewayCLI(t *testing.T) {
 			} `json:"backendHttpSettingsCollection"`
 		} `json:"backendAddressPools"`
 	}
-	parseJSON(t, out, &health)
+	backendHealthURL := strings.Replace(gatewayURL, "?api-version=", "/backendhealth?api-version=", 1)
+	require.Eventually(t, func() bool {
+		parseJSON(t, runCLI(t, azRest("POST", backendHealthURL, "")), &health)
+		return len(health.BackendAddressPools) == 1 &&
+			len(health.BackendAddressPools[0].BackendHTTPSettingsCollection) == 1 &&
+			len(health.BackendAddressPools[0].BackendHTTPSettingsCollection[0].Servers) == 1 &&
+			health.BackendAddressPools[0].BackendHTTPSettingsCollection[0].Servers[0].Health != "Unknown"
+	}, 30*time.Second, time.Second, "the gateway's probe never reached a verdict on the backend")
 	require.Len(t, health.BackendAddressPools, 1)
 	require.Len(t, health.BackendAddressPools[0].BackendHTTPSettingsCollection, 1)
 	require.Len(t, health.BackendAddressPools[0].BackendHTTPSettingsCollection[0].Servers, 1)

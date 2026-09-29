@@ -31,7 +31,9 @@ func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
 	// SIM_RUNTIME=process means API-only — serving the API surface without a
 	// container engine, never executing a workload outside one.
 	allowList := map[string]string{
-		"sim/container_reaper.go": "reaps the sim's own containers through the docker CLI; not a workload",
+		"sim/container_reaper.go":          "reaps the sim's own containers through the docker CLI; not a workload",
+		"sim/workload/build.go":            "drives the docker CLI's image build and push for a build step; the build runs on the Docker host",
+		"sim/workloadhost/workloadhost.go": "reads the Podman machine's default route to find the host address; runs no workload",
 	}
 
 	repoRoot, err := filepath.Abs("../..")

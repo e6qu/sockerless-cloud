@@ -369,7 +369,10 @@ func handleECRDescribeRepositories(w http.ResponseWriter, r *http.Request) {
 		repos = []ECRRepository{}
 	}
 
-	page, next := awsPage(repos, req.NextToken, req.MaxResults, 1000)
+	page, next, pageOK := awsPage(w, ecrBadToken, repos, req.NextToken, req.MaxResults, 1000)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"repositories": page}
 	if next != "" {
 		out["nextToken"] = next
@@ -489,7 +492,10 @@ func handleECRListImages(w http.ResponseWriter, r *http.Request) {
 		}
 		return imageIds[i]["imageTag"] < imageIds[j]["imageTag"]
 	})
-	page, next := awsPageExplicit(imageIds, req.NextToken, req.MaxResults)
+	page, next, pageOK := awsPage(w, ecrBadToken, imageIds, req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"imageIds": page}
 	if next != "" {
 		resp["nextToken"] = next
@@ -545,7 +551,10 @@ func handleECRDescribeImages(w http.ResponseWriter, r *http.Request) {
 		images = f
 	}
 	sort.Slice(images, func(i, j int) bool { return images[i].ImageDigest < images[j].ImageDigest })
-	page, next := awsPageExplicit(images, req.NextToken, req.MaxResults)
+	page, next, pageOK := awsPage(w, ecrBadToken, images, req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
 
 	details := make([]map[string]any, 0, len(page))
 	for _, img := range page {

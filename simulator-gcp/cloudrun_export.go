@@ -125,7 +125,7 @@ func cloudRunExportImage(w http.ResponseWriter, r *http.Request, source string) 
 			"an image export needs the destinationRepo it is going to")
 		return
 	}
-	operationID := "export-" + generateUUID()[:8]
+	operationID := "export-" + sim.NewUUID()[:8]
 	cloudRunExports.Put(operationID, map[string]any{
 		"operationId": operationID,
 		"source":      source,

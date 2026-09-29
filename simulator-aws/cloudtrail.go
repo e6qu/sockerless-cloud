@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
-	"crypto/md5"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
@@ -602,7 +601,7 @@ func handleCloudTrailCreateChannel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	channel := CloudTrailChannel{
-		ARN:          cloudTrailChannelARN(generateUUID()),
+		ARN:          cloudTrailChannelARN(sim.NewUUID()),
 		Name:         req.Name,
 		Source:       req.Source,
 		Destinations: req.Destinations,
@@ -1058,7 +1057,7 @@ func cloudTrailRecord(ev CloudTrailEvent) {
 	if cloudTrailEvents == nil {
 		return
 	}
-	ev.EventId = generateUUID()
+	ev.EventId = sim.NewUUID()
 	ev.EventTime = time.Now().UTC().Format(time.RFC3339)
 	ev.Seq = cloudTrailNextSeq()
 	if ev.Username == "" && ev.InvokedBy == "" {
@@ -1268,13 +1267,11 @@ func cloudTrailDeliverTo(trail CloudTrailTrail, event CloudTrailEvent) error {
 		return err
 	}
 	key := s3ObjectKey(trail.S3BucketName, cloudTrailObjectKey(trail, event))
-	hash := md5.Sum(body)
 	release := s3ObjectWriters.Lock(key)
 	defer release()
-	_, err = s3StoreObject(S3Object{
+	_, err = s3StoreObjectData(S3Object{
 		Key:          key,
 		ContentType:  "application/json",
-		ETag:         fmt.Sprintf("\"%x\"", hash),
 		LastModified: time.Now().UTC(),
 		Metadata:     map[string]string{"cloudtrail-event-id": event.EventId},
 	}, body)

@@ -1,37 +1,23 @@
-# simulator-gcp-sdk-tests
+# simulator-gcp SDK tests
 
-Integration tests for the GCP simulator using the official Google Cloud Go SDK. Each test builds the simulator binary, starts it on a free port, runs SDK calls, and verifies responses.
+Integration tests for the Google Cloud simulator through the official Google Cloud client libraries for Go (`cloud.google.com/go`, `google.golang.org/api`). `TestMain`
+builds the simulator into `.build/sdk-tests/`, starts it on a free port, and
+stops it when the suite ends; each test drives the real client against it.
 
-## Services tested
-
-| Test file | Service | Operations |
-|-----------|---------|------------|
-| `compute_test.go` | Compute Engine | Network, subnetwork create/list |
-| `dns_test.go` | Cloud DNS | Managed zone create/get/delete |
-| `iam_test.go` | IAM | Service account create/get/list/delete |
-| `run_test.go` | Cloud Run | Job create/get/list/delete |
-| `storage_test.go` | Cloud Storage | Bucket create, object upload/download/list/delete |
+One file covers one service family. The suite is a separate Go module with a
+relative `replace` onto the simulator; it is never installed.
 
 ## Running
 
 ```sh
 cd simulator-gcp/sdk-tests
-go test -v ./...
+go test ./...
 ```
 
-The test harness (`helpers_test.go`) handles binary build, port allocation, server startup, and shutdown. No external services required.
+CI runs the suite through `make -C simulator-gcp sdk-test`, sharded by the
+jobs in `.github/workflows/ci.yml`. A container engine (Docker or Podman) must
+be reachable, because workloads run as real containers.
 
-## Prerequisites
+## Client configuration
 
-- Go 1.24+
-- The `simulator-gcp/` parent module (built automatically by `TestMain`)
-
-## SDK configuration
-
-Tests configure GCP SDK clients with:
-
-```go
-option.WithEndpoint("http://localhost:{port}/...")
-option.WithoutAuthentication()
-option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials()))
-```
+Clients take the simulator as their endpoint, over REST or gRPC as the library defaults, with credentials the simulator issues — the configuration a client of real Google Cloud takes with different coordinates. No test branches on running against the simulator.

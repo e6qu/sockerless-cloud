@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // buildAuthTestSim builds the full simulator (including the bearer-verification
@@ -22,10 +23,11 @@ func buildAuthTestSim(t *testing.T) *sim.Server {
 	if err != nil {
 		t.Fatalf("build simulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	// Long-running operations complete in a goroutine. One still running
 	// when this test ends would read and write the stores while the next
 	// test rebuilds them.
-	t.Cleanup(AwaitAzureAsyncOperations)
+	t.Cleanup(bg.Await)
 	return srv
 }
 

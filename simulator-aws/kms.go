@@ -498,7 +498,7 @@ func handleKMSCreateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyId := generateUUID()
+	keyId := sim.NewUUID()
 	if req.MultiRegion {
 		// Real KMS gives multi-region keys an ID prefixed with "mrk-"; the
 		// same ID is shared across every regional replica.
@@ -610,7 +610,10 @@ func handleKMSListKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	all := kmsKeys.List()
 	sortBy(all, func(k KMSKey) string { return k.KeyId })
-	page, next := awsPage(all, req.Marker, req.Limit, 100)
+	page, next, pageOK := awsPage(w, kmsBadToken, all, req.Marker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, k := range page {
 		out = append(out, map[string]any{
@@ -865,7 +868,10 @@ func handleKMSListAliases(w http.ResponseWriter, r *http.Request) {
 		b, _ := out[j]["AliasName"].(string)
 		return a < b
 	})
-	page, next := awsPageExplicit(out, req.Marker, req.Limit)
+	page, next, pageOK := awsPage(w, kmsBadToken, out, req.Marker, req.Limit, 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Aliases": page, "Truncated": next != ""}
 	if next != "" {
 		resp["NextMarker"] = next
@@ -1085,7 +1091,10 @@ func handleKMSListKeyRotations(w http.ResponseWriter, r *http.Request) {
 			"RotationType": rot.RotationType,
 		})
 	}
-	page, next := awsPageExplicit(rotations, req.Marker, req.Limit)
+	page, next, pageOK := awsPage(w, kmsBadToken, rotations, req.Marker, req.Limit, 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"Rotations": page, "Truncated": next != ""}
 	if next != "" {
 		resp["NextMarker"] = next

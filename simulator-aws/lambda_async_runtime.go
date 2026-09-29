@@ -1,34 +1,61 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/delivery"
 )
 
+// LambdaAsyncInvocation is an event AWS Lambda accepted for asynchronous
+// invocation; the delivery dispatcher persists it between attempts.
 type LambdaAsyncInvocation struct {
-	ID            string
 	Function      LambdaFunction
 	Payload       []byte
 	Qualifier     string
 	RequestID     string
-	StartedAt     time.Time
-	NextAttemptAt time.Time
-	InvokeCount   int
-	Failures      int
 	MaxRetries    int
 	MaxAgeSeconds int
 	Response      []byte
 	Unhandled     bool
-	Condition     string
 	Configured    bool
 	Destination   *lambdaDestinationConfig
 }
 
-var lambdaAsyncInvocations sim.Store[LambdaAsyncInvocation]
+var lambdaAsyncInvocations *delivery.Dispatcher[LambdaAsyncInvocation]
+
+// registerLambdaAsyncInvocations runs asynchronous invocations the way AWS
+// Lambda documents them: up to MaximumRetryAttempts retries (default 2), the
+// first after one minute and later ones after two, while the event is younger
+// than MaximumEventAgeInSeconds (default six hours).
+func registerLambdaAsyncInvocations(srv *sim.Server) {
+	store := sim.MakeStore[delivery.Item[LambdaAsyncInvocation]](srv.DB(), "lambda_async_deliveries")
+	lambdaAdoptLegacyInvocations(srv.DB(), store)
+	lambdaAsyncInvocations = delivery.New(srv, "Lambda asynchronous invocations", store, delivery.Handler[LambdaAsyncInvocation]{
+		Policy: func(invocation LambdaAsyncInvocation) delivery.Policy {
+			return delivery.Policy{
+				MaxAttempts: invocation.MaxRetries + 1,
+				MaxAge:      time.Duration(invocation.MaxAgeSeconds) * time.Second,
+				Backoff:     delivery.Steps(time.Minute, 2*time.Minute),
+			}
+		},
+		Attempt: func(_ context.Context, item *delivery.Item[LambdaAsyncInvocation]) delivery.Outcome {
+			response, unhandled, _ := invokeLambdaViaRuntimeAPI(item.Payload.Function, item.Payload.Payload)
+			item.Payload.Response = append([]byte(nil), response...)
+			item.Payload.Unhandled = unhandled
+			if unhandled {
+				return delivery.Retryable(errors.New("function error"))
+			}
+			return delivery.Delivered()
+		},
+		Finish: lambdaCompleteAsyncInvocation,
+	})
+}
 
 func lambdaAsyncQualifier(identifier, queryQualifier string) string {
 	if queryQualifier != "" {
@@ -61,22 +88,17 @@ func lambdaInvokeAsynchronously(function LambdaFunction, payload []byte, qualifi
 		}
 		destination = config.DestinationConfig
 	}
-	requestID := generateUUID()
-	invocation := LambdaAsyncInvocation{
-		ID:            requestID,
+	requestID := sim.NewUUID()
+	lambdaAsyncInvocations.Submit(requestID, LambdaAsyncInvocation{
 		Function:      function,
 		Payload:       append([]byte(nil), payload...),
 		Qualifier:     qualifier,
 		RequestID:     requestID,
-		StartedAt:     time.Now().UTC(),
 		MaxRetries:    maxRetries,
 		MaxAgeSeconds: maxAge,
 		Configured:    configured,
 		Destination:   destination,
-		Condition:     "Success",
-	}
-	lambdaAsyncInvocations.Put(invocation.ID, invocation)
-	go lambdaRunAsyncInvocation(invocation.ID)
+	})
 }
 
 func recoverLambdaInvocations() error {
@@ -92,73 +114,24 @@ func recoverLambdaInvocations() error {
 			return fmt.Errorf("remove interrupted AWS Lambda runtime container %s: %w", workload.ID, err)
 		}
 	}
-	for _, invocation := range lambdaAsyncInvocations.List() {
-		go lambdaRunAsyncInvocation(invocation.ID)
-	}
+	lambdaAsyncInvocations.Resume()
 	return nil
 }
 
-func lambdaRunAsyncInvocation(id string) {
-	for {
-		invocation, ok := lambdaAsyncInvocations.Get(id)
-		if !ok {
-			return
-		}
-		if delay := time.Until(invocation.NextAttemptAt); !invocation.NextAttemptAt.IsZero() && delay > 0 {
-			timer := time.NewTimer(delay)
-			<-timer.C
-		}
-		invocation, ok = lambdaAsyncInvocations.Get(id)
-		if !ok {
-			return
-		}
-		if time.Since(invocation.StartedAt) > time.Duration(invocation.MaxAgeSeconds)*time.Second {
-			invocation.Unhandled = true
-			invocation.Condition = "EventAgeExceeded"
-			lambdaAsyncInvocations.Put(id, invocation)
-			lambdaCompleteAsyncInvocation(id)
-			return
-		}
-
-		invocation.InvokeCount++
-		invocation.NextAttemptAt = time.Time{}
-		lambdaAsyncInvocations.Put(id, invocation)
-		response, unhandled, _ := invokeLambdaViaRuntimeAPI(invocation.Function, invocation.Payload)
-		invocation, ok = lambdaAsyncInvocations.Get(id)
-		if !ok {
-			return
-		}
-		invocation.Response = append([]byte(nil), response...)
-		invocation.Unhandled = unhandled
-		if !unhandled {
-			invocation.Condition = "Success"
-			lambdaAsyncInvocations.Put(id, invocation)
-			lambdaCompleteAsyncInvocation(id)
-			return
-		}
-		if invocation.Failures >= invocation.MaxRetries {
-			invocation.Condition = "RetriesExhausted"
-			lambdaAsyncInvocations.Put(id, invocation)
-			lambdaCompleteAsyncInvocation(id)
-			return
-		}
-		delay := time.Minute
-		if invocation.Failures > 0 {
-			delay = 2 * time.Minute
-		}
-		invocation.Failures++
-		invocation.NextAttemptAt = time.Now().UTC().Add(delay)
-		lambdaAsyncInvocations.Put(id, invocation)
-	}
+var lambdaAsyncConditions = map[delivery.Reason]string{
+	delivery.Succeeded:         "Success",
+	delivery.AttemptsExhausted: "RetriesExhausted",
+	delivery.AgeExceeded:       "EventAgeExceeded",
+	delivery.Rejected:          "RetriesExhausted",
 }
 
-func lambdaCompleteAsyncInvocation(id string) {
-	invocation, ok := lambdaAsyncInvocations.Get(id)
-	if !ok {
-		return
+func lambdaCompleteAsyncInvocation(item delivery.Item[LambdaAsyncInvocation], reason delivery.Reason) {
+	invocation := item.Payload
+	condition := lambdaAsyncConditions[reason]
+	if reason == delivery.AgeExceeded {
+		invocation.Unhandled = true
 	}
 	if !invocation.Configured || invocation.Destination == nil {
-		lambdaAsyncInvocations.Delete(id)
 		return
 	}
 	var destination *lambdaDestination
@@ -168,7 +141,6 @@ func lambdaCompleteAsyncInvocation(id string) {
 		destination = invocation.Destination.OnSuccess
 	}
 	if destination == nil || destination.Destination == "" {
-		lambdaAsyncInvocations.Delete(id)
 		return
 	}
 
@@ -193,8 +165,8 @@ func lambdaCompleteAsyncInvocation(id string) {
 		"requestContext": map[string]any{
 			"requestId":              invocation.RequestID,
 			"functionArn":            invocation.Function.FunctionArn,
-			"condition":              invocation.Condition,
-			"approximateInvokeCount": invocation.InvokeCount,
+			"condition":              condition,
+			"approximateInvokeCount": item.Attempts,
 		},
 		"requestPayload":  requestPayload,
 		"responseContext": responseContext,
@@ -205,7 +177,6 @@ func lambdaCompleteAsyncInvocation(id string) {
 		return
 	}
 	lambdaDeliverAsyncDestination(destination.Destination, body)
-	lambdaAsyncInvocations.Delete(id)
 }
 
 func lambdaDeliverAsyncDestination(destinationARN string, body []byte) {
@@ -217,7 +188,7 @@ func lambdaDeliverAsyncDestination(destinationARN string, body []byte) {
 		}
 	case strings.HasPrefix(destinationARN, "arn:aws:sns:"):
 		if _, ok := snsTopics.Get(snsTopicNameFromARN(destinationARN)); ok {
-			snsFanout(destinationARN, generateUUID(), "", string(body), nil)
+			snsFanout(destinationARN, sim.NewUUID(), "", string(body), nil)
 		}
 	case strings.HasPrefix(destinationARN, "arn:aws:events:"):
 		_, _ = sfnInvokeJSONService(handleEBPutEvents, map[string]any{"Entries": []map[string]any{{

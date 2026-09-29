@@ -17,27 +17,27 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /spanner/v1/projects/{project}/instances` | ✓ `simulator-gcp/spanner.go:115::handleSpannerCreateInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /spanner/v1/projects/{project}/instances` | ✓ `simulator-gcp/spanner.go:116::handleSpannerListInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /spanner/v1/projects/{project}/instances/{rest...}` | ✓ `simulator-gcp/spanner.go:117::handleSpannerInstanceChild` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /spanner/v1/projects/{project}/instances/{rest...}` | ✓ `simulator-gcp/spanner.go:118::handleSpannerInstanceChild` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /spanner/v1/projects/{project}/instances/{rest...}` | ✓ `simulator-gcp/spanner.go:119::handleSpannerInstanceChild` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /spanner/v1/projects/{project}/instances/{rest...}` | ✓ `simulator-gcp/spanner.go:120::handleSpannerInstanceChild` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /spanner/v1/projects/{project}/instanceConfigs` | ✓ `simulator-gcp/spanner.go:126::handleSpannerCreateInstanceConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /spanner/v1/projects/{project}/instanceConfigs` | ✓ `simulator-gcp/spanner.go:127::handleSpannerListInstanceConfigs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /spanner/v1/projects/{project}/instanceConfigs/{config}` | ✓ `simulator-gcp/spanner.go:128::handleSpannerGetInstanceConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /spanner/v1/projects/{project}/instanceConfigs/{config}` | ✓ `simulator-gcp/spanner.go:129::handleSpannerUpdateInstanceConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /spanner/v1/projects/{project}/instanceConfigs/{config}` | ✓ `simulator-gcp/spanner.go:130::handleSpannerDeleteInstanceConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /spanner/v1/projects/{project}/instanceConfigs/{config}/operations` | ✓ `simulator-gcp/spanner.go:131::handleSpannerListInstanceConfigOperations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /spanner/v1/projects/{project}/instanceConfigs/{config}/operations/{operation}` | ✓ `simulator-gcp/spanner.go:132::handleSpannerGetInstanceConfigOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /spanner/v1/projects/{project}/instanceConfigs/{config}/operations/{operation}` | ✓ `simulator-gcp/spanner.go:133::handleSpannerDeleteInstanceConfigOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /spanner/v1/projects/{project}/instanceConfigs/{config}/operations/{operation}` | ✓ `simulator-gcp/spanner.go:134::handleSpannerInstanceConfigOperationAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /spanner/v1/projects/{project}/instanceConfigs/{config}/ssdCaches/{ssdCache}/operations` | ✓ `simulator-gcp/spanner.go:135::handleSpannerListInstanceConfigOperations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /spanner/v1/projects/{project}/instanceConfigs/{config}/ssdCaches/{ssdCache}/operations/{operation}` | ✓ `simulator-gcp/spanner.go:136::handleSpannerGetInstanceConfigOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /spanner/v1/projects/{project}/instanceConfigs/{config}/ssdCaches/{ssdCache}/operations/{operation}` | ✓ `simulator-gcp/spanner.go:137::handleSpannerDeleteInstanceConfigOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /spanner/v1/projects/{project}/instanceConfigs/{config}/ssdCaches/{ssdCache}/operations/{operation}` | ✓ `simulator-gcp/spanner.go:138::handleSpannerInstanceConfigOperationAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /spanner/v1/projects/{project}/instanceConfigOperations` | ✓ `simulator-gcp/spanner.go:140::handleSpannerListInstanceConfigOperationsCollection` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /spanner/v1/scans` | ○ `simulator-gcp/spanner.go:141::handleSpannerListScans` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /spanner/v1/projects/{project}/instances` | ✓ `simulator-gcp/spanner.go:117::handleSpannerCreateInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /spanner/v1/projects/{project}/instances` | ✓ `simulator-gcp/spanner.go:118::handleSpannerListInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /spanner/v1/projects/{project}/instances/{rest...}` | ✓ `simulator-gcp/spanner.go:119::handleSpannerInstanceChild` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /spanner/v1/projects/{project}/instances/{rest...}` | ✓ `simulator-gcp/spanner.go:120::handleSpannerInstanceChild` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /spanner/v1/projects/{project}/instances/{rest...}` | ✓ `simulator-gcp/spanner.go:121::handleSpannerInstanceChild` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /spanner/v1/projects/{project}/instances/{rest...}` | ✓ `simulator-gcp/spanner.go:122::handleSpannerInstanceChild` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /spanner/v1/projects/{project}/instanceConfigs` | ✓ `simulator-gcp/spanner.go:128::handleSpannerCreateInstanceConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /spanner/v1/projects/{project}/instanceConfigs` | ✓ `simulator-gcp/spanner.go:129::handleSpannerListInstanceConfigs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /spanner/v1/projects/{project}/instanceConfigs/{config}` | ✓ `simulator-gcp/spanner.go:130::handleSpannerGetInstanceConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /spanner/v1/projects/{project}/instanceConfigs/{config}` | ✓ `simulator-gcp/spanner.go:131::handleSpannerUpdateInstanceConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /spanner/v1/projects/{project}/instanceConfigs/{config}` | ✓ `simulator-gcp/spanner.go:132::handleSpannerDeleteInstanceConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /spanner/v1/projects/{project}/instanceConfigs/{config}/operations` | ✓ `simulator-gcp/spanner.go:133::handleSpannerListInstanceConfigOperations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /spanner/v1/projects/{project}/instanceConfigs/{config}/operations/{operation}` | ✓ `simulator-gcp/spanner.go:134::handleSpannerGetInstanceConfigOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /spanner/v1/projects/{project}/instanceConfigs/{config}/operations/{operation}` | ✓ `simulator-gcp/spanner.go:135::handleSpannerDeleteInstanceConfigOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /spanner/v1/projects/{project}/instanceConfigs/{config}/operations/{operation}` | ✓ `simulator-gcp/spanner.go:136::handleSpannerInstanceConfigOperationAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /spanner/v1/projects/{project}/instanceConfigs/{config}/ssdCaches/{ssdCache}/operations` | ✓ `simulator-gcp/spanner.go:137::handleSpannerListInstanceConfigOperations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /spanner/v1/projects/{project}/instanceConfigs/{config}/ssdCaches/{ssdCache}/operations/{operation}` | ✓ `simulator-gcp/spanner.go:138::handleSpannerGetInstanceConfigOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /spanner/v1/projects/{project}/instanceConfigs/{config}/ssdCaches/{ssdCache}/operations/{operation}` | ✓ `simulator-gcp/spanner.go:139::handleSpannerDeleteInstanceConfigOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /spanner/v1/projects/{project}/instanceConfigs/{config}/ssdCaches/{ssdCache}/operations/{operation}` | ✓ `simulator-gcp/spanner.go:140::handleSpannerInstanceConfigOperationAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /spanner/v1/projects/{project}/instanceConfigOperations` | ✓ `simulator-gcp/spanner.go:142::handleSpannerListInstanceConfigOperationsCollection` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /spanner/v1/scans` | ○ `simulator-gcp/spanner.go:143::handleSpannerListScans` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

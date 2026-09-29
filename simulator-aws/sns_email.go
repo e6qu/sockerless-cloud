@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func snsEmailDomain(endpoint string) (string, error) {
@@ -23,7 +25,7 @@ func snsEmailDomain(endpoint string) (string, error) {
 
 func snsConfirmationEnvelope(sub SNSSubscription) map[string]any {
 	token := snsConfirmationToken(sub)
-	messageID := generateUUID()
+	messageID := sim.NewUUID()
 	subscribeURL := snsControlURL(sub, "ConfirmSubscription", url.Values{
 		"TopicArn": {sub.TopicARN},
 		"Token":    {token},

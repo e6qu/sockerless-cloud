@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // RDS — awsQuery protocol. Surface scoped to the 90th-percentile
@@ -377,7 +378,7 @@ func rdsInstanceARN(id string) string {
 }
 
 func rdsResourceID() string {
-	return "db-" + strings.ToUpper(strings.ReplaceAll(generateUUID(), "-", ""))[:26]
+	return "db-" + strings.ToUpper(strings.ReplaceAll(sim.NewUUID(), "-", ""))[:26]
 }
 
 func rdsXMLResponse(w http.ResponseWriter, op string, body string, requestID string) {
@@ -582,7 +583,7 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 		// plane and the volume go away — the capture must finish first, so
 		// the shutdown runs after it in the same background task.
 		snapID := finalSnapID
-		simGo(func() {
+		bg.Go(func() {
 			rdsCaptureSnapshotData(snapID, id)
 			rdsStopDataPlane(id, true)
 		})
@@ -992,7 +993,7 @@ func handleRDSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		MasterUserSecret: append([]byte(nil), inst.MasterUserSecret...),
 	}
 	rdsSnapshots.Put(snapID, snap)
-	simGo(func() { rdsCaptureSnapshotData(snapID, instID) })
+	bg.Go(func() { rdsCaptureSnapshotData(snapID, instID) })
 	rdsXMLResponse(w, "CreateDBSnapshot", renderRDSSnapshot(snap), sim.RequestID(r.Context()))
 }
 
@@ -1155,6 +1156,9 @@ func handleRDSReboot(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	if !rdsRequireInstanceState(w, r, inst, "available", "rebooted") {
+		return
+	}
 	if len(inst.MasterUserSecret) > 0 {
 		rdsStopDataPlane(id, false)
 		_, password, decrypted := kmsDecryptBytes(inst.MasterUserSecret)
@@ -1176,7 +1180,7 @@ func rdsClusterARN(id string) string {
 }
 
 func rdsClusterResourceID() string {
-	return "cluster-" + strings.ToUpper(strings.ReplaceAll(generateUUID(), "-", ""))[:26]
+	return "cluster-" + strings.ToUpper(strings.ReplaceAll(sim.NewUUID(), "-", ""))[:26]
 }
 
 func findRDSClusterByARN(arn string) (RDSCluster, bool) {
@@ -1456,7 +1460,7 @@ func handleRDSCreateSubnetGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	vpcID := r.FormValue("VpcId")
 	if vpcID == "" {
-		vpcID = "vpc-" + strings.ReplaceAll(generateUUID(), "-", "")[:17]
+		vpcID = "vpc-" + strings.ReplaceAll(sim.NewUUID(), "-", "")[:17]
 	}
 	g := RDSSubnetGroup{
 		DBSubnetGroupName:        name,
@@ -1724,7 +1728,7 @@ func handleRDSCopySnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	rdsSnapshots.Put(targetID, copySnap)
 	srcSnapID := src.DBSnapshotIdentifier
-	simGo(func() { rdsCopySnapshotData(targetID, srcSnapID) })
+	bg.Go(func() { rdsCopySnapshotData(targetID, srcSnapID) })
 	rdsXMLResponse(w, "CopyDBSnapshot", renderRDSSnapshot(copySnap), sim.RequestID(r.Context()))
 }
 
@@ -2201,6 +2205,18 @@ func handleRDSDescribeOrderableOptions(w http.ResponseWriter, r *http.Request) {
 // stopping→stopped. The simulator keeps the instance volume but tears down
 // the engine and listener while stopped, then reinstalls them on start.
 
+// rdsRequireInstanceState answers InvalidDBInstanceState unless the instance
+// is in the one state the lifecycle action runs from, as Amazon RDS does.
+func rdsRequireInstanceState(w http.ResponseWriter, r *http.Request, instance RDSInstance, required, action string) bool {
+	if instance.DBInstanceStatus == required {
+		return true
+	}
+	rdsErrorXML(w, "InvalidDBInstanceState",
+		fmt.Sprintf("Instance %s is not in %s state and cannot be %s.", instance.DBInstanceIdentifier, required, action),
+		http.StatusBadRequest, sim.RequestID(r.Context()))
+	return false
+}
+
 func handleRDSStartInstance(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
 	if _, ok := rdsInstances.Get(id); !ok {
@@ -2208,6 +2224,9 @@ func handleRDSStartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	instance, _ := rdsInstances.Get(id)
+	if !rdsRequireInstanceState(w, r, instance, "stopped", "started") {
+		return
+	}
 	if len(instance.MasterUserSecret) > 0 {
 		_, password, decrypted := kmsDecryptBytes(instance.MasterUserSecret)
 		if !decrypted {
@@ -2227,8 +2246,12 @@ func handleRDSStartInstance(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSStopInstance(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
-	if _, ok := rdsInstances.Get(id); !ok {
+	instance, ok := rdsInstances.Get(id)
+	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if !rdsRequireInstanceState(w, r, instance, "available", "stopped") {
 		return
 	}
 	rdsStopDataPlane(id, false)
@@ -2589,7 +2612,7 @@ func rdsGlobalClusterARN(id string) string {
 }
 
 func rdsGlobalClusterResourceID() string {
-	return "cluster-" + strings.ToUpper(strings.ReplaceAll(generateUUID(), "-", ""))[:26]
+	return "cluster-" + strings.ToUpper(strings.ReplaceAll(sim.NewUUID(), "-", ""))[:26]
 }
 
 // renderRDSGlobalCluster renders a global cluster wrapped in the given

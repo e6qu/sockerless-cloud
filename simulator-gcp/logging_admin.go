@@ -285,7 +285,7 @@ func handleLoggingScopeCreateSink(w http.ResponseWriter, r *http.Request) {
 	}
 	short := lastSegment(sink.Name)
 	if short == "" {
-		short = generateUUID()
+		short = sim.NewUUID()
 	}
 	sink.Name = parent + "/sinks/" + short
 	if sink.WriterIdentity == "" {
@@ -367,7 +367,7 @@ func handleLoggingCreateExclusion(w http.ResponseWriter, r *http.Request) {
 	}
 	short := lastSegment(ex.Name)
 	if short == "" {
-		short = generateUUID()
+		short = sim.NewUUID()
 	}
 	ex.Name = parent + "/exclusions/" + short
 	now := nowTimestamp()
@@ -557,7 +557,7 @@ func handleLoggingCreateBucket(w http.ResponseWriter, r *http.Request) {
 		id = lastSegment(b.Name)
 	}
 	if id == "" {
-		id = generateUUID()
+		id = sim.NewUUID()
 	}
 	b.Name = parent + "/buckets/" + id
 	b.LifecycleState = "ACTIVE"
@@ -579,7 +579,7 @@ func handleLoggingCreateBucketAsync(w http.ResponseWriter, r *http.Request) {
 		id = lastSegment(b.Name)
 	}
 	if id == "" {
-		id = generateUUID()
+		id = sim.NewUUID()
 	}
 	b.Name = parent + "/buckets/" + id
 	b.LifecycleState = "ACTIVE"
@@ -709,7 +709,7 @@ func handleLoggingCreateView(w http.ResponseWriter, r *http.Request) {
 		id = lastSegment(v.Name)
 	}
 	if id == "" {
-		id = generateUUID()
+		id = sim.NewUUID()
 	}
 	v.Name = parent + "/views/" + id
 	now := nowTimestamp()
@@ -828,7 +828,7 @@ func handleLoggingCreateLink(w http.ResponseWriter, r *http.Request) {
 		id = lastSegment(l.Name)
 	}
 	if id == "" {
-		id = generateUUID()
+		id = sim.NewUUID()
 	}
 	l.Name = parent + "/links/" + id
 	l.LifecycleState = "ACTIVE"
@@ -884,7 +884,7 @@ func handleLoggingCreateSavedQuery(w http.ResponseWriter, r *http.Request) {
 		id = lastSegment(q.Name)
 	}
 	if id == "" {
-		id = generateUUID()
+		id = sim.NewUUID()
 	}
 	q.Name = parent + "/savedQueries/" + id
 	now := nowTimestamp()
@@ -974,7 +974,7 @@ func handleLoggingCreateLogScope(w http.ResponseWriter, r *http.Request) {
 		id = lastSegment(ls.Name)
 	}
 	if id == "" {
-		id = generateUUID()
+		id = sim.NewUUID()
 	}
 	ls.Name = parent + "/logScopes/" + id
 	now := nowTimestamp()
@@ -1105,7 +1105,11 @@ func handleLoggingEntriesTail(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid tail request: %v", err)
 		return
 	}
-	entries, _ := listLogEntries(req.Filter, req.ResourceNames, 0, "", "timestamp desc")
+	entries, _, err := listLogEntries(req.Filter, req.ResourceNames, 0, "", "timestamp desc")
+	if err != nil {
+		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"entries": entries})
 }
 
@@ -1113,9 +1117,9 @@ func handleLoggingEntriesTail(w http.ResponseWriter, r *http.Request) {
 // given resource wrapped as a protobuf Any (@type). Real Cloud Logging's async
 // bucket/link/copy methods return a done operation once the resource settles.
 func loggingNewOperation(parent string, resource any, typeName string) Operation {
-	opName := parent + "/operations/" + generateUUID()
+	opName := parent + "/operations/" + sim.NewUUID()
 	if parent == "" {
-		opName = "operations/" + generateUUID()
+		opName = "operations/" + sim.NewUUID()
 	}
 	op := newLROFromResource(opName, resource, typeName)
 	logOperations.Put(opName, op)

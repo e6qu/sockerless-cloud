@@ -17,6 +17,7 @@ import (
 	"time"
 
 	fspb "cloud.google.com/go/firestore/apiv1/firestorepb"
+	"github.com/e6qu/sockerless-cloud/sim"
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	latpb "google.golang.org/genproto/googleapis/type/latlng"
 	"google.golang.org/grpc"
@@ -343,7 +344,7 @@ func fsEvaluateQuery(parent string, q fsStructuredQuery) []FSDocument {
 		return nil
 	}
 	collection := strings.TrimSuffix(parent, "/") + "/" + q.From[0].CollectionID
-	docs := fsDocuments.Filter(func(d FSDocument) bool {
+	docs := fsDocumentsUnder(collection+"/", func(d FSDocument) bool {
 		return fsCollectionParent(d.Name) == collection && fsWhereMatches(d, q.Where)
 	})
 
@@ -572,7 +573,7 @@ func fsProjectDocByMask(d FSDocument, mask *fspb.DocumentMask) FSDocument {
 // fsBeginTxnBytes creates a transaction token (opaque bytes), pins a read
 // snapshot time, and persists it in the shared fsTransactions store.
 func fsBeginTxnBytes(readOnly bool, readTime string) []byte {
-	token := []byte(generateUUID())
+	token := []byte(sim.NewUUID())
 	if readTime == "" {
 		readTime = fsNow()
 	}
@@ -603,7 +604,7 @@ func (s *firestoreGRPC) CreateDocument(_ context.Context, req *fspb.CreateDocume
 	}
 	docID := req.GetDocumentId()
 	if docID == "" {
-		docID = generateUUID()
+		docID = sim.NewUUID()
 	}
 	name := parent + "/" + collectionID + "/" + docID
 	if _, ok := fsDocuments.Get(name); ok {
@@ -658,23 +659,16 @@ func (s *firestoreGRPC) ListDocuments(_ context.Context, req *fspb.ListDocuments
 	parent := strings.TrimSuffix(req.GetParent(), "/")
 	collectionID := req.GetCollectionId()
 
-	var prefix string
-	if collectionID == "" {
-		// Without a collection ID, list immediate documents across all
-		// collections under parent.
-		prefix = parent + "/"
-	} else {
-		prefix = parent + "/" + collectionID + "/"
+	// Without a collection ID, list the documents of every collection directly
+	// under parent: names one collection segment deeper than with one.
+	prefix, separators := parent+"/", 1
+	if collectionID != "" {
+		prefix, separators = parent+"/"+collectionID+"/", 0
 	}
-
-	docs := fsDocuments.Filter(func(d FSDocument) bool {
-		if !strings.HasPrefix(d.Name, prefix) {
-			return false
-		}
+	docs := fsDocumentsUnder(prefix, func(d FSDocument) bool {
 		rest := strings.TrimPrefix(d.Name, prefix)
-		return rest != "" && !strings.Contains(rest, "/")
+		return rest != "" && strings.Count(rest, "/") == separators
 	})
-	sort.Slice(docs, func(i, j int) bool { return docs[i].Name < docs[j].Name })
 
 	// Index-based pagination, mirroring the REST paginateList token scheme.
 	start := 0
@@ -704,10 +698,7 @@ func (s *firestoreGRPC) ListDocuments(_ context.Context, req *fspb.ListDocuments
 func (s *firestoreGRPC) ListCollectionIds(_ context.Context, req *fspb.ListCollectionIdsRequest) (*fspb.ListCollectionIdsResponse, error) {
 	parent := strings.TrimSuffix(req.GetParent(), "/") + "/"
 	seen := map[string]struct{}{}
-	for _, d := range fsDocuments.List() {
-		if !strings.HasPrefix(d.Name, parent) {
-			continue
-		}
+	for _, d := range fsDocumentsUnder(parent, func(FSDocument) bool { return true }) {
 		rest := strings.TrimPrefix(d.Name, parent)
 		segs := strings.Split(rest, "/")
 		if len(segs) >= 2 {
@@ -986,7 +977,7 @@ var fsWriteStreamTokens = struct {
 }{tokens: map[string][]byte{}}
 
 func fsIssueWriteStreamToken(streamID string) []byte {
-	token := []byte(generateUUID())
+	token := []byte(sim.NewUUID())
 	fsWriteStreamTokens.mu.Lock()
 	fsWriteStreamTokens.tokens[streamID] = token
 	fsWriteStreamTokens.mu.Unlock()
@@ -1039,7 +1030,7 @@ func (s *firestoreGRPC) Write(srv fspb.Firestore_WriteServer) error {
 				if len(req.GetStreamToken()) > 0 {
 					return status.Error(codes.InvalidArgument, "stream_token must be unset when creating a new stream")
 				}
-				streamID = generateUUID()
+				streamID = sim.NewUUID()
 				resp.StreamId = streamID
 			}
 			resp.StreamToken = fsIssueWriteStreamToken(streamID)

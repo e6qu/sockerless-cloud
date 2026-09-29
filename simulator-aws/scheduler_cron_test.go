@@ -1,167 +1,87 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/cron"
 )
 
-func TestSchedulerCronNext(t *testing.T) {
-	// A Wednesday, 2026-06-10 12:34:00 UTC.
+func TestParseAWSScheduleForms(t *testing.T) {
 	base := time.Date(2026, 6, 10, 12, 34, 0, 0, time.UTC)
-
 	cases := []struct {
-		name string
-		expr string
-		want time.Time
+		expr, tz string
+		want     time.Time
 	}{
-		{
-			name: "daily at 02:00 next day",
-			expr: "cron(0 2 * * ? *)",
-			want: time.Date(2026, 6, 11, 2, 0, 0, 0, time.UTC),
-		},
-		{
-			name: "every 15 minutes -> next quarter hour",
-			expr: "cron(*/15 * * * ? *)",
-			want: time.Date(2026, 6, 10, 12, 45, 0, 0, time.UTC),
-		},
-		{
-			name: "weekdays 14:30 -> same Wednesday",
-			expr: "cron(30 14 ? * MON-FRI *)",
-			want: time.Date(2026, 6, 10, 14, 30, 0, 0, time.UTC),
-		},
-		{
-			name: "specific minute list -> next listed minute",
-			expr: "cron(0,30 * * * ? *)",
-			want: time.Date(2026, 6, 10, 13, 0, 0, 0, time.UTC),
-		},
-		{
-			// AWS start/step: 0/5 means minutes 0,5,…,55 (every 5 from 0), the
-			// idiomatic clock-aligned form. Must not collapse to just minute 0.
-			name: "start/step every 5 minutes (0/5)",
-			expr: "cron(0/5 * * * ? *)",
-			want: time.Date(2026, 6, 10, 12, 35, 0, 0, time.UTC),
-		},
-		{
-			// Non-zero start: 2/10 means minutes 2,12,22,32,42,52.
-			name: "start/step with offset (2/10)",
-			expr: "cron(2/10 * * * ? *)",
-			want: time.Date(2026, 6, 10, 12, 42, 0, 0, time.UTC),
-		},
-		{
-			name: "Jan 1 midnight -> next year",
-			expr: "cron(0 0 1 JAN ? *)",
-			want: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
-		},
-		{
-			name: "day-of-month restricted (15th 09:00)",
-			expr: "cron(0 9 15 * ? *)",
-			want: time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC),
-		},
+		{"cron(0 2 * * ? *)", "", time.Date(2026, 6, 11, 2, 0, 0, 0, time.UTC)},
+		{"cron(30 14 ? * MON-FRI *)", "", time.Date(2026, 6, 10, 14, 30, 0, 0, time.UTC)},
+		{"cron(0 0 ? * 6#3 *)", "", time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC)},
+		// The fields are read in ScheduleExpressionTimezone: 09:00 in Tokyo is 00:00 UTC.
+		{"cron(0 9 * * ? *)", "Asia/Tokyo", time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)},
+		{"rate(5 minutes)", "", base.Add(5 * time.Minute)},
+		{"rate(1 hour)", "", base.Add(time.Hour)},
+		{"rate(2 days)", "", base.Add(48 * time.Hour)},
+		{"at(2026-07-01T08:00:00)", "", time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)},
+		{"at(2026-07-01T08:00:00)", "Europe/Berlin", time.Date(2026, 7, 1, 6, 0, 0, 0, time.UTC)},
 	}
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got, ok := schedulerCronNext(c.expr, base)
-			if !ok {
-				t.Fatalf("schedulerCronNext(%q) returned ok=false", c.expr)
-			}
-			if !got.Equal(c.want) {
-				t.Fatalf("schedulerCronNext(%q) = %s, want %s", c.expr, got.Format(time.RFC3339), c.want.Format(time.RFC3339))
-			}
-		})
+		plan, err := parseAWSSchedule(c.expr, c.tz, true)
+		if err != nil {
+			t.Fatalf("parseAWSSchedule(%q, %q): %v", c.expr, c.tz, err)
+		}
+		got, ok := plan.first(base)
+		if !ok || !got.Equal(c.want) {
+			t.Errorf("first(%q in %q) = %s (%v), want %s", c.expr, c.tz, got.UTC(), ok, c.want)
+		}
 	}
-}
-
-// TestSchedulerCronWiring covers the firing-loop integration of cron: the loop
-// must treat a cron schedule as recurring and compute a future first-fire time
-// (the in-process dispatch itself is covered by TestScheduler_FiresECSTarget).
-func TestSchedulerCronWiring(t *testing.T) {
-	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	s := Schedule{
-		Name:               "cron-wire",
-		GroupName:          "default",
-		ScheduleExpression: "cron(0 2 * * ? *)",
-		State:              "ENABLED",
-		CreationDate:       float64(now.Unix()),
-	}
-	next, ok := schedulerFirstFire(s, now)
-	if !ok || !next.After(now) {
-		t.Fatalf("schedulerFirstFire(cron) = %s ok=%v, want a future time", next, ok)
-	}
-	if !schedulerRecurring(s.ScheduleExpression) {
-		t.Fatal("cron(...) must be recurring so it re-fires and isn't auto-deleted")
-	}
-}
-
-// TestSchedulerCronQualifiers covers the AWS L / W / # qualifiers, which real
-// EventBridge fires correctly. base is Wednesday 2026-06-10 12:00:00 UTC.
-func TestSchedulerCronQualifiers(t *testing.T) {
-	base := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	cases := []struct {
-		name string
-		expr string
-		want time.Time
-	}{
-		{"L last day of month", "cron(0 0 L * ? *)", time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)},
-		{"LW last weekday (Jun 30 Tue)", "cron(0 0 LW * ? *)", time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)},
-		{"15W nearest weekday (Jun 15 Mon)", "cron(0 0 15W * ? *)", time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)},
-		{"1W shifts Sat->Mon, no month cross (Aug 1 Sat -> Aug 3)", "cron(0 0 1W 8 ? *)", time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)},
-		{"6#3 third Friday (Jun 19)", "cron(0 0 ? * 6#3 *)", time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC)},
-		{"6L last Friday (Jun 26)", "cron(0 0 ? * 6L *)", time.Date(2026, 6, 26, 0, 0, 0, 0, time.UTC)},
-		{"L day-of-week = Saturday (Jun 13)", "cron(0 0 ? * L *)", time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC)},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got, ok := schedulerCronNext(c.expr, base)
-			if !ok {
-				t.Fatalf("schedulerCronNext(%q) returned ok=false", c.expr)
-			}
-			if !got.Equal(c.want) {
-				t.Fatalf("schedulerCronNext(%q) = %s, want %s", c.expr, got.Format(time.RFC3339), c.want.Format(time.RFC3339))
-			}
-		})
-	}
-}
-
-func TestSchedulerCronNext_UnsupportedOrInvalid(t *testing.T) {
-	base := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	for _, expr := range []string{
-		"cron(0 2 * * ?)",     // only 5 fields (not 6)
-		"rate(5 minutes)",     // not a cron expression
-		"cron(99 2 * * ? *)",  // minute out of range
-		"cron(0 2 ? * 8#1 *)", // day-of-week 8 invalid
-		"cron(0 2 ? * 2#9 *)", // nth occurrence 9 invalid
-		"cron(0 2 32W * ? *)", // day 32 invalid
+		"", "cron()", "cron(0 2 * * ?)", "cron(99 2 * * ? *)", "cron(0 2 * * * *)",
+		"rate(0 minutes)", "rate(1 minutes)", "rate(5 minute)", "rate(5 weeks)",
+		"at(not-a-date)", "every(5 minutes)",
 	} {
-		if _, ok := schedulerCronNext(expr, base); ok {
-			t.Fatalf("schedulerCronNext(%q) returned ok=true, want false", expr)
+		if _, err := parseAWSSchedule(expr, "", true); err == nil {
+			t.Errorf("parseAWSSchedule(%q) accepted it", expr)
 		}
+	}
+	if _, err := parseAWSSchedule("cron(0 2 * * ? *)", "Mars/Olympus_Mons", true); err == nil {
+		t.Error("an unknown time zone was accepted")
+	}
+	if _, err := parseAWSSchedule("at(2026-07-01T08:00:00)", "", false); err == nil {
+		t.Error("at() was accepted where only rate() and cron() are")
 	}
 }
 
-func TestSchedulerCronValid(t *testing.T) {
-	valid := []string{
-		"cron(0 12 * * ? *)",
-		"cron(0/5 * * * ? *)",
-		"cron(0 0 L * ? *)",
-		"cron(0 0 15W * ? *)",
-		"cron(0 0 ? * 6#3 *)",
-		"cron(0 0 ? * 6L *)",
+// TestSchedulerFiresInItsTimeZoneWithinItsDates drives the firing loop at chosen
+// instants: a cron schedule fires at its wall-clock time in its own time zone,
+// never before StartDate and never after EndDate.
+func TestSchedulerFiresInItsTimeZoneWithinItsDates(t *testing.T) {
+	_, router, _ := buildConformanceSimulator(t)
+	schedulesStore := sim.NewStateStore[Schedule]()
+	records := sim.NewStateStore[cron.Record]()
+	queueURL, queueARN := testSQSQueue(t, router, "scheduler-tz-queue")
+
+	target, _ := json.Marshal(map[string]any{"Arn": queueARN, "Input": "tick"})
+	start := float64(time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC).Unix())
+	end := float64(time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC).Unix())
+	schedulesStore.Put("default/tokyo", Schedule{
+		Name: "tokyo", GroupName: "default", State: "ENABLED",
+		ScheduleExpression: "cron(0 9 * * ? *)", ScheduleExpressionTimezone: "Asia/Tokyo",
+		StartDate: &start, EndDate: &end, Target: target,
+	})
+	ticker := cron.NewTicker(records, func() []cron.Entry { return schedulerEntries(schedulesStore, records) })
+
+	ticker.Tick(time.Date(2026, 6, 10, 23, 59, 0, 0, time.UTC))
+	rec, _ := records.Get("default/tokyo")
+	if want := time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC); !rec.Next.Equal(want) {
+		t.Fatalf("first occurrence = %s, want 09:00 Tokyo on the first day after StartDate (%s)", rec.Next, want)
 	}
-	for _, e := range valid {
-		if !schedulerCronValid(e) {
-			t.Errorf("schedulerCronValid(%q) = false, want true", e)
-		}
+	ticker.Tick(time.Date(2026, 6, 13, 0, 0, 1, 0, time.UTC))
+	if got := awaitSQSMessage(t, router, queueURL, 5*time.Second); got.Body != "tick" {
+		t.Fatalf("the occurrence delivered %q, want the target's Input", got.Body)
 	}
-	invalid := []string{
-		"cron(0 0 * * ?)",     // 5 fields
-		"cron(99 0 * * ? *)",  // minute out of range
-		"cron(0 0 ? * 8#1 *)", // dow 8 invalid
-		"cron(0 0 32W * ? *)", // day 32 invalid
-		"cron()",              // empty
-	}
-	for _, e := range invalid {
-		if schedulerCronValid(e) {
-			t.Errorf("schedulerCronValid(%q) = true, want false", e)
-		}
+	if rec, _ := records.Get("default/tokyo"); !rec.Done {
+		t.Fatalf("the occurrence after EndDate was scheduled: %+v", rec)
 	}
 }

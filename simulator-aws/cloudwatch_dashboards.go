@@ -254,7 +254,7 @@ func handleCWQueryPutDashboard(w http.ResponseWriter, r *http.Request) {
 	cwPutDashboard(name, r.FormValue("DashboardBody"))
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<PutDashboardResponse %s><PutDashboardResult><DashboardValidationMessages/></PutDashboardResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></PutDashboardResponse>`,
-		cwQueryXmlns, generateUUID())
+		cwQueryXmlns, sim.NewUUID())
 }
 
 func handleCWQueryGetDashboard(w http.ResponseWriter, r *http.Request) {
@@ -265,7 +265,7 @@ func handleCWQueryGetDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetDashboardResponse %s><GetDashboardResult><DashboardName>%s</DashboardName><DashboardArn>%s</DashboardArn><DashboardBody>%s</DashboardBody></GetDashboardResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetDashboardResponse>`,
-		cwQueryXmlns, xmlEscape(d.Name), xmlEscape(cwDashboardArn(d.Name)), xmlEscape(d.Body), generateUUID())
+		cwQueryXmlns, xmlEscape(d.Name), xmlEscape(cwDashboardArn(d.Name)), xmlEscape(d.Body), sim.NewUUID())
 }
 
 func handleCWQueryListDashboards(w http.ResponseWriter, r *http.Request) {
@@ -278,7 +278,7 @@ func handleCWQueryListDashboards(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListDashboardsResponse %s><ListDashboardsResult><DashboardEntries>%s</DashboardEntries></ListDashboardsResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListDashboardsResponse>`,
-		cwQueryXmlns, members.String(), generateUUID())
+		cwQueryXmlns, members.String(), sim.NewUUID())
 }
 
 func handleCWQueryDeleteDashboards(w http.ResponseWriter, r *http.Request) {
@@ -294,5 +294,5 @@ func handleCWQueryDeleteDashboards(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteDashboardsResponse %s><DeleteDashboardsResult/><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></DeleteDashboardsResponse>`,
-		cwQueryXmlns, generateUUID())
+		cwQueryXmlns, sim.NewUUID())
 }

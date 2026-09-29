@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // FuzzLogMatchesFilter fuzzes the Cloud Logging filter parser + matcher
@@ -42,17 +44,22 @@ func FuzzLogMatchesFilter(f *testing.F) {
 		Labels:      map[string]string{"foo": "bar"},
 	}
 	f.Fuzz(func(t *testing.T, filter string) {
-		got := matchesFilter(entry, filter)
-		// The matcher decides which entries a client is shown, so a filter it
-		// cannot read must widen the result set, never narrow it: dropping
-		// entries a caller asked for is silent data loss, whereas returning
-		// extra ones is visible. An empty filter therefore matches everything,
-		// and every verdict is stable for the same input.
-		if !matchesFilter(entry, "") {
-			t.Fatalf("an empty filter must match every entry")
+		// A filter either parses to a node or is rejected; a parsed filter's
+		// verdict on the same entry never changes, so a list cannot show an
+		// entry on one call and drop it on the next.
+		node, err := parseLogFilter(filter)
+		if (node == nil) == (err == nil) {
+			t.Fatalf("parseLogFilter(%q) must return exactly one of a node and an error", filter)
 		}
-		if again := matchesFilter(entry, filter); again != got {
-			t.Fatalf("matchesFilter(%q) is not deterministic: %v then %v", filter, got, again)
+		if err != nil {
+			return
+		}
+		doc, err := listq.ToDoc(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, again := node.Eval(doc), node.Eval(doc); got != again {
+			t.Fatalf("filter %q is not deterministic", filter)
 		}
 	})
 }
@@ -126,56 +133,6 @@ func FuzzKMSVersionNumber(f *testing.F) {
 		}
 		if !strings.HasSuffix(name, "/"+strconv.Itoa(n)) {
 			t.Fatalf("kmsVersionNumber(%q) returned %d, which is not the version the name ends with", name, n)
-		}
-	})
-}
-
-// FuzzParseOrderBy fuzzes the list `orderBy` parser + field extractor used by
-// every GCP list handler that honors orderBy.
-func FuzzParseOrderBy(f *testing.F) {
-	seeds := []string{
-		"",
-		"name",
-		"name desc",
-		"name asc",
-		"a.b.c desc",
-		" desc",
-		"desc",
-		"asc",
-		",",
-		"a,b,c",
-		"   ",
-	}
-	for _, s := range seeds {
-		f.Add(s)
-	}
-	m := map[string]any{
-		"name": "x",
-		"a":    map[string]any{"b": map[string]any{"c": float64(1)}},
-	}
-	f.Fuzz(func(t *testing.T, orderBy string) {
-		field, desc := gcpParseOrderBy(orderBy)
-		// The direction keyword is a direction, not part of the field path: a
-		// parser that left it attached sorts on a field no resource has, which
-		// silently orders every list by nothing.
-		if strings.HasSuffix(field, " desc") || strings.HasSuffix(field, " asc") {
-			t.Fatalf("gcpParseOrderBy(%q) left the direction in the field path %q", orderBy, field)
-		}
-		if field != strings.TrimSpace(field) {
-			t.Fatalf("gcpParseOrderBy(%q) returned the unpadded field %q", orderBy, field)
-		}
-		// Reading a field the resource does not carry yields the empty string
-		// rather than a partial value, and the read never disagrees with itself.
-		got := gcpFieldString(m, field)
-		if again := gcpFieldString(m, field); again != got {
-			t.Fatalf("gcpFieldString(%q) is not deterministic: %q then %q", field, got, again)
-		}
-		if field != "" && desc {
-			// A descending order over the same field reads the same value; the
-			// direction belongs to the sort, not to the read.
-			if v, _ := gcpParseOrderBy(field); gcpFieldString(m, v) != got {
-				t.Fatalf("re-parsing the field %q changed the value it reads", field)
-			}
 		}
 	})
 }

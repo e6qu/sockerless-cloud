@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -128,7 +130,7 @@ func handleCreateApplicationStatusCheck(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<CreateApplicationStatusCheckResponse %s>
   <requestId>%s</requestId>
   <applicationStatusCheck>%s</applicationStatusCheck>
-</CreateApplicationStatusCheckResponse>`, ec2Xmlns(), generateUUID(), appStatusCheckXML(check))
+</CreateApplicationStatusCheckResponse>`, ec2Xmlns(), sim.NewUUID(), appStatusCheckXML(check))
 }
 
 func handleDescribeApplicationStatusChecks(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +146,7 @@ func handleDescribeApplicationStatusChecks(w http.ResponseWriter, r *http.Reques
 	fmt.Fprintf(w, `<DescribeApplicationStatusChecksResponse %s>
   <requestId>%s</requestId>
   <applicationStatusCheckSet>%s</applicationStatusCheckSet>
-</DescribeApplicationStatusChecksResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeApplicationStatusChecksResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleModifyApplicationStatusCheck(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +180,7 @@ func handleModifyApplicationStatusCheck(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<ModifyApplicationStatusCheckResponse %s>
   <requestId>%s</requestId>
   <applicationStatusCheck>%s</applicationStatusCheck>
-</ModifyApplicationStatusCheckResponse>`, ec2Xmlns(), generateUUID(), appStatusCheckXML(check))
+</ModifyApplicationStatusCheckResponse>`, ec2Xmlns(), sim.NewUUID(), appStatusCheckXML(check))
 }
 
 func handleDeleteApplicationStatusCheck(w http.ResponseWriter, r *http.Request) {
@@ -201,7 +203,7 @@ func handleDeleteApplicationStatusCheck(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<DeleteApplicationStatusCheckResponse %s>
   <requestId>%s</requestId>
   <return>true</return>
-</DeleteApplicationStatusCheckResponse>`, ec2Xmlns(), generateUUID())
+</DeleteApplicationStatusCheckResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleAssociateApplicationStatusCheck(w http.ResponseWriter, r *http.Request) {
@@ -240,7 +242,7 @@ func handleAssociateApplicationStatusCheck(w http.ResponseWriter, r *http.Reques
   <requestId>%s</requestId>
   <successfulResultSet>%s</successfulResultSet>
   <unsuccessfulResultSet>%s</unsuccessfulResultSet>
-</AssociateApplicationStatusCheckResponse>`, ec2Xmlns(), generateUUID(), successful.String(), unsuccessful.String())
+</AssociateApplicationStatusCheckResponse>`, ec2Xmlns(), sim.NewUUID(), successful.String(), unsuccessful.String())
 }
 
 func handleDisassociateApplicationStatusCheck(w http.ResponseWriter, r *http.Request) {
@@ -270,7 +272,7 @@ func handleDisassociateApplicationStatusCheck(w http.ResponseWriter, r *http.Req
   <requestId>%s</requestId>
   <successfulResultSet>%s</successfulResultSet>
   <unsuccessfulResultSet>%s</unsuccessfulResultSet>
-</DisassociateApplicationStatusCheckResponse>`, ec2Xmlns(), generateUUID(), successful.String(), unsuccessful.String())
+</DisassociateApplicationStatusCheckResponse>`, ec2Xmlns(), sim.NewUUID(), successful.String(), unsuccessful.String())
 }
 
 func handleDescribeApplicationStatusCheckAssociations(w http.ResponseWriter, r *http.Request) {
@@ -288,7 +290,7 @@ func handleDescribeApplicationStatusCheckAssociations(w http.ResponseWriter, r *
 	fmt.Fprintf(w, `<DescribeApplicationStatusCheckAssociationsResponse %s>
   <requestId>%s</requestId>
   <associationSet>%s</associationSet>
-</DescribeApplicationStatusCheckAssociationsResponse>`, ec2Xmlns(), generateUUID(), items.String())
+</DescribeApplicationStatusCheckAssociationsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 // handleDescribeApplicationStatus reports each associated instance's measured
@@ -346,7 +348,7 @@ func handleDescribeApplicationStatus(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeApplicationStatusResponse %s>
   <requestId>%s</requestId>
   <applicationStatusesResponseType><instanceSet>%s</instanceSet></applicationStatusesResponseType>
-</DescribeApplicationStatusResponse>`, ec2Xmlns(), generateUUID(), instances.String())
+</DescribeApplicationStatusResponse>`, ec2Xmlns(), sim.NewUUID(), instances.String())
 }
 
 // ec2ProbeApplicationCheck performs the check against the instance and
@@ -360,17 +362,23 @@ func ec2ProbeApplicationCheck(ctx context.Context, association EC2ApplicationSta
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}
-	target := net.JoinHostPort(instance.PrivateIpAddress, fmt.Sprintf("%d", check.Port))
-	client := &http.Client{Timeout: timeout}
-	response, err := client.Get(strings.ToLower(check.Protocol) + "://" + target + check.Path)
-	if err != nil {
-		return false
-	}
-	_ = response.Body.Close()
+	match := lbplane.StatusRange(100, 399)
 	if check.StatusCodeMatcher != "" {
-		return healthCheckCodeMatchesMatcher(check.StatusCodeMatcher, response.StatusCode)
+		parsed, err := lbplane.ParseStatusMatcher(check.StatusCodeMatcher)
+		if err != nil {
+			return false
+		}
+		match = parsed
 	}
-	return response.StatusCode < 400
+	_, err := lbplane.ProbeHTTP(ctx, lbplane.HTTPProbe{
+		Scheme:            strings.ToLower(check.Protocol),
+		VerifyCertificate: true,
+		Address:           net.JoinHostPort(instance.PrivateIpAddress, strconv.Itoa(check.Port)),
+		Path:              check.Path,
+		Timeout:           timeout,
+		Match:             match,
+	})
+	return err == nil
 }
 
 func ec2SetAppStatusSuppression(w http.ResponseWriter, r *http.Request, action string, suppressed bool) {
@@ -409,7 +417,7 @@ func ec2SetAppStatusSuppression(w http.ResponseWriter, r *http.Request, action s
   <requestId>%s</requestId>
   <successfulResultSet>%s</successfulResultSet>
   <unsuccessfulResultSet>%s</unsuccessfulResultSet>
-</%sResponse>`, action, ec2Xmlns(), generateUUID(), successful.String(), unsuccessful.String(), action)
+</%sResponse>`, action, ec2Xmlns(), sim.NewUUID(), successful.String(), unsuccessful.String(), action)
 }
 
 func handleEnableApplicationStatusCheckSuppression(w http.ResponseWriter, r *http.Request) {

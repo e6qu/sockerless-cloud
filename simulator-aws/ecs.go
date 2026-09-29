@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,6 +13,10 @@ import (
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/sparse"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 
 	"github.com/gorilla/websocket"
 	"github.com/moby/moby/api/pkg/stdcopy"
@@ -525,12 +528,6 @@ func cleanupECSTaskProcesses(taskID string, p *ecsTaskProcesses) {
 		}
 	}
 	ec2DetachRealECSTaskNIC(context.Background(), taskID)
-}
-
-func generateUUID() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 func ecsArn(resourceType, id string) string {
@@ -1294,7 +1291,7 @@ func ecsRunPendingEBSRestores(ctx context.Context, taskID string, restores []ecs
 				return fmt.Errorf("volume %s: %w", restore.VolumeName, err)
 			}
 		case restore.HostDst != "":
-			if err := ebsCopyDir(restore.HostDst, restore.HostSrc); err != nil {
+			if err := sparse.CopyTree(restore.HostDst, restore.HostSrc); err != nil {
 				return fmt.Errorf("volume %s: %w", restore.VolumeName, err)
 			}
 		}
@@ -1615,7 +1612,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 	requested := ecsRequestedTaskSize(td, in.Overrides)
 	for i := 0; i < in.Count; i++ {
 		_ = i
-		taskID := generateUUID()
+		taskID := sim.NewUUID()
 		taskArn := fmt.Sprintf("arn:aws:ecs:"+awsRegion()+":"+awsAccountID()+":task/%s/%s", clusterName, taskID)
 
 		// Placement comes first: nothing below — the ENI, the managed volume,
@@ -1637,7 +1634,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 		// Only an awsvpc task is allocated an elastic network interface. A
 		// bridge/host/none task shares the container instance's networking and
 		// carries no ENI attachment and no per-container networkInterfaces.
-		eniID := generateUUID()
+		eniID := sim.NewUUID()
 		var privateIP, subnetID string
 		if networkMode == ecsNetworkModeAwsvpc {
 			ip, ipErr := AllocateSubnetIP(requestedSubnet)
@@ -1652,7 +1649,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 		var containers []ECSTaskContainer
 		for _, cd := range td.ContainerDefinitions {
 			c := ECSTaskContainer{
-				ContainerArn: fmt.Sprintf("arn:aws:ecs:"+awsRegion()+":"+awsAccountID()+":container/%s", generateUUID()),
+				ContainerArn: fmt.Sprintf("arn:aws:ecs:"+awsRegion()+":"+awsAccountID()+":container/%s", sim.NewUUID()),
 				TaskArn:      taskArn,
 				Name:         cd.Name,
 				Image:        cd.Image,
@@ -1884,7 +1881,7 @@ func ecsScheduleTaskStart(
 // the step ran, was refused, or was dropped by a test drain. after must not
 // read the control-plane stores: it can run once a drain has returned.
 func ecsHandOffTaskLifecycle(work, after func()) {
-	run, ok := simHandoff(work)
+	run, ok := bg.Handoff(work)
 	if !ok {
 		if after != nil {
 			after()
@@ -1908,7 +1905,7 @@ func ecsHandOffTaskLifecycle(work, after func()) {
 func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTaskProcesses) {
 	for _, handle := range processes.Handles {
 		var result sim.ProcessResult
-		_ = simWatchThen(func() { result = handle.Wait() }, func() {
+		_ = bg.WatchThen(func() { result = handle.Wait() }, func() {
 			lifecycleLock := ecsTaskLifecycleLock(taskID)
 			lifecycleLock.Lock()
 			defer lifecycleLock.Unlock()
@@ -2221,7 +2218,7 @@ func ecsPauseImage() string {
 // this one along with the interface.
 func startECSPauseContainer(taskID string, td ECSTaskDefinition, dns []string, sink sim.LogSink) (*sim.ContainerHandle, error) {
 	img := sim.ResolveLocalImage(ecsPauseImage())
-	platform, err := localImagePlatform(context.Background(), img)
+	platform, err := workload.LocalImagePlatform(context.Background(), img, ecrWorkloadRegistryAuth(img))
 	if err != nil {
 		return nil, fmt.Errorf("resolve pause image platform: %w", err)
 	}
@@ -2451,7 +2448,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			continue
 		}
 		localImage := ecrWorkloadImage(cd.Image)
-		platform, err := localImagePlatform(context.Background(), localImage)
+		platform, err := workload.LocalImagePlatform(context.Background(), localImage, ecrWorkloadRegistryAuth(localImage))
 		if err != nil {
 			cleanupECSTaskProcesses(taskID, processes)
 			return nil, fmt.Errorf("resolve task container %q image platform: %w", cd.Name, err)
@@ -2494,7 +2491,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			cmdEnv[ev.Name] = ev.Value
 		}
 		if netnsTier {
-			simulatorPort, portErr := simHostMetadataPort()
+			simulatorPort, portErr := workloadhost.ListenPort(simListenAddr)
 			if portErr != nil {
 				cleanupECSTaskProcesses(taskID, processes)
 				return nil, fmt.Errorf("resolve simulator endpoint for task VPC: %w", portErr)
@@ -2538,7 +2535,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			Command:           cd.EntryPoint,
 			Args:              command,
 			WorkingDir:        cd.WorkingDirectory,
-			Env:               mergeEnv(cmdEnv, metadataEnv),
+			Env:               workloadhost.MergeEnv(cmdEnv, metadataEnv),
 			Name:              containerName,
 			Labels: map[string]string{
 				"sockerless-sim-task":           taskID,
@@ -2572,7 +2569,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			// host mode: the containers use the container instance's network
 			// stack directly, so they share its interfaces and its loopback.
 			cfg.NetworkMode = "host"
-			cfg.ExtraHosts = append(hostMetadataExtraHosts(), elbv2WorkloadExtraHosts()...)
+			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
 		case networkMode == ecsNetworkModeNone:
 			// none mode: the containers have no external connectivity.
 			cfg.NetworkMode = "none"
@@ -2580,7 +2577,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			// Every container in an awsvpc task shares the task ENI.
 			cfg.NetworkMode = "container:" + mainDockerID
 		case networkMode == ecsNetworkModeAwsvpc:
-			cfg.ExtraHosts = append(hostMetadataExtraHosts(), elbv2WorkloadExtraHosts()...)
+			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
 			netName, eniAddress, nerr := ecsTaskVPCNetwork(taskID)
 			if nerr != nil {
 				cleanupECSTaskProcesses(taskID, processes)
@@ -2591,7 +2588,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 		default:
 			// bridge mode: each container gets its own address on the
 			// container instance's default Docker bridge.
-			cfg.ExtraHosts = append(hostMetadataExtraHosts(), elbv2WorkloadExtraHosts()...)
+			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
 		}
 
 		handle, err := sim.StartContainerSync(cfg, sink)
@@ -3146,7 +3143,10 @@ func handleECSListTasks(w http.ResponseWriter, r *http.Request) {
 	})
 	sortBy(tasks, func(t ECSTask) string { return t.TaskArn })
 
-	page, next := awsPage(tasks, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsPage(w, ecsBadToken, tasks, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
 
 	taskArns := make([]string, 0, len(page))
 	for _, t := range page {
@@ -3488,7 +3488,7 @@ func handleECSExecuteCommand(srv *sim.Server) http.HandlerFunc {
 			return
 		}
 
-		sessionID := generateUUID()
+		sessionID := sim.NewUUID()
 
 		// Store the session
 		// Look up the Docker container ID for this task. Because RUNNING is now
@@ -3642,7 +3642,7 @@ func handleECSExecWebSocket(sessionID string) http.HandlerFunc {
 				// the user process, and closes the user's stdin when the
 				// frame's FIN flag is set so readers like `cat`, `tar`, and
 				// `gzip` see EOF. Match that contract.
-				simGo(func() {
+				bg.Go(func() {
 					defer attach.CloseWrite() //nolint:errcheck
 					for {
 						_, msg, rerr := conn.ReadMessage()

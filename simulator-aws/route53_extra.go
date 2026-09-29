@@ -244,7 +244,10 @@ func handleR53ListHealthChecks(w http.ResponseWriter, r *http.Request) {
 		items = append(items, sc.HealthCheck)
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Id < items[j].Id })
-	page, next := awsPageExplicit(items, q.Get("marker"), maxItems)
+	page, next, pageOK := awsPage(w, r53BadToken, items, q.Get("marker"), maxItems, 0)
+	if !pageOK {
+		return
+	}
 	r53WriteXML(w, http.StatusOK, R53ListHealthChecksResponse{
 		Xmlns:        r53Namespace,
 		HealthChecks: page,

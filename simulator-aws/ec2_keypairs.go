@@ -81,7 +81,7 @@ func handleCreateKeyPair(w http.ResponseWriter, r *http.Request) {
 	ec2KeyPairs.Put(name, kp)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateKeyPairResponse %s><requestId>%s</requestId><keyName>%s</keyName><keyFingerprint>%s</keyFingerprint><keyMaterial>%s</keyMaterial><keyPairId>%s</keyPairId></CreateKeyPairResponse>`,
-		ec2Xmlns(), generateUUID(), kp.KeyName, kp.KeyFingerprint, xmlEscape(string(privPEM)), kp.KeyPairId)
+		ec2Xmlns(), sim.NewUUID(), kp.KeyName, kp.KeyFingerprint, xmlEscape(string(privPEM)), kp.KeyPairId)
 }
 
 func handleImportKeyPair(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +115,7 @@ func handleImportKeyPair(w http.ResponseWriter, r *http.Request) {
 	ec2KeyPairs.Put(name, kp)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ImportKeyPairResponse %s><requestId>%s</requestId><keyName>%s</keyName><keyFingerprint>%s</keyFingerprint><keyPairId>%s</keyPairId></ImportKeyPairResponse>`,
-		ec2Xmlns(), generateUUID(), kp.KeyName, kp.KeyFingerprint, kp.KeyPairId)
+		ec2Xmlns(), sim.NewUUID(), kp.KeyName, kp.KeyFingerprint, kp.KeyPairId)
 }
 
 func handleDeleteKeyPair(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +131,7 @@ func handleDeleteKeyPair(w http.ResponseWriter, r *http.Request) {
 		ec2KeyPairs.Delete(name)
 	}
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteKeyPairResponse %s><requestId>%s</requestId><return>true</return></DeleteKeyPairResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteKeyPairResponse %s><requestId>%s</requestId><return>true</return></DeleteKeyPairResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func ec2KeyPairMatchesFilters(kp EC2KeyPair, filters map[string][]string) bool {
@@ -190,5 +190,5 @@ func handleDescribeKeyPairs(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeKeyPairsResponse %s><requestId>%s</requestId><keySet>%s</keySet></DescribeKeyPairsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }

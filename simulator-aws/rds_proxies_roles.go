@@ -287,7 +287,7 @@ func rdsTargetGroupARN(id string) string {
 // rdsTargetGroupID mints the identifier AWS assigns a proxy target group,
 // in the shape its own identifiers take.
 func rdsTargetGroupID() string {
-	return "prx-tg-" + strings.ReplaceAll(generateUUID(), "-", "")[:17]
+	return "prx-tg-" + strings.ReplaceAll(sim.NewUUID(), "-", "")[:17]
 }
 
 func rdsSecurityGroupARN(name string) string {
@@ -1043,7 +1043,7 @@ func rdsSeedCertificates() {
 		c := RDSCertificate{
 			CertificateIdentifier: id,
 			CertificateType:       "CA",
-			Thumbprint:            strings.ToUpper(strings.ReplaceAll(generateUUID(), "-", "")),
+			Thumbprint:            strings.ToUpper(strings.ReplaceAll(sim.NewUUID(), "-", "")),
 			ValidFrom:             now.AddDate(-1, 0, 0).Format(time.RFC3339),
 			ValidTill:             now.AddDate(40, 0, 0).Format(time.RFC3339),
 			CustomerOverride:      false,

@@ -1,68 +1,102 @@
 package main
 
 import (
+	"fmt"
+	"net/http"
 	"sort"
-	"strconv"
+
+	"github.com/e6qu/sockerless-cloud/sim"
+
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// awsPage applies numeric-offset pagination to a sorted slice of any type.
-// token is the incoming page token (empty = first page).
-// maxResults is the caller-requested page size (0 = use defaultMax).
-// Returns the page slice and the next token (empty = last page).
-//
-// The offset cursor is snapshot-stable for the simulator's reality: callers pass
-// a deterministically-ordered slice (sort before paginating) and the in-process
-// store is not mutated between a client's successive page fetches. The one real
-// instability source — an unsorted input slice whose map-iteration order varied
-// per page — was eliminated by sorting every paginated caller's input.
-func awsPage[T any](all []T, token string, maxResults, defaultMax int) ([]T, string) {
-	start := 0
-	if token != "" {
-		offset, err := strconv.Atoi(token)
-		if err != nil || offset < 0 {
-			offset = 0
-		}
-		start = offset
+// awsBadToken writes the error a service answers a page token it never
+// issued with.
+type awsBadToken func(w http.ResponseWriter, token string)
+
+// awsPage pages a deterministically sorted list by the decimal offset token
+// the AWS slices hand out. A size of zero or less takes def, and a positive
+// def also caps the page; def 0 returns every remaining item when the caller
+// names no size. A token the list never issued writes bad's error and reports
+// false.
+func awsPage[T any](w http.ResponseWriter, bad awsBadToken, all []T, token string, size, def int) ([]T, string, bool) {
+	page, next, err := listq.OffsetPage(all, token, size, def, def)
+	if err != nil {
+		bad(w, token)
+		return nil, "", false
 	}
-	if start >= len(all) {
-		return []T{}, ""
-	}
-	page := defaultMax
-	if maxResults > 0 && maxResults < page {
-		page = maxResults
-	}
-	end := start + page
-	if end >= len(all) {
-		return all[start:], ""
-	}
-	return all[start:end], strconv.Itoa(end)
+	return page, next, true
 }
 
-// awsPageExplicit paginates a sorted slice only when the caller explicitly
-// requested a positive page size. When maxResults is 0 (unset) the full list
-// is returned with an empty next token — matching the no-page-size-no-token
-// contract clients rely on. token is the incoming page token (empty = first
-// page); the returned token is empty on the last page.
-func awsPageExplicit[T any](all []T, token string, maxResults int) ([]T, string) {
-	start := 0
-	if token != "" {
-		offset, err := strconv.Atoi(token)
-		if err != nil || offset < 0 {
-			offset = 0
-		}
-		start = offset
+func awsBadTokenMessage(token string) string {
+	return fmt.Sprintf("The pagination token %q is not valid.", token)
+}
+
+// awsJSONBadToken answers with a JSON error document under code.
+func awsJSONBadToken(code string) awsBadToken {
+	return func(w http.ResponseWriter, token string) {
+		AWSError(w, code, awsBadTokenMessage(token), http.StatusBadRequest)
 	}
-	if start >= len(all) {
-		return []T{}, ""
+}
+
+// Each service's answer to a foreign token is the error its Smithy model
+// declares for the list operations, or the service's documented validation
+// error where the model declares none.
+var (
+	acmBadToken awsBadToken = func(w http.ResponseWriter, token string) {
+		acmWriteError(w, "ValidationException", awsBadTokenMessage(token))
 	}
-	if maxResults <= 0 {
-		return all[start:], ""
+	amplifyBadToken awsBadToken = func(w http.ResponseWriter, token string) {
+		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", awsBadTokenMessage(token))
 	}
-	end := start + maxResults
-	if end >= len(all) {
-		return all[start:], ""
+	appASBadToken             = awsJSONBadToken("InvalidNextTokenException")
+	asBadToken    awsBadToken = func(w http.ResponseWriter, token string) {
+		asError(w, "InvalidNextToken", awsBadTokenMessage(token), http.StatusBadRequest)
 	}
-	return all[start:end], strconv.Itoa(end)
+	batchBadToken awsBadToken = func(w http.ResponseWriter, token string) {
+		batchWriteError(w, http.StatusBadRequest, awsBadTokenMessage(token))
+	}
+	cloudMapBadToken             = awsJSONBadToken("InvalidInput")
+	cbBadToken       awsBadToken = func(w http.ResponseWriter, token string) {
+		cbWriteError(w, "InvalidInputException", awsBadTokenMessage(token))
+	}
+	ddbBadToken             = awsJSONBadToken("ValidationException")
+	ec2BadToken awsBadToken = func(w http.ResponseWriter, token string) {
+		ec2ErrorXML(w, "InvalidPaginationToken", awsBadTokenMessage(token), http.StatusBadRequest)
+	}
+	ecrBadToken              = awsJSONBadToken("InvalidParameterException")
+	ecsBadToken              = awsJSONBadToken("InvalidParameterException")
+	efsBadToken              = awsJSONBadToken("BadRequest")
+	ebBadToken               = awsJSONBadToken("ValidationException")
+	glueBadToken awsBadToken = func(w http.ResponseWriter, token string) {
+		glueWriteError(w, "InvalidInputException", awsBadTokenMessage(token))
+	}
+	iamBadToken awsBadToken = func(w http.ResponseWriter, token string) {
+		iamErrorXML(w, "InvalidInput", awsBadTokenMessage(token), http.StatusBadRequest)
+	}
+	kmsBadToken                = awsJSONBadToken("InvalidMarkerException")
+	lambdaBadToken             = awsJSONBadToken("InvalidParameterValueException")
+	logsBadToken               = awsJSONBadToken("InvalidParameterException")
+	r53BadToken    awsBadToken = func(w http.ResponseWriter, token string) {
+		r53WriteError(w, http.StatusBadRequest, "InvalidInput", awsBadTokenMessage(token))
+	}
+	sfnBadToken awsBadToken = func(w http.ResponseWriter, token string) { sfnWriteError(w, "InvalidToken", awsBadTokenMessage(token)) }
+	smBadToken              = awsJSONBadToken("InvalidNextTokenException")
+	sqsBadToken awsBadToken = func(w http.ResponseWriter, token string) {
+		sqsErrorJSON(w, "InvalidParameterValue", awsBadTokenMessage(token), http.StatusBadRequest)
+	}
+	ssmBadToken             = awsJSONBadToken("InvalidNextToken")
+	wafBadToken awsBadToken = func(w http.ResponseWriter, token string) {
+		wafWriteError(w, "WAFInvalidParameterException", awsBadTokenMessage(token))
+	}
+)
+
+// snsBadToken answers in the Amazon SNS query protocol, whose error document
+// carries the request's id.
+func snsBadToken(r *http.Request) awsBadToken {
+	return func(w http.ResponseWriter, token string) {
+		snsErrorXML(w, "InvalidParameter", awsBadTokenMessage(token), http.StatusBadRequest, sim.RequestID(r.Context()))
+	}
 }
 
 // awsMaxResults reads an optional *int32 page-size param, treating nil and

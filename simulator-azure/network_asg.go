@@ -51,7 +51,7 @@ func registerNetworkApplicationSecurityGroups(srv *sim.Server) {
 		provision: func(_ context.Context, asg *ApplicationSecurityGroup, previous *ApplicationSecurityGroup) error {
 			// The resource GUID is assigned once, at creation, and survives
 			// every later update of the same resource.
-			asg.Properties.ResourceGUID = generateUUID()
+			asg.Properties.ResourceGUID = sim.NewUUID()
 			if previous != nil && previous.Properties.ResourceGUID != "" {
 				asg.Properties.ResourceGUID = previous.Properties.ResourceGUID
 			}

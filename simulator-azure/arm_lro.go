@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // AsyncOperationStatus is the ARM operation-status envelope a polled
@@ -46,22 +46,6 @@ type AsyncOperationError struct {
 }
 
 var azureAsyncOps sim.Store[AsyncOperationStatus]
-
-// azureAsyncOpsWG counts the operations still completing in the background. An
-// operation completes in a goroutine after a short delay, which is what makes
-// it long-running rather than a lie; nothing waited for those goroutines, so
-// one still running when a test finished went on reading and writing
-// package-level stores while the next test rebuilt the simulator underneath
-// it. The race detector reports that as a write racing a read with neither in
-// the test's own code, and it is a real hazard in a process that rebuilds its
-// registries.
-var azureAsyncOpsWG sync.WaitGroup
-
-// AwaitAzureAsyncOperations blocks until every operation issued so far has
-// reached a terminal state. A test that issued one calls this before it
-// finishes, so the operation is done with the stores before the next test
-// replaces them.
-func AwaitAzureAsyncOperations() { azureAsyncOpsWG.Wait() }
 
 func registerAzureAsyncOperations(srv *sim.Server) {
 	azureAsyncOps = sim.MakeStore[AsyncOperationStatus](srv.DB(), "azure_async_ops")
@@ -118,16 +102,14 @@ func issueAzureAsyncOperationOutcome(complete func() *AsyncOperationError) strin
 // Location poll answers with, which is the operation's result rather than its
 // status envelope.
 func issueAzureAsyncOperationResult(complete func() (json.RawMessage, *AsyncOperationError)) string {
-	opID := generateUUID()
+	opID := sim.NewUUID()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	azureAsyncOps.Put(opID, AsyncOperationStatus{
 		Name:      opID,
 		Status:    "InProgress",
 		StartTime: now,
 	})
-	azureAsyncOpsWG.Add(1)
-	go func() {
-		defer azureAsyncOpsWG.Done()
+	bg.Go(func() {
 		time.Sleep(50 * time.Millisecond)
 		var opErr *AsyncOperationError
 		var result json.RawMessage
@@ -144,7 +126,7 @@ func issueAzureAsyncOperationResult(complete func() (json.RawMessage, *AsyncOper
 			}
 			op.EndTime = time.Now().UTC().Format(time.RFC3339Nano)
 		})
-	}()
+	})
 	return opID
 }
 

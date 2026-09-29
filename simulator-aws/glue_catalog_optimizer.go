@@ -241,7 +241,10 @@ func handleGlueGetCatalogs(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	wired := make([]map[string]any, 0, len(page))
 	for _, c := range page {
 		wired = append(wired, glueCatalogWire(c))
@@ -519,7 +522,10 @@ func handleGlueListTableOptimizerRuns(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok := awsPage(opt.Runs, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, opt.Runs, req.NextToken, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{
 		"CatalogId":          opt.CatalogId,
 		"DatabaseName":       opt.DatabaseName,
@@ -850,7 +856,10 @@ func handleGlueDescribeIntegrations(w http.ResponseWriter, r *http.Request) {
 	if req.MaxRecords != nil {
 		maxR = *req.MaxRecords
 	}
-	page, nextTok := awsPage(matched, req.Marker, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, matched, req.Marker, maxR, 100)
+	if !pageOK {
+		return
+	}
 	wired := make([]map[string]any, 0, len(page))
 	for _, integ := range page {
 		wired = append(wired, glueIntegrationWire(integ))
@@ -961,7 +970,10 @@ func handleGlueDescribeInboundIntegrations(w http.ResponseWriter, r *http.Reques
 	if req.MaxRecords != nil {
 		maxR = *req.MaxRecords
 	}
-	page, nextTok := awsPage(matched, req.Marker, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, matched, req.Marker, maxR, 100)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"InboundIntegrations": page}
 	if nextTok != "" {
 		resp["Marker"] = nextTok
@@ -1076,7 +1088,10 @@ func handleGlueListIntegrationResourceProperties(w http.ResponseWriter, r *http.
 	if req.MaxRecords != nil {
 		maxR = *req.MaxRecords
 	}
-	page, nextTok := awsPage(all, req.Marker, maxR, 100)
+	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.Marker, maxR, 100)
+	if !pageOK {
+		return
+	}
 	wired := make([]map[string]any, 0, len(page))
 	for _, p := range page {
 		wired = append(wired, glueIntegResPropWire(p))
@@ -1162,7 +1177,10 @@ func handleGlueListIntegrationTableProperties(w http.ResponseWriter, r *http.Req
 	if req.MaxRecords != nil {
 		maxR = *req.MaxRecords
 	}
-	page, next := awsPage(filtered, req.Marker, maxR, 100)
+	page, next, pageOK := awsPage(w, glueBadToken, filtered, req.Marker, maxR, 100)
+	if !pageOK {
+		return
+	}
 	wired := make([]map[string]any, 0, len(page))
 	for _, p := range page {
 		entry := map[string]any{"ResourceArn": p.ResourceArn, "TableName": p.TableName}

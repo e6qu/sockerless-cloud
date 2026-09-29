@@ -200,9 +200,9 @@ func TestTablesDataPlane(t *testing.T) {
 	assert.Contains(t, string(queryBody), `"value"`)
 	assert.Contains(t, string(queryBody), `"Foo":"bar"`)
 
-	// Delete entity.
+	// Delete entity: the Table service requires If-Match, `*` for any version.
 	resp = storageDataplaneReq(t, "DELETE", account, "table",
-		"/"+table+"(PartitionKey='p1',RowKey='r1')", nil, nil)
+		"/"+table+"(PartitionKey='p1',RowKey='r1')", nil, map[string]string{"If-Match": "*"})
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 	resp.Body.Close()
 

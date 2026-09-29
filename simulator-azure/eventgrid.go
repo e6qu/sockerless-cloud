@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,12 +12,14 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/delivery"
 )
 
 // Microsoft.EventGrid ARM control plane plus custom-topic publish
 // data plane. Topics are addressed through ARM; events publish to
-// the topic endpoint's /api/events path and synchronously fan out to
-// webhook event subscriptions.
+// the topic endpoint's /api/events path and fan out to webhook event
+// subscriptions under each subscription's retry policy
+// (eventgrid_delivery.go).
 
 type EventGridTopic struct {
 	ID       string `json:"id"`
@@ -113,6 +115,7 @@ func registerEventGrid(srv *sim.Server) {
 
 	registerEventGridMore(srv)
 	registerEventGridPartner(srv)
+	registerEventGridDelivery(srv)
 
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -738,47 +741,59 @@ func publishEventGridScope(w http.ResponseWriter, r *http.Request, scope eventGr
 		AzureErrorf(w, "InvalidEvent", http.StatusBadRequest, "%v", err)
 		return
 	}
-	if !scope.isDomain {
-		deliverEventGridBatch(scope.resource.ID, body)
-		w.WriteHeader(http.StatusOK)
-		return
+	// Event Grid sets each event's topic to the resource it was published to
+	// (a domain event's to its domain topic) and stamps metadataVersion. A
+	// domain-scoped event subscription receives every event published to the
+	// domain as well as the domain topic's own subscriptions.
+	byScope := map[string][]json.RawMessage{}
+	var scopes []string
+	route := func(scopeID string, event json.RawMessage) {
+		if _, seen := byScope[scopeID]; !seen {
+			scopes = append(scopes, scopeID)
+		}
+		byScope[scopeID] = append(byScope[scopeID], event)
 	}
-	// A domain fans each event out to its own domain topic. A domain-scoped
-	// event subscription receives every event published to the domain, which
-	// falls out of routing each event to the domain scope as well.
 	for i, event := range events {
-		single, marshalErr := json.Marshal([]json.RawMessage{rawEventGridEvent(body, i)})
-		if marshalErr != nil {
-			AzureErrorf(w, "InvalidEvent", http.StatusBadRequest, "event %d could not be re-encoded: %v", i, marshalErr)
+		topic := scope.resource.ID
+		if scope.isDomain {
+			topic = eventGridDomainTopicScopeID(scope.resource.ID, event.Topic)
+		}
+		stamped, stampErr := stampEventGridEvent(rawEventGridEvent(body, i), topic)
+		if stampErr != nil {
+			AzureErrorf(w, "InvalidEvent", http.StatusBadRequest, "event %d could not be re-encoded: %v", i, stampErr)
 			return
 		}
-		deliverEventGridBatch(eventGridDomainTopicScopeID(scope.resource.ID, event.Topic), single)
-		deliverEventGridBatch(scope.resource.ID, single)
+		route(topic, stamped)
+		if scope.isDomain {
+			route(scope.resource.ID, stamped)
+		}
+	}
+	for _, scopeID := range scopes {
+		eventGridSubmit(scopeID, byScope[scopeID])
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// stampEventGridEvent sets the members Event Grid owns on a published event,
+// keeping every other member as the publisher encoded it.
+func stampEventGridEvent(raw json.RawMessage, topic string) (json.RawMessage, error) {
+	var event map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &event); err != nil {
+		return nil, err
+	}
+	topicJSON, err := json.Marshal(topic)
+	if err != nil {
+		return nil, err
+	}
+	event["topic"] = topicJSON
+	event["metadataVersion"] = json.RawMessage(`"1"`)
+	return json.Marshal(event)
 }
 
 // eventGridDomainTopicScopeID is the resource ID of a domain topic beneath a
 // domain, which is the scope a domain-published event's subscriptions hang off.
 func eventGridDomainTopicScopeID(domainID, topic string) string {
 	return domainID + "/topics/" + topic
-}
-
-// deliverEventGridBatch posts a publish batch to every webhook subscription of
-// one scope.
-func deliverEventGridBatch(scopeID string, body []byte) {
-	// A publish delivers to one scope's subscriptions, so the store is indexed
-	// by the scopes a subscription belongs to rather than read in full for
-	// every published event.
-	for _, es := range eventGridSubscriptionsByTopic.LookupAll(eventGridSubscriptions, scopeID,
-		eventGridSubscriptionTopics) {
-		if endpoint := eventGridWebhookEndpoint(es); endpoint != "" {
-			if resp, err := http.Post(endpoint, "application/json", bytes.NewReader(body)); err == nil {
-				_, _ = io.Copy(io.Discard, resp.Body)
-				_ = resp.Body.Close()
-			}
-		}
-	}
 }
 
 // rawEventGridEvent returns the i-th event of a publish batch exactly as the
@@ -860,7 +875,9 @@ func eventGridSubscriptionTopics(es EventGridEventSubscription) []string {
 		at += i + len(segment)
 	}
 	if es.Properties != nil {
-		if topic, ok := es.Properties["topic"].(string); ok && topic != "" {
+		// The topic property usually repeats the identifier's scope; listing it
+		// twice would index the subscription twice and deliver every event twice.
+		if topic, ok := es.Properties["topic"].(string); ok && topic != "" && !slices.Contains(scopes, topic) {
 			scopes = append(scopes, topic)
 		}
 	}
@@ -926,19 +943,26 @@ func deliverEventGridValidation(es EventGridEventSubscription) {
 		return
 	}
 	event := []map[string]any{{
-		"id":        generateUUID(),
+		"id":        sim.NewUUID(),
 		"eventType": "Microsoft.EventGrid.SubscriptionValidationEvent",
 		"subject":   "",
 		"eventTime": time.Now().UTC().Format(time.RFC3339Nano),
 		"data": map[string]any{
-			"validationCode": generateUUID(),
+			"validationCode": sim.NewUUID(),
 			"validationUrl":  endpoint,
 		},
 		"dataVersion": "1",
 	}}
-	payload, _ := json.Marshal(event)
-	if resp, err := http.Post(endpoint, "application/json", bytes.NewReader(payload)); err == nil {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return
 	}
+	header := http.Header{}
+	header.Set("Content-Type", "application/json; charset=utf-8")
+	header.Set("aeg-event-type", "SubscriptionValidation")
+	header.Set("aeg-subscription-name", strings.ToUpper(es.Name))
+	header.Set("aeg-delivery-count", "0")
+	header.Set("aeg-metadata-version", "1")
+	header.Set("aeg-data-version", "1")
+	delivery.Post(context.Background(), delivery.Request{URL: endpoint, Header: header, Body: payload, Timeout: 30 * time.Second}, delivery.Success2xx)
 }

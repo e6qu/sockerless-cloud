@@ -402,7 +402,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 			return
 		}
 		instance := seedInstanceV2Defaults(cloudRunV1InstanceToV2(body), r.Host, namespace, cloudRunDefaultLocation, body.Metadata.Name)
-		instance.Etag = generateUUID()
+		instance.Etag = sim.NewUUID()
 		if !dryRun {
 			crv2Instances.Put(name, instance)
 		}
@@ -484,7 +484,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		update.Conditions = []Condition{
 			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime},
 		}
-		update.Etag = generateUUID()
+		update.Etag = sim.NewUUID()
 		if !dryRun {
 			crv2Instances.Put(name, update)
 		}
@@ -545,7 +545,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		crv2Instances.Update(name, func(i *InstanceV2) {
 			i.UpdateTime = now
 			i.TerminalCondition = &Condition{Type: "Ready", State: state, LastTransitionTime: now, Reason: reason}
-			i.Etag = generateUUID()
+			i.Etag = sim.NewUUID()
 		})
 		instance, _ := crv2Instances.Get(name)
 		writeCloudRunV1Instance(w, instance)
@@ -573,7 +573,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 			return
 		}
 		pool := seedWorkerPoolV2Defaults(cloudRunV1WorkerPoolToV2(body), namespace, cloudRunDefaultLocation, body.Metadata.Name)
-		pool.Etag = generateUUID()
+		pool.Etag = sim.NewUUID()
 		if !dryRun {
 			crv2WorkerPools.Put(name, pool)
 			reconcileWorkerPoolRevision(crv2WorkerPoolRevisions, name, body.Metadata.Name+"-00001-abc", pool)
@@ -660,7 +660,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		update.InstanceSplitStatuses = []InstanceSplit{
 			{Type: "INSTANCE_SPLIT_ALLOCATION_TYPE_LATEST", Percent: 100, Revision: revName},
 		}
-		update.Etag = generateUUID()
+		update.Etag = sim.NewUUID()
 		if !dryRun {
 			crv2WorkerPools.Put(name, update)
 			reconcileWorkerPoolRevision(crv2WorkerPoolRevisions, name, revName, update)

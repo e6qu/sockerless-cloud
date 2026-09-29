@@ -5,17 +5,16 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
-	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/archive"
 )
 
 // web_backup.go implements the Microsoft.Web backup, restore and snapshot
@@ -316,33 +315,15 @@ func webBuildBackupArchive(resID, siteName, backupName, created string, hostName
 // root can carry, which the content restore does not write into the file
 // system.
 func webReadBackupArchive(data []byte) ([]WebSiteContentFile, error) {
-	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return nil, fmt.Errorf("the backup archive is not a readable ZIP file: %w", err)
-	}
 	var out []WebSiteContentFile
-	for _, zf := range zr.File {
-		if zf.FileInfo().IsDir() {
-			continue
+	err := archive.ReadZip(data, webSiteContentLimit, func(f archive.File) error {
+		if rel, ok := strings.CutPrefix(f.Name, webBackupContentRoot+"/"); ok {
+			out = append(out, WebSiteContentFile{Path: rel, Mode: uint32(f.Mode), Data: f.Data})
 		}
-		clean := path.Clean(strings.TrimPrefix(zf.Name, "/"))
-		rel, ok := strings.CutPrefix(clean, webBackupContentRoot+"/")
-		if !ok {
-			continue
-		}
-		if rel == "" || strings.HasPrefix(rel, "../") {
-			return nil, fmt.Errorf("backup archive entry %q escapes the site root", zf.Name)
-		}
-		rc, err := zf.Open()
-		if err != nil {
-			return nil, fmt.Errorf("open backup archive entry %q: %w", zf.Name, err)
-		}
-		content, err := io.ReadAll(io.LimitReader(rc, webDeployPackageLimit))
-		_ = rc.Close()
-		if err != nil {
-			return nil, fmt.Errorf("read backup archive entry %q: %w", zf.Name, err)
-		}
-		out = append(out, WebSiteContentFile{Path: rel, Mode: uint32(zf.Mode().Perm()), Data: content})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read the backup archive: %w", err)
 	}
 	return out, nil
 }

@@ -914,7 +914,7 @@ func handleCWQueryPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<PutMetricAlarmResponse %s><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></PutMetricAlarmResponse>`,
-		cwQueryXmlns, generateUUID())
+		cwQueryXmlns, sim.NewUUID())
 }
 
 func handleCWQueryDescribeAlarms(w http.ResponseWriter, r *http.Request) {
@@ -1027,7 +1027,7 @@ func handleCWQueryDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeAlarmsResponse %s><DescribeAlarmsResult><MetricAlarms>%s</MetricAlarms><CompositeAlarms>%s</CompositeAlarms><LogAlarms>%s</LogAlarms></DescribeAlarmsResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></DescribeAlarmsResponse>`,
-		cwQueryXmlns, members.String(), composites.String(), logAlarms.String(), generateUUID())
+		cwQueryXmlns, members.String(), composites.String(), logAlarms.String(), sim.NewUUID())
 }
 
 func handleCWQueryDeleteAlarms(w http.ResponseWriter, r *http.Request) {
@@ -1041,5 +1041,5 @@ func handleCWQueryDeleteAlarms(w http.ResponseWriter, r *http.Request) {
 	cwDeleteAlarms(names)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteAlarmsResponse %s><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></DeleteAlarmsResponse>`,
-		cwQueryXmlns, generateUUID())
+		cwQueryXmlns, sim.NewUUID())
 }

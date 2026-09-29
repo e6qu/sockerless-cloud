@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Compute Engine's bulk creates and the verbs that reshape a resource in place.
@@ -131,8 +132,8 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 				"bulkInsert")
 			recordComputeOp(op)
 			booting := run
-			go func() {
-				ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), computeInstanceBootBudget)
+			bg.Go(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), computeInstanceBootBudget)
 				defer cancel()
 				for i := range booting {
 					if err := gcpStartRealVM(ctx, &booting[i]); err != nil {
@@ -146,7 +147,7 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 					gcpInstances.Put(booting[i].SelfLink, booting[i])
 				}
 				computeOpFinish(op.Name, gcpReapplyRealFirewalls(ctx))
-			}()
+			})
 			sim.WriteJSON(w, http.StatusOK, computeOpJSON(op))
 		}
 	}

@@ -39,7 +39,7 @@ func FuzzAzureParseODataFilter(f *testing.F) {
 	f.Fuzz(func(t *testing.T, expr string) {
 		node, err := azureParseODataFilter(expr)
 		if err == nil && node != nil {
-			_ = node.eval(m)
+			_ = node.Eval(m)
 		}
 	})
 }

@@ -228,7 +228,10 @@ func handleSSMDescribePatchGroups(w http.ResponseWriter, r *http.Request) {
 		all = []SSMPatchGroupRegistration{}
 	}
 	sortBy(all, func(g SSMPatchGroupRegistration) string { return ssmPatchGroupKey(g.OperatingSystem, g.PatchGroup) })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	mappings := make([]map[string]any, 0, len(page))
 	for _, reg := range page {
 		entry := map[string]any{"PatchGroup": reg.PatchGroup}
@@ -625,7 +628,10 @@ func handleSSMListOpsMetadata(w http.ResponseWriter, r *http.Request) {
 		return true
 	})
 	sortBy(all, func(m SSMOpsMetadata) string { return m.OpsMetadataArn })
-	page, next := awsPage(all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, m := range page {
 		out = append(out, map[string]any{
@@ -831,7 +837,10 @@ func handleSSMGetParameterHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := ssmSyncParameterVersions(cur)
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Version < rows[j].Version })
-	page, next := awsPage(rows, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsPage(w, ssmBadToken, rows, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, row := range page {
 		entry := map[string]any{

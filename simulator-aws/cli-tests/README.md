@@ -1,40 +1,23 @@
-# simulator-aws-cli-tests
+# simulator-aws CLI tests
 
-Integration tests for the AWS simulator using the AWS CLI. Each test builds the simulator binary, starts it on a free port, and runs `aws` CLI commands against it.
+Integration tests for the AWS simulator through the AWS CLI (`aws`). `TestMain`
+builds the simulator into `.build/cli-tests/`, starts it on a free port, and
+stops it when the suite ends; each test shells out to the real CLI through
+`runCLI`, which returns the command's standard output and reports both streams
+when the command fails.
 
-## Services tested
-
-| Test file | Service | Operations |
-|-----------|---------|------------|
-| `s3_test.go` | S3 | Bucket operations, object upload/download |
-| `sts_test.go` | STS | GetCallerIdentity |
-| `cloudwatch_test.go` | CloudWatch Logs | Log groups, streams, put/get/filter events |
-| `lambda_test.go` | Lambda | Create, invoke, update configuration, delete |
-| `efs_test.go` | EFS | File systems, mount targets, access points |
-| `cloudmap_test.go` | Cloud Map | Namespaces, services, instance register/deregister |
+`TestMain` installs the current AWS CLI v2 release into a temporary directory when `aws` is not on `PATH`.
 
 ## Running
 
 ```sh
 cd simulator-aws/cli-tests
-go test -v ./...
+go test ./...
 ```
 
-The test harness (`helpers_test.go`) handles binary build, port allocation, server startup, and shutdown. No external services required.
-
-## Prerequisites
-
-- Go 1.23+
-- `aws` CLI installed and on `PATH`
-- The `simulator-aws/` parent module (built automatically by `TestMain`)
+CI runs the suite through `make -C simulator-aws cli-test`, sharded by the
+jobs in `.github/workflows/ci.yml`.
 
 ## CLI configuration
 
-Tests set these environment variables before running `aws` commands:
-
-```sh
-AWS_ENDPOINT_URL=http://localhost:{port}
-AWS_ACCESS_KEY_ID=test
-AWS_SECRET_ACCESS_KEY=test
-AWS_DEFAULT_REGION=us-east-1
-```
+Each command runs with `AWS_ENDPOINT_URL` pointing at the simulator, static test credentials and a region — the environment a real AWS CLI user sets, with the simulator as the endpoint.

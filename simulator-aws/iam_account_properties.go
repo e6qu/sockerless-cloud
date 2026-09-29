@@ -112,7 +112,7 @@ func handleIAMGetAccountProperties(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetAccountPropertiesResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <GetAccountPropertiesResult><Properties>%s</Properties></GetAccountPropertiesResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetAccountPropertiesResponse>`, entries, generateUUID())
+</GetAccountPropertiesResponse>`, entries, sim.NewUUID())
 }
 
 // iamRoleTemplateCatalogUnavailable is the reason both template operations

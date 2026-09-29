@@ -21,7 +21,6 @@ import (
 	"net/http"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -572,18 +571,5 @@ func crmListValuesAdmissible(c CRMConstraint, l *CRMListPolicy) string {
 // crmOrgPolicyPage applies the page-size / page-token pair the org-policy list
 // methods carry in the request BODY rather than the query string.
 func crmOrgPolicyPage[T any](w http.ResponseWriter, items []T, pageSize int, pageToken string) ([]T, string, bool) {
-	start := 0
-	if pageToken != "" {
-		n, err := strconv.Atoi(pageToken)
-		if err != nil || n < 0 || n > len(items) {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid page token %q.", pageToken)
-			return nil, "", false
-		}
-		start = n
-	}
-	rest := items[start:]
-	if pageSize <= 0 || pageSize >= len(rest) {
-		return rest, "", true
-	}
-	return rest[:pageSize], strconv.Itoa(start + pageSize), true
+	return gcpOffsetPage(w, items, pageToken, pageSize, 0)
 }

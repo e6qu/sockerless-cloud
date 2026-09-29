@@ -1,34 +1,23 @@
-# simulator-azure-cli-tests
+# simulator-azure CLI tests
 
-Integration tests for the Azure simulator using the `az` CLI. Each test builds the simulator binary, starts it on a free port, and runs `az` commands against it.
+Integration tests for the Azure simulator through the Azure CLI (`az`). `TestMain`
+builds the simulator into `.build/cli-tests/`, starts it on a free port, and
+stops it when the suite ends; each test shells out to the real CLI through
+`runCLI`, which returns the command's standard output and reports both streams
+when the command fails.
 
-## Services tested
-
-| Test file | Service | Operations |
-|-----------|---------|------------|
-| `acr_test.go` | Container Registry | ACR create/list |
-| `appserviceplan_test.go` | App Service | Plan create/delete |
-| `authorization_test.go` | Authorization | Role assignment create/delete |
-| `containerappenv_test.go` | Container Apps | Environment create/delete |
-| `dns_test.go` | Private DNS | Zones, record sets, VNet links |
-| `functions_test.go` | Functions | Function App create/delete |
-| `monitor_test.go` | Monitor | Workspace create/delete |
+The Azure CLI must be on `PATH`; `TestMain` fails naming it when it is not.
 
 ## Running
 
 ```sh
 cd simulator-azure/cli-tests
-go test -v ./...
+go test ./...
 ```
 
-The test harness (`helpers_test.go`) handles binary build, port allocation, server startup, and shutdown. No external services required.
-
-## Prerequisites
-
-- Go 1.23+
-- `az` CLI installed and on `PATH`
-- The `simulator-azure/` parent module (built automatically by `TestMain`)
+CI runs the suite through `make -C simulator-azure cli-test`, sharded by the
+jobs in `.github/workflows/ci.yml`.
 
 ## CLI configuration
 
-Tests configure the Azure CLI to point at the local simulator using `AZURE_CLI_DISABLE_CONNECTION_VERIFICATION=1` and endpoint environment variables.
+Each command runs with an isolated `AZURE_CONFIG_DIR`; a test addresses the simulator by URL (`az rest --url`) or through a registered cloud whose endpoints are the simulator.

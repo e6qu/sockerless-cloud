@@ -123,7 +123,7 @@ func handleS3CreateJob(w http.ResponseWriter, r *http.Request) {
 
 // s3BatchJobID is the job identifier S3 hands back, in the UUID form the
 // service uses.
-func s3BatchJobID() string { return generateUUID() }
+func s3BatchJobID() string { return sim.NewUUID() }
 
 // s3RunBatchJob reads the job's manifest and applies its operation to every
 // entry, recording what succeeded and what did not.

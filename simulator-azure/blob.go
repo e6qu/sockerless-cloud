@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -13,6 +15,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
+	"github.com/e6qu/sockerless-cloud/sim/sparse"
 )
 
 // Azure Storage Blob data plane
@@ -50,12 +54,9 @@ type BlobLease struct {
 	Broken    bool
 }
 
-// BlobPageRange is one written (non-sparse) byte range of a page blob. Start and
-// End are both inclusive, exactly as Azure reports them in Get Page Ranges.
-type BlobPageRange struct {
-	Start int64
-	End   int64
-}
+// BlobPageRange is one written (non-sparse) byte range of a page blob, both
+// ends inclusive, exactly as Azure reports them in Get Page Ranges.
+type BlobPageRange = sparse.Extent
 
 // BlobSignedIdentifier is one stored access policy of a container ACL.
 type BlobSignedIdentifier struct {
@@ -541,35 +542,44 @@ func isNonStorageFirstSegment(s string) bool {
 	return false
 }
 
-// blobStoragePage applies Azure Storage list pagination to an already-sorted
-// slice. It reads ?maxresults=N (page size, default unlimited) and
-// ?marker=NAME (continuation token = name of first item to include) from the
-// request query, slices the items, and returns the page plus a NextMarker
-// value (empty when the page is the last one). The name func extracts the
-// sortable name from each item.
-func blobStoragePage[T any](r *http.Request, items []T, name func(T) string) ([]T, string) {
-	// Apply marker: skip items whose name is <= marker.
-	marker := r.URL.Query().Get("marker")
-	start := 0
-	if marker != "" {
-		for start < len(items) && name(items[start]) <= marker {
-			start++
-		}
-	}
-	items = items[start:]
+// blobListLimit is the most entries one page of an Azure Storage listing holds,
+// and the size of a page whose request names no maxresults.
+const blobListLimit = 5000
 
-	// Apply maxresults.
+// blobStoragePage applies Azure Storage list pagination to a listing: the
+// entries after ?marker, at most ?maxresults of them, which counts blob
+// prefixes together with blobs. NextMarker is opaque to clients; it carries
+// the cursor of the last entry returned, which may name a snapshot or a
+// container version and so is not always a name.
+func blobStoragePage[T any](w http.ResponseWriter, r *http.Request, entries []blobstore.Entry[T]) ([]blobstore.Entry[T], string, bool) {
+	marker := ""
+	if raw := r.URL.Query().Get("marker"); raw != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(raw)
+		if err != nil {
+			writeStorageError(w, "OutOfRangeQueryParameterValue",
+				"One of the query parameters specified in the request URI is outside the permissible range: marker.",
+				http.StatusBadRequest)
+			return nil, "", false
+		}
+		marker = string(decoded)
+	}
+	limit := blobListLimit
 	if raw := r.URL.Query().Get("maxresults"); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n < len(items) {
-			// NextMarker is the name of the last returned item. The next
-			// request passes it as ?marker=NAME and the skip loop above
-			// advances past all items whose name is <= marker, landing on
-			// the first item of the next page.
-			next := name(items[n-1])
-			return items[:n], next
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n < limit {
+			limit = n
 		}
 	}
-	return items, ""
+	page, _, next := blobstore.PageAfter(entries, marker, limit)
+	if next != "" {
+		next = base64.RawURLEncoding.EncodeToString([]byte(next))
+	}
+	return page, next, true
+}
+
+// blobListItems lists items that have no prefixes, in order, each at the
+// cursor its name and version give it.
+func blobListItems[T any](items []T, name, version func(T) string) []blobstore.Entry[T] {
+	return blobstore.RollUp(items, name, func(item T) string { return name(item) + "\x00" + version(item) }, "", "")
 }
 
 func blobObjectKey(account, container, name string) string {
@@ -898,9 +908,9 @@ func mirrorARMContainerToBlobPlane(account, container, publicAccess string, meta
 		Account:      account,
 		Name:         container,
 		Created:      time.Now().UTC().Format(http.TimeFormat),
-		ETag:         `"` + generateUUID() + `"`,
+		ETag:         `"` + sim.NewUUID() + `"`,
 		Metadata:     metadata,
-		Version:      generateUUID(),
+		Version:      sim.NewUUID(),
 		PublicAccess: publicAccess,
 	})
 }
@@ -928,9 +938,9 @@ func handleCreateContainer(w http.ResponseWriter, r *http.Request, account, cont
 		Account:      account,
 		Name:         container,
 		Created:      time.Now().UTC().Format(http.TimeFormat),
-		ETag:         `"` + generateUUID() + `"`,
+		ETag:         `"` + sim.NewUUID() + `"`,
 		Metadata:     collectMetadata(r),
-		Version:      generateUUID(),
+		Version:      sim.NewUUID(),
 		PublicAccess: r.Header.Get("x-ms-blob-public-access"),
 	}
 	blobContainersData.Put(key, c)
@@ -1114,12 +1124,19 @@ func handleListContainers(w http.ResponseWriter, r *http.Request, account string
 		return all[i].Version < all[j].Version
 	})
 
-	page, marker := blobStoragePage(r, all, func(e blobListContainerEntry) string { return e.Name })
+	entries, marker, ok := blobStoragePage(w, r, blobListItems(all,
+		func(e blobListContainerEntry) string { return e.Name },
+		func(e blobListContainerEntry) string { return e.Version }))
+	if !ok {
+		return
+	}
 	out := enum{
 		ServiceEndpoint: azureStorageEndpointURL(r, account, "blob"),
 		Prefix:          reqPrefix,
-		Containers:      page,
 		NextMarker:      marker,
+	}
+	for _, e := range entries {
+		out.Containers = append(out.Containers, e.Item)
 	}
 	writeStorageXML(w, http.StatusOK, out)
 }
@@ -1160,7 +1177,7 @@ func handleListBlobs(w http.ResponseWriter, r *http.Request, account, container 
 	delimiter := r.URL.Query().Get("delimiter")
 	include := blobListIncludeSet(r.URL.Query().Get("include"))
 
-	var all []blobListEntry
+	var listed []BlobObject
 	for _, b := range blobsUnderPrefix(account, container, reqPrefix) {
 		if b.Snapshot != "" && !include["snapshots"] {
 			continue
@@ -1168,41 +1185,30 @@ func handleListBlobs(w http.ResponseWriter, r *http.Request, account, container 
 		if b.Deleted && !include["deleted"] {
 			continue
 		}
-		all = append(all, blobListEntryFor(b, include))
+		listed = append(listed, b)
 	}
 
-	// With a delimiter, roll names that contain it (past the request prefix)
-	// into virtual directories surfaced as <BlobPrefix> entries; only names
-	// without a further delimiter are listed as blobs.
-	var prefixEntries []blobPrefixEntry
-	if delimiter != "" {
-		seenPrefix := map[string]bool{}
-		var flat []blobListEntry
-		for _, be := range all {
-			rest := strings.TrimPrefix(be.Name, reqPrefix)
-			if idx := strings.Index(rest, delimiter); idx >= 0 {
-				virtual := reqPrefix + rest[:idx+len(delimiter)]
-				if !seenPrefix[virtual] {
-					seenPrefix[virtual] = true
-					prefixEntries = append(prefixEntries, blobPrefixEntry{Name: virtual})
-				}
-				continue
-			}
-			flat = append(flat, be)
-		}
-		all = flat
-		sort.Slice(prefixEntries, func(i, j int) bool { return prefixEntries[i].Name < prefixEntries[j].Name })
+	// With a delimiter, names that continue past the request prefix to it roll
+	// up into one <BlobPrefix>; maxresults and the marker count both kinds.
+	entries := blobstore.RollUp(listed, func(b BlobObject) string { return b.Name },
+		func(b BlobObject) string { return b.Name + "\x00" + b.Snapshot }, reqPrefix, delimiter)
+	page, marker, ok := blobStoragePage(w, r, entries)
+	if !ok {
+		return
 	}
-
-	page, marker := blobStoragePage(r, all, func(e blobListEntry) string { return e.Name })
 	out := enum{
 		ServiceEndpoint: azureStorageEndpointURL(r, account, "blob"),
 		ContainerName:   container,
 		Prefix:          reqPrefix,
 		Delimiter:       delimiter,
-		Blobs:           page,
-		BlobPrefixes:    prefixEntries,
 		NextMarker:      marker,
+	}
+	for _, e := range page {
+		if e.Prefix {
+			out.BlobPrefixes = append(out.BlobPrefixes, blobPrefixEntry{Name: e.Key})
+			continue
+		}
+		out.Blobs = append(out.Blobs, blobListEntryFor(e.Item, include))
 	}
 	writeStorageXML(w, http.StatusOK, out)
 }
@@ -1218,7 +1224,7 @@ func handlePutBlob(w http.ResponseWriter, r *http.Request, account, container, b
 		exists = false
 		existing = BlobObject{}
 	}
-	if !blobWriteAllowed(w, r, existing, exists, blobCreate) {
+	if !blobWriteAllowed(w, r, existing, exists, blobstore.Create) {
 		return
 	}
 	blobType := r.Header.Get("x-ms-blob-type")
@@ -1226,7 +1232,7 @@ func handlePutBlob(w http.ResponseWriter, r *http.Request, account, container, b
 		blobType = "BlockBlob"
 	}
 
-	var data []byte
+	var contents io.Reader
 	switch blobType {
 	case "PageBlob":
 		// Create Page Blob declares the blob's size and writes no bytes: the
@@ -1238,22 +1244,14 @@ func handlePutBlob(w http.ResponseWriter, r *http.Request, account, container, b
 				http.StatusBadRequest)
 			return
 		}
-		data = make([]byte, size)
+		contents = io.LimitReader(blobZeros{}, size)
 	case "AppendBlob":
 		// Create Append Blob writes no bytes either; Append Block adds them.
-		data = nil
+		contents = bytes.NewReader(nil)
 	default:
-		body, err := openStreamingBody(r)
-		if err != nil {
-			writeStorageError(w, "UnsupportedHttpVerb", err.Error(), http.StatusUnsupportedMediaType)
-			return
-		}
-		defer body.Close()
-		data, err = io.ReadAll(body)
-		if err != nil {
-			writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
-			return
-		}
+		// Storage keeps the bytes as sent: Content-Encoding names an encoding
+		// the payload already carries, which Put Blob records on the blob.
+		contents = r.Body
 	}
 
 	b := BlobObject{
@@ -1270,6 +1268,15 @@ func handlePutBlob(w http.ResponseWriter, r *http.Request, account, container, b
 	if b.ContentType == "" {
 		b.ContentType = r.Header.Get("Content-Type")
 	}
+	if b.ContentEncoding == "" {
+		b.ContentEncoding = r.Header.Get("Content-Encoding")
+	}
+	if b.ContentLanguage == "" {
+		b.ContentLanguage = r.Header.Get("Content-Language")
+	}
+	if b.CacheControl == "" {
+		b.CacheControl = r.Header.Get("Cache-Control")
+	}
 	if blobType == "PageBlob" {
 		if seq, err := strconv.ParseInt(r.Header.Get("x-ms-blob-sequence-number"), 10, 64); err == nil {
 			b.SequenceNumber = seq
@@ -1282,12 +1289,17 @@ func handlePutBlob(w http.ResponseWriter, r *http.Request, account, container, b
 		b.AccessTier = blobDefaultTier(blobType)
 		b.AccessTierInferred = true
 	}
-	b.ContentMD5 = blobContentMD5(data)
 	blobTouch(&b)
-	if err := blobSetContents(&b, data); err != nil {
+	digests, err := blobSetContentsFrom(&b, contents)
+	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if !blobContentMD5Matches(w, r, digests) {
+		blobReleaseBody(b.Body)
+		return
+	}
+	b.ContentMD5 = digests.MD5Base64()
 	putBlobObject(b)
 
 	w.Header().Set("ETag", b.ETag)
@@ -1344,11 +1356,11 @@ func handleCopyBlob(w http.ResponseWriter, r *http.Request, account, container, 
 		exists = false
 		existing = BlobObject{}
 	}
-	if !blobWriteAllowed(w, r, existing, exists, blobCreate) {
+	if !blobWriteAllowed(w, r, existing, exists, blobstore.Create) {
 		return
 	}
 
-	source, data, err := blobData(source)
+	source, copied, digests, err := blobCopyContents(source)
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
@@ -1357,7 +1369,7 @@ func handleCopyBlob(w http.ResponseWriter, r *http.Request, account, container, 
 	if len(metadata) == 0 {
 		metadata = cloneBlobMetadata(source.Metadata)
 	}
-	copyID := generateUUID()
+	copyID := sim.NewUUID()
 	completion := blobNowHTTP()
 	dst := BlobObject{
 		Account:            account,
@@ -1368,8 +1380,10 @@ func handleCopyBlob(w http.ResponseWriter, r *http.Request, account, container, 
 		ContentLanguage:    source.ContentLanguage,
 		ContentDisposition: source.ContentDisposition,
 		CacheControl:       source.CacheControl,
-		ContentMD5:         blobContentMD5(data),
+		ContentMD5:         digests.MD5Base64(),
 		BlobType:           source.BlobType,
+		Body:               copied,
+		Size:               digests.Size,
 		CreationTime:       completion,
 		Metadata:           metadata,
 		Tags:               parseBlobTagsHeader(r.Header.Get("x-ms-tags")),
@@ -1381,7 +1395,7 @@ func handleCopyBlob(w http.ResponseWriter, r *http.Request, account, container, 
 		CopyID:             copyID,
 		CopyStatus:         "success",
 		CopySource:         sourceURL,
-		CopyProgress:       fmt.Sprintf("%d/%d", len(data), len(data)),
+		CopyProgress:       fmt.Sprintf("%d/%d", digests.Size, digests.Size),
 		CopyCompletionTime: completion,
 	}
 	if dst.Tags == nil {
@@ -1393,10 +1407,6 @@ func handleCopyBlob(w http.ResponseWriter, r *http.Request, account, container, 
 		dst.AccessTierChangeTime = completion
 	}
 	blobTouch(&dst)
-	if err := blobSetContents(&dst, data); err != nil {
-		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
-		return
-	}
 	putBlobObject(dst)
 	w.Header().Set("ETag", dst.ETag)
 	w.Header().Set("Last-Modified", dst.LastModified)
@@ -1500,15 +1510,13 @@ func handleStageBlock(w http.ResponseWriter, r *http.Request, account, container
 			return
 		}
 	}
-	body, err := openStreamingBody(r)
-	if err != nil {
-		writeStorageError(w, "UnsupportedHttpVerb", err.Error(), http.StatusUnsupportedMediaType)
-		return
-	}
-	defer body.Close()
-	data, err := io.ReadAll(body)
+	ref, digests, err := blobBodies.WriteFrom(r.Body)
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !blobContentMD5Matches(w, r, digests) {
+		blobReleaseBody(ref)
 		return
 	}
 	key := blobBlockKey(account, container, blob, blockID)
@@ -1517,14 +1525,11 @@ func handleStageBlock(w http.ResponseWriter, r *http.Request, account, container
 	block.Container = container
 	block.Blob = blob
 	block.BlockID = blockID
-	ref, err := blobWriteBody(data)
-	if err != nil {
-		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
-		return
-	}
-	block.UncommittedBody, block.UncommittedSize, block.LegacyUncommittedData = ref, int64(len(data)), nil
+	block.UncommittedBody, block.UncommittedSize, block.LegacyUncommittedData = ref, digests.Size, nil
 	block.HasUncommitted = true
 	putBlobBlock(account, container, blob, blockID, block)
+	w.Header().Set("Content-MD5", digests.MD5Base64())
+	w.Header().Set("x-ms-request-server-encrypted", "true")
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -1545,7 +1550,7 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 	if priorExists && priorBlob.Deleted {
 		priorExists, priorBlob = false, BlobObject{}
 	}
-	if !blobWriteAllowed(w, r, priorBlob, priorExists, blobCreate) {
+	if !blobWriteAllowed(w, r, priorBlob, priorExists, blobstore.Create) {
 		return
 	}
 	defer r.Body.Close()
@@ -1588,16 +1593,16 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 		refs = append(refs, blockRef{id: id, body: block.UncommittedBody, size: block.UncommittedSize})
 	}
 
-	var data []byte
+	bodies := make([]string, 0, len(refs))
 	committed := map[string]blockRef{}
 	for _, ref := range refs {
-		blockBytes, err := blockData(ref.body)
-		if err != nil {
-			writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
-			return
-		}
-		data = append(data, blockBytes...)
+		bodies = append(bodies, ref.body)
 		committed[ref.id] = ref
+	}
+	assembled, digests, err := blobBodies.Concat(bodies...)
+	if err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
 	}
 	for _, key := range blockKeysForBlob(account, container, blob) {
 		block, ok := blobBlocks.Get(key)
@@ -1643,7 +1648,9 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 		CreationTime:       blobNowHTTP(),
 		Metadata:           collectMetadata(r),
 		Tags:               parseBlobTagsHeader(r.Header.Get("x-ms-tags")),
-		ContentMD5:         blobContentMD5(data),
+		ContentMD5:         digests.MD5Base64(),
+		Body:               assembled,
+		Size:               digests.Size,
 		AccessTier:         "Hot",
 		AccessTierInferred: true,
 		Lease:              priorBlob.Lease,
@@ -1658,10 +1665,6 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 		committedBlob.AccessTierChangeTime = blobNowHTTP()
 	}
 	blobTouch(&committedBlob)
-	if err := blobSetContents(&committedBlob, data); err != nil {
-		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
-		return
-	}
 	putBlobObject(committedBlob)
 	w.Header().Set("ETag", committedBlob.ETag)
 	w.Header().Set("Last-Modified", committedBlob.LastModified)
@@ -1734,13 +1737,13 @@ func handleGetBlob(w http.ResponseWriter, r *http.Request, account, container, b
 			"The specified blob does not exist.", http.StatusNotFound)
 		return
 	}
-	b, body, closeBody, err := blobOpen(b)
+	b, body, err := blobOpen(b)
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer closeBody()
-	if !blobConditionsMet(w, r, b, true, blobRead) {
+	defer func() { _ = body.Close() }()
+	if !blobConditionsMet(w, r, b, true, blobstore.Read) {
 		return
 	}
 	start, end, partial, ok := azureStorageReadRange(w, r, b.Size)
@@ -1748,19 +1751,13 @@ func handleGetBlob(w http.ResponseWriter, r *http.Request, account, container, b
 		return // azureStorageReadRange has written the error.
 	}
 	writeBlobHeaders(w, b)
-	if !partial {
-		_, _ = io.Copy(w, body)
-		return
-	}
-	if _, err := body.Seek(start, io.SeekStart); err != nil {
-		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", end-start+1))
-	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, b.Size))
-	w.WriteHeader(http.StatusPartialContent)
-	_, _ = io.CopyN(w, body, end-start+1)
+	azureStorageServeRead(w, r, body, b.Size, start, end, partial)
 }
+
+// azureStorageRangeGrammar is the Range grammar Azure Storage reads accept:
+// first-last and first-, never a suffix. Azure clamps a range that runs past
+// the resource rather than failing it.
+var azureStorageRangeGrammar = blobstore.RangeOpts{AllowOpenEnd: true, ClampEnd: true}
 
 // azureStorageReadRange resolves the byte range a storage read requests. Azure
 // Storage reads carry the range in x-ms-range (which takes precedence) or the
@@ -1779,53 +1776,37 @@ func azureStorageReadRange(w http.ResponseWriter, r *http.Request, size int64) (
 	if raw == "" {
 		return 0, 0, false, true
 	}
-	spec, found := strings.CutPrefix(strings.TrimSpace(raw), "bytes=")
-	if !found {
+	requested, err := blobstore.ParseRange(raw, azureStorageRangeGrammar)
+	if err != nil {
 		writeStorageError(w, "InvalidHeaderValue",
 			"The value for one of the HTTP headers is not in the correct format: Range.",
 			http.StatusBadRequest)
 		return 0, 0, false, false
 	}
-	lo, hi, found := strings.Cut(spec, "-")
-	if !found {
-		writeStorageError(w, "InvalidHeaderValue",
-			"The value for one of the HTTP headers is not in the correct format: Range.",
-			http.StatusBadRequest)
-		return 0, 0, false, false
+	// A range over an empty resource reads the whole of it.
+	if size == 0 {
+		return 0, 0, false, true
 	}
-	start, err := strconv.ParseInt(strings.TrimSpace(lo), 10, 64)
-	if err != nil || start < 0 {
-		writeStorageError(w, "InvalidHeaderValue",
-			"The value for one of the HTTP headers is not in the correct format: Range.",
-			http.StatusBadRequest)
-		return 0, 0, false, false
-	}
-	// An open-ended "bytes=start-" runs to the end of the resource.
-	end = size - 1
-	if trimmed := strings.TrimSpace(hi); trimmed != "" {
-		end, err = strconv.ParseInt(trimmed, 10, 64)
-		if err != nil || end < start {
-			writeStorageError(w, "InvalidHeaderValue",
-				"The value for one of the HTTP headers is not in the correct format: Range.",
-				http.StatusBadRequest)
-			return 0, 0, false, false
-		}
-	}
-	// Azure clamps a range that runs past the resource rather than failing; only
-	// a start beyond the end is unsatisfiable.
-	if start >= size && size > 0 {
+	start, end, ok = requested.Resolve(size)
+	if !ok {
 		writeStorageError(w, "InvalidRange",
 			"The range specified is invalid for the current size of the resource.",
 			http.StatusRequestedRangeNotSatisfiable)
 		return 0, 0, false, false
 	}
-	if end > size-1 {
-		end = size - 1
-	}
-	if size == 0 {
-		return 0, 0, false, true
-	}
 	return start, end, true, true
+}
+
+// azureStorageServeRead writes the body of a read whose headers are set: the
+// resolved range as 206, or the whole resource.
+func azureStorageServeRead(w http.ResponseWriter, r *http.Request, body io.ReadSeeker, size, start, end int64, partial bool) {
+	if !partial {
+		blobstore.ServeWhole(w, r, body, size)
+		return
+	}
+	if err := blobstore.ServeRange(w, r, body, start, end, size); err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func handleHeadBlob(w http.ResponseWriter, r *http.Request, account, container, blob string) {
@@ -1835,7 +1816,7 @@ func handleHeadBlob(w http.ResponseWriter, r *http.Request, account, container, 
 			"The specified blob does not exist.", http.StatusNotFound)
 		return
 	}
-	if !blobConditionsMet(w, r, b, true, blobRead) {
+	if !blobConditionsMet(w, r, b, true, blobstore.Read) {
 		return
 	}
 	writeBlobHeaders(w, b)
@@ -1849,7 +1830,7 @@ func handleDeleteBlob(w http.ResponseWriter, r *http.Request, account, container
 			"The specified blob does not exist.", http.StatusNotFound)
 		return
 	}
-	if !blobWriteAllowed(w, r, existing, true, blobModify) {
+	if !blobWriteAllowed(w, r, existing, true, blobstore.Modify) {
 		return
 	}
 

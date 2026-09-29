@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/msgq"
 	"github.com/rs/zerolog"
 )
 
@@ -91,15 +92,44 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 			visibilityTimeout = parsed
 		}
 	}
-	messages := sqsReceiveAvailableMessages(queueName, batchSize, visibilityTimeout)
-	if len(messages) == 0 {
+	filters, err := lambdaESMFilters(mapping.FilterCriteria)
+	if err != nil {
+		lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: "+err.Error())
+		return
+	}
+	received := sqsReceiveAvailableMessages(queueName, batchSize, visibilityTimeout)
+	if len(received) == 0 {
 		return
 	}
 	if ctx.Err() != nil {
 		return
 	}
 
-	payload, err := json.Marshal(map[string]any{"Records": lambdaSQSEventRecords(mapping.EventSourceArn, messages)})
+	// Lambda deletes the Amazon SQS messages its filter criteria reject
+	// rather than invoking the function with them.
+	receivedRecords := lambdaSQSEventRecords(mapping.EventSourceArn, received)
+	var messages []SQSMessage
+	var records []map[string]any
+	var filteredOut []string
+	for i, record := range receivedRecords {
+		pass, err := lambdaRecordPassesFilters(filters, record)
+		if err != nil {
+			lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: "+err.Error())
+			return
+		}
+		if !pass {
+			filteredOut = append(filteredOut, received[i].ReceiptHandle)
+			continue
+		}
+		messages = append(messages, received[i])
+		records = append(records, record)
+	}
+	sqsDeleteReceiptHandles(queueName, filteredOut)
+	if len(messages) == 0 {
+		return
+	}
+
+	payload, err := json.Marshal(map[string]any{"Records": records})
 	if err != nil {
 		lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: failed to serialize Amazon SQS event")
 		return
@@ -199,13 +229,7 @@ func sqsDeleteReceiptHandles(queueName string, receipts []string) {
 		remove[receipt] = true
 	}
 	sqsQueues.Update(queueName, func(queue *SQSQueue) {
-		kept := queue.Messages[:0]
-		for _, message := range queue.Messages {
-			if !remove[message.ReceiptHandle] {
-				kept = append(kept, message)
-			}
-		}
-		queue.Messages = kept
+		queue.Messages.Remove(func(m msgq.Message[sqsPayload]) bool { return m.Receipt != "" && remove[m.Receipt] })
 	})
 }
 

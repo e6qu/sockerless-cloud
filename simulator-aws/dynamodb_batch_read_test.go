@@ -100,12 +100,12 @@ func TestDDBBatchGetItemTakesOneStripePerTable(t *testing.T) {
 	ddbSeedQueryTable(t, "batch-a", perTable, 1)
 	ddbSeedQueryTable(t, "batch-b", perTable, 1)
 
-	before := ddbStripeAcquisitions.Load()
+	before := ddbItemLocks.Acquired()
 	recorder := ddbBatchGet(t, map[string][]map[string]any{
 		"batch-a": ddbSeededKeys(perTable),
 		"batch-b": ddbSeededKeys(perTable),
 	})
-	taken := ddbStripeAcquisitions.Load() - before
+	taken := ddbItemLocks.Acquired() - before
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	var out struct {
@@ -127,9 +127,9 @@ func TestDDBTransactGetItemsTakesOneStripe(t *testing.T) {
 	const items = 50
 	ddbSeedQueryTable(t, table, items, 1)
 
-	before := ddbStripeAcquisitions.Load()
+	before := ddbItemLocks.Acquired()
 	recorder := ddbTransactGet(t, table, ddbSeededKeys(items))
-	taken := ddbStripeAcquisitions.Load() - before
+	taken := ddbItemLocks.Acquired() - before
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	require.Equal(t, uint64(1), taken,
@@ -181,7 +181,7 @@ func TestDDBTransactGetItemsReadsOneInstant(t *testing.T) {
 		go func() {
 			defer close(written)
 			close(starting)
-			defer ddbLockTables(true, table)()
+			defer ddbItemLocks.Lock(true, table)()
 			for _, key := range keys {
 				item := map[string]any{
 					"pk":         key["pk"],

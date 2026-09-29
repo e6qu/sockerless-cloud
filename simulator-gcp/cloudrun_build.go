@@ -69,7 +69,7 @@ func cloudRunSubmitBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	build := Build{
-		ID:        generateUUID(),
+		ID:        sim.NewUUID(),
 		ProjectID: project,
 		Status:    "QUEUED",
 		Images:    []string{req.ImageURI},
@@ -109,7 +109,7 @@ func cloudRunUploadSource(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"cloudStorageSource": map[string]any{
 			"bucket": fmt.Sprintf("run-sources-%s-%s", project, location),
-			"object": "services/source-" + generateUUID() + ".zip",
+			"object": "services/source-" + sim.NewUUID() + ".zip",
 		},
 	})
 }

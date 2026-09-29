@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Container administration: metadata, the stored access policies (`comp=acl`),
@@ -28,7 +30,7 @@ func handleSetContainerMetadata(w http.ResponseWriter, r *http.Request, account,
 	}
 	c.Metadata = collectMetadata(r)
 	c.Created = blobNowHTTP()
-	c.ETag = `"` + generateUUID() + `"`
+	c.ETag = `"` + sim.NewUUID() + `"`
 	blobContainersData.Put(key, c)
 	w.Header().Set("ETag", c.ETag)
 	w.Header().Set("Last-Modified", c.Created)
@@ -121,7 +123,7 @@ func handleSetContainerAccessPolicy(w http.ResponseWriter, r *http.Request, acco
 		c.PublicAccess = access
 	}
 	c.Created = blobNowHTTP()
-	c.ETag = `"` + generateUUID() + `"`
+	c.ETag = `"` + sim.NewUUID() + `"`
 	blobContainersData.Put(key, c)
 	w.Header().Set("ETag", c.ETag)
 	w.Header().Set("Last-Modified", c.Created)
@@ -203,13 +205,21 @@ func handleFilterBlobs(w http.ResponseWriter, r *http.Request, account, containe
 		return matches[i].Name < matches[j].Name
 	})
 
-	page, marker := blobStoragePage(r, matches, func(e blobFilterItem) string { return e.Name })
-	writeStorageXML(w, http.StatusOK, blobFilterSegment{
+	entries, marker, ok := blobStoragePage(w, r, blobListItems(matches,
+		func(e blobFilterItem) string { return e.ContainerName },
+		func(e blobFilterItem) string { return e.Name }))
+	if !ok {
+		return
+	}
+	segment := blobFilterSegment{
 		ServiceEndpoint: azureStorageEndpointURL(r, account, "blob"),
 		Where:           where,
-		Blobs:           page,
 		NextMarker:      marker,
-	})
+	}
+	for _, e := range entries {
+		segment.Blobs = append(segment.Blobs, e.Item)
+	}
+	writeStorageXML(w, http.StatusOK, segment)
 }
 
 // Tag filter expression

@@ -7,8 +7,8 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // Amazon S3 Object Lambda, and the S3 access points it is built on.
@@ -725,7 +726,12 @@ func s3ObjectLambdaGetObject(w http.ResponseWriter, r *http.Request, olap S3Obje
 		s3ObjectLambdaRoutesMu.Unlock()
 	}()
 
-	payload, err := json.Marshal(s3ObjectLambdaEvent(r, olap, route, token))
+	event, err := s3ObjectLambdaEvent(r, olap, route, token)
+	if err != nil {
+		s3ObjectLambdaError(w, r, "InternalError", "could not build the transformation event: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	payload, err := json.Marshal(event)
 	if err != nil {
 		s3ObjectLambdaError(w, r, "InternalError", "could not build the transformation event: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -783,7 +789,7 @@ func s3ObjectLambdaTransformFor(olap S3ObjectLambdaAccessPoint, action string) (
 // s3ObjectLambdaEvent builds the s3-object-lambda event the transformation
 // function receives: the route and token it answers on, and a presigned-style
 // URL for the original object on the supporting access point's bucket.
-func s3ObjectLambdaEvent(r *http.Request, olap S3ObjectLambdaAccessPoint, route, token string) map[string]any {
+func s3ObjectLambdaEvent(r *http.Request, olap S3ObjectLambdaAccessPoint, route, token string) (map[string]any, error) {
 	supporting := olap.Configuration.SupportingAccessPoint
 	if i := strings.LastIndex(supporting, "accesspoint/"); i >= 0 {
 		supporting = supporting[i+len("accesspoint/"):]
@@ -793,10 +799,14 @@ func s3ObjectLambdaEvent(r *http.Request, olap S3ObjectLambdaAccessPoint, route,
 		bucket = ap.Bucket
 	}
 	key := strings.TrimPrefix(r.URL.Path, "/")
+	inputURL, err := s3ObjectLambdaInputURL(bucket, key)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{
 		"xAmzRequestId": s3ObjectLambdaID(),
 		"getObjectContext": map[string]any{
-			"inputS3Url":  s3ObjectLambdaInputURL(bucket, key),
+			"inputS3Url":  inputURL,
 			"outputRoute": route,
 			"outputToken": token,
 		},
@@ -815,7 +825,7 @@ func s3ObjectLambdaEvent(r *http.Request, olap S3ObjectLambdaAccessPoint, route,
 			"accessKeyId": "",
 		},
 		"protocolVersion": "1.00",
-	}
+	}, nil
 }
 
 // s3ObjectLambdaInputURL is the URL the transformation function reads the
@@ -824,16 +834,16 @@ func s3ObjectLambdaEvent(r *http.Request, olap S3ObjectLambdaAccessPoint, route,
 // this simulator's own S3 surface, so the URL differs from AWS's only in the
 // coordinate it points at — and it uses the address a function container can
 // actually reach the simulator on, the same one its Runtime API arrives on.
-func s3ObjectLambdaInputURL(bucket, key string) string {
-	host, err := workloadCallbackHost()
+func s3ObjectLambdaInputURL(bucket, key string) (string, error) {
+	addr, err := workloadhost.CallbackAddr(simListenAddr)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("resolve the simulator address a function reaches: %w", err)
 	}
-	port, err := simHostMetadataPort()
-	if err != nil {
-		return ""
-	}
-	return fmt.Sprintf("http://%s/%s/%s", net.JoinHostPort(host, strconv.Itoa(port)), bucket, key)
+	return s3ObjectURL(addr, bucket, key), nil
+}
+
+func s3ObjectURL(addr, bucket, key string) string {
+	return (&url.URL{Scheme: "http", Host: addr, Path: "/" + bucket + "/" + key}).String()
 }
 
 func s3ObjectLambdaPayload(olap S3ObjectLambdaAccessPoint) string {

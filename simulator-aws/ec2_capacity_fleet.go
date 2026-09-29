@@ -384,7 +384,7 @@ func handleCreateCapacityReservation(w http.ResponseWriter, r *http.Request) {
 	cr = ec2CapacityReservationAsOf(cr, time.Now())
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateCapacityReservationResponse %s><requestId>%s</requestId><capacityReservation>%s</capacityReservation></CreateCapacityReservationResponse>`,
-		ec2Xmlns(), generateUUID(), ec2CapReservationFieldsXML(cr))
+		ec2Xmlns(), sim.NewUUID(), ec2CapReservationFieldsXML(cr))
 }
 
 func ec2CapReservationFieldsXML(cr EC2CapacityReservation) string {
@@ -441,7 +441,7 @@ func handleDescribeCapacityReservations(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeCapacityReservationsResponse %s><requestId>%s</requestId><capacityReservationSet>%s</capacityReservationSet>%s</DescribeCapacityReservationsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), next)
+		ec2Xmlns(), sim.NewUUID(), items.String(), next)
 }
 
 func ec2CapReservationMatchesFilters(cr EC2CapacityReservation, filters map[string][]string) bool {
@@ -494,7 +494,7 @@ func handleModifyCapacityReservation(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2CapacityReservations.Put(id, cr)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<ModifyCapacityReservationResponse %s><requestId>%s</requestId><return>true</return></ModifyCapacityReservationResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<ModifyCapacityReservationResponse %s><requestId>%s</requestId><return>true</return></ModifyCapacityReservationResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCancelCapacityReservation(w http.ResponseWriter, r *http.Request) {
@@ -508,7 +508,7 @@ func handleCancelCapacityReservation(w http.ResponseWriter, r *http.Request) {
 	cr.AvailableInstanceCount = 0
 	ec2CapacityReservations.Put(id, cr)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<CancelCapacityReservationResponse %s><requestId>%s</requestId><return>true</return></CancelCapacityReservationResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<CancelCapacityReservationResponse %s><requestId>%s</requestId><return>true</return></CancelCapacityReservationResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleGetCapacityReservationUsage(w http.ResponseWriter, r *http.Request) {
@@ -521,7 +521,7 @@ func handleGetCapacityReservationUsage(w http.ResponseWriter, r *http.Request) {
 	used := cr.TotalInstanceCount - cr.AvailableInstanceCount
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetCapacityReservationUsageResponse %s><requestId>%s</requestId><capacityReservationId>%s</capacityReservationId><instanceType>%s</instanceType><totalInstanceCount>%d</totalInstanceCount><availableInstanceCount>%d</availableInstanceCount><state>%s</state><instanceUsageSet><item><accountId>%s</accountId><usedInstanceCount>%d</usedInstanceCount></item></instanceUsageSet></GetCapacityReservationUsageResponse>`,
-		ec2Xmlns(), generateUUID(), cr.CapacityReservationId, cr.InstanceType, cr.TotalInstanceCount, cr.AvailableInstanceCount, cr.State, ec2Owner(), used)
+		ec2Xmlns(), sim.NewUUID(), cr.CapacityReservationId, cr.InstanceType, cr.TotalInstanceCount, cr.AvailableInstanceCount, cr.State, ec2Owner(), used)
 }
 
 func handleGetGroupsForCapacityReservation(w http.ResponseWriter, r *http.Request) {
@@ -533,7 +533,7 @@ func handleGetGroupsForCapacityReservation(w http.ResponseWriter, r *http.Reques
 	// The reservation is not in any resource group; return an empty set.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetGroupsForCapacityReservationResponse %s><requestId>%s</requestId><capacityReservationGroupSet/></GetGroupsForCapacityReservationResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 // ec2ParseFleetCapacityReservations reads the
@@ -648,7 +648,7 @@ func handleCreateCapacityReservationFleet(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateCapacityReservationFleetResponse %s><requestId>%s</requestId><capacityReservationFleetId>%s</capacityReservationFleetId><state>%s</state><totalTargetCapacity>%d</totalTargetCapacity><totalFulfilledCapacity>%s</totalFulfilledCapacity><instanceMatchCriteria>%s</instanceMatchCriteria><allocationStrategy>%s</allocationStrategy><createTime>%s</createTime>%s<tenancy>%s</tenancy><fleetCapacityReservationSet>%s</fleetCapacityReservationSet>%s</CreateCapacityReservationFleetResponse>`,
-		ec2Xmlns(), generateUUID(), crf.CapacityReservationFleetId, crf.State, crf.TotalTargetCapacity,
+		ec2Xmlns(), sim.NewUUID(), crf.CapacityReservationFleetId, crf.State, crf.TotalTargetCapacity,
 		ec2FloatStr(crf.TotalFulfilledCapacity), crf.InstanceMatchCriteria, crf.AllocationStrategy,
 		crf.CreateTime, endDate, crf.Tenancy, memberXML.String(), writeTagSetXML(crf.Tags))
 }
@@ -701,7 +701,7 @@ func handleDescribeCapacityReservationFleets(w http.ResponseWriter, r *http.Requ
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeCapacityReservationFleetsResponse %s><requestId>%s</requestId><capacityReservationFleetSet>%s</capacityReservationFleetSet></DescribeCapacityReservationFleetsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleModifyCapacityReservationFleet(w http.ResponseWriter, r *http.Request) {
@@ -719,7 +719,7 @@ func handleModifyCapacityReservationFleet(w http.ResponseWriter, r *http.Request
 	}
 	ec2CapacityReservationFleets.Put(id, crf)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<ModifyCapacityReservationFleetResponse %s><requestId>%s</requestId><return>true</return></ModifyCapacityReservationFleetResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<ModifyCapacityReservationFleetResponse %s><requestId>%s</requestId><return>true</return></ModifyCapacityReservationFleetResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCancelCapacityReservationFleets(w http.ResponseWriter, r *http.Request) {
@@ -745,7 +745,7 @@ func handleCancelCapacityReservationFleets(w http.ResponseWriter, r *http.Reques
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CancelCapacityReservationFleetsResponse %s><requestId>%s</requestId><successfulFleetCancellationSet>%s</successfulFleetCancellationSet><failedFleetCancellationSet>%s</failedFleetCancellationSet></CancelCapacityReservationFleetsResponse>`,
-		ec2Xmlns(), generateUUID(), success.String(), failed.String())
+		ec2Xmlns(), sim.NewUUID(), success.String(), failed.String())
 }
 
 func handleCreateFleet(w http.ResponseWriter, r *http.Request) {
@@ -813,11 +813,11 @@ func handleCreateFleet(w http.ResponseWriter, r *http.Request) {
 		instXML.WriteString(ec2CreateFleetInstanceXML(fleet))
 		instXML.WriteString("</fleetInstanceSet>")
 		fmt.Fprintf(w, `<CreateFleetResponse %s><requestId>%s</requestId><fleetId>%s</fleetId><errorSet/>%s</CreateFleetResponse>`,
-			ec2Xmlns(), generateUUID(), fleet.FleetId, instXML.String())
+			ec2Xmlns(), sim.NewUUID(), fleet.FleetId, instXML.String())
 		return
 	}
 	fmt.Fprintf(w, `<CreateFleetResponse %s><requestId>%s</requestId><fleetId>%s</fleetId></CreateFleetResponse>`,
-		ec2Xmlns(), generateUUID(), fleet.FleetId)
+		ec2Xmlns(), sim.NewUUID(), fleet.FleetId)
 }
 
 // ec2LaunchFleetInstance launches one backing instance for a fleet/spot request
@@ -908,7 +908,7 @@ func handleDescribeFleets(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeFleetsResponse %s><requestId>%s</requestId><fleetSet>%s</fleetSet></DescribeFleetsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDescribeFleetInstances(w http.ResponseWriter, r *http.Request) {
@@ -924,7 +924,7 @@ func handleDescribeFleetInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeFleetInstancesResponse %s><requestId>%s</requestId><fleetId>%s</fleetId><activeInstanceSet>%s</activeInstanceSet></DescribeFleetInstancesResponse>`,
-		ec2Xmlns(), generateUUID(), id, items.String())
+		ec2Xmlns(), sim.NewUUID(), id, items.String())
 }
 
 func handleDescribeFleetHistory(w http.ResponseWriter, r *http.Request) {
@@ -942,7 +942,7 @@ func handleDescribeFleetHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeFleetHistoryResponse %s><requestId>%s</requestId><fleetId>%s</fleetId><startTime>%s</startTime><lastEvaluatedTime>%s</lastEvaluatedTime><historyRecordSet>%s</historyRecordSet></DescribeFleetHistoryResponse>`,
-		ec2Xmlns(), generateUUID(), id, f.CreateTime, now, records.String())
+		ec2Xmlns(), sim.NewUUID(), id, f.CreateTime, now, records.String())
 }
 
 func handleModifyFleet(w http.ResponseWriter, r *http.Request) {
@@ -957,7 +957,7 @@ func handleModifyFleet(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2Fleets.Put(id, f)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<ModifyFleetResponse %s><requestId>%s</requestId><return>true</return></ModifyFleetResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<ModifyFleetResponse %s><requestId>%s</requestId><return>true</return></ModifyFleetResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDeleteFleets(w http.ResponseWriter, r *http.Request) {
@@ -987,7 +987,7 @@ func handleDeleteFleets(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteFleetsResponse %s><requestId>%s</requestId><successfulFleetDeletionSet>%s</successfulFleetDeletionSet><unsuccessfulFleetDeletionSet>%s</unsuccessfulFleetDeletionSet></DeleteFleetsResponse>`,
-		ec2Xmlns(), generateUUID(), success.String(), failed.String())
+		ec2Xmlns(), sim.NewUUID(), success.String(), failed.String())
 }
 
 func handleRequestSpotInstances(w http.ResponseWriter, r *http.Request) {
@@ -1042,7 +1042,7 @@ func handleRequestSpotInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RequestSpotInstancesResponse %s><requestId>%s</requestId><spotInstanceRequestSet>%s</spotInstanceRequestSet></RequestSpotInstancesResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func ec2SpotInstanceRequestXML(sir EC2SpotInstanceRequest) string {
@@ -1096,7 +1096,7 @@ func handleDescribeSpotInstanceRequests(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeSpotInstanceRequestsResponse %s><requestId>%s</requestId><spotInstanceRequestSet>%s</spotInstanceRequestSet></DescribeSpotInstanceRequestsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func ec2SpotRequestMatchesFilters(sir EC2SpotInstanceRequest, filters map[string][]string) bool {
@@ -1143,7 +1143,7 @@ func handleCancelSpotInstanceRequests(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CancelSpotInstanceRequestsResponse %s><requestId>%s</requestId><spotInstanceRequestSet>%s</spotInstanceRequestSet></CancelSpotInstanceRequestsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleRequestSpotFleet(w http.ResponseWriter, r *http.Request) {
@@ -1197,7 +1197,7 @@ func handleRequestSpotFleet(w http.ResponseWriter, r *http.Request) {
 	ec2SpotFleetRequests.Put(sfr.SpotFleetRequestId, sfr)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RequestSpotFleetResponse %s><requestId>%s</requestId><spotFleetRequestId>%s</spotFleetRequestId></RequestSpotFleetResponse>`,
-		ec2Xmlns(), generateUUID(), sfr.SpotFleetRequestId)
+		ec2Xmlns(), sim.NewUUID(), sfr.SpotFleetRequestId)
 }
 
 func ec2SpotFleetConfigXML(sfr EC2SpotFleetRequest) string {
@@ -1243,7 +1243,7 @@ func handleDescribeSpotFleetRequests(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeSpotFleetRequestsResponse %s><requestId>%s</requestId><spotFleetRequestConfigSet>%s</spotFleetRequestConfigSet></DescribeSpotFleetRequestsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDescribeSpotFleetInstances(w http.ResponseWriter, r *http.Request) {
@@ -1259,7 +1259,7 @@ func handleDescribeSpotFleetInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeSpotFleetInstancesResponse %s><requestId>%s</requestId><spotFleetRequestId>%s</spotFleetRequestId><activeInstanceSet>%s</activeInstanceSet></DescribeSpotFleetInstancesResponse>`,
-		ec2Xmlns(), generateUUID(), id, items.String())
+		ec2Xmlns(), sim.NewUUID(), id, items.String())
 }
 
 func handleDescribeSpotFleetRequestHistory(w http.ResponseWriter, r *http.Request) {
@@ -1277,7 +1277,7 @@ func handleDescribeSpotFleetRequestHistory(w http.ResponseWriter, r *http.Reques
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeSpotFleetRequestHistoryResponse %s><requestId>%s</requestId><spotFleetRequestId>%s</spotFleetRequestId><startTime>%s</startTime><lastEvaluatedTime>%s</lastEvaluatedTime><historyRecordSet>%s</historyRecordSet></DescribeSpotFleetRequestHistoryResponse>`,
-		ec2Xmlns(), generateUUID(), id, sfr.CreateTime, now, records.String())
+		ec2Xmlns(), sim.NewUUID(), id, sfr.CreateTime, now, records.String())
 }
 
 func handleModifySpotFleetRequest(w http.ResponseWriter, r *http.Request) {
@@ -1295,7 +1295,7 @@ func handleModifySpotFleetRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2SpotFleetRequests.Put(id, sfr)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<ModifySpotFleetRequestResponse %s><requestId>%s</requestId><return>true</return></ModifySpotFleetRequestResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<ModifySpotFleetRequestResponse %s><requestId>%s</requestId><return>true</return></ModifySpotFleetRequestResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCancelSpotFleetRequests(w http.ResponseWriter, r *http.Request) {
@@ -1325,7 +1325,7 @@ func handleCancelSpotFleetRequests(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CancelSpotFleetRequestsResponse %s><requestId>%s</requestId><successfulFleetRequestSet>%s</successfulFleetRequestSet><unsuccessfulFleetRequestSet>%s</unsuccessfulFleetRequestSet></CancelSpotFleetRequestsResponse>`,
-		ec2Xmlns(), generateUUID(), success.String(), failed.String())
+		ec2Xmlns(), sim.NewUUID(), success.String(), failed.String())
 }
 
 func handleCreateSpotDatafeedSubscription(w http.ResponseWriter, r *http.Request) {
@@ -1343,7 +1343,7 @@ func handleCreateSpotDatafeedSubscription(w http.ResponseWriter, r *http.Request
 	ec2SpotDatafeed.Put("default", sub)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateSpotDatafeedSubscriptionResponse %s><requestId>%s</requestId><spotDatafeedSubscription>%s</spotDatafeedSubscription></CreateSpotDatafeedSubscriptionResponse>`,
-		ec2Xmlns(), generateUUID(), ec2SpotDatafeedXML(sub))
+		ec2Xmlns(), sim.NewUUID(), ec2SpotDatafeedXML(sub))
 }
 
 func ec2SpotDatafeedXML(sub EC2SpotDatafeedSubscription) string {
@@ -1362,13 +1362,13 @@ func handleDescribeSpotDatafeedSubscription(w http.ResponseWriter, r *http.Reque
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeSpotDatafeedSubscriptionResponse %s><requestId>%s</requestId><spotDatafeedSubscription>%s</spotDatafeedSubscription></DescribeSpotDatafeedSubscriptionResponse>`,
-		ec2Xmlns(), generateUUID(), ec2SpotDatafeedXML(sub))
+		ec2Xmlns(), sim.NewUUID(), ec2SpotDatafeedXML(sub))
 }
 
 func handleDeleteSpotDatafeedSubscription(w http.ResponseWriter, r *http.Request) {
 	ec2SpotDatafeed.Delete("default")
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteSpotDatafeedSubscriptionResponse %s><requestId>%s</requestId><return>true</return></DeleteSpotDatafeedSubscriptionResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteSpotDatafeedSubscriptionResponse %s><requestId>%s</requestId><return>true</return></DeleteSpotDatafeedSubscriptionResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeSpotPriceHistory(w http.ResponseWriter, r *http.Request) {
@@ -1399,7 +1399,7 @@ func handleDescribeSpotPriceHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeSpotPriceHistoryResponse %s><requestId>%s</requestId><spotPriceHistorySet>%s</spotPriceHistorySet></DescribeSpotPriceHistoryResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleGetSpotPlacementScores(w http.ResponseWriter, r *http.Request) {
@@ -1413,22 +1413,22 @@ func handleGetSpotPlacementScores(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetSpotPlacementScoresResponse %s><requestId>%s</requestId><spotPlacementScoreSet>%s</spotPlacementScoreSet></GetSpotPlacementScoresResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDescribeScheduledInstanceAvailability(w http.ResponseWriter, r *http.Request) {
 	az := awsAvailabilityZone()
-	token := generateUUID()
+	token := sim.NewUUID()
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeScheduledInstanceAvailabilityResponse %s><requestId>%s</requestId><scheduledInstanceAvailabilitySet><item><availabilityZone>%s</availabilityZone><availableInstanceCount>20</availableInstanceCount><firstSlotStartTime>%s</firstSlotStartTime><hourlyPrice>0.095</hourlyPrice><instanceType>c4.large</instanceType><maxTermDurationInDays>366</maxTermDurationInDays><minTermDurationInDays>31</minTermDurationInDays><networkPlatform>EC2-VPC</networkPlatform><platform>Linux/UNIX</platform><purchaseToken>%s</purchaseToken><recurrence><frequency>Weekly</frequency><interval>1</interval><occurrenceDaySet><item>1</item></occurrenceDaySet><occurrenceRelativeToEnd>false</occurrenceRelativeToEnd></recurrence><slotDurationInHours>23</slotDurationInHours><totalScheduledInstanceHours>1219</totalScheduledInstanceHours></item></scheduledInstanceAvailabilitySet></DescribeScheduledInstanceAvailabilityResponse>`,
-		ec2Xmlns(), generateUUID(), az, ec2NowMilli(), token)
+		ec2Xmlns(), sim.NewUUID(), az, ec2NowMilli(), token)
 }
 
 func handlePurchaseScheduledInstances(w http.ResponseWriter, r *http.Request) {
 	count := ec2AtoiOr(r.FormValue("PurchaseRequest.1.InstanceCount"), 1)
 	now := ec2NowMilli()
 	si := EC2ScheduledInstance{
-		ScheduledInstanceId:         "sci-" + generateUUID()[:17],
+		ScheduledInstanceId:         "sci-" + sim.NewUUID()[:17],
 		AvailabilityZone:            awsAvailabilityZone(),
 		InstanceType:                "c4.large",
 		Platform:                    "Linux/UNIX",
@@ -1446,7 +1446,7 @@ func handlePurchaseScheduledInstances(w http.ResponseWriter, r *http.Request) {
 	ec2ScheduledInstances.Put(si.ScheduledInstanceId, si)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<PurchaseScheduledInstancesResponse %s><requestId>%s</requestId><scheduledInstanceSet><item>%s</item></scheduledInstanceSet></PurchaseScheduledInstancesResponse>`,
-		ec2Xmlns(), generateUUID(), ec2ScheduledInstanceXML(si))
+		ec2Xmlns(), sim.NewUUID(), ec2ScheduledInstanceXML(si))
 }
 
 func ec2ScheduledInstanceXML(si EC2ScheduledInstance) string {
@@ -1480,7 +1480,7 @@ func handleDescribeScheduledInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeScheduledInstancesResponse %s><requestId>%s</requestId><scheduledInstanceSet>%s</scheduledInstanceSet></DescribeScheduledInstancesResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleRunScheduledInstances(w http.ResponseWriter, r *http.Request) {
@@ -1502,7 +1502,7 @@ func handleRunScheduledInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RunScheduledInstancesResponse %s><requestId>%s</requestId><instanceIdSet>%s</instanceIdSet></RunScheduledInstancesResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 // ec2HostOfferings is the catalog of Dedicated Host Reservation offerings the
@@ -1529,7 +1529,7 @@ func handleDescribeHostReservationOfferings(w http.ResponseWriter, r *http.Reque
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeHostReservationOfferingsResponse %s><requestId>%s</requestId><offeringSet>%s</offeringSet></DescribeHostReservationOfferingsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleGetHostReservationPurchasePreview(w http.ResponseWriter, r *http.Request) {
@@ -1546,7 +1546,7 @@ func handleGetHostReservationPurchasePreview(w http.ResponseWriter, r *http.Requ
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetHostReservationPurchasePreviewResponse %s><requestId>%s</requestId><currencyCode>%s</currencyCode><totalHourlyPrice>%s</totalHourlyPrice><totalUpfrontPrice>%s</totalUpfrontPrice><purchase><item><instanceFamily>%s</instanceFamily><paymentOption>%s</paymentOption><hourlyPrice>%s</hourlyPrice><upfrontPrice>%s</upfrontPrice><currencyCode>%s</currencyCode><duration>%d</duration><hostIdSet>%s</hostIdSet></item></purchase></GetHostReservationPurchasePreviewResponse>`,
-		ec2Xmlns(), generateUUID(), o.CurrencyCode, o.HourlyPrice, o.UpfrontPrice,
+		ec2Xmlns(), sim.NewUUID(), o.CurrencyCode, o.HourlyPrice, o.UpfrontPrice,
 		o.InstanceFamily, o.PaymentOption, o.HourlyPrice, o.UpfrontPrice, o.CurrencyCode, o.Duration, hostSet.String())
 }
 
@@ -1560,7 +1560,7 @@ func handlePurchaseHostReservation(w http.ResponseWriter, r *http.Request) {
 	hostIDs := ec2ParamList(r, "HostIdSet")
 	now := ec2NowMilli()
 	hr := EC2HostReservation{
-		HostReservationId: "hr-" + generateUUID()[:17],
+		HostReservationId: "hr-" + sim.NewUUID()[:17],
 		OfferingId:        offeringID,
 		InstanceFamily:    o.InstanceFamily,
 		HostIdSet:         hostIDs,
@@ -1581,7 +1581,7 @@ func handlePurchaseHostReservation(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<PurchaseHostReservationResponse %s><requestId>%s</requestId><clientToken>%s</clientToken><currencyCode>%s</currencyCode><totalHourlyPrice>%s</totalHourlyPrice><totalUpfrontPrice>%s</totalUpfrontPrice><purchase><item><hostReservationId>%s</hostReservationId><instanceFamily>%s</instanceFamily><paymentOption>%s</paymentOption><hourlyPrice>%s</hourlyPrice><upfrontPrice>%s</upfrontPrice><currencyCode>%s</currencyCode><duration>%d</duration><hostIdSet>%s</hostIdSet></item></purchase></PurchaseHostReservationResponse>`,
-		ec2Xmlns(), generateUUID(), r.FormValue("ClientToken"), o.CurrencyCode, o.HourlyPrice, o.UpfrontPrice,
+		ec2Xmlns(), sim.NewUUID(), r.FormValue("ClientToken"), o.CurrencyCode, o.HourlyPrice, o.UpfrontPrice,
 		hr.HostReservationId, o.InstanceFamily, o.PaymentOption, o.HourlyPrice, o.UpfrontPrice, o.CurrencyCode, o.Duration, hostSet.String())
 }
 
@@ -1613,5 +1613,5 @@ func handleDescribeHostReservations(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeHostReservationsResponse %s><requestId>%s</requestId><hostReservationSet>%s</hostReservationSet></DescribeHostReservationsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }

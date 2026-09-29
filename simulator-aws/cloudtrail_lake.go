@@ -249,7 +249,7 @@ func handleCloudTrailCreateEventDataStore(w http.ResponseWriter, r *http.Request
 		status = "CREATED"
 	}
 	eds := CloudTrailEventDataStore{
-		ARN:                          cloudTrailEDSARN(generateUUID()),
+		ARN:                          cloudTrailEDSARN(sim.NewUUID()),
 		Name:                         req.Name,
 		Status:                       status,
 		RetentionPeriod:              retention,
@@ -570,7 +570,7 @@ func handleCloudTrailStartQuery(w http.ResponseWriter, r *http.Request) {
 	// Run the query synchronously over the store's events and settle FINISHED.
 	rows, scanned, matched := cloudTrailRunQuery(eds.ARN, req.QueryStatement)
 	query := CloudTrailQuery{
-		QueryId:        generateUUID(),
+		QueryId:        sim.NewUUID(),
 		EventDataStore: eds.ARN,
 		QueryStatement: req.QueryStatement,
 		QueryStatus:    "FINISHED",
@@ -1057,7 +1057,7 @@ func handleCloudTrailStartImport(w http.ResponseWriter, r *http.Request) {
 	imp, existing := cloudTrailImports.Get(req.ImportId)
 	if req.ImportId == "" || !existing {
 		imp = CloudTrailImport{
-			ImportId:         generateUUID(),
+			ImportId:         sim.NewUUID(),
 			Destinations:     req.Destinations,
 			ImportSource:     req.ImportSource,
 			ImportStatus:     "IN_PROGRESS",

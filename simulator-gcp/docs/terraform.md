@@ -48,8 +48,9 @@ Note the trailing `/` on endpoint URLs — the Google provider appends API paths
 The Google provider accepts full custom endpoint URLs, so the direct HTTP endpoint remains valid. To run through the local HTTPS gateway instead, start the simulator and Caddy, trust Caddy's local CA, and use the gateway URL as the same base endpoint:
 
 ```sh
-make stack-https-up
-export SSL_CERT_FILE="$(make -s stack-https-ca)"
+caddy run --config make/https-gateway/Caddyfile --adapter caddyfile &
+# Caddy's local root CA; on macOS it lives under ~/Library/Application Support/Caddy/
+export SSL_CERT_FILE="$HOME/.local/share/caddy/pki/authorities/local/root.crt"
 terraform apply -auto-approve -var="endpoint=https://gcp.sockerless.localhost:8443"
 ```
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/msgq"
 )
 
 // SQS dead-letter-queue redrive surface: ListDeadLetterSourceQueues plus the
@@ -105,7 +106,10 @@ func handleSQSListDeadLetterSourceQueues(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	sources := sqsSourceQueuesForDLQ(dlq.ARN)
-	page, next := awsPage(sources, req.NextToken, req.MaxResults, 1000)
+	page, next, pageOK := awsPage(w, sqsBadToken, sources, req.NextToken, req.MaxResults, 1000)
+	if !pageOK {
+		return
+	}
 	urls := make([]string, 0, len(page))
 	for _, q := range page {
 		urls = append(urls, q.URL)
@@ -184,22 +188,21 @@ func handleSQSStartMessageMoveTask(w http.ResponseWriter, r *http.Request) {
 	// SQS treats each redriven message as a new enqueue, so the common enqueue
 	// path assigns a new message ID, enqueue timestamp, FIFO sequence number,
 	// receipt state, and the destination queue's delivery delay.
-	var moved []SQSMessage
+	var moved []msgq.Message[sqsPayload]
 	sqsQueues.Update(source.Name, func(q *SQSQueue) {
-		moved = q.Messages
-		q.Messages = nil
+		moved = q.Messages.Remove(func(msgq.Message[sqsPayload]) bool { return true })
 	})
 	for _, m := range moved {
 		sqsEnqueue(dest.Name, sqsSendEntry{
-			MessageBody:            m.Body,
-			MessageAttributes:      m.MessageAttributes,
-			MessageGroupId:         m.MessageGroupID,
-			MessageDeduplicationId: m.MessageDeduplicationID,
+			MessageBody:            m.Payload.Body,
+			MessageAttributes:      m.Payload.MessageAttributes,
+			MessageGroupId:         m.Group,
+			MessageDeduplicationId: m.DedupID,
 		})
 	}
 
 	task := SQSMessageMoveTask{
-		TaskHandle:                        generateUUID(),
+		TaskHandle:                        sim.NewUUID(),
 		SourceArn:                         source.ARN,
 		Status:                            "COMPLETED",
 		MaxNumberOfMessagesPerSecond:      req.MaxNumberOfMessagesPerSecond,

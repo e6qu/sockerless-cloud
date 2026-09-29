@@ -530,6 +530,7 @@ func newGCPCoverageProbe(t *testing.T) *gcpCoverageProbe {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	srv.WrapHandler(bearerAuthMiddleware(srv))
 	now := time.Now()
 	return &gcpCoverageProbe{

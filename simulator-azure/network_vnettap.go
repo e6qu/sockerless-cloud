@@ -60,7 +60,7 @@ func registerNetworkVirtualNetworkTaps(srv *sim.Server) {
 			return true
 		},
 		provision: func(_ context.Context, tap *VirtualNetworkTap, previous *VirtualNetworkTap) error {
-			tap.Properties.ResourceGUID = generateUUID()
+			tap.Properties.ResourceGUID = sim.NewUUID()
 			if previous != nil && previous.Properties.ResourceGUID != "" {
 				tap.Properties.ResourceGUID = previous.Properties.ResourceGUID
 			}

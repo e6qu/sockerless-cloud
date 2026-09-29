@@ -132,11 +132,11 @@ func registerEventBridgeConnectivity(r *AWSRouter, srv *sim.Server) {
 }
 
 func ebConnectionArn(name string) string {
-	return fmt.Sprintf("arn:aws:events:%s:%s:connection/%s/%s", awsRegion(), awsAccountID(), name, generateUUID())
+	return fmt.Sprintf("arn:aws:events:%s:%s:connection/%s/%s", awsRegion(), awsAccountID(), name, sim.NewUUID())
 }
 
 func ebApiDestArn(name string) string {
-	return fmt.Sprintf("arn:aws:events:%s:%s:api-destination/%s/%s", awsRegion(), awsAccountID(), name, generateUUID())
+	return fmt.Sprintf("arn:aws:events:%s:%s:api-destination/%s/%s", awsRegion(), awsAccountID(), name, sim.NewUUID())
 }
 
 func ebEndpointArn(name string) string {
@@ -144,7 +144,7 @@ func ebEndpointArn(name string) string {
 }
 
 func ebConnectionSecretArn(name string) string {
-	return fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:events!connection/%s/%s", awsRegion(), awsAccountID(), name, generateUUID())
+	return fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:events!connection/%s/%s", awsRegion(), awsAccountID(), name, sim.NewUUID())
 }
 
 func ebPartnerSourceArn(name string) string {
@@ -249,7 +249,10 @@ func handleEBListApiDestinations(w http.ResponseWriter, r *http.Request) {
 		dests = append(dests, dest)
 	}
 	sort.Slice(dests, func(i, j int) bool { return dests[i].Name < dests[j].Name })
-	page, next := awsPageExplicit(dests, req.NextToken, req.Limit)
+	page, next, pageOK := awsPage(w, ebBadToken, dests, req.NextToken, req.Limit, 0)
+	if !pageOK {
+		return
+	}
 	entries := make([]map[string]any, 0, len(page))
 	for _, dest := range page {
 		entry := map[string]any{
@@ -490,7 +493,10 @@ func handleEBListConnections(w http.ResponseWriter, r *http.Request) {
 		conns = append(conns, conn)
 	}
 	sort.Slice(conns, func(i, j int) bool { return conns[i].Name < conns[j].Name })
-	page, next := awsPageExplicit(conns, req.NextToken, req.Limit)
+	page, next, pageOK := awsPage(w, ebBadToken, conns, req.NextToken, req.Limit, 0)
+	if !pageOK {
+		return
+	}
 	entries := make([]map[string]any, 0, len(page))
 	for _, conn := range page {
 		entry := map[string]any{
@@ -723,7 +729,10 @@ func handleEBListEndpoints(w http.ResponseWriter, r *http.Request) {
 		endpoints = append(endpoints, endpoint)
 	}
 	sort.Slice(endpoints, func(i, j int) bool { return endpoints[i].Name < endpoints[j].Name })
-	page, next := awsPageExplicit(endpoints, req.NextToken, req.MaxResults)
+	page, next, pageOK := awsPage(w, ebBadToken, endpoints, req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
 	entries := make([]map[string]any, 0, len(page))
 	for _, endpoint := range page {
 		entries = append(entries, ebEndpointDescribeShape(endpoint))
@@ -912,7 +921,10 @@ func handleEBListPartnerEventSources(w http.ResponseWriter, r *http.Request) {
 		sources = append(sources, s)
 	}
 	sort.Slice(sources, func(i, j int) bool { return sources[i].Name < sources[j].Name })
-	page, next := awsPageExplicit(sources, req.NextToken, req.Limit)
+	page, next, pageOK := awsPage(w, ebBadToken, sources, req.NextToken, req.Limit, 0)
+	if !pageOK {
+		return
+	}
 	entries := make([]map[string]any, 0, len(page))
 	for _, s := range page {
 		entries = append(entries, map[string]any{"Arn": s.Arn, "Name": s.Name})
@@ -951,7 +963,10 @@ func handleEBListPartnerEventSourceAccounts(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	sort.Slice(accounts, func(i, j int) bool { return accounts[i].Account < accounts[j].Account })
-	page, next := awsPageExplicit(accounts, req.NextToken, req.Limit)
+	page, next, pageOK := awsPage(w, ebBadToken, accounts, req.NextToken, req.Limit, 0)
+	if !pageOK {
+		return
+	}
 	entries := make([]map[string]any, 0, len(page))
 	for _, s := range page {
 		entry := map[string]any{
@@ -1029,7 +1044,7 @@ func handleEBPutPartnerEvents(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		entries = append(entries, map[string]string{"EventId": generateUUID()})
+		entries = append(entries, map[string]string{"EventId": sim.NewUUID()})
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{"FailedEntryCount": failed, "Entries": entries})
 }
@@ -1117,7 +1132,10 @@ func handleEBListEventSources(w http.ResponseWriter, r *http.Request) {
 		sources = append(sources, s)
 	}
 	sort.Slice(sources, func(i, j int) bool { return sources[i].Name < sources[j].Name })
-	page, next := awsPageExplicit(sources, req.NextToken, req.Limit)
+	page, next, pageOK := awsPage(w, ebBadToken, sources, req.NextToken, req.Limit, 0)
+	if !pageOK {
+		return
+	}
 	entries := make([]map[string]any, 0, len(page))
 	for _, s := range page {
 		entry := map[string]any{

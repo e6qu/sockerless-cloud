@@ -36,7 +36,7 @@ That's it. Everything else (signers, retry policy, HTTP transport, base-endpoint
 
 ## The "use the SDK, not raw HTTP" rule
 
-Every test under `simulator-<cloud>/sdk-tests/` MUST construct the cloud provider's official SDK client for the service under test. Raw `net/http` is a finding by default — it bypasses the SDK's challenge-then-retry handshake, request signing, response parser, retry policy, and pagination, all of which are part of the contract real consumers depend on. The Phase 176 KV tests that pre-set `Authorization: Bearer fake-token` and posted raw HTTP requests passed against PR #200 but skipped the SDK's `parseTenant` parser entirely — issue #193 reopened the moment a real consumer ran `azsecrets.NewClient` against the merged build.
+Every test under `simulator-<cloud>/sdk-tests/` MUST construct the cloud provider's official SDK client for the service under test. Raw `net/http` is a finding by default — it bypasses the SDK's challenge-then-retry handshake, request signing, response parser, retry policy, and pagination, all of which are part of the contract real consumers depend on. The earlier Key Vault tests that pre-set `Authorization: Bearer fake-token` and posted raw HTTP requests passed against PR #200 but skipped the SDK's `parseTenant` parser entirely — issue #193 reopened the moment a real consumer ran `azsecrets.NewClient` against the merged build.
 
 Permitted raw-HTTP scenarios (narrow, must be commented):
 

@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // A revision written before revisions recorded a status is ACTIVE to both
 // listings, and a family prefix is read as the families it names, not as a
 // prefix of the "<family>:<revision>" key.
 func TestECSTaskDefinitionListingsAgreeOnStatusAndPrefix(t *testing.T) {
-	AwaitSimulatorBackground()
+	bg.Await()
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
 	for key, td := range map[string]ECSTaskDefinition{
 		"web:1":    {TaskDefinitionArn: ecsArn("task-definition", "web:1"), Family: "web", Revision: 1},

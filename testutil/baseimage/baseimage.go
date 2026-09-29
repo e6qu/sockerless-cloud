@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -13,11 +14,22 @@ import (
 // host lacks it. `docker pull` asks the registry even for an image the host
 // holds, and the anonymous data cap refuses it though CI's cache loaded it.
 func Ensure(image string) error {
-	inspect, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	present := exec.CommandContext(inspect, "docker", "image", "inspect", image).Run() == nil
-	cancel()
-	if present {
-		return nil
+	_, err := EnsureRef(image)
+	return err
+}
+
+// EnsureRef makes image present as Ensure does and returns the reference to
+// run it by. `docker load` restores a digest-pinned image only under the local
+// tag scripts/warm-base-images.sh saves it as, `repo:sha256-<hex>`, so a host
+// that holds that tag runs the image by it instead of asking the registry.
+func EnsureRef(image string) (string, error) {
+	for _, ref := range []string{image, LocalRef(image)} {
+		inspect, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		present := exec.CommandContext(inspect, "docker", "image", "inspect", ref).Run() == nil
+		cancel()
+		if present {
+			return ref, nil
+		}
 	}
 	const attempts = 5
 	var last error
@@ -26,12 +38,22 @@ func Ensure(image string) error {
 		out, err := exec.CommandContext(pull, "docker", "pull", image).CombinedOutput()
 		cancel()
 		if err == nil {
-			return nil
+			return image, nil
 		}
 		last = fmt.Errorf("docker pull %s (attempt %d of %d): %w\n%s", image, attempt, attempts, err, out)
 		if attempt < attempts {
 			time.Sleep(time.Duration(attempt*attempt) * time.Second)
 		}
 	}
-	return last
+	return "", last
+}
+
+// LocalRef is the tag scripts/warm-base-images.sh saves image under: the image
+// itself, or `repo:sha256-<hex>` for a digest-pinned `repo@sha256:<hex>`.
+func LocalRef(image string) string {
+	repo, digest, pinned := strings.Cut(image, "@sha256:")
+	if !pinned {
+		return image
+	}
+	return repo + ":sha256-" + digest
 }

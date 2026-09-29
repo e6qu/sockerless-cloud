@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,6 +15,11 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
+	"github.com/e6qu/sockerless-cloud/sim/msgq"
+	"github.com/e6qu/sockerless-cloud/sim/sparse"
 )
 
 // Azure Storage Files / Queues / Tables data planes.
@@ -84,18 +90,8 @@ type QueueData struct {
 	Name     string
 	Created  string
 	Metadata map[string]string
-	Messages []QueueMessage
+	Messages msgq.Queue[queuePayload]
 	ACLs     []TableSignedIdentifier
-}
-
-type QueueMessage struct {
-	MessageID      string
-	MessageText    string // base64 (per real Azure spec) or raw
-	InsertionTime  string
-	ExpirationTime string
-	PopReceipt     string
-	VisibleAt      int64 // Unix seconds; >now → in-flight
-	DequeueCount   int
 }
 
 var queueData sim.Store[QueueData]
@@ -155,6 +151,9 @@ func registerStorageDataPlane(srv *sim.Server) {
 	fileShareData = sim.MakeStore[FileShareData](srv.DB(), "file_share_data")
 	fileObjects = sim.MakeStore[FileObject](srv.DB(), "file_objects")
 	queueData = sim.MakeStore[QueueData](srv.DB(), "queue_data")
+	if err := queueMigrateMessages(srv.DB()); err != nil {
+		log.Fatalf("queue storage: %v", err)
+	}
 	tableData = sim.MakeStore[TableData](srv.DB(), "table_data")
 	tableEntities = sim.MakeStore[TableEntity](srv.DB(), "table_entities")
 	registerFilesDataPlaneStores(srv)
@@ -388,7 +387,7 @@ func handleFilesShareACL(w http.ResponseWriter, r *http.Request, account, share 
 			return
 		}
 		data.ACLs = body.Items
-		data.ETag = `"` + generateUUID() + `"`
+		data.ETag = `"` + sim.NewUUID() + `"`
 		data.Created = time.Now().UTC().Format(http.TimeFormat)
 		fileShareData.Put(key, data)
 		updateFileShareARMAccessPolicies(account, share, body.Items)
@@ -439,7 +438,7 @@ func handleFilesCreateShare(w http.ResponseWriter, r *http.Request, account, sha
 		RootSquash: r.Header.Get("x-ms-root-squash"),
 		Metadata:   collectMetadata(r),
 		Created:    time.Now().UTC().Format(http.TimeFormat),
-		ETag:       `"` + generateUUID() + `"`,
+		ETag:       `"` + sim.NewUUID() + `"`,
 	}
 	fileShareData.Put(key, s)
 	upsertFileShareARMProjection(account, share, s.Quota, s.Metadata)
@@ -775,7 +774,7 @@ func handleFilesUploadRange(w http.ResponseWriter, r *http.Request, account, sha
 			http.StatusBadRequest)
 		return
 	}
-	start, end, ok := parseAzureFileRange(rangeHeader)
+	start, end, ok := blobExactRange(rangeHeader)
 	if !ok {
 		writeStorageError(w, "InvalidHeaderValue",
 			"The value for one of the HTTP headers is not in the correct format: x-ms-range.",
@@ -795,12 +794,8 @@ func handleFilesUploadRange(w http.ResponseWriter, r *http.Request, account, sha
 	var data []byte
 	if !clear {
 		// "update" is the default write mode: the body supplies the bytes.
-		body, err := openStreamingBody(r)
-		if err != nil {
-			writeStorageError(w, "UnsupportedHeader", err.Error(), http.StatusUnsupportedMediaType)
-			return
-		}
-		data, err = io.ReadAll(body)
+		var err error
+		data, err = io.ReadAll(r.Body)
 		if err != nil {
 			writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 			return
@@ -820,7 +815,7 @@ func handleFilesUploadRange(w http.ResponseWriter, r *http.Request, account, sha
 	}
 	defer f.Close()
 	if clear {
-		if err := filesClearFileRange(f, info, start, length); err != nil {
+		if err := sparse.Clear(f, start, length); err != nil {
 			writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -836,32 +831,6 @@ func handleFilesUploadRange(w http.ResponseWriter, r *http.Request, account, sha
 	w.Header().Set("ETag", fileETag(written))
 	w.Header().Set("Last-Modified", written.ModTime().UTC().Format(http.TimeFormat))
 	w.WriteHeader(http.StatusCreated)
-}
-
-// parseAzureFileRange parses the "bytes=start-end" form Azure Files requires on
-// x-ms-range / Range. Both bounds are mandatory and inclusive — the open-ended
-// "bytes=start-" spelling is not valid for Upload Range.
-func parseAzureFileRange(raw string) (start, end int64, ok bool) {
-	spec, found := strings.CutPrefix(strings.TrimSpace(raw), "bytes=")
-	if !found {
-		return 0, 0, false
-	}
-	lo, hi, found := strings.Cut(spec, "-")
-	if !found {
-		return 0, 0, false
-	}
-	start, err := strconv.ParseInt(strings.TrimSpace(lo), 10, 64)
-	if err != nil {
-		return 0, 0, false
-	}
-	end, err = strconv.ParseInt(strings.TrimSpace(hi), 10, 64)
-	if err != nil {
-		return 0, 0, false
-	}
-	if start < 0 || end < start {
-		return 0, 0, false
-	}
-	return start, end, true
 }
 
 // statShareFile resolves one file in a share to its on-disk path, the
@@ -944,14 +913,7 @@ func handleFilesGetFile(w http.ResponseWriter, r *http.Request, account, share, 
 	}
 	defer f.Close()
 	writeFileHeaders(w, props, info)
-	if !partial {
-		_, _ = io.Copy(w, f)
-		return
-	}
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", end-start+1))
-	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, info.Size()))
-	w.WriteHeader(http.StatusPartialContent)
-	_, _ = io.Copy(w, io.NewSectionReader(f, start, end-start+1))
+	azureStorageServeRead(w, r, f, info.Size(), start, end, partial)
 }
 
 func handleFilesHeadFile(w http.ResponseWriter, r *http.Request, account, share, filePath string) {
@@ -1210,14 +1172,7 @@ func handleQueueGetMetadata(w http.ResponseWriter, r *http.Request, account, que
 	for k, v := range q.Metadata {
 		w.Header().Set("x-ms-meta-"+k, v)
 	}
-	visible := 0
-	now := time.Now().Unix()
-	for _, m := range q.Messages {
-		if m.VisibleAt <= now {
-			visible++
-		}
-	}
-	w.Header().Set("x-ms-approximate-messages-count", fmt.Sprintf("%d", visible))
+	w.Header().Set("x-ms-approximate-messages-count", strconv.Itoa(queueApproximateCount(q)))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1239,217 +1194,21 @@ func handleQueuesList(w http.ResponseWriter, r *http.Request, account string) {
 	writeStorageXML(w, http.StatusOK, out)
 }
 
-// QueueMessageRequest is the XML request body for Put Message.
-type QueueMessageRequest struct {
-	XMLName     xml.Name `xml:"QueueMessage"`
-	MessageText string   `xml:"MessageText"`
-}
-
-// QueueMessageResponse is the XML response shape for Get / Peek.
-type QueueMessageResponse struct {
-	XMLName         xml.Name `xml:"QueueMessage"`
-	MessageID       string   `xml:"MessageId,omitempty"`
-	InsertionTime   string   `xml:"InsertionTime,omitempty"`
-	ExpirationTime  string   `xml:"ExpirationTime,omitempty"`
-	PopReceipt      string   `xml:"PopReceipt,omitempty"`
-	TimeNextVisible string   `xml:"TimeNextVisible,omitempty"`
-	DequeueCount    int      `xml:"DequeueCount,omitempty"`
-	MessageText     string   `xml:"MessageText"`
-}
-
-func handleQueuePutMessage(w http.ResponseWriter, r *http.Request, account, queue string) {
-	key := queueKey(account, queue)
-	if _, ok := queueData.Get(key); !ok {
-		writeStorageError(w, "QueueNotFound", "The specified queue does not exist.", http.StatusNotFound)
-		return
-	}
-	defer r.Body.Close()
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeStorageError(w, "RequestBodyInvalid",
-			"Failed to read request body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	var req QueueMessageRequest
-	if err := xml.Unmarshal(data, &req); err != nil {
-		writeStorageError(w, "InvalidXmlDocument",
-			"The specified XML is not syntactically valid: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	now := time.Now()
-	msg := QueueMessage{
-		MessageID:      generateUUID(),
-		MessageText:    req.MessageText,
-		InsertionTime:  now.UTC().Format(time.RFC1123),
-		ExpirationTime: now.Add(7 * 24 * time.Hour).UTC().Format(time.RFC1123),
-	}
-	queueData.Update(key, func(q *QueueData) {
-		q.Messages = append(q.Messages, msg)
-	})
-	resp := QueueMessageResponse{
-		MessageID:       msg.MessageID,
-		InsertionTime:   msg.InsertionTime,
-		ExpirationTime:  msg.ExpirationTime,
-		PopReceipt:      "",
-		TimeNextVisible: msg.InsertionTime,
-	}
-	type wrap struct {
-		XMLName  xml.Name               `xml:"QueueMessagesList"`
-		Messages []QueueMessageResponse `xml:"QueueMessage"`
-	}
-	writeStorageXML(w, http.StatusCreated, wrap{Messages: []QueueMessageResponse{resp}})
-}
-
-func handleQueueGetMessages(w http.ResponseWriter, r *http.Request, account, queue string) {
-	key := queueKey(account, queue)
-	if _, ok := queueData.Get(key); !ok {
-		writeStorageError(w, "QueueNotFound", "The specified queue does not exist.", http.StatusNotFound)
-		return
-	}
-	now := time.Now().Unix()
-	visTimeout := int64(30)
-	if v := r.URL.Query().Get("visibilitytimeout"); v != "" {
-		var n int64
-		_, _ = fmt.Sscanf(v, "%d", &n)
-		if n > 0 {
-			visTimeout = n
-		}
-	}
-	numMessages := 1
-	if v := r.URL.Query().Get("numofmessages"); v != "" {
-		_, _ = fmt.Sscanf(v, "%d", &numMessages)
-	}
-	if numMessages <= 0 || numMessages > 32 {
-		numMessages = 1
-	}
-	var picked []QueueMessage
-	queueData.Update(key, func(qq *QueueData) {
-		for i := range qq.Messages {
-			if len(picked) >= numMessages {
-				break
-			}
-			if qq.Messages[i].VisibleAt > now {
-				continue
-			}
-			qq.Messages[i].PopReceipt = generateUUID()
-			qq.Messages[i].VisibleAt = now + visTimeout
-			qq.Messages[i].DequeueCount++
-			picked = append(picked, qq.Messages[i])
-		}
-	})
-	type wrap struct {
-		XMLName  xml.Name               `xml:"QueueMessagesList"`
-		Messages []QueueMessageResponse `xml:"QueueMessage"`
-	}
-	out := wrap{}
-	for _, m := range picked {
-		out.Messages = append(out.Messages, QueueMessageResponse{
-			MessageID:       m.MessageID,
-			InsertionTime:   m.InsertionTime,
-			ExpirationTime:  m.ExpirationTime,
-			PopReceipt:      m.PopReceipt,
-			TimeNextVisible: time.Unix(m.VisibleAt, 0).UTC().Format(time.RFC1123),
-			DequeueCount:    m.DequeueCount,
-			MessageText:     m.MessageText,
-		})
-	}
-	writeStorageXML(w, http.StatusOK, out)
-}
-
-func handleQueuePeekMessages(w http.ResponseWriter, r *http.Request, account, queue string) {
-	q, ok := queueData.Get(queueKey(account, queue))
-	if !ok {
-		writeStorageError(w, "QueueNotFound", "The specified queue does not exist.", http.StatusNotFound)
-		return
-	}
-	type wrap struct {
-		XMLName  xml.Name               `xml:"QueueMessagesList"`
-		Messages []QueueMessageResponse `xml:"QueueMessage"`
-	}
-	out := wrap{}
-	now := time.Now().Unix()
-	for _, m := range q.Messages {
-		if m.VisibleAt > now {
-			continue
-		}
-		out.Messages = append(out.Messages, QueueMessageResponse{
-			MessageID:      m.MessageID,
-			InsertionTime:  m.InsertionTime,
-			ExpirationTime: m.ExpirationTime,
-			DequeueCount:   m.DequeueCount,
-			MessageText:    m.MessageText,
-		})
-	}
-	writeStorageXML(w, http.StatusOK, out)
-}
-
-func handleQueueDeleteMessage(w http.ResponseWriter, r *http.Request, account, queue, messageID string) {
-	key := queueKey(account, queue)
-	if _, ok := queueData.Get(key); !ok {
-		writeStorageError(w, "QueueNotFound", "The specified queue does not exist.", http.StatusNotFound)
-		return
-	}
-	popReceipt := r.URL.Query().Get("popreceipt")
-	var found, mismatched bool
-	queueData.Update(key, func(qq *QueueData) {
-		out := qq.Messages[:0]
-		for _, m := range qq.Messages {
-			if m.MessageID == messageID {
-				found = true
-				if m.PopReceipt != popReceipt {
-					mismatched = true
-				} else {
-					continue
-				}
-			}
-			out = append(out, m)
-		}
-		qq.Messages = out
-	})
-	// A delete is only the holder of the pop receipt's to make, and the service
-	// says so rather than reporting a deletion that did not happen.
-	if !found {
-		writeStorageError(w, "MessageNotFound",
-			"The specified message does not exist.", http.StatusNotFound)
-		return
-	}
-	if mismatched {
-		writeStorageError(w, "PopReceiptMismatch",
-			"The specified pop receipt did not match the pop receipt for a dequeued message.",
-			http.StatusBadRequest)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func handleQueueClearMessages(w http.ResponseWriter, r *http.Request, account, queue string) {
-	key := queueKey(account, queue)
-	if _, ok := queueData.Get(key); !ok {
-		writeStorageError(w, "QueueNotFound", "The specified queue does not exist.", http.StatusNotFound)
-		return
-	}
-	queueData.Update(key, func(qq *QueueData) {
-		qq.Messages = nil
-	})
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // ── Tables dispatch ─────────────────────────────────────────────────
 
 func tableKey(account, table string) string { return account + "/" + table }
 
-// Table entities are keyed account/table/partition/row, so one index under
-// every path prefix serves a table's query, a table's deletion and an
-// account-wide batch snapshot alike, instead of each decoding every entity in
-// the process.
-var tableEntitiesByPrefix sim.GenerationIndex[TableEntity]
-
 // tableEntitiesUnder returns the entities whose key begins with prefix, which
-// must end at a path separator.
+// must end at a path separator. Entities are keyed account/table/partition/row
+// and no key segment may hold a "/", so a table's or a partition's entities are
+// one key range of the store, read without touching any other.
 func tableEntitiesUnder(prefix string) []TableEntity {
-	return tableEntitiesByPrefix.LookupAll(tableEntities, prefix, func(e TableEntity) []string {
-		return sim.PathPrefixes(tableEntityKey(e.Account, e.Table, e.PartitionKey, e.RowKey))
-	})
+	entries := tableEntities.ListPrefix(prefix)
+	out := make([]TableEntity, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, entry.Item)
+	}
+	return out
 }
 
 func tableEntityKey(account, table, pk, rk string) string {
@@ -1525,42 +1284,7 @@ func handleTablesDataPlane(w http.ResponseWriter, r *http.Request, account strin
 		return
 	}
 
-	// Entity ops on /{table}
-	// PartitionKey/RowKey-addressed: /{table}(PartitionKey='X',RowKey='Y')
-	if i := strings.Index(path, "(PartitionKey="); i > 0 {
-		table := path[:i]
-		rest := path[i+1:]
-		rest = strings.TrimSuffix(rest, ")")
-		// rest is now PartitionKey='X',RowKey='Y'
-		pk, rk := parsePKRK(rest)
-		switch r.Method {
-		case http.MethodGet:
-			handleEntityGet(w, r, account, table, pk, rk)
-		case http.MethodPut:
-			// PUT = Update Entity = wholesale replace.
-			handleEntityUpsert(w, r, account, table, pk, rk, false)
-		case http.MethodPatch, "MERGE":
-			// MERGE / PATCH = Merge Entity = overlay only the supplied
-			// properties onto the existing entity, preserving omitted ones.
-			handleEntityUpsert(w, r, account, table, pk, rk, true)
-		case http.MethodDelete:
-			handleEntityDelete(w, r, account, table, pk, rk)
-		default:
-			writeTableODataError(w, "MethodNotAllowed", "Method not supported", http.StatusMethodNotAllowed)
-		}
-		return
-	}
-
-	// Plain /{table} — POST for insert, GET for query.
-	if !strings.Contains(path, "/") && path != "" {
-		switch r.Method {
-		case http.MethodPost:
-			handleEntityInsert(w, r, account, path)
-		case http.MethodGet:
-			handleEntityQuery(w, r, account, path)
-		default:
-			writeTableODataError(w, "MethodNotAllowed", "Method not supported", http.StatusMethodNotAllowed)
-		}
+	if serveTableEntityOp(w, r, account, nil) {
 		return
 	}
 	writeTableODataError(w, "InvalidUri", "Unrecognized Tables data-plane path", http.StatusBadRequest)
@@ -1663,7 +1387,36 @@ func handleTableACL(w http.ResponseWriter, r *http.Request, account, table strin
 	}
 }
 
-func handleEntityInsert(w http.ResponseWriter, r *http.Request, account, table string) {
+// tablePartitionLocks isolates the writers of one partition — the unit an
+// entity group transaction commits atomically. A single-entity write holds its
+// partition for the read-check-write that evaluates If-Match; a batch holds
+// its partition for the whole change set.
+var tablePartitionLocks kvstore.RWLocks
+
+func tablePartitionKey(account, table, pk string) string {
+	return account + "/" + table + "/" + pk
+}
+
+// tableLockPartition takes a partition's lock unless txn — the batch the
+// operation runs in — already holds it.
+func tableLockPartition(txn *tableTxn, write bool, account, table, pk string) func() {
+	if txn != nil {
+		return func() {}
+	}
+	return tablePartitionLocks.Lock(write, tablePartitionKey(account, table, pk))
+}
+
+func tablePutEntity(txn *tableTxn, e TableEntity) {
+	key := tableEntityKey(e.Account, e.Table, e.PartitionKey, e.RowKey)
+	txn.remember(key)
+	tableEntities.Put(key, e)
+}
+
+func tableNewETag(now string) string {
+	return `W/"datetime'` + now + `'"`
+}
+
+func handleEntityInsert(w http.ResponseWriter, r *http.Request, account, table string, txn *tableTxn) {
 	if _, ok := tableData.Get(tableKey(account, table)); !ok {
 		writeTableODataError(w, "TableNotFound", "The table specified does not exist.", http.StatusNotFound)
 		return
@@ -1683,15 +1436,20 @@ func handleEntityInsert(w http.ResponseWriter, r *http.Request, account, table s
 		writeTableODataError(w, "InvalidInput", "PartitionKey and RowKey are required", http.StatusBadRequest)
 		return
 	}
+	defer tableLockPartition(txn, true, account, table, pk)()
+	if _, exists := tableEntities.Get(tableEntityKey(account, table, pk, rk)); exists {
+		writeTableODataError(w, "EntityAlreadyExists", "The specified entity already exists.", http.StatusConflict)
+		return
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	entity := TableEntity{
 		Account: account, Table: table,
 		PartitionKey: pk, RowKey: rk,
 		Properties: props,
-		ETag:       `W/"datetime'` + now + `'"`,
+		ETag:       tableNewETag(now),
 		Timestamp:  now,
 	}
-	tableEntities.Put(tableEntityKey(account, table, pk, rk), entity)
+	tablePutEntity(txn, entity)
 	w.Header().Set("ETag", entity.ETag)
 	w.Header().Set("Preference-Applied", "return-no-content")
 	if r.Header.Get("Prefer") == "return-content" {
@@ -1702,12 +1460,14 @@ func handleEntityInsert(w http.ResponseWriter, r *http.Request, account, table s
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func handleEntityGet(w http.ResponseWriter, r *http.Request, account, table, pk, rk string) {
+func handleEntityGet(w http.ResponseWriter, r *http.Request, account, table, pk, rk string, txn *tableTxn) {
 	if _, ok := tableData.Get(tableKey(account, table)); !ok {
 		writeTableODataError(w, "TableNotFound", "The table specified does not exist.", http.StatusNotFound)
 		return
 	}
+	release := tableLockPartition(txn, false, account, table, pk)
 	e, ok := tableEntities.Get(tableEntityKey(account, table, pk, rk))
+	release()
 	if !ok {
 		writeTableODataError(w, "EntityNotFound", "The specified entity does not exist.", http.StatusNotFound)
 		return
@@ -1722,10 +1482,10 @@ func handleEntityGet(w http.ResponseWriter, r *http.Request, account, table, pk,
 }
 
 // handleEntityUpsert handles Update Entity (PUT, full replace) and Merge Entity
-// (MERGE/PATCH, partial overlay). When merge is true the supplied properties are
-// overlaid onto the existing entity, preserving any omitted ones; otherwise the
-// entity is replaced wholesale. Both upsert when the entity doesn't yet exist.
-func handleEntityUpsert(w http.ResponseWriter, r *http.Request, account, table, pk, rk string, merge bool) {
+// (MERGE/PATCH, overlay onto the stored properties). With If-Match the entity
+// must exist and, unless the tag is `*`, carry that ETag. Without If-Match the
+// Table service treats the request as Insert Or Replace / Insert Or Merge.
+func handleEntityUpsert(w http.ResponseWriter, r *http.Request, account, table, pk, rk string, merge bool, txn *tableTxn) {
 	if _, ok := tableData.Get(tableKey(account, table)); !ok {
 		writeTableODataError(w, "TableNotFound", "The table specified does not exist.", http.StatusNotFound)
 		return
@@ -1735,17 +1495,20 @@ func handleEntityUpsert(w http.ResponseWriter, r *http.Request, account, table, 
 		writeTableODataError(w, "InvalidInput", err.Error(), http.StatusBadRequest)
 		return
 	}
-	if merge {
-		if existing, ok := tableEntities.Get(tableEntityKey(account, table, pk, rk)); ok {
-			merged := make(map[string]json.RawMessage, len(existing.Properties)+len(props))
-			for k, v := range existing.Properties {
-				merged[k] = v
-			}
-			for k, v := range props {
-				merged[k] = v
-			}
-			props = merged
+	defer tableLockPartition(txn, true, account, table, pk)()
+	existing, exists := tableEntities.Get(tableEntityKey(account, table, pk, rk))
+	if !tableIfMatch(w, r, existing, exists) {
+		return
+	}
+	if merge && exists {
+		merged := make(map[string]json.RawMessage, len(existing.Properties)+len(props))
+		for k, v := range existing.Properties {
+			merged[k] = v
 		}
+		for k, v := range props {
+			merged[k] = v
+		}
+		props = merged
 	}
 	props["PartitionKey"], _ = json.Marshal(pk)
 	props["RowKey"], _ = json.Marshal(rk)
@@ -1754,24 +1517,53 @@ func handleEntityUpsert(w http.ResponseWriter, r *http.Request, account, table, 
 		Account: account, Table: table,
 		PartitionKey: pk, RowKey: rk,
 		Properties: props,
-		ETag:       `W/"datetime'` + now + `'"`,
+		ETag:       tableNewETag(now),
 		Timestamp:  now,
 	}
-	tableEntities.Put(tableEntityKey(account, table, pk, rk), entity)
+	tablePutEntity(txn, entity)
 	w.Header().Set("ETag", entity.ETag)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func handleEntityDelete(w http.ResponseWriter, r *http.Request, account, table, pk, rk string) {
+// handleEntityDelete deletes an entity. The Table service requires If-Match on
+// a delete: the entity's ETag, or `*` to delete whatever version is stored.
+func handleEntityDelete(w http.ResponseWriter, r *http.Request, account, table, pk, rk string, txn *tableTxn) {
 	if _, ok := tableData.Get(tableKey(account, table)); !ok {
 		writeTableODataError(w, "TableNotFound", "The table specified does not exist.", http.StatusNotFound)
 		return
 	}
-	if !tableEntities.Delete(tableEntityKey(account, table, pk, rk)) {
-		writeTableODataError(w, "EntityNotFound", "The specified entity does not exist.", http.StatusNotFound)
+	if r.Header.Get("If-Match") == "" {
+		writeTableODataError(w, "MissingRequiredHeader", "An HTTP header that's mandatory for this request is not specified.", http.StatusBadRequest)
 		return
 	}
+	defer tableLockPartition(txn, true, account, table, pk)()
+	key := tableEntityKey(account, table, pk, rk)
+	existing, exists := tableEntities.Get(key)
+	if !tableIfMatch(w, r, existing, exists) {
+		return
+	}
+	txn.remember(key)
+	tableEntities.Delete(key)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// tableIfMatch evaluates a request's If-Match against the stored entity and
+// answers the Table service's refusal when it fails: 404 for an entity that
+// does not exist, 412 UpdateConditionNotSatisfied for one whose ETag moved.
+func tableIfMatch(w http.ResponseWriter, r *http.Request, existing TableEntity, exists bool) bool {
+	header := r.Header.Get("If-Match")
+	if header == "" {
+		return true
+	}
+	if !exists {
+		writeTableODataError(w, "ResourceNotFound", "The specified resource does not exist.", http.StatusNotFound)
+		return false
+	}
+	if !blobstore.ETagListMatches(header, existing.ETag) {
+		writeTableODataError(w, "UpdateConditionNotSatisfied", "The update condition specified in the request was not satisfied.", http.StatusPreconditionFailed)
+		return false
+	}
+	return true
 }
 
 func handleEntityQuery(w http.ResponseWriter, r *http.Request, account, table string) {
@@ -1783,8 +1575,7 @@ func handleEntityQuery(w http.ResponseWriter, r *http.Request, account, table st
 
 	// Gather this table's entities, sorted by (PartitionKey, RowKey) — the
 	// canonical Tables ordering real Azure pages over.
-	// The rows are copied out of the index because they are sorted below.
-	matching := append([]TableEntity(nil), tableEntitiesUnder(prefix)...)
+	matching := tableEntitiesUnder(prefix)
 	sort.Slice(matching, func(i, j int) bool {
 		if matching[i].PartitionKey != matching[j].PartitionKey {
 			return matching[i].PartitionKey < matching[j].PartitionKey
@@ -1796,7 +1587,7 @@ func handleEntityQuery(w http.ResponseWriter, r *http.Request, account, table st
 	// entity's properties (incl. PartitionKey/RowKey). aztables pushes the
 	// filter to the server and does not re-filter client-side, so ignoring it
 	// returns wrong results.
-	var filterNode odataNode
+	var filterNode listq.Node
 	if f := strings.TrimSpace(r.URL.Query().Get("$filter")); f != "" {
 		node, err := azureParseODataFilter(f)
 		if err != nil {
@@ -1806,14 +1597,10 @@ func handleEntityQuery(w http.ResponseWriter, r *http.Request, account, table st
 		filterNode = node
 	}
 
-	// $skiptoken — the sim pages by entity offset (encoded in the
-	// continuation headers Azure emits when $top truncates the result).
-	start := 0
-	if tok := r.URL.Query().Get("NextRowKey"); tok != "" {
-		if n, err := strconv.Atoi(tok); err == nil && n >= 0 {
-			start = n
-		}
-	}
+	// A continuation names the first entity of the next page by its keys, which
+	// the SDK hands back from the x-ms-continuation-* response headers.
+	nextPK := r.URL.Query().Get("NextPartitionKey")
+	nextRK := r.URL.Query().Get("NextRowKey")
 
 	limit := -1
 	if raw := r.URL.Query().Get("$top"); raw != "" {
@@ -1828,18 +1615,16 @@ func handleEntityQuery(w http.ResponseWriter, r *http.Request, account, table st
 	selectSet := parseTableSelect(r.URL.Query().Get("$select"))
 
 	entries := []map[string]json.RawMessage{}
-	idx := 0
-	nextToken := ""
 	for _, e := range matching {
-		if filterNode != nil && !filterNode.eval(tableEntityFilterMap(e)) {
+		if nextPK != "" && (e.PartitionKey < nextPK || e.PartitionKey == nextPK && e.RowKey < nextRK) {
 			continue
 		}
-		if idx < start {
-			idx++
+		if filterNode != nil && !filterNode.Eval(tableEntityFilterMap(e)) {
 			continue
 		}
 		if limit >= 0 && len(entries) >= limit {
-			nextToken = strconv.Itoa(idx)
+			w.Header().Set("x-ms-continuation-NextPartitionKey", e.PartitionKey)
+			w.Header().Set("x-ms-continuation-NextRowKey", e.RowKey)
 			break
 		}
 		out := map[string]json.RawMessage{}
@@ -1851,15 +1636,8 @@ func handleEntityQuery(w http.ResponseWriter, r *http.Request, account, table st
 		}
 		out["Timestamp"], _ = json.Marshal(e.Timestamp)
 		entries = append(entries, out)
-		idx++
 	}
 
-	if nextToken != "" {
-		// Real Tables returns the continuation tokens as response headers; the
-		// SDK forwards them back as NextPartitionKey/NextRowKey query params.
-		w.Header().Set("x-ms-continuation-NextPartitionKey", "p")
-		w.Header().Set("x-ms-continuation-NextRowKey", nextToken)
-	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": entries})
 }
 

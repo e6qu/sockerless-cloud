@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // A Query reads the item store under one lock, and copies only what it
@@ -37,9 +38,6 @@ import (
 // nearly free and hides the cost this is about — measured, the same tests
 // against a memory store show no difference between reading per item and
 // reading once, and against a database store they show the difference plainly.
-//
-// The key index is generation-cached across queries, so its generation is
-// bumped to invalidate whatever a previous test left in it.
 func ddbQueryConcurrencyStores(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
@@ -48,11 +46,10 @@ func ddbQueryConcurrencyStores(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ddbItems = sim.MakeStore[map[string]any](db, "ddb_items")
 	ddbItemNames = sim.MakeStore[string](db, "ddb_item_names")
 	ddbTables = sim.MakeStore[DDBTable](db, "ddb_tables")
-	ddbResetItemLocks()
 }
 
 // ddbCountingStore counts the per-item reads a query performs, which is the
@@ -343,7 +340,7 @@ func TestDDBReadsRunConcurrently(t *testing.T) {
 	// construction, whatever the machine is doing.
 	var inside, peak atomic.Int64
 	observe := func() {
-		defer ddbLockTables(false, table)()
+		defer ddbItemLocks.Lock(false, table)()
 		now := inside.Add(1)
 		defer inside.Add(-1)
 		for {
@@ -391,7 +388,7 @@ func TestDDBReadsRunConcurrently(t *testing.T) {
 		go func() {
 			defer writers.Done()
 			for range 25 {
-				release := ddbLockTables(true, table)
+				release := ddbItemLocks.Lock(true, table)
 				if !writerInside.CompareAndSwap(false, true) {
 					raced.Store(true)
 				}
@@ -419,7 +416,7 @@ func TestDDBUnrelatedTablesDoNotContend(t *testing.T) {
 	writing := make(chan struct{})
 	releaseWriter := make(chan struct{})
 	go func() {
-		release := ddbLockTables(true, "busy")
+		release := ddbItemLocks.Lock(true, "busy")
 		close(writing)
 		<-releaseWriter
 		release()
@@ -430,7 +427,7 @@ func TestDDBUnrelatedTablesDoNotContend(t *testing.T) {
 	read := make(chan struct{})
 	go func() {
 		defer close(read)
-		release := ddbLockTables(false, "quiet")
+		release := ddbItemLocks.Lock(false, "quiet")
 		release()
 	}()
 	select {
@@ -444,7 +441,7 @@ func TestDDBUnrelatedTablesDoNotContend(t *testing.T) {
 // TestDDBCrossTableOperationsCannotDeadlock covers what striping costs: an
 // operation spanning several tables takes several locks, and two of them
 // naming the same tables in opposite orders would deadlock if the order were
-// the caller's. It is not — ddbLockTables sorts — so this finishes.
+// the caller's. It is not — ddbItemLocks.Lock sorts — so this finishes.
 func TestDDBCrossTableOperationsCannotDeadlock(t *testing.T) {
 	ddbQueryConcurrencyStores(t)
 	for _, name := range []string{"alpha", "beta", "gamma"} {
@@ -462,9 +459,9 @@ func TestDDBCrossTableOperationsCannotDeadlock(t *testing.T) {
 				for range 50 {
 					// Deliberately opposite orders between the two halves.
 					if i%2 == 0 {
-						ddbLockTables(true, "alpha", "beta", "gamma")()
+						ddbItemLocks.Lock(true, "alpha", "beta", "gamma")()
 					} else {
-						ddbLockTables(true, "gamma", "beta", "alpha")()
+						ddbItemLocks.Lock(true, "gamma", "beta", "alpha")()
 					}
 				}
 			}(i)

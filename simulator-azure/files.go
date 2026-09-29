@@ -28,13 +28,7 @@ import (
 //     persisted share metadata describes.
 //  3. A fixed path under os.TempDir() — no configured data directory.
 func azureFilesHostRoot() string {
-	if dir := os.Getenv("SIM_AZURE_FILES_DATA_DIR"); dir != "" {
-		return dir
-	}
-	if dataDir := os.Getenv("SIM_DATA_DIR"); dataDir != "" {
-		return filepath.Join(dataDir, "files")
-	}
-	return filepath.Join(os.TempDir(), "sockerless-sim-azure-files")
+	return sim.ScopedDataDir("SIM_AZURE_FILES_DATA_DIR", "files", "sockerless-sim-azure-files")
 }
 
 // FileShareHostDir returns the on-disk directory backing a simulated
@@ -42,13 +36,11 @@ func azureFilesHostRoot() string {
 // Exported for use by the ACA sim's Jobs/Apps executor.
 func FileShareHostDir(storageAccount, shareName string) string {
 	dir := filepath.Join(azureFilesHostRoot(), storageAccount, shareName)
-	_ = os.MkdirAll(dir, 0o777)
-	// MkdirAll honors the process umask, so the share dir lands at 0755 and a
-	// non-root workload (e.g. a gitlab-runner helper writing the build
-	// workspace) can't create files in it. A real Azure Files SMB mount is
-	// writable by the mounting container (CIFS default dir_mode/file_mode
-	// 0777); chmod past the umask so the materialized share matches.
-	_ = os.Chmod(dir, 0o777)
+	// A real Azure Files SMB mount is writable by the mounting container
+	// (CIFS dir_mode and file_mode 0777).
+	if err := sim.EnsureWritableDir(dir); err != nil {
+		fmt.Fprintf(os.Stderr, "[sim-files] share directory %s: %v\n", dir, err)
+	}
 	return dir
 }
 
@@ -298,7 +290,7 @@ func upsertFileShareDataPlaneProjection(account, share string, quota int, metada
 		Quota:    quota,
 		Metadata: metadata,
 		Created:  time.Now().UTC().Format(http.TimeFormat),
-		ETag:     `"` + generateUUID() + `"`,
+		ETag:     `"` + sim.NewUUID() + `"`,
 	})
 	return nil
 }

@@ -28,7 +28,7 @@ func TestListenerIsCreatedWhenTheHostHoldsItsPort(t *testing.T) {
 	lbArn := "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/net/busy/1"
 	listenerArn := lbArn + "/listener-1"
 	elbv2LoadBalancers.Put(lbArn, ELBv2LoadBalancer{Arn: lbArn, Type: "network", DNSName: "busy.elb.amazonaws.com"})
-	t.Cleanup(func() { elbv2StopNLBProxy(listenerArn) })
+	t.Cleanup(func() { elbv2StopListenerProxy(listenerArn) })
 
 	listener := ELBv2Listener{Arn: listenerArn, LoadBalancerArn: lbArn, Protocol: "TCP", Port: port}
 	if err := elbv2StartListenerDataPlane(listener); err != nil {

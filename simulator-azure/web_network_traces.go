@@ -70,7 +70,7 @@ func webStartNetworkTrace(w http.ResponseWriter, r *http.Request) {
 	}
 	site := webResourceID(r)
 	trace := webNetworkTrace{
-		OperationID: "trace-" + generateUUID(),
+		OperationID: "trace-" + sim.NewUUID(),
 		Site:        site,
 		Duration:    duration,
 		SasURL:      r.URL.Query().Get("sasUrl"),

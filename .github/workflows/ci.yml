@@ -393,8 +393,11 @@ jobs:
           # One entry per cloud, keyed on the image set itself, so every job
           # that runs that cloud's containers shares it: the set is fetched
           # once for the whole workflow rather than once per job, which is
-          # what a cap counted in bytes actually responds to.
+          # what a cap counted in bytes actually responds to. A changed set restores
+          # the nearest earlier entry and fetches only the images it lacks.
           key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
+          restore-keys: |
+            base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
       - name: Load or fetch the base images
         # Priming a cache, not checking a dependency: if the registry refuses an
         # image here, the job carries on and whatever actually needs it fails at
@@ -695,8 +698,11 @@ jobs:
           # One entry per cloud, keyed on the image set itself, so every job
           # that runs that cloud's containers shares it: the set is fetched
           # once for the whole workflow rather than once per job, which is
-          # what a cap counted in bytes actually responds to.
+          # what a cap counted in bytes actually responds to. A changed set restores
+          # the nearest earlier entry and fetches only the images it lacks.
           key: base-images-${{ runner.os }}-${{ runner.arch }}-aws-${{ steps.base-images-list.outputs.digest }}
+          restore-keys: |
+            base-images-${{ runner.os }}-${{ runner.arch }}-aws-
       - name: Load or fetch the base images
         # Priming a cache, not checking a dependency: if the registry refuses an
         # image here, the job carries on and whatever actually needs it fails at
@@ -946,8 +952,11 @@ jobs:
           # One entry per cloud, keyed on the image set itself, so every job
           # that runs that cloud's containers shares it: the set is fetched
           # once for the whole workflow rather than once per job, which is
-          # what a cap counted in bytes actually responds to.
+          # what a cap counted in bytes actually responds to. A changed set restores
+          # the nearest earlier entry and fetches only the images it lacks.
           key: base-images-${{ runner.os }}-${{ runner.arch }}-aws-${{ steps.base-images-list.outputs.digest }}
+          restore-keys: |
+            base-images-${{ runner.os }}-${{ runner.arch }}-aws-
       - name: Load or fetch the base images
         # Priming a cache, not checking a dependency: if the registry refuses an
         # image here, the job carries on and whatever actually needs it fails at
@@ -1087,8 +1096,11 @@ jobs:
           # One entry per cloud, keyed on the image set itself, so every job
           # that runs that cloud's containers shares it: the set is fetched
           # once for the whole workflow rather than once per job, which is
-          # what a cap counted in bytes actually responds to.
+          # what a cap counted in bytes actually responds to. A changed set restores
+          # the nearest earlier entry and fetches only the images it lacks.
           key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
+          restore-keys: |
+            base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
       - name: Load or fetch the base images
         # Priming a cache, not checking a dependency: if the registry refuses an
         # image here, the job carries on and whatever actually needs it fails at
@@ -1277,8 +1289,11 @@ jobs:
           # One entry per cloud, keyed on the image set itself, so every job
           # that runs that cloud's containers shares it: the set is fetched
           # once for the whole workflow rather than once per job, which is
-          # what a cap counted in bytes actually responds to.
+          # what a cap counted in bytes actually responds to. A changed set restores
+          # the nearest earlier entry and fetches only the images it lacks.
           key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
+          restore-keys: |
+            base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
       - name: Load or fetch the base images
         # Priming a cache, not checking a dependency: if the registry refuses an
         # image here, the job carries on and whatever actually needs it fails at
@@ -1333,6 +1348,8 @@ jobs:
         with:
           path: ~/.cache/sockerless/base-images.tar
           key: base-images-${{ runner.os }}-${{ runner.arch }}-sim-${{ steps.base-images-list.outputs.digest }}
+          restore-keys: |
+            base-images-${{ runner.os }}-${{ runner.arch }}-sim-
       - name: Load or fetch the base images
         continue-on-error: true
         run: |

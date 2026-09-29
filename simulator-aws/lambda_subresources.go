@@ -225,7 +225,7 @@ func publishLambdaVersion(name, description string, fn LambdaFunction) LambdaVer
 		v.State = "Active"
 		v.LastUpdateStatus = "Successful"
 		v.LastModified = time.Now().UTC().Format(time.RFC3339)
-		v.RevisionId = generateUUID()
+		v.RevisionId = sim.NewUUID()
 		v.Description = description
 		*versions = append(*versions, v)
 	})
@@ -312,7 +312,7 @@ func handleLambdaCreateAlias(w http.ResponseWriter, r *http.Request) {
 		Name:            req.Name,
 		FunctionVersion: req.FunctionVersion,
 		Description:     req.Description,
-		RevisionId:      generateUUID(),
+		RevisionId:      sim.NewUUID(),
 		RoutingConfig:   req.RoutingConfig,
 	}
 	if alias.RoutingConfig != nil && len(alias.RoutingConfig.AdditionalVersionWeights) == 0 {
@@ -403,7 +403,7 @@ func handleLambdaUpdateAlias(w http.ResponseWriter, r *http.Request) {
 			a.RoutingConfig = req.RoutingConfig
 		}
 	}
-	a.RevisionId = generateUUID()
+	a.RevisionId = sim.NewUUID()
 	as[aliasName] = a
 	lambdaAliases.Put(name, as)
 	sim.WriteJSON(w, http.StatusOK, a)
@@ -526,7 +526,7 @@ func handleLambdaGetPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"Policy":     string(docJSON),
-		"RevisionId": generateUUID(),
+		"RevisionId": sim.NewUUID(),
 	})
 }
 
@@ -598,7 +598,7 @@ func handleLambdaCreateFunctionUrlConfig(w http.ResponseWriter, r *http.Request)
 		req.AuthType = "NONE"
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	urlID := strings.ToLower(generateUUID()[:24])
+	urlID := strings.ToLower(sim.NewUUID()[:24])
 	urlConfig := LambdaFunctionUrlConfig{
 		FunctionArn:      fn.FunctionArn,
 		FunctionUrl:      fmt.Sprintf("https://%s.lambda-url.%s.on.aws/", urlID, awsRegion()),

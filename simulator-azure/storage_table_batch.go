@@ -3,26 +3,34 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"strings"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Azure Table Storage transactional batch (`POST /$batch`).
 //
 // aztables' TransactionalBatch posts a `multipart/mixed` body whose single part
 // is itself a `multipart/mixed` change-set; each change-set part is a complete
-// HTTP request (Insert / Merge / Update / Delete on an entity). The whole set is
-// all-or-nothing: we replay each op against the existing entity handlers via an
-// in-memory ResponseRecorder, and only commit if every op succeeds. The response
-// mirrors the request structure — an outer multipart/mixed wrapping a change-set
-// of per-op HTTP responses.
+// HTTP request (Insert / Merge / Update / Delete on an entity). Every operation
+// must address one partition of one table, and an entity at most once. The set
+// is all-or-nothing: the batch holds the partition's lock, runs each operation
+// through the entity handlers, and on the first failure restores the entities
+// it had changed. The response mirrors the request — an outer multipart/mixed
+// wrapping a change-set of per-operation HTTP responses.
 //
 // Reference: https://learn.microsoft.com/rest/api/storageservices/performing-entity-group-transactions
+
+// tableBatchMaxOps is the most operations one change set may hold.
+const tableBatchMaxOps = 100
 
 func handleTableBatch(w http.ResponseWriter, r *http.Request, account string) {
 	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -42,17 +50,42 @@ func handleTableBatch(w http.ResponseWriter, r *http.Request, account string) {
 		return
 	}
 
-	// Replay each op against the existing entity handlers, recording the
-	// response. On any failure (>=400) the whole batch is rolled back: we run
-	// the ops against a copy of the entity store and only commit on success.
-	snapshot := snapshotTableEntities(account)
+	if len(ops) > tableBatchMaxOps {
+		writeTableODataError(w, "InvalidInput", fmt.Sprintf("The batch request contains %d operations; a change set holds at most %d.", len(ops), tableBatchMaxOps), http.StatusBadRequest)
+		return
+	}
+	partition := ""
+	rows := map[string]bool{}
+	for _, op := range ops {
+		table, pk, rk, err := tableBatchTarget(op)
+		if err != nil {
+			writeTableODataError(w, "InvalidInput", err.Error(), http.StatusBadRequest)
+			return
+		}
+		if key := tablePartitionKey(account, table, pk); partition == "" {
+			partition = key
+		} else if key != partition {
+			tableBatchRefusal(w, changesetBoundary, "CommandsInBatchActOnDifferentPartitions",
+				"All commands in a batch must operate on same entity group.")
+			return
+		}
+		if rows[rk] {
+			tableBatchRefusal(w, changesetBoundary, "InvalidDuplicateRow",
+				"The batch request contains multiple changes with same row key. An entity can appear only once in a batch request.")
+			return
+		}
+		rows[rk] = true
+	}
+
+	release := tablePartitionLocks.Lock(true, partition)
+	defer release()
+	txn := &tableTxn{before: map[string]*TableEntity{}}
 	results := make([]tableBatchOpResult, 0, len(ops))
-	failed := false
-	var failIdx int
-	for i, op := range ops {
+	for _, op := range ops {
 		rec := &batchRecorder{header: http.Header{}, code: http.StatusOK}
 		req, err := http.NewRequest(op.method, op.url, bytes.NewReader(op.body))
 		if err != nil {
+			txn.rollback()
 			writeTableODataError(w, "InvalidInput", "invalid batch sub-request: "+err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -61,24 +94,16 @@ func handleTableBatch(w http.ResponseWriter, r *http.Request, account string) {
 				req.Header.Add(k, v)
 			}
 		}
-		dispatchTableBatchOp(rec, req, account)
-		results = append(results, tableBatchOpResult{status: rec.code, headers: rec.header, body: rec.buf.Bytes()})
-		if rec.code >= 400 {
-			failed = true
-			failIdx = i
-			break
+		if !serveTableEntityOp(rec, req, account, txn) {
+			writeTableODataError(rec, "InvalidUri", "Unrecognized batch sub-request path", http.StatusBadRequest)
 		}
-	}
-
-	if failed {
-		// Roll back any entity mutations the partially-applied ops made.
-		restoreTableEntities(account, snapshot)
-		// Real Tables returns the failing op's error as the batch response with a
-		// Content-ID pointing at the failed change. We surface the failing op's
-		// status + body directly (the SDK reads it as the transaction error).
-		fr := results[failIdx]
-		writeTableBatchSingleError(w, changesetBoundary, fr.status, fr.body)
-		return
+		result := tableBatchOpResult{status: rec.code, headers: rec.header, body: rec.buf.Bytes()}
+		if rec.code >= 400 {
+			txn.rollback()
+			writeTableBatchSingleError(w, changesetBoundary, result.status, result.body)
+			return
+		}
+		results = append(results, result)
 	}
 
 	writeTableBatchResponse(w, changesetBoundary, results)
@@ -134,7 +159,7 @@ func parseTableBatch(body []byte, outerBoundary string) ([]tableBatchOp, string,
 	}
 	if changesetBoundary == "" {
 		// No nested changeset — synthesize a boundary for the response.
-		changesetBoundary = "changesetresponse_" + generateUUID()
+		changesetBoundary = "changesetresponse_" + sim.NewUUID()
 	}
 	return ops, changesetBoundary, nil
 }
@@ -217,60 +242,94 @@ func parseTableBatchRequest(part []byte) (tableBatchOp, error) {
 	}, nil
 }
 
-// dispatchTableBatchOp routes a parsed batch op to the matching entity handler.
-// The op URL carries the full data-plane path; we strip the host and dispatch on
-// the path shape, reusing the same handlers the non-batch routes use.
-func dispatchTableBatchOp(w http.ResponseWriter, req *http.Request, account string) {
+// serveTableEntityOp routes an entity operation — addressed by
+// /{table}(PartitionKey='X',RowKey='Y') or by /{table} — to its handler, inside
+// txn when a batch runs it. It reports false for a path that addresses no
+// entity operation.
+func serveTableEntityOp(w http.ResponseWriter, req *http.Request, account string, txn *tableTxn) bool {
 	path := strings.TrimPrefix(req.URL.Path, "/")
-
 	if i := strings.Index(path, "(PartitionKey="); i > 0 {
 		table := path[:i]
-		rest := strings.TrimSuffix(path[i+1:], ")")
-		pk, rk := parsePKRK(rest)
+		pk, rk := parsePKRK(strings.TrimSuffix(path[i+1:], ")"))
 		switch req.Method {
 		case http.MethodGet:
-			handleEntityGet(w, req, account, table, pk, rk)
+			handleEntityGet(w, req, account, table, pk, rk, txn)
 		case http.MethodPut:
-			handleEntityUpsert(w, req, account, table, pk, rk, false)
+			handleEntityUpsert(w, req, account, table, pk, rk, false, txn)
 		case http.MethodPatch, "MERGE":
-			handleEntityUpsert(w, req, account, table, pk, rk, true)
+			handleEntityUpsert(w, req, account, table, pk, rk, true, txn)
 		case http.MethodDelete:
-			handleEntityDelete(w, req, account, table, pk, rk)
+			handleEntityDelete(w, req, account, table, pk, rk, txn)
 		default:
 			writeTableODataError(w, "MethodNotAllowed", "Method not supported", http.StatusMethodNotAllowed)
 		}
-		return
+		return true
 	}
 	if !strings.Contains(path, "/") && path != "" {
 		switch req.Method {
 		case http.MethodPost:
-			handleEntityInsert(w, req, account, path)
+			handleEntityInsert(w, req, account, path, txn)
 		case http.MethodGet:
 			handleEntityQuery(w, req, account, path)
 		default:
 			writeTableODataError(w, "MethodNotAllowed", "Method not supported", http.StatusMethodNotAllowed)
 		}
+		return true
+	}
+	return false
+}
+
+// tableBatchTarget is the table, partition and row a batch operation
+// addresses: from its URL, or for an insert from its body.
+func tableBatchTarget(op tableBatchOp) (table, pk, rk string, err error) {
+	u, err := url.Parse(op.url)
+	if err != nil {
+		return "", "", "", err
+	}
+	path := strings.TrimPrefix(u.Path, "/")
+	if i := strings.Index(path, "(PartitionKey="); i > 0 {
+		pk, rk := parsePKRK(strings.TrimSuffix(path[i+1:], ")"))
+		return path[:i], pk, rk, nil
+	}
+	var keys struct {
+		PartitionKey string
+		RowKey       string
+	}
+	if err := json.Unmarshal(op.body, &keys); err != nil {
+		return "", "", "", fmt.Errorf("batch insert body: %v", err)
+	}
+	return path, keys.PartitionKey, keys.RowKey, nil
+}
+
+// tableTxn is an entity group transaction in flight. It holds its partition's
+// lock and remembers each entity's state before the transaction first changed
+// it, so a failed transaction restores exactly those entities and nothing a
+// writer outside the partition did meanwhile.
+type tableTxn struct {
+	before map[string]*TableEntity
+}
+
+func (x *tableTxn) remember(key string) {
+	if x == nil {
 		return
 	}
-	writeTableODataError(w, "InvalidUri", "Unrecognized batch sub-request path", http.StatusBadRequest)
-}
-
-// ── entity snapshot for rollback ─────────────────────────────────────────────
-
-func snapshotTableEntities(account string) []TableEntity {
-	// Copied out of the index: the caller holds this snapshot across the
-	// mutations it may have to roll back.
-	return append([]TableEntity(nil), tableEntitiesUnder(account+"/")...)
-}
-
-func restoreTableEntities(account string, snapshot []TableEntity) {
-	// Delete everything for the account, then re-insert the snapshot — restores
-	// inserts (removed), deletes (re-added), and mutations (reverted).
-	for _, e := range tableEntitiesUnder(account + "/") {
-		tableEntities.Delete(tableEntityKey(e.Account, e.Table, e.PartitionKey, e.RowKey))
+	if _, seen := x.before[key]; seen {
+		return
 	}
-	for _, e := range snapshot {
-		tableEntities.Put(tableEntityKey(e.Account, e.Table, e.PartitionKey, e.RowKey), e)
+	if e, ok := tableEntities.Get(key); ok {
+		x.before[key] = &e
+		return
+	}
+	x.before[key] = nil
+}
+
+func (x *tableTxn) rollback() {
+	for key, e := range x.before {
+		if e == nil {
+			tableEntities.Delete(key)
+			continue
+		}
+		tableEntities.Put(key, *e)
 	}
 }
 
@@ -316,7 +375,7 @@ func httpStatusText(code int) string {
 // batch response real Azure Tables returns: an outer batch boundary wrapping a
 // change-set boundary, each part an `application/http` response.
 func writeTableBatchResponse(w http.ResponseWriter, changesetBoundary string, results []tableBatchOpResult) {
-	batchBoundary := "batchresponse_" + generateUUID()
+	batchBoundary := "batchresponse_" + sim.NewUUID()
 	var buf bytes.Buffer
 
 	fmt.Fprintf(&buf, "--%s\r\n", batchBoundary)
@@ -344,11 +403,19 @@ func writeTableBatchResponse(w http.ResponseWriter, changesetBoundary string, re
 	_, _ = w.Write(buf.Bytes())
 }
 
+// tableBatchRefusal answers a change set the service refuses before running
+// any of it, the way it answers a failed operation: inside the batch response.
+func tableBatchRefusal(w http.ResponseWriter, changesetBoundary, code, message string) {
+	rec := &batchRecorder{header: http.Header{}}
+	writeTableODataError(rec, code, message, http.StatusBadRequest)
+	writeTableBatchSingleError(w, changesetBoundary, http.StatusBadRequest, rec.buf.Bytes())
+}
+
 // writeTableBatchSingleError encodes a failed transaction: the batch response
 // carries the single failing op's error (the aztables SDK surfaces this as the
 // transaction error). The whole batch was already rolled back by the caller.
 func writeTableBatchSingleError(w http.ResponseWriter, changesetBoundary string, status int, body []byte) {
-	batchBoundary := "batchresponse_" + generateUUID()
+	batchBoundary := "batchresponse_" + sim.NewUUID()
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "--%s\r\n", batchBoundary)
 	fmt.Fprintf(&buf, "Content-Type: multipart/mixed; boundary=%s\r\n\r\n", changesetBoundary)

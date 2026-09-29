@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // ddbSeedFullTableScanTable stores the table the statements below read: a
@@ -15,7 +16,7 @@ func ddbSeedFullTableScanTable(t *testing.T) {
 	t.Helper()
 	// Background work from an earlier test must finish before the store it is
 	// reading is replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ddbTables = sim.MakeStore[DDBTable](nil, "ddb_tables")
 	ddbTables.Put("Orders", DDBTable{
 		TableName:   "Orders",

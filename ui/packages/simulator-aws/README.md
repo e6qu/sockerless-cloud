@@ -90,5 +90,5 @@ The package `Makefile` wraps these as `make build` / `run` / `preview` / `test` 
 
 ## See also
 
-- [Workspace README](../../README.md) — dev-stack targets, ports, design system, error UX.
+- [Workspace README](../../README.md) — workspace commands, embedding, and held dependency versions.
 - [`@sockerless/ui-core`](../core/README.md) — shared components, hooks, tokens.

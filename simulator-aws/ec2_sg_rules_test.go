@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Three rules naming the same source group resolve its members once, not
 // three times: membership is a scan over every ENI, instance and task in the
 // store, and the packet rules it yields are identical for every rule.
 func TestIngressRulesResolveASourceGroupOnce(t *testing.T) {
-	AwaitSimulatorBackground()
+	bg.Await()
 	ec2SecurityGroups = sim.MakeStore[EC2SecurityGroup](nil, "ec2_security_groups")
 	ec2NetworkInterfaces = sim.MakeStore[EC2NetworkInterface](nil, "ec2_network_interfaces")
 	ec2Instances = sim.MakeStore[EC2Instance](nil, "ec2_instances")

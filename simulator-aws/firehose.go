@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/golang/snappy"
 )
 
@@ -158,7 +159,7 @@ var (
 	firehoseStreams   sim.Store[FirehoseDeliveryStream]
 	firehoseRecordsMu sync.Mutex
 	firehoseTimersMu  sync.Mutex
-	firehoseTimers    = map[string]*simTimer{}
+	firehoseTimers    = map[string]*bg.Timer{}
 )
 
 func registerFirehose(r *AWSRouter, srv *sim.Server) {
@@ -513,7 +514,7 @@ func firehoseAddRecord(name string, data []byte) (string, bool, error) {
 	if err != nil {
 		return "", stream.Encryption.Status == "ENABLED", err
 	}
-	recordID := generateUUID()
+	recordID := sim.NewUUID()
 	if len(stream.BufferedRecords) == 0 {
 		stream.BufferDeadline = time.Now().Add(time.Duration(stream.S3.BufferingHints.IntervalInSeconds) * time.Second)
 	}
@@ -594,7 +595,7 @@ func firehoseScheduleFlush(name string, delay time.Duration) {
 	if _, exists := firehoseTimers[name]; exists {
 		return
 	}
-	firehoseTimers[name] = simAfterFunc(delay, func() {
+	firehoseTimers[name] = bg.AfterFunc(delay, func() {
 		firehoseTimersMu.Lock()
 		delete(firehoseTimers, name)
 		firehoseTimersMu.Unlock()

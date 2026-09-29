@@ -305,7 +305,7 @@ func handlePrivateCACreate(w http.ResponseWriter, r *http.Request) {
 		privateCAError(w, "RequestFailedException", err.Error())
 		return
 	}
-	id := generateUUID()
+	id := sim.NewUUID()
 	now := float64(time.Now().UTC().UnixMilli()) / 1000
 	standard := req.KeyStorageSecurityStandard
 	if standard == "" {
@@ -1114,7 +1114,7 @@ func handlePrivateCACreateAudit(w http.ResponseWriter, r *http.Request) {
 	if _, ok := privateCAGet(w, req.CertificateAuthorityArn); !ok {
 		return
 	}
-	id := generateUUID()
+	id := sim.NewUUID()
 	extension := ".json"
 	contentType := "application/json"
 	var data []byte

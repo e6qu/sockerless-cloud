@@ -160,7 +160,7 @@ A helper added in a PR is not automatically called by other handlers in the same
 
 **Rule**: every handler in a file named `*_dataplane.go`, `*blob*.go`, `*storage*.go`, `*files*.go`, `*queue*.go`, `*bucket*.go`, or that handles a `PUT` / `POST` / `PATCH` with a binary body, MUST do one of:
 
-1. Pass `r.Body` through `openStreamingBody(r)` (Azure / GCP) or `awsChunkedReader` / `isAWSChunkedRequest` (AWS S3), then read.
+1. Pass `r.Body` through `openStreamingBody(r)` (Google Cloud, which removes a gzip transport encoding) or `awsChunkedReader` / `isAWSChunkedRequest` (AWS S3), then read. Azure Storage decodes nothing: it keeps the bytes as sent and records `Content-Encoding` on the blob.
 2. Document via a 1-line comment why the wrapped form is genuinely safe (e.g., "SDK serializes this control-plane CRUD with `Content-Length`; no streaming envelope possible").
 3. Be on the documented "fixed-shape JSON request" allowlist (e.g., `Tables InsertEntity` with OData JSON, `Queue PutMessage` with XML — these have SDK-fixed serialization and very small bodies).
 
@@ -188,9 +188,9 @@ A clean run produces zero output. Any output is a candidate for one of the three
 
 ## Known prior occurrences
 
-- **BUG-1099** (fixed in 173.2) — `handleS3PutObject` stored aws-chunked envelope verbatim. Catchable by this skill plus a non-seekable-body, TLS-enabled test.
-- **BUG-1110** (fixed in 174 round 2) — 9 upload-handler sites across GCS / Cloud Run invoke / AR blob × 2 / ACR blob × 4 / Azure Blob PutBlob bypassed streaming-envelope decoding. `openStreamingBody(r)` helper added per cloud; wired into all 9 sites.
-- **(Phase 175 finding)** — 3 sites that bypassed the **helper introduced in the same PR**: Azure Files PutFile (`storage_dataplane.go:286`), Azure Files PutRange (`files.go:774`), AWS Lambda Invoke (`lambda.go:365`). This is the new meta-shape: a helper added in a PR is not automatically called by other handlers in the same PR — the positive-confirmation check above is the answer.
+- **BUG-1099** (fixed) — `handleS3PutObject` stored aws-chunked envelope verbatim. Catchable by this skill plus a non-seekable-body, TLS-enabled test.
+- **BUG-1110** (fixed) — 9 upload-handler sites across GCS / Cloud Run invoke / AR blob × 2 / ACR blob × 4 / Azure Blob PutBlob bypassed streaming-envelope decoding. `openStreamingBody(r)` helper added per cloud; wired into all 9 sites.
+- Three sites that bypassed the **helper introduced in the same PR**: Azure Files PutFile, Azure Files PutRange, and AWS Lambda Invoke. This is the new meta-shape: a helper added in a PR is not automatically called by other handlers in the same PR — the positive-confirmation check above is the answer.
 
 ## Related skills
 

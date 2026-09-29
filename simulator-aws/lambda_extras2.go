@@ -638,7 +638,7 @@ func handleLambdaGetAccountSettings(w http.ResponseWriter, _ *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"AccountLimit": map[string]any{
 			"TotalCodeSize":                  int64(80530636800),
-			"CodeSizeUnzipped":               int64(262144000),
+			"CodeSizeUnzipped":               int64(lambdaUnzippedCodeLimit),
 			"CodeSizeZipped":                 int64(52428800),
 			"ConcurrentExecutions":           1000,
 			"UnreservedConcurrentExecutions": 1000,

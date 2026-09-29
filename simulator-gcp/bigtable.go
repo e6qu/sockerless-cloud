@@ -762,7 +762,7 @@ func handleBigtableTableAction(w http.ResponseWriter, r *http.Request) {
 	case "dropRowRange":
 		handleBigtableDropRowRange(w, r, name)
 	case "generateConsistencyToken":
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"consistencyToken": generateUUID()})
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"consistencyToken": sim.NewUUID()})
 	case "checkConsistency":
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"consistent": true})
 	case "undelete":

@@ -585,7 +585,7 @@ func handleStaticSitePut(w http.ResponseWriter, r *http.Request) {
 	if identity != nil {
 		if t, _ := identity["type"].(string); strings.Contains(t, "SystemAssigned") {
 			if pid, _ := identity["principalId"].(string); pid == "" {
-				identity["principalId"] = generateUUID()
+				identity["principalId"] = sim.NewUUID()
 			}
 			identity["tenantId"] = simTenantID
 		}
@@ -1151,7 +1151,7 @@ func handleStaticSiteCreateUserInvitation(w http.ResponseWriter, r *http.Request
 	// The end-user acceptance handshake happens on the site's hostname,
 	// outside the ARM plane, so the simulator records the invited user at
 	// invitation time — the ARM-visible end state of an accepted invitation.
-	userID := generateUUID()
+	userID := sim.NewUUID()
 	user := StaticSiteUserARMResource{
 		ID:   ss.ID + "/authproviders/" + p.Provider + "/users/" + userID,
 		Name: userID,
@@ -1176,7 +1176,7 @@ func handleStaticSiteCreateUserInvitation(w http.ResponseWriter, r *http.Request
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"properties": map[string]any{
 			"expiresOn":     time.Now().UTC().Add(time.Duration(hours) * time.Hour).Format(time.RFC3339),
-			"invitationUrl": fmt.Sprintf("https://%s/.auth/invitations/%s", hostname, generateUUID()),
+			"invitationUrl": fmt.Sprintf("https://%s/.auth/invitations/%s", hostname, sim.NewUUID()),
 		},
 	})
 }

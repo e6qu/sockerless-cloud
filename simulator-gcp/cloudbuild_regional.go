@@ -35,7 +35,7 @@ func cbHandleRetryBuild(w http.ResponseWriter, r *http.Request, project, id stri
 		return
 	}
 	retried := original
-	retried.ID = generateUUID()
+	retried.ID = sim.NewUUID()
 	retried.Status = "QUEUED"
 	retried.CreateTime = time.Now().UTC().Format(time.RFC3339)
 	retried.Name = fmt.Sprintf("projects/%s/locations/global/builds/%s", project, retried.ID)
@@ -120,7 +120,7 @@ func cbHandleRunTrigger(w http.ResponseWriter, r *http.Request, project, locatio
 		return
 	}
 	started := *build
-	started.ID = generateUUID()
+	started.ID = sim.NewUUID()
 	started.ProjectID = project
 	started.Status = "QUEUED"
 	started.CreateTime = time.Now().UTC().Format(time.RFC3339)
@@ -219,7 +219,7 @@ func registerCloudBuildRegional(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid build body: %v", err)
 			return
 		}
-		build.ID = generateUUID()
+		build.ID = sim.NewUUID()
 		build.ProjectID = project
 		build.Status = "QUEUED"
 		build.CreateTime = time.Now().UTC().Format(time.RFC3339)

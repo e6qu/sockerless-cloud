@@ -308,7 +308,10 @@ func handleACMListAcmeEndpoints(w http.ResponseWriter, r *http.Request) {
 	}
 	all := acmAcmeEndpoints.List()
 	sort.Slice(all, func(i, j int) bool { return all[i].AcmeEndpointArn < all[j].AcmeEndpointArn })
-	page, next := awsPageExplicit(all, req.NextToken, req.MaxResults)
+	page, next, pageOK := awsPage(w, acmBadToken, all, req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"AcmeEndpoints": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -493,7 +496,10 @@ func handleACMListAcmeDomainValidations(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].AcmeDomainValidationArn < all[j].AcmeDomainValidationArn })
-	page, next := awsPageExplicit(all, req.NextToken, req.MaxResults)
+	page, next, pageOK := awsPage(w, acmBadToken, all, req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"AcmeDomainValidations": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -660,7 +666,10 @@ func handleACMListAcmeExternalAccountBindings(w http.ResponseWriter, r *http.Req
 	sort.Slice(all, func(i, j int) bool {
 		return all[i].AcmeExternalAccountBindingArn < all[j].AcmeExternalAccountBindingArn
 	})
-	page, next := awsPageExplicit(all, req.NextToken, req.MaxResults)
+	page, next, pageOK := awsPage(w, acmBadToken, all, req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"ExternalAccountBindings": page}
 	if next != "" {
 		resp["NextToken"] = next
@@ -742,7 +751,10 @@ func handleACMListAcmeAccounts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].AccountURL < all[j].AccountURL })
-	page, next := awsPageExplicit(all, req.NextToken, req.MaxResults)
+	page, next, pageOK := awsPage(w, acmBadToken, all, req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
 	resp := map[string]any{"AcmeAccounts": page}
 	if next != "" {
 		resp["NextToken"] = next

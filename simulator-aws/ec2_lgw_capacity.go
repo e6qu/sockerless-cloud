@@ -880,7 +880,7 @@ func declarativePoliciesReportBodyXML(rp EC2DeclarativePoliciesReport) string {
 }
 
 func handleStartDeclarativePoliciesReport(w http.ResponseWriter, r *http.Request) {
-	id := "p-" + generateUUID()[:17]
+	id := "p-" + sim.NewUUID()[:17]
 	rp := EC2DeclarativePoliciesReport{
 		ReportId:  id,
 		S3Bucket:  r.FormValue("S3Bucket"),

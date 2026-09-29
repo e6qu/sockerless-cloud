@@ -30,7 +30,7 @@ Discipline patterns for wire fidelity:
 
 ## Three governing principles
 
-1. **The simulator is a cloud slice.** `simulator-aws/` implements whatever slice of AWS sockerless depends on — ECS + ECR + Lambda + CloudWatch + Cloud Map + EC2 + STS + IAM + S3 + EFS + KMS + SSM + Secrets Manager + DynamoDB + CloudFront + ACM + Route 53 + WAFv2 + Amplify — at cloud-API fidelity. Not a per-product simulator; a cloud slice.
+1. **The simulator is a cloud slice.** `simulator-aws/` implements a slice of AWS — the services this project chose, at cloud-API fidelity — and the Google Cloud and Azure simulators do the same for their clouds. Not a per-product simulator; a cloud slice.
 2. **One binary per cloud.** Adding a new service slice means a new `registerX(srv)` + handler file inside `simulator-aws/`, `simulator-gcp/`, or `simulator-azure/`. Never a new binary per product.
 3. **Cloud-API fidelity.** Match the real cloud's error shapes, response headers, async operation semantics, path templates, HTTP status codes, and wire encodings exactly. When the cloud's contract doesn't cover something, neither does the simulator.
 
@@ -99,21 +99,21 @@ Each simulator dashboard registers these relying-party coordinates, replacing
 
 - redirect URI: `<origin>/auth/oidc/callback`
 - post-logout redirect URI: `<origin>/auth/shauth/logout/complete`
-
-The fixed completion bridge returns to Shauth's `/oauth/logout/complete` endpoint;
-Shauth then redirects to the registered application-local
-`<origin>/auth/signed-out` page. The bridge ignores all query parameters and
-never reflects a caller-controlled destination.
 - front-channel logout URI: `<origin>/auth/oidc/frontchannel-logout`
 - back-channel logout URI: `<origin>/auth/oidc/backchannel-logout`
+
+The post-logout completion bridge returns to Shauth's `/oauth/logout/complete`
+endpoint, and Shauth then redirects to the application-local
+`<origin>/auth/signed-out` page. The bridge ignores all query parameters and
+never reflects a caller-controlled destination.
 
 The development registrations are therefore:
 
 | Dashboard | Redirect URI | Post-logout redirect URI | Front-channel logout URI | Back-channel logout URI |
 |---|---|---|---|---|
-| AWS | `https://aws.example.com/auth/oidc/callback` | `https://aws.example.com/auth/signed-out` | `https://aws.example.com/auth/oidc/frontchannel-logout` | `https://aws.example.com/auth/oidc/backchannel-logout` |
-| Google Cloud | `https://gcp.example.com/auth/oidc/callback` | `https://gcp.example.com/auth/signed-out` | `https://gcp.example.com/auth/oidc/frontchannel-logout` | `https://gcp.example.com/auth/oidc/backchannel-logout` |
-| Microsoft Azure | `https://azure.example.com/auth/oidc/callback` | `https://azure.example.com/auth/signed-out` | `https://azure.example.com/auth/oidc/frontchannel-logout` | `https://azure.example.com/auth/oidc/backchannel-logout` |
+| AWS | `https://aws.example.com/auth/oidc/callback` | `https://aws.example.com/auth/shauth/logout/complete` | `https://aws.example.com/auth/oidc/frontchannel-logout` | `https://aws.example.com/auth/oidc/backchannel-logout` |
+| Google Cloud | `https://gcp.example.com/auth/oidc/callback` | `https://gcp.example.com/auth/shauth/logout/complete` | `https://gcp.example.com/auth/oidc/frontchannel-logout` | `https://gcp.example.com/auth/oidc/backchannel-logout` |
+| Microsoft Azure | `https://azure.example.com/auth/oidc/callback` | `https://azure.example.com/auth/shauth/logout/complete` | `https://azure.example.com/auth/oidc/frontchannel-logout` | `https://azure.example.com/auth/oidc/backchannel-logout` |
 
 The browser starts at `/ui/`, redirects through `/auth/oidc/login` when no
 local session is active, obtains its identity from `/auth/session`, and submits
@@ -128,17 +128,6 @@ username, email, role, and immutable release through the standard
 `validation-release` fields and signs out through the same global OpenID
 Connect flow as the dashboard.
 
-Continuous integration ran the compiled AWS, Google Cloud, and Microsoft
-Azure dashboards together with Sockerless Admin against real Shauth, Ory
-Hydra, and PostgreSQL. One browser matrix verified direct and app-catalog entry,
-shared sign-on, identity, logout from every relying party, global revocation,
-exact app-local signed-out destinations, and signed back-channel acceptance at
-every dashboard. Shauth's passwordless validator ran both catalog and direct
-entry for each dashboard, verified exact identity and release fields,
-reauthenticated after relying-party logout, and proved provider logout against
-a second relying-party witness without exposing validator credentials to any
-Sockerless process.
-
 Simulator calls that execute workloads require Docker or Podman. If the
 operator intentionally needs only non-execution API surfaces, `SIM_RUNTIME=process`
 starts the simulator without initializing Docker/Podman; execution endpoints still
@@ -147,27 +136,30 @@ require a real workload runtime when used.
 ## Optional local HTTPS gateway
 
 The simulators keep their direct HTTP and `SIM_TLS_CERT` / `SIM_TLS_KEY`
-entry points. For clients that expect cloud-like HTTPS URLs, run the
-local Caddy gateway from the repository root:
+entry points. For clients that expect cloud-like HTTPS URLs, run Caddy with
+the repository's gateway configuration from the repository root:
 
 ```sh
-make stack-https-up
-make stack-https-status
+caddy run --config make/https-gateway/Caddyfile --adapter caddyfile
 ```
+
+The `SOCKERLESS_*` variables at the top of
+[`make/https-gateway/Caddyfile`](make/https-gateway/Caddyfile) move the gateway
+and simulator ports.
 
 Default endpoints are `https://aws.sockerless.localhost:8443`,
 `https://gcp.sockerless.localhost:8443`, and
 `https://azure.sockerless.localhost:8443`, plus Azure host-addressed
-data-plane wildcards. Details and CA trust setup live in each simulator's README, under the HTTPS
-gateway section.
+data-plane wildcards. Caddy issues their certificates from its own local CA;
+each simulator's `docs/terraform.md` shows how a client trusts it.
 
 ## End-to-end showcase
 
-The canonical multi-cloud workflow combines simulators across all three clouds in one CI run:
+A session that drives all three simulators with their real clients:
 
 ```sh
-# 1. Start all three sims
-cd simulators && docker compose up -d
+# 1. Start all three simulators
+docker compose up -d
 
 # 2. Drive each one with its real reference adaptor
 export AWS_ENDPOINT_URL=http://localhost:4566 AWS_REGION=us-east-1 \
@@ -180,14 +172,14 @@ gcloud run jobs list --region us-central1
 
 az rest --method GET --url "http://localhost:4568/subscriptions/.../resourceGroups?api-version=2021-04-01"
 
-# 3. Apply Terraform that touches all three clouds at once
-cd simulator-aws/terraform-tests   && go test -run TestStackProductionShape
-cd ../../simulator-gcp/terraform-tests        && go test ./...
-cd ../../simulator-azure/terraform-tests      && go test ./...
+# 3. Run each cloud's Terraform suite (each starts its own simulator)
+(cd simulator-aws/terraform-tests   && go test -run TestStackProductionShape .)
+(cd simulator-gcp/terraform-tests   && go test ./...)
+(cd simulator-azure/terraform-tests && go test ./...)
 
 ```
 
-Per-sim captured-output samples live in each sub-README. For the most exercised production-shape integration test, see [`simulator-aws/terraform-tests/TestStackProductionShape`](simulator-aws/terraform-tests/apply_test.go) — it provisions CloudFront + ACM + WAFv2 + Route 53 ALIAS + Amplify + IAM SLR/OIDC + ECS + Cloud Map in one `terraform apply` and asserts the cross-resource references resolve correctly.
+Per-simulator captured-output samples live in each simulator README. The most exercised production-shape integration test is `TestStackProductionShape` in [`simulator-aws/terraform-tests/apply_test.go`](simulator-aws/terraform-tests/apply_test.go); it provisions CloudFront + ACM + WAFv2 + Route 53 ALIAS + Amplify + IAM SLR/OIDC + ECS + Cloud Map in one `terraform apply` and asserts the cross-resource references resolve correctly.
 
 ## Validation
 
@@ -211,10 +203,10 @@ Top-level Makefile entry points:
 ```sh
 make docker-test                  # Docker-based SDK/CLI/Terraform tests for all clouds
 make simulator-aws/docker-test   # Docker-based tests for one cloud
-make test-integration             # Simulator-backend integration tests (every Go app + test category)
+make test-integration             # Integration-tagged tests across every Go module
 ```
 
-`make docker-test` builds the shared `Dockerfile.test` image, mounts the repository root plus the host Docker socket, and runs each simulator's existing `test-all` target. The Docker path is a real-client validation harness, not a reduced smoke test.
+`make docker-test` builds the shared `Dockerfile.test` image, mounts the repository root and the host Docker socket, and runs each simulator's `test-all` target inside it — the same real-client suites, not a reduced smoke test.
 
 CI runs all of them on every PR — the `sim (<cloud> sdk …)`, `sim (<cloud> cli …)` and `tf (<cloud> …)` jobs in `.github/workflows/ci.yml`, sharded per cloud, with `race (simulator-<cloud>)` and `race (sim)` running the module unit tests under the race detector.
 
@@ -236,7 +228,7 @@ Discovery documents, Azure Swagger):
   member-by-member against the spec's output shapes while the SDK/CLI
   suites run; `scripts/check-spec-violations.sh` gates the report against
   `simulator-<cloud>/spec-violation-allowlist.txt`. The allowlist only
-  shrinks: every entry carries the bug that records why the simulator
+  shrinks: every entry names the open bug that records why the simulator
   cannot yet match the model, and a value the model omits is declared in
   `specs/cloud-api/<cloud>/<document>.supplement.json` with its evidence
   rather than allowlisted. Any new violation fails CI until the simulator
@@ -263,11 +255,11 @@ Simulators are **real implementations**, not fakes. They don't approximate cloud
 - **Exec and attach reach the real container.** Amazon ECS `ExecuteCommand` and the Azure App Service and Container Apps exec surfaces run their command inside the workload's own container through the engine's exec API, bridged over the same WebSocket protocol the real service uses.
 - **SDK + Terraform compatibility** rides on the real official clients, not custom HTTP calls.
 
-The simulators run locally on a single machine today. The architecture allows distributing them across machines later, behind the same API surface.
+Each simulator runs on a single machine.
 
 ## Workload execution — host model
 
-Every execution-service (ECS, Lambda, Cloud Run, Cloud Functions, Cloud Run Jobs, ACA, App Service / AZF) runs the workload on a **Docker host** shaped per cloud-product. Workloads never run as `os/exec` host processes of the simulator binary itself — `simulator-<cloud>/sdk-tests/host_dispatch_test.go` enforces that distinction. The workload's `Architecture` field (default `linux/arm64`) flows through `ContainerConfig.Architecture` to Docker's image-pull + container-create `Platform` option.
+Every execution-service (ECS, Lambda, Cloud Run, Cloud Functions, Cloud Run Jobs, ACA, App Service / AZF) runs the workload on a **Docker host** shaped per cloud-product. Workloads never run as `os/exec` host processes of the simulator binary itself — `simulator-<cloud>/sdk-tests/host_dispatch_test.go` enforces that distinction. The workload's architecture, read from the cloud resource that declares it, flows through `ContainerConfig.Architecture` to the engine's image-pull and container-create `Platform` option.
 
 The host model is stated in full in each simulator's README, beside the execution services it applies to.
 
@@ -300,7 +292,7 @@ The ECS simulator supports `ExecuteCommand` with WebSocket-based session bridgin
 | AWS (ECS, ECR, CloudWatch, Cloud Map, WAFv2, ACM, KMS, SSM, Secrets, DynamoDB, Kinesis, EventBridge) | AWS-JSON | `X-Amz-Target` header dispatch |
 | AWS (EC2, IAM, STS) | AWS Query | `Action` form parameter dispatch |
 | AWS (Lambda, S3, EFS, CloudFront, Route 53, Amplify) | REST | Path-based mux (CloudFront / Route 53 use XML bodies, others JSON) |
-| GCP (all services including BigQuery and Firestore) | REST + gRPC | Path-based mux (HTTP), proto service (gRPC on port+1 for Cloud Logging) |
+| GCP (all services including BigQuery and Firestore) | REST + gRPC | Path-based mux (HTTP); gRPC services on the HTTP port plus two (`:4569`) |
 | Azure (ARM services including Cosmos DB) | ARM REST | Path-based mux with `api-version` validation |
 | Azure (data planes including Storage, Key Vault, Service Bus/Event Hubs, Event Grid, Cosmos DB) | REST / AMQP | Host/path-based mux and optional raw AMQP/TLS listeners |
 
@@ -314,7 +306,7 @@ Open simulator bugs live in [`BUGS.md`](BUGS.md); the tooling quirks that are no
 - **Multi-region / cross-region replication.** Each sim is single-region; multi-region routing belongs to real cloud infra.
 - **Published price sheets and vendor catalogs.** Google Cloud Billing's SKU catalog and the like are somebody else's published data; a partial copy would be fabrication, so those surfaces answer with what this installation publishes, which is nothing. Quota enforcement exists where a cloud enforces it (`SIM_GCP_CPU_QUOTA_PER_REGION` wires Cloud Run's regional CPU budget).
 - **Identity providers outside the simulator.** Every credential is verified — SigV4 signatures against the principal's stored secret, Google Cloud and Microsoft Entra bearers against the simulator's own signing keys — but the identities are the ones the simulator's IAM, Google Cloud IAM and Microsoft Entra slices minted. A real external identity provider is a coordinate the deployment supplies, not something the simulator stands in for.
-- **Outbound delivery to carriers and push services.** Amazon SNS SMS and mobile push need a telecommunications carrier or Apple's and Google's hosts, which no AWS API provisions; those deliveries fail naming the missing dependency (BUG-2712).
+- **Outbound delivery to carriers and push services.** Amazon SNS SMS and mobile push need a telecommunications carrier or Apple's and Google's hosts, which no AWS API provisions; those deliveries fail naming the missing dependency.
 
 ## Per-cloud guides
 

@@ -339,7 +339,11 @@ func registerArtifactRegistry(srv *sim.Server) {
 		result := repos.Filter(func(repo Repository) bool {
 			return strings.HasPrefix(repo.Name, prefix)
 		})
-		result = gcpApplyListParams(result, r)
+		listed, listOK := gcpApplyListParams(w, r, result)
+		if !listOK {
+			return
+		}
+		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 		page, next, ok := paginateList(w, r, result)
 		if !ok {
@@ -469,7 +473,11 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		prefix := repo + "/packages/"
 		result := packages.Filter(func(p ARPackage) bool { return strings.HasPrefix(p.Name, prefix) })
-		result = gcpApplyListParams(result, r)
+		listed, listOK := gcpApplyListParams(w, r, result)
+		if !listOK {
+			return
+		}
+		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 		page, next, ok := paginateList(w, r, result)
 		if !ok {
@@ -553,7 +561,11 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		prefix := repo + "/packages/" + sim.PathParam(r, "pkg") + "/versions/"
 		result := versions.Filter(func(v ARVersion) bool { return strings.HasPrefix(v.Name, prefix) })
-		result = gcpApplyListParams(result, r)
+		listed, listOK := gcpApplyListParams(w, r, result)
+		if !listOK {
+			return
+		}
+		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 		page, next, ok := paginateList(w, r, result)
 		if !ok {
@@ -656,7 +668,11 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		prefix := repo + "/packages/" + sim.PathParam(r, "pkg") + "/tags/"
 		result := tags.Filter(func(t ARTag) bool { return strings.HasPrefix(t.Name, prefix) })
-		result = gcpApplyListParams(result, r)
+		listed, listOK := gcpApplyListParams(w, r, result)
+		if !listOK {
+			return
+		}
+		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 		page, next, ok := paginateList(w, r, result)
 		if !ok {
@@ -750,7 +766,11 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		prefix := repo + "/files/"
 		result := files.Filter(func(f ARFile) bool { return strings.HasPrefix(f.Name, prefix) })
-		result = gcpApplyListParams(result, r)
+		listed, listOK := gcpApplyListParams(w, r, result)
+		if !listOK {
+			return
+		}
+		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 		page, next, ok := paginateList(w, r, result)
 		if !ok {
@@ -887,7 +907,11 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		prefix := repo + "/rules/"
 		result := rules.Filter(func(ru ARRule) bool { return strings.HasPrefix(ru.Name, prefix) })
-		result = gcpApplyListParams(result, r)
+		listed, listOK := gcpApplyListParams(w, r, result)
+		if !listOK {
+			return
+		}
+		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 		page, next, ok := paginateList(w, r, result)
 		if !ok {
@@ -990,7 +1014,11 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		prefix := repo + "/attachments/"
 		result := attachments.Filter(func(a ARAttachment) bool { return strings.HasPrefix(a.Name, prefix) })
-		result = gcpApplyListParams(result, r)
+		listed, listOK := gcpApplyListParams(w, r, result)
+		if !listOK {
+			return
+		}
+		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 		page, next, ok := paginateList(w, r, result)
 		if !ok {

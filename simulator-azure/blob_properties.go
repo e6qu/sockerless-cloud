@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
 // The blob property surfaces: metadata, the system HTTP headers, the access
@@ -334,7 +336,7 @@ func blobForPropertyWrite(w http.ResponseWriter, r *http.Request, account, conta
 			"The specified blob does not exist.", http.StatusNotFound)
 		return BlobObject{}, false
 	}
-	if !blobWriteAllowed(w, r, b, true, blobModify) {
+	if !blobWriteAllowed(w, r, b, true, blobstore.Modify) {
 		return BlobObject{}, false
 	}
 	return b, true

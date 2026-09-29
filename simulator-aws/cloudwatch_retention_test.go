@@ -5,11 +5,12 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func useLogMemoryStores(t *testing.T) {
 	t.Helper()
-	AwaitSimulatorBackground()
+	bg.Await()
 	groups, streams, events := cwLogGroups, cwLogStreams, cwLogEvents
 	cwLogGroups = sim.MakeStore[CWLogGroup](nil, "cw_log_groups")
 	cwLogStreams = sim.MakeStore[CWLogStream](nil, "cw_log_streams")

@@ -77,7 +77,7 @@ rg -nC2 -i '\b(was|were)\s+(broken|missing|incorrect|wrong|deprecated|replaced|r
 
 ### Pattern B — phase / bug / PR references in code
 
-The project's `feedback_no_phase_mentions` memory codifies this — keep phase/bug/PR metadata in commits/PRs/BUGS.md only. Inline references rot when phases close.
+`AGENTS.md` (§ Comment only what the code cannot say) codifies this — keep phase, bug and PR metadata in commits, PR descriptions and `BUGS.md` only. Inline references rot when phases close.
 
 ```bash
 # Phase / BUG / PR / issue references in code comments

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,13 +18,8 @@ import (
 // path (e.g. /pk) at create time. These helpers extract, validate, and key on
 // that value, faithfully matching the emulator (verified by the differential).
 
-// CosmosDataColl records a data-plane-created collection's partition-key path.
-// The azcosmos SDK (and the real REST API) create containers via the DATA plane
-// (POST /dbs/{db}/colls), not ARM, so the declared partition key lives here, not
-// in the ARM cosmosContainers store.
-// CosmosDataDB is a database created through the data plane. Existence used to
-// be inferred from the containers and documents under it, which cannot see a
-// database created and not yet filled.
+// CosmosDataDB is a database created through the data plane, which exists
+// before anything is stored in it.
 type CosmosDataDB struct {
 	Account string
 	DB      string
@@ -35,11 +29,18 @@ func cosmosDataDBKey(account, db string) string {
 	return account + "/" + db
 }
 
+// CosmosDataColl records a data-plane-created collection's partition-key path
+// and time to live. The azcosmos SDK (and the REST API) create containers
+// through the data plane (POST /dbs/{db}/colls), not Azure Resource Manager, so
+// these settings live here rather than in cosmosContainers.
 type CosmosDataColl struct {
 	Account string
 	DB      string
 	Coll    string
 	PKPath  string
+	// DefaultTTL is the container's defaultTtl in seconds, -1 for items that
+	// expire only by their own ttl, and nil when time to live is off.
+	DefaultTTL *int64 `json:",omitempty"`
 }
 
 func cosmosDataCollKey(account, db, coll string) string {
@@ -56,11 +57,7 @@ func cosmosContainerPKPath(account, db, coll string) (string, bool) {
 	if dc, ok := cosmosDataColls.Get(cosmosDataCollKey(account, db, coll)); ok && dc.PKPath != "" {
 		return dc.PKPath, true
 	}
-	for _, c := range cosmosContainers.List() {
-		a, cdb, ccoll, ok := cosmosARMIDNames(c.ID)
-		if !ok || a != account || cdb != db || ccoll != coll {
-			continue
-		}
+	if c, ok := cosmosARMContainer(account, db, coll); ok {
 		res, _ := c.Properties["resource"].(map[string]any)
 		if res == nil {
 			return "", false
@@ -257,30 +254,6 @@ func cosmosMaxItemCount(r *http.Request) int {
 		return -1
 	}
 	return n
-}
-
-// cosmosContinuationOffset decodes the x-ms-continuation request header into the
-// next result offset. An absent header is offset 0; a malformed token is a 400.
-func cosmosContinuationOffset(r *http.Request) (int, error) {
-	raw := r.Header.Get("x-ms-continuation")
-	if raw == "" {
-		return 0, nil
-	}
-	dec, err := base64.StdEncoding.DecodeString(raw)
-	if err != nil {
-		return 0, fmt.Errorf("invalid continuation token")
-	}
-	n, err := strconv.Atoi(string(dec))
-	if err != nil || n < 0 {
-		return 0, fmt.Errorf("invalid continuation token")
-	}
-	return n, nil
-}
-
-// cosmosEncodeContinuation encodes a result offset into an opaque base64 token
-// for the x-ms-continuation response header.
-func cosmosEncodeContinuation(offset int) string {
-	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
 }
 
 // cosmosStoredDocKey reconstructs the partition-scoped store key for an

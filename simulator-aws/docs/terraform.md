@@ -48,8 +48,9 @@ The `skip_*` flags prevent the provider from making calls that the simulator doe
 The AWS provider accepts full endpoint URLs, so the direct HTTP endpoint remains valid. To run through the local HTTPS gateway instead, start the simulator and Caddy, trust Caddy's local CA, and point each provider endpoint at the gateway URL:
 
 ```sh
-make stack-https-up
-export SSL_CERT_FILE="$(make -s stack-https-ca)"
+caddy run --config make/https-gateway/Caddyfile --adapter caddyfile &
+# Caddy's local root CA; on macOS it lives under ~/Library/Application Support/Caddy/
+export SSL_CERT_FILE="$HOME/.local/share/caddy/pki/authorities/local/root.crt"
 terraform apply -auto-approve -var="endpoint=https://aws.sockerless.localhost:8443"
 ```
 

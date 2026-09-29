@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // requestConditionContext runs the populators a service registered for one
@@ -48,7 +49,7 @@ func assertConditionValues(t *testing.T, ctx map[string][]string, want map[strin
 }
 
 func resetKMSConditionStores() {
-	AwaitSimulatorBackground()
+	bg.Await()
 	kmsKeys = sim.MakeStore[KMSKey](nil, "kms_keys")
 	kmsAliases = sim.MakeStore[string](nil, "kms_aliases")
 	kmsGrants = sim.MakeStore[KMSGrant](nil, "kms_grants")

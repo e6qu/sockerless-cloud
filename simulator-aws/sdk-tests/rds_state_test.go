@@ -47,6 +47,11 @@ func TestRDS_InstanceClusterState(t *testing.T) {
 	require.NotNil(t, startOut.DBInstance)
 	assert.Equal(t, "available", aws.ToString(startOut.DBInstance.DBInstanceStatus))
 
+	_, err = c.StartDBInstance(ctx, &rds.StartDBInstanceInput{
+		DBInstanceIdentifier: aws.String(instID),
+	})
+	assertAWSAPIErrorCode(t, err, "InvalidDBInstanceState")
+
 	replicaID := "state-pg-replica"
 	_, err = c.CreateDBInstanceReadReplica(ctx, &rds.CreateDBInstanceReadReplicaInput{
 		DBInstanceIdentifier:       aws.String(replicaID),

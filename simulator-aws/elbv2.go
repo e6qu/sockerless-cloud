@@ -222,11 +222,8 @@ func registerELBv2(r *AWSQueryRouter, srv *sim.Server) {
 
 func elbv2RecoverDataPlanes() error {
 	for _, listener := range elbv2Listeners.List() {
-		if err := elbv2StartNLBProxy(listener); err != nil {
-			return fmt.Errorf("restore stream listener %s: %w", listener.Arn, err)
-		}
-		if err := elbv2StartTLSProxy(listener); err != nil {
-			return fmt.Errorf("restore TLS listener %s: %w", listener.Arn, err)
+		if err := elbv2StartListenerProxy(listener); err != nil {
+			return fmt.Errorf("restore %s listener %s: %w", listener.Protocol, listener.Arn, err)
 		}
 	}
 	return nil
@@ -273,7 +270,7 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id := generateUUID()[:12]
+	id := sim.NewUUID()[:12]
 	resourceKind := "app"
 	if lbType == "network" {
 		resourceKind = "net"
@@ -322,8 +319,7 @@ func handleELBv2DeleteLoadBalancer(w http.ResponseWriter, r *http.Request) {
 	elbv2LoadBalancers.Delete(arn)
 	for _, listener := range elbv2Listeners.Filter(func(l ELBv2Listener) bool { return l.LoadBalancerArn == arn }) {
 		elbv2Listeners.Delete(listener.Arn)
-		elbv2StopNLBProxy(listener.Arn)
-		elbv2StopTLSProxy(listener.Arn)
+		elbv2StopListenerProxy(listener.Arn)
 	}
 	for _, tg := range elbv2TargetGroups.List() {
 		tg.LoadBalancerArns = removeString(tg.LoadBalancerArns, arn)
@@ -433,7 +429,7 @@ func handleELBv2CreateTargetGroup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id := generateUUID()[:12]
+	id := sim.NewUUID()[:12]
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:targetgroup/%s/%s", awsRegion(), awsAccountID(), name, id)
 	tg := ELBv2TargetGroup{
 		Arn:                     arn,
@@ -693,7 +689,7 @@ func handleELBv2CreateListener(w http.ResponseWriter, r *http.Request) {
 		protocol = "HTTP"
 	}
 	port := atoiDefault(r.FormValue("Port"), 80)
-	id := generateUUID()[:12]
+	id := sim.NewUUID()[:12]
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:listener/%s/%s/%s/%s", awsRegion(), awsAccountID(), elbv2LoadBalancerKind(lb), lb.Name, elbv2LoadBalancerID(lb.Arn), id)
 	listener := ELBv2Listener{
 		Arn:             arn,
@@ -710,8 +706,7 @@ func handleELBv2CreateListener(w http.ResponseWriter, r *http.Request) {
 	elbv2Listeners.Put(arn, listener)
 	if err := elbv2StartListenerDataPlane(listener); err != nil {
 		elbv2Listeners.Delete(arn)
-		elbv2StopNLBProxy(arn)
-		elbv2StopTLSProxy(arn)
+		elbv2StopListenerProxy(arn)
 		elbv2ErrorXML(w, "InvalidConfigurationRequest",
 			"Could not provision the load balancer listener data plane: "+err.Error(),
 			http.StatusBadRequest, sim.RequestID(r.Context()))
@@ -739,20 +734,11 @@ func handleELBv2CreateListener(w http.ResponseWriter, r *http.Request) {
 // serves its control plane; what is lost is only the same-host convenience of
 // connecting through it, and the log says so at the moment it happens.
 func elbv2StartListenerDataPlane(listener ELBv2Listener) error {
-	if err := elbv2StartNLBProxy(listener); err != nil {
+	if err := elbv2StartListenerProxy(listener); err != nil {
 		if !elbv2HostCannotOfferAddress(err) {
 			return err
 		}
 		elbv2LogDataPlaneUnavailable(listener, err)
-		return nil
-	}
-	if err := elbv2StartTLSProxy(listener); err != nil {
-		elbv2StopNLBProxy(listener.Arn)
-		if !elbv2HostCannotOfferAddress(err) {
-			return err
-		}
-		elbv2LogDataPlaneUnavailable(listener, err)
-		return nil
 	}
 	return nil
 }
@@ -808,8 +794,7 @@ func handleELBv2ModifyListenerAttributes(w http.ResponseWriter, r *http.Request)
 func handleELBv2DeleteListener(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("ListenerArn")
 	elbv2Listeners.Delete(arn)
-	elbv2StopNLBProxy(arn)
-	elbv2StopTLSProxy(arn)
+	elbv2StopListenerProxy(arn)
 	elbv2XMLResponse(w, "DeleteListener", "", sim.RequestID(r.Context()))
 }
 
@@ -1596,7 +1581,7 @@ func elbv2LoadBalancerKind(lb ELBv2LoadBalancer) string {
 func elbv2LoadBalancerID(arn string) string {
 	parts := strings.Split(arn, "/")
 	if len(parts) == 0 {
-		return generateUUID()[:12]
+		return sim.NewUUID()[:12]
 	}
 	return parts[len(parts)-1]
 }

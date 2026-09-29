@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Azure operation-coverage gate — the Swagger-spec analogue of the AWS
@@ -941,10 +942,11 @@ func newAzureProber(t *testing.T) *azureProber {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	// Long-running operations complete in a goroutine. One still running
 	// when this test ends would read and write the stores while the next
 	// test rebuilds them.
-	t.Cleanup(AwaitAzureAsyncOperations)
+	t.Cleanup(bg.Await)
 	now := time.Now()
 	// AzureBearerVerificationMiddleware rejects every /subscriptions/ and
 	// /providers/ request that does not carry a simulator-minted Azure

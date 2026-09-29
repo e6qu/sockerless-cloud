@@ -157,8 +157,8 @@ func registerManagedIdentity(srv *sim.Server) {
 			Tags:     req.Tags,
 			Properties: IdentityProperties{
 				TenantId:    simTenantID,
-				PrincipalId: generateUUID(),
-				ClientId:    generateUUID(),
+				PrincipalId: sim.NewUUID(),
+				ClientId:    sim.NewUUID(),
 			},
 		}
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
 // A database written before bodies left the rows holds them under "Data".
@@ -25,7 +26,7 @@ func TestS3AdoptBodiesMovesRowContentsOutAndSweepsOrphans(t *testing.T) {
 	s3MultipartUploads.Put("upload", S3MultipartUpload{UploadID: "upload", Bucket: "bucket", Key: "big",
 		Parts: map[int]s3MultipartPart{1: {LegacyData: []byte("part one"), ETag: `"x"`}}})
 
-	store, err := sim.OpenPayloads(dir)
+	store, err := blobstore.OpenPayloads(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

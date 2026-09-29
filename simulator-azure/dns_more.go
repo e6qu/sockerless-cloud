@@ -59,7 +59,7 @@ func registerPublicDNSMore(srv *sim.Server, zones sim.Store[PublicDnsZone], reco
 		}
 		if !zones.Update(id, func(z *PublicDnsZone) {
 			z.Tags = req.Tags
-			z.Etag = generateUUID()
+			z.Etag = sim.NewUUID()
 		}) {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Network/dnsZones/%s' under resource group '%s' was not found.",
@@ -84,7 +84,7 @@ func registerPublicDNSMore(srv *sim.Server, zones sim.Store[PublicDnsZone], reco
 			}
 			if !recordSets.Update(recordID, func(rs *PublicRecordSet) {
 				mergePublicRecordSet(&rs.Properties, req.Properties)
-				rs.Etag = generateUUID()
+				rs.Etag = sim.NewUUID()
 			}) {
 				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"The record set '%s' of type '%s' in zone '%s' was not found.",
@@ -181,7 +181,10 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
 		all := zones.Filter(func(z PrivateDnsZone) bool { return strings.HasPrefix(z.ID, prefix) })
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next := armPage(r, all)
+		page, next, pageOK := armPage(w, r, all)
+		if !pageOK {
+			return
+		}
 		out := map[string]any{"value": page}
 		if next != "" {
 			out["nextLink"] = armNextLink(r, next)
@@ -228,7 +231,7 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 			}
 			if !recordSets.Update(recordID, func(rs *RecordSet) {
 				mergePrivateRecordSet(&rs.Properties, req.Properties)
-				rs.Etag = generateUUID()
+				rs.Etag = sim.NewUUID()
 			}) {
 				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"The record set '%s' of type '%s' in zone '%s' was not found.",

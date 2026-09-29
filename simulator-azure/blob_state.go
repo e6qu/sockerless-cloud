@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
 // Blob data-plane state that is not the blob bytes themselves: the account's
@@ -514,7 +515,7 @@ func applyBlobLeaseAction(w http.ResponseWriter, req blobLeaseActionRequest, cur
 		}
 		id := req.proposedID
 		if id == "" {
-			id = generateUUID()
+			id = sim.NewUUID()
 		}
 		next = BlobLease{ID: id, Duration: req.duration}
 		if req.duration > 0 {
@@ -618,81 +619,28 @@ func applyBlobLeaseAction(w http.ResponseWriter, req blobLeaseActionRequest, cur
 
 // Write guards
 
-// blobAccess is what a request does to the blob it addresses, which decides how
-// a conditional header it carries fails.
-type blobAccess int
-
-const (
-	// blobRead reads the blob: a condition that says the caller's copy is
-	// current fails with 304 Not Modified.
-	blobRead blobAccess = iota
-	// blobModify changes a blob that must exist.
-	blobModify
-	// blobCreate writes the blob whether or not it exists (Put Blob, Put Block
-	// List, Copy Blob): If-None-Match: * on one that exists is refused as
-	// already existing, not as an unmet condition.
-	blobCreate
-)
-
 // blobConditionsMet evaluates the request's conditional headers against the
-// blob, in the order HTTP evaluates them (RFC 9110 §13.2.2): If-Match, else
-// If-Unmodified-Since; then If-None-Match, else If-Modified-Since. It writes
-// the refusal and returns false when a condition fails.
+// blob, writing the refusal and returning false when a condition fails.
 // https://learn.microsoft.com/en-us/rest/api/storageservices/specifying-conditional-headers-for-blob-service-operations
-func blobConditionsMet(w http.ResponseWriter, r *http.Request, b BlobObject, exists bool, access blobAccess) bool {
+func blobConditionsMet(w http.ResponseWriter, r *http.Request, b BlobObject, exists bool, access blobstore.Access) bool {
 	modified, _ := http.ParseTime(b.LastModified)
-	if match := r.Header.Get("If-Match"); match != "" {
-		if !exists || !blobETagMatches(match, b.ETag) {
-			writeBlobConditionNotMet(w)
-			return false
-		}
-	} else if since, err := http.ParseTime(r.Header.Get("If-Unmodified-Since")); err == nil && exists && modified.After(since) {
-		writeBlobConditionNotMet(w)
-		return false
-	}
-
-	unchanged := false
-	if noneMatch := r.Header.Get("If-None-Match"); noneMatch != "" {
-		unchanged = exists && blobETagMatches(noneMatch, b.ETag)
-		if unchanged && access == blobCreate && strings.TrimSpace(noneMatch) == "*" {
-			writeStorageError(w, "BlobAlreadyExists", "The specified blob already exists.", http.StatusConflict)
-			return false
-		}
-	} else if since, err := http.ParseTime(r.Header.Get("If-Modified-Since")); err == nil && exists {
-		unchanged = !modified.After(since)
-	}
-	if !unchanged {
+	switch blobstore.EvaluateHTTP(r.Header, blobstore.Validators{ETag: b.ETag, Modified: modified, Exists: exists}, access) {
+	case blobstore.Proceed:
 		return true
-	}
-	if access != blobRead {
-		writeBlobConditionNotMet(w)
-		return false
-	}
-	// A 304 carries the validators of the representation the caller holds, and
-	// no body.
-	w.Header().Set("ETag", b.ETag)
-	w.Header().Set("Last-Modified", b.LastModified)
-	w.Header().Set("x-ms-error-code", "ConditionNotMet")
-	w.WriteHeader(http.StatusNotModified)
-	return false
-}
-
-// blobETagMatches reports whether a conditional header's value, a list of
-// entity tags or *, names the blob's ETag. Entity tags compare with their
-// quotes, which some clients omit.
-func blobETagMatches(header, etag string) bool {
-	for _, candidate := range strings.Split(header, ",") {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "*" || strings.Trim(candidate, `"`) == strings.Trim(etag, `"`) {
-			return true
-		}
+	case blobstore.AlreadyExists:
+		writeStorageError(w, "BlobAlreadyExists", "The specified blob already exists.", http.StatusConflict)
+	case blobstore.NotModified:
+		// A 304 carries the validators of the representation the caller
+		// holds, and no body.
+		w.Header().Set("ETag", b.ETag)
+		w.Header().Set("Last-Modified", b.LastModified)
+		w.Header().Set("x-ms-error-code", "ConditionNotMet")
+		w.WriteHeader(http.StatusNotModified)
+	default:
+		writeStorageError(w, "ConditionNotMet",
+			"The condition specified using HTTP conditional header(s) is not met.", http.StatusPreconditionFailed)
 	}
 	return false
-}
-
-func writeBlobConditionNotMet(w http.ResponseWriter) {
-	writeStorageError(w, "ConditionNotMet",
-		"The condition specified using HTTP conditional header(s) is not met.", http.StatusPreconditionFailed)
 }
 
 // blobWriters serializes the writes to one blob: evaluating a write's
@@ -704,7 +652,7 @@ var blobWriters = sim.NewKeyedLocks()
 // write protections a stored blob carries: a locked or unlocked-but-named
 // lease, a legal hold, and an unexpired immutability policy. It writes the
 // Azure error and returns false when the write must be refused.
-func blobWriteAllowed(w http.ResponseWriter, r *http.Request, b BlobObject, exists bool, access blobAccess) bool {
+func blobWriteAllowed(w http.ResponseWriter, r *http.Request, b BlobObject, exists bool, access blobstore.Access) bool {
 	if !blobConditionsMet(w, r, b, exists, access) {
 		return false
 	}
@@ -829,12 +777,6 @@ func blobETagFor(stamp string) string {
 	return `"0x` + strings.ToUpper(hex.EncodeToString(h.Sum(nil))[:16]) + `"`
 }
 
-// blobContentMD5 is the base64 Content-MD5 Azure returns for stored bytes.
-func blobContentMD5(data []byte) string {
-	sum := md5.Sum(data)
-	return base64.StdEncoding.EncodeToString(sum[:])
-}
-
 // blobSnapshotStamp is the snapshot identity Azure mints: an ISO-8601 UTC
 // instant at 100-nanosecond resolution.
 func blobSnapshotStamp(t time.Time) string {
@@ -856,7 +798,7 @@ func blobRandomKeyMaterial() string {
 // callers can write it back.
 func blobTouch(b *BlobObject) {
 	b.LastModified = blobNowHTTP()
-	b.ETag = blobETagFor(b.LastModified + generateUUID())
+	b.ETag = blobETagFor(b.LastModified + sim.NewUUID())
 }
 
 // List Blobs entry shape

@@ -125,5 +125,5 @@ func handleReplaceImageInstanceTypeSpecification(w http.ResponseWriter, r *http.
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ReplaceImageInstanceTypeSpecificationResponse %s><requestId>%s</requestId><return>true</return></ReplaceImageInstanceTypeSpecificationResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }

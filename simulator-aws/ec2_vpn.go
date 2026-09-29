@@ -242,7 +242,7 @@ func handleCreateCustomerGateway(w http.ResponseWriter, r *http.Request) {
 	ec2CustomerGateways.Put(cgw.CustomerGatewayId, cgw)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateCustomerGatewayResponse %s><requestId>%s</requestId><customerGateway>%s</customerGateway></CreateCustomerGatewayResponse>`,
-		ec2Xmlns(), generateUUID(), ec2CustomerGatewayFieldsXML(cgw))
+		ec2Xmlns(), sim.NewUUID(), ec2CustomerGatewayFieldsXML(cgw))
 }
 
 func ec2CustomerGatewayFieldsXML(cgw EC2CustomerGateway) string {
@@ -287,7 +287,7 @@ func handleDescribeCustomerGateways(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeCustomerGatewaysResponse %s><requestId>%s</requestId><customerGatewaySet>%s</customerGatewaySet></DescribeCustomerGatewaysResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func ec2CustomerGatewayMatchesFilters(cgw EC2CustomerGateway, filters map[string][]string) bool {
@@ -334,7 +334,7 @@ func handleDeleteCustomerGateway(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2CustomerGateways.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteCustomerGatewayResponse %s><requestId>%s</requestId><return>true</return></DeleteCustomerGatewayResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteCustomerGatewayResponse %s><requestId>%s</requestId><return>true</return></DeleteCustomerGatewayResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCreateVpnGateway(w http.ResponseWriter, r *http.Request) {
@@ -357,7 +357,7 @@ func handleCreateVpnGateway(w http.ResponseWriter, r *http.Request) {
 	ec2VpnGateways.Put(vgw.VpnGatewayId, vgw)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateVpnGatewayResponse %s><requestId>%s</requestId><vpnGateway>%s</vpnGateway></CreateVpnGatewayResponse>`,
-		ec2Xmlns(), generateUUID(), ec2VpnGatewayFieldsXML(vgw))
+		ec2Xmlns(), sim.NewUUID(), ec2VpnGatewayFieldsXML(vgw))
 }
 
 func ec2VpnGatewayFieldsXML(vgw EC2VpnGateway) string {
@@ -401,7 +401,7 @@ func handleDescribeVpnGateways(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeVpnGatewaysResponse %s><requestId>%s</requestId><vpnGatewaySet>%s</vpnGatewaySet></DescribeVpnGatewaysResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func ec2VpnGatewayMatchesFilters(vgw EC2VpnGateway, filters map[string][]string) bool {
@@ -479,7 +479,7 @@ func handleAttachVpnGateway(w http.ResponseWriter, r *http.Request) {
 	ec2VpnGateways.Put(vgwID, vgw)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AttachVpnGatewayResponse %s><requestId>%s</requestId><attachment><vpcId>%s</vpcId><state>%s</state></attachment></AttachVpnGatewayResponse>`,
-		ec2Xmlns(), generateUUID(), att.VpcId, att.State)
+		ec2Xmlns(), sim.NewUUID(), att.VpcId, att.State)
 }
 
 func handleDetachVpnGateway(w http.ResponseWriter, r *http.Request) {
@@ -499,7 +499,7 @@ func handleDetachVpnGateway(w http.ResponseWriter, r *http.Request) {
 	vgw.VpcAttachments = remaining
 	ec2VpnGateways.Put(vgwID, vgw)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DetachVpnGatewayResponse %s><requestId>%s</requestId><return>true</return></DetachVpnGatewayResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DetachVpnGatewayResponse %s><requestId>%s</requestId><return>true</return></DetachVpnGatewayResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDeleteVpnGateway(w http.ResponseWriter, r *http.Request) {
@@ -514,7 +514,7 @@ func handleDeleteVpnGateway(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2VpnGateways.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteVpnGatewayResponse %s><requestId>%s</requestId><return>true</return></DeleteVpnGatewayResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteVpnGatewayResponse %s><requestId>%s</requestId><return>true</return></DeleteVpnGatewayResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCreateVpnConnection(w http.ResponseWriter, r *http.Request) {
@@ -564,7 +564,7 @@ func handleCreateVpnConnection(w http.ResponseWriter, r *http.Request) {
 	ec2VpnConnections.Put(conn.VpnConnectionId, conn)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateVpnConnectionResponse %s><requestId>%s</requestId><vpnConnection>%s</vpnConnection></CreateVpnConnectionResponse>`,
-		ec2Xmlns(), generateUUID(), ec2VpnConnectionFieldsXML(conn))
+		ec2Xmlns(), sim.NewUUID(), ec2VpnConnectionFieldsXML(conn))
 }
 
 // ec2VpnConnectionConfig builds the customerGatewayConfiguration payload: a
@@ -666,7 +666,7 @@ func handleDescribeVpnConnections(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeVpnConnectionsResponse %s><requestId>%s</requestId><vpnConnectionSet>%s</vpnConnectionSet></DescribeVpnConnectionsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func ec2VpnConnectionMatchesFilters(conn EC2VpnConnection, filters map[string][]string) bool {
@@ -726,7 +726,7 @@ func handleModifyVpnConnection(w http.ResponseWriter, r *http.Request) {
 	ec2VpnConnections.Put(id, conn)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVpnConnectionResponse %s><requestId>%s</requestId><vpnConnection>%s</vpnConnection></ModifyVpnConnectionResponse>`,
-		ec2Xmlns(), generateUUID(), ec2VpnConnectionFieldsXML(conn))
+		ec2Xmlns(), sim.NewUUID(), ec2VpnConnectionFieldsXML(conn))
 }
 
 func handleModifyVpnConnectionOptions(w http.ResponseWriter, r *http.Request) {
@@ -745,7 +745,7 @@ func handleModifyVpnConnectionOptions(w http.ResponseWriter, r *http.Request) {
 	ec2VpnConnections.Put(id, conn)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVpnConnectionOptionsResponse %s><requestId>%s</requestId><vpnConnection>%s</vpnConnection></ModifyVpnConnectionOptionsResponse>`,
-		ec2Xmlns(), generateUUID(), ec2VpnConnectionFieldsXML(conn))
+		ec2Xmlns(), sim.NewUUID(), ec2VpnConnectionFieldsXML(conn))
 }
 
 func handleModifyVpnTunnelOptions(w http.ResponseWriter, r *http.Request) {
@@ -774,7 +774,7 @@ func handleModifyVpnTunnelOptions(w http.ResponseWriter, r *http.Request) {
 	ec2VpnConnections.Put(id, conn)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVpnTunnelOptionsResponse %s><requestId>%s</requestId><vpnConnection>%s</vpnConnection></ModifyVpnTunnelOptionsResponse>`,
-		ec2Xmlns(), generateUUID(), ec2VpnConnectionFieldsXML(conn))
+		ec2Xmlns(), sim.NewUUID(), ec2VpnConnectionFieldsXML(conn))
 }
 
 func handleGetActiveVpnTunnelStatus(w http.ResponseWriter, r *http.Request) {
@@ -785,7 +785,7 @@ func handleGetActiveVpnTunnelStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetActiveVpnTunnelStatusResponse %s><requestId>%s</requestId><activeVpnTunnelStatus><phase1EncryptionAlgorithm>AES256</phase1EncryptionAlgorithm><phase2EncryptionAlgorithm>AES256</phase2EncryptionAlgorithm><phase1IntegrityAlgorithm>SHA2-256</phase1IntegrityAlgorithm><phase2IntegrityAlgorithm>SHA2-256</phase2IntegrityAlgorithm><phase1DHGroup>14</phase1DHGroup><phase2DHGroup>14</phase2DHGroup><ikeVersion>ikev2</ikeVersion><provisioningStatus>provisioned</provisioningStatus></activeVpnTunnelStatus></GetActiveVpnTunnelStatusResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDeleteVpnConnection(w http.ResponseWriter, r *http.Request) {
@@ -800,7 +800,7 @@ func handleDeleteVpnConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2VpnConnections.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteVpnConnectionResponse %s><requestId>%s</requestId><return>true</return></DeleteVpnConnectionResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteVpnConnectionResponse %s><requestId>%s</requestId><return>true</return></DeleteVpnConnectionResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCreateVpnConnectionRoute(w http.ResponseWriter, r *http.Request) {
@@ -826,7 +826,7 @@ func handleCreateVpnConnectionRoute(w http.ResponseWriter, r *http.Request) {
 		ec2VpnConnections.Put(id, conn)
 	}
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<CreateVpnConnectionRouteResponse %s><requestId>%s</requestId><return>true</return></CreateVpnConnectionRouteResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<CreateVpnConnectionRouteResponse %s><requestId>%s</requestId><return>true</return></CreateVpnConnectionRouteResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDeleteVpnConnectionRoute(w http.ResponseWriter, r *http.Request) {
@@ -846,7 +846,7 @@ func handleDeleteVpnConnectionRoute(w http.ResponseWriter, r *http.Request) {
 	conn.Routes = remaining
 	ec2VpnConnections.Put(id, conn)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteVpnConnectionRouteResponse %s><requestId>%s</requestId><return>true</return></DeleteVpnConnectionRouteResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteVpnConnectionRouteResponse %s><requestId>%s</requestId><return>true</return></DeleteVpnConnectionRouteResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 // ec2VpnDeviceTypes is the real-shaped list of supported customer gateway
@@ -871,7 +871,7 @@ func handleGetVpnConnectionDeviceTypes(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetVpnConnectionDeviceTypesResponse %s><requestId>%s</requestId><vpnConnectionDeviceTypeSet>%s</vpnConnectionDeviceTypeSet></GetVpnConnectionDeviceTypesResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleGetVpnConnectionDeviceSampleConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -885,7 +885,7 @@ func handleGetVpnConnectionDeviceSampleConfiguration(w http.ResponseWriter, r *h
 	sample := fmt.Sprintf("! Amazon Web Services\n! Site-to-Site VPN sample configuration\n! VPN Connection: %s\n! Device Type: %s\n%s\n", conn.VpnConnectionId, devType, ec2VpnConnectionConfig(conn))
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetVpnConnectionDeviceSampleConfigurationResponse %s><requestId>%s</requestId><vpnConnectionDeviceSampleConfiguration>%s</vpnConnectionDeviceSampleConfiguration></GetVpnConnectionDeviceSampleConfigurationResponse>`,
-		ec2Xmlns(), generateUUID(), xmlEscape(sample))
+		ec2Xmlns(), sim.NewUUID(), xmlEscape(sample))
 }
 
 func handleCreateClientVpnEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -904,13 +904,13 @@ func handleCreateClientVpnEndpoint(w http.ResponseWriter, r *http.Request) {
 		transport = "udp"
 	}
 	port := ec2AtoiOr(r.FormValue("VpnPort"), 443)
-	id := "cvpn-endpoint-" + generateUUID()[:17]
+	id := "cvpn-endpoint-" + sim.NewUUID()[:17]
 	ep := EC2ClientVpnEndpoint{
 		ClientVpnEndpointId:  id,
 		Description:          r.FormValue("Description"),
 		StatusCode:           "available",
 		ClientCidrBlock:      cidr,
-		DnsName:              "*." + generateUUID()[:8] + ".prod.clientvpn." + awsRegion() + ".amazonaws.com",
+		DnsName:              "*." + sim.NewUUID()[:8] + ".prod.clientvpn." + awsRegion() + ".amazonaws.com",
 		DnsServers:           ec2ParamList(r, "DnsServers"),
 		SplitTunnel:          r.FormValue("SplitTunnel") == "true",
 		VpnProtocol:          "openvpn",
@@ -930,7 +930,7 @@ func handleCreateClientVpnEndpoint(w http.ResponseWriter, r *http.Request) {
 	ec2ClientVpnEndpoint.Put(id, ep)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateClientVpnEndpointResponse %s><requestId>%s</requestId><clientVpnEndpointId>%s</clientVpnEndpointId><status><code>%s</code></status><dnsName>%s</dnsName></CreateClientVpnEndpointResponse>`,
-		ec2Xmlns(), generateUUID(), ep.ClientVpnEndpointId, ep.StatusCode, ep.DnsName)
+		ec2Xmlns(), sim.NewUUID(), ep.ClientVpnEndpointId, ep.StatusCode, ep.DnsName)
 }
 
 // ec2ParseClientVpnAuth reads the indexed Authentication.N request params.
@@ -1041,7 +1041,7 @@ func handleDescribeClientVpnEndpoints(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeClientVpnEndpointsResponse %s><requestId>%s</requestId><clientVpnEndpoint>%s</clientVpnEndpoint></DescribeClientVpnEndpointsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func ec2ClientVpnEndpointMatchesFilters(ep EC2ClientVpnEndpoint, filters map[string][]string) bool {
@@ -1096,7 +1096,7 @@ func handleModifyClientVpnEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2ClientVpnEndpoint.Put(id, ep)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<ModifyClientVpnEndpointResponse %s><requestId>%s</requestId><return>true</return></ModifyClientVpnEndpointResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<ModifyClientVpnEndpointResponse %s><requestId>%s</requestId><return>true</return></ModifyClientVpnEndpointResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDeleteClientVpnEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -1111,7 +1111,7 @@ func handleDeleteClientVpnEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2ClientVpnEndpoint.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteClientVpnEndpointResponse %s><requestId>%s</requestId><status><code>deleting</code></status></DeleteClientVpnEndpointResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteClientVpnEndpointResponse %s><requestId>%s</requestId><status><code>deleting</code></status></DeleteClientVpnEndpointResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleCreateClientVpnRoute(w http.ResponseWriter, r *http.Request) {
@@ -1138,7 +1138,7 @@ func handleCreateClientVpnRoute(w http.ResponseWriter, r *http.Request) {
 	ec2ClientVpnRoutes.Put(epID+"|"+cidr+"|"+subnet, rt)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateClientVpnRouteResponse %s><requestId>%s</requestId><status><code>%s</code></status></CreateClientVpnRouteResponse>`,
-		ec2Xmlns(), generateUUID(), rt.StatusCode)
+		ec2Xmlns(), sim.NewUUID(), rt.StatusCode)
 }
 
 func handleDescribeClientVpnRoutes(w http.ResponseWriter, r *http.Request) {
@@ -1164,7 +1164,7 @@ func handleDescribeClientVpnRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeClientVpnRoutesResponse %s><requestId>%s</requestId><routes>%s</routes></DescribeClientVpnRoutesResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDeleteClientVpnRoute(w http.ResponseWriter, r *http.Request) {
@@ -1182,7 +1182,7 @@ func handleDeleteClientVpnRoute(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteClientVpnRouteResponse %s><requestId>%s</requestId><status><code>deleting</code></status></DeleteClientVpnRouteResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteClientVpnRouteResponse %s><requestId>%s</requestId><status><code>deleting</code></status></DeleteClientVpnRouteResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleAuthorizeClientVpnIngress(w http.ResponseWriter, r *http.Request) {
@@ -1207,7 +1207,7 @@ func handleAuthorizeClientVpnIngress(w http.ResponseWriter, r *http.Request) {
 	ec2ClientVpnAuth.Put(epID+"|"+cidr+"|"+rule.GroupId, rule)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AuthorizeClientVpnIngressResponse %s><requestId>%s</requestId><status><code>%s</code></status></AuthorizeClientVpnIngressResponse>`,
-		ec2Xmlns(), generateUUID(), rule.StatusCode)
+		ec2Xmlns(), sim.NewUUID(), rule.StatusCode)
 }
 
 func handleRevokeClientVpnIngress(w http.ResponseWriter, r *http.Request) {
@@ -1224,7 +1224,7 @@ func handleRevokeClientVpnIngress(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<RevokeClientVpnIngressResponse %s><requestId>%s</requestId><status><code>revoking</code></status></RevokeClientVpnIngressResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<RevokeClientVpnIngressResponse %s><requestId>%s</requestId><status><code>revoking</code></status></RevokeClientVpnIngressResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeClientVpnAuthorizationRules(w http.ResponseWriter, r *http.Request) {
@@ -1253,7 +1253,7 @@ func handleDescribeClientVpnAuthorizationRules(w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeClientVpnAuthorizationRulesResponse %s><requestId>%s</requestId><authorizationRule>%s</authorizationRule></DescribeClientVpnAuthorizationRulesResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleAssociateClientVpnTargetNetwork(w http.ResponseWriter, r *http.Request) {
@@ -1278,7 +1278,7 @@ func handleAssociateClientVpnTargetNetwork(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	assoc := EC2ClientVpnAssoc{
-		AssociationId:       "cvpn-assoc-" + generateUUID()[:17],
+		AssociationId:       "cvpn-assoc-" + sim.NewUUID()[:17],
 		ClientVpnEndpointId: epID,
 		TargetNetworkId:     subnetID,
 		VpcId:               vpcID,
@@ -1287,7 +1287,7 @@ func handleAssociateClientVpnTargetNetwork(w http.ResponseWriter, r *http.Reques
 	ec2ClientVpnAssocs.Put(assoc.AssociationId, assoc)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssociateClientVpnTargetNetworkResponse %s><requestId>%s</requestId><associationId>%s</associationId><status><code>%s</code></status></AssociateClientVpnTargetNetworkResponse>`,
-		ec2Xmlns(), generateUUID(), assoc.AssociationId, assoc.StatusCode)
+		ec2Xmlns(), sim.NewUUID(), assoc.AssociationId, assoc.StatusCode)
 }
 
 func handleDisassociateClientVpnTargetNetwork(w http.ResponseWriter, r *http.Request) {
@@ -1301,7 +1301,7 @@ func handleDisassociateClientVpnTargetNetwork(w http.ResponseWriter, r *http.Req
 	ec2ClientVpnAssocs.Delete(assocID)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisassociateClientVpnTargetNetworkResponse %s><requestId>%s</requestId><associationId>%s</associationId><status><code>disassociating</code></status></DisassociateClientVpnTargetNetworkResponse>`,
-		ec2Xmlns(), generateUUID(), assocID)
+		ec2Xmlns(), sim.NewUUID(), assocID)
 }
 
 func handleDescribeClientVpnTargetNetworks(w http.ResponseWriter, r *http.Request) {
@@ -1335,7 +1335,7 @@ func handleDescribeClientVpnTargetNetworks(w http.ResponseWriter, r *http.Reques
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeClientVpnTargetNetworksResponse %s><requestId>%s</requestId><clientVpnTargetNetworks>%s</clientVpnTargetNetworks></DescribeClientVpnTargetNetworksResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleApplySecurityGroupsToClientVpnTargetNetwork(w http.ResponseWriter, r *http.Request) {
@@ -1359,7 +1359,7 @@ func handleApplySecurityGroupsToClientVpnTargetNetwork(w http.ResponseWriter, r 
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ApplySecurityGroupsToClientVpnTargetNetworkResponse %s><requestId>%s</requestId><securityGroupIds>%s</securityGroupIds></ApplySecurityGroupsToClientVpnTargetNetworkResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDescribeClientVpnConnections(w http.ResponseWriter, r *http.Request) {
@@ -1372,7 +1372,7 @@ func handleDescribeClientVpnConnections(w http.ResponseWriter, r *http.Request) 
 	// empty — matching a real endpoint with no active sessions.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeClientVpnConnectionsResponse %s><requestId>%s</requestId><connections/></DescribeClientVpnConnectionsResponse>`,
-		ec2Xmlns(), generateUUID())
+		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleTerminateClientVpnConnections(w http.ResponseWriter, r *http.Request) {
@@ -1393,5 +1393,5 @@ func handleTerminateClientVpnConnections(w http.ResponseWriter, r *http.Request)
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<TerminateClientVpnConnectionsResponse %s><requestId>%s</requestId><clientVpnEndpointId>%s</clientVpnEndpointId>%s<connectionStatuses>%s</connectionStatuses></TerminateClientVpnConnectionsResponse>`,
-		ec2Xmlns(), generateUUID(), epID, usernameXML, statuses.String())
+		ec2Xmlns(), sim.NewUUID(), epID, usernameXML, statuses.String())
 }

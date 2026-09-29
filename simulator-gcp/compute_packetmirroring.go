@@ -284,21 +284,11 @@ func gcpInstanceMirrorTargets(instancePath string) []realexec.MirrorTarget {
 		return nil
 	}
 	var targets []realexec.MirrorTarget
-	gcpRealMu.RLock()
-	defer gcpRealMu.RUnlock()
 	for _, ni := range inst.NetworkInterfaces {
-		nicID := inst.SelfLink + "/" + ni.Name
-		if tap := gcpRealVMNICs[nicID]; tap != nil {
+		if tap := gcpFabric.Tap(gcpNICKey(inst, ni)); tap != nil {
 			targets = append(targets, realexec.MirrorTarget{
 				NamespaceName: tap.NetworkNamespace(),
 				InterfaceName: tap.TapName,
-			})
-			continue
-		}
-		if nic := gcpRealNICs[nicID]; nic != nil {
-			targets = append(targets, realexec.MirrorTarget{
-				NamespaceName: nic.NamespaceName,
-				InterfaceName: nic.HostVethName,
 			})
 		}
 	}

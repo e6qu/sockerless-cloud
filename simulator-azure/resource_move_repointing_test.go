@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // The families that joined the cross-resource-group move dispatch alongside
@@ -31,10 +32,11 @@ func newMoveTestServer(t *testing.T) *sim.Server {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	// Long-running operations complete in a goroutine. One still running
 	// when this test ends would read and write the stores while the next
 	// test rebuilds them.
-	t.Cleanup(AwaitAzureAsyncOperations)
+	t.Cleanup(bg.Await)
 	return srv
 }
 

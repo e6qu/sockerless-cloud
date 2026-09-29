@@ -462,7 +462,10 @@ func registerKeyVault(srv *sim.Server) {
 			return
 		}
 		all = filtered
-		page, next := armPage(r, all)
+		page, next, pageOK := armPage(w, r, all)
+		if !pageOK {
+			return
+		}
 		if page == nil {
 			page = []KeyVault{}
 		}
@@ -496,7 +499,10 @@ func registerKeyVault(srv *sim.Server) {
 			return
 		}
 		all = filtered
-		page, next := armPage(r, all)
+		page, next, pageOK := armPage(w, r, all)
+		if !pageOK {
+			return
+		}
 		if page == nil {
 			page = []KeyVault{}
 		}
@@ -1439,7 +1445,7 @@ func handleKVCreateKey(w http.ResponseWriter, r *http.Request, vault, name strin
 			"Key %q is currently in a deleted state and must be purged or recovered before re-creating.", name)
 		return
 	}
-	version := generateUUID()
+	version := sim.NewUUID()
 	id := buildKVURL(r, vault, "keys", name, version)
 	kty := defaultKVKty(body.Kty)
 	jwk, privateKeyPEM, keyErr := generateKVKeyMaterial(kty, body.KeySize, body.Crv)
@@ -1494,7 +1500,7 @@ func handleKVImportKey(w http.ResponseWriter, r *http.Request, vault, name strin
 			"Key %q is currently in a deleted state and must be purged or recovered before re-creating.", name)
 		return
 	}
-	version := generateUUID()
+	version := sim.NewUUID()
 	id := buildKVURL(r, vault, "keys", name, version)
 	if body.Key == nil {
 		body.Key = map[string]any{}
@@ -1555,7 +1561,10 @@ func handleKVListKeys(w http.ResponseWriter, r *http.Request, vault string) {
 			items = append(items, keyItem{ID: buildKVURL(r, vault, "keys", k.Name, ""), Attributes: v.Attributes, Tags: v.Tags})
 		}
 	}
-	page, next := kvPage(r, items)
+	page, next, pageOK := kvPage(w, r, items)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"value": page}
 	if next != "" {
 		out["nextLink"] = kvNextLink(r, next)
@@ -1590,7 +1599,10 @@ func handleKVListKeyVersions(w http.ResponseWriter, r *http.Request, vault, name
 	for _, v := range versions {
 		items = append(items, keyItem{ID: v.ID, Attributes: v.Attributes, Tags: v.Tags})
 	}
-	page, next := kvPage(r, items)
+	page, next, pageOK := kvPage(w, r, items)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"value": page}
 	if next != "" {
 		out["nextLink"] = kvNextLink(r, next)
@@ -1676,7 +1688,10 @@ func handleKVListDeletedKeys(w http.ResponseWriter, r *http.Request, vault strin
 		}
 		items = append(items, deletedKeyBundle(rec))
 	}
-	page, next := kvPage(r, items)
+	page, next, pageOK := kvPage(w, r, items)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"value": page}
 	if next != "" {
 		out["nextLink"] = kvNextLink(r, next)
@@ -1875,7 +1890,7 @@ func handleKVRotateKey(w http.ResponseWriter, r *http.Request, vault, name strin
 		keyErr.write(w)
 		return
 	}
-	version := generateUUID()
+	version := sim.NewUUID()
 	id := buildKVURL(r, vault, "keys", name, version)
 	jwk["kid"] = id
 	if ops, ok := current.JsonWebKey["key_ops"]; ok {
@@ -2357,7 +2372,7 @@ func handleKVCreateCertificate(w http.ResponseWriter, r *http.Request, vault, na
 			"Certificate %q is currently in a deleted state and must be purged or recovered before re-creating.", name)
 		return
 	}
-	version := generateUUID()
+	version := sim.NewUUID()
 	id := buildKVURL(r, vault, "certificates", name, version)
 	keyID := buildKVURL(r, vault, "keys", name, version)
 	secretID := buildKVURL(r, vault, "secrets", name, version)
@@ -2491,7 +2506,10 @@ func handleKVListCertificates(w http.ResponseWriter, r *http.Request, vault stri
 			items = append(items, certItem{ID: buildKVURL(r, vault, "certificates", c.Name, ""), Attributes: v.Attributes, Tags: v.Tags, X509Thumbprint: v.X509Thumbprint})
 		}
 	}
-	page, next := kvPage(r, items)
+	page, next, pageOK := kvPage(w, r, items)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"value": page}
 	if next != "" {
 		out["nextLink"] = kvNextLink(r, next)
@@ -2527,7 +2545,10 @@ func handleKVListCertificateVersions(w http.ResponseWriter, r *http.Request, vau
 	for _, v := range versions {
 		items = append(items, certItem{ID: v.ID, Attributes: v.Attributes, Tags: v.Tags, X509Thumbprint: v.X509Thumbprint})
 	}
-	page, next := kvPage(r, items)
+	page, next, pageOK := kvPage(w, r, items)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"value": page}
 	if next != "" {
 		out["nextLink"] = kvNextLink(r, next)
@@ -2652,7 +2673,10 @@ func handleKVListDeletedCertificates(w http.ResponseWriter, r *http.Request, vau
 		}
 		items = append(items, deletedCertificateBundle(rec))
 	}
-	page, next := kvPage(r, items)
+	page, next, pageOK := kvPage(w, r, items)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"value": page}
 	if next != "" {
 		out["nextLink"] = kvNextLink(r, next)
@@ -2849,7 +2873,10 @@ func handleKVListCertificateIssuers(w http.ResponseWriter, r *http.Request, vaul
 			"provider": rec.Provider,
 		})
 	}
-	page, next := kvPage(r, items)
+	page, next, pageOK := kvPage(w, r, items)
+	if !pageOK {
+		return
+	}
 	out := map[string]any{"value": page}
 	if next != "" {
 		out["nextLink"] = kvNextLink(r, next)
@@ -3300,12 +3327,12 @@ func certificateOperation(r *http.Request, vault, name, target string, policy *k
 		Status:                status,
 		StatusDetails:         "Certificate operation completed.",
 		Target:                target,
-		RequestID:             generateUUID(),
+		RequestID:             sim.NewUUID(),
 	}
 }
 
 func newKVCertificate(r *http.Request, vault, name string, certDER []byte, policy *kvCertPolicy, attrs *KeyVaultAttrs, tags map[string]string, preserve *bool) KeyVaultCertificate {
-	version := generateUUID()
+	version := sim.NewUUID()
 	sum := sha1.Sum(certDER)
 	now := time.Now().Unix()
 	c := KeyVaultCertificate{
@@ -3447,7 +3474,7 @@ func handleKVSetSecret(w http.ResponseWriter, r *http.Request, vault, name strin
 		return
 	}
 	now := time.Now().Unix()
-	version := generateUUID()
+	version := sim.NewUUID()
 	attrs := KeyVaultAttrs{Enabled: true, Created: now, Updated: now}
 	if body.Attributes != nil {
 		if body.Attributes.Enabled != nil {
@@ -3616,7 +3643,10 @@ func handleKVListSecrets(w http.ResponseWriter, r *http.Request, vault string) {
 			ContentType: latest.ContentType,
 		})
 	}
-	page, next := kvPage(r, items)
+	page, next, pageOK := kvPage(w, r, items)
+	if !pageOK {
+		return
+	}
 	out := kvSecretListResult{Value: page}
 	if next != "" {
 		out.NextLink = kvNextLink(r, next)
@@ -3652,7 +3682,10 @@ func handleKVListSecretVersions(w http.ResponseWriter, r *http.Request, vault, n
 			ContentType: v.ContentType,
 		})
 	}
-	page, next := kvPage(r, items)
+	page, next, pageOK := kvPage(w, r, items)
+	if !pageOK {
+		return
+	}
 	out := kvSecretListResult{Value: page}
 	if next != "" {
 		out.NextLink = kvNextLink(r, next)
@@ -3703,7 +3736,10 @@ func handleKVListDeletedSecrets(w http.ResponseWriter, r *http.Request, vault st
 			ScheduledPurgeDate: s.ScheduledPurgeAt,
 		})
 	}
-	page, next := kvPage(r, items)
+	page, next, pageOK := kvPage(w, r, items)
+	if !pageOK {
+		return
+	}
 	out := struct {
 		Value    []deletedItem `json:"value"`
 		NextLink string        `json:"nextLink,omitempty"`

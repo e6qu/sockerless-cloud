@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // SubscriptionAliasRecord mirrors SubscriptionAliasResponse in the
@@ -237,7 +238,7 @@ func handleSubscriptionAliasCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !adopting {
-		subscriptionID = generateUUID()
+		subscriptionID = sim.NewUUID()
 	}
 
 	// Ownership of a directed subscription starts Pending and stays Pending
@@ -274,12 +275,7 @@ func handleSubscriptionAliasCreate(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Counted with the other background completions so a test can wait for it:
-	// an alias still provisioning when its test ends writes the subscription
-	// stores while the next test rebuilds them.
-	azureAsyncOpsWG.Add(1)
-	go func() {
-		defer azureAsyncOpsWG.Done()
+	bg.Go(func() {
 		// The subscription materializes while the alias provisions — the
 		// same async window real subscription creation has.
 		time.Sleep(50 * time.Millisecond)
@@ -299,7 +295,7 @@ func handleSubscriptionAliasCreate(w http.ResponseWriter, r *http.Request) {
 				rec.AcceptOwnershipState = "Completed"
 			}
 		})
-	}()
+	})
 
 	w.Header().Set("Retry-After", "1")
 	sim.WriteJSON(w, http.StatusCreated, subscriptionAliasResponse(alias))

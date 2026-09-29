@@ -45,7 +45,7 @@ func TestRenderIngressFilterProgram(t *testing.T) {
 }
 
 func TestRenderIngressFilterProgramRejectsWhatNftWouldNot(t *testing.T) {
-	if _, err := renderIngressFilterProgram("fw", "eh", []PacketRule{{Protocol: "sctp"}}); err == nil {
+	if _, err := renderIngressFilterProgram("fw", "eh", []PacketRule{{Protocol: "bogus"}}); err == nil {
 		t.Fatal("an unsupported protocol rendered")
 	}
 	if _, err := renderIngressFilterProgram("fw", "eh", []PacketRule{{Protocol: "tcp", Action: "reject"}}); err == nil {

@@ -144,7 +144,7 @@ func handleCreateImage(w http.ResponseWriter, r *http.Request) {
 	ec2Images.Put(img.ImageId, img)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateImageResponse %s><requestId>%s</requestId><imageId>%s</imageId></CreateImageResponse>`,
-		ec2Xmlns(), generateUUID(), img.ImageId)
+		ec2Xmlns(), sim.NewUUID(), img.ImageId)
 }
 
 // handleRegisterImage registers an AMI from a manifest / block device mapping.
@@ -197,7 +197,7 @@ func handleRegisterImage(w http.ResponseWriter, r *http.Request) {
 	ec2Images.Put(img.ImageId, img)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RegisterImageResponse %s><requestId>%s</requestId><imageId>%s</imageId></RegisterImageResponse>`,
-		ec2Xmlns(), generateUUID(), img.ImageId)
+		ec2Xmlns(), sim.NewUUID(), img.ImageId)
 }
 
 // handleCopyImage copies a source AMI into a new AMI id, preserving its
@@ -234,7 +234,7 @@ func handleCopyImage(w http.ResponseWriter, r *http.Request) {
 	ec2Images.Put(img.ImageId, img)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CopyImageResponse %s><requestId>%s</requestId><imageId>%s</imageId></CopyImageResponse>`,
-		ec2Xmlns(), generateUUID(), img.ImageId)
+		ec2Xmlns(), sim.NewUUID(), img.ImageId)
 }
 
 func handleDeregisterImage(w http.ResponseWriter, r *http.Request) {
@@ -249,7 +249,7 @@ func handleDeregisterImage(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2Images.Delete(imageID)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeregisterImageResponse %s><requestId>%s</requestId><return>true</return></DeregisterImageResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeregisterImageResponse %s><requestId>%s</requestId><return>true</return></DeregisterImageResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 // ec2StoredImageXML renders a user-registered AMI as a DescribeImages item.
@@ -344,7 +344,7 @@ func handleCreatePlacementGroup(w http.ResponseWriter, r *http.Request) {
 	ec2PlacementGroups.Put(name, pg)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreatePlacementGroupResponse %s><requestId>%s</requestId><placementGroup>%s</placementGroup></CreatePlacementGroupResponse>`,
-		ec2Xmlns(), generateUUID(), ec2PlacementGroupFieldsXML(pg))
+		ec2Xmlns(), sim.NewUUID(), ec2PlacementGroupFieldsXML(pg))
 }
 
 func ec2PlacementGroupFieldsXML(pg EC2PlacementGroup) string {
@@ -382,7 +382,7 @@ func handleDescribePlacementGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribePlacementGroupsResponse %s><requestId>%s</requestId><placementGroupSet>%s</placementGroupSet></DescribePlacementGroupsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String())
+		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func ec2PlacementGroupMatchesFilters(pg EC2PlacementGroup, filters map[string][]string) bool {
@@ -426,7 +426,7 @@ func handleDeletePlacementGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2PlacementGroups.Delete(name)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeletePlacementGroupResponse %s><requestId>%s</requestId><return>true</return></DeletePlacementGroupResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeletePlacementGroupResponse %s><requestId>%s</requestId><return>true</return></DeletePlacementGroupResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 // ec2ParseDhcpConfigurations reads the indexed DhcpConfiguration.N.Key /
@@ -461,7 +461,7 @@ func handleCreateDhcpOptions(w http.ResponseWriter, r *http.Request) {
 	ec2DhcpOptions.Put(opts.DhcpOptionsId, opts)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateDhcpOptionsResponse %s><requestId>%s</requestId><dhcpOptions>%s</dhcpOptions></CreateDhcpOptionsResponse>`,
-		ec2Xmlns(), generateUUID(), ec2DhcpOptionsFieldsXML(opts))
+		ec2Xmlns(), sim.NewUUID(), ec2DhcpOptionsFieldsXML(opts))
 }
 
 func ec2DhcpOptionsFieldsXML(opts EC2DhcpOptions) string {
@@ -507,7 +507,11 @@ func handleDescribeDhcpOptions(w http.ResponseWriter, r *http.Request) {
 	nextToken := ""
 	if len(ids) == 0 {
 		sort.Slice(results, func(i, j int) bool { return results[i].DhcpOptionsId < results[j].DhcpOptionsId })
-		results, nextToken = awsPageExplicit(results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0))
+		paged, pageNext, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+		if !pageOK {
+			return
+		}
+		results, nextToken = paged, pageNext
 	}
 	var items strings.Builder
 	for _, opts := range results {
@@ -521,7 +525,7 @@ func handleDescribeDhcpOptions(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeDhcpOptionsResponse %s><requestId>%s</requestId><dhcpOptionsSet>%s</dhcpOptionsSet>%s</DescribeDhcpOptionsResponse>`,
-		ec2Xmlns(), generateUUID(), items.String(), nextTokenXML)
+		ec2Xmlns(), sim.NewUUID(), items.String(), nextTokenXML)
 }
 
 func ec2DhcpOptionsMatchesFilters(opts EC2DhcpOptions, filters map[string][]string) bool {
@@ -589,7 +593,7 @@ func handleAssociateDhcpOptions(w http.ResponseWriter, r *http.Request) {
 	vpc.DhcpOptionsId = optsID
 	ec2Vpcs.Put(vpcID, vpc)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<AssociateDhcpOptionsResponse %s><requestId>%s</requestId><return>true</return></AssociateDhcpOptionsResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<AssociateDhcpOptionsResponse %s><requestId>%s</requestId><return>true</return></AssociateDhcpOptionsResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDeleteDhcpOptions(w http.ResponseWriter, r *http.Request) {
@@ -611,5 +615,5 @@ func handleDeleteDhcpOptions(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2DhcpOptions.Delete(optsID)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DeleteDhcpOptionsResponse %s><requestId>%s</requestId><return>true</return></DeleteDhcpOptionsResponse>`, ec2Xmlns(), generateUUID())
+	fmt.Fprintf(w, `<DeleteDhcpOptionsResponse %s><requestId>%s</requestId><return>true</return></DeleteDhcpOptionsResponse>`, ec2Xmlns(), sim.NewUUID())
 }

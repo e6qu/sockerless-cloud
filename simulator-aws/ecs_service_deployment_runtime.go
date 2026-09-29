@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // ECSServiceSchedulerState is the durable scheduler bookkeeping that is not
@@ -140,7 +141,7 @@ func ecsAddServiceEvent(key, message string) {
 // state it describes.
 func ecsAppendServiceEvent(service *ECSService, message string) {
 	event := ECSServiceEvent{
-		Id:        generateUUID(),
+		Id:        sim.NewUUID(),
 		CreatedAt: float64(time.Now().Unix()),
 		Message:   message,
 	}
@@ -327,7 +328,7 @@ func ecsScheduleServiceRetry(key string, at int64) {
 	if delay < 0 {
 		delay = 0
 	}
-	timer := simAfterFunc(delay, func() {
+	timer := bg.AfterFunc(delay, func() {
 		ecsServiceRetryTimers.Delete(key)
 		ecsRequestServiceReconcile(key)
 	})
@@ -341,7 +342,7 @@ func ecsCancelServiceRetry(key string) {
 	if !ok {
 		return
 	}
-	if timer, timerOK := value.(*simTimer); timerOK {
+	if timer, timerOK := value.(*bg.Timer); timerOK {
 		timer.Stop()
 	}
 }

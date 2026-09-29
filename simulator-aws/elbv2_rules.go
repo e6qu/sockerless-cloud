@@ -58,7 +58,7 @@ func handleELBv2CreateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rule := ELBv2Rule{
-		Arn:         elbv2RuleArn(listener.Arn, generateUUID()[:12]),
+		Arn:         elbv2RuleArn(listener.Arn, sim.NewUUID()[:12]),
 		ListenerArn: listenerArn,
 		Priority:    r.FormValue("Priority"),
 		Conditions:  parseELBv2Conditions(r),
@@ -178,13 +178,11 @@ func handleELBv2ModifyListener(w http.ResponseWriter, r *http.Request) {
 	// listener rather than leaving a resource whose advertised data plane is
 	// absent.
 	if r.FormValue("Port") != "" || r.FormValue("Protocol") != "" || len(parseELBv2Certificates(r)) > 0 {
-		elbv2StopTLSProxy(arn)
-		elbv2StopNLBProxy(arn)
+		elbv2StopListenerProxy(arn)
 		elbv2Listeners.Put(arn, listener)
 		if err := elbv2StartListenerDataPlane(listener); err != nil {
 			elbv2Listeners.Put(arn, previous)
-			elbv2StopTLSProxy(arn)
-			elbv2StopNLBProxy(arn)
+			elbv2StopListenerProxy(arn)
 			if rollbackErr := elbv2StartListenerDataPlane(previous); rollbackErr != nil {
 				elbv2ErrorXML(w, "InvalidConfigurationRequest",
 					fmt.Sprintf("Could not modify listener data plane: %v; restoring the previous listener also failed: %v", err, rollbackErr),

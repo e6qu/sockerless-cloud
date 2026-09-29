@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // web_webjobs.go implements the App Service WebJobs slice of the
@@ -289,7 +292,7 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 	localImage := sim.ResolveLocalImage(image)
 	ctx, cancel := context.WithTimeout(context.Background(), 230*time.Second)
 	defer cancel()
-	platform, err := localImagePlatform(ctx, localImage)
+	platform, err := workload.LocalImagePlatform(ctx, localImage, "")
 	if err != nil {
 		return nil, err
 	}
@@ -304,14 +307,16 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 	if strings.HasSuffix(rec.RunCommand, ".sh") {
 		runInvocation = "sh ./" + rec.RunCommand
 	}
-	env := mergeEnv(siteAppSettings(site), hostMetadataEnv())
+	metadataEnv, err := hostMetadataEnv()
+	if err != nil {
+		return nil, err
+	}
 	// The real platform exposes the job's identity to the process.
-	env = mergeEnv(env, map[string]string{
+	env := workloadhost.MergeEnv(siteAppSettings(site), metadataEnv, map[string]string{
 		"WEBJOBS_NAME": rec.Name,
 		"WEBJOBS_TYPE": rec.JobKind,
 		"WEBJOBS_PATH": jobDir,
-	})
-	env = mergeEnv(env, extraEnv)
+	}, extraEnv)
 	sink := &funcLogSink{appName: site.Name}
 	return sim.StartContainerSync(sim.ContainerConfig{
 		CancelGracePeriod: siteStopGrace(site),
@@ -325,7 +330,7 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 			"sockerless-sim-type": "azure-webjob",
 			"sockerless-site":     site.Name,
 		},
-		ExtraHosts: hostMetadataExtraHosts(),
+		ExtraHosts: workloadhost.ExtraHosts(),
 		Sandbox:    SandboxAZF,
 	}, sink)
 }
@@ -334,7 +339,7 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 // it in the job's history: Running at container start, then the terminal
 // status the container's exit code dictates, with the actual timings.
 func webRunTriggeredWebJob(site *Site, rec WebJobRecord) {
-	runID := generateUUID()
+	runID := sim.NewUUID()
 	runRecID := rec.ID + "/history/" + runID
 	now := time.Now().UTC()
 	run := WebJobRunRecord{
@@ -360,8 +365,8 @@ func webRunTriggeredWebJob(site *Site, rec WebJobRecord) {
 	webJobContainers.Lock()
 	webJobContainers.m[runRecID] = handle
 	webJobContainers.Unlock()
-	go func() {
-		result := handle.Wait()
+	var result sim.ProcessResult
+	bg.WatchThen(func() { result = handle.Wait() }, func() {
 		webJobContainers.Lock()
 		if webJobContainers.m[runRecID] != handle {
 			// Deliberately killed (job or site deleted); the record is gone.
@@ -387,7 +392,7 @@ func webRunTriggeredWebJob(site *Site, rec WebJobRecord) {
 			row.EndTime = end.UTC().Format(time.RFC3339)
 			row.Duration = end.Sub(start).String()
 		})
-	}()
+	})
 }
 
 // webStartContinuousWebJob starts a continuous webjob's real container,
@@ -422,8 +427,8 @@ func webStartContinuousWebJob(rec WebJobRecord) {
 		row.DetailedStatus = "Running"
 		row.Error = ""
 	})
-	go func() {
-		result := handle.Wait()
+	var result sim.ProcessResult
+	bg.WatchThen(func() { result = handle.Wait() }, func() {
 		webJobContainers.Lock()
 		// A deliberate Stop/Delete pops the entry (and may be followed by a
 		// new Start that tracks a fresh handle) before this watcher runs;
@@ -441,7 +446,7 @@ func webStartContinuousWebJob(rec WebJobRecord) {
 			row.Status = "PendingRestart"
 			row.DetailedStatus = fmt.Sprintf("The job's process exited with code %d.", result.ExitCode)
 		})
-	}()
+	})
 }
 
 // webJobSiteScopedName spells the ARM resource name of a site child the way

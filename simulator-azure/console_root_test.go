@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Without a console registered the API root is genuinely nothing for a
@@ -17,10 +18,11 @@ func TestBareRootStays404WithoutConsole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	// Long-running operations complete in a goroutine. One still running
 	// when this test ends would read and write the stores while the next
 	// test rebuilds them.
-	t.Cleanup(AwaitAzureAsyncOperations)
+	t.Cleanup(bg.Await)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	if rec.Code != http.StatusNotFound {

@@ -10,6 +10,7 @@ import (
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // A subnet declared inline on a virtual network is created, not dropped.
@@ -36,7 +37,8 @@ func TestVirtualNetworkCreatesItsInlineSubnets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build simulator: %v", err)
 	}
-	t.Cleanup(AwaitAzureAsyncOperations)
+	t.Cleanup(srv.StopBackground)
+	t.Cleanup(bg.Await)
 
 	now := time.Now().UTC()
 	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))

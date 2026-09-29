@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 const ecsConditionTarget = "AmazonEC2ContainerServiceV20141113."
@@ -80,7 +81,7 @@ func TestECSConditionKeysReadTheRequestShape(t *testing.T) {
 func TestECSConditionKeysResolveTheOnlyExecContainer(t *testing.T) {
 	previous := ecsTasks
 	t.Cleanup(func() { ecsTasks = previous })
-	AwaitSimulatorBackground()
+	bg.Await()
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")
 	ecsTasks.Put("single", ECSTask{Containers: []ECSTaskContainer{{Name: "app"}}})
 	ecsTasks.Put("pair", ECSTask{Containers: []ECSTaskContainer{{Name: "app"}, {Name: "sidecar"}}})

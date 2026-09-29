@@ -121,8 +121,8 @@ func arAuthorizeV2(w http.ResponseWriter, r *http.Request, repo string) bool {
 	//	{"errors":[{"code":"NAME_INVALID","message":"invalid number of path components: 1"}]}
 	if repo != "" {
 		if components := strings.Split(repo, "/"); len(components) < 2 {
-			arRegistryError(w, http.StatusBadRequest, "NAME_INVALID",
-				fmt.Sprintf("invalid number of path components: %d", len(components)))
+			sim.RegistryError(w, http.StatusBadRequest, "NAME_INVALID",
+				fmt.Sprintf("invalid number of path components: %d", len(components)), nil)
 			return false
 		}
 	}
@@ -146,7 +146,7 @@ func arAuthorizeV2(w http.ResponseWriter, r *http.Request, repo string) bool {
 		// The same response answers an unparseable Basic credential, an
 		// unknown Basic username, an expired token, and an Authorization header
 		// whose scheme the registry does not implement.
-		arRegistryError(w, http.StatusUnauthorized, "UNAUTHORIZED", "No valid credential was supplied.")
+		sim.RegistryError(w, http.StatusUnauthorized, "UNAUTHORIZED", "No valid credential was supplied.", nil)
 		return false
 	}
 
@@ -175,7 +175,7 @@ func arAuthorizeV2(w http.ResponseWriter, r *http.Request, repo string) bool {
 		// simulator will not invent a location to name one. The registry
 		// answers with the OCI Distribution code for a repository it does not
 		// know, which Artifact Registry's own /v2/ surface implements.
-		arRegistryError(w, http.StatusNotFound, "NAME_UNKNOWN", "repository name not known to registry")
+		sim.RegistryError(w, http.StatusNotFound, "NAME_UNKNOWN", "repository name not known to registry", nil)
 		return false
 	}
 	if principal.anonymous || !arRepositoryExists(r, repo) {
@@ -234,14 +234,14 @@ func arChallengeActions(method string) string {
 //	{"errors":[{"code":"UNAUTHORIZED","message":"not authenticated: No valid credential was supplied."}]}
 func arChallenge(w http.ResponseWriter, r *http.Request, repo string) {
 	realm := requestOrigin(r) + arTokenPath
-	challenge := fmt.Sprintf("Bearer realm=%q", realm)
+	challenge := sim.BearerChallenge(realm, "", "", "")
 	message := "not authenticated: No credential was supplied."
 	if repo != "" {
-		challenge += fmt.Sprintf(",service=%q,scope=%q", r.Host, arChallengeScope(r, repo))
+		challenge = sim.BearerChallenge(realm, r.Host, arChallengeScope(r, repo), "")
 		message = "not authenticated: No valid credential was supplied."
 	}
 	w.Header().Set("WWW-Authenticate", challenge)
-	arRegistryError(w, http.StatusUnauthorized, "UNAUTHORIZED", message)
+	sim.RegistryError(w, http.StatusUnauthorized, "UNAUTHORIZED", message, nil)
 }
 
 // arChallengeScope renders the token scope the challenge asks for. A path that
@@ -279,19 +279,7 @@ func arPermissionDenied(w http.ResponseWriter, principal arPrincipal, permission
 		message = fmt.Sprintf("Unauthenticated request. Unauthenticated requests do not have permission %q on resource %q (or it may not exist)",
 			permission, resource)
 	}
-	arRegistryError(w, http.StatusForbidden, "DENIED", message)
-}
-
-// arRegistryError writes the Docker Registry v2 error envelope Artifact
-// Registry returns. Every /v2/ response the service sends carries the
-// `Docker-Distribution-Api-Version` header, which the shared registry has
-// already set on the response by the time the Authorize hook runs; the token
-// service, which is not part of that subtree, sets it here.
-func arRegistryError(w http.ResponseWriter, status int, code, message string) {
-	w.Header().Set("Docker-Distribution-Api-Version", "registry/2.0")
-	sim.WriteJSON(w, status, map[string]any{
-		"errors": []map[string]any{{"code": code, "message": message}},
-	})
+	sim.RegistryError(w, http.StatusForbidden, "DENIED", message, nil)
 }
 
 // arRegistryHostSuffix is the tail of every Artifact Registry Docker endpoint.
@@ -389,12 +377,10 @@ func arRepositoryExists(r *http.Request, repo string) bool {
 //   - `Authorization: Basic` with the `_json_key` or `_json_key_base64`
 //     username and a service-account key file as the password.
 func arAuthenticate(r *http.Request) (arPrincipal, bool, error) {
-	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
-	if authorization == "" {
+	scheme, credential := sim.ParseAuthorization(r.Header.Get("Authorization"))
+	if scheme == "" {
 		return arPrincipal{}, false, nil
 	}
-	scheme, credential, _ := strings.Cut(authorization, " ")
-	credential = strings.TrimSpace(credential)
 	switch {
 	case strings.EqualFold(scheme, "Bearer"):
 		principal, err := arPrincipalFromBearer(credential)
@@ -435,13 +421,9 @@ func arPrincipalFromAccessToken(token string) (arPrincipal, error) {
 // kind. A username the service does not reserve is not a credential it can
 // accept.
 func arPrincipalFromBasic(credential string) (arPrincipal, error) {
-	raw, err := base64.StdEncoding.DecodeString(credential)
-	if err != nil {
-		return arPrincipal{}, fmt.Errorf("basic credential is not base64: %w", err)
-	}
-	username, password, ok := strings.Cut(string(raw), ":")
+	username, password, ok := sim.BasicCredential(credential)
 	if !ok {
-		return arPrincipal{}, fmt.Errorf("basic credential is not user:password")
+		return arPrincipal{}, fmt.Errorf("basic credential is not base64 user:password")
 	}
 	switch username {
 	case arUserAccessToken:
@@ -640,7 +622,7 @@ func arTokenServiceHandler(w http.ResponseWriter, r *http.Request) {
 			//	    'https://us-central1-docker.pkg.dev/v2/token?service=…&scope=…'
 			//	HTTP/2 401
 			//	{"errors":[{"code":"UNAUTHORIZED","message":"authentication failed"}]}
-			arRegistryError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication failed")
+			sim.RegistryError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication failed", nil)
 			return
 		}
 		// The token carries the identity forward as an access token the data
@@ -670,23 +652,18 @@ func arTokenServiceHandler(w http.ResponseWriter, r *http.Request) {
 // with the download permission — needs downloadArtifacts. A scope of any other
 // type, `registry:catalog:*` among them, names no repository.
 func arScopedRepository(r *http.Request) (string, string, bool) {
-	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
-	rest, ok := strings.CutPrefix(scope, "repository:")
-	if !ok {
-		return "", "", false
-	}
-	name, actions, ok := strings.Cut(rest, ":")
-	if !ok || name == "" {
+	scope, ok := sim.ParseRegistryScope(strings.TrimSpace(r.URL.Query().Get("scope")))
+	if !ok || scope.Type != "repository" {
 		return "", "", false
 	}
 	permission := arPermDownload
-	for _, action := range strings.Split(actions, ",") {
-		if strings.EqualFold(strings.TrimSpace(action), "push") {
+	for _, action := range scope.Actions {
+		if strings.EqualFold(action, "push") {
 			permission = arPermUpload
 			break
 		}
 	}
-	return name, permission, true
+	return scope.Name, permission, true
 }
 
 // arTokenServiceMethodNotAllowed answers every verb the token service does not

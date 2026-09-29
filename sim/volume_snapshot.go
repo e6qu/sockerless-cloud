@@ -3,6 +3,7 @@ package sim
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -83,6 +84,48 @@ cp -a --reflink=auto /snapshot-src/. /snapshot-dst/`
 		filesystem = filesystem[:i]
 	}
 	return strings.TrimSpace(filesystem), nil
+}
+
+// CaptureVolume snapshots the src volume into dst and logs, under
+// "[sim-<tag>]", whether the filesystem gave the copy-on-write path. With no
+// container engine, or no src volume — an engine that never started — there
+// is nothing to capture, and dst is not created.
+func CaptureVolume(ctx context.Context, src, dst, tag string) error {
+	if RequireContainerRuntime("capturing volume "+src) != nil || !VolumeExists(src) {
+		return nil
+	}
+	filesystem, err := SnapshotVolume(ctx, src, dst)
+	if err != nil {
+		return err
+	}
+	if VolumeSnapshotIsInstant(filesystem) {
+		fmt.Fprintf(os.Stderr, "[sim-%s] volume %s captured copy-on-write on %s\n", tag, dst, filesystem)
+	} else {
+		fmt.Fprintf(os.Stderr, "[sim-%s] volume %s captured by full copy on %s (put the engine's volume store on btrfs, XFS with reflinks, or OpenZFS block cloning for instant snapshots)\n", tag, dst, filesystem)
+	}
+	return nil
+}
+
+// RemoveVolumeSettled removes a volume, retrying for up to 30 seconds while
+// the engine still tears down the container that held it: a container's
+// removal completes on a goroutine its handle's Wait does not cover. A volume
+// that stays is logged under "[sim-<tag>]".
+func RemoveVolumeSettled(name, tag string) {
+	if RequireContainerRuntime("removing volume "+name) != nil || !VolumeExists(name) {
+		return
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		err := RemoveVolume(name)
+		if err == nil || !VolumeExists(name) {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			fmt.Fprintf(os.Stderr, "[sim-%s] volume %s was not removed: %v\n", tag, name, err)
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 // VolumeSnapshotIsInstant reports whether the filesystem SnapshotVolume found

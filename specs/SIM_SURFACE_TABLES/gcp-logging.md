@@ -17,7 +17,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v2/entries:list` | ✓ `simulator-gcp/logging.go:265::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/entries:list` | ✓ `simulator-gcp/logging.go:261::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v2/entries:write` | ✓ `simulator-gcp/logging.go:279::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v2/projects/{project}/sinks` | ✓ `simulator-gcp/logging.go:289::handleCreateLoggingSink` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v2/projects/{project}/sinks` | ✓ `simulator-gcp/logging.go:290::handleListLoggingSinks` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

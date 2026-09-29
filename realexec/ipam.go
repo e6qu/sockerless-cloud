@@ -17,9 +17,31 @@ type IPAM struct {
 	network  *net.IPNet
 	gateway  net.IP
 	reserved map[string]string
+	first    int
+	last     int
 }
 
+// NewIPAM reserves the network address, the gateway and the broadcast address.
 func NewIPAM(cidr string, gateway net.IP) (*IPAM, error) {
+	return NewIPAMWithReserved(cidr, gateway, HostReservation{First: 1, Last: 1})
+}
+
+// HostReservation is how many addresses at each end of a subnet a cloud keeps
+// for itself. First counts the network address and Last the broadcast address,
+// so neither may be below one.
+type HostReservation struct {
+	First int
+	Last  int
+}
+
+// NewIPAMWithReserved hands out only the addresses a cloud leaves to its
+// tenants: Amazon VPC and Azure Virtual Network keep the first four and the
+// last, Google Cloud VPC the first two and the last two. The gateway stays
+// reserved wherever it falls.
+func NewIPAMWithReserved(cidr string, gateway net.IP, keep HostReservation) (*IPAM, error) {
+	if keep.First < 1 || keep.Last < 1 {
+		return nil, fmt.Errorf("a subnet reserves at least its network and broadcast addresses, got first=%d last=%d", keep.First, keep.Last)
+	}
 	ip, network, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return nil, err
@@ -36,6 +58,8 @@ func NewIPAM(cidr string, gateway net.IP) (*IPAM, error) {
 		network:  network,
 		gateway:  append(net.IP(nil), gateway.To4()...),
 		reserved: map[string]string{gateway.String(): "gateway"},
+		first:    keep.First,
+		last:     keep.Last,
 	}, nil
 }
 
@@ -45,8 +69,11 @@ func (i *IPAM) Reserve(owner string, requested net.IP) (net.IP, error) {
 
 	if requested != nil {
 		ip := requested.To4()
-		if ip == nil || !i.network.Contains(ip) || isNetworkAddress(i.network, ip) || isBroadcastAddress(i.network, ip) {
+		if ip == nil || !i.network.Contains(ip) {
 			return nil, fmt.Errorf("requested IP %s is not usable in %s", requested, i.network)
+		}
+		if i.hostReserved(ipToBig(ip)) {
+			return nil, fmt.Errorf("requested IP %s is reserved in %s", requested, i.network)
 		}
 		key := ip.String()
 		if current, ok := i.reserved[key]; ok {
@@ -56,9 +83,9 @@ func (i *IPAM) Reserve(owner string, requested net.IP) (net.IP, error) {
 		return append(net.IP(nil), ip...), nil
 	}
 
-	start := ipToBig(i.network.IP)
-	end := broadcastBig(i.network)
-	for n := new(big.Int).Add(start, big.NewInt(1)); n.Cmp(end) < 0; n.Add(n, big.NewInt(1)) {
+	start := new(big.Int).Add(ipToBig(i.network.IP), big.NewInt(int64(i.first)))
+	end := new(big.Int).Sub(broadcastBig(i.network), big.NewInt(int64(i.last-1)))
+	for n := start; n.Cmp(end) < 0; n.Add(n, big.NewInt(1)) {
 		ip := bigToIPv4(n)
 		key := ip.String()
 		if _, ok := i.reserved[key]; ok {
@@ -109,12 +136,10 @@ func (i *IPAM) PrefixBits() int {
 	return ones
 }
 
-func isNetworkAddress(network *net.IPNet, ip net.IP) bool {
-	return ip.Equal(network.IP)
-}
-
-func isBroadcastAddress(network *net.IPNet, ip net.IP) bool {
-	return ip.Equal(bigToIPv4(broadcastBig(network)))
+func (i *IPAM) hostReserved(n *big.Int) bool {
+	low := new(big.Int).Add(ipToBig(i.network.IP), big.NewInt(int64(i.first)))
+	high := new(big.Int).Sub(broadcastBig(i.network), big.NewInt(int64(i.last-1)))
+	return n.Cmp(low) < 0 || n.Cmp(high) >= 0
 }
 
 func broadcastBig(network *net.IPNet) *big.Int {

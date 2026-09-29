@@ -196,11 +196,11 @@ func handleIAMCreateGroup(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "/"
 	}
-	g := IAMGroup{GroupName: name, GroupId: "AGPA" + strings.ToUpper(generateUUID()[:16]), Arn: iamGroupArn(name, path), Path: path, CreateDate: time.Now().UTC().Format(time.RFC3339)}
+	g := IAMGroup{GroupName: name, GroupId: "AGPA" + strings.ToUpper(sim.NewUUID()[:16]), Arn: iamGroupArn(name, path), Path: path, CreateDate: time.Now().UTC().Format(time.RFC3339)}
 	iamGroups.Put(name, g)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateGroupResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><CreateGroupResult>%s</CreateGroupResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></CreateGroupResponse>`,
-		iamGroupXML(g), generateUUID())
+		iamGroupXML(g), sim.NewUUID())
 }
 
 func handleIAMGetGroup(w http.ResponseWriter, r *http.Request) {
@@ -221,7 +221,7 @@ func handleIAMGetGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetGroupResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetGroupResult>%s<Users>%s</Users><IsTruncated>false</IsTruncated></GetGroupResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetGroupResponse>`,
-		iamGroupXML(g), members.String(), generateUUID())
+		iamGroupXML(g), members.String(), sim.NewUUID())
 }
 
 func handleIAMDeleteGroup(w http.ResponseWriter, r *http.Request) {
@@ -241,7 +241,7 @@ func handleIAMListGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListGroupsResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><ListGroupsResult><Groups>%s</Groups><IsTruncated>false</IsTruncated></ListGroupsResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListGroupsResponse>`,
-		members.String(), generateUUID())
+		members.String(), sim.NewUUID())
 }
 
 func handleIAMAddUserToGroup(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +276,7 @@ func handleIAMListGroupsForUser(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListGroupsForUserResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><ListGroupsForUserResult><Groups>%s</Groups><IsTruncated>false</IsTruncated></ListGroupsForUserResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListGroupsForUserResponse>`,
-		members.String(), generateUUID())
+		members.String(), sim.NewUUID())
 }
 
 func handleIAMPutGroupPolicy(w http.ResponseWriter, r *http.Request) {
@@ -306,7 +306,7 @@ func handleIAMGetGroupPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetGroupPolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetGroupPolicyResult><GroupName>%s</GroupName><PolicyName>%s</PolicyName><PolicyDocument>%s</PolicyDocument></GetGroupPolicyResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetGroupPolicyResponse>`,
-		xmlEscape(group), xmlEscape(pn), url.QueryEscape(p.PolicyDocument), generateUUID())
+		xmlEscape(group), xmlEscape(pn), url.QueryEscape(p.PolicyDocument), sim.NewUUID())
 }
 
 func handleIAMDeleteGroupPolicy(w http.ResponseWriter, r *http.Request) {
@@ -324,7 +324,7 @@ func handleIAMListGroupPolicies(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListGroupPoliciesResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><ListGroupPoliciesResult><PolicyNames>%s</PolicyNames><IsTruncated>false</IsTruncated></ListGroupPoliciesResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListGroupPoliciesResponse>`,
-		members.String(), generateUUID())
+		members.String(), sim.NewUUID())
 }
 
 func handleIAMAttachGroupPolicy(w http.ResponseWriter, r *http.Request) {
@@ -356,7 +356,7 @@ func handleIAMListAttachedGroupPolicies(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListAttachedGroupPoliciesResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><ListAttachedGroupPoliciesResult><AttachedPolicies>%s</AttachedPolicies><IsTruncated>false</IsTruncated></ListAttachedGroupPoliciesResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListAttachedGroupPoliciesResponse>`,
-		members.String(), generateUUID())
+		members.String(), sim.NewUUID())
 }
 
 func handleIAMListUsers(w http.ResponseWriter, r *http.Request) {
@@ -370,7 +370,7 @@ func handleIAMListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListUsersResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><ListUsersResult><Users>%s</Users><IsTruncated>false</IsTruncated></ListUsersResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListUsersResponse>`,
-		members.String(), generateUUID())
+		members.String(), sim.NewUUID())
 }
 
 func iamGroupXML(g IAMGroup) string {

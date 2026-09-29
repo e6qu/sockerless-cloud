@@ -1,15 +1,15 @@
 ---
 name: avoid-vibe-slop
-description: Project-local checklist that loads before any non-trivial code change in sockerless. Anchored in the project rules in AGENTS.md; refuses fake/fallback/anemic patterns. Use proactively whenever about to write Go or TypeScript code, modify a handler, add a test, or stage a fix.
+description: Project-local checklist that loads before any non-trivial code change in sockerless-cloud. Anchored in the project rules in AGENTS.md; refuses fake/fallback/anemic patterns. Use proactively whenever about to write Go or TypeScript code, modify a handler, add a test, or stage a fix.
 ---
 
 # Avoid vibe-coding slop
 
-Sockerless is a vibe-coded project with explicit countermeasures. Read the project rules in `AGENTS.md` for the full catalogue. This skill is the **runtime checklist**: a small set of questions to answer *before each substantial edit*.
+This project is largely agent-written, with explicit countermeasures. Read the project rules in `AGENTS.md` for the full catalogue. This skill is the **runtime checklist**: a small set of questions to answer *before each substantial edit*.
 
 ## When this skill applies
 
-- Before writing or modifying a Go file under `simulator-*/`, `realexec/`, `ui-auth/`, or `testutil/`.
+- Before writing or modifying a Go file under `simulator-*/`, `sim/`, `realexec/`, `ui-auth/`, or `testutil/`.
 - Before writing or modifying a TypeScript file under `ui/packages/*/src/`.
 - Before adding a test.
 - Before staging a "fix" for a bug.
@@ -22,7 +22,7 @@ Stop after each "no" and resolve it before writing code.
 ### Truth and adaptor fidelity
 
 1. **Has someone already implemented this in the repo?** Grep the surface for the function/path/type name. If yes, extend that — never re-implement (pattern 11, 13).
-2. **What is the reference adaptor for this code path?** Docker SDK, gh CLI, aws CLI, gcloud, az, Terraform provider. If you can't name it, you don't know if the change is right (pattern 22, 29).
+2. **What is the reference adaptor for this code path?** The cloud's Go SDK, aws CLI, gcloud, az, the Terraform provider, the Docker CLI for a registry data plane. If you can't name it, you don't know if the change is right (pattern 22, 29).
 3. **Does the adaptor's real behaviour confirm what I'm about to write?** If your only evidence is "model says so," verify the wire shape with `curl -v` / `--debug` / `Wireshark` / the upstream spec (pattern 6, 30).
 4. **If you're adding a "fallback" branch — is it actually a fallback, or is it lying about success?** Patterns 1, 7, 9 are the same shape: silent success when the truth is missing. Default answer: return an error, never fabricate.
 5. **Marking a resolver / handler as "unreachable in practice"?** Flag it for re-audit if you ever make the parent collection non-empty — the placeholder will start firing for real. `unreachableFieldErr` is a temporary contract, not a permanent one (pattern 30 lineage).
@@ -37,9 +37,9 @@ Stop after each "no" and resolve it before writing code.
 
 ### Tests and fidelity
 
-11. **Are you adding a test?** It must drive the real adaptor — not a mock (pattern 2, 29). For sockerless this means: `docker` CLI / `gh` CLI / `aws` CLI / SDK clients, against a running binary, not a struct mocked-out in a unit test.
+11. **Are you adding a test?** It must drive the real adaptor — not a mock (pattern 2, 29). Here that means the cloud SDK, the vendor CLI or the Terraform provider against a running simulator, not a struct mocked out in a unit test.
 12. **Is the test derived from spec, or from the implementation?** If you wrote the assertion by reading the code you just wrote, you're testing yourself, not the contract (pattern 3, 28).
-13. **Does the test assert on implementation metadata?** Bug IDs in error strings, phase numbers, internal IDs, version strings — these break the moment you clean up the metadata. Re-derive the assertion from the contract: what the error *means*, not the bug-tracking artifact (pattern 28).
+13. **Does the test assert on implementation metadata?** Bug IDs in error strings, internal IDs, version strings — these break the moment you clean up the metadata. Re-derive the assertion from the contract: what the error *means*, not the bug-tracking artifact (pattern 28).
 14. **Coverage % is not the goal.** Mutation-killed % is. A 95%-covered branch with one assert that everything returns non-nil is a lie (pattern 2).
 15. **Did you sweep test fixtures for the same strings you just cleaned from production code?** A grep on the production code's stripped substring will find anchored tests before CI does (pattern 28).
 
@@ -74,41 +74,40 @@ Stop and rewrite if you catch yourself producing any of these:
 - "This *should* work" — claim without test.
 - "I've added comprehensive error handling" — followed by `try { ... } catch (e) { console.log(e) }`.
 - "Let me add a fallback for now" — pattern 9, always.
-- Adding `// TODO: fix this properly later` — Phase 158 says NO; the right fix goes in this commit or it gets staged as a new phase entry in PLAN.md.
+- Adding `// TODO: fix this properly later` — the right fix goes in this commit, or it gets filed in `BUGS.md` with its fix shape.
 - "Backward-compatibility shim" in code that isn't released or has no users — pattern 8.
 - Tests with `assert.NotNil(x)` as the only assertion.
 - 47 files for a one-call-site change — pattern 14.
 - "Looks good to me" on your own work after a single pass — pattern 24 (sycophancy). Re-read with fresh eyes; first-pass review trusts the wrong things.
 - A diff that's only additions, no deletions — pattern 27. AI rarely prunes; force the pruning audit.
-- Assertions on bug IDs / phase numbers / internal IDs in error strings — pattern 28. Re-derive from the contract.
+- Assertions on bug IDs or internal IDs in error strings — pattern 28. Re-derive from the contract.
 - Sed / regex on Go source spanning multiple files — pattern 35. Run `go build && go test` immediately; visual inspection misses joined lines + eaten args.
 - Code change merged without docs change — pattern 33. If the behaviour changed, the README, env-var table, and adjacent comment block need to change with it.
-- Stack / dev-server target says "up" but no post-start status + request probe was run — Q27. Start scripts lie when child processes die with the parent shell.
+- A dev-server or simulator start says "up" but no post-start request probe was run — Q27. Start scripts lie when child processes die with the parent shell.
 - Commit message says "passed" but you didn't run `git log` afterward — pattern 31. The hook may have rolled it back.
 
-## Sockerless-specific invariants (load-bearing; don't violate)
+## Project invariants (load-bearing; don't violate)
 
-- Components decoupled from admin / UI. No admin-required env vars on components.
-- Backend ↔ host primitive must match (ECS in ECS, Lambda in Lambda, etc.).
-- Persistence is opt-in + fail-loud (`log.Fatalf` on open failure).
-- Test target gating: `SOCKERLESS_TEST_TARGET=sim|cloud` is mandatory.
-- specs/CLOUD_RESOURCE_MAPPING.md is authoritative for cloud-mapping decisions.
-- `gh` CLI is the reference adaptor for bleephub; HTTPS-only; `--hostname` is the wiring flag.
-- Never auto-merge PRs; user merges every one.
+- A simulator reads nothing from a consumer's conventions and has no sim-only knob on a cloud API surface.
+- A sim test and a console differ from their real-cloud counterparts only in coordinates.
+- Every workload runs as a real container; `SIM_RUNTIME=process` is API-only.
+- Persistence is opt-in and fail-loud (`log.Fatalf` on open failure).
+- `sim/` is cloud-neutral: a cloud's behaviour reaches it through a hook, never a `switch provider`.
+- Never merge PRs; the user merges every one.
 
 ## Make the type system catch what discipline misses
 
-When a bug class (like BUG-991/BUG-992 — "handler read Store directly instead of `s.self.X`") could be enforced at compile time, prefer the type-system fix over a comment / lint rule. The doc `docs/GOLANG_STRONG_TYPING.md` catalogues 15 approaches with cost/risk per option. Three patterns specifically protect against vibe-coding regressions:
+When a bug class could be enforced at compile time, prefer the type-system fix over a comment or lint rule:
 
-- **`var _ Interface = (*Impl)(nil)`** — every implementor of an interface in `backends/core/` has this satisfaction proof. If the agent drops a method, build fails. (Approach 8.)
-- **Sealed interfaces + `gochecksumtype`** — for sum types like `core.PodSpec` variants; missing a case in a switch is a build failure. (Approach 10.)
-- **Typed IDs** — `ContainerARN`, `TaskID`, `LambdaFunctionName` as distinct Go types so the compiler rejects ARN-where-task-name-was-expected at call-sites. (Approach 1.)
+- **`var _ Interface = (*Impl)(nil)`** — a satisfaction proof, so dropping a method fails the build.
+- **Types that forbid the wrong call** — `sim.PrefixStore` has no `List` or `Filter`, so a whole-store read of object data does not compile.
+- **Typed IDs** — an ARN, a task ID and a function name as distinct Go types, so the compiler rejects one where another belongs.
 
-When you add a new sum-type-shaped enum or interface to this repo, reach for these first. When you're tempted to use `any` / `interface{}` / `map[string]any` outside `api/types_gen.go`, that's a flag — see `forbidigo` rule candidates in the same doc.
+When you're tempted to use `any` / `interface{}` / `map[string]any` for a shape the cloud's model declares, that's a flag: decode into the declared shape.
 
 ## Output
 
-When this skill fires, restate the 1–2 checklist items most relevant to the current change. Don't dump the whole list — there are 26 items and reciting them is itself a sycophancy trap. Pick the items that match the kind of change you're about to make:
+When this skill fires, restate the 1–2 checklist items most relevant to the current change. Don't dump the whole list — there are 27 items and reciting them is itself a sycophancy trap. Pick the items that match the kind of change you're about to make:
 
 - New handler / refactor of an existing handler → Q1, Q2, Q9 (delegation safety nets).
 - Bulk rewrite across many files → Q10 (language-aware tools), Q15 (sweep tests too), Q18 (delete something).

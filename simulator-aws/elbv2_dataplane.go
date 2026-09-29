@@ -2,18 +2,15 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
+	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -35,23 +32,11 @@ func registerELBv2DataPlane(srv *sim.Server) {
 // This lookup is the first thing every request into the simulator meets: the
 // middleware above runs ahead of every service's handler, so an Amazon DynamoDB
 // call pays it too. Answering it by reading and JSON-decoding the whole
-// load-balancer store is the same defect the Amazon ECS task scan was, on a
-// hotter path — invisible so far only because a deployment holds a handful of
-// load balancers against a few hundred tasks.
+// load-balancer store would cost every request a scan.
 var elbv2LoadBalancersByDNSName sim.GenerationIndex[ELBv2LoadBalancer]
 
-// elbv2DataPlaneHostname normalises a Host header to the name a load balancer
-// is indexed under: no port, lower case, no trailing root dot.
-func elbv2DataPlaneHostname(host string) string {
-	hostname := host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		hostname = h
-	}
-	return strings.TrimSuffix(strings.ToLower(hostname), ".")
-}
-
 func elbv2LoadBalancerFromDataPlaneHost(host string) (ELBv2LoadBalancer, bool) {
-	hostname := elbv2DataPlaneHostname(host)
+	hostname := lbplane.Hostname(host)
 	if hostname == "" {
 		return ELBv2LoadBalancer{}, false
 	}
@@ -60,7 +45,7 @@ func elbv2LoadBalancerFromDataPlaneHost(host string) (ELBv2LoadBalancer, bool) {
 	// Host header cannot match it.
 	return elbv2LoadBalancersByDNSName.Lookup(elbv2LoadBalancers, hostname,
 		func(lb ELBv2LoadBalancer) []string {
-			return []string{strings.TrimSuffix(strings.ToLower(lb.DNSName), ".")}
+			return []string{lbplane.Hostname(lb.DNSName)}
 		})
 }
 
@@ -74,6 +59,13 @@ func handleELBv2DataPlane(w http.ResponseWriter, r *http.Request, lb ELBv2LoadBa
 		http.Error(w, "no matching load balancer listener", http.StatusNotFound)
 		return
 	}
+	elbv2ForwardToHealthyTarget(w, r, listener)
+}
+
+// elbv2ForwardToHealthyTarget forwards a request a listener accepted to a
+// target in service, which is the whole of what an HTTP or HTTPS listener does
+// once it has decoded the request.
+func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listener ELBv2Listener) {
 	targetGroup, target, ok := elbv2HealthyTargetForListener(listener)
 	if !ok {
 		http.Error(w, "no healthy targets", http.StatusServiceUnavailable)
@@ -84,28 +76,32 @@ func handleELBv2DataPlane(w http.ResponseWriter, r *http.Request, lb ELBv2LoadBa
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	if err := elbv2ProxyHTTPRequest(w, r, listener, targetGroup, address); err != nil {
-		// Nothing can be delivered to a client that has already gone, and the
-		// status is recorded for a request nobody is waiting on. 499 is the
-		// status nginx and the AWS access logs use for exactly this, so the
-		// signal stays greppable without pretending the target failed.
-		if errors.Is(err, errELBv2ClientWentAway) {
-			w.WriteHeader(elbv2StatusClientClosedRequest)
-			return
-		}
+	scheme := "http"
+	if strings.EqualFold(targetGroup.Protocol, "HTTPS") {
+		scheme = "https"
+	}
+	err = lbplane.Forward(w, r, lbplane.Upstream{
+		Scheme:   scheme,
+		Address:  address,
+		Path:     r.URL.EscapedPath(),
+		RawQuery: r.URL.RawQuery,
+		Host:     elbv2TargetHostHeader(r.Host, listener),
+		Timeout:  30 * time.Second,
+		// "The load balancer establishes TLS connections with the targets
+		// using certificates that you install on the targets. The load balancer
+		// does not validate these certificates."
+		SkipTargetVerification: true,
+	})
+	switch {
+	case err == nil:
+	case errors.Is(err, lbplane.ErrClientWentAway):
+		// Nothing reaches a client that has gone; the status records the
+		// abandoned request the way the load balancer access logs do.
+		w.WriteHeader(lbplane.StatusClientClosedRequest)
+	default:
 		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
 	}
 }
-
-// errELBv2ClientWentAway marks a forward that failed because the client
-// disconnected, not because the target did.
-var errELBv2ClientWentAway = errors.New("client closed the request before the target answered")
-
-// elbv2StatusClientClosedRequest is the non-standard status used to record a
-// client disconnect, matching what nginx and the AWS load balancer access logs
-// report for a request the client abandoned.
-const elbv2StatusClientClosedRequest = 499
 
 // elbv2ListenersByLoadBalancerPort indexes listeners by the load balancer and
 // port that select one, which is what every proxied request resolves before it
@@ -162,84 +158,6 @@ func elbv2HealthyTargetForListener(listener ELBv2Listener) (ELBv2TargetGroup, EL
 	return ELBv2TargetGroup{}, ELBv2TargetDescription{}, false
 }
 
-// returnRedirectsToClient stops a forwarding client following a target's
-// redirect. A load balancer hands the 3xx back to the caller; it never chases
-// one itself. Following it fetches the redirect TARGET and answers with that
-// instead, and because the forwarding client keeps no cookie jar, any
-// Set-Cookie the redirect carried is discarded on the way. That silently breaks
-// every OpenID Connect sign-in behind the data plane: the browser gets a 200 at
-// the callback URL with no session and no error to explain it.
-//
-// Go replays a redirected request only when it can rewind the body. A request
-// forwarded from a server has no rewindable body, so in production 307 and 308
-// happen to survive while 301, 302 and 303 — the set every OpenID Connect
-// library uses — are followed. That accident is why the live symptom looked
-// selective; the defect itself is not status-specific.
-func returnRedirectsToClient(*http.Request, []*http.Request) error {
-	return http.ErrUseLastResponse
-}
-
-func elbv2ProxyHTTPRequest(w http.ResponseWriter, r *http.Request, listener ELBv2Listener, tg ELBv2TargetGroup, address string) error {
-	scheme := "http"
-	if strings.EqualFold(tg.Protocol, "HTTPS") {
-		scheme = "https"
-	}
-	upstreamURL := url.URL{
-		Scheme:   scheme,
-		Host:     address,
-		Path:     r.URL.EscapedPath(),
-		RawQuery: r.URL.RawQuery,
-	}
-	// A real ALB carries WebSockets, so the deadlines that bound an ordinary
-	// request must not apply to an upgrade: those connections are meant to last
-	// for hours, and a 30s cap would cut every one of them.
-	ctx := r.Context()
-	upgrade := sim.IsUpgradeRequest(r)
-	if !upgrade {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-	}
-	req, err := http.NewRequestWithContext(ctx, r.Method, upstreamURL.String(), r.Body)
-	if err != nil {
-		return err
-	}
-	req.Header = r.Header.Clone()
-	req.Host = elbv2TargetHostHeader(r.Host, listener)
-	client := http.Client{CheckRedirect: returnRedirectsToClient}
-	if !upgrade {
-		client.Timeout = 30 * time.Second
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		// A client that hangs up mid-flight is not a bad gateway. A browser
-		// abandons in-flight requests whenever it navigates -- Next's _rsc=
-		// prefetches are abandoned constantly -- and the forward inherits the
-		// inbound context, so the cancellation surfaces here as a forwarding
-		// error. Reporting 502 for it made 82 of 83 data-plane 502s on a
-		// production deployment client disconnections, which is how the ONE real
-		// failure in eight hours (a target that closed a fresh connection,
-		// "EOF") stayed invisible until it happened to land on a <script> tag
-		// and fail the acceptance gate.
-		if errors.Is(err, context.Canceled) && r.Context().Err() != nil {
-			return errELBv2ClientWentAway
-		}
-		return fmt.Errorf("forward to target %s: %w", address, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusSwitchingProtocols {
-		return sim.TunnelUpgradedResponse(w, resp)
-	}
-	for key, values := range resp.Header {
-		for _, value := range values {
-			w.Header().Add(key, value)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	_, err = io.Copy(w, resp.Body)
-	return err
-}
-
 func elbv2TargetHostHeader(incomingHost string, listener ELBv2Listener) string {
 	host := incomingHost
 	if attr, ok := elbv2LoadBalancerAttributes(listener.LoadBalancerArn)["routing.http.preserve_host_header.enabled"]; ok && strings.EqualFold(attr, "true") {
@@ -274,14 +192,14 @@ func elbv2LoadBalancerAttributes(lbArn string) map[string]string {
 // elbv2ProbeTarget runs one health check against a target and reports why it
 // failed, which is what the target health checker turns into the state and
 // reason code DescribeTargetHealth reports.
-func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2TargetDescription) error {
+func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2TargetDescription) (int, error) {
 	// "HealthCheckPort — The port the load balancer uses when performing health
 	// checks on targets. The default is to use the port on which each target
 	// receives traffic from the load balancer."
 	target.Port = elbv2EffectiveHealthCheckPort(tg, target)
 	address, err := elbv2TargetAddress(tg, target)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	protocol := tg.HealthCheckProtocol
 	if protocol == "" || strings.EqualFold(protocol, "traffic-port") {
@@ -291,105 +209,29 @@ func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2Targ
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}
-	// An HTTP or HTTPS health check is graded against the target group's
-	// Matcher — "The codes to use when checking for a successful response from
-	// a target" — so the check has to read the response code rather than treat
-	// any answer as an answer. Every other health-check protocol is a
-	// connection test, which is what a dial proves.
-	if strings.EqualFold(protocol, "HTTP") || strings.EqualFold(protocol, "HTTPS") {
-		return elbv2ProbeHTTPTarget(ctx, tg, protocol, address, timeout)
+	// Every health-check protocol but HTTP and HTTPS is a connection test,
+	// which is what a dial proves.
+	if !strings.EqualFold(protocol, "HTTP") && !strings.EqualFold(protocol, "HTTPS") {
+		return 0, lbplane.ProbeTCP(ctx, address, timeout)
 	}
-	return realexec.ProbeTarget(ctx, realexec.ProbeSpec{
-		Protocol: protocol,
-		Address:  address,
-		Timeout:  timeout,
-	})
-}
-
-// elbv2ResponseCodeMismatch is a health check that reached the target and read
-// an answer the target group's Matcher does not count as a success.
-type elbv2ResponseCodeMismatch struct {
-	StatusCode int
-}
-
-func (e elbv2ResponseCodeMismatch) Error() string {
-	return fmt.Sprintf("health check returned HTTP %d, which the target group's success codes exclude", e.StatusCode)
-}
-
-// elbv2ProbeHTTPTarget runs one HTTP or HTTPS health check and grades the
-// response code against the target group's Matcher.
-func elbv2ProbeHTTPTarget(ctx context.Context, tg ELBv2TargetGroup, protocol, address string, timeout time.Duration) error {
-	scheme := "http"
-	transport := http.DefaultTransport
-	if strings.EqualFold(protocol, "HTTPS") {
-		scheme = "https"
-		// "The load balancer establishes TLS connections with the targets using
-		// certificates that you install on the targets. The load balancer does
-		// not validate these certificates. Therefore, you can use self-signed
-		// certificates or certificates that have expired."
-		transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	}
-	// "HealthCheckPath — The destination for health checks on the targets ...
-	// The default is /."
-	path := tg.HealthCheckPath
-	if path == "" {
-		path = "/"
-	}
-	// "These protocols use the HTTP GET method to send health check requests."
-	requestCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	target := url.URL{Scheme: scheme, Host: address, Path: path}
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, target.String(), nil)
-	if err != nil {
-		return err
-	}
-	client := http.Client{Timeout: timeout, Transport: transport}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	// "After each health check is completed, the load balancer node closes the
-	// connection that was established for the health check."
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if !elbv2HealthCheckCodeMatches(tg, resp.StatusCode) {
-		return elbv2ResponseCodeMismatch{StatusCode: resp.StatusCode}
-	}
-	return nil
-}
-
-// elbv2HealthCheckCodeMatches reports whether a health check response code is
-// one the target group's Matcher counts as a success: "You can specify multiple
-// values (for example, "200,202") or a range of values (for example,
-// "200-299"). The default value is 200."
-func elbv2HealthCheckCodeMatches(tg ELBv2TargetGroup, statusCode int) bool {
+	// "Matcher — The codes to use when checking for a successful response
+	// from a target."
 	codes := tg.MatcherHttpCode
 	if codes == "" {
 		codes = elbv2DefaultMatcher()
 	}
-	return healthCheckCodeMatchesMatcher(codes, statusCode)
-}
-
-// healthCheckCodeMatchesMatcher grades a status code against a matcher string
-// of the "200,202" / "200-299" shape. It is the shared half of the target
-// group matcher above, because the EC2 application status checks grade their
-// probes against the same matcher grammar.
-func healthCheckCodeMatchesMatcher(codes string, statusCode int) bool {
-	for _, value := range strings.Split(codes, ",") {
-		low, high, isRange := strings.Cut(strings.TrimSpace(value), "-")
-		first, err := strconv.Atoi(strings.TrimSpace(low))
-		if err != nil {
-			continue
-		}
-		last := first
-		if isRange {
-			if last, err = strconv.Atoi(strings.TrimSpace(high)); err != nil {
-				continue
-			}
-		}
-		if statusCode >= first && statusCode <= last {
-			return true
-		}
+	match, err := lbplane.ParseStatusMatcher(codes)
+	if err != nil {
+		return 0, fmt.Errorf("target group %s matcher: %w", tg.Arn, err)
 	}
-	return false
+	// "These protocols use the HTTP GET method to send health check
+	// requests", to HealthCheckPath — "The default is /." The load balancer
+	// does not validate the target's certificate.
+	return lbplane.ProbeHTTP(ctx, lbplane.HTTPProbe{
+		Scheme:  strings.ToLower(protocol),
+		Address: address,
+		Path:    tg.HealthCheckPath,
+		Timeout: timeout,
+		Match:   match,
+	})
 }

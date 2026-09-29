@@ -1,38 +1,23 @@
-# simulator-aws-sdk-tests
+# simulator-aws SDK tests
 
-Integration tests for the AWS simulator using the official AWS SDK for Go v2. Each test builds the simulator binary, starts it on a free port, runs SDK calls, and verifies responses.
+Integration tests for the AWS simulator through the official AWS SDK for Go v2 (`github.com/aws/aws-sdk-go-v2`). `TestMain`
+builds the simulator into `.build/sdk-tests/`, starts it on a free port, and
+stops it when the suite ends; each test drives the real client against it.
 
-## Services tested
-
-| Test file | Service | Operations |
-|-----------|---------|------------|
-| `ec2_test.go` | EC2 | VPC, Subnet, Security Group, Internet Gateway |
-| `ecr_test.go` | ECR | Repository CRUD, lifecycle policies, auth tokens |
-| `ecs_test.go` | ECS | Cluster, task definitions, describe |
-| `iam_test.go` | IAM | Role CRUD, inline policies |
-| `s3_test.go` | S3 | Bucket CRUD, object put/get/list/delete |
-| `sts_test.go` | STS | GetCallerIdentity |
+One file covers one service family. The suite is a separate Go module with a
+relative `replace` onto the simulator; it is never installed.
 
 ## Running
 
 ```sh
 cd simulator-aws/sdk-tests
-go test -v ./...
+go test ./...
 ```
 
-The test harness (`helpers_test.go`) handles binary build, port allocation, server startup, and shutdown. No external services required.
+CI runs the suite through `make -C simulator-aws sdk-test`, sharded by the
+jobs in `.github/workflows/ci.yml`. A container engine (Docker or Podman) must
+be reachable, because workloads run as real containers.
 
-## Prerequisites
+## Client configuration
 
-- Go 1.23+
-- The `simulator-aws/` parent module (built automatically by `TestMain`)
-
-## SDK configuration
-
-Tests configure the AWS SDK client with:
-
-```go
-cfg.EndpointResolverWithOptions = /* points to local simulator */
-cfg.Credentials = credentials.NewStaticCredentialsProvider("test", "test", "")
-cfg.Region = "us-east-1"
-```
+Clients take the simulator as their endpoint and static test credentials, the same configuration a client of real AWS takes with a different endpoint. Hosts the SDK derives from a request — S3 Express One Zone and access-point hosts — resolve to the simulator rather than being overridden, so the client builds exactly the URL and signature it builds against AWS. No test branches on running against the simulator.

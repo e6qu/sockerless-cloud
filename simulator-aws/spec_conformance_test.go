@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // These tests enforce the simulator's core fidelity invariant: every
@@ -158,7 +159,7 @@ func buildConformanceSimulator(t *testing.T) (*sim.Server, *AWSRouter, *AWSQuery
 	// a previous test left running must finish first: a DynamoDB DescribeTable
 	// starts a background usage refresh, and one still reading ddbTables raced
 	// the next test's registerDynamoDB on the race detector.
-	AwaitSimulatorBackground()
+	bg.Await()
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, jsonRouter, queryRouter, err := buildSimulatorWithOptions(
 		sim.Config{Provider: "aws", ListenAddr: ":0", LogLevel: "error"},

@@ -66,7 +66,7 @@ func snsTopicARN(name string) string {
 
 func snsSubscriptionARN(topicName string) string {
 	return fmt.Sprintf("arn:aws:sns:%s:%s:%s:%s",
-		awsRegion(), awsAccountID(), topicName, generateUUID())
+		awsRegion(), awsAccountID(), topicName, sim.NewUUID())
 }
 
 // snsAPIVersion is the canonical AWS SNS API version (Query
@@ -213,7 +213,10 @@ func handleSNSListTopics(w http.ResponseWriter, r *http.Request) {
 	token := r.FormValue("NextToken")
 	all := snsTopics.List()
 	sortBy(all, func(t SNSTopic) string { return t.ARN })
-	page, next := awsPage(all, token, 0, 100)
+	page, next, pageOK := awsPage(w, snsBadToken(r), all, token, 0, 100)
+	if !pageOK {
+		return
+	}
 
 	var b strings.Builder
 	b.WriteString("<ListTopicsResult><Topics>")
@@ -287,18 +290,6 @@ func handleSNSSetTopicAttributes(w http.ResponseWriter, r *http.Request) {
 	}
 	attrName := r.FormValue("AttributeName")
 	attrValue := r.FormValue("AttributeValue")
-	if attrName == "FilterPolicy" {
-		if err := snsValidateFilterPolicy(attrValue); err != nil {
-			snsErrorXML(w, "InvalidParameter", err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
-			return
-		}
-	}
-	if attrName == "FilterPolicyScope" &&
-		attrValue != "" && attrValue != "MessageAttributes" && attrValue != "MessageBody" {
-		snsErrorXML(w, "InvalidParameter", "FilterPolicyScope must be MessageAttributes or MessageBody",
-			http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
 	if attrName == "" {
 		snsErrorXML(w, "InvalidParameter",
 			"AttributeName is required",
@@ -342,6 +333,14 @@ func handleSNSSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	attributes := snsAttributesMap(r, "Attributes")
+	if err := snsValidateSubscriptionFilter(attributes); err != nil {
+		snsErrorXML(w, "InvalidParameter", "Invalid parameter: "+err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if err := snsValidateDeliveryAttributes(attributes); err != nil {
+		snsErrorXML(w, "InvalidParameter", "Invalid parameter: "+err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	if strings.EqualFold(protocol, "firehose") {
 		roleARN := attributes["SubscriptionRoleArn"]
 		if roleARN == "" {
@@ -374,7 +373,7 @@ func handleSNSSubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	snsSubscriptions.Put(sub.ARN, sub)
 	if !sub.Confirmed && (strings.EqualFold(protocol, "http") || strings.EqualFold(protocol, "https")) {
-		go snsDeliverHTTPConfirmation(sub)
+		snsDeliverHTTPConfirmation(sub)
 	}
 	if !sub.Confirmed && (strings.EqualFold(protocol, "email") || strings.EqualFold(protocol, "email-json")) {
 		if _, err := snsEmailDomain(endpoint); err != nil {
@@ -492,6 +491,9 @@ func handleSNSGetSubscriptionAttributes(w http.ResponseWriter, r *http.Request) 
 	}
 	// Attributes set via SetSubscriptionAttributes override the defaults
 	// (e.g. RawMessageDelivery=true) and add the optional policy documents.
+	if strings.EqualFold(sub.Protocol, "http") || strings.EqualFold(sub.Protocol, "https") {
+		attrs["EffectiveDeliveryPolicy"] = snsEffectiveDeliveryPolicy(sub)
+	}
 	for k, v := range sub.Attributes {
 		attrs[k] = v
 	}
@@ -524,14 +526,24 @@ func handleSNSSetSubscriptionAttributes(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	attrValue := r.FormValue("AttributeValue")
-	if sub.Attributes == nil {
-		sub.Attributes = map[string]string{}
+	updated := make(map[string]string, len(sub.Attributes)+1)
+	for k, v := range sub.Attributes {
+		updated[k] = v
 	}
 	if attrValue == "" {
-		delete(sub.Attributes, attrName)
+		delete(updated, attrName)
 	} else {
-		sub.Attributes[attrName] = attrValue
+		updated[attrName] = attrValue
 	}
+	if err := snsValidateSubscriptionFilter(updated); err != nil {
+		snsErrorXML(w, "InvalidParameter", "Invalid parameter: "+err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if err := snsValidateDeliveryAttributes(updated); err != nil {
+		snsErrorXML(w, "InvalidParameter", "Invalid parameter: "+err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	sub.Attributes = updated
 	snsSubscriptions.Put(arn, sub)
 	snsXMLResponse(w, "SetSubscriptionAttributes", "", sim.RequestID(r.Context()))
 }
@@ -674,7 +686,7 @@ func snsFanout(topicARN, msgID, subject, message string, attributes map[string]S
 		case "lambda":
 			snsDeliverToLambda(sub.Endpoint, topicARN, msgID, subject, message, attributes, src)
 		case "http", "https":
-			go snsDeliverHTTPNotification(sub, msgID, subject, message, attributes)
+			snsDeliverHTTPNotification(sub, msgID, subject, message, attributes)
 		case "email", "email-json":
 			go snsDeliverEmailNotification(sub, msgID, subject, message, attributes)
 		case "firehose":
@@ -737,15 +749,14 @@ func snsDeliverToLambda(functionARN, topicARN, msgID, subject, message string, a
 		cwEvalLogger.Info().Str("functionARN", functionARN).Str("topicARN", topicARN).Str("sourceService", src.Service).Msg("SNS to Lambda delivery denied by resource policy")
 		return
 	}
-	name := snsTopicNameFromARN(functionARN)
-	fn, ok := lambdaFunctions.Get(name)
+	fn, _, ok := lambdaResolveInvocationTarget(functionARN, "")
 	if !ok {
-		cwEvalLogger.Info().Str("functionARN", functionARN).Str("functionName", name).Msg("SNS to Lambda delivery target function not found")
+		cwEvalLogger.Info().Str("functionARN", functionARN).Msg("SNS to Lambda delivery target function not found")
 		return
 	}
 	payload := snsLambdaEventPayload(functionARN, topicARN, msgID, subject, message, attributes)
-	go func() { _, _, _ = invokeLambdaViaRuntimeAPI(fn, payload) }()
-	cwEvalLogger.Info().Str("functionARN", functionARN).Str("functionName", name).Str("topicARN", topicARN).Str("msgID", msgID).Msg("SNS to Lambda delivery initiated")
+	lambdaInvokeAsynchronously(fn, payload, lambdaAsyncQualifier(functionARN, ""))
+	cwEvalLogger.Info().Str("functionARN", functionARN).Str("functionName", fn.FunctionName).Str("topicARN", topicARN).Str("msgID", msgID).Msg("SNS to Lambda delivery initiated")
 }
 
 // snsLambdaEventPayload builds the SNS event a Lambda subscriber
@@ -817,7 +828,7 @@ func handleSNSPublish(w http.ResponseWriter, r *http.Request) {
 		snsErrorXML(w, code, msg, http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	msgID := generateUUID()
+	msgID := sim.NewUUID()
 	snsFanout(topicARN, msgID, entry.Subject, entry.Message, entry.MessageAttributes)
 
 	body := fmt.Sprintf("<PublishResult><MessageId>%s</MessageId></PublishResult>", xmlEscape(msgID))
@@ -881,7 +892,7 @@ func handleSNSPublishBatch(w http.ResponseWriter, r *http.Request) {
 				xmlEscape(e.Id), xmlEscape(code), xmlEscape(msg))
 			continue
 		}
-		msgID := generateUUID()
+		msgID := sim.NewUUID()
 		snsFanout(topicARN, msgID, e.Subject, e.Message, e.MessageAttributes)
 		fmt.Fprintf(&b, "<member><Id>%s</Id><MessageId>%s</MessageId></member>",
 			xmlEscape(e.Id), xmlEscape(msgID))

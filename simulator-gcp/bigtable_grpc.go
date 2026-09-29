@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -396,7 +395,7 @@ func (s *grpcOperationsService) ListOperations(_ context.Context, req *longrunni
 		}
 		matched = append(matched, op)
 	}
-	page, next, err := bigtableGRPCPage(matched, req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcOffsetPage(matched, req.GetPageSize(), req.GetPageToken())
 	if err != nil {
 		return nil, err
 	}
@@ -725,7 +724,7 @@ func bigtableDeleteResource(kind bigtableResourceKind, name, etag string) error 
 // continues the listing.
 func bigtableListResources[T proto.Message](kind bigtableResourceKind, parent, collection string, pageSize int32, pageToken string, newMsg func() T) ([]T, string, error) {
 	bodies := bigtableFilterResources(kind.store, parent+"/"+collection+"/")
-	page, next, err := bigtableGRPCPage(bodies, pageSize, pageToken)
+	page, next, err := grpcOffsetPage(bodies, pageSize, pageToken)
 	if err != nil {
 		return nil, "", err
 	}
@@ -811,20 +810,6 @@ func bigtableJSONFieldName(md protoreflect.MessageDescriptor, path string) strin
 		return fd.JSONName()
 	}
 	return root
-}
-
-// bigtableGRPCPage slices a sorted list onto the requested page and returns the
-// token that continues it.
-func bigtableGRPCPage[T any](items []T, pageSize int32, pageToken string) ([]T, string, error) {
-	start, end, err := psPaging(len(items), pageSize, pageToken)
-	if err != nil {
-		return nil, "", err
-	}
-	next := ""
-	if end < len(items) {
-		next = strconv.Itoa(end)
-	}
-	return items[start:end], next, nil
 }
 
 // Parent resolution
@@ -1247,7 +1232,7 @@ func (s *bigtableTableAdminGRPC) GenerateConsistencyToken(_ context.Context, req
 	if _, err := bigtableRequireTable(req.GetName()); err != nil {
 		return nil, err
 	}
-	return &btadmin.GenerateConsistencyTokenResponse{ConsistencyToken: generateUUID()}, nil
+	return &btadmin.GenerateConsistencyTokenResponse{ConsistencyToken: sim.NewUUID()}, nil
 }
 
 // CheckConsistency reports whether replication has caught up to the point the

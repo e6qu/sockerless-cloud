@@ -183,7 +183,7 @@ func handleIAMCreateLoginProfile(w http.ResponseWriter, r *http.Request) {
 	iamLoginProfiles.Put(name, lp)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateLoginProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><CreateLoginProfileResult>%s</CreateLoginProfileResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></CreateLoginProfileResponse>`,
-		iamLoginProfileXML(lp), generateUUID())
+		iamLoginProfileXML(lp), sim.NewUUID())
 }
 
 func handleIAMGetLoginProfile(w http.ResponseWriter, r *http.Request) {
@@ -195,7 +195,7 @@ func handleIAMGetLoginProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetLoginProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetLoginProfileResult>%s</GetLoginProfileResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetLoginProfileResponse>`,
-		iamLoginProfileXML(lp), generateUUID())
+		iamLoginProfileXML(lp), sim.NewUUID())
 }
 
 func handleIAMUpdateLoginProfile(w http.ResponseWriter, r *http.Request) {
@@ -335,7 +335,7 @@ func handleIAMGetAccessKeyLastUsed(w http.ResponseWriter, r *http.Request) {
 	// and Region in that case.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetAccessKeyLastUsedResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetAccessKeyLastUsedResult><UserName>%s</UserName><AccessKeyLastUsed><ServiceName>N/A</ServiceName><Region>N/A</Region></AccessKeyLastUsed></GetAccessKeyLastUsedResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetAccessKeyLastUsedResponse>`,
-		xmlEscape(key.UserName), generateUUID())
+		xmlEscape(key.UserName), sim.NewUUID())
 }
 
 func handleIAMTagUser(w http.ResponseWriter, r *http.Request) {
@@ -397,7 +397,7 @@ func handleIAMListUserTags(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListUserTagsResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><ListUserTagsResult>%s<IsTruncated>false</IsTruncated></ListUserTagsResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListUserTagsResponse>`,
-		iamTagsXML(user.Tags), generateUUID())
+		iamTagsXML(user.Tags), sim.NewUUID())
 }
 
 func iamPasswordPolicyXML(p IAMPasswordPolicy) string {
@@ -415,7 +415,7 @@ func handleIAMGetAccountPasswordPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetAccountPasswordPolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetAccountPasswordPolicyResult>%s</GetAccountPasswordPolicyResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetAccountPasswordPolicyResponse>`,
-		iamPasswordPolicyXML(p), generateUUID())
+		iamPasswordPolicyXML(p), sim.NewUUID())
 }
 
 func handleIAMUpdateAccountPasswordPolicy(w http.ResponseWriter, r *http.Request) {

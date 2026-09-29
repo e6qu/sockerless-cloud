@@ -45,7 +45,7 @@ func FuzzTableEntityFilter(f *testing.F) {
 		m := tableEntityFilterMap(e)
 		node, err := azureParseODataFilter(filter)
 		if err == nil && node != nil {
-			_ = node.eval(m)
+			_ = node.Eval(m)
 		}
 	})
 }

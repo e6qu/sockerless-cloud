@@ -311,7 +311,7 @@ func handleAPIGWCreateRestApi(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	api := APIGWRestApi{
-		Id:          generateUUID()[:10],
+		Id:          sim.NewUUID()[:10],
 		Name:        req.Name,
 		Description: req.Description,
 		CreatedDate: time.Now().Unix(),
@@ -321,7 +321,7 @@ func handleAPIGWCreateRestApi(w http.ResponseWriter, r *http.Request) {
 	// Real API Gateway auto-creates the root "/" resource on Create and
 	// surfaces its id as rootResourceId.
 	root := APIGWResource{
-		Id:        generateUUID()[:10],
+		Id:        sim.NewUUID()[:10],
 		RestApiId: api.Id,
 		Path:      "/",
 	}
@@ -403,7 +403,7 @@ func handleAPIGWCreateResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res := APIGWResource{
-		Id:        generateUUID()[:10],
+		Id:        sim.NewUUID()[:10],
 		RestApiId: apiId,
 		ParentId:  parentId,
 		PathPart:  req.PathPart,
@@ -580,7 +580,7 @@ func handleAPIGWCreateDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := APIGWDeployment{
-		Id:          generateUUID()[:10],
+		Id:          sim.NewUUID()[:10],
 		RestApiId:   apiId,
 		Description: req.Description,
 		CreatedDate: time.Now().Unix(),
@@ -811,14 +811,14 @@ func handleAPIGWCreateApiKey(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().Unix()
 	value := req.Value
 	if value == "" {
-		value = generateUUID() + generateUUID()[:8]
+		value = sim.NewUUID() + sim.NewUUID()[:8]
 	}
 	var stageKeys []string
 	for _, sk := range req.StageKeys {
 		stageKeys = append(stageKeys, sk.RestApiId+"/"+sk.StageName)
 	}
 	key := APIGWApiKey{
-		Id:              generateUUID()[:10],
+		Id:              sim.NewUUID()[:10],
 		Value:           value,
 		Name:            req.Name,
 		Description:     req.Description,
@@ -906,7 +906,7 @@ func handleAPIGWCreateUsagePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	up := APIGWUsagePlan{
-		Id:          generateUUID()[:10],
+		Id:          sim.NewUUID()[:10],
 		Name:        req.Name,
 		Description: req.Description,
 		ApiStages:   req.ApiStages,
@@ -1089,7 +1089,7 @@ func handleAPIGWCreateModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m := APIGWModel{
-		Id:          generateUUID()[:10],
+		Id:          sim.NewUUID()[:10],
 		Name:        req.Name,
 		Description: req.Description,
 		Schema:      req.Schema,
@@ -1155,7 +1155,7 @@ func handleAPIGWCreateRequestValidator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rv := APIGWRequestValidator{
-		Id:                        generateUUID()[:10],
+		Id:                        sim.NewUUID()[:10],
 		Name:                      req.Name,
 		ValidateRequestBody:       req.ValidateRequestBody,
 		ValidateRequestParameters: req.ValidateRequestParameters,
@@ -1215,7 +1215,7 @@ func handleAPIGWCreateAuthorizer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a := APIGWAuthorizer{
-		Id:                           generateUUID()[:10],
+		Id:                           sim.NewUUID()[:10],
 		Name:                         req.Name,
 		Type:                         req.Type,
 		ProviderARNs:                 req.ProviderARNs,

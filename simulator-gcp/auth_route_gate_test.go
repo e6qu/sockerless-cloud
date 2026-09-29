@@ -26,6 +26,7 @@ func TestAuthGateAccountsForEveryCatchAllRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 
 	for _, pattern := range srv.RoutePatterns() {
 		path := pattern

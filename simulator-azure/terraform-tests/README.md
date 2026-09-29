@@ -6,10 +6,10 @@ Resources covered (azurerm — sim ships custom cloud metadata + OAuth2 token en
 - `azurerm_resource_group`
 - `azurerm_virtual_network` / `azurerm_subnet`
 - `azurerm_network_security_group` / `azurerm_network_security_rule`
-- `azurerm_storage_account` (Azure Files / runner shared volumes; a second account backs the Function App)
+- `azurerm_storage_account` (Azure Files shares; a second account backs the Function App)
 - `azurerm_storage_container` / `azurerm_storage_table` (storage data plane)
 - `azurerm_storage_share` + `azurerm_storage_share_directory` (Azure Files data plane; the nested directory a Container Apps / Azure Functions volume mount walks)
-- `azurerm_key_vault` + access policy + secret / key / certificate (runner credential storage, control + data plane)
+- `azurerm_key_vault` + access policy + secret / key / certificate (control and data plane)
 - `azurerm_container_registry` (Standard)
 - `azurerm_user_assigned_identity`
 - `azurerm_public_ip` / `azurerm_public_ip_prefix` / `azurerm_nat_gateway` + associations / `azurerm_lb` + backend pool + probe + rule
@@ -22,13 +22,20 @@ Resources covered (azurerm — sim ships custom cloud metadata + OAuth2 token en
 - `azurerm_redis_cache` + `azurerm_redis_firewall_rule`
 - `azurerm_log_analytics_workspace`
 - `azurerm_application_insights`
-- `azurerm_container_app_environment` + `azurerm_container_app` + `azurerm_container_app_job` (the ACA runner backend host + workload + job primitives)
+- `azurerm_container_app_environment` + `azurerm_container_app` + `azurerm_container_app_job`
 - `azurerm_logic_app_workflow` / `azurerm_container_group`
-- `azurerm_service_plan` + `azurerm_linux_function_app` (the AZF runner backend host + workload)
+- `azurerm_service_plan` + `azurerm_linux_function_app`
 - `azurerm_api_management` + API + product + subscription
 - `azurerm_application_gateway` (the layer-7 load balancer, with its listener, URL path map, probes and routing rule)
 - `azurerm_network_watcher` (the provider refuses to create NSG flow logs — Azure retired their creation on 2025-06-30 — so the simulator's flowLogs surface is covered by the SDK and CLI suites instead)
 - `azurerm_network_manager`
+
+The `entra/` stack (`entra_apply_test.go`) applies the `hashicorp/azuread` provider against the
+simulator's Microsoft Graph endpoints (`/v1.0` and `/beta`), with
+`metadata_host` as its only coordinate: `azuread_application`,
+`azuread_application_password`, `azuread_service_principal`, `azuread_user`
+with a manager, `azuread_group` and `azuread_group_member`. The
+`subscription/` stack (`subscription_apply_test.go`) applies the subscription-scoped resources.
 
 ### Instance discovery is not on the azurerm authentication path
 
@@ -62,7 +69,7 @@ The test harness (`helpers_test.go`) handles simulator binary build, port alloca
 
 ## Prerequisites
 
-- Go 1.23+
+- The Go toolchain this module's `go.mod` names
 - `terraform` CLI installed and on `PATH` for direct Linux runs; the shared Docker image supplies Terraform for macOS delegation
 - `caddy` installed and on `PATH` for direct Linux runs; the shared Docker image supplies Caddy for macOS delegation
 - Docker (required for Container Apps resources and for macOS Linux-container delegation)

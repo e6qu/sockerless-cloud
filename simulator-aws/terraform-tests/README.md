@@ -22,7 +22,7 @@ The root test harness (`helpers_test.go`) and the subpackage harness (`internal/
 
 ## Prerequisites
 
-- Go 1.23+
+- The Go toolchain this module's `go.mod` names
 - `terraform` CLI installed and on `PATH`
 - The `simulator-aws/` parent module. `make terraform-test` and `make terraform-https-test` build it once and pass the real binary to every Terraform package.
 - `caddy` installed and on `PATH` for `make terraform-https-test`

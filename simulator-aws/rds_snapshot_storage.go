@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -38,22 +37,10 @@ func rdsSnapshotVolume(snapshotID string) string { return "sockerless-rds-snap-"
 // captured, failed — with the reason in the status the API returns — when the
 // capture could not happen on a host that runs real engines.
 func rdsCaptureSnapshotData(snapshotID, instanceID string) {
-	if sim.RequireContainerRuntime("capturing an RDS snapshot") != nil {
-		// The modeled tier: no engine, no volume, nothing to capture. The
-		// snapshot is as real as its instance, which is metadata.
-		rdsSettleSnapshot(snapshotID, "available", "")
-		return
-	}
-	filesystem, err := sim.SnapshotVolume(context.Background(),
-		rdsInstanceVolume(instanceID), rdsSnapshotVolume(snapshotID))
-	if err != nil {
+	if err := sim.CaptureVolume(context.Background(),
+		rdsInstanceVolume(instanceID), rdsSnapshotVolume(snapshotID), "rds"); err != nil {
 		rdsSettleSnapshot(snapshotID, "failed", err.Error())
 		return
-	}
-	if sim.VolumeSnapshotIsInstant(filesystem) {
-		fmt.Fprintf(os.Stderr, "[sim-rds] snapshot %s captured copy-on-write on %s\n", snapshotID, filesystem)
-	} else {
-		fmt.Fprintf(os.Stderr, "[sim-rds] snapshot %s captured by full copy on %s (put the engine's volume store on btrfs, XFS with reflinks, or OpenZFS block cloning for instant snapshots)\n", snapshotID, filesystem)
 	}
 	rdsSettleSnapshot(snapshotID, "available", "")
 }

@@ -4,30 +4,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"net"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
+	"github.com/e6qu/sockerless-cloud/realexec/fabric"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-var (
-	azureRealHost = realexec.NewHost()
-	// azureRealMu guards the real-execution fabric maps. Resolving a capture's
-	// target interface only reads them; anything that creates or tears down
-	// fabric keeps taking Lock.
-	azureRealMu      sync.RWMutex
-	azureRealVnets   = map[string]*realexec.Network{}
-	azureRealSubnets = map[string]*realexec.Subnet{}
-	azureRealNICs    = map[string]*realexec.NamespaceNIC{}
-	azureRealVMNICs  = map[string]*realexec.TapNIC{}
-	azureRealVMs     = map[string]*realexec.FirecrackerVM{}
-	azureRealNatIPs  = map[string]net.IP{}
-)
+// azureFabric realizes virtual networks, subnets, the namespaces and taps
+// behind network interfaces, and the virtual machines' Firecracker guests.
+var azureFabric = fabric.New[string](fabric.Options{
+	NetworkPrefix: "zn",
+	SubnetPrefix:  "zs",
+	Reserved:      azureSubnetReservation,
+	OnTapClosed:   func(tap *realexec.TapNIC) { azureMetadataVMsByIP.Delete(tap.PrivateIP.String()) },
+})
+
+// azureSubnetReservation is what Azure Virtual Network keeps in every subnet:
+// the network address, the default gateway, the two addresses Azure DNS maps
+// into the virtual network, and the broadcast address.
+var azureSubnetReservation = realexec.HostReservation{First: 4, Last: 1}
+
+const azureMACPrefix = "02:15:5d"
 
 func azureRequireNetworkHost(w http.ResponseWriter) bool {
 	if err := azureNetworkHostError(); err != nil {
@@ -46,148 +47,52 @@ func azureNetworkHostError() error {
 	return nil
 }
 
-// azureRealName derives the host-side name of a namespace, bridge, veth or tap
-// from the ARM resource it realizes. Linux caps an interface name at 15
-// characters, far shorter than a resource id, so the name is the prefix plus a
-// hash of the WHOLE id: two resources that differ anywhere — a different
-// resource group, a different parent, a different child name — get different
-// host objects, which a positional truncation of the id could not guarantee.
-func azureRealName(prefix, id string) string {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(strings.ToLower(id)))
-	name := prefix + strconv.FormatUint(h.Sum64(), 36)
-	if len(name) > 15 {
-		return name[:15]
-	}
-	return name
+func azureNICMAC(nicID string) string {
+	return fabric.DeriveMAC(azureMACPrefix, nicID)
 }
 
-func azureCreateRealVnet(ctx context.Context, vnet VirtualNetwork) error {
-	azureRealMu.Lock()
-	if _, ok := azureRealVnets[vnet.ID]; ok {
-		azureRealMu.Unlock()
-		return nil
-	}
-	azureRealMu.Unlock()
-	network, err := azureRealHost.CreateNetworkNamespace(ctx, azureRealName("zn", vnet.ID))
-	if err != nil {
-		return err
-	}
-	azureRealMu.Lock()
-	azureRealVnets[vnet.ID] = network
-	azureRealMu.Unlock()
-	return nil
+func azureVNetIDOfSubnet(subnetID string) string {
+	return strings.Split(subnetID, "/subnets/")[0]
 }
 
-func azureDeleteRealVnet(ctx context.Context, vnetID string) error {
-	azureRealMu.Lock()
-	network := azureRealVnets[vnetID]
-	delete(azureRealVnets, vnetID)
-	for subnetID, subnet := range azureRealSubnets {
-		if strings.HasPrefix(subnetID, vnetID+"/subnets/") {
-			_ = subnet.Close(ctx)
-			delete(azureRealSubnets, subnetID)
-		}
-	}
-	for nicID, nic := range azureRealVMNICs {
-		if armNIC, ok := azureNICs.Get(nicID); ok {
-			for _, ipconf := range armNIC.Properties.IPConfigurations {
-				if ipconf.Properties.Subnet != nil && strings.HasPrefix(ipconf.Properties.Subnet.ID, vnetID+"/subnets/") {
-					azureMetadataVMsByIP.Delete(nic.PrivateIP.String())
-					_ = nic.Close(ctx)
-					delete(azureRealVMNICs, nicID)
-					break
-				}
-			}
-		}
-	}
-	for vmID, vm := range azureRealVMs {
-		if armVM, ok := azureVMs.Get(vmID); ok {
-			for _, ref := range armVM.Properties.NetworkProfile.NetworkInterfaces {
-				if armNIC, ok := azureNICs.Get(ref.ID); ok {
-					for _, ipconf := range armNIC.Properties.IPConfigurations {
-						if ipconf.Properties.Subnet != nil && strings.HasPrefix(ipconf.Properties.Subnet.ID, vnetID+"/subnets/") {
-							_ = vm.Stop(ctx)
-							delete(azureRealVMs, vmID)
-							break
-						}
-					}
-				}
-			}
-		}
-	}
-	azureRealMu.Unlock()
-	if network == nil {
-		return nil
-	}
-	return network.Close(ctx)
-}
-
+// azureCreateRealSubnet realizes the subnet's bridge, and its virtual
+// network's namespace when that is not realized yet, then brings its NAT
+// gateway association into the fabric.
 func azureCreateRealSubnet(ctx context.Context, subnet Subnet) error {
-	vnetID := strings.Split(subnet.ID, "/subnets/")[0]
-	azureRealMu.Lock()
-	if _, ok := azureRealSubnets[subnet.ID]; ok {
-		azureRealMu.Unlock()
-		return nil
-	}
-	network := azureRealVnets[vnetID]
-	azureRealMu.Unlock()
-	if network == nil {
-		vnet, ok := azureVnets.Get(vnetID)
-		if !ok {
+	vnetID := azureVNetIDOfSubnet(subnet.ID)
+	if azureFabric.Subnet(subnet.ID) == nil {
+		if _, ok := azureVnets.Get(vnetID); !ok {
 			return fmt.Errorf("virtual network %s not found", vnetID)
 		}
-		if err := azureCreateRealVnet(ctx, vnet); err != nil {
+		cidr, err := azureSubnetIPv4CIDR(subnet.Properties)
+		if err != nil {
 			return err
 		}
-		azureRealMu.Lock()
-		network = azureRealVnets[vnetID]
-		azureRealMu.Unlock()
-	}
-	cidr, err := azureSubnetIPv4CIDR(subnet.Properties)
-	if err != nil {
-		return err
-	}
-	realSubnet, err := network.CreateSubnet(ctx, realexec.SubnetSpec{
-		Name:       subnet.ID,
-		BridgeName: azureRealName("zs", subnet.ID),
-		CIDR:       cidr,
-		Gateway:    azureSubnetGateway(cidr),
-	})
-	if err != nil {
-		return err
-	}
-	azureRealMu.Lock()
-	azureRealSubnets[subnet.ID] = realSubnet
-	azureRealMu.Unlock()
-	if subnet.Properties.NatGateway != nil {
-		if err := azureConfigureRealNATGatewayForSubnet(ctx, subnet); err != nil {
+		if _, err := azureFabric.EnsureSubnet(ctx, vnetID, subnet.ID, cidr, fabric.FirstHostGateway(cidr)); err != nil {
 			return err
 		}
 	}
-	return nil
+	return azureConfigureRealNATGatewayForSubnet(ctx, subnet)
 }
 
 func azureDeleteRealSubnet(ctx context.Context, subnetID string) error {
-	azureRealMu.Lock()
-	subnet := azureRealSubnets[subnetID]
-	delete(azureRealSubnets, subnetID)
-	azureRealMu.Unlock()
-	if subnet == nil {
-		return nil
-	}
-	return subnet.Close(ctx)
+	return errors.Join(
+		azureFabric.ReleaseOwned(ctx, azureSubnetNATOwner(subnetID)),
+		azureFabric.DeleteSubnet(ctx, subnetID),
+	)
 }
 
+// azureCreateRealNIC realizes a network interface in a namespace of its own
+// and returns its private address. An interface a running machine already
+// carries as a tap keeps the address it has there.
 func azureCreateRealNIC(ctx context.Context, nicID, subnetID, requestedIP, mac string) (string, string, error) {
-	azureRealMu.Lock()
-	if existing, ok := azureRealNICs[nicID]; ok {
-		azureRealMu.Unlock()
-		return existing.PrivateIP.String(), mac, nil
+	if tap := azureFabric.Tap(nicID); tap != nil {
+		return tap.PrivateIP.String(), formatAzureMAC(mac), nil
 	}
-	subnet := azureRealSubnets[subnetID]
-	azureRealMu.Unlock()
-	if subnet == nil {
+	if nic := azureFabric.NIC(nicID); nic != nil {
+		return nic.PrivateIP.String(), formatAzureMAC(mac), nil
+	}
+	if azureFabric.Subnet(subnetID) == nil {
 		sn, ok := azureSubnets.Get(subnetID)
 		if !ok {
 			return "", "", fmt.Errorf("subnet %s not found", subnetID)
@@ -195,62 +100,34 @@ func azureCreateRealNIC(ctx context.Context, nicID, subnetID, requestedIP, mac s
 		if err := azureCreateRealSubnet(ctx, sn); err != nil {
 			return "", "", err
 		}
-		azureRealMu.Lock()
-		subnet = azureRealSubnets[subnetID]
-		azureRealMu.Unlock()
 	}
-	privateIP := net.ParseIP(requestedIP)
-	if requestedIP == "" {
-		privateIP = nil
+	var privateIP net.IP
+	if requestedIP != "" {
+		privateIP = net.ParseIP(requestedIP)
 	}
-	nic, err := subnet.AttachNamespaceNIC(ctx, realexec.NamespaceNICSpec{
-		NamespaceName: azureRealName("zi", nicID),
-		HostVethName:  azureRealName("zh", nicID),
-		GuestVethName: azureRealName("zg", nicID),
+	nic, err := azureFabric.AttachNamespaceNIC(ctx, subnetID, nicID, realexec.NamespaceNICSpec{
+		NamespaceName: fabric.LinuxName("zi", nicID),
+		HostVethName:  fabric.LinuxName("zh", nicID),
+		GuestVethName: fabric.LinuxName("zg", nicID),
 		MAC:           mac,
 		PrivateIP:     privateIP,
 	})
 	if err != nil {
 		return "", "", err
 	}
-	azureRealMu.Lock()
-	azureRealNICs[nicID] = nic
-	azureRealMu.Unlock()
 	return nic.PrivateIP.String(), formatAzureMAC(mac), nil
 }
 
 func azureDeleteRealNIC(ctx context.Context, nicID string) error {
-	vmIDForNIC := ""
+	var errs []error
 	for _, vm := range azureVMs.List() {
 		for _, ref := range vm.Properties.NetworkProfile.NetworkInterfaces {
 			if strings.EqualFold(ref.ID, nicID) {
-				vmIDForNIC = vm.ID
-				break
+				errs = append(errs, azureFabric.StopVM(ctx, vm.ID, nil))
 			}
 		}
 	}
-	azureRealMu.Lock()
-	nic := azureRealNICs[nicID]
-	delete(azureRealNICs, nicID)
-	tap := azureRealVMNICs[nicID]
-	delete(azureRealVMNICs, nicID)
-	var vm *realexec.FirecrackerVM
-	if vmIDForNIC != "" {
-		vm = azureRealVMs[vmIDForNIC]
-		delete(azureRealVMs, vmIDForNIC)
-	}
-	azureRealMu.Unlock()
-	var errs []error
-	if vm != nil {
-		errs = append(errs, vm.Stop(ctx))
-	}
-	if nic != nil {
-		errs = append(errs, nic.Close(ctx))
-	}
-	if tap != nil {
-		azureMetadataVMsByIP.Delete(tap.PrivateIP.String())
-		errs = append(errs, tap.Close(ctx))
-	}
+	errs = append(errs, azureFabric.DeleteNIC(ctx, nicID))
 	return errors.Join(errs...)
 }
 
@@ -267,35 +144,14 @@ func azureReapplyRealNSGs(ctx context.Context) error {
 }
 
 func azureApplyRealNSGsToNIC(ctx context.Context, armNIC NetworkInterface) error {
-	azureRealMu.Lock()
-	nic := azureRealNICs[armNIC.ID]
-	tap := azureRealVMNICs[armNIC.ID]
-	azureRealMu.Unlock()
-	if nic == nil && tap == nil {
+	if !azureFabric.Realized(armNIC.ID) {
 		return nil
 	}
-	rules, filtered := azureIngressPacketRules(armNIC)
-	if !filtered {
-		var errs []error
-		if nic != nil {
-			errs = append(errs, nic.ClearIngressFilter(ctx))
-		}
-		if tap != nil {
-			errs = append(errs, tap.ClearIngressFilter(ctx))
-		}
-		return errors.Join(errs...)
+	stages, err := azureIngressPacketStages(armNIC)
+	if err != nil {
+		return fmt.Errorf("compile NSG for %s: %w", armNIC.ID, err)
 	}
-	if nic != nil {
-		if err := nic.ConfigureIngressFilter(ctx, rules); err != nil {
-			return fmt.Errorf("configure NSG on %s: %w", armNIC.ID, err)
-		}
-	}
-	if tap != nil {
-		if err := tap.ConfigureIngressFilter(ctx, rules); err != nil {
-			return fmt.Errorf("configure NSG on %s: %w", armNIC.ID, err)
-		}
-	}
-	return nil
+	return azureFabric.ApplyIngress(ctx, armNIC.ID, stages)
 }
 
 // azureVMRequestFault is a virtual-machine write the client cannot fix by
@@ -345,6 +201,23 @@ func azureValidateVMNetworkProfile(vm VirtualMachine) *azureVMRequestFault {
 	return nil
 }
 
+// azureVMMachineShape sizes the guest from the size catalogue the vmSizes
+// reads serve. A size the catalogue does not carry boots at the substrate's
+// smallest shape.
+func azureVMMachineShape(vm VirtualMachine) (vcpus, memMiB int) {
+	size, _ := vm.Properties.HardwareProfile["vmSize"].(string)
+	for _, known := range azureVMSizeCatalogue() {
+		if name, _ := known["name"].(string); strings.EqualFold(name, size) {
+			cores, _ := known["numberOfCores"].(int)
+			mem, _ := known["memoryInMB"].(int)
+			if cores > 0 && mem > 0 {
+				return cores, mem
+			}
+		}
+	}
+	return 1, 512
+}
+
 func azureStartRealVM(ctx context.Context, vm VirtualMachine) error {
 	if fault := azureValidateVMNetworkProfile(vm); fault != nil {
 		return fault
@@ -353,174 +226,175 @@ func azureStartRealVM(ctx context.Context, vm VirtualMachine) error {
 	armNIC, _ := azureNICs.Get(nicID)
 	ipconf := armNIC.Properties.IPConfigurations[0]
 	subnetID := ipconf.Properties.Subnet.ID
-	requestedIP := ipconf.Properties.PrivateIPAddress
-
-	azureRealMu.Lock()
-	if existing := azureRealVMs[vm.ID]; existing != nil && existing.Alive() {
-		azureRealMu.Unlock()
+	var requestedIP net.IP
+	if ipconf.Properties.PrivateIPAddress != "" {
+		requestedIP = net.ParseIP(ipconf.Properties.PrivateIPAddress)
+	}
+	if azureFabric.VMAlive(vm.ID) {
 		return nil
 	}
-	legacyNIC := azureRealNICs[nicID]
-	delete(azureRealNICs, nicID)
-	tap := azureRealVMNICs[nicID]
-	subnet := azureRealSubnets[subnetID]
-	azureRealMu.Unlock()
-	if legacyNIC != nil {
-		_ = legacyNIC.Close(ctx)
+	// The interface's own namespace hands its address to the machine's tap.
+	if err := azureFabric.CloseNamespaceNIC(ctx, nicID); err != nil {
+		return err
 	}
-	if subnet == nil {
-		sn, ok := azureSubnets.Get(subnetID)
-		if !ok {
-			return fmt.Errorf("subnet %s not found", subnetID)
-		}
-		if err := azureCreateRealSubnet(ctx, sn); err != nil {
-			return err
-		}
-		azureRealMu.Lock()
-		subnet = azureRealSubnets[subnetID]
-		azureRealMu.Unlock()
+	metadataPort, err := workloadhost.ListenPort(simListenAddr)
+	if err != nil {
+		return err
 	}
-	if tap == nil {
-		privateIP := net.ParseIP(requestedIP)
-		if requestedIP == "" {
-			privateIP = nil
-		}
-		created, err := subnet.AttachTapNIC(ctx, realexec.TapNICSpec{
-			TapName:   azureRealName("zt", nicID),
-			PrivateIP: privateIP,
+	vcpus, memMiB := azureVMMachineShape(vm)
+	_, _, started, err := azureFabric.StartVM(ctx, fabric.VMSpec[string]{
+		Key:     vm.ID,
+		Network: azureVNetIDOfSubnet(subnetID),
+		Subnet:  subnetID,
+		NIC:     nicID,
+		EnsureSubnet: func(ctx context.Context) error {
+			sn, ok := azureSubnets.Get(subnetID)
+			if !ok {
+				return fmt.Errorf("subnet %s not found", subnetID)
+			}
+			return azureCreateRealSubnet(ctx, sn)
+		},
+		Tap: realexec.TapNICSpec{
+			TapName:   fabric.LinuxName("zt", nicID),
+			PrivateIP: requestedIP,
 			MAC:       azureNICMAC(nicID),
-		})
-		if err != nil {
-			return err
-		}
-		tap = created
-		azureRealMu.Lock()
-		azureRealVMNICs[nicID] = tap
-		azureRealMu.Unlock()
-		armNIC.Properties.IPConfigurations[0].Properties.PrivateIPAddress = tap.PrivateIP.String()
-		armNIC.Properties.MacAddress = formatAzureMAC(azureNICMAC(nicID))
-		azureNICs.Put(nicID, armNIC)
-	}
-	azureMetadataVMsByIP.Store(tap.PrivateIP.String(), azureMetadataVM{
-		VM:       vm,
-		NIC:      armNIC,
-		SubnetID: subnetID,
+		},
+		MetadataPort:  metadataPort,
+		MetadataTable: fabric.LinuxName("zmd", subnetID),
+		Machine: realexec.FirecrackerVMConfig{
+			ID:        "azure-" + vm.ID,
+			VCPUCount: vcpus,
+			MemoryMiB: memMiB,
+		},
+		BeforeBoot: func(tap *realexec.TapNIC, _ *realexec.FirecrackerVMConfig) error {
+			armNIC.Properties.IPConfigurations[0].Properties.PrivateIPAddress = tap.PrivateIP.String()
+			armNIC.Properties.MacAddress = formatAzureMAC(azureNICMAC(nicID))
+			azureNICs.Put(nicID, armNIC)
+			azureMetadataVMsByIP.Store(tap.PrivateIP.String(), azureMetadataVM{
+				VM:       vm,
+				NIC:      armNIC,
+				SubnetID: subnetID,
+			})
+			return nil
+		},
 	})
-	metadataPort, err := simHostMetadataPort()
-	if err != nil {
+	if err != nil || !started {
 		return err
 	}
-	if err := subnet.ConfigureMetadataDNAT(ctx, metadataPort, azureRealName("zmd", subnetID)); err != nil {
-		return fmt.Errorf("configure Azure IMDS routing for %s: %w", vm.ID, err)
-	}
-	vmProc, err := realexec.StartFirecrackerVM(ctx, realexec.FirecrackerVMConfig{
-		ID:        "azure-" + vm.ID,
-		Tap:       tap,
-		MAC:       azureNICMAC(nicID),
-		VCPUCount: 1,
-		MemoryMiB: 512,
-	})
-	if err != nil {
-		return err
-	}
-	azureRealMu.Lock()
-	if old := azureRealVMs[vm.ID]; old != nil {
-		_ = old.Stop(context.Background())
-	}
-	azureRealVMs[vm.ID] = vmProc
-	azureRealMu.Unlock()
 	return azureApplyRealNSGsToNIC(ctx, armNIC)
 }
 
+// azureStopRealVM stops the guest. Stopping removes the guest's working
+// directory, and the machine's root filesystem lives inside it; Azure's
+// managed disk outlives the machine, so the disk is copied out first.
 func azureStopRealVM(ctx context.Context, vmID string) error {
-	azureRealMu.Lock()
-	vm := azureRealVMs[vmID]
-	delete(azureRealVMs, vmID)
-	azureRealMu.Unlock()
-	if vm == nil {
-		return nil
-	}
-	// Stopping the guest removes its working directory, and the machine's root
-	// filesystem lives inside it. Azure's managed disk outlives the machine, so
-	// the disk is copied out first: this is the last moment it exists.
-	if err := azurePreserveVMDisk(vmID, vm.WorkDir); err != nil {
-		return err
-	}
-	return vm.Stop(ctx)
+	return azureFabric.StopVM(ctx, vmID, func(vm *realexec.FirecrackerVM) error {
+		return azurePreserveVMDisk(vmID, vm.WorkDir)
+	})
 }
 
+// azureDeleteRealVM stops the machine and discards its disk, which only a
+// stopped machine keeps. Its network interfaces outlive it, as Azure's do:
+// each goes back to a namespace of its own and keeps its private address.
 func azureDeleteRealVM(ctx context.Context, vm VirtualMachine) error {
-	var errs []error
-	errs = append(errs, azureStopRealVM(ctx, vm.ID))
-	// A deleted machine's disk goes with it. Only a stopped one keeps its disk,
-	// which is what deallocation means.
+	errs := []error{azureStopRealVM(ctx, vm.ID)}
 	azureDiscardVMDisk(vm.ID)
 	for _, ref := range vm.Properties.NetworkProfile.NetworkInterfaces {
-		azureRealMu.Lock()
-		tap := azureRealVMNICs[ref.ID]
-		delete(azureRealVMNICs, ref.ID)
-		azureRealMu.Unlock()
-		if tap != nil {
-			azureMetadataVMsByIP.Delete(tap.PrivateIP.String())
-			errs = append(errs, tap.Close(ctx))
+		tap := azureFabric.Tap(ref.ID)
+		if tap == nil {
+			continue
 		}
+		address := tap.PrivateIP.String()
+		errs = append(errs, azureFabric.DeleteNIC(ctx, ref.ID))
+		armNIC, ok := azureNICs.Get(ref.ID)
+		if !ok || len(armNIC.Properties.IPConfigurations) == 0 || armNIC.Properties.IPConfigurations[0].Properties.Subnet == nil {
+			continue
+		}
+		_, _, err := azureCreateRealNIC(ctx, ref.ID, armNIC.Properties.IPConfigurations[0].Properties.Subnet.ID, address, azureNICMAC(ref.ID))
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
 
-func azureRealVMAlive(vmID string) bool {
-	azureRealMu.Lock()
-	vm := azureRealVMs[vmID]
-	azureRealMu.Unlock()
-	return vm != nil && vm.Alive()
+// azureReconcileVMPowerState reports a machine whose record says running but
+// whose guest is gone as stopped, which is what Azure reports for it.
+func azureReconcileVMPowerState(ids ...string) {
+	var claimed []string
+	for _, id := range ids {
+		if state, _ := azureVMStates.Get(id); state == "PowerState/running" {
+			claimed = append(claimed, id)
+		}
+	}
+	fabric.ReconcileLiveness(claimed, azureFabric.VMAlive, func(id string) {
+		azureVMStates.Put(id, "PowerState/stopped")
+	})
 }
 
-func azureIngressPacketRules(nic NetworkInterface) ([]realexec.PacketRule, bool) {
+// azureIngressPacketStages compiles the network security groups an interface
+// sits behind into one filter stage each, the subnet's first and the
+// interface's second: Azure delivers an inbound packet only when every group
+// on its path allows it. nil means no group applies and the interface is open.
+func azureIngressPacketStages(nic NetworkInterface) ([][]realexec.PacketRule, error) {
 	nsgs := azureAttachedNSGs(nic)
 	if len(nsgs) == 0 {
-		return nil, false
+		return nil, nil
 	}
-	var rules []realexec.PacketRule
+	stages := make([][]realexec.PacketRule, 0, len(nsgs))
 	for _, nsg := range nsgs {
-		securityRules := append([]SecurityRule(nil), nsg.Properties.SecurityRules...)
-		sort.SliceStable(securityRules, func(i, j int) bool {
-			if securityRules[i].Properties.Priority == securityRules[j].Properties.Priority {
-				return securityRules[i].Name < securityRules[j].Name
-			}
-			return securityRules[i].Properties.Priority < securityRules[j].Properties.Priority
-		})
-		for _, rule := range securityRules {
-			props := rule.Properties
-			if !strings.EqualFold(defaultString(props.Direction, "Inbound"), "Inbound") {
-				continue
-			}
-			// A rule scoped to destination application security groups governs
-			// only the interfaces in those groups; on every other interface the
-			// rule is simply not part of the filter.
-			if len(props.DestinationApplicationSecurityGroups) > 0 &&
-				!azureNICInApplicationSecurityGroups(nic, props.DestinationApplicationSecurityGroups) {
-				continue
-			}
-			verdict := "drop"
-			if strings.EqualFold(props.Access, "Allow") {
-				verdict = "accept"
-			}
-			rules = append(rules, azurePacketRulesForSecurityRule(props, verdict)...)
+		rules, err := azureNSGIngressRules(nsg, nic)
+		if err != nil {
+			return nil, fmt.Errorf("network security group %s: %w", nsg.ID, err)
 		}
-		for _, cidr := range azureNICVNetCIDRs(nic) {
-			// The packet filter spells "every protocol" the way the host's rule
-			// compiler does; the security-rule spelling "*" is Azure's and has
-			// to be translated, exactly as it is for a rule's own protocol.
-			rules = append(rules, realexec.PacketRule{
-				Protocol:   azurePacketProtocol("*"),
-				SourceCIDR: cidr,
-				Action:     "accept",
-			})
-		}
+		stages = append(stages, rules)
 	}
-	return rules, true
+	return stages, nil
 }
 
+// azureNSGIngressRules is one group's inbound rules in priority order, then
+// the default rules every group carries below them: AllowVnetInBound and
+// AllowAzureLoadBalancerInBound, with DenyAllInBound as the stage's final drop.
+func azureNSGIngressRules(nsg NetworkSecurityGroup, nic NetworkInterface) ([]realexec.PacketRule, error) {
+	securityRules := append([]SecurityRule(nil), nsg.Properties.SecurityRules...)
+	sort.SliceStable(securityRules, func(i, j int) bool {
+		if securityRules[i].Properties.Priority == securityRules[j].Properties.Priority {
+			return securityRules[i].Name < securityRules[j].Name
+		}
+		return securityRules[i].Properties.Priority < securityRules[j].Properties.Priority
+	})
+	var rules []realexec.PacketRule
+	for _, rule := range securityRules {
+		props := rule.Properties
+		if !strings.EqualFold(defaultString(props.Direction, "Inbound"), "Inbound") {
+			continue
+		}
+		// A rule scoped to destination application security groups governs
+		// only the interfaces in those groups; on every other interface the
+		// rule is simply not part of the filter.
+		if len(props.DestinationApplicationSecurityGroups) > 0 &&
+			!azureNICInApplicationSecurityGroups(nic, props.DestinationApplicationSecurityGroups) {
+			continue
+		}
+		verdict := "drop"
+		if strings.EqualFold(props.Access, "Allow") {
+			verdict = "accept"
+		}
+		expanded, err := azurePacketRulesForSecurityRule(props, verdict)
+		if err != nil {
+			return nil, fmt.Errorf("security rule %s: %w", rule.Name, err)
+		}
+		rules = append(rules, expanded...)
+	}
+	for _, cidr := range azureNICVNetCIDRs(nic) {
+		rules = append(rules, realexec.PacketRule{Protocol: "*", SourceCIDR: cidr, Action: "accept"})
+	}
+	rules = append(rules, realexec.PacketRule{Protocol: "*", SourceCIDR: azureLoadBalancerProbeCIDR, Action: "accept"})
+	return rules, nil
+}
+
+const azureLoadBalancerProbeCIDR = "168.63.129.16/32"
+
+// azureAttachedNSGs lists the groups on an interface's inbound path, the
+// subnet's before the interface's own.
 func azureAttachedNSGs(nic NetworkInterface) []NetworkSecurityGroup {
 	seen := map[string]bool{}
 	var out []NetworkSecurityGroup
@@ -533,9 +407,6 @@ func azureAttachedNSGs(nic NetworkInterface) []NetworkSecurityGroup {
 			out = append(out, nsg)
 		}
 	}
-	if nic.Properties.NetworkSecurityGroup != nil {
-		add(nic.Properties.NetworkSecurityGroup.ID)
-	}
 	for _, ipcfg := range nic.Properties.IPConfigurations {
 		if ipcfg.Properties.Subnet == nil || azureSubnets == nil {
 			continue
@@ -544,10 +415,13 @@ func azureAttachedNSGs(nic NetworkInterface) []NetworkSecurityGroup {
 			add(subnet.Properties.NetworkSecurityGroup.ID)
 		}
 	}
+	if nic.Properties.NetworkSecurityGroup != nil {
+		add(nic.Properties.NetworkSecurityGroup.ID)
+	}
 	return out
 }
 
-func azurePacketRulesForSecurityRule(props SecurityRuleProperties, verdict string) []realexec.PacketRule {
+func azurePacketRulesForSecurityRule(props SecurityRuleProperties, verdict string) ([]realexec.PacketRule, error) {
 	// A rule written against source application security groups matches the
 	// members of those groups and nothing else — an empty group therefore
 	// matches no traffic, rather than falling back to the "any address" default
@@ -558,21 +432,23 @@ func azurePacketRulesForSecurityRule(props SecurityRuleProperties, verdict strin
 	} else {
 		sources = azureAddressPrefixes(props.SourceAddressPrefix, props.SourceAddressPrefixes)
 	}
-	ports := azurePortRanges(props.DestinationPortRange, props.DestinationPortRanges)
-	var rules []realexec.PacketRule
-	for _, source := range sources {
-		for _, port := range ports {
-			from, to := azureParsePortRange(port)
-			rules = append(rules, realexec.PacketRule{
-				Protocol:   azurePacketProtocol(props.Protocol),
-				SourceCIDR: source,
-				FromPort:   from,
-				ToPort:     to,
-				Action:     verdict,
-			})
+	return realexec.ExpandRules(props.Protocol, sources, azurePortRanges(props.DestinationPortRange, props.DestinationPortRanges), verdict)
+}
+
+// azureInvalidSecurityRulePort returns the first destination port range of a
+// rule Azure would reject, or "".
+func azureInvalidSecurityRulePort(props SecurityRuleProperties) string {
+	for _, port := range azurePortRanges(props.DestinationPortRange, props.DestinationPortRanges) {
+		if _, _, err := realexec.PortRange(port); err != nil {
+			return port
 		}
 	}
-	return rules
+	return ""
+}
+
+func azureWriteInvalidPortRange(w http.ResponseWriter, port string) {
+	AzureErrorf(w, "SecurityRuleInvalidPortRange", http.StatusBadRequest,
+		"Security rule has invalid Port range. Value provided: %s. Value should be an integer OR integer range with '-' delimiter. Valid range 0-65535.", port)
 }
 
 func azureAddressPrefixes(single string, many []string) []string {
@@ -592,7 +468,7 @@ func azureAddressPrefixes(single string, many []string) []string {
 		case strings.EqualFold(value, "VirtualNetwork"):
 			out = append(out, azureAllVNetCIDRs()...)
 		case strings.EqualFold(value, "AzureLoadBalancer"):
-			out = append(out, "168.63.129.16/32")
+			out = append(out, azureLoadBalancerProbeCIDR)
 		default:
 			out = append(out, value)
 		}
@@ -623,11 +499,10 @@ func azureNICVNetCIDRs(nic NetworkInterface) []string {
 		if !ok {
 			continue
 		}
-		vnetID := strings.Split(subnet.ID, "/subnets/")[0]
 		if azureVnets == nil {
 			continue
 		}
-		vnet, ok := azureVnets.Get(vnetID)
+		vnet, ok := azureVnets.Get(azureVNetIDOfSubnet(subnet.ID))
 		if !ok {
 			continue
 		}
@@ -655,31 +530,17 @@ func azureAllVNetCIDRs() []string {
 	return out
 }
 
-func azurePacketProtocol(protocol string) string {
-	switch strings.ToLower(protocol) {
-	case "", "*":
-		return "all"
-	default:
-		return strings.ToLower(protocol)
-	}
+func azureSubnetNATOwner(subnetID string) string {
+	return subnetID + "/natGateway"
 }
 
-func azureParsePortRange(port string) (int, int) {
-	if port == "" || port == "*" {
-		return 0, 0
-	}
-	if from, to, ok := strings.Cut(port, "-"); ok {
-		start, _ := strconv.Atoi(from)
-		end, _ := strconv.Atoi(to)
-		return start, end
-	}
-	value, _ := strconv.Atoi(port)
-	return value, value
-}
-
+// azureConfigureRealNATGatewayForSubnet makes the subnet's outbound traffic
+// match its NAT gateway association: translated to the gateway's public
+// address when it has one, untranslated otherwise.
 func azureConfigureRealNATGatewayForSubnet(ctx context.Context, subnet Subnet) error {
+	owner := azureSubnetNATOwner(subnet.ID)
 	if subnet.Properties.NatGateway == nil {
-		return nil
+		return azureFabric.ReleaseOwned(ctx, owner)
 	}
 	gw, ok := azureNatGateways.Get(subnet.Properties.NatGateway.ID)
 	if !ok {
@@ -688,10 +549,8 @@ func azureConfigureRealNATGatewayForSubnet(ctx context.Context, subnet Subnet) e
 	// Microsoft Azure permits a NAT gateway to be created and associated with
 	// a subnet before a public IP address or public IP prefix is associated.
 	// That intermediate control-plane state has no outbound data plane yet.
-	// A later NAT-gateway update carrying the public addressing calls this
-	// function again and programs the real network fabric.
 	if len(gw.Properties.PublicIPAddresses) == 0 && len(gw.Properties.PublicIPPrefixes) == 0 {
-		return nil
+		return azureFabric.ReleaseOwned(ctx, owner)
 	}
 	var publicIP net.IP
 	if len(gw.Properties.PublicIPAddresses) > 0 {
@@ -703,57 +562,45 @@ func azureConfigureRealNATGatewayForSubnet(ctx context.Context, subnet Subnet) e
 		if publicIP == nil {
 			return fmt.Errorf("public IP address %s has no IPv4 lease", pip.ID)
 		}
-	} else if len(gw.Properties.PublicIPPrefixes) > 0 {
-		ip, err := realexec.ReserveAzurePublicIPv4(gw.ID, nil)
+		if azureFabric.OwnedPublicIP(gw.ID) != nil {
+			if err := azureFabric.ReleaseOwned(ctx, gw.ID); err != nil {
+				return err
+			}
+		}
+	} else {
+		ip, err := azureFabric.ReservePublicIP(gw.ID, realexec.ReserveAzurePublicIPv4)
 		if err != nil {
 			return err
 		}
 		publicIP = ip
-		azureRealMu.Lock()
-		azureRealNatIPs[gw.ID] = ip
-		azureRealMu.Unlock()
-	} else {
-		return fmt.Errorf("NAT gateway %s has no public IP address or prefix", gw.ID)
 	}
-	vnetID := strings.Split(subnet.ID, "/subnets/")[0]
-	azureRealMu.Lock()
-	network := azureRealVnets[vnetID]
-	azureRealMu.Unlock()
-	if network == nil {
-		vnet, ok := azureVnets.Get(vnetID)
-		if !ok {
-			return fmt.Errorf("virtual network %s not found", vnetID)
-		}
-		if err := azureCreateRealVnet(ctx, vnet); err != nil {
-			return err
-		}
-		azureRealMu.Lock()
-		network = azureRealVnets[vnetID]
-		azureRealMu.Unlock()
+	vnetID := azureVNetIDOfSubnet(subnet.ID)
+	if _, ok := azureVnets.Get(vnetID); !ok {
+		return fmt.Errorf("virtual network %s not found", vnetID)
+	}
+	if _, err := azureFabric.EnsureNetwork(ctx, vnetID); err != nil {
+		return err
 	}
 	cidr, err := azureSubnetIPv4CIDR(subnet.Properties)
 	if err != nil {
 		return err
 	}
-	return network.ConfigureSNAT(ctx, cidr, publicIP, azureRealName("zsn", subnet.ID))
+	return azureFabric.ConfigureSNAT(ctx, vnetID, owner, []string{cidr}, publicIP)
 }
 
-func azureDeleteRealNATGateway(natID string) {
-	azureRealMu.Lock()
-	ip := azureRealNatIPs[natID]
-	delete(azureRealNatIPs, natID)
-	azureRealMu.Unlock()
-	realexec.ReleasePublicIPv4(ip)
-}
-
-func azureSubnetGateway(cidr string) net.IP {
-	ip, _, err := net.ParseCIDR(cidr)
-	if err != nil || ip.To4() == nil {
-		return nil
+// azureDeleteRealNATGateway withdraws the translation of every subnet behind
+// the gateway and returns the address it reserved.
+func azureDeleteRealNATGateway(ctx context.Context, natID string) error {
+	var errs []error
+	if azureSubnets != nil {
+		for _, sn := range azureSubnets.List() {
+			if sn.Properties.NatGateway != nil && strings.EqualFold(sn.Properties.NatGateway.ID, natID) {
+				errs = append(errs, azureFabric.ReleaseOwned(ctx, azureSubnetNATOwner(sn.ID)))
+			}
+		}
 	}
-	out := append(net.IP(nil), ip.To4()...)
-	out[3]++
-	return out
+	errs = append(errs, azureFabric.ReleaseOwned(ctx, natID))
+	return errors.Join(errs...)
 }
 
 func azureSubnetIPv4CIDR(properties SubnetProperties) (string, error) {
@@ -776,15 +623,6 @@ func azureSubnetIPv4CIDR(properties SubnetProperties) (string, error) {
 		return selected, nil
 	}
 	return "", fmt.Errorf("subnet requires an IPv4 addressPrefix or addressPrefixes member")
-}
-
-func azureNICMAC(nicID string) string {
-	id := strings.NewReplacer("/", "", "-", "", "_", "").Replace(nicID)
-	var b [3]byte
-	for i := range id {
-		b[i%3] ^= id[i]
-	}
-	return fmt.Sprintf("02:15:5d:%02x:%02x:%02x", b[0], b[1], b[2])
 }
 
 func formatAzureMAC(mac string) string {

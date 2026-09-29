@@ -35,7 +35,7 @@ to:
 | `sim` | the framework the three simulators are built on |
 | `realexec` | the real-execution substrate: network namespaces, Firecracker microVMs, packet capture |
 | `ui-auth` | the consoles' OpenID Connect session layer and the application-monitoring endpoint |
-| `testutil` | test-only helpers: a git HTTP server and registry trust material |
+| `testutil` | test-only helpers: base-image acquisition (`baseimage`), a git HTTP server (`githttp`), registry trust material (`registrytrust`) and a SAML identity provider (`samlidp`) |
 
 ### UI packages (4)
 

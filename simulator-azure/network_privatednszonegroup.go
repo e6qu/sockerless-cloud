@@ -174,7 +174,7 @@ func publishPrivateEndpointDNSRecords(group *PrivateDNSZoneGroup, pe PrivateEndp
 				ID:   recordID,
 				Name: name,
 				Type: "Microsoft.Network/privateDnsZones/A",
-				Etag: generateUUID(),
+				Etag: sim.NewUUID(),
 				Properties: RecordSetProperties{
 					TTL:  azurePrivateEndpointRecordTTL,
 					Fqdn: fqdn,

@@ -9,11 +9,12 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func useCloudTrailMemoryStores(t *testing.T) {
 	t.Helper()
-	AwaitSimulatorBackground()
+	bg.Await()
 	events, lake, stores, trails, queries := cloudTrailEvents, cloudTrailLakeEvents, cloudTrailEventDataStores, cloudTrailTrails, cloudTrailQueries
 	cloudTrailEvents = sim.MakeStore[CloudTrailEvent](nil, "cloudtrail_events")
 	cloudTrailLakeEvents = sim.MakeStore[CloudTrailLakeEvent](nil, "cloudtrail_lake_events")

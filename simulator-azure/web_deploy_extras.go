@@ -1,19 +1,17 @@
 package main
 
 import (
-	"archive/zip"
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
-	"path"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/archive"
 )
 
 // web_deploy_extras.go implements the Microsoft.Web deployment surface beyond
@@ -200,6 +198,10 @@ func webPublishingPassword(resID string) string {
 // webDeployPackageLimit bounds a fetched deployment package.
 const webDeployPackageLimit = 256 << 20 // 256 MiB
 
+// webSiteContentLimit bounds the files a package or backup unpacks to: the
+// 1 GB file system quota of the Free tier, the smallest App Service plan.
+const webSiteContentLimit = 1 << 30
+
 // webApplyDeploymentPackage fetches the package at packageURI, unpacks the
 // zip, and persists every file as the site's deployed content, then
 // rediscovers the site's webjobs. Returns the number of files written.
@@ -223,35 +225,19 @@ func webApplyDeploymentPackage(resID, packageURI string) (int, error) {
 	if len(data) > webDeployPackageLimit {
 		return 0, fmt.Errorf("package exceeds %d bytes", webDeployPackageLimit)
 	}
-	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return 0, fmt.Errorf("open package zip: %w", err)
-	}
 	written := 0
-	for _, zf := range zr.File {
-		if zf.FileInfo().IsDir() {
-			continue
-		}
-		clean := path.Clean(strings.TrimPrefix(zf.Name, "/"))
-		if clean == "." || strings.HasPrefix(clean, "../") {
-			return written, fmt.Errorf("package entry %q escapes the site root", zf.Name)
-		}
-		rc, err := zf.Open()
-		if err != nil {
-			return written, fmt.Errorf("open package entry %q: %w", zf.Name, err)
-		}
-		content, err := io.ReadAll(io.LimitReader(rc, webDeployPackageLimit))
-		_ = rc.Close()
-		if err != nil {
-			return written, fmt.Errorf("read package entry %q: %w", zf.Name, err)
-		}
-		webSiteContent.Put(resID+"|"+clean, WebSiteContentFile{
-			ID:   resID + "|" + clean,
-			Path: clean,
-			Mode: uint32(zf.Mode().Perm()),
-			Data: content,
+	err = archive.ReadZip(data, webSiteContentLimit, func(f archive.File) error {
+		webSiteContent.Put(resID+"|"+f.Name, WebSiteContentFile{
+			ID:   resID + "|" + f.Name,
+			Path: f.Name,
+			Mode: uint32(f.Mode),
+			Data: f.Data,
 		})
 		written++
+		return nil
+	})
+	if err != nil {
+		return written, fmt.Errorf("unpack package: %w", err)
 	}
 	webDiscoverWebJobs(resID)
 	// The app's content just changed, so the platform's automatic-backup
@@ -445,7 +431,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 			}
 			webMSDeployOps.Put(recID, rec)
 
-			deployStatusID := generateUUID()
+			deployStatusID := sim.NewUUID()
 			statusRecID := resID + "/deploymentStatus/" + deployStatusID
 			webDeploymentStatuses.Put(statusRecID, WebDeploymentStatusRecord{
 				ID:           statusRecID,
@@ -541,7 +527,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 		resID := webResourceID(r)
 		recID := resID + "/extensions/onedeploy"
 		start := time.Now().UTC()
-		deploymentID := generateUUID()
+		deploymentID := sim.NewUUID()
 		written, err := webApplyDeploymentPackage(resID, req.Properties.PackageURI)
 		end := time.Now().UTC().Format(time.RFC3339)
 		rec := WebOneDeployRecord{

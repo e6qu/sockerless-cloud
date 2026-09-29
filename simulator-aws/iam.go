@@ -174,7 +174,7 @@ func handleIAMCreateRole(w http.ResponseWriter, r *http.Request) {
 
 	role := IAMRole{
 		RoleName:                 name,
-		RoleId:                   "AROA" + strings.ToUpper(generateUUID()[:16]),
+		RoleId:                   "AROA" + strings.ToUpper(sim.NewUUID()[:16]),
 		Arn:                      fmt.Sprintf("arn:aws:iam::"+awsAccountID()+":role/%s", name),
 		Path:                     path,
 		AssumeRolePolicyDocument: assumeDoc,
@@ -190,7 +190,7 @@ func handleIAMCreateRole(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateRoleResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <CreateRoleResult>%s</CreateRoleResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</CreateRoleResponse>`, iamRoleXML(role), generateUUID())
+</CreateRoleResponse>`, iamRoleXML(role), sim.NewUUID())
 }
 
 // handleIAMUpdateRole updates a role's description / max-session-duration. The
@@ -277,7 +277,7 @@ func iamMergeTags(existing, incoming []IAMTag) []IAMTag {
 func iamEmptyResultXML(w http.ResponseWriter, op string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><%sResult/><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></%sResponse>`,
-		op, op, generateUUID(), op)
+		op, op, sim.NewUUID(), op)
 }
 
 func iamErrorXML(w http.ResponseWriter, code string, message string, statusCode int) {
@@ -286,7 +286,7 @@ func iamErrorXML(w http.ResponseWriter, code string, message string, statusCode 
 	fmt.Fprintf(w, `<ErrorResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error>
   <RequestId>%s</RequestId>
-</ErrorResponse>`, code, message, generateUUID())
+</ErrorResponse>`, code, message, sim.NewUUID())
 }
 
 func handleIAMGetRole(w http.ResponseWriter, r *http.Request) {
@@ -301,7 +301,7 @@ func handleIAMGetRole(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetRoleResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <GetRoleResult>%s</GetRoleResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetRoleResponse>`, iamRoleXML(role), generateUUID())
+</GetRoleResponse>`, iamRoleXML(role), sim.NewUUID())
 }
 
 func handleIAMDeleteRole(w http.ResponseWriter, r *http.Request) {
@@ -335,7 +335,7 @@ func handleIAMDeleteRole(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteRoleResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</DeleteRoleResponse>`, generateUUID())
+</DeleteRoleResponse>`, sim.NewUUID())
 }
 
 func handleIAMUpdateAssumeRolePolicy(w http.ResponseWriter, r *http.Request) {
@@ -359,7 +359,7 @@ func handleIAMUpdateAssumeRolePolicy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<UpdateAssumeRolePolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</UpdateAssumeRolePolicyResponse>`, generateUUID())
+</UpdateAssumeRolePolicyResponse>`, sim.NewUUID())
 }
 
 func handleIAMPutRolePolicy(w http.ResponseWriter, r *http.Request) {
@@ -384,7 +384,7 @@ func handleIAMPutRolePolicy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<PutRolePolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</PutRolePolicyResponse>`, generateUUID())
+</PutRolePolicyResponse>`, sim.NewUUID())
 }
 
 func handleIAMGetRolePolicy(w http.ResponseWriter, r *http.Request) {
@@ -407,7 +407,7 @@ func handleIAMGetRolePolicy(w http.ResponseWriter, r *http.Request) {
     <PolicyDocument>%s</PolicyDocument>
   </GetRolePolicyResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetRolePolicyResponse>`, roleName, policyName, doc, generateUUID())
+</GetRolePolicyResponse>`, roleName, policyName, doc, sim.NewUUID())
 }
 
 func handleIAMDeleteRolePolicy(w http.ResponseWriter, r *http.Request) {
@@ -418,7 +418,7 @@ func handleIAMDeleteRolePolicy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteRolePolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</DeleteRolePolicyResponse>`, generateUUID())
+</DeleteRolePolicyResponse>`, sim.NewUUID())
 }
 
 func handleIAMAttachRolePolicy(w http.ResponseWriter, r *http.Request) {
@@ -439,7 +439,7 @@ func handleIAMAttachRolePolicy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AttachRolePolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</AttachRolePolicyResponse>`, generateUUID())
+</AttachRolePolicyResponse>`, sim.NewUUID())
 }
 
 func handleIAMDetachRolePolicy(w http.ResponseWriter, r *http.Request) {
@@ -450,7 +450,7 @@ func handleIAMDetachRolePolicy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DetachRolePolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</DetachRolePolicyResponse>`, generateUUID())
+</DetachRolePolicyResponse>`, sim.NewUUID())
 }
 
 func handleIAMListAttachedRolePolicies(w http.ResponseWriter, r *http.Request) {
@@ -460,7 +460,10 @@ func handleIAMListAttachedRolePolicies(w http.ResponseWriter, r *http.Request) {
 	})
 	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyArn < policies[j].PolicyArn })
 
-	page, next := awsPageExplicit(policies, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0))
+	page, next, pageOK := awsPage(w, iamBadToken, policies, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	if !pageOK {
+		return
+	}
 
 	var members strings.Builder
 	for _, p := range page {
@@ -474,7 +477,7 @@ func handleIAMListAttachedRolePolicies(w http.ResponseWriter, r *http.Request) {
     <IsTruncated>%t</IsTruncated>%s
   </ListAttachedRolePoliciesResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListAttachedRolePoliciesResponse>`, members.String(), next != "", iamMarkerXML(next), generateUUID())
+</ListAttachedRolePoliciesResponse>`, members.String(), next != "", iamMarkerXML(next), sim.NewUUID())
 }
 
 func handleIAMListInstanceProfilesForRole(w http.ResponseWriter, r *http.Request) {
@@ -483,7 +486,10 @@ func handleIAMListInstanceProfilesForRole(w http.ResponseWriter, r *http.Request
 		return ip.RoleName == roleName
 	})
 	sort.Slice(profiles, func(i, j int) bool { return profiles[i].InstanceProfileName < profiles[j].InstanceProfileName })
-	page, next := awsPageExplicit(profiles, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0))
+	page, next, pageOK := awsPage(w, iamBadToken, profiles, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	if !pageOK {
+		return
+	}
 	var members strings.Builder
 	for _, ip := range page {
 		fmt.Fprint(&members, "<member>", iamInstanceProfileXML(ip), "</member>")
@@ -495,7 +501,7 @@ func handleIAMListInstanceProfilesForRole(w http.ResponseWriter, r *http.Request
     <IsTruncated>%t</IsTruncated>%s
   </ListInstanceProfilesForRoleResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListInstanceProfilesForRoleResponse>`, members.String(), next != "", iamMarkerXML(next), generateUUID())
+</ListInstanceProfilesForRoleResponse>`, members.String(), next != "", iamMarkerXML(next), sim.NewUUID())
 }
 
 func handleIAMListRolePolicies(w http.ResponseWriter, r *http.Request) {
@@ -504,7 +510,10 @@ func handleIAMListRolePolicies(w http.ResponseWriter, r *http.Request) {
 		return p.RoleName == roleName
 	})
 	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName })
-	page, next := awsPageExplicit(policies, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0))
+	page, next, pageOK := awsPage(w, iamBadToken, policies, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	if !pageOK {
+		return
+	}
 
 	var members strings.Builder
 	for _, p := range page {
@@ -518,7 +527,7 @@ func handleIAMListRolePolicies(w http.ResponseWriter, r *http.Request) {
     <IsTruncated>%t</IsTruncated>%s
   </ListRolePoliciesResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListRolePoliciesResponse>`, members.String(), next != "", iamMarkerXML(next), generateUUID())
+</ListRolePoliciesResponse>`, members.String(), next != "", iamMarkerXML(next), sim.NewUUID())
 }
 
 // Managed policies + instance profiles. The canonical TF flow is
@@ -575,7 +584,7 @@ func handleIAMCreatePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	policy := IAMPolicy{
 		PolicyName:       name,
-		PolicyId:         "ANPA" + strings.ToUpper(generateUUID()[:16]),
+		PolicyId:         "ANPA" + strings.ToUpper(sim.NewUUID()[:16]),
 		Arn:              arn,
 		Path:             path,
 		Description:      r.FormValue("Description"),
@@ -589,7 +598,7 @@ func handleIAMCreatePolicy(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreatePolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <CreatePolicyResult><Policy>%s</Policy></CreatePolicyResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</CreatePolicyResponse>`, iamPolicyXML(policy), generateUUID())
+</CreatePolicyResponse>`, iamPolicyXML(policy), sim.NewUUID())
 }
 
 func handleIAMGetPolicy(w http.ResponseWriter, r *http.Request) {
@@ -603,7 +612,7 @@ func handleIAMGetPolicy(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetPolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <GetPolicyResult><Policy>%s</Policy></GetPolicyResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetPolicyResponse>`, iamPolicyXML(policy), generateUUID())
+</GetPolicyResponse>`, iamPolicyXML(policy), sim.NewUUID())
 }
 
 func handleIAMDeletePolicy(w http.ResponseWriter, r *http.Request) {
@@ -615,14 +624,17 @@ func handleIAMDeletePolicy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeletePolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</DeletePolicyResponse>`, generateUUID())
+</DeletePolicyResponse>`, sim.NewUUID())
 }
 
 func handleIAMListPolicies(w http.ResponseWriter, r *http.Request) {
 	policies := iamPolicies.List()
 	sort.Slice(policies, func(i, j int) bool { return policies[i].Arn < policies[j].Arn })
 
-	page, next := awsPageExplicit(policies, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0))
+	page, next, pageOK := awsPage(w, iamBadToken, policies, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	if !pageOK {
+		return
+	}
 
 	var members strings.Builder
 	for _, p := range page {
@@ -632,7 +644,7 @@ func handleIAMListPolicies(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ListPoliciesResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ListPoliciesResult><Policies>%s</Policies><IsTruncated>%t</IsTruncated>%s</ListPoliciesResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListPoliciesResponse>`, members.String(), next != "", iamMarkerXML(next), generateUUID())
+</ListPoliciesResponse>`, members.String(), next != "", iamMarkerXML(next), sim.NewUUID())
 }
 
 func handleIAMGetPolicyVersion(w http.ResponseWriter, r *http.Request) {
@@ -650,7 +662,7 @@ func handleIAMGetPolicyVersion(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetPolicyVersionResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <GetPolicyVersionResult><PolicyVersion><Document>%s</Document><VersionId>%s</VersionId><IsDefaultVersion>true</IsDefaultVersion><CreateDate>%s</CreateDate></PolicyVersion></GetPolicyVersionResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetPolicyVersionResponse>`, url.QueryEscape(policy.PolicyDocument), versionID, policy.CreateDate, generateUUID())
+</GetPolicyVersionResponse>`, url.QueryEscape(policy.PolicyDocument), versionID, policy.CreateDate, sim.NewUUID())
 }
 
 func handleIAMCreateInstanceProfile(w http.ResponseWriter, r *http.Request) {
@@ -669,7 +681,7 @@ func handleIAMCreateInstanceProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	ip := IAMInstanceProfile{
 		InstanceProfileName: name,
-		InstanceProfileId:   "AIPA" + strings.ToUpper(generateUUID()[:16]),
+		InstanceProfileId:   "AIPA" + strings.ToUpper(sim.NewUUID()[:16]),
 		Arn:                 fmt.Sprintf("arn:aws:iam::%s:instance-profile%s%s", awsAccountID(), path, name),
 		Path:                path,
 		CreateDate:          time.Now().UTC().Format(time.RFC3339),
@@ -679,7 +691,7 @@ func handleIAMCreateInstanceProfile(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CreateInstanceProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <CreateInstanceProfileResult><InstanceProfile>%s</InstanceProfile></CreateInstanceProfileResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</CreateInstanceProfileResponse>`, iamInstanceProfileXML(ip), generateUUID())
+</CreateInstanceProfileResponse>`, iamInstanceProfileXML(ip), sim.NewUUID())
 }
 
 func handleIAMGetInstanceProfile(w http.ResponseWriter, r *http.Request) {
@@ -693,7 +705,7 @@ func handleIAMGetInstanceProfile(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetInstanceProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <GetInstanceProfileResult><InstanceProfile>%s</InstanceProfile></GetInstanceProfileResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetInstanceProfileResponse>`, iamInstanceProfileXML(ip), generateUUID())
+</GetInstanceProfileResponse>`, iamInstanceProfileXML(ip), sim.NewUUID())
 }
 
 func handleIAMDeleteInstanceProfile(w http.ResponseWriter, r *http.Request) {
@@ -713,14 +725,17 @@ func handleIAMDeleteInstanceProfile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteInstanceProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</DeleteInstanceProfileResponse>`, generateUUID())
+</DeleteInstanceProfileResponse>`, sim.NewUUID())
 }
 
 func handleIAMListInstanceProfiles(w http.ResponseWriter, r *http.Request) {
 	profiles := iamInstanceProfiles.List()
 	sort.Slice(profiles, func(i, j int) bool { return profiles[i].InstanceProfileName < profiles[j].InstanceProfileName })
 
-	page, next := awsPageExplicit(profiles, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0))
+	page, next, pageOK := awsPage(w, iamBadToken, profiles, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	if !pageOK {
+		return
+	}
 
 	var members strings.Builder
 	for _, ip := range page {
@@ -730,7 +745,7 @@ func handleIAMListInstanceProfiles(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ListInstanceProfilesResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ListInstanceProfilesResult><InstanceProfiles>%s</InstanceProfiles><IsTruncated>%t</IsTruncated>%s</ListInstanceProfilesResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</ListInstanceProfilesResponse>`, members.String(), next != "", iamMarkerXML(next), generateUUID())
+</ListInstanceProfilesResponse>`, members.String(), next != "", iamMarkerXML(next), sim.NewUUID())
 }
 
 func handleIAMAddRoleToInstanceProfile(w http.ResponseWriter, r *http.Request) {
@@ -756,7 +771,7 @@ func handleIAMAddRoleToInstanceProfile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AddRoleToInstanceProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</AddRoleToInstanceProfileResponse>`, generateUUID())
+</AddRoleToInstanceProfileResponse>`, sim.NewUUID())
 }
 
 func handleIAMRemoveRoleFromInstanceProfile(w http.ResponseWriter, r *http.Request) {
@@ -771,5 +786,5 @@ func handleIAMRemoveRoleFromInstanceProfile(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RemoveRoleFromInstanceProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</RemoveRoleFromInstanceProfileResponse>`, generateUUID())
+</RemoveRoleFromInstanceProfileResponse>`, sim.NewUUID())
 }

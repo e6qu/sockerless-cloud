@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/cron"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -78,13 +79,6 @@ type spannerCrontabSpec struct {
 	Text           string `json:"text,omitempty"`
 	TimeZone       string `json:"timeZone,omitempty"`
 	CreationWindow string `json:"creationWindow,omitempty"`
-}
-
-// spannerBackupScheduleRun records when a schedule last produced a backup, so
-// the scheduler creates one backup per crontab occurrence and no more.
-type spannerBackupScheduleRun struct {
-	Schedule string `json:"schedule"`
-	LastRun  string `json:"lastRun"`
 }
 
 // real bytes: capture and restore of a database's SQLite image
@@ -395,7 +389,11 @@ func handleSpannerListBackups(w http.ResponseWriter, r *http.Request, instance s
 	prefix := spannerInstanceName(sim.PathParam(r, "project"), instance) + "/backups/"
 	out := spannerBackups.Filter(func(b spannerBackup) bool { return strings.HasPrefix(b.Name, prefix) })
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	out = gcpApplyListParams(out, r)
+	listed, listOK := gcpApplyListParams(w, r, out)
+	if !listOK {
+		return
+	}
+	out = listed
 	page, next, ok := paginateList(w, r, out)
 	if !ok {
 		return
@@ -606,10 +604,11 @@ func handleSpannerCreateBackupSchedule(w http.ResponseWriter, r *http.Request, i
 	spannerBackupSchedules.Put(schedule.Name, schedule)
 	// The schedule starts counting from now: a crontab occurrence that fell
 	// before the schedule existed is not one it missed.
-	spannerBackupScheduleRuns.Put(schedule.Name, spannerBackupScheduleRun{
-		Schedule: schedule.Name,
-		LastRun:  time.Now().UTC().Format(time.RFC3339Nano),
-	})
+	if crontab, err := spannerCrontab(schedule.Spec.GetCronText()); err == nil {
+		if next, ok := crontab.Next(time.Now()); ok {
+			spannerBackupScheduleRuns.Put(schedule.Name, cron.Record{Spec: schedule.Spec.GetCronText(), Next: next})
+		}
+	}
 	sim.WriteJSON(w, http.StatusOK, schedule)
 }
 
@@ -634,7 +633,7 @@ func spannerValidateBackupSchedule(schedule spannerBackupSchedule) error {
 	if schedule.Spec == nil || schedule.Spec.CronSpec == nil || strings.TrimSpace(schedule.Spec.CronSpec.Text) == "" {
 		return fmt.Errorf("spec.cronSpec.text is required")
 	}
-	if _, err := spannerParseCrontab(schedule.Spec.CronSpec.Text); err != nil {
+	if _, err := spannerCrontab(schedule.Spec.CronSpec.Text); err != nil {
 		return err
 	}
 	if strings.TrimSpace(schedule.RetentionDuration) == "" {
@@ -665,7 +664,11 @@ func handleSpannerListBackupSchedules(w http.ResponseWriter, r *http.Request, in
 	prefix := dbName + "/backupSchedules/"
 	out := spannerBackupSchedules.Filter(func(s spannerBackupSchedule) bool { return strings.HasPrefix(s.Name, prefix) })
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	out = gcpApplyListParams(out, r)
+	listed, listOK := gcpApplyListParams(w, r, out)
+	if !listOK {
+		return
+	}
+	out = listed
 	page, next, ok := paginateList(w, r, out)
 	if !ok {
 		return
@@ -749,175 +752,61 @@ func handleSpannerBackupScheduleIAM(w http.ResponseWriter, r *http.Request, reso
 	}
 }
 
-// the scheduler: crontab occurrences produce real backups
-
-// spannerCrontab is a parsed five-field crontab expression (minute, hour,
-// day-of-month, month, day-of-week) in UTC — the form Cloud Spanner's
-// CrontabSpec.text takes.
-type spannerCrontab struct {
-	minute, hour, dom, month, dow map[int]bool
+// spannerCrontab parses a CrontabSpec.text: a five-field crontab in UTC.
+func spannerCrontab(text string) (cron.Schedule, error) {
+	crontab, err := cron.Parse(text, cron.Vixie, time.UTC)
+	if err != nil {
+		return cron.Schedule{}, fmt.Errorf("crontab %q: %w", text, err)
+	}
+	return crontab, nil
 }
 
-func spannerParseCrontab(text string) (spannerCrontab, error) {
-	fields := strings.Fields(strings.TrimSpace(text))
-	if len(fields) != 5 {
-		return spannerCrontab{}, fmt.Errorf("crontab %q must have 5 fields (minute hour day-of-month month day-of-week)", text)
-	}
-	ranges := []struct {
-		lo, hi int
-		out    *map[int]bool
-	}{}
-	var cron spannerCrontab
-	ranges = append(ranges,
-		struct {
-			lo, hi int
-			out    *map[int]bool
-		}{0, 59, &cron.minute},
-		struct {
-			lo, hi int
-			out    *map[int]bool
-		}{0, 23, &cron.hour},
-		struct {
-			lo, hi int
-			out    *map[int]bool
-		}{1, 31, &cron.dom},
-		struct {
-			lo, hi int
-			out    *map[int]bool
-		}{1, 12, &cron.month},
-		struct {
-			lo, hi int
-			out    *map[int]bool
-		}{0, 7, &cron.dow},
-	)
-	for i, spec := range ranges {
-		set, err := spannerParseCronField(fields[i], spec.lo, spec.hi)
-		if err != nil {
-			return spannerCrontab{}, fmt.Errorf("crontab %q field %d: %w", text, i+1, err)
-		}
-		*spec.out = set
-	}
-	// Cron accepts both 0 and 7 for Sunday.
-	if cron.dow[7] {
-		cron.dow[0] = true
-	}
-	return cron, nil
-}
-
-func spannerParseCronField(field string, lo, hi int) (map[int]bool, error) {
-	out := map[int]bool{}
-	for _, part := range strings.Split(field, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			return nil, fmt.Errorf("empty term")
-		}
-		step := 1
-		if slash := strings.Index(part, "/"); slash >= 0 {
-			n, err := strconv.Atoi(part[slash+1:])
-			if err != nil || n <= 0 {
-				return nil, fmt.Errorf("invalid step %q", part[slash+1:])
-			}
-			step = n
-			part = part[:slash]
-		}
-		start, end := lo, hi
-		switch {
-		case part == "*":
-		case strings.Contains(part, "-"):
-			bounds := strings.SplitN(part, "-", 2)
-			a, errA := strconv.Atoi(strings.TrimSpace(bounds[0]))
-			b, errB := strconv.Atoi(strings.TrimSpace(bounds[1]))
-			if errA != nil || errB != nil || a < lo || b > hi || a > b {
-				return nil, fmt.Errorf("invalid range %q", part)
-			}
-			start, end = a, b
-		default:
-			n, err := strconv.Atoi(part)
-			if err != nil || n < lo || n > hi {
-				return nil, fmt.Errorf("invalid value %q", part)
-			}
-			start, end = n, n
-		}
-		for v := start; v <= end; v += step {
-			out[v] = true
-		}
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("matches nothing")
-	}
-	return out, nil
-}
-
-// matches reports whether the crontab fires at t (UTC, minute resolution).
-// Cron's day fields are a union when either is restricted, which is the rule
-// crond and Cloud Scheduler both follow.
-func (c spannerCrontab) matches(t time.Time) bool {
-	t = t.UTC()
-	if !c.minute[t.Minute()] || !c.hour[t.Hour()] || !c.month[int(t.Month())] {
-		return false
-	}
-	domRestricted := len(c.dom) < 31
-	dowRestricted := len(c.dow) < 8
-	domMatch := c.dom[t.Day()]
-	dowMatch := c.dow[int(t.Weekday())]
-	switch {
-	case domRestricted && dowRestricted:
-		return domMatch || dowMatch
-	case domRestricted:
-		return domMatch
-	case dowRestricted:
-		return dowMatch
-	}
-	return true
-}
-
-// spannerBackupScheduleWindow bounds how far back the scheduler looks for a
-// missed crontab occurrence. A simulator that was not running did not take the
+// spannerBackupScheduleWindow bounds how late a missed crontab occurrence may
+// still produce its backup. A simulator that was not running did not take the
 // backups it was asleep for, and the real service does not backfill either.
 const spannerBackupScheduleWindow = 24 * time.Hour
 
-// spannerRunDueBackupSchedules takes one real backup for every schedule whose
-// crontab fired since it last ran. It is called by the scheduler loop with the
-// wall clock; taking `now` as an argument keeps the rule under test at a chosen
-// instant without changing what the running simulator does.
-func spannerRunDueBackupSchedules(now time.Time) []string {
-	var created []string
-	for _, schedule := range spannerBackupSchedules.List() {
-		cron, err := spannerParseCrontab(schedule.Spec.GetCronText())
-		if err != nil {
-			continue
+// spannerBackupScheduleTicker takes one real backup at every crontab
+// occurrence of every schedule.
+func spannerBackupScheduleTicker() *cron.Ticker {
+	schedules := spannerBackupSchedules
+	return cron.NewTicker(spannerBackupScheduleRuns, func() []cron.Entry {
+		var entries []cron.Entry
+		for _, schedule := range schedules.List() {
+			crontab, err := spannerCrontab(schedule.Spec.GetCronText())
+			if err != nil {
+				continue
+			}
+			entries = append(entries, cron.Entry{
+				Key:     schedule.Name,
+				Spec:    schedule.Spec.GetCronText(),
+				Next:    crontab.Next,
+				MaxLate: spannerBackupScheduleWindow,
+				Fire:    func(occurrence time.Time) { spannerTakeScheduledBackup(schedule, occurrence) },
+			})
 		}
-		retention, err := spannerParseDuration(schedule.RetentionDuration)
-		if err != nil {
-			continue
-		}
-		run, _ := spannerBackupScheduleRuns.Get(schedule.Name)
-		lastRun, err := time.Parse(time.RFC3339Nano, run.LastRun)
-		if err != nil {
-			lastRun = now.Add(-spannerBackupScheduleWindow)
-		}
-		occurrence, fired := spannerLatestCronOccurrence(cron, lastRun, now)
-		if !fired {
-			continue
-		}
-		dbName := schedule.Name[:strings.LastIndex(schedule.Name, "/backupSchedules/")]
-		scheduleID := schedule.Name[strings.LastIndex(schedule.Name, "/")+1:]
-		instanceName := dbName[:strings.LastIndex(dbName, "/databases/")]
-		backupName := fmt.Sprintf("%s/backups/%s-%s", instanceName, scheduleID, occurrence.UTC().Format("20060102t150405"))
-		if _, exists := spannerBackups.Get(backupName); exists {
-			continue
-		}
-		if _, err := spannerTakeBackup(backupName, dbName, occurrence, occurrence.Add(retention), []string{schedule.Name}); err != nil {
-			continue
-		}
-		spannerBackupScheduleRuns.Put(schedule.Name, spannerBackupScheduleRun{
-			Schedule: schedule.Name,
-			LastRun:  now.UTC().Format(time.RFC3339Nano),
-		})
-		created = append(created, backupName)
+		return entries
+	})
+}
+
+// spannerTakeScheduledBackup takes the backup of one crontab occurrence, named
+// after the occurrence so it is taken once.
+func spannerTakeScheduledBackup(schedule spannerBackupSchedule, occurrence time.Time) {
+	retention, err := spannerParseDuration(schedule.RetentionDuration)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[sim-gcp-spanner] backup schedule %s has an unusable retention: %v\n", schedule.Name, err)
+		return
 	}
-	sort.Strings(created)
-	return created
+	dbName := schedule.Name[:strings.LastIndex(schedule.Name, "/backupSchedules/")]
+	scheduleID := schedule.Name[strings.LastIndex(schedule.Name, "/")+1:]
+	instanceName := dbName[:strings.LastIndex(dbName, "/databases/")]
+	backupName := fmt.Sprintf("%s/backups/%s-%s", instanceName, scheduleID, occurrence.UTC().Format("20060102t150405"))
+	if _, exists := spannerBackups.Get(backupName); exists {
+		return
+	}
+	if _, err := spannerTakeBackup(backupName, dbName, occurrence, occurrence.Add(retention), []string{schedule.Name}); err != nil {
+		fmt.Fprintf(os.Stderr, "[sim-gcp-spanner] backup schedule %s could not take %s: %v\n", schedule.Name, backupName, err)
+	}
 }
 
 // GetCronText reads the crontab text out of a possibly-absent spec.
@@ -926,33 +815,4 @@ func (s *spannerBackupScheduleSpec) GetCronText() string {
 		return ""
 	}
 	return s.CronSpec.Text
-}
-
-// spannerLatestCronOccurrence returns the most recent minute in (after, now]
-// at which the crontab fired, bounded by the scheduler's look-back window.
-func spannerLatestCronOccurrence(cron spannerCrontab, after, now time.Time) (time.Time, bool) {
-	cursor := now.UTC().Truncate(time.Minute)
-	floor := after.UTC().Truncate(time.Minute)
-	if window := now.UTC().Add(-spannerBackupScheduleWindow).Truncate(time.Minute); floor.Before(window) {
-		floor = window
-	}
-	for !cursor.Before(floor) {
-		if cursor.After(after) && cron.matches(cursor) {
-			return cursor, true
-		}
-		cursor = cursor.Add(-time.Minute)
-	}
-	return time.Time{}, false
-}
-
-// spannerRunBackupScheduleLoop is the running simulator's backup scheduler: it
-// wakes often enough to catch every minute a crontab can name and takes the
-// backups that are due. Started from main, so building the server in-process
-// (route conformance, coverage probing) does not start a clock.
-func spannerRunBackupScheduleLoop() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		spannerRunDueBackupSchedules(time.Now())
-	}
 }

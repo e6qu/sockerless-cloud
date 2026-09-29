@@ -284,12 +284,8 @@ func cosmosDataAccountID(r *http.Request) (string, bool) {
 	// An account name is a hostname in Azure and therefore unique, and creation
 	// refuses a name another account already holds, so exactly one record can
 	// answer for it.
-	for _, account := range cosmosAccounts.List() {
-		if account.Name == name {
-			return account.ID, true
-		}
-	}
-	return "", false
+	account, ok := cosmosAccountByName(name)
+	return account.ID, ok
 }
 
 // cosmosSignatureMismatchMessage is the message the service returns when a

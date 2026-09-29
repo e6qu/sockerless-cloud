@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -73,17 +72,6 @@ const (
 	acrActionMetadataWrite = "metadata_write"
 	acrActionAll           = "*"
 )
-
-// acrAccess is one access record of an ACR access token's `access` claim: the
-// resource type, the resource name, and the actions granted on it. It is the
-// claim shape Azure documents for an ACR access token, e.g.
-// {"type": "registry", "name": "catalog", "actions": ["*"]}
-// (Azure/acr `docs/AAD-OAuth.md`).
-type acrAccess struct {
-	Type    string   `json:"type"`
-	Name    string   `json:"name"`
-	Actions []string `json:"actions"`
-}
 
 // acrResource is the access one data-plane request needs. challengeActions is
 // what the Bearer challenge asks the client to obtain, which for a write is
@@ -166,11 +154,16 @@ func acrAuthorize(w http.ResponseWriter, r *http.Request, res acrResource) bool 
 		acrHostNotARegistry(w, r)
 		return false
 	}
-	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
-	basic := acrSchemeValue(authorization, "Basic")
-	bearer := acrSchemeValue(authorization, "Bearer")
+	scheme, credential := sim.ParseAuthorization(r.Header.Get("Authorization"))
+	basic, bearer := "", ""
 	switch {
-	case authorization == "":
+	case strings.EqualFold(scheme, "Basic"):
+		basic = credential
+	case strings.EqualFold(scheme, "Bearer"):
+		bearer = credential
+	}
+	switch {
+	case scheme == "":
 		// Anonymous. Only a registry with anonymous pull enabled serves one,
 		// and only the pull it enables.
 		if res.action == acrActionPull && acrAnonymousPullEnabled(reg) {
@@ -180,7 +173,7 @@ func acrAuthorize(w http.ResponseWriter, r *http.Request, res acrResource) bool 
 		return false
 
 	case basic != "":
-		username, password, decoded := acrBasicCredential(basic)
+		username, password, decoded := sim.BasicCredential(basic)
 		if !decoded {
 			acrChallenge(w, r, reg, res, "invalid_token", "authentication required")
 			return false
@@ -222,31 +215,6 @@ func acrAnonymousPullEnabled(reg Registry) bool {
 	return reg.Properties.AnonymousPullEnabled != nil && *reg.Properties.AnonymousPullEnabled
 }
 
-// acrSchemeValue returns the credential of an Authorization header when it
-// carries the given scheme, and "" otherwise.
-func acrSchemeValue(authorization, scheme string) string {
-	if len(authorization) <= len(scheme) || !strings.EqualFold(authorization[:len(scheme)], scheme) {
-		return ""
-	}
-	if authorization[len(scheme)] != ' ' {
-		return ""
-	}
-	return strings.TrimSpace(authorization[len(scheme)+1:])
-}
-
-// acrBasicCredential splits the base64 "user:password" of a Basic credential.
-func acrBasicCredential(encoded string) (string, string, bool) {
-	raw, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return "", "", false
-	}
-	username, password, ok := strings.Cut(string(raw), ":")
-	if !ok {
-		return "", "", false
-	}
-	return username, password, true
-}
-
 // acrAdminCredentialSlot reports which admin password slot a presented
 // credential matches. It authenticates only while the registry's admin user is
 // enabled — the same condition listCredentials requires before it will serve
@@ -283,7 +251,7 @@ func acrCredentialFingerprint(registryID, slot string) string {
 // acrAccessGrants reports whether a token's access records authorize a
 // request. A record matches on resource type and name, and grants the action
 // when it lists it or lists the "*" wildcard ACR uses for full access.
-func acrAccessGrants(granted []acrAccess, res acrResource) bool {
+func acrAccessGrants(granted []sim.RegistryScope, res acrResource) bool {
 	for _, entry := range granted {
 		if entry.Type != res.typ || entry.Name != res.name {
 			continue
@@ -358,29 +326,13 @@ func acrLoginServer(reg Registry) string {
 func acrChallenge(w http.ResponseWriter, r *http.Request, reg Registry, res acrResource, errCode, message string) {
 	service := acrLoginServer(reg)
 	realm := azureRequestScheme(r) + "://" + service + "/oauth2/token"
-	challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", realm, service, res.scope())
-	if errCode != "" {
-		challenge += fmt.Sprintf(",error=%q", errCode)
-	}
-	w.Header().Set("WWW-Authenticate", challenge)
-	acrRegistryErrors(w, http.StatusUnauthorized, "UNAUTHORIZED", message, res)
-}
-
-// acrRegistryErrors writes the Docker Registry v2 error envelope, whose detail
-// names the resource and the action the request needed.
-func acrRegistryErrors(w http.ResponseWriter, status int, code, message string, res acrResource) {
-	w.Header().Set("Docker-Distribution-Api-Version", "registry/2.0")
-	sim.WriteJSON(w, status, map[string]any{
-		"errors": []map[string]any{{
-			"code":    code,
-			"message": message,
-			"detail": []map[string]any{{
-				"Type":   res.typ,
-				"Name":   res.name,
-				"Action": res.action,
-			}},
-		}},
-	})
+	w.Header().Set("WWW-Authenticate", sim.BearerChallenge(realm, service, res.scope(), errCode))
+	// The detail names the resource and the action the request needed.
+	sim.RegistryError(w, http.StatusUnauthorized, "UNAUTHORIZED", message, []map[string]any{{
+		"Type":   res.typ,
+		"Name":   res.name,
+		"Action": res.action,
+	}})
 }
 
 // acrHostNotARegistry answers a data-plane request addressed to a host that is
@@ -390,25 +342,14 @@ func acrRegistryErrors(w http.ResponseWriter, status int, code, message string, 
 // listener, answers with the registry error envelope and NAME_UNKNOWN, the
 // Docker Registry v2 code for a name the registry does not know.
 func acrHostNotARegistry(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Docker-Distribution-Api-Version", "registry/2.0")
-	sim.WriteJSON(w, http.StatusNotFound, map[string]any{
-		"errors": []map[string]any{{
-			"code":    "NAME_UNKNOWN",
-			"message": "repository name not known to registry",
-			"detail":  map[string]any{"Host": r.Host},
-		}},
-	})
+	sim.RegistryError(w, http.StatusNotFound, "NAME_UNKNOWN", "repository name not known to registry",
+		map[string]any{"Host": r.Host})
 }
 
 // acrOAuthUnauthorized answers a token-service request whose credential did
 // not authenticate, with the registry's error envelope.
 func acrOAuthUnauthorized(w http.ResponseWriter, message string) {
-	sim.WriteJSON(w, http.StatusUnauthorized, map[string]any{
-		"errors": []map[string]any{{
-			"code":    "UNAUTHORIZED",
-			"message": message,
-		}},
-	})
+	sim.OCIError(w, "UNAUTHORIZED", message, http.StatusUnauthorized)
 }
 
 // acrTokenClaims is the payload of the JWTs this registry's token service
@@ -421,7 +362,7 @@ type acrTokenClaims struct {
 	Subject     string
 	GrantType   string
 	Audience    string
-	Access      []acrAccess
+	Access      []sim.RegistryScope
 	Permissions *acrTokenPermissions
 	// Credential fingerprints the admin password the token was minted from,
 	// and is empty for a token minted from a Microsoft Entra identity.
@@ -440,7 +381,7 @@ type acrTokenPermissions struct {
 func acrMintToken(claims acrTokenClaims) (string, error) {
 	now := time.Now()
 	payload := map[string]any{
-		"jti":        generateUUID(),
+		"jti":        sim.NewUUID(),
 		"sub":        claims.Subject,
 		"aud":        claims.Audience,
 		"grant_type": claims.GrantType,
@@ -475,9 +416,9 @@ func acrMintRefreshToken(reg Registry, subject string) (string, error) {
 }
 
 // acrMintAccessToken issues the scoped ACR access token /oauth2/token returns.
-func acrMintAccessToken(reg Registry, subject string, access []acrAccess, credential, slot string) (string, error) {
+func acrMintAccessToken(reg Registry, subject string, access []sim.RegistryScope, credential, slot string) (string, error) {
 	if access == nil {
-		access = []acrAccess{}
+		access = []sim.RegistryScope{}
 	}
 	return acrMintToken(acrTokenClaims{
 		Subject:    subject,
@@ -491,10 +432,9 @@ func acrMintAccessToken(reg Registry, subject string, access []acrAccess, creden
 
 // acrVerifiedToken is a token this registry issued, after verification.
 type acrVerifiedToken struct {
-	Subject     string
-	GrantType   string
-	Access      []acrAccess
-	Permissions *acrTokenPermissions
+	Subject   string
+	GrantType string
+	Access    []sim.RegistryScope
 }
 
 // acrVerifyToken verifies one of the registry's own JWTs: the signature and
@@ -537,18 +477,18 @@ func acrVerifyRefreshToken(token string, reg Registry) (*acrVerifiedToken, error
 }
 
 // acrAccessFromClaim reads the `access` claim back into access records.
-func acrAccessFromClaim(raw any) []acrAccess {
+func acrAccessFromClaim(raw any) []sim.RegistryScope {
 	entries, ok := raw.([]any)
 	if !ok {
 		return nil
 	}
-	out := make([]acrAccess, 0, len(entries))
+	out := make([]sim.RegistryScope, 0, len(entries))
 	for _, entry := range entries {
 		fields, ok := entry.(map[string]any)
 		if !ok {
 			continue
 		}
-		record := acrAccess{}
+		record := sim.RegistryScope{}
 		record.Type, _ = fields["type"].(string)
 		record.Name, _ = fields["name"].(string)
 		for _, action := range acrClaimList(fields["actions"]) {
@@ -567,39 +507,14 @@ func acrClaimList(raw any) []any {
 	return out
 }
 
-// acrParseScopes reads the requested token scopes. The scope grammar is the
-// Docker Registry v2 one, "<type>:<name>:<action>[,<action>…]", and a request
-// may carry several scopes, either repeated or space separated.
-func acrParseScopes(values []string) []acrAccess {
-	var out []acrAccess
-	for _, value := range values {
-		for _, field := range strings.Fields(value) {
-			parts := strings.SplitN(field, ":", 3)
-			if len(parts) != 3 || parts[0] == "" || parts[1] == "" {
-				continue
-			}
-			record := acrAccess{Type: parts[0], Name: parts[1]}
-			for _, action := range strings.Split(parts[2], ",") {
-				if action = strings.TrimSpace(action); action != "" {
-					record.Actions = append(record.Actions, action)
-				}
-			}
-			if len(record.Actions) > 0 {
-				out = append(out, record)
-			}
-		}
-	}
-	return out
-}
-
 // acrGrantScopes filters the scopes a token request asked for down to the ones
 // its credential authorizes, which is what a token service issues: the token
 // carries the granted access, never the requested access. An owner credential
 // (the admin user, or an authenticated Microsoft Entra identity) is granted
 // every action it asks for; an anonymous request is granted only the pull that
 // a registry with anonymous pull enabled offers.
-func acrGrantScopes(requested []acrAccess, owner bool) []acrAccess {
-	granted := make([]acrAccess, 0, len(requested))
+func acrGrantScopes(requested []sim.RegistryScope, owner bool) []sim.RegistryScope {
+	granted := make([]sim.RegistryScope, 0, len(requested))
 	for _, record := range requested {
 		if owner {
 			granted = append(granted, record)
@@ -612,7 +527,7 @@ func acrGrantScopes(requested []acrAccess, owner bool) []acrAccess {
 			}
 		}
 		if len(actions) > 0 {
-			granted = append(granted, acrAccess{Type: record.Type, Name: record.Name, Actions: actions})
+			granted = append(granted, sim.RegistryScope{Type: record.Type, Name: record.Name, Actions: actions})
 		}
 	}
 	return granted

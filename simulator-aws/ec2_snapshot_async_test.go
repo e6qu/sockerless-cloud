@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // CreateSnapshot is asynchronous on real EC2: it registers the snapshot, returns
@@ -27,7 +28,7 @@ func TestCreateSnapshotReturnsBeforeCapturingData(t *testing.T) {
 	t.Setenv("SIM_EBS_DATA_DIR", t.TempDir())
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ec2Volumes = sim.MakeStore[EC2Volume](nil, "ec2_volumes")
 	ec2Snapshots = sim.MakeStore[EC2Snapshot](nil, "ec2_snapshots")
 

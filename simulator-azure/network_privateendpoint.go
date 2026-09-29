@@ -301,7 +301,7 @@ func privateEndpointNICID(pe *PrivateEndpoint, previous *PrivateEndpoint) string
 	}
 	name := pe.Properties.CustomNetworkInterfaceName
 	if name == "" {
-		name = pe.Name + ".nic." + generateUUID()
+		name = pe.Name + ".nic." + sim.NewUUID()
 	}
 	rgScope := pe.ID[:strings.Index(pe.ID, "/providers/")]
 	return rgScope + "/providers/Microsoft.Network/networkInterfaces/" + name

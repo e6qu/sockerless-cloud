@@ -1,28 +1,8 @@
 package main
 
 import (
-	"errors"
-	"reflect"
 	"testing"
 )
-
-func TestParseDefaultRouteGatewayIPv4(t *testing.T) {
-	route := "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n" +
-		"eth0\t00000000\t011EA90A\t0003\t0\t0\t100\t00000000\t0\t0\t0\n" +
-		"eth0\t001EA90A\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0\n"
-
-	got := parseDefaultRouteGatewayIPv4(route)
-	if got != "10.169.30.1" {
-		t.Fatalf("default gateway = %q, want 10.169.30.1", got)
-	}
-}
-
-func TestParseDefaultRouteGatewayIPv4Missing(t *testing.T) {
-	got := parseDefaultRouteGatewayIPv4("Iface\tDestination\tGateway\neth0\t001EA90A\t00000000\n")
-	if got != "" {
-		t.Fatalf("default gateway = %q, want empty", got)
-	}
-}
 
 func TestRewriteHostDockerInternalEnv(t *testing.T) {
 	env := map[string]string{
@@ -74,59 +54,5 @@ func TestRewriteSimulatorEndpointForRealVPC(t *testing.T) {
 	}
 	if env["AWS_ENDPOINT_URL"] != "http://host.docker.internal:4566" {
 		t.Fatalf("input env was mutated: %q", env["AWS_ENDPOINT_URL"])
-	}
-}
-
-func TestWorkloadHostGatewayIPv4PrefersDockerHostAlias(t *testing.T) {
-	lookups := make([]string, 0, 1)
-	got := workloadHostGatewayIPv4(func(host string) ([]string, error) {
-		lookups = append(lookups, host)
-		if host != "host.docker.internal" {
-			t.Fatalf("unexpected lookup %q", host)
-		}
-		return []string{"192.168.127.254"}, nil
-	}, func() string {
-		t.Fatal("route fallback was used despite a Docker host alias")
-		return ""
-	})
-
-	if got != "192.168.127.254" {
-		t.Fatalf("gateway = %q, want outer container host alias 192.168.127.254", got)
-	}
-	if !reflect.DeepEqual(lookups, []string{"host.docker.internal"}) {
-		t.Fatalf("lookups = %v", lookups)
-	}
-}
-
-func TestWorkloadHostGatewayIPv4UsesContainersAliasBeforeRoute(t *testing.T) {
-	lookups := make([]string, 0, 2)
-	got := workloadHostGatewayIPv4(func(host string) ([]string, error) {
-		lookups = append(lookups, host)
-		if host == "host.docker.internal" {
-			return nil, errors.New("not found")
-		}
-		return []string{"192.168.127.253"}, nil
-	}, func() string {
-		t.Fatal("route fallback was used despite a Podman host alias")
-		return ""
-	})
-
-	if got != "192.168.127.253" {
-		t.Fatalf("gateway = %q, want outer container host alias 192.168.127.253", got)
-	}
-	if !reflect.DeepEqual(lookups, []string{"host.docker.internal", "host.containers.internal"}) {
-		t.Fatalf("lookups = %v", lookups)
-	}
-}
-
-func TestWorkloadHostGatewayIPv4FallsBackToRoute(t *testing.T) {
-	got := workloadHostGatewayIPv4(func(string) ([]string, error) {
-		return []string{"127.0.0.1", "::1", "invalid"}, nil
-	}, func() string {
-		return "10.88.0.1"
-	})
-
-	if got != "10.88.0.1" {
-		t.Fatalf("gateway = %q, want route fallback 10.88.0.1", got)
 	}
 }

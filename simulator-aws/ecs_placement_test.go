@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,7 +24,7 @@ import (
 // these tests on their own panicked in elbv2NLBHostEntries.
 func placementHostForTest(t *testing.T) {
 	t.Helper()
-	AwaitSimulatorBackground()
+	bg.Await()
 	buildConformanceSimulator(t)
 	ecsClusters = sim.MakeStore[ECSCluster](nil, "ecs_clusters")
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
@@ -162,14 +163,12 @@ func TestRunTaskRefusesPlacementWithTheRealShape(t *testing.T) {
 	handleECSRunTask(rec, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"cluster":"default","taskDefinition":"fits:1","count":1}`)))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.Contains(t, rec.Body.String(), `"failures":[]`)
-	placed, _ := ecsTasks.Get(func() string {
-		for _, task := range ecsTasks.List() {
-			if task.LastStatus != ECSTaskStatusStopped {
-				return strings.TrimPrefix(task.TaskArn, "arn:aws:ecs:"+awsRegion()+":"+awsAccountID()+":task/default/")
-			}
-		}
-		return ""
-	}())
+	var run struct {
+		Tasks []ECSTask `json:"tasks"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &run))
+	require.Len(t, run.Tasks, 1)
+	placed := run.Tasks[0]
 	require.Equal(t, "2048", placed.Memory, "the placed task carries the commitment it holds")
-	AwaitSimulatorBackground()
+	bg.Await()
 }

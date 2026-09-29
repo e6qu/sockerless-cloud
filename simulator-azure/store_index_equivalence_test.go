@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -417,8 +418,7 @@ func requireSameOrEmpty(t *testing.T, what string, want, got []string) {
 // identifier-derived half had no test of its own, so a subscription that
 // carries no `topic` property is the case proved here.
 func TestEventGridDeliversToASubscriptionKnownOnlyByItsIdentifier(t *testing.T) {
-	eventGridSubscriptions = sim.MakeStore[EventGridEventSubscription](nil, "test_index_eg_subs")
-	t.Cleanup(func() { eventGridSubscriptions = nil })
+	newEventGridTestServer(t)
 
 	delivered := make(chan string, 4)
 	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -454,7 +454,7 @@ func TestEventGridDeliversToASubscriptionKnownOnlyByItsIdentifier(t *testing.T) 
 		t.Fatal("a sibling topic's subscription does not belong to this topic")
 	}
 
-	deliverEventGridBatch(topicID, []byte(`[{"id":"evt-1"}]`))
+	eventGridSubmit(topicID, []json.RawMessage{json.RawMessage(`{"id":"evt-1"}`)})
 	select {
 	case body := <-delivered:
 		if !strings.Contains(body, "evt-1") {

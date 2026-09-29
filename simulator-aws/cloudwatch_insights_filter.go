@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/e6qu/sockerless-cloud/sim/listq"
+
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -19,27 +21,8 @@ import (
 //	restriction = field                       (bare field → present & truthy)
 //	value  = "string" | number | /regex/ | [ v, v, … ]   (in)
 //
-// Evaluated against a flattened record (field → string).
-
-type cwInsightsNode interface {
-	eval(rec cwInsightsRecord) bool
-}
-
-type cwInsTrue struct{}
-
-func (cwInsTrue) eval(cwInsightsRecord) bool { return true }
-
-type cwInsOr struct{ l, r cwInsightsNode }
-
-func (n cwInsOr) eval(rec cwInsightsRecord) bool { return n.l.eval(rec) || n.r.eval(rec) }
-
-type cwInsAnd struct{ l, r cwInsightsNode }
-
-func (n cwInsAnd) eval(rec cwInsightsRecord) bool { return n.l.eval(rec) && n.r.eval(rec) }
-
-type cwInsNot struct{ inner cwInsightsNode }
-
-func (n cwInsNot) eval(rec cwInsightsRecord) bool { return !n.inner.eval(rec) }
+// Evaluated against a flattened record, whose field names may hold dots, so a
+// comparison reads its field by exact name.
 
 type cwInsCmp struct {
 	field string
@@ -49,8 +32,9 @@ type cwInsCmp struct {
 	re    *regexp.Regexp
 }
 
-func (n cwInsCmp) eval(rec cwInsightsRecord) bool {
-	actual, present := rec[n.field]
+func (n cwInsCmp) Eval(rec listq.Doc) bool {
+	v, present := rec[n.field]
+	actual := listq.ScalarString(v)
 	switch n.op {
 	case "":
 		return present && actual != "" && actual != "false" && actual != "0"
@@ -58,8 +42,14 @@ func (n cwInsCmp) eval(rec cwInsightsRecord) bool {
 		return actual == n.value
 	case "!=":
 		return actual != n.value
-	case "<", "<=", ">", ">=":
-		return cwNumCompare(actual, n.op, n.value)
+	case "<":
+		return listq.CompareOrdered(actual, n.value) < 0
+	case "<=":
+		return listq.CompareOrdered(actual, n.value) <= 0
+	case ">":
+		return listq.CompareOrdered(actual, n.value) > 0
+	case ">=":
+		return listq.CompareOrdered(actual, n.value) >= 0
 	case "like":
 		if n.re != nil {
 			return n.re.MatchString(actual)
@@ -75,8 +65,6 @@ func (n cwInsCmp) eval(rec cwInsightsRecord) bool {
 	}
 	return false
 }
-
-// ── tokenizer ──────────────────────────────────────────────────────────────
 
 type cwInsTokKind int
 
@@ -185,8 +173,6 @@ func cwInsTokenize(s string) []cwInsTok {
 	return append(toks, cwInsTok{cwInsEOF, ""})
 }
 
-// ── parser ─────────────────────────────────────────────────────────────────
-
 type cwInsParser struct {
 	toks  []cwInsTok
 	pos   int
@@ -200,10 +186,10 @@ func (p *cwInsParser) fail(format string, args ...any) {
 	}
 }
 
-func cwParseInsightsFilter(s string) (cwInsightsNode, error) {
+func cwParseInsightsFilter(s string) (listq.Node, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return cwInsTrue{}, nil
+		return listq.True{}, nil
 	}
 	p := &cwInsParser{toks: cwInsTokenize(s), guard: sim.NewParseGuard(maxExprParseDepth, 1<<62)}
 	node := p.parseOr()
@@ -219,39 +205,49 @@ func cwParseInsightsFilter(s string) (cwInsightsNode, error) {
 func (p *cwInsParser) peek() cwInsTok { return p.toks[p.pos] }
 func (p *cwInsParser) next() cwInsTok { t := p.toks[p.pos]; p.pos++; return t }
 
-func (p *cwInsParser) parseOr() cwInsightsNode {
+func (p *cwInsParser) parseOr() listq.Node {
 	left := p.parseAnd()
-	for p.peek().kind == cwInsOrKw {
+	for p.err == nil && p.peek().kind == cwInsOrKw {
 		p.next()
-		left = cwInsOr{left, p.parseAnd()}
+		left = listq.Or{L: left, R: p.parseAnd()}
 	}
 	return left
 }
 
-func (p *cwInsParser) parseAnd() cwInsightsNode {
+func (p *cwInsParser) parseAnd() listq.Node {
 	left := p.parseNot()
-	for p.peek().kind == cwInsAndKw {
+	for p.err == nil && p.peek().kind == cwInsAndKw {
 		p.next()
-		left = cwInsAnd{left, p.parseNot()}
+		left = listq.And{L: left, R: p.parseNot()}
 	}
 	return left
 }
 
-func (p *cwInsParser) parseNot() cwInsightsNode {
-	if p.peek().kind == cwInsNotKw {
+func (p *cwInsParser) parseNot() listq.Node {
+	if p.err == nil && p.peek().kind == cwInsNotKw {
 		p.next()
-		return cwInsNot{p.parseNot()}
+		if !p.guard.Enter() {
+			p.guard.Leave()
+			p.fail("malformed query: filter nesting too deep")
+			return listq.True{}
+		}
+		inner := p.parseNot()
+		p.guard.Leave()
+		return listq.Not{Inner: inner}
 	}
 	return p.parseTerm()
 }
 
-func (p *cwInsParser) parseTerm() cwInsightsNode {
+func (p *cwInsParser) parseTerm() listq.Node {
+	if p.err != nil {
+		return listq.True{}
+	}
 	if p.peek().kind == cwInsLParen {
 		p.next()
 		if !p.guard.Enter() {
 			p.guard.Leave()
 			p.fail("malformed query: filter nesting too deep")
-			return cwInsTrue{}
+			return listq.True{}
 		}
 		inner := p.parseOr()
 		p.guard.Leave()
@@ -269,7 +265,7 @@ func (p *cwInsParser) parseTerm() cwInsightsNode {
 			p.fail("malformed query: unexpected token %q in filter", p.peek().text)
 			p.next()
 		}
-		return cwInsTrue{}
+		return listq.True{}
 	}
 	field := p.next().text
 	switch p.peek().kind {
@@ -323,5 +319,6 @@ func (p *cwInsParser) parseValue() string {
 	if p.peek().kind != cwInsEOF {
 		return p.next().text
 	}
+	p.fail("malformed query: filter comparison is missing its value")
 	return ""
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // TestECSStopServiceTasks_DrainsNonStopped verifies the delete-time drain: given
@@ -19,7 +20,7 @@ func TestECSStopServiceTasks_DrainsNonStopped(t *testing.T) {
 	// though the drain itself never touches them.
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
-	AwaitSimulatorBackground()
+	bg.Await()
 	ecsClusters = sim.MakeStore[ECSCluster](nil, "ecs_clusters")
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")
@@ -80,7 +81,7 @@ func TestECSStopServiceTasks_DrainsNonStopped(t *testing.T) {
 }
 
 func makeECSTestTask(clusterArn, group, startedBy string, status ECSTaskStatus) ECSTask {
-	taskID := generateUUID()
+	taskID := sim.NewUUID()
 	return ECSTask{
 		TaskArn:           ecsArn("task", clusterArn[strings.LastIndex(clusterArn, "/")+1:]+"/"+taskID),
 		TaskDefinitionArn: ecsArn("task-definition", "drain-task:1"),

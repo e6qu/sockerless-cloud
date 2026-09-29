@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -109,6 +110,7 @@ func registerApplicationAutoScaling(r *AWSRouter, srv *sim.Server, startBackgrou
 	r.Register("AnyScaleFrontendService.DescribeScalingActivities", handleAppASDescribeScalingActivities)
 	r.Register("AnyScaleFrontendService.GetPredictiveScalingForecast", handleAppASGetPredictiveScalingForecast)
 
+	startAppScheduledActions(srv)
 	if startBackgroundEvaluator {
 		// Evaluate target-tracking policies and adjust capacity on a short
 		// cadence so a policy is observable inside a test. Idempotent across
@@ -135,7 +137,7 @@ func appScalableTargetARN(id string) string {
 // resource path and policy name.
 func appScalingPolicyARN(ns, resourceID, name string) string {
 	return fmt.Sprintf("arn:aws:autoscaling:%s:%s:scalingPolicy:%s:resource/%s/%s:policyName/%s",
-		awsRegion(), awsAccountID(), generateUUID(), ns, resourceID, name)
+		awsRegion(), awsAccountID(), sim.NewUUID(), ns, resourceID, name)
 }
 
 func handleAppASRegisterScalableTarget(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +170,7 @@ func handleAppASRegisterScalableTarget(w http.ResponseWriter, r *http.Request) {
 			ResourceId:        req.ResourceId,
 			ScalableDimension: req.ScalableDimension,
 			CreationTime:      float64(time.Now().Unix()),
-			ARN:               appScalableTargetARN(generateUUID()),
+			ARN:               appScalableTargetARN(sim.NewUUID()),
 		}
 	}
 	if req.MinCapacity != nil {
@@ -267,7 +269,10 @@ func handleAppASDescribeScalableTargets(w http.ResponseWriter, r *http.Request) 
 		return true
 	})
 	matched = sortBy(matched, func(t AppScalableTarget) string { return t.ResourceId })
-	page, next := awsPageExplicit(matched, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, appASBadToken, matched, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 
 	out := make([]map[string]any, 0, len(page))
 	for _, t := range page {
@@ -398,7 +403,10 @@ func appASDescribePage[T any](
 		return true
 	})
 	matched = sortBy(matched, nameOf)
-	page, next := awsPageExplicit(matched, nextToken, awsMaxResults(maxResults))
+	page, next, pageOK := awsPage(w, appASBadToken, matched, nextToken, awsMaxResults(maxResults), 0)
+	if !pageOK {
+		return
+	}
 	out := make([]map[string]any, 0, len(page))
 	for _, x := range page {
 		out = append(out, toJSON(x))
@@ -549,7 +557,7 @@ func appScheduledActionKey(ns, resourceID, name string) string {
 
 func appScheduledActionARN(ns, resourceID, name string) string {
 	return fmt.Sprintf("arn:aws:autoscaling:%s:%s:scheduledAction:%s:resource/%s/%s:scheduledActionName/%s",
-		awsRegion(), awsAccountID(), generateUUID(), ns, resourceID, name)
+		awsRegion(), awsAccountID(), sim.NewUUID(), ns, resourceID, name)
 }
 
 func handleAppASPutScheduledAction(w http.ResponseWriter, r *http.Request) {
@@ -575,6 +583,12 @@ func handleAppASPutScheduledAction(w http.ResponseWriter, r *http.Request) {
 	}
 	key := appScheduledActionKey(req.ServiceNamespace, req.ResourceId, req.ScheduledActionName)
 	action, exists := appScheduledActions.Get(key)
+	if schedule := cmp.Or(req.Schedule, action.Schedule); schedule != "" {
+		if _, err := parseAWSSchedule(schedule, req.Timezone, true); err != nil {
+			AWSError(w, "ValidationException", "Invalid schedule: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	if !exists {
 		action = AppScheduledAction{
 			ScheduledActionName: req.ScheduledActionName,
@@ -719,7 +733,10 @@ func handleAppASDescribeScalingActivities(w http.ResponseWriter, r *http.Request
 	})
 	// Most-recent-first ordering, matching real AWS.
 	matched = sortBy(matched, func(a AppScalingActivity) string { return a.ActivityId })
-	page, next := awsPageExplicit(matched, req.NextToken, awsMaxResults(req.MaxResults))
+	page, next, pageOK := awsPage(w, appASBadToken, matched, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	if !pageOK {
+		return
+	}
 
 	out := make([]map[string]any, 0, len(page))
 	for _, a := range page {

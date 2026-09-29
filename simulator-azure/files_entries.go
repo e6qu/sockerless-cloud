@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/sparse"
 )
 
 // Azure Files data plane — directories, files, handles, ranges and links.
@@ -680,21 +683,21 @@ func handleFilesGetRangeList(w http.ResponseWriter, r *http.Request, account, sh
 	if !filesRequireLease(w, r, account, share, filePath, "file") {
 		return
 	}
-	ranges, err := fileDataRanges(hostPath, info.Size())
+	ranges, err := filesDataExtents(hostPath)
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 	// An x-ms-range header narrows the enumeration to the requested window.
 	if raw := r.Header.Get("x-ms-range"); raw != "" {
-		start, end, valid := parseAzureFileRange(raw)
+		start, end, valid := blobExactRange(raw)
 		if !valid {
 			writeStorageError(w, "InvalidHeaderValue",
 				"The value for one of the HTTP headers is not in the correct format: x-ms-range.",
 				http.StatusBadRequest)
 			return
 		}
-		ranges = clipFileRanges(ranges, start, end)
+		ranges = sparse.Clip(ranges, start, end)
 	}
 	type fileRange struct {
 		XMLName xml.Name `xml:"Range"`
@@ -715,29 +718,6 @@ func handleFilesGetRangeList(w http.ResponseWriter, r *http.Request, account, sh
 	writeStorageXML(w, http.StatusOK, out)
 }
 
-type fileByteRange struct {
-	Start int64
-	End   int64
-}
-
-// clipFileRanges narrows an enumeration to the window [start, end].
-func clipFileRanges(ranges []fileByteRange, start, end int64) []fileByteRange {
-	var out []fileByteRange
-	for _, rg := range ranges {
-		lo, hi := rg.Start, rg.End
-		if lo < start {
-			lo = start
-		}
-		if hi > end {
-			hi = end
-		}
-		if lo <= hi {
-			out = append(out, fileByteRange{Start: lo, End: hi})
-		}
-	}
-	return out
-}
-
 // handleFilesUploadRangeFromURL is Upload Range from URL: it copies the source
 // range out of the file the x-ms-copy-source URL names and writes it into this
 // file's range.
@@ -749,7 +729,7 @@ func handleFilesUploadRangeFromURL(w http.ResponseWriter, r *http.Request, accou
 	if !filesRequireLease(w, r, account, share, filePath, "file") {
 		return
 	}
-	start, end, valid := parseAzureFileRange(r.Header.Get("x-ms-range"))
+	start, end, valid := blobExactRange(r.Header.Get("x-ms-range"))
 	if !valid {
 		writeStorageError(w, "InvalidHeaderValue",
 			"The value for one of the HTTP headers is not in the correct format: x-ms-range.",
@@ -768,7 +748,7 @@ func handleFilesUploadRangeFromURL(w http.ResponseWriter, r *http.Request, accou
 	}
 	sourceStart, sourceEnd := start, end
 	if raw := r.Header.Get("x-ms-source-range"); raw != "" {
-		s, e, valid := parseAzureFileRange(raw)
+		s, e, valid := blobExactRange(raw)
 		if !valid {
 			writeStorageError(w, "InvalidHeaderValue",
 				"The value for one of the HTTP headers is not in the correct format: x-ms-source-range.",
@@ -1013,7 +993,7 @@ func handleFilesStartCopy(w http.ResponseWriter, r *http.Request, account, share
 	}
 	w.Header().Set("ETag", fileETag(info))
 	w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
-	w.Header().Set("x-ms-copy-id", generateUUID())
+	w.Header().Set("x-ms-copy-id", sim.NewUUID())
 	w.Header().Set("x-ms-copy-status", "success")
 	w.WriteHeader(http.StatusAccepted)
 }
