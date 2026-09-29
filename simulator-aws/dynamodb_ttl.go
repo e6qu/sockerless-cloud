@@ -15,8 +15,8 @@ import (
 //
 // UpdateTimeToLive and DescribeTimeToLive stored and reported a table's TTL
 // attribute, but nothing deleted an expired item, so a table whose application
-// relied on TTL grew without bound. ecs-dev-desktop's table on the Scaleway
-// stack held 3,874 session correlations and 1,056 logout tokens that had all
+// relied on TTL grew without bound. one application's table on a production
+// deployment held 3,874 session correlations and 1,056 logout tokens that had all
 // expired, the oldest in August, and every scan of that table read them.
 //
 // What DynamoDB documents, and what the sweep does:

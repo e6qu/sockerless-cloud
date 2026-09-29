@@ -427,7 +427,7 @@ func TestELBv2DataPlaneTunnelsUpgradedConnectionsBothWays(t *testing.T) {
 }
 
 // A browser abandons in-flight requests whenever it navigates, and Next's
-// _rsc= prefetches are abandoned constantly. On the Scaleway stack that made
+// _rsc= prefetches are abandoned constantly. On a production deployment that made
 // 82 of 83 data-plane 502s client disconnections, which hid the one real
 // failure in eight hours until it landed on a <script> tag and failed the
 // acceptance gate. A client that went away is recorded as 499, not as a bad
@@ -474,7 +474,7 @@ func TestELBv2DataPlaneRecordsAClientDisconnectAsClientClosedRequest(t *testing.
 // The opposite case, and the one that must keep failing loudly: a target that
 // closes a FRESH connection. Go retries a reused connection by itself but
 // declines to replay a fresh one, so this reaches the client as a 502 carrying
-// "EOF" -- the exact shape of the single real failure on the Scaleway stack.
+// "EOF" -- the exact shape of the single real failure on a production deployment.
 // Retrying it here would invent a replay the standard library deliberately
 // refuses.
 func TestELBv2DataPlaneReportsATargetThatClosesAFreshConnection(t *testing.T) {

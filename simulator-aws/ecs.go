@@ -2393,8 +2393,8 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 		taskDNS = []string{realexec.VPCResolverIPv4}
 	}
 	var sharedNetMode string
-	// The netns tier was one phase, "volumes-pause-vpc", and on the Scaleway
-	// stack it was 9-12 s of every task start with nothing saying which step
+	// The netns tier was one phase, "volumes-pause-vpc", and on a production
+	// deployment it was 9-12 s of every task start with nothing saying which step
 	// spent them. Each step reports itself, and the attach reports its own,
 	// so the next slow start is attributable from the simulator's log.
 	phases.Mark("volumes")

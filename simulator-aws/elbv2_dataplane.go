@@ -216,8 +216,8 @@ func elbv2ProxyHTTPRequest(w http.ResponseWriter, r *http.Request, listener ELBv
 		// abandons in-flight requests whenever it navigates -- Next's _rsc=
 		// prefetches are abandoned constantly -- and the forward inherits the
 		// inbound context, so the cancellation surfaces here as a forwarding
-		// error. Reporting 502 for it made 82 of 83 data-plane 502s on the
-		// Scaleway stack client disconnections, which is how the ONE real
+		// error. Reporting 502 for it made 82 of 83 data-plane 502s on a
+		// production deployment client disconnections, which is how the ONE real
 		// failure in eight hours (a target that closed a fresh connection,
 		// "EOF") stayed invisible until it happened to land on a <script> tag
 		// and fail the acceptance gate.

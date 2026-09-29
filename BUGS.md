@@ -22,7 +22,7 @@ Open: 15. Resolved: 178.
 | 3080 | P3 | The EC2 Client VPN endpoint authorization-policy operations are not served | operations a model gained before any client could call them | GetClientVpnEndpointAuthorizationPolicy, ModifyClientVpnEndpointAuthorizationPolicy and DeleteClientVpnEndpointAuthorizationPolicy entered the vendored EC2 model with aws/aws-sdk-go-v2 09e460a419a0 on 2026-09-28: one Cedar authorization policy per Client VPN endpoint, created or merged by Modify (PolicyDocument required on creation), with a shadow mode and a status. The testing contract needs SDK, CLI and Terraform coverage in the commit that serves them, and on 2026-09-28 the only SDK release carrying them, service/ec2 v1.337.0 (18:27 UTC), was inside the 24-hour adoption quarantine, the AWS CLI and the Terraform provider had none, and the API reference page was empty. `model_drift_test.go` exempts the three with this record. The repair, once v1.337.0 clears the quarantine: serve the three from the model's semantics with SDK tests, add CLI and Terraform coverage as those clients ship the operations, and take the errors for a missing policy and an invalid Cedar document from the published reference or a capture. |
 | 3063 | P3 | Whether Amazon ECR counts the config blob in `imageSizeInBytes` is uncaptured | a documented quantity whose exact sum the documentation does not give | ImageDetail defines the value as "the size, in bytes, of the image in the repository", notes that layers are compressed before they are pushed, and for a manifest list takes the largest listed manifest. The simulator sums the manifest's layer sizes (BUG-3062). Whether ECR adds the config blob, or the manifest itself, is not stated. The repair is a capture: push an image of known layer and config sizes to a real repository and read DescribeImages back. |
 | 3059 | P3 | An S3 restore completes the moment it is requested, and a tier the storage class does not offer is accepted | behaviour AWS documents without the error it answers | Amazon S3 takes minutes to hours to restore an archived object, by tier ("typically made available within 1–5 minutes" for Expedited, 3–5 hours Standard, 5–12 hours Bulk; `API_RestoreObject`), and during that time HeadObject reports `ongoing-request="true"` and a second request answers `RestoreAlreadyInProgress`. The simulator completes the restore at once, so the in-progress state is never observable. The same page says Expedited retrievals "are not available for objects stored in the S3 Glacier Deep Archive storage class" but names no error code, so the simulator accepts that request. The repair is a capture against a real bucket: the error an Expedited restore of a DEEP_ARCHIVE object answers, and the `x-amz-restore` sequence of a Standard restore, then the restore modelled on the documented tier durations only if a capture shows how the service reports them. |
-| 3055 | P2 | The deployed AWS simulator takes 90 seconds to stop | a shutdown that waits on something that does not return when cancelled, until systemd's default stop timeout kills it | In the Scaleway microVM, `simulator-aws.service` logged "shutting down" at 01:08:11 on 2026-09-28 and was stopped at 01:09:41 — exactly systemd's default `TimeoutStopSec` — with nothing in between; every other guest unit stopped within milliseconds. It is 92 of the 117 seconds a simulator upgrade takes. A local simulator with a running ECS task stops in one second, so the cause needs the deployed load. The main suspect is `ecsHandOffTaskLifecycle`, whose workers ignore their context (`StartBackground(..., func(context.Context) { run() })`), so a task start in progress at shutdown holds `stopBackground` until it finishes. The shutdown now names the workers it waits on every five seconds and times its phases, so the next upgrade's serial console (the host journal of `sim-vm.service`) says which; the repair is making that worker return on cancellation. |
+| 3055 | P2 | The deployed AWS simulator takes 90 seconds to stop | a shutdown that waits on something that does not return when cancelled, until systemd's default stop timeout kills it | In a deployment that runs the simulator in a Firecracker microVM, `simulator-aws.service` logged "shutting down" at 01:08:11 on 2026-09-28 and was stopped at 01:09:41 — exactly systemd's default `TimeoutStopSec` — with nothing in between; every other guest unit stopped within milliseconds. It is 92 of the 117 seconds a simulator upgrade takes. A local simulator with a running ECS task stops in one second, so the cause needs the deployed load. The main suspect is `ecsHandOffTaskLifecycle`, whose workers ignore their context (`StartBackground(..., func(context.Context) { run() })`), so a task start in progress at shutdown holds `stopBackground` until it finishes. The shutdown now names the workers it waits on every five seconds and times its phases, so the next upgrade's serial console says which; the repair is making that worker return on cancellation. |
 | 3046 | P3 | A Cloud Bigtable memory layer never reports `memoryConfig.storageSizeGib` | an output-only measurement whose rule no published source states | The field is "the current size of the memory layer in GiB" (`google.bigtable.admin.v2.MemoryLayer.MemoryConfig`), set by the service once a layer is enabled. Neither the proto, the Discovery document nor the product documentation says how the size follows from the cluster, so the simulator reports none rather than invent a figure; both the REST and gRPC surfaces read the same record. The repair is a capture: enable a memory layer on a real cluster at two node counts and read the size back, then derive it from the cluster the way the service does. |
 | 3045 | P3 | Cloud Bigtable admin operations carry no metadata, except UpdateMemoryLayer's | an operation built from its result alone | Every Cloud Bigtable admin method that answers with a long-running operation declares a metadata message — `CreateInstanceMetadata`, `UpdateClusterMetadata`, `CreateBackupMetadata` and the rest — and the service fills it with the original request and its timings. `bigtableDoneOperation` builds the operation from the resource alone, so a client that reads `Metadata()` gets nothing. `bigtableDoneOperationWithMetadata` exists now and UpdateMemoryLayer uses it; the repair is the same call at each of the other call sites with that method's metadata, and an SDK assertion per method that the metadata names the request. |
 | 3037 | P3 | DescribeInstanceTypes reports 2 vCPUs, one core and 1024 MiB for every instance type, and the future-dated Capacity Reservation minimum of 32 vCPUs is not enforced because nothing in the simulator knows a type's vCPUs | a response built from a template rather than from the instance type it names | `handleDescribeInstanceTypes` writes the same `vCpuInfo`, `memoryInfo` and network block for every type it lists, and `vcpusForInstanceType` guesses from the size suffix, defaulting to 2. A client sizing a fleet, and the CreateCapacityReservation check that a future-dated request asks for at least 32 vCPUs ("the minimum instance count is 32 vCPUs", EC2 user guide, Future-dated Capacity Reservation assessment), both need the real figures. The repair is a vendored instance-type catalog — the specification of each type as `DescribeInstanceTypes` itself publishes it, pinned and checksummed like the other vendored corpora — that both the describe and the capacity check read. |
@@ -577,7 +577,7 @@ Open: 15. Resolved: 178.
   mount carries the container label. Creation runs on the task's transition,
   and a host whose engine cannot mount the image fails the task with a
   `ResourceInitializationError` that says so. Snapshots stay file-level
-  copies, so the five directory-backed snapshots on the Scaleway stack (6 MiB
+  copies, so the five directory-backed snapshots on a production deployment (6 MiB
   to 82 MiB against 8-16 GiB volumes) restore into the new volumes unchanged.
   `TestECS_ManagedEBSVolumeHasItsOwnSizeAndFilesystemSDK` fails against a plain
   volume (`total_kb=104178368`).
@@ -607,7 +607,7 @@ Open: 15. Resolved: 178.
 
 - ~~**BUG-3007 (temporary credentials and AWS WAF sampled requests were never
   deleted):**~~ Nothing deleted from `iamTempCreds` or `wafSampledRequests`.
-  On 2026-09-17 the Scaleway simulator held 1,212,219 temporary credentials
+  On 2026-09-17 a deployed simulator held 1,212,219 temporary credentials
   (532 MB), 1,210,876 of them expired, and 196,367 sampled requests
   (442 MB), 193,893 of them older than the three hours AWS WAF keeps. 94% of
   the credentials belonged to one task's role: `GET /v4/{id}/credentials`
@@ -629,7 +629,7 @@ Open: 15. Resolved: 178.
   temporary access key are not deleted with it (BUG-3009).
 
 - ~~**BUG-3006 (the stopped-task sweep deleted by ARN, so it never swept
-  anything):**~~ Amazon ECS task starts on the Scaleway stack spent 3.1-6.0 s
+  anything):**~~ Amazon ECS task starts on a production deployment spent 3.1-6.0 s
   in `vpc:egress` and 1.6-3.1 s in `vpc:security-groups`. Phase marks added
   inside both phases put all of the egress time before the first `nft` step,
   and goroutine samples taken inside the microVM during a start sat in
@@ -680,7 +680,7 @@ Open: 15. Resolved: 178.
   in it now fails instead of being stepped over.
 
 - ~~**BUG-3004 (ECS StopTask waited out the container's stop timeout before it
-  answered):**~~ Found on 2026-09-15 in the Scaleway stack's `[sim-slow]`
+  answered):**~~ Found on 2026-09-15 in a production deployment's `[sim-slow]`
   reports after the 08:43Z and 16:02Z deploys: StopTask calls took 30,567 ms,
   the default 30-second stop timeout plus the container's removal, because
   ecs-dev-desktop's workspace containers do not exit on SIGTERM. The
@@ -710,7 +710,7 @@ Open: 15. Resolved: 178.
 - ~~**BUG-3003 (a DynamoDB query on a secondary index read every item from
   SQLite under the table lock, stalling writes for seconds):**~~ Found on
   2026-09-15 when ecs-dev-desktop's monitoring observation kept missing
-  Shauth's five-second budget on the Scaleway stack. The simulator's own
+  Shauth's five-second budget on a production deployment. The simulator's own
   `[sim-slow]` reports showed 47 UpdateItem calls finishing after up to 21 s
   and a PutItem after 13 s within one minute, and a GSI query took a median
   1.2 s from outside against 0.65 s for GetItem. A query on an index cannot
@@ -734,8 +734,8 @@ Open: 15. Resolved: 178.
   read is a SQLite query, DescribeTable on ecs-dev-desktop's 2,501-item table
   took a median 1.6 s (runs up to 3 s) against 0.7 s for ListTables. That
   application's health ping is a DescribeTable, and its monitoring endpoint,
-  which Shauth abandons after five seconds, took 5.8 s and failed the Scaleway
-  post-apply gate on 2026-09-14. **Fixed**: DescribeTable serves the figures
+  which Shauth abandons after five seconds, took 5.8 s and failed a production
+  deployment's acceptance gate on 2026-09-14. **Fixed**: DescribeTable serves the figures
   from a cache and never reads items on the request path; a background refresh,
   counted by the test drain, recomputes a table at most once a minute, and a
   table described before its first refresh reports zero — DynamoDB itself
@@ -746,7 +746,7 @@ Open: 15. Resolved: 178.
 
 - ~~**BUG-3000 (DynamoDB never deleted an item past its TTL, and DescribeTable
   reported every table empty):**~~ Found on 2026-09-14 when ecs-dev-desktop's
-  admin workspace list took 32 s on the Scaleway stack. Its table had TTL
+  admin workspace list took 32 s on a production deployment. Its table had TTL
   enabled on `expiresAtEpochSeconds`, and 3,874 of its 3,876 session
   correlations and all 1,056 logout tokens had expired, the oldest in August:
   `UpdateTimeToLive` stored the setting and `DescribeTimeToLive` read it back,
@@ -811,7 +811,7 @@ Open: 15. Resolved: 178.
   at most three times, and keeps the existing index and platform checks.
 
 - ~~**BUG-2998 (DescribeTasks omitted each container's image, digest and sizing,
-  and a task RunTask gave no group had none):**~~ Found on the Scaleway stack
+  and a task RunTask gave no group had none):**~~ Found on a production deployment
   on 2026-09-14 while confirming a control-plane rollout: `describe-tasks`
   returned `containers[]` with only `containerArn`, `name`, `lastStatus` and
   `networkInterfaces`, so a caller could not confirm from the API which image a

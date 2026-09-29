@@ -30,11 +30,11 @@ func TestRewriteHostDockerInternalEnv(t *testing.T) {
 		"UNCHANGED":        "http://example.test",
 	}
 
-	got := rewriteHostDockerInternalEnvWithGateway(env, "10.89.30.1")
+	got := rewriteHostDockerInternalEnvWithGateway(env, "192.0.2.1")
 	if got["UNCHANGED"] != "http://example.test" {
 		t.Fatalf("UNCHANGED = %q", got["UNCHANGED"])
 	}
-	if got["AWS_ENDPOINT_URL"] != "http://10.89.30.1:4566" {
+	if got["AWS_ENDPOINT_URL"] != "http://192.0.2.1:4566" {
 		t.Fatalf("AWS_ENDPOINT_URL = %q", got["AWS_ENDPOINT_URL"])
 	}
 	if env["AWS_ENDPOINT_URL"] != "http://host.docker.internal:4566" {

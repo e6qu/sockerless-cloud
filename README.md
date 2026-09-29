@@ -73,7 +73,7 @@ Environment knobs (per sim — full list in each sub-README):
 | `SIM_UI_OIDC_ISSUER` | unset | OpenID Connect issuer for the embedded operator UI. Configure all UI OIDC values together. |
 | `SIM_UI_OIDC_CLIENT_ID` | unset | OpenID Connect relying-party client ID for this simulator dashboard. |
 | `SIM_UI_OIDC_CLIENT_SECRET` | unset | OpenID Connect relying-party client secret, supplied through the deployment secret store. |
-| `SIM_UI_PUBLIC_URL` | unset | Externally visible origin for callback and logout redirects, such as `https://aws.dev.e6qu.dev`. |
+| `SIM_UI_PUBLIC_URL` | unset | Externally visible origin for callback and logout redirects, such as `https://aws.example.com`. |
 | `SIM_UI_SESSION_SECRET` | unset | Independent random value of at least 32 bytes used to sign local browser sessions. |
 | `SIM_UI_INSECURE_COOKIES` | `false` | Explicit loopback-development opt-in for HTTP issuer/public coordinates and non-Secure cookies; non-loopback HTTP coordinates remain invalid. |
 | `APPLICATION_RELEASE_REVISION` | unset | Immutable 12–64 character lowercase hexadecimal revision or `sha256:` image digest; required whenever UI OpenID Connect is enabled. |
@@ -111,9 +111,9 @@ The development registrations are therefore:
 
 | Dashboard | Redirect URI | Post-logout redirect URI | Front-channel logout URI | Back-channel logout URI |
 |---|---|---|---|---|
-| AWS | `https://aws.dev.e6qu.dev/auth/oidc/callback` | `https://aws.dev.e6qu.dev/auth/signed-out` | `https://aws.dev.e6qu.dev/auth/oidc/frontchannel-logout` | `https://aws.dev.e6qu.dev/auth/oidc/backchannel-logout` |
-| Google Cloud | `https://gcp.dev.e6qu.dev/auth/oidc/callback` | `https://gcp.dev.e6qu.dev/auth/signed-out` | `https://gcp.dev.e6qu.dev/auth/oidc/frontchannel-logout` | `https://gcp.dev.e6qu.dev/auth/oidc/backchannel-logout` |
-| Microsoft Azure | `https://azure.dev.e6qu.dev/auth/oidc/callback` | `https://azure.dev.e6qu.dev/auth/signed-out` | `https://azure.dev.e6qu.dev/auth/oidc/frontchannel-logout` | `https://azure.dev.e6qu.dev/auth/oidc/backchannel-logout` |
+| AWS | `https://aws.example.com/auth/oidc/callback` | `https://aws.example.com/auth/signed-out` | `https://aws.example.com/auth/oidc/frontchannel-logout` | `https://aws.example.com/auth/oidc/backchannel-logout` |
+| Google Cloud | `https://gcp.example.com/auth/oidc/callback` | `https://gcp.example.com/auth/signed-out` | `https://gcp.example.com/auth/oidc/frontchannel-logout` | `https://gcp.example.com/auth/oidc/backchannel-logout` |
+| Microsoft Azure | `https://azure.example.com/auth/oidc/callback` | `https://azure.example.com/auth/signed-out` | `https://azure.example.com/auth/oidc/frontchannel-logout` | `https://azure.example.com/auth/oidc/backchannel-logout` |
 
 The browser starts at `/ui/`, redirects through `/auth/oidc/login` when no
 local session is active, obtains its identity from `/auth/session`, and submits
