@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.4](https://github.com/e6qu/sockerless-cloud/compare/v0.33.3...v0.33.4) (2026-09-29)
+
+
+### Bug Fixes
+
+* **aws:** DynamoDB key order, validation and secondary indexes; CI image fixes ([ebf67a5](https://github.com/e6qu/sockerless-cloud/commit/ebf67a5b944be2ae7e747764d7b01ff6680d0f5c))
+
 ## [0.33.3](https://github.com/e6qu/sockerless-cloud/compare/v0.33.2...v0.33.3) (2026-09-28)
 
 
