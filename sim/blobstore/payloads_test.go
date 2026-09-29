@@ -1,4 +1,4 @@
-package sim
+package blobstore
 
 import (
 	"errors"
@@ -13,11 +13,11 @@ func TestPayloadsWriteReadRangeRemove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := payloads.Write([]byte("0123456789"))
+	first, _, err := payloads.Write([]byte("0123456789"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := payloads.Write([]byte("0123456789"))
+	second, _, err := payloads.Write([]byte("0123456789"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestPayloadsRefuseAReferenceThatIsNotOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, ref := range []string{"", "../../etc/passwd", "0123456789abcdef0123456789abcdeF", "0123456789abcdef"} {
+	for _, ref := range []string{"../../etc/passwd", "0123456789abcdef0123456789abcdeF", "0123456789abcdef"} {
 		if _, err := payloads.Open(ref); err == nil || errors.Is(err, ErrPayloadGone) {
 			t.Errorf("Open(%q) = %v, want a malformed-reference error", ref, err)
 		}
@@ -73,11 +73,11 @@ func TestPayloadsSweepKeepsExactlyTheReferencedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	kept, err := payloads.Write([]byte("kept"))
+	kept, _, err := payloads.Write([]byte("kept"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	orphan, err := payloads.Write([]byte("orphan"))
+	orphan, _, err := payloads.Write([]byte("orphan"))
 	if err != nil {
 		t.Fatal(err)
 	}

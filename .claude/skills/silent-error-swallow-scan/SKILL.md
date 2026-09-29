@@ -12,7 +12,7 @@ This skill is that scan.
 ## When this skill applies
 
 - Before merging any Go change — final pre-PR scan.
-- Periodically across the whole `simulator-` + `backends/` + `agent/` tree.
+- Periodically across `simulator-*/`, `sim/`, `realexec/`, `ui-auth/` and `testutil/`.
 - When a bug surfaces with the shape "the sim accepted my request, returned 200, but didn't actually persist X" — this is almost always a silent decode.
 - When auditing a service for the "no fallbacks" rule.
 
@@ -86,7 +86,7 @@ rg -nC3 ':=\s*\w[\w.]*\(' --type go -g '!*_test.go' \
 
 ### Pattern E — explicit `if err != nil { /* fallback */ }`
 
-The "fallback" shape that has produced multiple `feedback_no_fallbacks` corrections.
+The "fallback" shape that `AGENTS.md`'s no-fallbacks rule refuses.
 
 ```bash
 # if err != nil block whose body is a comment + nothing (or fallback assignment)
@@ -95,7 +95,7 @@ rg -nC2 'if err != nil \{' --type go -g '!*_test.go' | rg -B1 -A1 'fallback|best
 
 ### Pattern F — pktline / git encoder writes
 
-BUG-1025 hit this specifically; bleephub's smart-HTTP advertise path silently swallowed `pktline.Encoder.Encodef` + `Flush` errors.
+BUG-1025 hit this specifically; in the predecessor monorepo, bleephub's smart-HTTP advertise path silently swallowed `pktline.Encoder.Encodef` + `Flush` errors.
 
 ```bash
 rg -nC1 '_\s*=\s*\w*pktline\w*\.' --type go -g '!*_test.go'
@@ -148,18 +148,21 @@ if _, err := io.Copy(w, rc); err != nil {
 
 ## Known prior occurrences this skill replays
 
+The earlier entries come from the sockerless monorepo the simulators were extracted from (bleephub and the backends are not in this repository); the simulator entries name files as they stood then.
+
+
 - **BUG-1016** — bleephub write handlers (`handleOIDCCustomSubPut`, `handlePagesCreate`, `handleBranchProtectionPut`, `handleLockIssue`) swallowed malformed JSON, returned 201/200/204.
 - **BUG-1017** — Five `_ = json.Unmarshal` sites across AWS + GCP sims.
 - **BUG-1018** — `handleExecStart` + `handleLibpodContainerCreate` swallowed request-decode errors before hijacking.
 - **BUG-1019** — Cloud Functions backend decoded `SOCKERLESS_LABELS` env var with silent base64 + JSON errors, falling through to a legacy fallback that produced ghost containers.
 - **BUG-1025** — bleephub smart-HTTP advertise path swallowed pktline encoder errors at three sites.
 - **BUG-1033** — Five `io.Copy` calls in image-streaming + build response paths swallowed mid-stream copy errors.
-- **BUG-1105** (Phase 174 round 1) — 23 silent `_ = sim.ReadJSON(r, &req)` sites across Phase 173 handlers (apim.go, servicebus.go, postgres_flexible.go, pubsub.go, memorystore_redis.go, apigateway.go, sqladmin.go, sqs.go).
+- **BUG-1105** — 23 silent `_ = sim.ReadJSON(r, &req)` sites across newly added handlers (apim.go, servicebus.go, postgres_flexible.go, pubsub.go, memorystore_redis.go, apigateway.go, sqladmin.go, sqs.go).
 - **BUG-1106** — silent `_ = json.NewDecoder(r.Body).Decode(&body)` in `handleKVCreateCertificate`.
-- **(Phase 175)** — silent stacked `data, _ := io.ReadAll(r.Body)` + `_ = xml.Unmarshal(data, &req)` in `simulator-azure/storage_dataplane.go:505-507` — exact Pattern A2 shape introduced in Phase 174 round 2 (same PR that added the xml handler).
-- **(Phase 175)** — silent `_ = json.Unmarshal(decoded, &entrypoint)` in `simulator-azure/functions.go:666` + `:670` after base64 decode of `SOCKERLESS_ENTRYPOINT`/`SOCKERLESS_CMD` — BUG-1019 replay on a different env-var pair.
+- A silent stacked `data, _ := io.ReadAll(r.Body)` + `_ = xml.Unmarshal(data, &req)` in the Azure storage data plane — exact Pattern A2 shape, introduced by the same PR that added the XML handler.
+- A silent `_ = json.Unmarshal(decoded, &entrypoint)` in the Azure Functions host after base64 decode of `SOCKERLESS_ENTRYPOINT`/`SOCKERLESS_CMD` — BUG-1019 replay on a different env-var pair.
 
-Eight+ bugs across four phases — the recurrence rate justifies the dedicated scan. **Re-run the scan after every PR's own changes**, not just before — the BUG-1104 meta-shape is that helpers written in a PR get bypassed elsewhere in the same PR.
+Ten bugs across four rounds of work — the recurrence rate justifies the dedicated scan. **Re-run the scan after every PR's own changes**, not just before — the BUG-1104 meta-shape is that helpers written in a PR get bypassed elsewhere in the same PR.
 
 ## Related skills
 

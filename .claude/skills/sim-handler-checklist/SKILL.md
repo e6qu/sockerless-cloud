@@ -1,11 +1,11 @@
 ---
 name: sim-handler-checklist
-description: Pre-write checklist for adding a new service handler under simulator-{aws,gcp,azure}/. Distilled from Phase 159 (CloudFront / ACM / Route 53 / WAFv2 / Amplify / IAM SLR/OIDC) — every load-bearing fix came from one of these four checks, and skipping any of them meant a CI-red round-trip. Use before writing the first line of a new service.go file.
+description: Pre-write checklist for adding a new service handler under simulator-{aws,gcp,azure}/. Distilled from adding CloudFront / ACM / Route 53 / WAFv2 / Amplify / IAM SLR/OIDC to the AWS simulator — every load-bearing fix came from one of these four checks, and skipping any of them meant a CI-red round-trip. Use before writing the first line of a new service.go file.
 ---
 
 # Sim-handler checklist
 
-Phase 159 added six AWS service families to `simulator-aws/`. Every CI-red iteration in that phase mapped to skipping one of four pre-write checks. This skill makes those checks explicit so the next sim service ships without the same round-trips.
+Adding six AWS service families to `simulator-aws/` (CloudFront, ACM, Route 53, WAFv2, Amplify, IAM service-linked roles and OIDC providers) produced CI-red iterations that each mapped to skipping one of four pre-write checks. This skill makes those checks explicit so the next sim service ships without the same round-trips.
 
 ## When this skill applies
 
@@ -37,7 +37,7 @@ find ~/go/pkg/mod/github.com/aws/aws-sdk-go-v2 -name "serializers.go" \
 #   (especially error-envelope shape — JSON vs XML, field names).
 ```
 
-Real Phase 159 bugs this would have caught up front:
+Real bugs from that work this would have caught up front:
 
 - **ACM** encodes timestamps as Unix-epoch JSON numbers, not RFC3339. The SDK's deserializer threw "expected TStamp to be a JSON Number, got string instead". Visible in `aws-sdk-go-v2/service/acm/deserializers.go`.
 - **CloudFront** dispatches `CreateDistributionWithTags` on `?WithTags` query at the same path as `CreateDistribution`. Visible in `cloudfront/serializers.go` as a separate `awsRestxml_serializeOpCreateDistributionWithTags` function.
@@ -66,7 +66,7 @@ If you find yourself thinking "the field is optional, I'll leave it nil" — the
 
 ### 3. Verify which API the Terraform Read calls
 
-Terraform Read functions sometimes call a different API than the Create. Examples observed in Phase 159:
+Terraform Read functions sometimes call a different API than the Create. Examples observed while adding those services:
 
 - **`aws_iam_service_linked_role.Read` calls `GetRole`**, not `GetServiceLinkedRole`. (There is no `GetServiceLinkedRole` API.) Fix: `CreateServiceLinkedRole` writes a shadow `IAMRole` to the `iamRoles` store as well, so `GetRole` finds it.
 - **`aws_amplify_app.Read` calls `GetApp`** but its Update path goes through a separate `UpdateApp` with different field semantics — verify both.
@@ -105,7 +105,7 @@ Before committing:
 - [ ] CLI test `simulator-<cloud>/cli-tests/<service>_test.go` covering the same verbs via the real `aws` / `gcloud` / `az` binary.
 - [ ] Terraform test entry in `simulator-<cloud>/terraform-tests/main.tf` for each TF resource your new handler unlocks, plus assertions in `apply_test.go` (see the `cross-resource-stack-test` skill).
 - [ ] `simulator-<cloud>/API_SPEC.md` updated with the new verbs in the per-service section + REST path appendix.
-- [ ] Real-AWS error codes returned on missing resources, never synthesised 200 (per `avoid-vibe-slop` and the BUG-991 / BUG-992 lineage).
+- [ ] Real-AWS error codes returned on missing resources, never synthesised 200 (per `avoid-vibe-slop`).
 
 ## Failure modes this skill catches
 
@@ -116,7 +116,7 @@ Before committing:
 
 ## Quick references
 
-- Phase 159 commit history on `phase-159-aws-sim-cloudfront-amplify` — every sub-task is a worked example.
+- `git log -- simulator-aws/cloudfront*.go simulator-aws/amplify*.go` — the history of those services is a worked example.
 - `simulator-aws/cloudfront.go` — `cfNormalizeConfig` is the canonical fill-empty-containers pattern.
 - `simulator-aws/iam_slr_oidc.go` — the canonical shadow-write pattern for asymmetric Create/Read APIs.
 - `simulator-aws/route53.go` — the canonical "both `/rrset` and `/rrset/`" registration.

@@ -1,6 +1,6 @@
 # @sockerless/ui-core
 
-Shared design system, API client, hooks, and shells for every Sockerless UI package.
+Shared design system, API client, hooks and shells for the simulator console packages.
 
 ## Exports
 
@@ -28,7 +28,7 @@ names, semantic elements, or application-local authorization checks.
 
 ## Development
 
-- `bun run dev` — no dev server (this is a library); use a backend's app instead.
+- `bun run dev` — no dev server (this is a library); run a console package's dev server instead.
 - `bun run test` — vitest run.
 - `bun run typecheck` — `tsc --noEmit`.
 

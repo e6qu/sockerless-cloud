@@ -326,6 +326,37 @@ func (n *Network) ConfigureSNAT(ctx context.Context, sourceCIDR string, publicIP
 	})
 }
 
+// RemoveSNAT deletes a table ConfigureSNAT installed. A table that is not
+// there is already removed.
+func (n *Network) RemoveSNAT(ctx context.Context, tableName string) error {
+	return withTableLock(tableName, func() error {
+		if err := n.runner.Run(ctx, "ip", "netns", "exec", n.NamespaceName, "nft", "delete", "table", "inet", tableName); err != nil && !strings.Contains(err.Error(), "No such file or directory") {
+			return err
+		}
+		return nil
+	})
+}
+
+// RemoveSNATAddress withdraws a public address ConfigureSNAT bound to the
+// network's egress link, once no SNAT table translates to it any more.
+func (n *Network) RemoveSNATAddress(ctx context.Context, publicIP net.IP) error {
+	if publicIP.To4() == nil {
+		return fmt.Errorf("SNAT public IPv4 address is required")
+	}
+	link, err := n.EnsureEgress(ctx)
+	if err != nil {
+		return err
+	}
+	addr := publicIP.To4().String() + "/32"
+	if err := n.runner.Run(ctx, "ip", "netns", "exec", n.NamespaceName, "ip", "addr", "del", addr, "dev", link.NetVethName); err != nil && !strings.Contains(err.Error(), "Cannot assign requested address") {
+		return err
+	}
+	if err := n.runner.Run(ctx, "ip", "route", "del", addr, "via", link.NetIP.String(), "dev", link.HostVethName); err != nil && !strings.Contains(err.Error(), "No such process") {
+		return err
+	}
+	return nil
+}
+
 func (n *Network) ConfigureHostEgress(ctx context.Context, sourceCIDR string, tableName string, cleanup *CleanupStack) error {
 	if tableName == "" {
 		tableName = deriveLinuxName("he"+n.NamespaceName, "he")
@@ -644,6 +675,9 @@ type SubnetSpec struct {
 	BridgeName string
 	CIDR       string
 	Gateway    net.IP
+	// Reserved is the cloud's host reservation; the zero value keeps only the
+	// network, gateway and broadcast addresses.
+	Reserved HostReservation
 }
 
 type Subnet struct {
@@ -675,7 +709,11 @@ func (n *Network) CreateSubnet(ctx context.Context, spec SubnetSpec) (*Subnet, e
 	if gateway == nil {
 		gateway = nextIPv4(network.IP.To4())
 	}
-	ipam, err := NewIPAM(network.String(), gateway)
+	keep := spec.Reserved
+	if keep == (HostReservation{}) {
+		keep = HostReservation{First: 1, Last: 1}
+	}
+	ipam, err := NewIPAMWithReserved(network.String(), gateway, keep)
 	if err != nil {
 		return nil, err
 	}
@@ -1036,27 +1074,36 @@ func (n *TapNIC) Close(ctx context.Context) error {
 }
 
 func (n *NamespaceNIC) ConfigureIngressFilter(ctx context.Context, rules []PacketRule) error {
-	if n.network == nil {
-		return fmt.Errorf("NIC %s is not attached to a network", n.HostVethName)
-	}
-	return n.configureIngressFilter(ctx, n.HostVethName, rules)
+	return n.ConfigureStagedIngressFilter(ctx, [][]PacketRule{rules})
 }
 
 func (n *TapNIC) ConfigureIngressFilter(ctx context.Context, rules []PacketRule) error {
+	return n.ConfigureStagedIngressFilter(ctx, [][]PacketRule{rules})
+}
+
+// ConfigureStagedIngressFilter installs a filter a packet must pass stage by
+// stage: an accept in one stage hands the packet to the next, a drop or the
+// end of any stage drops it, and only the last stage's accept delivers it.
+// Azure evaluates a subnet's network security group and then the interface's
+// this way, and a packet reaches the interface only when both allow it.
+func (n *NamespaceNIC) ConfigureStagedIngressFilter(ctx context.Context, stages [][]PacketRule) error {
+	if n.network == nil {
+		return fmt.Errorf("NIC %s is not attached to a network", n.HostVethName)
+	}
+	return configureBridgeIngressFilter(ctx, n.network, n.cleanup, n.HostVethName, stages)
+}
+
+func (n *TapNIC) ConfigureStagedIngressFilter(ctx context.Context, stages [][]PacketRule) error {
 	if n.network == nil {
 		return fmt.Errorf("tap NIC %s is not attached to a network", n.TapName)
 	}
-	return configureBridgeIngressFilter(ctx, n.network, n.cleanup, n.TapName, rules)
+	return configureBridgeIngressFilter(ctx, n.network, n.cleanup, n.TapName, stages)
 }
 
-func (n *NamespaceNIC) configureIngressFilter(ctx context.Context, devName string, rules []PacketRule) error {
-	return configureBridgeIngressFilter(ctx, n.network, n.cleanup, devName, rules)
-}
-
-func configureBridgeIngressFilter(ctx context.Context, network *Network, cleanup *CleanupStack, devName string, rules []PacketRule) error {
-	table := deriveLinuxName("fw"+devName, "fw")
+func configureBridgeIngressFilter(ctx context.Context, network *Network, cleanup *CleanupStack, devName string, stages [][]PacketRule) error {
+	table := ingressFilterTable(devName)
 	defer lockTable(table)()
-	program, err := renderIngressFilterProgram(table, devName, rules)
+	program, err := renderStagedIngressFilterProgram(table, devName, stages)
 	if err != nil {
 		return err
 	}
@@ -1089,39 +1136,84 @@ func configureBridgeIngressFilter(ctx context.Context, network *Network, cleanup
 	return nil
 }
 
+func ingressFilterTable(devName string) string {
+	return deriveLinuxName("fw"+devName, "fw")
+}
+
 // renderIngressFilterProgram is the nft program that installs the ingress
 // filter for one interface: the table is declared (so a first install and a
 // reinstall read the same), deleted, then rebuilt with the accept rules for
 // established traffic and ARP, one rule per PacketRule, and a final drop.
 func renderIngressFilterProgram(table, devName string, rules []PacketRule) (string, error) {
+	return renderStagedIngressFilterProgram(table, devName, [][]PacketRule{rules})
+}
+
+// renderStagedIngressFilterProgram renders a single stage inline in the
+// forward chain. More than one stage becomes one regular chain per stage,
+// declared last stage first so every goto names a chain already declared.
+func renderStagedIngressFilterProgram(table, devName string, stages [][]PacketRule) (string, error) {
+	if len(stages) == 0 {
+		stages = [][]PacketRule{nil}
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "table bridge %s {}\n", table)
 	fmt.Fprintf(&b, "delete table bridge %s\n", table)
 	fmt.Fprintf(&b, "table bridge %s {\n", table)
+	if len(stages) > 1 {
+		for i := len(stages) - 1; i >= 0; i-- {
+			pass := "accept"
+			if i < len(stages)-1 {
+				pass = fmt.Sprintf("goto stage%d", i+1)
+			}
+			fmt.Fprintf(&b, "\tchain stage%d {\n", i)
+			for _, rule := range stages[i] {
+				expr, err := renderIngressRuleWithPass(devName, rule, pass)
+				if err != nil {
+					return "", err
+				}
+				fmt.Fprintf(&b, "\t\t%s\n", expr)
+			}
+			fmt.Fprintf(&b, "\t\tdrop\n")
+			fmt.Fprintf(&b, "\t}\n")
+		}
+	}
 	fmt.Fprintf(&b, "\tchain forward {\n")
 	fmt.Fprintf(&b, "\t\ttype filter hook forward priority filter; policy accept;\n")
 	fmt.Fprintf(&b, "\t\tct state established,related accept\n")
 	fmt.Fprintf(&b, "\t\toifname %q ether type arp accept\n", devName)
-	for _, rule := range rules {
-		expr, err := renderIngressRule(devName, rule)
-		if err != nil {
-			return "", err
+	if len(stages) > 1 {
+		fmt.Fprintf(&b, "\t\toifname %q goto stage0\n", devName)
+	} else {
+		for _, rule := range stages[0] {
+			expr, err := renderIngressRule(devName, rule)
+			if err != nil {
+				return "", err
+			}
+			fmt.Fprintf(&b, "\t\t%s\n", expr)
 		}
-		fmt.Fprintf(&b, "\t\t%s\n", expr)
+		fmt.Fprintf(&b, "\t\toifname %q drop\n", devName)
 	}
-	fmt.Fprintf(&b, "\t\toifname %q drop\n", devName)
 	fmt.Fprintf(&b, "\t}\n}\n")
 	return b.String(), nil
 }
 
 func renderIngressRule(devName string, rule PacketRule) (string, error) {
+	return renderIngressRuleWithPass(devName, rule, "accept")
+}
+
+// renderIngressRuleWithPass renders one rule; pass is the verdict an accepting
+// rule carries, which a staged filter replaces with a goto to the next stage.
+func renderIngressRuleWithPass(devName string, rule PacketRule, pass string) (string, error) {
 	parts := []string{"oifname", fmt.Sprintf("%q", devName)}
 	if rule.SourceCIDR != "" {
 		parts = append(parts, "ip", "saddr", rule.SourceCIDR)
 	}
-	switch strings.ToLower(rule.Protocol) {
-	case "tcp", "udp":
-		proto := strings.ToLower(rule.Protocol)
+	proto, err := packetProtocol(rule.Protocol)
+	if err != nil {
+		return "", err
+	}
+	switch proto {
+	case "tcp", "udp", "sctp":
 		parts = append(parts, "ip", "protocol", proto, proto)
 		if rule.FromPort > 0 || rule.ToPort > 0 {
 			from, to := rule.FromPort, rule.ToPort
@@ -1137,40 +1229,78 @@ func renderIngressRule(devName string, rule PacketRule) (string, error) {
 				parts = append(parts, "dport", fmt.Sprintf("%d-%d", from, to))
 			}
 		}
-	case "icmp":
-		parts = append(parts, "ip", "protocol", "icmp")
-	case "-1", "all", "":
+	case "":
 	default:
-		return "", fmt.Errorf("unsupported packet filter protocol %q", rule.Protocol)
+		parts = append(parts, "ip", "protocol", proto)
 	}
 	action := strings.ToLower(rule.Action)
 	if action == "" {
 		action = "accept"
 	}
 	switch action {
-	case "accept", "drop":
+	case "accept":
+		parts = append(parts, pass)
+	case "drop":
+		parts = append(parts, action)
 	default:
 		return "", fmt.Errorf("unsupported packet filter action %q", rule.Action)
 	}
-	parts = append(parts, action)
 	return strings.Join(parts, " "), nil
+}
+
+// packetProtocol maps a cloud's spelling of an IP protocol onto nft's. The
+// every-protocol spellings become "", an IANA number becomes the name nft
+// matches ports under when it has one, and a named protocol nft knows passes
+// through.
+func packetProtocol(protocol string) (string, error) {
+	p := strings.ToLower(strings.TrimSpace(protocol))
+	switch p {
+	case "", "-1", "all", "*":
+		return "", nil
+	case "tcp", "udp", "sctp", "icmp", "esp", "ah", "gre", "ipip":
+		return p, nil
+	}
+	if n, err := strconv.Atoi(p); err == nil && n >= 0 && n <= 255 {
+		switch n {
+		case 1:
+			return "icmp", nil
+		case 6:
+			return "tcp", nil
+		case 17:
+			return "udp", nil
+		case 132:
+			return "sctp", nil
+		}
+		return p, nil
+	}
+	return "", fmt.Errorf("unsupported packet filter protocol %q", protocol)
 }
 
 func (n *NamespaceNIC) ClearIngressFilter(ctx context.Context) error {
 	if n.network == nil {
 		return fmt.Errorf("NIC %s is not attached to a network", n.HostVethName)
 	}
-	table := deriveLinuxName("fw"+n.HostVethName, "fw")
-	_ = n.network.runner.Run(ctx, "ip", "netns", "exec", n.network.NamespaceName, "nft", "delete", "table", "bridge", table)
-	return nil
+	return clearBridgeIngressFilter(ctx, n.network, n.HostVethName)
 }
 
 func (n *TapNIC) ClearIngressFilter(ctx context.Context) error {
 	if n.network == nil {
 		return fmt.Errorf("tap NIC %s is not attached to a network", n.TapName)
 	}
-	table := deriveLinuxName("fw"+n.TapName, "fw")
-	_ = n.network.runner.Run(ctx, "ip", "netns", "exec", n.network.NamespaceName, "nft", "delete", "table", "bridge", table)
+	return clearBridgeIngressFilter(ctx, n.network, n.TapName)
+}
+
+// clearBridgeIngressFilter tolerates only the table being absent: clearing an
+// interface that carries no filter is a no-op.
+func clearBridgeIngressFilter(ctx context.Context, network *Network, devName string) error {
+	table := ingressFilterTable(devName)
+	defer lockTable(table)()
+	// A remembered program would read as already in the kernel, so the same
+	// filter applied after this clear would never be installed again.
+	network.installed.Delete(table)
+	if err := network.runner.Run(ctx, "ip", "netns", "exec", network.NamespaceName, "nft", "delete", "table", "bridge", table); err != nil && !strings.Contains(err.Error(), "No such file or directory") {
+		return err
+	}
 	return nil
 }
 

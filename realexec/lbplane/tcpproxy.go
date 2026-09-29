@@ -1,62 +1,22 @@
-package realexec
+package lbplane
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
-	"net/http"
-	"net/url"
 	"sync"
 	"time"
 )
 
-type ProbeSpec struct {
-	Protocol string
-	Address  string
-	Path     string
-	Timeout  time.Duration
-}
-
-func ProbeTarget(ctx context.Context, spec ProbeSpec) error {
-	if spec.Timeout <= 0 {
-		spec.Timeout = 2 * time.Second
-	}
-	switch spec.Protocol {
-	case "HTTP", "http":
-		path := spec.Path
-		if path == "" {
-			path = "/"
-		}
-		u := url.URL{Scheme: "http", Host: spec.Address, Path: path}
-		reqCtx, cancel := context.WithTimeout(ctx, spec.Timeout)
-		defer cancel()
-		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, u.String(), nil)
-		if err != nil {
-			return err
-		}
-		client := http.Client{Timeout: spec.Timeout}
-		resp, err := client.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-			return fmt.Errorf("HTTP health check returned %s", resp.Status)
-		}
-		return nil
-	default:
-		dialer := net.Dialer{Timeout: spec.Timeout}
-		conn, err := dialer.DialContext(ctx, "tcp", spec.Address)
-		if err != nil {
-			return err
-		}
-		return conn.Close()
-	}
-}
-
+// ProxyTarget resolves the address one accepted connection is forwarded to. A
+// load balancer picks the target per connection, so registration and health
+// changes apply to the next connection without restarting the proxy.
 type ProxyTarget func(context.Context) (string, error)
 
+// TCPProxy forwards every connection it accepts to the address its target
+// resolves, copying bytes both ways until either peer closes.
 type TCPProxy struct {
 	Address string
 	ln      net.Listener
@@ -64,26 +24,42 @@ type TCPProxy struct {
 	done    chan struct{}
 	once    sync.Once
 
-	// A closed proxy must have stopped resolving targets, not merely stopped
-	// accepting connections. Close used to wait for the accept loop alone,
-	// while the handlers it had already spawned kept calling the caller's
-	// resolver — which in the AWS simulator reads the load-balancer and target
-	// stores. A test that closed its proxy and moved on therefore raced its own
-	// teardown, and the race detector caught exactly that. These track the
-	// handlers so Close can mean what it says.
+	// Close tracks the handlers, not only the accept loop: a handler still
+	// resolving its target reads the caller's stores, and a caller that closes
+	// the proxy and moves on must not race it.
 	mu       sync.Mutex
 	closing  bool
 	conns    map[net.Conn]struct{}
 	handlers sync.WaitGroup
 }
 
+// StartTCPProxy binds listenAddress and proxies each connection as raw TCP.
 func StartTCPProxy(listenAddress string, target ProxyTarget) (*TCPProxy, error) {
-	if target == nil {
-		return nil, fmt.Errorf("proxy target resolver is required")
+	ln, err := net.Listen("tcp", listenAddress)
+	if err != nil {
+		return nil, err
+	}
+	return ServeTCPProxy(ln, target)
+}
+
+// StartTLSProxy binds listenAddress, terminates TLS with config, and proxies the
+// decrypted byte stream of each connection to its target.
+func StartTLSProxy(listenAddress string, config *tls.Config, target ProxyTarget) (*TCPProxy, error) {
+	if config == nil {
+		return nil, fmt.Errorf("a TLS proxy needs a TLS configuration")
 	}
 	ln, err := net.Listen("tcp", listenAddress)
 	if err != nil {
 		return nil, err
+	}
+	return ServeTCPProxy(tls.NewListener(ln, config), target)
+}
+
+// ServeTCPProxy proxies the connections ln accepts and owns ln from then on.
+func ServeTCPProxy(ln net.Listener, target ProxyTarget) (*TCPProxy, error) {
+	if target == nil {
+		_ = ln.Close()
+		return nil, fmt.Errorf("proxy target resolver is required")
 	}
 	p := &TCPProxy{
 		Address: ln.Addr().String(),
@@ -153,12 +129,25 @@ func (p *TCPProxy) serve() {
 	}
 }
 
+// tlsHandshakeTimeout bounds a client that connects and never finishes the
+// handshake, which would otherwise hold a handler for the connection's life.
+const tlsHandshakeTimeout = 30 * time.Second
+
 func (p *TCPProxy) handle(client net.Conn) {
 	defer client.Close()
 	if !p.track(client) {
 		return
 	}
 	defer p.untrack(client)
+	// Finish the handshake before choosing a target, so a client that fails it
+	// never reaches one.
+	if tlsConn, ok := client.(*tls.Conn); ok {
+		_ = tlsConn.SetDeadline(time.Now().Add(tlsHandshakeTimeout))
+		if err := tlsConn.HandshakeContext(context.Background()); err != nil {
+			return
+		}
+		_ = tlsConn.SetDeadline(time.Time{})
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	address, err := p.target(ctx)

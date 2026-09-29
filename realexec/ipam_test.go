@@ -65,3 +65,68 @@ func TestIPAMRejectsReservedAndUnusableAddresses(t *testing.T) {
 		t.Fatalf("got %v, want ErrNoAvailableIP", err)
 	}
 }
+
+func TestIPAMWithReservedKeepsEachCloudsAddresses(t *testing.T) {
+	cases := []struct {
+		name       string
+		keep       HostReservation
+		first      string
+		reserved   []string
+		lastUsable string
+	}{
+		{"Amazon VPC and Azure Virtual Network", HostReservation{First: 4, Last: 1}, "10.0.1.4",
+			[]string{"10.0.1.0", "10.0.1.2", "10.0.1.3", "10.0.1.255"}, "10.0.1.254"},
+		{"Google Cloud VPC", HostReservation{First: 2, Last: 2}, "10.0.1.2",
+			[]string{"10.0.1.0", "10.0.1.254", "10.0.1.255"}, "10.0.1.253"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ipam, err := NewIPAMWithReserved("10.0.1.0/24", net.ParseIP("10.0.1.1"), tc.keep)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := ipam.Reserve("first", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.String() != tc.first {
+				t.Fatalf("first dynamic lease = %s, want %s", got, tc.first)
+			}
+			for _, ip := range tc.reserved {
+				if _, err := ipam.Reserve("static", net.ParseIP(ip)); err == nil {
+					t.Fatalf("static lease of reserved %s was granted", ip)
+				}
+			}
+			if _, err := ipam.Reserve("last", net.ParseIP(tc.lastUsable)); err != nil {
+				t.Fatalf("static lease of the last usable address %s: %v", tc.lastUsable, err)
+			}
+		})
+	}
+}
+
+func TestIPAMWithReservedExhaustsBeforeTheReservedTail(t *testing.T) {
+	ipam, err := NewIPAMWithReserved("10.0.1.0/29", net.ParseIP("10.0.1.1"), HostReservation{First: 4, Last: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for {
+		ip, err := ipam.Reserve("x", nil)
+		if errors.Is(err, ErrNoAvailableIP) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, ip.String())
+	}
+	if len(got) != 3 || got[0] != "10.0.1.4" || got[2] != "10.0.1.6" {
+		t.Fatalf("leases = %v, want 10.0.1.4 through 10.0.1.6", got)
+	}
+}
+
+func TestIPAMWithReservedRefusesToForgetNetworkOrBroadcast(t *testing.T) {
+	if _, err := NewIPAMWithReserved("10.0.1.0/24", net.ParseIP("10.0.1.1"), HostReservation{First: 0, Last: 1}); err == nil {
+		t.Fatal("a reservation without the network address was accepted")
+	}
+}

@@ -66,7 +66,7 @@ For every changed handler in `simulator-<cloud>/*.go`:
 - *"DELETE is fine because real consumers don't soft-delete."* — Real Azure KV ALWAYS soft-deletes. Real RDS snapshots can be in `deleting` for minutes. Modelling the state explicitly is the contract, not an optimisation.
 - *"Adding the State field breaks existing serialisation."* — Then add it with an omitempty tag + backfill on Get. The cost of one persistence migration is less than one community-filed reopen.
 
-## Worked example — Azure KV soft-delete (Phase 178 Stage D commit 15, BUG-1151)
+## Worked example — Azure Key Vault soft delete (BUG-1151)
 
 **State machine**:
 

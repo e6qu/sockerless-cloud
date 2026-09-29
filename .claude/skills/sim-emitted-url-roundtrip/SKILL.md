@@ -7,7 +7,7 @@ description: Verify that every URL a sim handler emits in a response body (adver
 
 When a simulator emits a URL in a response body — an advertised endpoint URL, a presigned URL, an LRO operation `selfLink`, a `callbackUrl`, a paginated `nextPageToken` URL — it's making a promise: "follow this URL and you'll get a sensible response." If the URL 404s, the sim is lying about its API surface and any SDK following the URL will fail in a way that's hard to map back to the missing handler.
 
-BUG-1103 is the load-bearing case: `simulator-azure/files.go:192` returns `Blob: fmt.Sprintf("%s://%s.blob.%s%s/", scheme, name, hostname, portSuffix)` on every storage-account `PUT`, but no handler matches the `{account}.blob.<host>` subdomain. The SDK happily takes the URL from the storage-account response and dispatches its first blob request to a non-existent endpoint.
+BUG-1103 was the load-bearing case: the storage-account handler returned `Blob: fmt.Sprintf("%s://%s.blob.%s%s/", scheme, name, hostname, portSuffix)` on every storage-account `PUT`, but no handler matched the `{account}.blob.<host>` subdomain. The SDK happily took the URL from the storage-account response and dispatched its first blob request to a non-existent endpoint.
 
 This skill exists so every URL the sim hands out is verified to round-trip.
 
@@ -108,7 +108,7 @@ rg -n 'fmt\.Sprintf\([^)]*://' simulator-
 
 ## Known prior occurrences (catchable by this skill)
 
-- **BUG-1103** (open in current branch) — Azure storage account ARM response advertises `blob` / `queue` / `table` endpoint URLs; only `file` is serviced. Catchable: follow any of the four URLs after `PUT Microsoft.Storage/storageAccounts/{name}` and observe the 404.
+- **BUG-1103** (fixed) — the Azure storage account ARM response advertised `blob` / `queue` / `table` endpoint URLs while only `file` was served. Catchable: follow any of the four URLs after `PUT Microsoft.Storage/storageAccounts/{name}` and observe the 404.
 - **BUG-1044** (fixed) — GCS object `selfLink` / `mediaLink` interpolated the object name without `url.PathEscape`; object names containing `/` or space produced malformed or wrong-resource URLs. Catchable: round-trip an object whose name contains `/`.
 - **BUG-1038 sub-fix** (fixed) — GCS object `selfLink` field was omitted from the upload + read responses. Catchable: assert response body contains the expected URL fields.
 

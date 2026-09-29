@@ -16,6 +16,12 @@ Current state of the sockerless-cloud repository.
   console coordinates, request rewrite and registry behaviour live in that
   cloud's module and reach the framework through hooks. The support modules
   `realexec/`, `ui-auth/` and `testutil/` sit beside it.
+- **Shared mechanisms live in `sim`.** Workload-host coordinates, background
+  work, workload launching, archive extraction, payload storage and sparse
+  files, JWT signing and OpenID Connect federation, registry authentication and
+  the managed relational database data plane are one package each under
+  `sim/`; the realized network fabric and the load-balancer data plane are
+  `realexec/fabric` and `realexec/lbplane`. All three simulators use them.
 - **Pins carry the working tree's content.** Each simulator pins `sim`,
   `realexec` and `ui-auth` by pseudo-version;
   `scripts/check-support-module-pins.sh` downloads every pinned version and
@@ -28,12 +34,12 @@ Current state of the sockerless-cloud repository.
   cloud APIs and federate operator credentials through each cloud's own
   federation primitive. The consoles' OpenID Connect layer and the
   `GET /monitoring/observation` endpoint are one `ui-auth` implementation, and
-  the Google Cloud access-token verifier exempts the monitoring path exactly as
-  it exempts the console's session routes.
+  the Google Cloud access-token verifier hands the monitoring path to its own
+  bearer check, as it does the console's session routes.
 
 ## Declared surface
 
-- **AWS**: the 41 vendored Smithy models are implemented or exempt in full, the
+- **AWS**: the 42 vendored Smithy models are implemented or exempt in full, the
   exemptions being the Amazon S3 bucket subresources the query-parameter table
   routes, each verified against that table. IAM resource derivation covers
   2,007 of 2,015 served operations; the eight that remain are requests naming
@@ -41,9 +47,9 @@ Current state of the sockerless-cloud repository.
   every key the vendored Service References declare -- 653 over 1,917 actions --
   is either named by the gate or classified as unmodelled with the reason, and a
   classified key the gate later resolves fails its own row. What that does not
-  yet prove is per-action: that a key some code names is built for every action
-  declaring it (BUG-2965). The Amazon S3 control plane is authorized route by
-  route, each in the namespace AWS publishes its action under — s3, s3express,
+  yet prove is per-action: that a key some code names is built for every
+  action declaring it (open as BUG-2965). The Amazon S3 control plane is
+  authorized route by route, each in the namespace AWS publishes its action under — s3, s3express,
   s3-outposts or s3-object-lambda. One route is tested as ungated and says why:
   no vendored document declares an action for the control plane's
   DeleteBucketLifecycleConfiguration.
@@ -98,12 +104,6 @@ Current state of the sockerless-cloud repository.
   containers, scoped to the state directory so a concurrent suite is never
   touched. A simulator exits when the process in `SOCKERLESS_PARENT_PID` is
   gone.
-- **The S3 control plane is authorized, not just the data plane.** Every
-  `/v20180820` route runs the shared IAM gate as the action the AWS Service
-  Reference names for its operation, against the resource the request names;
-  seven whose actions belong to the `s3express`, `s3-outposts` and
-  `s3-object-lambda` namespaces are listed as ungated with that reason, and a
-  test refuses an eighth (BUG-3014).
 - **Every credential is verified**: SigV4 against the principal's stored
   secret, from the header and from a presigned URL alike; Google Cloud and
   Microsoft Entra bearers against the simulator's signing keys; the Azure
@@ -132,13 +132,16 @@ Current state of the sockerless-cloud repository.
   postponed by quote.** A reservation requested for a future start is
   `scheduled` with no instances and a commitment until its start date, derived
   from the clock on every read; its start date moves only through an accepted
-  date-change quote, within 30 days of the original (BUG-3036).
+  date-change quote, within 30 days of the original.
 - **Object stores arbitrate conditional writes.** Cloud Storage's generation
   and metageneration preconditions and Azure Blob Storage's conditional
   headers are evaluated on every read and write, a write's check and store are
   one step under a per-object lock, and a Cloud Storage generation is never
   reused; the XML download, V4 signed URLs and the JSON API batch endpoint
-  answer as the service does (BUG-3031, BUG-3032).
+  answer as the service does. Amazon S3 conditional writes take the same
+  per-object lock (`sim.KeyedLocks`), and all three object stores keep each
+  object's contents in a file of its own (`sim.Payloads`) that the row
+  references.
 - **A bucket carries Cloud Storage's default policy** from creation — the
   four legacy bindings for the project's owners, editors and viewers — so a
   client revoking what it granted sets the defaults back, never nothing.
@@ -200,7 +203,7 @@ shape, and one whose scan set can go empty exits non-zero.
 ## Continuous integration
 
 Per-cloud lint and unit tests; the Google Cloud and Azure SDK and CLI suites;
-the AWS SDK suite in four shards and CLI suite in twelve; Terraform in fifteen
+the AWS SDK suite in four shards and CLI suite in sixteen; Terraform in fifteen
 shards; console vitest, typecheck, build and Playwright; the race jobs per
 simulator and for `sim`; the quality gates; the one-open-pull-request and
 rebased-on-main checks; the nightly fuzz workflow across the four Go modules.

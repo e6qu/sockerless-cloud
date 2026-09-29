@@ -264,7 +264,7 @@ func TestNetworkNamespaceNICRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first namespace cannot reach provider metadata address: %v", err)
 	}
-	if strings.TrimSpace(string(out)) != "METADATA_OK" {
+	if strings.TrimSpace(out) != "METADATA_OK" {
 		t.Fatalf("metadata probe response = %q", out)
 	}
 	select {

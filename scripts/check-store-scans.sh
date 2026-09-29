@@ -65,7 +65,7 @@ readonly SCAN_DIRS=(
 # alike: the Service Bus admin listings and their deletes, the Key Vault
 # per-vault listings, the Azure Files share families (objects, directories,
 # leases, permissions, snapshots, deleted shares), the Table service's entity
-# query, table deletion and batch snapshot/restore, the AWS Amplify hosted job
+# query and table deletion, the AWS Amplify hosted job
 # and artifact lookups, and the Route 53 CNAME searches that AWS Certificate
 # Manager and Amplify domain verification both make. The Shared Access
 # Signature rules the messaging host authenticates against are keyed by every

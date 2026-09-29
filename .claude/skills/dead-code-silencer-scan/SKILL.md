@@ -7,7 +7,7 @@ description: Specialist scan for the dead-code-silencer pattern — `var _ = pkg
 
 Five bugs across one phase (BUGS 1020, 1021, 1022, 1024, 1034) all collapsed to the same shape: a function / variable / import was retained for hypothetical future use with a silencer (`var _ = pkg.Fn // keep for ad-hoc tweaks`, `//nolint:unused // consumers ship in subsequent commits`, `_ = someVar // suppress unused`), then the future use never arrived. The silencer becomes the only thing keeping the dead code alive.
 
-The `docs/VIBE_CODING.md` catalogue calls this out as patterns 14 (dead code held for hypothetical future use) and 27 (AI-as-expansion-engine, no pruning). This skill is the automated scan that surfaces it before more `//nolint` directives accumulate.
+The `avoid-vibe-slop` checklist calls this out as dead code held for hypothetical future use, and as the expansion-engine habit of adding without pruning. This skill is the automated scan that surfaces it before more `//nolint` directives accumulate.
 
 ## When this skill applies
 
@@ -120,6 +120,9 @@ If a future PR genuinely needs the helper back, it's a one-line `import` + a one
 
 ## Known prior occurrences this skill replays
 
+These were found in the sockerless monorepo the simulators were extracted from; the files named are not in this repository.
+
+
 - **BUG-1020** — `buildPullRequestPayloadWithInstallation` + `buildIssuesPayloadWithInstallation` carried `//nolint:unused // callers land in the workflow-trigger commit` for 100+ commits; that commit never came.
 - **BUG-1021** — Stale `//nolint:unused` pragmas on `gh_middleware.go` context helpers; consumers had landed but the directives stayed. Plus `flexInt64` reserved-for-future-use type with zero consumers.
 - **BUG-1022** — Six unused-import silencers across bleephub + AWS sim.
@@ -127,7 +130,7 @@ If a future PR genuinely needs the helper back, it's a one-line `import` + a one
 - **BUG-1024** — `tools/http-trace/main.go::var _ = httputil.DumpRequest // keep import for ad-hoc tweaks`.
 - **BUG-1034** — `backends/lambda/agent_e2e_integration_test.go::var _ = fmt.Sprintf` with the lying comment "fmt is used by the framing demuxer when debugging" — the claimed consumer didn't reference `fmt` at all.
 
-Six bugs in two phases. The pattern is recurrent enough to deserve its own scan.
+Six bugs in two rounds of work. The pattern is recurrent enough to deserve its own scan.
 
 ## Related skills
 

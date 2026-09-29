@@ -4,13 +4,18 @@ Google Cloud console for the GCP simulator: the console shell (header, product n
 
 ## Pages
 
+`src/main.tsx` declares the routes. Among them:
+
 - `/ui/` — overview
 - `/ui/cloudrun` — Cloud Run jobs
 - `/ui/functions` — Cloud Run functions
 - `/ui/ar` — Artifact Registry
 - `/ui/gcs` — Cloud Storage buckets
-- `/ui/serviceaccounts` — IAM service accounts: create/delete accounts, mint and revoke keys, with the real console's one-time key download and post-mint `gcloud` usage
+- `/ui/serviceaccounts` — IAM service accounts: create and delete accounts, mint and revoke keys, with the real console's one-time key download and post-mint `gcloud` usage
 - `/ui/logging` — Logs Explorer
+- `/ui/compute`, `/ui/vpc`, `/ui/loadbalancing`, `/ui/dns` — Compute Engine, VPC networks, Cloud Load Balancing, Cloud DNS
+- `/ui/sql`, `/ui/firestore`, `/ui/spanner`, `/ui/bigtable`, `/ui/memorystore`, `/ui/bigquery` — the data services
+- `/ui/pubsub`, `/ui/dataflow`, `/ui/cloudbuild`, `/ui/eventarc` — Pub/Sub, Dataflow, Cloud Build, Eventarc
 
 Pages read the real Google Cloud APIs at the console's configured cloud coordinate via `src/api.ts`: every call is authenticated with the operator's Shauth assertion federated through the Security Token Service token exchange (`src/console/federation.ts`), differing from the real cloud only in coordinates.
 
@@ -20,7 +25,7 @@ Pages read the real Google Cloud APIs at the console's configured cloud coordina
 
 ## Development
 
-- `bun run dev` — Vite dev server (`:5173`), proxying `/health` and `/sim` to a running simulator on `:4567`.
+- `bun run dev` — Vite dev server (`:5173`), proxying to a running simulator on `:4567`.
 - `bun run build` — production bundle into `dist/`.
 - `bun run preview` — serve the built bundle.
 - `bun run test:e2e` — Playwright tests.
@@ -30,5 +35,5 @@ The package `Makefile` wraps these as `make build` / `run` / `preview` / `test` 
 
 ## See also
 
-- [Workspace README](../../README.md) — dev-stack targets, ports, design system, error UX.
+- [Workspace README](../../README.md) — workspace commands, embedding, and held dependency versions.
 - [`@sockerless/ui-core`](../core/README.md) — shared components, hooks, tokens.

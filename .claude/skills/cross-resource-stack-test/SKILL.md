@@ -1,6 +1,6 @@
 ---
 name: cross-resource-stack-test
-description: Codify the production-shape end-to-end test pattern from Phase 159's TestStackProductionShape. Use when adding cross-resource sim features (e.g., new resource A references resource B's ARN/domain/ID) or when authoring a new sim's apply_test.go from scratch. Asserts what references RESOLVE TO, not just that apply doesn't crash.
+description: Codify the production-shape end-to-end test pattern of simulator-aws's TestStackProductionShape. Use when adding cross-resource sim features (e.g., new resource A references resource B's ARN/domain/ID) or when authoring a new sim's apply_test.go from scratch. Asserts what references RESOLVE TO, not just that apply doesn't crash.
 ---
 
 # Cross-resource stack test
@@ -67,7 +67,7 @@ The `readOutputs` helper + `out.must(t, "...")` pattern is in the same file; reu
 
 ### 4. Pick the right invariants
 
-For each cross-resource edge in the stack, ask "what would silently break in production if this reference was wrong?" Then assert *that*. Examples that came out of Phase 159 design:
+For each cross-resource edge in the stack, ask "what would silently break in production if this reference was wrong?" Then assert *that*. Examples that came out of designing that stack design:
 
 | Invariant | What it would catch if violated |
 |---|---|
@@ -80,7 +80,7 @@ Each invariant has the form **"computed value from one resource matches a refere
 
 ### 5. Keep apply + destroy in the same test, not separate
 
-Splitting into `TestApply` and `TestDestroy` introduces flakiness (one passes, one fails, state is dirty). Single test, sequenced: `init → apply → readOutputs → assert → destroy`. The Phase 159 implementation runs in 86s end-to-end on a developer machine.
+Splitting into `TestApply` and `TestDestroy` introduces flakiness (one passes, one fails, state is dirty). Single test, sequenced: `init → apply → readOutputs → assert → destroy`. The canonical implementation runs in about 86s end to end on a developer machine.
 
 ## What this skill is NOT
 
