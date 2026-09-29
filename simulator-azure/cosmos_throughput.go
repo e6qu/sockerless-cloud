@@ -25,43 +25,22 @@ import (
 // charges 1 RU for a small-item point read and ~5–6 RU for a small-item create,
 // which the sim matches to the same order of magnitude.
 //
-// Throughput offers: azcosmos's container.ReadThroughput()/ReplaceThroughput()
-// (and the database equivalents) drive the `offers` resource. The SDK first
-// reads the container/database `_rid`, then queries POST /offers for
-// `SELECT * FROM c WHERE c.offerResourceId = '<rid>'`, GETs the matched offer by
-// its self-link, and (for replace) PUTs the updated ThroughputProperties back.
-// These handlers implement that real wire flow so a ThroughputProperties
-// (manual RU/s and autoscale max RU/s) round-trips through the official SDK.
-
-// cosmosOffer is a stored throughput offer for a database or container,
-// addressed by the owning resource's `_rid` (offerResourceId). It is the
-// data-plane analog of the ARM throughputSettings resource.
-type cosmosOffer struct {
-	Account         string         `json:"-"`
-	OfferID         string         `json:"id"`
-	RID             string         `json:"_rid"`
-	OfferResourceID string         `json:"offerResourceId"`
-	ResourceSelf    string         `json:"resource"`
-	Self            string         `json:"_self"`
-	ETag            string         `json:"_etag"`
-	TS              int64          `json:"_ts"`
-	OfferType       string         `json:"offerType"`
-	OfferVersion    string         `json:"offerVersion"`
-	Content         map[string]any `json:"content"`
-}
-
-var cosmosOffers sim.Store[cosmosOffer]
+// A database's or container's dedicated throughput is one record: the Azure
+// Resource Manager throughputSettings/default resource in cosmosThroughputs.
+// The data plane's `offers` resource is that record seen through the NoSQL
+// API: azcosmos's ReadThroughput and ReplaceThroughput query POST /offers for
+// `SELECT * FROM c WHERE c.offerResourceId = '<rid>'`, GET the matched offer by
+// its self-link and PUT the updated ThroughputProperties back, and each of
+// those reads or writes the record Azure Resource Manager serves.
 
 func registerCosmosThroughput(srv *sim.Server) {
-	cosmosOffers = sim.MakeStore[cosmosOffer](srv.DB(), "cosmos_offers")
-	for _, o := range cosmosOffers.List() {
-		cosmosRaiseETagFloor(cosmosETagSeqOf(o.ETag))
+	for _, t := range cosmosThroughputs.List() {
+		if res, ok := t.Properties["resource"].(map[string]any); ok {
+			etag, _ := res["_etag"].(string)
+			cosmosRaiseETagFloor(cosmosETagSeqOf(etag))
+		}
 	}
 
-	// The azcosmos offer machinery POSTs a query to /offers, then GETs/PUTs the
-	// matched offer by its rid-based self-link (offers/{offer}). These are reached
-	// opaquely by container.ReadThroughput()/ReplaceThroughput(), never by a
-	// literal client path, so the differential + SDK throughput tests cover them.
 	// The SDK addresses an offer by its rid-based self-link, which carries a
 	// trailing slash ("offers/<id>/"); register both forms so the GET/PUT match.
 	srv.HandleFunc("POST /offers", handleCosmosOffersQuery)
@@ -71,71 +50,119 @@ func registerCosmosThroughput(srv *sim.Server) {
 	srv.HandleFunc("PUT /offers/{offer}/", handleCosmosReplaceOffer)
 }
 
-// cosmosOfferFor returns the dedicated throughput offer for a resource RID, if
-// one was provisioned. Real Cosmos only has an offer for a database or container
-// that was created WITH dedicated throughput (manual RU/s or autoscale); a
-// resource that shares throughput (created without a throughput option) has no
-// offer, and ReadThroughput then returns 404 — so the sim must NOT fabricate a
-// default offer here.
-func cosmosOfferFor(account, rid string) (cosmosOffer, bool) {
-	return cosmosOffers.Get(cosmosOfferKey(account, rid))
+// cosmosDataRID is the `_rid` the data plane gives a NoSQL database, or a
+// container when coll is set.
+func cosmosDataRID(account, db, coll string) string {
+	if coll == "" {
+		return account + "-" + db
+	}
+	return account + "-" + db + "-" + coll
 }
 
-// cosmosOfferKey keys an offer by the owning resource's `_rid` alone. A `_rid`
-// is globally unique (it embeds account+database+container), so the offer is
-// addressable without the account — which matters because the SDK GETs/PUTs an
-// offer at the account-less `/offers/{id}` path, where the account can't be
-// recovered from the request when more than one Cosmos account exists.
-func cosmosOfferKey(_ /*account*/, rid string) string { return rid }
+const cosmosOfferIDPrefix = "offer_"
 
-// cosmosProvisionOfferFromHeaders creates the dedicated throughput offer for a
-// just-created database or container whose create request carried a throughput
-// header — manual (x-ms-offer-throughput) or autoscale
+// cosmosSQLThroughputID is the Azure Resource Manager identifier of the
+// throughput record of the NoSQL database, or container when coll is set, that
+// the data plane addresses by name.
+func cosmosSQLThroughputID(account, db, coll string) (string, bool) {
+	acct, ok := cosmosAccountByName(account)
+	if !ok {
+		return "", false
+	}
+	id := acct.ID + "/sqlDatabases/" + db
+	if coll != "" {
+		id += "/containers/" + coll
+	}
+	return id + "/throughputSettings/default", true
+}
+
+var cosmosThroughputsByRID sim.GenerationIndex[CosmosThroughput]
+
+// cosmosThroughputByRID finds the throughput record of the NoSQL resource
+// whose data-plane `_rid` is rid.
+func cosmosThroughputByRID(rid string) (CosmosThroughput, bool) {
+	return cosmosThroughputsByRID.Lookup(cosmosThroughputs, rid, func(t CosmosThroughput) []string {
+		if !strings.Contains(t.ID, "/sqlDatabases/") {
+			return nil
+		}
+		account, db, coll, ok := cosmosARMIDNames(t.ID)
+		if !ok || db == "" {
+			return nil
+		}
+		return []string{cosmosDataRID(account, db, coll)}
+	})
+}
+
+// cosmosStampThroughput records a write to a throughput resource: the `_etag`
+// and `_ts` both surfaces report, and for a NoSQL resource the `_rid` of the
+// resource the throughput belongs to.
+func cosmosStampThroughput(id string, resource map[string]any) {
+	now := time.Now().UTC().Unix()
+	resource["_etag"] = fmt.Sprintf(`"%x-%x"`, now, cosmosETagSeq.Add(1))
+	resource["_ts"] = now
+	if strings.Contains(id, "/sqlDatabases/") {
+		if account, db, coll, ok := cosmosARMIDNames(id); ok && db != "" {
+			resource["_rid"] = cosmosDataRID(account, db, coll)
+		}
+	}
+}
+
+// cosmosProvisionThroughputFromHeaders records the dedicated throughput of a
+// NoSQL database or container the data plane just created with a throughput
+// header: manual (x-ms-offer-throughput) or autoscale
 // (x-ms-cosmos-offer-autopilot-settings). No header means shared throughput and
-// no offer (matching real Cosmos). rid is the resource's `_rid`.
-func cosmosProvisionOfferFromHeaders(r *http.Request, account, rid string) {
+// no record, as on the service.
+func cosmosProvisionThroughputFromHeaders(r *http.Request, account, db, coll string) error {
 	manual := strings.TrimSpace(r.Header.Get("x-ms-offer-throughput"))
 	autopilot := strings.TrimSpace(r.Header.Get("x-ms-cosmos-offer-autopilot-settings"))
 	if manual == "" && autopilot == "" {
-		return
+		return nil
 	}
-	var content map[string]any
-	switch {
-	case manual != "":
+	resource := map[string]any{}
+	if manual != "" {
 		ru, err := strconv.ParseFloat(manual, 64)
 		if err != nil {
-			return
+			return fmt.Errorf("x-ms-offer-throughput %q is not a number", manual)
 		}
-		content = map[string]any{"offerThroughput": ru}
-	default:
+		resource["throughput"] = ru
+	} else {
 		var settings map[string]any
 		if err := json.Unmarshal([]byte(autopilot), &settings); err != nil {
-			return
+			return fmt.Errorf("x-ms-cosmos-offer-autopilot-settings is not JSON: %w", err)
 		}
-		content = map[string]any{"offerAutopilotSettings": settings}
+		resource["autoscaleSettings"] = settings
 	}
-	now := time.Now().UTC().Unix()
-	o := cosmosOffer{
-		Account:         account,
-		OfferID:         "offer_" + rid,
-		RID:             "offer_" + rid,
-		OfferResourceID: rid,
-		ResourceSelf:    rid,
-		Self:            "offers/offer_" + rid + "/",
-		ETag:            fmt.Sprintf(`"%x-%x"`, now, cosmosETagSeq.Add(1)),
-		TS:              now,
-		OfferType:       "Invalid",
-		OfferVersion:    "V2",
-		Content:         content,
+	id, ok := cosmosSQLThroughputID(account, db, coll)
+	if !ok {
+		return fmt.Errorf("account %s does not exist", account)
 	}
-	cosmosOffers.Put(cosmosOfferKey(account, rid), o)
+	typ := cosmosTypeBase + "/sqlDatabases/throughputSettings"
+	if coll != "" {
+		typ = cosmosTypeBase + "/sqlDatabases/containers/throughputSettings"
+	}
+	cosmosStampThroughput(id, resource)
+	cosmosThroughputs.Put(id, CosmosThroughput{
+		ID:         id,
+		Name:       "default",
+		Type:       typ,
+		Properties: map[string]any{"resource": resource},
+	})
+	return nil
+}
+
+// cosmosForgetSQLThroughput drops the throughput record of a NoSQL database
+// or container the data plane deleted.
+func cosmosForgetSQLThroughput(account, db, coll string) {
+	if id, ok := cosmosSQLThroughputID(account, db, coll); ok {
+		cosmosThroughputs.Delete(id)
+		cosmosRUBuckets.Forget(id)
+	}
 }
 
 // handleCosmosOffersQuery serves the SDK's `SELECT * FROM c WHERE
 // c.offerResourceId = '<rid>'` feed query against /offers, returning the matched
 // offer in the `Offers` envelope azcosmos unmarshals.
 func handleCosmosOffersQuery(w http.ResponseWriter, r *http.Request) {
-	account := cosmosDataAccount(r)
 	var req struct {
 		Query string `json:"query"`
 	}
@@ -143,15 +170,11 @@ func handleCosmosOffersQuery(w http.ResponseWriter, r *http.Request) {
 		cosmosDataError(w, "BadRequest", "invalid offers query body", http.StatusBadRequest)
 		return
 	}
-	rid := cosmosOfferRIDFromQuery(req.Query)
-	var matches []map[string]any
-	if rid != "" {
-		if o, ok := cosmosOfferFor(account, rid); ok {
-			matches = append(matches, cosmosOfferBody(o))
+	matches := []map[string]any{}
+	if rid := cosmosOfferRIDFromQuery(req.Query); rid != "" {
+		if t, ok := cosmosThroughputByRID(rid); ok {
+			matches = append(matches, cosmosOfferBody(t))
 		}
-	}
-	if matches == nil {
-		matches = []map[string]any{}
 	}
 	cosmosWriteDataCharge(w, http.StatusOK, map[string]any{
 		"Offers": matches,
@@ -181,78 +204,90 @@ func cosmosOfferRIDFromQuery(query string) string {
 	return rest[:end]
 }
 
+// cosmosThroughputByOfferID finds the throughput record an offer id names.
+func cosmosThroughputByOfferID(offerID string) (CosmosThroughput, bool) {
+	rid, ok := strings.CutPrefix(offerID, cosmosOfferIDPrefix)
+	if !ok {
+		return CosmosThroughput{}, false
+	}
+	return cosmosThroughputByRID(rid)
+}
+
 func handleCosmosGetOffer(w http.ResponseWriter, r *http.Request) {
-	account := cosmosDataAccount(r)
-	offerID := sim.PathParam(r, "offer")
-	o, ok := cosmosOfferByID(account, offerID)
+	t, ok := cosmosThroughputByOfferID(sim.PathParam(r, "offer"))
 	if !ok {
 		cosmosDataError(w, "NotFound", "Entity with the specified id does not exist", http.StatusNotFound)
 		return
 	}
-	cosmosWriteDataCharge(w, http.StatusOK, cosmosOfferBody(o), 1.0)
+	cosmosWriteDataCharge(w, http.StatusOK, cosmosOfferBody(t), 1.0)
 }
 
 func handleCosmosReplaceOffer(w http.ResponseWriter, r *http.Request) {
-	account := cosmosDataAccount(r)
-	offerID := sim.PathParam(r, "offer")
-	o, ok := cosmosOfferByID(account, offerID)
+	t, ok := cosmosThroughputByOfferID(sim.PathParam(r, "offer"))
 	if !ok {
 		cosmosDataError(w, "NotFound", "Entity with the specified id does not exist", http.StatusNotFound)
 		return
 	}
 	var req struct {
-		Content      map[string]any `json:"content"`
-		OfferType    string         `json:"offerType"`
-		OfferVersion string         `json:"offerVersion"`
+		Content map[string]any `json:"content"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		cosmosDataError(w, "BadRequest", "invalid offer body", http.StatusBadRequest)
 		return
 	}
-	if !cosmosIfMatch(r, o.ETag) {
+	resource, _ := t.Properties["resource"].(map[string]any)
+	if resource == nil {
+		resource = map[string]any{}
+	}
+	etag, _ := resource["_etag"].(string)
+	if !cosmosIfMatch(r, etag) {
 		cosmosPreconditionFailed(w)
 		return
 	}
-	if req.Content == nil || (req.Content["offerThroughput"] == nil && req.Content["offerAutopilotSettings"] == nil) {
+	switch {
+	case req.Content["offerThroughput"] != nil:
+		resource["throughput"] = req.Content["offerThroughput"]
+		delete(resource, "autoscaleSettings")
+	case req.Content["offerAutopilotSettings"] != nil:
+		resource["autoscaleSettings"] = req.Content["offerAutopilotSettings"]
+		delete(resource, "throughput")
+	default:
 		cosmosDataError(w, "BadRequest", "offer content must specify offerThroughput or offerAutopilotSettings", http.StatusBadRequest)
 		return
 	}
-	now := time.Now().UTC().Unix()
-	o.Content = req.Content
-	if req.OfferVersion != "" {
-		o.OfferVersion = req.OfferVersion
+	cosmosStampThroughput(t.ID, resource)
+	if t.Properties == nil {
+		t.Properties = map[string]any{}
 	}
-	o.ETag = fmt.Sprintf(`"%x-%x"`, now, cosmosETagSeq.Add(1))
-	o.TS = now
-	cosmosOffers.Put(cosmosOfferKey(account, o.OfferResourceID), o)
-	cosmosWriteDataCharge(w, http.StatusOK, cosmosOfferBody(o), 1.0)
+	t.Properties["resource"] = resource
+	cosmosThroughputs.Put(t.ID, t)
+	cosmosWriteDataCharge(w, http.StatusOK, cosmosOfferBody(t), 1.0)
 }
 
-// cosmosOfferByID finds an offer for an account by its offer id (the rid-based
-// id the SDK GETs/PUTs after the feed query).
-func cosmosOfferByID(account, offerID string) (cosmosOffer, bool) {
-	// Match by the globally-unique offer id / rid alone; the account isn't
-	// recoverable from the account-less /offers/{id} path (see cosmosOfferKey).
-	for _, o := range cosmosOffers.List() {
-		if o.OfferID == offerID || o.RID == offerID {
-			return o, true
-		}
+// cosmosOfferBody renders a NoSQL resource's throughput record as the offer
+// the data plane serves.
+func cosmosOfferBody(t CosmosThroughput) map[string]any {
+	resource, _ := t.Properties["resource"].(map[string]any)
+	rid, _ := resource["_rid"].(string)
+	content := map[string]any{}
+	if v := resource["throughput"]; v != nil {
+		content["offerThroughput"] = v
 	}
-	return cosmosOffer{}, false
-}
-
-func cosmosOfferBody(o cosmosOffer) map[string]any {
+	if v := resource["autoscaleSettings"]; v != nil {
+		content["offerAutopilotSettings"] = v
+	}
+	offerID := cosmosOfferIDPrefix + rid
 	return map[string]any{
-		"id":              o.OfferID,
-		"_rid":            o.RID,
-		"_self":           o.Self,
-		"_etag":           o.ETag,
-		"_ts":             o.TS,
-		"resource":        o.ResourceSelf,
-		"offerResourceId": o.OfferResourceID,
-		"offerType":       o.OfferType,
-		"offerVersion":    o.OfferVersion,
-		"content":         o.Content,
+		"id":              offerID,
+		"_rid":            offerID,
+		"_self":           "offers/" + offerID + "/",
+		"_etag":           resource["_etag"],
+		"_ts":             resource["_ts"],
+		"resource":        rid,
+		"offerResourceId": rid,
+		"offerType":       "Invalid",
+		"offerVersion":    "V2",
+		"content":         content,
 	}
 }
 

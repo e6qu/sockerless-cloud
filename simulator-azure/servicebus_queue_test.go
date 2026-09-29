@@ -51,7 +51,7 @@ func TestServiceBusLockDurationAndDeliveryCount(t *testing.T) {
 	sbTestQueue("q", map[string]any{"lockDuration": "PT5S", "maxDeliveryCount": float64(2)})
 	sbSend("ns", "q", sbOutgoing{payload: sbPayload{Body: []byte("m")}})
 
-	got, lock := sbReceive("ns", "q", 1, true)
+	got, lock := sbReceive("ns", "q", "", 1, true)
 	if lock != 5*time.Second || len(got) != 1 || got[0].Deliveries != 1 {
 		t.Fatalf("first receive = %+v lock %v", got, lock)
 	}
@@ -64,17 +64,17 @@ func TestServiceBusLockDurationAndDeliveryCount(t *testing.T) {
 	if err := sbSettle("ns", "q", got[0].Receipt, sbSettlement{kind: sbComplete}); err != errSBLockLost {
 		t.Fatalf("completing an abandoned lock = %v, want lock lost", err)
 	}
-	second, _ := sbReceive("ns", "q", 1, true)
+	second, _ := sbReceive("ns", "q", "", 1, true)
 	if len(second) != 1 || second[0].Deliveries != 2 {
 		t.Fatalf("second receive = %+v", second)
 	}
 	if err := sbSettle("ns", "q", second[0].Receipt, sbSettlement{kind: sbAbandon}); err != nil {
 		t.Fatal(err)
 	}
-	if third, _ := sbReceive("ns", "q", 1, true); len(third) != 0 {
+	if third, _ := sbReceive("ns", "q", "", 1, true); len(third) != 0 {
 		t.Fatalf("a third delivery past maxDeliveryCount 2: %+v", third)
 	}
-	dead, _ := sbReceive("ns", sbDeadLetterPath("q"), 1, false)
+	dead, _ := sbReceive("ns", sbDeadLetterPath("q"), "", 1, false)
 	if len(dead) != 1 || dead[0].Payload.DeadLetterReason != "MaxDeliveryCountExceeded" || string(dead[0].Payload.Body) != "m" {
 		t.Fatalf("dead-letter sub-queue = %+v", dead)
 	}
@@ -119,7 +119,7 @@ func TestServiceBusExpiryDeadLettersWhenConfigured(t *testing.T) {
 	sbQueueDurable.Update(sbQueueKey("ns", "q"), func(rec *sbQueueRecord) {
 		rec.Queue.Messages[0].ExpiresAt = time.Now().Add(-time.Second).UnixMilli()
 	})
-	if got, _ := sbReceive("ns", "q", 1, true); len(got) != 0 {
+	if got, _ := sbReceive("ns", "q", "", 1, true); len(got) != 0 {
 		t.Fatalf("an expired message was delivered: %+v", got)
 	}
 	if _, _, dead := sbQueueCounts("ns", "q"); dead != 1 {
@@ -130,11 +130,11 @@ func TestServiceBusExpiryDeadLettersWhenConfigured(t *testing.T) {
 func TestServiceBusDeferAndReceiveBySequenceNumber(t *testing.T) {
 	newServiceBusQueueTestStores(t)
 	sbSend("ns", "q", sbOutgoing{messageID: "d"})
-	got, _ := sbReceive("ns", "q", 1, true)
+	got, _ := sbReceive("ns", "q", "", 1, true)
 	if err := sbSettle("ns", "q", got[0].Receipt, sbSettlement{kind: sbDefer}); err != nil {
 		t.Fatal(err)
 	}
-	if again, _ := sbReceive("ns", "q", 1, true); len(again) != 0 {
+	if again, _ := sbReceive("ns", "q", "", 1, true); len(again) != 0 {
 		t.Fatalf("a deferred message was received again: %+v", again)
 	}
 	deferred := sbReceiveDeferred("ns", "q", []uint64{got[0].Seq})
@@ -228,5 +228,33 @@ func TestServiceBusAMQPDispositionMapping(t *testing.T) {
 	}
 	if id, ok := sbLockTokenUUID(token); !ok || sbLockTokenString(id) != token {
 		t.Fatal("lock token does not round-trip")
+	}
+}
+
+// A topic keeps a message only in its subscriptions: with none, the message
+// is accepted and kept nowhere, and a topic's size is the size of what its
+// subscriptions hold.
+func TestServiceBusTopicKeepsMessagesOnlyInSubscriptions(t *testing.T) {
+	newServiceBusQueueTestStores(t)
+	topicID := sbAdminTopicID("ns", "t")
+	topic := SBTopic{ID: topicID, Name: "t"}
+	sbTopics.Put(topicID, topic)
+	if reached := sbSend("ns", "t", sbOutgoing{payload: sbPayload{Body: []byte("nobody")}}); len(reached) != 0 {
+		t.Fatalf("a topic without subscriptions kept the message in %v", reached)
+	}
+	if total, _, _ := sbQueueCounts("ns", "t"); total != 0 {
+		t.Fatalf("the topic's own path holds %d messages", total)
+	}
+	for _, s := range []string{"a", "b"} {
+		id := sbAdminSubscriptionID("ns", "t", s)
+		sbSubscriptions.Put(id, SBSubscription{ID: id, Name: s})
+	}
+	sbSend("ns", "t", sbOutgoing{payload: sbPayload{Body: []byte("12345")}})
+	desc := sbAdminTopicDescriptionFor("ns", "t", topic)
+	if *desc.SubscriptionCount != 2 || *desc.SizeInBytes != 10 {
+		t.Fatalf("topic description: %d subscriptions, %d bytes; want 2 and 10", *desc.SubscriptionCount, *desc.SizeInBytes)
+	}
+	if got := sbQueueBytes("ns", "t/a"); got != 5 {
+		t.Fatalf("subscription a holds %d bytes, want 5", got)
 	}
 }

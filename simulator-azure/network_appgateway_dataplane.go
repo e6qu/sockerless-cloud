@@ -533,13 +533,20 @@ func applicationGatewayServers(pool ApplicationGatewayBackendAddressPool) []appl
 	return servers
 }
 
-// applicationGatewayHealthyServer returns the first pool member the gateway's
-// health probes have found Up.
+// applicationGatewayHealthyServer returns the first pool member the gateway
+// routes to: one its health probes have found Up, or else — when the settings'
+// probe sets minServers, the "minimum number of servers that are always marked
+// healthy" — the first of the pool's members, which count as healthy however
+// their probes went.
 func applicationGatewayHealthyServer(gw ApplicationGateway, pool ApplicationGatewayBackendAddressPool, settings ApplicationGatewayBackendHTTPSettings) (applicationGatewayServer, bool) {
-	for _, server := range applicationGatewayServers(pool) {
+	servers := applicationGatewayServers(pool)
+	for _, server := range servers {
 		if health, _ := applicationGatewayRecordedHealth(gw, settings, server); health == "Up" {
 			return server, true
 		}
+	}
+	if probe := applicationGatewayProbe(gw, settings.Properties.Probe); probe != nil && probe.Properties.MinServers > 0 && len(servers) > 0 {
+		return servers[0], true
 	}
 	return applicationGatewayServer{}, false
 }

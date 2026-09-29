@@ -49,3 +49,27 @@ func TestApplicationGatewayProbeGradesARedirectByItsOwnCode(t *testing.T) {
 		t.Fatalf("200-only criterion: %s %q", health, log)
 	}
 }
+
+// A probe's minServers is the "minimum number of servers that are always
+// marked healthy": with no member probed Up, a gateway whose probe sets it
+// still routes to the pool's first member, and one whose probe leaves it at 0
+// routes nowhere.
+func TestApplicationGatewayMinServersKeepsAMemberInService(t *testing.T) {
+	gw := ApplicationGateway{}
+	gw.ID = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Network/applicationGateways/minservers"
+	probeID := gw.ID + "/probes/p"
+	gw.Properties.Probes = []ApplicationGatewayProbe{{applicationGatewayChild: applicationGatewayChild{ID: probeID, Name: "p"}}}
+	pool := ApplicationGatewayBackendAddressPool{applicationGatewayChild: applicationGatewayChild{ID: gw.ID + "/backendAddressPools/pool"}}
+	pool.Properties.BackendAddresses = []ApplicationGatewayBackendAddress{{IPAddress: "10.9.0.4"}, {IPAddress: "10.9.0.5"}}
+	settings := ApplicationGatewayBackendHTTPSettings{applicationGatewayChild: applicationGatewayChild{ID: gw.ID + "/backendHttpSettingsCollection/s"}}
+	settings.Properties.Probe = &SubResource{ID: probeID}
+
+	if server, ok := applicationGatewayHealthyServer(gw, pool, settings); ok {
+		t.Fatalf("minServers 0 routed to %s with no member probed Up", server.address)
+	}
+	gw.Properties.Probes[0].Properties.MinServers = 1
+	server, ok := applicationGatewayHealthyServer(gw, pool, settings)
+	if !ok || server.address != "10.9.0.4" {
+		t.Fatalf("minServers 1 routed to %q (%v), want the first member 10.9.0.4", server.address, ok)
+	}
+}

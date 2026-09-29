@@ -84,7 +84,7 @@ func TestServiceBusMigratesLegacyQueueRows(t *testing.T) {
 		t.Fatalf("%d messages left", total)
 	}
 	sbSend("ns", "q", sbOutgoing{})
-	if got, _ := sbReceive("ns", "q", 1, false); len(got) != 1 || got[0].Seq != 3 {
+	if got, _ := sbReceive("ns", "q", "", 1, false); len(got) != 1 || got[0].Seq != 3 {
 		t.Fatalf("a send after the migration took sequence %+v", got)
 	}
 }

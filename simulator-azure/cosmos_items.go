@@ -235,13 +235,6 @@ func cosmosARMContainerKeys(c CosmosSQLContainer) []string {
 // with neither — a serverless account's, or a shared-throughput database's
 // with no offer — has no provisioned budget.
 func cosmosProvisionedThroughput(account, db, coll string) (string, kvstore.Limit, bool) {
-	for _, rid := range []string{account + "-" + db + "-" + coll, account + "-" + db} {
-		if o, ok := cosmosOfferFor(account, rid); ok {
-			if ru := cosmosRUPerSecond(o.Content, "offerThroughput", "offerAutopilotSettings"); ru > 0 {
-				return rid, kvstore.Limit{Rate: ru, Burst: ru}, true
-			}
-		}
-	}
 	for _, key := range []string{cosmosDataCollKey(account, db, coll), cosmosDataDBKey(account, db)} {
 		t, ok := cosmosSQLThroughputIdx.Lookup(cosmosThroughputs, key, cosmosSQLThroughputKeys)
 		if !ok {
@@ -316,9 +309,7 @@ var cosmosRUBuckets kvstore.Buckets
 // settings, its dedicated throughput offer and that offer's budget.
 func cosmosForgetContainer(account, db, coll string) {
 	cosmosDataColls.Delete(cosmosDataCollKey(account, db, coll))
-	rid := account + "-" + db + "-" + coll
-	cosmosOffers.Delete(cosmosOfferKey(account, rid))
-	cosmosRUBuckets.Forget(rid)
+	cosmosForgetSQLThroughput(account, db, coll)
 }
 
 // cosmosIfMatch evaluates If-Match against an existing resource's ETag; an

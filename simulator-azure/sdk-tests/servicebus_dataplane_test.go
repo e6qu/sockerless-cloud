@@ -352,6 +352,56 @@ func TestServiceBus_RawAMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 	assert.Equal(t, []byte("hello from raw topic"), messages[0].Body)
 }
 
+// A subscription receiver on a client that never addressed the topic holds
+// only the claim for its own subscription, and receives through it; its
+// messages reach the receiver, not the management link the SDK attaches
+// beside it.
+func TestServiceBus_AMQPSDKSubscriptionReceiverOnItsOwnClient(t *testing.T) {
+	namespace := "sdk-amqp-sub-own"
+	topic := "owntopic"
+	sub := "sub1"
+	adminClient := sbAdminClient(t, namespace)
+	_, err := adminClient.CreateTopic(ctx, topic, nil)
+	require.NoError(t, err)
+	_, err = adminClient.CreateSubscription(ctx, topic, sub, nil)
+	require.NoError(t, err)
+
+	senderClient := sbRawAMQPClient(t, namespace)
+	t.Cleanup(func() { _ = senderClient.Close(context.Background()) })
+	sender, err := senderClient.NewSender(topic, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sender.Close(context.Background()) })
+	sendCtx, sendCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer sendCancel()
+	for _, body := range []string{"first", "second"} {
+		require.NoError(t, sender.SendMessage(sendCtx, &azservicebus.Message{Body: []byte(body)}, nil))
+	}
+
+	receiverClient := sbRawAMQPClient(t, namespace)
+	t.Cleanup(func() { _ = receiverClient.Close(context.Background()) })
+	receiver, err := receiverClient.NewReceiverForSubscription(topic, sub, &azservicebus.ReceiverOptions{
+		ReceiveMode: azservicebus.ReceiveModePeekLock,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = receiver.Close(context.Background()) })
+
+	receiveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	var got []string
+	for len(got) < 2 {
+		messages, err := receiver.ReceiveMessages(receiveCtx, 2-len(got), nil)
+		require.NoError(t, err, "received %v before: %s", got, sbTopicDeliveryState(t, adminClient, topic, sub))
+		for _, m := range messages {
+			got = append(got, string(m.Body))
+			require.NoError(t, receiver.CompleteMessage(receiveCtx, m, nil))
+		}
+	}
+	assert.Equal(t, []string{"first", "second"}, got)
+	props, err := adminClient.GetSubscriptionRuntimeProperties(ctx, topic, sub, nil)
+	require.NoError(t, err)
+	assert.Zero(t, props.ActiveMessageCount, "completed messages must leave the subscription")
+}
+
 // sbTopicDeliveryState reports where a message sent to a topic rests, so a
 // receive that times out says whether the fan-out or the delivery lost it.
 func sbTopicDeliveryState(t *testing.T, adminClient *admin.Client, topic, sub string) string {

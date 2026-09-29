@@ -357,6 +357,12 @@ through hooks:
   a frame, so the Service Bus and Event Hubs connection carries unconsumed bytes
   over to the next read; dropping the connection on a split frame lost
   receive-and-delete messages it had already handed out.
+- **A link receives only what its address names.** A management reply link
+  (`<entity>/$management`) is never a receiver of the entity, so a message
+  goes only to a link that attached to the entity itself; AMQP credit is the
+  receiver's delivery-count plus link-credit minus the sender's, as AMQP 1.0
+  defines it. Handing a receive-and-delete message to the SDK's reply link
+  lost it whenever that link's credit arrived first, which on CI was often.
 - **A page token proves where it came from.** Every listing tags the tokens it
   issues and refuses one it never issued with the service's invalid-argument
   error, instead of listing an empty page.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -725,38 +726,55 @@ func handleLogicRunActionList(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// logicRecordTriggerRun creates a run plus its synthesized actions and a
-// trigger history entry, mirroring what a single workflow execution produces.
+// logicRecordTriggerRun fires a trigger: it executes the workflow definition
+// as one run, and records the run, each action it executed and a trigger
+// history entry.
 func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 	logicSyncTriggers(wf)
 	runName := sim.NewUUID()
 	now := logicNow()
 	runID := wf.ID + "/runs/" + runName
-	logicRuns.Put(runID, LogicWorkflowRun{
-		ID: runID, Name: runName, Type: wf.Type + "/runs",
-		Properties: map[string]any{
-			"startTime":     now,
-			"endTime":       now,
-			"waitEndTime":   now,
-			"status":        "Succeeded",
-			"correlationId": sim.NewUUID(),
-			"trigger": map[string]any{
-				"name": triggerName, "startTime": now, "endTime": now, "status": "Succeeded",
-			},
-			"workflow": map[string]any{"id": wf.ID, "name": wf.Name, "type": wf.Type},
-			"outputs":  map[string]any{},
-		},
-	})
 
 	def, _ := wf.Properties["definition"].(map[string]any)
-	actions, _ := def["actions"].(map[string]any)
-	for actionName := range actions {
+	params, _ := wf.Properties["parameters"].(map[string]any)
+	outcome := logicExecute(context.Background(), def, params, map[string]any{"headers": map[string]any{}})
+	end := logicNow()
+	runProps := map[string]any{
+		"startTime":     now,
+		"endTime":       end,
+		"waitEndTime":   now,
+		"status":        outcome.Status,
+		"correlationId": sim.NewUUID(),
+		"trigger": map[string]any{
+			"name": triggerName, "startTime": now, "endTime": now, "status": "Succeeded",
+		},
+		"workflow": map[string]any{"id": wf.ID, "name": wf.Name, "type": wf.Type},
+		"outputs":  map[string]any{},
+	}
+	if outcome.Outputs != nil {
+		runProps["outputs"] = outcome.Outputs
+	}
+	if outcome.Error != nil {
+		runProps["error"] = outcome.Error
+		runProps["code"] = outcome.Error["code"]
+	}
+	logicRuns.Put(runID, LogicWorkflowRun{ID: runID, Name: runName, Type: wf.Type + "/runs", Properties: runProps})
+
+	for _, actionName := range outcome.Actions {
+		result := outcome.Results[actionName]
 		actID := runID + "/actions/" + actionName
+		props := map[string]any{
+			"status":    result.Status,
+			"code":      result.Code,
+			"startTime": result.StartTime.Format(time.RFC3339Nano),
+			"endTime":   result.EndTime.Format(time.RFC3339Nano),
+		}
+		if result.Error != nil {
+			props["error"] = result.Error
+		}
 		logicRunActions.Put(actID, LogicResource{
 			ID: actID, Name: actionName, Type: wf.Type + "/runs/actions",
-			Properties: map[string]any{
-				"status": "Succeeded", "code": "OK", "startTime": now, "endTime": now,
-			},
+			Properties: props,
 		})
 	}
 

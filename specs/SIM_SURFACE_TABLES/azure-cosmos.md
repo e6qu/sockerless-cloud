@@ -87,11 +87,11 @@ The extractor reads the route out of a single string literal, so a registration 
 | `GET /dbs/{database}/colls/{container}/triggers/{script}` | ✓ `simulator-azure/cosmos_scripts.go:71::handleCosmosGetScript` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PUT /dbs/{database}/colls/{container}/triggers/{script}` | ✓ `simulator-azure/cosmos_scripts.go:72::handleCosmosReplaceScript` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `DELETE /dbs/{database}/colls/{container}/triggers/{script}` | ✓ `simulator-azure/cosmos_scripts.go:73::handleCosmosDeleteScript` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /offers` | ✓ `simulator-azure/cosmos_throughput.go:67::handleCosmosOffersQuery` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /offers/{offer}` | ✓ `simulator-azure/cosmos_throughput.go:68::handleCosmosGetOffer` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /offers/{offer}/` | ✓ `simulator-azure/cosmos_throughput.go:69::handleCosmosGetOffer` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /offers/{offer}` | ✓ `simulator-azure/cosmos_throughput.go:70::handleCosmosReplaceOffer` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /offers/{offer}/` | ✓ `simulator-azure/cosmos_throughput.go:71::handleCosmosReplaceOffer` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /offers` | ○ `simulator-azure/cosmos_throughput.go:46::handleCosmosOffersQuery` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /offers/{offer}` | ○ `simulator-azure/cosmos_throughput.go:47::handleCosmosGetOffer` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /offers/{offer}/` | ○ `simulator-azure/cosmos_throughput.go:48::handleCosmosGetOffer` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /offers/{offer}` | ✓ `simulator-azure/cosmos_throughput.go:49::handleCosmosReplaceOffer` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /offers/{offer}/` | ✓ `simulator-azure/cosmos_throughput.go:50::handleCosmosReplaceOffer` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

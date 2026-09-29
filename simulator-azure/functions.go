@@ -1337,7 +1337,12 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	// Sidecar sitecontainers share the main's network namespace, so a
 	// sidecar that binds a port is reachable from the main on
 	// localhost:<port> — the App Service multi-container loopback contract.
-	sidecarHandles := startSidecarContainers(site, containerID, sink)
+	sidecarHandles, err := startSidecarContainers(ctx, site, containerID, sink)
+	if err != nil {
+		cancelLogs()
+		sim.StopAndRemoveContainer(containerID, siteStopGrace(site))
+		return fmt.Errorf("start sitecontainers: %w", err)
+	}
 	go sim.StreamContainerLogs(logCtx, containerID, sink)
 
 	// Reach the bootstrap by whichever address connects:
