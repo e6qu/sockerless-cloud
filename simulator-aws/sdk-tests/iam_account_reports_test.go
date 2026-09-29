@@ -193,7 +193,7 @@ func TestIAM_OrganizationsRoot(t *testing.T) {
 
 	fed, err := c.EnableOutboundWebIdentityFederation(ctx, &iam.EnableOutboundWebIdentityFederationInput{})
 	require.NoError(t, err)
-	assert.Contains(t, aws.ToString(fed.IssuerIdentifier), "oidc.iam")
+	assert.True(t, strings.HasSuffix(aws.ToString(fed.IssuerIdentifier), ".tokens.sts.global.api.aws"), aws.ToString(fed.IssuerIdentifier))
 	info, err := c.GetOutboundWebIdentityFederationInfo(ctx, &iam.GetOutboundWebIdentityFederationInfoInput{})
 	require.NoError(t, err)
 	assert.True(t, info.JwtVendingEnabled)
