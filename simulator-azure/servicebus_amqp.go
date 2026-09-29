@@ -243,36 +243,53 @@ func (c *sbAMQPConn) serve(ctx context.Context) {
 		sbAMQPActiveConns.Delete(c)
 		_ = c.transport.Close()
 	}()
+	// AMQP is a byte stream: a read can end inside a protocol header or a
+	// frame, so bytes carry over until the rest arrives.
+	var pending []byte
 	for {
 		data, err := c.transport.Read(ctx)
 		if err != nil {
 			return
 		}
-		for len(data) > 0 {
-			if len(data) >= 8 && bytes.Equal(data[:4], []byte{'A', 'M', 'Q', 'P'}) {
-				if err := c.handleProto(data[:8]); err != nil {
-					return
-				}
-				data = data[8:]
-				continue
-			}
-			if len(data) < 8 {
-				return
-			}
-			size := int(binary.BigEndian.Uint32(data[:4]))
-			if size < 8 || size > len(data) {
-				return
-			}
-			frame, err := parseAMQPFrame(data[:size])
-			if err != nil {
-				return
-			}
-			if err := c.handleFrame(ctx, frame); err != nil {
-				return
-			}
-			data = data[size:]
+		pending = append(pending, data...)
+		consumed, err := c.handleFrames(ctx, pending)
+		if err != nil {
+			return
 		}
+		pending = append(pending[:0], pending[consumed:]...)
 	}
+}
+
+// handleFrames handles every complete protocol header and frame at the start
+// of data and returns how many bytes they took.
+func (c *sbAMQPConn) handleFrames(ctx context.Context, data []byte) (int, error) {
+	consumed := 0
+	for len(data)-consumed >= 8 {
+		rest := data[consumed:]
+		if bytes.Equal(rest[:4], []byte{'A', 'M', 'Q', 'P'}) {
+			if err := c.handleProto(rest[:8]); err != nil {
+				return consumed, err
+			}
+			consumed += 8
+			continue
+		}
+		size := int(binary.BigEndian.Uint32(rest[:4]))
+		if size < 8 {
+			return consumed, fmt.Errorf("AMQP frame declares size %d, below the 8-byte frame header", size)
+		}
+		if size > len(rest) {
+			break
+		}
+		frame, err := parseAMQPFrame(rest[:size])
+		if err != nil {
+			return consumed, err
+		}
+		if err := c.handleFrame(ctx, frame); err != nil {
+			return consumed, err
+		}
+		consumed += size
+	}
+	return consumed, nil
 }
 
 func (c *sbAMQPConn) handleProto(header []byte) error {

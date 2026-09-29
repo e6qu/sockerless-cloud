@@ -337,6 +337,10 @@ through hooks:
 - **A revoked session stays revoked.** `workforcePools.subjects.revokeSessions`
   records when a subject's sessions end, and every check of a simulator-minted
   access token refuses one issued to that subject at or before that second.
+- **AMQP is a byte stream.** A WebSocket message or a TCP read can end inside
+  a frame, so the Service Bus and Event Hubs connection carries unconsumed bytes
+  over to the next read; dropping the connection on a split frame lost
+  receive-and-delete messages it had already handed out.
 - **A page token proves where it came from.** Every listing tags the tokens it
   issues and refuses one it never issued with the service's invalid-argument
   error, instead of listing an empty page.

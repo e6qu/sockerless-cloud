@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 49.
+Open: 50.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -59,3 +59,4 @@ live in `WHAT_WE_DID.md`.
 | 3134 | P3 | gRPC operations of REST-only services | The shared gRPC Operations service decodes only operations whose response and metadata types are linked into the binary, so Memorystore, Artifact Registry and API Gateway operations fail on their response type over gRPC. | Register those services' message types, or answer them through `Any` without decoding. |
 | 3135 | P3 | Aurora member lifecycle | `StopDBInstance` and `StartDBInstance` accept an Aurora cluster member, though Aurora starts and stops members only through the cluster, and `DeleteDBCluster` does not refuse a cluster that still has members. | Refuse both with the faults the Amazon RDS model declares for them. |
 | 3136 | P2 | Aurora engines | Aurora cluster members run no database engine: `rdsEngine` maps no `aurora-postgresql` or `aurora-mysql` engine, so an Aurora endpoint answers nothing. | Run the PostgreSQL- and MySQL-compatible engines behind Aurora members and the cluster's writer and reader endpoints. |
+| 3137 | P3 | Service Bus and Event Hubs AMQP link credit | `handleFlow` adds each flow's `link-credit` to the link's credit, but AMQP 1.0 defines `link-credit` as the receiver's current allowance relative to its `delivery-count`, so a client that re-issues a flow is granted more deliveries than it asked for. | Track each link's delivery count and set the credit to the receiver's `delivery-count` plus `link-credit` minus the sender's delivery count, as AMQP 1.0 section 2.6.7 defines it. |
