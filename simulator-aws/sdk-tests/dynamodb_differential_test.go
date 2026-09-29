@@ -849,7 +849,9 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 	// starts exactly one container per run.
 	reapStaleDynamoDBLocal(t)
 	runCtx, cancelRun := context.WithTimeout(context.Background(), 2*time.Minute)
-	runOut, err := exec.CommandContext(runCtx, "docker", "run", "-d", "--rm", "--name", containerName,
+	// No --rm: a DynamoDB Local that exits must stay inspectable, or its exit
+	// code and log vanish with it. stop removes it.
+	runOut, err := exec.CommandContext(runCtx, "docker", "run", "-d", "--name", containerName,
 		"--label", dynamoDBLocalLabel,
 		"-p", fmt.Sprintf("127.0.0.1:%d:8000", port),
 		image, "-jar", "DynamoDBLocal.jar", "-inMemory").CombinedOutput()
@@ -902,11 +904,18 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 		if probeErr == nil || time.Now().After(deadline) {
 			break
 		}
+		runningCtx, cancelRunning := context.WithTimeout(context.Background(), 10*time.Second)
+		running, runningErr := exec.CommandContext(runningCtx, "docker", "inspect", "--format", "{{.State.Running}}", containerName).CombinedOutput()
+		cancelRunning()
+		if runningErr != nil || string(trimNL(running)) != "true" {
+			probeErr = fmt.Errorf("the container stopped before answering (last probe: %w)", probeErr)
+			break
+		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	if probeErr != nil {
 		inspectCtx, cancelInspect := context.WithTimeout(context.Background(), 30*time.Second)
-		stateOut, _ := exec.CommandContext(inspectCtx, "docker", "inspect", "--format", "{{json .State}}", containerName).CombinedOutput()
+		stateOut, _ := exec.CommandContext(inspectCtx, "docker", "inspect", "--format", "{{json .State}} {{json .HostConfig.Memory}}", containerName).CombinedOutput()
 		logsOut, _ := exec.CommandContext(inspectCtx, "docker", "logs", "--tail", "60", containerName).CombinedOutput()
 		cancelInspect()
 		stop()
