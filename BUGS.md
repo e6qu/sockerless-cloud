@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 62.
+Open: 68.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -72,3 +72,9 @@ live in `WHAT_WE_DID.md`.
 | 3169 | P3 | Container Apps environment network removal | `containerappsenv.go` discards the error from `sim.RemoveDockerNetwork`. | Fail the environment delete operation with the error. |
 | 3170 | P3 | Azure operation URLs per provider | Every provider's operations use `operationStatuses` and `operationResults` URLs, but Compute answers at `.../locations/{loc}/operations/{id}` (with `?monitor=true` for Location); the Redis async-status route duplicates the generic handler. | Mint each provider's own operation URL shape and serve it from one handler. |
 | 3171 | P3 | Busy VM operations | A second operation on a VM that is Creating or Updating gets 409 `OperationNotAllowed`; Compute may instead preempt the earlier one (`OperationPreempted`), and the boot-failure code `AllocationFailed` and stop-failure code `InternalExecutionError` are chosen, not sourced. | Confirm the preemption rule and the error codes against the Compute specs and SDK recordings, and match them. |
+| 3172 | P2 | Cloud Run RunJob and Cloud Build CreateBuild operations | The Cloud Run `RunJob` operation is done at once, though the service completes it when the execution finishes, and Cloud Build `CreateBuild` blocks until the build ends, though the service returns its operation at once; tests therefore poll execution and build status instead of waiting on the operation. | Complete each operation when its execution or build finishes, and have the tests wait on the operation. |
+| 3173 | P3 | Cloud Run jobs details | `dependsOn` and `startupProbe` are accepted but ignored; deleting a job leaves its running containers to the reaper; cancelling an already-completed execution overwrites its conditions to Cancelled; a failed task's `lastAttemptResult.status.code` is 2 (UNKNOWN) by assumption. | Honour container dependencies and startup probes, stop a deleted job's executions, leave completed executions as they are, and confirm the status code against the Run Admin API. |
+| 3174 | P3 | IAM access-token expiry format | `generateAccessToken` formats `expireTime` in RFC3339 whole seconds, though the service uses RFC3339Nano. | Format it as the service does. |
+| 3175 | P3 | Cloud Logging tail backlog | `TailLogEntries` replays entries written before the stream opened; the service is believed to stream only new entries. | Confirm the tail semantics against the Logging API and match them. |
+| 3176 | P3 | Google Cloud tests reuse fixed names | Many Cloud Run, `TestSDK_CloudRun_CancelExecution` and several Artifact Registry tests use fixed resource names, so a repeated run against one simulator hits AlreadyExists or reads an earlier run's log entries. | Give each test run unique names and clean up what it creates. |
+| 3177 | P3 | Simulator readiness and parent-exit waits | The simulators print their banner before they bind, so test suites poll the port for readiness, and the parent-PID watch polls every second with no event, so its test waits out a quiet window; both need `sim/` changes. | Announce readiness after binding and expose the parent-exit event, then have the suites wait on them. |

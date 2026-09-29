@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	run "cloud.google.com/go/run/apiv2"
 	"cloud.google.com/go/run/apiv2/runpb"
@@ -270,9 +269,11 @@ func TestSDK_CloudRunV2Services_MultiContainerSharesLocalhost(t *testing.T) {
 			Template: &runpb.RevisionTemplate{
 				Containers: []*runpb.Container{
 					{
+						// The containers start together, so main gives its
+						// sidecar time to listen before it answers.
 						Name:  "main",
 						Image: httpProbeImageName,
-						Args:  []string{"probe"},
+						Args:  []string{"probe-retry", "cloudrun-sidecar-ok"},
 					},
 					{
 						Name:  "sidecar",
@@ -294,16 +295,13 @@ func TestSDK_CloudRunV2Services_MultiContainerSharesLocalhost(t *testing.T) {
 		}
 	})
 
-	var body []byte
-	require.Eventually(t, func() bool {
-		resp, err := http.Post(svc.Uri, "application/json", strings.NewReader("{}"))
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-		body, _ = io.ReadAll(resp.Body)
-		return strings.Contains(string(body), "cloudrun-sidecar-ok")
-	}, 20*time.Second, 500*time.Millisecond, "Cloud Run Service main must reach sidecar on localhost; last body=%q", string(body))
+	resp, err := http.Post(svc.Uri, "application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "body=%q", body)
+	assert.Equal(t, "cloudrun-sidecar-ok", string(body), "Cloud Run Service main must reach sidecar on localhost")
 }
 
 func TestSDK_CloudRunV2Services_ForwardsRequestPath(t *testing.T) {

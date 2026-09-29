@@ -3,7 +3,6 @@ package gcp_sdk_test
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
@@ -206,7 +205,7 @@ func TestPubSub_GRPC_AckDeadlineRedelivery(t *testing.T) {
 	require.NoError(t, err)
 	defer topic.Delete(ctx)
 
-	// The shortest ack deadline a subscription takes, so the sweeper requeues promptly.
+	// The shortest ack deadline a subscription takes.
 	subName := "projects/ps-grpc-proj/subscriptions/rd-sub"
 	_, err = sc.CreateSubscription(ctx, &pubsubpb.Subscription{
 		Name: subName, Topic: topic.String(), AckDeadlineSeconds: 10,
@@ -222,29 +221,22 @@ func TestPubSub_GRPC_AckDeadlineRedelivery(t *testing.T) {
 	require.Len(t, first, 1, "first pull must return the published message")
 	require.Equal(t, "will-redeliver", string(first[0].GetMessage().GetData()))
 
-	// The sweeper runs every 1s; the deadline is 10s. Poll-until the message is
-	// redelivered with a fresh ackId.
-	var redelivered *pubsubpb.ReceivedMessage
-	require.Eventually(t, func() bool {
-		got := psPullN(t, sc, subName, 1)
-		if len(got) == 0 {
-			return false
-		}
-		redelivered = got[0]
-		return true
-	}, 30*time.Second, 500*time.Millisecond, "unacked message must be redelivered after ack deadline")
-	require.Equal(t, "will-redeliver", string(redelivered.GetMessage().GetData()), "redelivered payload must match")
+	// A StreamingPull holds open until the service redelivers the message once
+	// its 10-second deadline runs out.
+	got := psStreamUntil(t, psOpenStreamingPull(t, sc, subName), "will-redeliver")
+	require.Len(t, got, 1, "the stream delivers only the redelivered message")
+	redelivered := got[0]
 	require.NotEqual(t, first[0].GetAckId(), redelivered.GetAckId(), "redelivery must carry a fresh ackId")
 }
 
 // TestPubSub_GRPC_ModifyAckDeadline proves that ModifyAckDeadline moves the
-// deadline it names in both directions: extending an inflight message's deadline
-// keeps it from being redelivered while the original short deadline elapses, and
-// then dropping the same message's deadline to zero — the nack a subscriber
-// sends to hand a message straight back — returns it to the queue at once.
-//
-// The second half is the positive control for the first: without it, a sim that
-// simply never redelivered anything would satisfy the empty-pull assertion.
+// deadline it names in both directions. One message has its deadline cut to a
+// second and then extended; a sentinel pulled after it has its deadline cut to
+// a second and left there, so the sentinel's deadline expires no earlier than
+// the first message's short one. When a StreamingPull redelivers the sentinel,
+// the first message's short deadline has provably passed too, and the stream
+// must not have redelivered it: the extension held it. Dropping its deadline to
+// zero then returns it on the same stream at once.
 func TestPubSub_GRPC_ModifyAckDeadline(t *testing.T) {
 	c := newPSGRPCClient(t, "ps-grpc-proj")
 	sc := psRawSubscriber(t)
@@ -261,45 +253,81 @@ func TestPubSub_GRPC_ModifyAckDeadline(t *testing.T) {
 	require.NoError(t, err)
 	defer sc.DeleteSubscription(ctx, &pubsubpb.DeleteSubscriptionRequest{Subscription: subName})
 
-	_, err = topic.Publish(ctx, &pubsub.Message{Data: []byte("mod-test")}).Get(ctx)
-	require.NoError(t, err)
+	modack := func(ackID string, seconds int32) {
+		t.Helper()
+		_, err := sc.ModifyAckDeadline(ctx, &pubsubpb.ModifyAckDeadlineRequest{
+			Subscription: subName, AckIds: []string{ackID}, AckDeadlineSeconds: seconds,
+		})
+		require.NoError(t, err, "ModifyAckDeadline to %ds", seconds)
+	}
+	publishAndPull := func(data string) *pubsubpb.ReceivedMessage {
+		t.Helper()
+		_, err := topic.Publish(ctx, &pubsub.Message{Data: []byte(data)}).Get(ctx)
+		require.NoError(t, err)
+		pulled := psPullN(t, sc, subName, 1)
+		require.Len(t, pulled, 1, "pull must return the published message")
+		require.Equal(t, data, string(pulled[0].GetMessage().GetData()))
+		return pulled[0]
+	}
 
-	pulled := psPullN(t, sc, subName, 1)
-	require.Len(t, pulled, 1, "pull must return the published message")
+	extended := publishAndPull("mod-test")
+	modack(extended.GetAckId(), 1)
+	modack(extended.GetAckId(), 60)
 
-	// Extend the deadline by 30s immediately.
-	_, err = sc.ModifyAckDeadline(ctx, &pubsubpb.ModifyAckDeadlineRequest{
-		Subscription: subName, AckIds: []string{pulled[0].GetAckId()}, AckDeadlineSeconds: 30,
-	})
-	require.NoError(t, err, "ModifyAckDeadline")
+	sentinel := publishAndPull("mod-sentinel")
+	modack(sentinel.GetAckId(), 1)
 
-	// Past the original 10-second deadline, the message must NOT be
-	// redelivered because the deadline was extended.
-	time.Sleep(12 * time.Second)
-	require.Empty(t, psPullN(t, sc, subName, 1), "extended message must not be redelivered before the new deadline")
+	stream := psOpenStreamingPull(t, sc, subName)
+	before := psStreamUntil(t, stream, "mod-sentinel")
+	for _, m := range before {
+		require.NotEqual(t, "mod-test", string(m.GetMessage().GetData()),
+			"a message whose deadline was extended must not be redelivered when its earlier deadline passes")
+	}
 
-	// The same call in the other direction: a zero deadline expires the message
-	// immediately, so it comes back to the queue and is redelivered with a fresh
-	// ackId. This proves the empty pull above was the extension holding the
-	// message, not a subscription that had stopped delivering.
-	_, err = sc.ModifyAckDeadline(ctx, &pubsubpb.ModifyAckDeadlineRequest{
-		Subscription: subName, AckIds: []string{pulled[0].GetAckId()}, AckDeadlineSeconds: 0,
-	})
-	require.NoError(t, err, "ModifyAckDeadline to zero")
+	// A zero deadline expires the message immediately, so the open stream
+	// redelivers it with a fresh ackId.
+	modack(extended.GetAckId(), 0)
+	redelivered := psStreamUntil(t, stream, "mod-test")
+	last := redelivered[len(redelivered)-1]
+	require.NotEqual(t, extended.GetAckId(), last.GetAckId(), "redelivery carries a fresh ackId")
+}
 
-	var redelivered *pubsubpb.ReceivedMessage
-	require.Eventually(t, func() bool {
-		got := psPullN(t, sc, subName, 1)
-		if len(got) == 0 {
-			return false
+// psOpenStreamingPull opens a raw StreamingPull on sub. The stream closes when
+// the test ends or its minute is up, whichever comes first.
+func psOpenStreamingPull(t *testing.T, sc pubsubpb.SubscriberClient, sub string) pubsubpb.Subscriber_StreamingPullClient {
+	t.Helper()
+	streamCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	t.Cleanup(cancel)
+	stream, err := sc.StreamingPull(streamCtx)
+	require.NoError(t, err, "StreamingPull")
+	require.NoError(t, stream.Send(&pubsubpb.StreamingPullRequest{
+		Subscription: sub, StreamAckDeadlineSeconds: 60,
+	}))
+	return stream
+}
+
+// psStreamUntil receives from stream until a message carrying data arrives,
+// and returns every message received up to and including that batch, the
+// match last. Recv blocks until the service delivers; the stream's context
+// bounds the wait.
+func psStreamUntil(t *testing.T, stream pubsubpb.Subscriber_StreamingPullClient, data string) []*pubsubpb.ReceivedMessage {
+	t.Helper()
+	var got []*pubsubpb.ReceivedMessage
+	for {
+		resp, err := stream.Recv()
+		require.NoError(t, err, "StreamingPull Recv waiting for %q", data)
+		var match *pubsubpb.ReceivedMessage
+		for _, m := range resp.GetReceivedMessages() {
+			if string(m.GetMessage().GetData()) == data && match == nil {
+				match = m
+				continue
+			}
+			got = append(got, m)
 		}
-		redelivered = got[0]
-		return true
-	}, 15*time.Second, 250*time.Millisecond,
-		"a deadline moved to zero returns the message to the queue")
-	require.Equal(t, "mod-test", string(redelivered.GetMessage().GetData()))
-	require.NotEqual(t, pulled[0].GetAckId(), redelivered.GetAckId(),
-		"redelivery carries a fresh ackId")
+		if match != nil {
+			return append(got, match)
+		}
+	}
 }
 
 // TestPubSub_GRPC_StreamingPull drives the high-level client's Receive path
@@ -324,38 +352,35 @@ func TestPubSub_GRPC_StreamingPull(t *testing.T) {
 		require.NoError(t, err, "Publish %s", p)
 	}
 
-	// Receive dispatches each message to the handler on its own goroutine. Record
-	// the payloads and ack as each arrives.
-	received := struct {
-		sync.Mutex
-		m map[string]bool
-	}{m: map[string]bool{}}
-	rctx, cancel := context.WithCancel(ctx)
+	// Receive dispatches each message to the handler on its own goroutine,
+	// which acks it and hands its payload to the test.
+	received := make(chan string, len(want))
+	rctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	receiveDone := make(chan error, 1)
 	go func() {
-		_ = sub.Receive(rctx, func(_ context.Context, m *pubsub.Message) {
-			received.Lock()
-			received.m[string(m.Data)] = true
-			received.Unlock()
+		receiveDone <- sub.Receive(rctx, func(_ context.Context, m *pubsub.Message) {
 			m.Ack()
+			select {
+			case received <- string(m.Data):
+			case <-rctx.Done():
+			}
 		})
 	}()
 
-	require.Eventually(t, func() bool {
-		received.Lock()
-		defer received.Unlock()
-		if len(received.m) != len(want) {
-			return false
+	var got []string
+	for len(got) < len(want) {
+		select {
+		case data := <-received:
+			got = append(got, data)
+		case err := <-receiveDone:
+			t.Fatalf("Receive returned after %q of %q: %v", got, want, err)
 		}
-		for _, w := range want {
-			if !received.m[w] {
-				return false
-			}
-		}
-		return true
-	}, 15*time.Second, 200*time.Millisecond, "StreamingPull must deliver every published message")
+	}
+	require.ElementsMatch(t, want, got, "StreamingPull must deliver every published message once")
 
 	cancel()
+	require.NoError(t, <-receiveDone)
 }
 
 // TestPubSub_GRPC_SeekSnapshot publishes a batch, snapshots the backlog, pulls +
@@ -467,18 +492,27 @@ func psPullN(t *testing.T, sc pubsubpb.SubscriberClient, sub string, max int) []
 	return resp.GetReceivedMessages()
 }
 
-// psPullAll repeatedly pulls until count messages have been collected or the
-// timeout elapses. Used because the sim may return a partial batch per Pull.
+// psPullAll receives count messages from sub over a StreamingPull whose flow
+// control admits exactly count outstanding messages, so the service delivers
+// them as they become available and no more. The stream closes before it
+// returns; the messages stay leased for the stream's deadline, to be acked or
+// nacked by ackId. A timeout that expires first fails the test.
 func psPullAll(t *testing.T, sc pubsubpb.SubscriberClient, sub string, count int, timeout time.Duration) []*pubsubpb.ReceivedMessage {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
+	streamCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	stream, err := sc.StreamingPull(streamCtx)
+	require.NoError(t, err, "StreamingPull")
+	require.NoError(t, stream.Send(&pubsubpb.StreamingPullRequest{
+		Subscription:             sub,
+		StreamAckDeadlineSeconds: 60,
+		MaxOutstandingMessages:   int64(count),
+	}))
 	var out []*pubsubpb.ReceivedMessage
-	for time.Now().Before(deadline) && len(out) < count {
-		got := psPullN(t, sc, sub, count-len(out))
-		out = append(out, got...)
-		if len(got) == 0 {
-			time.Sleep(100 * time.Millisecond)
-		}
+	for len(out) < count {
+		resp, err := stream.Recv()
+		require.NoError(t, err, "StreamingPull on %s delivered %d of %d messages", sub, len(out), count)
+		out = append(out, resp.GetReceivedMessages()...)
 	}
 	return out
 }

@@ -181,11 +181,19 @@ func TestGCS_V4SignedURLReadsWithoutCredentials(t *testing.T) {
 	require.NoError(t, bucket.Create(ctx, "test-project", nil))
 	_, err := writeObject(t, bucket.Object("dir/asset name"), "signed content")
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, bucket.Object("dir/asset name").Delete(ctx))
+		require.NoError(t, bucket.Delete(ctx))
+	})
 
 	svc := iamService(t)
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/test-project",
 		&iam.CreateServiceAccountRequest{AccountId: "url-signer"}).Do()
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := svc.Projects.ServiceAccounts.Delete(sa.Name).Do()
+		require.NoError(t, err)
+	})
 	key, err := svc.Projects.ServiceAccounts.Keys.Create(sa.Name, &iam.CreateServiceAccountKeyRequest{}).Do()
 	require.NoError(t, err)
 	raw, err := base64.StdEncoding.DecodeString(key.PrivateKeyData)
@@ -228,14 +236,18 @@ func TestGCS_V4SignedURLReadsWithoutCredentials(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, status, "a URL whose path was changed after signing: %s", body)
 	require.Contains(t, body, "SignatureDoesNotMatch")
 
-	short := sign(3 * time.Second)
+	// One second is the shortest X-Goog-Expires a signed URL takes; the client
+	// library rounds the lifetime it is given down to whole seconds. The URL
+	// stops working the instant X-Goog-Date plus X-Goog-Expires has passed.
+	short := sign(2*time.Second - time.Millisecond)
 	parsed, err := url.Parse(short)
 	require.NoError(t, err)
 	issued, err := time.Parse("20060102T150405Z", parsed.Query().Get("X-Goog-Date"))
 	require.NoError(t, err)
 	seconds, err := strconv.Atoi(parsed.Query().Get("X-Goog-Expires"))
 	require.NoError(t, err)
-	time.Sleep(time.Until(issued.Add(time.Duration(seconds+1) * time.Second)))
+	require.Equal(t, 1, seconds)
+	time.Sleep(time.Until(issued.Add(time.Duration(seconds)*time.Second + time.Millisecond)))
 	status, body = get(short)
 	require.Equal(t, http.StatusBadRequest, status, "an expired URL: %s", body)
 	require.Contains(t, body, "ExpiredToken")

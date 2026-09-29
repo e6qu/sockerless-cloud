@@ -40,7 +40,7 @@ func TestCloudSQL_BackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 		appDatabase  = "appdb"
 	)
 
-	_, err := svc.Instances.Insert(project, &sqladmin.DatabaseInstance{
+	insertOp, err := svc.Instances.Insert(project, &sqladmin.DatabaseInstance{
 		Name:            instanceName,
 		Region:          "us-central1",
 		DatabaseVersion: "POSTGRES_15",
@@ -48,6 +48,7 @@ func TestCloudSQL_BackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Instances.Delete(project, instanceName).Do() })
+	waitSQLOperationDone(t, svc, project, insertOp.Name)
 
 	inst, err := svc.Instances.Get(project, instanceName).Do()
 	require.NoError(t, err)
@@ -79,12 +80,10 @@ func TestCloudSQL_BackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 			"postgres://%s@%s:5432/%s?sslmode=prefer", appUser, address, appDatabase))
 		require.NoError(t, parseErr)
 		config.Password = appPassword
-		var conn *pgx.Conn
-		require.Eventually(t, func() bool {
-			var connectErr error
-			conn, connectErr = pgx.ConnectConfig(testContext, config)
-			return connectErr == nil
-		}, 3*time.Minute, 2*time.Second, "the data plane must accept the stock driver")
+		// The endpoint holds a connection while the engine boots, so a
+		// RUNNABLE instance answers the first one.
+		conn, connectErr := pgx.ConnectConfig(testContext, config)
+		require.NoError(t, connectErr, "the data plane must accept the stock driver")
 		return conn
 	}
 

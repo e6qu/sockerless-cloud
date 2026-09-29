@@ -671,6 +671,7 @@ func (s *pubsubSubscriberGRPC) ModifyPushConfig(_ context.Context, req *pspb.Mod
 		}
 	}
 	psSubscriptions.Update(sub, func(s *PSSubscription) { s.PushConfig = rest })
+	psWakePush()
 	return &emptypb.Empty{}, nil
 }
 

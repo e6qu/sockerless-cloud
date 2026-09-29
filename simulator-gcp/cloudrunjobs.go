@@ -15,6 +15,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
+	"google.golang.org/grpc/codes"
 )
 
 // Cloud Run Jobs v2 types
@@ -1195,6 +1196,7 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 	}
 
 	succeeded := true
+	var exitCode int32
 	if taskTmpl != nil && len(taskTmpl.Containers) > 0 {
 		sink := &crjLogSink{project: project, jobName: jobID}
 		execShort := execName
@@ -1212,17 +1214,25 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 			succeeded = false
 		} else {
 			crjProcessHandles.Store(execName, group)
+			if e, ok := crjExecutions.Get(execName); ok && e.CancelledCount > 0 {
+				stopCloudRunExecutionWorkload(group)
+			}
 			result := group.Main.Wait()
 			crjProcessHandles.Delete(execName)
 			for _, h := range group.Sidecars {
 				h.Cancel()
 			}
-			succeeded = result.ExitCode == 0
+			exitCode = int32(result.ExitCode)
+			succeeded = result.ExitCode == 0 && result.Error == nil
 		}
 	}
 
-	completed := false
+	completed, cancelled := false, false
 	crjExecutions.Update(execName, func(e *Execution) {
+		if e.CancelledCount > 0 {
+			cancelled = true
+			return
+		}
 		if e.RunningCount == 0 {
 			return
 		}
@@ -1248,18 +1258,25 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 		e.Reconciling = false
 		e.Etag = sim.NewUUID()
 	})
-	if !completed {
+	if !completed && !cancelled {
 		return
 	}
 
-	// Settle each task to match the execution outcome.
+	// Settle the tasks only once the container has exited, from what it
+	// returned, so a cancelled task reports the exit code its workload stopped
+	// with rather than a record that merely says cancelled.
 	taskState := "CONDITION_SUCCEEDED"
 	taskReason := ""
-	var exitCode int32
-	if !succeeded {
+	attemptStatus := &RPCStatus{Code: int32(codes.OK)}
+	switch {
+	case cancelled:
+		taskState = "CONDITION_FAILED"
+		taskReason = "Cancelled"
+		attemptStatus = &RPCStatus{Code: int32(codes.Canceled)}
+	case !succeeded:
 		taskState = "CONDITION_FAILED"
 		taskReason = "NonZeroExitCode"
-		exitCode = 1
+		attemptStatus = &RPCStatus{Code: int32(codes.Unknown)}
 	}
 	completionTime := nowTimestamp()
 	taskPrefix := execName + "/tasks/"
@@ -1271,12 +1288,15 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 				{Type: "Completed", State: enumString(taskState), LastTransitionTime: completionTime, Reason: taskReason},
 			}
 			t.LastAttemptResult = &TaskAttemptResult{
-				Status:   &RPCStatus{Code: exitCode},
+				Status:   attemptStatus,
 				ExitCode: exitCode,
 			}
 			t.Reconciling = false
 			t.Etag = sim.NewUUID()
 		})
+	}
+	if cancelled {
+		return
 	}
 	if jobKey, _, ok := strings.Cut(execName, "/executions/"); ok {
 		crjJobs.Update(jobKey, func(j *Job) {
@@ -1303,12 +1323,9 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 func cancelCloudRunExecution(project, location, jobID, execID string) (Execution, bool) {
 	name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s/executions/%s", project, location, jobID, execID)
 
-	if v, ok := crjProcessHandles.LoadAndDelete(name); ok {
-		if group, ok := v.(*workload.Group); ok {
-			group.Stop(cloudRunStopGrace)
-		}
-	}
-
+	// Record the cancellation before stopping the workload: the execution's
+	// settle goroutine wakes the moment the container exits and must find the
+	// execution cancelled, not read the stop as the workload failing.
 	ok := crjExecutions.Update(name, func(e *Execution) {
 		now := nowTimestamp()
 		e.CompletionTime = now
@@ -1329,6 +1346,11 @@ func cancelCloudRunExecution(project, location, jobID, execID string) (Execution
 	if !ok {
 		return Execution{}, false
 	}
+	if v, ok := crjProcessHandles.Load(name); ok {
+		if group, ok := v.(*workload.Group); ok {
+			stopCloudRunExecutionWorkload(group)
+		}
+	}
 
 	jobName := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
 	crjJobs.Update(jobName, func(j *Job) {
@@ -1341,6 +1363,16 @@ func cancelCloudRunExecution(project, location, jobID, execID string) (Execution
 
 	exec, _ := crjExecutions.Get(name)
 	return exec, true
+}
+
+// stopCloudRunExecutionWorkload sends the execution's main container the
+// SIGTERM Cloud Run sends, with the documented grace before the SIGKILL. It
+// leaves the container's handle alone so the execution's settle goroutine
+// reads the exit code the container really stopped with.
+func stopCloudRunExecutionWorkload(group *workload.Group) {
+	if group.Main != nil {
+		sim.StopContainer(group.Main.ContainerID, cloudRunStopGrace)
+	}
 }
 
 func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate, timeout time.Duration, sink sim.LogSink) (*workload.Group, error) {

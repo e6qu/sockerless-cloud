@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	run "google.golang.org/api/run/v1"
+	"google.golang.org/grpc/codes"
 )
 
 // Cloud Run Admin v1 (Knative) jobs lifecycle, run and cancel, driven by the
@@ -176,12 +177,15 @@ func TestCloudRunV1_JobRunPropagatesNonZeroExit(t *testing.T) {
 
 // TestCloudRunV1_ExecutionCancelStopsTheContainer cancels a running execution
 // through the Knative surface and proves the workload container really
-// stopped: the container writes a line a second into Cloud Logging, and the
-// log stream must stop growing once the cancel returns. A cancel that only
-// rewrote the execution record would leave the container ticking.
+// stopped: its task settles with the exit code the container's SIGTERM handler
+// returned, and the handler's line is the last the container logged. A cancel
+// that only rewrote the execution record would leave the container ticking and
+// its task unsettled.
 func TestCloudRunV1_ExecutionCancelStopsTheContainer(t *testing.T) {
 	svc := newRunV1(t)
-	const id = "v1-cancel-job"
+	// Cloud Logging keeps a deleted job's entries, so a reused job name would
+	// read an earlier run's ticks.
+	id := fmt.Sprintf("v1-cancel-job-%d", time.Now().UnixNano())
 	parent := "namespaces/" + cloudRunV1Namespace
 
 	_, err := svc.Namespaces.Jobs.Create(parent, &run.Job{
@@ -190,7 +194,8 @@ func TestCloudRunV1_ExecutionCancelStopsTheContainer(t *testing.T) {
 			Spec: &run.ExecutionSpec{Template: &run.TaskTemplateSpec{Spec: &run.TaskSpec{
 				Containers: []*run.Container{{
 					Image: "alpine:latest",
-					Args:  []string{"sh", "-c", "i=0; while true; do echo tick-$i; i=$((i+1)); sleep 1; done"},
+					Args: []string{"sh", "-c",
+						"trap 'echo stopping; exit 143' TERM; i=0; while true; do echo tick-$i; i=$((i+1)); sleep 1 & wait $!; done"},
 				}},
 				TimeoutSeconds: 300,
 			}}},
@@ -219,16 +224,54 @@ func TestCloudRunV1_ExecutionCancelStopsTheContainer(t *testing.T) {
 	assert.Equal(t, int64(0), cancelled.Status.RunningCount)
 	assert.NotEmpty(t, cancelled.Status.CompletionTime)
 
-	// Let any line already in flight land, then hold still: a stopped
-	// container produces no further ticks. The count the hold is measured
-	// against has to be a real one — comparing no ticks against no ticks would
-	// pass with the log stream never read at all.
-	time.Sleep(2 * time.Second)
-	settled := strings.Count(jobLogs(t, id), "tick-")
-	require.Greater(t, settled, 0, "the container's ticks must be in the log stream before the hold")
-	time.Sleep(4 * time.Second)
-	assert.Equal(t, settled, strings.Count(jobLogs(t, id), "tick-"),
-		"the cancelled execution's container must be stopped, not merely recorded as cancelled")
+	// The task settles from its container's exit, so its exit code is the
+	// container's own answer to the cancel's SIGTERM.
+	task := waitCloudRunV1TaskDone(t, svc, executionID)
+	require.NotNil(t, task.Status.LastAttemptResult)
+	assert.Equal(t, int64(143), task.Status.LastAttemptResult.ExitCode,
+		"the container exits through its SIGTERM handler, so the cancel really stopped it")
+	require.NotNil(t, task.Status.LastAttemptResult.Status)
+	assert.Equal(t, int64(codes.Canceled), task.Status.LastAttemptResult.Status.Code)
+	assert.Contains(t, conditionReasons(task.Status.Conditions), "Cancelled")
+
+	// Every line the container wrote is ingested before its task settles, and
+	// the SIGTERM handler's line is the last of them: no tick follows it.
+	var container []string
+	for _, line := range strings.Split(jobLogs(t, id), "\n") {
+		if strings.HasPrefix(line, "tick-") || line == "stopping" {
+			container = append(container, line)
+		}
+	}
+	require.GreaterOrEqual(t, len(container), 2, "the container ticked before the cancel: %q", container)
+	assert.Equal(t, "stopping", container[len(container)-1],
+		"the cancelled execution's container wrote nothing after its SIGTERM handler: %q", container)
+	assert.Equal(t, 1, strings.Count(strings.Join(container, "\n"), "stopping"))
+}
+
+// waitCloudRunV1TaskDone polls the execution's single task until it reports a
+// completion time. The Knative task resource has no watch, so its status is
+// what a client reads.
+func waitCloudRunV1TaskDone(t *testing.T, svc *run.APIService, executionID string) *run.Task {
+	t.Helper()
+	var task *run.Task
+	require.Eventually(t, func() bool {
+		tasks, err := svc.Namespaces.Tasks.List("namespaces/" + cloudRunV1Namespace).
+			LabelSelector("run.googleapis.com/execution=" + executionID).Do()
+		if err != nil || len(tasks.Items) != 1 {
+			return false
+		}
+		task = tasks.Items[0]
+		return task.Status != nil && task.Status.CompletionTime != ""
+	}, 90*time.Second, 200*time.Millisecond)
+	return task
+}
+
+func conditionReasons(conditions []*run.GoogleCloudRunV1Condition) []string {
+	reasons := make([]string, 0, len(conditions))
+	for _, c := range conditions {
+		reasons = append(reasons, c.Reason)
+	}
+	return reasons
 }
 
 // TestCloudRunV1_JobRunOverrides drives the Knative run method's per-run

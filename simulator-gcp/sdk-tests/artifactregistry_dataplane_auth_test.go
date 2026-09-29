@@ -144,6 +144,10 @@ func arCreateRepository(t *testing.T, project, location, repoID string) {
 		RepositoryId(repoID).Do()
 	require.NoError(t, err)
 	require.True(t, op.Done)
+	t.Cleanup(func() {
+		_, err := service.Projects.Locations.Repositories.Delete(parent + "/repositories/" + repoID).Do()
+		require.NoError(t, err)
+	})
 }
 
 // TestArtifactRegistry_DockerLoginTokenExchange drives the complete exchange a
@@ -485,6 +489,10 @@ func TestArtifactRegistry_RefusesAnExpiredMintedCredential(t *testing.T) {
 	created, err := iamSvc.Projects.ServiceAccounts.Create("projects/test-project",
 		&iamadmin.CreateServiceAccountRequest{AccountId: "expired-cred-sa"}).Do()
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := iamSvc.Projects.ServiceAccounts.Delete(created.Name).Do()
+		require.NoError(t, err)
+	})
 
 	credSvc, err := iamcredentials.NewService(ctx,
 		option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
@@ -503,8 +511,10 @@ func TestArtifactRegistry_RefusesAnExpiredMintedCredential(t *testing.T) {
 		"the mint must honour the one-second lifetime for this to be an expiry test")
 
 	// The token is live right up to its expiry, so wait past it rather than
-	// assume: a credential that was never valid would prove nothing here.
-	time.Sleep(time.Until(expiry) + 2*time.Second)
+	// assume: a credential that was never valid would prove nothing here. The
+	// token's exp claim and the expireTime the mint reported name the same
+	// whole second, and the service refuses the token from just after it.
+	time.Sleep(time.Until(expiry.Add(time.Millisecond)))
 
 	manifestURL := baseURL + "/v2/test-project/expired-cred-repo/app/manifests/latest"
 	for _, tc := range []struct {

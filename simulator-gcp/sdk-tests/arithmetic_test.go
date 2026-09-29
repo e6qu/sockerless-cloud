@@ -1,15 +1,18 @@
 package gcp_sdk_test
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"cloud.google.com/go/logging/logadmin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func TestCloudRun_JobArithmetic(t *testing.T) {
@@ -51,9 +54,14 @@ const jobLogWaitTimeout = 90 * time.Second
 // jobLogEntry is the part of a Cloud Logging entry the Cloud Run job tests
 // assert on: the monitored resource that produced it and the text it carried.
 type jobLogEntry struct {
+	insertID     string
 	resourceType string
 	jobName      string
 	message      string
+}
+
+func jobLogFilter(jobName string) string {
+	return fmt.Sprintf(`resource.type="cloud_run_job" AND resource.labels.job_name=%q`, jobName)
 }
 
 // readJobLogEntries returns the Cloud Logging entries a Cloud Run job has
@@ -62,8 +70,7 @@ type jobLogEntry struct {
 // against an empty log stream and read that as a match.
 func readJobLogEntries(t *testing.T, client *logadmin.Client, jobName string) []jobLogEntry {
 	t.Helper()
-	filter := fmt.Sprintf(`resource.type="cloud_run_job" AND resource.labels.job_name=%q`, jobName)
-	it := client.Entries(ctx, logadmin.Filter(filter))
+	it := client.Entries(ctx, logadmin.Filter(jobLogFilter(jobName)))
 	var entries []jobLogEntry
 	for {
 		entry, err := it.Next()
@@ -71,7 +78,7 @@ func readJobLogEntries(t *testing.T, client *logadmin.Client, jobName string) []
 			return entries
 		}
 		require.NoError(t, err, "read the Cloud Logging entries of job %q", jobName)
-		record := jobLogEntry{}
+		record := jobLogEntry{insertID: entry.InsertID}
 		if entry.Resource != nil {
 			record.resourceType = entry.Resource.Type
 			record.jobName = entry.Resource.Labels["job_name"]
@@ -83,25 +90,54 @@ func readJobLogEntries(t *testing.T, client *logadmin.Client, jobName string) []
 	}
 }
 
-// waitForJobLogEntries polls the Cloud Logging entries of a Cloud Run job until
-// match accepts them, and returns the accepted entries. The poll runs on the
-// calling goroutine, so a failed read fails the test with the read error
-// instead of being retried until the deadline expires.
+// waitForJobLogEntries follows the Cloud Logging entries of a Cloud Run job
+// until match accepts them, and returns the accepted entries. It opens a
+// TailLogEntries stream first and then lists what the job already logged, so
+// an entry written between the two reads arrives on one of them; entries both
+// report are counted once, by insert ID.
 func waitForJobLogEntries(t *testing.T, jobName string, match func([]jobLogEntry) bool) []jobLogEntry {
 	t.Helper()
-	client := logadminClient(t)
-	deadline := time.Now().Add(jobLogWaitTimeout)
-	for {
-		entries := readJobLogEntries(t, client, jobName)
-		if match(entries) {
-			return entries
+	return waitForProjectJobLogEntries(t, "test-project", jobName, match)
+}
+
+// waitForProjectJobLogEntries is waitForJobLogEntries for a job in project.
+func waitForProjectJobLogEntries(t *testing.T, project, jobName string, match func([]jobLogEntry) bool) []jobLogEntry {
+	t.Helper()
+	tailCtx, cancel := context.WithTimeout(ctx, jobLogWaitTimeout)
+	defer cancel()
+	stream, err := newLoggingV2Client(t).TailLogEntries(tailCtx)
+	require.NoError(t, err)
+	require.NoError(t, stream.Send(&loggingpb.TailLogEntriesRequest{
+		ResourceNames: []string{"projects/" + project},
+		Filter:        jobLogFilter(jobName),
+		BufferWindow:  durationpb.New(0),
+	}))
+
+	seen := map[string]bool{}
+	var entries []jobLogEntry
+	add := func(e jobLogEntry) {
+		if !seen[e.insertID] {
+			seen[e.insertID] = true
+			entries = append(entries, e)
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the Cloud Logging entries of job %q never matched within %s: %q",
-				jobName, jobLogWaitTimeout, jobLogMessages(entries))
-		}
-		time.Sleep(200 * time.Millisecond)
 	}
+	for _, e := range readJobLogEntries(t, logadminClientFor(t, project), jobName) {
+		add(e)
+	}
+	for !match(entries) {
+		resp, err := stream.Recv()
+		require.NoError(t, err, "the Cloud Logging entries of job %q never matched within %s: %q",
+			jobName, jobLogWaitTimeout, jobLogMessages(entries))
+		for _, pe := range resp.GetEntries() {
+			add(jobLogEntry{
+				insertID:     pe.GetInsertId(),
+				resourceType: pe.GetResource().GetType(),
+				jobName:      pe.GetResource().GetLabels()["job_name"],
+				message:      pe.GetTextPayload(),
+			})
+		}
+	}
+	return entries
 }
 
 // waitForJobLogMessage waits until a Cloud Run job's container has emitted

@@ -2,6 +2,7 @@ package gcp_sdk_test
 
 import (
 	"testing"
+	"time"
 
 	"cloud.google.com/go/logging"
 	"google.golang.org/api/option"
@@ -28,6 +29,13 @@ func newLoggingWriteClient(t *testing.T) (*logging.Client, error) {
 func writeEntry(text string) logging.Entry {
 	return logging.Entry{
 		Payload: text,
+	}
+}
+
+func writeEntryAt(text string, timestamp time.Time) logging.Entry {
+	return logging.Entry{
+		Payload:   text,
+		Timestamp: timestamp,
 	}
 }
 

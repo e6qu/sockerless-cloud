@@ -122,12 +122,16 @@ spec:
 // own call is the proof that tightening those handlers to the verbs Cloud Run
 // publishes left the published one working.
 func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
-	const jobID = "cli-verb-job"
+	// Cloud Logging keeps a deleted job's entries, so a reused job name would
+	// read an earlier run's lines.
+	jobID := fmt.Sprintf("cli-verb-job-%d", time.Now().UnixNano())
 	// The step outlives this test by a wide margin, so nothing settles the
-	// execution except the cancel the CLI sends.
+	// execution except the cancel the CLI sends. It says when its SIGTERM
+	// handler is in place, and exits through that handler.
 	httpDoJSON(t, "POST", jobsBaseURL()+"?jobId="+jobID, `{
 		"template": {"template": {"containers": [
-			{"image": "`+cliWorkloadImage+`", "command": ["sleep"], "args": ["3600"]}
+			{"image": "`+cliWorkloadImage+`", "command": ["sh", "-c"],
+			 "args": ["trap 'echo stopping; exit 143' TERM; echo started; sleep 3600 & wait $!"]}
 		]}}
 	}`)
 	t.Cleanup(func() {
@@ -166,11 +170,12 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 		parseJSON(t, httpDoJSON(t, "GET", baseURL+"/v2/"+lro.Response.Name, ""), &execution)
 		return execution
 	}
-	container := jobContainerName(lro.Response.Name)
+	// The container's own line in Cloud Logging is what says it is up.
 	require.Eventually(t, func() bool {
-		return exec.Command("docker", "inspect", container).Run() == nil
-	}, 60*time.Second, 250*time.Millisecond,
-		"the execution's workload container %s never came up", container)
+		return strings.Contains(runCLI(t, gcloudCLI("logging", "read",
+			`resource.type="cloud_run_job" AND resource.labels.job_name="`+jobID+`"`,
+			"--format=value(textPayload)")), "started")
+	}, 60*time.Second, 250*time.Millisecond, "the execution's workload container never came up")
 	require.Equal(t, 1, readExecution().RunningCount,
 		"the execution's task must still be running when the cancel is sent")
 
@@ -200,11 +205,29 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 
 	// Rewriting the record is not cancelling: the workload container the
 	// execution owned has to be stopped too, or an hour of `sleep 3600` keeps
-	// running behind an execution both API versions call cancelled.
+	// running behind an execution both API versions call cancelled. The task
+	// settles from the container's exit, with the code its SIGTERM handler
+	// returned; the task resource has no watch, so its status is polled.
+	var task struct {
+		CompletionTime    string `json:"completionTime"`
+		LastAttemptResult *struct {
+			ExitCode int `json:"exitCode"`
+		} `json:"lastAttemptResult"`
+	}
 	require.Eventually(t, func() bool {
-		return exec.Command("docker", "inspect", container).Run() != nil
-	}, 60*time.Second, 250*time.Millisecond,
-		"the cancel must stop the workload container %s, not just the record", container)
+		var tasks struct {
+			Tasks []json.RawMessage `json:"tasks"`
+		}
+		parseJSON(t, httpDoJSON(t, "GET", baseURL+"/v2/"+lro.Response.Name+"/tasks", ""), &tasks)
+		if len(tasks.Tasks) != 1 {
+			return false
+		}
+		require.NoError(t, json.Unmarshal(tasks.Tasks[0], &task))
+		return task.CompletionTime != ""
+	}, 60*time.Second, 250*time.Millisecond, "the cancelled execution's task never settled")
+	require.NotNil(t, task.LastAttemptResult)
+	assert.Equal(t, 143, task.LastAttemptResult.ExitCode,
+		"the cancel must stop the workload container through its SIGTERM handler, not just the record")
 
 	// A verb the service does not publish is refused on the same collection
 	// rather than silently cancelling: no CLI spells an unpublished method, so

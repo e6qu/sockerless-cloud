@@ -785,6 +785,7 @@ func handlePSModifyPushConfig(w http.ResponseWriter, r *http.Request, subName st
 	psSubscriptions.Update(subName, func(s *PSSubscription) {
 		s.PushConfig = req.PushConfig
 	})
+	psWakePush()
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 

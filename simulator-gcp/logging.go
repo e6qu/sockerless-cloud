@@ -155,16 +155,36 @@ func listLogEntries(filter string, resourceNames []string, pageSize int, pageTok
 	// Deterministic ordering so page tokens are stable across calls. orderBy
 	// "timestamp desc" returns newest-first; the default ("timestamp asc") is
 	// oldest-first. Real Cloud Logging only orders on timestamp.
+	// Order on the instant, not the string: writers stamp entries with
+	// differing fractional precision, and "…:05Z" sorts after "…:05.2Z".
 	desc := strings.Contains(strings.ToLower(orderBy), "desc")
-	sort.SliceStable(allEntries, func(i, j int) bool {
-		if allEntries[i].Timestamp != allEntries[j].Timestamp {
+	instants := make([]time.Time, len(allEntries))
+	for i, entry := range allEntries {
+		at, err := parseTimestamp(entry.Timestamp)
+		if err != nil {
+			return nil, "", fmt.Errorf("stored entry %q has an unreadable timestamp %q: %w", entry.InsertID, entry.Timestamp, err)
+		}
+		instants[i] = at
+	}
+	order := make([]int, len(allEntries))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		i, j := order[a], order[b]
+		if !instants[i].Equal(instants[j]) {
 			if desc {
-				return allEntries[i].Timestamp > allEntries[j].Timestamp
+				return instants[i].After(instants[j])
 			}
-			return allEntries[i].Timestamp < allEntries[j].Timestamp
+			return instants[i].Before(instants[j])
 		}
 		return allEntries[i].InsertID < allEntries[j].InsertID
 	})
+	sorted := make([]LogEntry, len(allEntries))
+	for k, i := range order {
+		sorted[k] = allEntries[i]
+	}
+	allEntries = sorted
 
 	page, next, err := listq.TokenPage(listq.Decimal.Strictly(), allEntries, pageToken, pageSize, 0, 0)
 	if err != nil {
@@ -281,6 +301,16 @@ func registerCloudLogging(srv *sim.Server) {
 		if err := sim.ReadJSON(r, &req); err != nil {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
+		}
+		for i, entry := range req.Entries {
+			if entry.Timestamp == "" {
+				continue
+			}
+			if _, err := parseTimestamp(entry.Timestamp); err != nil {
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+					"entries[%d].timestamp: invalid RFC 3339 timestamp %q", i, entry.Timestamp)
+				return
+			}
 		}
 		writeLogEntries(req.LogName, req.Resource, req.Labels, req.Entries)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})

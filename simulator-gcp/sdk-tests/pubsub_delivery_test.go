@@ -19,20 +19,17 @@ func TestPubSub_GRPC_DeadLetterPolicy(t *testing.T) {
 	project := "projects/ps-grpc-dlq"
 	topic, dlt := project+"/topics/work", project+"/topics/dead"
 	for _, name := range []string{topic, dlt} {
-		_, err := pub.CreateTopic(ctx, &pubsubpb.Topic{Name: name})
-		require.NoError(t, err)
+		psCreateTopic(t, pub, name)
 	}
 	deadSub := project + "/subscriptions/dead"
-	_, err := sc.CreateSubscription(ctx, &pubsubpb.Subscription{Name: deadSub, Topic: dlt})
-	require.NoError(t, err)
+	psCreateSubscription(t, sc, &pubsubpb.Subscription{Name: deadSub, Topic: dlt})
 	sub := project + "/subscriptions/work"
-	_, err = sc.CreateSubscription(ctx, &pubsubpb.Subscription{
+	psCreateSubscription(t, sc, &pubsubpb.Subscription{
 		Name: sub, Topic: topic,
 		DeadLetterPolicy: &pubsubpb.DeadLetterPolicy{DeadLetterTopic: dlt, MaxDeliveryAttempts: 5},
 	})
-	require.NoError(t, err)
 
-	_, err = pub.Publish(ctx, &pubsubpb.PublishRequest{Topic: topic, Messages: []*pubsubpb.PubsubMessage{
+	_, err := pub.Publish(ctx, &pubsubpb.PublishRequest{Topic: topic, Messages: []*pubsubpb.PubsubMessage{
 		{Data: []byte("poison"), Attributes: map[string]string{"origin": "test"}},
 	}})
 	require.NoError(t, err)
@@ -64,17 +61,15 @@ func TestPubSub_GRPC_FilterAndOrdering(t *testing.T) {
 	pub, sc := psRawClient(t)
 	project := "projects/ps-grpc-order"
 	topic := project + "/topics/events"
-	_, err := pub.CreateTopic(ctx, &pubsubpb.Topic{Name: topic})
-	require.NoError(t, err)
+	psCreateTopic(t, pub, topic)
 
-	_, err = sc.CreateSubscription(ctx, &pubsubpb.Subscription{Name: project + "/subscriptions/bad", Topic: topic, Filter: `attributes.kind = `})
+	_, err := sc.CreateSubscription(ctx, &pubsubpb.Subscription{Name: project + "/subscriptions/bad", Topic: topic, Filter: `attributes.kind = `})
 	require.Equal(t, codes.InvalidArgument, status.Code(err), "a malformed filter is INVALID_ARGUMENT")
 
 	sub := project + "/subscriptions/ordered"
-	_, err = sc.CreateSubscription(ctx, &pubsubpb.Subscription{
+	psCreateSubscription(t, sc, &pubsubpb.Subscription{
 		Name: sub, Topic: topic, EnableMessageOrdering: true, Filter: `attributes.kind = "order"`,
 	})
-	require.NoError(t, err)
 	order := map[string]string{"kind": "order"}
 	_, err = pub.Publish(ctx, &pubsubpb.PublishRequest{Topic: topic, Messages: []*pubsubpb.PubsubMessage{
 		{Data: []byte("k-1"), OrderingKey: "k", Attributes: order},
@@ -94,4 +89,28 @@ func TestPubSub_GRPC_FilterAndOrdering(t *testing.T) {
 	second := psPullN(t, sc, sub, 10)
 	require.Len(t, second, 1, "the filter drops the noise message")
 	require.Equal(t, "k-2", string(second[0].GetMessage().GetData()))
+}
+
+// psCreateTopic creates a topic the test deletes when it ends, so a rerun in
+// the same simulator starts from nothing.
+func psCreateTopic(t *testing.T, pub pubsubpb.PublisherClient, name string) {
+	t.Helper()
+	_, err := pub.CreateTopic(ctx, &pubsubpb.Topic{Name: name})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := pub.DeleteTopic(ctx, &pubsubpb.DeleteTopicRequest{Topic: name})
+		require.NoError(t, err)
+	})
+}
+
+// psCreateSubscription creates a subscription the test deletes when it ends.
+func psCreateSubscription(t *testing.T, sc pubsubpb.SubscriberClient, sub *pubsubpb.Subscription) {
+	t.Helper()
+	_, err := sc.CreateSubscription(ctx, sub)
+	require.NoError(t, err)
+	name := sub.GetName()
+	t.Cleanup(func() {
+		_, err := sc.DeleteSubscription(ctx, &pubsubpb.DeleteSubscriptionRequest{Subscription: name})
+		require.NoError(t, err)
+	})
 }

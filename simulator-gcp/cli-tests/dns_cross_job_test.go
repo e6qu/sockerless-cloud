@@ -3,18 +3,18 @@ package gcp_cli_test
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // TestDNS_CrossJobResolution_CLI mirrors the SDK cross-job DNS test
 // through the gcloud CLI. Private zone + two Cloud Run Jobs + A records
-// pointing at the jobs' Docker IPs — one job resolves the other by
+// pointing at the addresses the jobs log — one job resolves the other by
 // short hostname via Docker's embedded DNS on the zone's backing
 // network.
 func TestDNS_CrossJobResolution_CLI(t *testing.T) {
@@ -49,12 +49,12 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 	// 2. Create + run two Cloud Run Jobs via direct HTTP (gcloud run
 	// jobs create against the simulator's v2 endpoint is not reliably
 	// supported; the SDK/REST path is the gcloud back-door).
-	createJob := func(name string, args []string) string {
-		argsJSON, err := json.Marshal(args)
+	createJob := func(name, script string) string {
+		argsJSON, err := json.Marshal([]string{script})
 		require.NoError(t, err)
 		body := `{
 			"template":{"template":{
-				"containers":[{"image":"` + commandImageName + `","args":` + string(argsJSON) + `}],
+				"containers":[{"image":"` + cliWorkloadImage + `","command":["sh","-c"],"args":` + string(argsJSON) + `}],
 				"timeout":"60s"
 			}}
 		}`
@@ -83,25 +83,22 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 		return execResp.Name
 	}
 
-	alphaExec := createJob("cli-alpha", []string{"resolve", "beta", "30", "gcp-cli-cross-job-dns-ok", "10"})
-	betaExec := createJob("cli-beta", []string{"sleep", "60"})
+	// Each job reports its own address to Cloud Logging, where the test reads
+	// it the way any client of the service would.
+	const reportAddress = `echo "address=$(hostname -i | cut -d' ' -f1)"; `
+	alphaExec := createJob("cli-alpha", reportAddress+
+		`for i in $(seq 1 300); do `+
+		`if nslookup beta >/dev/null 2>&1; then echo gcp-cli-cross-job-dns-ok; exit 0; fi; `+
+		`sleep 0.1; done; echo "beta never resolved" >&2; exit 1`)
+	betaExec := createJob("cli-beta", reportAddress+`sleep 60`)
 
 	alphaContainer := jobContainerName(alphaExec)
 	betaContainer := jobContainerName(betaExec)
 
-	require.Eventually(t, func() bool {
-		for _, n := range []string{alphaContainer, betaContainer} {
-			if err := exec.Command("docker", "inspect", n).Run(); err != nil {
-				return false
-			}
-		}
-		return true
-	}, 30*time.Second, 300*time.Millisecond, "Docker containers should be running (alpha=%s, beta=%s)", alphaContainer, betaContainer)
-
-	alphaIP := containerIP(t, alphaContainer)
-	betaIP := containerIP(t, betaContainer)
-	require.NotEmpty(t, alphaIP)
-	require.NotEmpty(t, betaIP)
+	alphaIP := cliJobLogLine(t, "cli-alpha", "address=")
+	betaIP := cliJobLogLine(t, "cli-beta", "address=")
+	require.NotNil(t, net.ParseIP(alphaIP), "cli-alpha reported address %q", alphaIP)
+	require.NotNil(t, net.ParseIP(betaIP), "cli-beta reported address %q", betaIP)
 
 	// 3. Create A records (direct REST — gcloud record-sets create has
 	// inconsistent endpoint-override handling).
@@ -121,16 +118,31 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 	// 4. Cross-job DNS: alpha resolves "beta" through its own resolver
 	// once the private-zone A records have attached both containers to
 	// the zone's backing Docker network.
-	var logs []byte
-	require.Eventually(t, func() bool {
-		var err error
-		logs, err = exec.Command("docker", "logs", alphaContainer).CombinedOutput()
-		return err == nil && strings.Contains(string(logs), "gcp-cli-cross-job-dns-ok")
-	}, 30*time.Second, 500*time.Millisecond, "alpha should resolve 'beta' via private zone: %s", logs)
-	assert.Contains(t, string(logs), "gcp-cli-cross-job-dns-ok")
+	cliJobLogLine(t, "cli-alpha", "gcp-cli-cross-job-dns-ok")
 }
 
-// jobContainerName + containerIP mirror the SDK-test helpers.
+// cliJobLogLine reads the Cloud Run job's Cloud Logging entries with
+// `gcloud logging read` until one starts with prefix, and returns the rest of
+// that line. gcloud offers no stream to wait on, so the read repeats.
+func cliJobLogLine(t *testing.T, job, prefix string) string {
+	t.Helper()
+	var rest string
+	require.Eventually(t, func() bool {
+		out := runCLI(t, gcloudCLI("logging", "read",
+			`resource.type="cloud_run_job" AND resource.labels.job_name="`+job+`"`,
+			"--format=value(textPayload)"))
+		for _, line := range strings.Split(out, "\n") {
+			if value, ok := strings.CutPrefix(strings.TrimSpace(line), prefix); ok {
+				rest = value
+				return true
+			}
+		}
+		return false
+	}, 60*time.Second, 250*time.Millisecond, "job %s never logged a line starting %q", job, prefix)
+	return rest
+}
+
+// jobContainerName derives the container the simulator runs an execution in.
 func jobContainerName(executionName string) string {
 	last := executionName
 	if idx := strings.LastIndex(executionName, "/"); idx >= 0 {
@@ -140,16 +152,6 @@ func jobContainerName(executionName string) string {
 		last = last[:12]
 	}
 	return "sockerless-sim-gcp-job-" + last
-}
-
-func containerIP(t *testing.T, name string) string {
-	t.Helper()
-	for _, net := range inspectContainerNetworks(t, name) {
-		if net.IPAddress != "" {
-			return net.IPAddress
-		}
-	}
-	return ""
 }
 
 // containerNetworks returns the names of the Docker networks a container is
