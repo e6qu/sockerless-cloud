@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.5](https://github.com/e6qu/sockerless-cloud/compare/v0.33.4...v0.33.5) (2026-09-29)
+
+
+### Bug Fixes
+
+* close twenty open simulator bugs across AWS, Google Cloud and Azure ([#219](https://github.com/e6qu/sockerless-cloud/issues/219)) ([6b32ffe](https://github.com/e6qu/sockerless-cloud/commit/6b32ffe3c62f61ce7b396e15c2badfa1a2829965))
+
 ## [0.33.4](https://github.com/e6qu/sockerless-cloud/compare/v0.33.3...v0.33.4) (2026-09-29)
 
 
