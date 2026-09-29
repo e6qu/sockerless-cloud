@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/msgq"
 )
 
 // Amazon Simple Queue Service (SQS) implements managed standard and FIFO
@@ -28,8 +30,8 @@ import (
 
 // SQSQueue is the durable provider-side record for a standard or FIFO queue.
 // Messages remain stored until DeleteMessage, retention expiry, purge, or
-// dead-letter redrive; ReceiveMessage advances their visibility deadline so an
-// unacknowledged message becomes available again.
+// dead-letter redrive; ReceiveMessage leases them for the visibility timeout,
+// so an unacknowledged message becomes available again.
 type SQSQueue struct {
 	Name              string
 	URL               string
@@ -37,7 +39,9 @@ type SQSQueue struct {
 	CreatedTimestamp  int64
 	VisibilityTimeout int // seconds; mirrored into Attributes["VisibilityTimeout"]
 	Tags              map[string]string
-	Messages          []SQSMessage
+	// Messages also carries the FIFO deduplication records, which outlive
+	// message deletion for the five-minute deduplication interval.
+	Messages msgq.Queue[sqsPayload]
 	// Attributes stores every operator-supplied queue attribute
 	// from CreateQueue / SetQueueAttributes — DelaySeconds,
 	// MessageRetentionPeriod, MaximumMessageSize, RedrivePolicy,
@@ -45,38 +49,67 @@ type SQSQueue struct {
 	// GetQueueAttributes echoes these alongside the system-emitted
 	// values (QueueArn, CreatedTimestamp, message counts).
 	Attributes map[string]string
-	// Deduplication records survive message deletion for the five-minute FIFO
-	// deduplication interval, as they do in Amazon SQS.
-	Deduplication map[string]SQSDeduplicationRecord
-	NextSequence  uint64
 }
 
-type SQSDeduplicationRecord struct {
-	MessageID      string
-	SequenceNumber string
-	ExpiresAt      int64
+type sqsPayload struct {
+	Body                   string                         `json:"body"`
+	MD5OfBody              string                         `json:"md5OfBody"`
+	MessageAttributes      map[string]SQSMessageAttribute `json:"messageAttributes,omitempty"`
+	MD5OfMessageAttributes string                         `json:"md5OfMessageAttributes,omitempty"`
 }
 
-// SQSMessage is one message currently buffered in a queue.
-// VisibleAt is the Unix-second timestamp at which this message
-// becomes visible to ReceiveMessage callers again — set forward
-// on receive by the queue's VisibilityTimeout, set to 0 again on
-// DeleteMessage (which removes the message entirely).
+// SQSMessage is a message as a receiver sees it.
 type SQSMessage struct {
 	MessageId               string
 	Body                    string
 	MD5OfBody               string
 	ReceiptHandle           string
 	SentTimestamp           int64
-	VisibleAt               int64
 	ApproximateReceiveCount int
 	FirstReceivedAt         int64
-	DelayedUntil            int64
 	MessageGroupID          string
 	MessageDeduplicationID  string
 	SequenceNumber          string
 	MessageAttributes       map[string]SQSMessageAttribute
 	MD5OfMessageAttributes  string
+}
+
+func sqsMessageView(m msgq.Message[sqsPayload], fifo bool) SQSMessage {
+	v := SQSMessage{
+		MessageId:               m.ID,
+		Body:                    m.Payload.Body,
+		MD5OfBody:               m.Payload.MD5OfBody,
+		ReceiptHandle:           m.Receipt,
+		SentTimestamp:           m.EnqueuedAt,
+		ApproximateReceiveCount: m.Deliveries,
+		FirstReceivedAt:         m.FirstDeliveredAt,
+		MessageGroupID:          m.Group,
+		MessageDeduplicationID:  m.DedupID,
+		MessageAttributes:       m.Payload.MessageAttributes,
+		MD5OfMessageAttributes:  m.Payload.MD5OfMessageAttributes,
+	}
+	if fifo {
+		v.SequenceNumber = strconv.FormatUint(m.Seq, 10)
+	}
+	return v
+}
+
+// sqsPolicy is the delivery policy a queue's attributes configure. The receipt
+// handle of a message stays valid after its visibility timeout until the
+// message is received again, as it does on Amazon SQS.
+func sqsPolicy(q SQSQueue) msgq.Policy {
+	pol := msgq.Policy{
+		Retention:            time.Duration(sqsQueueIntAttribute(q, "MessageRetentionPeriod", sqsDefaultRetentionSeconds)) * time.Second,
+		ReceiptOutlivesLease: true,
+	}
+	if _, maxReceiveCount, ok := sqsParseRedrivePolicy(q.Attributes); ok {
+		pol.MaxDeliveries = maxReceiveCount
+	}
+	if sqsQueueIsFifo(q) {
+		pol.Ordered = true
+		pol.DedupWindow = sqsDeduplicationWindow
+	}
+	return pol
 }
 
 type SQSMessageAttribute struct {
@@ -267,31 +300,16 @@ func sqsNameFromARN(arn string) string {
 // source queue, gets a fresh MessageId, and its ApproximateReceiveCount resets
 // to zero on the DLQ. An empty dlqARN or a missing DLQ drops the messages, the
 // way real SQS behaves when the configured DLQ has been deleted.
-func sqsEnqueueRedrives(dlqARN string, msgs []SQSMessage) {
+func sqsEnqueueRedrives(dlqARN string, msgs []msgq.Message[sqsPayload]) {
 	if dlqARN == "" || len(msgs) == 0 {
 		return
 	}
-	dlqName := sqsNameFromARN(dlqARN)
-	if _, ok := sqsQueues.Get(dlqName); !ok {
-		return
-	}
-	now := time.Now().UnixMilli()
-	sqsQueues.Update(dlqName, func(d *SQSQueue) {
+	now := time.Now()
+	sqsQueues.Update(sqsNameFromARN(dlqARN), func(d *SQSQueue) {
+		delay := time.Duration(sqsQueueIntAttribute(*d, "DelaySeconds", sqsDefaultDelaySeconds)) * time.Second
+		pol := sqsPolicy(*d)
 		for _, m := range msgs {
-			delayUntil := now + int64(sqsQueueIntAttribute(*d, "DelaySeconds", sqsDefaultDelaySeconds))*1000
-			d.Messages = append(d.Messages, SQSMessage{
-				MessageId:              sim.NewUUID(),
-				Body:                   m.Body,
-				MD5OfBody:              m.MD5OfBody,
-				SentTimestamp:          now,
-				VisibleAt:              delayUntil,
-				DelayedUntil:           delayUntil,
-				MessageGroupID:         m.MessageGroupID,
-				MessageDeduplicationID: m.MessageDeduplicationID,
-				SequenceNumber:         m.SequenceNumber,
-				MessageAttributes:      m.MessageAttributes,
-				MD5OfMessageAttributes: m.MD5OfMessageAttributes,
-			})
+			d.Messages.Enqueue(m.Payload, msgq.EnqueueOpts{Delay: delay, Group: m.Group, DedupID: m.DedupID}, pol, now)
 		}
 	})
 }
@@ -303,6 +321,9 @@ func registerSQS(r *AWSRouter, srv *sim.Server) {
 		"SendMessage", "SendMessageBatch", "ReceiveMessage", "DeleteMessage",
 		"DeleteMessageBatch", "ChangeMessageVisibility", "ChangeMessageVisibilityBatch")
 	sqsQueues = sim.MakeStore[SQSQueue](srv.DB(), "sqs_queues")
+	if err := sqsMigrateQueues(srv.DB()); err != nil {
+		log.Fatalf("sqs: %v", err)
+	}
 
 	r.Register("AmazonSQS.CreateQueue", handleSQSCreateQueue)
 	r.Register("AmazonSQS.DeleteQueue", handleSQSDeleteQueue)
@@ -435,7 +456,6 @@ func handleSQSCreateQueue(w http.ResponseWriter, r *http.Request) {
 		VisibilityTimeout: sqsDefaultVisibilityTimeout,
 		Tags:              map[string]string{},
 		Attributes:        map[string]string{},
-		Deduplication:     map[string]SQSDeduplicationRecord{},
 	}
 	// Persist every operator-supplied attribute. VisibilityTimeout
 	// is mirrored to the typed field for hot-path use by Receive;
@@ -492,7 +512,7 @@ func handleSQSPurgeQueue(w http.ResponseWriter, r *http.Request) {
 	}
 	// Clear under the store's single write lock so a concurrent ReceiveMessage
 	// or SendMessage mutation isn't clobbered by a snapshot-and-write-back.
-	sqsQueues.Update(name, func(q *SQSQueue) { q.Messages = nil })
+	sqsQueues.Update(name, func(q *SQSQueue) { q.Messages.Purge() })
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -566,23 +586,8 @@ func handleSQSGetQueueAttributes(w http.ResponseWriter, r *http.Request) {
 	}
 	all := len(wanted) == 0 || wanted["All"]
 
-	now := time.Now().UnixMilli()
-	retention := int64(sqsQueueIntAttribute(q, "MessageRetentionPeriod", sqsDefaultRetentionSeconds)) * 1000
-	visibleCount, invisibleCount, delayedCount := 0, 0, 0
-	for _, m := range q.Messages {
-		if now-m.SentTimestamp >= retention {
-			continue
-		}
-		if m.DelayedUntil > now {
-			delayedCount++
-			continue
-		}
-		if m.VisibleAt <= now {
-			visibleCount++
-		} else {
-			invisibleCount++
-		}
-	}
+	counts := q.Messages.Count(sqsPolicy(q), time.Now())
+	visibleCount, invisibleCount, delayedCount := counts.Available, counts.Held, counts.Delayed
 
 	// Start with system-emitted attributes; layer in operator-set
 	// attributes (DelaySeconds, MessageRetentionPeriod, etc.) on
@@ -728,62 +733,35 @@ func sqsDeduplicationKey(q SQSQueue, e sqsSendEntry) (key, id string) {
 }
 
 // sqsEnqueue appends a validated entry to the queue and returns the
-// SDK-shaped result fields. FIFO deduplication records outlive message
-// deletion for five minutes and therefore live on the queue, not the message.
+// SDK-shaped result fields.
 func sqsEnqueue(name string, e sqsSendEntry) (result sqsEnqueueResult) {
 	hash := md5.Sum([]byte(e.MessageBody))
 	result.MD5OfBody = hex.EncodeToString(hash[:])
 	result.MD5OfMessageAttributes = sqsMessageAttributeMD5(e.MessageAttributes)
-	now := time.Now().UnixMilli()
+	payload := sqsPayload{
+		Body:                   e.MessageBody,
+		MD5OfBody:              result.MD5OfBody,
+		MessageAttributes:      e.MessageAttributes,
+		MD5OfMessageAttributes: result.MD5OfMessageAttributes,
+	}
+	now := time.Now()
 	sqsQueues.Update(name, func(q *SQSQueue) {
-		if q.Deduplication == nil {
-			q.Deduplication = map[string]SQSDeduplicationRecord{}
+		opts := msgq.EnqueueOpts{
+			Delay:   time.Duration(sqsQueueIntAttribute(*q, "DelaySeconds", sqsDefaultDelaySeconds)) * time.Second,
+			Group:   e.MessageGroupId,
+			DedupID: e.MessageDeduplicationId,
 		}
-		for key, record := range q.Deduplication {
-			if record.ExpiresAt <= now {
-				delete(q.Deduplication, key)
-			}
-		}
-
-		deduplicationID := e.MessageDeduplicationId
-		if sqsQueueIsFifo(*q) {
-			key, resolvedID := sqsDeduplicationKey(*q, e)
-			deduplicationID = resolvedID
-			if record, ok := q.Deduplication[key]; ok {
-				result.MessageID = record.MessageID
-				result.SequenceNumber = record.SequenceNumber
-				return
-			}
-			q.NextSequence++
-			result.SequenceNumber = strconv.FormatUint(q.NextSequence, 10)
-		}
-
-		result.MessageID = sim.NewUUID()
-		delaySeconds := sqsQueueIntAttribute(*q, "DelaySeconds", sqsDefaultDelaySeconds)
 		if e.DelaySeconds != nil {
-			delaySeconds = *e.DelaySeconds
+			opts.Delay = time.Duration(*e.DelaySeconds) * time.Second
 		}
-		delayedUntil := now + int64(delaySeconds)*1000
-		q.Messages = append(q.Messages, SQSMessage{
-			MessageId:              result.MessageID,
-			Body:                   e.MessageBody,
-			MD5OfBody:              result.MD5OfBody,
-			SentTimestamp:          now,
-			VisibleAt:              delayedUntil,
-			DelayedUntil:           delayedUntil,
-			MessageGroupID:         e.MessageGroupId,
-			MessageDeduplicationID: deduplicationID,
-			SequenceNumber:         result.SequenceNumber,
-			MessageAttributes:      e.MessageAttributes,
-			MD5OfMessageAttributes: result.MD5OfMessageAttributes,
-		})
-		if sqsQueueIsFifo(*q) {
-			key, _ := sqsDeduplicationKey(*q, e)
-			q.Deduplication[key] = SQSDeduplicationRecord{
-				MessageID:      result.MessageID,
-				SequenceNumber: result.SequenceNumber,
-				ExpiresAt:      now + sqsDeduplicationWindow.Milliseconds(),
-			}
+		fifo := sqsQueueIsFifo(*q)
+		if fifo {
+			opts.DedupKey, opts.DedupID = sqsDeduplicationKey(*q, e)
+		}
+		m, _ := q.Messages.Enqueue(payload, opts, sqsPolicy(*q), now)
+		result.MessageID = m.ID
+		if fifo {
+			result.SequenceNumber = strconv.FormatUint(m.Seq, 10)
 		}
 	})
 	return result
@@ -800,7 +778,7 @@ func sqsEnqueueBody(queueName, body string) {
 func sqsEnqueueBodyWithAttributes(queueName, body string, attributes map[string]SQSMessageAttribute) {
 	_ = sqsEnqueue(queueName, sqsSendEntry{MessageBody: body, MessageAttributes: attributes})
 	if q, ok := sqsQueues.Get(queueName); ok {
-		cwEvalLogger.Debug().Str("queueName", queueName).Int("messageCount", len(q.Messages)).Msg("SQS enqueue body completed")
+		cwEvalLogger.Debug().Str("queueName", queueName).Int("messageCount", len(q.Messages.Messages)).Msg("SQS enqueue body completed")
 	}
 }
 
@@ -1027,70 +1005,26 @@ func handleSQSReceiveMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func sqsReceiveAvailableMessages(name string, maxN int, visTimeout int) []SQSMessage {
-	now := time.Now().UnixMilli()
+	now := time.Now()
 	var picked []SQSMessage
-	var redrived []SQSMessage
+	var got msgq.Received[sqsPayload]
 	var dlqARN string
 
 	sqsQueues.Update(name, func(qq *SQSQueue) {
-		sqsPruneExpiredLocked(qq, now)
-		var hasRedrive bool
-		var maxReceiveCount int
-		dlqARN, maxReceiveCount, hasRedrive = sqsParseRedrivePolicy(qq.Attributes)
+		dlqARN, _, _ = sqsParseRedrivePolicy(qq.Attributes)
+		total := len(qq.Messages.Messages)
+		got = qq.Messages.Receive(msgq.ReceiveOpts[sqsPayload]{
+			Max:   maxN,
+			Lease: time.Duration(visTimeout) * time.Second,
+		}, sqsPolicy(*qq), now)
 		fifo := sqsQueueIsFifo(*qq)
-		blockedGroups := map[string]bool{}
-		pickedGroups := map[string]bool{}
-		originalCount := len(qq.Messages)
-		visibleCount := 0
-		kept := qq.Messages[:0]
-		for i := range qq.Messages {
-			m := qq.Messages[i]
-			if m.VisibleAt <= now {
-				visibleCount++
-			}
-			if m.VisibleAt > now {
-				if fifo {
-					blockedGroups[m.MessageGroupID] = true
-				}
-				kept = append(kept, m)
-				continue
-			}
-			if len(picked) >= maxN || (fifo && blockedGroups[m.MessageGroupID] && !pickedGroups[m.MessageGroupID]) {
-				kept = append(kept, m)
-				continue
-			}
-			m.ReceiptHandle = sim.NewUUID()
-			m.VisibleAt = now + int64(visTimeout)*1000
-			m.ApproximateReceiveCount++
-			if m.FirstReceivedAt == 0 {
-				m.FirstReceivedAt = now
-			}
-			if hasRedrive && m.ApproximateReceiveCount > maxReceiveCount {
-				redrived = append(redrived, m)
-				continue
-			}
-			kept = append(kept, m)
-			picked = append(picked, m)
-			if fifo {
-				pickedGroups[m.MessageGroupID] = true
-			}
+		for _, m := range got.Leased {
+			picked = append(picked, sqsMessageView(m, fifo))
 		}
-		qq.Messages = kept
-		cwEvalLogger.Debug().Str("queueName", name).Int("totalMessages", originalCount).Int("visibleMessages", visibleCount).Int("picked", len(picked)).Int("redrived", len(redrived)).Int("visibilityTimeout", visTimeout).Msg("SQS ReceiveMessage scanned queue")
+		cwEvalLogger.Debug().Str("queueName", name).Int("totalMessages", total).Int("picked", len(picked)).Int("redrived", len(got.DeadLettered)).Int("visibilityTimeout", visTimeout).Msg("SQS ReceiveMessage scanned queue")
 	})
-	sqsEnqueueRedrives(dlqARN, redrived)
+	sqsEnqueueRedrives(dlqARN, got.DeadLettered)
 	return picked
-}
-
-func sqsPruneExpiredLocked(q *SQSQueue, now int64) {
-	retention := int64(sqsQueueIntAttribute(*q, "MessageRetentionPeriod", sqsDefaultRetentionSeconds)) * 1000
-	kept := q.Messages[:0]
-	for _, message := range q.Messages {
-		if now-message.SentTimestamp < retention {
-			kept = append(kept, message)
-		}
-	}
-	q.Messages = kept
 }
 
 func sqsRenderSystemAttributes(message SQSMessage, requested []string) map[string]string {
@@ -1140,16 +1074,7 @@ func handleSQSDeleteMessage(w http.ResponseWriter, r *http.Request) {
 		sqsQueueDoesNotExist(w)
 		return
 	}
-	sqsQueues.Update(name, func(qq *SQSQueue) {
-		out := qq.Messages[:0]
-		for _, m := range qq.Messages {
-			if m.ReceiptHandle == req.ReceiptHandle {
-				continue
-			}
-			out = append(out, m)
-		}
-		qq.Messages = out
-	})
+	sqsDeleteReceiptHandles(name, []string{req.ReceiptHandle})
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -1212,15 +1137,7 @@ func handleSQSDeleteMessageBatch(w http.ResponseWriter, r *http.Request) {
 	for _, e := range req.Entries {
 		var found bool
 		sqsQueues.Update(name, func(qq *SQSQueue) {
-			out := qq.Messages[:0]
-			for _, m := range qq.Messages {
-				if m.ReceiptHandle != "" && m.ReceiptHandle == e.ReceiptHandle {
-					found = true
-					continue
-				}
-				out = append(out, m)
-			}
-			qq.Messages = out
+			_, found = qq.Messages.Settle(e.ReceiptHandle, sqsPolicy(*qq), time.Now())
 		})
 		if found {
 			successful = append(successful, map[string]string{"Id": e.Id})
@@ -1239,22 +1156,15 @@ func handleSQSDeleteMessageBatch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// sqsApplyVisibility resets the VisibleAt of the message identified by the
-// receipt handle to now+timeout, mirroring ChangeMessageVisibility. It reports
-// whether the handle matched a message and whether that message was in flight
-// (a handle that matches a message no longer hidden is MessageNotInflight on
-// real SQS). A negative timeout is rejected by the caller before this runs.
+// sqsApplyVisibility moves the visibility deadline of the message identified
+// by the receipt handle to now+timeout, mirroring ChangeMessageVisibility. It
+// reports whether the handle matched a message and whether that message was in
+// flight (a handle that matches a message no longer hidden is
+// MessageNotInflight on real SQS). A negative timeout is rejected by the
+// caller before this runs.
 func sqsApplyVisibility(name, handle string, timeout int) (matched, inflight bool) {
-	now := time.Now().UnixMilli()
 	sqsQueues.Update(name, func(qq *SQSQueue) {
-		for i := range qq.Messages {
-			if qq.Messages[i].ReceiptHandle != "" && qq.Messages[i].ReceiptHandle == handle {
-				matched = true
-				inflight = qq.Messages[i].VisibleAt > now
-				qq.Messages[i].VisibleAt = now + int64(timeout)*1000
-				return
-			}
-		}
+		_, matched, inflight = qq.Messages.Extend(handle, time.Duration(timeout)*time.Second, sqsPolicy(*qq), time.Now())
 	})
 	return matched, inflight
 }

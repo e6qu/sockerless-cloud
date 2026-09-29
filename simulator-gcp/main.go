@@ -27,6 +27,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"google.golang.org/grpc"
@@ -83,12 +84,14 @@ func main() {
 	}
 
 	// Cloud Spanner backup schedules produce real backups on their crontab
-	// occurrences, and Cloud Pub/Sub returns messages whose ack deadline has
-	// elapsed to their subscription. Both clocks run only in the serving
+	// occurrences, and Cloud Pub/Sub dead-letters messages whose last delivery
+	// attempt ran out of ack deadline and pushes push subscriptions' backlogs.
+	// These clocks run only in the serving
 	// process — building the route table in-process (route conformance,
 	// coverage probing) must not start one.
-	srv.StartBackground("Cloud Spanner backup schedules", spannerRunBackupScheduleLoop)
-	srv.StartBackground("Pub/Sub ack deadline sweeper", pubsubAckDeadlineSweeper)
+	spannerBackupScheduleTicker().Start(srv, "Cloud Spanner backup schedules", 30*time.Second)
+	srv.StartBackground("Pub/Sub dead-letter sweeper", pubsubDeadLetterSweeper)
+	startPubSubPush(srv)
 
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)

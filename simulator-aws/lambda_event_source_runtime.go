@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/msgq"
 	"github.com/rs/zerolog"
 )
 
@@ -228,13 +229,7 @@ func sqsDeleteReceiptHandles(queueName string, receipts []string) {
 		remove[receipt] = true
 	}
 	sqsQueues.Update(queueName, func(queue *SQSQueue) {
-		kept := queue.Messages[:0]
-		for _, message := range queue.Messages {
-			if !remove[message.ReceiptHandle] {
-				kept = append(kept, message)
-			}
-		}
-		queue.Messages = kept
+		queue.Messages.Remove(func(m msgq.Message[sqsPayload]) bool { return m.Receipt != "" && remove[m.Receipt] })
 	})
 }
 

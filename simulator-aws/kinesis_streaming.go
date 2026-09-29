@@ -2,8 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
-	"strconv"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -66,46 +66,25 @@ func handleKinesisSubscribeToShard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records, _ := kinesisRecords.Get(kinesisShardRecordKey(stream.StreamName, req.ShardId))
-
-	// Honor the StartingPosition the consumer asked for, mirroring
-	// GetShardIterator's index selection.
-	start := 0
-	switch req.StartingPosition.Type {
-	case "LATEST":
-		start = len(records)
-	case "AT_SEQUENCE_NUMBER", "AFTER_SEQUENCE_NUMBER":
-		if seq, err := strconv.Atoi(req.StartingPosition.SequenceNumber); err == nil && seq > 0 {
-			start = seq - 1
-			if req.StartingPosition.Type == "AFTER_SEQUENCE_NUMBER" {
-				start = seq
-			}
-		}
-	case "", "TRIM_HORIZON", "AT_TIMESTAMP":
-		start = 0
-	default:
-		start = 0
+	start, problem := kinesisStartPosition(stream, req.ShardId, req.StartingPosition.Type,
+		req.StartingPosition.SequenceNumber, req.StartingPosition.Timestamp)
+	if problem != "" {
+		AWSError(w, "InvalidArgumentException", problem, http.StatusBadRequest)
+		return
 	}
-	if start > len(records) {
-		start = len(records)
-	}
-
-	selected := records[start:]
+	partition := kinesisShardRecordKey(stream.StreamName, req.ShardId)
+	next := max(start, kinesisLog.Head(partition).First)
+	selected := kinesisLog.Read(partition, next, math.MaxInt)
 	outRecords := make([]map[string]any, 0, len(selected))
 	for _, rec := range selected {
-		outRecords = append(outRecords, map[string]any{
-			"SequenceNumber":              rec.SequenceNumber,
-			"ApproximateArrivalTimestamp": rec.ApproximateArrivalTimestamp,
-			"Data":                        rec.Data,
-			"PartitionKey":                rec.PartitionKey,
-			"EncryptionType":              "NONE",
-		})
+		outRecords = append(outRecords, kinesisRecordJSON(rec))
+		next = rec.Seq + 1
 	}
 
-	// ContinuationSequenceNumber is the next sequence number a follow-up
-	// SubscribeToShard call would resume from. MillisBehindLatest is 0 because
-	// the sim has streamed every stored record (it is caught up to the tip).
-	continuation := strconv.Itoa(len(records) + 1)
+	// ContinuationSequenceNumber is the sequence number a follow-up
+	// SubscribeToShard call resumes from; the sim has streamed every stored
+	// record, so it is caught up to the tip.
+	continuation := kinesisSequenceNumber(next)
 
 	w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	w.WriteHeader(http.StatusOK)

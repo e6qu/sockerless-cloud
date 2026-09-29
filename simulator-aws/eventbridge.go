@@ -153,6 +153,7 @@ func registerEventBridge(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSEvents.CancelReplay", handleEBCancelReplay)
 
 	registerEventBridgeConnectivity(r, srv)
+	registerEventBridgeDelivery(srv)
 }
 
 func ebRuleArn(name string) string {
@@ -514,6 +515,10 @@ func handleEBPutRule(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := ebGetBus(req.EventBusName); !ok {
 		AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
+		return
+	}
+	if problem := ebRuleScheduleProblem(req.ScheduleExpression, req.EventPattern, req.EventBusName); problem != "" {
+		AWSError(w, "ValidationException", problem, http.StatusBadRequest)
 		return
 	}
 	state := req.State
@@ -994,8 +999,7 @@ func deliverEBEvent(bus string, record EBEventRecord) {
 		}
 		targets, _ := ebTargets.Get(ebRuleKey(rule.EventBusName, rule.Name))
 		for _, target := range targets {
-			body := ebApplyInput(target, record)
-			deliverEBTarget(rule.Arn, target, body, record.Source, record.DetailType, record.ID)
+			ebSubmitTargetDelivery(rule.Arn, target, record)
 		}
 	}
 }
@@ -1136,81 +1140,6 @@ func ebLambdaNameFromARN(arn string) string {
 		name = name[:j]
 	}
 	return name
-}
-
-// deliverEBTarget delivers one matched event to one rule target. EventBridge
-// delivers as the events.amazonaws.com service on the rule's behalf, so each
-// delivery is authorized against the TARGET's resource-based policy with the
-// service-initiation condition context (aws:SourceArn = the matched rule's ARN,
-// aws:SourceAccount = this account). A target whose resource policy does not
-// admit events.amazonaws.com for that source rule receives nothing — exactly as
-// real AWS, which silently drops the delivery rather than enqueuing it.
-func deliverEBTarget(ruleArn string, target EBTarget, body, source, detailType, eventID string) {
-	src := iamServiceSource{
-		Service:       "events.amazonaws.com",
-		SourceArn:     ruleArn,
-		SourceAccount: awsAccountID(),
-	}
-	if strings.HasPrefix(target.Arn, "arn:aws:sqs:") {
-		if !iamAuthorizeServiceDelivery(target.Arn, "sqs:SendMessage", src) {
-			return
-		}
-		queue := snsTopicNameFromARN(target.Arn)
-		sqsEnqueue(queue, sqsSendEntry{MessageBody: body})
-		return
-	}
-	if strings.HasPrefix(target.Arn, "arn:aws:lambda:") {
-		if !iamAuthorizeServiceDelivery(target.Arn, "lambda:InvokeFunction", src) {
-			return
-		}
-		name := ebLambdaNameFromARN(target.Arn)
-		fn, ok := lambdaFunctions.Get(name)
-		if !ok {
-			return
-		}
-		// Real in-process invoke. EventBridge invokes asynchronously (an
-		// "Event" invocation): the rule delivery does not wait on the function
-		// result, so run the invoke in the background exactly as the async
-		// Lambda Invoke path does.
-		go func() { _, _, _ = invokeLambdaViaRuntimeAPI(fn, []byte(body)) }()
-		return
-	}
-	if strings.HasPrefix(target.Arn, "arn:aws:sns:") {
-		if !iamAuthorizeServiceDelivery(target.Arn, "sns:Publish", src) {
-			return
-		}
-		if _, ok := snsTopics.Get(snsTopicNameFromARN(target.Arn)); !ok {
-			return
-		}
-		snsFanout(target.Arn, eventID, detailType, body, nil)
-		return
-	}
-	if strings.HasPrefix(target.Arn, "arn:aws:states:") {
-		_, _ = sfnStartNestedExecution(target.Arn, eventID, body)
-		return
-	}
-	if strings.HasPrefix(target.Arn, "arn:aws:logs:") && strings.Contains(target.Arn, ":log-group:") {
-		group := strings.SplitN(target.Arn, ":log-group:", 2)[1]
-		group = strings.TrimSuffix(group, ":*")
-		if _, ok := cwLogGroups.Get(group); !ok {
-			return
-		}
-		stream := "eventbridge/" + cloudTrailShortName(ruleArn)
-		key := cwEventsKey(group, stream)
-		now := time.Now().UnixMilli()
-		if _, ok := cwLogStreams.Get(key); !ok {
-			cwLogStreams.Put(key, CWLogStream{
-				LogStreamName: stream,
-				LogGroupName:  group,
-				CreationTime:  now,
-				Arn:           cwLogStreamArn(group, stream),
-			})
-			cwLogEvents.Put(key, []CWLogEvent{})
-		}
-		cwAppendLogEvents(key, []CWLogEvent{{Timestamp: now, IngestionTime: now, Message: body}}, nil)
-		return
-	}
-	_, _, _ = source, detailType, eventID
 }
 
 func handleEBCreateArchive(w http.ResponseWriter, r *http.Request) {

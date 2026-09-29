@@ -32,6 +32,7 @@ func arTestServer(t *testing.T) (*sim.Server, string) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 	return srv, ts.URL

@@ -17,33 +17,33 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `PUT /v1/projects/{project}/topics/{topic}` | ✓ `simulator-gcp/pubsub.go:138::handlePSCreateTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/topics/{topic}` | ✓ `simulator-gcp/pubsub.go:139::handlePSGetTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/topics` | ✓ `simulator-gcp/pubsub.go:140::handlePSListTopics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}/topics/{topic}` | ✓ `simulator-gcp/pubsub.go:141::handlePSDeleteTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/topics/{topicVerb}` | ✓ `simulator-gcp/pubsub.go:142::handlePSTopicVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /v1/projects/{project}/subscriptions/{sub}` | ✓ `simulator-gcp/pubsub.go:145::handlePSCreateSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v1/projects/{project}/subscriptions/{sub}` | ✓ `simulator-gcp/pubsub.go:146::handlePSPatchSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/subscriptions/{sub}` | ✓ `simulator-gcp/pubsub.go:147::handlePSGetSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/subscriptions` | ✓ `simulator-gcp/pubsub.go:148::handlePSListSubscriptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}/subscriptions/{sub}` | ✓ `simulator-gcp/pubsub.go:149::handlePSDeleteSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/subscriptions/{subVerb}` | ✓ `simulator-gcp/pubsub.go:150::handlePSSubscriptionVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v1/projects/{project}/topics/{topic}` | ✓ `simulator-gcp/pubsub.go:156::handlePSPatchTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/topics/{topic}/snapshots` | ✓ `simulator-gcp/pubsub.go:162::handlePSListTopicSnapshots` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/topics/{topic}/subscriptions` | ✓ `simulator-gcp/pubsub.go:163::handlePSListTopicSubscriptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /v1/projects/{project}/snapshots/{snap}` | ✓ `simulator-gcp/pubsub.go:170::handlePSCreateSnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v1/projects/{project}/snapshots/{snap}` | ✓ `simulator-gcp/pubsub.go:171::handlePSPatchSnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/snapshots/{snap}` | ✓ `simulator-gcp/pubsub.go:172::handlePSGetSnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/snapshots` | ✓ `simulator-gcp/pubsub.go:173::handlePSListSnapshots` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}/snapshots/{snap}` | ✓ `simulator-gcp/pubsub.go:174::handlePSDeleteSnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/snapshots/{snapVerb}` | ✓ `simulator-gcp/pubsub.go:175::handlePSSnapshotVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/schemas` | ✓ `simulator-gcp/pubsub.go:182::handlePSCreateSchema` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/schemas:validate` | ○ `simulator-gcp/pubsub.go:183::handlePSValidateSchema` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/schemas:validateMessage` | ✓ `simulator-gcp/pubsub.go:184::handlePSValidateMessage` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/schemas` | ✓ `simulator-gcp/pubsub.go:185::handlePSListSchemas` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/schemas/{schemaVerb}` | ✓ `simulator-gcp/pubsub.go:186::handlePSGetSchemaOrVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/schemas/{schemaVerb}` | ✓ `simulator-gcp/pubsub.go:187::handlePSSchemaPostVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}/schemas/{schemaVerb}` | ✓ `simulator-gcp/pubsub.go:188::handlePSDeleteSchemaOrRevision` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /v1/projects/{project}/topics/{topic}` | ✓ `simulator-gcp/pubsub.go:122::handlePSCreateTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/topics/{topic}` | ✓ `simulator-gcp/pubsub.go:123::handlePSGetTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/topics` | ✓ `simulator-gcp/pubsub.go:124::handlePSListTopics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/projects/{project}/topics/{topic}` | ✓ `simulator-gcp/pubsub.go:125::handlePSDeleteTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/topics/{topicVerb}` | ✓ `simulator-gcp/pubsub.go:126::handlePSTopicVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /v1/projects/{project}/subscriptions/{sub}` | ✓ `simulator-gcp/pubsub.go:129::handlePSCreateSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v1/projects/{project}/subscriptions/{sub}` | ✓ `simulator-gcp/pubsub.go:130::handlePSPatchSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/subscriptions/{sub}` | ✓ `simulator-gcp/pubsub.go:131::handlePSGetSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/subscriptions` | ✓ `simulator-gcp/pubsub.go:132::handlePSListSubscriptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/projects/{project}/subscriptions/{sub}` | ✓ `simulator-gcp/pubsub.go:133::handlePSDeleteSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/subscriptions/{subVerb}` | ✓ `simulator-gcp/pubsub.go:134::handlePSSubscriptionVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v1/projects/{project}/topics/{topic}` | ✓ `simulator-gcp/pubsub.go:140::handlePSPatchTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/topics/{topic}/snapshots` | ✓ `simulator-gcp/pubsub.go:146::handlePSListTopicSnapshots` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/topics/{topic}/subscriptions` | ✓ `simulator-gcp/pubsub.go:147::handlePSListTopicSubscriptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /v1/projects/{project}/snapshots/{snap}` | ✓ `simulator-gcp/pubsub.go:154::handlePSCreateSnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v1/projects/{project}/snapshots/{snap}` | ✓ `simulator-gcp/pubsub.go:155::handlePSPatchSnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/snapshots/{snap}` | ✓ `simulator-gcp/pubsub.go:156::handlePSGetSnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/snapshots` | ✓ `simulator-gcp/pubsub.go:157::handlePSListSnapshots` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/projects/{project}/snapshots/{snap}` | ✓ `simulator-gcp/pubsub.go:158::handlePSDeleteSnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/snapshots/{snapVerb}` | ✓ `simulator-gcp/pubsub.go:159::handlePSSnapshotVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/schemas` | ✓ `simulator-gcp/pubsub.go:166::handlePSCreateSchema` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/schemas:validate` | ○ `simulator-gcp/pubsub.go:167::handlePSValidateSchema` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/schemas:validateMessage` | ✓ `simulator-gcp/pubsub.go:168::handlePSValidateMessage` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/schemas` | ✓ `simulator-gcp/pubsub.go:169::handlePSListSchemas` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/schemas/{schemaVerb}` | ✓ `simulator-gcp/pubsub.go:170::handlePSGetSchemaOrVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/schemas/{schemaVerb}` | ✓ `simulator-gcp/pubsub.go:171::handlePSSchemaPostVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/projects/{project}/schemas/{schemaVerb}` | ✓ `simulator-gcp/pubsub.go:172::handlePSDeleteSchemaOrRevision` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

@@ -28,6 +28,7 @@ func TestACIProcessRuntimeRejectsWorkloadExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build simulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	// Long-running operations complete in a goroutine. One still running
 	// when this test ends would read and write the stores while the next
 	// test rebuilds them.

@@ -116,6 +116,7 @@ func TestServiceConformance_GCPNoPhantomCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	mux := srv.Mux()
 
 	p := newGCPCoverageProbe(t)
@@ -193,6 +194,7 @@ func TestServiceConformance_GCPPhantomSweepIsSound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	req := httptest.NewRequest(http.MethodGet, "/v2/projects/p/locations/us-central1/jobs", nil)
 	req.Host = "run.googleapis.com"
 	if _, pattern := srv.Mux().Handler(req); pattern == "" {

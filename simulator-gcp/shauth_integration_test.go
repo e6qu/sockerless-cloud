@@ -92,6 +92,7 @@ func TestShauthIsMountedAlongsideCloudAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator with Shauth configured: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	ensureConsoleRegistered(srv)
 	srv.WrapHandler(bearerAuthMiddleware(srv))
 
@@ -159,6 +160,7 @@ func TestApplicationMonitoringOwnsItsBearerAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator with application monitoring configured: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	srv.WrapHandler(bearerAuthMiddleware(srv))
 
 	request := httptest.NewRequest(http.MethodGet, uiauth.MonitoringPath, nil)
@@ -208,6 +210,7 @@ func TestShauthAbsentWhenUnconfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	ensureConsoleRegistered(srv)
 	srv.WrapHandler(bearerAuthMiddleware(srv))
 

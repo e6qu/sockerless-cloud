@@ -349,7 +349,7 @@ func registerLambda(srv *sim.Server, startBackgroundPollers bool) {
 	cloudTrailDeclareDataEvents("lambda.amazonaws.com", "Invoke")
 	lambdaFunctions = sim.MakeStore[LambdaFunction](srv.DB(), "lambda_functions")
 	lambdaConcurrency = sim.MakeStore[int](srv.DB(), "lambda_concurrency")
-	lambdaAsyncInvocations = sim.MakeStore[LambdaAsyncInvocation](srv.DB(), "lambda_async_invocations")
+	registerLambdaAsyncInvocations(srv)
 	lambdaVersions = sim.MakeStore[[]LambdaVersion](srv.DB(), "lambda_versions")
 	lambdaAliases = sim.MakeStore[map[string]LambdaAlias](srv.DB(), "lambda_aliases")
 	lambdaPolicies = sim.MakeStore[[]LambdaPolicyStatement](srv.DB(), "lambda_policies")

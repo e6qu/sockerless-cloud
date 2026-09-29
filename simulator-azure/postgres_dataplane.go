@@ -162,7 +162,7 @@ func azurePGNewDataPlane(sub, rg, name string) *azurePGDataPlane {
 	plane := &azurePGDataPlane{sub: sub, rg: rg, name: name}
 	plane.Instance = &dbengine.Instance{
 		Name:    "Azure Database for PostgreSQL " + rg + "/" + name,
-		Engine:  dbengine.Postgres16,
+		Engine:  dbengine.Postgres16.WithImage("public.ecr.aws/docker/library/postgres:16-alpine"),
 		Volume:  azurePGServerVolume(rg, name),
 		Labels:  map[string]string{azurePGEngineContainerLabel: azurePGServerKey(rg, name)},
 		Sandbox: SandboxACA,

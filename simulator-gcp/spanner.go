@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/cron"
 	"google.golang.org/grpc/status"
 )
 
@@ -96,7 +97,7 @@ var (
 	spannerBackups            sim.Store[spannerBackup]
 	spannerBackupImages       sim.Store[spannerBackupImage]
 	spannerBackupSchedules    sim.Store[spannerBackupSchedule]
-	spannerBackupScheduleRuns sim.Store[spannerBackupScheduleRun]
+	spannerBackupScheduleRuns sim.Store[cron.Record]
 )
 
 func registerSpanner(srv *sim.Server) {
@@ -109,7 +110,8 @@ func registerSpanner(srv *sim.Server) {
 	spannerBackups = sim.MakeStore[spannerBackup](srv.DB(), "spanner_backups")
 	spannerBackupImages = sim.MakeStore[spannerBackupImage](srv.DB(), "spanner_backup_images")
 	spannerBackupSchedules = sim.MakeStore[spannerBackupSchedule](srv.DB(), "spanner_backup_schedules")
-	spannerBackupScheduleRuns = sim.MakeStore[spannerBackupScheduleRun](srv.DB(), "spanner_backup_schedule_runs")
+	spannerBackupScheduleRuns = sim.MakeStore[cron.Record](srv.DB(), "spanner_backup_schedule_occurrences")
+	spannerAdoptLegacyScheduleRuns(srv.DB(), spannerBackupSchedules, spannerBackupScheduleRuns)
 
 	const base = "/spanner/v1/projects/{project}/instances"
 	srv.HandleFunc("POST "+base, handleSpannerCreateInstance)

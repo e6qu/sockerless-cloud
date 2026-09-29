@@ -284,6 +284,7 @@ func handleEventarcCreateTrigger(w http.ResponseWriter, r *http.Request) {
 	req.Uid = sim.NewUUID()
 	req.CreateTime = now
 	req.UpdateTime = now
+	eventarcProvisionTransport(&req, project, location, triggerID)
 	eventarcTriggers.Put(eventarcTriggerKey(project, location, triggerID), req)
 	op := newLRO(project, location, req, "type.googleapis.com/google.cloud.eventarc.v1.Trigger")
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -356,6 +357,7 @@ func handleEventarcPatchTrigger(w http.ResponseWriter, r *http.Request) {
 		existing.EventDataContentType = req.EventDataContentType
 	}
 	existing.UpdateTime = nowTimestamp()
+	eventarcProvisionTransport(&existing, project, location, trigger)
 	eventarcTriggers.Put(key, existing)
 	op := newLRO(project, location, existing, "type.googleapis.com/google.cloud.eventarc.v1.Trigger")
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -372,6 +374,7 @@ func handleEventarcDeleteTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	eventarcTriggers.Delete(key)
+	eventarcReleaseTransport(t)
 	op := newLRO(project, location, t, "type.googleapis.com/google.cloud.eventarc.v1.Trigger")
 	sim.WriteJSON(w, http.StatusOK, op)
 }

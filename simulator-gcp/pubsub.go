@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -82,7 +83,7 @@ type PSRetryPolicy struct {
 }
 
 type PSPushConfig struct {
-	PushEndpoint string            `json:"pushEndpoint,omitempty"` // external (operator-supplied): webhook target for Push subscriptions; sim doesn't deliver
+	PushEndpoint string            `json:"pushEndpoint,omitempty"`
 	Attributes   map[string]string `json:"attributes,omitempty"`
 	OidcToken    *PSOidcToken      `json:"oidcToken,omitempty"`
 }
@@ -97,39 +98,22 @@ type PSMessage struct {
 	PublishTime string            `json:"publishTime"`
 	Data        string            `json:"data,omitempty"` // base64 (per API)
 	Attributes  map[string]string `json:"attributes,omitempty"`
-}
-
-// PSDeliveredMessage tracks an in-flight pulled message awaiting
-// acknowledge. AckId is unique per pull.
-type PSDeliveredMessage struct {
-	AckId        string
-	Subscription string
-	Message      PSMessage
-	DeliveredAt  time.Time
-	AckDeadline  time.Time
+	OrderingKey string            `json:"orderingKey,omitempty"`
 }
 
 var (
 	psTopics        sim.Store[PSTopic]
 	psSubscriptions sim.Store[PSSubscription]
-	// Per-subscription queues (FIFO, in-memory).
-	psQueues sim.Store[psQueue]
-	// In-flight pulled messages keyed by ackId.
-	psInFlight sim.Store[PSDeliveredMessage]
+	psQueues        sim.Store[psQueue]
 )
-
-// psQueue holds the pending messages for a subscription. Wrapping
-// in a struct so it round-trips through the JSON-serializing Store.
-type psQueue struct {
-	Subscription string
-	Messages     []PSMessage
-}
 
 func registerPubSub(srv *sim.Server) {
 	psTopics = sim.MakeStore[PSTopic](srv.DB(), "pubsub_topics")
 	psSubscriptions = sim.MakeStore[PSSubscription](srv.DB(), "pubsub_subscriptions")
 	psQueues = sim.MakeStore[psQueue](srv.DB(), "pubsub_queues")
-	psInFlight = sim.MakeStore[PSDeliveredMessage](srv.DB(), "pubsub_inflight")
+	if err := psMigrateQueues(srv.DB()); err != nil {
+		log.Fatalf("pubsub: %v", err)
+	}
 	psSnapshots = sim.MakeStore[PSSnapshot](srv.DB(), "pubsub_snapshots")
 	psSnapshotBacklogs = sim.MakeStore[[]PSMessage](srv.DB(), "pubsub_snapshot_backlogs")
 	psSchemaRevisions = sim.MakeStore[PSSchema](srv.DB(), "pubsub_schema_revisions")
@@ -235,10 +219,8 @@ func handlePSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	// Capture the subscription's outstanding backlog so a later Seek to this
 	// snapshot replays exactly these messages — the same semantics as the
 	// gRPC CreateSnapshot and real Pub/Sub.
-	if q, ok := psQueues.Get(req.Subscription); ok && len(q.Messages) > 0 {
-		captured := make([]PSMessage, len(q.Messages))
-		copy(captured, q.Messages)
-		psSnapshotBacklogs.Put(psSnapshotKey(project, snap), captured)
+	if backlog := psBacklog(req.Subscription); len(backlog) > 0 {
+		psSnapshotBacklogs.Put(psSnapshotKey(project, snap), backlog)
 	}
 	psSnapshots.Put(psSnapshotKey(project, snap), s)
 	sim.WriteJSON(w, http.StatusOK, s)
@@ -521,31 +503,12 @@ func handlePSPublish(w http.ResponseWriter, r *http.Request, project, topic stri
 		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
 		return
 	}
-	var msgIds []string
-	now := nowTimestamp()
-	for _, m := range req.Messages {
-		msgID := generateUUIDLocal()
-		m.MessageId = msgID
-		m.PublishTime = now
-		msgIds = append(msgIds, msgID)
-		// Fan out to every subscription on this topic.
-		for _, sub := range psSubscriptions.List() {
-			if sub.Topic != tName {
-				continue
-			}
-			// The queue entry is created when the subscription is created, so
-			// Update normally succeeds and appends atomically under the store
-			// write lock. If the entry is ever absent (e.g. created before this
-			// invariant existed), seed it with this message.
-			if !psQueues.Update(sub.Name, func(q *psQueue) {
-				q.Subscription = sub.Name
-				q.Messages = append(q.Messages, m)
-			}) {
-				psQueues.Put(sub.Name, psQueue{Subscription: sub.Name, Messages: []PSMessage{m}})
-			}
-		}
+	ids, err := psPublishMessages(tName, req.Messages)
+	if err != nil {
+		psWriteRPCError(w, err)
+		return
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"messageIds": msgIds})
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"messageIds": ids})
 }
 
 func handlePSCreateSubscription(w http.ResponseWriter, r *http.Request) {
@@ -590,6 +553,10 @@ func handlePSCreateSubscription(w http.ResponseWriter, r *http.Request) {
 		Filter:                   req.Filter,
 		DeadLetterPolicy:         req.DeadLetterPolicy,
 		RetryPolicy:              req.RetryPolicy,
+	}
+	if err := psValidateSubscription(s); err != nil {
+		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
+		return
 	}
 	psSubscriptions.Put(s.Name, s)
 	// Seed the delivery queue so concurrent publishes append atomically via
@@ -670,6 +637,10 @@ func handlePSPatchSubscription(w http.ResponseWriter, r *http.Request) {
 				"unknown updateMask path: "+path)
 			return
 		}
+	}
+	if err := psValidateSubscription(existing); err != nil {
+		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
+		return
 	}
 	psSubscriptions.Put(name, existing)
 	sim.WriteJSON(w, http.StatusOK, existing)
@@ -847,15 +818,30 @@ func handlePSSeek(w http.ResponseWriter, r *http.Request, subName string) {
 		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
 		return
 	}
+	switch {
+	case req.Snapshot != "":
+		key := psSnapshotKeyFromName(req.Snapshot)
+		if _, ok := psSnapshots.Get(key); !ok {
+			gcpError(w, http.StatusNotFound, "NOT_FOUND", "Snapshot not found: "+req.Snapshot)
+			return
+		}
+		backlog, _ := psSnapshotBacklogs.Get(key)
+		psSeekSnapshot(subName, backlog)
+	case req.Time != "":
+		t, err := time.Parse(time.RFC3339Nano, req.Time)
+		if err != nil {
+			gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid time: "+req.Time)
+			return
+		}
+		psSeekTime(subName, t)
+	default:
+		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "seek target (snapshot or time) is required")
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
 func handlePSPull(w http.ResponseWriter, r *http.Request, subName string) {
-	sub, ok := psSubscriptions.Get(subName)
-	if !ok {
-		gcpError(w, http.StatusNotFound, "NOT_FOUND", "Subscription not found: "+subName)
-		return
-	}
 	var req struct {
 		MaxMessages int `json:"maxMessages"`
 	}
@@ -863,39 +849,18 @@ func handlePSPull(w http.ResponseWriter, r *http.Request, subName string) {
 		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
 		return
 	}
-	if req.MaxMessages <= 0 {
-		req.MaxMessages = 1
-	}
-	q, _ := psQueues.Get(subName)
-	if len(q.Messages) == 0 {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"receivedMessages": []any{}})
+	delivered, err := psDequeue(subName, req.MaxMessages, 0)
+	if err != nil {
+		psWriteRPCError(w, err)
 		return
 	}
-	n := req.MaxMessages
-	if n > len(q.Messages) {
-		n = len(q.Messages)
-	}
-	picked := q.Messages[:n]
-	rest := q.Messages[n:]
-	q.Messages = rest
-	psQueues.Put(subName, q)
-
-	now := time.Now()
-	deadline := now.Add(time.Duration(sub.AckDeadlineSeconds) * time.Second)
-	out := make([]map[string]any, 0, n)
-	for _, m := range picked {
-		ackID := generateUUIDLocal()
-		psInFlight.Put(ackID, PSDeliveredMessage{
-			AckId:        ackID,
-			Subscription: subName,
-			Message:      m,
-			DeliveredAt:  now,
-			AckDeadline:  deadline,
-		})
-		out = append(out, map[string]any{
-			"ackId":   ackID,
-			"message": m,
-		})
+	out := make([]map[string]any, 0, len(delivered))
+	for _, d := range delivered {
+		rm := map[string]any{"ackId": d.AckID, "message": d.Message}
+		if d.DeliveryAttempt > 0 {
+			rm["deliveryAttempt"] = d.DeliveryAttempt
+		}
+		out = append(out, rm)
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"receivedMessages": out})
 }
@@ -912,9 +877,7 @@ func handlePSAck(w http.ResponseWriter, r *http.Request, subName string) {
 		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
 		return
 	}
-	for _, id := range req.AckIds {
-		psInFlight.Delete(id)
-	}
+	psAcknowledge(subName, req.AckIds)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -925,18 +888,17 @@ func handlePSModifyAck(w http.ResponseWriter, r *http.Request, subName string) {
 	}
 	var req struct {
 		AckIds             []string `json:"ackIds"`
-		AckDeadlineSeconds int      `json:"ackDeadlineSeconds"`
+		AckDeadlineSeconds int32    `json:"ackDeadlineSeconds"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
 		return
 	}
-	now := time.Now()
-	for _, id := range req.AckIds {
-		psInFlight.Update(id, func(m *PSDeliveredMessage) {
-			m.AckDeadline = now.Add(time.Duration(req.AckDeadlineSeconds) * time.Second)
-		})
+	if !psValidAckDeadline(req.AckDeadlineSeconds) {
+		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", fmt.Sprintf("Invalid ack deadline given: %d", req.AckDeadlineSeconds))
+		return
 	}
+	psModifyAckDeadline(subName, req.AckIds, req.AckDeadlineSeconds)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 

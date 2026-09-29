@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -109,6 +110,7 @@ func registerApplicationAutoScaling(r *AWSRouter, srv *sim.Server, startBackgrou
 	r.Register("AnyScaleFrontendService.DescribeScalingActivities", handleAppASDescribeScalingActivities)
 	r.Register("AnyScaleFrontendService.GetPredictiveScalingForecast", handleAppASGetPredictiveScalingForecast)
 
+	startAppScheduledActions(srv)
 	if startBackgroundEvaluator {
 		// Evaluate target-tracking policies and adjust capacity on a short
 		// cadence so a policy is observable inside a test. Idempotent across
@@ -581,6 +583,12 @@ func handleAppASPutScheduledAction(w http.ResponseWriter, r *http.Request) {
 	}
 	key := appScheduledActionKey(req.ServiceNamespace, req.ResourceId, req.ScheduledActionName)
 	action, exists := appScheduledActions.Get(key)
+	if schedule := cmp.Or(req.Schedule, action.Schedule); schedule != "" {
+		if _, err := parseAWSSchedule(schedule, req.Timezone, true); err != nil {
+			AWSError(w, "ValidationException", "Invalid schedule: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	if !exists {
 		action = AppScheduledAction{
 			ScheduledActionName: req.ScheduledActionName,

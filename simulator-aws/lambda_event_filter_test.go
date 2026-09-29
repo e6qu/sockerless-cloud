@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/msgq"
 )
 
 func sqsFilterCriteria(patterns ...string) map[string]any {
@@ -80,10 +83,11 @@ func TestLambdaSQSPollerDeletesFilteredMessages(t *testing.T) {
 	lambdaESMs = sim.MakeStore[LambdaEventSourceMapping](nil, "test_filter_lambda_esms")
 
 	queueARN := "arn:aws:sqs:us-east-1:000000000000:filtered"
-	sqsQueues.Put("filtered", SQSQueue{Name: "filtered", ARN: queueARN, Attributes: map[string]string{}, Messages: []SQSMessage{
-		{MessageId: "m1", Body: `{"kind":"refund"}`},
-		{MessageId: "m2", Body: "not an order"},
-	}})
+	queue := SQSQueue{Name: "filtered", ARN: queueARN, Attributes: map[string]string{}}
+	for i, body := range []string{`{"kind":"refund"}`, "not an order"} {
+		queue.Messages.Enqueue(sqsPayload{Body: body}, msgq.EnqueueOpts{ID: fmt.Sprintf("m%d", i+1)}, sqsPolicy(queue), time.Now())
+	}
+	sqsQueues.Put("filtered", queue)
 	functionARN := "arn:aws:lambda:us-east-1:000000000000:function:fn"
 	lambdaFunctions.Put("fn", LambdaFunction{FunctionName: "fn", FunctionArn: functionARN})
 	mapping := LambdaEventSourceMapping{
@@ -94,8 +98,8 @@ func TestLambdaSQSPollerDeletesFilteredMessages(t *testing.T) {
 
 	lambdaPollSQSMapping(context.Background(), mapping)
 
-	queue, _ := sqsQueues.Get("filtered")
-	if len(queue.Messages) != 0 {
-		t.Fatalf("filtered messages stay on the queue: %+v", queue.Messages)
+	queue, _ = sqsQueues.Get("filtered")
+	if len(queue.Messages.Messages) != 0 {
+		t.Fatalf("filtered messages stay on the queue: %+v", queue.Messages.Messages)
 	}
 }

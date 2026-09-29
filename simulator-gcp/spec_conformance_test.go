@@ -419,6 +419,7 @@ func TestRoutesExistInDiscoveryDocs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 
 	all := flattenDocs(docs)
 	byFile := map[string][]specPath{}
@@ -488,6 +489,7 @@ func TestVendoredDiscoveryDocsAreConsumed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 
 	used := map[string]bool{}
 	byFile := map[string][]specPath{}

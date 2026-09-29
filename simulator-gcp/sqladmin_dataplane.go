@@ -98,9 +98,9 @@ func sqlEngineFamily(databaseVersion string) (dbengine.Family, bool) {
 
 func sqlEngine(family dbengine.Family) dbengine.Engine {
 	if family == dbengine.Postgres {
-		return dbengine.Postgres16
+		return dbengine.Postgres16.WithImage("public.ecr.aws/docker/library/postgres:16-alpine")
 	}
-	return dbengine.MySQL80
+	return dbengine.MySQL80.WithImage("public.ecr.aws/docker/library/mysql:8.0")
 }
 
 // sqlBuiltInAdminUser is the user the engine is initialised with — the one

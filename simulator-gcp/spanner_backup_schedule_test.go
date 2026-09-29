@@ -9,67 +9,50 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/cron"
 )
 
-func TestSpannerParseCrontabMatchesOccurrences(t *testing.T) {
-	cron, err := spannerParseCrontab("0 2 * * *")
-	if err != nil {
-		t.Fatalf("parse daily crontab: %v", err)
-	}
-	if !cron.matches(time.Date(2026, 3, 4, 2, 0, 0, 0, time.UTC)) {
-		t.Error("daily 02:00 crontab did not match 02:00")
-	}
-	if cron.matches(time.Date(2026, 3, 4, 3, 0, 0, 0, time.UTC)) {
-		t.Error("daily 02:00 crontab matched 03:00")
-	}
-
-	stepped, err := spannerParseCrontab("30 */6 * * 1-5")
+func TestSpannerCrontabIsFiveFieldUTC(t *testing.T) {
+	crontab, err := spannerCrontab("30 */6 * * 1-5")
 	if err != nil {
 		t.Fatalf("parse stepped crontab: %v", err)
 	}
-	// 2026-03-04 is a Wednesday.
-	if !stepped.matches(time.Date(2026, 3, 4, 12, 30, 0, 0, time.UTC)) {
-		t.Error("stepped crontab did not match Wednesday 12:30")
+	// 2026-03-06 is a Friday; the next weekday 30 minutes past a sixth hour after
+	// 18:40 is Monday 00:30.
+	next, ok := crontab.Next(time.Date(2026, 3, 6, 18, 40, 0, 0, time.UTC))
+	if want := time.Date(2026, 3, 9, 0, 30, 0, 0, time.UTC); !ok || !next.Equal(want) {
+		t.Errorf("next = %s, want %s", next, want)
 	}
-	if stepped.matches(time.Date(2026, 3, 7, 12, 30, 0, 0, time.UTC)) {
-		t.Error("weekday-restricted crontab matched a Saturday")
-	}
-
-	for _, bad := range []string{"", "0 2 * *", "not a crontab", "60 2 * * *", "0 2 * * 9"} {
-		if _, err := spannerParseCrontab(bad); err == nil {
+	for _, bad := range []string{"", "0 2 * *", "not a crontab", "60 2 * * *", "0 2 * * 9", "0 2 * * ? *"} {
+		if _, err := spannerCrontab(bad); err == nil {
 			t.Errorf("crontab %q was accepted", bad)
 		}
 	}
 }
 
-func TestSpannerLatestCronOccurrenceIsBoundedAndInclusive(t *testing.T) {
-	cron, err := spannerParseCrontab("0 2 * * *")
+// TestSpannerBackupScheduleSkipsOccurrencesPastTheWindow checks the look-back
+// bound: a weekly schedule whose occurrence fell days before the simulator
+// ticked again does not take that backup late.
+func TestSpannerBackupScheduleSkipsOccurrencesPastTheWindow(t *testing.T) {
+	t.Setenv("SIM_RUNTIME", "process")
+	srv, err := buildSimulator(sim.Config{Provider: "gcp", ListenAddr: ":0", LogLevel: "error"})
 	if err != nil {
-		t.Fatalf("parse crontab: %v", err)
+		t.Fatalf("buildSimulator: %v", err)
 	}
-	now := time.Date(2026, 3, 4, 9, 17, 0, 0, time.UTC)
-
-	occurrence, fired := spannerLatestCronOccurrence(cron, now.Add(-14*time.Hour), now)
-	if !fired {
-		t.Fatal("an occurrence since the last run was not reported")
+	t.Cleanup(srv.StopBackground)
+	name := "projects/p/instances/i/databases/d/backupSchedules/weekly"
+	spannerBackupSchedules.Put(name, spannerBackupSchedule{
+		Name: name, RetentionDuration: "86400s",
+		Spec: &spannerBackupScheduleSpec{CronSpec: &spannerCrontabSpec{Text: "0 2 * * 0"}},
+	})
+	// 2026-03-01 is a Sunday; the tick comes three days later.
+	spannerBackupScheduleRuns.Put(name, cron.Record{Spec: "0 2 * * 0", Next: time.Date(2026, 3, 1, 2, 0, 0, 0, time.UTC)})
+	spannerBackupScheduleTicker().Tick(time.Date(2026, 3, 4, 9, 17, 0, 0, time.UTC))
+	if backups := spannerBackups.List(); len(backups) != 0 {
+		t.Fatalf("a backup was taken for an occurrence outside the window: %+v", backups)
 	}
-	if want := time.Date(2026, 3, 4, 2, 0, 0, 0, time.UTC); !occurrence.Equal(want) {
-		t.Errorf("occurrence = %s, want %s", occurrence, want)
-	}
-
-	if _, fired := spannerLatestCronOccurrence(cron, now.Add(-2*time.Hour), now); fired {
-		t.Error("an occurrence was reported for a window that contains none")
-	}
-	// The look-back window bounds how far the scheduler reaches back: a weekly
-	// schedule whose last occurrence fell days ago does not fire now, because a
-	// simulator that was not running does not backfill the backups it missed.
-	weekly, err := spannerParseCrontab("0 2 * * 0")
-	if err != nil {
-		t.Fatalf("parse weekly crontab: %v", err)
-	}
-	// 2026-03-04 is a Wednesday; the previous Sunday 02:00 is three days back.
-	if _, fired := spannerLatestCronOccurrence(weekly, now.Add(-7*24*time.Hour), now); fired {
-		t.Error("an occurrence outside the look-back window was reported")
+	if rec, _ := spannerBackupScheduleRuns.Get(name); !rec.Next.Equal(time.Date(2026, 3, 8, 2, 0, 0, 0, time.UTC)) {
+		t.Fatalf("next occurrence = %s, want the coming Sunday", rec.Next)
 	}
 }
 
@@ -83,6 +66,7 @@ func TestSpannerBackupScheduleTakesRealBackup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 
 	const (
 		project  = "test-project"
@@ -123,20 +107,15 @@ func TestSpannerBackupScheduleTakesRealBackup(t *testing.T) {
 
 	scheduleName := dbName + "/backupSchedules/nightly"
 	now := time.Date(2026, 3, 4, 9, 17, 0, 0, time.UTC)
-	spannerBackupScheduleRuns.Put(scheduleName, spannerBackupScheduleRun{
-		Schedule: scheduleName,
-		LastRun:  now.Add(-14 * time.Hour).Format(time.RFC3339Nano),
+	spannerBackupScheduleRuns.Put(scheduleName, cron.Record{
+		Spec: "0 2 * * *",
+		Next: time.Date(2026, 3, 4, 2, 0, 0, 0, time.UTC),
 	})
 
-	created := spannerRunDueBackupSchedules(now)
-	if len(created) != 1 {
-		t.Fatalf("scheduler created %d backups, want 1: %v", len(created), created)
-	}
+	ticker := spannerBackupScheduleTicker()
+	ticker.Tick(now)
 	want := instanceName + "/backups/nightly-20260304t020000"
-	if created[0] != want {
-		t.Fatalf("scheduled backup name = %q, want %q", created[0], want)
-	}
-	backup, ok := spannerBackups.Get(created[0])
+	backup, ok := spannerBackups.Get(want)
 	if !ok {
 		t.Fatal("the scheduled backup was not recorded")
 	}
@@ -147,14 +126,16 @@ func TestSpannerBackupScheduleTakesRealBackup(t *testing.T) {
 		t.Errorf("scheduled backup recorded no captured bytes: %+v", backup)
 	}
 
-	// A second sweep at the same instant does not duplicate the occurrence.
-	if again := spannerRunDueBackupSchedules(now); len(again) != 0 {
-		t.Errorf("a repeated sweep created %v", again)
+	// A second tick at the same instant does not duplicate the occurrence.
+	before := spannerBackups.Len()
+	ticker.Tick(now)
+	if after := spannerBackups.Len(); after != before {
+		t.Errorf("a repeated tick took %d more backups", after-before)
 	}
 
 	// The captured bytes are the database's: restoring them elsewhere brings
 	// back the rows.
-	image, ok := spannerBackupImages.Get(created[0])
+	image, ok := spannerBackupImages.Get(want)
 	if !ok {
 		t.Fatal("the scheduled backup captured no image")
 	}

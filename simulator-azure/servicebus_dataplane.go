@@ -4,25 +4,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/msgq"
 )
 
 // Microsoft.ServiceBus REST data plane. Routed by Host header
 // (`{namespace}.servicebus.<sim-host>:<port>`). Real Azure exposes:
 //
-//   POST   /{queue}/messages                            SendMessage           → 201
-//   DELETE /{queue}/messages/head                       ReceiveAndDelete      → 200 (body) or 204
-//   POST   /{queue}/messages/head                       PeekLock              → 201 (body+Location) or 204
-//   DELETE /{queue}/messages/{guid}/{lockToken}         CompleteLock          → 204
-//   POST   /{topic}/messages                            SendMessage (topic)   → 201
-//   DELETE /{topic}/subscriptions/{sub}/messages/head   Sub ReceiveAndDelete  → 200 or 204
-//   POST   /{topic}/subscriptions/{sub}/messages/head   Sub PeekLock          → 201 or 204
-//   DELETE /{topic}/subscriptions/{sub}/messages/{guid}/{lockToken}  Complete → 204
+//   POST   /{entity}/messages                           Send Message          → 201
+//   DELETE /{entity}/messages/head                      Receive and Delete    → 200 (body) or 204
+//   POST   /{entity}/messages/head                      Peek-Lock             → 201 (body+Location) or 204
+//   DELETE /{entity}/messages/{id}/{lockToken}          Delete (complete)     → 204
+//   PUT    /{entity}/messages/{id}/{lockToken}          Unlock (abandon)      → 200
+//   POST   /{entity}/messages/{id}/{lockToken}          Renew-Lock            → 200
+//
+// where {entity} is a queue, a topic (send only), `{topic}/subscriptions/{sub}`,
+// or either one's `$DeadLetterQueue`.
 //
 // The AMQP data plane is exposed as raw AMQP/TLS on the configured
 // Service Bus AMQP listener and as AMQP-over-WebSocket on
@@ -30,100 +33,13 @@ import (
 // The AMQP slice implements SASL anonymous, CBS claim negotiation,
 // entity sender/receiver links, and accepted delivery dispositions.
 
-// sbMessage is a single enqueued message. Lock semantics: when a
-// PeekLock returns a message, LockedUntilUtc is set + LockToken is
-// generated; CompleteLock with the matching token removes the message
-// from the queue. ReceiveAndDelete atomically removes without lock.
-type sbMessage struct {
-	MessageID      string
-	Body           []byte
-	ContentType    string
-	BrokerHeader   string
-	EnqueuedTime   time.Time
-	LockedUntilUtc time.Time
-	LockToken      string
-	SequenceNumber int64
-}
-
-// sbQueueState is the per-queue message log. Topic subscriptions
-// share the same shape; one sbQueueState per `{namespace}/{topic}/{sub}`.
-// It is the in-process working copy of the queue; sbQueueDurable holds the
-// durable copy, written through under mu on every mutation so messages and
-// sequence numbers survive a SIM_PERSIST restart (a restart that rewound
-// sequence numbers would break consumer checkpoints, exactly as it would
-// against real Service Bus, which never reissues a sequence number).
-type sbQueueState struct {
-	mu       sync.Mutex
-	key      string
-	messages []sbMessage
-	nextSeq  int64
-}
-
-// sbQueueRecord is the durable snapshot of one queue (or topic
-// subscription): its pending messages and the next sequence number.
-type sbQueueRecord struct {
-	Messages []sbMessage `json:"messages"`
-	NextSeq  int64       `json:"nextSeq"`
-}
-
-var (
-	sbQueueMessages = sync.Map{} // key: "{namespace}/{queue}" or "{namespace}/{topic}/{sub}" → *sbQueueState
-	sbQueueDurable  sim.Store[sbQueueRecord]
-)
-
-func sbQueueKey(namespace, path string) string {
-	return namespace + "/" + path
-}
-
-// sbQueueStateFor returns the working copy for a queue key, loading the
-// durable record lazily on the first access after a restart.
-func sbQueueStateFor(key string) *sbQueueState {
-	if v, ok := sbQueueMessages.Load(key); ok {
-		if st, ok := v.(*sbQueueState); ok {
-			return st
-		}
-	}
-	st := &sbQueueState{key: key}
-	if rec, ok := sbQueueDurable.Get(key); ok {
-		st.messages = rec.Messages
-		st.nextSeq = rec.NextSeq
-	}
-	actual, _ := sbQueueMessages.LoadOrStore(key, st)
-	loaded, ok := actual.(*sbQueueState)
-	if !ok {
-		sbQueueMessages.Store(key, st)
-		return st
-	}
-	return loaded
-}
-
-// persistLocked writes the queue's durable snapshot. Callers hold st.mu, so
-// snapshots are serialized per queue and never interleave out of order.
-func (st *sbQueueState) persistLocked() {
-	sbQueueDurable.Put(st.key, sbQueueRecord{Messages: st.messages, NextSeq: st.nextSeq})
-}
-
-// sbQueueCounts reports the total and currently-deliverable (unlocked or
-// lock-expired) message counts for a data-plane queue or subscription path —
-// the numbers the admin plane's MessageCount / ActiveMessageCount reflect on
-// real Service Bus.
-func sbQueueCounts(namespace, path string) (total int64, active int32) {
-	st := sbQueueStateFor(sbQueueKey(namespace, path))
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	now := time.Now().UTC()
-	for i := range st.messages {
-		if st.messages[i].LockToken == "" || st.messages[i].LockedUntilUtc.Before(now) {
-			active++
-		}
-	}
-	return int64(len(st.messages)), active
-}
-
 // registerServiceBusDataPlane wires the subdomain dispatcher. Requests
 // arriving with a `{namespace}.servicebus.<host>` Host route here.
 func registerServiceBusDataPlane(srv *sim.Server) {
 	sbQueueDurable = sim.MakeStore[sbQueueRecord](srv.DB(), "servicebus_queue_messages")
+	if err := sbMigrateQueues(srv.DB()); err != nil {
+		log.Fatalf("servicebus: %v", err)
+	}
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			host := r.Host
@@ -192,46 +108,46 @@ func handleSBRESTDataPlane(w http.ResponseWriter, r *http.Request, namespace str
 		AzureError(w, "BadRequest", "Missing path", http.StatusBadRequest)
 		return
 	}
-
-	// Topic + subscription routes: /{topic}/subscriptions/{sub}/messages/...
-	if len(segs) >= 4 && segs[1] == "subscriptions" && segs[3] == "messages" {
-		topic, sub := segs[0], segs[2]
-		key := sbQueueKey(namespace, topic+"/"+sub)
-		dispatchSBMessagesOp(w, r, key, segs[4:])
+	// The entity path runs up to the `messages` segment: a queue or topic, a
+	// topic's subscriptions/{sub}, and either one's $DeadLetterQueue.
+	i := 0
+	for i < len(segs) && !strings.EqualFold(segs[i], "messages") {
+		i++
+	}
+	if i == len(segs) {
+		AzureError(w, "ResourceNotFound", "Unknown REST path: "+r.URL.Path, http.StatusNotFound)
 		return
 	}
-
-	// Queue routes (or topic-Send): /{queue}/messages/...
-	if len(segs) >= 2 && segs[1] == "messages" {
-		queue := segs[0]
-		key := sbQueueKey(namespace, queue)
-		dispatchSBMessagesOp(w, r, key, segs[2:])
+	entity := segs[:i]
+	var dataPath string
+	switch {
+	case len(entity) == 1:
+		dataPath = entity[0]
+	case len(entity) == 2 && strings.EqualFold(entity[1], sbDeadLetterSuffix):
+		dataPath = sbDeadLetterPath(entity[0])
+	case len(entity) == 3 && strings.EqualFold(entity[1], "subscriptions"):
+		dataPath = entity[0] + "/" + entity[2]
+	case len(entity) == 4 && strings.EqualFold(entity[1], "subscriptions") && strings.EqualFold(entity[3], sbDeadLetterSuffix):
+		dataPath = sbDeadLetterPath(entity[0] + "/" + entity[2])
+	default:
+		AzureError(w, "ResourceNotFound", "Unknown REST path: "+r.URL.Path, http.StatusNotFound)
 		return
 	}
-
-	AzureError(w, "ResourceNotFound", "Unknown REST path: "+r.URL.Path, http.StatusNotFound)
+	dispatchSBMessagesOp(w, r, namespace, dataPath, segs[i+1:])
 }
 
 // dispatchSBMessagesOp handles the /messages/... tail. `tail` is the
 // remaining path segments after `messages`.
-func dispatchSBMessagesOp(w http.ResponseWriter, r *http.Request, key string, tail []string) {
+func dispatchSBMessagesOp(w http.ResponseWriter, r *http.Request, namespace, path string, tail []string) {
 	switch {
 	case r.Method == http.MethodPost && len(tail) == 0:
-		// POST .../messages — SendMessage.
-		handleSBSendMessage(w, r, key)
-
+		handleSBSendMessage(w, r, namespace, path)
 	case r.Method == http.MethodDelete && len(tail) == 1 && tail[0] == "head":
-		// DELETE .../messages/head — ReceiveAndDelete.
-		handleSBReceiveAndDelete(w, r, key)
-
+		handleSBReceive(w, r, namespace, path, false)
 	case r.Method == http.MethodPost && len(tail) == 1 && tail[0] == "head":
-		// POST .../messages/head — PeekLock.
-		handleSBPeekLock(w, r, key)
-
-	case r.Method == http.MethodDelete && len(tail) == 2:
-		// DELETE .../messages/{guid}/{lockToken} — CompleteLock.
-		handleSBCompleteLock(w, r, key, tail[0], tail[1])
-
+		handleSBReceive(w, r, namespace, path, true)
+	case len(tail) == 2 && (r.Method == http.MethodDelete || r.Method == http.MethodPut || r.Method == http.MethodPost):
+		handleSBLockedMessage(w, r, namespace, path, tail[0], tail[1])
 	default:
 		AzureError(w, "MethodNotAllowed",
 			fmt.Sprintf("Unsupported %s on %s", r.Method, r.URL.Path),
@@ -239,7 +155,15 @@ func dispatchSBMessagesOp(w http.ResponseWriter, r *http.Request, key string, ta
 	}
 }
 
-func handleSBSendMessage(w http.ResponseWriter, r *http.Request, key string) {
+// sbSenderProperties is the part of a REST sender's BrokerProperties header
+// the broker acts on.
+type sbSenderProperties struct {
+	MessageID               string  `json:"MessageId"`
+	TimeToLive              float64 `json:"TimeToLive"`
+	ScheduledEnqueueTimeUtc string  `json:"ScheduledEnqueueTimeUtc"`
+}
+
+func handleSBSendMessage(w http.ResponseWriter, r *http.Request, namespace, path string) {
 	defer r.Body.Close()
 	// The message body is opaque; its metadata travels in the
 	// BrokerProperties header.
@@ -248,147 +172,153 @@ func handleSBSendMessage(w http.ResponseWriter, r *http.Request, key string) {
 		AzureError(w, "BadRequest", "Failed to read body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	st := sbQueueStateFor(key)
-	st.mu.Lock()
-	st.nextSeq++
-	msg := sbMessage{
-		MessageID:      sim.NewUUID(),
-		Body:           body,
-		ContentType:    r.Header.Get("Content-Type"),
-		BrokerHeader:   r.Header.Get("BrokerProperties"),
-		EnqueuedTime:   time.Now().UTC(),
-		SequenceNumber: st.nextSeq,
+	out := sbOutgoing{payload: sbPayload{
+		Body:         body,
+		ContentType:  r.Header.Get("Content-Type"),
+		BrokerHeader: r.Header.Get("BrokerProperties"),
+	}}
+	if raw := out.payload.BrokerHeader; raw != "" {
+		var props sbSenderProperties
+		if err := json.Unmarshal([]byte(raw), &props); err != nil {
+			AzureError(w, "BadRequest", "The BrokerProperties header is not valid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		out.messageID = props.MessageID
+		if props.TimeToLive > 0 {
+			out.ttl = time.Duration(props.TimeToLive * float64(time.Second))
+		}
+		if props.ScheduledEnqueueTimeUtc != "" {
+			at, err := http.ParseTime(props.ScheduledEnqueueTimeUtc)
+			if err != nil {
+				AzureError(w, "BadRequest", "ScheduledEnqueueTimeUtc is not an HTTP date: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			out.delay = time.Until(at)
+		}
 	}
-	st.messages = append(st.messages, msg)
-	st.persistLocked()
-	st.mu.Unlock()
+	reached := sbSend(namespace, path, out)
+	if err := sbAMQPDeliverAvailableMessages(namespace, reached); err != nil {
+		AzureError(w, "InternalServerError", "deliver to AMQP receivers: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusCreated)
 }
 
-func handleSBReceiveAndDelete(w http.ResponseWriter, r *http.Request, key string) {
-	st := sbQueueStateFor(key)
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	if len(st.messages) == 0 {
+// handleSBReceive answers Receive and Delete (DELETE …/messages/head) and
+// Peek-Lock (POST …/messages/head).
+func handleSBReceive(w http.ResponseWriter, r *http.Request, namespace, path string, peekLock bool) {
+	got, _ := sbReceive(namespace, path, 1, peekLock)
+	if len(got) == 0 {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	msg := st.messages[0]
-	st.messages = st.messages[1:]
-	st.persistLocked()
-	if err := writeSBMessageResponse(w, msg, "", http.StatusOK); err != nil {
-		// Headers may already be on the wire; can't switch to a 500
-		// envelope at this point. Log via the request logger.
-		AzureError(w, "InternalServerError",
-			"emit Service Bus response: "+err.Error(),
-			http.StatusInternalServerError)
+	m := got[0]
+	if !peekLock {
+		writeSBMessageResponse(w, m, "", http.StatusOK)
+		return
 	}
+	// Service Bus emits Location as `https://{ns}/{entity}/messages/{messageID}/{lockToken}`;
+	// the client DELETEs it verbatim to complete the message.
+	location := fmt.Sprintf("https://%s/%s/messages/%s/%s", r.Host, sbRESTEntityPath(path), m.ID, m.Receipt)
+	writeSBMessageResponse(w, m, location, http.StatusCreated)
 }
 
-func handleSBPeekLock(w http.ResponseWriter, r *http.Request, key string) {
-	st := sbQueueStateFor(key)
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	if len(st.messages) == 0 {
-		w.WriteHeader(http.StatusNoContent)
-		return
+// sbRESTEntityPath spells a store path the way the REST plane addresses it.
+func sbRESTEntityPath(path string) string {
+	dead := sbIsDeadLetterPath(path)
+	if dead {
+		path = path[:strings.LastIndex(path, "/")]
 	}
-	// Find the first unlocked message (lock not yet expired).
-	now := time.Now().UTC()
-	idx := -1
-	for i := range st.messages {
-		if st.messages[i].LockToken == "" || st.messages[i].LockedUntilUtc.Before(now) {
-			idx = i
-			break
-		}
+	if topic, sub, ok := strings.Cut(path, "/"); ok {
+		path = topic + "/subscriptions/" + sub
 	}
-	if idx == -1 {
-		w.WriteHeader(http.StatusNoContent)
-		return
+	if dead {
+		path += "/" + sbDeadLetterSuffix
 	}
-	st.messages[idx].LockToken = sim.NewUUID()
-	st.messages[idx].LockedUntilUtc = now.Add(60 * time.Second)
-	st.persistLocked()
-	msg := st.messages[idx]
-	// Real Service Bus emits Location as
-	// `https://{ns}/{queue}/messages/{messageID}/{lockToken}` (or
-	// `…/{topic}/subscriptions/{sub}/messages/{messageID}/{lockToken}`
-	// for subscriptions). The path-after-namespace lives in
-	// `key`'s tail (everything after the first "/"); inserting
-	// `/messages/` here aligns with handleSBRESTDataPlane's dispatch,
-	// so the client can DELETE the Location verbatim to CompleteLock.
-	pathTail := strings.SplitN(key, "/", 2)[1]
-	location := fmt.Sprintf("https://%s/%s/messages/%s/%s",
-		r.Host, pathTail, msg.MessageID, msg.LockToken)
-	if err := writeSBMessageResponse(w, msg, location, http.StatusCreated); err != nil {
-		AzureError(w, "InternalServerError",
-			"emit Service Bus PeekLock response: "+err.Error(),
-			http.StatusInternalServerError)
-	}
+	return path
 }
 
-func handleSBCompleteLock(w http.ResponseWriter, r *http.Request, key, msgID, lockToken string) {
-	st := sbQueueStateFor(key)
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	idx := -1
-	for i := range st.messages {
-		if st.messages[i].MessageID == msgID && st.messages[i].LockToken == lockToken {
-			idx = i
-			break
-		}
-	}
-	if idx == -1 {
-		AzureError(w, "MessageLockLost",
-			"Message lock not found or expired", http.StatusGone)
+// handleSBLockedMessage settles a locked message: DELETE completes it, PUT
+// unlocks it, POST renews its lock.
+func handleSBLockedMessage(w http.ResponseWriter, r *http.Request, namespace, path, messageID, lockToken string) {
+	if !sbLockNamesMessage(namespace, path, messageID, lockToken) {
+		AzureError(w, "MessageLockLost", errSBLockLost.Error(), http.StatusGone)
 		return
 	}
-	st.messages = append(st.messages[:idx], st.messages[idx+1:]...)
-	st.persistLocked()
+	switch r.Method {
+	case http.MethodPost:
+		until, err := sbRenewLock(namespace, path, lockToken)
+		if err != nil {
+			AzureError(w, "MessageLockLost", err.Error(), http.StatusGone)
+			return
+		}
+		b, _ := json.Marshal(map[string]any{"LockedUntilUtc": until.UTC().Format(http.TimeFormat)})
+		w.Header().Set("BrokerProperties", string(b))
+		w.WriteHeader(http.StatusOK)
+		return
+	case http.MethodPut:
+		if err := sbSettle(namespace, path, lockToken, sbSettlement{kind: sbAbandon}); err != nil {
+			AzureError(w, "MessageLockLost", err.Error(), http.StatusGone)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if err := sbSettle(namespace, path, lockToken, sbSettlement{kind: sbComplete}); err != nil {
+		AzureError(w, "MessageLockLost", err.Error(), http.StatusGone)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// writeSBMessageResponse emits the canonical wire shape Service Bus
-// uses for Receive responses: BrokerProperties header (JSON-encoded
-// metadata), optional Location header (for PeekLock), and the raw
-// body bytes as the response body. Status is caller-supplied (200 for
-// ReceiveAndDelete, 201 for PeekLock). Returns an error when the
-// BrokerProperties JSON marshal fails BEFORE the status line goes on
-// the wire — the metadata is load-bearing (SDK reads MessageId /
-// SequenceNumber / LockToken from it), and the caller must respond
-// with a 500 instead of a header-less response that "looks 200" to
-// the client.
-func writeSBMessageResponse(w http.ResponseWriter, msg sbMessage, location string, status int) error {
-	brokerProps := map[string]any{
-		"MessageId":       msg.MessageID,
-		"DeliveryCount":   1,
-		"EnqueuedTimeUtc": msg.EnqueuedTime.Format(time.RFC3339Nano),
-		"SequenceNumber":  msg.SequenceNumber,
-		"State":           "Active",
+// sbLockNamesMessage reports whether lockToken is the live lock of the
+// message with the given id (or sequence number, which the REST API also
+// accepts in that position).
+func sbLockNamesMessage(namespace, path, messageID, lockToken string) bool {
+	rec, _ := sbQueueDurable.Get(sbQueueKey(namespace, path))
+	m := rec.Queue.ByReceipt(lockToken, sbSettings(namespace, path).policy(), time.Now())
+	if m == nil {
+		return false
 	}
-	if !msg.LockedUntilUtc.IsZero() {
-		brokerProps["LockedUntilUtc"] = msg.LockedUntilUtc.Format(time.RFC3339Nano)
-		brokerProps["LockToken"] = msg.LockToken
+	return m.ID == messageID || strconv.FormatUint(m.Seq, 10) == messageID
+}
+
+// writeSBMessageResponse emits the Receive response: the BrokerProperties
+// header — the sender's properties with the broker's own over them — the
+// Location header for a Peek-Lock, and the body.
+func writeSBMessageResponse(w http.ResponseWriter, m msgq.Message[sbPayload], location string, status int) {
+	brokerProps := map[string]any{}
+	if m.Payload.BrokerHeader != "" {
+		// handleSBSendMessage refused a header that is not a JSON object.
+		_ = json.Unmarshal([]byte(m.Payload.BrokerHeader), &brokerProps)
+	}
+	brokerProps["MessageId"] = m.ID
+	brokerProps["DeliveryCount"] = m.Deliveries
+	brokerProps["EnqueuedTimeUtc"] = time.UnixMilli(m.EnqueuedAt).UTC().Format(http.TimeFormat)
+	brokerProps["SequenceNumber"] = m.Seq
+	brokerProps["State"] = "Active"
+	if m.Payload.DeadLetterReason != "" {
+		brokerProps["DeadLetterReason"] = m.Payload.DeadLetterReason
+		brokerProps["DeadLetterErrorDescription"] = m.Payload.DeadLetterErrorDescription
+	}
+	if location != "" {
+		brokerProps["LockedUntilUtc"] = time.UnixMilli(m.AvailableAt).UTC().Format(http.TimeFormat)
+		brokerProps["LockToken"] = m.Receipt
 	}
 	b, err := json.Marshal(brokerProps)
 	if err != nil {
-		return fmt.Errorf("marshal BrokerProperties: %w", err)
+		AzureError(w, "InternalServerError", "marshal BrokerProperties: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 	w.Header().Set("BrokerProperties", string(b))
-	if msg.BrokerHeader != "" {
-		w.Header().Set("X-Sender-BrokerProperties", msg.BrokerHeader)
-	}
-	if msg.ContentType != "" {
-		w.Header().Set("Content-Type", msg.ContentType)
+	if m.Payload.ContentType != "" {
+		w.Header().Set("Content-Type", m.Payload.ContentType)
 	}
 	if location != "" {
 		w.Header().Set("Location", location)
 	}
 	w.WriteHeader(status)
-	// Post-status write failures mean the client disconnected mid-
-	// response — the response envelope is already committed, so we
-	// can't switch to a 500 here. Drop the error: the request logger
-	// (sim.Server) records the connection close.
-	_, _ = w.Write(msg.Body)
-	return nil
+	// A failed write after the status line means the client went away; the
+	// response is committed and the request logger records the close.
+	_, _ = w.Write(m.Payload.Body)
 }

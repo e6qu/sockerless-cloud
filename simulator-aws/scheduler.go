@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/cron"
 )
 
 // EventBridge Scheduler — terraform-provider-aws declares `aws_scheduler_schedule`
@@ -55,36 +55,16 @@ var (
 	// schedule-group ARN), independent of the resource record so tag CRUD does
 	// not have to mutate the Schedule/ScheduleGroup rows.
 	scheduleTags sim.Store[[]SchedulerTag]
-	// schedulerFireRecs persists the next delivery time and completion state
-	// for each schedule so one-time schedules do not fire again after restart.
-	// schedulesMu guards reassignment of the package-level schedules store
-	// (registration) against the once-per-second firing-loop goroutine that
-	// reads it — they live in different goroutines when several sims are built
-	// in one process (tests).
-	schedulesMu sync.RWMutex
+	// schedulerFireRecs persists each schedule's next occurrence so a one-time
+	// schedule does not fire again after a restart.
+	schedulerFireRecs sim.Store[cron.Record]
 )
 
-// schedulerStore returns the current schedules store under the read lock; the
-// firing loop uses it so a concurrent re-registration can't race the read.
-func schedulerStore() sim.Store[Schedule] {
-	schedulesMu.RLock()
-	defer schedulesMu.RUnlock()
-	return schedules
-}
-
-func schedulerFireStore() sim.Store[schedulerFireRec] {
-	schedulesMu.RLock()
-	defer schedulesMu.RUnlock()
-	return schedulerFireRecs
-}
-
 func registerScheduler(srv *sim.Server) {
-	schedulesMu.Lock()
 	schedules = sim.MakeStore[Schedule](srv.DB(), "scheduler_schedules")
 	scheduleGroups = sim.MakeStore[ScheduleGroup](srv.DB(), "scheduler_schedule_groups")
 	scheduleTags = sim.MakeStore[[]SchedulerTag](srv.DB(), "scheduler_tags")
-	schedulerFireRecs = sim.MakeStore[schedulerFireRec](srv.DB(), "scheduler_fire_records")
-	schedulesMu.Unlock()
+	schedulerFireRecs = sim.MakeStore[cron.Record](srv.DB(), "scheduler_fire_records")
 
 	srv.HandleFunc("POST /schedules/{Name}", schedulerRecorded("CreateSchedule", handleSchedulerCreateSchedule))
 	srv.HandleFunc("GET /schedules/{Name}", schedulerRecorded("GetSchedule", handleSchedulerGetSchedule))
@@ -119,7 +99,7 @@ func registerScheduler(srv *sim.Server) {
 	})
 
 	// Evaluate ScheduleExpressions and invoke due targets (ECS/Lambda/SQS/SNS).
-	startSchedulerFiringLoop(srv)
+	startSchedulerFiringLoop(srv, schedules, schedulerFireRecs)
 }
 
 // schedulerRecorded wraps a Scheduler REST handler so its API call is recorded
@@ -209,12 +189,7 @@ func handleSchedulerCreateSchedule(w http.ResponseWriter, r *http.Request) {
 		schedulerError(w, "ValidationException", http.StatusBadRequest, "ScheduleExpression is required")
 		return
 	}
-	// The expression must be a valid at()/rate()/cron() form — real AWS rejects
-	// anything else (and a malformed cron) with a ValidationException at create
-	// time, rather than storing a schedule that would silently never fire.
-	if !schedulerExpressionValid(req.ScheduleExpression) {
-		schedulerError(w, "ValidationException", http.StatusBadRequest,
-			"Invalid Schedule Expression %q.", req.ScheduleExpression)
+	if !schedulerValidateExpression(w, req.ScheduleExpression, req.ScheduleExpressionTimezone) {
 		return
 	}
 	if req.Target == nil {
@@ -333,9 +308,7 @@ func handleSchedulerUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		schedulerError(w, "ValidationException", http.StatusBadRequest, "ScheduleExpression is required")
 		return
 	}
-	if !schedulerExpressionValid(req.ScheduleExpression) {
-		schedulerError(w, "ValidationException", http.StatusBadRequest,
-			"Invalid Schedule Expression %q.", req.ScheduleExpression)
+	if !schedulerValidateExpression(w, req.ScheduleExpression, req.ScheduleExpressionTimezone) {
 		return
 	}
 	key := scheduleKey(group, name)
@@ -362,7 +335,7 @@ func handleSchedulerUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	existing.FlexibleTimeWindow = req.FlexibleTimeWindow
 	existing.LastModificationDate = float64(time.Now().Unix())
 	schedules.Put(key, existing)
-	schedulerFireStore().Delete(key)
+	schedulerFireRecs.Delete(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"ScheduleArn": existing.Arn})
 }
 
@@ -376,7 +349,7 @@ func handleSchedulerDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	schedules.Delete(key)
-	schedulerFireStore().Delete(key)
+	schedulerFireRecs.Delete(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -671,4 +644,23 @@ func handleSchedulerListScheduleGroups(w http.ResponseWriter, r *http.Request) {
 		out = append(out, scheduleGroupToJSON(g))
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"ScheduleGroups": out})
+}
+
+// schedulerValidateExpression rejects, as Amazon EventBridge Scheduler does at
+// create and update time, an expression that is not a well-formed at(),
+// rate() or cron() and a time zone that is not an IANA name.
+func schedulerValidateExpression(w http.ResponseWriter, expr, timezone string) bool {
+	if timezone != "" {
+		if _, err := time.LoadLocation(timezone); err != nil {
+			schedulerError(w, "ValidationException", http.StatusBadRequest,
+				"Invalid ScheduleExpressionTimezone %q.", timezone)
+			return false
+		}
+	}
+	if _, err := parseAWSSchedule(expr, timezone, true); err != nil {
+		schedulerError(w, "ValidationException", http.StatusBadRequest,
+			"Invalid Schedule Expression %q.", expr)
+		return false
+	}
+	return true
 }

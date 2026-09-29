@@ -79,11 +79,11 @@ func rdsRecoverDataPlanes() error {
 func rdsEngine(engine string) (dbengine.Engine, bool) {
 	switch {
 	case strings.HasPrefix(strings.ToLower(engine), "postgres"):
-		return dbengine.Postgres16, true
+		return dbengine.Postgres16.WithImage("public.ecr.aws/docker/library/postgres:16-alpine"), true
 	case strings.EqualFold(engine, "mysql"):
-		return dbengine.MySQL80, true
+		return dbengine.MySQL80.WithImage("public.ecr.aws/docker/library/mysql:8.0"), true
 	case strings.EqualFold(engine, "mariadb"):
-		return dbengine.MariaDB114, true
+		return dbengine.MariaDB114.WithImage("public.ecr.aws/docker/library/mariadb:11.4"), true
 	default:
 		return dbengine.Engine{}, false
 	}

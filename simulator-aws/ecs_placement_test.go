@@ -163,14 +163,12 @@ func TestRunTaskRefusesPlacementWithTheRealShape(t *testing.T) {
 	handleECSRunTask(rec, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"cluster":"default","taskDefinition":"fits:1","count":1}`)))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.Contains(t, rec.Body.String(), `"failures":[]`)
-	placed, _ := ecsTasks.Get(func() string {
-		for _, task := range ecsTasks.List() {
-			if task.LastStatus != ECSTaskStatusStopped {
-				return strings.TrimPrefix(task.TaskArn, "arn:aws:ecs:"+awsRegion()+":"+awsAccountID()+":task/default/")
-			}
-		}
-		return ""
-	}())
+	var run struct {
+		Tasks []ECSTask `json:"tasks"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &run))
+	require.Len(t, run.Tasks, 1)
+	placed := run.Tasks[0]
 	require.Equal(t, "2048", placed.Memory, "the placed task carries the commitment it holds")
 	bg.Await()
 }

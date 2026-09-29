@@ -57,6 +57,7 @@ func registerLogicApps(srv *sim.Server) {
 	srv.HandleFunc("POST "+base+"/{workflowName}/runs/{runName}/cancel", handleLogicWorkflowRunCancel)
 
 	registerLogicAppsMore(srv)
+	startLogicRecurrences(srv)
 }
 
 // logicNewWorkflowAccessIdentifier mints the identifier a workflow is addressed
@@ -122,6 +123,10 @@ func handleLogicWorkflowPut(w http.ResponseWriter, r *http.Request) {
 		props[k] = v
 	}
 	logicNormalizeWorkflowProperties(props)
+	if err := logicValidateRecurrenceTriggers(props); err != nil {
+		AzureErrorf(w, "InvalidTemplate", http.StatusBadRequest, "The workflow definition is not valid: %v", err)
+		return
+	}
 	wf := LogicWorkflow{
 		ID:         id,
 		Name:       name,

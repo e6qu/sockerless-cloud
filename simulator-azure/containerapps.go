@@ -263,6 +263,12 @@ func registerContainerApps(srv *sim.Server) {
 		if job.Properties.Configuration != nil && job.Properties.Configuration.TriggerType == "" {
 			job.Properties.Configuration.TriggerType = "Manual"
 		}
+		if config := job.Properties.Configuration; config != nil && strings.EqualFold(config.TriggerType, "Schedule") {
+			if _, err := acaJobCron(config); err != nil {
+				AzureError(w, "InvalidRequestContent", "Invalid scheduleTriggerConfig.cronExpression: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 
 		jobs.Put(resourceID, job)
 
@@ -352,6 +358,12 @@ func registerContainerApps(srv *sim.Server) {
 		if job.Properties.Configuration != nil && job.Properties.Configuration.TriggerType == "" {
 			job.Properties.Configuration.TriggerType = "Manual"
 		}
+		if config := job.Properties.Configuration; config != nil && strings.EqualFold(config.TriggerType, "Schedule") {
+			if _, err := acaJobCron(config); err != nil {
+				AzureError(w, "InvalidRequestContent", "Invalid scheduleTriggerConfig.cronExpression: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 		if job.SystemData != nil {
 			job.SystemData.LastModifiedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		}
@@ -440,9 +452,6 @@ func registerContainerApps(srv *sim.Server) {
 			return
 		}
 
-		execName := fmt.Sprintf("%s-%s", name, randomSuffix(7))
-		execID := fmt.Sprintf("%s/executions/%s", resourceID, execName)
-
 		template := job.Properties.Template
 		if len(override.Containers) > 0 {
 			template = &JobTemplate{
@@ -450,101 +459,8 @@ func registerContainerApps(srv *sim.Server) {
 				InitContainers: override.InitContainers,
 			}
 		}
-
-		exec := JobExecution{
-			ID:   execID,
-			Name: execName,
-			Type: "Microsoft.App/jobs/executions",
-			Properties: JobExecutionProperties{
-				Status:    "Running",
-				StartTime: time.Now().UTC().Format(time.RFC3339),
-				Template:  jobExecutionTemplate(template),
-			},
-		}
-
-		executions.Put(execID, exec)
-
-		// Inject log entry for execution start
-		injectContainerAppLog(name, "Container started")
-
-		// Auto-stop execution after replica timeout or process exit
-		replicaTimeout := 0
-		if job.Properties.Configuration != nil {
-			replicaTimeout = job.Properties.Configuration.ReplicaTimeout
-		}
-		id, jobShortName, envID, tmpl := execID, name, job.Properties.EnvironmentID, template
-		bg.Go(func() {
-			timeout := 1800 * time.Second // Azure default
-			if replicaTimeout > 0 {
-				timeout = time.Duration(replicaTimeout) * time.Second
-			}
-
-			succeeded := true
-			if tmpl != nil && len(tmpl.Containers) > 0 {
-				// Container execution
-				shortExecID := id
-				if idx := strings.LastIndex(id, "/"); idx >= 0 {
-					shortExecID = id[idx+1:]
-				}
-
-				// Resolve the env's Docker network and connect the
-				// container with the job short name as DNS alias.
-				// Other jobs in the same env resolve each other via
-				// Docker's embedded DNS.
-				var netName string
-				var netAliases []string
-				if envID != "" {
-					if env, ok := acaEnvironments.Get(envID); ok && env.DockerNetworkName != "" {
-						netName = env.DockerNetworkName
-						netAliases = []string{jobShortName}
-					}
-				}
-
-				sink := &acaLogSink{jobName: jobShortName}
-				group, err := startACAJobContainers(context.Background(), id, shortExecID, tmpl, acaJobWorkloadRegistries(job.Properties.Configuration), envID, timeout, netName, netAliases, sink)
-				if err != nil {
-					succeeded = false
-				} else {
-					acaProcessHandles.Store(id, group)
-					result := group.Main.Wait()
-					acaProcessHandles.Delete(id)
-					for _, h := range group.Sidecars {
-						h.Cancel()
-					}
-					succeeded = result.ExitCode == 0
-				}
-			} else {
-				// No image — no-op (template has no containers)
-				succeeded = true
-			}
-
-			completed := false
-			executions.Update(id, func(e *JobExecution) {
-				if e.Properties.Status != "Running" {
-					return
-				}
-				completed = true
-				if succeeded {
-					e.Properties.Status = "Succeeded"
-				} else {
-					e.Properties.Status = "Failed"
-				}
-				e.Properties.EndTime = time.Now().UTC().Format(time.RFC3339)
-			})
-			if completed {
-				// Match the actual outcome (the previous behaviour
-				// always injected "Execution completed successfully"
-				// regardless of `succeeded`, masking failed jobs as
-				// fake-success in the log stream and breaking tests
-				// like TestACAArithmeticInvalid that assert on the
-				// failure marker).
-				if succeeded {
-					injectContainerAppLog(jobShortName, "Execution completed successfully")
-				} else {
-					injectContainerAppLog(jobShortName, "Execution failed")
-				}
-			}
-		})
+		exec := acaStartJobExecution(executions, job, template)
+		execName, execID := exec.Name, exec.ID
 
 		// Return 202 with Location header for LRO polling.
 		// The Azure SDK's BeginStart uses FinalStateViaLocation,
@@ -675,6 +591,8 @@ func registerContainerApps(srv *sim.Server) {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	startACAJobSchedules(srv, jobs, executions)
+
 	// POST - Console exec WebSocket. Backend's aca/exec_cloud.go dials
 	// this with the user command in the `command` query parameter.
 	// The handler upgrades to WebSocket and bridges to a `docker exec`
@@ -682,6 +600,111 @@ func registerContainerApps(srv *sim.Server) {
 	// simulator-aws/ecs.go's SSM ExecuteCommand handler, simpler
 	// frame format (raw binary in/out, no SSM AgentMessage wrapping).
 	srv.HandleFunc("POST "+basePath+"/jobs/{jobName}/executions/{execName}/exec", handleACAJobExec)
+}
+
+// acaStartJobExecution starts one execution of job's template: its containers
+// run to completion, bounded by the job's replicaTimeout, and the execution
+// records how they ended.
+func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJob, template *JobTemplate) JobExecution {
+	name := job.Name
+	execName := fmt.Sprintf("%s-%s", name, randomSuffix(7))
+	execID := fmt.Sprintf("%s/executions/%s", job.ID, execName)
+
+	exec := JobExecution{
+		ID:   execID,
+		Name: execName,
+		Type: "Microsoft.App/jobs/executions",
+		Properties: JobExecutionProperties{
+			Status:    "Running",
+			StartTime: time.Now().UTC().Format(time.RFC3339),
+			Template:  jobExecutionTemplate(template),
+		},
+	}
+
+	executions.Put(execID, exec)
+
+	// Inject log entry for execution start
+	injectContainerAppLog(name, "Container started")
+
+	// Auto-stop execution after replica timeout or process exit
+	replicaTimeout := 0
+	if job.Properties.Configuration != nil {
+		replicaTimeout = job.Properties.Configuration.ReplicaTimeout
+	}
+	id, jobShortName, envID, tmpl := execID, name, job.Properties.EnvironmentID, template
+	bg.Go(func() {
+		timeout := 1800 * time.Second // Azure default
+		if replicaTimeout > 0 {
+			timeout = time.Duration(replicaTimeout) * time.Second
+		}
+
+		succeeded := true
+		if tmpl != nil && len(tmpl.Containers) > 0 {
+			// Container execution
+			shortExecID := id
+			if idx := strings.LastIndex(id, "/"); idx >= 0 {
+				shortExecID = id[idx+1:]
+			}
+
+			// Resolve the env's Docker network and connect the
+			// container with the job short name as DNS alias.
+			// Other jobs in the same env resolve each other via
+			// Docker's embedded DNS.
+			var netName string
+			var netAliases []string
+			if envID != "" {
+				if env, ok := acaEnvironments.Get(envID); ok && env.DockerNetworkName != "" {
+					netName = env.DockerNetworkName
+					netAliases = []string{jobShortName}
+				}
+			}
+
+			sink := &acaLogSink{jobName: jobShortName}
+			group, err := startACAJobContainers(context.Background(), id, shortExecID, tmpl, acaJobWorkloadRegistries(job.Properties.Configuration), envID, timeout, netName, netAliases, sink)
+			if err != nil {
+				succeeded = false
+			} else {
+				acaProcessHandles.Store(id, group)
+				result := group.Main.Wait()
+				acaProcessHandles.Delete(id)
+				for _, h := range group.Sidecars {
+					h.Cancel()
+				}
+				succeeded = result.ExitCode == 0
+			}
+		} else {
+			// No image — no-op (template has no containers)
+			succeeded = true
+		}
+
+		completed := false
+		executions.Update(id, func(e *JobExecution) {
+			if e.Properties.Status != "Running" {
+				return
+			}
+			completed = true
+			if succeeded {
+				e.Properties.Status = "Succeeded"
+			} else {
+				e.Properties.Status = "Failed"
+			}
+			e.Properties.EndTime = time.Now().UTC().Format(time.RFC3339)
+		})
+		if completed {
+			// Match the actual outcome (the previous behaviour
+			// always injected "Execution completed successfully"
+			// regardless of `succeeded`, masking failed jobs as
+			// fake-success in the log stream and breaking tests
+			// like TestACAArithmeticInvalid that assert on the
+			// failure marker).
+			if succeeded {
+				injectContainerAppLog(jobShortName, "Execution completed successfully")
+			} else {
+				injectContainerAppLog(jobShortName, "Execution failed")
+			}
+		}
+	})
+	return exec
 }
 
 func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl *JobTemplate, registries []acrWorkloadRegistry, envID string, timeout time.Duration, netName string, netAliases []string, sink sim.LogSink) (*workload.Group, error) {

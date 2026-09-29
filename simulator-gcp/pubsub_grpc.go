@@ -23,17 +23,15 @@ import (
 )
 
 // Cloud Pub/Sub v1 gRPC data plane. The REST slice owns the stores (topics,
-// subscriptions, queues, inflight, snapshots, schema revisions); every RPC here
-// reads and writes those same stores so the REST and gRPC surfaces observe one
-// consistent cloud state. The fan-out, dequeue, ack, and modack mechanics are
-// shared — no delivery logic is duplicated here.
+// subscriptions, queues, snapshots, schema revisions); every RPC here reads and
+// writes those same stores so the REST and gRPC surfaces observe one
+// consistent cloud state. Both surfaces deliver through pubsub_delivery.go.
 //
 // The high-level cloud.google.com/go/pubsub client is gRPC-only and reaches the
 // simulator through PUBSUB_EMULATOR_HOST, the same coordinate it uses to reach
 // Google's own Pub/Sub emulator. Pull, StreamingPull, Acknowledge,
-// ModifyAckDeadline, and the background ack-deadline sweeper together model
-// real at-least-once delivery: a message that is not acknowledged before its
-// deadline returns to the subscription's queue and is redelivered.
+// and ModifyAckDeadline together model real at-least-once delivery: a message
+// that is not acknowledged before its deadline is redelivered.
 
 // server types + registration
 
@@ -53,36 +51,6 @@ func registerPubSubGRPC(gs *grpc.Server) {
 	pspb.RegisterPublisherServer(gs, &pubsubPublisherGRPC{})
 	pspb.RegisterSubscriberServer(gs, &pubsubSubscriberGRPC{})
 	pspb.RegisterSchemaServiceServer(gs, &pubsubSchemaGRPC{})
-}
-
-// pubsubAckDeadlineSweeper periodically returns inflight messages whose ack
-// deadline has elapsed to their subscription's queue, implementing at-least-once
-// delivery. It serves both the REST and gRPC surfaces, since they share the
-// inflight store.
-func pubsubAckDeadlineSweeper(ctx context.Context) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		var now time.Time
-		select {
-		case <-ctx.Done():
-			return
-		case now = <-ticker.C:
-		}
-		for _, m := range psInFlight.List() {
-			if m.AckDeadline.After(now) {
-				continue
-			}
-			// Return the message to the head of its subscription's queue so the
-			// next pull (or streaming pull) redelivers it.
-			if !psQueues.Update(m.Subscription, func(q *psQueue) {
-				q.Messages = append([]PSMessage{m.Message}, q.Messages...)
-			}) {
-				psQueues.Put(m.Subscription, psQueue{Subscription: m.Subscription, Messages: []PSMessage{m.Message}})
-			}
-			psInFlight.Delete(m.AckId)
-		}
-	}
 }
 
 // psSnapshotBacklogs holds the per-snapshot message backlog captured at
@@ -223,9 +191,10 @@ func psMessageToProto(m PSMessage) *pspb.PubsubMessage {
 		}
 	}
 	out := &pspb.PubsubMessage{
-		Data:       data,
-		Attributes: m.Attributes,
-		MessageId:  m.MessageId,
+		Data:        data,
+		Attributes:  m.Attributes,
+		MessageId:   m.MessageId,
+		OrderingKey: m.OrderingKey,
 	}
 	if m.PublishTime != "" {
 		out.PublishTime = psRFC3339ToProto(m.PublishTime)
@@ -235,8 +204,9 @@ func psMessageToProto(m PSMessage) *pspb.PubsubMessage {
 
 func psMessageFromProto(m *pspb.PubsubMessage) PSMessage {
 	out := PSMessage{
-		MessageId:  m.GetMessageId(),
-		Attributes: m.GetAttributes(),
+		MessageId:   m.GetMessageId(),
+		Attributes:  m.GetAttributes(),
+		OrderingKey: m.GetOrderingKey(),
 	}
 	if len(m.GetData()) > 0 {
 		out.Data = base64.StdEncoding.EncodeToString(m.GetData())
@@ -245,6 +215,14 @@ func psMessageFromProto(m *pspb.PubsubMessage) PSMessage {
 		out.PublishTime = psRFC3339FromProto(m.GetPublishTime())
 	}
 	return out
+}
+
+func psReceivedToProto(d psDelivered) *pspb.ReceivedMessage {
+	return &pspb.ReceivedMessage{
+		AckId:           d.AckID,
+		Message:         psMessageToProto(d.Message),
+		DeliveryAttempt: int32(d.DeliveryAttempt),
+	}
 }
 
 func psSnapshotToProto(s PSSnapshot) *pspb.Snapshot {
@@ -373,101 +351,6 @@ func psSchemaSettingsFromJSON(raw json.RawMessage) *pspb.SchemaSettings {
 }
 
 // shared delivery mechanics (operate on the REST-owned stores)
-
-// psPublishMessages fans a batch of messages out to every subscription on the
-// topic, assigning each a fresh messageId + publishTime. Returns the assigned
-// ids in publish order.
-func psPublishMessages(tName string, msgs []PSMessage) ([]string, error) {
-	if _, ok := psTopics.Get(tName); !ok {
-		return nil, status.Errorf(codes.NotFound, "Resource not found (resource=%s)", tName)
-	}
-	var ids []string
-	now := nowTimestamp()
-	for _, m := range msgs {
-		id := generateUUIDLocal()
-		m.MessageId = id
-		m.PublishTime = now
-		ids = append(ids, id)
-		for _, sub := range psSubscriptions.List() {
-			if sub.Topic != tName {
-				continue
-			}
-			if !psQueues.Update(sub.Name, func(q *psQueue) {
-				q.Subscription = sub.Name
-				q.Messages = append(q.Messages, m)
-			}) {
-				psQueues.Put(sub.Name, psQueue{Subscription: sub.Name, Messages: []PSMessage{m}})
-			}
-		}
-	}
-	return ids, nil
-}
-
-// psDequeue delivers up to max messages from the subscription's queue, recording
-// each as inflight with a fresh ackId and the subscription's ack deadline.
-func psDequeue(subName string, max int) (out []psDelivered, err error) {
-	s, ok := psSubscriptions.Get(subName)
-	if !ok {
-		return nil, status.Errorf(codes.NotFound, "Resource not found (resource=%s)", subName)
-	}
-	if s.Detached {
-		return nil, status.Errorf(codes.FailedPrecondition, "subscription %s is detached", subName)
-	}
-	if max <= 0 {
-		max = 1
-	}
-	q, _ := psQueues.Get(subName)
-	if len(q.Messages) == 0 {
-		return nil, nil
-	}
-	n := max
-	if n > len(q.Messages) {
-		n = len(q.Messages)
-	}
-	picked := q.Messages[:n]
-	rest := q.Messages[n:]
-	q.Messages = rest
-	psQueues.Put(subName, q)
-
-	now := time.Now()
-	deadline := now.Add(time.Duration(s.AckDeadlineSeconds) * time.Second)
-	for _, m := range picked {
-		ackID := generateUUIDLocal()
-		psInFlight.Put(ackID, PSDeliveredMessage{
-			AckId:        ackID,
-			Subscription: subName,
-			Message:      m,
-			DeliveredAt:  now,
-			AckDeadline:  deadline,
-		})
-		out = append(out, psDelivered{AckID: ackID, Message: m})
-	}
-	return out, nil
-}
-
-type psDelivered struct {
-	AckID   string
-	Message PSMessage
-}
-
-// psAcknowledge removes the given ackIds from the inflight store.
-func psAcknowledge(ackIds []string) {
-	for _, id := range ackIds {
-		psInFlight.Delete(id)
-	}
-}
-
-// psModifyAckDeadline adjusts the deadline of each inflight message named by
-// ackIds relative to now.
-func psModifyAckDeadline(ackIds []string, seconds int32) {
-	dur := time.Duration(seconds) * time.Second
-	newDeadline := time.Now().Add(dur)
-	for _, id := range ackIds {
-		psInFlight.Update(id, func(m *PSDeliveredMessage) {
-			m.AckDeadline = newDeadline
-		})
-	}
-}
 
 // Publisher RPCs
 
@@ -613,6 +496,7 @@ func (s *pubsubPublisherGRPC) DetachSubscription(_ context.Context, req *pspb.De
 		return nil, status.Errorf(codes.NotFound, "Resource not found (resource=%s)", name)
 	}
 	psSubscriptions.Update(name, func(s *PSSubscription) { s.Detached = true })
+	psQueues.Delete(name)
 	return &pspb.DetachSubscriptionResponse{}, nil
 }
 
@@ -639,6 +523,9 @@ func (s *pubsubSubscriberGRPC) CreateSubscription(_ context.Context, req *pspb.S
 	}
 	if sub.MessageRetentionDuration == "" {
 		sub.MessageRetentionDuration = "604800s"
+	}
+	if err := psValidateSubscription(sub); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	psSubscriptions.Put(name, sub)
 	if _, ok := psQueues.Get(name); !ok {
@@ -692,6 +579,9 @@ func (s *pubsubSubscriberGRPC) UpdateSubscription(_ context.Context, req *pspb.U
 	} else {
 		existing = updated
 	}
+	if err := psValidateSubscription(existing); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	psSubscriptions.Put(name, existing)
 	return psSubscriptionToProto(existing), nil
 }
@@ -732,7 +622,10 @@ func (s *pubsubSubscriberGRPC) ModifyAckDeadline(_ context.Context, req *pspb.Mo
 	if _, ok := psSubscriptions.Get(sub); !ok {
 		return nil, status.Errorf(codes.NotFound, "Resource not found (resource=%s)", sub)
 	}
-	psModifyAckDeadline(req.GetAckIds(), req.GetAckDeadlineSeconds())
+	if !psValidAckDeadline(req.GetAckDeadlineSeconds()) {
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid ack deadline given: %d", req.GetAckDeadlineSeconds())
+	}
+	psModifyAckDeadline(sub, req.GetAckIds(), req.GetAckDeadlineSeconds())
 	return &emptypb.Empty{}, nil
 }
 
@@ -741,7 +634,7 @@ func (s *pubsubSubscriberGRPC) Acknowledge(_ context.Context, req *pspb.Acknowle
 	if _, ok := psSubscriptions.Get(sub); !ok {
 		return nil, status.Errorf(codes.NotFound, "Resource not found (resource=%s)", sub)
 	}
-	psAcknowledge(req.GetAckIds())
+	psAcknowledge(sub, req.GetAckIds())
 	return &emptypb.Empty{}, nil
 }
 
@@ -769,7 +662,7 @@ func (s *pubsubSubscriberGRPC) ModifyPushConfig(_ context.Context, req *pspb.Mod
 }
 
 func (s *pubsubSubscriberGRPC) Pull(_ context.Context, req *pspb.PullRequest) (*pspb.PullResponse, error) {
-	delivered, err := psDequeue(req.GetSubscription(), int(req.GetMaxMessages()))
+	delivered, err := psDequeue(req.GetSubscription(), int(req.GetMaxMessages()), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -779,10 +672,7 @@ func (s *pubsubSubscriberGRPC) Pull(_ context.Context, req *pspb.PullRequest) (*
 	// observable behaviour and avoids holding an RPC open.
 	resp := &pspb.PullResponse{ReceivedMessages: make([]*pspb.ReceivedMessage, 0, len(delivered))}
 	for _, d := range delivered {
-		resp.ReceivedMessages = append(resp.ReceivedMessages, &pspb.ReceivedMessage{
-			AckId:   d.AckID,
-			Message: psMessageToProto(d.Message),
-		})
+		resp.ReceivedMessages = append(resp.ReceivedMessages, psReceivedToProto(d))
 	}
 	return resp, nil
 }
@@ -800,11 +690,16 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 		return err
 	}
 	subName := first.GetSubscription()
-	if _, ok := psSubscriptions.Get(subName); !ok {
+	sub, ok := psSubscriptions.Get(subName)
+	if !ok {
 		return status.Errorf(codes.NotFound, "Resource not found (resource=%s)", subName)
 	}
-	if _, ok := psQueues.Get(subName); !ok {
-		psQueues.Put(subName, psQueue{Subscription: subName})
+	streamDeadline := first.GetStreamAckDeadlineSeconds()
+	if streamDeadline < 10 || streamDeadline > psMaxAckDeadlineSeconds {
+		return status.Errorf(codes.InvalidArgument, "Invalid stream ack deadline given: %d", streamDeadline)
+	}
+	if ids := first.GetAckIds(); len(ids) > 0 {
+		psAcknowledge(subName, ids)
 	}
 
 	maxOutstanding := int(first.GetMaxOutstandingMessages())
@@ -816,7 +711,7 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 	// signals shutdown when the stream closes.
 	clientErr := make(chan error, 1)
 	bg.JoinedGo(func() {
-		clientErr <- psStreamingPullReadLoop(stream)
+		clientErr <- psStreamingPullReadLoop(stream, subName)
 	})
 
 	tick := time.NewTicker(50 * time.Millisecond)
@@ -826,25 +721,17 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 		// Count messages currently inflight for this subscription so flow control
 		// is honoured — the client will not ack faster than its handlers run, so
 		// capping outstanding delivery prevents flooding it.
-		outstanding := 0
-		for _, m := range psInFlight.List() {
-			if m.Subscription == subName {
-				outstanding++
-			}
-		}
+		outstanding := psOutstanding(sub)
 		budget := maxOutstanding - outstanding
 		if budget > 0 {
-			delivered, derr := psDequeue(subName, budget)
+			delivered, derr := psDequeue(subName, budget, time.Duration(streamDeadline)*time.Second)
 			if derr != nil {
 				return derr
 			}
 			if len(delivered) > 0 {
 				rm := make([]*pspb.ReceivedMessage, 0, len(delivered))
 				for _, d := range delivered {
-					rm = append(rm, &pspb.ReceivedMessage{
-						AckId:   d.AckID,
-						Message: psMessageToProto(d.Message),
-					})
+					rm = append(rm, psReceivedToProto(d))
 				}
 				if err := stream.Send(&pspb.StreamingPullResponse{ReceivedMessages: rm}); err != nil {
 					return err
@@ -864,14 +751,14 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 // psStreamingPullReadLoop consumes client-side StreamingPullRequests and applies
 // the ack and modack batches they carry. It returns when the client closes the
 // stream or the context is cancelled.
-func psStreamingPullReadLoop(stream pspb.Subscriber_StreamingPullServer) error {
+func psStreamingPullReadLoop(stream pspb.Subscriber_StreamingPullServer, subName string) error {
 	for {
 		req, err := stream.Recv()
 		if err != nil {
 			return err
 		}
 		if ids := req.GetAckIds(); len(ids) > 0 {
-			psAcknowledge(ids)
+			psAcknowledge(subName, ids)
 		}
 		secs := req.GetModifyDeadlineSeconds()
 		ackIDs := req.GetModifyDeadlineAckIds()
@@ -880,7 +767,9 @@ func psStreamingPullReadLoop(stream pspb.Subscriber_StreamingPullServer) error {
 			if i < len(secs) {
 				sec = secs[i]
 			}
-			psModifyAckDeadline([]string{id}, sec)
+			if psValidAckDeadline(sec) {
+				psModifyAckDeadline(subName, []string{id}, sec)
+			}
 		}
 	}
 }
@@ -898,38 +787,14 @@ func (s *pubsubSubscriberGRPC) Seek(_ context.Context, req *pspb.SeekRequest) (*
 		if _, ok := psSnapshots.Get(key); !ok {
 			return nil, status.Errorf(codes.NotFound, "Resource not found (resource=%s)", target.Snapshot)
 		}
-		// Replay the backlog captured when the snapshot was created: requeue every
-		// captured message ahead of the subscription's current queue so a
-		// subsequent pull redelivers them (at-least-once replay).
 		backlog, _ := psSnapshotBacklogs.Get(key)
-		if len(backlog) > 0 {
-			restored := make([]PSMessage, len(backlog))
-			copy(restored, backlog)
-			if q, ok := psQueues.Get(subName); ok {
-				restored = append(restored, q.Messages...)
-			}
-			psQueues.Put(subName, psQueue{Subscription: subName, Messages: restored})
-		}
+		psSeekSnapshot(subName, backlog)
 		return &pspb.SeekResponse{}, nil
 	case *pspb.SeekRequest_Time:
-		// A time seek to the epoch replays the full captured backlog of any
-		// snapshot on the subscription, modelling "seek to earliest"; a future
-		// time is a no-op replay of the current backlog.
-		if target.Time != nil && target.Time.AsTime().Before(time.Unix(0, 0)) || (target.Time != nil && target.Time.AsTime().Equal(time.Unix(0, 0))) {
-			var backlog []PSMessage
-			for _, snap := range psSnapshots.List() {
-				k := psSnapshotKeyFromName(snap.Name)
-				if b, ok := psSnapshotBacklogs.Get(k); ok && len(b) > 0 {
-					backlog = append(backlog, b...)
-				}
-			}
-			if len(backlog) > 0 {
-				if q, ok := psQueues.Get(subName); ok {
-					backlog = append(backlog, q.Messages...)
-				}
-				psQueues.Put(subName, psQueue{Subscription: subName, Messages: backlog})
-			}
+		if target.Time == nil {
+			return nil, status.Error(codes.InvalidArgument, "seek time is required")
 		}
+		psSeekTime(subName, target.Time.AsTime())
 		return &pspb.SeekResponse{}, nil
 	default:
 		return nil, status.Error(codes.InvalidArgument, "seek target (snapshot or time) is required")
@@ -974,10 +839,8 @@ func (s *pubsubSubscriberGRPC) CreateSnapshot(_ context.Context, req *pspb.Creat
 	// Capture the subscription's outstanding backlog so a later Seek to this
 	// snapshot replays exactly these messages.
 	key := psSnapshotKeyFromName(name)
-	if q, ok := psQueues.Get(sub); ok && len(q.Messages) > 0 {
-		captured := make([]PSMessage, len(q.Messages))
-		copy(captured, q.Messages)
-		psSnapshotBacklogs.Put(key, captured)
+	if backlog := psBacklog(sub); len(backlog) > 0 {
+		psSnapshotBacklogs.Put(key, backlog)
 	}
 	psSnapshots.Put(key, snap)
 	return psSnapshotToProto(snap), nil

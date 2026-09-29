@@ -92,6 +92,17 @@ through hooks:
   provisioned throughput, expires items by time to live, serves both change-feed
   modes, and reads one key range instead of every tenant's documents; Azure Table
   storage enforces If-Match and runs a batch under its partition's lock.
+- `msgq`, `streamlog`, `delivery` and `cron`: Amazon SQS, Cloud Pub/Sub,
+  Azure Service Bus and Queue Storage lease messages from one engine, so
+  Pub/Sub dead-letter and retry policies, Service Bus lock durations, delivery
+  counts and duplicate detection, and AMQP peek-lock are enforced where they had
+  been stored and ignored; Amazon Kinesis and Azure Event Hubs append to one log
+  with their retention enforced. Push delivery for Amazon SNS HTTP, EventBridge
+  targets, Event Grid and Pub/Sub push retries and dead-letters by each service's
+  policy, and one cron evaluator fires EventBridge scheduled rules and
+  Scheduler schedules in their time zones, Application Auto Scaling scheduled
+  actions, Container Apps scheduled jobs and Logic Apps recurrences. Rows an
+  earlier simulator persisted in the old shapes are converted once at startup.
 - `realexec/fabric` and `realexec/lbplane`: each cloud's realized networks,
   subnets, interfaces, microVMs and NAT addresses live in one fabric with the
   locking only AWS had, and the load-balancer forwarders, health probes,

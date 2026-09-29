@@ -29,6 +29,7 @@ func TestGCPOperationsAreRecordedComplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	srv.WrapHandler(bearerAuthMiddleware(srv))
 	now := time.Now()
 	token := signAccessToken("operations-invariant@sockerless.iam.gserviceaccount.com", now, now.Add(time.Hour))

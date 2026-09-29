@@ -337,6 +337,10 @@ func handleSNSSubscribe(w http.ResponseWriter, r *http.Request) {
 		snsErrorXML(w, "InvalidParameter", "Invalid parameter: "+err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	if err := snsValidateDeliveryAttributes(attributes); err != nil {
+		snsErrorXML(w, "InvalidParameter", "Invalid parameter: "+err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	if strings.EqualFold(protocol, "firehose") {
 		roleARN := attributes["SubscriptionRoleArn"]
 		if roleARN == "" {
@@ -369,7 +373,7 @@ func handleSNSSubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	snsSubscriptions.Put(sub.ARN, sub)
 	if !sub.Confirmed && (strings.EqualFold(protocol, "http") || strings.EqualFold(protocol, "https")) {
-		go snsDeliverHTTPConfirmation(sub)
+		snsDeliverHTTPConfirmation(sub)
 	}
 	if !sub.Confirmed && (strings.EqualFold(protocol, "email") || strings.EqualFold(protocol, "email-json")) {
 		if _, err := snsEmailDomain(endpoint); err != nil {
@@ -487,6 +491,9 @@ func handleSNSGetSubscriptionAttributes(w http.ResponseWriter, r *http.Request) 
 	}
 	// Attributes set via SetSubscriptionAttributes override the defaults
 	// (e.g. RawMessageDelivery=true) and add the optional policy documents.
+	if strings.EqualFold(sub.Protocol, "http") || strings.EqualFold(sub.Protocol, "https") {
+		attrs["EffectiveDeliveryPolicy"] = snsEffectiveDeliveryPolicy(sub)
+	}
 	for k, v := range sub.Attributes {
 		attrs[k] = v
 	}
@@ -529,6 +536,10 @@ func handleSNSSetSubscriptionAttributes(w http.ResponseWriter, r *http.Request) 
 		updated[attrName] = attrValue
 	}
 	if err := snsValidateSubscriptionFilter(updated); err != nil {
+		snsErrorXML(w, "InvalidParameter", "Invalid parameter: "+err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if err := snsValidateDeliveryAttributes(updated); err != nil {
 		snsErrorXML(w, "InvalidParameter", "Invalid parameter: "+err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
@@ -675,7 +686,7 @@ func snsFanout(topicARN, msgID, subject, message string, attributes map[string]S
 		case "lambda":
 			snsDeliverToLambda(sub.Endpoint, topicARN, msgID, subject, message, attributes, src)
 		case "http", "https":
-			go snsDeliverHTTPNotification(sub, msgID, subject, message, attributes)
+			snsDeliverHTTPNotification(sub, msgID, subject, message, attributes)
 		case "email", "email-json":
 			go snsDeliverEmailNotification(sub, msgID, subject, message, attributes)
 		case "firehose":
@@ -738,15 +749,14 @@ func snsDeliverToLambda(functionARN, topicARN, msgID, subject, message string, a
 		cwEvalLogger.Info().Str("functionARN", functionARN).Str("topicARN", topicARN).Str("sourceService", src.Service).Msg("SNS to Lambda delivery denied by resource policy")
 		return
 	}
-	name := snsTopicNameFromARN(functionARN)
-	fn, ok := lambdaFunctions.Get(name)
+	fn, _, ok := lambdaResolveInvocationTarget(functionARN, "")
 	if !ok {
-		cwEvalLogger.Info().Str("functionARN", functionARN).Str("functionName", name).Msg("SNS to Lambda delivery target function not found")
+		cwEvalLogger.Info().Str("functionARN", functionARN).Msg("SNS to Lambda delivery target function not found")
 		return
 	}
 	payload := snsLambdaEventPayload(functionARN, topicARN, msgID, subject, message, attributes)
-	go func() { _, _, _ = invokeLambdaViaRuntimeAPI(fn, payload) }()
-	cwEvalLogger.Info().Str("functionARN", functionARN).Str("functionName", name).Str("topicARN", topicARN).Str("msgID", msgID).Msg("SNS to Lambda delivery initiated")
+	lambdaInvokeAsynchronously(fn, payload, lambdaAsyncQualifier(functionARN, ""))
+	cwEvalLogger.Info().Str("functionARN", functionARN).Str("functionName", fn.FunctionName).Str("topicARN", topicARN).Str("msgID", msgID).Msg("SNS to Lambda delivery initiated")
 }
 
 // snsLambdaEventPayload builds the SNS event a Lambda subscriber

@@ -37,6 +37,7 @@ func TestVirtualNetworkCreatesItsInlineSubnets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build simulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	t.Cleanup(bg.Await)
 
 	now := time.Now().UTC()

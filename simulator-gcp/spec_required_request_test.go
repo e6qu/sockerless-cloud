@@ -51,6 +51,7 @@ func TestRequestsMissingARequiredPropertyAreRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 
 	var accepted []string
 	judged := 0

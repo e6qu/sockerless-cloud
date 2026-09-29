@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
+	"github.com/e6qu/sockerless-cloud/sim/msgq"
 	"github.com/e6qu/sockerless-cloud/sim/sparse"
 )
 
@@ -88,18 +90,8 @@ type QueueData struct {
 	Name     string
 	Created  string
 	Metadata map[string]string
-	Messages []QueueMessage
+	Messages msgq.Queue[queuePayload]
 	ACLs     []TableSignedIdentifier
-}
-
-type QueueMessage struct {
-	MessageID      string
-	MessageText    string // base64 (per real Azure spec) or raw
-	InsertionTime  string
-	ExpirationTime string
-	PopReceipt     string
-	VisibleAt      int64 // Unix seconds; >now → in-flight
-	DequeueCount   int
 }
 
 var queueData sim.Store[QueueData]
@@ -159,6 +151,9 @@ func registerStorageDataPlane(srv *sim.Server) {
 	fileShareData = sim.MakeStore[FileShareData](srv.DB(), "file_share_data")
 	fileObjects = sim.MakeStore[FileObject](srv.DB(), "file_objects")
 	queueData = sim.MakeStore[QueueData](srv.DB(), "queue_data")
+	if err := queueMigrateMessages(srv.DB()); err != nil {
+		log.Fatalf("queue storage: %v", err)
+	}
 	tableData = sim.MakeStore[TableData](srv.DB(), "table_data")
 	tableEntities = sim.MakeStore[TableEntity](srv.DB(), "table_entities")
 	registerFilesDataPlaneStores(srv)
@@ -1177,14 +1172,7 @@ func handleQueueGetMetadata(w http.ResponseWriter, r *http.Request, account, que
 	for k, v := range q.Metadata {
 		w.Header().Set("x-ms-meta-"+k, v)
 	}
-	visible := 0
-	now := time.Now().Unix()
-	for _, m := range q.Messages {
-		if m.VisibleAt <= now {
-			visible++
-		}
-	}
-	w.Header().Set("x-ms-approximate-messages-count", fmt.Sprintf("%d", visible))
+	w.Header().Set("x-ms-approximate-messages-count", strconv.Itoa(queueApproximateCount(q)))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1204,201 +1192,6 @@ func handleQueuesList(w http.ResponseWriter, r *http.Request, account string) {
 		}
 	}
 	writeStorageXML(w, http.StatusOK, out)
-}
-
-// QueueMessageRequest is the XML request body for Put Message.
-type QueueMessageRequest struct {
-	XMLName     xml.Name `xml:"QueueMessage"`
-	MessageText string   `xml:"MessageText"`
-}
-
-// QueueMessageResponse is the XML response shape for Get / Peek.
-type QueueMessageResponse struct {
-	XMLName         xml.Name `xml:"QueueMessage"`
-	MessageID       string   `xml:"MessageId,omitempty"`
-	InsertionTime   string   `xml:"InsertionTime,omitempty"`
-	ExpirationTime  string   `xml:"ExpirationTime,omitempty"`
-	PopReceipt      string   `xml:"PopReceipt,omitempty"`
-	TimeNextVisible string   `xml:"TimeNextVisible,omitempty"`
-	DequeueCount    int      `xml:"DequeueCount,omitempty"`
-	MessageText     string   `xml:"MessageText"`
-}
-
-func handleQueuePutMessage(w http.ResponseWriter, r *http.Request, account, queue string) {
-	key := queueKey(account, queue)
-	if _, ok := queueData.Get(key); !ok {
-		writeStorageError(w, "QueueNotFound", "The specified queue does not exist.", http.StatusNotFound)
-		return
-	}
-	defer r.Body.Close()
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeStorageError(w, "RequestBodyInvalid",
-			"Failed to read request body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	var req QueueMessageRequest
-	if err := xml.Unmarshal(data, &req); err != nil {
-		writeStorageError(w, "InvalidXmlDocument",
-			"The specified XML is not syntactically valid: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	now := time.Now()
-	msg := QueueMessage{
-		MessageID:      sim.NewUUID(),
-		MessageText:    req.MessageText,
-		InsertionTime:  now.UTC().Format(time.RFC1123),
-		ExpirationTime: now.Add(7 * 24 * time.Hour).UTC().Format(time.RFC1123),
-	}
-	queueData.Update(key, func(q *QueueData) {
-		q.Messages = append(q.Messages, msg)
-	})
-	resp := QueueMessageResponse{
-		MessageID:       msg.MessageID,
-		InsertionTime:   msg.InsertionTime,
-		ExpirationTime:  msg.ExpirationTime,
-		PopReceipt:      "",
-		TimeNextVisible: msg.InsertionTime,
-	}
-	type wrap struct {
-		XMLName  xml.Name               `xml:"QueueMessagesList"`
-		Messages []QueueMessageResponse `xml:"QueueMessage"`
-	}
-	writeStorageXML(w, http.StatusCreated, wrap{Messages: []QueueMessageResponse{resp}})
-}
-
-func handleQueueGetMessages(w http.ResponseWriter, r *http.Request, account, queue string) {
-	key := queueKey(account, queue)
-	if _, ok := queueData.Get(key); !ok {
-		writeStorageError(w, "QueueNotFound", "The specified queue does not exist.", http.StatusNotFound)
-		return
-	}
-	now := time.Now().Unix()
-	visTimeout := int64(30)
-	if v := r.URL.Query().Get("visibilitytimeout"); v != "" {
-		var n int64
-		_, _ = fmt.Sscanf(v, "%d", &n)
-		if n > 0 {
-			visTimeout = n
-		}
-	}
-	numMessages := 1
-	if v := r.URL.Query().Get("numofmessages"); v != "" {
-		_, _ = fmt.Sscanf(v, "%d", &numMessages)
-	}
-	if numMessages <= 0 || numMessages > 32 {
-		numMessages = 1
-	}
-	var picked []QueueMessage
-	queueData.Update(key, func(qq *QueueData) {
-		for i := range qq.Messages {
-			if len(picked) >= numMessages {
-				break
-			}
-			if qq.Messages[i].VisibleAt > now {
-				continue
-			}
-			qq.Messages[i].PopReceipt = sim.NewUUID()
-			qq.Messages[i].VisibleAt = now + visTimeout
-			qq.Messages[i].DequeueCount++
-			picked = append(picked, qq.Messages[i])
-		}
-	})
-	type wrap struct {
-		XMLName  xml.Name               `xml:"QueueMessagesList"`
-		Messages []QueueMessageResponse `xml:"QueueMessage"`
-	}
-	out := wrap{}
-	for _, m := range picked {
-		out.Messages = append(out.Messages, QueueMessageResponse{
-			MessageID:       m.MessageID,
-			InsertionTime:   m.InsertionTime,
-			ExpirationTime:  m.ExpirationTime,
-			PopReceipt:      m.PopReceipt,
-			TimeNextVisible: time.Unix(m.VisibleAt, 0).UTC().Format(time.RFC1123),
-			DequeueCount:    m.DequeueCount,
-			MessageText:     m.MessageText,
-		})
-	}
-	writeStorageXML(w, http.StatusOK, out)
-}
-
-func handleQueuePeekMessages(w http.ResponseWriter, r *http.Request, account, queue string) {
-	q, ok := queueData.Get(queueKey(account, queue))
-	if !ok {
-		writeStorageError(w, "QueueNotFound", "The specified queue does not exist.", http.StatusNotFound)
-		return
-	}
-	type wrap struct {
-		XMLName  xml.Name               `xml:"QueueMessagesList"`
-		Messages []QueueMessageResponse `xml:"QueueMessage"`
-	}
-	out := wrap{}
-	now := time.Now().Unix()
-	for _, m := range q.Messages {
-		if m.VisibleAt > now {
-			continue
-		}
-		out.Messages = append(out.Messages, QueueMessageResponse{
-			MessageID:      m.MessageID,
-			InsertionTime:  m.InsertionTime,
-			ExpirationTime: m.ExpirationTime,
-			DequeueCount:   m.DequeueCount,
-			MessageText:    m.MessageText,
-		})
-	}
-	writeStorageXML(w, http.StatusOK, out)
-}
-
-func handleQueueDeleteMessage(w http.ResponseWriter, r *http.Request, account, queue, messageID string) {
-	key := queueKey(account, queue)
-	if _, ok := queueData.Get(key); !ok {
-		writeStorageError(w, "QueueNotFound", "The specified queue does not exist.", http.StatusNotFound)
-		return
-	}
-	popReceipt := r.URL.Query().Get("popreceipt")
-	var found, mismatched bool
-	queueData.Update(key, func(qq *QueueData) {
-		out := qq.Messages[:0]
-		for _, m := range qq.Messages {
-			if m.MessageID == messageID {
-				found = true
-				if m.PopReceipt != popReceipt {
-					mismatched = true
-				} else {
-					continue
-				}
-			}
-			out = append(out, m)
-		}
-		qq.Messages = out
-	})
-	// A delete is only the holder of the pop receipt's to make, and the service
-	// says so rather than reporting a deletion that did not happen.
-	if !found {
-		writeStorageError(w, "MessageNotFound",
-			"The specified message does not exist.", http.StatusNotFound)
-		return
-	}
-	if mismatched {
-		writeStorageError(w, "PopReceiptMismatch",
-			"The specified pop receipt did not match the pop receipt for a dequeued message.",
-			http.StatusBadRequest)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func handleQueueClearMessages(w http.ResponseWriter, r *http.Request, account, queue string) {
-	key := queueKey(account, queue)
-	if _, ok := queueData.Get(key); !ok {
-		writeStorageError(w, "QueueNotFound", "The specified queue does not exist.", http.StatusNotFound)
-		return
-	}
-	queueData.Update(key, func(qq *QueueData) {
-		qq.Messages = nil
-	})
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // ── Tables dispatch ─────────────────────────────────────────────────

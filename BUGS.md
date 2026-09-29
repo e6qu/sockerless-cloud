@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 47.
+Open: 56.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -57,3 +57,12 @@ live in `WHAT_WE_DID.md`.
 | 3112 | P3 | Cosmos DB container replace | No data-plane `PUT /dbs/{db}/colls/{coll}` exists, so `defaultTtl` cannot change after creation. | Serve ReplaceContainer with the service's mutable-field rules. |
 | 3113 | P3 | Azure Table storage cross-partition reads | A cross-partition query can see a batch half-applied, because queries take no partition lock. | Read each partition under its lock, or snapshot per partition. |
 | 3114 | P3 | ECS placement test under load | `TestRunTaskRefusesPlacementWithTheRealShape` failed once in a full `simulator-aws` unit run while another heavy suite ran on the host, and passed in two later full runs and alone. | Capture the failure message on a recurrence; check whether placement capacity reads the live host. |
+| 3115 | P3 | Azure Service Bus sessions and scheduling | Session-enabled entities (`requiresSession`) do not order by session, and the schedule and cancel-scheduled management operations answer 501. | Serve sessions on msgq ordering groups and scheduled enqueue on its delay. |
+| 3116 | P3 | Amazon Kinesis resharding and iterators | `UpdateShardCount` rebuilds shards in place instead of splitting and merging, iterators never expire, and a drained closed shard still returns a next iterator. | Reshard by split and merge with parent links, expire iterators after five minutes, and end a closed shard's iterator. |
+| 3117 | P3 | Cloud Pub/Sub retained acknowledged messages | `retainAckedMessages` is not modelled, so seeking to a time cannot replay acknowledged messages, and the 10–600 second ack-deadline range is not enforced at create. | Keep acknowledged messages for the retention window and enforce the declared range, adjusting the SDK tests that use shorter deadlines. |
+| 3118 | P3 | Azure Event Hubs namespace delete | Deleting a namespace leaves its hubs' partition logs behind. | Drop each hub's logs with the namespace. |
+| 3119 | P2 | Eventarc event types beyond Pub/Sub | Cloud Storage and audit-log triggers, and Workflows and GKE destinations, do not deliver; a trigger naming a Cloud Run service that does not exist is accepted. | Emit Cloud Storage and audit-log CloudEvents from the simulator's own services, and refuse a missing destination once the SDK and CLI tests create their services first. |
+| 3120 | P3 | Event Grid advanced filters and validation | `advancedFilters` are not applied, and the subscription validation handshake does not check the endpoint's `validationResponse`. | Apply every advanced filter operator and verify the handshake answer. |
+| 3121 | P3 | EventBridge targets and Scheduler retries | ECS, Kinesis, Batch and API-destination targets are not invoked and dead-letter as `UnsupportedTarget`; EventBridge Scheduler targets ignore their `RetryPolicy` and `DeadLetterConfig`. | Invoke each target type through its service, and run Scheduler targets on `sim/delivery`. |
+| 3122 | P2 | Logic Apps workflow runs | A run marks every action Succeeded without executing it, so recurrence triggers fire real schedules into runs that do nothing. | Execute workflow actions with a workflow-definition-language engine. |
+| 3123 | P3 | Application Auto Scaling target tracking | Target tracking evaluates every 3 seconds with a fixed 5-second cooldown instead of the policy's own cooldowns and the CloudWatch alarm periods. | Evaluate on the alarms' periods and honour ScaleIn and ScaleOut cooldowns. |
