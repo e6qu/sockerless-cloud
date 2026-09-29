@@ -176,17 +176,25 @@ func (s *runtimeAPISidecar) handleNext(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(s.inv.Payload)
 }
 
+// lambdaRuntimeAPIError writes the Runtime API's ErrorResponse, the
+// {errorMessage, errorType} document AWS Lambda's runtime interface answers a
+// runtime with, rather than an AWS service error.
+func lambdaRuntimeAPIError(w http.ResponseWriter, status int, errorType, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"errorMessage": message, "errorType": errorType})
+}
+
 // handleResponse serves POST /2018-06-01/runtime/invocation/{id}/response.
 func (s *runtimeAPISidecar) handleResponse(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id != s.inv.RequestID {
-		AWSErrorf(w, "InvalidRequestID", http.StatusBadRequest,
-			"Invocation with id %s doesn't exist", id)
+		lambdaRuntimeAPIError(w, http.StatusBadRequest, "InvalidRequestID", "Invalid request ID")
 		return
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		AWSError(w, "InvalidRequestBody", "Failed to read response body", http.StatusBadRequest)
+		lambdaRuntimeAPIError(w, http.StatusBadRequest, "TruncatedHTTPRequest", "HTTP request detected as truncated")
 		return
 	}
 	s.inv.response = body
@@ -205,13 +213,12 @@ func (s *runtimeAPISidecar) handleResponse(w http.ResponseWriter, r *http.Reques
 func (s *runtimeAPISidecar) handleInvocationError(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id != s.inv.RequestID {
-		AWSErrorf(w, "InvalidRequestID", http.StatusBadRequest,
-			"Invocation with id %s doesn't exist", id)
+		lambdaRuntimeAPIError(w, http.StatusBadRequest, "InvalidRequestID", "Invalid request ID")
 		return
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		AWSError(w, "InvalidRequestBody", "Failed to read error body", http.StatusBadRequest)
+		lambdaRuntimeAPIError(w, http.StatusBadRequest, "TruncatedHTTPRequest", "HTTP request detected as truncated")
 		return
 	}
 	s.inv.errorObj = body
@@ -229,7 +236,7 @@ func (s *runtimeAPISidecar) handleInvocationError(w http.ResponseWriter, r *http
 func (s *runtimeAPISidecar) handleInitError(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		AWSError(w, "InvalidRequestBody", "Failed to read error body", http.StatusBadRequest)
+		lambdaRuntimeAPIError(w, http.StatusBadRequest, "TruncatedHTTPRequest", "HTTP request detected as truncated")
 		return
 	}
 	s.inv.errorObj = body

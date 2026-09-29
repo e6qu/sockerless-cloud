@@ -175,6 +175,69 @@ func TestKinesisSDK_MergeAndSplitShards(t *testing.T) {
 	require.Len(t, openShards(afterMerge.StreamDescription.Shards), 1, "merge collapses to one open shard")
 }
 
+// TestKinesisSDK_UpdateShardCountReshardsByLineage scales a stream through
+// UpdateShardCount and reads a closed parent to its end: the parent's last
+// GetRecords carries no NextShardIterator and names the children to read next.
+func TestKinesisSDK_UpdateShardCountReshardsByLineage(t *testing.T) {
+	client := kinesisClient()
+	streamName := "sdk-kinesis-reshard-lineage"
+	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{
+		StreamName: aws.String(streamName),
+		ShardCount: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = client.DeleteStream(ctx, &kinesis.DeleteStreamInput{StreamName: aws.String(streamName)})
+	})
+	put, err := client.PutRecord(ctx, &kinesis.PutRecordInput{
+		StreamName: aws.String(streamName), PartitionKey: aws.String("before-scaling"), Data: []byte("parent-record"),
+	})
+	require.NoError(t, err)
+
+	updated, err := client.UpdateShardCount(ctx, &kinesis.UpdateShardCountInput{
+		StreamName:       aws.String(streamName),
+		TargetShardCount: aws.Int32(3),
+		ScalingType:      ktypes.ScalingTypeUniformScaling,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), aws.ToInt32(updated.CurrentShardCount))
+
+	listed, err := client.ListShards(ctx, &kinesis.ListShardsInput{StreamName: aws.String(streamName)})
+	require.NoError(t, err)
+	byID := map[string]ktypes.Shard{}
+	for _, shard := range listed.Shards {
+		byID[aws.ToString(shard.ShardId)] = shard
+	}
+	open := openShards(listed.Shards)
+	require.Len(t, open, 3)
+	for _, shard := range open {
+		parent, ok := byID[aws.ToString(shard.ParentShardId)]
+		require.True(t, ok, "open shard %s names a listed parent", aws.ToString(shard.ShardId))
+		require.NotNil(t, parent.SequenceNumberRange.EndingSequenceNumber, "parent %s is closed", aws.ToString(parent.ShardId))
+	}
+
+	parent := byID[aws.ToString(put.ShardId)]
+	require.NotNil(t, parent.SequenceNumberRange.EndingSequenceNumber)
+	assert.Equal(t, aws.ToString(put.SequenceNumber), aws.ToString(parent.SequenceNumberRange.EndingSequenceNumber))
+	iterator, err := client.GetShardIterator(ctx, &kinesis.GetShardIteratorInput{
+		StreamName:        aws.String(streamName),
+		ShardId:           put.ShardId,
+		ShardIteratorType: ktypes.ShardIteratorTypeTrimHorizon,
+	})
+	require.NoError(t, err)
+	records, err := client.GetRecords(ctx, &kinesis.GetRecordsInput{ShardIterator: iterator.ShardIterator})
+	require.NoError(t, err)
+	require.Len(t, records.Records, 1)
+	assert.Equal(t, []byte("parent-record"), records.Records[0].Data)
+	assert.Nil(t, records.NextShardIterator, "a drained closed shard has no next iterator")
+	require.NotEmpty(t, records.ChildShards)
+	for _, child := range records.ChildShards {
+		assert.Contains(t, child.ParentShards, aws.ToString(put.ShardId))
+		_, listedChild := byID[aws.ToString(child.ShardId)]
+		assert.True(t, listedChild, "child %s is a listed shard", aws.ToString(child.ShardId))
+	}
+}
+
 func openShards(shards []ktypes.Shard) []ktypes.Shard {
 	var out []ktypes.Shard
 	for _, s := range shards {

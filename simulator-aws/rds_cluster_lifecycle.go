@@ -107,6 +107,9 @@ func rdsFinishClusterStop(clusterID string) {
 			stopped = false
 		}
 	}
+	if stopped && rdsStopAuroraDataPlane(clusterID, false) != nil {
+		stopped = false
+	}
 	if stopped {
 		rdsClusters.Update(clusterID, func(c *RDSCluster) {
 			if c.Status == "stopping" {
@@ -120,6 +123,19 @@ func rdsFinishClusterStop(clusterID string) {
 // available once it runs; the cluster lands available when all do. A member
 // whose engine fails to start keeps the cluster starting.
 func rdsFinishClusterStart(clusterID string) {
+	cluster, ok := rdsClusters.Get(clusterID)
+	if !ok {
+		return
+	}
+	if _, installed := rdsLoadAuroraDataPlane(clusterID); !installed && len(cluster.MasterUserSecret) > 0 {
+		if err := rdsInstallAuroraDataPlane(&cluster, ""); err != nil {
+			log.Printf("Amazon Aurora cluster %s: start the cluster volume's engine: %v", clusterID, err)
+			return
+		}
+		rdsClusters.Update(clusterID, func(c *RDSCluster) {
+			c.Endpoint, c.ReaderEndpoint = cluster.Endpoint, cluster.ReaderEndpoint
+		})
+	}
 	started := true
 	for _, member := range rdsClusterMembers(clusterID) {
 		if member.DBInstanceStatus != "starting" {

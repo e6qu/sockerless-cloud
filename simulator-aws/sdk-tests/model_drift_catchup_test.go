@@ -3,6 +3,7 @@ package aws_sdk_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/budgets"
@@ -417,8 +418,11 @@ func TestEC2_ApplicationStatusIsMeasuredNotDeclared(t *testing.T) {
 	instance := runDriftTestInstance(t, c)
 
 	created, err := c.CreateApplicationStatusCheck(ctx, &ec2.CreateApplicationStatusCheckInput{
-		Protocol: ec2types.NetworkProtocolEnumHttp,
-		Port:     aws.Int32(59999),
+		Protocol:         ec2types.NetworkProtocolEnumHttp,
+		Port:             aws.Int32(59999),
+		Interval:         aws.Int32(60),
+		FailureThreshold: aws.Int32(1),
+		SuccessThreshold: aws.Int32(1),
 	})
 	require.NoError(t, err)
 	checkID := aws.ToString(created.ApplicationStatusCheck.ApplicationStatusCheckId)
@@ -434,15 +438,19 @@ func TestEC2_ApplicationStatusIsMeasuredNotDeclared(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Nothing listens on the check's port, so the probe really fails: the
-	// check reports failed and the instance-level status is impaired — the
-	// SDK's own vocabulary, deserialised by the SDK's own client.
-	status, err := c.DescribeApplicationStatus(ctx, &ec2.DescribeApplicationStatusInput{
-		InstanceIds: []string{instance},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, status.ApplicationStatuses)
-	require.NotEmpty(t, status.ApplicationStatuses.Instances)
+	// Nothing listens on the check's port, so the checker's first scheduled
+	// probe really fails and, with a FailureThreshold of one, the check reports
+	// failed and the instance-level status impaired — the SDK's own
+	// vocabulary, deserialised by the SDK's own client.
+	var status *ec2.DescribeApplicationStatusOutput
+	require.Eventually(t, func() bool {
+		status, err = c.DescribeApplicationStatus(ctx, &ec2.DescribeApplicationStatusInput{
+			InstanceIds: []string{instance},
+		})
+		return err == nil && status.ApplicationStatuses != nil && len(status.ApplicationStatuses.Instances) > 0 &&
+			status.ApplicationStatuses.Instances[0].ApplicationStatus != nil &&
+			status.ApplicationStatuses.Instances[0].ApplicationStatus.Status != ec2types.ApplicationStatusEnumInitializing
+	}, 30*time.Second, 250*time.Millisecond, "the checker must run the check on its own schedule")
 	measured := status.ApplicationStatuses.Instances[0]
 	require.NotNil(t, measured.ApplicationStatus)
 	assert.Equal(t, ec2types.ApplicationStatusEnumImpaired, measured.ApplicationStatus.Status)
@@ -457,6 +465,10 @@ func TestEC2_ApplicationStatusIsMeasuredNotDeclared(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, checks.ApplicationStatusChecks, 1)
+	assert.Equal(t, int32(60), aws.ToInt32(checks.ApplicationStatusChecks[0].Interval))
+	assert.Equal(t, int32(1), aws.ToInt32(checks.ApplicationStatusChecks[0].FailureThreshold))
+	assert.Equal(t, int32(1), aws.ToInt32(checks.ApplicationStatusChecks[0].SuccessThreshold))
+	assert.Equal(t, "200", aws.ToString(checks.ApplicationStatusChecks[0].StatusCodeMatcher))
 	_, err = c.ModifyApplicationStatusCheck(ctx, &ec2.ModifyApplicationStatusCheckInput{
 		ApplicationStatusCheckId: aws.String(checkID),
 		Port:                     aws.Int32(58888),

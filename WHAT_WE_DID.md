@@ -339,6 +339,12 @@ through hooks:
   collection and a row in the operations store, carries the metadata message
   and response type its service declares (with `verb` and `target` filled), and
   can be read back over REST and gRPC.
+- **A managed cluster runs what it says it runs.** An Aurora cluster runs one
+  PostgreSQL- or MySQL-compatible engine on its own volume behind writer,
+  reader and member endpoints that follow its members' states; Kinesis
+  reshards by real splits and merges; Application Auto Scaling acts on the
+  CloudWatch alarms it creates, within the policy's own cooldowns; EC2
+  application status checks run on their own interval and thresholds.
 - **An event reaches its subscribers because something emitted it.** Cloud
   Storage publishes JSON_API_V1 notifications for object writes, deletes and
   metadata changes; Eventarc delivers Cloud Storage triggers from those

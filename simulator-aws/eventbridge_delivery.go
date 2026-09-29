@@ -35,8 +35,8 @@ func registerEventBridgeDelivery(srv *sim.Server) {
 	store := sim.MakeStore[delivery.Item[ebTargetDelivery]](srv.DB(), "eventbridge_target_deliveries")
 	ebTargetDeliveries = delivery.New(srv, "EventBridge target deliveries", store, delivery.Handler[ebTargetDelivery]{
 		Policy: func(d ebTargetDelivery) delivery.Policy { return ebTargetRetryPolicy(d.Target) },
-		Attempt: func(_ context.Context, item *delivery.Item[ebTargetDelivery]) delivery.Outcome {
-			return ebAttemptTarget(item.Payload)
+		Attempt: func(ctx context.Context, item *delivery.Item[ebTargetDelivery]) delivery.Outcome {
+			return ebAttemptTarget(ctx, item.Payload)
 		},
 		Finish: ebFinishTargetDelivery,
 	})
@@ -81,7 +81,7 @@ func ebSubmitTargetDelivery(ruleArn string, target EBTarget, record EBEventRecor
 // the rule's behalf. A target whose resource policy does not admit that
 // principal for the rule, or that does not exist, fails without retry, as
 // EventBridge treats both.
-func ebAttemptTarget(d ebTargetDelivery) delivery.Outcome {
+func ebAttemptTarget(ctx context.Context, d ebTargetDelivery) delivery.Outcome {
 	target := d.Target
 	body := ebApplyInput(target, d.Record)
 	src := iamServiceSource{Service: "events.amazonaws.com", SourceArn: d.RuleArn, SourceAccount: awsAccountID()}
@@ -154,6 +154,14 @@ func ebAttemptTarget(d ebTargetDelivery) delivery.Outcome {
 			cwLogEvents.Put(key, []CWLogEvent{})
 		}
 		cwAppendLogEvents(key, []CWLogEvent{{Timestamp: now, IngestionTime: now, Message: body}}, nil)
+	case strings.HasPrefix(target.Arn, "arn:aws:ecs:"):
+		return ebInvokeECSTarget(d.RuleArn, target, body)
+	case strings.HasPrefix(target.Arn, "arn:aws:kinesis:"):
+		return ebInvokeKinesisTarget(target, d.Record, body)
+	case strings.HasPrefix(target.Arn, "arn:aws:batch:"):
+		return ebInvokeBatchTarget(target)
+	case strings.HasPrefix(target.Arn, "arn:aws:events:") && strings.Contains(target.Arn, ":api-destination/"):
+		return ebInvokeApiDestination(ctx, target, body)
 	default:
 		return delivery.Permanent(ebTargetError{"UnsupportedTarget", "the simulator does not invoke targets of this service: " + target.Arn})
 	}

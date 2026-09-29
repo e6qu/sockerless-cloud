@@ -122,6 +122,12 @@ func cwAlarmBreaches(v, threshold float64, op string) bool {
 // TreatMissingData; otherwise it ALARMs only when every evaluated datapoint
 // breaches.
 func cwEvaluateAlarmState(a CWAlarm) (state, reason string) {
+	return cwEvaluateAlarmStateAt(a, time.Now())
+}
+
+// cwEvaluateAlarmStateAt derives the alarm's state from the evaluation window
+// that ends at at.
+func cwEvaluateAlarmStateAt(a CWAlarm, at time.Time) (state, reason string) {
 	period := a.Period
 	if period <= 0 {
 		period = 60
@@ -130,7 +136,7 @@ func cwEvaluateAlarmState(a CWAlarm) (state, reason string) {
 	if evalPeriods <= 0 {
 		evalPeriods = 1
 	}
-	now := time.Now().UTC().Unix()
+	now := at.UTC().Unix()
 	windowStart := now - int64(evalPeriods)*int64(period)
 
 	data, _ := cwMetrics.Get(metricsKey(a.Namespace, a.MetricName, a.Dimensions))

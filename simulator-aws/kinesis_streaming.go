@@ -81,10 +81,19 @@ func handleKinesisSubscribeToShard(w http.ResponseWriter, r *http.Request) {
 		next = rec.Seq + 1
 	}
 
-	// ContinuationSequenceNumber is the sequence number a follow-up
-	// SubscribeToShard call resumes from; the sim has streamed every stored
-	// record, so it is caught up to the tip.
-	continuation := kinesisSequenceNumber(next)
+	// The event streams every stored record, so a follow-up SubscribeToShard
+	// resumes at the tip.
+	event := map[string]any{
+		"Records":            outRecords,
+		"MillisBehindLatest": 0,
+		"ChildShards":        []map[string]any{},
+	}
+	if shard, _ := kinesisFindShard(stream, req.ShardId); kinesisShardClosed(shard) && next >= kinesisLog.Head(partition).Next {
+		// The end of a closed shard names its children and no continuation.
+		event["ChildShards"] = kinesisChildShards(stream, req.ShardId)
+	} else {
+		event["ContinuationSequenceNumber"] = kinesisSequenceNumber(next)
+	}
 
 	w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	w.WriteHeader(http.StatusOK)
@@ -100,12 +109,7 @@ func handleKinesisSubscribeToShard(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	_, _ = w.Write(kinesisEventStreamFrame("SubscribeToShardEvent", map[string]any{
-		"Records":                    outRecords,
-		"ContinuationSequenceNumber": continuation,
-		"MillisBehindLatest":         0,
-		"ChildShards":                []any{},
-	}))
+	_, _ = w.Write(kinesisEventStreamFrame("SubscribeToShardEvent", event))
 	if flusher != nil {
 		flusher.Flush()
 	}

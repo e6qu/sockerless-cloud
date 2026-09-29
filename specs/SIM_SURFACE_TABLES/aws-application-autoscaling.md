@@ -17,20 +17,20 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action AnyScaleFrontendService.DescribeScalableTargets` | ✓ `simulator-aws/application_autoscaling.go:100::handleAppASDescribeScalableTargets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AnyScaleFrontendService.PutScalingPolicy` | ✓ `simulator-aws/application_autoscaling.go:101::handleAppASPutScalingPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AnyScaleFrontendService.DeleteScalingPolicy` | ✓ `simulator-aws/application_autoscaling.go:102::handleAppASDeleteScalingPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AnyScaleFrontendService.DescribeScalingPolicies` | ✓ `simulator-aws/application_autoscaling.go:103::handleAppASDescribeScalingPolicies` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AnyScaleFrontendService.ListTagsForResource` | ✓ `simulator-aws/application_autoscaling.go:104::handleAppASListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AnyScaleFrontendService.TagResource` | ✓ `simulator-aws/application_autoscaling.go:105::handleAppASTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AnyScaleFrontendService.UntagResource` | ✓ `simulator-aws/application_autoscaling.go:106::handleAppASUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AnyScaleFrontendService.PutScheduledAction` | ✓ `simulator-aws/application_autoscaling.go:107::handleAppASPutScheduledAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AnyScaleFrontendService.DeleteScheduledAction` | ✓ `simulator-aws/application_autoscaling.go:108::handleAppASDeleteScheduledAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AnyScaleFrontendService.DescribeScheduledActions` | ✓ `simulator-aws/application_autoscaling.go:109::handleAppASDescribeScheduledActions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AnyScaleFrontendService.DescribeScalingActivities` | ✓ `simulator-aws/application_autoscaling.go:110::handleAppASDescribeScalingActivities` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AnyScaleFrontendService.GetPredictiveScalingForecast` | ○ `simulator-aws/application_autoscaling.go:111::handleAppASGetPredictiveScalingForecast` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AnyScaleFrontendService.RegisterScalableTarget` | ✓ `simulator-aws/application_autoscaling.go:98::handleAppASRegisterScalableTarget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AnyScaleFrontendService.DeregisterScalableTarget` | ✓ `simulator-aws/application_autoscaling.go:99::handleAppASDeregisterScalableTarget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.RegisterScalableTarget` | ✓ `simulator-aws/application_autoscaling.go:122::handleAppASRegisterScalableTarget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DeregisterScalableTarget` | ✓ `simulator-aws/application_autoscaling.go:123::handleAppASDeregisterScalableTarget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DescribeScalableTargets` | ✓ `simulator-aws/application_autoscaling.go:124::handleAppASDescribeScalableTargets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.PutScalingPolicy` | ✓ `simulator-aws/application_autoscaling.go:125::handleAppASPutScalingPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DeleteScalingPolicy` | ✓ `simulator-aws/application_autoscaling.go:126::handleAppASDeleteScalingPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DescribeScalingPolicies` | ✓ `simulator-aws/application_autoscaling.go:127::handleAppASDescribeScalingPolicies` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.ListTagsForResource` | ✓ `simulator-aws/application_autoscaling.go:128::handleAppASListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.TagResource` | ✓ `simulator-aws/application_autoscaling.go:129::handleAppASTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.UntagResource` | ✓ `simulator-aws/application_autoscaling.go:130::handleAppASUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.PutScheduledAction` | ✓ `simulator-aws/application_autoscaling.go:131::handleAppASPutScheduledAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DeleteScheduledAction` | ✓ `simulator-aws/application_autoscaling.go:132::handleAppASDeleteScheduledAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DescribeScheduledActions` | ✓ `simulator-aws/application_autoscaling.go:133::handleAppASDescribeScheduledActions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DescribeScalingActivities` | ✓ `simulator-aws/application_autoscaling.go:134::handleAppASDescribeScalingActivities` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.GetPredictiveScalingForecast` | ○ `simulator-aws/application_autoscaling.go:135::handleAppASGetPredictiveScalingForecast` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

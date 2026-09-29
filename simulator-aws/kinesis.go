@@ -70,6 +70,8 @@ type KinesisShard struct {
 	HashKeyRange        map[string]string `json:"HashKeyRange"`
 	SequenceNumberRange map[string]string `json:"SequenceNumberRange"`
 	ParentShardId       string            `json:"ParentShardId,omitempty"`
+	// AdjacentParentShardId names the second parent of a merged shard.
+	AdjacentParentShardId string `json:"AdjacentParentShardId,omitempty"`
 }
 
 // kinesisRecord is a record as a producer put it. The shard's log assigns its
@@ -86,6 +88,8 @@ type kinesisIterator struct {
 	StreamName string
 	ShardID    string
 	Next       int64
+	// IssuedAt is when the iterator was returned, in Unix milliseconds.
+	IssuedAt int64
 }
 
 // KinesisConsumer is an enhanced fan-out consumer registered against a stream
@@ -806,7 +810,7 @@ func handleKinesisGetShardIterator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := sim.NewUUID()
-	kinesisIterators.Put(token, kinesisIterator{StreamName: stream.StreamName, ShardID: req.ShardId, Next: next})
+	kinesisIterators.Put(token, kinesisIterator{StreamName: stream.StreamName, ShardID: req.ShardId, Next: next, IssuedAt: time.Now().UnixMilli()})
 	writeKinesisJSON(w, http.StatusOK, map[string]any{"ShardIterator": token})
 }
 
@@ -859,13 +863,19 @@ func handleKinesisGetRecords(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ExpiredIteratorException", "Shard iterator expired", http.StatusBadRequest)
 		return
 	}
+	now := time.Now()
+	if issued := time.UnixMilli(it.IssuedAt); now.Sub(issued) > kinesisIteratorLifetime {
+		kinesisIterators.Delete(req.ShardIterator)
+		AWSError(w, "ExpiredIteratorException", kinesisExpiredIteratorMessage(issued, now), http.StatusBadRequest)
+		return
+	}
 	limit := req.Limit
 	if limit <= 0 || limit > 10000 {
 		limit = 10000
 	}
-	now := time.Now()
 	partition := kinesisShardRecordKey(it.StreamName, it.ShardID)
-	if stream, ok := kinesisStreams.Get(it.StreamName); ok {
+	stream, streamFound := kinesisStreams.Get(it.StreamName)
+	if streamFound {
 		kinesisTrim(stream, it.ShardID, now)
 	}
 	next := max(it.Next, kinesisLog.Head(partition).First)
@@ -875,13 +885,20 @@ func handleKinesisGetRecords(w http.ResponseWriter, r *http.Request) {
 		out = append(out, kinesisRecordJSON(rec))
 		next = rec.Seq + 1
 	}
-	token := sim.NewUUID()
-	kinesisIterators.Put(token, kinesisIterator{StreamName: it.StreamName, ShardID: it.ShardID, Next: next})
-	writeKinesisJSON(w, http.StatusOK, map[string]any{
+	body := map[string]any{
 		"Records":            out,
-		"NextShardIterator":  token,
 		"MillisBehindLatest": kinesisMillisBehind(partition, next, now),
-	})
+	}
+	shard, _ := kinesisFindShard(stream, it.ShardID)
+	if streamFound && kinesisShardClosed(shard) && next >= kinesisLog.Head(partition).Next {
+		// A drained closed shard has no next iterator; its children carry on.
+		body["ChildShards"] = kinesisChildShards(stream, it.ShardID)
+	} else {
+		token := sim.NewUUID()
+		kinesisIterators.Put(token, kinesisIterator{StreamName: it.StreamName, ShardID: it.ShardID, Next: next, IssuedAt: now.UnixMilli()})
+		body["NextShardIterator"] = token
+	}
+	writeKinesisJSON(w, http.StatusOK, body)
 }
 
 func handleKinesisAddTagsToStream(w http.ResponseWriter, r *http.Request) {
@@ -1125,9 +1142,15 @@ func handleKinesisUpdateShardCount(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
-	current := int64(len(stream.Shards))
-	stream.Shards = kinesisMakeShards(req.TargetShardCount)
-	stream.OpenShardCount = req.TargetShardCount
+	if req.TargetShardCount < 1 {
+		AWSError(w, "InvalidArgumentException", "TargetShardCount must be at least 1", http.StatusBadRequest)
+		return
+	}
+	kinesisMu.Lock()
+	defer kinesisMu.Unlock()
+	stream, _ = kinesisStreams.Get(stream.StreamName)
+	current := kinesisOpenShardCount(stream.Shards)
+	kinesisReshardUniformly(&stream, req.TargetShardCount)
 	kinesisStreams.Put(stream.StreamName, stream)
 	writeKinesisJSON(w, http.StatusOK, map[string]any{
 		"StreamName":        stream.StreamName,
@@ -1453,37 +1476,19 @@ func handleKinesisMergeShards(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ResourceNotFoundException", "Shard not found", http.StatusBadRequest)
 		return
 	}
-	// Adjacency: the two shards' hash-key ranges must be contiguous. Order them
-	// so left precedes right, then require left.End+1 == right.Start.
-	lStart, _ := new(big.Int).SetString(left.HashKeyRange["StartingHashKey"], 10)
-	rStart, _ := new(big.Int).SetString(right.HashKeyRange["StartingHashKey"], 10)
-	if lStart.Cmp(rStart) > 0 {
-		left, right = right, left
+	for _, shard := range []KinesisShard{left, right} {
+		if kinesisShardClosed(shard) {
+			AWSErrorf(w, "InvalidArgumentException", http.StatusBadRequest,
+				"Shard %s in stream %s under account %s has already been merged or split, and thus is not eligible for merging",
+				shard.ShardId, stream.StreamName, awsAccountID())
+			return
+		}
 	}
-	lEnd, _ := new(big.Int).SetString(left.HashKeyRange["EndingHashKey"], 10)
-	rStart, _ = new(big.Int).SetString(right.HashKeyRange["StartingHashKey"], 10)
-	if new(big.Int).Add(lEnd, big.NewInt(1)).Cmp(rStart) != 0 {
+	if !kinesisAdjacent(left, right) {
 		AWSError(w, "InvalidArgumentException", "Shards are not adjacent", http.StatusBadRequest)
 		return
 	}
-
-	// The merged child spans both parents' ranges; both parents close (their
-	// SequenceNumberRange gets an EndingSequenceNumber) and name the child via no
-	// further records. The child's ParentShardId/AdjacentParentShardId record the
-	// lineage exactly as real Kinesis does.
-	childID := kinesisNextShardID(stream)
-	child := KinesisShard{
-		ShardId: childID,
-		HashKeyRange: map[string]string{
-			"StartingHashKey": left.HashKeyRange["StartingHashKey"],
-			"EndingHashKey":   right.HashKeyRange["EndingHashKey"],
-		},
-		SequenceNumberRange: map[string]string{"StartingSequenceNumber": "1"},
-		ParentShardId:       left.ShardId,
-	}
-	stream.Shards = kinesisCloseParents(stream.Shards, left.ShardId, right.ShardId)
-	stream.Shards = append(stream.Shards, child)
-	stream.OpenShardCount = kinesisOpenShardCount(stream.Shards)
+	kinesisMergeShards(&stream, left, right)
 	kinesisStreams.Put(stream.StreamName, stream)
 	writeKinesisJSON(w, http.StatusOK, map[string]any{})
 }
@@ -1511,6 +1516,12 @@ func handleKinesisSplitShard(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ResourceNotFoundException", "Shard not found", http.StatusBadRequest)
 		return
 	}
+	if kinesisShardClosed(parent) {
+		AWSErrorf(w, "InvalidArgumentException", http.StatusBadRequest,
+			"Shard %s in stream %s under account %s has already been merged or split, and thus is not eligible for splitting",
+			parent.ShardId, stream.StreamName, awsAccountID())
+		return
+	}
 	newStart, valid := new(big.Int).SetString(req.NewStartingHashKey, 10)
 	if !valid {
 		AWSError(w, "InvalidArgumentException", "NewStartingHashKey must be a valid integer", http.StatusBadRequest)
@@ -1524,30 +1535,7 @@ func handleKinesisSplitShard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lowID := kinesisNextShardID(stream)
-	low := KinesisShard{
-		ShardId: lowID,
-		HashKeyRange: map[string]string{
-			"StartingHashKey": parent.HashKeyRange["StartingHashKey"],
-			"EndingHashKey":   new(big.Int).Sub(newStart, big.NewInt(1)).String(),
-		},
-		SequenceNumberRange: map[string]string{"StartingSequenceNumber": "1"},
-		ParentShardId:       parent.ShardId,
-	}
-	stream.Shards = append(stream.Shards, low)
-	highID := kinesisNextShardID(stream)
-	high := KinesisShard{
-		ShardId: highID,
-		HashKeyRange: map[string]string{
-			"StartingHashKey": newStart.String(),
-			"EndingHashKey":   parent.HashKeyRange["EndingHashKey"],
-		},
-		SequenceNumberRange: map[string]string{"StartingSequenceNumber": "1"},
-		ParentShardId:       parent.ShardId,
-	}
-	stream.Shards = kinesisCloseParents(stream.Shards, parent.ShardId)
-	stream.Shards = append(stream.Shards, high)
-	stream.OpenShardCount = kinesisOpenShardCount(stream.Shards)
+	kinesisSplitShard(&stream, parent, newStart)
 	kinesisStreams.Put(stream.StreamName, stream)
 	writeKinesisJSON(w, http.StatusOK, map[string]any{})
 }
@@ -1571,27 +1559,6 @@ func kinesisNextShardID(stream KinesisStream) string {
 		}
 	}
 	return fmt.Sprintf("shardId-%012d", maxN+1)
-}
-
-// kinesisCloseParents marks the named parent shards closed by stamping an
-// EndingSequenceNumber on their SequenceNumberRange. A closed shard remains in
-// the shard list (lineage is queryable) but is no longer open.
-func kinesisCloseParents(shards []KinesisShard, parentIDs ...string) []KinesisShard {
-	closed := map[string]bool{}
-	for _, id := range parentIDs {
-		closed[id] = true
-	}
-	for i := range shards {
-		if closed[shards[i].ShardId] {
-			if shards[i].SequenceNumberRange == nil {
-				shards[i].SequenceNumberRange = map[string]string{}
-			}
-			if _, has := shards[i].SequenceNumberRange["EndingSequenceNumber"]; !has {
-				shards[i].SequenceNumberRange["EndingSequenceNumber"] = strconv.FormatInt(time.Now().UnixNano(), 10)
-			}
-		}
-	}
-	return shards
 }
 
 // kinesisOpenShardCount counts shards with no EndingSequenceNumber (still open).

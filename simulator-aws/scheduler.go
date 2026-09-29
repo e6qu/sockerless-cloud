@@ -99,6 +99,7 @@ func registerScheduler(srv *sim.Server) {
 	})
 
 	// Evaluate ScheduleExpressions and invoke due targets (ECS/Lambda/SQS/SNS).
+	registerSchedulerDelivery(srv)
 	startSchedulerFiringLoop(srv, schedules, schedulerFireRecs)
 }
 
