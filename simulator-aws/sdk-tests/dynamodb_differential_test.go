@@ -827,9 +827,23 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 	// limit, which times the pull out on a shared CI runner and fails this
 	// oracle-backed test for a reason that has nothing to do with DynamoDB.
 	// Pinned by digest: the oracle is only an oracle if it stays the same one.
-	const image = "public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local@sha256:0b8779f3e5a761cb41c7b7610d1a67518964a22a9ca063b4a53c8c312b933485"
+	const image = "public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab"
 	if !diffDockerPull(image) {
 		t.Fatalf("docker is present but %s could not be pulled after retries", image)
+	}
+	// A digest copied from one machine can name that machine's platform
+	// manifest rather than the index, and another architecture then pulls an
+	// image it cannot execute.
+	archCtx, cancelArch := context.WithTimeout(context.Background(), 30*time.Second)
+	engineArch, engineErr := exec.CommandContext(archCtx, "docker", "version", "--format", "{{.Server.Arch}}").CombinedOutput()
+	imageArch, imageErr := exec.CommandContext(archCtx, "docker", "image", "inspect", "--format", "{{.Architecture}}", image).CombinedOutput()
+	cancelArch()
+	if engineErr != nil || imageErr != nil {
+		t.Fatalf("read the engine and image architectures: %v %v\n%s\n%s", engineErr, imageErr, engineArch, imageArch)
+	}
+	if string(trimNL(engineArch)) != string(trimNL(imageArch)) {
+		t.Fatalf("%s is built for %s and the engine runs %s: the pin names one platform's manifest, not the multi-platform index",
+			image, trimNL(imageArch), trimNL(engineArch))
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -841,9 +855,9 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 
 	// -inMemory keeps it fast and stateless; each run starts clean.
 	containerName := fmt.Sprintf("sockerless-dynamodb-local-%d", port)
-	// `--rm` only removes the container when it exits, so a test binary that is
-	// killed — a timeout, an interrupt, a crashed run — leaves DynamoDB Local
-	// running with its port held for as long as the machine stays up. The label
+	// A test binary that is killed — a timeout, an interrupt, a crashed run —
+	// leaves DynamoDB Local running with its port held for as long as the
+	// machine stays up. The label
 	// makes those survivors findable, and every run reaps them before starting
 	// its own: this helper is the only thing that carries the label, and it
 	// starts exactly one container per run.
