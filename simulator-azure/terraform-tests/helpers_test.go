@@ -579,8 +579,14 @@ func tfWorkspaceFrom(t *testing.T, src string) string {
 // terraformCmd builds a terraform command for the configuration in dir; the
 // endpoint, trust anchor, and service-principal coordinates are identical for
 // every configuration this harness drives.
+// The dependency lock beside each configuration is untracked local state, so
+// init re-resolves the providers the configuration pins exactly rather than
+// failing on a lock an earlier provider bump left behind.
 func terraformCmd(dir string, args ...string) *exec.Cmd {
 	requireHTTPSURL(baseURL, "Azure Terraform endpoint")
+	if len(args) > 0 && args[0] == "init" {
+		args = append([]string{"init", "-upgrade"}, args[1:]...)
+	}
 	cmd := exec.Command("terraform", args...)
 	cmd.Dir = dir
 	// Own process group so runTimed can reap terraform + its provider-plugin

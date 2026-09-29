@@ -295,6 +295,238 @@ func dynamoDifferentialScenarios() []diffScenario {
 			return "scan", err
 		}},
 
+		{"query-orders-numeric-sort-keys-by-value", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			for _, n := range []string{"10", "9", "-2", "-2.5", "0", "100", "0.5", "1e3"} {
+				if _, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{
+					"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}, "SK": &ddbtypes.AttributeValueMemberN{Value: n},
+				}}); err != nil {
+					return nil, err
+				}
+			}
+			return diffQuerySortKeys(c, table, nil, true)
+		}},
+
+		{"query-orders-binary-sort-keys-by-bytes", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeB); err != nil {
+				return nil, err
+			}
+			for _, b := range [][]byte{{0xff}, {0x00, 0x01}, {0x7f}, {0x80}, {0x00}} {
+				if _, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{
+					"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}, "SK": &ddbtypes.AttributeValueMemberB{Value: b},
+				}}); err != nil {
+					return nil, err
+				}
+			}
+			return diffQuerySortKeys(c, table, nil, false)
+		}},
+
+		{"query-resumes-after-a-deleted-start-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSort(c, table); err != nil {
+				return nil, err
+			}
+			for _, sk := range []string{"a", "b", "c", "d"} {
+				if _, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{
+					"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}, "SK": &ddbtypes.AttributeValueMemberS{Value: sk},
+				}}); err != nil {
+					return nil, err
+				}
+			}
+			first, err := c.Query(ctx, &dynamodb.QueryInput{
+				TableName: &table, KeyConditionExpression: aws.String("PK = :p"), Limit: aws.Int32(2),
+				ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":p": &ddbtypes.AttributeValueMemberS{Value: "p"}},
+			})
+			if err != nil {
+				return nil, err
+			}
+			if _, err := c.DeleteItem(ctx, &dynamodb.DeleteItemInput{TableName: &table, Key: first.LastEvaluatedKey}); err != nil {
+				return nil, err
+			}
+			return diffQuerySortKeys(c, table, first.LastEvaluatedKey, true)
+		}},
+
+		{"put-without-the-sort-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}}})
+			return diffRefusal(err)
+		}},
+
+		{"put-with-a-key-of-the-wrong-type", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberN{Value: "1"}, "SK": &ddbtypes.AttributeValueMemberN{Value: "1"}}})
+			return diffRefusal(err)
+		}},
+
+		{"put-with-a-number-that-is-not-one", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}, "SK": &ddbtypes.AttributeValueMemberN{Value: "1"}, "count": &ddbtypes.AttributeValueMemberN{Value: "many"}}})
+			return diffRefusal(err)
+		}},
+
+		{"put-with-an-empty-string-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: ""}, "SK": &ddbtypes.AttributeValueMemberN{Value: "1"}}})
+			return diffRefusal(err)
+		}},
+
+		{"get-with-an-extra-key-attribute", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.GetItem(ctx, &dynamodb.GetItemInput{TableName: &table, Key: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}, "SK": &ddbtypes.AttributeValueMemberN{Value: "1"}, "extra": &ddbtypes.AttributeValueMemberS{Value: "x"}}})
+			return diffRefusal(err)
+		}},
+
+		{"get-without-the-sort-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.GetItem(ctx, &dynamodb.GetItemInput{TableName: &table, Key: map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: "p"}}})
+			return diffRefusal(err)
+		}},
+
+		{"gsi-query-reads-index-order-and-projection", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithIndex(c, table); err != nil {
+				return nil, err
+			}
+			if err := diffPutIndexed(c, table); err != nil {
+				return nil, err
+			}
+			out, err := c.Query(ctx, &dynamodb.QueryInput{
+				TableName: &table, IndexName: aws.String("byGroup"),
+				KeyConditionExpression:    aws.String("grp = :g"),
+				ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":g": &ddbtypes.AttributeValueMemberS{Value: "g1"}},
+			})
+			if err != nil {
+				return nil, err
+			}
+			return diffNormItems(out.Items), nil
+		}},
+
+		{"gsi-query-pages-by-the-index-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithIndex(c, table); err != nil {
+				return nil, err
+			}
+			if err := diffPutIndexed(c, table); err != nil {
+				return nil, err
+			}
+			var pages []any
+			var start map[string]ddbtypes.AttributeValue
+			for {
+				out, err := c.Query(ctx, &dynamodb.QueryInput{
+					TableName: &table, IndexName: aws.String("byGroup"), Limit: aws.Int32(2), ExclusiveStartKey: start,
+					KeyConditionExpression:    aws.String("grp = :g"),
+					ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":g": &ddbtypes.AttributeValueMemberS{Value: "g1"}},
+				})
+				if err != nil {
+					return nil, err
+				}
+				pages = append(pages, map[string]any{"items": diffNormItems(out.Items), "last": diffNormItem(out.LastEvaluatedKey)})
+				if out.LastEvaluatedKey == nil {
+					return pages, nil
+				}
+				start = out.LastEvaluatedKey
+			}
+		}},
+
+		{"sparse-index-scan-sees-only-indexed-items", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithIndex(c, table); err != nil {
+				return nil, err
+			}
+			if err := diffPutIndexed(c, table); err != nil {
+				return nil, err
+			}
+			out, err := c.Scan(ctx, &dynamodb.ScanInput{TableName: &table, IndexName: aws.String("byGroup")})
+			if err != nil {
+				return nil, err
+			}
+			ids := []string{}
+			for _, item := range out.Items {
+				ids = append(ids, item["PK"].(*ddbtypes.AttributeValueMemberS).Value)
+			}
+			sort.Strings(ids)
+			return ids, nil
+		}},
+
+		{"put-with-an-index-key-of-the-wrong-type", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithIndex(c, table); err != nil {
+				return nil, err
+			}
+			_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: map[string]ddbtypes.AttributeValue{
+				"PK": &ddbtypes.AttributeValueMemberS{Value: "x"}, "grp": &ddbtypes.AttributeValueMemberN{Value: "1"},
+			}})
+			return diffRefusal(err)
+		}},
+
+		{"transaction-with-a-failing-update-writes-nothing", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTable(c, table); err != nil {
+				return nil, err
+			}
+			_, txErr := c.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: []ddbtypes.TransactWriteItem{
+				{Put: &ddbtypes.Put{TableName: &table, Item: diffKey("first", nil)}},
+				{Update: &ddbtypes.Update{
+					TableName: &table, Key: diffKey("second", nil),
+					UpdateExpression:          aws.String("SET n = n + :v"),
+					ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":v": &ddbtypes.AttributeValueMemberN{Value: "1"}},
+				}},
+			}})
+			got, err := diffGet(c, table, "first")
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"refused": txErr != nil, "first": got}, nil
+		}},
+
+		{"partiql-insert-without-the-sort-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.ExecuteStatement(ctx, &dynamodb.ExecuteStatementInput{
+				Statement: aws.String(fmt.Sprintf("INSERT INTO \"%s\" VALUE {'PK': 'p'}", table)),
+			})
+			return diffRefusal(err)
+		}},
+
+		{"partiql-insert-with-a-key-of-the-wrong-type", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithSortType(c, table, ddbtypes.ScalarAttributeTypeN); err != nil {
+				return nil, err
+			}
+			_, err := c.ExecuteStatement(ctx, &dynamodb.ExecuteStatementInput{
+				Statement: aws.String(fmt.Sprintf("INSERT INTO \"%s\" VALUE {'PK': 'p', 'SK': 'one'}", table)),
+			})
+			return diffRefusal(err)
+		}},
+
+		{"partiql-insert-with-an-index-key-of-the-wrong-type", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTableWithIndex(c, table); err != nil {
+				return nil, err
+			}
+			_, err := c.ExecuteStatement(ctx, &dynamodb.ExecuteStatementInput{
+				Statement: aws.String(fmt.Sprintf("INSERT INTO \"%s\" VALUE {'PK': 'x', 'grp': 1}", table)),
+			})
+			return diffRefusal(err)
+		}},
+
+		{"partiql-insert-with-an-empty-string-key", func(c *dynamodb.Client, table string) (any, error) {
+			if err := diffMakeTable(c, table); err != nil {
+				return nil, err
+			}
+			_, err := c.ExecuteStatement(ctx, &dynamodb.ExecuteStatementInput{
+				Statement: aws.String(fmt.Sprintf("INSERT INTO \"%s\" VALUE {'PK': ''}", table)),
+			})
+			return diffRefusal(err)
+		}},
+
 		{"undefined-value-ref-fails-loud", func(c *dynamodb.Client, table string) (any, error) {
 			if err := diffMakeTable(c, table); err != nil {
 				return nil, err
@@ -309,6 +541,105 @@ func dynamoDifferentialScenarios() []diffScenario {
 }
 
 // ── scenario helpers ─────────────────────────────────────────────────────────
+
+// diffMakeTableWithIndex is a table keyed by PK with a KEYS_ONLY global index
+// byGroup on grp (hash) and rank (numeric range).
+func diffMakeTableWithIndex(c *dynamodb.Client, table string) error {
+	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName: &table,
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("PK"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+			{AttributeName: aws.String("grp"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+			{AttributeName: aws.String("rank"), AttributeType: ddbtypes.ScalarAttributeTypeN},
+		},
+		KeySchema: []ddbtypes.KeySchemaElement{{AttributeName: aws.String("PK"), KeyType: ddbtypes.KeyTypeHash}},
+		GlobalSecondaryIndexes: []ddbtypes.GlobalSecondaryIndex{{
+			IndexName: aws.String("byGroup"),
+			KeySchema: []ddbtypes.KeySchemaElement{
+				{AttributeName: aws.String("grp"), KeyType: ddbtypes.KeyTypeHash},
+				{AttributeName: aws.String("rank"), KeyType: ddbtypes.KeyTypeRange},
+			},
+			Projection: &ddbtypes.Projection{ProjectionType: ddbtypes.ProjectionTypeKeysOnly},
+		}},
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+	})
+	return err
+}
+
+// diffPutIndexed writes items in and out of byGroup: ranks out of order, one
+// item with no grp, and one attribute the KEYS_ONLY index does not project.
+func diffPutIndexed(c *dynamodb.Client, table string) error {
+	for _, row := range []struct{ pk, grp, rank string }{
+		{"a", "g1", "10"}, {"b", "g1", "9"}, {"c", "g1", "-1"}, {"d", "g2", "5"}, {"e", "", ""}, {"f", "g1", "100"},
+	} {
+		item := map[string]ddbtypes.AttributeValue{
+			"PK":    &ddbtypes.AttributeValueMemberS{Value: row.pk},
+			"extra": &ddbtypes.AttributeValueMemberS{Value: "not projected"},
+		}
+		if row.grp != "" {
+			item["grp"] = &ddbtypes.AttributeValueMemberS{Value: row.grp}
+			item["rank"] = &ddbtypes.AttributeValueMemberN{Value: row.rank}
+		}
+		if _, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: &table, Item: item}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// diffRefusal turns a refusal into the scenario's value, its code and its
+// message, so the wording is compared with DynamoDB Local's and not only the
+// code; captureDiff keeps nothing but the code of an error.
+func diffRefusal(err error) (any, error) {
+	if err == nil {
+		return "accepted", nil
+	}
+	var apiErr smithy.APIError
+	if !errors.As(err, &apiErr) {
+		return nil, err
+	}
+	return apiErr.ErrorCode() + ": " + apiErr.ErrorMessage(), nil
+}
+
+func diffMakeTableWithSortType(c *dynamodb.Client, table string, sortType ddbtypes.ScalarAttributeType) error {
+	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName: &table,
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("PK"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+			{AttributeName: aws.String("SK"), AttributeType: sortType},
+		},
+		KeySchema: []ddbtypes.KeySchemaElement{
+			{AttributeName: aws.String("PK"), KeyType: ddbtypes.KeyTypeHash},
+			{AttributeName: aws.String("SK"), KeyType: ddbtypes.KeyTypeRange},
+		},
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+	})
+	return err
+}
+
+// diffQuerySortKeys queries partition "p" from start and returns its sort keys
+// in the order they came back, with the value reported as text.
+func diffQuerySortKeys(c *dynamodb.Client, table string, start map[string]ddbtypes.AttributeValue, _ bool) (any, error) {
+	out, err := c.Query(ctx, &dynamodb.QueryInput{
+		TableName: &table, KeyConditionExpression: aws.String("PK = :p"), ExclusiveStartKey: start,
+		ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":p": &ddbtypes.AttributeValueMemberS{Value: "p"}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var keys []string
+	for _, item := range out.Items {
+		switch v := item["SK"].(type) {
+		case *ddbtypes.AttributeValueMemberN:
+			keys = append(keys, canonNum(v.Value))
+		case *ddbtypes.AttributeValueMemberS:
+			keys = append(keys, v.Value)
+		case *ddbtypes.AttributeValueMemberB:
+			keys = append(keys, fmt.Sprintf("%x", v.Value))
+		}
+	}
+	return keys, nil
+}
 
 func diffKey(pk string, extra map[string]ddbtypes.AttributeValue) map[string]ddbtypes.AttributeValue {
 	m := map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: pk}}
@@ -495,9 +826,24 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 	// Docker Hub. Pulling it from Amazon avoids Docker Hub's anonymous rate
 	// limit, which times the pull out on a shared CI runner and fails this
 	// oracle-backed test for a reason that has nothing to do with DynamoDB.
-	const image = "public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local:latest"
+	// Pinned by digest: the oracle is only an oracle if it stays the same one.
+	const image = "public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab"
 	if !diffDockerPull(image) {
 		t.Fatalf("docker is present but %s could not be pulled after retries", image)
+	}
+	// A digest copied from one machine can name that machine's platform
+	// manifest rather than the index, and another architecture then pulls an
+	// image it cannot execute.
+	archCtx, cancelArch := context.WithTimeout(context.Background(), 30*time.Second)
+	engineArch, engineErr := exec.CommandContext(archCtx, "docker", "version", "--format", "{{.Server.Arch}}").CombinedOutput()
+	imageArch, imageErr := exec.CommandContext(archCtx, "docker", "image", "inspect", "--format", "{{.Architecture}}", image).CombinedOutput()
+	cancelArch()
+	if engineErr != nil || imageErr != nil {
+		t.Fatalf("read the engine and image architectures: %v %v\n%s\n%s", engineErr, imageErr, engineArch, imageArch)
+	}
+	if string(trimNL(engineArch)) != string(trimNL(imageArch)) {
+		t.Fatalf("%s is built for %s and the engine runs %s: the pin names one platform's manifest, not the multi-platform index",
+			image, trimNL(imageArch), trimNL(engineArch))
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -509,15 +855,17 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 
 	// -inMemory keeps it fast and stateless; each run starts clean.
 	containerName := fmt.Sprintf("sockerless-dynamodb-local-%d", port)
-	// `--rm` only removes the container when it exits, so a test binary that is
-	// killed — a timeout, an interrupt, a crashed run — leaves DynamoDB Local
-	// running with its port held for as long as the machine stays up. The label
+	// A test binary that is killed — a timeout, an interrupt, a crashed run —
+	// leaves DynamoDB Local running with its port held for as long as the
+	// machine stays up. The label
 	// makes those survivors findable, and every run reaps them before starting
 	// its own: this helper is the only thing that carries the label, and it
 	// starts exactly one container per run.
 	reapStaleDynamoDBLocal(t)
 	runCtx, cancelRun := context.WithTimeout(context.Background(), 2*time.Minute)
-	runOut, err := exec.CommandContext(runCtx, "docker", "run", "-d", "--rm", "--name", containerName,
+	// No --rm: a DynamoDB Local that exits must stay inspectable, or its exit
+	// code and log vanish with it. stop removes it.
+	runOut, err := exec.CommandContext(runCtx, "docker", "run", "-d", "--name", containerName,
 		"--label", dynamoDBLocalLabel,
 		"-p", fmt.Sprintf("127.0.0.1:%d:8000", port),
 		image, "-jar", "DynamoDBLocal.jar", "-inMemory").CombinedOutput()
@@ -556,20 +904,40 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 	probe := dynamodb.NewFromConfig(sdkConfig(), func(o *dynamodb.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
-	// DynamoDB Local is a JVM; a cold start on a loaded CI runner can take well
-	// over 30s, so wait up to 120s (was 30s — the tight readiness window was a
-	// flake source when the runner was busy).
-	ok := false
-	for i := 0; i < 240; i++ {
-		if _, err := probe.ListTables(ctx, &dynamodb.ListTablesInput{}); err == nil {
-			ok = true
+	// DynamoDB Local is a JVM, and a cold start on a loaded CI runner can take
+	// well over 30s. The deadline is wall-clock and each probe carries its own
+	// timeout, so a probe the SDK retries cannot stretch the wait.
+	deadline := time.Now().Add(120 * time.Second)
+	var probeErr error
+	for {
+		probeCtx, cancelProbe := context.WithTimeout(ctx, 5*time.Second)
+		_, probeErr = probe.ListTables(probeCtx, &dynamodb.ListTablesInput{}, func(o *dynamodb.Options) {
+			o.RetryMaxAttempts = 1
+		})
+		cancelProbe()
+		if probeErr == nil || time.Now().After(deadline) {
+			break
+		}
+		runningCtx, cancelRunning := context.WithTimeout(context.Background(), 10*time.Second)
+		running, runningErr := exec.CommandContext(runningCtx, "docker", "inspect", "--format", "{{.State.Running}}", containerName).CombinedOutput()
+		cancelRunning()
+		if runningErr != nil || string(trimNL(running)) != "true" {
+			probeErr = fmt.Errorf("the container stopped before answering (last probe: %w)", probeErr)
 			break
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	if !ok {
+	if probeErr != nil {
+		inspectCtx, cancelInspect := context.WithTimeout(context.Background(), 30*time.Second)
+		stateOut, _ := exec.CommandContext(inspectCtx, "docker", "inspect", "--format", "{{json .State}} {{json .HostConfig.Memory}}", containerName).CombinedOutput()
+		logsOut, _ := exec.CommandContext(inspectCtx, "docker", "logs", "--tail", "60", containerName).CombinedOutput()
+		imageOut, _ := exec.CommandContext(inspectCtx, "docker", "image", "inspect", "--format",
+			"{{.Id}} {{.Os}}/{{.Architecture}} entrypoint={{json .Config.Entrypoint}} workdir={{json .Config.WorkingDir}} digests={{json .RepoDigests}}",
+			image).CombinedOutput()
+		cancelInspect()
 		stop()
-		t.Fatalf("DynamoDB Local did not become ready at %s", endpoint)
+		t.Fatalf("DynamoDB Local did not become ready at %s within 120s: %v\ncontainer state: %s\nimage: %s\ncontainer log:\n%s",
+			endpoint, probeErr, stateOut, imageOut, logsOut)
 	}
 	return endpoint, stop
 }

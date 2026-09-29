@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 15. Resolved: 159.
+Open: 15. Resolved: 178.
 
 ## Open
 
@@ -19,10 +19,10 @@ Open: 15. Resolved: 159.
 
 | ID | Sev | Area | Pattern | One-liner |
 |----|-----|------|---------|-----------|
+| 3080 | P3 | The EC2 Client VPN endpoint authorization-policy operations are not served | operations a model gained before any client could call them | GetClientVpnEndpointAuthorizationPolicy, ModifyClientVpnEndpointAuthorizationPolicy and DeleteClientVpnEndpointAuthorizationPolicy entered the vendored EC2 model with aws/aws-sdk-go-v2 09e460a419a0 on 2026-09-28: one Cedar authorization policy per Client VPN endpoint, created or merged by Modify (PolicyDocument required on creation), with a shadow mode and a status. The testing contract needs SDK, CLI and Terraform coverage in the commit that serves them, and on 2026-09-28 the only SDK release carrying them, service/ec2 v1.337.0 (18:27 UTC), was inside the 24-hour adoption quarantine, the AWS CLI and the Terraform provider had none, and the API reference page was empty. `model_drift_test.go` exempts the three with this record. The repair, once v1.337.0 clears the quarantine: serve the three from the model's semantics with SDK tests, add CLI and Terraform coverage as those clients ship the operations, and take the errors for a missing policy and an invalid Cedar document from the published reference or a capture. |
 | 3063 | P3 | Whether Amazon ECR counts the config blob in `imageSizeInBytes` is uncaptured | a documented quantity whose exact sum the documentation does not give | ImageDetail defines the value as "the size, in bytes, of the image in the repository", notes that layers are compressed before they are pushed, and for a manifest list takes the largest listed manifest. The simulator sums the manifest's layer sizes (BUG-3062). Whether ECR adds the config blob, or the manifest itself, is not stated. The repair is a capture: push an image of known layer and config sizes to a real repository and read DescribeImages back. |
-| 3061 | P3 | A DynamoDB query on a secondary index reads its whole table | an index answered by filtering the base table | A base-table query now reads only its partition's key range (BUG-3060), but a query on a global or local secondary index has no stored index to read: it takes every item of the table and lets the key condition decide. The ECS Dev Desktop control plane's steady polling makes that the simulator's largest read cost after BUG-3060. The repair is a maintained per-index key set, `<table>#<index>/<index hash>|<index range>|<base key>`, written in the same critical section as the item, which a query reads as a range the way the base table is read. |
 | 3059 | P3 | An S3 restore completes the moment it is requested, and a tier the storage class does not offer is accepted | behaviour AWS documents without the error it answers | Amazon S3 takes minutes to hours to restore an archived object, by tier ("typically made available within 1–5 minutes" for Expedited, 3–5 hours Standard, 5–12 hours Bulk; `API_RestoreObject`), and during that time HeadObject reports `ongoing-request="true"` and a second request answers `RestoreAlreadyInProgress`. The simulator completes the restore at once, so the in-progress state is never observable. The same page says Expedited retrievals "are not available for objects stored in the S3 Glacier Deep Archive storage class" but names no error code, so the simulator accepts that request. The repair is a capture against a real bucket: the error an Expedited restore of a DEEP_ARCHIVE object answers, and the `x-amz-restore` sequence of a Standard restore, then the restore modelled on the documented tier durations only if a capture shows how the service reports them. |
-| 3055 | P2 | The deployed AWS simulator takes 90 seconds to stop | a shutdown that waits on something that does not return when cancelled, until systemd's default stop timeout kills it | In the Scaleway microVM, `simulator-aws.service` logged "shutting down" at 01:08:11 on 2026-09-28 and was stopped at 01:09:41 — exactly systemd's default `TimeoutStopSec` — with nothing in between; every other guest unit stopped within milliseconds. It is 92 of the 117 seconds a simulator upgrade takes. A local simulator with a running ECS task stops in one second, so the cause needs the deployed load. The main suspect is `ecsHandOffTaskLifecycle`, whose workers ignore their context (`StartBackground(..., func(context.Context) { run() })`), so a task start in progress at shutdown holds `stopBackground` until it finishes. The shutdown now names the workers it waits on every five seconds and times its phases, so the next upgrade's serial console (the host journal of `sim-vm.service`) says which; the repair is making that worker return on cancellation. |
+| 3055 | P2 | The deployed AWS simulator takes 90 seconds to stop | a shutdown that waits on something that does not return when cancelled, until systemd's default stop timeout kills it | In a deployment that runs the simulator in a Firecracker microVM, `simulator-aws.service` logged "shutting down" at 01:08:11 on 2026-09-28 and was stopped at 01:09:41 — exactly systemd's default `TimeoutStopSec` — with nothing in between; every other guest unit stopped within milliseconds. It is 92 of the 117 seconds a simulator upgrade takes. A local simulator with a running ECS task stops in one second, so the cause needs the deployed load. The main suspect is `ecsHandOffTaskLifecycle`, whose workers ignore their context (`StartBackground(..., func(context.Context) { run() })`), so a task start in progress at shutdown holds `stopBackground` until it finishes. The shutdown now names the workers it waits on every five seconds and times its phases, so the next upgrade's serial console says which; the repair is making that worker return on cancellation. |
 | 3046 | P3 | A Cloud Bigtable memory layer never reports `memoryConfig.storageSizeGib` | an output-only measurement whose rule no published source states | The field is "the current size of the memory layer in GiB" (`google.bigtable.admin.v2.MemoryLayer.MemoryConfig`), set by the service once a layer is enabled. Neither the proto, the Discovery document nor the product documentation says how the size follows from the cluster, so the simulator reports none rather than invent a figure; both the REST and gRPC surfaces read the same record. The repair is a capture: enable a memory layer on a real cluster at two node counts and read the size back, then derive it from the cluster the way the service does. |
 | 3045 | P3 | Cloud Bigtable admin operations carry no metadata, except UpdateMemoryLayer's | an operation built from its result alone | Every Cloud Bigtable admin method that answers with a long-running operation declares a metadata message — `CreateInstanceMetadata`, `UpdateClusterMetadata`, `CreateBackupMetadata` and the rest — and the service fills it with the original request and its timings. `bigtableDoneOperation` builds the operation from the resource alone, so a client that reads `Metadata()` gets nothing. `bigtableDoneOperationWithMetadata` exists now and UpdateMemoryLayer uses it; the repair is the same call at each of the other call sites with that method's metadata, and an SDK assertion per method that the metadata names the request. |
 | 3037 | P3 | DescribeInstanceTypes reports 2 vCPUs, one core and 1024 MiB for every instance type, and the future-dated Capacity Reservation minimum of 32 vCPUs is not enforced because nothing in the simulator knows a type's vCPUs | a response built from a template rather than from the instance type it names | `handleDescribeInstanceTypes` writes the same `vCpuInfo`, `memoryInfo` and network block for every type it lists, and `vcpusForInstanceType` guesses from the size suffix, defaulting to 2. A client sizing a fleet, and the CreateCapacityReservation check that a future-dated request asks for at least 32 vCPUs ("the minimum instance count is 32 vCPUs", EC2 user guide, Future-dated Capacity Reservation assessment), both need the real figures. The repair is a vendored instance-type catalog — the specification of each type as `DescribeInstanceTypes` itself publishes it, pinned and checksummed like the other vendored corpora — that both the describe and the capacity check read. |
@@ -35,6 +35,42 @@ Open: 15. Resolved: 159.
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
 ## Resolved history
+
+- ~~**BUG-3082 (the DynamoDB Local readiness wait was unbounded and silent):**~~ The differential harness counted 240 probes rather than a deadline, and each `ListTables` probe carried no timeout of its own while the SDK retried it, so on a loaded runner the wait ran 278 seconds and failed with no cause. The wait is now 120 seconds of wall clock with a five-second, single-attempt probe, and a failure reports the last probe error, the container's state and the tail of its log. The first run with that report showed the container gone: it had exited, and `--rm` deleted it with its exit code and log. The container is now kept until the test removes it, and the wait stops as soon as it is no longer running. The next report showed DynamoDB Local exiting with code 255 a tenth of a second after starting, and the report after it, which names the image, gave the cause: `exec /usr/bin/java: exec format error` from a `linux/arm64` image on an amd64 runner. The harness pinned `0b8779f3…`, the digest an arm64 workstation resolved, which is that platform's manifest rather than the release's multi-platform index; `main` still named `:latest` and passed. The pin is now the index, `sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab` (the same 2026-07-31 build, whose index lists `0b8779f3…` as its arm64 image), and the harness refuses an image built for another architecture than the engine's, naming the pin as the cause. The base-image cache also saves a digest-pinned image under a local tag that spells its digest, since `docker load` restores no reference for an archive saved by digest, and its key covers the warm script.
+
+- ~~**BUG-3081 (every DynamoDB Query listed the whole table's keys):**~~ Moving the index path into its own branch listed the table's keys before the partition narrowing replaced them, so a Query that names its partition still enumerated the table: forty concurrent queries over 2,000 items took 3.3 seconds instead of 1.4, and 8.4 on a CI runner. The table is listed only when the key condition does not fix the partition, and `TestDDBQueryReadsOnlyTheAddressedPartition` now records the key ranges a query enumerates, so the regression fails deterministically; the timing test had been the only one to see it.
+
+- ~~**BUG-3079 (a PartiQL INSERT accepted keys that do not fit the table, with an invented refusal):**~~ INSERT accepted a key attribute or a secondary index key of the wrong type and a number that is not one, and refused a missing key attribute in words no DynamoDB returns. It now refuses each as DynamoDB Local does, word for word. The differential scenarios that compare refusals now compare the message too: the harness kept only an error's code, so the earlier ones had compared codes alone.
+
+- ~~**BUG-3078 (Terraform formatting was checked nowhere):**~~ Two of the suites' configurations had drifted from `terraform fmt`. Both are formatted, and a pre-commit hook checks every `.tf` file.
+
+- ~~**BUG-3077 (the AWS Terraform stack could not run on an arm64 machine):**~~ The suite builds the Lambda handler image for the machine running it, but `tf-lambda-image` declared no architecture, so it asked for x86_64, and on an arm64 host the image the simulator needed did not exist and was pulled from a registry that does not hold it. The function now declares the machine's architecture, as the SDK suite's functions already do.
+
+- ~~**BUG-3076 (a Terraform suite failed on a lock an earlier provider bump left behind):**~~ The dependency locks beside the suites' configurations are ignored local state, and `terraform init` refuses a lock that no longer matches the pinned provider, so every provider bump broke the next local run until someone deleted the lock by hand. Every harness runs `init -upgrade`, which, with each provider pinned exactly, selects that version.
+
+- ~~**BUG-3075 (parallel scan segments moved as the table changed):**~~ A segment was every Nth key by position, so an item written or deleted between two pages shifted every later key into another segment, and the segments overlapped or missed items. An item's segment is now a hash of its table and partition key, stable across pages and keeping a partition in one segment.
+
+- ~~**BUG-3074 (a page that ended exactly at Limit carried no LastEvaluatedKey):**~~ Query and Scan left LastEvaluatedKey out when the Limit fell on the last item; DynamoDB returns it whenever the Limit is reached, and the next page is empty (`gsi-query-pages-by-the-index-key`).
+
+- ~~**BUG-3073 (a transaction could be half applied):**~~ TransactWriteItems applied its writes one by one and returned an error when an update expression failed on a later item, after the earlier writes were stored. Every write is now prepared and validated first, and applied only when all of them can be (`transaction-with-a-failing-update-writes-nothing`).
+
+- ~~**BUG-3072 (a secondary index returned attributes it does not project, and a scan of it saw items it does not hold):**~~ A query or scan on an index returned every attribute whatever its projection, and a scan with IndexName read the whole table, including items without the index's keys. Results now carry what a KEYS_ONLY or INCLUDE index projects, a global index's filter sees only that, and an index scan reads the index's entries, so a sparse index holds only the items that have its keys. Writes are refused when an index key attribute has the wrong type or is empty, with DynamoDB Local's messages.
+
+- ~~**BUG-3061 (a DynamoDB query on a secondary index read its whole table, in the wrong order):**~~ An index query read every item of the table and let the key condition decide, returned matches in base-table key order rather than by the index's sort key, and resumed by the table's key rather than the index's. Every secondary index now has ordered entries (`dynamodb_index.go`), kept by the only two functions that write items and rebuilt at startup, so an index query reads its partition as a range in index order, and its LastEvaluatedKey carries the index keys; differential scenarios against DynamoDB Local hold the order, the projection and the paging.
+
+- ~~**BUG-3071 (the DynamoDB oracle was whatever `latest` meant that day):**~~ The differential suite pulled DynamoDB Local by the floating `latest` tag, so the reference the simulator is compared against could change between two runs of the same commit. It is pinned by digest, and `scripts/base-images-for.sh` now reads digest references too, so the pinned image is still warmed from the cache.
+
+- ~~**BUG-3070 (DynamoDB accepted items and keys that do not fit the table's key schema):**~~ An item without its key attributes was stored under an empty key, a key attribute of the wrong type or an empty string was accepted, a number that is not one was stored, and a Key with extra or missing attributes was read. PutItem, GetItem, UpdateItem and DeleteItem and their batch and transaction forms now refuse each with DynamoDB Local's ValidationException and message, and differential scenarios compare the wording with it.
+
+- ~~**BUG-3069 (CI never cached the images the framework's own containers run):**~~ `scripts/base-images-for.sh` read a simulator job's images out of that simulator's directory only, and the Azure Database for PostgreSQL volume snapshot helper is `alpine:3.22`, named in `sim/`. So every Azure SDK job fetched it from the ECR Public Gallery, and on 2026-09-28 the anonymous data cap failed four backup and restore tests on `main` twice. A simulator directory now brings `sim/` into the scan.
+
+- ~~**BUG-3068 (a DynamoDB restore reused the backup's item keys):**~~ RestoreTableFromBackup and the point-in-time restore re-keyed items by swapping the table name in front of the stored key, so a backup taken under an older key encoding restored into keys no request could address. Each item's key is now computed from the target table's schema.
+
+- ~~**BUG-3067 (a DynamoDB page resumed from the start when its start key had been deleted):**~~ Query and Scan resumed after an `ExclusiveStartKey` only when an item was still stored there; if it had been deleted between pages, the next page started again from the first item. They now resume after the key's position either way, as DynamoDB Local does (`query-resumes-after-a-deleted-start-key`).
+
+- ~~**BUG-3066 (two DynamoDB partitions could share keys):**~~ Item keys joined hash and range with `|`, which a string value can hold, so the hash `a|b` and the hash `a` with range `b` collided. Components are now joined by a byte no encoded component can contain.
+
+- ~~**BUG-3065 (DynamoDB returned a partition's items in text order, not sort-key order):**~~ Key values were encoded as text, so numbers sorted as strings (`-2` before `-2.5`, `10` before `9`) and binary values in base64 order, and Query returns items in key order. The key encoding now orders numbers by value and binary by bytes (`dynamodb_keys.go`), items stored under the old encoding are re-keyed once at startup, and differential scenarios against DynamoDB Local hold the numeric and binary orders.
 
 - ~~**BUG-3064 (ECS task-definition listings decoded every revision, and disagreed on which families were active):**~~ ListTaskDefinitions and ListTaskDefinitionFamilies each decoded every task definition row from SQLite (576 calls in three hours on the deployed simulator, median 25 ms). The store is now the cached kind and a `familyPrefix` reads its key range. ListTaskDefinitionFamilies also counted a revision ACTIVE only when its status said so, while ListTaskDefinitions reads a revision written before statuses were recorded as ACTIVE; both now read it the same way.
 
@@ -541,7 +577,7 @@ Open: 15. Resolved: 159.
   mount carries the container label. Creation runs on the task's transition,
   and a host whose engine cannot mount the image fails the task with a
   `ResourceInitializationError` that says so. Snapshots stay file-level
-  copies, so the five directory-backed snapshots on the Scaleway stack (6 MiB
+  copies, so the five directory-backed snapshots on a production deployment (6 MiB
   to 82 MiB against 8-16 GiB volumes) restore into the new volumes unchanged.
   `TestECS_ManagedEBSVolumeHasItsOwnSizeAndFilesystemSDK` fails against a plain
   volume (`total_kb=104178368`).
@@ -571,7 +607,7 @@ Open: 15. Resolved: 159.
 
 - ~~**BUG-3007 (temporary credentials and AWS WAF sampled requests were never
   deleted):**~~ Nothing deleted from `iamTempCreds` or `wafSampledRequests`.
-  On 2026-09-17 the Scaleway simulator held 1,212,219 temporary credentials
+  On 2026-09-17 a deployed simulator held 1,212,219 temporary credentials
   (532 MB), 1,210,876 of them expired, and 196,367 sampled requests
   (442 MB), 193,893 of them older than the three hours AWS WAF keeps. 94% of
   the credentials belonged to one task's role: `GET /v4/{id}/credentials`
@@ -593,7 +629,7 @@ Open: 15. Resolved: 159.
   temporary access key are not deleted with it (BUG-3009).
 
 - ~~**BUG-3006 (the stopped-task sweep deleted by ARN, so it never swept
-  anything):**~~ Amazon ECS task starts on the Scaleway stack spent 3.1-6.0 s
+  anything):**~~ Amazon ECS task starts on a production deployment spent 3.1-6.0 s
   in `vpc:egress` and 1.6-3.1 s in `vpc:security-groups`. Phase marks added
   inside both phases put all of the egress time before the first `nft` step,
   and goroutine samples taken inside the microVM during a start sat in
@@ -644,7 +680,7 @@ Open: 15. Resolved: 159.
   in it now fails instead of being stepped over.
 
 - ~~**BUG-3004 (ECS StopTask waited out the container's stop timeout before it
-  answered):**~~ Found on 2026-09-15 in the Scaleway stack's `[sim-slow]`
+  answered):**~~ Found on 2026-09-15 in a production deployment's `[sim-slow]`
   reports after the 08:43Z and 16:02Z deploys: StopTask calls took 30,567 ms,
   the default 30-second stop timeout plus the container's removal, because
   ecs-dev-desktop's workspace containers do not exit on SIGTERM. The
@@ -674,7 +710,7 @@ Open: 15. Resolved: 159.
 - ~~**BUG-3003 (a DynamoDB query on a secondary index read every item from
   SQLite under the table lock, stalling writes for seconds):**~~ Found on
   2026-09-15 when ecs-dev-desktop's monitoring observation kept missing
-  Shauth's five-second budget on the Scaleway stack. The simulator's own
+  Shauth's five-second budget on a production deployment. The simulator's own
   `[sim-slow]` reports showed 47 UpdateItem calls finishing after up to 21 s
   and a PutItem after 13 s within one minute, and a GSI query took a median
   1.2 s from outside against 0.65 s for GetItem. A query on an index cannot
@@ -698,8 +734,8 @@ Open: 15. Resolved: 159.
   read is a SQLite query, DescribeTable on ecs-dev-desktop's 2,501-item table
   took a median 1.6 s (runs up to 3 s) against 0.7 s for ListTables. That
   application's health ping is a DescribeTable, and its monitoring endpoint,
-  which Shauth abandons after five seconds, took 5.8 s and failed the Scaleway
-  post-apply gate on 2026-09-14. **Fixed**: DescribeTable serves the figures
+  which Shauth abandons after five seconds, took 5.8 s and failed a production
+  deployment's acceptance gate on 2026-09-14. **Fixed**: DescribeTable serves the figures
   from a cache and never reads items on the request path; a background refresh,
   counted by the test drain, recomputes a table at most once a minute, and a
   table described before its first refresh reports zero — DynamoDB itself
@@ -710,7 +746,7 @@ Open: 15. Resolved: 159.
 
 - ~~**BUG-3000 (DynamoDB never deleted an item past its TTL, and DescribeTable
   reported every table empty):**~~ Found on 2026-09-14 when ecs-dev-desktop's
-  admin workspace list took 32 s on the Scaleway stack. Its table had TTL
+  admin workspace list took 32 s on a production deployment. Its table had TTL
   enabled on `expiresAtEpochSeconds`, and 3,874 of its 3,876 session
   correlations and all 1,056 logout tokens had expired, the oldest in August:
   `UpdateTimeToLive` stored the setting and `DescribeTimeToLive` read it back,
@@ -775,7 +811,7 @@ Open: 15. Resolved: 159.
   at most three times, and keeps the existing index and platform checks.
 
 - ~~**BUG-2998 (DescribeTasks omitted each container's image, digest and sizing,
-  and a task RunTask gave no group had none):**~~ Found on the Scaleway stack
+  and a task RunTask gave no group had none):**~~ Found on a production deployment
   on 2026-09-14 while confirming a control-plane rollout: `describe-tasks`
   returned `containers[]` with only `containerArn`, `name`, `lastStatus` and
   `networkInterfaces`, so a caller could not confirm from the API which image a

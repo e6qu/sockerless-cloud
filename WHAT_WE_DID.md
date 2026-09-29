@@ -123,7 +123,7 @@ resolving once that branch is deleted.
   failure says so rather than reporting a missing `TopicArn`.
 - **A retention the service reports is also a bound on what the simulator
   holds.** Stopped Amazon ECS tasks, temporary credentials and AWS WAF sampled
-  requests were only filtered out of answers, so the Scaleway simulator reached
+  requests were only filtered out of answers, so a deployed simulator reached
   21,409 task rows, 1.2 million credentials and 196,000 samples. Sweepers now
   delete each at its real lifetime through `Store.Prune`, which reads 500 rows
   at a time. Where deleting a record would change an answer, the answer moved
@@ -417,7 +417,7 @@ programs that link it, so a framework function no simulator reaches is dead.
 
 A slow phase of an Amazon ECS task start is attributed by measuring it where
 the simulator runs, never by reading the code. The `vpc:egress` and
-`vpc:security-groups` phases cost 3-6 s and 1.6-3 s on the Scaleway stack,
+`vpc:security-groups` phases cost 3-6 s and 1.6-3 s on a production deployment,
 where the simulator runs inside a Firecracker microVM, and fixes aimed at the
 `nft` commits and timings taken on the host changed nothing. Sub-phase marks
 reported from the guest, and goroutine samples taken through its diagnostics

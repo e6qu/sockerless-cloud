@@ -35,13 +35,23 @@ done
 # from the identifiers the suites name — by lambda-runtime-images-for.sh.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# A simulator runs the framework's helper containers too (the volume snapshot
+# helper, the reaper's busybox), and those images are named in sim/, so a
+# simulator directory brings the framework with it.
+dirs=("$@")
+for dir in "$@"; do
+    case "$dir" in
+        *simulator-*) dirs+=("$here/../sim") ;;
+    esac
+done
+
 {
-    find "$@" -type f \( \
+    find "${dirs[@]}" -type f \( \
             -name '*.go' -o -name '*.tf' -o -name '*.tftpl' -o -name '*.hcl' -o \
             -name '*.sh' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' -o \
             -name 'Dockerfile*' \
         \) ! -path '*simulator-aws/lambda_runtime.go' -print0 |
-        xargs -0 grep -hoE 'public\.ecr\.aws/[a-z0-9][a-z0-9/._-]*:[a-zA-Z0-9][a-zA-Z0-9._-]*'
+        xargs -0 grep -hoE 'public\.ecr\.aws/[a-z0-9][a-z0-9/._-]*(:[a-zA-Z0-9][a-zA-Z0-9._-]*|@sha256:[0-9a-f]{64})'
 
     for dir in "$@"; do
         case "$dir" in

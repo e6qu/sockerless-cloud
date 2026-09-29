@@ -113,10 +113,10 @@ func ddbKeysInPartition(keys []string, prefix string) []string {
 
 // ddbKeyInPartition reports whether an item key belongs to the partition the
 // prefix names. `tbl/a` must not claim `tbl/ab`: the key either is the prefix
-// exactly (a hash-only table) or continues with the range separator.
+// exactly (a hash-only table) or continues with the key separator.
 func ddbKeyInPartition(key, prefix string) bool {
 	if key == prefix {
 		return true
 	}
-	return strings.HasPrefix(key, prefix+"|")
+	return strings.HasPrefix(key, prefix+ddbKeySeparator)
 }

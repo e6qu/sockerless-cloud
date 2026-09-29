@@ -34,7 +34,7 @@ func awaitECSTaskStop(t *testing.T, taskID string) {
 // with its desired status STOPPED and its stop code, reason and stoppingAt set;
 // its containers are given their stop timeout afterwards. The simulator did all
 // of that before answering, under the task's lifecycle lock, so a workspace
-// stop on the Scaleway stack took 30.5 seconds.
+// stop on a production deployment took 30.5 seconds.
 //
 // Holding the lifecycle lock stands in for whatever keeps a task's lifecycle
 // busy — a start still pulling its image, or containers taking their stop

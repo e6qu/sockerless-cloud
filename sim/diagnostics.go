@@ -23,11 +23,11 @@ import (
 // The diagnostics listener is deliberately separate from the API listener and
 // is not proxied publicly: goroutine dumps expose internal state, and
 // /debug/pprof/profile is a denial-of-service handle. It binds loopback unless
-// the deployment names another address; the Scaleway microVM names :6060 so an
-// operator reaches it from the host over the tap:
+// the deployment names another address; a simulator in a microVM can name
+// :6060 so an operator reaches it from the host over the tap:
 //
-//	curl http://172.16.0.2:6060/debug/pprof/goroutine?debug=2
-//	curl http://172.16.0.2:6060/debug/inflight
+//	curl http://<guest address>:6060/debug/pprof/goroutine?debug=2
+//	curl http://<guest address>:6060/debug/inflight
 
 // SlowRequestThreshold is the age at which an in-flight request is reported as
 // slow. It bounds nothing and cancels nothing -- it only decides when the

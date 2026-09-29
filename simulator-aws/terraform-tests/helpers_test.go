@@ -351,6 +351,7 @@ func terraformCmd(args ...string) *exec.Cmd {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("TF_VAR_endpoint=%s", tfEndpoint),
+		"TF_VAR_lambda_architecture="+nativeLambdaArchitecture(),
 	)
 	if caCertFile != "" {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("SSL_CERT_FILE=%s", caCertFile))
@@ -367,17 +368,18 @@ func terraformCmd(args ...string) *exec.Cmd {
 	return cmd
 }
 
+// The dependency lock beside each configuration is untracked local state, so
+// init re-resolves the providers the configuration pins exactly rather than
+// failing on a lock an earlier provider bump left behind.
 func terraformArgs(args ...string) []string {
-	if len(args) == 0 || tfState == "" {
+	if len(args) == 0 || args[0] != "init" {
 		return args
 	}
-	if args[0] == "init" {
-		out := make([]string, 0, len(args)+2)
-		out = append(out, args[0], "-backend-config=path="+tfState, "-reconfigure")
-		out = append(out, args[1:]...)
-		return out
+	out := append([]string{"init", "-upgrade"}, args[1:]...)
+	if tfState != "" {
+		out = append(out, "-backend-config=path="+tfState, "-reconfigure")
 	}
-	return args
+	return out
 }
 
 func mustAbs(name string) string {
@@ -511,4 +513,13 @@ func trustedHTTPClient(caCert string) (*http.Client, error) {
 			TLSClientConfig: &tls.Config{RootCAs: pool},
 		},
 	}, nil
+}
+
+// nativeLambdaArchitecture is the Lambda architecture of the images the suite
+// builds for this machine.
+func nativeLambdaArchitecture() string {
+	if runtime.GOARCH == "arm64" {
+		return "arm64"
+	}
+	return "x86_64"
 }

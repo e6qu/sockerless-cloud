@@ -144,10 +144,10 @@ resource "aws_ecs_task_definition" "this" {
   cpu                      = "256"
   memory                   = "512"
   container_definitions = jsonencode([{
-    name      = "app"
+    name        = "app"
     stopTimeout = 2
-    image     = "nginx"
-    essential = true
+    image       = "nginx"
+    essential   = true
   }])
   runtime_platform {
     cpu_architecture        = "ARM64"
