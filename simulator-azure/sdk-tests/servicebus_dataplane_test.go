@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/admin"
 	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -277,7 +278,7 @@ func TestServiceBus_AMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 	receiveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	messages, err := receiver.ReceiveMessages(receiveCtx, 1, nil)
-	require.NoError(t, err)
+	require.NoError(t, err, "the message never reached the receiver: %s", sbTopicDeliveryState(t, adminClient, topic, sub))
 	require.Len(t, messages, 1)
 	assert.Equal(t, []byte("hello from topic"), messages[0].Body)
 }
@@ -346,7 +347,30 @@ func TestServiceBus_RawAMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 	receiveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	messages, err := receiver.ReceiveMessages(receiveCtx, 1, nil)
-	require.NoError(t, err)
+	require.NoError(t, err, "the message never reached the receiver: %s", sbTopicDeliveryState(t, adminClient, topic, sub))
 	require.Len(t, messages, 1)
 	assert.Equal(t, []byte("hello from raw topic"), messages[0].Body)
+}
+
+// sbTopicDeliveryState reports where a message sent to a topic rests, so a
+// receive that times out says whether the fan-out or the delivery lost it.
+func sbTopicDeliveryState(t *testing.T, adminClient *admin.Client, topic, sub string) string {
+	t.Helper()
+	stateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	subProps, subErr := adminClient.GetSubscriptionRuntimeProperties(stateCtx, topic, sub, nil)
+	topicProps, topicErr := adminClient.GetTopicRuntimeProperties(stateCtx, topic, nil)
+	state := fmt.Sprintf("subscription %s/%s: ", topic, sub)
+	if subErr != nil {
+		state += "error " + subErr.Error()
+	} else {
+		state += fmt.Sprintf("%d active, %d dead-lettered", subProps.ActiveMessageCount, subProps.DeadLetterMessageCount)
+	}
+	state += fmt.Sprintf("; topic %s: ", topic)
+	if topicErr != nil {
+		state += "error " + topicErr.Error()
+	} else {
+		state += fmt.Sprintf("%d subscriptions, %d bytes", topicProps.SubscriptionCount, topicProps.SizeInBytes)
+	}
+	return state
 }
