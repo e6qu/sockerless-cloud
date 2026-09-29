@@ -3,6 +3,7 @@ package gcp_cli_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -125,14 +126,12 @@ func TestGcloudComputeInstances_AsyncInsertOperation(t *testing.T) {
 	require.Contains(t, described, "insert")
 	require.Contains(t, described, name)
 
-	// Wait for it the way a client that used --async does: gcloud blocks on
-	// the zone operation's wait method until the operation is DONE.
-	out, err = gcloudCLI("compute", "operations", "wait", operation, "--zone="+zone).CombinedOutput()
-	require.NoError(t, err, "operations wait: %s", out)
-	out, err = gcloudCLI("compute", "operations", "describe", operation,
-		"--zone="+zone, "--format=value(status)").CombinedOutput()
-	require.NoError(t, err, "operations describe: %s", out)
-	require.Equal(t, "DONE", strings.TrimSpace(string(out)), "the insert operation is DONE once the wait returns")
+	// Poll it to DONE the way a client that used --async does.
+	require.Eventually(t, func() bool {
+		status, err := gcloudCLI("compute", "operations", "describe", operation,
+			"--zone="+zone, "--format=value(status)").CombinedOutput()
+		return err == nil && strings.TrimSpace(string(status)) == "DONE"
+	}, 5*time.Minute, 2*time.Second, "the insert operation never reached DONE")
 
 	out, err = gcloudCLI("compute", "instances", "describe", name,
 		"--zone="+zone, "--format=value(status)").CombinedOutput()

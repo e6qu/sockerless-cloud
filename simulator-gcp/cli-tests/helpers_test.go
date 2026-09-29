@@ -22,13 +22,14 @@ import (
 )
 
 var (
-	baseURL       string
-	grpcAddr      string // host:port of the sim's gRPC server (Bigtable data/admin + Cloud Logging)
-	cbtPath       string // absolute path to an installed cbt binary (Bigtable data-plane CLI)
-	simCmd        *exec.Cmd
-	binaryPath    string
-	evalImageName string
-	tmpDir        string
+	baseURL          string
+	grpcAddr         string // host:port of the sim's gRPC server (Bigtable data/admin + Cloud Logging)
+	cbtPath          string // absolute path to an installed cbt binary (Bigtable data-plane CLI)
+	simCmd           *exec.Cmd
+	binaryPath       string
+	evalImageName    string
+	commandImageName string
+	tmpDir           string
 
 	project  = "test-project"
 	location = "us-central1"
@@ -124,6 +125,10 @@ func TestMain(m *testing.M) {
 	evalDir, _ := filepath.Abs("../../testdata/eval-arithmetic")
 	evalImageName = "sockerless-eval-arithmetic:gcp-cli"
 	buildGoScratchImage(evalImageName, evalDir, "eval-arithmetic", workloadPlatform)
+
+	commandDir, _ := filepath.Abs("../../testdata/container-command")
+	commandImageName = "sockerless-container-command:gcp-cli"
+	buildGoScratchImage(commandImageName, commandDir, "container-command", workloadPlatform)
 
 	// Find free ports for HTTP and gRPC
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
