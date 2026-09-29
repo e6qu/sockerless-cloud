@@ -55,3 +55,15 @@ func TestNoSuitePullsABaseImageItself(t *testing.T) {
 		t.Fatalf("these files pull a base image without asking the host first; use baseimage.Ensure:\n%s", strings.Join(offenders, "\n"))
 	}
 }
+
+func TestLocalRefSpellsTheDigestAsATag(t *testing.T) {
+	cases := map[string]string{
+		"public.ecr.aws/docker/library/alpine:3.22":           "public.ecr.aws/docker/library/alpine:3.22",
+		"public.ecr.aws/aws-dynamodb-local/x@sha256:ff89bd48": "public.ecr.aws/aws-dynamodb-local/x:sha256-ff89bd48",
+	}
+	for image, want := range cases {
+		if got := LocalRef(image); got != want {
+			t.Errorf("LocalRef(%q) = %q, want %q", image, got, want)
+		}
+	}
+}
