@@ -201,6 +201,21 @@ var (
 
 const msRedisClusterType = "type.googleapis.com/google.cloud.redis.v1.Cluster"
 
+// The redis v1 document carries two OperationMetadata messages:
+// GoogleCloudRedisV1OperationMetadata, the google.cloud.redis.v1 message the
+// instance methods declare (statusDetail, cancelRequested), and
+// OperationMetadata, the google.cloud.redis.cluster.v1 message of the
+// Memorystore for Redis Cluster methods (statusMessage, requestedCancellation).
+func redisInstanceLRO(project, location string, resource any, typeName string) Operation {
+	return newLRO(project, location, resource, typeName,
+		gcpStandardOperationMetadata("type.googleapis.com/google.cloud.redis.v1.OperationMetadata"))
+}
+
+func redisClusterLRO(project, location string, resource any, typeName string) Operation {
+	return newLRO(project, location, resource, typeName,
+		gcpStandardOperationMetadata("type.googleapis.com/google.cloud.redis.cluster.v1.OperationMetadata"))
+}
+
 func registerMemorystoreRedisClusters(srv *sim.Server) {
 	msRedisClusters = sim.MakeStore[MSRedisCluster](srv.DB(), "memorystore_redis_clusters")
 	msRedisBackupColls = sim.MakeStore[MSRedisBackupCollection](srv.DB(), "memorystore_redis_backup_collections")
@@ -296,7 +311,7 @@ func handleMSRedisClusterCreate(w http.ResponseWriter, r *http.Request) {
 		}},
 	}
 	msRedisClusters.Put(name, cluster)
-	op := newLRO(project, location, cluster, msRedisClusterType)
+	op := redisClusterLRO(project, location, cluster, msRedisClusterType)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -363,7 +378,7 @@ func handleMSRedisClusterPatch(w http.ResponseWriter, r *http.Request) {
 		c.PreciseSizeGb = float64(c.ShardCount*(c.ReplicaCount+1)) * 13.0
 	})
 	updated, _ := msRedisClusters.Get(name)
-	op := newLRO(project, location, updated, msRedisClusterType)
+	op := redisClusterLRO(project, location, updated, msRedisClusterType)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -375,7 +390,7 @@ func handleMSRedisClusterDelete(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster not found: %s", name)
 		return
 	}
-	op := newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
+	op := redisClusterLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -400,7 +415,7 @@ func handleMSRedisClusterAction(w http.ResponseWriter, r *http.Request) {
 	case "rescheduleClusterMaintenance":
 		// No maintenance window is simulated; the reschedule settles
 		// synchronously and the cluster stays ACTIVE.
-		op := newLRO(project, location, cluster, msRedisClusterType)
+		op := redisClusterLRO(project, location, cluster, msRedisClusterType)
 		sim.WriteJSON(w, http.StatusOK, op)
 	case "addTokenAuthUser":
 		handleMSRedisAddTokenAuthUser(w, r, project, location, id)
@@ -451,7 +466,7 @@ func handleMSRedisClusterBackup(w http.ResponseWriter, r *http.Request, project,
 		Uid:            sim.NewUUID(),
 	}
 	msRedisBackups.Put(backupName, backup)
-	op := newLRO(project, location, cluster, msRedisClusterType)
+	op := redisClusterLRO(project, location, cluster, msRedisClusterType)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -505,7 +520,7 @@ func handleMSRedisAddTokenAuthUser(w http.ResponseWriter, r *http.Request, proje
 	}
 	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s/tokenAuthUsers/%s", project, location, clusterID, userID)
 	msRedisTokenAuthUsers.Put(name, MSRedisTokenAuthUser{Name: name, State: "ACTIVE"})
-	op := newLRO(project, location, map[string]any{"name": name},
+	op := redisClusterLRO(project, location, map[string]any{"name": name},
 		"type.googleapis.com/google.cloud.redis.v1.TokenAuthUser")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
@@ -544,7 +559,7 @@ func handleMSRedisTokenAuthUserDelete(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tokenAuthUser not found: %s", name)
 		return
 	}
-	op := newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
+	op := redisClusterLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -586,7 +601,7 @@ func handleMSRedisTokenAuthUserAction(w http.ResponseWriter, r *http.Request) {
 		State:      "ACTIVE",
 	}
 	msRedisAuthTokens.Put(tokenName, token)
-	op := newLRO(project, location, token, "type.googleapis.com/google.cloud.redis.v1.AuthToken")
+	op := redisClusterLRO(project, location, token, "type.googleapis.com/google.cloud.redis.v1.AuthToken")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -622,7 +637,7 @@ func handleMSRedisAuthTokenDelete(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "authToken not found: %s", name)
 		return
 	}
-	op := newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
+	op := redisClusterLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -680,7 +695,7 @@ func handleMSRedisBackupDelete(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", name)
 		return
 	}
-	op := newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
+	op := redisClusterLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -711,7 +726,7 @@ func handleMSRedisBackupAction(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
-	op := newLRO(project, location, backup, "type.googleapis.com/google.cloud.redis.v1.Backup")
+	op := redisClusterLRO(project, location, backup, "type.googleapis.com/google.cloud.redis.v1.Backup")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -804,7 +819,7 @@ func handleMSRedisAclPolicyPatch(w http.ResponseWriter, r *http.Request) {
 	updated.Version = revision
 	msRedisAclPolicies.Put(name, updated)
 	msRedisPutAclRevision(updated, revision)
-	op := newLRO(project, location, updated, "type.googleapis.com/google.cloud.redis.v1.AclPolicy")
+	op := redisClusterLRO(project, location, updated, "type.googleapis.com/google.cloud.redis.v1.AclPolicy")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -821,7 +836,7 @@ func handleMSRedisAclPolicyDelete(w http.ResponseWriter, r *http.Request) {
 			msRedisAclRevisions.Delete(revision.Name)
 		}
 	}
-	op := newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
+	op := redisClusterLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1077,7 +1092,7 @@ func handleMSRedisCreate(w http.ResponseWriter, r *http.Request) {
 		TransitEncryptionMode: defaultStr(req.TransitEncryptionMode, "DISABLED"),
 	}
 	msRedisInstances.Put(inst.Name, inst)
-	op := newLRO(project, location, inst, "type.googleapis.com/google.cloud.redis.v1.Instance")
+	op := redisInstanceLRO(project, location, inst, "type.googleapis.com/google.cloud.redis.v1.Instance")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1150,7 +1165,7 @@ func handleMSRedisPatch(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	updated, _ := msRedisInstances.Get(name)
-	op := newLRO(project, location, updated, "type.googleapis.com/google.cloud.redis.v1.Instance")
+	op := redisInstanceLRO(project, location, updated, "type.googleapis.com/google.cloud.redis.v1.Instance")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1162,7 +1177,7 @@ func handleMSRedisDelete(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
 		return
 	}
-	op := newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
+	op := redisInstanceLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 

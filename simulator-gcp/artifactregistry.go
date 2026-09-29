@@ -280,7 +280,7 @@ func registerArtifactRegistry(srv *sim.Server) {
 
 		repos.Put(name, repo)
 
-		lro := newLRO(project, location, repo, "type.googleapis.com/google.devtools.artifactregistry.v1.Repository")
+		lro := artifactRegistryLRO(project, location, repo, "type.googleapis.com/google.devtools.artifactregistry.v1.Repository")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -381,7 +381,7 @@ func registerArtifactRegistry(srv *sim.Server) {
 			dockerImages.Delete(img.Name)
 		}
 
-		lro := newLRO(project, location, repo, "type.googleapis.com/google.devtools.artifactregistry.v1.Repository")
+		lro := artifactRegistryLRO(project, location, repo, "type.googleapis.com/google.devtools.artifactregistry.v1.Repository")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -429,6 +429,32 @@ func registerArtifactRegistry(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v2/token", arTokenServiceMethodNotAllowed)
 }
 
+// arOperationMetadataType is the metadata message Artifact Registry declares
+// for its long-running operations; it carries no fields.
+const arOperationMetadataType = "type.googleapis.com/google.devtools.artifactregistry.v1.OperationMetadata"
+
+func artifactRegistryLRO(project, location string, resource any, typeName string) Operation {
+	return newLRO(project, location, resource, typeName, gcpEmptyOperationMetadata(arOperationMetadataType))
+}
+
+// arArtifactOperations names, per artifact kind, the response and metadata
+// messages its :create (upload) and :import methods declare.
+var arArtifactOperations = map[string]struct {
+	uploadResponse, uploadMetadata, importResponse, importMetadata string
+}{
+	"aptArtifacts":     {"UploadAptArtifactResponse", "UploadAptArtifactMetadata", "ImportAptArtifactsResponse", "ImportAptArtifactsMetadata"},
+	"yumArtifacts":     {"UploadYumArtifactResponse", "UploadYumArtifactMetadata", "ImportYumArtifactsResponse", "ImportYumArtifactsMetadata"},
+	"googetArtifacts":  {"UploadGoogetArtifactResponse", "UploadGoogetArtifactMetadata", "ImportGoogetArtifactsResponse", "ImportGoogetArtifactsMetadata"},
+	"goModules":        {uploadResponse: "GoModule", uploadMetadata: "UploadGoModuleMetadata"},
+	"genericArtifacts": {uploadResponse: "GenericArtifact", uploadMetadata: "UploadGenericArtifactMetadata"},
+	"kfpArtifacts":     {uploadResponse: "KfpArtifact", uploadMetadata: "UploadKfpArtifactMetadata"},
+}
+
+func arArtifactLRO(project, location, response, metadata string) Operation {
+	const pkg = "type.googleapis.com/google.devtools.artifactregistry.v1."
+	return newLRO(project, location, nil, pkg+response, gcpEmptyOperationMetadata(pkg+metadata))
+}
+
 // registerARSubresources mounts the package/version/tag/file/rule/attachment
 // CRUD surface plus the project-scoped projectSettings / vpcscConfig /
 // projectConfig singletons. Long-running mutations (delete package/version,
@@ -440,7 +466,6 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		verType    = "type.googleapis.com/google.devtools.artifactregistry.v1.Version"
 		fileType   = "type.googleapis.com/google.devtools.artifactregistry.v1.File"
 		attachType = "type.googleapis.com/google.devtools.artifactregistry.v1.Attachment"
-		importType = "type.googleapis.com/google.devtools.artifactregistry.v1.ImportArtifactsResponse"
 	)
 	packages := sim.MakeStore[ARPackage](srv.DB(), "ar_packages")
 	versions := sim.MakeStore[ARVersion](srv.DB(), "ar_versions")
@@ -550,7 +575,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		for _, t := range tags.Filter(func(t ARTag) bool { return strings.HasPrefix(t.Name, name+"/tags/") }) {
 			tags.Delete(t.Name)
 		}
-		lro := newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), pkg, pkgType)
+		lro := artifactRegistryLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), pkg, pkgType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -634,7 +659,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 			return
 		}
 		versions.Delete(name)
-		lro := newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), v, verType)
+		lro := artifactRegistryLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), v, verType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -657,7 +682,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 			}
 		}
 		_ = repo
-		lro := newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), nil, verType)
+		lro := artifactRegistryLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), nil, verType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -848,7 +873,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 			return
 		}
 		files.Delete(name)
-		lro := newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), f, fileType)
+		lro := artifactRegistryLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), f, fileType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -894,7 +919,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 			UpdateTime: nowTimestamp(),
 		}
 		files.Put(f.Name, f)
-		lro := newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), f, fileType)
+		lro := artifactRegistryLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), f, fileType)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"operation": lro})
 	}
 	srv.HandleFunc("POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload", uploadFile)
@@ -1067,7 +1092,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		a.CreateTime = nowTimestamp()
 		a.UpdateTime = nowTimestamp()
 		attachments.Put(a.Name, a)
-		lro := newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), a, attachType)
+		lro := artifactRegistryLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), a, attachType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -1083,7 +1108,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 			return
 		}
 		attachments.Delete(name)
-		lro := newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), a, attachType)
+		lro := artifactRegistryLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), a, attachType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -1099,7 +1124,8 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 			if _, ok := repoExists(w, r); !ok {
 				return
 			}
-			lro := newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), nil, importType)
+			ops := arArtifactOperations[kind]
+			lro := arArtifactLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), ops.uploadResponse, ops.uploadMetadata)
 			sim.WriteJSON(w, http.StatusOK, map[string]any{"operation": lro})
 		}
 		// The document gives each media method two paths — the /upload/v1
@@ -1117,7 +1143,8 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 			if _, ok := repoExists(w, r); !ok {
 				return
 			}
-			lro := newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), nil, importType)
+			ops := arArtifactOperations[kind]
+			lro := arArtifactLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), ops.importResponse, ops.importMetadata)
 			sim.WriteJSON(w, http.StatusOK, lro)
 		})
 	}

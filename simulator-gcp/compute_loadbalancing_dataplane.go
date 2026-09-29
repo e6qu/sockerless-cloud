@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -259,22 +260,207 @@ func gcpBackendHealthKey(bs ComputeBackendService, target gcpLBTarget) string {
 	return bs.SelfLink + "|" + target.Instance.SelfLink + "|" + strconv.FormatInt(target.Port, 10)
 }
 
+// gcpRegionHealthChecks and gcpHTTPHealthChecks hold the regional health checks
+// a regional backend service names and the legacy HTTP health checks a target
+// pool names. They are assigned where those collections are registered.
+var (
+	gcpRegionHealthChecks sim.Store[map[string]any]
+	gcpHTTPHealthChecks   sim.Store[map[string]any]
+)
+
+// gcpDecodeComputeResource reads a map-backed Compute Engine resource as its
+// typed form. A record that does not decode reads as absent.
+func gcpDecodeComputeResource[T any](m map[string]any) (T, bool) {
+	var out T
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return out, false
+	}
+	return out, json.Unmarshal(raw, &out) == nil
+}
+
+// gcpResolveHealthCheck finds the global or regional health check a reference
+// names.
+func gcpResolveHealthCheck(ref string) (ComputeHealthCheck, bool) {
+	path := gcpComputeResourcePath(ref)
+	if strings.Contains(path, "/regions/") {
+		m, ok := gcpLookupComputeResource(gcpRegionHealthChecks, ref)
+		if !ok {
+			return ComputeHealthCheck{}, false
+		}
+		return gcpDecodeComputeResource[ComputeHealthCheck](m)
+	}
+	if gcpHealthChecks == nil {
+		return ComputeHealthCheck{}, false
+	}
+	return gcpHealthChecks.Get(path)
+}
+
 // gcpBackendServiceHealthChecks resolves the health checks a backend service
 // names. A reference to a health check that no longer exists resolves to
 // nothing, which leaves the backend without a check that could pass.
 func gcpBackendServiceHealthChecks(bs ComputeBackendService) ([]ComputeHealthCheck, bool) {
-	if gcpHealthChecks == nil {
-		return nil, false
-	}
 	checks := make([]ComputeHealthCheck, 0, len(bs.HealthChecks))
 	for _, ref := range bs.HealthChecks {
-		hc, ok := gcpHealthChecks.Get(strings.TrimPrefix(ref, "https://www.googleapis.com/compute/v1/"))
+		hc, ok := gcpResolveHealthCheck(ref)
 		if !ok {
 			return nil, false
 		}
 		checks = append(checks, hc)
 	}
 	return checks, true
+}
+
+// gcpBackendServicesToCheck returns every global and regional backend service,
+// the set the health checker keeps health for.
+func gcpBackendServicesToCheck() []ComputeBackendService {
+	var out []ComputeBackendService
+	if gcpBackendServices != nil {
+		out = append(out, gcpBackendServices.List()...)
+	}
+	if gcpRegionBackendServices != nil {
+		for _, m := range gcpRegionBackendServices.List() {
+			if bs, ok := gcpDecodeComputeResource[ComputeBackendService](m); ok {
+				out = append(out, bs)
+			}
+		}
+	}
+	return out
+}
+
+// gcpLegacyHTTPHealthCheck is the compute#httpHealthCheck a target pool names.
+type gcpLegacyHTTPHealthCheck struct {
+	Host               string `json:"host"`
+	Port               int64  `json:"port"`
+	RequestPath        string `json:"requestPath"`
+	CheckIntervalSec   int64  `json:"checkIntervalSec"`
+	TimeoutSec         int64  `json:"timeoutSec"`
+	HealthyThreshold   int64  `json:"healthyThreshold"`
+	UnhealthyThreshold int64  `json:"unhealthyThreshold"`
+}
+
+// gcpTargetPoolHealthCheck resolves the legacy HTTP health check a target pool
+// names — a pool takes at most one — as the HTTP check it runs, with the
+// defaults the HttpHealthCheck resource documents: port 80 and path "/". With
+// no host set, the check sends the address of the forwarding rule it checks on
+// behalf of. named reports whether the pool names a check at all.
+func gcpTargetPoolHealthCheck(poolPath string, pool map[string]any) (hc ComputeHealthCheck, named, ok bool) {
+	refs := computeMemberList(pool, "healthChecks")
+	if len(refs) == 0 {
+		return ComputeHealthCheck{}, false, false
+	}
+	m, found := gcpLookupComputeResource(gcpHTTPHealthChecks, refs[0])
+	if !found {
+		return ComputeHealthCheck{}, true, false
+	}
+	legacy, decoded := gcpDecodeComputeResource[gcpLegacyHTTPHealthCheck](m)
+	if !decoded {
+		return ComputeHealthCheck{}, true, false
+	}
+	if legacy.Port == 0 {
+		legacy.Port = 80
+	}
+	if legacy.RequestPath == "" {
+		legacy.RequestPath = "/"
+	}
+	if legacy.Host == "" {
+		legacy.Host = gcpTargetPoolForwardingAddress(poolPath)
+	}
+	return ComputeHealthCheck{
+		Type:               "HTTP",
+		CheckIntervalSec:   legacy.CheckIntervalSec,
+		TimeoutSec:         legacy.TimeoutSec,
+		HealthyThreshold:   legacy.HealthyThreshold,
+		UnhealthyThreshold: legacy.UnhealthyThreshold,
+		HttpHealthCheck: &ComputeHTTPHealthCheck{
+			Port:        legacy.Port,
+			Host:        legacy.Host,
+			RequestPath: legacy.RequestPath,
+		},
+	}, true, true
+}
+
+// gcpTargetPoolForwardingAddress is the address of a regional forwarding rule
+// that targets the pool, or "" when none does.
+func gcpTargetPoolForwardingAddress(poolPath string) string {
+	if gcpRegionForwardingRules == nil {
+		return ""
+	}
+	for _, fr := range gcpRegionForwardingRules.List() {
+		target, _ := fr["target"].(string)
+		if target != "" && gcpComputeResourcePath(target) == poolPath {
+			address, _ := fr["IPAddress"].(string)
+			return address
+		}
+	}
+	return ""
+}
+
+// gcpTargetPoolInstance resolves a target pool member to an instance with an
+// internal address a health check can probe.
+func gcpTargetPoolInstance(ref string) (ComputeInstance, bool) {
+	if gcpInstances == nil {
+		return ComputeInstance{}, false
+	}
+	inst, ok := gcpInstances.Get(gcpComputeResourcePath(ref))
+	if !ok || len(inst.NetworkInterfaces) == 0 || inst.NetworkInterfaces[0].NetworkIP == "" {
+		return ComputeInstance{}, false
+	}
+	return inst, true
+}
+
+func gcpTargetPoolHealthKey(poolPath, instanceRef string) string {
+	return "targetPool|" + poolPath + "|" + gcpComputeResourcePath(instanceRef)
+}
+
+// gcpTargetPoolHealthTargets are the pool members its health check probes.
+func gcpTargetPoolHealthTargets() []lbplane.HealthTarget[string] {
+	if gcpComputeTargetPools == nil {
+		return nil
+	}
+	var targets []lbplane.HealthTarget[string]
+	for _, pool := range gcpComputeTargetPools.List() {
+		selfLink, _ := pool["selfLink"].(string)
+		poolPath := gcpComputeResourcePath(selfLink)
+		hc, _, ok := gcpTargetPoolHealthCheck(poolPath, pool)
+		if !ok {
+			continue
+		}
+		policy := gcpHealthPolicy(hc)
+		for _, ref := range computeMemberList(pool, "instances") {
+			inst, ok := gcpTargetPoolInstance(ref)
+			if !ok {
+				continue
+			}
+			target := gcpLBTarget{Instance: inst, Port: hc.HttpHealthCheck.Port}
+			targets = append(targets, lbplane.HealthTarget[string]{
+				Key:    gcpTargetPoolHealthKey(poolPath, ref),
+				Policy: policy,
+				Probe: func(ctx context.Context) (int, error) {
+					return gcpProbeBackend(ctx, hc, target)
+				},
+			})
+		}
+	}
+	return targets
+}
+
+// gcpTargetPoolInstanceHealth is the HealthStatus a target pool reports for one
+// of its members. A member is healthy if and only if the pool's health check
+// passes; a pool naming no health check holds every member healthy.
+func gcpTargetPoolInstanceHealth(poolPath string, pool map[string]any, instanceRef string) map[string]any {
+	entry := map[string]any{"instance": instanceRef}
+	if inst, ok := gcpTargetPoolInstance(instanceRef); ok {
+		entry["ipAddress"] = inst.NetworkInterfaces[0].NetworkIP
+	}
+	state := "UNHEALTHY"
+	if _, named, _ := gcpTargetPoolHealthCheck(poolPath, pool); !named {
+		state = "HEALTHY"
+	} else if health, _ := gcpBackendHealth.Health(gcpTargetPoolHealthKey(poolPath, instanceRef)); health.State == lbplane.HealthHealthy {
+		state = "HEALTHY"
+	}
+	entry["healthState"] = state
+	return entry
 }
 
 // gcpHealthPolicy is a health check's schedule in its own terms: a backend is
@@ -302,14 +488,12 @@ func gcpHealthPolicy(hc ComputeHealthCheck) lbplane.HealthPolicy {
 	}
 }
 
-// gcpSweepBackendHealth probes every backend of every backend service with a
-// health check whose next probe has come due at now.
+// gcpSweepBackendHealth probes every backend of every backend service, and
+// every member of every target pool, whose health check's next probe has come
+// due at now.
 func gcpSweepBackendHealth(ctx context.Context, now time.Time) {
-	if gcpBackendServices == nil {
-		return
-	}
-	var targets []lbplane.HealthTarget[string]
-	for _, bs := range gcpBackendServices.List() {
+	targets := gcpTargetPoolHealthTargets()
+	for _, bs := range gcpBackendServicesToCheck() {
 		checks, ok := gcpBackendServiceHealthChecks(bs)
 		if !ok || len(checks) == 0 {
 			continue

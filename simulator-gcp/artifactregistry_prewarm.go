@@ -152,8 +152,11 @@ func arHandlePrewarm(w http.ResponseWriter, r *http.Request, repo string, versio
 		Repo:           repo,
 	}
 	arPrewarmed.Put(key, artifact)
+	// The document declares no prewarm-specific metadata message, so the
+	// operation carries the API's own OperationMetadata.
 	sim.WriteJSON(w, http.StatusOK, newLROFromResource(repo, map[string]any{"prewarmedArtifact": artifact},
-		"type.googleapis.com/google.devtools.artifactregistry.v1.PrewarmArtifactResponse"))
+		"type.googleapis.com/google.devtools.artifactregistry.v1.PrewarmArtifactResponse",
+		map[string]any{"@type": arOperationMetadataType}))
 }
 
 func arHandleCheckPrewarmed(w http.ResponseWriter, r *http.Request, repo string) {
@@ -260,7 +263,14 @@ func arHandleExportArtifact(w http.ResponseWriter, r *http.Request, repo string,
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, newLROFromResource(repo, map[string]any{"exportedVersion": version},
-		"type.googleapis.com/google.devtools.artifactregistry.v1.ExportArtifactResponse"))
+		"type.googleapis.com/google.devtools.artifactregistry.v1.ExportArtifactResponse",
+		map[string]any{
+			"@type": "type.googleapis.com/google.devtools.artifactregistry.v1.ExportArtifactMetadata",
+			"exportedFiles": []map[string]any{{
+				"name":          digest,
+				"gcsObjectPath": "gs://" + bucket + "/" + object,
+			}},
+		}))
 }
 
 // arResolveVersion follows a tag to its version, or reads the version directly.

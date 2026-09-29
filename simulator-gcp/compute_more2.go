@@ -188,8 +188,7 @@ func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]
 			body = map[string]any{}
 		}
 		name, _ := body["name"].(string)
-		if name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		if computeRefuseNameOf(w, "compute#license", name) {
 			return
 		}
 		key := relPath(r, name)
@@ -296,7 +295,7 @@ func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]
 			nj, _ := items[j]["name"].(string)
 			return ni < nj
 		})
-		listed, listOK := gcpApplyListParams(w, r, items)
+		listed, listOK := gcpApplyComputeListParams(w, r, items)
 		if !listOK {
 			return
 		}

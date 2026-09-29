@@ -432,7 +432,7 @@ func cwWriteCBOR(w http.ResponseWriter, v any) {
 // from `message` (verified against aws-sdk-go-v2 cloudwatch's getProtocolErrorInfo).
 // The plain JSON `AWSError` shape is only valid for the awsJson surfaces.
 func cwWriteCBORError(w http.ResponseWriter, code, message string, status int) {
-	data, err := cwEncMode.Marshal(map[string]any{"__type": code, "message": message})
+	data, err := cwEncMode.Marshal(awsErrorBody("cloudwatch", code, message))
 	if err != nil {
 		AWSError(w, "InternalFailure", "Failed to encode error", http.StatusInternalServerError)
 		return

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -470,12 +469,10 @@ func handleSQLCloneInstance(w http.ResponseWriter, r *http.Request) {
 			sqlUserSecrets.Put(sqlUserKey(project, dest, u.Host, u.Name), credential)
 		}
 	}
-	installed, installErr := sqlInstallDataPlane(&cloned)
-	if installErr != nil || !installed {
-		cloned.IpAddresses = []map[string]any{
-			{"type": "PRIMARY", "ipAddress": "10.0.0.1"},
-		}
-	}
+	// The source's address is the source's; the clone holds only one its own
+	// data plane binds.
+	cloned.IpAddresses = nil
+	sqlReportDataPlane(&cloned)
 	sqlInstances.Put(sqlInstanceKey(project, dest), cloned)
 	op := newSQLOperationRunning(project, "CLONE", dest)
 	opName := op.Name
@@ -614,12 +611,8 @@ func handleSQLPointInTimeRestore(w http.ResponseWriter, r *http.Request, project
 			sqlUserSecrets.Put(sqlUserKey(project, target, u.Host, u.Name), credential)
 		}
 	}
-	installed, installErr := sqlInstallDataPlane(&restored)
-	if installErr != nil || !installed {
-		restored.IpAddresses = []map[string]any{
-			{"type": "PRIMARY", "ipAddress": "10.0.0.1"},
-		}
-	}
+	restored.IpAddresses = nil
+	sqlReportDataPlane(&restored)
 	sqlInstances.Put(sqlInstanceKey(project, target), restored)
 
 	// The vendored Operation.operationType enum publishes no point-in-time
@@ -844,27 +837,7 @@ func handleSQLInsertInstance(w http.ResponseWriter, r *http.Request) {
 		Settings:                         req.Settings,
 		SelfLink:                         gcpSelfLink(r, fmt.Sprintf("%s/projects/%s/instances/%s", sqlAPIPrefix(r), project, req.Name)),
 	}
-	// The PRIMARY address is a listener this process owns at the engine's
-	// conventional port. A host that cannot provide one (no container
-	// runtime, or no loopback address offers the port) leaves the instance
-	// modeled with the nominal address the slice always fabricated — said
-	// out loud below, never silently.
-	installed, err := sqlInstallDataPlane(&inst)
-	if err != nil || !installed {
-		inst.IpAddresses = []map[string]any{
-			{"type": "PRIMARY", "ipAddress": "10.0.0.1"},
-		}
-		if family, hasEngine := sqlEngineFamily(inst.DatabaseVersion); hasEngine {
-			reason := "this simulator was started API-only"
-			if err != nil {
-				reason = err.Error()
-			} else if sim.RequireContainerRuntime("the Cloud SQL data plane") == nil {
-				reason = "the host offers no loopback address at the engine's port"
-			}
-			fmt.Fprintf(os.Stderr, "[sim-cloudsql] instance %s/%s (%s) is modeled without a data plane: %s\n",
-				project, req.Name, family, reason)
-		}
-	}
+	sqlReportDataPlane(&inst)
 	sqlInstances.Put(sqlInstanceKey(project, req.Name), inst)
 	// The built-in admin user Cloud SQL creates with the instance — postgres
 	// for PostgreSQL, root for MySQL — listed by users.list like any other.
@@ -1739,8 +1712,10 @@ func sqlConnectSettingsJSON(r *http.Request, inst SQLInstance) map[string]any {
 		"databaseVersion": inst.DatabaseVersion,
 		"backendType":     inst.BackendType,
 		"region":          inst.Region,
-		"ipAddresses":     inst.IpAddresses,
 		"serverCaCert":    sqlNewSslCert(r, inst.Project, inst.Name, "server-ca"),
+	}
+	if len(inst.IpAddresses) > 0 {
+		settings["ipAddresses"] = inst.IpAddresses
 	}
 	if dnsName := sqlInstanceDNSName(inst); dnsName != "" {
 		settings["dnsName"] = dnsName

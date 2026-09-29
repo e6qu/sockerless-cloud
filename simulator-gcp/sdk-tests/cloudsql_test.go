@@ -401,3 +401,37 @@ func TestCloudSQL_SslCertsAndConnect(t *testing.T) {
 	_, err = svc.SslCerts.Delete(project, instanceName, fp).Do()
 	require.NoError(t, err)
 }
+
+// A Cloud SQL instance lists only the addresses it serves on. The simulator
+// runs no SQL Server engine, so a SQL Server instance, its connect settings
+// and its clone carry no address at all.
+func TestCloudSQL_InstanceWithoutADataPlaneHasNoAddress(t *testing.T) {
+	svc := sqlAdminService(t)
+	const project, instanceName = "test-project", "no-address-mssql"
+
+	_, err := svc.Instances.Insert(project, &sqladmin.DatabaseInstance{
+		Name:            instanceName,
+		Region:          "us-central1",
+		DatabaseVersion: "SQLSERVER_2022_STANDARD",
+		RootPassword:    "Str0ng-Passw0rd",
+	}).Do()
+	require.NoError(t, err)
+
+	inst, err := svc.Instances.Get(project, instanceName).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNABLE", inst.State)
+	assert.Empty(t, inst.IpAddresses, "nothing serves the instance, so it has no address")
+
+	settings, err := svc.Connect.Get(project, instanceName).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "SQLSERVER_2022_STANDARD", settings.DatabaseVersion)
+	assert.Empty(t, settings.IpAddresses)
+
+	_, err = svc.Instances.Clone(project, instanceName, &sqladmin.InstancesCloneRequest{
+		CloneContext: &sqladmin.CloneContext{DestinationInstanceName: instanceName + "-clone"},
+	}).Do()
+	require.NoError(t, err)
+	clone, err := svc.Instances.Get(project, instanceName+"-clone").Do()
+	require.NoError(t, err)
+	assert.Empty(t, clone.IpAddresses)
+}

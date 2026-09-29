@@ -431,7 +431,11 @@ type OperationError struct {
 // no asynchronous work, so the operation is always returned with `done=true`
 // and the embedded response — that matches what real Cloud Run returns once
 // the underlying resource has settled.
-func newLRO(project, location string, resource any, typeName string) Operation {
+//
+// metadata builds the metadata message the method declares; each service
+// supplies its own, since the message belongs to the API and not to the
+// response type.
+func newLRO(project, location string, resource any, typeName string, metadata gcpOperationMetadata) Operation {
 	opID := sim.NewUUID()
 	// Convert resource to a map and add @type for protobuf Any compatibility.
 	// GCP REST clients expect the response field to be a google.protobuf.Any
@@ -464,18 +468,9 @@ func newLRO(project, location string, resource any, typeName string) Operation {
 		target = n
 	}
 
-	metadataMap := map[string]any{
-		"@type":      gcpOperationMetadataType(typeName),
-		"createTime": nowTimestamp(),
-		"target":     target,
-	}
-	if strings.HasPrefix(typeName, "type.googleapis.com/google.cloud.run.v2.") {
-		metadataMap = cloneAnyMap(responseMap)
-	}
-
 	op := Operation{
 		Name:     fmt.Sprintf("projects/%s/locations/%s/operations/%s", project, location, opID),
-		Metadata: metadataMap,
+		Metadata: metadata(target, responseMap),
 		Done:     true,
 		Response: responseMap,
 	}
@@ -483,6 +478,10 @@ func newLRO(project, location string, resource any, typeName string) Operation {
 		crOperations.Put(op.Name, op)
 	}
 	return op
+}
+
+func cloudRunLRO(project, location string, resource any, typeName string) Operation {
+	return newLRO(project, location, resource, typeName, gcpResourceOperationMetadata)
 }
 
 func renameGCPOperation(op Operation, collection string) Operation {
@@ -670,7 +669,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 
 		jobs.Put(name, job)
 
-		lro := newLRO(project, location, job, "type.googleapis.com/google.cloud.run.v2.Job")
+		lro := cloudRunLRO(project, location, job, "type.googleapis.com/google.cloud.run.v2.Job")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -764,7 +763,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 			tasks.Delete(t.Name)
 		}
 
-		lro := newLRO(project, location, job, "type.googleapis.com/google.cloud.run.v2.Job")
+		lro := cloudRunLRO(project, location, job, "type.googleapis.com/google.cloud.run.v2.Job")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -809,13 +808,13 @@ func registerCloudRunJobs(srv *sim.Server) {
 			// The request validated and nothing was created, so the operation
 			// carries no resource: reporting an Execution that does not exist
 			// would be the fake this simulator refuses to serve.
-			lro := newLRO(project, location, nil, "type.googleapis.com/google.cloud.run.v2.Execution")
+			lro := cloudRunLRO(project, location, nil, "type.googleapis.com/google.cloud.run.v2.Execution")
 			sim.WriteJSON(w, http.StatusOK, lro)
 			return
 		}
 
 		exec := runCloudRunJob(project, location, jobID, job, request.Overrides)
-		lro := newLRO(project, location, exec, "type.googleapis.com/google.cloud.run.v2.Execution")
+		lro := cloudRunLRO(project, location, exec, "type.googleapis.com/google.cloud.run.v2.Execution")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -895,7 +894,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		if request.ValidateOnly {
 			// The request validated and nothing was cancelled, so the
 			// operation carries no resource.
-			lro := newLRO(project, location, nil, "type.googleapis.com/google.cloud.run.v2.Execution")
+			lro := cloudRunLRO(project, location, nil, "type.googleapis.com/google.cloud.run.v2.Execution")
 			sim.WriteJSON(w, http.StatusOK, lro)
 			return
 		}
@@ -905,7 +904,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "execution %q not found", name)
 			return
 		}
-		lro := newLRO(project, location, exec, "type.googleapis.com/google.cloud.run.v2.Execution")
+		lro := cloudRunLRO(project, location, exec, "type.googleapis.com/google.cloud.run.v2.Execution")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -960,7 +959,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		update.Reconciling = false
 		update.Etag = sim.NewUUID()
 		jobs.Put(name, update)
-		lro := newLRO(project, location, update, "type.googleapis.com/google.cloud.run.v2.Job")
+		lro := cloudRunLRO(project, location, update, "type.googleapis.com/google.cloud.run.v2.Job")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -984,7 +983,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		for _, tk := range tasks.Filter(func(t Task) bool { return strings.HasPrefix(t.Name, taskPrefix) }) {
 			tasks.Delete(tk.Name)
 		}
-		lro := newLRO(project, location, exec, "type.googleapis.com/google.cloud.run.v2.Execution")
+		lro := cloudRunLRO(project, location, exec, "type.googleapis.com/google.cloud.run.v2.Execution")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 

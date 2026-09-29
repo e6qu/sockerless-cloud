@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -201,6 +202,28 @@ func sqlInstallDataPlane(inst *SQLInstance) (bool, error) {
 	}
 	sqlNewDataPlane(inst.Project, inst.Name, family).Serve(listener)
 	return true, nil
+}
+
+// sqlReportDataPlane binds the instance's PRIMARY address. Cloud SQL lists only
+// the addresses an instance serves on, so an instance this host cannot serve
+// carries none, and the operator reads why on stderr.
+func sqlReportDataPlane(inst *SQLInstance) {
+	installed, err := sqlInstallDataPlane(inst)
+	if installed {
+		return
+	}
+	family, hasEngine := sqlEngineFamily(inst.DatabaseVersion)
+	if !hasEngine {
+		return
+	}
+	reason := "this simulator was started API-only"
+	if err != nil {
+		reason = err.Error()
+	} else if sim.RequireContainerRuntime("the Cloud SQL data plane") == nil {
+		reason = "the host offers no loopback address at the engine's port"
+	}
+	fmt.Fprintf(os.Stderr, "[sim-cloudsql] instance %s/%s (%s) has no address: no data plane serves it: %s\n",
+		inst.Project, inst.Name, family, reason)
 }
 
 // sqlRecoverDataPlanes rebinds every instance's address after a control-plane

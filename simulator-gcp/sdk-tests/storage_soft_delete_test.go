@@ -1,12 +1,15 @@
 package gcp_sdk_test
 
 import (
+	"errors"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/googleapi"
 	storageapi "google.golang.org/api/storage/v1"
 )
 
@@ -65,6 +68,13 @@ func TestGCS_SoftDeleteAndRestore(t *testing.T) {
 	restored, err := svc.Objects.Restore("soft-delete-bucket", "notes/one.txt", created.Generation).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "notes/one.txt", restored.Name)
+	// A restore writes the object anew, so the live object has a generation
+	// of its own, newer than the one it was restored from.
+	assert.Greater(t, restored.Generation, created.Generation)
+	assert.Equal(t, int64(1), restored.Metageneration)
+	current, err := svc.Objects.Get("soft-delete-bucket", "notes/one.txt").Do()
+	require.NoError(t, err)
+	assert.Equal(t, restored.Generation, current.Generation)
 
 	// The payload survived the round trip, which is the point of retaining
 	// the object rather than recording that it once existed.
@@ -74,6 +84,29 @@ func TestGCS_SoftDeleteAndRestore(t *testing.T) {
 	retired, err = svc.Objects.List("soft-delete-bucket").SoftDeleted(true).Do()
 	require.NoError(t, err)
 	assert.Empty(t, retired.Items)
+}
+
+// objects.restore judges ifGenerationMatch against the live object it would
+// replace: 0 refuses while one exists, its generation lets the restore replace
+// it.
+func TestGCS_RestorePreconditionOnTheLiveObject(t *testing.T) {
+	svc := storageService(t)
+	mustCreateBucket(t, svc, "restore-precondition-bucket")
+	first := mustUploadObject(t, svc, "restore-precondition-bucket", "doc.txt", "first")
+	require.NoError(t, svc.Objects.Delete("restore-precondition-bucket", "doc.txt").Do())
+	second := mustUploadObject(t, svc, "restore-precondition-bucket", "doc.txt", "second")
+
+	_, err := svc.Objects.Restore("restore-precondition-bucket", "doc.txt", first.Generation).IfGenerationMatch(0).Do()
+	var gerr *googleapi.Error
+	require.True(t, errors.As(err, &gerr), "expected a googleapi.Error, got %T: %v", err, err)
+	assert.Equal(t, http.StatusPreconditionFailed, gerr.Code)
+	assert.Equal(t, "second", downloadObject(t, svc, "restore-precondition-bucket", "doc.txt"))
+
+	restored, err := svc.Objects.Restore("restore-precondition-bucket", "doc.txt", first.Generation).
+		IfGenerationMatch(second.Generation).Do()
+	require.NoError(t, err)
+	assert.Greater(t, restored.Generation, second.Generation)
+	assert.Equal(t, "first", downloadObject(t, svc, "restore-precondition-bucket", "doc.txt"))
 }
 
 func TestGCS_SoftDeleteDisabledDestroysTheObject(t *testing.T) {

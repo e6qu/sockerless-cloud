@@ -1,7 +1,9 @@
 package aws_sdk_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
@@ -9,6 +11,28 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// waitForRDSInstanceStatus polls until the instance reports status: a
+// lifecycle action answers its transitional status (StopDBInstance answers
+// stopping) and settles once the engine has made the transition, and the SDK
+// carries no waiter for a stopped instance.
+func waitForRDSInstanceStatus(t *testing.T, c *rds.Client, ctx context.Context, id, status string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		desc, err := c.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(id)})
+		return err == nil && len(desc.DBInstances) == 1 && aws.ToString(desc.DBInstances[0].DBInstanceStatus) == status
+	}, 2*time.Minute, 100*time.Millisecond, "DB instance %s must reach %s", id, status)
+}
+
+// waitForRDSClusterStatus polls until the cluster reports status; the SDK
+// carries no waiter for a stopped cluster.
+func waitForRDSClusterStatus(t *testing.T, c *rds.Client, ctx context.Context, id, status string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		desc, err := c.DescribeDBClusters(ctx, &rds.DescribeDBClustersInput{DBClusterIdentifier: aws.String(id)})
+		return err == nil && len(desc.DBClusters) == 1 && aws.ToString(desc.DBClusters[0].Status) == status
+	}, 2*time.Minute, 100*time.Millisecond, "DB cluster %s must reach %s", id, status)
+}
 
 // TestRDS_InstanceClusterState exercises the instance/cluster state
 // transition ops (Start/Stop instance, Start/Stop/Failover cluster) and
@@ -38,7 +62,8 @@ func TestRDS_InstanceClusterState(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, stopOut.DBInstance)
-	assert.Equal(t, "stopped", aws.ToString(stopOut.DBInstance.DBInstanceStatus))
+	assert.Equal(t, "stopping", aws.ToString(stopOut.DBInstance.DBInstanceStatus))
+	waitForRDSInstanceStatus(t, c, ctx, instID, "stopped")
 
 	startOut, err := c.StartDBInstance(ctx, &rds.StartDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
@@ -87,19 +112,47 @@ func TestRDS_InstanceClusterState(t *testing.T) {
 		})
 	})
 
+	memberID := "state-aurora-writer"
+	member, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String(memberID),
+		DBClusterIdentifier:  aws.String(clusterID),
+		DBInstanceClass:      aws.String("db.r6g.large"),
+		Engine:               aws.String("aurora-mysql"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, clusterID, aws.ToString(member.DBInstance.DBClusterIdentifier))
+	t.Cleanup(func() {
+		_, _ = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
+			DBInstanceIdentifier: aws.String(memberID),
+			SkipFinalSnapshot:    aws.Bool(true),
+		})
+	})
+
 	stopCl, err := c.StopDBCluster(ctx, &rds.StopDBClusterInput{
 		DBClusterIdentifier: aws.String(clusterID),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, stopCl.DBCluster)
-	assert.Equal(t, "stopped", aws.ToString(stopCl.DBCluster.Status))
+	assert.Equal(t, "stopping", aws.ToString(stopCl.DBCluster.Status))
+	require.Len(t, stopCl.DBCluster.DBClusterMembers, 1)
+	assert.Equal(t, memberID, aws.ToString(stopCl.DBCluster.DBClusterMembers[0].DBInstanceIdentifier))
+	assert.True(t, aws.ToBool(stopCl.DBCluster.DBClusterMembers[0].IsClusterWriter))
+	waitForRDSClusterStatus(t, c, ctx, clusterID, "stopped")
+	waitForRDSInstanceStatus(t, c, ctx, memberID, "stopped")
+
+	_, err = c.StopDBCluster(ctx, &rds.StopDBClusterInput{DBClusterIdentifier: aws.String(clusterID)})
+	assertAWSAPIErrorCode(t, err, "InvalidDBClusterStateFault")
 
 	startCl, err := c.StartDBCluster(ctx, &rds.StartDBClusterInput{
 		DBClusterIdentifier: aws.String(clusterID),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, startCl.DBCluster)
-	assert.Equal(t, "available", aws.ToString(startCl.DBCluster.Status))
+	assert.Equal(t, "starting", aws.ToString(startCl.DBCluster.Status))
+	require.NoError(t, rds.NewDBClusterAvailableWaiter(c).Wait(ctx, &rds.DescribeDBClustersInput{
+		DBClusterIdentifier: aws.String(clusterID),
+	}, 2*time.Minute))
+	waitForRDSInstanceStatus(t, c, ctx, memberID, "available")
 
 	foCl, err := c.FailoverDBCluster(ctx, &rds.FailoverDBClusterInput{
 		DBClusterIdentifier: aws.String(clusterID),

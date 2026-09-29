@@ -51,14 +51,23 @@ func btDeleteCapture(captureName string) {
 	bigtableTableCaptures.Delete(captureName)
 }
 
-// btCaptureRowCount reports how many rows a capture holds, which is what a
-// Backup's or Snapshot's size fields describe.
-func btCaptureRowCount(captureName string) int {
-	payload, ok := bigtableTableCaptures.Get(captureName)
-	if !ok {
-		return 0
+// btTableSizeBytes is the size of the data a table holds: every cell's row key,
+// family, qualifier, eight-byte timestamp and value.
+func btTableSizeBytes(tableName string) int64 {
+	td := bigtableTableData(tableName)
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	var size int64
+	for rowKey, families := range td.rows {
+		for family, columns := range families {
+			for qualifier, cells := range columns {
+				for _, cell := range cells {
+					size += int64(len(rowKey) + len(family) + len(qualifier) + 8 + len(cell.value))
+				}
+			}
+		}
 	}
-	return len(payload.Rows.Rows)
+	return size
 }
 
 // btRestoreCapture writes a capture's rows into the named table and returns

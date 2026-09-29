@@ -48,6 +48,11 @@ var (
 	apigwGateways sim.Store[APIGWGateway]
 )
 
+func apigatewayLRO(project, location string, resource any, typeName string) Operation {
+	return newLRO(project, location, resource, typeName,
+		gcpStandardOperationMetadata("type.googleapis.com/google.cloud.apigateway.v1.OperationMetadata"))
+}
+
 func registerGCPAPIGateway(srv *sim.Server) {
 	apigwApis = sim.MakeStore[APIGWApi](srv.DB(), "gcp_apigw_apis")
 	apigwConfigs = sim.MakeStore[APIGWApiConfig](srv.DB(), "gcp_apigw_configs")
@@ -185,7 +190,7 @@ func handleGCPAPIGWCreateApi(w http.ResponseWriter, r *http.Request) {
 		Labels:      req.Labels,
 	}
 	apigwApis.Put(name, api)
-	op := newLRO(project, "global", api, "type.googleapis.com/google.cloud.apigateway.v1.Api")
+	op := apigatewayLRO(project, "global", api, "type.googleapis.com/google.cloud.apigateway.v1.Api")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -233,7 +238,7 @@ func handleGCPAPIGWPatchApi(w http.ResponseWriter, r *http.Request) {
 		api.Labels = req.Labels
 	}
 	apigwApis.Put(name, api)
-	op := newLRO(project, "global", api, "type.googleapis.com/google.cloud.apigateway.v1.Api")
+	op := apigatewayLRO(project, "global", api, "type.googleapis.com/google.cloud.apigateway.v1.Api")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -244,7 +249,7 @@ func handleGCPAPIGWDeleteApi(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "api not found: %s", name)
 		return
 	}
-	op := newLRO(project, "global", nil, "type.googleapis.com/google.protobuf.Empty")
+	op := apigatewayLRO(project, "global", nil, "type.googleapis.com/google.protobuf.Empty")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -272,7 +277,7 @@ func handleGCPAPIGWCreateConfig(w http.ResponseWriter, r *http.Request) {
 		GatewayServiceAccount: req.GatewayServiceAccount,
 	}
 	apigwConfigs.Put(name, c)
-	op := newLRO(project, "global", c, "type.googleapis.com/google.cloud.apigateway.v1.ApiConfig")
+	op := apigatewayLRO(project, "global", c, "type.googleapis.com/google.cloud.apigateway.v1.ApiConfig")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -322,7 +327,7 @@ func handleGCPAPIGWPatchConfig(w http.ResponseWriter, r *http.Request) {
 		c.Labels = req.Labels
 	}
 	apigwConfigs.Put(name, c)
-	op := newLRO(project, "global", c, "type.googleapis.com/google.cloud.apigateway.v1.ApiConfig")
+	op := apigatewayLRO(project, "global", c, "type.googleapis.com/google.cloud.apigateway.v1.ApiConfig")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -334,7 +339,7 @@ func handleGCPAPIGWDeleteConfig(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "config not found: %s", name)
 		return
 	}
-	op := newLRO(project, "global", nil, "type.googleapis.com/google.protobuf.Empty")
+	op := apigatewayLRO(project, "global", nil, "type.googleapis.com/google.protobuf.Empty")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -362,7 +367,7 @@ func handleGCPAPIGWCreateGateway(w http.ResponseWriter, r *http.Request) {
 		Labels:          req.Labels,
 	}
 	apigwGateways.Put(name, g)
-	op := newLRO(project, location, g, "type.googleapis.com/google.cloud.apigateway.v1.Gateway")
+	op := apigatewayLRO(project, location, g, "type.googleapis.com/google.cloud.apigateway.v1.Gateway")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -415,7 +420,7 @@ func handleGCPAPIGWPatchGateway(w http.ResponseWriter, r *http.Request) {
 		g.Labels = req.Labels
 	}
 	apigwGateways.Put(name, g)
-	op := newLRO(project, location, g, "type.googleapis.com/google.cloud.apigateway.v1.Gateway")
+	op := apigatewayLRO(project, location, g, "type.googleapis.com/google.cloud.apigateway.v1.Gateway")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -427,6 +432,6 @@ func handleGCPAPIGWDeleteGateway(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "gateway not found: %s", name)
 		return
 	}
-	op := newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
+	op := apigatewayLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
 	sim.WriteJSON(w, http.StatusOK, op)
 }

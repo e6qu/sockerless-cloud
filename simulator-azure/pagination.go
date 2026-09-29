@@ -9,11 +9,23 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
+// kvMaxResults is the largest page a Key Vault data-plane list serves: every
+// list operation in the Key Vault data-plane specification declares
+// maxresults with minimum 1 and maximum 25.
+const kvMaxResults = 25
+
 // kvPage pages a Key Vault data-plane list by maxresults and $skiptoken,
 // 25 to a page by default as the service does, and answers 400 BadParameter
-// for a $skiptoken it never issued.
+// for a maxresults outside 1..25 or a $skiptoken it never issued.
 func kvPage[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, string, bool) {
-	return azurePage(w, r, items, "maxresults", 25, "BadParameter")
+	if raw, set := r.URL.Query()["maxresults"]; set {
+		if n, err := strconv.Atoi(raw[0]); err != nil || n < 1 || n > kvMaxResults {
+			AzureErrorf(w, "BadParameter", http.StatusBadRequest,
+				"The value %q of parameter maxresults is not valid; it must be an integer from 1 to %d.", raw[0], kvMaxResults)
+			return nil, "", false
+		}
+	}
+	return azurePage(w, r, items, "maxresults", kvMaxResults, "BadParameter")
 }
 
 // kvNextLink builds the nextLink URL for a Key Vault data-plane list response.

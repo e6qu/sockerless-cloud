@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -1803,16 +1805,24 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 				fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: container start failed: %v\n", id, err)
 				stoppedAt := ecsEpochSeconds()
 				var doomedVolumes []string
+				var resourceErr *ecsResourceInitializationError
+				resourceFailure := errors.As(err, &resourceErr)
 				ecsTasks.Update(id, func(t *ECSTask) {
 					t.LastStatus = ECSTaskStatusStopped
 					t.DesiredStatus = ECSTaskStatusStopped
 					t.StoppedAt = &stoppedAt
 					t.StopCode = "EssentialContainerExited"
 					t.StoppedReason = fmt.Sprintf("Container start failed: %v", err)
+					if resourceFailure {
+						t.StopCode = "TaskFailedToStart"
+						t.StoppedReason = resourceErr.Error()
+					}
 					exitCode := -1
 					for j := range t.Containers {
 						t.Containers[j].LastStatus = "STOPPED"
-						t.Containers[j].ExitCode = &exitCode
+						if !resourceFailure {
+							t.Containers[j].ExitCode = &exitCode
+						}
 					}
 					doomedVolumes = ecsCleanupTaskManagedEBS(t)
 				})
@@ -2218,7 +2228,11 @@ func ecsPauseImage() string {
 // this one along with the interface.
 func startECSPauseContainer(taskID string, td ECSTaskDefinition, dns []string, sink sim.LogSink) (*sim.ContainerHandle, error) {
 	img := sim.ResolveLocalImage(ecsPauseImage())
-	platform, err := workload.LocalImagePlatform(context.Background(), img, ecrWorkloadRegistryAuth(img))
+	registryAuth, err := ecrWorkloadRegistryAuth(img)
+	if err != nil {
+		return nil, err
+	}
+	platform, err := workload.LocalImagePlatform(context.Background(), img, registryAuth)
 	if err != nil {
 		return nil, fmt.Errorf("resolve pause image platform: %w", err)
 	}
@@ -2295,6 +2309,8 @@ type ecsResolvedImage struct {
 	// Digest is the manifest digest Amazon ECS reports as the container's
 	// imageDigest.
 	Digest string
+	// RegistryAuth is the credential the host pulls Image with.
+	RegistryAuth string
 }
 
 // ecsEpochSeconds is the ECS API's timestamp shape (seconds since the epoch,
@@ -2306,6 +2322,45 @@ func ecsEpochSeconds() float64 {
 // ecsEpochTime is the inverse of ecsEpochSeconds.
 func ecsEpochTime(seconds float64) time.Time {
 	return time.UnixMilli(int64(seconds * 1000))
+}
+
+// ecsResourceInitializationError is a task start that failed while preparing
+// the task's resources, before any container ran: Amazon ECS stops such a task
+// with TaskFailedToStart and a ResourceInitializationError reason.
+type ecsResourceInitializationError struct{ err error }
+
+func (e *ecsResourceInitializationError) Error() string {
+	return "ResourceInitializationError: " + e.err.Error()
+}
+
+func (e *ecsResourceInitializationError) Unwrap() error { return e.err }
+
+// ecsEFSVolumeHost resolves an Amazon EFS volume to the host directory the
+// task mounts: the access point's root when the volume names one, otherwise
+// the file system's rootDirectory, which must exist, as an NFS mount of a
+// missing path fails.
+func ecsEFSVolumeHost(cfg *ECSEfsVolumeConfig) (string, error) {
+	if cfg.AuthorizationConfig != nil && cfg.AuthorizationConfig.AccessPointId != "" {
+		return EFSAccessPointHostDir(cfg.AuthorizationConfig.AccessPointId)
+	}
+	if cfg.FileSystemId == "" {
+		return "", fmt.Errorf("the volume names no file system")
+	}
+	if _, ok := efsFileSystems.Get(cfg.FileSystemId); !ok {
+		return "", fmt.Errorf("file system %s does not exist", cfg.FileSystemId)
+	}
+	host, err := EFSFileSystemHostDir(cfg.FileSystemId)
+	if err != nil {
+		return "", err
+	}
+	if cfg.RootDirectory == "" || cfg.RootDirectory == "/" {
+		return host, nil
+	}
+	host = filepath.Join(host, strings.TrimPrefix(cfg.RootDirectory, "/"))
+	if _, err := os.Stat(host); err != nil {
+		return "", fmt.Errorf("root directory %s of file system %s: %w", cfg.RootDirectory, cfg.FileSystemId, err)
+	}
+	return host, nil
 }
 
 func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, sink sim.LogSink, launchType string, phases *ecsPhaseTimer) (*ecsTaskProcesses, error) {
@@ -2331,21 +2386,12 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			continue
 		}
 		if v.EfsVolumeConfiguration != nil {
-			cfg := v.EfsVolumeConfiguration
-			var host string
-			if cfg.AuthorizationConfig != nil && cfg.AuthorizationConfig.AccessPointId != "" {
-				host = EFSAccessPointHostDir(cfg.AuthorizationConfig.AccessPointId)
+			host, err := ecsEFSVolumeHost(v.EfsVolumeConfiguration)
+			if err != nil {
+				return nil, &ecsResourceInitializationError{err: fmt.Errorf("failed to invoke EFS utils commands to set up EFS volumes: volume %q: %w", v.Name, err)}
 			}
-			if host == "" && cfg.FileSystemId != "" {
-				host = EFSFileSystemHostDir(cfg.FileSystemId)
-				if cfg.RootDirectory != "" && cfg.RootDirectory != "/" {
-					host = fmt.Sprintf("%s/%s", host, strings.TrimPrefix(cfg.RootDirectory, "/"))
-				}
-			}
-			if host != "" {
-				volMap[v.Name] = host
-				continue
-			}
+			volMap[v.Name] = host
+			continue
 		}
 		if v.Host != nil && v.Host.SourcePath != "" {
 			volMap[v.Name] = v.Host.SourcePath
@@ -2448,7 +2494,12 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			continue
 		}
 		localImage := ecrWorkloadImage(cd.Image)
-		platform, err := workload.LocalImagePlatform(context.Background(), localImage, ecrWorkloadRegistryAuth(localImage))
+		registryAuth, err := ecrWorkloadRegistryAuth(localImage)
+		if err != nil {
+			cleanupECSTaskProcesses(taskID, processes)
+			return nil, fmt.Errorf("task container %q: %w", cd.Name, err)
+		}
+		platform, err := workload.LocalImagePlatform(context.Background(), localImage, registryAuth)
 		if err != nil {
 			cleanupECSTaskProcesses(taskID, processes)
 			return nil, fmt.Errorf("resolve task container %q image platform: %w", cd.Name, err)
@@ -2458,7 +2509,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			cleanupECSTaskProcesses(taskID, processes)
 			return nil, fmt.Errorf("resolve task container %q image digest: %w", cd.Name, err)
 		}
-		images[cd.Name] = ecsResolvedImage{Image: localImage, Platform: platform, Digest: digest}
+		images[cd.Name] = ecsResolvedImage{Image: localImage, Platform: platform, Digest: digest, RegistryAuth: registryAuth}
 	}
 	pullStoppedAt := ecsEpochSeconds()
 	ecsTasks.Update(taskID, func(t *ECSTask) {
@@ -2530,7 +2581,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 		cfg := sim.ContainerConfig{
 			CancelGracePeriod: ecsContainerStopGrace(cd),
 			Image:             localImage,
-			RegistryAuth:      ecrWorkloadRegistryAuth(localImage),
+			RegistryAuth:      images[cd.Name].RegistryAuth,
 			Architecture:      platform,
 			Command:           cd.EntryPoint,
 			Args:              command,

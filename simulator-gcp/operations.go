@@ -3,10 +3,21 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
+
+// gcpOperationFilterDoc is the document a ListOperations filter reads. A proto
+// bool the service never set is false, not absent, so `done = false` selects
+// an operation still running however its record was written.
+func gcpOperationFilterDoc(op Operation) listq.Doc {
+	doc := gcpResourceToMap(op)
+	doc["done"] = op.Done
+	return doc
+}
 
 func registerOperations(srv *sim.Server) {
 	if crOperations == nil {
@@ -17,32 +28,37 @@ func registerOperations(srv *sim.Server) {
 	// operation collection.
 	registerOperationsCancel(srv)
 
-	// AIP-151 list operations across the sim. crOperations is the
-	// shared store every service writes its LROs into via newLRO,
-	// so a List over it projects every cross-service operation
-	// (Cloud Run, Memorystore, API Gateway, Cloud SQL LRO, Cloud
-	// Functions deploy, etc.). Real GCP supports `filter` and
-	// `pageToken` query parameters; the sim supports a basic
-	// `filter=done:true|false` and a `name` prefix match — enough
-	// for the audit/monitoring tools the AIP-151 endpoint targets.
+	// AIP-151 ListOperations over crOperations, the store every service
+	// records its operations in. `name` scopes to a collection, `filter` is
+	// AIP-160 over the google.longrunning.Operation message, and
+	// pageSize/pageToken page the result in name order.
 	srv.HandleFunc("GET /v1/operations", func(w http.ResponseWriter, r *http.Request) {
-		all := crOperations.List()
-		filter := r.URL.Query().Get("filter")
+		filter, err := gcpParseFilterExpr(r.URL.Query().Get("filter"))
+		if err != nil {
+			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			return
+		}
 		namePrefix := r.URL.Query().Get("name")
+		all := crOperations.List()
+		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 		out := make([]Operation, 0, len(all))
 		for _, op := range all {
 			if namePrefix != "" && !strings.HasPrefix(op.Name, namePrefix) {
 				continue
 			}
-			if filter == "done:true" && !op.Done {
-				continue
+			if filter.Eval(gcpOperationFilterDoc(op)) {
+				out = append(out, op)
 			}
-			if filter == "done:false" && op.Done {
-				continue
-			}
-			out = append(out, op)
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"operations": out})
+		page, next, ok := paginateList(w, r, out)
+		if !ok {
+			return
+		}
+		resp := map[string]any{"operations": page}
+		if next != "" {
+			resp["nextPageToken"] = next
+		}
+		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
 	// operations.get takes the whole remaining path, not one segment: the

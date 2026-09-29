@@ -60,7 +60,8 @@ func TestSpanner_InstanceDatabaseSessionSDK(t *testing.T) {
 	var createMetadata map[string]any
 	require.NoError(t, json.Unmarshal(dbOp.Metadata, &createMetadata))
 	assert.Equal(t, "projects/test-project/instances/sdk-spanner/databases/sdkdb", createMetadata["database"])
-	assert.Equal(t, "projects/test-project/instances/sdk-spanner/databases/sdkdb", createMetadata["resource"])
+	assert.Equal(t, "type.googleapis.com/google.spanner.admin.database.v1.CreateDatabaseMetadata", createMetadata["@type"])
+	assert.NotContains(t, createMetadata, "resource", "CreateDatabaseMetadata declares no resource member")
 
 	db, err := svc.Projects.Instances.Databases.Get("projects/test-project/instances/sdk-spanner/databases/sdkdb").Do()
 	require.NoError(t, err)

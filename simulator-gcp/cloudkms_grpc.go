@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -1321,7 +1322,7 @@ func (s *cloudKmsGRPC) DeleteCryptoKey(ctx context.Context, req *kmspb.DeleteCry
 	}
 	kmsCryptoKeys.Delete(name)
 	kmsIamPolicies.Delete(name)
-	return kmsCompletedOperation(name)
+	return kmsCompletedOperation(name, &kmspb.DeleteCryptoKeyMetadata{})
 }
 
 // DeleteCryptoKeyVersion removes a single version and its key material, for the
@@ -1337,7 +1338,7 @@ func (s *cloudKmsGRPC) DeleteCryptoKeyVersion(ctx context.Context, req *kmspb.De
 	}
 	kmsCryptoKeyVersions.Delete(name)
 	kmsKeyMaterial.Delete(name)
-	return kmsCompletedOperation(name)
+	return kmsCompletedOperation(name, &kmspb.DeleteCryptoKeyVersionMetadata{})
 }
 
 // RetiredResources — the records of deleted CryptoKeys
@@ -1644,17 +1645,23 @@ func kmsLoadTrustedWrappingKeyGRPC(name string) (kmsCryptoKeyVersion, kmsKeyMate
 // kmsCompletedOperation wraps a finished deletion in the long-running Operation
 // the delete RPCs return. The work is already done when the RPC answers, so the
 // Operation carries Done and its empty result inline — the same empty body the
-// REST DELETE responds with. DeleteCryptoKeyMetadata.retired_resource stays
-// unset because a delete records no RetiredResource.
-func kmsCompletedOperation(resourceName string) (*longrunningpb.Operation, error) {
+// REST DELETE responds with. metadata is the message the RPC's operation_info
+// declares; DeleteCryptoKeyMetadata.retired_resource stays unset because a
+// delete records no RetiredResource.
+func kmsCompletedOperation(resourceName string, metadata proto.Message) (*longrunningpb.Operation, error) {
 	result, err := anypb.New(&emptypb.Empty{})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "could not build operation result: %v", err)
 	}
+	meta, err := anypb.New(metadata)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "could not build operation metadata: %v", err)
+	}
 	op := &longrunningpb.Operation{
-		Name:   kmsLocationFromName(resourceName) + "/operations/" + sim.NewUUID(),
-		Done:   true,
-		Result: &longrunningpb.Operation_Response{Response: result},
+		Name:     kmsLocationFromName(resourceName) + "/operations/" + sim.NewUUID(),
+		Metadata: meta,
+		Done:     true,
+		Result:   &longrunningpb.Operation_Response{Response: result},
 	}
 	if err := grpcRecordOperation(op); err != nil {
 		return nil, err

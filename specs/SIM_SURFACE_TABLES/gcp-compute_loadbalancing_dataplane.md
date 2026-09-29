@@ -17,7 +17,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action /{path...}` | ✓ `simulator-gcp/compute_loadbalancing_dataplane.go:24::func` | n/a (not exposed by provider; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `Action /{path...}` | ✓ `simulator-gcp/compute_loadbalancing_dataplane.go:25::func` | n/a (not exposed by provider; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

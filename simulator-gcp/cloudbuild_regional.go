@@ -294,6 +294,7 @@ func registerCloudBuildRegional(srv *sim.Server) {
 
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}/connectedRepositories:batchCreate",
 		func(w http.ResponseWriter, r *http.Request) {
+			created := nowTimestamp()
 			name := cbConfigKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"),
 				"bitbucketServerConfigs", sim.PathParam(r, "config"))
 			config, ok := cbBitbucketConfigs.Get(name)
@@ -339,7 +340,13 @@ func registerCloudBuildRegional(srv *sim.Server) {
 			cbBitbucketConfigs.Put(name, config)
 			sim.WriteJSON(w, http.StatusOK, newLROFromResource(name,
 				map[string]any{"bitbucketServerConnectedRepositories": connected},
-				"type.googleapis.com/google.devtools.cloudbuild.v1.BatchCreateBitbucketServerConnectedRepositoriesResponse"))
+				"type.googleapis.com/google.devtools.cloudbuild.v1.BatchCreateBitbucketServerConnectedRepositoriesResponse",
+				map[string]any{
+					"@type":        "type.googleapis.com/google.devtools.cloudbuild.v1.BatchCreateBitbucketServerConnectedRepositoriesResponseMetadata",
+					"config":       name,
+					"createTime":   created,
+					"completeTime": nowTimestamp(),
+				}))
 		})
 }
 

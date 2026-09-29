@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -198,9 +200,73 @@ func bigtableSplitColonVerb(seg string) (id, verb string) {
 // in the "operations/" collection the bigtableadmin document declares. The gRPC
 // door mints the same shape (bigtableOperationName), because an operation
 // returned over one protocol has to be addressable over the other.
-func newBigtableAdminLRO(project string, resource any, typeName string) Operation {
-	op := newLRO(project, "global", resource, typeName)
+//
+// metadata is the metadata message the method declares in its operation_info,
+// as bigtableAdminMetadata builds it.
+func newBigtableAdminLRO(project string, resource any, typeName string, metadata map[string]any) Operation {
+	op := newLRO(project, "global", resource, typeName, gcpFixedOperationMetadata(metadata))
 	return renameGCPOperation(op, "operations/projects/"+project+"/operations")
+}
+
+// bigtableAdminMetadata renders a google.bigtable.admin.v2 operation metadata
+// message in its JSON form.
+func bigtableAdminMetadata(messageType string, fields map[string]any) map[string]any {
+	fields["@type"] = "type.googleapis.com/google.bigtable.admin.v2." + messageType
+	return fields
+}
+
+// bigtableRequestTimes are the fields the metadata messages that echo their
+// request carry: the request, when it arrived and when it finished.
+func bigtableRequestTimes(original any, requested time.Time) map[string]any {
+	return map[string]any{
+		"originalRequest": original,
+		"requestTime":     bigtableTimestamp(requested),
+		"finishTime":      nowTimestamp(),
+	}
+}
+
+// bigtableStartEnd adds the start and end times the name-keyed metadata
+// messages carry.
+func bigtableStartEnd(fields map[string]any, requested time.Time) map[string]any {
+	fields["startTime"] = bigtableTimestamp(requested)
+	fields["endTime"] = nowTimestamp()
+	return fields
+}
+
+func bigtableTimestamp(t time.Time) string {
+	return t.UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+}
+
+// bigtableRESTBackupInfo is the BackupInfo of a stored backup.
+func bigtableRESTBackupInfo(name string) map[string]any {
+	backup, _ := bigtableBackups.Get(name)
+	info := map[string]any{"backup": name}
+	for _, field := range []string{"startTime", "endTime", "sourceTable", "sourceBackup"} {
+		if value, ok := backup[field]; ok && value != "" {
+			info[field] = value
+		}
+	}
+	return info
+}
+
+func bigtableRESTCompleteProgress(requested time.Time) map[string]any {
+	return map[string]any{
+		"progressPercent": 100,
+		"startTime":       bigtableTimestamp(requested),
+		"endTime":         nowTimestamp(),
+	}
+}
+
+func bigtableRESTClusterTableProgress(instance string) map[string]any {
+	tables := map[string]any{}
+	for name, progress := range bigtableClusterTableProgress(instance) {
+		tables[name] = map[string]any{
+			"estimatedSizeBytes":   strconv.FormatInt(progress.GetEstimatedSizeBytes(), 10),
+			"estimatedCopiedBytes": strconv.FormatInt(progress.GetEstimatedCopiedBytes(), 10),
+			"state":                progress.GetState().String(),
+		}
+	}
+	return tables
 }
 
 // handleBigtableListOperations lists the operations under a project. It reads
@@ -220,6 +286,7 @@ func handleBigtableListOperations(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtableCreateInstance(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	project := sim.PathParam(r, "project")
 	var req struct {
 		InstanceID string                     `json:"instanceId"`
@@ -258,7 +325,14 @@ func handleBigtableCreateInstance(w http.ResponseWriter, r *http.Request) {
 		cluster.State = "READY"
 		bigtableClusters.Put(cluster.Name, cluster)
 	}
-	op := newBigtableAdminLRO(project, inst, "type.googleapis.com/google.bigtable.admin.v2.Instance")
+	original := map[string]any{
+		"parent":     "projects/" + project,
+		"instanceId": req.InstanceID,
+		"instance":   req.Instance,
+		"clusters":   req.Clusters,
+	}
+	op := newBigtableAdminLRO(project, inst, "type.googleapis.com/google.bigtable.admin.v2.Instance",
+		bigtableAdminMetadata("CreateInstanceMetadata", bigtableRequestTimes(original, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -291,6 +365,7 @@ func handleBigtableGetInstance(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtablePartialUpdateInstance(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	name := bigtableInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"))
 	inst, ok := bigtableInstances.Get(name)
 	if !ok {
@@ -313,7 +388,10 @@ func handleBigtablePartialUpdateInstance(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	bigtableInstances.Put(name, inst)
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), inst, "type.googleapis.com/google.bigtable.admin.v2.Instance")
+	req.Name = name
+	original := map[string]any{"instance": req, "updateMask": r.URL.Query().Get("updateMask")}
+	op := newBigtableAdminLRO(sim.PathParam(r, "project"), inst, "type.googleapis.com/google.bigtable.admin.v2.Instance",
+		bigtableAdminMetadata("UpdateInstanceMetadata", bigtableRequestTimes(original, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -361,6 +439,7 @@ func handleBigtableDeleteInstance(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtableCreateCluster(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
 	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
@@ -376,13 +455,21 @@ func handleBigtableCreateCluster(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
+	original := map[string]any{
+		"parent":    bigtableInstanceName(project, instance),
+		"clusterId": clusterID,
+		"cluster":   cluster,
+	}
 	cluster.Name = bigtableClusterName(project, instance, clusterID)
 	cluster.State = "READY"
 	if cluster.DefaultStorageType == "" {
 		cluster.DefaultStorageType = "SSD"
 	}
 	bigtableClusters.Put(cluster.Name, cluster)
-	op := newBigtableAdminLRO(project, cluster, "type.googleapis.com/google.bigtable.admin.v2.Cluster")
+	metadata := bigtableRequestTimes(original, requested)
+	metadata["tables"] = bigtableRESTClusterTableProgress(bigtableInstanceName(project, instance))
+	op := newBigtableAdminLRO(project, cluster, "type.googleapis.com/google.bigtable.admin.v2.Cluster",
+		bigtableAdminMetadata("CreateClusterMetadata", metadata))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -404,6 +491,7 @@ func handleBigtableGetCluster(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtableUpdateCluster(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	name := bigtableClusterName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster"))
 	cluster, ok := bigtableClusters.Get(name)
 	if !ok {
@@ -420,11 +508,14 @@ func handleBigtableUpdateCluster(w http.ResponseWriter, r *http.Request) {
 	}
 	cluster.State = "READY"
 	bigtableClusters.Put(name, cluster)
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), cluster, "type.googleapis.com/google.bigtable.admin.v2.Cluster")
+	req.Name = name
+	op := newBigtableAdminLRO(sim.PathParam(r, "project"), cluster, "type.googleapis.com/google.bigtable.admin.v2.Cluster",
+		bigtableAdminMetadata("UpdateClusterMetadata", bigtableRequestTimes(req, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
 func handleBigtablePartialUpdateCluster(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	name := bigtableClusterName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster"))
 	cluster, ok := bigtableClusters.Get(name)
 	if !ok {
@@ -446,7 +537,10 @@ func handleBigtablePartialUpdateCluster(w http.ResponseWriter, r *http.Request) 
 	}
 	cluster.State = "READY"
 	bigtableClusters.Put(name, cluster)
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), cluster, "type.googleapis.com/google.bigtable.admin.v2.Cluster")
+	req.Name = name
+	original := map[string]any{"cluster": req, "updateMask": r.URL.Query().Get("updateMask")}
+	op := newBigtableAdminLRO(sim.PathParam(r, "project"), cluster, "type.googleapis.com/google.bigtable.admin.v2.Cluster",
+		bigtableAdminMetadata("PartialUpdateClusterMetadata", bigtableRequestTimes(original, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -471,6 +565,7 @@ func handleBigtableListHotTablets(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtableCreateBackup(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	project, instance, cluster := sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster")
 	clusterName := bigtableClusterName(project, instance, cluster)
 	if _, ok := bigtableClusters.Get(clusterName); !ok {
@@ -502,9 +597,20 @@ func handleBigtableCreateBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	body["name"] = name
 	body["state"] = "READY"
+	// The capture above took the table's rows inside this request, so the
+	// backup's start and end times bound it.
+	body["startTime"] = bigtableTimestamp(requested)
+	body["endTime"] = nowTimestamp()
+	body["sizeBytes"] = strconv.FormatInt(btTableSizeBytes(sourceTable), 10)
 	// Backup has no etag field in the Discovery schema — do not set one.
 	bigtableBackups.Put(name, body)
-	op := newBigtableAdminLRO(project, map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.Backup")
+	op := newBigtableAdminLRO(project, map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.Backup",
+		bigtableAdminMetadata("CreateBackupMetadata", map[string]any{
+			"name":        name,
+			"sourceTable": sourceTable,
+			"startTime":   body["startTime"],
+			"endTime":     body["endTime"],
+		}))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -556,6 +662,7 @@ func handleBigtableDeleteBackup(w http.ResponseWriter, r *http.Request) {
 // handleBigtableBackupCollectionAction dispatches "backups:copy", which rides
 // the colon on the literal "backups" collection segment.
 func handleBigtableBackupCollectionAction(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	project, instance, cluster := sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster")
 	coll, verb := bigtableSplitColonVerb(sim.PathParam(r, "backupsColl"))
 	if coll != "backups" || verb != "copy" {
@@ -589,9 +696,20 @@ func handleBigtableBackupCollectionAction(w http.ResponseWriter, r *http.Request
 		"expireTime":   req.ExpireTime,
 		"state":        "READY",
 	}
+	// A copy holds the source's data as of the source's own capture.
+	for _, field := range []string{"startTime", "endTime", "sizeBytes"} {
+		if value, ok := source[field]; ok {
+			body[field] = value
+		}
+	}
 	bigtableBackups.Put(name, body)
 	btCopyCapture(name, req.SourceBackup)
-	op := newBigtableAdminLRO(project, map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.Backup")
+	op := newBigtableAdminLRO(project, map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.Backup",
+		bigtableAdminMetadata("CopyBackupMetadata", map[string]any{
+			"name":             name,
+			"sourceBackupInfo": bigtableRESTBackupInfo(req.SourceBackup),
+			"progress":         bigtableRESTCompleteProgress(requested),
+		}))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -666,7 +784,8 @@ func handleBigtablePatchAppProfile(w http.ResponseWriter, r *http.Request) {
 	body["name"] = name
 	body["etag"] = gcpPolicyETag()
 	bigtableAppProfiles.Put(name, body)
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.AppProfile")
+	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.AppProfile",
+		bigtableAdminMetadata("UpdateAppProfileMetadata", map[string]any{}))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -739,6 +858,7 @@ func handleBigtableTableCollectionAction(w http.ResponseWriter, r *http.Request)
 // segment (modifyColumnFamilies / dropRowRange / generateConsistencyToken /
 // checkConsistency / undelete / IAM).
 func handleBigtableTableAction(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
 	id, verb := bigtableSplitColonVerb(sim.PathParam(r, "tableAction"))
 	if verb == "" {
@@ -766,7 +886,8 @@ func handleBigtableTableAction(w http.ResponseWriter, r *http.Request) {
 	case "checkConsistency":
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"consistent": true})
 	case "undelete":
-		op := newBigtableAdminLRO(project, table, "type.googleapis.com/google.bigtable.admin.v2.Table")
+		op := newBigtableAdminLRO(project, table, "type.googleapis.com/google.bigtable.admin.v2.Table",
+			bigtableAdminMetadata("UndeleteTableMetadata", bigtableStartEnd(map[string]any{"name": name}, requested)))
 		sim.WriteJSON(w, http.StatusOK, op)
 	default:
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown table action %q", sim.PathParam(r, "tableAction"))
@@ -838,6 +959,7 @@ func handleBigtableModifyColumnFamilies(w http.ResponseWriter, r *http.Request, 
 }
 
 func handleBigtableRestoreTable(w http.ResponseWriter, r *http.Request, project, instance string) {
+	requested := time.Now()
 	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
 		return
@@ -863,7 +985,13 @@ func handleBigtableRestoreTable(w http.ResponseWriter, r *http.Request, project,
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", req.Backup)
 		return
 	}
-	op := newBigtableAdminLRO(project, table, "type.googleapis.com/google.bigtable.admin.v2.Table")
+	op := newBigtableAdminLRO(project, table, "type.googleapis.com/google.bigtable.admin.v2.Table",
+		bigtableAdminMetadata("RestoreTableMetadata", map[string]any{
+			"name":       table.Name,
+			"sourceType": "BACKUP",
+			"backupInfo": bigtableRESTBackupInfo(req.Backup),
+			"progress":   bigtableRESTCompleteProgress(requested),
+		}))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -878,6 +1006,7 @@ func handleBigtableGetTable(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtablePatchTable(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	name := bigtableTableName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "table"))
 	table, ok := bigtableTables.Get(name)
 	if !ok {
@@ -896,7 +1025,8 @@ func handleBigtablePatchTable(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	bigtableTables.Put(name, table)
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), table, "type.googleapis.com/google.bigtable.admin.v2.Table")
+	op := newBigtableAdminLRO(sim.PathParam(r, "project"), table, "type.googleapis.com/google.bigtable.admin.v2.Table",
+		bigtableAdminMetadata("UpdateTableMetadata", bigtableStartEnd(map[string]any{"name": name}, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -915,6 +1045,7 @@ func bigtableAuthViewName(r *http.Request, view string) string {
 }
 
 func handleBigtableCreateAuthView(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	tableName := bigtableTableName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "table"))
 	if _, ok := bigtableTables.Get(tableName); !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", tableName)
@@ -929,11 +1060,13 @@ func handleBigtableCreateAuthView(w http.ResponseWriter, r *http.Request) {
 	if body == nil {
 		return
 	}
+	original := map[string]any{"parent": tableName, "authorizedViewId": viewID, "authorizedView": cloneAnyMap(body)}
 	name := tableName + "/authorizedViews/" + viewID
 	body["name"] = name
 	body["etag"] = gcpPolicyETag()
 	bigtableAuthViews.Put(name, body)
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.AuthorizedView")
+	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.AuthorizedView",
+		bigtableAdminMetadata("CreateAuthorizedViewMetadata", bigtableRequestTimes(original, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -954,6 +1087,7 @@ func handleBigtableGetAuthView(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtablePatchAuthView(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	name := bigtableAuthViewName(r, sim.PathParam(r, "authView"))
 	body, ok := bigtableAuthViews.Get(name)
 	if !ok {
@@ -968,8 +1102,18 @@ func handleBigtablePatchAuthView(w http.ResponseWriter, r *http.Request) {
 	body["name"] = name
 	body["etag"] = gcpPolicyETag()
 	bigtableAuthViews.Put(name, body)
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.AuthorizedView")
+	original := map[string]any{"authorizedView": bigtableNamedPatch(patch, name), "updateMask": r.URL.Query().Get("updateMask")}
+	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.AuthorizedView",
+		bigtableAdminMetadata("UpdateAuthorizedViewMetadata", bigtableRequestTimes(original, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
+}
+
+// bigtableNamedPatch is a REST update's body as its request message carries
+// it: the resource the path names, with the fields the client sent.
+func bigtableNamedPatch(patch bigtableResource, name string) map[string]any {
+	resource := cloneAnyMap(patch)
+	resource["name"] = name
+	return resource
 }
 
 func handleBigtableDeleteAuthView(w http.ResponseWriter, r *http.Request) {
@@ -995,6 +1139,7 @@ func bigtableSchemaBundleName(r *http.Request, bundle string) string {
 }
 
 func handleBigtableCreateSchemaBundle(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	tableName := bigtableTableName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "table"))
 	if _, ok := bigtableTables.Get(tableName); !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", tableName)
@@ -1013,7 +1158,8 @@ func handleBigtableCreateSchemaBundle(w http.ResponseWriter, r *http.Request) {
 	body["name"] = name
 	body["etag"] = gcpPolicyETag()
 	bigtableSchemaBundle.Put(name, body)
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.SchemaBundle")
+	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.SchemaBundle",
+		bigtableAdminMetadata("CreateSchemaBundleMetadata", bigtableStartEnd(map[string]any{"name": name}, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1034,6 +1180,7 @@ func handleBigtableGetSchemaBundle(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtablePatchSchemaBundle(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	name := bigtableSchemaBundleName(r, sim.PathParam(r, "schemaBundle"))
 	body, ok := bigtableSchemaBundle.Get(name)
 	if !ok {
@@ -1048,7 +1195,8 @@ func handleBigtablePatchSchemaBundle(w http.ResponseWriter, r *http.Request) {
 	body["name"] = name
 	body["etag"] = gcpPolicyETag()
 	bigtableSchemaBundle.Put(name, body)
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.SchemaBundle")
+	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.SchemaBundle",
+		bigtableAdminMetadata("UpdateSchemaBundleMetadata", bigtableStartEnd(map[string]any{"name": name}, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1075,6 +1223,7 @@ func bigtableLogicalViewName(r *http.Request, view string) string {
 }
 
 func handleBigtableCreateLogicalView(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
 	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
@@ -1089,12 +1238,20 @@ func handleBigtableCreateLogicalView(w http.ResponseWriter, r *http.Request) {
 	if body == nil {
 		return
 	}
+	original := map[string]any{"parent": bigtableInstanceName(project, instance), "logicalViewId": viewID, "logicalView": cloneAnyMap(body)}
 	name := bigtableLogicalViewName(r, viewID)
 	body["name"] = name
 	body["etag"] = gcpPolicyETag()
 	bigtableLogicalView.Put(name, body)
-	op := newBigtableAdminLRO(project, map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.LogicalView")
+	op := newBigtableAdminLRO(project, map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.LogicalView",
+		bigtableAdminMetadata("CreateLogicalViewMetadata", bigtableStartEndRequest(original, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
+}
+
+// bigtableStartEndRequest are the fields of the metadata messages that echo
+// their request between a start and an end time.
+func bigtableStartEndRequest(original any, requested time.Time) map[string]any {
+	return bigtableStartEnd(map[string]any{"originalRequest": original}, requested)
 }
 
 func handleBigtableListLogicalViews(w http.ResponseWriter, r *http.Request) {
@@ -1114,6 +1271,7 @@ func handleBigtableGetLogicalView(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtablePatchLogicalView(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	name := bigtableLogicalViewName(r, sim.PathParam(r, "logicalView"))
 	body, ok := bigtableLogicalView.Get(name)
 	if !ok {
@@ -1128,7 +1286,9 @@ func handleBigtablePatchLogicalView(w http.ResponseWriter, r *http.Request) {
 	body["name"] = name
 	body["etag"] = gcpPolicyETag()
 	bigtableLogicalView.Put(name, body)
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.LogicalView")
+	original := map[string]any{"logicalView": bigtableNamedPatch(patch, name), "updateMask": r.URL.Query().Get("updateMask")}
+	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.LogicalView",
+		bigtableAdminMetadata("UpdateLogicalViewMetadata", bigtableStartEndRequest(original, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1155,6 +1315,7 @@ func bigtableMatViewName(r *http.Request, view string) string {
 }
 
 func handleBigtableCreateMatView(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
 	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
@@ -1169,11 +1330,13 @@ func handleBigtableCreateMatView(w http.ResponseWriter, r *http.Request) {
 	if body == nil {
 		return
 	}
+	original := map[string]any{"parent": bigtableInstanceName(project, instance), "materializedViewId": viewID, "materializedView": cloneAnyMap(body)}
 	name := bigtableMatViewName(r, viewID)
 	body["name"] = name
 	body["etag"] = gcpPolicyETag()
 	bigtableMatView.Put(name, body)
-	op := newBigtableAdminLRO(project, map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.MaterializedView")
+	op := newBigtableAdminLRO(project, map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.MaterializedView",
+		bigtableAdminMetadata("CreateMaterializedViewMetadata", bigtableStartEndRequest(original, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1194,6 +1357,7 @@ func handleBigtableGetMatView(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtablePatchMatView(w http.ResponseWriter, r *http.Request) {
+	requested := time.Now()
 	name := bigtableMatViewName(r, sim.PathParam(r, "matView"))
 	body, ok := bigtableMatView.Get(name)
 	if !ok {
@@ -1208,7 +1372,9 @@ func handleBigtablePatchMatView(w http.ResponseWriter, r *http.Request) {
 	body["name"] = name
 	body["etag"] = gcpPolicyETag()
 	bigtableMatView.Put(name, body)
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.MaterializedView")
+	original := map[string]any{"materializedView": bigtableNamedPatch(patch, name), "updateMask": r.URL.Query().Get("updateMask")}
+	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.MaterializedView",
+		bigtableAdminMetadata("UpdateMaterializedViewMetadata", bigtableStartEndRequest(original, requested)))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 

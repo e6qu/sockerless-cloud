@@ -32,12 +32,30 @@ func TestCompute_TargetPoolMembership(t *testing.T) {
 	require.Len(t, got.Instances, 1)
 	assert.Equal(t, instance, got.Instances[0])
 
-	// The pool reports health for an instance it holds.
+	// A pool naming no health check holds the instances it has healthy.
 	health, err := svc.TargetPools.GetHealth(project, region, pool,
 		&compute.InstanceReference{Instance: instance}).Do()
 	require.NoError(t, err)
 	require.Len(t, health.HealthStatus, 1)
 	assert.Equal(t, "HEALTHY", health.HealthStatus[0].HealthState)
+
+	// Once it names a legacy HTTP health check, an instance is healthy only
+	// when that check passes, and nothing answers the check for web-1.
+	_, err = svc.HttpHealthChecks.Insert(project, &compute.HttpHealthCheck{Name: "web-check"}).Do()
+	require.NoError(t, err)
+	_, err = svc.TargetPools.AddHealthCheck(project, region, pool,
+		&compute.TargetPoolsAddHealthCheckRequest{
+			HealthChecks: []*compute.HealthCheckReference{{
+				HealthCheck: "https://www.googleapis.com/compute/v1/projects/" + project + "/global/httpHealthChecks/web-check",
+			}},
+		}).Do()
+	require.NoError(t, err)
+	health, err = svc.TargetPools.GetHealth(project, region, pool,
+		&compute.InstanceReference{Instance: instance}).Do()
+	require.NoError(t, err)
+	require.Len(t, health.HealthStatus, 1)
+	assert.Equal(t, instance, health.HealthStatus[0].Instance)
+	assert.Equal(t, "UNHEALTHY", health.HealthStatus[0].HealthState)
 
 	// And refuses one it does not.
 	_, err = svc.TargetPools.GetHealth(project, region, pool,

@@ -1058,7 +1058,12 @@ func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 	}
 	defer os.RemoveAll(workDir)
 
-	platform, err := workload.LocalImagePlatform(context.Background(), image, ecrWorkloadRegistryAuth(image))
+	registryAuth, err := ecrWorkloadRegistryAuth(image)
+	if err != nil {
+		cbCompleteCommandExecution(id, -1, "", err.Error())
+		return
+	}
+	platform, err := workload.LocalImagePlatform(context.Background(), image, registryAuth)
 	if err != nil {
 		cbCompleteCommandExecution(id, -1, "", err.Error())
 		return

@@ -408,3 +408,37 @@ func TestEFS_FullLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+func TestEFS_CreateAccessPointRefusesUnparsablePermissions(t *testing.T) {
+	client := efsClient()
+	fs, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
+		CreationToken: aws.String("ap-bad-permissions-fs"),
+	})
+	require.NoError(t, err)
+	fsID := aws.ToString(fs.FileSystemId)
+	t.Cleanup(func() {
+		_, _ = client.DeleteFileSystem(ctx, &efs.DeleteFileSystemInput{FileSystemId: aws.String(fsID)})
+	})
+
+	for _, permissions := range []string{"rwxrwxrwx", "0778", "77", "07777"} {
+		_, err := client.CreateAccessPoint(ctx, &efs.CreateAccessPointInput{
+			FileSystemId: aws.String(fsID),
+			RootDirectory: &efstypes.RootDirectory{
+				Path: aws.String("/bad"),
+				CreationInfo: &efstypes.CreationInfo{
+					OwnerUid:    aws.Int64(1000),
+					OwnerGid:    aws.Int64(1000),
+					Permissions: aws.String(permissions),
+				},
+			},
+		})
+		var badRequest *efstypes.BadRequest
+		require.ErrorAs(t, err, &badRequest, "Permissions %q", permissions)
+		assert.Contains(t, badRequest.ErrorMessage(), "Value '"+permissions+"' at 'rootDirectory.creationInfo.permissions' failed to satisfy constraint")
+		assert.Equal(t, "BadRequest", aws.ToString(badRequest.ErrorCode_), "the modelled ErrorCode member")
+	}
+
+	described, err := client.DescribeAccessPoints(ctx, &efs.DescribeAccessPointsInput{FileSystemId: aws.String(fsID)})
+	require.NoError(t, err)
+	assert.Empty(t, described.AccessPoints, "a refused CreateAccessPoint must not leave an access point behind")
+}

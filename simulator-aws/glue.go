@@ -1482,7 +1482,12 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 		return
 	}
 
-	platform, err := workload.LocalImagePlatform(context.Background(), image, ecrWorkloadRegistryAuth(image))
+	registryAuth, err := ecrWorkloadRegistryAuth(image)
+	if err != nil {
+		glueCompleteRun(jobName, runID, "FAILED", 0, err.Error())
+		return
+	}
+	platform, err := workload.LocalImagePlatform(context.Background(), image, registryAuth)
 	if err != nil {
 		glueCompleteRun(jobName, runID, "FAILED", 0, err.Error())
 		return

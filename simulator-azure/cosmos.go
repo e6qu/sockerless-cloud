@@ -159,6 +159,7 @@ func registerCosmosDB(srv *sim.Server) {
 	srv.HandleFunc("POST /dbs/{database}/colls", handleCosmosDataCreateColl)
 	srv.HandleFunc("GET /dbs/{database}/colls", handleCosmosDataListColls)
 	srv.HandleFunc("GET /dbs/{database}/colls/{container}", handleCosmosDataGetColl)
+	srv.HandleFunc("PUT /dbs/{database}/colls/{container}", handleCosmosDataReplaceColl)
 	srv.HandleFunc("DELETE /dbs/{database}/colls/{container}", handleCosmosDataDeleteColl)
 	srv.HandleFunc("POST /dbs/{database}/colls/{container}/docs", cosmosMetered(handleCosmosDataCreateOrQueryDoc))
 	srv.HandleFunc("GET /dbs/{database}/colls/{container}/docs", cosmosMetered(handleCosmosDataListDocs))
@@ -525,18 +526,7 @@ func handleCosmosCreateTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	props := ensureResourceProperty(req.Properties, table)
-	if options, ok := props["options"].(map[string]any); ok {
-		if throughput := options["throughput"]; throughput != nil {
-			cosmosThroughputs.Put(cosmosTableID(sub, rg, account, table)+"/throughputSettings/default", CosmosThroughput{
-				ID:   cosmosTableID(sub, rg, account, table) + "/throughputSettings/default",
-				Name: "default",
-				Type: "Microsoft.DocumentDB/databaseAccounts/tables/throughputSettings",
-				Properties: map[string]any{
-					"resource": map[string]any{"throughput": throughput},
-				},
-			})
-		}
-	}
+	cosmosStoreThroughputFromProps(props, cosmosTableID(sub, rg, account, table), "Microsoft.DocumentDB/databaseAccounts/tables")
 	c := CosmosTable{
 		ID:         cosmosTableID(sub, rg, account, table),
 		Name:       table,
@@ -709,19 +699,20 @@ func handleCosmosDeleteSQLContainer(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCosmosGetThroughput(w http.ResponseWriter, r *http.Request) {
-	id := cosmosThroughputID(r)
-	t, ok := cosmosThroughputs.Get(id)
+	t, ok := cosmosThroughputs.Get(cosmosThroughputID(r))
 	if !ok {
-		t = CosmosThroughput{
-			ID:   id,
-			Name: "default",
-			Type: cosmosThroughputType(r),
-			Properties: map[string]any{
-				"resource": map[string]any{"throughput": float64(400)},
-			},
-		}
+		cosmosThroughputNotFound(w, r.URL.Path)
+		return
 	}
 	sim.WriteJSON(w, http.StatusOK, t)
+}
+
+// cosmosThroughputNotFound answers a read or migration of a throughput resource
+// nothing provisioned: a resource created without dedicated throughput, or one
+// sharing its database's, has no offer, and the resource provider answers 404,
+// which the AzureRM provider reads as "no throughput".
+func cosmosThroughputNotFound(w http.ResponseWriter, id string) {
+	AzureErrorf(w, "NotFound", http.StatusNotFound, "Throughput settings %s do not exist; the resource has no dedicated throughput.", id)
 }
 
 func handleCosmosPutThroughput(w http.ResponseWriter, r *http.Request) {
@@ -736,8 +727,9 @@ func handleCosmosPutThroughput(w http.ResponseWriter, r *http.Request) {
 	if req.Type == "" {
 		req.Type = cosmosThroughputType(r)
 	}
-	if req.Properties == nil {
-		req.Properties = map[string]any{"resource": map[string]any{"throughput": float64(400)}}
+	if _, ok := req.Properties["resource"].(map[string]any); !ok {
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid throughput body: properties.resource is required")
+		return
 	}
 	cosmosThroughputs.Put(id, req)
 	sim.WriteJSON(w, http.StatusOK, req)
@@ -885,22 +877,13 @@ func handleCosmosDataCreateColl(w http.ResponseWriter, r *http.Request) {
 	}
 	// Persist the declared partition-key path so the data plane can scope items
 	// by (partition key, id) — the SDK declares it here, not via ARM.
-	pkPath := ""
-	if pk, ok := body["partitionKey"].(map[string]any); ok {
-		if paths, ok := pk["paths"].([]any); ok && len(paths) > 0 {
-			pkPath, _ = paths[0].(string)
-		}
+	pkPath := cosmosCollPKPath(body)
+	defaultTTL, ok := cosmosCollDefaultTTL(body)
+	if !ok {
+		cosmosDataError(w, "BadRequest", "The value of defaultTtl must be -1 or a positive integer.", http.StatusBadRequest)
+		return
 	}
-	collection := CosmosDataColl{Account: account, DB: db, Coll: id, PKPath: pkPath}
-	if raw, present := body["defaultTtl"]; present && raw != nil {
-		ttl, ok := cosmosNumberOf(raw)
-		if !ok || ttl == 0 || ttl < -1 || ttl != float64(int64(ttl)) {
-			cosmosDataError(w, "BadRequest", "The value of defaultTtl must be -1 or a positive integer.", http.StatusBadRequest)
-			return
-		}
-		seconds := int64(ttl)
-		collection.DefaultTTL = &seconds
-	}
+	collection := CosmosDataColl{Account: account, DB: db, Coll: id, PKPath: pkPath, DefaultTTL: defaultTTL}
 	cosmosDataColls.Put(cosmosDataCollKey(account, db, id), collection)
 	coll := cosmosDataColl(account, db, id)
 	if rid, ok := coll["_rid"].(string); ok {
@@ -938,6 +921,87 @@ func handleCosmosDataGetColl(w http.ResponseWriter, r *http.Request) {
 	if !created {
 		cosmosDataError(w, "NotFound", "Owner resource does not exist", http.StatusNotFound)
 		return
+	}
+	cosmosWriteData(w, http.StatusOK, cosmosDataColl(account, db, coll))
+}
+
+func cosmosCollPKPath(body map[string]any) string {
+	pk, _ := body["partitionKey"].(map[string]any)
+	paths, _ := pk["paths"].([]any)
+	if len(paths) == 0 {
+		return ""
+	}
+	path, _ := paths[0].(string)
+	return path
+}
+
+// cosmosCollDefaultTTL reads a container body's defaultTtl: nil when time to
+// live is off, and false when the value is neither -1 nor a positive integer.
+func cosmosCollDefaultTTL(body map[string]any) (*int64, bool) {
+	raw, present := body["defaultTtl"]
+	if !present || raw == nil {
+		return nil, true
+	}
+	ttl, ok := cosmosNumberOf(raw)
+	if !ok || ttl == 0 || ttl < -1 || ttl != float64(int64(ttl)) {
+		return nil, false
+	}
+	seconds := int64(ttl)
+	return &seconds, true
+}
+
+// handleCosmosDataReplaceColl serves ReplaceContainer: azcosmos's
+// ContainerClient.Replace PUTs the whole ContainerProperties to the container's
+// link and reads the replaced properties back. The body replaces the container's
+// settings, so a defaultTtl it omits turns time to live off; the partition key
+// is fixed when the container is created and a replace cannot change it.
+func handleCosmosDataReplaceColl(w http.ResponseWriter, r *http.Request) {
+	account, db, coll := cosmosDataAccount(r), sim.PathParam(r, "database"), sim.PathParam(r, "container")
+	var body map[string]any
+	if err := sim.ReadJSON(r, &body); err != nil {
+		cosmosDataError(w, "BadRequest", "invalid collection body", http.StatusBadRequest)
+		return
+	}
+	defaultTTL, ok := cosmosCollDefaultTTL(body)
+	if !ok {
+		cosmosDataError(w, "BadRequest", "The value of defaultTtl must be -1 or a positive integer.", http.StatusBadRequest)
+		return
+	}
+	release := cosmosLockColl(account, db, coll)
+	defer release()
+	key := cosmosDataCollKey(account, db, coll)
+	dataColl, fromDataPlane := cosmosDataColls.Get(key)
+	armColl, fromARM := cosmosARMContainer(account, db, coll)
+	if !fromDataPlane && !fromARM {
+		cosmosDataError(w, "NotFound", "Owner resource does not exist", http.StatusNotFound)
+		return
+	}
+	current, _ := cosmosContainerPKPath(account, db, coll)
+	if requested := cosmosCollPKPath(body); requested != "" && requested != current {
+		cosmosDataError(w, "BadRequest",
+			fmt.Sprintf("The partition key of a container cannot be changed: it is %q, and the request declares %q.", current, requested),
+			http.StatusBadRequest)
+		return
+	}
+	if fromDataPlane {
+		dataColl.DefaultTTL = defaultTTL
+		cosmosDataColls.Put(key, dataColl)
+	}
+	if fromARM {
+		if armColl.Properties == nil {
+			armColl.Properties = map[string]any{}
+		}
+		resource, _ := armColl.Properties["resource"].(map[string]any)
+		if resource == nil {
+			resource = map[string]any{}
+			armColl.Properties["resource"] = resource
+		}
+		if defaultTTL == nil {
+			delete(resource, "defaultTtl")
+		} else {
+			resource["defaultTtl"] = float64(*defaultTTL)
+		}
+		cosmosContainers.Put(armColl.ID, armColl)
 	}
 	cosmosWriteData(w, http.StatusOK, cosmosDataColl(account, db, coll))
 }

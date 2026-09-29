@@ -96,7 +96,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		inst = seedInstanceV2Defaults(inst, r.Host, project, location, instanceID)
 		inst.Etag = sim.NewUUID()
 		instances.Put(name, inst)
-		lro := newLRO(project, location, inst, instType)
+		lro := cloudRunLRO(project, location, inst, instType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -195,7 +195,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		}
 		update.Etag = sim.NewUUID()
 		instances.Put(name, update)
-		lro := newLRO(project, location, update, instType)
+		lro := cloudRunLRO(project, location, update, instType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -214,7 +214,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			return
 		}
 		instances.Delete(name)
-		lro := newLRO(project, location, inst, instType)
+		lro := cloudRunLRO(project, location, inst, instType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -253,7 +253,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			if request.ValidateOnly {
 				// The request validated and nothing changed, so the operation
 				// carries no resource.
-				lro := newLRO(project, location, nil, instType)
+				lro := cloudRunLRO(project, location, nil, instType)
 				sim.WriteJSON(w, http.StatusOK, lro)
 				return
 			}
@@ -270,7 +270,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 				i.Etag = sim.NewUUID()
 			})
 			inst, _ := instances.Get(name)
-			lro := newLRO(project, location, inst, instType)
+			lro := cloudRunLRO(project, location, inst, instType)
 			sim.WriteJSON(w, http.StatusOK, lro)
 		default:
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on instance %q", action, id)

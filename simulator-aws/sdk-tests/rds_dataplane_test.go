@@ -235,10 +235,16 @@ func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, connection.Close())
 
-		_, err = rdsAPI.StopDBInstance(testContext, &rds.StopDBInstanceInput{
+		stopped, err := rdsAPI.StopDBInstance(testContext, &rds.StopDBInstanceInput{
 			DBInstanceIdentifier: aws.String(instanceID),
 		})
 		require.NoError(t, err)
+		require.Equal(t, "stopping", aws.ToString(stopped.DBInstance.DBInstanceStatus))
+		waitForRDSInstanceStatus(t, rdsAPI, testContext, instanceID, "stopped")
+		stoppedConnection, err := sql.Open("mysql", config.FormatDSN())
+		require.NoError(t, err)
+		require.Error(t, stoppedConnection.PingContext(testContext), "a stopped instance's endpoint must refuse clients")
+		require.NoError(t, stoppedConnection.Close())
 		_, err = rdsAPI.ModifyDBInstance(testContext, &rds.ModifyDBInstanceInput{
 			DBInstanceIdentifier: aws.String(instanceID),
 			MasterUserPassword:   aws.String(rotatedPassword),

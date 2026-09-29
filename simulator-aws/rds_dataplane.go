@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/dbengine"
 )
 
@@ -56,7 +57,13 @@ func rdsLoadDataPlane(instanceID string) (*rdsDataPlane, bool) {
 
 func rdsRecoverDataPlanes() error {
 	for _, instance := range rdsInstances.List() {
-		if instance.DBInstanceStatus != "available" || len(instance.MasterUserSecret) == 0 {
+		stopping := instance.DBInstanceStatus == "stopping"
+		if stopping && len(instance.MasterUserSecret) == 0 {
+			id := instance.DBInstanceIdentifier
+			bg.Go(func() { rdsFinishStop(id) })
+			continue
+		}
+		if (instance.DBInstanceStatus != "available" && !stopping) || len(instance.MasterUserSecret) == 0 {
 			continue
 		}
 		_, masterPassword, ok := kmsDecryptBytes(instance.MasterUserSecret)
@@ -72,6 +79,12 @@ func rdsRecoverDataPlanes() error {
 			}
 		}
 		rdsInstances.Put(instance.DBInstanceIdentifier, instance)
+		if stopping {
+			// The process that took the StopDBInstance ended before the
+			// engine it adopted here had stopped.
+			id := instance.DBInstanceIdentifier
+			bg.Go(func() { rdsFinishStop(id) })
+		}
 	}
 	return nil
 }
@@ -340,24 +353,58 @@ func rdsValidateIAMAuthToken(instance RDSInstance, user, token string) bool {
 	return !registered || allowed
 }
 
+// rdsStartInstanceEngine reinstalls a stopped instance's endpoint and engine
+// with its recorded master-user credential.
+func rdsStartInstanceEngine(instance *RDSInstance) error {
+	if len(instance.MasterUserSecret) == 0 {
+		return nil
+	}
+	_, password, decrypted := kmsDecryptBytes(instance.MasterUserSecret)
+	if !decrypted {
+		return fmt.Errorf("RDS master-user credential could not be decrypted")
+	}
+	return rdsInstallDataPlane(instance, string(password))
+}
+
+// rdsDataPlaneStops serializes the stops of one instance's data plane, so a
+// DeleteDBInstance that arrives while a StopDBInstance is still stopping the
+// engine removes the volume only once the engine has let go of it.
+var rdsDataPlaneStops = sim.NewKeyedLocks()
+
 // rdsStopDataPlane closes the instance's endpoint and stops its engine and,
 // when the instance is being deleted, removes its data volume — which exists
-// from the first engine start or from a snapshot restore's clone.
-func rdsStopDataPlane(instanceID string, deleteVolume bool) {
-	value, ok := rdsDataPlanes.LoadAndDelete(instanceID)
-	if !ok {
-		return
-	}
-	plane, ok := value.(*rdsDataPlane)
-	if !ok {
-		return
-	}
-	if err := plane.engine.Close(); err != nil {
-		log.Printf("Amazon RDS %s: stop database engine: %v", instanceID, err)
+// from the first engine start or from a snapshot restore's clone. It returns
+// the engine's stop error.
+func rdsStopDataPlane(instanceID string, deleteVolume bool) error {
+	release := rdsDataPlaneStops.Lock(instanceID)
+	defer release()
+	var stopErr error
+	if value, ok := rdsDataPlanes.LoadAndDelete(instanceID); ok {
+		if plane, ok := value.(*rdsDataPlane); ok {
+			if err := plane.engine.Close(); err != nil {
+				stopErr = fmt.Errorf("stop database engine: %w", err)
+				log.Printf("Amazon RDS %s: %v", instanceID, stopErr)
+			}
+		}
 	}
 	if deleteVolume && sim.VolumeExists(rdsInstanceVolume(instanceID)) {
 		if err := sim.RemoveVolume(rdsInstanceVolume(instanceID)); err != nil {
 			log.Printf("Amazon RDS %s: remove data volume: %v", instanceID, err)
 		}
 	}
+	return stopErr
+}
+
+// rdsFinishStop stops a stopping instance's engine and lands the instance
+// stopped once the engine has stopped. An engine that fails to stop leaves the
+// instance stopping, which is what it still is.
+func rdsFinishStop(instanceID string) {
+	if err := rdsStopDataPlane(instanceID, false); err != nil {
+		return
+	}
+	rdsInstances.Update(instanceID, func(i *RDSInstance) {
+		if i.DBInstanceStatus == "stopping" {
+			i.DBInstanceStatus = "stopped"
+		}
+	})
 }

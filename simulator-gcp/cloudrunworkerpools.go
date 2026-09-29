@@ -146,7 +146,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		pool.Etag = sim.NewUUID()
 		pools.Put(name, pool)
 		reconcileWorkerPoolRevision(revisions, name, poolID+"-00001-abc", pool)
-		lro := newLRO(project, location, pool, wpType)
+		lro := cloudRunLRO(project, location, pool, wpType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -244,7 +244,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		update.Etag = sim.NewUUID()
 		pools.Put(name, update)
 		reconcileWorkerPoolRevision(revisions, name, revName, update)
-		lro := newLRO(project, location, update, wpType)
+		lro := cloudRunLRO(project, location, update, wpType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -267,7 +267,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		for _, rev := range revisions.Filter(func(rv RevisionV2) bool { return strings.HasPrefix(rv.Name, revPrefix) }) {
 			revisions.Delete(rev.Name)
 		}
-		lro := newLRO(project, location, pool, wpType)
+		lro := cloudRunLRO(project, location, pool, wpType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
@@ -319,7 +319,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 			return
 		}
 		revisions.Delete(name)
-		lro := newLRO(project, location, rev, "type.googleapis.com/google.cloud.run.v2.Revision")
+		lro := cloudRunLRO(project, location, rev, "type.googleapis.com/google.cloud.run.v2.Revision")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 

@@ -317,6 +317,26 @@ through hooks:
   without a hand-written CBOR route is served from its JSON handler, converted
   both ways by shapes generated from the vendored model, and a test fails on
   any model operation no protocol serves.
+- **An operation names a type that exists.** Every long-running operation
+  carries the metadata message its service's Discovery document or proto
+  `operation_info` declares; the Google Cloud operation constructor takes that
+  builder as a required argument, so no service falls back to a default type
+  that a gRPC client cannot decode.
+- **Each service spells its errors its own way.** An AWS error is written with
+  the message member (`message` or `Message`) and, for Amazon EFS, the
+  `ErrorCode` member that the serving service's Smithy model declares; a
+  middleware resolves the model from the request's target or signing name.
+- **A state change follows the work it names.** Amazon RDS instances and
+  clusters report `stopping` and `starting` until the database engines behind
+  them have actually stopped or started, and Application Gateway, target-pool
+  and backend-service health comes from probes that have run, reporting
+  `Unknown` until they reach a verdict.
+- **A restore writes a new object.** A restored Cloud Storage object gets a new
+  generation and metageneration 1, and its preconditions are judged against the
+  live object it would replace.
+- **A page token proves where it came from.** Every listing tags the tokens it
+  issues and refuses one it never issued with the service's invalid-argument
+  error, instead of listing an empty page.
 
 ## Execution
 

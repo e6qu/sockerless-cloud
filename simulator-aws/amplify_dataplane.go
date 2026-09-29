@@ -4,6 +4,8 @@ import (
 	"crypto/md5"
 	"crypto/subtle"
 	"encoding/hex"
+	"fmt"
+	"log"
 	"mime"
 	"net"
 	"net/http"
@@ -184,12 +186,13 @@ var (
 // amplifyActiveContent resolves and caches a branch's active deployment:
 // the latest SUCCEED job's artifacts, unzipped (zip deploys/builds) or as a
 // direct file map (fileMap deploys). Returns nil when the branch has no
-// servable content — the real "no content yet" experience is a 404.
-func amplifyActiveContent(appID, branch string) *amplifyHostedContent {
+// servable content — the real "no content yet" experience is a 404 — and an
+// error when the active deployment's stored artifacts cannot be read.
+func amplifyActiveContent(appID, branch string) (*amplifyHostedContent, error) {
 	job, ok := amplifyLatestSucceededJob(appID, branch)
 	if !ok {
 		amplifyInvalidateHostingCache(appID, branch)
-		return nil
+		return nil, nil
 	}
 	cacheKey := appID + "/" + branch
 
@@ -197,10 +200,14 @@ func amplifyActiveContent(appID, branch string) *amplifyHostedContent {
 	cached := amplifyHostingCache[cacheKey]
 	amplifyHostingMu.Unlock()
 	if cached != nil && cached.JobID == job.Job.Summary.JobId {
-		return cached
+		return cached, nil
 	}
 
-	content := amplifyUnpackJobArtifacts(appID, branch, job.Job.Summary.JobId)
+	content, err := amplifyUnpackJobArtifacts(appID, branch, job.Job.Summary.JobId)
+	if err != nil {
+		amplifyInvalidateHostingCache(appID, branch)
+		return nil, err
+	}
 	amplifyHostingMu.Lock()
 	if content == nil {
 		delete(amplifyHostingCache, cacheKey)
@@ -208,7 +215,7 @@ func amplifyActiveContent(appID, branch string) *amplifyHostedContent {
 		amplifyHostingCache[cacheKey] = content
 	}
 	amplifyHostingMu.Unlock()
-	return content
+	return content, nil
 }
 
 func amplifyInvalidateHostingCache(appID, branch string) {
@@ -250,7 +257,7 @@ const amplifyDeploymentMaxBytes = 1 << 30
 // multi-file artifact set (fileMap deployment) is used directly. End-to-end
 // test outputs and their metadata are separate Amplify artifact roles and
 // are never published as site content.
-func amplifyJobArtifactFiles(appID, branch, jobID string) map[string][]byte {
+func amplifyJobArtifactFiles(appID, branch, jobID string) (map[string][]byte, error) {
 	// Only hosted content is published, so only those rows are indexed.
 	stored := amplifyHostedArtifactsByJob.LookupAll(amplifyArtifacts, amplifyJobKey(appID, branch, jobID),
 		func(a amplifyStoredArtifact) []string {
@@ -260,39 +267,42 @@ func amplifyJobArtifactFiles(appID, branch, jobID string) map[string][]byte {
 			return []string{amplifyJobKey(a.AppId, a.BranchName, a.JobId)}
 		})
 	if len(stored) == 0 {
-		return nil
+		return nil, nil
 	}
 	bucket := amplifyArtifactBucketName()
-	files := map[string][]byte{}
-	if len(stored) == 1 && strings.HasSuffix(stored[0].Artifact.ArtifactFileName, ".zip") {
-		obj, ok := s3Objects.Get(s3ObjectKey(bucket, stored[0].Key))
+	read := func(a amplifyStoredArtifact) ([]byte, error) {
+		obj, ok := s3Objects.Get(s3ObjectKey(bucket, a.Key))
 		if !ok {
-			return nil
+			return nil, fmt.Errorf("artifact %s of job %s: object %s is missing", a.Artifact.ArtifactFileName, jobID, a.Key)
 		}
 		data, err := s3ObjectData(obj)
 		if err != nil {
-			return nil
+			return nil, fmt.Errorf("artifact %s of job %s: %w", a.Artifact.ArtifactFileName, jobID, err)
+		}
+		return data, nil
+	}
+	files := map[string][]byte{}
+	if len(stored) == 1 && strings.HasSuffix(stored[0].Artifact.ArtifactFileName, ".zip") {
+		data, err := read(stored[0])
+		if err != nil {
+			return nil, err
 		}
 		if err := archive.ReadZip(data, amplifyDeploymentMaxBytes, func(f archive.File) error {
 			files[f.Name] = f.Data
 			return nil
 		}); err != nil {
-			return nil
+			return nil, fmt.Errorf("artifact %s of job %s: %w", stored[0].Artifact.ArtifactFileName, jobID, err)
 		}
-	} else {
-		for _, a := range stored {
-			obj, ok := s3Objects.Get(s3ObjectKey(bucket, a.Key))
-			if !ok {
-				continue
-			}
-			data, err := s3ObjectData(obj)
-			if err != nil {
-				return nil
-			}
-			files[path.Clean(strings.TrimPrefix(a.Artifact.ArtifactFileName, "/"))] = data
-		}
+		return files, nil
 	}
-	return files
+	for _, a := range stored {
+		data, err := read(a)
+		if err != nil {
+			return nil, err
+		}
+		files[path.Clean(strings.TrimPrefix(a.Artifact.ArtifactFileName, "/"))] = data
+	}
+	return files, nil
 }
 
 // amplifyPlatformUsesManifest reports whether the app platform consumes the
@@ -307,23 +317,23 @@ func amplifyPlatformUsesManifest(platform string) bool {
 // state — it yields no servable content rather than silently serving the SSR
 // bundle as a static site. On static platforms a deploy-manifest.json is
 // ordinary site content.
-func amplifyUnpackJobArtifacts(appID, branch, jobID string) *amplifyHostedContent {
-	files := amplifyJobArtifactFiles(appID, branch, jobID)
-	if len(files) == 0 {
-		return nil
+func amplifyUnpackJobArtifacts(appID, branch, jobID string) (*amplifyHostedContent, error) {
+	files, err := amplifyJobArtifactFiles(appID, branch, jobID)
+	if err != nil || len(files) == 0 {
+		return nil, err
 	}
 	content := &amplifyHostedContent{JobID: jobID, Files: files}
 	if manifestData, ok := files["deploy-manifest.json"]; ok {
 		manifest, err := amplifyParseDeployManifest(manifestData)
 		if err != nil {
 			if stored, ok := amplifyApps.Get(appID); ok && amplifyPlatformUsesManifest(stored.App.Platform) {
-				return nil
+				return nil, nil
 			}
 		} else {
 			content.Manifest = manifest
 		}
 	}
-	return content
+	return content, nil
 }
 
 func handleAmplifyHosting(w http.ResponseWriter, r *http.Request, appID, branch string) {
@@ -346,7 +356,12 @@ func handleAmplifyHosting(w http.ResponseWriter, r *http.Request, appID, branch 
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	content := amplifyActiveContent(appID, branch)
+	content, err := amplifyActiveContent(appID, branch)
+	if err != nil {
+		log.Printf("amplify: serve %s/%s: %v", appID, branch, err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
 	if content == nil {
 		// No active deployment: the real no-content experience.
 		http.NotFound(w, r)

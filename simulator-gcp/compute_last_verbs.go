@@ -127,8 +127,9 @@ func registerComputeLastVerbs(srv *sim.Server) {
 			})
 		})
 
-	// A regional backend service's health, which is the health of the backends
-	// it names — none named, none reported.
+	// A regional backend service's health: what its health checks last found
+	// for the backends of the named group, as the health checker recorded it —
+	// the same rule the global backend services report by.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/backendServices/{name}/getHealth",
 		func(w http.ResponseWriter, r *http.Request) {
 			held, ok := gcpRegionBackendServices.Get(
@@ -138,21 +139,22 @@ func registerComputeLastVerbs(srv *sim.Server) {
 					"backendServices %q not found", sim.PathParam(r, "name"))
 				return
 			}
-			statuses := []any{}
-			if backends, _ := held["backends"].([]any); backends != nil {
-				for _, backend := range backends {
-					entry, ok := backend.(map[string]any)
-					if !ok {
-						continue
-					}
-					statuses = append(statuses, map[string]any{
-						"instance":    entry["group"],
-						"healthState": "HEALTHY",
-					})
-				}
+			var req struct {
+				Group string `json:"group"`
+			}
+			if err := sim.ReadJSON(r, &req); err != nil {
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				return
+			}
+			bs, ok := gcpDecodeComputeResource[ComputeBackendService](held)
+			if !ok {
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
+					"backend service %q is not a readable backendService", sim.PathParam(r, "name"))
+				return
 			}
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
-				"kind": "compute#backendServiceGroupHealth", "healthStatus": statuses,
+				"kind":         "compute#backendServiceGroupHealth",
+				"healthStatus": gcpBackendServiceHealth(bs, req.Group),
 			})
 		})
 

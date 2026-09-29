@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,65 @@ func TestGCP_Operations_List(t *testing.T) {
 		"the us-central1 job's operation is in the us-central1 collection")
 	assert.NotContains(t, scopedNames, europeJobOp,
 		"the europe-west1 job's operation belongs to another collection")
+}
+
+// TestGCP_Operations_ListPagesAndFiltersDone pages the AIP-151 collection with
+// pageSize and nextPageToken, and filters `done` as the proto bool it is.
+func TestGCP_Operations_ListPagesAndFiltersDone(t *testing.T) {
+	const location = "asia-south2"
+	const scoped = "projects/p1/locations/" + location + "/operations/"
+	created := map[string]bool{}
+	for _, job := range []string{"page-a", "page-b", "page-c"} {
+		created[gcpCreateJobOperation(t, location, job)] = true
+	}
+
+	seen := map[string]bool{}
+	pages, token := 0, ""
+	for {
+		query := url.Values{"name": {scoped}, "pageSize": {"2"}}
+		if token != "" {
+			query.Set("pageToken", token)
+		}
+		page := gcpListOperationsPage(t, "?"+query.Encode())
+		require.LessOrEqual(t, len(page.Operations), 2, "a page holds at most pageSize operations")
+		for _, op := range page.Operations {
+			name, _ := op["name"].(string)
+			assert.False(t, seen[name], "operation %q listed on two pages", name)
+			seen[name] = true
+		}
+		pages++
+		if page.NextPageToken == "" {
+			break
+		}
+		token = page.NextPageToken
+	}
+	assert.Equal(t, 2, pages, "three operations at pageSize 2 fill two pages")
+	assert.Equal(t, created, seen, "paging visits every operation in the collection exactly once")
+
+	for filter, want := range map[string]int{"done = true": 3, "done:true": 3, "done = false": 0, "NOT done": 0} {
+		page := gcpListOperationsPage(t, "?"+url.Values{"name": {scoped}, "filter": {filter}}.Encode())
+		assert.Len(t, page.Operations, want, "filter %q", filter)
+	}
+}
+
+type gcpOperationsPage struct {
+	Operations    []map[string]any `json:"operations"`
+	NextPageToken string           `json:"nextPageToken"`
+}
+
+func gcpListOperationsPage(t *testing.T, rawQuery string) gcpOperationsPage {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/operations"+rawQuery, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "list operations: %s", body)
+	var page gcpOperationsPage
+	require.NoError(t, json.Unmarshal(body, &page))
+	return page
 }
 
 // gcpCreateJobOperation creates a Cloud Run job in the given region and returns

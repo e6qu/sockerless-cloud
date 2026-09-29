@@ -153,8 +153,7 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 			body = map[string]any{}
 		}
 		name, _ := body["name"].(string)
-		if name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		if computeRefuseNameOf(w, f.kind, name) {
 			return
 		}
 		key := computePolicyKey(r, f.base, name)

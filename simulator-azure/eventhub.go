@@ -245,6 +245,7 @@ func handleEHDeleteNamespace(w http.ResponseWriter, r *http.Request) {
 	for _, hub := range ehEventHubs.List() {
 		if strings.HasPrefix(hub.ID, prefix) {
 			ehEventHubs.Delete(hub.ID)
+			ehDropPartitionLogs(sim.PathParam(r, "name"), hub)
 		}
 	}
 	for _, group := range ehConsumerGroups.List() {
@@ -686,9 +687,7 @@ func handleEHDeleteEventHub(w http.ResponseWriter, r *http.Request) {
 		AzureError(w, "ResourceNotFound", "event hub not found", http.StatusNotFound)
 		return
 	}
-	for _, partition := range ehPartitionIDs(ehPartitionCount(hub.Properties)) {
-		ehLog.Drop(ehPartitionKey(sim.PathParam(r, "name"), hub.Name, partition))
-	}
+	ehDropPartitionLogs(sim.PathParam(r, "name"), hub)
 	prefix := id + "/"
 	for _, group := range ehConsumerGroups.List() {
 		if strings.HasPrefix(group.ID, prefix) {
@@ -701,6 +700,12 @@ func handleEHDeleteEventHub(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func ehDropPartitionLogs(namespace string, hub EHEventHub) {
+	for _, partition := range ehPartitionIDs(ehPartitionCount(hub.Properties)) {
+		ehLog.Drop(ehPartitionKey(namespace, hub.Name, partition))
+	}
 }
 
 func handleEHListEventHubs(w http.ResponseWriter, r *http.Request) {

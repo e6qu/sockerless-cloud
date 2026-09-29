@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -245,17 +246,15 @@ func TestAmplifyHostingNoDeployment404(t *testing.T) {
 	}
 }
 
-func TestAmplifyHostingInvalidArtifactIsNotContent(t *testing.T) {
+func TestAmplifyHostingUnreadableArtifactIsAServerError(t *testing.T) {
 	amplifyResetHostingState()
 	amplifySeedApp("dsynth", "main")
-	// An invalid deployment artifact is not a valid zip, so the
-	// hosting plane must treat the branch as having no servable content.
-	key := "artifacts/dsynth/main/djob3/e2e-test-artifacts.zip"
-	if err := amplifyPutS3Object(key, "application/zip", []byte("amplify artifact placeholder\n")); err != nil {
+	key := "artifacts/dsynth/main/djob3/artifacts.zip"
+	if err := amplifyPutS3Object(key, "application/zip", []byte("not a zip archive\n")); err != nil {
 		t.Fatal(err)
 	}
 	amplifyArtifacts.Put("djob3-art", amplifyStoredArtifact{
-		Artifact:      AmplifyArtifact{ArtifactId: "djob3-art", ArtifactFileName: "e2e-test-artifacts.zip"},
+		Artifact:      AmplifyArtifact{ArtifactId: "djob3-art", ArtifactFileName: "artifacts.zip"},
 		AppId:         "dsynth",
 		BranchName:    "main",
 		JobId:         "djob3",
@@ -266,9 +265,83 @@ func TestAmplifyHostingInvalidArtifactIsNotContent(t *testing.T) {
 		Job:   AmplifyJob{Summary: AmplifyJobSummary{JobId: "djob3", Status: AmplifyJobStatusSucceed, StartTime: 1}},
 		AppId: "dsynth", BranchName: "main",
 	})
+	if _, err := amplifyJobArtifactFiles("dsynth", "main", "djob3"); err == nil || !strings.Contains(err.Error(), "artifacts.zip") {
+		t.Fatalf("unreadable zip artifact: err = %v, want the artifact named", err)
+	}
 	rec := amplifyHostingGet(t, "main.dsynth.amplifyapp.com", "/", nil)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("invalid zip artifact must serve no content, got %d", rec.Code)
+	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "not a zip") {
+		t.Fatalf("unreadable active deployment: %d %q, want 500 without the artifact bytes", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAmplifyHostingMissingFileMapObjectIsAServerError(t *testing.T) {
+	amplifyResetHostingState()
+	amplifySeedApp("dgone", "main")
+	present := "deployments/dgone/main/djob9/files/index.html"
+	if err := amplifyPutS3Object(present, "", []byte("<html>present</html>")); err != nil {
+		t.Fatal(err)
+	}
+	for name, key := range map[string]string{"index.html": present, "app.js": "deployments/dgone/main/djob9/files/app.js"} {
+		amplifyArtifacts.Put("djob9-"+name, amplifyStoredArtifact{
+			Artifact:      AmplifyArtifact{ArtifactId: "djob9-" + name, ArtifactFileName: name},
+			AppId:         "dgone",
+			BranchName:    "main",
+			JobId:         "djob9",
+			Key:           key,
+			HostedContent: true,
+		})
+	}
+	amplifyJobs.Put("djob9", amplifyStoredJob{
+		Job:   AmplifyJob{Summary: AmplifyJobSummary{JobId: "djob9", Status: AmplifyJobStatusSucceed, StartTime: 1}},
+		AppId: "dgone", BranchName: "main",
+	})
+	files, err := amplifyJobArtifactFiles("dgone", "main", "djob9")
+	if err == nil || !strings.Contains(err.Error(), "app.js") || files != nil {
+		t.Fatalf("missing app.js object: files %v err %v, want no files and an error naming app.js", files, err)
+	}
+	if rec := amplifyHostingGet(t, "main.dgone.amplifyapp.com", "/index.html", nil); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("partial deployment served %d %q, want 500", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAmplifyDeploymentUnreadableArtifactFailsTheJob(t *testing.T) {
+	amplifyResetHostingState()
+	amplifySeedApp("dbadzip", "main")
+	jobID := "djob10"
+	amplifyJobs.Put(jobID, amplifyStoredJob{
+		Job: AmplifyJob{
+			Summary: AmplifyJobSummary{JobId: jobID, Status: AmplifyJobStatusPending, StartTime: 1},
+			Steps:   []AmplifyJobStep{{StepName: "DEPLOY", StartTime: 1, Status: AmplifyJobStatusPending}},
+		},
+		AppId: "dbadzip", BranchName: "main",
+	})
+	key := "deployments/dbadzip/main/" + jobID + "/artifacts.zip"
+	if err := amplifyPutS3Object(key, "application/zip", []byte("truncated upload")); err != nil {
+		t.Fatal(err)
+	}
+	amplifyScheduleDeployment("dbadzip", "main", jobID, "http://127.0.0.1:1", []amplifyUploadedArtifact{{FileName: "artifacts.zip", Key: key}})
+	bg.Await()
+
+	stored, ok := amplifyJobs.Get(jobID)
+	if !ok {
+		t.Fatal("job vanished")
+	}
+	if stored.Job.Summary.Status != AmplifyJobStatusFailed || stored.Job.Steps[0].Status != AmplifyJobStatusFailed {
+		t.Fatalf("job %s step %s, want both FAILED", stored.Job.Summary.Status, stored.Job.Steps[0].Status)
+	}
+	logObj, ok := s3Objects.Get(s3ObjectKey(amplifyArtifactBucketName(), "logs/dbadzip/main/"+jobID+"/DEPLOY.log"))
+	if !ok {
+		t.Fatal("the failed DEPLOY step stored no log")
+	}
+	logData, err := s3ObjectData(logObj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "!!! Failed to read the deployment artifacts: artifact artifacts.zip of job "+jobID) {
+		t.Fatalf("DEPLOY log %q does not carry the read failure", logData)
+	}
+	if rec := amplifyHostingGet(t, "main.dbadzip.amplifyapp.com", "/", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("a failed deployment served %d, want 404", rec.Code)
 	}
 }
 

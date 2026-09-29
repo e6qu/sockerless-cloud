@@ -1194,7 +1194,7 @@ func kmsRegisterKeyHandles(srv *sim.Server) {
 		}
 		kh := kmsKeyHandle{Name: name, KmsKey: kmsKey, ResourceTypeSelector: req.ResourceTypeSelector}
 		kmsKeyHandles.Put(name, kh)
-		op := newLRO(project, location, kh, "type.googleapis.com/google.cloud.kms.v1.KeyHandle")
+		op := kmsLRO(project, location, kh, "KeyHandle", "CreateKeyHandleMetadata")
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
@@ -1392,7 +1392,7 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 		}
 		inst := kmsSingleTenantHsmInstance{Name: name, State: "ACTIVE", CreateTime: kmsNow()}
 		kmsHsmInstances.Put(name, inst)
-		sim.WriteJSON(w, http.StatusOK, newLRO(project, location, inst, "type.googleapis.com/google.cloud.kms.v1.SingleTenantHsmInstance"))
+		sim.WriteJSON(w, http.StatusOK, kmsLRO(project, location, inst, "SingleTenantHsmInstance", "CreateSingleTenantHsmInstanceMetadata"))
 	})
 
 	srv.HandleFunc("GET "+instancePrefix, func(w http.ResponseWriter, r *http.Request) {
@@ -1440,7 +1440,7 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 		name := instName + "/proposals/" + id
 		prop := kmsHsmProposal{Name: name, State: "PENDING"}
 		kmsHsmProposals.Put(name, prop)
-		sim.WriteJSON(w, http.StatusOK, newLRO(project, location, prop, "type.googleapis.com/google.cloud.kms.v1.SingleTenantHsmInstanceProposal"))
+		sim.WriteJSON(w, http.StatusOK, kmsLRO(project, location, prop, "SingleTenantHsmInstanceProposal", "CreateSingleTenantHsmInstanceProposalMetadata"))
 	})
 
 	srv.HandleFunc("GET "+instancePrefix+"/{instance}/proposals", func(w http.ResponseWriter, r *http.Request) {
@@ -1507,7 +1507,7 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 		case "execute":
 			prop.State = "EXECUTED"
 			kmsHsmProposals.Put(name, prop)
-			sim.WriteJSON(w, http.StatusOK, newLRO(project, location, prop, "type.googleapis.com/google.cloud.kms.v1.SingleTenantHsmInstanceProposal"))
+			sim.WriteJSON(w, http.StatusOK, kmsLRO(project, location, nil, "ExecuteSingleTenantHsmInstanceProposalResponse", "ExecuteSingleTenantHsmInstanceProposalMetadata"))
 		default:
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown proposal action %q", action)
 		}
@@ -2881,6 +2881,13 @@ func kmsCreateVersionForAlg(keyName, versionID, protection, algorithm string) (s
 }
 
 // kmsLocationName builds the projects/{p}/locations/{loc} parent for a request.
+// kmsLRO records a finished Cloud KMS operation whose response and metadata
+// are the google.cloud.kms.v1 messages the method's operation_info declares.
+func kmsLRO(project, location string, resource any, response, metadata string) Operation {
+	const pkg = "type.googleapis.com/google.cloud.kms.v1."
+	return newLRO(project, location, resource, pkg+response, gcpEmptyOperationMetadata(pkg+metadata))
+}
+
 func kmsLocationName(r *http.Request) string {
 	return fmt.Sprintf("projects/%s/locations/%s", sim.PathParam(r, "project"), sim.PathParam(r, "location"))
 }

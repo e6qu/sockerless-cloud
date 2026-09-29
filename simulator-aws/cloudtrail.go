@@ -136,6 +136,9 @@ func (w *cloudTrailStatusRecorder) Write(p []byte) (int, error) {
 	return w.ResponseWriter.Write(p)
 }
 
+// Unwrap lets AWSError find the service model the wrapped writer serves.
+func (w *cloudTrailStatusRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (w *cloudTrailStatusRecorder) statusCode() int {
 	if w.status == 0 {
 		return http.StatusOK

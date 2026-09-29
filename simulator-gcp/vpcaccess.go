@@ -24,6 +24,23 @@ type VPCAccessConnector struct {
 	State         string `json:"state"`
 }
 
+// vpcAccessLRO records a finished Serverless VPC Access operation. Its
+// google.cloud.vpcaccess.v1.OperationMetadata names the connector it acted on
+// and the method that started it, spelled as the document's own example spells
+// it.
+func vpcAccessLRO(project, location string, resource any, typeName, method, target string) Operation {
+	return newLRO(project, location, resource, typeName, func(string, map[string]any) map[string]any {
+		now := nowTimestamp()
+		return map[string]any{
+			"@type":      "type.googleapis.com/google.cloud.vpcaccess.v1.OperationMetadata",
+			"method":     "google.cloud.vpcaccess.v1.Connectors." + method,
+			"createTime": now,
+			"endTime":    now,
+			"target":     target,
+		}
+	})
+}
+
 func registerVPCAccess(srv *sim.Server) {
 	connectors := sim.MakeStore[VPCAccessConnector](srv.DB(), "vpc_connectors")
 
@@ -75,7 +92,7 @@ func registerVPCAccess(srv *sim.Server) {
 
 		connectors.Put(name, req)
 
-		op := newLRO(project, location, req, "type.googleapis.com/google.cloud.vpcaccess.v1.Connector")
+		op := vpcAccessLRO(project, location, req, "type.googleapis.com/google.cloud.vpcaccess.v1.Connector", "CreateConnector", name)
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
@@ -119,7 +136,7 @@ func registerVPCAccess(srv *sim.Server) {
 		existing.State = "READY"
 		connectors.Put(name, existing)
 
-		op := newLRO(project, location, existing, "type.googleapis.com/google.cloud.vpcaccess.v1.Connector")
+		op := vpcAccessLRO(project, location, existing, "type.googleapis.com/google.cloud.vpcaccess.v1.Connector", "PatchConnector", name)
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
@@ -146,7 +163,7 @@ func registerVPCAccess(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/connectors/%s", project, location, connName)
 
 		connectors.Delete(name)
-		op := newLRO(project, location, nil, "type.googleapis.com/google.cloud.vpcaccess.v1.OperationMetadata")
+		op := vpcAccessLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty", "DeleteConnector", name)
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 

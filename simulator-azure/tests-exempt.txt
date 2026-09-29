@@ -22,3 +22,11 @@ PATCH /acr/v1/{path...}
 # The same greedy route for the two deletes — DeleteRepository and DeleteTag —
 # exercised by the same test and unmatchable for the same reason.
 DELETE /acr/v1/{path...}
+
+# Cosmos DB's data-plane ReplaceContainer. sdk-tests/cosmos_replace_container_sdk_test.go
+# drives it through azcosmos's ContainerClient.Replace, which the matcher cannot
+# resolve: it walks back to "colls" and asks for .Colls.Update(. Neither az nor
+# the AzureRM provider speaks the Cosmos DB data plane; `az cosmosdb sql
+# container update` and azurerm_cosmosdb_sql_container replace a container
+# through Azure Resource Manager's sqlDatabases/containers, which has its own route.
+PUT /dbs/{database}/colls/{container}
