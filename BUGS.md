@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 51.
+Open: 50.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -44,7 +44,6 @@ live in `WHAT_WE_DID.md`.
 | 3151 | P3 | CI setup repeated per job | Base-image loading (4,803 s), pre-building the simulator and tests (1,990 s) and installing Caddy through apt (760 s) repeat in every job. | Build once and share the build and the loaded images across jobs; install Caddy from a cached binary. |
 | 3153 | P2 | VM boots inside control-plane requests | Compute Engine `instances.start` blocks its request 4.5–5.5 s while the machine boots, and Azure VM DELETE and SimulateEviction stop the guest inside the request; the services answer at once and do the work behind an operation or a pending state. | Answer with the operation or pending state and do the boot or stop in the background, as the Azure VM create and actions now do. |
 | 3154 | P3 | Fixed waits in tests | Sleep or poll sites in test code still wait on time instead of an event: the Azure suites, the AWS sites with no waiter (RDS stopped, ELB unhealthy, ECS replacement after StopTask, rollback completion, Batch and CodeBuild discovery, the event source mapping's LastProcessingResult), the AWS CLI waiters (unrun here), fixtures hold a Cloud Run revision 30 s, sidecar tests retry for 10 s with no sidecar, and 68 sites could use the SDK's own waiter. | Replace each with the waiter, LRO poller, blocking receive or test hook the inventory names; poll only a status field the cloud exposes nothing else for. |
-| 3155 | P3 | Stop and network-removal deadlines | Container stop and network removal wait out 10 s deadlines, and a DNS zone delete that stalls on one discards the error (`dns.go`). | Wait on the engine's stop and removal events, and surface the delete's error. |
 | 3156 | P3 | Aurora readers accept writes | Aurora reader and replica endpoints relay to the cluster's one engine, so writes succeed where an Aurora replica refuses them. | Open reader sessions read-only in `sim/dbengine` and route writer and reader endpoints accordingly. |
 | 3157 | P2 | Aurora cluster snapshots and restores | `CreateDBClusterSnapshot`, the final snapshot on delete, and `RestoreDBClusterFromSnapshot`, `ToPointInTime` and `FromS3` stay metadata-only; a restored Aurora cluster has no master credential or volume, so creating an instance in it fails. | Capture and restore the cluster volume, and carry the master credential through. |
 | 3160 | P3 | EventBridge Scheduler targets | The execution role is checked only for the dead-letter queue, not for invoking the target; EventBridge `PutEvents`, SageMaker and universal targets fail as `UnsupportedTarget`; `RetryPolicy` ranges are not validated. | Assume the execution role for every target call, add the missing targets, and validate the ranges the model declares. |

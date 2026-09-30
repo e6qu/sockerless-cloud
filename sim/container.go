@@ -1724,32 +1724,45 @@ func ownerIsDead(labels map[string]string) bool {
 	return !realexec.ProcessAlive(pid)
 }
 
-// RemoveDockerNetwork removes a simulator-managed Docker network if
-// it exists. Errors are returned so callers can log them; idempotent
-// for a missing network.
+// networkRemoveRefused runs each time the engine refuses a network removal; a
+// test replaces it to learn that a removal is waiting on a disconnect.
+var networkRemoveRefused = func(string) {}
+
+// RemoveDockerNetwork removes a simulator-managed Docker network if it exists,
+// and is idempotent for a missing one. The engine refuses to remove a network
+// with endpoints still attached, so each refusal waits for a container to
+// disconnect from it before trying again.
 func RemoveDockerNetwork(name string) error {
 	cli := DockerClient()
 	if cli == nil {
 		return nil
 	}
-	deadline := time.Now().Add(10 * time.Second)
-	var lastErr error
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// Subscribe before the first attempt, so a disconnect that lands between a
+	// refused removal and the wait still wakes it.
+	disconnects := cli.Events(ctx, client.EventsListOptions{
+		Filters: client.Filters{}.Add("type", "network").Add("event", "disconnect").Add("network", name),
+	})
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_, inspectErr := cli.NetworkInspect(ctx, name, client.NetworkInspectOptions{})
-		if inspectErr != nil {
-			cancel()
-			return nil // already gone
+		if _, err := cli.NetworkInspect(ctx, name, client.NetworkInspectOptions{}); err != nil {
+			if cerrdefs.IsNotFound(err) {
+				return nil
+			}
+			return fmt.Errorf("inspect network %s: %w", name, err)
 		}
-		_, lastErr = cli.NetworkRemove(ctx, name, client.NetworkRemoveOptions{})
-		cancel()
-		if lastErr == nil {
+		_, removeErr := cli.NetworkRemove(ctx, name, client.NetworkRemoveOptions{})
+		if removeErr == nil || cerrdefs.IsNotFound(removeErr) {
 			return nil
 		}
-		if time.Now().After(deadline) {
-			return lastErr
+		networkRemoveRefused(name)
+		select {
+		case <-disconnects.Messages:
+		case err := <-disconnects.Err:
+			return fmt.Errorf("remove network %s: %w (watching its disconnects: %v)", name, removeErr, err)
+		case <-ctx.Done():
+			return fmt.Errorf("remove network %s: %w", name, removeErr)
 		}
-		time.Sleep(250 * time.Millisecond)
 	}
 }
 

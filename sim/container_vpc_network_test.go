@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -329,3 +330,48 @@ func exitedPID(t *testing.T) int {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// A network with a container attached is removed once the container
+// disconnects, on the engine's disconnect event rather than a retry timer.
+func TestRemoveDockerNetworkWaitsForItsLastContainerToDisconnect(t *testing.T) {
+	cli := vpcTestDockerClient(t)
+	dockerClient = cli
+	name := "sockerless-sim-remove-wait-" + strconv.Itoa(os.Getpid())
+	if out, err := exec.Command("docker", "network", "create", name).CombinedOutput(); err != nil {
+		t.Fatalf("create network: %v: %s", err, out)
+	}
+	t.Cleanup(func() { _ = exec.Command("docker", "network", "rm", name).Run() })
+	out, err := exec.Command("docker", "run", "-d", "--network", name, "alpine:3.21", "sleep", "300").Output()
+	if err != nil {
+		t.Fatalf("start attached container: %v", err)
+	}
+	containerID := strings.TrimSpace(string(out))
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", containerID).Run() })
+
+	refused := make(chan struct{}, 1)
+	previous := networkRemoveRefused
+	networkRemoveRefused = func(string) {
+		select {
+		case refused <- struct{}{}:
+		default:
+		}
+	}
+	t.Cleanup(func() { networkRemoveRefused = previous })
+
+	removed := make(chan error, 1)
+	go func() { removed <- RemoveDockerNetwork(name) }()
+	select {
+	case <-refused:
+	case err := <-removed:
+		t.Fatalf("removal returned %v while a container was still attached", err)
+	}
+	if out, err := exec.Command("docker", "rm", "-f", containerID).CombinedOutput(); err != nil {
+		t.Fatalf("remove container: %v: %s", err, out)
+	}
+	if err := <-removed; err != nil {
+		t.Fatalf("RemoveDockerNetwork: %v", err)
+	}
+	if err := exec.Command("docker", "network", "inspect", name).Run(); err == nil {
+		t.Fatalf("network %s outlived RemoveDockerNetwork", name)
+	}
+}

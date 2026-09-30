@@ -307,6 +307,14 @@ func registerCloudDNS(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
+		// The zone's Docker network goes first, so a zone whose network cannot
+		// be removed stays and reports why rather than leaking the network.
+		if zone.DockerNetworkName != "" {
+			if err := sim.RemoveDockerNetwork(zone.DockerNetworkName); err != nil {
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "delete managed zone %q: %v", zoneName, err)
+				return
+			}
+		}
 		zones.Delete(key)
 		// The zone's IAM policy dies with the zone: a later zone created
 		// under the same name starts with no bindings.
@@ -319,11 +327,6 @@ func registerCloudDNS(srv *sim.Server) {
 			if stored.Project == project && stored.Zone == zoneName {
 				recordSets.Delete(dnsRecordSetKey(project, zoneName, stored.Record.Name, stored.Record.Type))
 			}
-		}
-
-		// Drop the Docker network backing the private zone.
-		if zone.DockerNetworkName != "" {
-			_ = sim.RemoveDockerNetwork(zone.DockerNetworkName)
 		}
 
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})

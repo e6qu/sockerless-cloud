@@ -447,6 +447,10 @@ Creating an Azure file share or inserting a Cloud Storage bucket makes its
 empty host directory and fails the request when it cannot. The mount helpers
 only name the directory, and a bucket reuses no files that a deleted bucket
 of the same name left behind.
+Removing a Docker network the engine refuses because a container is still
+attached waits for that container's disconnect event and tries again, instead
+of retrying on a timer. Deleting a Cloud DNS managed zone removes its network
+first and fails, keeping the zone, when the network cannot go.
 
 A workload host pulls its image the way the cloud pulls it. The Cloud Run and
 Cloud Functions hosts present the project's Cloud Run service agent's access
