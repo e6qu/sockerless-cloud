@@ -95,7 +95,8 @@ func TestECS_CLI_ServiceFamily(t *testing.T) {
 		} `json:"service"`
 	}
 	parseJSON(t, delOut, &del)
-	assert.Equal(t, "INACTIVE", del.Service.Status)
+	assert.Equal(t, "DRAINING", del.Service.Status)
+	runCLI(t, awsCLI("ecs", "wait", "services-inactive", "--cluster", cluster, "--services", "cli-svc"))
 }
 
 func cleanupCLIService(t *testing.T, cluster, service string) {
@@ -127,6 +128,7 @@ func TestECS_CLI_RunTaskAndCheckLogs(t *testing.T) {
 				"logDriver": "awslogs",
 				"options": {
 					"awslogs-group": "/ecs/cli-task",
+					"awslogs-create-group": "true",
 					"awslogs-stream-prefix": "ecs"
 				}
 			}
@@ -230,6 +232,7 @@ func TestECS_CLI_RunTaskContainerOverrideEnvironment(t *testing.T) {
 				"logDriver": "awslogs",
 				"options": {
 					"awslogs-group": "`+logGroup+`",
+					"awslogs-create-group": "true",
 					"awslogs-stream-prefix": "ecs"
 				}
 			}
@@ -377,7 +380,7 @@ func TestECS_CLI_FargateSandboxAllowsChroot(t *testing.T) {
 			"image": "public.ecr.aws/docker/library/busybox:latest",
 			"entryPoint": ["sh", "-c"],
 			"command": ["mkdir -p /jail && chroot /jail /definitely-missing; code=$?; if [ \"$code\" = 127 ]; then echo CHROOT_OK; exit 0; fi; exit \"$code\""],
-			"logConfiguration": {"logDriver":"awslogs","options":{"awslogs-group":"/ecs/cli-chroot","awslogs-stream-prefix":"ecs"}}
+			"logConfiguration": {"logDriver":"awslogs","options":{"awslogs-create-group":"true","awslogs-group":"/ecs/cli-chroot","awslogs-stream-prefix":"ecs"}}
 		}]`,
 		"--output", "json",
 	))
@@ -540,7 +543,7 @@ func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 			"entryPoint": ["sh", "-c"],
 			"command": ["test \"$(cat /workspace/state.txt)\" = \"cli-ebs-roundtrip\" && echo CLI_EBS_ROUNDTRIP_OK"],
 			"mountPoints": [{"sourceVolume":"workspace","containerPath":"/workspace"}],
-			"logConfiguration": {"logDriver":"awslogs","options":{"awslogs-group":"/ecs/cli-ebs-roundtrip","awslogs-stream-prefix":"ecs"}}
+			"logConfiguration": {"logDriver":"awslogs","options":{"awslogs-create-group":"true","awslogs-group":"/ecs/cli-ebs-roundtrip","awslogs-stream-prefix":"ecs"}}
 		}]`,
 		"--output", "json",
 	))
@@ -606,6 +609,7 @@ func TestECS_CLI_RunTaskNonZeroExit(t *testing.T) {
 				"logDriver": "awslogs",
 				"options": {
 					"awslogs-group": "/ecs/cli-fail-task",
+					"awslogs-create-group": "true",
 					"awslogs-stream-prefix": "ecs"
 				}
 			}

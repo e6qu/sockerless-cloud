@@ -160,13 +160,14 @@ func TestAmazonECSServiceReleasesItsVPCNetworkAcrossSimulatorRestart_SDK(t *test
 		Cluster: aws.String(cluster), Service: aws.String(service), Force: aws.Bool(true),
 	})
 	require.NoError(t, err)
+	// The deleted service's tasks hold network interfaces in the subnet until
+	// they have stopped, and EC2 refuses DeleteSubnet while they do.
+	stopECSTasksInSubnet(t, ecsAPI, aws.ToString(subnet.Subnet.SubnetId))
 	_, err = ec2API.DeleteSubnet(testCtx, &ec2.DeleteSubnetInput{SubnetId: subnet.Subnet.SubnetId})
 	require.NoError(t, err)
-	var deleteVPCErr error
-	require.Eventually(t, func() bool {
-		_, deleteVPCErr = ec2API.DeleteVpc(testCtx, &ec2.DeleteVpcInput{VpcId: vpc.Vpc.VpcId})
-		return deleteVPCErr == nil
-	}, 20*time.Second, 250*time.Millisecond, "VPC network remained attached after service deletion: %v", deleteVPCErr)
+	_, err = ec2API.DeleteVpc(testCtx, &ec2.DeleteVpcInput{VpcId: vpc.Vpc.VpcId})
+	require.NoError(t, err, "VPC network remained attached after service deletion")
+	waitForECSServiceInactive(t, ecsAPI, cluster, service)
 	_, err = ecsAPI.DeleteCluster(testCtx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
 	require.NoError(t, err)
 }
@@ -255,6 +256,8 @@ func TestAmazonECSServiceDeploymentFailureStateSurvivesSimulatorRestart_SDK(t *t
 		Cluster: aws.String(cluster), Service: aws.String(service), Force: aws.Bool(true),
 	})
 	require.NoError(t, err)
+	// Amazon ECS refuses DeleteCluster while the service drains its tasks.
+	waitForECSServiceInactive(t, client, cluster, service)
 	_, err = client.DeleteCluster(testCtx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
 	require.NoError(t, err)
 }

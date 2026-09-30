@@ -42,9 +42,10 @@ func waitForECSServiceTaskDefinition(
 	cluster, serviceName, taskDefinition string,
 ) ecstypes.Service {
 	t.Helper()
-	// A rolled-back service keeps its FAILED deployment beside the PRIMARY one,
-	// so steady state here is the PRIMARY deployment's: its task definition
-	// running at the desired count with its rollout COMPLETED.
+	// The SDK's ServicesStable condition — one deployment, running at the
+	// desired count — holds before a rollback begins as well as after it
+	// ends, so the wait also requires the expected task definition and a
+	// COMPLETED rollout.
 	out, err := ecs.NewServicesStableWaiter(client, func(o *ecs.ServicesStableWaiterOptions) {
 		o.MinDelay = waiterMinDelay
 		o.MaxDelay = waiterMaxDelay
@@ -58,7 +59,7 @@ func waitForECSServiceTaskDefinition(
 			service := out.Services[0]
 			return aws.ToString(service.TaskDefinition) != taskDefinition ||
 				service.RunningCount != service.DesiredCount || service.PendingCount != 0 ||
-				len(service.Deployments) == 0 ||
+				len(service.Deployments) != 1 ||
 				service.Deployments[0].RolloutState != ecstypes.DeploymentRolloutStateCompleted, nil
 		}
 	}).WaitForOutput(ctx, &ecs.DescribeServicesInput{
@@ -187,8 +188,16 @@ func TestECS_ServiceDeploymentCircuitBreakerRollsBack(t *testing.T) {
 	require.Equal(t, 1, serviceEventCount(rolledBack, "deployment rollback completed"),
 		"the rollback completion event must be written exactly once, by the write "+
 			"that publishes the rollout as COMPLETED: %v", serviceEventMessages(rolledBack))
-	require.GreaterOrEqual(t, len(rolledBack.Deployments), 2)
-	require.Equal(t, ecstypes.DeploymentRolloutStateFailed, rolledBack.Deployments[1].RolloutState)
+	// Amazon ECS drops the drained FAILED deployment, so the SDK's own
+	// ServicesStable waiter succeeds on the rolled-back service.
+	require.Len(t, rolledBack.Deployments, 1)
+	require.Equal(t, stable, aws.ToString(rolledBack.Deployments[0].TaskDefinition))
+	require.NoError(t, ecs.NewServicesStableWaiter(client, func(o *ecs.ServicesStableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &ecs.DescribeServicesInput{
+		Cluster: aws.String(cluster), Services: []string{serviceName},
+	}, 30*time.Second))
 }
 
 // TestECS_ServiceDeploymentCloudWatchAlarmRollsBack proves that the scheduler

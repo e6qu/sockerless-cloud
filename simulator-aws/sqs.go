@@ -312,6 +312,7 @@ func sqsEnqueueRedrives(dlqARN string, msgs []msgq.Message[sqsPayload]) {
 			d.Messages.Enqueue(m.Payload, msgq.EnqueueOpts{Delay: delay, Group: m.Group, DedupID: m.DedupID}, pol, now)
 		}
 	})
+	sqsSignalQueue(sqsNameFromARN(dlqARN))
 }
 
 func registerSQS(r *AWSRouter, srv *sim.Server) {
@@ -764,6 +765,7 @@ func sqsEnqueue(name string, e sqsSendEntry) (result sqsEnqueueResult) {
 			result.SequenceNumber = strconv.FormatUint(m.Seq, 10)
 		}
 	})
+	sqsSignalQueue(name)
 	return result
 }
 
@@ -962,17 +964,9 @@ func handleSQSReceiveMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	picked := sqsReceiveAvailableMessages(name, maxN, visTimeout)
-	deadline := time.Now().Add(time.Duration(waitSeconds) * time.Second)
-	for len(picked) == 0 && time.Now().Before(deadline) {
-		timer := time.NewTimer(100 * time.Millisecond)
-		select {
-		case <-r.Context().Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
-		picked = sqsReceiveAvailableMessages(name, maxN, visTimeout)
+	picked, ok := sqsLongPoll(r.Context().Done(), name, maxN, visTimeout, time.Now().Add(time.Duration(waitSeconds)*time.Second))
+	if !ok {
+		return
 	}
 
 	out := make([]map[string]any, 0, len(picked))
@@ -1139,6 +1133,7 @@ func handleSQSDeleteMessageBatch(w http.ResponseWriter, r *http.Request) {
 		sqsQueues.Update(name, func(qq *SQSQueue) {
 			_, found = qq.Messages.Settle(e.ReceiptHandle, sqsPolicy(*qq), time.Now())
 		})
+		sqsSignalQueue(name)
 		if found {
 			successful = append(successful, map[string]string{"Id": e.Id})
 		} else {
@@ -1166,6 +1161,7 @@ func sqsApplyVisibility(name, handle string, timeout int) (matched, inflight boo
 	sqsQueues.Update(name, func(qq *SQSQueue) {
 		_, matched, inflight = qq.Messages.Extend(handle, time.Duration(timeout)*time.Second, sqsPolicy(*qq), time.Now())
 	})
+	sqsSignalQueue(name)
 	return matched, inflight
 }
 

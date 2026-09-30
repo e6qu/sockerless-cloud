@@ -122,7 +122,7 @@ func TestEC2_VolumeStatusSDK(t *testing.T) {
 }
 
 // TestEC2_RecycleBinSDK covers the volume / snapshot Recycle Bin list + restore
-// surface, plus DescribeLockedSnapshots / DescribeImportSnapshotTasks read-back.
+// surface, plus the DescribeLockedSnapshots read-back.
 func TestEC2_RecycleBinSDK(t *testing.T) {
 	c := ec2Client()
 
@@ -139,10 +139,6 @@ func TestEC2_RecycleBinSDK(t *testing.T) {
 	locked, err := c.DescribeLockedSnapshots(ctx, &ec2.DescribeLockedSnapshotsInput{})
 	require.NoError(t, err)
 	assert.Empty(t, locked.Snapshots)
-
-	tasks, err := c.DescribeImportSnapshotTasks(ctx, &ec2.DescribeImportSnapshotTasksInput{})
-	require.NoError(t, err)
-	assert.Empty(t, tasks.ImportSnapshotTasks)
 
 	// A volume not in the bin is rejected by RestoreVolumeFromRecycleBin.
 	_, err = c.RestoreVolumeFromRecycleBin(ctx, &ec2.RestoreVolumeFromRecycleBinInput{VolumeId: aws.String("vol-deadbeef")})

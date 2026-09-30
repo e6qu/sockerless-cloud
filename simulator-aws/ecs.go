@@ -1358,10 +1358,12 @@ func ebsRemoveDockerVolumes(names []string) {
 }
 
 // ecsTaskCloudWatchSink prepares CloudWatch Logs resources for a task and
-// returns a log sink for containers using the awslogs driver. The log group and
-// stream are created before the container starts so they are observable as soon
-// as the task reports RUNNING.
-func ecsTaskCloudWatchSink(td ECSTaskDefinition, taskID string) sim.LogSink {
+// returns a log sink for containers using the awslogs driver. The log stream is
+// created before the container starts so it is observable as soon as the task
+// reports RUNNING. The awslogs driver creates the log group only when
+// awslogs-create-group is "true"; otherwise a missing group fails the start with
+// the ResourceInitializationError Amazon ECS reports.
+func ecsTaskCloudWatchSink(td ECSTaskDefinition, taskID string) (sim.LogSink, error) {
 	var sink sim.LogSink = discardLogSink{}
 	for _, cd := range td.ContainerDefinitions {
 		if cd.LogConfiguration == nil || cd.LogConfiguration.LogDriver != "awslogs" {
@@ -1372,44 +1374,40 @@ func ecsTaskCloudWatchSink(td ECSTaskDefinition, taskID string) sim.LogSink {
 		if logGroup == "" || streamPrefix == "" {
 			continue
 		}
-		logStreamName := fmt.Sprintf("%s/%s/%s", streamPrefix, cd.Name, taskID)
 		nowMs := time.Now().UnixMilli()
-
-		// Create log group if not exists
 		if _, exists := cwLogGroups.Get(logGroup); !exists {
+			if cd.LogConfiguration.Options["awslogs-create-group"] != "true" {
+				return nil, &ecsResourceInitializationError{err: errors.New("failed to validate logger args: create stream has been retried 1 times: failed to create Cloudwatch log stream: ResourceNotFoundException: The specified log group does not exist. : exit status 1")}
+			}
 			cwLogGroups.Put(logGroup, CWLogGroup{
 				LogGroupName: logGroup,
 				Arn:          cwLogGroupArn(logGroup),
 				CreationTime: nowMs,
 			})
 		}
+		if _, ok := sink.(discardLogSink); !ok {
+			continue
+		}
 
-		// Create log stream
+		logStreamName := fmt.Sprintf("%s/%s/%s", streamPrefix, cd.Name, taskID)
 		key := cwEventsKey(logGroup, logStreamName)
-		// First/last event timestamps stay unset until the container writes;
-		// the sink stamps them on its first line, as CloudWatch does.
-		cwLogStreams.Put(key, CWLogStream{
-			LogStreamName:       logStreamName,
-			LogGroupName:        logGroup,
-			CreationTime:        nowMs,
-			Arn:                 cwLogStreamArn(logGroup, logStreamName),
-			UploadSequenceToken: "1",
-		})
-
-		// An empty event list, so ingestion (an Update on the key) has
-		// somewhere to append. No event yet: Amazon ECS writes nothing to the
-		// stream until the container itself writes, and the stream's first
-		// event is the application's first line. A seeded "container started"
-		// (or the joined entrypoint) stamped at RunTask time read as the
-		// container having been up for the whole provisioning window (185-239 s
-		// of simulator-side work on a 6 GB image was being blamed on the
-		// entrypoint), and was text the container never wrote.
-		cwLogEvents.Put(key, []CWLogEvent{})
-
+		if _, exists := cwLogStreams.Get(key); !exists {
+			// First/last event timestamps stay unset until the container
+			// writes; the sink stamps them on its first line, as CloudWatch
+			// does. Amazon ECS writes nothing to the stream until the
+			// container itself writes.
+			cwLogStreams.Put(key, CWLogStream{
+				LogStreamName:       logStreamName,
+				LogGroupName:        logGroup,
+				CreationTime:        nowMs,
+				Arn:                 cwLogStreamArn(logGroup, logStreamName),
+				UploadSequenceToken: "1",
+			})
+			cwLogEvents.Put(key, []CWLogEvent{})
+		}
 		sink = &cwLogSink{logGroup: logGroup, logStream: logStreamName}
-		break
 	}
-	return sink
+	return sink, nil
 }
 
 // ecsRunTaskInput is the parsed RunTask request — extracted so the in-process
@@ -1699,15 +1697,11 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			VolumeHosts:          taskVolumeHosts,
 		}
 		if networkMode == ecsNetworkModeAwsvpc {
-			task.Attachments = append(task.Attachments, ECSAttachment{
-				Id:     eniID,
-				Type:   "ElasticNetworkInterface",
-				Status: "ATTACHING",
-				Details: []ECSKeyValuePair{
-					{Name: "subnetId", Value: subnetID},
-					{Name: "privateIPv4Address", Value: privateIP},
-				},
-			})
+			attachment, eniErr := ecsCreateTaskNetworkInterface(taskID, eniID, subnetID, privateIP, in.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups)
+			if eniErr != nil {
+				return nil, nil, &ecsRequestError{"InvalidParameterException", eniErr.Error(), http.StatusBadRequest}
+			}
+			task.Attachments = append(task.Attachments, attachment)
 		}
 		task.Attachments = append(task.Attachments, ebsAttachments...)
 
@@ -1755,6 +1749,11 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 				for j := range t.Containers {
 					t.Containers[j].LastStatus = "PENDING"
 				}
+				for j := range t.Attachments {
+					if t.Attachments[j].Type == "ElasticNetworkInterface" {
+						t.Attachments[j].Status = "ATTACHING"
+					}
+				}
 			})
 			phases := newECSPhaseTimer(time.Now)
 
@@ -1777,7 +1776,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 						for j := range t.Containers {
 							t.Containers[j].LastStatus = "STOPPED"
 						}
-						doomedVolumes = ecsCleanupTaskManagedEBS(t)
+						doomedVolumes = ecsReleaseTaskAttachments(t)
 					})
 					ebsRemoveDockerVolumes(doomedVolumes)
 					ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
@@ -1792,11 +1791,14 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 
 			// Prepare CloudWatch logs before the container starts, so the log
 			// group/stream are observable as soon as the task reports RUNNING.
-			sink := ecsTaskCloudWatchSink(td, id)
+			sink, err := ecsTaskCloudWatchSink(td, id)
 			phases.Mark("log-stream")
 
 			// Start containers. This is the real work that RUNNING must wait for.
-			processes, err := startECSTaskContainers(id, td, taskTags, overrides, taskVolumeHosts, sink, launchType, phases)
+			var processes *ecsTaskProcesses
+			if err == nil {
+				processes, err = startECSTaskContainers(id, td, taskTags, overrides, taskVolumeHosts, sink, launchType, phases)
+			}
 			if err != nil {
 				// Surface the start failure: it's otherwise only recorded in
 				// the task's StoppedReason, so an intermittent awsvpc netns /
@@ -1824,7 +1826,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 							t.Containers[j].ExitCode = &exitCode
 						}
 					}
-					doomedVolumes = ecsCleanupTaskManagedEBS(t)
+					doomedVolumes = ecsReleaseTaskAttachments(t)
 				})
 				ebsRemoveDockerVolumes(doomedVolumes)
 				ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
@@ -1951,7 +1953,7 @@ func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTa
 					t.Containers[j].LastStatus = "STOPPED"
 					t.Containers[j].ExitCode = &exitCode
 				}
-				doomedVolumes = ecsCleanupTaskManagedEBS(t)
+				doomedVolumes = ecsReleaseTaskAttachments(t)
 			})
 			ebsRemoveDockerVolumes(doomedVolumes)
 			if transitioned {
@@ -2015,34 +2017,45 @@ func ecsResumePendingTask(task ECSTask, definition ECSTaskDefinition) {
 		}
 	})
 	phases := newECSPhaseTimer(time.Now)
-	sink := ecsTaskCloudWatchSink(definition, taskID)
+	sink, err := ecsTaskCloudWatchSink(definition, taskID)
 	phases.Mark("log-stream")
-	processes, err := startECSTaskContainers(
-		taskID,
-		definition,
-		task.Tags,
-		task.Overrides,
-		task.VolumeHosts,
-		sink,
-		task.LaunchType,
-		phases,
-	)
+	var processes *ecsTaskProcesses
+	if err == nil {
+		processes, err = startECSTaskContainers(
+			taskID,
+			definition,
+			task.Tags,
+			task.Overrides,
+			task.VolumeHosts,
+			sink,
+			task.LaunchType,
+			phases,
+		)
+	}
 	containerInstanceKey := ecsContainerInstanceKeyFromARN(task.ContainerInstanceArn)
 	if err != nil {
 		stoppedAt := ecsEpochSeconds()
 		var doomedVolumes []string
+		var resourceErr *ecsResourceInitializationError
+		resourceFailure := errors.As(err, &resourceErr)
 		ecsTasks.Update(taskID, func(current *ECSTask) {
 			current.LastStatus = ECSTaskStatusStopped
 			current.DesiredStatus = ECSTaskStatusStopped
 			current.StoppedAt = &stoppedAt
 			current.StopCode = "EssentialContainerExited"
 			current.StoppedReason = fmt.Sprintf("Container start failed after control-plane restart: %v", err)
+			if resourceFailure {
+				current.StopCode = "TaskFailedToStart"
+				current.StoppedReason = resourceErr.Error()
+			}
 			exitCode := -1
 			for index := range current.Containers {
 				current.Containers[index].LastStatus = "STOPPED"
-				current.Containers[index].ExitCode = &exitCode
+				if !resourceFailure {
+					current.Containers[index].ExitCode = &exitCode
+				}
 			}
-			doomedVolumes = ecsCleanupTaskManagedEBS(current)
+			doomedVolumes = ecsReleaseTaskAttachments(current)
 		})
 		ebsRemoveDockerVolumes(doomedVolumes)
 		ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
@@ -2147,7 +2160,7 @@ func ecsMarkMissingRunningTaskStopped(task ECSTask) {
 			current.Containers[index].LastStatus = "STOPPED"
 			current.Containers[index].ExitCode = &exitCode
 		}
-		doomedVolumes = ecsCleanupTaskManagedEBS(current)
+		doomedVolumes = ecsReleaseTaskAttachments(current)
 	})
 	ebsRemoveDockerVolumes(doomedVolumes)
 	if !transitioned {
@@ -2174,7 +2187,10 @@ func ecsAdoptRunningTask(
 		Handles:           make(map[string]*sim.ContainerHandle, len(existing)),
 		StopGrace:         ecsTaskStopGrace(definition),
 	}
-	sink := ecsTaskCloudWatchSink(definition, taskID)
+	sink, err := ecsTaskCloudWatchSink(definition, taskID)
+	if err != nil {
+		return fmt.Errorf("adopt Amazon ECS task %s: %w", task.TaskArn, err)
+	}
 	for _, container := range existing {
 		name := container.Labels["sockerless-sim-task-container"]
 		if container.Labels["sockerless-sim-task-pause"] == "true" {
@@ -3078,7 +3094,7 @@ func ecsFinishTaskStop(taskID string) {
 			t.Containers[j].LastStatus = "STOPPED"
 			t.Containers[j].ExitCode = &exitCode
 		}
-		doomedVolumes = ecsCleanupTaskManagedEBS(t)
+		doomedVolumes = ecsReleaseTaskAttachments(t)
 	})
 	ebsRemoveDockerVolumes(doomedVolumes)
 	if !transitioned {
@@ -3237,6 +3253,28 @@ func handleECSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest,
 			"Cluster not found: %s", req.Cluster)
 		return
+	}
+
+	for _, instance := range ecsContainerInstances.List() {
+		if instance.Status != "INACTIVE" && strings.Contains(instance.ContainerInstanceArn, ":container-instance/"+name+"/") {
+			AWSError(w, "ClusterContainsContainerInstancesException",
+				"The Cluster cannot be deleted while Container Instances are active or draining.", http.StatusBadRequest)
+			return
+		}
+	}
+	for _, service := range ecsServices.List() {
+		if service.ClusterArn == cluster.ClusterArn && service.Status != "INACTIVE" {
+			AWSError(w, "ClusterContainsServicesException",
+				"The Cluster cannot be deleted while Services are active.", http.StatusBadRequest)
+			return
+		}
+	}
+	for _, task := range ecsTasks.List() {
+		if task.ClusterArn == cluster.ClusterArn && task.LastStatus != ECSTaskStatusStopped {
+			AWSError(w, "ClusterContainsTasksException",
+				"The Cluster cannot be deleted while Tasks are active.", http.StatusBadRequest)
+			return
+		}
 	}
 
 	cluster.Status = "INACTIVE"

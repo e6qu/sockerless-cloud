@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -19,6 +20,7 @@ func awslogsTaskDefinition(logGroup, streamPrefix string) ECSTaskDefinition {
 				Options: map[string]string{
 					"awslogs-group":         logGroup,
 					"awslogs-stream-prefix": streamPrefix,
+					"awslogs-create-group":  "true",
 				},
 			},
 		}},
@@ -51,7 +53,10 @@ func TestECSTaskLogSinkAdvancesLogStreamIngestionState(t *testing.T) {
 		logGroup = "/edd-dev/control-plane"
 		taskID   = "0af1c2d3e4f5"
 	)
-	sink := ecsTaskCloudWatchSink(awslogsTaskDefinition(logGroup, "app"), taskID)
+	sink, err := ecsTaskCloudWatchSink(awslogsTaskDefinition(logGroup, "app"), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	key := cwEventsKey(logGroup, "app/app/"+taskID)
 	created, ok := cwLogStreams.Get(key)
 	if !ok {
@@ -128,7 +133,10 @@ func TestECSTaskLogSinkFiresLogGroupMetricFilters(t *testing.T) {
 		}},
 	})
 
-	sink := ecsTaskCloudWatchSink(awslogsTaskDefinition(logGroup, "app"), taskID)
+	sink, err := ecsTaskCloudWatchSink(awslogsTaskDefinition(logGroup, "app"), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sink.WriteLog(sim.LogLine{Stream: "stderr", Text: "OAuthCallbackError: state cookie missing"})
 
 	data, ok := cwMetrics.Get(metricsKey("EDD/Dev", "ControlPlaneErrors", nil))
@@ -137,5 +145,29 @@ func TestECSTaskLogSinkFiresLogGroupMetricFilters(t *testing.T) {
 	}
 	if data[0].Value != 1 {
 		t.Errorf("metric datum value = %v, want 1", data[0].Value)
+	}
+}
+
+func TestECSTaskLogSinkCreatesLogGroupOnlyWhenAsked(t *testing.T) {
+	resetCloudWatchLogStoresForTest()
+	const logGroup = "/ecs/not-created"
+	td := awslogsTaskDefinition(logGroup, "app")
+	delete(td.ContainerDefinitions[0].LogConfiguration.Options, "awslogs-create-group")
+
+	_, err := ecsTaskCloudWatchSink(td, "1a2b3c")
+	var resourceErr *ecsResourceInitializationError
+	if !errors.As(err, &resourceErr) {
+		t.Fatalf("a missing log group without awslogs-create-group returned %v, want a ResourceInitializationError", err)
+	}
+	if _, ok := cwLogGroups.Get(logGroup); ok {
+		t.Fatal("the awslogs driver created a log group awslogs-create-group did not ask for")
+	}
+
+	cwLogGroups.Put(logGroup, CWLogGroup{LogGroupName: logGroup, Arn: cwLogGroupArn(logGroup)})
+	if _, err := ecsTaskCloudWatchSink(td, "1a2b3c"); err != nil {
+		t.Fatalf("an existing log group refused the task: %v", err)
+	}
+	if _, ok := cwLogStreams.Get(cwEventsKey(logGroup, "app/app/1a2b3c")); !ok {
+		t.Fatal("the task's log stream was not created in the existing group")
 	}
 }

@@ -81,23 +81,60 @@ func TestS3_EventNotification_SQSDelivery(t *testing.T) {
 
 	// Negative: queue WITHOUT any policy → S3 has no permission to deliver.
 	deniedURL, deniedARN := queueArnAndURL(t, sqsc, "evt-denied-q")
+	both := &s3types.NotificationConfiguration{
+		QueueConfigurations: []s3types.QueueConfiguration{
+			{
+				Id:       aws.String("allowed"),
+				QueueArn: aws.String(allowedARN),
+				Events:   []s3types.Event{"s3:ObjectCreated:*"},
+			},
+			{
+				Id:       aws.String("denied"),
+				QueueArn: aws.String(deniedARN),
+				Events:   []s3types.Event{"s3:ObjectCreated:*"},
+			},
+		},
+	}
 
+	// Amazon S3 validates every destination before it stores a
+	// configuration, and refuses the whole configuration when one of them
+	// does not admit it.
+	_, err = s3c.PutBucketNotificationConfiguration(ctx, &s3.PutBucketNotificationConfigurationInput{
+		Bucket:                    aws.String(bucket),
+		NotificationConfiguration: both,
+	})
+	requireAWSErrorCode(t, err, "InvalidArgument")
+	assert.Contains(t, err.Error(), "Unable to validate the following destination configurations")
+	stored, err := s3c.GetBucketNotificationConfiguration(ctx, &s3.GetBucketNotificationConfigurationInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	assert.Empty(t, stored.QueueConfigurations, "a refused configuration must not be stored")
+
+	// A validated configuration sends each destination an s3:TestEvent.
 	_, err = s3c.PutBucketNotificationConfiguration(ctx, &s3.PutBucketNotificationConfigurationInput{
 		Bucket: aws.String(bucket),
 		NotificationConfiguration: &s3types.NotificationConfiguration{
-			QueueConfigurations: []s3types.QueueConfiguration{
-				{
-					Id:       aws.String("allowed"),
-					QueueArn: aws.String(allowedARN),
-					Events:   []s3types.Event{"s3:ObjectCreated:*"},
-				},
-				{
-					Id:       aws.String("denied"),
-					QueueArn: aws.String(deniedARN),
-					Events:   []s3types.Event{"s3:ObjectCreated:*"},
-				},
-			},
+			QueueConfigurations: both.QueueConfigurations[:1],
 		},
+	})
+	require.NoError(t, err)
+	testEvent, got := receiveOne(t, sqsc, allowedURL, 20)
+	require.True(t, got, "S3 must send the validated queue a test event")
+	var probe struct {
+		Service string `json:"Service"`
+		Event   string `json:"Event"`
+		Bucket  string `json:"Bucket"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(testEvent), &probe))
+	assert.Equal(t, "Amazon S3", probe.Service)
+	assert.Equal(t, "s3:TestEvent", probe.Event)
+	assert.Equal(t, bucket, probe.Bucket)
+
+	// Skipping destination validation stores the configuration as given; the
+	// policy-less queue is then refused at delivery time instead.
+	_, err = s3c.PutBucketNotificationConfiguration(ctx, &s3.PutBucketNotificationConfigurationInput{
+		Bucket:                    aws.String(bucket),
+		SkipDestinationValidation: aws.Bool(true),
+		NotificationConfiguration: both,
 	})
 	require.NoError(t, err)
 

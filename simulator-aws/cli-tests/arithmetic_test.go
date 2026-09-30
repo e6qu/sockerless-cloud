@@ -42,6 +42,7 @@ func TestECS_CLI_ArithmeticEval(t *testing.T) {
 				"logDriver": "awslogs",
 				"options": {
 					"awslogs-group": "/ecs/cli-arith-task",
+					"awslogs-create-group": "true",
 					"awslogs-stream-prefix": "ecs"
 				}
 			}
@@ -138,6 +139,7 @@ func TestECS_CLI_ArithmeticInvalid(t *testing.T) {
 				"logDriver": "awslogs",
 				"options": {
 					"awslogs-group": "/ecs/cli-arith-fail-task",
+					"awslogs-create-group": "true",
 					"awslogs-stream-prefix": "ecs"
 				}
 			}

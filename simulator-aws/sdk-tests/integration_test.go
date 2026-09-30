@@ -54,6 +54,7 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 					LogDriver: "awslogs",
 					Options: map[string]string{
 						"awslogs-group":         logGroup,
+						"awslogs-create-group":  "true",
 						"awslogs-stream-prefix": "ecs",
 						"awslogs-region":        "us-east-1",
 					},

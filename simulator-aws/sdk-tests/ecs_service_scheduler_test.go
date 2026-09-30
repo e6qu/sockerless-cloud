@@ -131,7 +131,8 @@ func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 		Cluster: aws.String(cluster), Service: aws.String(serviceName), Force: aws.Bool(true),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "INACTIVE", aws.ToString(deleted.Service.Status))
+	assert.Equal(t, "DRAINING", aws.ToString(deleted.Service.Status))
+	waitForECSServiceInactive(t, client, cluster, serviceName)
 }
 
 // TestECS_Service_RegistersRunningTasksInCloudMap proves that service
@@ -314,6 +315,7 @@ func TestECS_ServiceTaskStreamsLogsLive(t *testing.T) {
 				LogDriver: ecstypes.LogDriverAwslogs,
 				Options: map[string]string{
 					"awslogs-group":         logGroup,
+					"awslogs-create-group":  "true",
 					"awslogs-stream-prefix": "ecs",
 				},
 			},

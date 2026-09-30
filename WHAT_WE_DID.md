@@ -614,6 +614,18 @@ document names that issuer with its own key and token URLs, so a relying party
 verifies them as it verifies Google's. The Google Cloud SDK tests name their
 resources per run, so a repeated run against one simulator passes.
 
+AWS work that the services finish later now finishes later in the simulator
+too, and is gated on the real inputs. An EC2 instance stays pending until its
+VM boots, whether `RunInstances` or EC2 Auto Scaling launched it, and a launch
+lifecycle hook holds it in `Pending:Wait` until the hook's action completes or
+times out. An awsvpc ECS task creates its network interface at `RunTask`, so
+`DeleteSubnet` refuses while the task holds it. Amazon S3 checks each
+notification destination's resource policy at put time and sends the test
+event. `ImportSnapshot` and `ImportImage` read the disk image from S3 and
+convert RAW, VHD and VMDK formats into real snapshot data. A waiting SQS
+receive wakes on the send, delay or visibility change it waits for. ECS
+creates an awslogs log group only when the task definition asks for it.
+
 A test asserts a boundary at a small parameterised limit rather than by
 reaching the real one: the OCI body-cap tests peaked at 7.7 GiB under the race
 detector on a 7 GiB runner until the cap became a parameter tested at 64 KiB.

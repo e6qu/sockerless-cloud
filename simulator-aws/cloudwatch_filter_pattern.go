@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -16,7 +17,8 @@ import (
 //
 //   - Unstructured (plain-text events): space-separated terms — all required
 //     (AND); `?term` makes a term optional (OR group); `-term` excludes; quoted
-//     "phrases" match as a substring of the raw message.
+//     "phrases" match as a substring of the raw message; %regex% matches the
+//     message against a regular expression.
 //   - Structured (pattern wrapped in {…}, JSON events): a boolean expression over
 //     JSON selectors — `$.field`, nested `$.a.b`, array `$.a[0]` — with the
 //     comparison operators = != < <= > >= (string equality supports a trailing
@@ -33,7 +35,48 @@ import (
 // many log events. A nil *cwCompiledPattern matches every event (empty pattern).
 type cwCompiledPattern struct {
 	structured listq.Node // non-nil for a {…} JSON pattern
-	terms      []string   // unstructured terms (raw, incl. -/? prefixes & quotes)
+	terms      []cwPatternTerm
+}
+
+type cwPatternTerm struct {
+	negated  bool
+	optional bool
+	text     string
+	regex    *regexp.Regexp
+}
+
+func (t cwPatternTerm) matches(message string) bool {
+	if t.regex != nil {
+		return t.regex.MatchString(message)
+	}
+	return strings.Contains(message, t.text)
+}
+
+func cwCompilePatternTerms(pattern string) ([]cwPatternTerm, error) {
+	var terms []cwPatternTerm
+	for _, raw := range cwSplitPatternTerms(pattern) {
+		var term cwPatternTerm
+		t := raw
+		if strings.HasPrefix(t, "-") {
+			term.negated, t = true, t[1:]
+		} else if strings.HasPrefix(t, "?") {
+			term.optional, t = true, t[1:]
+		}
+		if len(t) >= 2 && strings.HasPrefix(t, "%") && strings.HasSuffix(t, "%") {
+			re, err := regexp.Compile(t[1 : len(t)-1])
+			if err != nil {
+				return nil, fmt.Errorf("invalid filter pattern: invalid regular expression %s: %w", t, err)
+			}
+			term.regex = re
+		} else {
+			term.text = strings.Trim(t, `"`)
+			if term.text == "" {
+				continue
+			}
+		}
+		terms = append(terms, term)
+	}
+	return terms, nil
 }
 
 // cwCompileLogPattern parses a filterPattern. A malformed structured pattern
@@ -54,7 +97,11 @@ func cwCompileLogPattern(pattern string) (*cwCompiledPattern, error) {
 		}
 		return &cwCompiledPattern{structured: node}, nil
 	}
-	return &cwCompiledPattern{terms: cwSplitPatternTerms(pattern)}, nil
+	terms, err := cwCompilePatternTerms(pattern)
+	if err != nil {
+		return nil, err
+	}
+	return &cwCompiledPattern{terms: terms}, nil
 }
 
 // match reports whether the compiled pattern matches the event message. A nil
@@ -73,27 +120,16 @@ func (c *cwCompiledPattern) match(message string) bool {
 	return cwMatchUnstructuredTerms(message, c.terms)
 }
 
-func cwMatchUnstructuredTerms(message string, terms []string) bool {
+func cwMatchUnstructuredTerms(message string, terms []cwPatternTerm) bool {
 	anyOptional, optionalMatched := false, false
-	for _, raw := range terms {
-		neg, opt := false, false
-		t := raw
-		if strings.HasPrefix(t, "-") {
-			neg, t = true, t[1:]
-		} else if strings.HasPrefix(t, "?") {
-			opt, t = true, t[1:]
-		}
-		t = strings.Trim(t, `"`)
-		if t == "" {
-			continue
-		}
-		contains := strings.Contains(message, t)
+	for _, term := range terms {
+		contains := term.matches(message)
 		switch {
-		case neg:
+		case term.negated:
 			if contains {
 				return false
 			}
-		case opt:
+		case term.optional:
 			anyOptional = true
 			if contains {
 				optionalMatched = true
@@ -110,19 +146,23 @@ func cwMatchUnstructuredTerms(message string, terms []string) bool {
 	return true
 }
 
-// cwSplitPatternTerms splits on whitespace, keeping "quoted phrases" together.
+// cwSplitPatternTerms splits on whitespace, keeping "quoted phrases" and
+// %regular expressions% together.
 func cwSplitPatternTerms(s string) []string {
 	var terms []string
 	var cur strings.Builder
-	inQuote := false
+	inQuote, inRegex := false, false
 	sc := sim.NewScanner(s)
 	for !sc.Eof() {
 		c := sc.Next()
 		switch {
-		case c == '"':
+		case c == '"' && !inRegex:
 			inQuote = !inQuote
 			cur.WriteByte(c)
-		case (c == ' ' || c == '\t') && !inQuote:
+		case c == '%' && !inQuote && (inRegex || cur.Len() == 0 || cur.String() == "-" || cur.String() == "?"):
+			inRegex = !inRegex
+			cur.WriteByte(c)
+		case (c == ' ' || c == '\t') && !inQuote && !inRegex:
 			if cur.Len() > 0 {
 				terms = append(terms, cur.String())
 				cur.Reset()

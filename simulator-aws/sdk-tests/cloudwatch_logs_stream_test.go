@@ -122,11 +122,78 @@ func TestLogs_StartLiveTail(t *testing.T) {
 		"the session must carry the events ingested after it started and nothing stored before it")
 }
 
+// TestLogs_StartLiveTail_FilterPattern evaluates logEventFilterPattern with
+// CloudWatch Logs filter-pattern syntax: a JSON pattern selects on a field, so
+// a plain-text line that merely contains the value is not streamed.
+func TestLogs_StartLiveTail_FilterPattern(t *testing.T) {
+	cw := cwLogsStreamClient()
+	group := "livetail-filter-group"
+	stream := "livetail-filter-stream"
+	groupArn := seedLogGroupWithEvents(t, cw, group, stream, []string{`{"level":"error","msg":"stored"}`})
+
+	out, err := cw.StartLiveTail(ctx, &cloudwatchlogs.StartLiveTailInput{
+		LogGroupIdentifiers:   []string{groupArn},
+		LogEventFilterPattern: aws.String(`{ $.level = "error" }`),
+	})
+	require.NoError(t, err)
+	es := out.GetStream()
+	defer es.Close()
+	start, ok := <-es.Events()
+	require.True(t, ok, "stream must open with a sessionStart event")
+	_, ok = start.(*cwltypes.StartLiveTailResponseStreamMemberSessionStart)
+	require.True(t, ok, "first event = %T, want sessionStart", start)
+
+	now := time.Now().UnixMilli()
+	_, err = cw.PutLogEvents(ctx, &cloudwatchlogs.PutLogEventsInput{
+		LogGroupName:  aws.String(group),
+		LogStreamName: aws.String(stream),
+		LogEvents: []cwltypes.InputLogEvent{
+			{Message: aws.String(`{"level":"info","msg":"first"}`), Timestamp: aws.Int64(now)},
+			{Message: aws.String(`level error in plain text`), Timestamp: aws.Int64(now + 1)},
+			{Message: aws.String(`{"level":"error","msg":"second"}`), Timestamp: aws.Int64(now + 2)},
+			{Message: aws.String(`{"level":"error","msg":"third"}`), Timestamp: aws.Int64(now + 3)},
+		},
+	})
+	require.NoError(t, err)
+
+	var collected []string
+	for len(collected) < 2 {
+		ev, ok := <-es.Events()
+		require.True(t, ok, "the session closed before delivering the matching events: %v", es.Err())
+		update, ok := ev.(*cwltypes.StartLiveTailResponseStreamMemberSessionUpdate)
+		require.True(t, ok, "event = %T, want sessionUpdate", ev)
+		for _, le := range update.Value.SessionResults {
+			collected = append(collected, aws.ToString(le.Message))
+		}
+	}
+	assert.Equal(t, []string{`{"level":"error","msg":"second"}`, `{"level":"error","msg":"third"}`}, collected)
+}
+
+// TestLogs_StartLiveTail_MalformedFilterPattern refuses an unparseable
+// structured pattern before the stream opens.
+func TestLogs_StartLiveTail_MalformedFilterPattern(t *testing.T) {
+	cw := cwLogsStreamClient()
+	groupArn := seedLogGroupWithEvents(t, cw, "livetail-bad-filter-group", "s", []string{"x"})
+	_, err := cw.StartLiveTail(ctx, &cloudwatchlogs.StartLiveTailInput{
+		LogGroupIdentifiers:   []string{groupArn},
+		LogEventFilterPattern: aws.String(`{ $.level = }`),
+	})
+	requireAWSErrorCode(t, err, "InvalidParameterException")
+}
+
 // awaitLogLine waits for a line containing want to reach a log group and
 // returns its message. It opens a Live Tail session first and then reads the
 // stored events, so a line written before the session opened is found in the
 // history and one written after arrives on the session.
 func awaitLogLine(t *testing.T, cw *cloudwatchlogs.Client, group, want string, timeout time.Duration) string {
+	t.Helper()
+	return awaitLogLineTailing(t, cw, cwLogsStreamClient(), group, want, timeout)
+}
+
+// awaitLogLineTailing is awaitLogLine with the client that opens the Live Tail
+// session, which must address the logs endpoint by a host name the SDK can
+// give its `stream-` prefix.
+func awaitLogLineTailing(t *testing.T, cw, tailClient *cloudwatchlogs.Client, group, want string, timeout time.Duration) string {
 	t.Helper()
 	groups, err := cw.DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{LogGroupNamePrefix: aws.String(group)})
 	require.NoError(t, err)
@@ -140,7 +207,7 @@ func awaitLogLine(t *testing.T, cw *cloudwatchlogs.Client, group, want string, t
 
 	tailCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	tail, err := cwLogsStreamClient().StartLiveTail(tailCtx, &cloudwatchlogs.StartLiveTailInput{
+	tail, err := tailClient.StartLiveTail(tailCtx, &cloudwatchlogs.StartLiveTailInput{
 		LogGroupIdentifiers: []string{groupArn},
 	})
 	require.NoError(t, err)

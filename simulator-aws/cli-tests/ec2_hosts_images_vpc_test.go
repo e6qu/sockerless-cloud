@@ -117,10 +117,8 @@ func TestEC2CLI_ImageAndSnapshotAttributes(t *testing.T) {
 		"--query", "ImageId", "--output", "text"); v != ami {
 		t.Fatalf("export-image: got %q, want %q", v, ami)
 	}
-	if v := q("ec2", "import-image", "--architecture", "x86_64", "--description", "cli-import",
-		"--query", "ImportTaskId", "--output", "text"); v == "" {
-		t.Fatal("import-image returned empty ImportTaskId")
-	}
+	// An import names at least one disk image to read.
+	runCLIExpectError(t, awsCLI("ec2", "import-image", "--architecture", "x86_64", "--description", "cli-import"))
 	if v := q("ec2", "restore-image-from-recycle-bin", "--image-id", ami,
 		"--query", "Return", "--output", "text"); v != "True" {
 		t.Fatalf("restore-image-from-recycle-bin: got %q", v)
@@ -164,11 +162,6 @@ func TestEC2CLI_ImageAndSnapshotAttributes(t *testing.T) {
 	if v := q("ec2", "unlock-snapshot", "--snapshot-id", snap,
 		"--query", "SnapshotId", "--output", "text"); v != snap {
 		t.Fatalf("unlock-snapshot: got %q, want %q", v, snap)
-	}
-	if v := q("ec2", "import-snapshot", "--description", "cli-imp",
-		"--disk-container", "Format=VMDK,UserBucket={S3Bucket=b,S3Key=k}",
-		"--query", "ImportTaskId", "--output", "text"); v == "" {
-		t.Fatal("import-snapshot returned empty ImportTaskId")
 	}
 }
 

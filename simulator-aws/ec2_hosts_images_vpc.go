@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // This file implements EC2 ec2Query slices for Dedicated Hosts, Instance Event
@@ -1102,41 +1103,108 @@ func handleExportImage(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleImportImage(w http.ResponseWriter, r *http.Request) {
-	taskID := ec2ID("import-ami")
-	arch := r.FormValue("Architecture")
-	if arch == "" {
-		arch = "x86_64"
+	var disks []EC2ImportImageDisk
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("DiskContainer.%d.", i)
+		if r.FormValue(prefix+"Format") == "" && r.FormValue(prefix+"Url") == "" &&
+			r.FormValue(prefix+"UserBucket.S3Bucket") == "" && r.FormValue(prefix+"UserBucket.S3Key") == "" {
+			break
+		}
+		format := strings.ToUpper(r.FormValue(prefix + "Format"))
+		switch format {
+		case "VHD", "VMDK", "RAW":
+		default:
+			ec2ErrorXML(w, "InvalidParameter", fmt.Sprintf("Unsupported disk container format %q. Valid values are VHD, VMDK and RAW.", r.FormValue(prefix+"Format")), http.StatusBadRequest)
+			return
+		}
+		bucket, key, rawURL, err := ec2ImportSource(r, prefix)
+		if err != nil {
+			ec2ErrorXML(w, "InvalidParameter", err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !ec2VMImportRoleCanRead(w, r, bucket, key) {
+			return
+		}
+		deviceName := r.FormValue(prefix + "DeviceName")
+		if deviceName == "" {
+			deviceName = fmt.Sprintf("/dev/sd%c", 'a'+i-1)
+			if i == 1 {
+				deviceName = "/dev/sda1"
+			}
+		}
+		disks = append(disks, EC2ImportImageDisk{
+			DeviceName: deviceName, Format: format, S3Bucket: bucket, S3Key: key, Url: rawURL,
+			Status: "active", StatusMessage: "pending",
+		})
 	}
-	platform := r.FormValue("Platform")
-	if platform == "" {
-		platform = "Linux"
+	if len(disks) == 0 {
+		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter DiskContainer", http.StatusBadRequest)
+		return
 	}
-	licenseType := ec2Default(r.FormValue("LicenseType"), "BYOL")
-	tags := parseTags(r)
-
-	// As with an export, the import task is recorded under the identifier the
-	// response names, so DescribeImportImageTasks can answer for it.
-	ec2ImportImageTasks.Put(taskID, EC2ImportImageTask{
-		ImportTaskId:  taskID,
-		Architecture:  arch,
+	task := EC2ImportImageTask{
+		ImportTaskId:  ec2ID("import-ami"),
+		Architecture:  ec2Default(r.FormValue("Architecture"), "x86_64"),
 		Description:   r.FormValue("Description"),
 		Hypervisor:    "xen",
-		Platform:      platform,
-		LicenseType:   licenseType,
+		Platform:      ec2Default(r.FormValue("Platform"), "Linux"),
+		LicenseType:   ec2Default(r.FormValue("LicenseType"), "BYOL"),
+		Encrypted:     r.FormValue("Encrypted") == "true",
+		KmsKeyId:      r.FormValue("KmsKeyId"),
+		BootMode:      r.FormValue("BootMode"),
 		Status:        "active",
 		StatusMessage: "pending",
-		Progress:      "2",
-		Format:        r.FormValue("DiskContainer.1.Format"),
-		S3Bucket:      r.FormValue("DiskContainer.1.UserBucket.S3Bucket"),
-		S3Key:         r.FormValue("DiskContainer.1.UserBucket.S3Key"),
-		Url:           r.FormValue("DiskContainer.1.Url"),
-		Tags:          tags,
-	})
-
+		Progress:      "0",
+		Disks:         disks,
+		Tags:          parseTags(r),
+	}
+	ec2ImportImageTasks.Put(task.ImportTaskId, task)
+	bg.Go(func() { ec2RunImportImage(task) })
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<ImportImageResponse %s><requestId>%s</requestId><importTaskId>%s</importTaskId><architecture>%s</architecture><platform>%s</platform><description>%s</description><licenseType>%s</licenseType><hypervisor>xen</hypervisor><status>active</status><statusMessage>pending</statusMessage><progress>2</progress><snapshotDetailSet/>%s</ImportImageResponse>`,
-		ec2Xmlns(), sim.NewUUID(), taskID, arch, platform, xmlEscape(r.FormValue("Description")),
-		licenseType, writeTagSetXML(tags))
+	fmt.Fprintf(w, `<ImportImageResponse %s><requestId>%s</requestId>%s</ImportImageResponse>`,
+		ec2Xmlns(), sim.NewUUID(), ec2ImportImageFieldsXML(task))
+}
+
+// ec2RunImportImage converts every disk of an ImportImage task into a
+// snapshot and registers an EBS-backed AMI whose root is the first disk.
+func ec2RunImportImage(task EC2ImportImageTask) {
+	for i := range task.Disks {
+		disk := &task.Disks[i]
+		snapshot, imageSize, failure := ec2ImportDiskImage(task.ImportTaskId, disk.Format, disk.S3Bucket, disk.S3Key, task.Encrypted, task.KmsKeyId)
+		disk.DiskImageSize = float64(imageSize)
+		if failure != "" {
+			disk.Status, disk.StatusMessage = "deleted", failure
+			ec2ImportImageTasks.Update(task.ImportTaskId, func(t *EC2ImportImageTask) {
+				t.Disks = task.Disks
+				t.Status, t.StatusMessage, t.Progress = "deleted", failure, ""
+			})
+			return
+		}
+		disk.Status, disk.StatusMessage, disk.SnapshotId, disk.VolumeSize = "completed", "", snapshot.SnapshotId, snapshot.VolumeSize
+	}
+	root := task.Disks[0]
+	image := EC2Image{
+		ImageId:            ec2ID("ami"),
+		Name:               task.ImportTaskId,
+		Description:        "AWS-VMImport service: " + task.ImportTaskId,
+		State:              "available",
+		OwnerId:            ec2Owner(),
+		Architecture:       task.Architecture,
+		ImageType:          "machine",
+		RootDeviceType:     "ebs",
+		RootDeviceName:     root.DeviceName,
+		VirtualizationType: "hvm",
+		Hypervisor:         "xen",
+		CreationDate:       ec2NowRFC3339Milli(),
+		SnapshotId:         root.SnapshotId,
+		VolumeSize:         root.VolumeSize,
+		BlockDeviceName:    root.DeviceName,
+	}
+	ec2Images.Put(image.ImageId, image)
+	ec2ImportImageTasks.Update(task.ImportTaskId, func(t *EC2ImportImageTask) {
+		t.Disks = task.Disks
+		t.ImageId = image.ImageId
+		t.Status, t.StatusMessage, t.Progress = "completed", "", ""
+	})
 }
 
 func handleCreateRestoreImageTask(w http.ResponseWriter, r *http.Request) {
@@ -1356,33 +1424,6 @@ func handleUnlockSnapshot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<UnlockSnapshotResponse %s><requestId>%s</requestId><snapshotId>%s</snapshotId></UnlockSnapshotResponse>`,
 		ec2Xmlns(), sim.NewUUID(), snapID)
-}
-
-func handleImportSnapshot(w http.ResponseWriter, r *http.Request) {
-	// ImportSnapshot creates a snapshot from an S3 disk image. Record a real
-	// snapshot so subsequent DescribeSnapshots / attribute ops can find it.
-	snap := EC2Snapshot{
-		SnapshotId:  ec2ID("snap"),
-		State:       "completed",
-		StartTime:   ec2NowRFC3339Milli(),
-		Progress:    "100%",
-		Description: r.FormValue("Description"),
-		OwnerId:     ec2Owner(),
-		VolumeSize:  8,
-		Tags:        parseTags(r),
-	}
-	ec2Snapshots.Put(snap.SnapshotId, snap)
-	taskID := ec2ID("import-snap")
-	bucket := r.FormValue("DiskContainer.UserBucket.S3Bucket")
-	key := r.FormValue("DiskContainer.UserBucket.S3Key")
-	format := r.FormValue("DiskContainer.Format")
-	if format == "" {
-		format = "VMDK"
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<ImportSnapshotResponse %s><requestId>%s</requestId><importTaskId>%s</importTaskId><description>%s</description><snapshotTaskDetail><snapshotId>%s</snapshotId><status>completed</status><progress>100</progress><diskImageSize>8.0</diskImageSize><format>%s</format><userBucket><s3Bucket>%s</s3Bucket><s3Key>%s</s3Key></userBucket></snapshotTaskDetail>%s</ImportSnapshotResponse>`,
-		ec2Xmlns(), sim.NewUUID(), taskID, xmlEscape(snap.Description), snap.SnapshotId, format,
-		xmlEscape(bucket), xmlEscape(key), writeTagSetXML(snap.Tags))
 }
 
 // VPC ClassicLink

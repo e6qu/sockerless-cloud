@@ -390,6 +390,9 @@ func handleECSCreateService(w http.ResponseWriter, r *http.Request) {
 			"Creating a service named %q in cluster %q is not permitted while a service of the same name already exists.",
 			req.ServiceName, clusterName)
 		return
+	} else if ok && existing.Status == "DRAINING" {
+		AWSError(w, "InvalidParameterException", "Unable to Start a service that is still Draining.", http.StatusBadRequest)
+		return
 	}
 	desired := 0
 	if req.DesiredCount != nil {
@@ -776,7 +779,14 @@ func handleECSUpdateService(w http.ResponseWriter, r *http.Request) {
 	}
 	now := float64(time.Now().Unix())
 	if deploymentRequired {
+		// The deployment being replaced stays ACTIVE beside the new PRIMARY
+		// one until the scheduler has drained its tasks.
+		previous := svc.Deployments
 		svc.Deployments = []ECSDeployment{ecsServiceDeployment(svc, now)}
+		for _, d := range previous {
+			d.Status = "ACTIVE"
+			svc.Deployments = append(svc.Deployments, d)
+		}
 	} else {
 		ecsUpdatePrimaryDeploymentCounts(&svc, now)
 	}
@@ -850,11 +860,12 @@ func handleECSDeleteService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Real ECS drains then marks the service INACTIVE; DescribeServices keeps
-	// returning it as INACTIVE, which is how terraform-provider-aws confirms the
-	// delete converged. Persist INACTIVE before stopping tasks so their
-	// lifecycle callbacks cannot race the delete and launch a replacement.
-	svc.Status = "INACTIVE"
+	// Amazon ECS reports a deleted service DRAINING while its tasks stop and
+	// INACTIVE once they have; DescribeServices keeps returning it as INACTIVE,
+	// which is how terraform-provider-aws confirms the delete converged.
+	// Persist DRAINING before stopping tasks so their lifecycle callbacks
+	// cannot race the delete and launch a replacement.
+	svc.Status = "DRAINING"
 	svc.DesiredCount = 0
 	svc.RunningCount = 0
 	svc.PendingCount = 0
@@ -863,6 +874,7 @@ func handleECSDeleteService(w http.ResponseWriter, r *http.Request) {
 	ecsStopServiceTasks(svc)
 	ecsSyncServiceLoadBalancerTargets(svc)
 	ecsDeregisterServiceRegistryTasks(svc)
+	ecsRequestServiceReconcile(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"service": svc})
 }
 

@@ -64,7 +64,10 @@ type ASLifecycleAction struct {
 	LifecycleHookName    string
 	InstanceId           string
 	HeartbeatTime        string
+	StartTime            string
+	ActivityId           string
 	Result               string
+	StatusReason         string
 	Completed            bool
 }
 
@@ -78,6 +81,7 @@ func registerAutoScalingExtra(r *AWSQueryRouter, srv *sim.Server) {
 	asGroupExtras = sim.MakeStore[ASGroupExtras](srv.DB(), "autoscaling_group_extras")
 	asInstanceRefreshes = sim.MakeStore[ASInstanceRefresh](srv.DB(), "autoscaling_instance_refreshes")
 	asLifecycleActions = sim.MakeStore[ASLifecycleAction](srv.DB(), "autoscaling_lifecycle_actions")
+	asResumeLifecycleWaits()
 
 	reg := func(action string, h http.HandlerFunc) {
 		r.RegisterVersioned("2011-01-01", action, h)
@@ -804,23 +808,19 @@ func handleASXCompleteLifecycleAction(w http.ResponseWriter, r *http.Request) {
 		asError(w, "ValidationError", "LifecycleHookName is required", http.StatusBadRequest)
 		return
 	}
+	result := r.FormValue("LifecycleActionResult")
+	if result != "CONTINUE" && result != "ABANDON" {
+		asError(w, "ValidationError", "LifecycleActionResult must be CONTINUE or ABANDON", http.StatusBadRequest)
+		return
+	}
 	token := r.FormValue("LifecycleActionToken")
 	instanceID := r.FormValue("InstanceId")
-	result := firstNonEmpty(r.FormValue("LifecycleActionResult"), "CONTINUE")
-	key := asxLifecycleKey(group, hook, token, instanceID)
-	action, ok := asLifecycleActions.Get(key)
+	action, ok := asFindLifecycleAction(group, hook, token, instanceID)
 	if !ok {
-		action = ASLifecycleAction{
-			Token:                token,
-			AutoScalingGroupName: group,
-			LifecycleHookName:    hook,
-			InstanceId:           instanceID,
-		}
+		asError(w, "ValidationError", asNoActiveLifecycleAction(token, instanceID), http.StatusBadRequest)
+		return
 	}
-	action.Result = result
-	action.Completed = true
-	action.HeartbeatTime = time.Now().UTC().Format(time.RFC3339)
-	asLifecycleActions.Put(key, action)
+	asSignalLifecycleAction(action, result)
 	asEmptyResponse(w, "CompleteLifecycleAction")
 }
 
@@ -836,18 +836,15 @@ func handleASXRecordLifecycleActionHeartbeat(w http.ResponseWriter, r *http.Requ
 	}
 	token := r.FormValue("LifecycleActionToken")
 	instanceID := r.FormValue("InstanceId")
-	key := asxLifecycleKey(group, hook, token, instanceID)
-	action, ok := asLifecycleActions.Get(key)
+	action, ok := asFindLifecycleAction(group, hook, token, instanceID)
 	if !ok {
-		action = ASLifecycleAction{
-			Token:                token,
-			AutoScalingGroupName: group,
-			LifecycleHookName:    hook,
-			InstanceId:           instanceID,
-		}
+		asError(w, "ValidationError", asNoActiveLifecycleAction(token, instanceID), http.StatusBadRequest)
+		return
 	}
-	action.HeartbeatTime = time.Now().UTC().Format(time.RFC3339)
-	asLifecycleActions.Put(key, action)
+	asLifecycleActions.Update(asxLifecycleKey(group, hook, action.Token, action.InstanceId), func(a *ASLifecycleAction) {
+		a.HeartbeatTime = time.Now().UTC().Format(time.RFC3339Nano)
+	})
+	asSignalLifecycleAction(action, "")
 	asEmptyResponse(w, "RecordLifecycleActionHeartbeat")
 }
 

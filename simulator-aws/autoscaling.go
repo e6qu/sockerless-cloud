@@ -686,7 +686,8 @@ func handleASPutLifecycleHook(w http.ResponseWriter, r *http.Request) {
 		asError(w, "ValidationError", "AutoScalingGroupName and LifecycleHookName are required", http.StatusBadRequest)
 		return
 	}
-	if _, ok := autoScalingGroups.Get(group); !ok {
+	asg, ok := autoScalingGroups.Get(group)
+	if !ok {
 		asError(w, "ValidationError", fmt.Sprintf("AutoScalingGroup %q not found", group), http.StatusBadRequest)
 		return
 	}
@@ -700,6 +701,18 @@ func handleASPutLifecycleHook(w http.ResponseWriter, r *http.Request) {
 		NotificationTargetARN: r.FormValue("NotificationTargetARN"),
 		NotificationMetadata:  r.FormValue("NotificationMetadata"),
 		RoleARN:               r.FormValue("RoleARN"),
+	}
+	if hook.DefaultResult != "CONTINUE" && hook.DefaultResult != "ABANDON" {
+		asError(w, "ValidationError", "DefaultResult must be CONTINUE or ABANDON", http.StatusBadRequest)
+		return
+	}
+	if hook.HeartbeatTimeout < 30 || hook.HeartbeatTimeout > 7200 {
+		asError(w, "ValidationError", "HeartbeatTimeout must be between 30 and 7200 seconds", http.StatusBadRequest)
+		return
+	}
+	if message := asValidateLifecycleHookTarget(asg, hook); message != "" {
+		asError(w, "ValidationError", message, http.StatusBadRequest)
+		return
 	}
 	asLifecycleHooks.Put(asResourceKey(group, name), hook)
 	asEmptyResponse(w, "PutLifecycleHook")
@@ -1059,16 +1072,6 @@ func reconcileAutoScalingGroup(asg *AutoScalingGroup, cause string) error {
 	return nil
 }
 
-// asBootInstance boots a launched instance's VM on a real-execution host; on an
-// API-only host the instance runs at the control plane alone, as a direct
-// RunInstances does.
-var asBootInstance = func(ctx context.Context, inst EC2Instance) error {
-	if !ec2RealVMHostAvailable() {
-		return nil
-	}
-	return ec2StartRealVM(ctx, inst)
-}
-
 type asLaunch struct {
 	instanceID string
 	activityID string
@@ -1078,42 +1081,34 @@ type asLaunch struct {
 // and so InService, only once its VM is up; a failed boot fails the launch
 // activity and takes the instance out of the group.
 func asLaunchInstance(group string, l asLaunch) {
-	inst, ok := ec2Instances.Get(l.instanceID)
-	if !ok {
+	if _, ok := ec2Instances.Get(l.instanceID); !ok {
 		asFinishActivity(l.activityID, "Cancelled", "The instance was deleted before it launched.")
 		return
 	}
-	if err := asBootInstance(context.Background(), inst); err != nil {
-		_ = ec2DeleteRealNIC(context.Background(), inst.NetworkInterfaceId)
-		ec2Instances.Update(l.instanceID, func(i *EC2Instance) {
-			i.State = "terminated"
-			i.StateReasonCode = "Server.InternalError"
-			i.StateReasonMessage = "Server.InternalError: Internal error on launch"
-		})
-		ec2NetworkInterfaces.Delete(inst.NetworkInterfaceId)
-		ec2DeleteOnTerminationVolumes(l.instanceID)
+	// The launch activity ends once EC2 has launched the instance, so it is
+	// Successful by the time a caller sees the instance running. A launch
+	// hook holds it at MidLifecycleAction until every hook has answered.
+	hooks := asHooksFor(group, asLaunchingTransition)
+	launched, err := ec2LaunchInstance(l.instanceID, func() {
+		if len(hooks) > 0 {
+			scalingActivities.Update(l.activityID, func(a *ScalingActivity) { a.StatusCode = "MidLifecycleAction" })
+			return
+		}
+		asFinishActivity(l.activityID, "Successful", "")
+	})
+	switch {
+	case err != nil:
 		autoScalingGroups.Update(group, func(asg *AutoScalingGroup) {
 			if idx := indexOfString(asg.InstanceIds, l.instanceID); idx >= 0 {
 				asg.InstanceIds = append(asg.InstanceIds[:idx], asg.InstanceIds[idx+1:]...)
 			}
 		})
 		asFinishActivity(l.activityID, "Failed", fmt.Sprintf("Instance %s failed to launch: %v", l.instanceID, err))
-		return
-	}
-	if current, ok := ec2Instances.Get(l.instanceID); !ok || current.State != "pending" {
-		// Scale-in terminated the instance while it booted.
-		_ = ec2StopRealVM(context.Background(), l.instanceID)
+	case !launched:
 		asFinishActivity(l.activityID, "Cancelled", "The instance was terminated before it entered service.")
-		return
+	case len(hooks) > 0:
+		asBeginLaunchLifecycleActions(group, l.instanceID, l.activityID, hooks)
 	}
-	// The launch activity ends once EC2 has launched the instance, so it is
-	// Successful by the time a caller sees the instance running.
-	asFinishActivity(l.activityID, "Successful", "")
-	ec2Instances.Update(l.instanceID, func(i *EC2Instance) {
-		if i.State == "pending" {
-			i.State = "running"
-		}
-	})
 }
 
 // asActivityMemberXML renders an Activity; EndTime and StatusMessage appear
@@ -1169,6 +1164,9 @@ func asInstanceLifecycleState(group, instanceID string) string {
 	inst, ok := ec2Instances.Get(instanceID)
 	if !ok {
 		return "InService"
+	}
+	if inst.State == "running" && asInstanceAwaitsLifecycleAction(group, instanceID) {
+		return "Pending:Wait"
 	}
 	switch inst.State {
 	case "pending":

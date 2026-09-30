@@ -166,12 +166,12 @@ func TestEC2_ImageAttrLifecycleSDK(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(exp.ExportImageTaskId))
 	assert.Equal(t, amiID, aws.ToString(exp.ImageId))
 
-	imp, err := c.ImportImage(ctx, &ec2.ImportImageInput{
+	// An import names at least one disk image to read.
+	_, err = c.ImportImage(ctx, &ec2.ImportImageInput{
 		Architecture: aws.String("x86_64"),
 		Description:  aws.String("imported"),
 	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, aws.ToString(imp.ImportTaskId))
+	requireAWSErrorCode(t, err, "MissingParameter")
 
 	cr, err := c.CreateRestoreImageTask(ctx, &ec2.CreateRestoreImageTaskInput{
 		ObjectKey: aws.String("ami-backup"),
@@ -253,17 +253,6 @@ func TestEC2_SnapshotAttrLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, snapID, aws.ToString(ul.SnapshotId))
 
-	is, err := c.ImportSnapshot(ctx, &ec2.ImportSnapshotInput{
-		Description: aws.String("imported-snap"),
-		DiskContainer: &types.SnapshotDiskContainer{
-			Format:     aws.String("VMDK"),
-			UserBucket: &types.UserBucket{S3Bucket: aws.String("b"), S3Key: aws.String("k")},
-		},
-	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, aws.ToString(is.ImportTaskId))
-	require.NotNil(t, is.SnapshotTaskDetail)
-	assert.NotEmpty(t, aws.ToString(is.SnapshotTaskDetail.SnapshotId))
 }
 
 // TestEC2_InstanceEventWindowLifecycleSDK covers the maintenance event window

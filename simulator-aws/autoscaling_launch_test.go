@@ -74,8 +74,18 @@ func asLaunchTestStores(t *testing.T) {
 		asGroupExtras = sim.MakeStore[ASGroupExtras](nil, "autoscaling_group_extras")
 	}
 	{
-		prev := asBootInstance
-		swap(func() { asBootInstance = prev })
+		prev := asLifecycleHooks
+		swap(func() { asLifecycleHooks = prev })
+		asLifecycleHooks = sim.MakeStore[ASLifecycleHook](nil, "autoscaling_lifecycle_hooks")
+	}
+	{
+		prev := asLifecycleActions
+		swap(func() { asLifecycleActions = prev })
+		asLifecycleActions = sim.MakeStore[ASLifecycleAction](nil, "autoscaling_lifecycle_actions")
+	}
+	{
+		prev := ec2BootInstance
+		swap(func() { ec2BootInstance = prev })
 	}
 	t.Cleanup(func() {
 		bg.Await()
@@ -119,7 +129,7 @@ func TestAutoScalingAnswersBeforeTheInstanceBoots(t *testing.T) {
 	asLaunchTestStores(t)
 	booting := make(chan string, 1)
 	release := make(chan struct{})
-	asBootInstance = func(_ context.Context, inst EC2Instance) error {
+	ec2BootInstance = func(_ context.Context, inst EC2Instance) error {
 		booting <- inst.InstanceId
 		<-release
 		return nil
@@ -177,7 +187,7 @@ func TestAutoScalingAnswersBeforeTheInstanceBoots(t *testing.T) {
 // the group instead of reporting it InService.
 func TestAutoScalingFailsTheLaunchWhenTheBootFails(t *testing.T) {
 	asLaunchTestStores(t)
-	asBootInstance = func(context.Context, EC2Instance) error {
+	ec2BootInstance = func(context.Context, EC2Instance) error {
 		return errors.New("guest never answered")
 	}
 

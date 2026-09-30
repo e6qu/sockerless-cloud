@@ -115,6 +115,7 @@ aws sts get-caller-identity --query Arn --output text`},
 				LogDriver: ecstypes.LogDriverAwslogs,
 				Options: map[string]string{
 					"awslogs-group":         logGroup,
+					"awslogs-create-group":  "true",
 					"awslogs-stream-prefix": "ecs",
 				},
 			},

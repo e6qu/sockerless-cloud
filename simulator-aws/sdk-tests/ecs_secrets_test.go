@@ -62,6 +62,7 @@ func TestECS_TaskDefinitionSecretsInjected(t *testing.T) {
 				LogDriver: ecstypes.LogDriverAwslogs,
 				Options: map[string]string{
 					"awslogs-group":         logGroup,
+					"awslogs-create-group":  "true",
 					"awslogs-stream-prefix": "ecs",
 				},
 			},

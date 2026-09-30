@@ -50,7 +50,7 @@ func TestEC2CLI_VolumesSnapshots(t *testing.T) {
 }
 
 // TestEC2CLI_RecycleBinTasks covers the recycle-bin list surfaces (snapshots),
-// locked-snapshots / import-snapshot-task read-backs, and the replace-root-volume
+// the locked-snapshots read-back, and the replace-root-volume
 // task lifecycle.
 func TestEC2CLI_RecycleBinTasks(t *testing.T) {
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -60,9 +60,6 @@ func TestEC2CLI_RecycleBinTasks(t *testing.T) {
 	}
 	if out := q("ec2", "describe-locked-snapshots", "--query", "Snapshots", "--output", "json"); out != "[]" {
 		t.Fatalf("describe-locked-snapshots: got %q, want []", out)
-	}
-	if out := q("ec2", "describe-import-snapshot-tasks", "--query", "ImportSnapshotTasks", "--output", "json"); out != "[]" {
-		t.Fatalf("describe-import-snapshot-tasks: got %q, want []", out)
 	}
 
 	vpc := q("ec2", "create-vpc", "--cidr-block", "10.221.0.0/16",

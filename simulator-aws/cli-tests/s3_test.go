@@ -182,7 +182,7 @@ func TestS3API_BucketSubresourceCoverage(t *testing.T) {
 			"Events": ["s3:ObjectCreated:Put"]
 		}]
 	}`)
-	runCLI(t, awsCLI("s3api", "put-bucket-notification-configuration", "--bucket", bucket, "--notification-configuration", "file://"+notificationFile))
+	runCLI(t, awsCLI("s3api", "put-bucket-notification-configuration", "--bucket", bucket, "--notification-configuration", "file://"+notificationFile, "--skip-destination-validation"))
 	assert.Contains(t, runCLI(t, awsCLI("s3api", "get-bucket-notification-configuration", "--bucket", bucket)), "queue-created")
 
 	runCLI(t, awsCLI("s3api", "put-public-access-block", "--bucket", bucket, "--public-access-block-configuration", `{"BlockPublicAcls":true,"BlockPublicPolicy":true,"IgnorePublicAcls":true,"RestrictPublicBuckets":true}`))

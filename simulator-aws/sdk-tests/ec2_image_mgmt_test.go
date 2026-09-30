@@ -1,12 +1,15 @@
 package aws_sdk_test
 
 import (
+	"bytes"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -293,40 +296,65 @@ func TestEC2_ExportImageSDK(t *testing.T) {
 	assert.Equal(t, aws.ToString(exp.ExportImageTaskId), aws.ToString(byID.ExportImageTasks[0].ExportImageTaskId))
 }
 
-// TestEC2_ImportImageSDK covers ImportImage and the DescribeImportImageTasks
-// read-back.
+// TestEC2_ImportImageSDK imports a RAW disk image from Amazon S3 into an AMI:
+// the task converts the disk into a snapshot and registers an EBS-backed image
+// whose root device restores from it.
 func TestEC2_ImportImageSDK(t *testing.T) {
 	c := ec2Client()
+	s3c := s3Client()
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	bucket := "import-image-" + suffix
+	role := "vmimport-image-" + suffix
+	_, err := s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	createVMImportRole(t, role, bucket)
+	disk := bytes.Repeat([]byte("sockerless-root-"), 1<<16)
+	_, err = s3c.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String("root.raw"), Body: bytes.NewReader(disk),
+	})
+	require.NoError(t, err)
+
 	imp, err := c.ImportImage(ctx, &ec2.ImportImageInput{
 		Description:  aws.String("imported from S3"),
 		Architecture: aws.String("x86_64"),
 		Platform:     aws.String("Linux"),
+		RoleName:     aws.String(role),
 		DiskContainers: []types.ImageDiskContainer{{
-			Format:     aws.String("VMDK"),
-			UserBucket: &types.UserBucket{S3Bucket: aws.String("import-bucket"), S3Key: aws.String("disk.vmdk")},
+			Format:     aws.String("RAW"),
+			UserBucket: &types.UserBucket{S3Bucket: aws.String(bucket), S3Key: aws.String("root.raw")},
 		}},
 	})
 	require.NoError(t, err)
-	assert.NotEmpty(t, aws.ToString(imp.ImportTaskId))
+	taskID := aws.ToString(imp.ImportTaskId)
+	require.NotEmpty(t, taskID)
 
-	// The task just started is the one the read side returns, carrying the
-	// description it was started with.
-	tasks, err := c.DescribeImportImageTasks(ctx, &ec2.DescribeImportImageTasksInput{})
-	require.NoError(t, err)
-	var imported *types.ImportImageTask
-	for i, task := range tasks.ImportImageTasks {
-		if aws.ToString(task.ImportTaskId) == aws.ToString(imp.ImportTaskId) {
-			imported = &tasks.ImportImageTasks[i]
+	// EC2 offers no waiter for ImportImage, so read the task's own status
+	// until it leaves active.
+	var task types.ImportImageTask
+	for deadline := time.Now().Add(time.Minute); ; {
+		out, err := c.DescribeImportImageTasks(ctx, &ec2.DescribeImportImageTasksInput{ImportTaskIds: []string{taskID}})
+		require.NoError(t, err)
+		require.Len(t, out.ImportImageTasks, 1)
+		task = out.ImportImageTasks[0]
+		if aws.ToString(task.Status) != "active" {
+			break
 		}
+		require.True(t, time.Now().Before(deadline), "import task %s is still active", taskID)
+		time.Sleep(waiterMinDelay)
 	}
-	require.NotNil(t, imported, "the import task just started must be described")
-	assert.Equal(t, "imported from S3", aws.ToString(imported.Description))
-	assert.Equal(t, "x86_64", aws.ToString(imported.Architecture))
+	require.Equal(t, "completed", aws.ToString(task.Status), aws.ToString(task.StatusMessage))
+	assert.Equal(t, "imported from S3", aws.ToString(task.Description))
+	require.Len(t, task.SnapshotDetails, 1)
+	assert.Equal(t, float64(len(disk)), aws.ToFloat64(task.SnapshotDetails[0].DiskImageSize))
+	snapshotID := aws.ToString(task.SnapshotDetails[0].SnapshotId)
+	require.NotEmpty(t, snapshotID)
 
-	byID, err := c.DescribeImportImageTasks(ctx, &ec2.DescribeImportImageTasksInput{
-		ImportTaskIds: []string{aws.ToString(imp.ImportTaskId)},
-	})
+	images, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{ImageIds: []string{aws.ToString(task.ImageId)}})
 	require.NoError(t, err)
-	require.Len(t, byID.ImportImageTasks, 1)
-	assert.Equal(t, aws.ToString(imp.ImportTaskId), aws.ToString(byID.ImportImageTasks[0].ImportTaskId))
+	require.Len(t, images.Images, 1)
+	image := images.Images[0]
+	assert.Equal(t, types.ImageStateAvailable, image.State)
+	assert.Equal(t, types.DeviceTypeEbs, image.RootDeviceType)
+	require.NotEmpty(t, image.BlockDeviceMappings)
+	assert.Equal(t, snapshotID, aws.ToString(image.BlockDeviceMappings[0].Ebs.SnapshotId))
 }

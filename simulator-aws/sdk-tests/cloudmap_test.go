@@ -397,6 +397,7 @@ func TestECS_CrossTaskDNS(t *testing.T) {
 				LogDriver: ecstypes.LogDriverAwslogs,
 				Options: map[string]string{
 					"awslogs-group":         "/ecs/xtask-dns",
+					"awslogs-create-group":  "true",
 					"awslogs-stream-prefix": "ecs",
 				},
 			},

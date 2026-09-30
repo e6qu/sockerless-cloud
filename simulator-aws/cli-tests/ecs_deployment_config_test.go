@@ -62,7 +62,7 @@ func TestECSCLI_DeploymentConfiguration(t *testing.T) {
 		}
 		if json.Unmarshal([]byte(out), &response) != nil || len(response.Services) != 1 ||
 			response.Services[0].TaskDefinition != stable ||
-			len(response.Services[0].Deployments) < 2 ||
+			len(response.Services[0].Deployments) != 1 ||
 			response.Services[0].Deployments[0].RolloutState != "COMPLETED" {
 			return false
 		}
