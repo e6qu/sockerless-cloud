@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.7](https://github.com/e6qu/sockerless-cloud/compare/v0.33.6...v0.33.7) (2026-09-30)
+
+
+### Bug Fixes
+
+* third bug sweep across the AWS, Azure and Google Cloud simulators ([#223](https://github.com/e6qu/sockerless-cloud/issues/223)) ([405e641](https://github.com/e6qu/sockerless-cloud/commit/405e641585627f24c6ca6c8ae861361c75fb2321))
+
 ## [0.33.6](https://github.com/e6qu/sockerless-cloud/compare/v0.33.5...v0.33.6) (2026-09-30)
 
 
