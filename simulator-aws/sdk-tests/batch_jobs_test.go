@@ -27,6 +27,13 @@ var batchHoldCommand = []string{"sh", "-c", `trap "exit 143" TERM; sleep 300 & w
 // jobs on it, and returns the queue's name.
 func createBatchQueue(t *testing.T, c *batch.Client, name string, state batchtypes.CEState, maxVCPUs int32) string {
 	t.Helper()
+	return createBatchQueueWithPolicy(t, c, name, state, maxVCPUs, "")
+}
+
+// createBatchQueueWithPolicy is createBatchQueue for a queue that
+// schedulingPolicyArn, when set, schedules by fair share.
+func createBatchQueueWithPolicy(t *testing.T, c *batch.Client, name string, state batchtypes.CEState, maxVCPUs int32, schedulingPolicyArn string) string {
+	t.Helper()
 	input := &batch.CreateComputeEnvironmentInput{
 		ComputeEnvironmentName: aws.String(name + "-ce"),
 		Type:                   batchtypes.CETypeManaged,
@@ -48,6 +55,12 @@ func createBatchQueue(t *testing.T, c *batch.Client, name string, state batchtyp
 		JobQueueName: aws.String(name),
 		State:        batchtypes.JQStateEnabled,
 		Priority:     aws.Int32(1),
+		SchedulingPolicyArn: func() *string {
+			if schedulingPolicyArn == "" {
+				return nil
+			}
+			return aws.String(schedulingPolicyArn)
+		}(),
 		ComputeEnvironmentOrder: []batchtypes.ComputeEnvironmentOrder{
 			{Order: aws.Int32(1), ComputeEnvironment: ce.ComputeEnvironmentArn},
 		},
@@ -365,10 +378,12 @@ func TestBatch_SubmitJobRejectsOutOfRangeArrayAndRetryProperties_SDK(t *testing.
 		ContainerProperties: &batchtypes.ContainerProperties{Command: []string{"true"}},
 	})
 	for name, input := range map[string]*batch.SubmitJobInput{
-		"array of one":     {ArrayProperties: &batchtypes.ArrayProperties{Size: aws.Int32(1)}},
-		"array too large":  {ArrayProperties: &batchtypes.ArrayProperties{Size: aws.Int32(10001)}},
-		"eleven attempts":  {RetryStrategy: &batchtypes.RetryStrategy{Attempts: aws.Int32(11)}},
-		"reserved env var": {ContainerOverrides: &batchtypes.ContainerOverrides{Environment: []batchtypes.KeyValuePair{{Name: aws.String("AWS_BATCH_JOB_ID"), Value: aws.String("x")}}}},
+		"array of one":               {ArrayProperties: &batchtypes.ArrayProperties{Size: aws.Int32(1)}},
+		"array too large":            {ArrayProperties: &batchtypes.ArrayProperties{Size: aws.Int32(10001)}},
+		"eleven attempts":            {RetryStrategy: &batchtypes.RetryStrategy{Attempts: aws.Int32(11)}},
+		"reserved env var":           {ContainerOverrides: &batchtypes.ContainerOverrides{Environment: []batchtypes.KeyValuePair{{Name: aws.String("AWS_BATCH_JOB_ID"), Value: aws.String("x")}}}},
+		"unknown dependency":         {DependsOn: []batchtypes.JobDependency{{JobId: aws.String("00000000-0000-0000-0000-000000000000")}}},
+		"SEQUENTIAL on a single job": {DependsOn: []batchtypes.JobDependency{{Type: batchtypes.ArrayJobDependencySequential}}},
 	} {
 		input.JobName, input.JobQueue, input.JobDefinition = aws.String("batch-sdk-invalid"), aws.String(queue), aws.String(definition)
 		_, err := c.SubmitJob(ctx, input)
@@ -376,4 +391,130 @@ func TestBatch_SubmitJobRejectsOutOfRangeArrayAndRetryProperties_SDK(t *testing.
 		require.True(t, errors.As(err, &apiErr), "%s: SubmitJob returned %v", name, err)
 		assert.Equal(t, "ClientException", apiErr.ErrorCode(), name)
 	}
+}
+
+// A job with dependsOn waits in PENDING while a dependency runs, and fails
+// without running once that dependency fails.
+func TestBatch_DependentJobWaitsPendingAndFailsWithItsDependency_SDK(t *testing.T) {
+	c := batchClient()
+	queue := createBatchQueue(t, c, uniqueName("batch-sdk-deps"), batchtypes.CEStateEnabled, 0)
+	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
+		JobDefinitionName:   aws.String(uniqueName("batch-sdk-deps")),
+		ContainerProperties: &batchtypes.ContainerProperties{Command: batchHoldCommand},
+	})
+
+	first, err := c.SubmitJob(ctx, &batch.SubmitJobInput{
+		JobName: aws.String("first"), JobQueue: aws.String(queue), JobDefinition: aws.String(definition),
+	})
+	require.NoError(t, err)
+	second, err := c.SubmitJob(ctx, &batch.SubmitJobInput{
+		JobName: aws.String("second"), JobQueue: aws.String(queue), JobDefinition: aws.String(definition),
+		DependsOn: []batchtypes.JobDependency{{JobId: first.JobId}},
+	})
+	require.NoError(t, err)
+
+	awaitBatchJob(t, c, aws.ToString(first.JobId), func(job batchtypes.JobDetail) bool {
+		return job.Status == batchtypes.JobStatusRunning
+	})
+	described, err := c.DescribeJobs(ctx, &batch.DescribeJobsInput{Jobs: []string{aws.ToString(second.JobId)}})
+	require.NoError(t, err)
+	require.Len(t, described.Jobs, 1)
+	assert.Equal(t, batchtypes.JobStatusPending, described.Jobs[0].Status)
+	require.Len(t, described.Jobs[0].DependsOn, 1)
+	assert.Equal(t, aws.ToString(first.JobId), aws.ToString(described.Jobs[0].DependsOn[0].JobId))
+
+	pending, err := c.ListJobs(ctx, &batch.ListJobsInput{JobQueue: aws.String(queue), JobStatus: batchtypes.JobStatusPending})
+	require.NoError(t, err)
+	require.Len(t, pending.JobSummaryList, 1)
+	assert.Equal(t, aws.ToString(second.JobId), aws.ToString(pending.JobSummaryList[0].JobId))
+
+	_, err = c.TerminateJob(ctx, &batch.TerminateJobInput{JobId: first.JobId, Reason: aws.String("stop the dependency")})
+	require.NoError(t, err)
+	dependent := awaitBatchJob(t, c, aws.ToString(second.JobId), batchJobSettled)
+	assert.Equal(t, batchtypes.JobStatusFailed, dependent.Status)
+	assert.Equal(t, "Dependent Job failed", aws.ToString(dependent.StatusReason))
+	assert.Empty(t, dependent.Attempts, "a job whose dependency failed never runs")
+}
+
+// A SEQUENTIAL array job runs child i only after child i-1 has finished.
+func TestBatch_SequentialArrayRunsOneChildAfterAnother_SDK(t *testing.T) {
+	c := batchClient()
+	queue := createBatchQueue(t, c, uniqueName("batch-sdk-seq"), batchtypes.CEStateEnabled, 0)
+	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
+		JobDefinitionName:   aws.String(uniqueName("batch-sdk-seq")),
+		ContainerProperties: &batchtypes.ContainerProperties{Command: []string{"true"}},
+	})
+	submit, err := c.SubmitJob(ctx, &batch.SubmitJobInput{
+		JobName: aws.String("sequential"), JobQueue: aws.String(queue), JobDefinition: aws.String(definition),
+		ArrayProperties: &batchtypes.ArrayProperties{Size: aws.Int32(3)},
+		DependsOn:       []batchtypes.JobDependency{{Type: batchtypes.ArrayJobDependencySequential}},
+	})
+	require.NoError(t, err)
+	parentID := aws.ToString(submit.JobId)
+	parent := awaitBatchJob(t, c, parentID, batchJobSettled)
+	require.Equal(t, batchtypes.JobStatusSucceeded, parent.Status)
+
+	childIDs := []string{parentID + ":0", parentID + ":1", parentID + ":2"}
+	described, err := c.DescribeJobs(ctx, &batch.DescribeJobsInput{Jobs: childIDs})
+	require.NoError(t, err)
+	require.Len(t, described.Jobs, 3)
+	assert.Empty(t, described.Jobs[0].DependsOn)
+	for index := 1; index < 3; index++ {
+		child, previous := described.Jobs[index], described.Jobs[index-1]
+		require.Len(t, child.DependsOn, 1)
+		assert.Equal(t, childIDs[index-1], aws.ToString(child.DependsOn[0].JobId))
+		assert.Equal(t, batchtypes.ArrayJobDependencySequential, child.DependsOn[0].Type)
+		assert.GreaterOrEqual(t, aws.ToInt64(child.StartedAt), aws.ToInt64(previous.StoppedAt),
+			"child %d started before child %d stopped", index, index-1)
+	}
+}
+
+// On a fair-share queue with room for one job, the share that has just held
+// the compute environment waits while a share that has held none runs, even
+// though its job arrived later.
+func TestBatch_FairshareQueueRunsTheLeastUsedShareFirst_SDK(t *testing.T) {
+	c := batchClient()
+	policy, err := c.CreateSchedulingPolicy(ctx, &batch.CreateSchedulingPolicyInput{
+		Name:            aws.String(uniqueName("batch-sdk-fairshare")),
+		FairsharePolicy: &batchtypes.FairsharePolicy{ShareDecaySeconds: aws.Int32(3600)},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = c.DeleteSchedulingPolicy(ctx, &batch.DeleteSchedulingPolicyInput{Arn: policy.Arn}) })
+	queue := createBatchQueueWithPolicy(t, c, uniqueName("batch-sdk-fairshare"), batchtypes.CEStateEnabled, 1, aws.ToString(policy.Arn))
+	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
+		JobDefinitionName:   aws.String(uniqueName("batch-sdk-fairshare")),
+		ContainerProperties: &batchtypes.ContainerProperties{Command: batchHoldCommand},
+	})
+	submit := func(name, share string) string {
+		out, err := c.SubmitJob(ctx, &batch.SubmitJobInput{
+			JobName: aws.String(name), JobQueue: aws.String(queue), JobDefinition: aws.String(definition),
+			ShareIdentifier: aws.String(share),
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, _ = c.TerminateJob(ctx, &batch.TerminateJobInput{JobId: out.JobId, Reason: aws.String("cleanup")})
+		})
+		return aws.ToString(out.JobId)
+	}
+
+	_, err = c.SubmitJob(ctx, &batch.SubmitJobInput{
+		JobName: aws.String("no-share"), JobQueue: aws.String(queue), JobDefinition: aws.String(definition),
+	})
+	var apiErr smithy.APIError
+	require.True(t, errors.As(err, &apiErr), "SubmitJob without a share identifier returned %v", err)
+	assert.Equal(t, "ClientException", apiErr.ErrorCode())
+
+	holder := submit("holder", "teamA")
+	awaitBatchJob(t, c, holder, func(job batchtypes.JobDetail) bool { return job.Status == batchtypes.JobStatusRunning })
+	waitingA := submit("teamA-next", "teamA")
+	waitingB := submit("teamB-first", "teamB")
+
+	_, err = c.TerminateJob(ctx, &batch.TerminateJobInput{JobId: aws.String(holder), Reason: aws.String("free the compute environment")})
+	require.NoError(t, err)
+	awaitBatchJob(t, c, waitingB, func(job batchtypes.JobDetail) bool { return job.Status == batchtypes.JobStatusRunning })
+	described, err := c.DescribeJobs(ctx, &batch.DescribeJobsInput{Jobs: []string{waitingA}})
+	require.NoError(t, err)
+	require.Len(t, described.Jobs, 1)
+	assert.Equal(t, batchtypes.JobStatusRunnable, described.Jobs[0].Status, "teamA's job waits while teamB takes its turn")
+	assert.Equal(t, "teamA", aws.ToString(described.Jobs[0].ShareIdentifier))
 }

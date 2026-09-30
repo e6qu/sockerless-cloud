@@ -39,7 +39,20 @@ const (
 	batchReasonContainerExited = "Essential container in task exited"
 	batchReasonTaskNotStarted  = "Task failed to start"
 	batchReasonTimedOut        = "Job attempt duration exceeded timeout"
+	batchReasonDependencyFail  = "Dependent Job failed"
+
+	batchMaxDependencies = 20
 )
+
+const (
+	batchDependencyNToN       = "N_TO_N"
+	batchDependencySequential = "SEQUENTIAL"
+)
+
+type BatchJobDependency struct {
+	JobID string `json:"jobId,omitempty"`
+	Type  string `json:"type,omitempty"`
+}
 
 // BatchRetryStrategy is the parsed form of a job's retryStrategy.
 type BatchRetryStrategy struct {
@@ -89,19 +102,34 @@ type batchRunningAttempt struct {
 }
 
 type batchRunnableEntry struct {
-	jobID string
-	queue string
-	vcpus float64
+	jobID    string
+	queue    string
+	vcpus    float64
+	share    string
+	priority int
+	seq      int
+}
+
+func batchRunnableEntryFor(job BatchJob) batchRunnableEntry {
+	entry := batchRunnableEntry{jobID: job.JobID, queue: batchNameFromARN(job.JobQueue), vcpus: job.VCPUs, share: job.ShareIdentifier}
+	if job.SchedulingPriority != nil {
+		entry.priority = *job.SchedulingPriority
+	}
+	return entry
 }
 
 // The scheduler's working set, guarded by batchMu and rebuilt from the job
 // store at startup: the RUNNABLE jobs in arrival order, the vCPUs each
-// compute environment has placed, and the timeout armed on each running
-// attempt. batchJobHandles, under the same lock, holds each attempt's container.
+// compute environment has placed, the timeout armed on each running attempt,
+// the PENDING jobs waiting on each unfinished dependency, and the jobs that
+// finished since their dependents were last released. batchJobHandles, under
+// the same lock, holds each attempt's container.
 var (
 	batchRunnable      []batchRunnableEntry
 	batchCEInUse       = map[string]float64{}
 	batchAttemptTimers = map[string]*bg.Timer{}
+	batchDependents    = map[string][]string{}
+	batchFinished      []string
 )
 
 func batchTerminal(status string) bool {
@@ -266,6 +294,9 @@ func batchQueuePlacements(queueName string) []batchPlacement {
 func batchSetStatus(job *BatchJob, status string) {
 	previous := job.Status
 	job.Status = status
+	if batchTerminal(status) && previous != status {
+		batchFinished = append(batchFinished, job.JobID)
+	}
 	if job.ArrayJobID == "" || previous == status {
 		return
 	}
@@ -292,6 +323,7 @@ func batchSettleArrayParent(parent *BatchJob) {
 		return
 	}
 	parent.StoppedAt = batchEpochMs()
+	batchFinished = append(batchFinished, parent.JobID)
 	if summary[batchStatusFailed] == 0 && !parent.IsCancelled && !parent.IsTerminated {
 		parent.Status = batchStatusSucceeded
 		return
@@ -304,11 +336,7 @@ func batchSettleArrayParent(parent *BatchJob) {
 
 func batchEnqueueLocked(job *BatchJob) {
 	batchSetStatus(job, batchStatusRunnable)
-	batchRunnable = append(batchRunnable, batchRunnableEntry{
-		jobID: job.JobID,
-		queue: batchNameFromARN(job.JobQueue),
-		vcpus: job.VCPUs,
-	})
+	batchRunnable = append(batchRunnable, batchRunnableEntryFor(*job))
 }
 
 func batchDequeueLocked(jobID string) {
@@ -322,8 +350,8 @@ func batchDequeueLocked(jobID string) {
 }
 
 // batchScheduleJob is the scheduler's evaluation of a SUBMITTED job: a job
-// with no dependencies becomes RUNNABLE, and an array job spawns its children
-// and waits on them in PENDING.
+// waits in PENDING until its dependencies finish and is RUNNABLE otherwise,
+// and an array job spawns its children and waits on them in PENDING.
 func batchScheduleJob(jobID string) {
 	batchMu.Lock()
 	defer batchMu.Unlock()
@@ -337,7 +365,7 @@ func batchScheduleJobLocked(jobID string) {
 		return
 	}
 	if !job.isArrayParent() {
-		batchEnqueueLocked(&job)
+		batchAdvanceDependentLocked(&job)
 		batchJobs.Put(jobID, job)
 		return
 	}
@@ -347,83 +375,276 @@ func batchScheduleJobLocked(jobID string) {
 	for _, status := range batchJobStatuses {
 		summary[status] = 0
 	}
-	// A child enters PENDING when its parent spawns it and RUNNABLE when the
-	// scheduler finds it has no dependencies; both happen under this one lock
-	// hold, so no reader can observe the PENDING step.
-	summary[batchStatusRunnable] = size
+	// A child enters PENDING when its parent spawns it and moves on once the
+	// scheduler has evaluated its dependencies; both happen under this one
+	// lock hold, so a child with none never shows the PENDING step.
 	for index := range size {
 		childIndex := index
 		childID := batchChildJobID(jobID, index)
 		child := BatchJob{
-			JobID:            childID,
-			JobArn:           batchARN("job/" + childID),
-			JobName:          job.JobName,
-			JobQueue:         job.JobQueue,
-			Status:           batchStatusRunnable,
-			JobDefinition:    job.JobDefinition,
-			CreatedAt:        now,
-			Container:        maps.Clone(job.Container),
-			Attempts:         []BatchAttempt{},
-			RetryStrategy:    job.RetryStrategy,
-			Timeout:          job.Timeout,
-			ArrayProperties:  &BatchArrayProperties{Index: &childIndex},
-			Tags:             job.Tags,
-			ExecutionConfig:  job.ExecutionConfig,
-			ArrayJobID:       jobID,
-			VCPUs:            job.VCPUs,
-			Retry:            job.Retry,
-			LogConfiguration: job.LogConfiguration,
+			JobID:              childID,
+			JobArn:             batchARN("job/" + childID),
+			JobName:            job.JobName,
+			JobQueue:           job.JobQueue,
+			ShareIdentifier:    job.ShareIdentifier,
+			JobDefinition:      job.JobDefinition,
+			CreatedAt:          now,
+			Container:          maps.Clone(job.Container),
+			Attempts:           []BatchAttempt{},
+			RetryStrategy:      job.RetryStrategy,
+			Timeout:            job.Timeout,
+			SchedulingPriority: job.SchedulingPriority,
+			DependsOn:          batchChildDependencies(job, index),
+			ArrayProperties:    &BatchArrayProperties{Index: &childIndex},
+			Tags:               job.Tags,
+			ExecutionConfig:    job.ExecutionConfig,
+			ArrayJobID:         jobID,
+			VCPUs:              job.VCPUs,
+			Retry:              job.Retry,
+			LogConfiguration:   job.LogConfiguration,
 		}
+		failed, waitingOn := batchDependencyStateLocked(child)
+		switch {
+		case failed:
+			child.Status = batchStatusFailed
+			child.StatusReason = batchReasonDependencyFail
+			child.StoppedAt = now
+			batchFinished = append(batchFinished, childID)
+		case len(waitingOn) > 0:
+			child.Status = batchStatusPending
+			batchWaitOnLocked(childID, waitingOn)
+		default:
+			child.Status = batchStatusRunnable
+			batchRunnable = append(batchRunnable, batchRunnableEntryFor(child))
+		}
+		summary[child.Status]++
 		batchJobs.Put(childID, child)
-		batchRunnable = append(batchRunnable, batchRunnableEntry{jobID: childID, queue: batchNameFromARN(job.JobQueue), vcpus: job.VCPUs})
 	}
 	job.Status = batchStatusPending
 	job.ArrayProperties.StatusSummary = summary
 	job.ArrayProperties.StatusSummaryLastUpdatedAt = now
+	batchSettleArrayParent(&job)
 	batchJobs.Put(jobID, job)
 }
 
-// batchDispatchLocked places RUNNABLE jobs, oldest first, on the first
-// compute environment of their queue with the vCPUs to spare, and starts
-// their attempts. Jobs no environment can take stay RUNNABLE until an attempt
-// frees capacity or an environment or queue changes.
-func batchDispatchLocked() {
-	placements := map[string][]batchPlacement{}
-	kept := batchRunnable[:0]
-	for _, entry := range batchRunnable {
-		candidates, ok := placements[entry.queue]
-		if !ok {
-			candidates = batchQueuePlacements(entry.queue)
-			placements[entry.queue] = candidates
+// batchChildDependencies gives array child index the dependencies it waits
+// on: every dependency of its parent without a type, the same index of each
+// N_TO_N dependency, and, under SEQUENTIAL, the child before it.
+func batchChildDependencies(parent BatchJob, index int) []BatchJobDependency {
+	var deps []BatchJobDependency
+	for _, dep := range parent.DependsOn {
+		switch dep.Type {
+		case batchDependencyNToN:
+			deps = append(deps, BatchJobDependency{JobID: batchChildJobID(dep.JobID, index), Type: batchDependencyNToN})
+		case batchDependencySequential:
+			if index > 0 {
+				deps = append(deps, BatchJobDependency{JobID: batchChildJobID(parent.JobID, index-1), Type: batchDependencySequential})
+			}
+		default:
+			deps = append(deps, dep)
 		}
-		placed := ""
-		for _, candidate := range candidates {
-			if candidate.maxVCPUs == 0 || batchCEInUse[candidate.name]+entry.vcpus <= candidate.maxVCPUs {
-				placed = candidate.name
-				break
+	}
+	return deps
+}
+
+// batchDependencyStateLocked reports whether one of a job's dependencies
+// failed, and otherwise which have yet to finish.
+func batchDependencyStateLocked(job BatchJob) (failed bool, waitingOn []string) {
+	for _, dep := range job.DependsOn {
+		dependency, ok := batchJobs.Get(dep.JobID)
+		if !ok {
+			continue
+		}
+		switch dependency.Status {
+		case batchStatusSucceeded:
+		case batchStatusFailed:
+			return true, nil
+		default:
+			waitingOn = append(waitingOn, dep.JobID)
+		}
+	}
+	return false, waitingOn
+}
+
+func batchWaitOnLocked(jobID string, dependencies []string) {
+	for _, dependency := range dependencies {
+		batchDependents[dependency] = append(batchDependents[dependency], jobID)
+	}
+}
+
+// batchAdvanceDependentLocked moves a SUBMITTED or PENDING job on once its
+// dependencies allow: to FAILED when one failed, to PENDING while one has yet
+// to finish, and otherwise to RUNNABLE, or to FAILED when CancelJob or
+// TerminateJob stopped it while it waited. The caller stores job.
+func batchAdvanceDependentLocked(job *BatchJob) {
+	failed, waitingOn := batchDependencyStateLocked(*job)
+	stopped := job.IsCancelled || job.IsTerminated
+	switch {
+	case failed && stopped:
+		batchStopBeforeStart(job, job.StopReason)
+	case failed:
+		batchStopBeforeStart(job, batchReasonDependencyFail)
+	case len(waitingOn) > 0:
+		if job.Status != batchStatusPending {
+			batchSetStatus(job, batchStatusPending)
+			batchWaitOnLocked(job.JobID, waitingOn)
+		}
+	case stopped:
+		batchStopBeforeStart(job, job.StopReason)
+	default:
+		batchEnqueueLocked(job)
+	}
+}
+
+// batchReleaseDependentsLocked re-evaluates the PENDING jobs that wait on a
+// job that has finished, until no release finishes another job.
+func batchReleaseDependentsLocked() {
+	for len(batchFinished) > 0 {
+		finished := batchFinished[0]
+		batchFinished = batchFinished[1:]
+		dependents := batchDependents[finished]
+		delete(batchDependents, finished)
+		for _, dependentID := range dependents {
+			dependent, ok := batchJobs.Get(dependentID)
+			if !ok || dependent.Status != batchStatusPending {
+				continue
+			}
+			batchAdvanceDependentLocked(&dependent)
+			batchJobs.Put(dependentID, dependent)
+		}
+	}
+}
+
+// batchDispatchLocked places RUNNABLE jobs on the first compute environment
+// of their queue with the vCPUs to spare, and starts their attempts. Queues go
+// by priority, highest first; a FIFO queue offers its jobs oldest first and a
+// fair-share queue in the order its scheduling policy gives. Jobs no
+// environment can take stay RUNNABLE until an attempt frees capacity or an
+// environment or queue changes.
+func batchDispatchLocked() {
+	batchReleaseDependentsLocked()
+	byQueue := map[string][]batchRunnableEntry{}
+	var queueNames []string
+	for seq, entry := range batchRunnable {
+		entry.seq = seq
+		if _, seen := byQueue[entry.queue]; !seen {
+			queueNames = append(queueNames, entry.queue)
+		}
+		byQueue[entry.queue] = append(byQueue[entry.queue], entry)
+	}
+	queues := map[string]BatchJobQueue{}
+	for _, name := range queueNames {
+		queues[name], _ = batchJobQueues.Get(name)
+	}
+	sort.SliceStable(queueNames, func(i, j int) bool { return queues[queueNames[i]].Priority > queues[queueNames[j]].Priority })
+
+	settled := map[string]bool{}
+	for _, name := range queueNames {
+		candidates := batchQueuePlacements(name)
+		entries := byQueue[name]
+		policy, fairshare := batchQueueFairsharePolicy(queues[name])
+		if !fairshare {
+			for _, entry := range entries {
+				settled[entry.jobID] = batchPlaceLocked(entry, candidates, nil)
+			}
+			continue
+		}
+		scheduler := newBatchFairshareScheduler(name, policy, entries)
+		for entry, ok := scheduler.pop(); ok; entry, ok = scheduler.pop() {
+			share := entry.share
+			settled[entry.jobID] = batchPlaceLocked(entry, candidates, func(maxVCPUs float64) float64 {
+				return scheduler.capacity(share, maxVCPUs)
+			})
+			if settled[entry.jobID] {
+				scheduler.placed(entry)
 			}
 		}
-		if placed == "" {
+	}
+	kept := batchRunnable[:0]
+	for _, entry := range batchRunnable {
+		if !settled[entry.jobID] {
 			kept = append(kept, entry)
-			continue
 		}
-		job, ok := batchJobs.Get(entry.jobID)
-		if !ok || job.Status != batchStatusRunnable {
-			continue
-		}
-		batchCEInUse[placed] += job.VCPUs
-		number := len(job.Attempts) + 1
-		job.Running = &batchRunningAttempt{
-			Number:             number,
-			TaskID:             strings.ReplaceAll(uuid.NewString(), "-", ""),
-			ComputeEnvironment: placed,
-		}
-		batchSetStatus(&job, batchStatusStarting)
-		batchJobs.Put(job.JobID, job)
-		jobID := job.JobID
-		bg.Go(func() { batchLaunchAttempt(jobID, number) })
 	}
 	batchRunnable = kept
+}
+
+// batchPlaceLocked starts an attempt of entry's job on the first candidate
+// with room for it under limit, which caps a compute environment's maxVCPUs;
+// it reports false when the job must stay queued.
+func batchPlaceLocked(entry batchRunnableEntry, candidates []batchPlacement, limit func(float64) float64) bool {
+	placed := ""
+	for _, candidate := range candidates {
+		capacity := candidate.maxVCPUs
+		if capacity > 0 && limit != nil {
+			capacity = limit(capacity)
+		}
+		if candidate.maxVCPUs == 0 || batchCEInUse[candidate.name]+entry.vcpus <= capacity {
+			placed = candidate.name
+			break
+		}
+	}
+	if placed == "" {
+		return false
+	}
+	job, ok := batchJobs.Get(entry.jobID)
+	if !ok || job.Status != batchStatusRunnable {
+		return true
+	}
+	batchCEInUse[placed] += job.VCPUs
+	batchChargeShareLocked(entry.queue, job.ShareIdentifier, job.VCPUs)
+	number := len(job.Attempts) + 1
+	job.Running = &batchRunningAttempt{
+		Number:             number,
+		TaskID:             strings.ReplaceAll(uuid.NewString(), "-", ""),
+		ComputeEnvironment: placed,
+	}
+	batchSetStatus(&job, batchStatusStarting)
+	batchJobs.Put(job.JobID, job)
+	jobID := job.JobID
+	bg.Go(func() { batchLaunchAttempt(jobID, number) })
+	return true
+}
+
+// batchCheckDependencies validates SubmitJob's dependsOn for a job of
+// arraySize children (0 for a single job).
+func batchCheckDependencies(deps []BatchJobDependency, arraySize int) error {
+	if len(deps) > batchMaxDependencies {
+		return fmt.Errorf("dependsOn takes at most %d jobs, got %d", batchMaxDependencies, len(deps))
+	}
+	for _, dep := range deps {
+		switch dep.Type {
+		case "", batchDependencyNToN, batchDependencySequential:
+		default:
+			return fmt.Errorf("dependsOn type must be N_TO_N or SEQUENTIAL, got %q", dep.Type)
+		}
+		if dep.Type == batchDependencySequential {
+			if arraySize == 0 {
+				return errors.New("a SEQUENTIAL dependency applies only to an array job")
+			}
+			if dep.JobID != "" {
+				return errors.New("a SEQUENTIAL dependency takes no jobId")
+			}
+			continue
+		}
+		if dep.JobID == "" {
+			return errors.New("dependsOn jobId is required")
+		}
+		dependency, ok := batchJobs.Get(dep.JobID)
+		if !ok {
+			return errors.New("Job not found: " + dep.JobID)
+		}
+		if dep.Type != batchDependencyNToN {
+			continue
+		}
+		if arraySize == 0 || !dependency.isArrayParent() {
+			return errors.New("an N_TO_N dependency applies only between array jobs")
+		}
+		if dependency.ArrayProperties.Size != arraySize {
+			return fmt.Errorf("an N_TO_N dependency needs array jobs of the same size, got %d and %d", arraySize, dependency.ArrayProperties.Size)
+		}
+	}
+	return nil
 }
 
 func batchJobDefinitionName(arn string) string {
@@ -636,6 +857,7 @@ func batchAttemptEnded(jobID string, number int, result sim.ProcessResult, start
 	delete(batchJobHandles, jobID)
 	running := *job.Running
 	batchCEInUse[running.ComputeEnvironment] -= job.VCPUs
+	batchChargeShareLocked(batchNameFromARN(job.JobQueue), job.ShareIdentifier, -job.VCPUs)
 
 	now := batchEpochMs()
 	attempt := BatchAttempt{
@@ -700,9 +922,10 @@ func batchAttemptEnded(jobID string, number int, result sim.ProcessResult, start
 	batchDispatchLocked()
 }
 
-// batchCancelJobLocked applies CancelJob: a job not yet STARTING fails, a
-// STARTING or RUNNING one is left alone, and an array parent cancels its
-// children and fails once they have all finished.
+// batchCancelJobLocked applies CancelJob: a job not yet STARTING fails, once
+// its dependencies have finished when it waits on them in PENDING; a STARTING
+// or RUNNING one is left alone; and an array parent cancels its children and
+// fails once they have all finished.
 func batchCancelJobLocked(jobID, reason string) {
 	job, ok := batchJobs.Get(jobID)
 	if !ok || batchTerminal(job.Status) {
@@ -723,16 +946,21 @@ func batchCancelJobLocked(jobID, reason string) {
 		return
 	}
 	switch job.Status {
-	case batchStatusSubmitted, batchStatusPending, batchStatusRunnable:
+	case batchStatusPending:
+		job.IsCancelled = true
+		job.StopReason = reason
+		batchJobs.Put(jobID, job)
+	case batchStatusSubmitted, batchStatusRunnable:
 		job.IsCancelled = true
 		batchStopBeforeStart(&job, reason)
 		batchJobs.Put(jobID, job)
 	}
 }
 
-// batchTerminateJobLocked applies TerminateJob: a job not yet STARTING fails
-// at once, a STARTING or RUNNING one has its container stopped and fails when
-// it exits, and an array parent terminates every child.
+// batchTerminateJobLocked applies TerminateJob: a job not yet STARTING is
+// cancelled as CancelJob cancels it, a STARTING or RUNNING one has its
+// container stopped and fails when it exits, and an array parent terminates
+// every child.
 func batchTerminateJobLocked(jobID, reason string) {
 	job, ok := batchJobs.Get(jobID)
 	if !ok || batchTerminal(job.Status) {
@@ -753,7 +981,7 @@ func batchTerminateJobLocked(jobID, reason string) {
 		return
 	}
 	switch job.Status {
-	case batchStatusSubmitted, batchStatusPending, batchStatusRunnable:
+	case batchStatusSubmitted, batchStatusRunnable:
 		batchStopBeforeStart(&job, reason)
 	case batchStatusStarting, batchStatusRunning:
 		if handle, ok := batchJobHandles[jobID]; ok {
@@ -771,7 +999,8 @@ func batchStopBeforeStart(job *BatchJob, reason string) {
 }
 
 // recoverBatchJobs rebuilds the scheduler from the job store after a restart:
-// RUNNABLE jobs queue again, a SUBMITTED job is scheduled, and an attempt in
+// RUNNABLE jobs queue again, a SUBMITTED job is scheduled, a PENDING job
+// waits on its dependencies again, and an attempt in
 // flight adopts its container, or returns to RUNNABLE when its container never
 // started.
 func recoverBatchJobs() error {
@@ -791,13 +1020,19 @@ func recoverBatchJobs() error {
 		}
 		return jobs[i].JobID < jobs[j].JobID
 	})
+	batchDependents = map[string][]string{}
+	batchFinished = nil
 	var submitted []string
 	for _, job := range jobs {
 		switch job.Status {
 		case batchStatusSubmitted:
 			submitted = append(submitted, job.JobID)
+		case batchStatusPending:
+			if !job.isArrayParent() {
+				batchRecoverDependentLocked(job)
+			}
 		case batchStatusRunnable:
-			batchRunnable = append(batchRunnable, batchRunnableEntry{jobID: job.JobID, queue: batchNameFromARN(job.JobQueue), vcpus: job.VCPUs})
+			batchRunnable = append(batchRunnable, batchRunnableEntryFor(job))
 		case batchStatusStarting, batchStatusRunning:
 			if err := batchRecoverAttemptLocked(job); err != nil {
 				return err
@@ -809,6 +1044,19 @@ func recoverBatchJobs() error {
 	}
 	batchDispatchLocked()
 	return nil
+}
+
+// batchRecoverDependentLocked rebuilds a PENDING job's place in the
+// dependency index, releasing it when its dependencies finished while the
+// simulator was down.
+func batchRecoverDependentLocked(job BatchJob) {
+	failed, waitingOn := batchDependencyStateLocked(job)
+	if !failed && len(waitingOn) > 0 {
+		batchWaitOnLocked(job.JobID, waitingOn)
+		return
+	}
+	batchAdvanceDependentLocked(&job)
+	batchJobs.Put(job.JobID, job)
 }
 
 func batchRecoverAttemptLocked(job BatchJob) error {
@@ -825,6 +1073,7 @@ func batchRecoverAttemptLocked(job BatchJob) error {
 	}
 	if len(existing) == 0 {
 		job.Running = nil
+		batchChargeShareLocked(batchNameFromARN(job.JobQueue), job.ShareIdentifier, -job.VCPUs)
 		batchEnqueueLocked(&job)
 		batchJobs.Put(job.JobID, job)
 		return nil

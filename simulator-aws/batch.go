@@ -54,6 +54,7 @@ type BatchJobDefinition struct {
 	ContainerProperties map[string]any    `json:"containerProperties,omitempty"`
 	RetryStrategy       map[string]any    `json:"retryStrategy,omitempty"`
 	Timeout             map[string]any    `json:"timeout,omitempty"`
+	SchedulingPriority  *int              `json:"schedulingPriority,omitempty"`
 	Tags                map[string]string `json:"tags,omitempty"`
 }
 
@@ -66,25 +67,27 @@ type BatchSchedulingPolicy struct {
 }
 
 type BatchJob struct {
-	JobID           string                `json:"jobId"`
-	JobArn          string                `json:"jobArn,omitempty"`
-	JobName         string                `json:"jobName"`
-	JobQueue        string                `json:"jobQueue"`
-	Status          string                `json:"status"`
-	StatusReason    string                `json:"statusReason,omitempty"`
-	ShareIdentifier string                `json:"shareIdentifier,omitempty"`
-	JobDefinition   string                `json:"jobDefinition"`
-	CreatedAt       int64                 `json:"createdAt"`
-	StartedAt       int64                 `json:"startedAt,omitempty"`
-	StoppedAt       int64                 `json:"stoppedAt,omitempty"`
-	Container       map[string]any        `json:"container,omitempty"`
-	Attempts        []BatchAttempt        `json:"attempts,omitempty"`
-	RetryStrategy   map[string]any        `json:"retryStrategy,omitempty"`
-	Timeout         map[string]any        `json:"timeout,omitempty"`
-	ArrayProperties *BatchArrayProperties `json:"arrayProperties,omitempty"`
-	IsCancelled     bool                  `json:"isCancelled,omitempty"`
-	IsTerminated    bool                  `json:"isTerminated,omitempty"`
-	Tags            map[string]string     `json:"tags,omitempty"`
+	JobID              string                `json:"jobId"`
+	JobArn             string                `json:"jobArn,omitempty"`
+	JobName            string                `json:"jobName"`
+	JobQueue           string                `json:"jobQueue"`
+	Status             string                `json:"status"`
+	StatusReason       string                `json:"statusReason,omitempty"`
+	ShareIdentifier    string                `json:"shareIdentifier,omitempty"`
+	JobDefinition      string                `json:"jobDefinition"`
+	CreatedAt          int64                 `json:"createdAt"`
+	StartedAt          int64                 `json:"startedAt,omitempty"`
+	StoppedAt          int64                 `json:"stoppedAt,omitempty"`
+	Container          map[string]any        `json:"container,omitempty"`
+	Attempts           []BatchAttempt        `json:"attempts,omitempty"`
+	RetryStrategy      map[string]any        `json:"retryStrategy,omitempty"`
+	Timeout            map[string]any        `json:"timeout,omitempty"`
+	ArrayProperties    *BatchArrayProperties `json:"arrayProperties,omitempty"`
+	IsCancelled        bool                  `json:"isCancelled,omitempty"`
+	IsTerminated       bool                  `json:"isTerminated,omitempty"`
+	DependsOn          []BatchJobDependency  `json:"dependsOn,omitempty"`
+	SchedulingPriority *int                  `json:"schedulingPriority,omitempty"`
+	Tags               map[string]string     `json:"tags,omitempty"`
 
 	ExecutionConfig  *sim.ContainerConfig `json:"-"`
 	ArrayJobID       string               `json:"-"`
@@ -178,6 +181,7 @@ func registerBatch(srv *sim.Server) {
 	batchJobDefs = sim.MakeStore[BatchJobDefinition](srv.DB(), "batch_job_definitions")
 	batchJobs = sim.MakeStore[BatchJob](srv.DB(), "batch_jobs")
 	batchSchedPols = sim.MakeStore[BatchSchedulingPolicy](srv.DB(), "batch_scheduling_policies")
+	batchShareUsages = sim.MakeStore[batchShareUsage](srv.DB(), "batch_share_usages")
 	batchJobRevisions = sim.MakeStore[int](srv.DB(), "batch_job_revisions")
 	batchConsumableRes = sim.MakeStore[BatchConsumableResource](srv.DB(), "batch_consumable_resources")
 	batchServiceEnvs = sim.MakeStore[BatchServiceEnvironment](srv.DB(), "batch_service_environments")
@@ -448,6 +452,10 @@ func handleBatchCreateJobQueue(w http.ResponseWriter, r *http.Request) {
 		batchWriteError(w, http.StatusBadRequest, "Job queue already exists: "+req.JobQueueName)
 		return
 	}
+	if _, ok := batchSchedPols.Get(batchNameFromARN(req.SchedulingPolicyArn)); req.SchedulingPolicyArn != "" && !ok {
+		batchWriteError(w, http.StatusBadRequest, "Scheduling policy not found: "+req.SchedulingPolicyArn)
+		return
+	}
 	state := req.State
 	if state == "" {
 		state = "ENABLED"
@@ -537,6 +545,14 @@ func handleBatchUpdateJobQueue(w http.ResponseWriter, r *http.Request) {
 		q.Priority = *req.Priority
 	}
 	if req.SchedulingPolicyArn != "" {
+		if q.SchedulingPolicyArn == "" {
+			batchWriteError(w, http.StatusBadRequest, "Job queue "+q.JobQueueArn+" is a FIFO job queue and can't have a fair-share scheduling policy added")
+			return
+		}
+		if _, ok := batchSchedPols.Get(batchNameFromARN(req.SchedulingPolicyArn)); !ok {
+			batchWriteError(w, http.StatusBadRequest, "Scheduling policy not found: "+req.SchedulingPolicyArn)
+			return
+		}
 		q.SchedulingPolicyArn = req.SchedulingPolicyArn
 	}
 	if req.ComputeEnvironmentOrder != nil {
@@ -573,10 +589,15 @@ func handleBatchRegisterJobDefinition(w http.ResponseWriter, r *http.Request) {
 		ContainerProperties map[string]any    `json:"containerProperties"`
 		RetryStrategy       map[string]any    `json:"retryStrategy"`
 		Timeout             map[string]any    `json:"timeout"`
+		SchedulingPriority  *int              `json:"schedulingPriority"`
 		Tags                map[string]string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.SchedulingPriority != nil && (*req.SchedulingPriority < 0 || *req.SchedulingPriority > batchMaxSchedulingPriority) {
+		batchWriteError(w, http.StatusBadRequest, fmt.Sprintf("schedulingPriority must be between 0 and %d, got %d", batchMaxSchedulingPriority, *req.SchedulingPriority))
 		return
 	}
 	if req.JobDefinitionName == "" {
@@ -613,6 +634,7 @@ func handleBatchRegisterJobDefinition(w http.ResponseWriter, r *http.Request) {
 		ContainerProperties: req.ContainerProperties,
 		RetryStrategy:       req.RetryStrategy,
 		Timeout:             req.Timeout,
+		SchedulingPriority:  req.SchedulingPriority,
 		Tags:                req.Tags,
 	}
 	batchJobDefs.Put(key, jd)
@@ -699,13 +721,15 @@ func handleBatchSubmitJob(w http.ResponseWriter, r *http.Request) {
 		JobQueue           string         `json:"jobQueue"`
 		JobDefinition      string         `json:"jobDefinition"`
 		ShareIdentifier    string         `json:"shareIdentifier"`
+		SchedulingPriority *int           `json:"schedulingPriorityOverride"`
 		ContainerOverrides map[string]any `json:"containerOverrides"`
 		ArrayProperties    *struct {
 			Size *int `json:"size"`
 		} `json:"arrayProperties"`
-		RetryStrategy map[string]any    `json:"retryStrategy"`
-		Timeout       map[string]any    `json:"timeout"`
-		Tags          map[string]string `json:"tags"`
+		DependsOn     []BatchJobDependency `json:"dependsOn"`
+		RetryStrategy map[string]any       `json:"retryStrategy"`
+		Timeout       map[string]any       `json:"timeout"`
+		Tags          map[string]string    `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
@@ -768,26 +792,43 @@ func handleBatchSubmitJob(w http.ResponseWriter, r *http.Request) {
 
 	batchMu.Lock()
 	defer batchMu.Unlock()
+	if err := batchCheckDependencies(req.DependsOn, arraySize); err != nil {
+		batchWriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := batchCheckShareLocked(queue, req.ShareIdentifier, req.SchedulingPriority); err != nil {
+		batchWriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	schedulingPriority := jd.SchedulingPriority
+	if req.SchedulingPriority != nil {
+		schedulingPriority = req.SchedulingPriority
+	}
+	if req.ShareIdentifier == "" {
+		schedulingPriority = nil
+	}
 
 	jobID := uuid.New().String()
 	job := BatchJob{
-		JobID:            jobID,
-		JobArn:           batchARN("job/" + jobID),
-		JobName:          req.JobName,
-		JobQueue:         queue.JobQueueArn,
-		Status:           batchStatusSubmitted,
-		ShareIdentifier:  req.ShareIdentifier,
-		JobDefinition:    jd.JobDefinitionArn,
-		CreatedAt:        batchEpochMs(),
-		Container:        containerMeta,
-		Attempts:         []BatchAttempt{},
-		RetryStrategy:    retryStrategy,
-		Timeout:          timeout,
-		Tags:             req.Tags,
-		ExecutionConfig:  &cfg,
-		VCPUs:            batchVCPUs(jd.ContainerProperties, req.ContainerOverrides),
-		Retry:            retry,
-		LogConfiguration: logConfiguration,
+		JobID:              jobID,
+		JobArn:             batchARN("job/" + jobID),
+		JobName:            req.JobName,
+		JobQueue:           queue.JobQueueArn,
+		Status:             batchStatusSubmitted,
+		ShareIdentifier:    req.ShareIdentifier,
+		JobDefinition:      jd.JobDefinitionArn,
+		CreatedAt:          batchEpochMs(),
+		Container:          containerMeta,
+		Attempts:           []BatchAttempt{},
+		RetryStrategy:      retryStrategy,
+		Timeout:            timeout,
+		DependsOn:          req.DependsOn,
+		SchedulingPriority: schedulingPriority,
+		Tags:               req.Tags,
+		ExecutionConfig:    &cfg,
+		VCPUs:              batchVCPUs(jd.ContainerProperties, req.ContainerOverrides),
+		Retry:              retry,
+		LogConfiguration:   logConfiguration,
 	}
 	if arraySize > 0 {
 		job.ArrayProperties = &BatchArrayProperties{Size: arraySize}
@@ -1090,6 +1131,10 @@ func handleBatchCreateSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
 		batchWriteError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	if err := batchCheckFairsharePolicy(req.FairsharePolicy); err != nil {
+		batchWriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	batchMu.Lock()
 	defer batchMu.Unlock()
@@ -1165,6 +1210,10 @@ func handleBatchUpdateSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	if err := batchCheckFairsharePolicy(req.FairsharePolicy); err != nil {
+		batchWriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	batchMu.Lock()
 	defer batchMu.Unlock()
@@ -1182,6 +1231,7 @@ func handleBatchUpdateSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
 		sp.QuotaSharePolicy = req.QuotaSharePolicy
 	}
 	batchSchedPols.Put(name, sp)
+	batchDispatchLocked()
 	batchWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -1197,7 +1247,16 @@ func handleBatchDeleteSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
 	batchMu.Lock()
 	defer batchMu.Unlock()
 
-	batchSchedPols.Delete(batchNameFromARN(req.Arn))
+	name := batchNameFromARN(req.Arn)
+	if sp, ok := batchSchedPols.Get(name); ok {
+		for _, q := range batchJobQueues.List() {
+			if batchNameFromARN(q.SchedulingPolicyArn) == name {
+				batchWriteError(w, http.StatusBadRequest, "Scheduling policy "+sp.Arn+" is in use by job queue "+q.JobQueueArn)
+				return
+			}
+		}
+	}
+	batchSchedPols.Delete(name)
 	batchWriteJSON(w, http.StatusOK, map[string]any{})
 }
 

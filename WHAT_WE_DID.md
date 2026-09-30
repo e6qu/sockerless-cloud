@@ -644,6 +644,24 @@ retried. An array job spawns `<parent>:<index>` children, lists them under
 that have not started, `TerminateJob` stops the containers of started ones,
 and both reach an array parent's children.
 
+A job with `dependsOn` waits in PENDING until each dependency has finished:
+it becomes RUNNABLE when all succeeded and fails with `Dependent Job failed`
+when one failed, and the failure cascades down the chain. An array job's
+`N_TO_N` dependency pairs each child with the same index of the other array,
+and `SEQUENTIAL` runs child *i* after child *i − 1*. A PENDING job that
+`CancelJob` or `TerminateJob` reaches fails once its dependencies have
+finished, as the `CancelJob` reference describes. A queue with a fair-share
+scheduling policy takes only jobs with a `shareIdentifier`, and a FIFO queue
+none. Its scheduler places next the job of the share with the least weighted
+usage: the vCPUs the share's jobs hold, plus their average over
+`shareDecaySeconds` under exponential decay, times the share's
+`weightFactor`, matched by name or `*` prefix. Within a share, jobs go by
+`schedulingPriority`, then by arrival. `computeReservation` holds back
+(`computeReservation`/100)^active shares of `maxvCpus` for shares that hold
+none yet. Queues sharing a compute environment are served highest `priority`
+first. A queue's scheduling policy can be replaced but not added to a FIFO
+queue, and a policy that a queue uses cannot be deleted.
+
 A test asserts a boundary at a small parameterised limit rather than by
 reaching the real one: the OCI body-cap tests peaked at 7.7 GiB under the race
 detector on a 7 GiB runner until the cap became a parameter tested at 64 KiB.

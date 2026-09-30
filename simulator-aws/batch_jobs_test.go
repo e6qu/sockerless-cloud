@@ -120,29 +120,215 @@ func TestBatchListFilterMatchesAsTheListJobsReferenceDescribes(t *testing.T) {
 func batchUseMemoryJobStore(t *testing.T) {
 	t.Helper()
 	previousJobs, previousRunnable, previousInUse := batchJobs, batchRunnable, batchCEInUse
+	previousDependents, previousFinished := batchDependents, batchFinished
 	batchJobs = sim.NewStateStore[BatchJob]()
 	batchRunnable = nil
 	batchCEInUse = map[string]float64{}
-	t.Cleanup(func() { batchJobs, batchRunnable, batchCEInUse = previousJobs, previousRunnable, previousInUse })
+	batchDependents = map[string][]string{}
+	batchFinished = nil
+	t.Cleanup(func() {
+		batchJobs, batchRunnable, batchCEInUse = previousJobs, previousRunnable, previousInUse
+		batchDependents, batchFinished = previousDependents, previousFinished
+	})
 }
 
 func batchSubmittedArray(t *testing.T, size int) BatchJob {
 	t.Helper()
-	parent := BatchJob{
-		JobID:           "parent",
-		JobArn:          batchARN("job/parent"),
-		JobName:         "array",
+	return batchSubmit(t, "parent", size)
+}
+
+func batchSubmit(t *testing.T, jobID string, size int, deps ...BatchJobDependency) BatchJob {
+	t.Helper()
+	if err := batchCheckDependencies(deps, size); err != nil {
+		t.Fatalf("dependsOn %v: %v", deps, err)
+	}
+	job := BatchJob{
+		JobID:           jobID,
+		JobArn:          batchARN("job/" + jobID),
+		JobName:         jobID,
 		JobQueue:        batchARN("job-queue/queue"),
 		Status:          batchStatusSubmitted,
-		ArrayProperties: &BatchArrayProperties{Size: size},
 		Container:       map[string]any{"image": "busybox"},
 		ExecutionConfig: &sim.ContainerConfig{Image: "busybox"},
 		VCPUs:           1,
+		DependsOn:       deps,
 	}
-	batchJobs.Put(parent.JobID, parent)
-	batchScheduleJobLocked(parent.JobID)
-	parent, _ = batchJobs.Get(parent.JobID)
-	return parent
+	if size > 0 {
+		job.ArrayProperties = &BatchArrayProperties{Size: size}
+	}
+	batchJobs.Put(jobID, job)
+	batchScheduleJobLocked(jobID)
+	job, _ = batchJobs.Get(jobID)
+	return job
+}
+
+// batchFinish ends a RUNNABLE job the way an attempt ending does and releases
+// the jobs that wait on it.
+func batchFinish(t *testing.T, jobID, status string) {
+	t.Helper()
+	job, ok := batchJobs.Get(jobID)
+	if !ok || job.Status != batchStatusRunnable {
+		t.Fatalf("job %s = %s, want RUNNABLE", jobID, job.Status)
+	}
+	batchDequeueLocked(jobID)
+	batchSetStatus(&job, status)
+	batchJobs.Put(jobID, job)
+	batchReleaseDependentsLocked()
+}
+
+func batchStatusOf(t *testing.T, jobID string) BatchJob {
+	t.Helper()
+	job, ok := batchJobs.Get(jobID)
+	if !ok {
+		t.Fatalf("job %s missing", jobID)
+	}
+	return job
+}
+
+func TestBatchJobWaitsInPendingUntilItsDependencySucceeds(t *testing.T) {
+	batchUseMemoryJobStore(t)
+	batchSubmit(t, "first", 0)
+	second := batchSubmit(t, "second", 0, BatchJobDependency{JobID: "first"})
+	if second.Status != batchStatusPending {
+		t.Fatalf("dependent job = %s, want PENDING", second.Status)
+	}
+	if len(batchRunnable) != 1 {
+		t.Fatalf("scheduler queue = %v, want only the job with no dependency", batchRunnable)
+	}
+	batchFinish(t, "first", batchStatusSucceeded)
+	if got := batchStatusOf(t, "second").Status; got != batchStatusRunnable {
+		t.Fatalf("dependent job = %s once its dependency succeeded, want RUNNABLE", got)
+	}
+	third := batchSubmit(t, "third", 0, BatchJobDependency{JobID: "first"})
+	if third.Status != batchStatusRunnable {
+		t.Fatalf("job depending on a SUCCEEDED job = %s, want RUNNABLE", third.Status)
+	}
+}
+
+func TestBatchJobFailsWhenADependencyFailsAndTheFailureCascades(t *testing.T) {
+	batchUseMemoryJobStore(t)
+	batchSubmit(t, "first", 0)
+	batchSubmit(t, "other", 0)
+	batchSubmit(t, "second", 0, BatchJobDependency{JobID: "other"}, BatchJobDependency{JobID: "first"})
+	batchSubmit(t, "third", 0, BatchJobDependency{JobID: "second"})
+	batchFinish(t, "first", batchStatusFailed)
+	for _, jobID := range []string{"second", "third"} {
+		job := batchStatusOf(t, jobID)
+		if job.Status != batchStatusFailed || job.StatusReason != batchReasonDependencyFail || job.StoppedAt == 0 {
+			t.Fatalf("%s = %s reason %q stoppedAt %d, want FAILED on its failed dependency", jobID, job.Status, job.StatusReason, job.StoppedAt)
+		}
+	}
+	if got := batchStatusOf(t, "other").Status; got != batchStatusRunnable {
+		t.Fatalf("the other dependency = %s, want it left RUNNABLE", got)
+	}
+}
+
+func TestBatchSequentialArrayRunsItsChildrenInIndexOrder(t *testing.T) {
+	batchUseMemoryJobStore(t)
+	parent := batchSubmit(t, "parent", 3, BatchJobDependency{Type: batchDependencySequential})
+	summary := parent.ArrayProperties.StatusSummary
+	if summary[batchStatusRunnable] != 1 || summary[batchStatusPending] != 2 {
+		t.Fatalf("status summary = %v, want child 0 RUNNABLE and the rest PENDING", summary)
+	}
+	child1 := batchStatusOf(t, "parent:1")
+	if len(child1.DependsOn) != 1 || child1.DependsOn[0] != (BatchJobDependency{JobID: "parent:0", Type: batchDependencySequential}) {
+		t.Fatalf("child 1 dependsOn = %v", child1.DependsOn)
+	}
+	batchFinish(t, "parent:0", batchStatusSucceeded)
+	if got := batchStatusOf(t, "parent:1").Status; got != batchStatusRunnable {
+		t.Fatalf("child 1 = %s after child 0 succeeded, want RUNNABLE", got)
+	}
+	if got := batchStatusOf(t, "parent:2").Status; got != batchStatusPending {
+		t.Fatalf("child 2 = %s before child 1 finished, want PENDING", got)
+	}
+	batchFinish(t, "parent:1", batchStatusFailed)
+	if got := batchStatusOf(t, "parent:2"); got.Status != batchStatusFailed || got.StatusReason != batchReasonDependencyFail {
+		t.Fatalf("child 2 = %s reason %q after child 1 failed", got.Status, got.StatusReason)
+	}
+	if got := batchStatusOf(t, "parent").Status; got != batchStatusFailed {
+		t.Fatalf("parent = %s once every child finished and one failed, want FAILED", got)
+	}
+}
+
+func TestBatchNToNChildWaitsOnTheSameIndexOfItsDependency(t *testing.T) {
+	batchUseMemoryJobStore(t)
+	batchSubmit(t, "first", 2)
+	batchSubmit(t, "second", 2, BatchJobDependency{JobID: "first", Type: batchDependencyNToN})
+	batchFinish(t, "first:1", batchStatusSucceeded)
+	if got := batchStatusOf(t, "second:1").Status; got != batchStatusRunnable {
+		t.Fatalf("second:1 = %s after first:1 succeeded, want RUNNABLE", got)
+	}
+	if got := batchStatusOf(t, "second:0").Status; got != batchStatusPending {
+		t.Fatalf("second:0 = %s while first:0 is RUNNABLE, want PENDING", got)
+	}
+}
+
+func TestBatchCancelledPendingJobFailsOnceItsDependenciesFinish(t *testing.T) {
+	batchUseMemoryJobStore(t)
+	batchSubmit(t, "first", 0)
+	batchSubmit(t, "second", 0, BatchJobDependency{JobID: "first"})
+	batchCancelJobLocked("second", "no longer needed")
+	if job := batchStatusOf(t, "second"); job.Status != batchStatusPending || !job.IsCancelled {
+		t.Fatalf("cancelled PENDING job = %s cancelled=%v, want it PENDING until its dependency finishes", job.Status, job.IsCancelled)
+	}
+	batchFinish(t, "first", batchStatusSucceeded)
+	job := batchStatusOf(t, "second")
+	if job.Status != batchStatusFailed || job.StatusReason != "no longer needed" {
+		t.Fatalf("cancelled job = %s reason %q, want FAILED with the cancel reason", job.Status, job.StatusReason)
+	}
+	if len(batchRunnable) != 0 {
+		t.Fatalf("scheduler queue = %v, want the cancelled job left out", batchRunnable)
+	}
+}
+
+func TestBatchRecoveryReleasesAPendingJobWhoseDependencyFinished(t *testing.T) {
+	batchUseMemoryJobStore(t)
+	batchJobs.Put("first", BatchJob{JobID: "first", Status: batchStatusSucceeded})
+	pending := BatchJob{JobID: "second", JobQueue: batchARN("job-queue/queue"), Status: batchStatusPending, DependsOn: []BatchJobDependency{{JobID: "first"}}}
+	batchRecoverDependentLocked(pending)
+	if got := batchStatusOf(t, "second").Status; got != batchStatusRunnable {
+		t.Fatalf("recovered job = %s, want RUNNABLE", got)
+	}
+	batchJobs.Put("third", BatchJob{JobID: "third", Status: batchStatusRunning})
+	waiting := BatchJob{JobID: "fourth", Status: batchStatusPending, DependsOn: []BatchJobDependency{{JobID: "third"}}}
+	batchJobs.Put("fourth", waiting)
+	batchRecoverDependentLocked(waiting)
+	if got := batchDependents["third"]; len(got) != 1 || got[0] != "fourth" {
+		t.Fatalf("dependents of the running job = %v, want [fourth]", got)
+	}
+}
+
+func TestBatchCheckDependenciesEnforcesTheSubmitJobContract(t *testing.T) {
+	batchUseMemoryJobStore(t)
+	batchSubmit(t, "single", 0)
+	batchSubmit(t, "array", 2)
+	many := make([]BatchJobDependency, batchMaxDependencies+1)
+	for i := range many {
+		many[i] = BatchJobDependency{JobID: "single"}
+	}
+	for name, tc := range map[string]struct {
+		deps      []BatchJobDependency
+		arraySize int
+		wantErr   bool
+	}{
+		"plain dependency":                  {deps: []BatchJobDependency{{JobID: "single"}}},
+		"unknown job":                       {deps: []BatchJobDependency{{JobID: "missing"}}, wantErr: true},
+		"missing job ID":                    {deps: []BatchJobDependency{{}}, wantErr: true},
+		"more than twenty":                  {deps: many, wantErr: true},
+		"unknown type":                      {deps: []BatchJobDependency{{JobID: "single", Type: "ALL"}}, wantErr: true},
+		"sequential array":                  {deps: []BatchJobDependency{{Type: batchDependencySequential}}, arraySize: 2},
+		"sequential single job":             {deps: []BatchJobDependency{{Type: batchDependencySequential}}, wantErr: true},
+		"N_TO_N between equal arrays":       {deps: []BatchJobDependency{{JobID: "array", Type: batchDependencyNToN}}, arraySize: 2},
+		"N_TO_N between unequal arrays":     {deps: []BatchJobDependency{{JobID: "array", Type: batchDependencyNToN}}, arraySize: 3, wantErr: true},
+		"N_TO_N on a single job":            {deps: []BatchJobDependency{{JobID: "single", Type: batchDependencyNToN}}, arraySize: 2, wantErr: true},
+		"N_TO_N from a single job":          {deps: []BatchJobDependency{{JobID: "array", Type: batchDependencyNToN}}, wantErr: true},
+		"array child as a plain dependency": {deps: []BatchJobDependency{{JobID: "array:1"}}},
+	} {
+		err := batchCheckDependencies(tc.deps, tc.arraySize)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("%s: error = %v, want error %v", name, err, tc.wantErr)
+		}
+	}
 }
 
 func TestBatchArrayParentWaitsInPendingAndSettlesOnceEveryChildHas(t *testing.T) {
