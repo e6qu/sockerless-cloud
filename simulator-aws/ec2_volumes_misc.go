@@ -76,6 +76,7 @@ func registerEC2VolumesMisc(r *AWSQueryRouter, srv *sim.Server) {
 	ec2RecycledVolumes = sim.MakeStore[EC2Volume](srv.DB(), "ec2_recycled_volumes")
 	ec2ENIIPv6States = sim.MakeStore[ec2ENIIPv6State](srv.DB(), "ec2_eni_ipv6_states")
 	ec2DefaultCredit = sim.MakeStore[string](srv.DB(), "ec2_default_credit_specifications")
+	ec2ImportSnapshotTasks = sim.MakeStore[EC2ImportSnapshotTask](srv.DB(), "ec2_import_snapshot_tasks")
 
 	for action, h := range map[string]http.HandlerFunc{
 		// Volume / snapshot operations.
@@ -457,14 +458,6 @@ func handleDescribeLockedSnapshots(w http.ResponseWriter, r *http.Request) {
 	// snapshot is in a locked state and the read-back is an empty set.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeLockedSnapshotsResponse %s><requestId>%s</requestId><snapshotSet/></DescribeLockedSnapshotsResponse>`,
-		ec2Xmlns(), sim.NewUUID())
-}
-
-func handleDescribeImportSnapshotTasks(w http.ResponseWriter, r *http.Request) {
-	// No ImportSnapshot task is created by the sim's CRUD slice, so the task set
-	// is empty; the shape (importSnapshotTaskSet) round-trips through the SDK.
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeImportSnapshotTasksResponse %s><requestId>%s</requestId><importSnapshotTaskSet/></DescribeImportSnapshotTasksResponse>`,
 		ec2Xmlns(), sim.NewUUID())
 }
 

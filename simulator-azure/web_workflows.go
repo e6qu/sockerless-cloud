@@ -228,7 +228,7 @@ func webDeleteSiteWorkflow(wfID string) {
 	}
 	logicDropWorkflowKeyGens(wfID)
 	for _, run := range logicRuns.Filter(func(run LogicWorkflowRun) bool { return strings.HasPrefix(run.ID, wfID+"/") }) {
-		logicRuns.Delete(run.ID)
+		logicDeleteRun(run.ID)
 	}
 	for _, store := range []sim.Store[LogicResource]{logicTriggers, logicTriggerHistories, logicRunActions, logicWorkflowVersions} {
 		for _, res := range store.Filter(func(res LogicResource) bool { return strings.HasPrefix(res.ID, wfID+"/") }) {
@@ -408,17 +408,7 @@ func webWorkflowRunsCancel(w http.ResponseWriter, r *http.Request) {
 	if _, ok := webHostWorkflow(w, r); !ok {
 		return
 	}
-	if !logicRuns.Update(webWorkflowRunID(r), func(run *LogicWorkflowRun) {
-		if run.Properties == nil {
-			run.Properties = map[string]any{}
-		}
-		run.Properties["status"] = "Cancelled"
-		run.Properties["endTime"] = time.Now().UTC().Format(time.RFC3339Nano)
-	}) {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", sim.PathParam(r, "runName"))
-		return
-	}
-	w.WriteHeader(http.StatusOK)
+	writeLogicRunCancel(w, webWorkflowRunID(r), sim.PathParam(r, "runName"))
 }
 
 func webWorkflowRunActionsList(w http.ResponseWriter, r *http.Request) {

@@ -22,11 +22,13 @@ import (
 func TestArtifactRegistry_PrewarmedArtifactLifecycle(t *testing.T) {
 	svc := arAdminService(t)
 	parent := "projects/ar-prewarm/locations/us-central1"
-	repoName := parent + "/repositories/prewarm-repo"
+	repoID := uniqueName("prewarm-repo")
+	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).
-		RepositoryId("prewarm-repo").Do()
+		RepositoryId(repoID).Do()
 	require.NoError(t, err)
+	arDeleteRepositoryOnCleanup(t, svc, repoName)
 
 	pkgName := repoName + "/packages/app"
 	tagName := pkgName + "/tags/latest"
@@ -55,7 +57,7 @@ func TestArtifactRegistry_PrewarmedArtifactLifecycle(t *testing.T) {
 	list, err = svc.Projects.Locations.Repositories.PrewarmedArtifacts.List(repoName).Do()
 	require.NoError(t, err)
 	require.Len(t, list.PrewarmedArtifacts, 1)
-	assert.Equal(t, "us-central1-docker.pkg.dev/ar-prewarm/prewarm-repo/app:latest",
+	assert.Equal(t, "us-central1-docker.pkg.dev/ar-prewarm/"+repoID+"/app:latest",
 		list.PrewarmedArtifacts[0].Uri)
 	assert.Equal(t, "us-west4", list.PrewarmedArtifacts[0].Location)
 	assert.NotEmpty(t, list.PrewarmedArtifacts[0].ExpirationTime)
@@ -95,11 +97,13 @@ func TestArtifactRegistry_PrewarmedArtifactLifecycle(t *testing.T) {
 func TestArtifactRegistry_PrewarmDefaultsToTheRepositoryLocation(t *testing.T) {
 	svc := arAdminService(t)
 	parent := "projects/ar-prewarm-default/locations/europe-west1"
-	repoName := parent + "/repositories/dflt-repo"
+	repoID := uniqueName("dflt-repo")
+	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).
-		RepositoryId("dflt-repo").Do()
+		RepositoryId(repoID).Do()
 	require.NoError(t, err)
+	arDeleteRepositoryOnCleanup(t, svc, repoName)
 	pkgName := repoName + "/packages/svc"
 	_, err = svc.Projects.Locations.Repositories.Packages.Tags.Create(
 		pkgName, &artifactregistry.Tag{Version: pkgName + "/versions/sha256:def"}).TagId("v1").Do()
@@ -118,11 +122,13 @@ func TestArtifactRegistry_PrewarmDefaultsToTheRepositoryLocation(t *testing.T) {
 func TestArtifactRegistry_PrewarmRejectsWhatItCannotSelect(t *testing.T) {
 	svc := arAdminService(t)
 	parent := "projects/ar-prewarm-bad/locations/us-central1"
-	repoName := parent + "/repositories/bad-repo"
+	repoID := uniqueName("bad-repo")
+	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).
-		RepositoryId("bad-repo").Do()
+		RepositoryId(repoID).Do()
 	require.NoError(t, err)
+	arDeleteRepositoryOnCleanup(t, svc, repoName)
 
 	// Neither member set.
 	_, err = svc.Projects.Locations.Repositories.PrewarmArtifact(repoName,
@@ -159,11 +165,13 @@ func TestArtifactRegistry_PrewarmRejectsWhatItCannotSelect(t *testing.T) {
 func TestArtifactRegistry_RepositoryIAMStillWorksBesideTheCustomVerbs(t *testing.T) {
 	svc := arAdminService(t)
 	parent := "projects/ar-verb-share/locations/us-central1"
-	repoName := parent + "/repositories/share-repo"
+	repoID := uniqueName("share-repo")
+	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).
-		RepositoryId("share-repo").Do()
+		RepositoryId(repoID).Do()
 	require.NoError(t, err)
+	arDeleteRepositoryOnCleanup(t, svc, repoName)
 
 	_, err = svc.Projects.Locations.Repositories.SetIamPolicy(repoName,
 		&artifactregistry.SetIamPolicyRequest{Policy: &artifactregistry.Policy{

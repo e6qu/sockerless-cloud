@@ -159,7 +159,7 @@ func ecsCancelServiceStabilization(key string) {
 // stores remain the source of truth.
 func recoverECSServiceTasks() {
 	for _, service := range ecsServices.List() {
-		if service.Status != "ACTIVE" {
+		if service.Status != "ACTIVE" && service.Status != "DRAINING" {
 			continue
 		}
 		ecsRequestServiceReconcile(ecsServiceStoreKey(service))
@@ -343,6 +343,10 @@ func ecsReconcileService(key string) {
 	}()
 
 	service, ok := ecsServices.Get(key)
+	if ok && service.Status == "DRAINING" {
+		ecsFinishServiceDrain(key, service)
+		return
+	}
 	if !ok || service.Status != "ACTIVE" {
 		return
 	}
@@ -803,6 +807,7 @@ func ecsRefreshServiceState(key string) {
 			deployment.RolloutState = "IN_PROGRESS"
 			deployment.RolloutStateReason = ""
 		}
+		current.Deployments = ecsDrainedDeploymentsRemoved(current.Deployments, tasks, now)
 	})
 	if completed, ok := ecsServices.Get(key); ok && ecsServiceDeploymentCompleted(completed) {
 		ecsMarkServiceDeploymentCompleted(key, completed)
@@ -1174,4 +1179,47 @@ func (task ECSTask) TaskID() string {
 		return arn[index+1:]
 	}
 	return arn
+}
+
+// ecsDrainedDeploymentsRemoved counts each non-primary deployment's tasks by
+// the deployment ID that started them and drops a deployment once none is
+// left, as Amazon ECS removes a drained ACTIVE deployment — failed ones
+// included — from the service's deployment list.
+func ecsDrainedDeploymentsRemoved(deployments []ECSDeployment, tasks []ECSTask, now float64) []ECSDeployment {
+	if len(deployments) <= 1 {
+		return deployments
+	}
+	kept := deployments[:1]
+	for _, d := range deployments[1:] {
+		running, pending := 0, 0
+		for _, task := range tasks {
+			if task.StartedBy != d.Id {
+				continue
+			}
+			if task.LastStatus == ECSTaskStatusRunning {
+				running++
+			} else {
+				pending++
+			}
+		}
+		if running == 0 && pending == 0 {
+			continue
+		}
+		d.RunningCount, d.PendingCount, d.UpdatedAt = running, pending, now
+		kept = append(kept, d)
+	}
+	return kept
+}
+
+// ecsFinishServiceDrain marks a deleted service INACTIVE once its last task
+// has stopped; Amazon ECS reports it DRAINING until then.
+func ecsFinishServiceDrain(key string, service ECSService) {
+	if len(ecsServiceRunningTasks(service.ClusterArn, ecsServiceTaskGroup(service.ServiceName))) > 0 {
+		return
+	}
+	ecsServices.Update(key, func(current *ECSService) {
+		if current.Status == "DRAINING" {
+			current.Status = "INACTIVE"
+		}
+	})
 }

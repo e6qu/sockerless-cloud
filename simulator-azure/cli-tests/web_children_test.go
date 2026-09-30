@@ -2,6 +2,7 @@ package azure_cli_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -199,7 +200,10 @@ func TestWebWorkflows_CLI(t *testing.T) {
 			} `json:"properties"`
 		} `json:"value"`
 	}
-	parseJSON(t, runCLI(t, azRest("GET", webChildURL(hostruntime+"/runs"), "")), &runList)
+	// The trigger answers before the workflow runs; wait on the run's own status.
+	parseJSON(t, waitForCLIJSON(t, webChildURL(hostruntime+"/runs"), func(out string) bool {
+		return strings.Contains(out, `"status"`) && !strings.Contains(out, `"Running"`)
+	}), &runList)
 	require.Len(t, runList.Value, 1)
 	assert.Equal(t, "Succeeded", runList.Value[0].Properties.Status)
 	runCLI(t, azRest("GET", webChildURL(hostruntime+"/runs/"+runList.Value[0].Name), ""))

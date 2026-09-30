@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -177,6 +178,22 @@ func handleS3PutBucketSubresource(w http.ResponseWriter, r *http.Request, sub st
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
+	var notification s3NotificationConfiguration
+	validateNotification := sub == "notification" && r.Header.Get("x-amz-skip-destination-validation") != "true"
+	if sub == "notification" {
+		if err := xml.Unmarshal(body, &notification); err != nil {
+			S3ErrorXML(w, "MalformedXML",
+				"The XML you provided was not well-formed or did not validate against our published schema",
+				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
+			return
+		}
+		if validateNotification {
+			if rejected := s3ValidateNotificationDestinations(bucket, notification); len(rejected) > 0 {
+				s3DestinationValidationError(w, sim.RequestID(r.Context()), rejected)
+				return
+			}
+		}
+	}
 	contentType := r.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/xml"
@@ -196,6 +213,9 @@ func handleS3PutBucketSubresource(w http.ResponseWriter, r *http.Request, sub st
 	// IAM enforcement gate can resolve it by the bucket ARN.
 	if sub == "policy" {
 		iamPutResourcePolicy(s3BucketARN(bucket), string(body))
+	}
+	if validateNotification {
+		s3SendTestEvents(bucket, sim.RequestID(r.Context()), notification)
 	}
 	setResponseHeaders(w, headers)
 	w.WriteHeader(spec.putStatus)

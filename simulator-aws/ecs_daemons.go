@@ -335,7 +335,7 @@ func handleECSDescribeDaemonDeployments(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var found []map[string]any
-	var failures []map[string]string
+	failures := []map[string]string{}
 	for _, arn := range req.DaemonDeploymentArns {
 		dep, ok := ecsDaemonDeployments.Get(arn)
 		if !ok {
@@ -418,7 +418,7 @@ func handleECSDescribeDaemonRevisions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var found []ECSDaemonRevision
-	var failures []map[string]string
+	failures := []map[string]string{}
 	for _, arn := range req.DaemonRevisionArns {
 		rev, ok := ecsDaemonRevisions.Get(arn)
 		if !ok {

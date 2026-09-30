@@ -16,7 +16,32 @@ import (
 var (
 	errSBSessionLocked   = errors.New("the requested session cannot be accepted: it is locked by another receiver")
 	errSBSessionLockLost = errors.New("the session lock has expired or was lost")
+	// Service Bus reports both as an InvalidOperationException: amqp:not-allowed
+	// over AMQP, 400 Bad Request over REST.
+	errSBSessionIDRequired = sbInvalidOperation("The SessionId was not set on a message, and it cannot be sent to the entity. Entities that have session support enabled can only receive messages that have the SessionId set to a valid value.")
+	errSBSessionfulEntity  = sbInvalidOperation("It is not possible for an entity that requires sessions to create a non-sessionful message receiver.")
 )
+
+// sbInvalidOperation is a refusal whose text is the service's own sentence.
+type sbInvalidOperation string
+
+func (e sbInvalidOperation) Error() string { return string(e) }
+
+// sbRequireSessionIDs refuses a send whose messages lack a session id when the
+// address is, or fans out to, a session-enabled queue or subscription.
+func sbRequireSessionIDs(namespace, address string, outs []sbOutgoing) error {
+	for _, path := range sbSendPaths(namespace, address) {
+		if !sbSettings(namespace, path).requiresSession {
+			continue
+		}
+		for _, out := range outs {
+			if out.sessionID == "" {
+				return errSBSessionIDRequired
+			}
+		}
+	}
+	return nil
+}
 
 // sbAcceptSession locks a session of a session-enabled entity for owner: the
 // named one, or with requested empty the first session holding a receivable

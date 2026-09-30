@@ -17,6 +17,7 @@ import (
 // so we use direct HTTP calls against the REST API.
 
 func TestCloudRun_CreateJob(t *testing.T) {
+	jobID := uniqueName("test-job")
 	job := map[string]any{
 		"template": map[string]any{
 			"template": map[string]any{
@@ -29,7 +30,7 @@ func TestCloudRun_CreateJob(t *testing.T) {
 	body, _ := json.Marshal(job)
 
 	req, _ := http.NewRequestWithContext(ctx, "POST",
-		baseURL+"/v2/projects/test-project/locations/us-central1/jobs?jobId=test-job",
+		baseURL+"/v2/projects/test-project/locations/us-central1/jobs?jobId="+jobID,
 		strings.NewReader(string(body)))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -52,7 +53,7 @@ func TestCloudRun_CreateJob(t *testing.T) {
 	response, ok := result["response"].(map[string]any)
 	require.True(t, ok, "a completed operation must carry the created job: %s", data)
 	assert.Equal(t, "type.googleapis.com/google.cloud.run.v2.Job", response["@type"])
-	assert.Equal(t, "projects/test-project/locations/us-central1/jobs/test-job", response["name"])
+	assert.Equal(t, "projects/test-project/locations/us-central1/jobs/"+jobID, response["name"])
 }
 
 // createCloudRunJob creates a single-container Cloud Run job and requires the
@@ -85,10 +86,11 @@ func createCloudRunJob(t *testing.T, jobID string) {
 }
 
 func TestCloudRun_GetJob(t *testing.T) {
-	createCloudRunJob(t, "get-job")
+	jobID := uniqueName("get-job")
+	createCloudRunJob(t, jobID)
 
 	getReq, err := http.NewRequestWithContext(ctx, "GET",
-		baseURL+"/v2/projects/test-project/locations/us-central1/jobs/get-job", nil)
+		baseURL+"/v2/projects/test-project/locations/us-central1/jobs/"+jobID, nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(getReq)
 	require.NoError(t, err)
@@ -99,13 +101,13 @@ func TestCloudRun_GetJob(t *testing.T) {
 	require.NoError(t, err)
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(data, &result), "body: %s", data)
-	assert.Equal(t, "projects/test-project/locations/us-central1/jobs/get-job", result["name"])
+	assert.Equal(t, "projects/test-project/locations/us-central1/jobs/"+jobID, result["name"])
 }
 
 func TestCloudRun_ListJobs(t *testing.T) {
 	// A list method is only worth anything if a job that exists reaches the
 	// caller, so the list must carry the job this test just created.
-	const jobID = "list-job"
+	jobID := uniqueName("list-job")
 	createCloudRunJob(t, jobID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET",
@@ -131,7 +133,7 @@ func TestCloudRun_ListJobs(t *testing.T) {
 }
 
 func TestCloudRun_DeleteJob(t *testing.T) {
-	const jobID = "del-job"
+	jobID := uniqueName("del-job")
 	createCloudRunJob(t, jobID)
 
 	delReq, err := http.NewRequestWithContext(ctx, "DELETE",
@@ -153,7 +155,7 @@ func TestCloudRun_DeleteJob(t *testing.T) {
 }
 
 func TestCloudRun_RunJobInjectsLogEntries(t *testing.T) {
-	// Create a job with a unique name for this test
+	jobID := uniqueName("log-inject-job")
 	job := map[string]any{
 		"template": map[string]any{
 			"template": map[string]any{
@@ -166,16 +168,17 @@ func TestCloudRun_RunJobInjectsLogEntries(t *testing.T) {
 	}
 	body, _ := json.Marshal(job)
 	createReq, _ := http.NewRequestWithContext(ctx, "POST",
-		baseURL+"/v2/projects/test-project/locations/us-central1/jobs?jobId=log-inject-job",
+		baseURL+"/v2/projects/test-project/locations/us-central1/jobs?jobId="+jobID,
 		strings.NewReader(string(body)))
 	createReq.Header.Set("Content-Type", "application/json")
 	createResp, err := http.DefaultClient.Do(createReq)
 	require.NoError(t, err)
 	createResp.Body.Close()
+	require.Equal(t, http.StatusOK, createResp.StatusCode, "create job %s", jobID)
 
 	// Run the job
 	runReq, _ := http.NewRequestWithContext(ctx, "POST",
-		baseURL+"/v2/projects/test-project/locations/us-central1/jobs/log-inject-job:run",
+		baseURL+"/v2/projects/test-project/locations/us-central1/jobs/"+jobID+":run",
 		strings.NewReader("{}"))
 	runReq.Header.Set("Content-Type", "application/json")
 	runResp, err := http.DefaultClient.Do(runReq)
@@ -188,13 +191,13 @@ func TestCloudRun_RunJobInjectsLogEntries(t *testing.T) {
 	// async in the sim, so a fixed sleep races a loaded runner. The entries are
 	// asserted after the wait, not inside it: an assertion inside a poll that
 	// keeps polling reports nothing until the deadline.
-	entries := waitForJobLogEntries(t, "log-inject-job", func(entries []jobLogEntry) bool {
+	entries := waitForJobLogEntries(t, jobID, func(entries []jobLogEntry) bool {
 		return len(entries) >= 2
 	})
 
 	for _, entry := range entries {
 		assert.Equal(t, "cloud_run_job", entry.resourceType)
-		assert.Equal(t, "log-inject-job", entry.jobName)
+		assert.Equal(t, jobID, entry.jobName)
 	}
 	messages := jobLogMessages(entries)
 	assert.Equal(t, "Container started", messages[0])
@@ -222,6 +225,7 @@ func createAndRunJob(t *testing.T, jobID string) string {
 	createResp, err := http.DefaultClient.Do(createReq)
 	require.NoError(t, err)
 	createResp.Body.Close()
+	require.Equal(t, http.StatusOK, createResp.StatusCode, "create job %s", jobID)
 
 	runReq, _ := http.NewRequestWithContext(ctx, "POST",
 		baseURL+"/v2/projects/test-project/locations/us-central1/jobs/"+jobID+":run",
@@ -297,7 +301,7 @@ func getExecution(t *testing.T, execName string) map[string]any {
 }
 
 func TestCloudRun_ExecutionRunningState(t *testing.T) {
-	const jobID = "status-running-job"
+	jobID := uniqueName("status-running-job")
 	const marker = "status-running-marker"
 
 	// The container announces itself on stdout and then holds, so the running
@@ -331,7 +335,7 @@ func TestCloudRun_ExecutionRunningState(t *testing.T) {
 }
 
 func TestCloudRun_ExecutionSucceededState(t *testing.T) {
-	execName := createAndRunJob(t, "status-succeeded-job")
+	execName := createAndRunJob(t, uniqueName("status-succeeded-job"))
 
 	exec := waitExecutionDone(t, execName)
 	assert.Equal(t, float64(0), exec["runningCount"])
@@ -341,7 +345,7 @@ func TestCloudRun_ExecutionSucceededState(t *testing.T) {
 }
 
 func TestCloudRun_ExecutionCancelledState(t *testing.T) {
-	const jobID = "status-cancel-job"
+	jobID := uniqueName("status-cancel-job")
 	const marker = "status-cancel-marker"
 
 	// The container announces itself on stdout and then holds until it is
@@ -406,6 +410,7 @@ func createAndRunJobInProject(t *testing.T, project, jobID string, image string,
 	createResp, err := http.DefaultClient.Do(createReq)
 	require.NoError(t, err)
 	createResp.Body.Close()
+	require.Equal(t, http.StatusOK, createResp.StatusCode, "create job %s", jobID)
 
 	runReq, _ := http.NewRequestWithContext(ctx, "POST",
 		baseURL+"/v2/projects/"+project+"/locations/us-central1/jobs/"+jobID+":run",
@@ -424,7 +429,7 @@ func createAndRunJobInProject(t *testing.T, project, jobID string, image string,
 }
 
 func TestCloudRun_ExecutionRunsCommand(t *testing.T) {
-	execName := createAndRunJobWithCommand(t, "exec-cmd-job", []string{"echo", "hello"}, "5s")
+	execName := createAndRunJobWithCommand(t, uniqueName("exec-cmd-job"), []string{"echo", "hello"}, "5s")
 
 	exec := waitExecutionDone(t, execName)
 	assert.Equal(t, float64(0), exec["runningCount"])
@@ -434,7 +439,7 @@ func TestCloudRun_ExecutionRunsCommand(t *testing.T) {
 }
 
 func TestCloudRun_ExecutionFailedState(t *testing.T) {
-	execName := createAndRunJobWithCommand(t, "exec-fail-job", []string{"sh", "-c", "exit 1"}, "5s")
+	execName := createAndRunJobWithCommand(t, uniqueName("exec-fail-job"), []string{"sh", "-c", "exit 1"}, "5s")
 
 	exec := waitExecutionDone(t, execName)
 	assert.Equal(t, float64(0), exec["runningCount"])
@@ -444,13 +449,14 @@ func TestCloudRun_ExecutionFailedState(t *testing.T) {
 }
 
 func TestCloudRun_ExecutionLogsRealOutput(t *testing.T) {
-	_ = createAndRunJobWithCommand(t, "exec-log-job", []string{"echo", "real output from process"}, "5s")
+	jobID := uniqueName("exec-log-job")
+	_ = createAndRunJobWithCommand(t, jobID, []string{"echo", "real output from process"}, "5s")
 
 	// The process has to run and its stdout has to be ingested into Cloud
 	// Logging — both async in the sim — so wait for the line the process
 	// printed rather than sleeping. A failed log read fails the test here
 	// instead of looking like a line that has not arrived yet.
-	waitForJobLogMessage(t, "exec-log-job", "real output from process")
+	waitForJobLogMessage(t, jobID, "real output from process")
 }
 
 // containsString reports whether want is an element of msgs.

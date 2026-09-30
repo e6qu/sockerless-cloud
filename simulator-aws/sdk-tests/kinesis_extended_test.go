@@ -2,6 +2,7 @@ package aws_sdk_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -154,6 +155,7 @@ func TestKinesisSDK_MergeAndSplitShards(t *testing.T) {
 		NewStartingHashKey: aws.String(mid),
 	})
 	require.NoError(t, err)
+	waitForKinesisStreamActive(t, client, streamName)
 
 	afterSplit, err := client.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: aws.String(streamName)})
 	require.NoError(t, err)
@@ -169,6 +171,7 @@ func TestKinesisSDK_MergeAndSplitShards(t *testing.T) {
 		AdjacentShardToMerge: open[1].ShardId,
 	})
 	require.NoError(t, err)
+	waitForKinesisStreamActive(t, client, streamName)
 
 	afterMerge, err := client.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: aws.String(streamName)})
 	require.NoError(t, err)
@@ -201,6 +204,7 @@ func TestKinesisSDK_UpdateShardCountReshardsByLineage(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), aws.ToInt32(updated.CurrentShardCount))
+	waitForKinesisStreamActive(t, client, streamName)
 
 	listed, err := client.ListShards(ctx, &kinesis.ListShardsInput{StreamName: aws.String(streamName)})
 	require.NoError(t, err)
@@ -420,4 +424,14 @@ func TestKinesisSDK_UpdateStreamWarmThroughput(t *testing.T) {
 	assert.Equal(t, streamName, aws.ToString(out.StreamName))
 	require.NotNil(t, out.WarmThroughput)
 	assert.Equal(t, int32(64), aws.ToInt32(out.WarmThroughput.TargetMiBps))
+}
+
+// waitForKinesisStreamActive waits with the SDK's StreamExists waiter, which
+// succeeds once the stream is ACTIVE again after an UPDATING scaling.
+func waitForKinesisStreamActive(t *testing.T, client *kinesis.Client, streamName string) {
+	t.Helper()
+	require.NoError(t, kinesis.NewStreamExistsWaiter(client, func(o *kinesis.StreamExistsWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &kinesis.DescribeStreamInput{StreamName: aws.String(streamName)}, time.Minute))
 }

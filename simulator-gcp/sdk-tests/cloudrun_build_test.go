@@ -27,8 +27,9 @@ func runV2AdminService(t *testing.T) *run.Service {
 
 func TestCloudRun_SubmitBuild(t *testing.T) {
 	runSvc := runV2AdminService(t)
-	parent := "projects/cr-build/locations/us-central1"
-	const bucket, object = "run-sources-cr-build-us-central1", "services/source.zip"
+	project := uniqueName("cr-build")
+	parent := "projects/" + project + "/locations/us-central1"
+	bucket, object := "run-sources-"+project+"-us-central1", "services/source.zip"
 
 	// Submitting a build for source that was never uploaded reports the
 	// absence rather than building nothing.
@@ -40,11 +41,13 @@ func TestCloudRun_SubmitBuild(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 
 	storage := storageService(t)
-	_, err = storage.Buckets.Insert("cr-build", &storageapi.Bucket{Name: bucket}).Do()
+	_, err = storage.Buckets.Insert(project, &storageapi.Bucket{Name: bucket}).Do()
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, storage.Buckets.Delete(bucket).Do()) })
 	_, err = storage.Objects.Insert(bucket, &storageapi.Object{Name: object}).
 		Media(strings.NewReader("source archive")).Do()
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, storage.Objects.Delete(bucket, object).Do()) })
 
 	submitted, err := runSvc.Projects.Locations.Builds.Submit(parent, &run.GoogleCloudRunV2SubmitBuildRequest{
 		ImageUri:      "us-central1-docker.pkg.dev/cr-build/repo/app:v1",

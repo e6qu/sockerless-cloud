@@ -28,6 +28,19 @@ func gcsRESTCreate(t *testing.T, bucket string) {
 	resp.Body.Close()
 }
 
+// gcsRESTDelete deletes a bucket or object through the JSON API and requires
+// the 204 the service answers.
+func gcsRESTDelete(t *testing.T, path string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, baseURL+path, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode, "DELETE %s: %s", path, body)
+}
+
 // gcsObjectMetadataRaw fetches GCS object metadata via the JSON API.
 func gcsObjectMetadataRaw(t *testing.T, bucket, object string) map[string]any {
 	t.Helper()
@@ -43,7 +56,7 @@ func gcsObjectMetadataRaw(t *testing.T, bucket, object string) map[string]any {
 // TestGCS_EmittedURLsHTTPS asserts the JSON API emits selfLink +
 // mediaLink with https://, matching real GCS (HTTPS-only).
 func TestGCS_EmittedURLsHTTPS(t *testing.T) {
-	bucket := "https-bucket"
+	bucket := uniqueName("https-bucket")
 	gcsRESTCreate(t, bucket)
 
 	uploadReq, _ := http.NewRequest("POST",
@@ -76,7 +89,7 @@ func TestGCS_EmittedURLsHTTPS(t *testing.T) {
 // 3. PUT final chunk → 200 + object metadata
 // 4. GET on the destination returns the concatenated payload
 func TestGCS_ResumableUpload(t *testing.T) {
-	bucket := "resumable-bucket"
+	bucket := uniqueName("resumable-bucket")
 	gcsRESTCreate(t, bucket)
 
 	initBody := strings.NewReader(`{"name":"resumable-obj","contentType":"text/plain"}`)
@@ -136,7 +149,7 @@ func TestGCS_ResumableUpload(t *testing.T) {
 // TestGCS_MultipartUploadBodyName exercises name-in-multipart-metadata
 // (the form the Go SDK uses when Object.Name is set on the struct).
 func TestGCS_MultipartUploadBodyName(t *testing.T) {
-	bucket := "multipart-bucket"
+	bucket := uniqueName("multipart-bucket")
 	gcsRESTCreate(t, bucket)
 
 	boundary := "BB"
@@ -170,7 +183,7 @@ func TestGCS_MultipartUploadBodyName(t *testing.T) {
 
 // TestGCS_ObjectsCompose exercises POST /storage/v1/b/{bucket}/o/{name}/compose.
 func TestGCS_ObjectsCompose(t *testing.T) {
-	bucket := "compose-bucket"
+	bucket := uniqueName("compose-bucket")
 	gcsRESTCreate(t, bucket)
 
 	for _, p := range []struct{ name, body string }{
@@ -214,7 +227,7 @@ func TestGCS_ObjectsCompose(t *testing.T) {
 }
 
 func TestGCS_ObjectMetadataCRC32CAndGeneration(t *testing.T) {
-	bucket := "metadata-shape-bucket"
+	bucket := uniqueName("metadata-shape-bucket")
 	gcsRESTCreate(t, bucket)
 
 	var generations []int64
@@ -250,7 +263,7 @@ func TestGCS_ObjectMetadataCRC32CAndGeneration(t *testing.T) {
 }
 
 func TestGCS_BucketIAMPolicyShape(t *testing.T) {
-	bucket := "iam-policy-shape-bucket"
+	bucket := uniqueName("iam-policy-shape-bucket")
 	gcsRESTCreate(t, bucket)
 
 	req, _ := http.NewRequest("GET", baseURL+"/storage/v1/b/"+bucket+"/iam", nil)
@@ -299,7 +312,7 @@ func bucketIAMSet(t *testing.T, bucket string, policy map[string]any) int {
 // (409), an empty etag is a blind overwrite, and the default-policy etag is
 // stable across reads.
 func TestGCS_BucketIAMEtagConflict(t *testing.T) {
-	bucket := "iam-etag-bucket"
+	bucket := uniqueName("iam-etag-bucket")
 	gcsRESTCreate(t, bucket)
 
 	p1 := bucketIAMGet(t, bucket)
@@ -338,7 +351,7 @@ func TestGCS_BucketIAMEtagConflict(t *testing.T) {
 // TestGCS_BucketIAMInvalidMember — bucket setIamPolicy rejects a malformed
 // member with 400 INVALID_ARGUMENT.
 func TestGCS_BucketIAMInvalidMember(t *testing.T) {
-	bucket := "iam-bad-member-bucket"
+	bucket := uniqueName("iam-bad-member-bucket")
 	gcsRESTCreate(t, bucket)
 
 	code := bucketIAMSet(t, bucket, map[string]any{
@@ -350,7 +363,7 @@ func TestGCS_BucketIAMInvalidMember(t *testing.T) {
 }
 
 func TestGCS_ObjectsCopyToAndSortedPrefixes(t *testing.T) {
-	bucket := "copyto-bucket"
+	bucket := uniqueName("copyto-bucket")
 	gcsRESTCreate(t, bucket)
 
 	for _, p := range []struct{ name, body string }{
@@ -442,7 +455,7 @@ func TestGCS_ObjectsCopyToAndSortedPrefixes(t *testing.T) {
 }
 
 func TestGCS_ObjectMetadataValidation(t *testing.T) {
-	bucket := "metadata-validation-bucket"
+	bucket := uniqueName("metadata-validation-bucket")
 	gcsRESTCreate(t, bucket)
 
 	uploadReq, _ := http.NewRequest("POST",
@@ -596,16 +609,10 @@ func gcsRequireBadPageToken(t *testing.T, listURL string) {
 }
 
 func TestGCS_ListBuckets_Pagination(t *testing.T) {
-	names := []string{"pag-bucket-a", "pag-bucket-b", "pag-bucket-c"}
+	names := []string{uniqueName("pag-bucket-a"), uniqueName("pag-bucket-b"), uniqueName("pag-bucket-c")}
 	for _, n := range names {
 		gcsRESTCreate(t, n)
-		t.Cleanup(func() {
-			req, _ := http.NewRequest("DELETE", baseURL+"/storage/v1/b/"+n, nil)
-			resp, err := http.DefaultClient.Do(req)
-			if assert.NoError(t, err, "delete bucket %s", n) {
-				resp.Body.Close()
-			}
-		})
+		t.Cleanup(func() { gcsRESTDelete(t, "/storage/v1/b/"+n) })
 	}
 
 	listURL := baseURL + "/storage/v1/b?project=p"
@@ -623,18 +630,13 @@ func TestGCS_ListBuckets_Pagination(t *testing.T) {
 }
 
 func TestGCS_ListObjects_Pagination(t *testing.T) {
-	bucket := "pag-obj-bucket"
+	bucket := uniqueName("pag-obj-bucket")
 	gcsRESTCreate(t, bucket)
-	t.Cleanup(func() {
-		req, _ := http.NewRequest("DELETE", baseURL+"/storage/v1/b/"+bucket, nil)
-		resp, err := http.DefaultClient.Do(req)
-		if assert.NoError(t, err, "delete bucket %s", bucket) {
-			resp.Body.Close()
-		}
-	})
+	t.Cleanup(func() { gcsRESTDelete(t, "/storage/v1/b/"+bucket) })
 
 	want := []string{"obj-a", "obj-b", "obj-c"}
 	for _, name := range want {
+		t.Cleanup(func() { gcsRESTDelete(t, "/storage/v1/b/"+bucket+"/o/"+name) })
 		body := bytes.NewReader([]byte("data"))
 		req, _ := http.NewRequest("POST", fmt.Sprintf("%s/upload/storage/v1/b/%s/o?uploadType=media&name=%s", baseURL, bucket, name), body)
 		req.Header.Set("Content-Type", "text/plain")

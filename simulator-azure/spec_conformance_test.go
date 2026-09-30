@@ -284,6 +284,8 @@ var allowedNonSpecAzureRoutes = map[string]string{
 	"GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/locations/{location}/deletedManagedHSMs/{name}/purge/operation": "sim-emitted Azure Managed HSM purge LRO polling URL (documented Location header)",
 	"GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationResults/{opId}":                           "sim-emitted LRO polling URL (Location header)",
 	"GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationStatuses/{opId}":                          "sim-emitted LRO polling URL (Azure-AsyncOperation)",
+	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/operations/{opId}":                          "sim-emitted Compute LRO polling URL (Azure-AsyncOperation, and Location with monitor=true, as armcompute's recordings carry)",
+	"GET /eventsubscriptions/{eventSubscriptionName}/validate":                                                                        "sim-emitted Event Grid validationUrl a SubscriptionValidationEvent carries for manual validation",
 
 	// ACR Tasks run log: listLogSasUrl returns an opaque SAS URL to a log
 	// blob (real ACR hands out an Azure Storage SAS); the URL shape is

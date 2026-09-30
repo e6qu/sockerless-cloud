@@ -863,6 +863,7 @@ timeout -s TERM 120 terraform apply -auto-approve -input=false -no-color`,
 				LogDriver: ecstypes.LogDriverAwslogs,
 				Options: map[string]string{
 					"awslogs-group":         logGroup,
+					"awslogs-create-group":  "true",
 					"awslogs-region":        "us-east-1",
 					"awslogs-stream-prefix": "ecs",
 				},

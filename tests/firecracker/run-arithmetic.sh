@@ -98,8 +98,13 @@ rootfs_key="$(tr '<' '\n' < "$asset_index" | sed -n 's#^Key>\(.*\)#\1#p' | grep 
 [ -n "$kernel_key" ] || fail "could not find Firecracker CI kernel asset for $ci_version/$arch"
 [ -n "$rootfs_key" ] || fail "could not find Firecracker CI Ubuntu rootfs asset for $ci_version/$arch"
 
-kernel="$workdir/$(basename "$kernel_key")"
-rootfs_squash="$workdir/$(basename "$rootfs_key")"
+# The kernel and the root filesystem archive go where realexec looks for them,
+# so the cache this job saves seeds the simulator jobs: realexec skips a
+# download whose file is already present.
+asset_cache="$HOME/.cache/sockerless/firecracker-ci/${ci_version}/${arch}"
+mkdir -p "$asset_cache"
+kernel="$asset_cache/$(basename "$kernel_key")"
+rootfs_squash="$asset_cache/$(basename "$rootfs_key")"
 rootfs_dir="$workdir/rootfs"
 rootfs_ext4="$workdir/rootfs.ext4"
 ebs_placeholder="$workdir/ebs-placeholder.raw"
@@ -107,8 +112,8 @@ ebs_volume="$workdir/ebs-volume.raw"
 ebs_snapshot="$workdir/ebs-snapshot.raw"
 ebs_restored="$workdir/ebs-restored.raw"
 
-curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused -o "$kernel" "https://s3.amazonaws.com/spec.ccfc.min/${kernel_key}"
-curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused -o "$rootfs_squash" "https://s3.amazonaws.com/spec.ccfc.min/${rootfs_key}"
+[ -s "$kernel" ] || curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused -o "$kernel" "https://s3.amazonaws.com/spec.ccfc.min/${kernel_key}"
+[ -s "$rootfs_squash" ] || curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused -o "$rootfs_squash" "https://s3.amazonaws.com/spec.ccfc.min/${rootfs_key}"
 
 unsquashfs -quiet -d "$rootfs_dir" "$rootfs_squash"
 

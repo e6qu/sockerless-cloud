@@ -147,6 +147,7 @@ func TestECS_TaskArithmetic(t *testing.T) {
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
 				"awslogs-group":         "/ecs/arith-ecs",
+				"awslogs-create-group":  "true",
 				"awslogs-stream-prefix": "ecs",
 			},
 		},
@@ -190,6 +191,7 @@ func TestECS_TaskArithmeticInvalid(t *testing.T) {
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
 				"awslogs-group":         "/ecs/arith-ecs-fail",
+				"awslogs-create-group":  "true",
 				"awslogs-stream-prefix": "ecs",
 			},
 		},
@@ -221,6 +223,7 @@ func TestECS_TaskArithmeticLogs(t *testing.T) {
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
 				"awslogs-group":         "/ecs/arith-ecs-logs",
+				"awslogs-create-group":  "true",
 				"awslogs-stream-prefix": "ecs",
 			},
 		},

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func newEventGridTestServer(t *testing.T) *sim.Server {
@@ -20,7 +21,9 @@ func newEventGridTestServer(t *testing.T) *sim.Server {
 	if err != nil {
 		t.Fatalf("new azure sim server: %v", err)
 	}
+	registerAzureAsyncOperations(srv)
 	registerEventGrid(srv)
+	t.Cleanup(bg.Await)
 	return srv
 }
 
@@ -103,6 +106,9 @@ func TestEventGridAdvertisedEndpointPublishesThroughSharedHostDataPlane(t *testi
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		if eventGridAnswerValidation(w, r, body) {
+			return
+		}
 		var events []map[string]any
 		if err := json.Unmarshal(body, &events); err != nil {
 			t.Errorf("decode webhook events: %v", err)
@@ -126,12 +132,7 @@ func TestEventGridAdvertisedEndpointPublishesThroughSharedHostDataPlane(t *testi
 	subURL := "http://localhost:4568" + topic.ID + "/providers/Microsoft.EventGrid/eventSubscriptions/sub1?api-version=2021-12-01"
 	subBody := `{"properties":{"destination":{"endpointType":"WebHook","properties":{"endpointUrl":"` + hook.URL + `"}},"eventDeliverySchema":"EventGridSchema"}}`
 	serveEventGridTestRequest(t, srv, eventGridTestRequest(http.MethodPut, subURL, subBody), http.StatusCreated)
-
-	select {
-	case <-deliveries:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for subscription validation delivery")
-	}
+	eventGridAwaitProvisioned(t, srv, subURL)
 
 	publishURL, err := url.Parse(endpoint + "?api-version=2018-01-01")
 	if err != nil {

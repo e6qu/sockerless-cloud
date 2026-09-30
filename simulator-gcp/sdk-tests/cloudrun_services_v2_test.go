@@ -32,11 +32,23 @@ func newServicesClient(t *testing.T) *run.ServicesClient {
 	return client
 }
 
+// cleanupService deletes a Cloud Run service when the test ends and waits for
+// the delete to complete.
+func cleanupService(t *testing.T, client *run.ServicesClient, name string) {
+	t.Helper()
+	t.Cleanup(func() {
+		op, err := client.DeleteService(ctx, &runpb.DeleteServiceRequest{Name: name})
+		require.NoError(t, err, "delete service %s", name)
+		_, err = op.Wait(ctx)
+		require.NoError(t, err, "delete service %s", name)
+	})
+}
+
 func TestSDK_CloudRunV2Services_ListPaginationAndWireShape(t *testing.T) {
 	client := newServicesClient(t)
 	parent := "projects/test-project/locations/us-central1"
 
-	for _, id := range []string{"v2-svc-page-a", "v2-svc-page-b"} {
+	for _, id := range []string{uniqueName("v2-svc-page-a"), uniqueName("v2-svc-page-b")} {
 		op, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
 			Parent:    parent,
 			ServiceId: id,
@@ -49,12 +61,7 @@ func TestSDK_CloudRunV2Services_ListPaginationAndWireShape(t *testing.T) {
 		require.NoError(t, err)
 		_, err = op.Wait(ctx)
 		require.NoError(t, err)
-		t.Cleanup(func() {
-			deleteOp, err := client.DeleteService(ctx, &runpb.DeleteServiceRequest{Name: parent + "/services/" + id})
-			if err == nil {
-				_, _ = deleteOp.Wait(ctx)
-			}
-		})
+		cleanupService(t, client, parent+"/services/"+id)
 	}
 
 	resp, err := http.Get(baseURL + "/v2/" + parent + "/services?pageSize=1")
@@ -146,8 +153,10 @@ func TestSDK_CloudRunServiceV1V2AreOneResource(t *testing.T) {
 }
 
 func TestSDK_CloudRunV2Service_OperationMetadataAndTimestampShape(t *testing.T) {
+	serviceID := uniqueName("v2-svc-lro-shape")
+	cleanupService(t, newServicesClient(t), "projects/test-project/locations/us-central1/services/"+serviceID)
 	body := strings.NewReader(`{"template":{"containers":[{"image":"gcr.io/test-project/raw"}]}}`)
-	resp, err := http.Post(baseURL+"/v2/projects/test-project/locations/us-central1/services?serviceId=v2-svc-lro-shape", "application/json", body)
+	resp, err := http.Post(baseURL+"/v2/projects/test-project/locations/us-central1/services?serviceId="+serviceID, "application/json", body)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -166,10 +175,11 @@ func TestSDK_CloudRunV2Service_OperationMetadataAndTimestampShape(t *testing.T) 
 
 func TestSDK_CloudRunV2Services_CreateGetListDelete(t *testing.T) {
 	client := newServicesClient(t)
+	serviceID := uniqueName("v2-svc-roundtrip")
 
 	createOp, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
 		Parent:    "projects/test-project/locations/us-central1",
-		ServiceId: "v2-svc-roundtrip",
+		ServiceId: serviceID,
 		Service: &runpb.Service{
 			Labels: map[string]string{
 				"sockerless_managed":      "true",
@@ -205,7 +215,7 @@ func TestSDK_CloudRunV2Services_CreateGetListDelete(t *testing.T) {
 	svc, err := createOp.Wait(ctx)
 	require.NoError(t, err, "CreateService LRO must complete")
 	require.NotNil(t, svc)
-	assert.Contains(t, svc.Name, "v2-svc-roundtrip")
+	assert.Contains(t, svc.Name, serviceID)
 	assert.NotEmpty(t, svc.Uid)
 	assert.Equal(t, int64(1), svc.Generation)
 	assert.Equal(t, "true", svc.Labels["sockerless_managed"])
@@ -264,7 +274,7 @@ func TestSDK_CloudRunV2Services_MultiContainerSharesLocalhost(t *testing.T) {
 
 	createOp, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
 		Parent:    "projects/test-project/locations/us-central1",
-		ServiceId: "v2-svc-pod-localhost",
+		ServiceId: uniqueName("v2-svc-pod-localhost"),
 		Service: &runpb.Service{
 			Template: &runpb.RevisionTemplate{
 				Containers: []*runpb.Container{
@@ -288,12 +298,7 @@ func TestSDK_CloudRunV2Services_MultiContainerSharesLocalhost(t *testing.T) {
 	svc, err := createOp.Wait(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, svc.Uri)
-	t.Cleanup(func() {
-		deleteOp, err := client.DeleteService(ctx, &runpb.DeleteServiceRequest{Name: svc.Name})
-		if err == nil {
-			_, _ = deleteOp.Wait(ctx)
-		}
-	})
+	cleanupService(t, client, svc.Name)
 
 	resp, err := http.Post(svc.Uri, "application/json", strings.NewReader("{}"))
 	require.NoError(t, err)
@@ -308,7 +313,7 @@ func TestSDK_CloudRunV2Services_ForwardsRequestPath(t *testing.T) {
 	client := newServicesClient(t)
 	createOp, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
 		Parent:    "projects/test-project/locations/us-central1",
-		ServiceId: "v2-svc-forward-path",
+		ServiceId: uniqueName("v2-svc-forward-path"),
 		Service: &runpb.Service{Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{
 			Image: httpProbeImageName,
 			Args:  []string{"echo-request"},
@@ -317,12 +322,7 @@ func TestSDK_CloudRunV2Services_ForwardsRequestPath(t *testing.T) {
 	require.NoError(t, err)
 	svc, err := createOp.Wait(ctx)
 	require.NoError(t, err)
-	t.Cleanup(func() {
-		deleteOp, err := client.DeleteService(ctx, &runpb.DeleteServiceRequest{Name: svc.Name})
-		if err == nil {
-			_, _ = deleteOp.Wait(ctx)
-		}
-	})
+	cleanupService(t, client, svc.Name)
 
 	resp, err := http.Post(svc.Uri+"/_sockerless/ready?source=sdk", "application/json", nil)
 	require.NoError(t, err)
@@ -338,7 +338,7 @@ func TestSDK_CloudRunV2Services_UpdateBumpsGeneration(t *testing.T) {
 
 	createOp, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
 		Parent:    "projects/test-project/locations/us-central1",
-		ServiceId: "v2-svc-update",
+		ServiceId: uniqueName("v2-svc-update"),
 		Service: &runpb.Service{
 			Template: &runpb.RevisionTemplate{
 				Containers: []*runpb.Container{{Image: "gcr.io/test-project/v1"}},
@@ -348,6 +348,7 @@ func TestSDK_CloudRunV2Services_UpdateBumpsGeneration(t *testing.T) {
 	require.NoError(t, err)
 	created, err := createOp.Wait(ctx)
 	require.NoError(t, err)
+	cleanupService(t, client, created.Name)
 	require.Equal(t, int64(1), created.Generation)
 
 	updateOp, err := client.UpdateService(ctx, &runpb.UpdateServiceRequest{
@@ -364,7 +365,4 @@ func TestSDK_CloudRunV2Services_UpdateBumpsGeneration(t *testing.T) {
 	assert.Equal(t, int64(2), updated.Generation, "Update should bump generation")
 	require.NotNil(t, updated.TerminalCondition)
 	assert.Equal(t, runpb.Condition_CONDITION_SUCCEEDED, updated.TerminalCondition.State)
-
-	// Cleanup.
-	_, _ = client.DeleteService(ctx, &runpb.DeleteServiceRequest{Name: created.Name})
 }

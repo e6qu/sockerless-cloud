@@ -301,11 +301,17 @@ func TestVirtualMachineStartRunsBehindAnOperation(t *testing.T) {
 		t.Errorf("a 202 start carries no body, got %s", rec.Body.String())
 	}
 	opURL := rec.Header().Get("Azure-AsyncOperation")
-	if opURL == "" || rec.Header().Get("Location") == "" {
+	monitorURL := rec.Header().Get("Location")
+	if opURL == "" || monitorURL == "" {
 		t.Fatalf("start answered without both poll URLs: %v", rec.Header())
 	}
+	requireComputeOperationURL(t, opURL, false)
+	requireComputeOperationURL(t, monitorURL, true)
 
 	hooks.awaitBoot(t, vm.ID)
+	if monitor := vmLRORequest(t, srv, http.MethodGet, monitorURL, ""); monitor.Code != http.StatusAccepted || monitor.Body.Len() != 0 {
+		t.Fatalf("monitor poll while starting: status %d body %q, want 202 with no body", monitor.Code, monitor.Body.String())
+	}
 	provisioning, power := vmLROInstanceView(t, srv, "lro-start-vm")
 	if provisioning.Code != "ProvisioningState/updating" || power.Code != "PowerState/starting" {
 		t.Fatalf("instance view while starting = %q / %q", provisioning.Code, power.Code)
@@ -321,8 +327,11 @@ func TestVirtualMachineStartRunsBehindAnOperation(t *testing.T) {
 	hooks.boot <- nil
 	bg.Await()
 
-	if op := vmLROOperationStatus(t, srv, opURL); op.Status != "Succeeded" {
-		t.Fatalf("start operation reads %q, want Succeeded", op.Status)
+	if op := vmLROOperationStatus(t, srv, opURL); op.Status != "Succeeded" || op.ID != "" {
+		t.Fatalf("start operation reads %+v, want Succeeded with no id, as the Compute envelope has none", op)
+	}
+	if monitor := vmLRORequest(t, srv, http.MethodGet, monitorURL, ""); monitor.Code != http.StatusOK {
+		t.Fatalf("monitor poll after the start: status %d, want 200: %s", monitor.Code, monitor.Body.String())
 	}
 	requireVMLROPowerState(t, vm.ID, "PowerState/running")
 	if provisioning, _ := vmLROInstanceView(t, srv, "lro-start-vm"); provisioning.Code != "ProvisioningState/succeeded" {
@@ -479,5 +488,26 @@ func TestVirtualMachineCreateRequiresALocation(t *testing.T) {
 	}
 	if _, stored := azureVMs.Get(vmOpsID("lro-noloc-vm")); stored {
 		t.Fatal("a rejected create left a machine behind")
+	}
+}
+
+// requireComputeOperationURL holds an operation URL to the Compute resource
+// provider's shape: .../providers/Microsoft.Compute/locations/{location}/operations/{id},
+// with monitor=true on the Location.
+func requireComputeOperationURL(t *testing.T, raw string, monitor bool) {
+	t.Helper()
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse operation URL %q: %v", raw, err)
+	}
+	want := "/subscriptions/" + vmOpsSubscription + "/providers/Microsoft.Compute/locations/eastus/operations/"
+	if !strings.HasPrefix(parsed.Path, want) || strings.Count(strings.TrimPrefix(parsed.Path, want), "/") != 0 {
+		t.Fatalf("operation URL path %q, want %s{operationId}", parsed.Path, want)
+	}
+	if got := parsed.Query().Get("monitor") == "true"; got != monitor {
+		t.Fatalf("operation URL %q: monitor=true present %v, want %v", raw, got, monitor)
+	}
+	if parsed.Query().Get("api-version") == "" {
+		t.Fatalf("operation URL %q carries no api-version", raw)
 	}
 }

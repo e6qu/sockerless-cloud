@@ -22,15 +22,35 @@ type eventGridHook struct {
 	attempts atomic.Int32
 }
 
-// newEventGridHook answers the validation handshake with 200 and every
-// notification with status.
+// eventGridAnswerValidation answers a SubscriptionValidationEvent the way a
+// webhook that accepts the subscription does, echoing its validationCode, and
+// reports whether body was one.
+func eventGridAnswerValidation(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	if r.Header.Get("aeg-event-type") != "SubscriptionValidation" {
+		return false
+	}
+	var events []struct {
+		Data struct {
+			ValidationCode string `json:"validationCode"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &events) != nil || len(events) != 1 {
+		w.WriteHeader(http.StatusBadRequest)
+		return true
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"validationResponse": events[0].Data.ValidationCode})
+	return true
+}
+
+// newEventGridHook answers the validation handshake by echoing its code and
+// every notification with status.
 func newEventGridHook(t *testing.T, status int) *eventGridHook {
 	t.Helper()
 	hook := &eventGridHook{received: make(chan []map[string]any, 16), headers: make(chan http.Header, 16)}
 	hook.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		if r.Header.Get("aeg-event-type") == "SubscriptionValidation" {
-			w.WriteHeader(http.StatusOK)
+		if eventGridAnswerValidation(w, r, body) {
 			return
 		}
 		hook.attempts.Add(1)
@@ -72,7 +92,23 @@ func eventGridTopicWithSubscription(t *testing.T, srv *sim.Server, name, hookURL
 	body, _ := json.Marshal(map[string]any{"properties": props})
 	subURL := "http://localhost:4568" + topic.ID + "/providers/Microsoft.EventGrid/eventSubscriptions/sub1?api-version=2021-12-01"
 	serveEventGridTestRequest(t, srv, eventGridTestRequest(http.MethodPut, subURL, string(body)), http.StatusCreated)
+	eventGridAwaitProvisioned(t, srv, subURL)
 	return topic
+}
+
+// eventGridAwaitProvisioned waits out a webhook subscription's validation
+// handshake and requires that it succeeded.
+func eventGridAwaitProvisioned(t *testing.T, srv *sim.Server, subURL string) {
+	t.Helper()
+	bg.Await()
+	data := serveEventGridTestRequest(t, srv, eventGridTestRequest(http.MethodGet, subURL, ""), http.StatusOK)
+	var es EventGridEventSubscription
+	if err := json.Unmarshal(data, &es); err != nil {
+		t.Fatal(err)
+	}
+	if state := es.Properties["provisioningState"]; state != "Succeeded" {
+		t.Fatalf("subscription reads provisioningState %v after its handshake, want Succeeded", state)
+	}
 }
 
 func eventGridPublish(t *testing.T, srv *sim.Server, topic EventGridTopic, events string) {

@@ -105,6 +105,7 @@ func TestEC2CLI_MonitorAndInstanceOps(t *testing.T) {
 		"--query", "Subnet.SubnetId", "--output", "text")
 	inst := q("ec2", "run-instances", "--image-id", "ami-12345678", "--instance-type", "t3.micro",
 		"--subnet-id", subnet, "--query", "Instances[0].InstanceId", "--output", "text")
+	terminateCLIInstanceOnCleanup(t, inst)
 
 	mon := q("ec2", "monitor-instances", "--instance-ids", inst,
 		"--query", "InstanceMonitorings[0].Monitoring.State", "--output", "text")

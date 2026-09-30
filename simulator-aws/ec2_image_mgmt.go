@@ -69,9 +69,8 @@ type EC2ExportImageTask struct {
 	Tags              []EC2Tag
 }
 
-// EC2ImportImageTask is an S3->AMI import task created by ImportImage. It settles
-// to "completed", at which point a backing AMI id is recorded so a client can
-// register/launch the imported image.
+// EC2ImportImageTask is an S3->AMI import task created by ImportImage. Once
+// every disk has become a snapshot it completes with the AMI it registered.
 type EC2ImportImageTask struct {
 	ImportTaskId  string
 	ImageId       string
@@ -81,18 +80,28 @@ type EC2ImportImageTask struct {
 	Platform      string
 	LicenseType   string
 	Encrypted     bool
+	KmsKeyId      string
 	Status        string
 	StatusMessage string
 	Progress      string
-	SnapshotId    string
+	Disks         []EC2ImportImageDisk
+	BootMode      string
+	Tags          []EC2Tag
+}
+
+// EC2ImportImageDisk is one disk container of an ImportImage task and the
+// snapshot VM Import/Export made from it.
+type EC2ImportImageDisk struct {
 	DeviceName    string
 	Format        string
-	DiskImageSize float64
 	S3Bucket      string
 	S3Key         string
 	Url           string
-	BootMode      string
-	Tags          []EC2Tag
+	SnapshotId    string
+	VolumeSize    int
+	DiskImageSize float64
+	Status        string
+	StatusMessage string
 }
 
 // EC2FastLaunch is the Windows-AMI fast-launch configuration set by
@@ -501,29 +510,45 @@ func ec2ImportImageFieldsXML(t EC2ImportImageTask) string {
 	}
 	fmt.Fprintf(&b, "<encrypted>%t</encrypted>", t.Encrypted)
 	fmt.Fprintf(&b, "<hypervisor>%s</hypervisor>", t.Hypervisor)
-	fmt.Fprintf(&b, "<imageId>%s</imageId>", t.ImageId)
+	if t.ImageId != "" {
+		fmt.Fprintf(&b, "<imageId>%s</imageId>", t.ImageId)
+	}
 	fmt.Fprintf(&b, "<importTaskId>%s</importTaskId>", t.ImportTaskId)
+	if t.KmsKeyId != "" {
+		fmt.Fprintf(&b, "<kmsKeyId>%s</kmsKeyId>", xmlEscape(t.KmsKeyId))
+	}
 	if t.LicenseType != "" {
 		fmt.Fprintf(&b, "<licenseType>%s</licenseType>", xmlEscape(t.LicenseType))
 	}
 	fmt.Fprintf(&b, "<platform>%s</platform>", t.Platform)
-	fmt.Fprintf(&b, "<progress>%s</progress>", t.Progress)
-	// snapshotDetailSet describes the imported disk(s).
-	b.WriteString("<snapshotDetailSet><item>")
-	fmt.Fprintf(&b, "<deviceName>%s</deviceName>", t.DeviceName)
-	fmt.Fprintf(&b, "<diskImageSize>%g</diskImageSize>", t.DiskImageSize)
-	fmt.Fprintf(&b, "<format>%s</format>", t.Format)
-	b.WriteString("<progress>100</progress>")
-	fmt.Fprintf(&b, "<snapshotId>%s</snapshotId>", t.SnapshotId)
-	b.WriteString("<status>completed</status>")
-	if t.Url != "" {
-		fmt.Fprintf(&b, "<url>%s</url>", xmlEscape(t.Url))
+	if t.Progress != "" {
+		fmt.Fprintf(&b, "<progress>%s</progress>", t.Progress)
 	}
-	if t.S3Bucket != "" || t.S3Key != "" {
-		fmt.Fprintf(&b, "<userBucket><s3Bucket>%s</s3Bucket><s3Key>%s</s3Key></userBucket>",
-			xmlEscape(t.S3Bucket), xmlEscape(t.S3Key))
+	b.WriteString("<snapshotDetailSet>")
+	for _, d := range t.Disks {
+		b.WriteString("<item>")
+		fmt.Fprintf(&b, "<deviceName>%s</deviceName>", d.DeviceName)
+		if d.DiskImageSize > 0 {
+			fmt.Fprintf(&b, "<diskImageSize>%g</diskImageSize>", d.DiskImageSize)
+		}
+		fmt.Fprintf(&b, "<format>%s</format>", d.Format)
+		if d.SnapshotId != "" {
+			fmt.Fprintf(&b, "<snapshotId>%s</snapshotId>", d.SnapshotId)
+		}
+		fmt.Fprintf(&b, "<status>%s</status>", d.Status)
+		if d.StatusMessage != "" {
+			fmt.Fprintf(&b, "<statusMessage>%s</statusMessage>", xmlEscape(d.StatusMessage))
+		}
+		if d.Url != "" {
+			fmt.Fprintf(&b, "<url>%s</url>", xmlEscape(d.Url))
+		}
+		if d.S3Bucket != "" || d.S3Key != "" {
+			fmt.Fprintf(&b, "<userBucket><s3Bucket>%s</s3Bucket><s3Key>%s</s3Key></userBucket>",
+				xmlEscape(d.S3Bucket), xmlEscape(d.S3Key))
+		}
+		b.WriteString("</item>")
 	}
-	b.WriteString("</item></snapshotDetailSet>")
+	b.WriteString("</snapshotDetailSet>")
 	fmt.Fprintf(&b, "<status>%s</status>", t.Status)
 	if t.StatusMessage != "" {
 		fmt.Fprintf(&b, "<statusMessage>%s</statusMessage>", xmlEscape(t.StatusMessage))

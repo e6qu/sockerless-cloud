@@ -45,6 +45,7 @@ func TestEC2_InstanceKnobFidelitySDK(t *testing.T) {
 		CpuOptions: &types.CpuOptionsRequest{CoreCount: aws.Int32(1), ThreadsPerCore: aws.Int32(1)},
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 	id := aws.ToString(run.Instances[0].InstanceId)
 
 	got := describeOneInstance(t, c, id)
@@ -112,6 +113,7 @@ func TestEC2_RunInstancesAppliesLaunchTemplateSDK(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 	got := describeOneInstance(t, c, aws.ToString(run.Instances[0].InstanceId))
 	assert.True(t, aws.ToBool(got.EbsOptimized), "LT ebs_optimized must apply to the instance")
 	require.NotNil(t, got.IamInstanceProfile)

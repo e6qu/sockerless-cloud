@@ -10,6 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// arDeleteRepositoryOnCleanup deletes a repository, and with it everything it
+// holds, when the test ends.
+func arDeleteRepositoryOnCleanup(t *testing.T, svc *artifactregistry.Service, name string) {
+	t.Helper()
+	t.Cleanup(func() {
+		_, err := svc.Projects.Locations.Repositories.Delete(name).Do()
+		require.NoError(t, err, "delete repository %s", name)
+	})
+}
+
 func arAdminService(t *testing.T) *artifactregistry.Service {
 	t.Helper()
 	svc, err := artifactregistry.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
@@ -25,11 +35,12 @@ func arAdminService(t *testing.T) *artifactregistry.Service {
 func TestArtifactRegistry_PackagesVersionsTagsFiles(t *testing.T) {
 	svc := arAdminService(t)
 	parent := "projects/ar-admin/locations/us-central1"
-	repoID := "subres-repo"
+	repoID := uniqueName("subres-repo")
 	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).RepositoryId(repoID).Do()
 	require.NoError(t, err)
+	arDeleteRepositoryOnCleanup(t, svc, repoName)
 
 	// Empty listings round-trip with the documented response shapes.
 	pkgList, err := svc.Projects.Locations.Repositories.Packages.List(repoName).Do()
@@ -79,11 +90,12 @@ func TestArtifactRegistry_PackagesVersionsTagsFiles(t *testing.T) {
 func TestArtifactRegistry_Rules(t *testing.T) {
 	svc := arAdminService(t)
 	parent := "projects/ar-admin/locations/us-central1"
-	repoID := "rules-repo"
+	repoID := uniqueName("rules-repo")
 	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).RepositoryId(repoID).Do()
 	require.NoError(t, err)
+	arDeleteRepositoryOnCleanup(t, svc, repoName)
 
 	created, err := svc.Projects.Locations.Repositories.Rules.Create(repoName,
 		&artifactregistry.GoogleDevtoolsArtifactregistryV1Rule{Action: "DENY", Operation: "DOWNLOAD"}).RuleId("deny-dl").Do()
@@ -111,11 +123,12 @@ func TestArtifactRegistry_Rules(t *testing.T) {
 func TestArtifactRegistry_RepositoryIAM(t *testing.T) {
 	svc := arAdminService(t)
 	parent := "projects/ar-admin/locations/us-central1"
-	repoID := "iam-repo"
+	repoID := uniqueName("iam-repo")
 	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).RepositoryId(repoID).Do()
 	require.NoError(t, err)
+	arDeleteRepositoryOnCleanup(t, svc, repoName)
 
 	setReq := &artifactregistry.SetIamPolicyRequest{Policy: &artifactregistry.Policy{
 		Bindings: []*artifactregistry.Binding{{

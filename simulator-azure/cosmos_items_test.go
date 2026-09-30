@@ -45,6 +45,19 @@ func (c *cosmosItemsClient) do(method, path, body string, headers map[string]str
 	return recorder.Code, recorder.Header(), recorder.Body.Bytes()
 }
 
+// dataRID reads the _rid the data plane serves for the resource at path.
+func (c *cosmosItemsClient) dataRID(path string) string {
+	c.t.Helper()
+	_, out := c.must(http.StatusOK, http.MethodGet, path, "", nil)
+	var resource struct {
+		RID string `json:"_rid"`
+	}
+	if err := json.Unmarshal(out, &resource); err != nil || resource.RID == "" {
+		c.t.Fatalf("GET %s: no _rid: %v: %s", path, err, out)
+	}
+	return resource.RID
+}
+
 func (c *cosmosItemsClient) must(want int, method, path, body string, headers map[string]string) (http.Header, []byte) {
 	c.t.Helper()
 	status, header, out := c.do(method, path, body, headers)

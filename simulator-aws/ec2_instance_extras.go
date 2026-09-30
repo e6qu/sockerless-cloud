@@ -168,7 +168,7 @@ func registerEC2InstanceExtras(r *AWSQueryRouter, srv *sim.Server) {
 func ec2RequireInstance(w http.ResponseWriter, id string) (EC2Instance, bool) {
 	inst, ok := ec2Instances.Get(id)
 	if !ok {
-		AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+		ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", id), http.StatusBadRequest)
 		return EC2Instance{}, false
 	}
 	return inst, true
@@ -888,7 +888,7 @@ func ec2SqlHaStandbyDetection(w http.ResponseWriter, r *http.Request, root strin
 	var items strings.Builder
 	for _, id := range ids {
 		if _, ok := ec2Instances.Get(id); !ok {
-			AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+			ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", id), http.StatusBadRequest)
 			return
 		}
 		s := ec2SqlHaState(id)

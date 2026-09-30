@@ -511,7 +511,7 @@ func (c *sbAMQPConn) handleAttach(frame amqpFrame) error {
 	if clientRole {
 		if path, entity := sbAMQPReceiverPath(link.address); entity {
 			if requires := sbSettings(namespace, path).requiresSession; requires != sessionful {
-				description := "It is not possible for an entity that requires sessions to create a non-sessionful message receiver."
+				description := errSBSessionfulEntity.Error()
 				if !requires {
 					description = "It is not possible for an entity that does not require sessions to create a sessionful message receiver."
 				}
@@ -699,9 +699,24 @@ func (c *sbAMQPConn) handleTransfer(ctx context.Context, frame amqpFrame) error 
 		}
 	}
 	path := sbAMQPEntityPath(link.address)
-	var reached []string
+	outs := make([]sbOutgoing, len(messages))
 	for i, m := range messages {
-		reached = append(reached, sbSend(namespace, path, sbOutgoingFromAMQP(m, raws[i]))...)
+		outs[i] = sbOutgoingFromAMQP(m, raws[i])
+	}
+	if err := sbRequireSessionIDs(namespace, path, outs); err != nil {
+		return c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescDisposition, []any{
+			true,
+			deliveryID,
+			nil,
+			true,
+			amqpDescribed{code: amqpDescRejected, value: []any{
+				amqpDescribed{code: amqpDescError, value: []any{amqpSymbol("amqp:not-allowed"), err.Error()}},
+			}},
+		}))
+	}
+	var reached []string
+	for _, out := range outs {
+		reached = append(reached, sbSend(namespace, path, out)...)
 	}
 	if err := sbAMQPDeliverAvailableMessages(namespace, reached); err != nil {
 		return err

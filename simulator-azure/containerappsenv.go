@@ -308,9 +308,16 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		env.Properties.ProvisioningState = "Deleting"
 		environments.Put(resourceID, env)
 		opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
-			// Drop the backing Docker network when the env is removed.
 			if env.DockerNetworkName != "" {
-				_ = sim.RemoveDockerNetwork(env.DockerNetworkName)
+				if err := sim.RemoveDockerNetwork(env.DockerNetworkName); err != nil {
+					environments.Update(resourceID, func(e *ContainerAppEnvironment) {
+						e.Properties.ProvisioningState = "Failed"
+					})
+					return &AsyncOperationError{
+						Code:    "InternalServerError",
+						Message: fmt.Sprintf("Failed to delete managed environment '%s': removing its network: %v", envName, err),
+					}
+				}
 			}
 			environments.Delete(resourceID)
 			return nil

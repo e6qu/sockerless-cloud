@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -18,6 +19,24 @@ import (
 // variable-width fractions.
 func nowTimestamp() string {
 	return time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+}
+
+// protoJSONTimestamp renders t as protojson renders a google.protobuf.Timestamp:
+// UTC, with the fraction at full precision in 0, 3, 6 or 9 digits.
+func protoJSONTimestamp(t time.Time) string {
+	t = t.UTC()
+	nanos := t.Nanosecond()
+	fraction := ""
+	switch {
+	case nanos == 0:
+	case nanos%1_000_000 == 0:
+		fraction = fmt.Sprintf(".%03d", nanos/1_000_000)
+	case nanos%1_000 == 0:
+		fraction = fmt.Sprintf(".%06d", nanos/1_000)
+	default:
+		fraction = fmt.Sprintf(".%09d", nanos)
+	}
+	return t.Format("2006-01-02T15:04:05") + fraction + "Z"
 }
 
 func paginateList[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, string, bool) {

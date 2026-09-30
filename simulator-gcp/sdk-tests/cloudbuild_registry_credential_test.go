@@ -26,7 +26,7 @@ func TestCloudBuild_DockerStepsPullAndPushAsTheBuildServiceAccount(t *testing.T)
 		project  = "cb-credential-project"
 		location = "us-central1"
 	)
-	arCreateRepository(t, project, location, "docker-hub")
+	arCreateDockerHubRemoteRepository(t, project, location, "docker-hub")
 	arCreateRepository(t, project, location, "sockerless-overlay")
 
 	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")

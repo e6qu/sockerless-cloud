@@ -133,6 +133,7 @@ func TestKinesisSDK_StreamLifecycleAndRecords(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(3), aws.ToInt32(update.TargetShardCount))
+	waitForKinesisStreamActive(t, client, streamName)
 
 	limits, err := client.DescribeLimits(ctx, &kinesis.DescribeLimitsInput{})
 	require.NoError(t, err)

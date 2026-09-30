@@ -82,11 +82,16 @@ func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 		echoedIdentifiers = append(echoedIdentifiers, groupARNs[name])
 	}
 
+	pattern, err := cwCompileLogPattern(req.LogEventFilterPattern)
+	if err != nil {
+		AWSError(w, "InvalidParameterException", err.Error(), http.StatusBadRequest)
+		return
+	}
 	session := &cwLiveTailSession{
 		groupARNs:      groupARNs,
 		streamNames:    req.LogStreamNames,
 		streamPrefixes: req.LogStreamNamePrefixes,
-		filterPattern:  req.LogEventFilterPattern,
+		pattern:        pattern,
 	}
 	cwLiveTailSubscribe(session)
 	defer cwLiveTailUnsubscribe(session)
@@ -172,7 +177,7 @@ type cwLiveTailSession struct {
 	groupARNs      map[string]string
 	streamNames    []string
 	streamPrefixes []string
-	filterPattern  string
+	pattern        *cwCompiledPattern
 
 	mu      sync.Mutex
 	pending []cwLiveTailEvent
@@ -228,7 +233,7 @@ func (s *cwLiveTailSession) offer(logGroup, logStream string, events []CWLogEven
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, ev := range events {
-		if s.filterPattern != "" && !strings.Contains(ev.Message, s.filterPattern) {
+		if !s.pattern.match(ev.Message) {
 			continue
 		}
 		if len(s.pending) >= cwLiveTailMaxUpdateEvents {

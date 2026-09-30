@@ -362,8 +362,11 @@ func TestS3_Bucket_OwnershipNotificationPublicAccessObjectLock_RoundTrip(t *test
 	_, err = c.DeleteBucketOwnershipControls(ctx, &s3.DeleteBucketOwnershipControlsInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 
+	// The queue does not exist, so the round trip skips the destination
+	// validation Amazon S3 otherwise performs before storing the configuration.
 	_, err = c.PutBucketNotificationConfiguration(ctx, &s3.PutBucketNotificationConfigurationInput{
-		Bucket: aws.String(bucket),
+		Bucket:                    aws.String(bucket),
+		SkipDestinationValidation: aws.Bool(true),
 		NotificationConfiguration: &types.NotificationConfiguration{
 			QueueConfigurations: []types.QueueConfiguration{
 				{

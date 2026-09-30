@@ -77,10 +77,11 @@ func TestEC2_ImageInstanceTypeSpecificationGovernsRunInstances(t *testing.T) {
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.171.1.0/24")
 
 	launch := func(instanceType types.InstanceType) error {
-		_, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
+		run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
 			ImageId: aws.String(imageID), InstanceType: instanceType,
 			MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 		})
+		terminateEC2InstancesOnCleanup(t, c, run)
 		return err
 	}
 
@@ -138,10 +139,11 @@ func TestEC2_ImageInstanceTypeSpecificationUnsupportedOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	launch := func(instanceType types.InstanceType) error {
-		_, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
+		run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
 			ImageId: aws.String(imageID), InstanceType: instanceType,
 			MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 		})
+		terminateEC2InstancesOnCleanup(t, c, run)
 		return err
 	}
 

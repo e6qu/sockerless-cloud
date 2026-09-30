@@ -17,6 +17,8 @@ import (
 	"google.golang.org/api/iam/v1"
 	iamcredentials "google.golang.org/api/iamcredentials/v1"
 	"google.golang.org/api/option"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func iamService(t *testing.T) *iam.Service {
@@ -1059,7 +1061,7 @@ func TestIAMCredentials_GenerateAccessTokenHonoursTheRequestedLifetime(t *testin
 	credSvc := iamCredentialsService(t)
 
 	created, err := iamSvc.Projects.ServiceAccounts.Create("projects/test-project",
-		&iam.CreateServiceAccountRequest{AccountId: "lifetime-sa"}).Do()
+		&iam.CreateServiceAccountRequest{AccountId: uniqueName("lifetime-sa")}).Do()
 	require.NoError(t, err)
 
 	scope := []string{"https://www.googleapis.com/auth/cloud-platform"}
@@ -1080,15 +1082,20 @@ func TestIAMCredentials_GenerateAccessTokenHonoursTheRequestedLifetime(t *testin
 			require.NoError(t, err)
 			require.NotEmpty(t, resp.AccessToken)
 
-			expiry, err := time.Parse(time.RFC3339, resp.ExpireTime)
+			expiry, err := time.Parse(time.RFC3339Nano, resp.ExpireTime)
 			require.NoError(t, err, "expireTime is RFC3339: %q", resp.ExpireTime)
+			canonical, err := protojson.Marshal(timestamppb.New(expiry))
+			require.NoError(t, err)
+			assert.Equal(t, `"`+resp.ExpireTime+`"`, string(canonical),
+				"expireTime is a google.protobuf.Timestamp in its canonical JSON form")
+			_, err = time.Parse("2006-01-02T15:04:05Z", resp.ExpireTime)
+			require.NoError(t, err, "google-auth parses expireTime in whole seconds: %q", resp.ExpireTime)
 			got := expiry.Sub(before)
 			// The tolerance scales with the lifetime and stays well under half
 			// the distance to the next candidate in the table, so a response
 			// pinned to any other lifetime — the one-hour default above all —
 			// fails. A flat 30 seconds would swallow the one-second case whole.
-			// The floor of three seconds covers the request round trip plus the
-			// second-precision truncation of an RFC3339 expireTime.
+			// The floor of three seconds covers the request round trip.
 			tolerance := math.Max(3, tc.want.Seconds()*0.05)
 			assert.InDelta(t, tc.want.Seconds(), got.Seconds(), tolerance,
 				"expireTime must track the requested lifetime, not a fixed hour")
@@ -1107,7 +1114,7 @@ func TestIAMCredentials_GenerateAccessTokenRefusesAnOverLongLifetime(t *testing.
 	credSvc := iamCredentialsService(t)
 
 	created, err := iamSvc.Projects.ServiceAccounts.Create("projects/test-project",
-		&iam.CreateServiceAccountRequest{AccountId: "overlong-lifetime-sa"}).Do()
+		&iam.CreateServiceAccountRequest{AccountId: uniqueName("overlong-sa")}).Do()
 	require.NoError(t, err)
 
 	scope := []string{"https://www.googleapis.com/auth/cloud-platform"}

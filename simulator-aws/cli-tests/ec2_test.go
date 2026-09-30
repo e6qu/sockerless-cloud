@@ -5,6 +5,16 @@ import (
 	"testing"
 )
 
+// terminateCLIInstanceOnCleanup terminates an instance once the test ends. On
+// a host that boots each instance as a real machine, an instance left running
+// keeps its machine running and slows every later test's boot.
+func terminateCLIInstanceOnCleanup(t *testing.T, instanceID string) {
+	t.Helper()
+	t.Cleanup(func() {
+		runCLI(t, awsCLI("ec2", "terminate-instances", "--instance-ids", instanceID))
+	})
+}
+
 func TestEC2InstanceLifecycleCLI(t *testing.T) {
 	out := runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.77.0.0/16",

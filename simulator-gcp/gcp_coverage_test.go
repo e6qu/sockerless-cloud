@@ -92,7 +92,7 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"spanner-v1":              198,
 	"sqladmin-v1":             170,
 	"sqladmin-v1beta4":        170,
-	"storage-v1":              89,
+	"storage-v1":              90,
 	"vpcaccess-v1":            16,
 }
 
@@ -356,7 +356,7 @@ var gcpMethodFloor = map[string]int{
 	// objects.get, whose JSON 404 the probe reads as an answer. Only .insert
 	// looked missing, because POST had no catch-all to swallow it. Check the
 	// siblings of any collection sitting under a multi-segment wildcard.
-	"storage-v1": 89,
+	"storage-v1": 90,
 
 	// Artifact Registry: the whole document is served. Raised from 125 by the
 	// prewarmed-artifact family and the plain /v1 spellings of the media

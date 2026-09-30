@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"testing"
@@ -201,13 +202,13 @@ func TestCloudLogging_GRPC_ListMonitoredResourceDescriptors(t *testing.T) {
 	}
 }
 
-// TestCloudLogging_GRPC_TailLogEntries holds the tail to real writes: the
-// backlog it opens with is what the log already held, and the entry written
-// afterwards arrives on the same stream. Nothing else is emitted, because
-// nothing else was written.
+// TestCloudLogging_GRPC_TailLogEntries holds the tail to real writes: it
+// streams entries as they are ingested, so what the log held before the stream
+// opened never arrives, the entries written afterwards do, and a write the
+// filter excludes does not.
 func TestCloudLogging_GRPC_TailLogEntries(t *testing.T) {
 	c := newLoggingV2Client(t)
-	parent := "projects/logging-grpc-tail"
+	parent := "projects/" + uniqueName("logging-grpc-tail")
 	logName := parent + "/logs/tailed"
 	other := parent + "/logs/not-tailed"
 
@@ -226,27 +227,64 @@ func TestCloudLogging_GRPC_TailLogEntries(t *testing.T) {
 		BufferWindow: durationpb.New(50 * time.Millisecond),
 	}))
 
-	backlog, err := stream.Recv()
-	require.NoError(t, err)
-	require.Len(t, backlog.GetEntries(), 1)
-	require.Equal(t, logName, backlog.GetEntries()[0].GetLogName())
-	require.Equal(t, "backlog entry", backlog.GetEntries()[0].GetTextPayload())
+	received := make(chan *loggingpb.LogEntry, 64)
+	recvErr := make(chan error, 1)
+	go func() {
+		for {
+			resp, err := stream.Recv()
+			if err != nil {
+				recvErr <- err
+				return
+			}
+			for _, entry := range resp.GetEntries() {
+				received <- entry
+			}
+		}
+	}()
+	// awaitPayload reads the stream up to the entry carrying want. Probes may
+	// precede it; nothing else may.
+	awaitPayload := func(want string) {
+		t.Helper()
+		for {
+			select {
+			case entry := <-received:
+				require.Equal(t, logName, entry.GetLogName())
+				if entry.GetTextPayload() == want {
+					return
+				}
+				require.Regexp(t, `^probe \d+$`, entry.GetTextPayload(), "the tail carried an entry nothing wrote after it opened")
+			case err := <-recvErr:
+				t.Fatalf("tail ended while waiting for %q: %v", want, err)
+			case <-tailCtx.Done():
+				t.Fatalf("tail never carried %q", want)
+			}
+		}
+	}
 
-	// An entry written while the tail is open reaches it.
+	// Nothing reports when the service has opened the tail, so write probes on
+	// a cadence until one arrives; the entries written before it opened never
+	// do.
+	cadence := time.NewTicker(100 * time.Millisecond)
+	defer cadence.Stop()
+probing:
+	for probe := 0; ; probe++ {
+		loggingWriteTextEntry(t, c, logName, fmt.Sprintf("probe %d", probe))
+		select {
+		case entry := <-received:
+			require.Regexp(t, `^probe \d+$`, entry.GetTextPayload(), "the tail replayed what the log held before it opened")
+			break probing
+		case err := <-recvErr:
+			t.Fatalf("tail ended before any write reached it: %v", err)
+		case <-cadence.C:
+		}
+	}
+
 	loggingWriteTextEntry(t, c, logName, "live entry")
-	live, err := stream.Recv()
-	require.NoError(t, err)
-	require.Len(t, live.GetEntries(), 1)
-	require.Equal(t, "live entry", live.GetEntries()[0].GetTextPayload())
+	awaitPayload("live entry")
 
-	// A write to a log the filter excludes is not tailed: the next thing the
-	// stream carries is the next matching write, not the excluded one.
 	loggingWriteTextEntry(t, c, other, "still excluded")
 	loggingWriteTextEntry(t, c, logName, "third entry")
-	third, err := stream.Recv()
-	require.NoError(t, err)
-	require.Len(t, third.GetEntries(), 1)
-	require.Equal(t, "third entry", third.GetEntries()[0].GetTextPayload())
+	awaitPayload("third entry")
 
 	require.NoError(t, stream.CloseSend())
 	cancel()

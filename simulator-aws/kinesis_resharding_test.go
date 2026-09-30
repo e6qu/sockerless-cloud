@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func kinesisDescribeShards(t *testing.T, stream string) []KinesisShard {
@@ -37,6 +39,10 @@ func TestKinesisUpdateShardCountSplitsAndMergesShards(t *testing.T) {
 		code, out := kinesisCall(t, handleKinesisUpdateShardCount, map[string]any{"StreamName": "reshard", "TargetShardCount": step.target, "ScalingType": "UNIFORM_SCALING"})
 		if code != http.StatusOK || out["CurrentShardCount"] != float64(step.current) || out["TargetShardCount"] != float64(step.target) {
 			t.Fatalf("UpdateShardCount to %d: %d %v, want current %d", step.target, code, out, step.current)
+		}
+		bg.Await()
+		if stream, _ := kinesisStreams.Get("reshard"); stream.StreamStatus != "ACTIVE" {
+			t.Fatalf("stream is %s once the scaling finished, want ACTIVE", stream.StreamStatus)
 		}
 		shards := kinesisDescribeShards(t, "reshard")
 		byID := map[string]KinesisShard{}
@@ -99,6 +105,7 @@ func TestKinesisDrainedClosedShardEndsWithItsChildren(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("SplitShard: %d %v", code, out)
 	}
+	bg.Await()
 	parent, _ := kinesisFindShard(KinesisStream{Shards: kinesisDescribeShards(t, "drain")}, "shardId-000000000000")
 	if parent.SequenceNumberRange["EndingSequenceNumber"] != "2" {
 		t.Fatalf("closed parent %v, want EndingSequenceNumber 2, its last record", parent.SequenceNumberRange)
@@ -164,4 +171,52 @@ func TestKinesisShardIteratorsExpireAfterFiveMinutes(t *testing.T) {
 	if _, kept := kinesisIterators.Get("stale"); kept {
 		t.Fatal("the expired iterator is still stored")
 	}
+}
+
+// UpdateShardCount answers at once with the stream UPDATING, reshards behind
+// the request, and enforces the limits the API reference documents.
+func TestKinesisUpdateShardCountIsAsynchronousAndLimited(t *testing.T) {
+	kinesisTestStores(t)
+	if code, out := kinesisCall(t, handleKinesisCreateStream, map[string]any{"StreamName": "limits", "ShardCount": 4}); code != http.StatusOK {
+		t.Fatalf("CreateStream: %d %v", code, out)
+	}
+	for _, target := range []int64{9, 1} {
+		code, out := kinesisCall(t, handleKinesisUpdateShardCount, map[string]any{"StreamName": "limits", "TargetShardCount": target, "ScalingType": "UNIFORM_SCALING"})
+		if code != http.StatusBadRequest || out["__type"] != "LimitExceededException" {
+			t.Fatalf("UpdateShardCount from 4 to %d: %d %v, want LimitExceededException", target, code, out)
+		}
+	}
+
+	if code, out := kinesisCall(t, handleKinesisUpdateShardCount, map[string]any{"StreamName": "limits", "TargetShardCount": 8, "ScalingType": "UNIFORM_SCALING"}); code != http.StatusOK {
+		t.Fatalf("UpdateShardCount to 8: %d %v", code, out)
+	}
+	bg.Await()
+	if stream, _ := kinesisStreams.Get("limits"); stream.StreamStatus != "ACTIVE" || stream.OpenShardCount != 8 {
+		t.Fatalf("after scaling: %s with %d open shards, want ACTIVE with 8", stream.StreamStatus, stream.OpenShardCount)
+	}
+
+	kinesisStreams.Update("limits", func(s *KinesisStream) { s.StreamStatus = "UPDATING" })
+	code, out := kinesisCall(t, handleKinesisUpdateShardCount, map[string]any{"StreamName": "limits", "TargetShardCount": 6, "ScalingType": "UNIFORM_SCALING"})
+	if code != http.StatusBadRequest || out["__type"] != "ResourceInUseException" {
+		t.Fatalf("UpdateShardCount while UPDATING: %d %v, want ResourceInUseException", code, out)
+	}
+
+	kinesisStreams.Update("limits", func(s *KinesisStream) {
+		s.StreamStatus = "ACTIVE"
+		s.ScalingTimes = nil
+		for range 10 {
+			s.ScalingTimes = append(s.ScalingTimes, time.Now().Add(-time.Hour).Unix())
+		}
+	})
+	code, out = kinesisCall(t, handleKinesisUpdateShardCount, map[string]any{"StreamName": "limits", "TargetShardCount": 5, "ScalingType": "UNIFORM_SCALING"})
+	if code != http.StatusBadRequest || out["__type"] != "LimitExceededException" {
+		t.Fatalf("an eleventh scaling in 24 hours: %d %v, want LimitExceededException", code, out)
+	}
+	kinesisStreams.Update("limits", func(s *KinesisStream) {
+		s.ScalingTimes = []int64{time.Now().Add(-25 * time.Hour).Unix()}
+	})
+	if code, out := kinesisCall(t, handleKinesisUpdateShardCount, map[string]any{"StreamName": "limits", "TargetShardCount": 5, "ScalingType": "UNIFORM_SCALING"}); code != http.StatusOK {
+		t.Fatalf("a scaling older than 24 hours still counted: %d %v", code, out)
+	}
+	bg.Await()
 }

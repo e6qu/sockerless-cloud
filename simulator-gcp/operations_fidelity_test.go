@@ -200,9 +200,22 @@ func TestArtifactRegistryDeletesAnswerEmpty(t *testing.T) {
 		t.Fatalf("tag v2 = %v, want version %s", tag, second)
 	}
 
-	for _, path := range []string{"/v1/" + pkg + "/versions/" + first, "/v1/" + pkg} {
+	// A tagged version deletes only with force, which deletes its tags too.
+	if code, _ := gcpHostCall(t, srv, host, http.MethodDelete, "/v1/"+pkg+"/versions/"+first, ``); code != http.StatusBadRequest {
+		t.Fatalf("deleting a tagged version without force answered %d", code)
+	}
+	for _, path := range []string{"/v1/" + pkg + "/versions/" + first + "?force=true", "/v1/" + pkg} {
 		op := gcpHostOK(t, srv, host, http.MethodDelete, path, ``)
 		grpcReadOperation(t, op["name"].(string), &emptypb.Empty{}, &artifactregistrypb.OperationMetadata{})
+		if strings.Contains(path, "?force") {
+			if code, _ := gcpHostCall(t, srv, host, http.MethodGet, "/v1/"+pkg+"/tags/v1", ``); code != http.StatusNotFound {
+				t.Fatalf("a forced version delete left its tag (%d)", code)
+			}
+		}
+	}
+	images := gcpHostOK(t, srv, host, http.MethodGet, "/v1/"+repo+"/dockerImages", ``)
+	if listed, _ := images["dockerImages"].([]any); len(listed) != 1 {
+		t.Fatalf("deleting the package left its Docker images: %v", images)
 	}
 	if code, _ := gcpHostCall(t, srv, host, http.MethodGet, "/v1/"+pkg+"/versions/"+second, ``); code != http.StatusNotFound {
 		t.Fatalf("deleting the package left its versions behind (%d)", code)

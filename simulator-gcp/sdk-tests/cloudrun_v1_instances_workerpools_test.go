@@ -40,7 +40,7 @@ func getCloudRunV2JSON(t *testing.T, path string) map[string]any {
 
 func TestCloudRunV1_InstancesLifecycle(t *testing.T) {
 	svc := newRunV1(t)
-	const id = "v1-knative-instance"
+	id := uniqueName("v1-knative-instance")
 	parent := "namespaces/" + cloudRunV1Namespace
 
 	created, err := svc.Namespaces.Instances.Create(parent, &run.Instance{
@@ -119,7 +119,7 @@ func TestCloudRunV1_InstancesLifecycle(t *testing.T) {
 // persisting, and that any other value is rejected rather than ignored.
 func TestCloudRunV1_InstancesDryRun(t *testing.T) {
 	svc := newRunV1(t)
-	const id = "v1-dryrun-instance"
+	id := uniqueName("v1-dryrun-instance")
 	parent := "namespaces/" + cloudRunV1Namespace
 
 	created, err := svc.Namespaces.Instances.Create(parent, &run.Instance{
@@ -141,7 +141,7 @@ func TestCloudRunV1_InstancesDryRun(t *testing.T) {
 
 func TestCloudRunV1_WorkerPoolsLifecycle(t *testing.T) {
 	svc := newRunV1(t)
-	const id = "v1-knative-pool"
+	id := uniqueName("v1-knative-pool")
 	parent := "namespaces/" + cloudRunV1Namespace
 
 	created, err := svc.Namespaces.Workerpools.Create(parent, &run.WorkerPool{
@@ -210,7 +210,7 @@ func TestCloudRunV1_WorkerPoolsLifecycle(t *testing.T) {
 // and reads the Knative spelling — the projection in the other direction.
 func TestCloudRunV1_WorkerPoolFromV2IsVisible(t *testing.T) {
 	svc := newRunV1(t)
-	const id = "v2-then-v1-pool"
+	id := uniqueName("v2-then-v1-pool")
 	body := `{"template":{"containers":[{"image":"gcr.io/test-project/v2pool"}]},"labels":{"origin":"v2"}}`
 	req, err := http.NewRequestWithContext(ctx, "POST",
 		fmt.Sprintf("%s/v2/projects/%s/locations/us-central1/workerPools?workerPoolId=%s", baseURL, cloudRunV1Namespace, id),

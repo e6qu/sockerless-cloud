@@ -16,6 +16,7 @@ import (
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/realexec/fabric"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/sparse"
 	dockerclient "github.com/moby/moby/client"
 )
@@ -3445,14 +3446,13 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	subnet, ok := ec2Subnets.Get(subnetID)
 	if !ok {
-		AWSErrorf(w, "InvalidSubnetID.NotFound", http.StatusBadRequest, "The subnet ID %q does not exist", subnetID)
+		ec2ErrorXML(w, "InvalidSubnetID.NotFound", fmt.Sprintf("The subnet ID '%s' does not exist", subnetID), http.StatusBadRequest)
 		return
 	}
-	// The instance is always modeled at the control plane (reaches "running",
-	// describable) — like VPC/subnet/NAT. A real Firecracker VM is booted
-	// opportunistically in ec2TransitionInstanceToRunning only when the host
-	// has VM capabilities; their absence must not fail RunInstances, so
-	// IaC/control-plane testing works in SIM_RUNTIME=process.
+	// The instance is always modeled at the control plane — like
+	// VPC/subnet/NAT. ec2LaunchInstance boots a real Firecracker VM only when
+	// the host has VM capabilities; their absence must not fail RunInstances,
+	// so IaC/control-plane testing works in SIM_RUNTIME=process.
 	reservationID := ec2ID("r")
 	sgIDs := runInstancesSecurityGroups(r)
 	if len(sgIDs) == 0 {
@@ -3528,7 +3528,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 			ip, err := AllocateSubnetIP(subnetID)
 			if err != nil {
 				if i < minCount {
-					AWSError(w, "InsufficientFreeAddressesInSubnet", err.Error(), http.StatusBadRequest)
+					ec2ErrorXML(w, "InsufficientFreeAddressesInSubnet", err.Error(), http.StatusBadRequest)
 					return
 				}
 				break
@@ -3556,7 +3556,12 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 			ec2Instances.Put(inst.InstanceId, inst)
 		}
 		instances = append(instances, inst)
-		go ec2TransitionInstanceToRunning(inst.InstanceId)
+		instanceID := inst.InstanceId
+		bg.Go(func() {
+			if _, err := ec2LaunchInstance(instanceID, nil); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to boot real EC2 instance %s: %v\n", instanceID, err)
+			}
+		})
 	}
 
 	// Record the reservation under its ClientToken so a retried RunInstances
@@ -3752,28 +3757,6 @@ func ec2CreateInstance(spec EC2InstanceCreateSpec) (EC2Instance, error) {
 	return inst, nil
 }
 
-func ec2TransitionInstanceToRunning(instanceID string) {
-	inst, ok := ec2Instances.Get(instanceID)
-	if !ok {
-		return
-	}
-	ec2Instances.Update(instanceID, func(inst *EC2Instance) {
-		if inst.State == "pending" {
-			inst.State = "running"
-		}
-	})
-	// On a real-execution host, boot a real Firecracker VM after the EC2
-	// control plane has converged to running. Host data-plane setup is not the
-	// EC2 control plane, so a local Firecracker boot failure is reported to the
-	// simulator logs without rewriting the instance's EC2 state.
-	if ec2RealVMHostAvailable() {
-		if err := ec2StartRealVM(context.Background(), inst); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to boot real EC2 instance %s: %v\n", instanceID, err)
-			return
-		}
-	}
-}
-
 func handleDescribeInstances(w http.ResponseWriter, r *http.Request) {
 	instanceIDs := ec2ParamList(r, "InstanceId")
 	var instances []EC2Instance
@@ -3781,7 +3764,7 @@ func handleDescribeInstances(w http.ResponseWriter, r *http.Request) {
 		for _, id := range instanceIDs {
 			inst, ok := ec2Instances.Get(id)
 			if !ok {
-				AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+				ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", id), http.StatusBadRequest)
 				return
 			}
 			instances = append(instances, inst)
@@ -3997,7 +3980,7 @@ func writeInstanceStateChange(w http.ResponseWriter, r *http.Request, next strin
 	for _, id := range instanceIDs {
 		inst, ok := ec2Instances.Get(id)
 		if !ok {
-			AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+			ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", id), http.StatusBadRequest)
 			return
 		}
 		prev := inst.State
@@ -4151,7 +4134,7 @@ func handleDescribeInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
 	inst, ok := ec2Instances.Get(instanceID)
 	if !ok {
-		AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", instanceID)
+		ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", instanceID), http.StatusBadRequest)
 		return
 	}
 	attribute := r.FormValue("Attribute")
@@ -4194,7 +4177,7 @@ func handleDescribeInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 func handleModifyInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
 	if _, ok := ec2Instances.Get(instanceID); !ok {
-		AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", instanceID)
+		ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", instanceID), http.StatusBadRequest)
 		return
 	}
 	// Persist the modified attributes (previously a no-op: the set succeeded but
@@ -4228,7 +4211,7 @@ func handleModifyInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 func handleModifyInstanceMetadataOptions(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
 	if _, ok := ec2Instances.Get(instanceID); !ok {
-		AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", instanceID)
+		ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", instanceID), http.StatusBadRequest)
 		return
 	}
 	ec2Instances.Update(instanceID, func(inst *EC2Instance) {
@@ -4813,7 +4796,7 @@ func handleAttachVolume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := ec2Instances.Get(instanceID); !ok {
-		ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID %q does not exist", instanceID), http.StatusBadRequest)
+		ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", instanceID), http.StatusBadRequest)
 		return
 	}
 	if len(vol.Attachments) > 0 {
@@ -5538,7 +5521,7 @@ func handleDescribeNetworkInterfaces(w http.ResponseWriter, r *http.Request) {
 		for _, id := range ids {
 			eni, ok := ec2NetworkInterfaces.Get(id)
 			if !ok {
-				AWSErrorf(w, "InvalidNetworkInterfaceID.NotFound", http.StatusBadRequest, "The networkInterface ID %q does not exist", id)
+				ec2ErrorXML(w, "InvalidNetworkInterfaceID.NotFound", fmt.Sprintf("The networkInterface ID '%s' does not exist", id), http.StatusBadRequest)
 				return
 			}
 			enis = append(enis, eni)

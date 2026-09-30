@@ -231,6 +231,7 @@ func sqsDeleteReceiptHandles(queueName string, receipts []string) {
 	sqsQueues.Update(queueName, func(queue *SQSQueue) {
 		queue.Messages.Remove(func(m msgq.Message[sqsPayload]) bool { return m.Receipt != "" && remove[m.Receipt] })
 	})
+	sqsSignalQueue(queueName)
 }
 
 func lambdaSetESMProcessingResult(uuid, result string) {

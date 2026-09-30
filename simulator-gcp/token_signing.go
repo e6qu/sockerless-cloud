@@ -21,14 +21,15 @@ import (
 // role with a JWT it issues and verifies itself, so a token the simulator
 // minted is the only kind its resource endpoints accept.
 //
-// The issuer and audience are fixed simulator coordinates: an access token is
-// opaque to clients (they present it verbatim as `Authorization: Bearer`), so
-// the claim contents are the simulator's own contract between its minters and
-// its verifier rather than a wire shape any client inspects. The subject
-// carries the minted principal (service-account email or federated workforce
-// principal).
+// Every token names Google's issuer, the one its identity tokens carry and its
+// OpenID Connect discovery document publishes, so a relying party that checks
+// an identity token's iss against the discovery document accepts it. The
+// audience is the simulator's own: an access token is opaque to clients, so
+// the audience is the contract between the simulator's minters and its
+// verifier. The subject carries the minted principal (service-account email or
+// federated workforce principal).
 const (
-	simAccessTokenIssuer   = "https://sockerless-sim.googleapis.com"
+	googleTokenIssuer      = "https://accounts.google.com"
 	simAccessTokenAudience = "https://sockerless-sim.googleapis.com/"
 )
 
@@ -103,7 +104,7 @@ func signWithAccessKey(claims map[string]any) string {
 // the simulator mints flows through here.
 func signAccessToken(subject string, issuedAt, expiresAt time.Time) string {
 	return signWithAccessKey(map[string]any{
-		"iss":   simAccessTokenIssuer,
+		"iss":   googleTokenIssuer,
 		"aud":   simAccessTokenAudience,
 		"sub":   subject,
 		"iat":   issuedAt.Unix(),
@@ -124,7 +125,7 @@ func signAccessToken(subject string, issuedAt, expiresAt time.Time) string {
 // token carries. The subject/email is the workload service-account email.
 func signIdentityToken(subject, audience string, issuedAt, expiresAt time.Time) string {
 	return signWithAccessKey(map[string]any{
-		"iss":            simAccessTokenIssuer,
+		"iss":            googleTokenIssuer,
 		"aud":            []string{audience, simAccessTokenAudience},
 		"azp":            subject,
 		"sub":            subject,
@@ -148,7 +149,7 @@ func signIdentityToken(subject, audience string, issuedAt, expiresAt time.Time) 
 // service-account email.
 func signInvokeIDToken(subject string, issuedAt, expiresAt time.Time) string {
 	return signWithAccessKey(map[string]any{
-		"iss":            simAccessTokenIssuer,
+		"iss":            googleTokenIssuer,
 		"aud":            simAccessTokenAudience,
 		"azp":            subject,
 		"sub":            subject,
@@ -172,7 +173,7 @@ func signInvokeIDToken(subject string, issuedAt, expiresAt time.Time) string {
 // the middleware.
 func signServiceAccountIDToken(subject, audience string, includeEmail bool, issuedAt, expiresAt time.Time) string {
 	claims := map[string]any{
-		"iss": "https://accounts.google.com",
+		"iss": googleTokenIssuer,
 		"aud": audience,
 		"azp": subject,
 		"sub": subject,
@@ -217,7 +218,7 @@ func verifiedAccessTokenClaims(raw string) (accessTokenClaims, error) {
 		return claims, fmt.Errorf("access-token signer not initialised")
 	}
 	err := simjwt.Verify(raw, &claims, simjwt.Options{
-		Issuer:        simAccessTokenIssuer,
+		Issuer:        googleTokenIssuer,
 		Audience:      simAccessTokenAudience,
 		RequireExpiry: true,
 	}, accessSigner)
@@ -235,9 +236,9 @@ func verifiedAccessTokenClaims(raw string) (accessTokenClaims, error) {
 // middleware.
 func registerTokenDiscovery(srv *sim.Server) {
 	srv.HandleFunc("GET /.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
-		issuer := requestOrigin(r)
-		doc := simjwt.Discovery(issuer, issuer+"/.well-known/jwks.json", []string{"token"}, accessSigner)
-		doc["token_endpoint"] = issuer + "/token"
+		origin := requestOrigin(r)
+		doc := simjwt.Discovery(googleTokenIssuer, origin+"/.well-known/jwks.json", []string{"token"}, accessSigner)
+		doc["token_endpoint"] = origin + "/token"
 		sim.WriteJSON(w, http.StatusOK, doc)
 	})
 	srv.HandleFunc("GET /.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
@@ -250,7 +251,7 @@ func registerTokenDiscovery(srv *sim.Server) {
 }
 
 // requestOrigin reconstructs the scheme://host base URL the request arrived on,
-// used as the published OpenID Connect issuer.
+// the coordinate of the JWKS and token endpoints discovery publishes.
 func requestOrigin(r *http.Request) string {
 	scheme := "http"
 	if r.TLS != nil {

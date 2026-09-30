@@ -28,6 +28,7 @@ func TestEC2CLI_VolumesSnapshots(t *testing.T) {
 		"--query", "Subnet.SubnetId", "--output", "text")
 	inst := q("ec2", "run-instances", "--image-id", "ami-12345678", "--instance-type", "t3.micro",
 		"--subnet-id", subnet, "--query", "Instances[0].InstanceId", "--output", "text")
+	terminateCLIInstanceOnCleanup(t, inst)
 
 	vol := q("ec2", "create-volume", "--availability-zone", "us-east-1a", "--size", "12",
 		"--query", "VolumeId", "--output", "text")
@@ -50,7 +51,7 @@ func TestEC2CLI_VolumesSnapshots(t *testing.T) {
 }
 
 // TestEC2CLI_RecycleBinTasks covers the recycle-bin list surfaces (snapshots),
-// locked-snapshots / import-snapshot-task read-backs, and the replace-root-volume
+// the locked-snapshots read-back, and the replace-root-volume
 // task lifecycle.
 func TestEC2CLI_RecycleBinTasks(t *testing.T) {
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -61,9 +62,6 @@ func TestEC2CLI_RecycleBinTasks(t *testing.T) {
 	if out := q("ec2", "describe-locked-snapshots", "--query", "Snapshots", "--output", "json"); out != "[]" {
 		t.Fatalf("describe-locked-snapshots: got %q, want []", out)
 	}
-	if out := q("ec2", "describe-import-snapshot-tasks", "--query", "ImportSnapshotTasks", "--output", "json"); out != "[]" {
-		t.Fatalf("describe-import-snapshot-tasks: got %q, want []", out)
-	}
 
 	vpc := q("ec2", "create-vpc", "--cidr-block", "10.221.0.0/16",
 		"--query", "Vpc.VpcId", "--output", "text")
@@ -71,6 +69,7 @@ func TestEC2CLI_RecycleBinTasks(t *testing.T) {
 		"--query", "Subnet.SubnetId", "--output", "text")
 	inst := q("ec2", "run-instances", "--image-id", "ami-12345678", "--instance-type", "t3.micro",
 		"--subnet-id", subnet, "--query", "Instances[0].InstanceId", "--output", "text")
+	terminateCLIInstanceOnCleanup(t, inst)
 
 	task := q("ec2", "create-replace-root-volume-task", "--instance-id", inst,
 		"--image-id", "ami-99999999", "--query", "ReplaceRootVolumeTask.ReplaceRootVolumeTaskId", "--output", "text")
@@ -174,6 +173,7 @@ func TestEC2CLI_LaunchTemplateDnsEni(t *testing.T) {
 		"--query", "Subnet.SubnetId", "--output", "text")
 	inst := q("ec2", "run-instances", "--image-id", "ami-12345678", "--instance-type", "t3.small",
 		"--subnet-id", subnet, "--query", "Instances[0].InstanceId", "--output", "text")
+	terminateCLIInstanceOnCleanup(t, inst)
 
 	img := q("ec2", "get-launch-template-data", "--instance-id", inst,
 		"--query", "LaunchTemplateData.ImageId", "--output", "text")

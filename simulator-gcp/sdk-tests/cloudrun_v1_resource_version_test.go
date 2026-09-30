@@ -35,7 +35,7 @@ func requireRunV1Conflict(t *testing.T, err error) {
 
 func TestCloudRunV1_Service_ResourceVersionOptimisticConcurrency(t *testing.T) {
 	svc := newRunV1(t)
-	const id = "rv-knative-service"
+	id := uniqueName("rv-knative-service")
 	parent := "namespaces/" + cloudRunV1Namespace
 	name := parent + "/services/" + id
 
@@ -90,7 +90,7 @@ func TestCloudRunV1_Service_ResourceVersionOptimisticConcurrency(t *testing.T) {
 func TestCloudRunV1_Service_ResourceVersionTracksV2Writes(t *testing.T) {
 	v1 := newRunV1(t)
 	v2 := newRunV2RESTService(t)
-	const id = "rv-cross-version-service"
+	id := uniqueName("rv-cross-version-service")
 	parent := "namespaces/" + cloudRunV1Namespace
 	name := parent + "/services/" + id
 
@@ -141,7 +141,7 @@ func TestCloudRunV1_Service_ResourceVersionTracksV2Writes(t *testing.T) {
 // regional endpoint publishes — over the same record.
 func TestCloudRunV1_RegionalService_ResourceVersionOptimisticConcurrency(t *testing.T) {
 	svc := newRunV1(t)
-	const id = "rv-regional-service"
+	id := uniqueName("rv-regional-service")
 	parent := "projects/" + cloudRunV1Namespace + "/locations/us-central1"
 	name := parent + "/services/" + id
 
@@ -175,7 +175,7 @@ func TestCloudRunV1_RegionalService_ResourceVersionOptimisticConcurrency(t *test
 
 func TestCloudRunV1_Job_ResourceVersionOptimisticConcurrency(t *testing.T) {
 	svc := newRunV1(t)
-	const id = "rv-knative-job"
+	id := uniqueName("rv-knative-job")
 	parent := "namespaces/" + cloudRunV1Namespace
 	name := parent + "/jobs/" + id
 
@@ -217,7 +217,7 @@ func TestCloudRunV1_Job_ResourceVersionOptimisticConcurrency(t *testing.T) {
 
 func TestCloudRunV1_Instance_ResourceVersionOptimisticConcurrency(t *testing.T) {
 	svc := newRunV1(t)
-	const id = "rv-knative-instance"
+	id := uniqueName("rv-knative-instance")
 	parent := "namespaces/" + cloudRunV1Namespace
 	name := parent + "/instances/" + id
 
@@ -247,7 +247,7 @@ func TestCloudRunV1_Instance_ResourceVersionOptimisticConcurrency(t *testing.T) 
 
 func TestCloudRunV1_WorkerPool_ResourceVersionOptimisticConcurrency(t *testing.T) {
 	svc := newRunV1(t)
-	const id = "rv-knative-workerpool"
+	id := uniqueName("rv-knative-workerpool")
 	parent := "namespaces/" + cloudRunV1Namespace
 	name := parent + "/workerpools/" + id
 

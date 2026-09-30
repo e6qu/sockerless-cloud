@@ -58,6 +58,11 @@ func TestResourceManagerProjects_APIv3Lifecycle(t *testing.T) {
 	created, err := op.Wait(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, projectID, created.GetProjectId())
+	metadata, err := op.Metadata()
+	require.NoError(t, err)
+	assert.True(t, metadata.GetGettable(), "a created project is gettable")
+	assert.True(t, metadata.GetReady(), "a created project is ready")
+	assert.Equal(t, created.GetCreateTime().AsTime(), metadata.GetCreateTime().AsTime())
 	assert.Equal(t, resourcemanagerpb.Project_ACTIVE, created.GetState())
 	assert.Regexp(t, crmProjectNumberName, created.GetName(),
 		"v3 resource name must be the projects/{projectNumber} form")

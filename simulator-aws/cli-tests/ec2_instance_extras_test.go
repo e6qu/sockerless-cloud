@@ -16,6 +16,7 @@ func ec2LaunchInstanceCLI(t *testing.T, q func(args ...string) string, base stri
 	inst := q("ec2", "run-instances", "--image-id", "ami-12345678",
 		"--instance-type", "t3.micro", "--subnet-id", subnet,
 		"--query", "Instances[0].InstanceId", "--output", "text")
+	terminateCLIInstanceOnCleanup(t, inst)
 	if inst == "" {
 		t.Fatal("run-instances returned empty instance id")
 	}

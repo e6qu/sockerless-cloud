@@ -220,7 +220,7 @@ func TestCloudSQL_ResolveConnectSettingsAndPointInTimeRestore(t *testing.T) {
 // client has no rapidCaches collection yet, so these speak the JSON API
 // directly — the same wire a client will speak once it does.
 func TestGCS_RapidCachesAndManagedFolderPatch(t *testing.T) {
-	const bucket = "rapid-cache-bucket"
+	bucket := uniqueName("rapid-cache-bucket")
 	gcpRawJSON(t, http.MethodPost, "/storage/v1/b?project=test-project",
 		map[string]any{"name": bucket}, http.StatusOK)
 

@@ -588,6 +588,28 @@ func TestEC2_EBSVolumeSnapshotLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// terminateEC2InstancesOnCleanup terminates the instances a RunInstances call
+// launched once the test ends. On a host that boots each instance as a real
+// machine, an instance left running keeps its machine running and slows every
+// later test's boot.
+func terminateEC2InstancesOnCleanup(t *testing.T, client *ec2.Client, run *ec2.RunInstancesOutput) {
+	t.Helper()
+	if run == nil {
+		return
+	}
+	var ids []string
+	for _, inst := range run.Instances {
+		ids = append(ids, aws.ToString(inst.InstanceId))
+	}
+	if len(ids) == 0 {
+		return
+	}
+	t.Cleanup(func() {
+		_, err := client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: ids})
+		assert.NoError(t, err, "terminate %v", ids)
+	})
+}
+
 func waitForEC2InstanceRunning(t *testing.T, client *ec2.Client, instanceID string) *ec2.DescribeInstancesOutput {
 	t.Helper()
 	out, err := ec2.NewInstanceRunningWaiter(client, func(o *ec2.InstanceRunningWaiterOptions) {

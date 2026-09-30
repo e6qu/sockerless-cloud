@@ -1,8 +1,14 @@
 package main
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	amqp "github.com/Azure/go-amqp"
 )
 
 func TestServiceBusScheduleAndCancelOnAQueue(t *testing.T) {
@@ -141,5 +147,82 @@ func TestSBAMQPRefusesAReceiverOfTheWrongSessionKind(t *testing.T) {
 	}
 	if got := detachError(sessionSource); got != "amqp:not-allowed" {
 		t.Fatalf("a session receiver on a sessionless queue was answered with %q", got)
+	}
+}
+
+// The REST plane cannot accept a session: it refuses to receive from a
+// session-enabled queue, and a session-enabled queue or a topic fanning out to
+// a session-enabled subscription refuses a message without a session id.
+func TestServiceBusRESTRefusesSessionlessUseOfSessionEntities(t *testing.T) {
+	newServiceBusQueueTestStores(t)
+	sbTestQueue("sq", map[string]any{"requiresSession": true})
+	topicID := sbAdminTopicID("ns", "t")
+	sbTopics.Put(topicID, SBTopic{ID: topicID, Name: "t"})
+	subID := sbAdminSubscriptionID("ns", "t", "s")
+	sbSubscriptions.Put(subID, SBSubscription{ID: subID, Name: "s", Properties: map[string]any{"requiresSession": true}})
+
+	for _, target := range []string{"/sq/messages", "/t/messages"} {
+		rec := httptest.NewRecorder()
+		handleSBRESTDataPlane(rec, httptest.NewRequest(http.MethodPost, target, strings.NewReader("no session")), "ns")
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "The SessionId was not set on a message") {
+			t.Fatalf("sessionless send to %s = %d %s, want 400 naming the missing SessionId", target, rec.Code, rec.Body)
+		}
+	}
+
+	send := httptest.NewRequest(http.MethodPost, "/sq/messages", strings.NewReader("in s1"))
+	send.Header.Set("BrokerProperties", `{"SessionId":"s1"}`)
+	sent := httptest.NewRecorder()
+	handleSBRESTDataPlane(sent, send, "ns")
+	if sent.Code != http.StatusCreated {
+		t.Fatalf("send with a session id = %d %s", sent.Code, sent.Body)
+	}
+	if session, _, ok, err := sbAcceptSession("ns", "sq", "s1", "amqp-receiver"); err != nil || !ok || session != "s1" {
+		t.Fatalf("accept s1 = %q %v %v", session, ok, err)
+	}
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		rec := httptest.NewRecorder()
+		handleSBRESTDataPlane(rec, httptest.NewRequest(method, "/sq/messages/head", nil), "ns")
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "requires sessions") {
+			t.Fatalf("REST %s receive from a session queue = %d %s, want 400", method, rec.Code, rec.Body)
+		}
+	}
+	if got, _ := sbReceive("ns", "sq", "s1", 1, false); len(got) != 1 || string(got[0].Payload.Body) != "in s1" {
+		t.Fatalf("the session's lock holder lost its message: %+v", got)
+	}
+}
+
+// schedule-message on a session-enabled queue refuses a message without a
+// session id and schedules one that carries it.
+func TestServiceBusScheduleRefusesSessionlessMessagesOnASessionQueue(t *testing.T) {
+	newServiceBusQueueTestStores(t)
+	sbTestQueue("sq", map[string]any{"requiresSession": true})
+	schedule := func(msg *amqp.Message) *amqp.Message {
+		t.Helper()
+		msg.Annotations = amqp.Annotations{"x-opt-scheduled-enqueue-time": time.Now().Add(time.Hour)}
+		raw, err := msg.MarshalBinary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sbAMQPHandleRPC("ns", "sq", &amqp.Message{
+			Properties:            &amqp.MessageProperties{MessageID: "rpc-1"},
+			ApplicationProperties: map[string]any{"operation": "com.microsoft:schedule-message"},
+			Value:                 map[string]any{"messages": []any{map[string]any{"message": raw}}},
+		})
+	}
+	refused := schedule(&amqp.Message{Data: [][]byte{[]byte("no session")}})
+	if code := fmt.Sprint(refused.ApplicationProperties["status-code"]); code != "400" ||
+		!strings.Contains(fmt.Sprint(refused.ApplicationProperties["status-description"]), "The SessionId was not set on a message") {
+		t.Fatalf("schedule without a session id answered %v", refused.ApplicationProperties)
+	}
+	if n := sbScheduledCount("ns", "sq"); n != 0 {
+		t.Fatalf("a refused message was scheduled: %d", n)
+	}
+	group := "s1"
+	accepted := schedule(&amqp.Message{Data: [][]byte{[]byte("in s1")}, Properties: &amqp.MessageProperties{GroupID: &group}})
+	if code := fmt.Sprint(accepted.ApplicationProperties["status-code"]); code != "200" {
+		t.Fatalf("schedule with a session id answered %v", accepted.ApplicationProperties)
+	}
+	if n := sbScheduledCount("ns", "sq"); n != 1 {
+		t.Fatalf("scheduled count %d, want 1", n)
 	}
 }

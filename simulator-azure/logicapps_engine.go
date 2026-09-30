@@ -130,11 +130,14 @@ func (run *logicRun) runActions(actions map[string]any) string {
 	}
 	sort.Strings(names)
 	done := map[string]bool{}
-	for run.terminated == nil {
+	for run.terminated == nil && run.ctx.Err() == nil {
 		progressed := false
 		for _, name := range names {
 			if done[name] {
 				continue
+			}
+			if run.ctx.Err() != nil {
+				break
 			}
 			action, _ := actions[name].(map[string]any)
 			ready, skip := run.dependencies(action, done)
@@ -223,6 +226,9 @@ func (run *logicRun) dependencies(action map[string]any, done map[string]bool) (
 func (run *logicRun) execute(name string, action map[string]any) *logicActionResult {
 	result := &logicActionResult{StartTime: time.Now().UTC()}
 	finish := func(status, code string, err error) *logicActionResult {
+		if status == "Failed" && run.ctx.Err() != nil {
+			status, code = "Cancelled", "Cancelled"
+		}
 		result.Status, result.Code, result.EndTime = status, code, time.Now().UTC()
 		if err != nil {
 			errCode := code

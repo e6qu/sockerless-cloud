@@ -22,6 +22,7 @@ func TestEventGrid_EventSubscriptionFilterRoundTrip(t *testing.T) {
 	subs, err := armeventgrid.NewEventSubscriptionsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
+	hook, _ := newEventGridWebhook(t)
 	const topicName = "filter-topic"
 	tp, err := topics.BeginCreateOrUpdate(ctx, rg, topicName, armeventgrid.Topic{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
@@ -34,7 +35,7 @@ func TestEventGrid_EventSubscriptionFilterRoundTrip(t *testing.T) {
 			Destination: &armeventgrid.WebHookEventSubscriptionDestination{
 				EndpointType: to.Ptr(armeventgrid.EndpointTypeWebHook),
 				Properties: &armeventgrid.WebHookEventSubscriptionDestinationProperties{
-					EndpointURL: to.Ptr("https://example.test/hook"),
+					EndpointURL: to.Ptr(hook.URL),
 				},
 			},
 			Filter: &armeventgrid.EventSubscriptionFilter{

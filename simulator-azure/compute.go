@@ -1244,8 +1244,8 @@ func registerVirtualMachines(srv *sim.Server) {
 			azureVMStates.Put(id, "PowerState/running")
 			return nil
 		})
-		w.Header().Set("Azure-AsyncOperation", azureAsyncOperationHeader(r, sub, "Microsoft.Compute", vm.Location,
-			"operationStatuses", opID, r.URL.Query().Get("api-version")))
+		asyncOperation, _ := computeOperationURLs(r, sub, vm.Location, opID)
+		w.Header().Set("Azure-AsyncOperation", asyncOperation)
 		setAzureAsyncOperationRetryAfter(w, opID)
 		status := http.StatusOK
 		if created {

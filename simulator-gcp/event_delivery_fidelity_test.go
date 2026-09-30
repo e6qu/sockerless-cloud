@@ -153,14 +153,17 @@ func TestPubSubAckDeadlineRange(t *testing.T) {
 func TestGCSNotificationsPublishObjectChanges(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
 	const host = "storage.googleapis.com"
-	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/p/topics/gcs-events", `{}`)
+	for _, topic := range []string{"gcs-events", "other"} {
+		gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/p/topics/"+topic, `{}`)
+		gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPost, "/v1/projects/p/topics/"+topic+":setIamPolicy",
+			`{"policy":{"bindings":[{"role":"roles/pubsub.publisher","members":["serviceAccount:service-p@gs-project-accounts.iam.gserviceaccount.com"]}]}}`)
+	}
 	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/p/subscriptions/gcs-events", `{"topic":"projects/p/topics/gcs-events"}`)
 	gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b?project=p", `{"name":"watched"}`)
 	first := gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b/watched/notificationConfigs",
 		`{"topic":"//pubsub.googleapis.com/projects/p/topics/gcs-events","payload_format":"JSON_API_V1","event_types":["OBJECT_FINALIZE","OBJECT_DELETE"],"object_name_prefix":"in/","custom_attributes":{"team":"data"}}`)
 	second := gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b/watched/notificationConfigs",
 		`{"topic":"//pubsub.googleapis.com/projects/p/topics/other"}`)
-	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/p/topics/other", `{}`)
 	if code, _ := gcpHostCall(t, srv, host, http.MethodDelete, "/storage/v1/b/watched/notificationConfigs/"+second["id"].(string), ``); code != http.StatusNoContent {
 		t.Fatalf("delete notification answered %d", code)
 	}
@@ -232,6 +235,12 @@ func TestEventarcStorageTriggerDeliversCloudEvents(t *testing.T) {
 	if configs := gcsBucketNotifications("uploads"); len(configs) != 1 || configs[0].EventTypes[0] != "OBJECT_FINALIZE" {
 		t.Fatalf("the trigger's bucket holds notification configurations %v", configs)
 	}
+	uploadTrigger, _ := eventarcTriggers.Get(eventarcTriggerKey("p", "us-central1", "on-upload"))
+	transport, _ := uploadTrigger.Transport["pubsub"].(map[string]any)
+	createdTopic, _ := transport["topic"].(string)
+	if _, ok := psTopics.Get(createdTopic); !ok || !strings.HasPrefix(createdTopic, "projects/p/topics/eventarc-us-central1-on-upload-") {
+		t.Fatalf("Eventarc created no transport topic: %v", transport)
+	}
 
 	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/upload/storage/v1/b/uploads/o?uploadType=media&name=photo.jpg", "jpeg bytes")
 	psPushSweep(context.Background())
@@ -250,6 +259,9 @@ func TestEventarcStorageTriggerDeliversCloudEvents(t *testing.T) {
 	gcpHostOK(t, srv, host, http.MethodDelete, "/v1/projects/p/locations/us-central1/triggers/on-upload", ``)
 	if configs := gcsBucketNotifications("uploads"); len(configs) != 0 {
 		t.Fatalf("the deleted trigger left notification configurations %v", configs)
+	}
+	if _, still := psTopics.Get(createdTopic); still {
+		t.Fatalf("the transport topic %s Eventarc created outlived its trigger", createdTopic)
 	}
 }
 

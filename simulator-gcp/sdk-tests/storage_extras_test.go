@@ -8,7 +8,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
+	pubsubapi "google.golang.org/api/pubsub/v1"
 	storageapi "google.golang.org/api/storage/v1"
 )
 
@@ -91,11 +93,12 @@ func mustCreateBucket(t *testing.T, svc *storageapi.Service, name string) {
 }
 
 func TestGCS_BucketACL_RoundTrip(t *testing.T) {
+	bucketAclBucket := uniqueName("acl-bucket")
 	svc := storageService(t)
-	mustCreateBucket(t, svc, "acl-bucket")
+	mustCreateBucket(t, svc, bucketAclBucket)
 
 	const entity = "user-liz@example.com"
-	created, err := svc.BucketAccessControls.Insert("acl-bucket", &storageapi.BucketAccessControl{
+	created, err := svc.BucketAccessControls.Insert(bucketAclBucket, &storageapi.BucketAccessControl{
 		Entity: entity,
 		Role:   "READER",
 	}).Do()
@@ -105,36 +108,37 @@ func TestGCS_BucketACL_RoundTrip(t *testing.T) {
 	assert.Equal(t, "READER", created.Role)
 	assert.Equal(t, "liz@example.com", created.Email)
 
-	got, err := svc.BucketAccessControls.Get("acl-bucket", entity).Do()
+	got, err := svc.BucketAccessControls.Get(bucketAclBucket, entity).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "READER", got.Role)
 
-	updated, err := svc.BucketAccessControls.Update("acl-bucket", entity, &storageapi.BucketAccessControl{
+	updated, err := svc.BucketAccessControls.Update(bucketAclBucket, entity, &storageapi.BucketAccessControl{
 		Entity: entity,
 		Role:   "OWNER",
 	}).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "OWNER", updated.Role)
 
-	list, err := svc.BucketAccessControls.List("acl-bucket").Do()
+	list, err := svc.BucketAccessControls.List(bucketAclBucket).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#bucketAccessControls", list.Kind)
 	require.Len(t, list.Items, 1)
 	assert.Equal(t, "OWNER", list.Items[0].Role)
 
-	require.NoError(t, svc.BucketAccessControls.Delete("acl-bucket", entity).Do())
+	require.NoError(t, svc.BucketAccessControls.Delete(bucketAclBucket, entity).Do())
 
-	list, err = svc.BucketAccessControls.List("acl-bucket").Do()
+	list, err = svc.BucketAccessControls.List(bucketAclBucket).Do()
 	require.NoError(t, err)
 	assert.Empty(t, list.Items)
 }
 
 func TestGCS_DefaultObjectACL_RoundTrip(t *testing.T) {
+	bucketDefaclBucket := uniqueName("defacl-bucket")
 	svc := storageService(t)
-	mustCreateBucket(t, svc, "defacl-bucket")
+	mustCreateBucket(t, svc, bucketDefaclBucket)
 
 	const entity = "group-team@example.com"
-	created, err := svc.DefaultObjectAccessControls.Insert("defacl-bucket", &storageapi.ObjectAccessControl{
+	created, err := svc.DefaultObjectAccessControls.Insert(bucketDefaclBucket, &storageapi.ObjectAccessControl{
 		Entity: entity,
 		Role:   "READER",
 	}).Do()
@@ -142,14 +146,14 @@ func TestGCS_DefaultObjectACL_RoundTrip(t *testing.T) {
 	assert.Equal(t, "storage#objectAccessControl", created.Kind)
 	assert.Equal(t, "team@example.com", created.Email)
 
-	got, err := svc.DefaultObjectAccessControls.Get("defacl-bucket", entity).Do()
+	got, err := svc.DefaultObjectAccessControls.Get(bucketDefaclBucket, entity).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "READER", got.Role)
 
 	// A bucket created without a default object ACL of its own carries the
 	// predefined projectPrivate one, so the inserted entry is the fourth
 	// rather than the only one.
-	list, err := svc.DefaultObjectAccessControls.List("defacl-bucket").Do()
+	list, err := svc.DefaultObjectAccessControls.List(bucketDefaclBucket).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#objectAccessControls", list.Kind)
 	require.Len(t, list.Items, 4)
@@ -159,9 +163,9 @@ func TestGCS_DefaultObjectACL_RoundTrip(t *testing.T) {
 		"project-viewers-123456789012",
 	})
 
-	require.NoError(t, svc.DefaultObjectAccessControls.Delete("defacl-bucket", entity).Do())
+	require.NoError(t, svc.DefaultObjectAccessControls.Delete(bucketDefaclBucket, entity).Do())
 
-	list, err = svc.DefaultObjectAccessControls.List("defacl-bucket").Do()
+	list, err = svc.DefaultObjectAccessControls.List(bucketDefaclBucket).Do()
 	require.NoError(t, err)
 	assert.Len(t, list.Items, 3, "deleting the inserted entry leaves projectPrivate behind")
 }
@@ -177,29 +181,61 @@ func defaultACLEntities(items []*storageapi.ObjectAccessControl) []string {
 
 func TestGCS_Notifications_RoundTrip(t *testing.T) {
 	svc := storageService(t)
-	mustCreateBucket(t, svc, "notif-bucket")
-
-	created, err := svc.Notifications.Insert("notif-bucket", &storageapi.Notification{
-		Topic:         "//pubsub.googleapis.com/projects/test-project/topics/my-topic",
+	bucket := uniqueName("notif-bucket")
+	mustCreateBucket(t, svc, bucket)
+	topicName := "projects/test-project/topics/" + uniqueName("notif-topic")
+	topic := "//pubsub.googleapis.com/" + topicName
+	notification := &storageapi.Notification{
+		Topic:         topic,
 		PayloadFormat: "JSON_API_V1",
 		EventTypes:    []string{"OBJECT_FINALIZE"},
+	}
+
+	// Cloud Storage refuses a topic that does not exist, and one its service
+	// agent may not publish to, with the same 403.
+	_, err := svc.Notifications.Insert(bucket, notification).Do()
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.Code)
+	assert.Contains(t, apiErr.Message, "does not have permission to publish messages")
+
+	pubsubSvc := pubsubService(t)
+	_, err = pubsubSvc.Projects.Topics.Create(topicName, &pubsubapi.Topic{}).Do()
+	require.NoError(t, err)
+	_, err = svc.Notifications.Insert(bucket, notification).Do()
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.Code)
+
+	agent, err := svc.Projects.ServiceAccount.Get("test-project").Do()
+	require.NoError(t, err)
+	_, err = pubsubSvc.Projects.Topics.SetIamPolicy(topicName, &pubsubapi.SetIamPolicyRequest{
+		Policy: &pubsubapi.Policy{Bindings: []*pubsubapi.Binding{{
+			Role: "roles/pubsub.publisher", Members: []string{"serviceAccount:" + agent.EmailAddress},
+		}}},
 	}).Do()
+	require.NoError(t, err)
+
+	_, err = svc.Notifications.Insert(bucket, &storageapi.Notification{Topic: "projects/test-project/topics/x"}).Do()
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Code, "a topic that is not a full Pub/Sub resource name is invalid")
+
+	created, err := svc.Notifications.Insert(bucket, notification).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#notification", created.Kind)
 	assert.NotEmpty(t, created.Id)
 	assert.Equal(t, "JSON_API_V1", created.PayloadFormat)
 
-	got, err := svc.Notifications.Get("notif-bucket", created.Id).Do()
+	got, err := svc.Notifications.Get(bucket, created.Id).Do()
 	require.NoError(t, err)
 	assert.Equal(t, created.Topic, got.Topic)
 	assert.Equal(t, []string{"OBJECT_FINALIZE"}, got.EventTypes)
 
-	list, err := svc.Notifications.List("notif-bucket").Do()
+	list, err := svc.Notifications.List(bucket).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#notifications", list.Kind)
 	require.Len(t, list.Items, 1)
 
-	require.NoError(t, svc.Notifications.Delete("notif-bucket", created.Id).Do())
+	require.NoError(t, svc.Notifications.Delete(bucket, created.Id).Do())
 }
 
 func TestGCS_HmacKeys_RoundTrip(t *testing.T) {
@@ -247,19 +283,20 @@ func TestGCS_ServiceAccount(t *testing.T) {
 }
 
 func TestGCS_Folders_RoundTrip(t *testing.T) {
+	bucketFoldersBucket := uniqueName("folders-bucket")
 	svc := storageService(t)
-	mustCreateBucket(t, svc, "folders-bucket")
+	mustCreateBucket(t, svc, bucketFoldersBucket)
 
-	created, err := svc.Folders.Insert("folders-bucket", &storageapi.Folder{Name: "a/"}).Do()
+	created, err := svc.Folders.Insert(bucketFoldersBucket, &storageapi.Folder{Name: "a/"}).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#folder", created.Kind)
 	assert.Equal(t, "a/", created.Name)
 
-	got, err := svc.Folders.Get("folders-bucket", "a/").Do()
+	got, err := svc.Folders.Get(bucketFoldersBucket, "a/").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "a/", got.Name)
 
-	list, err := svc.Folders.List("folders-bucket").Do()
+	list, err := svc.Folders.List(bucketFoldersBucket).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#folders", list.Kind)
 	require.Len(t, list.Items, 1)
@@ -267,39 +304,40 @@ func TestGCS_Folders_RoundTrip(t *testing.T) {
 	// Rename returns a long-running operation. Read the outcome the way a
 	// client does — by polling the operation the rename named until the
 	// collection reports it complete.
-	op, err := svc.Folders.Rename("folders-bucket", "a/", "b/").Do()
+	op, err := svc.Folders.Rename(bucketFoldersBucket, "a/", "b/").Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, op.Name)
 	renameID := op.Name[strings.LastIndex(op.Name, "/")+1:]
 	finished := awaitLRO(t, op.Name,
 		func() (*storageapi.GoogleLongrunningOperation, error) {
-			return svc.Operations.Get("folders-bucket", renameID).Do()
+			return svc.Operations.Get(bucketFoldersBucket, renameID).Do()
 		},
 		func(o *storageapi.GoogleLongrunningOperation) bool { return o.Done })
 	assert.Equal(t, op.Name, finished.Name)
 	assert.Nil(t, finished.Error, "the rename completed without an error")
 
-	_, err = svc.Folders.Get("folders-bucket", "b/").Do()
+	_, err = svc.Folders.Get(bucketFoldersBucket, "b/").Do()
 	require.NoError(t, err)
-	_, err = svc.Folders.Get("folders-bucket", "a/").Do()
+	_, err = svc.Folders.Get(bucketFoldersBucket, "a/").Do()
 	require.Error(t, err, "the rename moved the folder rather than copying it")
 
-	require.NoError(t, svc.Folders.Delete("folders-bucket", "b/").Do())
+	require.NoError(t, svc.Folders.Delete(bucketFoldersBucket, "b/").Do())
 }
 
 func TestGCS_ManagedFolders_RoundTrip(t *testing.T) {
+	bucketMfBucket := uniqueName("mf-bucket")
 	svc := storageService(t)
-	mustCreateBucket(t, svc, "mf-bucket")
+	mustCreateBucket(t, svc, bucketMfBucket)
 
-	created, err := svc.ManagedFolders.Insert("mf-bucket", &storageapi.ManagedFolder{Name: "mf/"}).Do()
+	created, err := svc.ManagedFolders.Insert(bucketMfBucket, &storageapi.ManagedFolder{Name: "mf/"}).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#managedFolder", created.Kind)
 
-	got, err := svc.ManagedFolders.Get("mf-bucket", "mf/").Do()
+	got, err := svc.ManagedFolders.Get(bucketMfBucket, "mf/").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "mf/", got.Name)
 
-	list, err := svc.ManagedFolders.List("mf-bucket").Do()
+	list, err := svc.ManagedFolders.List(bucketMfBucket).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#managedFolders", list.Kind)
 	require.Len(t, list.Items, 1)
@@ -311,26 +349,27 @@ func TestGCS_ManagedFolders_RoundTrip(t *testing.T) {
 			Members: []string{"user:liz@example.com"},
 		}},
 	}
-	gotPolicy, err := svc.ManagedFolders.SetIamPolicy("mf-bucket", "mf/", setPolicy).Do()
+	gotPolicy, err := svc.ManagedFolders.SetIamPolicy(bucketMfBucket, "mf/", setPolicy).Do()
 	require.NoError(t, err)
 	require.Len(t, gotPolicy.Bindings, 1)
 
-	readPolicy, err := svc.ManagedFolders.GetIamPolicy("mf-bucket", "mf/").Do()
+	readPolicy, err := svc.ManagedFolders.GetIamPolicy(bucketMfBucket, "mf/").Do()
 	require.NoError(t, err)
 	require.Len(t, readPolicy.Bindings, 1)
 	assert.Equal(t, "roles/storage.objectViewer", readPolicy.Bindings[0].Role)
 
-	perms, err := svc.ManagedFolders.TestIamPermissions("mf-bucket", "mf/",
+	perms, err := svc.ManagedFolders.TestIamPermissions(bucketMfBucket, "mf/",
 		[]string{"storage.managedFolders.get"}).Do()
 	require.NoError(t, err)
 	assert.Equal(t, []string{"storage.managedFolders.get"}, perms.Permissions)
 
-	require.NoError(t, svc.ManagedFolders.Delete("mf-bucket", "mf/").Do())
+	require.NoError(t, svc.ManagedFolders.Delete(bucketMfBucket, "mf/").Do())
 }
 
 func TestGCS_BucketIAM_TestPermissions(t *testing.T) {
+	bucketIamPermsBucket := uniqueName("iam-perms-bucket")
 	svc := storageService(t)
-	mustCreateBucket(t, svc, "iam-perms-bucket")
+	mustCreateBucket(t, svc, bucketIamPermsBucket)
 
 	setPolicy := &storageapi.Policy{
 		Bindings: []*storageapi.PolicyBindings{{
@@ -338,14 +377,14 @@ func TestGCS_BucketIAM_TestPermissions(t *testing.T) {
 			Members: []string{"user:liz@example.com"},
 		}},
 	}
-	_, err := svc.Buckets.SetIamPolicy("iam-perms-bucket", setPolicy).Do()
+	_, err := svc.Buckets.SetIamPolicy(bucketIamPermsBucket, setPolicy).Do()
 	require.NoError(t, err)
 
-	read, err := svc.Buckets.GetIamPolicy("iam-perms-bucket").Do()
+	read, err := svc.Buckets.GetIamPolicy(bucketIamPermsBucket).Do()
 	require.NoError(t, err)
 	require.Len(t, read.Bindings, 1)
 
-	perms, err := svc.Buckets.TestIamPermissions("iam-perms-bucket",
+	perms, err := svc.Buckets.TestIamPermissions(bucketIamPermsBucket,
 		[]string{"storage.buckets.get", "storage.buckets.delete"}).Do()
 	require.NoError(t, err)
 	assert.ElementsMatch(t,
@@ -358,26 +397,27 @@ func TestGCS_BucketIAM_TestPermissions(t *testing.T) {
 // the retention policy the caller put on it, and a bucket the service does not
 // hold is NOT_FOUND from both rather than an invented resource.
 func TestGCS_BucketLockRetentionPolicy(t *testing.T) {
+	bucketLockBucket := uniqueName("lock-bucket")
 	svc := storageService(t)
-	mustCreateBucket(t, svc, "lock-bucket")
+	mustCreateBucket(t, svc, bucketLockBucket)
 
-	patched, err := svc.Buckets.Patch("lock-bucket", &storageapi.Bucket{
+	patched, err := svc.Buckets.Patch(bucketLockBucket, &storageapi.Bucket{
 		RetentionPolicy: &storageapi.BucketRetentionPolicy{RetentionPeriod: 60},
 	}).Do()
 	require.NoError(t, err)
 	require.NotNil(t, patched.RetentionPolicy, "the bucket keeps the retention policy it was given")
 	assert.EqualValues(t, 60, patched.RetentionPolicy.RetentionPeriod)
 
-	b, err := svc.Buckets.LockRetentionPolicy("lock-bucket", 1).Do()
+	b, err := svc.Buckets.LockRetentionPolicy(bucketLockBucket, 1).Do()
 	require.NoError(t, err)
-	assert.Equal(t, "lock-bucket", b.Name)
+	assert.Equal(t, bucketLockBucket, b.Name)
 	require.NotNil(t, b.RetentionPolicy,
 		"the lock answers with the bucket's own retention policy, not a bare name")
 	assert.EqualValues(t, 60, b.RetentionPolicy.RetentionPeriod)
 
-	restored, err := svc.Buckets.Restore("lock-bucket", 1).Do()
+	restored, err := svc.Buckets.Restore(bucketLockBucket, 1).Do()
 	require.NoError(t, err)
-	assert.Equal(t, "lock-bucket", restored.Name)
+	assert.Equal(t, bucketLockBucket, restored.Name)
 	require.NotNil(t, restored.RetentionPolicy)
 	assert.EqualValues(t, 60, restored.RetentionPolicy.RetentionPeriod)
 
@@ -391,10 +431,11 @@ func TestGCS_BucketLockRetentionPolicy(t *testing.T) {
 }
 
 func TestGCS_AnywhereCaches_RoundTrip(t *testing.T) {
+	bucketCacheBucket := uniqueName("cache-bucket")
 	svc := storageService(t)
-	mustCreateBucket(t, svc, "cache-bucket")
+	mustCreateBucket(t, svc, bucketCacheBucket)
 
-	op, err := svc.AnywhereCaches.Insert("cache-bucket", &storageapi.AnywhereCache{
+	op, err := svc.AnywhereCaches.Insert(bucketCacheBucket, &storageapi.AnywhereCache{
 		Zone: "us-central1-a",
 		Ttl:  "7200s",
 	}).Do()
@@ -406,32 +447,32 @@ func TestGCS_AnywhereCaches_RoundTrip(t *testing.T) {
 	insertID := op.Name[strings.LastIndex(op.Name, "/")+1:]
 	settled := awaitLRO(t, op.Name,
 		func() (*storageapi.GoogleLongrunningOperation, error) {
-			return svc.Operations.Get("cache-bucket", insertID).Do()
+			return svc.Operations.Get(bucketCacheBucket, insertID).Do()
 		},
 		func(o *storageapi.GoogleLongrunningOperation) bool { return o.Done })
 	assert.Equal(t, op.Name, settled.Name)
 	assert.Nil(t, settled.Error, "the cache insert completed without an error")
 
-	list, err := svc.AnywhereCaches.List("cache-bucket").Do()
+	list, err := svc.AnywhereCaches.List(bucketCacheBucket).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#anywhereCaches", list.Kind)
 	require.Len(t, list.Items, 1)
 	id := list.Items[0].AnywhereCacheId
 	require.NotEmpty(t, id)
 
-	got, err := svc.AnywhereCaches.Get("cache-bucket", id).Do()
+	got, err := svc.AnywhereCaches.Get(bucketCacheBucket, id).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "us-central1-a", got.Zone)
 
-	paused, err := svc.AnywhereCaches.Pause("cache-bucket", id).Do()
+	paused, err := svc.AnywhereCaches.Pause(bucketCacheBucket, id).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "paused", paused.State)
 
-	resumed, err := svc.AnywhereCaches.Resume("cache-bucket", id).Do()
+	resumed, err := svc.AnywhereCaches.Resume(bucketCacheBucket, id).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "running", resumed.State)
 
-	disabled, err := svc.AnywhereCaches.Disable("cache-bucket", id).Do()
+	disabled, err := svc.AnywhereCaches.Disable(bucketCacheBucket, id).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "disabled", disabled.State)
 }
@@ -441,56 +482,57 @@ func TestGCS_AnywhereCaches_RoundTrip(t *testing.T) {
 // minted is NOT_FOUND, from get, from cancel and from advanceRelocateBucket
 // alike.
 func TestGCS_BucketOperations_ReportRecordedWork(t *testing.T) {
+	bucketOpsBucket := uniqueName("ops-bucket")
 	svc := storageService(t)
-	mustCreateBucket(t, svc, "ops-bucket")
+	mustCreateBucket(t, svc, bucketOpsBucket)
 
 	// A bucket that has started no long-running work has no operations.
-	empty, err := svc.Operations.List("ops-bucket").Do()
+	empty, err := svc.Operations.List(bucketOpsBucket).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#operations", empty.Kind)
 	assert.Empty(t, empty.Operations)
 
 	// An identifier the service never minted is not an operation.
-	_, err = svc.Operations.Get("ops-bucket", "op-123").Do()
+	_, err = svc.Operations.Get(bucketOpsBucket, "op-123").Do()
 	require.Error(t, err, "a get must not invent an operation")
 	assert.Contains(t, err.Error(), "404")
-	err = svc.Operations.Cancel("ops-bucket", "op-123").Do()
+	err = svc.Operations.Cancel(bucketOpsBucket, "op-123").Do()
 	require.Error(t, err, "a cancel must not accept an identifier the service has no record of")
 	assert.Contains(t, err.Error(), "404")
-	err = svc.Operations.AdvanceRelocateBucket("ops-bucket", "op-123",
+	err = svc.Operations.AdvanceRelocateBucket(bucketOpsBucket, "op-123",
 		&storageapi.AdvanceRelocateBucketOperationRequest{Ttl: "3600s"}).Do()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "404")
 
 	// A relocation records its operation, and the collection answers about it.
-	started, err := svc.Buckets.Relocate("ops-bucket", &storageapi.RelocateBucketRequest{
+	started, err := svc.Buckets.Relocate(bucketOpsBucket, &storageapi.RelocateBucketRequest{
 		DestinationLocation: "us-east1",
 	}).Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, started.Name)
 	id := started.Name[strings.LastIndex(started.Name, "/")+1:]
-	assert.Equal(t, "projects/_/buckets/ops-bucket/operations/"+id, started.Name)
+	assert.Equal(t, "projects/_/buckets/"+bucketOpsBucket+"/operations/"+id, started.Name)
 	assert.Equal(t, "storage#operation", started.Kind)
 	assert.True(t, started.Done)
-	assert.Contains(t, started.SelfLink, "/storage/v1/b/ops-bucket/operations/"+id)
+	assert.Contains(t, started.SelfLink, "/storage/v1/b/"+bucketOpsBucket+"/operations/"+id)
 
-	got, err := svc.Operations.Get("ops-bucket", id).Do()
+	got, err := svc.Operations.Get(bucketOpsBucket, id).Do()
 	require.NoError(t, err)
 	assert.Equal(t, started.Name, got.Name)
 	assert.Equal(t, "storage#operation", got.Kind)
 	assert.True(t, got.Done)
 
-	listed, err := svc.Operations.List("ops-bucket").Do()
+	listed, err := svc.Operations.List(bucketOpsBucket).Do()
 	require.NoError(t, err)
 	require.Len(t, listed.Operations, 1)
 	assert.Equal(t, started.Name, listed.Operations[0].Name)
 
 	// The AIP-160 term the collection filters on — the one
 	// `gcloud storage operations list --server-filter` documents.
-	done, err := svc.Operations.List("ops-bucket").Filter("done = true").Do()
+	done, err := svc.Operations.List(bucketOpsBucket).Filter("done = true").Do()
 	require.NoError(t, err)
 	require.Len(t, done.Operations, 1)
-	running, err := svc.Operations.List("ops-bucket").Filter("done = false").Do()
+	running, err := svc.Operations.List(bucketOpsBucket).Filter("done = false").Do()
 	require.NoError(t, err)
 	assert.Empty(t, running.Operations)
 
@@ -500,20 +542,20 @@ func TestGCS_BucketOperations_ReportRecordedWork(t *testing.T) {
 	// record the relocation wrote: the work was already complete when its name
 	// reached the client, so neither verb erases the record nor moves it out of
 	// the completed set.
-	require.NoError(t, svc.Operations.Cancel("ops-bucket", id).Do())
-	afterCancel, err := svc.Operations.Get("ops-bucket", id).Do()
+	require.NoError(t, svc.Operations.Cancel(bucketOpsBucket, id).Do())
+	afterCancel, err := svc.Operations.Get(bucketOpsBucket, id).Do()
 	require.NoError(t, err, "the cancelled operation is still a record the collection answers about")
 	assert.Equal(t, started.Name, afterCancel.Name)
 	assert.True(t, afterCancel.Done, "a cancel of completed work leaves it completed")
 
-	require.NoError(t, svc.Operations.AdvanceRelocateBucket("ops-bucket", id,
+	require.NoError(t, svc.Operations.AdvanceRelocateBucket(bucketOpsBucket, id,
 		&storageapi.AdvanceRelocateBucketOperationRequest{Ttl: "3600s"}).Do())
-	afterAdvance, err := svc.Operations.Get("ops-bucket", id).Do()
+	afterAdvance, err := svc.Operations.Get(bucketOpsBucket, id).Do()
 	require.NoError(t, err, "advancing does not discard the operation it advanced")
 	assert.Equal(t, started.Name, afterAdvance.Name)
 	assert.True(t, afterAdvance.Done)
 
-	stillListed, err := svc.Operations.List("ops-bucket").Do()
+	stillListed, err := svc.Operations.List(bucketOpsBucket).Do()
 	require.NoError(t, err)
 	require.Len(t, stillListed.Operations, 1, "the collection still holds the one operation")
 	assert.Equal(t, started.Name, stillListed.Operations[0].Name)
@@ -527,21 +569,23 @@ func TestGCS_BucketOperations_ReportRecordedWork(t *testing.T) {
 // Operations are parented by their bucket: one bucket's relocation is not in
 // another bucket's collection.
 func TestGCS_BucketOperations_AreParentedByTheirBucket(t *testing.T) {
+	bucketOpsParentA := uniqueName("ops-parent-a")
+	bucketOpsParentB := uniqueName("ops-parent-b")
 	svc := storageService(t)
-	mustCreateBucket(t, svc, "ops-parent-a")
-	mustCreateBucket(t, svc, "ops-parent-b")
+	mustCreateBucket(t, svc, bucketOpsParentA)
+	mustCreateBucket(t, svc, bucketOpsParentB)
 
-	op, err := svc.Buckets.Relocate("ops-parent-a", &storageapi.RelocateBucketRequest{
+	op, err := svc.Buckets.Relocate(bucketOpsParentA, &storageapi.RelocateBucketRequest{
 		DestinationLocation: "us-west1",
 	}).Do()
 	require.NoError(t, err)
 	id := op.Name[strings.LastIndex(op.Name, "/")+1:]
 
-	other, err := svc.Operations.List("ops-parent-b").Do()
+	other, err := svc.Operations.List(bucketOpsParentB).Do()
 	require.NoError(t, err)
 	assert.Empty(t, other.Operations)
 
-	_, err = svc.Operations.Get("ops-parent-b", id).Do()
+	_, err = svc.Operations.Get(bucketOpsParentB, id).Do()
 	require.Error(t, err, "an operation belongs to the bucket that started it")
 	assert.Contains(t, err.Error(), "404")
 }
@@ -549,21 +593,22 @@ func TestGCS_BucketOperations_AreParentedByTheirBucket(t *testing.T) {
 // The folder and Anywhere Cache long-running methods record their operations
 // in the same collection the relocation does.
 func TestGCS_BucketOperations_RecordEveryLongRunningMethod(t *testing.T) {
+	bucketOpsLroBucket := uniqueName("ops-lro-bucket")
 	svc := storageService(t)
-	mustCreateBucket(t, svc, "ops-lro-bucket")
+	mustCreateBucket(t, svc, bucketOpsLroBucket)
 
-	_, err := svc.Folders.Insert("ops-lro-bucket", &storageapi.Folder{Name: "src/"}).Do()
+	_, err := svc.Folders.Insert(bucketOpsLroBucket, &storageapi.Folder{Name: "src/"}).Do()
 	require.NoError(t, err)
-	renamed, err := svc.Folders.Rename("ops-lro-bucket", "src/", "dst/").Do()
+	renamed, err := svc.Folders.Rename(bucketOpsLroBucket, "src/", "dst/").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#operation", renamed.Kind)
 
-	cache, err := svc.AnywhereCaches.Insert("ops-lro-bucket", &storageapi.AnywhereCache{
+	cache, err := svc.AnywhereCaches.Insert(bucketOpsLroBucket, &storageapi.AnywhereCache{
 		Zone: "us-central1-a",
 	}).Do()
 	require.NoError(t, err)
 
-	listed, err := svc.Operations.List("ops-lro-bucket").Do()
+	listed, err := svc.Operations.List(bucketOpsLroBucket).Do()
 	require.NoError(t, err)
 	names := make([]string, 0, len(listed.Operations))
 	for _, op := range listed.Operations {
@@ -576,36 +621,37 @@ func TestGCS_BucketOperations_RecordEveryLongRunningMethod(t *testing.T) {
 // buckets.relocate moves the bucket; validateOnly checks the request and
 // leaves it where it is.
 func TestGCS_BucketRelocate(t *testing.T) {
+	bucketRelocateBucket := uniqueName("relocate-bucket")
 	svc := storageService(t)
-	mustCreateBucket(t, svc, "relocate-bucket")
+	mustCreateBucket(t, svc, bucketRelocateBucket)
 
-	op, err := svc.Buckets.Relocate("relocate-bucket", &storageapi.RelocateBucketRequest{
+	op, err := svc.Buckets.Relocate(bucketRelocateBucket, &storageapi.RelocateBucketRequest{
 		DestinationLocation: "US-EAST1",
 	}).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#operation", op.Kind)
 	assert.True(t, op.Done)
 
-	moved, err := svc.Buckets.Get("relocate-bucket").Do()
+	moved, err := svc.Buckets.Get(bucketRelocateBucket).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "US-EAST1", moved.Location, "the relocation moved the bucket it reported moving")
 
-	validated, err := svc.Buckets.Relocate("relocate-bucket", &storageapi.RelocateBucketRequest{
+	validated, err := svc.Buckets.Relocate(bucketRelocateBucket, &storageapi.RelocateBucketRequest{
 		DestinationLocation: "EUROPE-WEST1",
 		ValidateOnly:        true,
 	}).Do()
 	require.NoError(t, err)
 	assert.True(t, validated.Done)
 
-	stayed, err := svc.Buckets.Get("relocate-bucket").Do()
+	stayed, err := svc.Buckets.Get(bucketRelocateBucket).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "US-EAST1", stayed.Location, "validateOnly must not move the bucket")
 
 	// "If no location is provided, Cloud Storage will use the default
 	// location, which is us."
-	_, err = svc.Buckets.Relocate("relocate-bucket", &storageapi.RelocateBucketRequest{}).Do()
+	_, err = svc.Buckets.Relocate(bucketRelocateBucket, &storageapi.RelocateBucketRequest{}).Do()
 	require.NoError(t, err)
-	defaulted, err := svc.Buckets.Get("relocate-bucket").Do()
+	defaulted, err := svc.Buckets.Get(bucketRelocateBucket).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "US", defaulted.Location)
 }
@@ -636,33 +682,34 @@ func TestGCS_ChannelsStop(t *testing.T) {
 }
 
 func TestGCS_ObjectInsertMetadataOnly(t *testing.T) {
+	bucketObjInsertBucket := uniqueName("obj-insert-bucket")
 	svc := storageService(t)
-	mustCreateBucket(t, svc, "obj-insert-bucket")
+	mustCreateBucket(t, svc, bucketObjInsertBucket)
 
 	// objects.insert with no media body creates a zero-length object from
 	// the supplied resource fields (POST /storage/v1/b/{bucket}/o).
-	obj, err := svc.Objects.Insert("obj-insert-bucket", &storageapi.Object{
+	obj, err := svc.Objects.Insert(bucketObjInsertBucket, &storageapi.Object{
 		Name:        "empty.txt",
 		ContentType: "text/plain",
 		Metadata:    map[string]string{"origin": "metadata-only"},
 	}).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "empty.txt", obj.Name)
-	assert.Equal(t, "obj-insert-bucket", obj.Bucket)
+	assert.Equal(t, bucketObjInsertBucket, obj.Bucket)
 	assert.Equal(t, "text/plain", obj.ContentType)
 	assert.EqualValues(t, 0, obj.Size)
 
 	// The insert created the object, so the collection answers about it with
 	// the fields the insert supplied.
-	got, err := svc.Objects.Get("obj-insert-bucket", "empty.txt").Do()
+	got, err := svc.Objects.Get(bucketObjInsertBucket, "empty.txt").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "empty.txt", got.Name)
-	assert.Equal(t, "obj-insert-bucket", got.Bucket)
+	assert.Equal(t, bucketObjInsertBucket, got.Bucket)
 	assert.Equal(t, "text/plain", got.ContentType, "the supplied contentType persisted")
 	assert.EqualValues(t, 0, got.Size, "a metadata-only insert makes a zero-length object")
 	assert.Equal(t, map[string]string{"origin": "metadata-only"}, got.Metadata)
 
-	list, err := svc.Objects.List("obj-insert-bucket").Do()
+	list, err := svc.Objects.List(bucketObjInsertBucket).Do()
 	require.NoError(t, err)
 	require.Len(t, list.Items, 1)
 	assert.Equal(t, "empty.txt", list.Items[0].Name)

@@ -15,7 +15,7 @@ import (
 // TestIntegration_CloudRunJobLifecycle exercises the full Cloud Run backend
 // flow against the simulator: create → run → verify running → logs → cancel → verify cancelled → delete.
 func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
-	const jobID = "integ-crj"
+	jobID := uniqueName("integ-crj")
 	const marker = "integ-crj-running"
 
 	// 1. Create job. Its container announces itself on stdout and then holds,

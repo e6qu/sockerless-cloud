@@ -10,9 +10,11 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Extended Microsoft.Logic ARM control plane: workflow versions/triggers/run
@@ -726,9 +728,9 @@ func handleLogicRunActionList(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// logicRecordTriggerRun fires a trigger: it executes the workflow definition
-// as one run, and records the run, each action it executed and a trigger
-// history entry.
+// logicRecordTriggerRun fires a trigger: it records the trigger's history and
+// a Running run, and executes the workflow definition in the background, which
+// settles the run and records each action it executed.
 func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 	logicSyncTriggers(wf)
 	runName := sim.NewUUID()
@@ -737,29 +739,82 @@ func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 
 	def, _ := wf.Properties["definition"].(map[string]any)
 	params, _ := wf.Properties["parameters"].(map[string]any)
-	outcome := logicExecute(context.Background(), def, params, map[string]any{"headers": map[string]any{}})
-	end := logicNow()
-	runProps := map[string]any{
+	logicRuns.Put(runID, LogicWorkflowRun{ID: runID, Name: runName, Type: wf.Type + "/runs", Properties: map[string]any{
 		"startTime":     now,
-		"endTime":       end,
 		"waitEndTime":   now,
-		"status":        outcome.Status,
+		"status":        "Running",
 		"correlationId": sim.NewUUID(),
 		"trigger": map[string]any{
 			"name": triggerName, "startTime": now, "endTime": now, "status": "Succeeded",
 		},
 		"workflow": map[string]any{"id": wf.ID, "name": wf.Name, "type": wf.Type},
 		"outputs":  map[string]any{},
-	}
-	if outcome.Outputs != nil {
-		runProps["outputs"] = outcome.Outputs
-	}
-	if outcome.Error != nil {
-		runProps["error"] = outcome.Error
-		runProps["code"] = outcome.Error["code"]
-	}
-	logicRuns.Put(runID, LogicWorkflowRun{ID: runID, Name: runName, Type: wf.Type + "/runs", Properties: runProps})
+	}})
 
+	histName := sim.NewUUID()
+	histID := wf.ID + "/triggers/" + triggerName + "/histories/" + histName
+	logicTriggerHistories.Put(histID, LogicResource{
+		ID: histID, Name: histName, Type: wf.Type + "/triggers/histories",
+		Properties: map[string]any{
+			"status": "Succeeded", "code": "OK", "startTime": now, "endTime": now,
+			"scheduledTime": now, "fired": true,
+			"run": map[string]any{"id": runID, "name": runName, "type": wf.Type + "/runs"},
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	logicRunCancels.Lock()
+	logicRunCancels.byRun[runID] = cancel
+	logicRunCancels.Unlock()
+	bg.Go(func() {
+		defer func() {
+			logicRunCancels.Lock()
+			delete(logicRunCancels.byRun, runID)
+			logicRunCancels.Unlock()
+			cancel()
+		}()
+		outcome := logicExecute(ctx, def, params, map[string]any{"headers": map[string]any{}})
+		logicSettleRun(wf.Type, runID, outcome)
+	})
+	return runName
+}
+
+// logicRunCancels holds the cancel function of every run still executing.
+var logicRunCancels = struct {
+	sync.Mutex
+	byRun map[string]context.CancelFunc
+}{byRun: map[string]context.CancelFunc{}}
+
+// logicStopRun stops a run's execution, if it is still executing.
+func logicStopRun(runID string) {
+	logicRunCancels.Lock()
+	cancel := logicRunCancels.byRun[runID]
+	logicRunCancels.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// logicSettleRun records a finished execution on its run. A run cancelled
+// while it executed keeps its Cancelled status.
+func logicSettleRun(workflowType, runID string, outcome logicRunOutcome) {
+	logicRuns.Update(runID, func(run *LogicWorkflowRun) {
+		if run.Properties["status"] != "Running" {
+			return
+		}
+		run.Properties["endTime"] = logicNow()
+		run.Properties["status"] = outcome.Status
+		if outcome.Outputs != nil {
+			run.Properties["outputs"] = outcome.Outputs
+		}
+		if outcome.Error != nil {
+			run.Properties["error"] = outcome.Error
+			run.Properties["code"] = outcome.Error["code"]
+		}
+	})
+	if _, ok := logicRuns.Get(runID); !ok {
+		return
+	}
 	for _, actionName := range outcome.Actions {
 		result := outcome.Results[actionName]
 		actID := runID + "/actions/" + actionName
@@ -773,22 +828,68 @@ func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 			props["error"] = result.Error
 		}
 		logicRunActions.Put(actID, LogicResource{
-			ID: actID, Name: actionName, Type: wf.Type + "/runs/actions",
+			ID: actID, Name: actionName, Type: workflowType + "/runs/actions",
 			Properties: props,
 		})
 	}
+}
 
-	histName := sim.NewUUID()
-	histID := wf.ID + "/triggers/" + triggerName + "/histories/" + histName
-	logicTriggerHistories.Put(histID, LogicResource{
-		ID: histID, Name: histName, Type: wf.Type + "/triggers/histories",
-		Properties: map[string]any{
-			"status": "Succeeded", "code": "OK", "startTime": now, "endTime": now,
-			"scheduledTime": now, "fired": true,
-			"run": map[string]any{"id": runID, "name": runName, "type": wf.Type + "/runs"},
-		},
+// logicCancelRun cancels a Running run: the run reads Cancelled at once and
+// its execution stops. It reports false when no run has the id, and an error
+// when the run already finished.
+func logicCancelRun(runID string) (bool, *AsyncOperationError) {
+	var cancelErr *AsyncOperationError
+	found := logicRuns.Update(runID, func(run *LogicWorkflowRun) {
+		status, _ := run.Properties["status"].(string)
+		if status != "Running" && status != "Waiting" {
+			cancelErr = &AsyncOperationError{
+				Code:    "WorkflowRunNotInProgress",
+				Message: fmt.Sprintf("The workflow run '%s' cannot be cancelled because it is in state '%s'.", run.Name, status),
+			}
+			return
+		}
+		run.Properties["status"] = "Cancelled"
+		run.Properties["endTime"] = logicNow()
 	})
-	return runName
+	if found && cancelErr == nil {
+		logicStopRun(runID)
+	}
+	return found, cancelErr
+}
+
+// logicDeleteRun stops a run's execution and deletes the run.
+func logicDeleteRun(runID string) {
+	logicStopRun(runID)
+	logicRuns.Delete(runID)
+}
+
+// logicFailInterruptedRuns fails every run a previous process left Running:
+// its execution died with that process and cannot resume.
+func logicFailInterruptedRuns() {
+	for _, run := range logicRuns.Filter(func(run LogicWorkflowRun) bool { return run.Properties["status"] == "Running" }) {
+		logicRuns.Update(run.ID, func(run *LogicWorkflowRun) {
+			run.Properties["status"] = "Failed"
+			run.Properties["endTime"] = logicNow()
+			run.Properties["code"] = "WorkflowRunInterrupted"
+			run.Properties["error"] = map[string]any{
+				"code":    "WorkflowRunInterrupted",
+				"message": "The workflow run was interrupted by a service restart before it completed.",
+			}
+		})
+	}
+}
+
+// writeLogicRunCancel answers a cancel of runID.
+func writeLogicRunCancel(w http.ResponseWriter, runID, runName string) {
+	found, cancelErr := logicCancelRun(runID)
+	switch {
+	case !found:
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", runName)
+	case cancelErr != nil:
+		AzureError(w, cancelErr.Code, cancelErr.Message, http.StatusConflict)
+	default:
+		w.WriteHeader(http.StatusOK)
+	}
 }
 
 func handleLogicIntegrationAccountDelete(w http.ResponseWriter, r *http.Request) {

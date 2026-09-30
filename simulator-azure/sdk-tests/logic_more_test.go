@@ -85,14 +85,14 @@ func TestLogicApps_WorkflowExtrasSDK(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	_, err = triggers.Run(ctx, rg, wfName, "manual", nil)
-	require.NoError(t, err)
+	runName := fireLogicTrigger(t, triggers, rg, wfName, "manual")
+	awaitLogicRun(t, runs, rg, wfName, runName)
 	runPager := runs.NewListPager(rg, wfName, nil)
 	require.True(t, runPager.More())
 	runPage, err := runPager.NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, runPage.Value)
-	runName := ptrVal(runPage.Value[0].Name)
+	require.Equal(t, runName, ptrVal(runPage.Value[0].Name))
 
 	actPager := runActions.NewListPager(rg, wfName, runName, nil)
 	require.True(t, actPager.More())

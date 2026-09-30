@@ -182,6 +182,7 @@ func registerIAM(srv *sim.Server) {
 	iamSASystemKeys = sim.MakeStore[serviceAccountSystemKey](srv.DB(), "iam_sa_system_keys")
 	iamSessionRevocations = sim.MakeStore[int64](srv.DB(), "iam_workforce_session_revocations")
 	projectPolicies := sim.MakeStore[IAMPolicy](srv.DB(), "iam_project_policies")
+	gcpProjectPolicies = projectPolicies
 	gcpResourcePolicies = sim.MakeStore[IAMPolicy](srv.DB(), "iam_resource_policies")
 	resourcePolicies := gcpResourcePolicies
 	customRoles := sim.MakeStore[GCPCustomRole](srv.DB(), "iam_custom_roles")
@@ -713,9 +714,10 @@ func registerIAM(srv *sim.Server) {
 			//
 			// The token is signed with the simulator's access-token key (see
 			// signAccessToken) so the data-plane bearer middleware accepts it,
-			// naming the impersonated service account as its subject. Real
-			// expiry is RFC3339Nano with timezone offset; the SDK parses it
-			// with time.Parse(time.RFC3339).
+			// naming the impersonated service account as its subject.
+			// expireTime is a google.protobuf.Timestamp in whole seconds:
+			// google-auth, behind gcloud's impersonation, parses it with
+			// "%Y-%m-%dT%H:%M:%SZ" and rejects a fractional second.
 			var req struct {
 				Scope     []string `json:"scope"`
 				Lifetime  string   `json:"lifetime"`
@@ -734,7 +736,7 @@ func registerIAM(srv *sim.Server) {
 			expires := now.Add(lifetime)
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
 				"accessToken": signAccessToken(email, now, expires),
-				"expireTime":  expires.UTC().Format(time.RFC3339),
+				"expireTime":  protoJSONTimestamp(expires.Truncate(time.Second)),
 			})
 		case "generateIdToken":
 			// Body: { audience, includeEmail, delegates }. Response: { token }.
@@ -1481,7 +1483,11 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 			Etag:        crmEtag(),
 		}
 		projects.Put(p.ProjectId, p)
-		sim.WriteJSON(w, http.StatusOK, crmLRO(p, typeProject, crmMetaCreateProject))
+		// The project is gettable and ready when the create returns, since the
+		// operation completes inside the request.
+		sim.WriteJSON(w, http.StatusOK, crmLROWithMetadata(p, typeProject, map[string]any{
+			"@type": crmMetaCreateProject, "createTime": p.CreateTime, "gettable": true, "ready": true,
+		}))
 	})
 	srv.HandleFunc("GET /v3/projects/{project}", func(w http.ResponseWriter, r *http.Request) {
 		p, ok := crmResolveProject(sim.PathParam(r, "project"))
@@ -1630,7 +1636,9 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 			Etag:        crmEtag(),
 		}
 		folders.Put(f.Name, f)
-		sim.WriteJSON(w, http.StatusOK, crmLRO(f, typeFolder, crmMetaCreateFolder))
+		sim.WriteJSON(w, http.StatusOK, crmLROWithMetadata(f, typeFolder, map[string]any{
+			"@type": crmMetaCreateFolder, "displayName": f.DisplayName, "parent": f.Parent,
+		}))
 	})
 	srv.HandleFunc("GET /v3/folders/{folder}", func(w http.ResponseWriter, r *http.Request) {
 		f, ok := folders.Get("folders/" + sim.PathParam(r, "folder"))
@@ -1689,11 +1697,18 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 			var req struct {
 				DestinationParent string `json:"destinationParent"`
 			}
-			_ = sim.ReadJSON(r, &req)
+			if err := sim.ReadJSON(r, &req); err != nil {
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				return
+			}
+			sourceParent := f.Parent
 			f.Parent = req.DestinationParent
 			f.UpdateTime = nowTimestamp()
 			folders.Put(name, f)
-			sim.WriteJSON(w, http.StatusOK, crmLRO(f, typeFolder, crmMetaMoveFolder))
+			sim.WriteJSON(w, http.StatusOK, crmLROWithMetadata(f, typeFolder, map[string]any{
+				"@type": crmMetaMoveFolder, "displayName": f.DisplayName,
+				"sourceParent": sourceParent, "destinationParent": f.Parent,
+			}))
 		case "undelete":
 			f.State = "ACTIVE"
 			f.UpdateTime = nowTimestamp()
@@ -2915,6 +2930,92 @@ func gcpPredefinedRoles() []gcpPredefinedRole {
 			IncludedPermissions: []string{
 				"storage.objects.get",
 				"storage.objects.list",
+			},
+		},
+		{
+			Name:        "roles/storage.objectCreator",
+			Title:       "Storage Object Creator",
+			Description: "Access to create objects in GCS.",
+			IncludedPermissions: []string{
+				"storage.objects.create",
+			},
+		},
+		{
+			Name:        "roles/storage.objectAdmin",
+			Title:       "Storage Object Admin",
+			Description: "Full control of GCS objects.",
+			IncludedPermissions: []string{
+				"storage.objects.create",
+				"storage.objects.delete",
+				"storage.objects.get",
+				"storage.objects.getIamPolicy",
+				"storage.objects.list",
+				"storage.objects.restore",
+				"storage.objects.setIamPolicy",
+				"storage.objects.update",
+			},
+		},
+		{
+			Name:        "roles/storage.legacyBucketReader",
+			Title:       "Storage Legacy Bucket Reader",
+			Description: "Read access to buckets with object listing.",
+			IncludedPermissions: []string{
+				"storage.buckets.get",
+				"storage.objects.list",
+			},
+		},
+		{
+			Name:        "roles/storage.legacyBucketWriter",
+			Title:       "Storage Legacy Bucket Writer",
+			Description: "Read access to buckets with object listing/creation/deletion.",
+			IncludedPermissions: []string{
+				"storage.buckets.get",
+				"storage.objects.create",
+				"storage.objects.delete",
+				"storage.objects.list",
+				"storage.objects.restore",
+			},
+		},
+		{
+			Name:        "roles/storage.legacyBucketOwner",
+			Title:       "Storage Legacy Bucket Owner",
+			Description: "Read and write access to existing buckets with object listing/creation/deletion.",
+			IncludedPermissions: []string{
+				"storage.buckets.get",
+				"storage.buckets.getIamPolicy",
+				"storage.buckets.setIamPolicy",
+				"storage.buckets.update",
+				"storage.objects.create",
+				"storage.objects.delete",
+				"storage.objects.list",
+				"storage.objects.restore",
+			},
+		},
+		{
+			Name:        "roles/storage.legacyObjectReader",
+			Title:       "Storage Legacy Object Reader",
+			Description: "Read access to objects without listing.",
+			IncludedPermissions: []string{
+				"storage.objects.get",
+			},
+		},
+		{
+			Name:        "roles/storage.legacyObjectOwner",
+			Title:       "Storage Legacy Object Owner",
+			Description: "Read/write access to existing objects without listing.",
+			IncludedPermissions: []string{
+				"storage.objects.get",
+				"storage.objects.getIamPolicy",
+				"storage.objects.setIamPolicy",
+				"storage.objects.update",
+			},
+		},
+		{
+			Name:        "roles/pubsub.publisher",
+			Title:       "Pub/Sub Publisher",
+			Description: "Publish messages to a topic.",
+			IncludedPermissions: []string{
+				"pubsub.topics.publish",
 			},
 		},
 	}

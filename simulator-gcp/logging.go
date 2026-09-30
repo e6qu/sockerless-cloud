@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -138,15 +141,15 @@ func listLogEntries(filter string, resourceNames []string, pageSize int, pageTok
 		allEntries = filtered
 	}
 
-	// Filter by resource names
 	if len(resourceNames) > 0 {
+		reached, err := loggingEntriesReached(resourceNames)
+		if err != nil {
+			return nil, "", err
+		}
 		var filtered []LogEntry
 		for _, entry := range allEntries {
-			for _, rn := range resourceNames {
-				if strings.HasPrefix(entry.LogName, rn) || strings.Contains(entry.LogName, rn) {
-					filtered = append(filtered, entry)
-					break
-				}
+			if reached(entry) {
+				filtered = append(filtered, entry)
 			}
 		}
 		allEntries = filtered
@@ -191,6 +194,131 @@ func listLogEntries(filter string, resourceNames []string, pageSize int, pageTok
 		return nil, "", fmt.Errorf("invalid pageToken %q: %w", pageToken, err)
 	}
 	return page, next, nil
+}
+
+// loggingEntriesReached returns the test for whether an entry is among those
+// the resourceNames of a read reach. A scope reaches its own logs. A log bucket
+// reaches what the scope's sinks route to it, and a view of the bucket what of
+// that its filter admits.
+func loggingEntriesReached(resourceNames []string) (func(LogEntry) bool, error) {
+	var scopes []string
+	held := map[string]bool{}
+	for _, rn := range resourceNames {
+		bucket, view, _ := strings.Cut(rn, "/views/")
+		scope, _, isBucket := loggingBucketParts(bucket)
+		if !isBucket {
+			scopes = append(scopes, rn+"/logs/")
+			continue
+		}
+		admits := func(LogEntry) bool { return true }
+		if view != "" {
+			v, ok := logViews.Get(rn)
+			if !ok {
+				return nil, fmt.Errorf("view %s not found", rn)
+			}
+			matcher, err := loggingViewMatcher(v.Filter)
+			if err != nil {
+				return nil, fmt.Errorf("view %s: %w", rn, err)
+			}
+			admits = matcher
+		}
+		entries, err := loggingBucketEntries(scope, bucket, listq.True{})
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if admits(entry) {
+				held[entry.LogName+"\x00"+entry.InsertID] = true
+			}
+		}
+	}
+	return func(entry LogEntry) bool {
+		if held[entry.LogName+"\x00"+entry.InsertID] {
+			return true
+		}
+		return slices.ContainsFunc(scopes, func(prefix string) bool { return strings.HasPrefix(entry.LogName, prefix) })
+	}, nil
+}
+
+// loggingViewMatcher evaluates a log view's filter, which Cloud Logging limits
+// to an AND of SOURCE("scope"), LOG_ID("id") and resource.type comparisons,
+// each of them optionally negated with NOT or compared with !=.
+func loggingViewMatcher(filter string) (func(LogEntry) bool, error) {
+	var tests []func(LogEntry) bool
+	for _, term := range strings.Split(strings.TrimSpace(filter), " AND ") {
+		term = strings.TrimSpace(term)
+		if term == "" {
+			continue
+		}
+		negate := false
+		if rest, ok := strings.CutPrefix(term, "NOT "); ok {
+			negate, term = true, strings.TrimSpace(rest)
+		}
+		test, err := loggingViewTerm(term)
+		if err != nil {
+			return nil, err
+		}
+		if negate {
+			inner := test
+			test = func(e LogEntry) bool { return !inner(e) }
+		}
+		tests = append(tests, test)
+	}
+	return func(e LogEntry) bool {
+		for _, test := range tests {
+			if !test(e) {
+				return false
+			}
+		}
+		return true
+	}, nil
+}
+
+func loggingViewTerm(term string) (func(LogEntry) bool, error) {
+	unquote := func(s string) (string, error) {
+		return strconv.Unquote(strings.TrimSpace(s))
+	}
+	switch {
+	case strings.HasPrefix(term, "SOURCE(") && strings.HasSuffix(term, ")"):
+		source, err := unquote(term[len("SOURCE(") : len(term)-1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid SOURCE in view filter %q", term)
+		}
+		return func(e LogEntry) bool { return strings.HasPrefix(e.LogName, source+"/logs/") }, nil
+	case strings.HasPrefix(term, "LOG_ID(") && strings.HasSuffix(term, ")"):
+		id, err := unquote(term[len("LOG_ID(") : len(term)-1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid LOG_ID in view filter %q", term)
+		}
+		return func(e LogEntry) bool {
+			_, logID, _ := strings.Cut(e.LogName, "/logs/")
+			decoded, err := url.PathUnescape(logID)
+			return logID == id || (err == nil && decoded == id)
+		}, nil
+	case strings.HasPrefix(term, "resource.type"):
+		rest := strings.TrimSpace(strings.TrimPrefix(term, "resource.type"))
+		equal := true
+		switch {
+		case strings.HasPrefix(rest, "!="):
+			equal, rest = false, rest[2:]
+		case strings.HasPrefix(rest, "="):
+			rest = rest[1:]
+		default:
+			return nil, fmt.Errorf("invalid resource.type comparison in view filter %q", term)
+		}
+		want, err := unquote(rest)
+		if err != nil {
+			return nil, fmt.Errorf("invalid resource.type value in view filter %q", term)
+		}
+		return func(e LogEntry) bool {
+			got := ""
+			if e.Resource != nil {
+				got = e.Resource.Type
+			}
+			return (got == want) == equal
+		}, nil
+	}
+	return nil, fmt.Errorf("view filter term %q is not SOURCE(), LOG_ID() or resource.type", term)
 }
 
 // writeLogEntries is the shared implementation for writing log entries,
@@ -633,16 +761,19 @@ const (
 	loggingTailMinFlushInterval    = 50 * time.Millisecond
 )
 
-// TailLogEntries streams the entries the log store holds for the tailed
-// resources, then keeps streaming whatever is written to them until the client
-// goes away. Nothing is synthesised: every entry it sends was written through
-// WriteLogEntries (either door), and a tail of a store nothing writes to
-// legitimately falls silent after its backlog.
+// TailLogEntries streams the entries written to the tailed resources after the
+// stream opens, until the client goes away. Every entry it sends was written
+// through WriteLogEntries (either door), and a tail of a store nothing writes
+// to stays silent.
 func (s *loggingServer) TailLogEntries(stream loggingpb.LoggingServiceV2_TailLogEntriesServer) error {
 	ctx := stream.Context()
+	sent := loggingTailBaseline()
 	first, err := stream.Recv()
 	if err != nil {
 		return err
+	}
+	if len(first.GetResourceNames()) == 0 {
+		return status.Error(codes.InvalidArgument, "resource_names is required")
 	}
 	window, err := loggingTailBufferWindow(first)
 	if err != nil {
@@ -670,10 +801,6 @@ func (s *loggingServer) TailLogEntries(stream loggingpb.LoggingServiceV2_TailLog
 		}
 	}()
 
-	// Entries already streamed are tracked by insert ID rather than by a
-	// timestamp cursor, so an entry that lands out of order is still delivered
-	// exactly once instead of being skipped for being older than the last send.
-	sent := map[string]bool{}
 	ticker := time.NewTicker(flush)
 	defer ticker.Stop()
 	for {
@@ -681,19 +808,15 @@ func (s *loggingServer) TailLogEntries(stream loggingpb.LoggingServiceV2_TailLog
 		filter, resourceNames := params.GetFilter(), params.GetResourceNames()
 		paramsMu.Unlock()
 
-		entries, _, err := listLogEntries(filter, resourceNames, 0, "", "")
+		entries, err := loggingTailFresh(sent, filter, resourceNames)
 		if err != nil {
 			return status.Error(codes.InvalidArgument, err.Error())
 		}
-		var fresh []*loggingpb.LogEntry
-		for _, e := range entries {
-			if sent[e.InsertID] {
-				continue
+		if len(entries) > 0 {
+			fresh := make([]*loggingpb.LogEntry, 0, len(entries))
+			for _, e := range entries {
+				fresh = append(fresh, logEntryToProto(e))
 			}
-			sent[e.InsertID] = true
-			fresh = append(fresh, logEntryToProto(e))
-		}
-		if len(fresh) > 0 {
 			if err := stream.Send(&loggingpb.TailLogEntriesResponse{Entries: fresh}); err != nil {
 				return err
 			}
@@ -709,6 +832,39 @@ func (s *loggingServer) TailLogEntries(stream loggingpb.LoggingServiceV2_TailLog
 		case <-ticker.C:
 		}
 	}
+}
+
+// loggingTailBaseline marks sent what the store holds as a tail opens: a tail
+// streams entries as they are ingested. Entries are tracked by log and insert
+// ID rather than by a timestamp cursor, so an entry that lands out of order is
+// still delivered exactly once.
+func loggingTailBaseline() map[string]bool {
+	sent := map[string]bool{}
+	for _, log := range logEntries.List() {
+		for _, e := range log {
+			sent[e.LogName+"\x00"+e.InsertID] = true
+		}
+	}
+	return sent
+}
+
+// loggingTailFresh returns, oldest first, the entries the tail selects that it
+// has not sent, and marks them sent.
+func loggingTailFresh(sent map[string]bool, filter string, resourceNames []string) ([]LogEntry, error) {
+	entries, _, err := listLogEntries(filter, resourceNames, 0, "", "")
+	if err != nil {
+		return nil, err
+	}
+	var fresh []LogEntry
+	for _, e := range entries {
+		key := e.LogName + "\x00" + e.InsertID
+		if sent[key] {
+			continue
+		}
+		sent[key] = true
+		fresh = append(fresh, e)
+	}
+	return fresh, nil
 }
 
 // loggingTailBufferWindow reads the tail's buffer window, holding it to the

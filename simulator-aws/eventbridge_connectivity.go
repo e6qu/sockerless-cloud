@@ -23,18 +23,20 @@ import (
 // EventBridge — DescribeConnection returns only the non-secret descriptors
 // (ApiKeyName, Username) plus a SecretArn referencing the stored secret.
 type EBConnection struct {
-	Name              string          `json:"Name"`
-	Arn               string          `json:"Arn"`
-	AuthorizationType string          `json:"AuthorizationType"`
-	State             string          `json:"State"`
-	StateReason       string          `json:"StateReason,omitempty"`
-	Description       string          `json:"Description,omitempty"`
-	KmsKeyIdentifier  string          `json:"KmsKeyIdentifier,omitempty"`
-	SecretArn         string          `json:"SecretArn,omitempty"`
-	AuthParameters    json.RawMessage `json:"-"`
-	CreationTime      int64           `json:"CreationTime"`
-	LastModifiedTime  int64           `json:"LastModifiedTime"`
-	LastAuthorized    int64           `json:"LastAuthorizedTime"`
+	Name              string `json:"Name"`
+	Arn               string `json:"Arn"`
+	AuthorizationType string `json:"AuthorizationType"`
+	State             string `json:"State"`
+	StateReason       string `json:"StateReason,omitempty"`
+	Description       string `json:"Description,omitempty"`
+	KmsKeyIdentifier  string `json:"KmsKeyIdentifier,omitempty"`
+	SecretArn         string `json:"SecretArn,omitempty"`
+	// AuthParameters holds credentials not yet moved into the connection's
+	// Secrets Manager secret; startup moves them there.
+	AuthParameters   json.RawMessage `json:"-"`
+	CreationTime     int64           `json:"CreationTime"`
+	LastModifiedTime int64           `json:"LastModifiedTime"`
+	LastAuthorized   int64           `json:"LastAuthorizedTime"`
 }
 
 // EBApiDestination models an EventBridge API destination — the HTTP invocation
@@ -98,6 +100,7 @@ func registerEventBridgeConnectivity(r *AWSRouter, srv *sim.Server) {
 	ebApiDest = sim.MakeStore[EBApiDestination](srv.DB(), "eventbridge_api_destinations")
 	ebEndpoints = sim.MakeStore[EBEndpoint](srv.DB(), "eventbridge_endpoints")
 	ebPartnerSources = sim.MakeStore[EBPartnerEventSource](srv.DB(), "eventbridge_partner_sources")
+	ebMoveConnectionSecrets()
 
 	r.Register("AWSEvents.CreateApiDestination", handleEBCreateApiDestination)
 	r.Register("AWSEvents.DescribeApiDestination", handleEBDescribeApiDestination)
@@ -143,8 +146,75 @@ func ebEndpointArn(name string) string {
 	return fmt.Sprintf("arn:aws:events:%s:%s:endpoint/%s", awsRegion(), awsAccountID(), name)
 }
 
-func ebConnectionSecretArn(name string) string {
-	return fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:events!connection/%s/%s", awsRegion(), awsAccountID(), name, sim.NewUUID())
+// ebCreateConnectionSecret stores a connection's authorization parameters in
+// the Secrets Manager secret EventBridge creates for it and returns the
+// secret's ARN.
+func ebCreateConnectionSecret(connection string, params json.RawMessage) string {
+	region := awsRegion()
+	name := "events!connection/" + connection + "/" + sim.NewUUID()
+	now := float64(time.Now().Unix())
+	secret := SMSecret{
+		ARN:             smArnForRegion(name, region),
+		Name:            name,
+		Region:          region,
+		CreatedDate:     now,
+		LastChangedDate: now,
+		SecretString:    string(params),
+	}
+	secret.addNewVersion(secret.SecretString, nil)
+	smSecrets.Put(smStoreKey(region, name), secret)
+	return secret.ARN
+}
+
+// ebConnectionParameters reads a connection's authorization parameters from
+// its Secrets Manager secret.
+func ebConnectionParameters(connection EBConnection) (json.RawMessage, error) {
+	secret, ok := resolveSMSecret(connection.SecretArn)
+	if !ok || secret.DeletedDate != 0 {
+		return nil, fmt.Errorf("the secret %s of connection %s does not exist", connection.SecretArn, connection.Name)
+	}
+	current, ok := secret.versionByIDOrStage("", "AWSCURRENT")
+	if !ok {
+		return nil, fmt.Errorf("the secret %s of connection %s has no current version", connection.SecretArn, connection.Name)
+	}
+	return json.RawMessage(current.SecretString), nil
+}
+
+func ebPutConnectionSecret(connection EBConnection, params json.RawMessage) error {
+	secret, ok := resolveSMSecret(connection.SecretArn)
+	if !ok {
+		return fmt.Errorf("the secret %s of connection %s does not exist", connection.SecretArn, connection.Name)
+	}
+	smUpdate(smStoreKey(smSecretRegion(secret), secret.Name), func(stored *SMSecret) {
+		stored.SecretString = string(params)
+		stored.addNewVersion(stored.SecretString, nil)
+		stored.LastChangedDate = float64(time.Now().Unix())
+	})
+	return nil
+}
+
+func ebDeleteConnectionSecret(connection EBConnection) {
+	secret, ok := resolveSMSecret(connection.SecretArn)
+	if !ok {
+		return
+	}
+	iamDeleteResourcePolicy(secret.ARN)
+	smSecrets.Delete(smStoreKey(smSecretRegion(secret), secret.Name))
+}
+
+// ebMoveConnectionSecrets moves credentials a connection still holds itself
+// into a Secrets Manager secret.
+func ebMoveConnectionSecrets() {
+	for _, connection := range ebConnections.List() {
+		if len(connection.AuthParameters) == 0 {
+			continue
+		}
+		if _, err := ebConnectionParameters(connection); err != nil {
+			connection.SecretArn = ebCreateConnectionSecret(connection.Name, connection.AuthParameters)
+		}
+		connection.AuthParameters = nil
+		ebConnections.Put(connection.Name, connection)
+	}
 }
 
 func ebPartnerSourceArn(name string) string {
@@ -332,10 +402,14 @@ func handleEBDeleteApiDestination(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	if !ebApiDest.Delete(req.Name) {
+	destination, ok := ebApiDest.Get(req.Name)
+	if !ok || !ebApiDest.Delete(req.Name) {
 		AWSError(w, "ResourceNotFoundException", "An api-destination "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
+	ebInvocationGatesMu.Lock()
+	delete(ebInvocationGates, destination.Arn)
+	ebInvocationGatesMu.Unlock()
 	writeEBJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -376,8 +450,7 @@ func handleEBCreateConnection(w http.ResponseWriter, r *http.Request) {
 		State:             "AUTHORIZED",
 		Description:       req.Description,
 		KmsKeyIdentifier:  req.KmsKeyIdentifier,
-		SecretArn:         ebConnectionSecretArn(req.Name),
-		AuthParameters:    append(json.RawMessage(nil), req.AuthParameters...),
+		SecretArn:         ebCreateConnectionSecret(req.Name, req.AuthParameters),
 		CreationTime:      now,
 		LastModifiedTime:  now,
 		LastAuthorized:    now,
@@ -449,11 +522,16 @@ func handleEBDescribeConnection(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ResourceNotFoundException", "Connection "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
+	params, err := ebConnectionParameters(conn)
+	if err != nil {
+		AWSError(w, "InternalException", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	out := map[string]any{
 		"ConnectionArn":     conn.Arn,
 		"ConnectionState":   conn.State,
 		"AuthorizationType": conn.AuthorizationType,
-		"AuthParameters":    ebConnectionAuthResponse(conn.AuthorizationType, conn.AuthParameters),
+		"AuthParameters":    ebConnectionAuthResponse(conn.AuthorizationType, params),
 		"Name":              conn.Name,
 		"SecretArn":         conn.SecretArn,
 		"CreationTime":      conn.CreationTime,
@@ -549,7 +627,10 @@ func handleEBUpdateConnection(w http.ResponseWriter, r *http.Request) {
 		conn.KmsKeyIdentifier = *req.KmsKeyIdentifier
 	}
 	if len(req.AuthParameters) > 0 {
-		conn.AuthParameters = append(json.RawMessage(nil), req.AuthParameters...)
+		if err := ebPutConnectionSecret(conn, req.AuthParameters); err != nil {
+			AWSError(w, "InternalException", err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	now := time.Now().Unix()
 	conn.LastModifiedTime = now
@@ -606,6 +687,7 @@ func handleEBDeleteConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ebConnections.Delete(req.Name)
+	ebDeleteConnectionSecret(conn)
 	writeEBJSON(w, http.StatusOK, map[string]any{
 		"ConnectionArn":      conn.Arn,
 		"ConnectionState":    conn.State,

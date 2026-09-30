@@ -2,10 +2,12 @@ package azure_sdk_test
 
 import (
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerinstance/armcontainerinstance"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/logic/armlogic"
@@ -65,23 +67,20 @@ func TestLogicApps_WorkflowLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, armlogic.WorkflowStateEnabled, ptrVal(got.Properties.State))
 
-	_, err = triggers.Run(ctx, "sdk-rg", "sdk-logic", "manual", nil)
-	require.NoError(t, err)
+	runName := fireLogicTrigger(t, triggers, "sdk-rg", "sdk-logic", "manual")
+	run := awaitLogicRun(t, runs, "sdk-rg", "sdk-logic", runName)
+	assert.Equal(t, armlogic.WorkflowStatusSucceeded, ptrVal(run.Properties.Status))
 	runPager := runs.NewListPager("sdk-rg", "sdk-logic", nil)
 	require.True(t, runPager.More())
 	runPage, err := runPager.NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, runPage.Value)
-	runName := ptrVal(runPage.Value[0].Name)
+	assert.Equal(t, runName, ptrVal(runPage.Value[0].Name))
 	assert.Equal(t, armlogic.WorkflowStatusSucceeded, ptrVal(runPage.Value[0].Properties.Status))
-	run, err := runs.Get(ctx, "sdk-rg", "sdk-logic", runName, nil)
-	require.NoError(t, err)
-	assert.Equal(t, armlogic.WorkflowStatusSucceeded, ptrVal(run.Properties.Status))
 	_, err = runs.Cancel(ctx, "sdk-rg", "sdk-logic", runName, nil)
-	require.NoError(t, err)
-	run, err = runs.Get(ctx, "sdk-rg", "sdk-logic", runName, nil)
-	require.NoError(t, err)
-	assert.Equal(t, armlogic.WorkflowStatusCancelled, ptrVal(run.Properties.Status))
+	var cancelErr *azcore.ResponseError
+	require.ErrorAs(t, err, &cancelErr, "a finished run refuses a cancel")
+	assert.Equal(t, http.StatusConflict, cancelErr.StatusCode)
 
 	pager := client.NewListByResourceGroupPager("sdk-rg", nil)
 	found := false

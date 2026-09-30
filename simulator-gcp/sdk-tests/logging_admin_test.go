@@ -1,6 +1,8 @@
 package gcp_sdk_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/logging"
 	"cloud.google.com/go/storage"
@@ -344,53 +347,117 @@ func TestLogging_EntriesCopy(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, apiErr.Code)
 }
 
-// TestLogging_EntriesTail writes a spread of severities into one log and tails
-// it: entries.tail must return exactly the entries at or above the filter's
-// severity, carrying the payload, severity and log name they were written with.
-func TestLogging_EntriesTail(t *testing.T) {
-	svc := loggingRESTService(t)
+// restTail opens entries.tail over REST, which streams a JSON array of
+// TailLogEntriesResponse messages. It returns once the array opens — the
+// service has taken the request — and yields entries until the entry carrying
+// last, which it returns with every entry before it.
+func restTail(t *testing.T, filter string) func(last string) []*loggingrpc.LogEntry {
+	t.Helper()
+	tailCtx, cancel := context.WithCancel(ctx)
+	t.Cleanup(cancel)
+	body, err := json.Marshal(map[string]any{
+		"resourceNames": []string{"projects/test-project"},
+		"filter":        filter,
+		"bufferWindow":  "0.05s",
+	})
+	require.NoError(t, err)
+	req, err := http.NewRequestWithContext(tailCtx, http.MethodPost, baseURL+"/v2/entries:tail", bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	t.Cleanup(func() { resp.Body.Close() })
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	dec := json.NewDecoder(resp.Body)
+	open, err := dec.Token()
+	require.NoError(t, err)
+	require.Equal(t, json.Delim('['), open)
 
+	entries := make(chan *loggingrpc.LogEntry, 16)
+	go func() {
+		defer close(entries)
+		for dec.More() {
+			var message loggingrpc.TailLogEntriesResponse
+			if dec.Decode(&message) != nil {
+				return
+			}
+			for _, e := range message.Entries {
+				entries <- e
+			}
+		}
+	}()
+	return func(last string) []*loggingrpc.LogEntry {
+		t.Helper()
+		var got []*loggingrpc.LogEntry
+		timeout := time.After(30 * time.Second)
+		for {
+			select {
+			case e, ok := <-entries:
+				require.True(t, ok, "the tail ended before %q arrived; got %v", last, got)
+				got = append(got, e)
+				if e.TextPayload == last {
+					return got
+				}
+			case <-timeout:
+				t.Fatalf("the tail never carried %q; got %v", last, got)
+			}
+		}
+	}
+}
+
+// TestLogging_EntriesTail tails one log over REST and writes a spread of
+// severities into it: entries.tail streams exactly the entries written after
+// it opened that are at or above the filter's severity, carrying the payload,
+// severity and log name they were written with.
+func TestLogging_EntriesTail(t *testing.T) {
 	writeClient, err := newLoggingWriteClient(t)
 	require.NoError(t, err)
-	const logID = "tail-test"
+	logID := uniqueName("tail-test")
 	logName := "projects/test-project/logs/" + logID
 	logger := writeClient.Logger(logID)
+	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "tail backlog", Severity: logging.Error}))
+
+	// A tail names what it reads.
+	unscoped, err := http.Post(baseURL+"/v2/entries:tail", "application/json", strings.NewReader(`{}`))
+	require.NoError(t, err)
+	require.NoError(t, unscoped.Body.Close())
+	require.Equal(t, http.StatusBadRequest, unscoped.StatusCode)
+
+	scope := fmt.Sprintf("logName=%q", logName)
+	atInfo := restTail(t, scope+" AND severity>=INFO")
+	atError := restTail(t, scope+" AND severity>=ERROR")
+	everything := restTail(t, scope)
+
 	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "tail debug", Severity: logging.Debug}))
 	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "tail info", Severity: logging.Info}))
 	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "tail warning", Severity: logging.Warning}))
 	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "tail error", Severity: logging.Error}))
 	require.NoError(t, writeClient.Close())
 
-	tail := func(filter string) map[string]string {
-		t.Helper()
-		resp, err := svc.Entries.Tail(&loggingrpc.TailLogEntriesRequest{
-			ResourceNames: []string{"projects/test-project"},
-			Filter:        filter,
-		}).Do()
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-		bySeverity := map[string]string{}
-		for _, e := range resp.Entries {
+	bySeverity := func(entries []*loggingrpc.LogEntry) map[string]string {
+		out := map[string]string{}
+		for _, e := range entries {
 			assert.Equal(t, logName, e.LogName, "the log-name clause must scope the tail")
-			bySeverity[e.Severity] = e.TextPayload
+			out[e.Severity] = e.TextPayload
 		}
-		return bySeverity
+		return out
 	}
-
-	scope := fmt.Sprintf("logName=%q AND ", logName)
 	assert.Equal(t, map[string]string{
 		"INFO":    "tail info",
 		"WARNING": "tail warning",
 		"ERROR":   "tail error",
-	}, tail(scope+"severity>=INFO"), "severity>=INFO excludes the DEBUG entry")
+	}, bySeverity(atInfo("tail error")), "severity>=INFO excludes the DEBUG entry and the backlog")
+	assert.Equal(t, map[string]string{"ERROR": "tail error"}, bySeverity(atError("tail error")))
 
-	assert.Equal(t, map[string]string{
-		"ERROR": "tail error",
-	}, tail(scope+"severity>=ERROR"))
-
-	// Without the severity clause every entry of the log is tailed, so the
-	// exclusions above are the filter's doing and not a missing write.
-	assert.Len(t, tail(fmt.Sprintf("logName=%q", logName)), 4)
+	// Without the severity clause every entry written after the tail opened
+	// arrives, so the exclusions above are the filter's doing and not a
+	// missing write — and the entry written before it opened does not.
+	all := everything("tail error")
+	payloads := make([]string, 0, len(all))
+	for _, e := range all {
+		payloads = append(payloads, e.TextPayload)
+	}
+	assert.Equal(t, []string{"tail debug", "tail info", "tail warning", "tail error"}, payloads)
 }
 
 func TestLogging_MonitoredResourceDescriptors_List(t *testing.T) {

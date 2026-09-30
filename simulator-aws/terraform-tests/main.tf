@@ -1405,8 +1405,23 @@ resource "aws_s3_bucket_ownership_controls" "tf_bucket_ownership" {
   }
 }
 
+resource "aws_sqs_queue_policy" "tf_eventbridge_queue_s3" {
+  queue_url = aws_sqs_queue.tf_eventbridge_queue.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "s3.amazonaws.com" }
+      Action    = "sqs:SendMessage"
+      Resource  = aws_sqs_queue.tf_eventbridge_queue.arn
+      Condition = { ArnLike = { "aws:SourceArn" = aws_s3_bucket.tf_bucket.arn } }
+    }]
+  })
+}
+
 resource "aws_s3_bucket_notification" "tf_bucket_notification" {
-  bucket = aws_s3_bucket.tf_bucket.id
+  bucket     = aws_s3_bucket.tf_bucket.id
+  depends_on = [aws_sqs_queue_policy.tf_eventbridge_queue_s3]
   queue {
     id        = "queue-created"
     queue_arn = aws_sqs_queue.tf_eventbridge_queue.arn

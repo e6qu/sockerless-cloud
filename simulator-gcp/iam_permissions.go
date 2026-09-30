@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/e6qu/sockerless-cloud/sim"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -101,7 +102,56 @@ func gcpMemberMatches(member, principal string) bool {
 	case "allUsers", "allAuthenticatedUsers":
 		return true
 	}
+	if kind, project, ok := strings.Cut(member, ":"); ok {
+		if role, convenience := gcpConvenienceRoles[kind]; convenience {
+			return gcpProjectGrantsRole(project, role, principal)
+		}
+	}
 	return member == principal
+}
+
+// gcpConvenienceRoles maps the project convenience members Cloud Storage binds
+// in a bucket's default policy to the basic role whose holders they cover.
+var gcpConvenienceRoles = map[string]string{
+	"projectOwner":  "roles/owner",
+	"projectEditor": "roles/editor",
+	"projectViewer": "roles/viewer",
+}
+
+// gcpProjectPolicies holds each project's IAM policy under project/{projectId}.
+var gcpProjectPolicies sim.Store[IAMPolicy]
+
+func gcpProjectPolicy(project string) IAMPolicy {
+	if gcpProjectPolicies == nil {
+		return IAMPolicy{}
+	}
+	policy, _ := gcpProjectPolicies.Get("project/" + project)
+	return policy
+}
+
+func gcpProjectGrantsRole(project, role, principal string) bool {
+	for _, binding := range gcpProjectPolicy(project).Bindings {
+		if binding.Role != role {
+			continue
+		}
+		for _, member := range binding.Members {
+			if member == principal || member == "allUsers" || member == "allAuthenticatedUsers" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// gcpPermissionsHeldUnder answers which of the requested permissions the
+// caller holds under policies that apply together, as a resource's own policy
+// and its ancestors' do.
+func gcpPermissionsHeldUnder(principal string, owner bool, policies []IAMPolicy, requested []string) []string {
+	var effective IAMPolicy
+	for _, policy := range policies {
+		effective.Bindings = append(effective.Bindings, policy.Bindings...)
+	}
+	return gcpAnswerForPrincipal(principal, owner, effective, requested)
 }
 
 // gcpPermissionsHeldBy returns the subset of the requested permissions the

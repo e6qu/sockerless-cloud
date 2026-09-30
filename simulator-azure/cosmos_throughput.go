@@ -50,13 +50,13 @@ func registerCosmosThroughput(srv *sim.Server) {
 	srv.HandleFunc("PUT /offers/{offer}/", handleCosmosReplaceOffer)
 }
 
-// cosmosDataRID is the `_rid` the data plane gives a NoSQL database, or a
-// container when coll is set.
+// cosmosDataRID is the `_rid` of a NoSQL database, or a container when coll is
+// set.
 func cosmosDataRID(account, db, coll string) string {
 	if coll == "" {
-		return account + "-" + db
+		return cosmosDatabaseRID(account, db)
 	}
-	return account + "-" + db + "-" + coll
+	return cosmosCollectionRID(account, db, coll)
 }
 
 const cosmosOfferIDPrefix = "offer_"

@@ -1,9 +1,13 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -136,11 +140,7 @@ func s3FireObjectNotifications(bucket, key, eventName, etag string, size int64) 
 
 	qualified := "s3:" + eventName
 	eventJSON := s3EventNotificationJSON(bucket, key, eventName, etag, size)
-	src := iamServiceSource{
-		Service:       "s3.amazonaws.com",
-		SourceArn:     s3BucketARN(bucket),
-		SourceAccount: awsAccountID(),
-	}
+	src := s3NotificationSource(bucket)
 
 	for _, qc := range cfg.QueueConfigurations {
 		if qc.Queue == "" || !s3EventListMatches(qc.Events, qualified) {
@@ -162,12 +162,7 @@ func s3FireObjectNotifications(bucket, key, eventName, etag string, size int64) 
 		s3PublishToTopic(tc.Topic, eventJSON)
 	}
 
-	lambdaTargets := make([]s3LambdaNotification, 0, len(cfg.LambdaConfigurations)+len(cfg.LambdaConfigurations2))
-	lambdaTargets = append(lambdaTargets, cfg.LambdaConfigurations...)
-	for _, lc := range cfg.LambdaConfigurations2 {
-		lambdaTargets = append(lambdaTargets, s3LambdaNotification(lc))
-	}
-	for _, lc := range lambdaTargets {
+	for _, lc := range cfg.lambdaTargets() {
 		if lc.CloudFunction == "" || !s3EventListMatches(lc.Events, qualified) {
 			continue
 		}
@@ -190,13 +185,127 @@ func s3PublishToTopic(topicARN, message string) {
 // event payload. The caller has already authorized lambda:InvokeFunction
 // against the function policy.
 func s3InvokeLambda(functionARN string, payload []byte) {
-	name := functionARN
-	if i := strings.LastIndex(functionARN, ":"); i >= 0 {
-		name = functionARN[i+1:]
-	}
-	fn, ok := lambdaFunctions.Get(name)
+	fn, ok := lambdaFunctions.Get(s3LambdaFunctionName(functionARN))
 	if !ok {
 		return
 	}
 	go func() { _, _, _ = invokeLambdaViaRuntimeAPI(fn, payload) }()
+}
+
+type s3DestinationRejection struct {
+	ARN    string
+	Reason string
+}
+
+func s3LambdaFunctionName(functionARN string) string {
+	parts := strings.Split(functionARN, ":")
+	if len(parts) >= 7 && parts[5] == "function" {
+		return parts[6]
+	}
+	return parts[len(parts)-1]
+}
+
+func s3NotificationSource(bucket string) iamServiceSource {
+	return iamServiceSource{
+		Service:       "s3.amazonaws.com",
+		SourceArn:     s3BucketARN(bucket),
+		SourceAccount: awsAccountID(),
+	}
+}
+
+func (cfg s3NotificationConfiguration) lambdaTargets() []s3LambdaNotification {
+	targets := make([]s3LambdaNotification, 0, len(cfg.LambdaConfigurations)+len(cfg.LambdaConfigurations2))
+	targets = append(targets, cfg.LambdaConfigurations...)
+	for _, lc := range cfg.LambdaConfigurations2 {
+		targets = append(targets, s3LambdaNotification(lc))
+	}
+	return targets
+}
+
+// s3ValidateNotificationDestinations checks, as PutBucketNotificationConfiguration
+// does before it stores a configuration, that every destination exists and
+// that its resource policy lets Amazon S3 deliver from the bucket.
+func s3ValidateNotificationDestinations(bucket string, cfg s3NotificationConfiguration) []s3DestinationRejection {
+	src := s3NotificationSource(bucket)
+	var rejected []s3DestinationRejection
+	for _, qc := range cfg.QueueConfigurations {
+		if _, ok := sqsQueueByARN(qc.Queue); !ok {
+			rejected = append(rejected, s3DestinationRejection{qc.Queue, "The destination queue does not exist"})
+			continue
+		}
+		if !iamAuthorizeServiceDelivery(qc.Queue, "sqs:SendMessage", src) {
+			rejected = append(rejected, s3DestinationRejection{qc.Queue, "Permissions on the destination queue do not allow S3 to publish notifications from this bucket"})
+		}
+	}
+	for _, tc := range cfg.TopicConfigurations {
+		if _, ok := snsTopics.Get(snsTopicNameFromARN(tc.Topic)); !ok {
+			rejected = append(rejected, s3DestinationRejection{tc.Topic, "The destination topic does not exist"})
+			continue
+		}
+		if !iamAuthorizeServiceDelivery(tc.Topic, "sns:Publish", src) {
+			rejected = append(rejected, s3DestinationRejection{tc.Topic, "Permissions on the destination topic do not allow S3 to publish notifications from this bucket"})
+		}
+	}
+	for _, lc := range cfg.lambdaTargets() {
+		if _, ok := lambdaFunctions.Get(s3LambdaFunctionName(lc.CloudFunction)); !ok {
+			rejected = append(rejected, s3DestinationRejection{lc.CloudFunction, "The destination Lambda function does not exist"})
+			continue
+		}
+		if !iamAuthorizeServiceDelivery(lc.CloudFunction, "lambda:InvokeFunction", src) {
+			rejected = append(rejected, s3DestinationRejection{lc.CloudFunction, "Not authorized to invoke function [" + lc.CloudFunction + "]"})
+		}
+	}
+	return rejected
+}
+
+// s3DestinationValidationError writes the InvalidArgument error Amazon S3
+// returns for a notification configuration it could not validate, naming each
+// rejected destination in numbered ArgumentName/ArgumentValue pairs.
+func s3DestinationValidationError(w http.ResponseWriter, requestID string, rejected []s3DestinationRejection) {
+	var b strings.Builder
+	b.WriteString(xml.Header)
+	b.WriteString("<Error><Code>InvalidArgument</Code><Message>Unable to validate the following destination configurations</Message>")
+	for i, r := range rejected {
+		fmt.Fprintf(&b, "<ArgumentName%d>", i+1)
+		_ = xml.EscapeText(&b, []byte(r.ARN))
+		fmt.Fprintf(&b, "</ArgumentName%d><ArgumentValue%d>", i+1, i+1)
+		_ = xml.EscapeText(&b, []byte(r.Reason))
+		fmt.Fprintf(&b, "</ArgumentValue%d>", i+1)
+	}
+	b.WriteString("<RequestId>")
+	_ = xml.EscapeText(&b, []byte(requestID))
+	b.WriteString("</RequestId></Error>")
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusBadRequest)
+	_, _ = io.WriteString(w, b.String())
+}
+
+// s3SendTestEvents sends the s3:TestEvent message Amazon S3 delivers to each
+// queue and topic of a notification configuration it has just validated.
+func s3SendTestEvents(bucket, requestID string, cfg s3NotificationConfiguration) {
+	body, err := json.Marshal(map[string]string{
+		"Service":   "Amazon S3",
+		"Event":     "s3:TestEvent",
+		"Time":      time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+		"Bucket":    bucket,
+		"RequestId": requestID,
+		"HostId":    s3HostID(),
+	})
+	if err != nil {
+		panic(err)
+	}
+	for _, qc := range cfg.QueueConfigurations {
+		sqsEnqueueByARN(qc.Queue, string(body))
+	}
+	for _, tc := range cfg.TopicConfigurations {
+		s3PublishToTopic(tc.Topic, string(body))
+	}
+}
+
+func s3HostID() string {
+	b := make([]byte, 48)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return base64.StdEncoding.EncodeToString(b)
 }

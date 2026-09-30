@@ -176,10 +176,11 @@ func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
 	runCLI(t, awsCLI("autoscaling", "put-lifecycle-hook",
 		"--auto-scaling-group-name", group, "--lifecycle-hook-name", "asx-cli-hook",
 		"--lifecycle-transition", "autoscaling:EC2_INSTANCE_LAUNCHING"))
-	runCLI(t, awsCLI("autoscaling", "record-lifecycle-action-heartbeat",
+	// No launch is waiting on the hook, so no lifecycle action carries the token.
+	runCLIExpectError(t, awsCLI("autoscaling", "record-lifecycle-action-heartbeat",
 		"--auto-scaling-group-name", group, "--lifecycle-hook-name", "asx-cli-hook",
 		"--lifecycle-action-token", "00000000-0000-0000-0000-0000000cli01"))
-	runCLI(t, awsCLI("autoscaling", "complete-lifecycle-action",
+	runCLIExpectError(t, awsCLI("autoscaling", "complete-lifecycle-action",
 		"--auto-scaling-group-name", group, "--lifecycle-hook-name", "asx-cli-hook",
 		"--lifecycle-action-token", "00000000-0000-0000-0000-0000000cli01",
 		"--lifecycle-action-result", "CONTINUE"))

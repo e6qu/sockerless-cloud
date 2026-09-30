@@ -20,6 +20,7 @@ func TestArtifactRegistryDockerHubRemoteRepositorySDKAndOCI(t *testing.T) {
 	require.NoError(t, err)
 
 	parent := "projects/test-project/locations/us-central1"
+	repoID := uniqueName("docker-hub")
 	repo := &artifactregistry.Repository{
 		Format: "DOCKER",
 		Mode:   "REMOTE_REPOSITORY",
@@ -30,9 +31,10 @@ func TestArtifactRegistryDockerHubRemoteRepositorySDKAndOCI(t *testing.T) {
 			},
 		},
 	}
-	op, err := service.Projects.Locations.Repositories.Create(parent, repo).RepositoryId("docker-hub").Do()
+	op, err := service.Projects.Locations.Repositories.Create(parent, repo).RepositoryId(repoID).Do()
 	require.NoError(t, err)
 	require.True(t, op.Done)
+	arDeleteRepositoryOnCleanup(t, service, parent+"/repositories/"+repoID)
 
 	var created artifactregistry.Repository
 	require.NoError(t, json.Unmarshal(op.Response, &created))
@@ -45,7 +47,7 @@ func TestArtifactRegistryDockerHubRemoteRepositorySDKAndOCI(t *testing.T) {
 	// reference this pull names is the harness's own workload image — repository
 	// and tag both — rather than a tag some other suite happens to have built.
 	localRepo, localTag, _ := strings.Cut(evalImageName, ":")
-	imageName := "test-project/docker-hub/" + localRepo
+	imageName := "test-project/" + repoID + "/" + localRepo
 	manifestURL := baseURL + "/v2/" + imageName + "/manifests/" + localTag
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
@@ -84,10 +86,10 @@ func TestArtifactRegistryDockerHubRemoteRepositorySDKAndOCI(t *testing.T) {
 	require.NoError(t, json.NewDecoder(blobResp.Body).Decode(&cfg))
 	require.Equal(t, []string{"/usr/local/bin/eval-arithmetic"}, cfg.Config.Entrypoint)
 
-	images, err := service.Projects.Locations.Repositories.DockerImages.List(parent + "/repositories/docker-hub").Do()
+	images, err := service.Projects.Locations.Repositories.DockerImages.List(parent + "/repositories/" + repoID).Do()
 	require.NoError(t, err)
 	require.Len(t, images.DockerImages, 1)
 	require.Contains(t, images.DockerImages[0].Name,
-		"projects/test-project/locations/us-central1/repositories/docker-hub/dockerImages/"+localRepo+"@sha256:")
+		"projects/test-project/locations/us-central1/repositories/"+repoID+"/dockerImages/"+localRepo+"@sha256:")
 	require.Equal(t, []string{localTag}, images.DockerImages[0].Tags)
 }

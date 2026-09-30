@@ -230,6 +230,14 @@ func registerArtifactRegistry(srv *sim.Server) {
 		OnManifestPut: func(_, repo, ref, contentType string, data []byte) {
 			registerDockerImageFromManifest(dockerImagesForHooks, repo, ref, contentType, data)
 		},
+		OnManifestDelete: func(_, repo, digest string) {
+			project, location, repoID, imagePath, ok := artifactRegistryImageParts(repo)
+			if !ok {
+				return
+			}
+			arForgetVersion(dockerImagesForHooks,
+				fmt.Sprintf("projects/%s/locations/%s/repositories/%s", project, location, repoID), imagePath, digest)
+		},
 		HydrateManifest: func(reg *sim.OCIRegistry, scope, repo, ref string) bool {
 			if err := hydrateOCIImageFromLocalDocker(reg, scope, dockerImagesForHooks, repo, ref); err != nil {
 				fmt.Fprintf(os.Stderr, "[sim-gcp-ar] local docker cache miss for %s:%s: %v\n", repo, ref, err)
@@ -382,6 +390,7 @@ func registerArtifactRegistry(srv *sim.Server) {
 		for _, img := range images {
 			dockerImages.Delete(img.Name)
 		}
+		arDeleteRepositoryContents(name)
 
 		lro := artifactRegistryLRO(project, location, nil, gcpEmptyType)
 		sim.WriteJSON(w, http.StatusOK, lro)
@@ -570,13 +579,19 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 			return
 		}
 		packages.Delete(name)
-		// Cascade-delete the package's versions and tags.
 		for _, v := range versions.Filter(func(v ARVersion) bool { return strings.HasPrefix(v.Name, name+"/versions/") }) {
 			versions.Delete(v.Name)
 		}
 		for _, t := range tags.Filter(func(t ARTag) bool { return strings.HasPrefix(t.Name, name+"/tags/") }) {
 			tags.Delete(t.Name)
 		}
+		imagePath := sim.PathParam(r, "pkg")
+		for _, img := range dockerImages.Filter(func(img DockerImage) bool {
+			return strings.HasPrefix(img.Name, repo+"/dockerImages/"+imagePath+"@")
+		}) {
+			dockerImages.Delete(img.Name)
+		}
+		arDeleteImageManifests(repo, imagePath, "")
 		lro := artifactRegistryLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), nil, gcpEmptyType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
@@ -660,7 +675,15 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "version %q not found", name)
 			return
 		}
-		versions.Delete(name)
+		tagged := tags.Filter(func(t ARTag) bool { return t.Version == name })
+		if len(tagged) > 0 && !gcpQueryBool(r, "force") {
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+				"version %q is tagged; delete it with force to delete its tags too", name)
+			return
+		}
+		imagePath, digest := sim.PathParam(r, "pkg"), sim.PathParam(r, "version")
+		arForgetVersion(dockerImages, repo, imagePath, digest)
+		arDeleteImageManifests(repo, imagePath, digest)
 		lro := artifactRegistryLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), nil, gcpEmptyType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
@@ -696,7 +719,9 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 				continue
 			}
 			if !req.ValidateOnly {
-				versions.Delete(n)
+				digest := strings.TrimPrefix(n, parent)
+				arForgetVersion(dockerImages, repo, sim.PathParam(r, "pkg"), digest)
+				arDeleteImageManifests(repo, sim.PathParam(r, "pkg"), digest)
 			}
 		}
 		lro := newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), nil, gcpEmptyType,
@@ -1357,24 +1382,38 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 	})
 }
 
+// arRemoteUpstreamRef is the reference, as the local Docker daemon names it,
+// of the image a remote repository proxies for imageName: its remote
+// repository configuration names Docker Hub or a custom registry as the
+// upstream.
+func arRemoteUpstreamRef(imageName, reference string) (string, error) {
+	project, location, repoID, imagePath, ok := artifactRegistryImageParts(imageName)
+	if !ok {
+		return "", fmt.Errorf("no repository holds %s", imageName)
+	}
+	repo, ok := arRepos.Get(fmt.Sprintf("projects/%s/locations/%s/repositories/%s", project, location, repoID))
+	if !ok || repo.Mode != "REMOTE_REPOSITORY" {
+		return "", fmt.Errorf("repository %s is not a remote repository", repoID)
+	}
+	docker, _ := repo.RemoteRepositoryConfig["dockerRepository"].(map[string]any)
+	if public, _ := docker["publicRepository"].(string); public == "DOCKER_HUB" {
+		return strings.TrimPrefix(imagePath, "library/") + ":" + reference, nil
+	}
+	custom, _ := docker["customRepository"].(map[string]any)
+	if uri, _ := custom["uri"].(string); uri != "" {
+		host := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(uri, "https://"), "http://"), "/")
+		return host + "/" + imagePath + ":" + reference, nil
+	}
+	return "", fmt.Errorf("remote repository %s names no Docker upstream", repoID)
+}
+
 // hydrateOCIImageFromLocalDocker is the AR pull-through cache: on a manifest
-// miss for a docker-hub remote repo it saves the image from the local Docker
-// daemon and populates the shared registry's blobs + manifest.
+// miss in a remote repository it saves the upstream image from the local
+// Docker daemon and populates the shared registry's blobs + manifest.
 func hydrateOCIImageFromLocalDocker(reg *sim.OCIRegistry, scope string, dockerImages sim.Store[DockerImage], imageName, reference string) error {
-	// Map the AR remote-repo path back to the local Docker daemon ref it
-	// proxies, mirroring the backend's image rewrite (gcp-common
-	// image_resolve.go): `docker-hub` proxies Docker Hub, `gitlab-registry`
-	// proxies registry.gitlab.com (the gitlab-runner-helper image).
-	var localRef string
-	switch {
-	case strings.Contains(imageName, "/docker-hub/"):
-		idx := strings.Index(imageName, "/docker-hub/")
-		localRef = strings.TrimPrefix(imageName[idx+len("/docker-hub/"):], "library/") + ":" + reference
-	case strings.Contains(imageName, "/gitlab-registry/"):
-		idx := strings.Index(imageName, "/gitlab-registry/")
-		localRef = "registry.gitlab.com/" + imageName[idx+len("/gitlab-registry/"):] + ":" + reference
-	default:
-		return fmt.Errorf("repository is not a docker-hub or gitlab-registry remote repository")
+	localRef, err := arRemoteUpstreamRef(imageName, reference)
+	if err != nil {
+		return err
 	}
 	ctx := context.Background()
 	cli, err := dockerclient.New(dockerclient.FromEnv)
@@ -1556,6 +1595,57 @@ func arRecordPush(repo, imagePath, reference, digest, now string) {
 	if !strings.HasPrefix(reference, "sha256:") {
 		tag := pkg + "/tags/" + reference
 		arTags.Put(tag, ARTag{Name: tag, Version: version})
+	}
+}
+
+// arForgetVersion drops what the control plane holds for one manifest of an
+// image: its dockerImages row, its version and the tags that point at it.
+func arForgetVersion(dockerImages sim.Store[DockerImage], repo, imagePath, digest string) {
+	dockerImages.Delete(repo + "/dockerImages/" + imagePath + "@" + digest)
+	version := repo + "/packages/" + url.PathEscape(imagePath) + "/versions/" + digest
+	arVersions.Delete(version)
+	for _, tag := range arTags.Filter(func(t ARTag) bool { return t.Version == version }) {
+		arTags.Delete(tag.Name)
+	}
+}
+
+// arDeleteImageManifests deletes from the Docker data plane the manifests of
+// an image that carry digest, or all of them when digest is empty, so an image
+// deleted through the control plane no longer pulls.
+func arDeleteImageManifests(repo, imagePath, digest string) {
+	parts := strings.Split(repo, "/")
+	if arRegistry == nil || len(parts) != 6 {
+		return
+	}
+	path := parts[1] + "/" + parts[5] + "/" + imagePath
+	for _, m := range arRegistry.Manifests.Filter(func(m sim.OCIManifest) bool {
+		return m.Repo == path && (digest == "" || m.Digest == digest)
+	}) {
+		arRegistry.DeleteManifest(m.Scope, m.Repo, m.Ref)
+	}
+}
+
+// arDeleteRepositoryContents deletes a deleted repository's packages, versions
+// and tags and its images' manifests, so a repository created again under the
+// name starts empty.
+func arDeleteRepositoryContents(repo string) {
+	prefix := repo + "/packages/"
+	for _, p := range arPackages.Filter(func(p ARPackage) bool { return strings.HasPrefix(p.Name, prefix) }) {
+		arPackages.Delete(p.Name)
+	}
+	for _, v := range arVersions.Filter(func(v ARVersion) bool { return strings.HasPrefix(v.Name, prefix) }) {
+		arVersions.Delete(v.Name)
+	}
+	for _, t := range arTags.Filter(func(t ARTag) bool { return strings.HasPrefix(t.Name, prefix) }) {
+		arTags.Delete(t.Name)
+	}
+	parts := strings.Split(repo, "/")
+	if arRegistry == nil || len(parts) != 6 {
+		return
+	}
+	path := parts[1] + "/" + parts[5] + "/"
+	for _, m := range arRegistry.Manifests.Filter(func(m sim.OCIManifest) bool { return strings.HasPrefix(m.Repo, path) }) {
+		arRegistry.DeleteManifest(m.Scope, m.Repo, m.Ref)
 	}
 }
 

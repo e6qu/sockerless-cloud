@@ -24,7 +24,7 @@ func TestEC2_DescribeInstancesPagination(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = c.RunInstances(ctx, &ec2.RunInstancesInput{
+	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
 		ImageId:      aws.String("ami-page1234"),
 		InstanceType: ec2types.InstanceTypeT3Micro,
 		MinCount:     aws.Int32(3),
@@ -36,6 +36,7 @@ func TestEC2_DescribeInstancesPagination(t *testing.T) {
 		}},
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 
 	filt := []ec2types.Filter{{Name: aws.String("tag:page-test"), Values: []string{"yes"}}}
 	count := func(o *ec2.DescribeInstancesOutput) int {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -72,9 +73,92 @@ func registerGCSObjectIAM(srv *sim.Server, buckets sim.Store[Bucket], objects si
 	})
 
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/o/{object}/iam/testPermissions", func(w http.ResponseWriter, r *http.Request) {
-		if _, _, ok := resolve(w, r); !ok {
+		bucket, object, ok := resolve(w, r)
+		if !ok {
 			return
 		}
-		gcsWriteTestPermissions(w, r)
+		gcsWriteTestPermissions(w, r, gcsObjectPolicies(bucket, object))
 	})
+}
+
+var (
+	gcsBucketACLRoles = map[string]string{
+		"OWNER":  "roles/storage.legacyBucketOwner",
+		"WRITER": "roles/storage.legacyBucketWriter",
+		"READER": "roles/storage.legacyBucketReader",
+	}
+	gcsObjectACLRoles = map[string]string{
+		"OWNER":  "roles/storage.legacyObjectOwner",
+		"READER": "roles/storage.legacyObjectReader",
+	}
+	gcsProjectTeamMembers = map[string]string{
+		"owners":  "projectOwner",
+		"editors": "projectEditor",
+		"viewers": "projectViewer",
+	}
+)
+
+// gcsBucketPolicies are the policies that govern a bucket and what it holds:
+// its project's, its own, and, while uniform bucket-level access is off, its
+// ACL read as the legacy role Cloud Storage maps each ACL role to.
+func gcsBucketPolicies(name string) []IAMPolicy {
+	bucket, _ := gcsBuckets.Get(name)
+	own, ok := gcpResourcePolicies.Get("bucket/" + name)
+	if !ok {
+		own = gcsDefaultBucketPolicy(bucket.Project)
+	}
+	policies := []IAMPolicy{gcpProjectPolicy(bucket.Project), own}
+	if gcsUniformBucketLevelAccess(bucket) {
+		return policies
+	}
+	var acl IAMPolicy
+	for _, entry := range gcsBucketACLs.Filter(func(a GCSBucketACL) bool { return a.Bucket == name }) {
+		acl.Bindings = append(acl.Bindings, IAMBinding{
+			Role: gcsBucketACLRoles[entry.Role], Members: gcsACLMembers(bucket, entry.Entity)})
+	}
+	return append(policies, acl)
+}
+
+// gcsObjectPolicies adds to the bucket's policies the object's own policy and,
+// while uniform bucket-level access is off, the object's ACL.
+func gcsObjectPolicies(bucketName, object string) []IAMPolicy {
+	policies := gcsBucketPolicies(bucketName)
+	if own, ok := gcpResourcePolicies.Get(gcsObjectPolicyKey(bucketName, object)); ok {
+		policies = append(policies, own)
+	}
+	bucket, _ := gcsBuckets.Get(bucketName)
+	if gcsUniformBucketLevelAccess(bucket) {
+		return policies
+	}
+	var acl IAMPolicy
+	for _, entry := range gcsObjectACLEntries(bucketName, object) {
+		acl.Bindings = append(acl.Bindings, IAMBinding{
+			Role: gcsObjectACLRoles[entry.Role], Members: gcsACLMembers(bucket, entry.Entity)})
+	}
+	return append(policies, acl)
+}
+
+// gcsACLMembers are the IAM members an ACL entity names. A user- entity names
+// a service account as well as a user, since ACLs spell both the same way.
+func gcsACLMembers(bucket Bucket, entity string) []string {
+	switch {
+	case entity == "allUsers" || entity == "allAuthenticatedUsers":
+		return []string{entity}
+	case strings.HasPrefix(entity, "user-"):
+		email := strings.TrimPrefix(entity, "user-")
+		return []string{"user:" + email, "serviceAccount:" + email}
+	case strings.HasPrefix(entity, "group-"):
+		return []string{"group:" + strings.TrimPrefix(entity, "group-")}
+	case strings.HasPrefix(entity, "domain-"):
+		return []string{"domain:" + strings.TrimPrefix(entity, "domain-")}
+	}
+	_, team := gcsACLEmailFor(entity)
+	if team == nil {
+		return nil
+	}
+	number, _ := bucket.Data["projectNumber"].(string)
+	if kind, known := gcsProjectTeamMembers[team.Team]; known && team.ProjectNumber == number {
+		return []string{kind + ":" + bucket.Project}
+	}
+	return nil
 }

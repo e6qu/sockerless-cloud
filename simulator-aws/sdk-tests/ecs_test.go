@@ -139,12 +139,23 @@ func TestECS_ServiceLifecycle(t *testing.T) {
 	assert.EqualValues(t, 3, scaled.Services[0].RunningCount)
 	assert.EqualValues(t, 0, scaled.Services[0].PendingCount)
 
-	// DeleteService — must settle to INACTIVE.
+	// DeleteService drains the service's tasks, then settles it INACTIVE.
 	delOut, err := c.DeleteService(ctx, &ecs.DeleteServiceInput{
 		Cluster: aws.String(cluster), Service: aws.String("control-plane"), Force: aws.Bool(true),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "INACTIVE", aws.ToString(delOut.Service.Status))
+	assert.Equal(t, "DRAINING", aws.ToString(delOut.Service.Status))
+	waitForECSServiceInactive(t, c, cluster, "control-plane")
+}
+
+// waitForECSServiceInactive waits with the SDK's ServicesInactive waiter for a
+// deleted service's tasks to stop.
+func waitForECSServiceInactive(t *testing.T, client *ecs.Client, cluster, service string) {
+	t.Helper()
+	require.NoError(t, ecs.NewServicesInactiveWaiter(client, func(o *ecs.ServicesInactiveWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &ecs.DescribeServicesInput{Cluster: aws.String(cluster), Services: []string{service}}, time.Minute))
 }
 
 // TestECS_TagsAndListOps covers tagging clusters and services (previously
@@ -273,6 +284,7 @@ func TestECS_MultiContainerTaskSharesLocalhost(t *testing.T) {
 					LogDriver: ecstypes.LogDriverAwslogs,
 					Options: map[string]string{
 						"awslogs-group":         logGroupName,
+						"awslogs-create-group":  "true",
 						"awslogs-stream-prefix": "ecs",
 					},
 				},
@@ -431,6 +443,7 @@ echo EBS_ROUNDTRIP_OK`},
 				LogDriver: ecstypes.LogDriverAwslogs,
 				Options: map[string]string{
 					"awslogs-group":         logGroupName,
+					"awslogs-create-group":  "true",
 					"awslogs-stream-prefix": "ecs",
 				},
 			},
@@ -520,6 +533,7 @@ echo EBS_CAPACITY_OK`},
 				LogDriver: ecstypes.LogDriverAwslogs,
 				Options: map[string]string{
 					"awslogs-group":         logGroupName,
+					"awslogs-create-group":  "true",
 					"awslogs-stream-prefix": "ecs",
 				},
 			},
@@ -618,6 +632,7 @@ func TestECS_RunTaskContainerOverridesApplyToRuntimeSDK(t *testing.T) {
 				LogDriver: ecstypes.LogDriverAwslogs,
 				Options: map[string]string{
 					"awslogs-group":         logGroup,
+					"awslogs-create-group":  "true",
 					"awslogs-stream-prefix": "ecs",
 				},
 			},
@@ -938,16 +953,84 @@ func createECSTestVPCSubnet(t *testing.T, name string) (string, string) {
 	subnetID := aws.ToString(subnetOut.Subnet.SubnetId)
 
 	t.Cleanup(func() {
-		_, _ = ec2c.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: aws.String(subnetID)})
-		var deleteErr error
-		require.Eventually(t, func() bool {
-			_, deleteErr = ec2c.DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: aws.String(vpcID)})
-			return deleteErr == nil
-		}, 15*time.Second, 250*time.Millisecond,
-			"delete ECS test VPC %s after its asynchronously stopped containers release the network",
-			vpcID)
+		stopECSTasksInSubnet(t, ecsClient(), subnetID)
+		_, err := ec2c.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: aws.String(subnetID)})
+		require.NoError(t, err, "delete ECS test subnet %s once its tasks stopped", subnetID)
+		_, err = ec2c.DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: aws.String(vpcID)})
+		require.NoError(t, err, "delete ECS test VPC %s", vpcID)
 	})
 	return vpcID, subnetID
+}
+
+// stopECSTasksInSubnet stops every Amazon ECS task whose network interface is
+// in the subnet and waits until each has stopped: EC2 refuses DeleteSubnet
+// with DependencyViolation while a task's interface is still in it.
+func stopECSTasksInSubnet(t *testing.T, client *ecs.Client, subnetID string) {
+	t.Helper()
+	stopECSTasks(t, client, func(task ecstypes.Task) bool { return ecsTaskInSubnet(task, subnetID) })
+}
+
+// stopECSTasks stops every Amazon ECS task that match selects and waits with
+// the SDK's TasksStopped waiter until each has stopped.
+func stopECSTasks(t *testing.T, client *ecs.Client, match func(ecstypes.Task) bool) {
+	t.Helper()
+	clusters, err := client.ListClusters(ctx, &ecs.ListClustersInput{})
+	require.NoError(t, err)
+	for _, cluster := range clusters.ClusterArns {
+		var taskArns []string
+		for _, desired := range []ecstypes.DesiredStatus{ecstypes.DesiredStatusRunning, ecstypes.DesiredStatusStopped} {
+			pages := ecs.NewListTasksPaginator(client, &ecs.ListTasksInput{Cluster: aws.String(cluster), DesiredStatus: desired})
+			for pages.HasMorePages() {
+				page, err := pages.NextPage(ctx)
+				require.NoError(t, err)
+				taskArns = append(taskArns, page.TaskArns...)
+			}
+		}
+		var inSubnet []string
+		for start := 0; start < len(taskArns); start += 100 {
+			described, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
+				Cluster: aws.String(cluster),
+				Tasks:   taskArns[start:min(start+100, len(taskArns))],
+			})
+			require.NoError(t, err)
+			for _, task := range described.Tasks {
+				if aws.ToString(task.LastStatus) == "STOPPED" || !match(task) {
+					continue
+				}
+				inSubnet = append(inSubnet, aws.ToString(task.TaskArn))
+				if aws.ToString(task.DesiredStatus) != "STOPPED" {
+					_, err := client.StopTask(ctx, &ecs.StopTaskInput{
+						Cluster: aws.String(cluster), Task: task.TaskArn, Reason: aws.String("test cleanup"),
+					})
+					require.NoError(t, err)
+				}
+			}
+		}
+		for start := 0; start < len(inSubnet); start += 100 {
+			_, err := ecs.NewTasksStoppedWaiter(client, func(o *ecs.TasksStoppedWaiterOptions) {
+				o.MinDelay = waiterMinDelay
+				o.MaxDelay = waiterMaxDelay
+			}).WaitForOutput(ctx, &ecs.DescribeTasksInput{
+				Cluster: aws.String(cluster),
+				Tasks:   inSubnet[start:min(start+100, len(inSubnet))],
+			}, 2*time.Minute)
+			require.NoError(t, err, "tasks in cluster %s did not stop", cluster)
+		}
+	}
+}
+
+func ecsTaskInSubnet(task ecstypes.Task, subnetID string) bool {
+	for _, attachment := range task.Attachments {
+		if aws.ToString(attachment.Type) != "ElasticNetworkInterface" {
+			continue
+		}
+		for _, detail := range attachment.Details {
+			if aws.ToString(detail.Name) == "subnetId" && aws.ToString(detail.Value) == subnetID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func cleanupECSTask(t *testing.T, client *ecs.Client, clusterName, taskArn string) {
@@ -1087,6 +1170,7 @@ func TestECS_TaskExecutesCommand(t *testing.T) {
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
 				"awslogs-group":         "/ecs/exec-cmd",
+				"awslogs-create-group":  "true",
 				"awslogs-stream-prefix": "ecs",
 			},
 		},
@@ -1110,6 +1194,7 @@ func TestECS_TaskExitCodeNonZero(t *testing.T) {
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
 				"awslogs-group":         "/ecs/exec-fail",
+				"awslogs-create-group":  "true",
 				"awslogs-stream-prefix": "ecs",
 			},
 		},
@@ -1119,6 +1204,36 @@ func TestECS_TaskExitCodeNonZero(t *testing.T) {
 	require.NotEmpty(t, task.Containers)
 	require.NotNil(t, task.Containers[0].ExitCode)
 	assert.Equal(t, int32(1), *task.Containers[0].ExitCode)
+}
+
+// TestECS_TaskFailsWhenAwslogsGroupIsMissing proves the awslogs driver creates
+// no log group unless awslogs-create-group asks for one: the task fails to
+// start with a ResourceInitializationError instead.
+func TestECS_TaskFailsWhenAwslogsGroupIsMissing(t *testing.T) {
+	client, cluster, taskArn := ecsRunTaskHelper(t, "exec-no-group", ecstypes.ContainerDefinition{
+		StopTimeout: aws.Int32(2),
+		Name:        aws.String("app"),
+		Image:       aws.String("alpine:latest"),
+		Command:     []string{"echo", "never runs"},
+		LogConfiguration: &ecstypes.LogConfiguration{
+			LogDriver: ecstypes.LogDriverAwslogs,
+			Options: map[string]string{
+				"awslogs-group":         "/ecs/exec-no-group",
+				"awslogs-stream-prefix": "ecs",
+			},
+		},
+	})
+
+	task := waitTaskStopped(t, client, cluster, taskArn)
+	assert.Equal(t, ecstypes.TaskStopCodeTaskFailedToStart, task.StopCode)
+	assert.Contains(t, aws.ToString(task.StoppedReason), "ResourceInitializationError")
+	assert.Contains(t, aws.ToString(task.StoppedReason), "The specified log group does not exist")
+
+	groups, err := cwLogsClient().DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{
+		LogGroupNamePrefix: aws.String("/ecs/exec-no-group"),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, groups.LogGroups, "the awslogs driver must not create a group awslogs-create-group did not ask for")
 }
 
 func TestECS_TaskLogsToCloudWatch(t *testing.T) {
@@ -1131,6 +1246,7 @@ func TestECS_TaskLogsToCloudWatch(t *testing.T) {
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
 				"awslogs-group":         "/ecs/exec-logs",
+				"awslogs-create-group":  "true",
 				"awslogs-stream-prefix": "ecs",
 			},
 		},
@@ -1199,6 +1315,7 @@ func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
 				"awslogs-group":         "/ecs/live-logs",
+				"awslogs-create-group":  "true",
 				"awslogs-stream-prefix": "ecs",
 			},
 		},
@@ -1268,6 +1385,7 @@ func TestECS_TaskNoCommandStaysRunning(t *testing.T) {
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
 				"awslogs-group":         "/ecs/exec-nocmd",
+				"awslogs-create-group":  "true",
 				"awslogs-stream-prefix": "ecs",
 			},
 		},

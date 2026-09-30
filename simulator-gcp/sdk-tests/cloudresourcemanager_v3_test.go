@@ -199,6 +199,10 @@ func TestResourceManagerV3_FolderLifecycle(t *testing.T) {
 	// The folder name lives in the operation response.
 	name := crmOpResourceName(t, op)
 	require.NotEmpty(t, name)
+	var createMetadata crm.CreateFolderMetadata
+	require.NoError(t, json.Unmarshal(op.Metadata, &createMetadata))
+	assert.Equal(t, "crm-folder", createMetadata.DisplayName)
+	assert.Equal(t, "organizations/123456789012", createMetadata.Parent)
 
 	got, err := svc.Folders.Get(name).Do()
 	require.NoError(t, err)
@@ -212,10 +216,17 @@ func TestResourceManagerV3_FolderLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "crm-folder-2", got.DisplayName)
 
-	_, err = svc.Folders.Move(name, &crm.MoveFolderRequest{
+	moved, err := svc.Folders.Move(name, &crm.MoveFolderRequest{
 		DestinationParent: "folders/000000000099",
 	}).Do()
 	require.NoError(t, err)
+	var moveMetadata crm.MoveFolderMetadata
+	require.NoError(t, json.Unmarshal(moved.Metadata, &moveMetadata))
+	assert.Equal(t, crm.MoveFolderMetadata{
+		DisplayName:       "crm-folder-2",
+		SourceParent:      "organizations/123456789012",
+		DestinationParent: "folders/000000000099",
+	}, moveMetadata)
 
 	list, err := svc.Folders.List().Parent("folders/000000000099").Do()
 	require.NoError(t, err)

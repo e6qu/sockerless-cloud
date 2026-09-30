@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestGCSCLI_BucketAndObjectLifecycle(t *testing.T) {
@@ -31,6 +33,9 @@ func TestGCSCLI_BucketAndObjectLifecycle(t *testing.T) {
 	if strings.TrimSpace(got) != "hello from gcloud storage" {
 		t.Fatalf("gcloud storage cat returned %q", got)
 	}
+
+	require.Contains(t, gcloudCLIFails(t, gcloudCLI("storage", "buckets", "delete", "gs://"+bucket)), "not empty",
+		"deleting a bucket that holds an object fails as not empty")
 
 	runCLI(t, gcloudCLI("storage", "rm", "gs://"+bucket+"/"+object))
 	runCLI(t, gcloudCLI("storage", "buckets", "delete", "gs://"+bucket))

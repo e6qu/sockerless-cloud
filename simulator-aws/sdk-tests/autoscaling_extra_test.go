@@ -1,6 +1,8 @@
 package aws_sdk_test
 
 import (
+	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -8,6 +10,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	astypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -318,26 +323,117 @@ func TestAutoScaling_LifecycleActionAndBatch(t *testing.T) {
 	const group = "asx-life-grp"
 	asxSetupGroup(t, c, "asx-life-lc", group, 0)
 
-	_, err := c.PutLifecycleHook(ctx, &autoscaling.PutLifecycleHookInput{
-		AutoScalingGroupName: aws.String(group),
-		LifecycleHookName:    aws.String("asx-hook"),
-		LifecycleTransition:  aws.String("autoscaling:EC2_INSTANCE_LAUNCHING"),
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	roleName := "asx-life-hook-role-" + suffix
+	sqsc := sqsClient()
+	queue, err := sqsc.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("asx-life-hook-q-" + suffix)})
+	require.NoError(t, err)
+	queueAttrs, err := sqsc.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+		QueueUrl: queue.QueueUrl, AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
+	})
+	require.NoError(t, err)
+	queueARN := queueAttrs.Attributes[string(sqstypes.QueueAttributeNameQueueArn)]
+	receive := func() map[string]string {
+		t.Helper()
+		out, err := sqsc.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: queue.QueueUrl, WaitTimeSeconds: 20})
+		require.NoError(t, err)
+		require.Len(t, out.Messages, 1, "Amazon EC2 Auto Scaling must notify the hook's target")
+		_, err = sqsc.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: queue.QueueUrl, ReceiptHandle: out.Messages[0].ReceiptHandle})
+		require.NoError(t, err)
+		message := map[string]string{}
+		require.NoError(t, json.Unmarshal([]byte(aws.ToString(out.Messages[0].Body)), &message))
+		return message
+	}
+
+	iamc := iamClient()
+	role, err := iamc.CreateRole(ctx, &iam.CreateRoleInput{
+		RoleName: aws.String(roleName),
+		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+			`"Principal":{"Service":"autoscaling.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
+	})
+	require.NoError(t, err)
+	_, err = iamc.PutRolePolicy(ctx, &iam.PutRolePolicyInput{
+		RoleName:   aws.String(roleName),
+		PolicyName: aws.String("notify"),
+		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+			`"Action":"sqs:SendMessage","Resource":"` + queueARN + `"}]}`),
 	})
 	require.NoError(t, err)
 
-	_, err = c.RecordLifecycleActionHeartbeat(ctx, &autoscaling.RecordLifecycleActionHeartbeatInput{
-		AutoScalingGroupName: aws.String(group),
-		LifecycleHookName:    aws.String("asx-hook"),
-		LifecycleActionToken: aws.String("00000000-0000-0000-0000-000000000abc"),
+	// PutLifecycleHook proves the role can publish to the target by sending it
+	// a test notification, and refuses a role that cannot.
+	_, err = c.PutLifecycleHook(ctx, &autoscaling.PutLifecycleHookInput{
+		AutoScalingGroupName:  aws.String(group),
+		LifecycleHookName:     aws.String("asx-hook"),
+		LifecycleTransition:   aws.String("autoscaling:EC2_INSTANCE_LAUNCHING"),
+		NotificationTargetARN: aws.String(queueARN),
+		RoleARN:               aws.String("arn:aws:iam::123456789012:role/asx-no-such-role"),
+	})
+	requireAWSErrorCode(t, err, "ValidationError")
+	_, err = c.PutLifecycleHook(ctx, &autoscaling.PutLifecycleHookInput{
+		AutoScalingGroupName:  aws.String(group),
+		LifecycleHookName:     aws.String("asx-hook"),
+		LifecycleTransition:   aws.String("autoscaling:EC2_INSTANCE_LAUNCHING"),
+		NotificationTargetARN: aws.String(queueARN),
+		RoleARN:               role.Role.Arn,
+		NotificationMetadata:  aws.String("asx-metadata"),
+		HeartbeatTimeout:      aws.Int32(300),
+		DefaultResult:         aws.String("ABANDON"),
 	})
 	require.NoError(t, err)
+	assert.Equal(t, "autoscaling:TEST_NOTIFICATION", receive()["Event"])
+
 	_, err = c.CompleteLifecycleAction(ctx, &autoscaling.CompleteLifecycleActionInput{
 		AutoScalingGroupName:  aws.String(group),
 		LifecycleHookName:     aws.String("asx-hook"),
 		LifecycleActionToken:  aws.String("00000000-0000-0000-0000-000000000abc"),
 		LifecycleActionResult: aws.String("CONTINUE"),
 	})
+	requireAWSErrorCode(t, err, "ValidationError")
+
+	// A launch waits in Pending:Wait until the hook's action completes.
+	_, err = c.UpdateAutoScalingGroup(ctx, &autoscaling.UpdateAutoScalingGroupInput{
+		AutoScalingGroupName: aws.String(group), MinSize: aws.Int32(1), DesiredCapacity: aws.Int32(1),
+	})
 	require.NoError(t, err)
+	launching := receive()
+	assert.Equal(t, "autoscaling:EC2_INSTANCE_LAUNCHING", launching["LifecycleTransition"])
+	assert.Equal(t, "asx-hook", launching["LifecycleHookName"])
+	assert.Equal(t, group, launching["AutoScalingGroupName"])
+	assert.Equal(t, "asx-metadata", launching["NotificationMetadata"])
+	token, instanceID := launching["LifecycleActionToken"], launching["EC2InstanceId"]
+	require.NotEmpty(t, token)
+	require.NotEmpty(t, instanceID)
+
+	waiting, err := c.DescribeAutoScalingInstances(ctx, &autoscaling.DescribeAutoScalingInstancesInput{InstanceIds: []string{instanceID}})
+	require.NoError(t, err)
+	require.Len(t, waiting.AutoScalingInstances, 1)
+	assert.Equal(t, "Pending:Wait", aws.ToString(waiting.AutoScalingInstances[0].LifecycleState))
+
+	_, err = c.RecordLifecycleActionHeartbeat(ctx, &autoscaling.RecordLifecycleActionHeartbeatInput{
+		AutoScalingGroupName: aws.String(group),
+		LifecycleHookName:    aws.String("asx-hook"),
+		LifecycleActionToken: aws.String(token),
+	})
+	require.NoError(t, err)
+	_, err = c.CompleteLifecycleAction(ctx, &autoscaling.CompleteLifecycleActionInput{
+		AutoScalingGroupName:  aws.String(group),
+		LifecycleHookName:     aws.String("asx-hook"),
+		InstanceId:            aws.String(instanceID),
+		LifecycleActionResult: aws.String("CONTINUE"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, autoscaling.NewGroupInServiceWaiter(c, func(o *autoscaling.GroupInServiceWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &autoscaling.DescribeAutoScalingGroupsInput{AutoScalingGroupNames: []string{group}}, time.Minute))
+	_, err = c.CompleteLifecycleAction(ctx, &autoscaling.CompleteLifecycleActionInput{
+		AutoScalingGroupName:  aws.String(group),
+		LifecycleHookName:     aws.String("asx-hook"),
+		LifecycleActionToken:  aws.String(token),
+		LifecycleActionResult: aws.String("CONTINUE"),
+	})
+	requireAWSErrorCode(t, err, "ValidationError")
 
 	bpOut, err := c.BatchPutScheduledUpdateGroupAction(ctx, &autoscaling.BatchPutScheduledUpdateGroupActionInput{
 		AutoScalingGroupName: aws.String(group),

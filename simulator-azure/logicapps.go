@@ -40,6 +40,7 @@ func registerLogicApps(srv *sim.Server) {
 	makeAzureKeyGens(srv)
 	logicWorkflows = sim.MakeStore[LogicWorkflow](srv.DB(), "logic_workflows")
 	logicRuns = sim.MakeStore[LogicWorkflowRun](srv.DB(), "logic_workflow_runs")
+	logicFailInterruptedRuns()
 
 	const base = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows"
 	srv.HandleFunc("PUT "+base+"/{workflowName}", handleLogicWorkflowPut)
@@ -224,7 +225,7 @@ func handleLogicWorkflowDelete(w http.ResponseWriter, r *http.Request) {
 	logicDropWorkflowKeyGens(id)
 	for _, run := range logicRuns.List() {
 		if strings.HasPrefix(run.ID, id+"/runs/") {
-			logicRuns.Delete(run.ID)
+			logicDeleteRun(run.ID)
 		}
 	}
 	w.WriteHeader(http.StatusOK)
@@ -307,7 +308,8 @@ func handleLogicWorkflowTriggerRun(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Trigger %q not found.", triggerName)
 		return
 	}
-	logicRecordTriggerRun(wf, triggerName)
+	runName := logicRecordTriggerRun(wf, triggerName)
+	w.Header().Set("x-ms-workflow-run-id", runName)
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -343,15 +345,5 @@ func handleLogicWorkflowRunGet(w http.ResponseWriter, r *http.Request) {
 
 func handleLogicWorkflowRunCancel(w http.ResponseWriter, r *http.Request) {
 	id := logicWorkflowRunID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "workflowName"), sim.PathParam(r, "runName"))
-	if !logicRuns.Update(id, func(run *LogicWorkflowRun) {
-		if run.Properties == nil {
-			run.Properties = map[string]any{}
-		}
-		run.Properties["status"] = "Cancelled"
-		run.Properties["endTime"] = time.Now().UTC().Format(time.RFC3339Nano)
-	}) {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", sim.PathParam(r, "runName"))
-		return
-	}
-	w.WriteHeader(http.StatusOK)
+	writeLogicRunCancel(w, id, sim.PathParam(r, "runName"))
 }

@@ -656,13 +656,15 @@ func TestBatch_JobQueueSnapshot_SDK(t *testing.T) {
 // per-id error list. The unknown id matters most — a caller that asked to stop
 // two jobs and had one stopped has to be told which one it was, so an id that
 // names nothing belongs in errors rather than being dropped on the floor.
+// CancelJob cancels only a job that has not reached STARTING, so the queue's
+// only compute environment is DISABLED and holds the job RUNNABLE.
 func TestBatch_CancelJobs_SDK(t *testing.T) {
 	c := batchClient()
 
 	_, err := c.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
 		ComputeEnvironmentName: aws.String("batch-sdk-ce-bulk"),
 		Type:                   batchtypes.CETypeManaged,
-		State:                  batchtypes.CEStateEnabled,
+		State:                  batchtypes.CEStateDisabled,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -707,6 +709,9 @@ func TestBatch_CancelJobs_SDK(t *testing.T) {
 		JobDefinition: reg.JobDefinitionArn,
 	})
 	require.NoError(t, err)
+	awaitBatchJob(t, c, aws.ToString(submit.JobId), func(job batchtypes.JobDetail) bool {
+		return job.Status == batchtypes.JobStatusRunnable
+	})
 
 	out, err := c.CancelJobs(ctx, &batch.CancelJobsInput{
 		Jobs:   []string{aws.ToString(submit.JobId), "job-that-does-not-exist"},
@@ -721,4 +726,7 @@ func TestBatch_CancelJobs_SDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, desc.Jobs, 1)
 	require.Equal(t, batchtypes.JobStatusFailed, desc.Jobs[0].Status)
+	assert.True(t, aws.ToBool(desc.Jobs[0].IsCancelled))
+	assert.Equal(t, "bulk cancel from the SDK test", aws.ToString(desc.Jobs[0].StatusReason))
+	assert.Empty(t, desc.Jobs[0].Attempts, "a job cancelled before STARTING never ran an attempt")
 }

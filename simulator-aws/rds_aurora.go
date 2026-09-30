@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"errors"
 	"fmt"
@@ -105,6 +106,7 @@ func rdsInstallAuroraDataPlane(cluster *RDSCluster, masterPassword string) error
 		Sandbox:      SandboxFargate,
 		Platform:     dbengine.FixedPlatform("linux/amd64"),
 		Environment:  plane.environment,
+		Ready:        plane.applyPendingMasterPassword,
 		Certificate:  rdsServerCertificate,
 		Authenticate: plane.authenticate,
 		BackendLogin: plane.backendLogin,
@@ -137,15 +139,71 @@ func (plane *rdsAuroraDataPlane) masterPassword() (RDSCluster, string, error) {
 }
 
 func (plane *rdsAuroraDataPlane) environment() (map[string]string, error) {
-	cluster, password, err := plane.masterPassword()
+	cluster, err := plane.cluster()
 	if err != nil {
 		return nil, err
 	}
-	database := cluster.DatabaseName
-	if database == "" {
-		database = cluster.MasterUsername
+	password, err := rdsAuroraBackendPassword(cluster)
+	if err != nil {
+		return nil, err
 	}
-	return rdsEngineEnvironment(plane.engine.Engine, cluster.MasterUsername, password, database), nil
+	return rdsEngineEnvironment(plane.engine.Engine, cluster.MasterUsername, password, rdsAuroraDatabaseName(cluster)), nil
+}
+
+func (plane *rdsAuroraDataPlane) cluster() (RDSCluster, error) {
+	cluster, ok := rdsClusters.Get(plane.clusterID)
+	if !ok {
+		return RDSCluster{}, fmt.Errorf("DB cluster %s no longer exists", plane.clusterID)
+	}
+	return cluster, nil
+}
+
+func rdsAuroraDatabaseName(cluster RDSCluster) string {
+	if cluster.DatabaseName != "" {
+		return cluster.DatabaseName
+	}
+	return cluster.MasterUsername
+}
+
+// rdsAuroraBackendPassword is the master-user password installed in the
+// cluster's engine.
+func rdsAuroraBackendPassword(cluster RDSCluster) (string, error) {
+	secret := cluster.BackendMasterUserSecret
+	if len(secret) == 0 {
+		secret = cluster.MasterUserSecret
+	}
+	_, password, ok := kmsDecryptBytes(secret)
+	if !ok {
+		return "", fmt.Errorf("decrypt the Amazon Aurora master-user credential")
+	}
+	return string(password), nil
+}
+
+// applyPendingMasterPassword installs the master-user password a
+// ModifyDBCluster recorded while the engine was not running.
+func (plane *rdsAuroraDataPlane) applyPendingMasterPassword() error {
+	cluster, err := plane.cluster()
+	if err != nil {
+		return err
+	}
+	if len(cluster.BackendMasterUserSecret) == 0 || bytes.Equal(cluster.BackendMasterUserSecret, cluster.MasterUserSecret) {
+		return nil
+	}
+	oldPassword, err := rdsAuroraBackendPassword(cluster)
+	if err != nil {
+		return err
+	}
+	_, newPassword, ok := kmsDecryptBytes(cluster.MasterUserSecret)
+	if !ok {
+		return fmt.Errorf("decrypt pending Amazon Aurora master-user credential")
+	}
+	if err := rdsRotateEnginePassword(plane.engine, cluster.MasterUsername, rdsAuroraDatabaseName(cluster), oldPassword, string(newPassword)); err != nil {
+		return fmt.Errorf("apply pending Amazon Aurora master-user password: %w", err)
+	}
+	rdsClusters.Update(plane.clusterID, func(stored *RDSCluster) {
+		stored.BackendMasterUserSecret = append([]byte(nil), cluster.MasterUserSecret...)
+	})
+	return nil
 }
 
 func (plane *rdsAuroraDataPlane) authenticate(user, password string, secure bool) bool {
@@ -161,7 +219,11 @@ func (plane *rdsAuroraDataPlane) authenticate(user, password string, secure bool
 }
 
 func (plane *rdsAuroraDataPlane) backendLogin(string, string) (string, string, error) {
-	cluster, password, err := plane.masterPassword()
+	cluster, err := plane.cluster()
+	if err != nil {
+		return "", "", err
+	}
+	password, err := rdsAuroraBackendPassword(cluster)
 	return cluster.MasterUsername, password, err
 }
 
@@ -337,4 +399,66 @@ func rdsRelayConnections(left, right net.Conn) {
 	go copySide(left, right)
 	go copySide(right, left)
 	<-done
+}
+
+// rdsRebindAuroraPort moves an Aurora cluster's writer and reader endpoints
+// and every member's instance endpoint to port, keeping their addresses.
+func rdsRebindAuroraPort(cluster *RDSCluster, port int) error {
+	release := rdsDataPlaneStops.Lock("cluster/" + cluster.DBClusterIdentifier)
+	defer release()
+	plane, ok := rdsLoadAuroraDataPlane(cluster.DBClusterIdentifier)
+	if !ok {
+		cluster.Port = port
+		return nil
+	}
+	writer, err := rdsListenForEndpoint(cluster.Endpoint, port, cluster.DBClusterIdentifier+".cluster")
+	if err != nil {
+		return fmt.Errorf("bind the cluster endpoint on port %d: %w", port, err)
+	}
+	reader, err := rdsListenForEndpoint(cluster.ReaderEndpoint, port, cluster.DBClusterIdentifier+".cluster-ro")
+	if err != nil {
+		_ = writer.Close()
+		return fmt.Errorf("bind the reader endpoint on port %d: %w", port, err)
+	}
+	members := rdsClusterMembers(cluster.DBClusterIdentifier)
+	rebound := make(map[string]net.Listener, len(members))
+	for _, member := range members {
+		if _, serving := rdsAuroraInstanceEndpoints.Load(member.DBInstanceIdentifier); !serving {
+			continue
+		}
+		listener, err := rdsListenForEndpoint(member.Endpoint, port, member.DBInstanceIdentifier)
+		if err != nil {
+			_ = writer.Close()
+			_ = reader.Close()
+			for _, l := range rebound {
+				_ = l.Close()
+			}
+			return fmt.Errorf("bind DB instance %s on port %d: %w", member.DBInstanceIdentifier, port, err)
+		}
+		rebound[member.DBInstanceIdentifier] = listener
+	}
+	_ = plane.writer.Close()
+	_ = plane.reader.Close()
+	plane.writer, plane.reader = writer, reader
+	rdsServeRelay(writer, plane.writerTarget)
+	rdsServeRelay(reader, plane.readerTarget)
+	for _, member := range members {
+		rdsInstances.Update(member.DBInstanceIdentifier, func(stored *RDSInstance) { stored.Port = port })
+		listener, ok := rebound[member.DBInstanceIdentifier]
+		if !ok {
+			continue
+		}
+		rdsCloseAuroraInstanceEndpoint(member.DBInstanceIdentifier)
+		id := member.DBInstanceIdentifier
+		rdsAuroraInstanceEndpoints.Store(id, listener)
+		rdsServeRelay(listener, func() (string, bool) {
+			current, ok := rdsInstances.Get(id)
+			if !ok || current.DBInstanceStatus != "available" {
+				return "", false
+			}
+			return plane.engineAddress, true
+		})
+	}
+	cluster.Port = port
+	return nil
 }

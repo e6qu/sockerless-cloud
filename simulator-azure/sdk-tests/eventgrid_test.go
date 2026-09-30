@@ -2,10 +2,8 @@ package azure_sdk_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -19,16 +17,7 @@ func TestEventGrid_TopicSubscriptionPublishSDK(t *testing.T) {
 	rg := "sdk-eventgrid-rg"
 	ensureRG(t, rg)
 
-	deliveries := make(chan []map[string]any, 4)
-	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		var events []map[string]any
-		require.NoError(t, json.Unmarshal(body, &events))
-		deliveries <- events
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(hook.Close)
+	hook, deliveries := newEventGridWebhook(t)
 
 	cred := &fakeCredential{}
 	topics, err := armeventgrid.NewTopicsClient(subscriptionID, cred, clientOpts())
@@ -76,9 +65,10 @@ func TestEventGrid_TopicSubscriptionPublishSDK(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	subResp, err := subPoller.PollUntilDone(ctx, nil)
-	require.NoError(t, err)
+	require.NoError(t, err, "the create completes once the webhook echoes the validation code")
 	require.NotNil(t, subResp.Properties)
 	assert.Equal(t, scope, *subResp.Properties.Topic)
+	assert.Equal(t, armeventgrid.EventSubscriptionProvisioningStateSucceeded, *subResp.Properties.ProvisioningState)
 
 	pager := subs.NewListByResourcePager(rg, "Microsoft.EventGrid", "topics", topicName, nil)
 	require.True(t, pager.More())
@@ -86,13 +76,6 @@ func TestEventGrid_TopicSubscriptionPublishSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, page.Value, 1)
 	assert.Equal(t, "sdk-sub", *page.Value[0].Name)
-
-	// Drain the subscription-validation event sent during create.
-	select {
-	case <-deliveries:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for Event Grid subscription validation delivery")
-	}
 
 	for _, tc := range []struct {
 		name string
@@ -143,10 +126,7 @@ func TestEventGrid_DomainAndSystemTopicSDK(t *testing.T) {
 	rg := "sdk-eventgrid-advanced-rg"
 	ensureRG(t, rg)
 
-	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(hook.Close)
+	hook, _ := newEventGridWebhook(t)
 
 	cred := &fakeCredential{}
 	domains, err := armeventgrid.NewDomainsClient(subscriptionID, cred, clientOpts())

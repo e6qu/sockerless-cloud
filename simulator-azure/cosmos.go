@@ -108,6 +108,7 @@ func registerCosmosDB(srv *sim.Server) {
 	cosmosDocs = sim.MakeStore[CosmosDocument](srv.DB(), "cosmos_documents")
 	cosmosDataColls = sim.MakeStore[CosmosDataColl](srv.DB(), "cosmos_data_collections")
 	cosmosDataDBs = sim.MakeStore[CosmosDataDB](srv.DB(), "cosmos_data_databases")
+	registerCosmosRIDs(srv)
 
 	cosmosInitSessionState(srv)
 	for _, d := range cosmosDocs.List() {
@@ -820,6 +821,11 @@ func handleCosmosDataListDBs(w http.ResponseWriter, r *http.Request) {
 	for _, d := range cosmosDataDBs.ListPrefix(account + "/") {
 		dbs[d.Item.DB] = cosmosDataDB(account, d.Item.DB)
 	}
+	for _, d := range cosmosDatabases.List() {
+		if acc, db, _, ok := cosmosARMIDNames(d.ID); ok && acc == account && db != "" {
+			dbs[db] = cosmosDataDB(account, db)
+		}
+	}
 	for _, c := range cosmosContainers.List() {
 		if acc, db, _, ok := cosmosARMIDNames(c.ID); ok && acc == account {
 			dbs[db] = cosmosDataDB(account, db)
@@ -847,9 +853,21 @@ func cosmosDataDBExists(account, db string) bool {
 		return true
 	}
 	under := cosmosDataDBKey(account, db) + "/"
-	return cosmosARMDatabaseHasContainers(account, db) ||
+	return cosmosARMDatabaseExists(account, db) ||
+		cosmosARMDatabaseHasContainers(account, db) ||
 		len(cosmosDataColls.ListPrefix(under)) > 0 ||
 		len(cosmosDocs.ListPrefix(under)) > 0
+}
+
+// cosmosARMDatabaseExists reports whether Azure Resource Manager created the
+// NoSQL database, which the data plane serves as soon as it exists.
+func cosmosARMDatabaseExists(account, db string) bool {
+	for _, d := range cosmosDatabases.List() {
+		if acc, name, coll, ok := cosmosARMIDNames(d.ID); ok && acc == account && name == db && coll == "" {
+			return true
+		}
+	}
+	return false
 }
 
 func handleCosmosDataGetDB(w http.ResponseWriter, r *http.Request) {
@@ -1409,11 +1427,13 @@ func cosmosDocBody(doc CosmosDocument) map[string]any {
 }
 
 func cosmosDataDB(account, id string) map[string]any {
-	return map[string]any{"id": id, "_rid": account + "-" + id, "_self": "dbs/" + id + "/", "_etag": `"db"`, "_ts": time.Now().UTC().Unix()}
+	rid := cosmosDatabaseRID(account, id)
+	return map[string]any{"id": id, "_rid": rid, "_self": "dbs/" + rid + "/", "_etag": `"db"`, "_ts": time.Now().UTC().Unix()}
 }
 
 func cosmosDataColl(account, db, id string) map[string]any {
-	coll := map[string]any{"id": id, "_rid": account + "-" + db + "-" + id, "_self": "dbs/" + db + "/colls/" + id + "/", "_etag": `"coll"`, "_ts": time.Now().UTC().Unix()}
+	dbRID, collRID := cosmosDatabaseRID(account, db), cosmosCollectionRID(account, db, id)
+	coll := map[string]any{"id": id, "_rid": collRID, "_self": "dbs/" + dbRID + "/colls/" + collRID + "/", "_etag": `"coll"`, "_ts": time.Now().UTC().Unix()}
 	if path, declared := cosmosContainerPKPath(account, db, id); declared {
 		coll["partitionKey"] = map[string]any{"paths": []string{path}, "kind": "Hash"}
 	}

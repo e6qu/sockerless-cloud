@@ -370,6 +370,9 @@ func TestEventGridDomainPublishAuthenticatesAndRoutesByDomainTopic(t *testing.T)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		if eventGridAnswerValidation(w, r, body) {
+			return
+		}
 		var events []map[string]any
 		if err := json.Unmarshal(body, &events); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -399,11 +402,7 @@ func TestEventGridDomainPublishAuthenticatesAndRoutesByDomainTopic(t *testing.T)
 	subURL := domainBase + "/topics/orders/providers/Microsoft.EventGrid/eventSubscriptions/orders-sub?api-version=2021-12-01"
 	subBody := `{"properties":{"destination":{"endpointType":"WebHook","properties":{"endpointUrl":"` + hook.URL + `"}},"eventDeliverySchema":"EventGridSchema"}}`
 	serveEventGridTestRequest(t, srv, eventGridTestRequest(http.MethodPut, subURL, subBody), http.StatusCreated)
-	select {
-	case <-deliveries:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for the subscription validation delivery")
-	}
+	eventGridAwaitProvisioned(t, srv, subURL)
 
 	domainEvent := func(id, topic string) string {
 		return fmt.Sprintf(`[{"id":%q,"topic":%q,"eventType":"sockerless.test","subject":"/orders","eventTime":"2026-06-02T00:00:00Z","data":{"ok":true},"dataVersion":"1"}]`, id, topic)

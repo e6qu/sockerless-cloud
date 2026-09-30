@@ -31,32 +31,34 @@ func storageClient(t *testing.T) *storage.Client {
 }
 
 func TestGCS_CreateBucket(t *testing.T) {
+	bucketSdkTestBucket := uniqueName("sdk-test-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
-	err := client.Bucket("sdk-test-bucket").Create(ctx, "test-project", nil)
+	err := client.Bucket(bucketSdkTestBucket).Create(ctx, "test-project", nil)
 	require.NoError(t, err)
 
-	attrs, err := client.Bucket("sdk-test-bucket").Attrs(ctx)
+	attrs, err := client.Bucket(bucketSdkTestBucket).Attrs(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, "sdk-test-bucket", attrs.Name)
+	assert.Equal(t, bucketSdkTestBucket, attrs.Name)
 }
 
 func TestGCS_UploadAndDownload(t *testing.T) {
+	bucketUploadBucket := uniqueName("upload-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
-	err := client.Bucket("upload-bucket").Create(ctx, "test-project", nil)
+	err := client.Bucket(bucketUploadBucket).Create(ctx, "test-project", nil)
 	require.NoError(t, err)
 
 	// Upload
-	w := client.Bucket("upload-bucket").Object("hello.txt").NewWriter(ctx)
+	w := client.Bucket(bucketUploadBucket).Object("hello.txt").NewWriter(ctx)
 	_, err = w.Write([]byte("hello world"))
 	require.NoError(t, err)
 	require.NoError(t, w.Close())
 
 	// Download
-	r, err := client.Bucket("upload-bucket").Object("hello.txt").NewReader(ctx)
+	r, err := client.Bucket(bucketUploadBucket).Object("hello.txt").NewReader(ctx)
 	require.NoError(t, err)
 	defer r.Close()
 
@@ -66,10 +68,11 @@ func TestGCS_UploadAndDownload(t *testing.T) {
 }
 
 func TestGCS_ResumableWriterFollowsCustomEndpoint(t *testing.T) {
+	bucketResumableSdkBucket := uniqueName("resumable-sdk-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
-	err := client.Bucket("resumable-sdk-bucket").Create(ctx, "test-project", nil)
+	err := client.Bucket(bucketResumableSdkBucket).Create(ctx, "test-project", nil)
 	require.NoError(t, err)
 
 	var payload bytes.Buffer
@@ -80,14 +83,14 @@ func TestGCS_ResumableWriterFollowsCustomEndpoint(t *testing.T) {
 	_, err = gz.Write(raw)
 	require.NoError(t, err)
 	require.NoError(t, gz.Close())
-	w := client.Bucket("resumable-sdk-bucket").Object("workspace.tar.gz").NewWriter(ctx)
+	w := client.Bucket(bucketResumableSdkBucket).Object("workspace.tar.gz").NewWriter(ctx)
 	w.ChunkSize = 256 * 1024
 	w.ContentType = "application/x-tar+gzip"
 	_, err = w.Write(payload.Bytes())
 	require.NoError(t, err)
 	require.NoError(t, w.Close())
 
-	r, err := client.Bucket("resumable-sdk-bucket").Object("workspace.tar.gz").NewReader(ctx)
+	r, err := client.Bucket(bucketResumableSdkBucket).Object("workspace.tar.gz").NewReader(ctx)
 	require.NoError(t, err)
 	defer r.Close()
 	got, err := io.ReadAll(r)
@@ -96,10 +99,11 @@ func TestGCS_ResumableWriterFollowsCustomEndpoint(t *testing.T) {
 }
 
 func TestGCS_JSONAPIObjectGetAltMedia(t *testing.T) {
+	bucketJsonApiMediaBucket := uniqueName("json-api-media-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
-	bucket := client.Bucket("json-api-media-bucket")
+	bucket := client.Bucket(bucketJsonApiMediaBucket)
 	require.NoError(t, bucket.Create(ctx, "test-project", nil))
 	payload := []byte{0x1f, 0x8b, 0x08, 0x00, 0x73, 0x6f, 0x63, 0x6b}
 	w := bucket.Object("workspace/exec.tar.gz").NewWriter(ctx)
@@ -113,7 +117,7 @@ func TestGCS_JSONAPIObjectGetAltMedia(t *testing.T) {
 		option.WithTokenSource(simTokenSource()),
 	)
 	require.NoError(t, err)
-	resp, err := svc.Objects.Get("json-api-media-bucket", "workspace/exec.tar.gz").Download()
+	resp, err := svc.Objects.Get(bucketJsonApiMediaBucket, "workspace/exec.tar.gz").Download()
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	got, err := io.ReadAll(resp.Body)
@@ -122,21 +126,22 @@ func TestGCS_JSONAPIObjectGetAltMedia(t *testing.T) {
 }
 
 func TestGCS_ListObjects(t *testing.T) {
+	bucketListObjBucket := uniqueName("list-obj-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
-	err := client.Bucket("list-obj-bucket").Create(ctx, "test-project", nil)
+	err := client.Bucket(bucketListObjBucket).Create(ctx, "test-project", nil)
 	require.NoError(t, err)
 
 	for _, name := range []string{"b.txt", "a.txt", "c.txt"} {
-		w := client.Bucket("list-obj-bucket").Object(name).NewWriter(ctx)
+		w := client.Bucket(bucketListObjBucket).Object(name).NewWriter(ctx)
 		_, err := w.Write([]byte("data"))
 		require.NoError(t, err)
 		require.NoError(t, w.Close())
 	}
 
 	var names []string
-	it := client.Bucket("list-obj-bucket").Objects(ctx, nil)
+	it := client.Bucket(bucketListObjBucket).Objects(ctx, nil)
 	for {
 		attrs, err := it.Next()
 		if err == iterator.Done {
@@ -153,19 +158,20 @@ func TestGCS_ListObjects(t *testing.T) {
 // page must be capped at the requested size, and paging through must still yield
 // every object exactly once.
 func TestGCS_ListObjectsPaged(t *testing.T) {
+	bucketPagedObjBucket := uniqueName("paged-obj-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
-	require.NoError(t, client.Bucket("paged-obj-bucket").Create(ctx, "test-project", nil))
+	require.NoError(t, client.Bucket(bucketPagedObjBucket).Create(ctx, "test-project", nil))
 
 	for _, name := range []string{"o1", "o2", "o3", "o4", "o5"} {
-		w := client.Bucket("paged-obj-bucket").Object(name).NewWriter(ctx)
+		w := client.Bucket(bucketPagedObjBucket).Object(name).NewWriter(ctx)
 		_, err := w.Write([]byte("data"))
 		require.NoError(t, err)
 		require.NoError(t, w.Close())
 	}
 
-	it := client.Bucket("paged-obj-bucket").Objects(ctx, nil)
+	it := client.Bucket(bucketPagedObjBucket).Objects(ctx, nil)
 	pager := iterator.NewPager(it, 2, "")
 
 	var firstPage []*storage.ObjectAttrs
@@ -192,10 +198,11 @@ func TestGCS_ListObjectsPaged(t *testing.T) {
 }
 
 func TestGCS_CopierFromRewriteTo(t *testing.T) {
+	bucketCopyObjBucket := uniqueName("copy-obj-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
-	bucket := client.Bucket("copy-obj-bucket")
+	bucket := client.Bucket(bucketCopyObjBucket)
 	err := bucket.Create(ctx, "test-project", nil)
 	require.NoError(t, err)
 
@@ -240,10 +247,11 @@ func TestGCS_CopierFromRewriteTo(t *testing.T) {
 }
 
 func TestGCS_CopierFromRewriteToRejectsInvalidMetadata(t *testing.T) {
+	bucketCopyInvalidMetadataBucket := uniqueName("copy-invalid-metadata-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
-	bucket := client.Bucket("copy-invalid-metadata-bucket")
+	bucket := client.Bucket(bucketCopyInvalidMetadataBucket)
 	err := bucket.Create(ctx, "test-project", nil)
 	require.NoError(t, err)
 
@@ -261,13 +269,14 @@ func TestGCS_CopierFromRewriteToRejectsInvalidMetadata(t *testing.T) {
 }
 
 func TestGCS_DeleteObject(t *testing.T) {
+	bucketDelObjBucket := uniqueName("del-obj-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
-	err := client.Bucket("del-obj-bucket").Create(ctx, "test-project", nil)
+	err := client.Bucket(bucketDelObjBucket).Create(ctx, "test-project", nil)
 	require.NoError(t, err)
 
-	object := client.Bucket("del-obj-bucket").Object("temp.txt")
+	object := client.Bucket(bucketDelObjBucket).Object("temp.txt")
 	w := object.NewWriter(ctx)
 	_, err = w.Write([]byte("temp"))
 	require.NoError(t, err)
@@ -297,12 +306,45 @@ func TestGCS_CreateBucketTwiceConflicts(t *testing.T) {
 	client := storageClient(t)
 	defer client.Close()
 
-	const name = "sdk-duplicate-bucket"
+	name := uniqueName("sdk-duplicate-bucket")
 	require.NoError(t, client.Bucket(name).Create(ctx, "test-project", nil))
+	t.Cleanup(func() { assert.NoError(t, client.Bucket(name).Delete(ctx)) })
 
 	err := client.Bucket(name).Create(ctx, "test-project", nil)
 	require.Error(t, err, "creating an existing bucket conflicts")
 	var apiErr *googleapi.Error
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusConflict, apiErr.Code)
+}
+
+// TestGCS_DeleteNonEmptyBucketConflicts pins that Cloud Storage refuses to
+// delete a bucket that still holds a live object, and keeps both, while a
+// bucket whose only objects are soft-deleted deletes.
+func TestGCS_DeleteNonEmptyBucketConflicts(t *testing.T) {
+	client := storageClient(t)
+	defer client.Close()
+
+	bucket := client.Bucket(uniqueName("sdk-nonempty-bucket"))
+	require.NoError(t, bucket.Create(ctx, "test-project", nil))
+	object := bucket.Object("keep.txt")
+	_, err := writeObject(t, object, "kept")
+	require.NoError(t, err)
+
+	err = bucket.Delete(ctx)
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr, "deleting a bucket that holds an object fails")
+	assert.Equal(t, http.StatusConflict, apiErr.Code)
+	assert.Equal(t, "The bucket you tried to delete is not empty.", apiErr.Message)
+	require.Len(t, apiErr.Errors, 1)
+	assert.Equal(t, "conflict", apiErr.Errors[0].Reason)
+
+	_, err = bucket.Attrs(ctx)
+	require.NoError(t, err, "the refused delete keeps the bucket")
+	_, err = object.Attrs(ctx)
+	require.NoError(t, err, "the refused delete keeps the object")
+
+	require.NoError(t, object.Delete(ctx))
+	require.NoError(t, bucket.Delete(ctx), "a bucket whose objects are only soft-deleted deletes")
+	_, err = bucket.Attrs(ctx)
+	assert.ErrorIs(t, err, storage.ErrBucketNotExist)
 }

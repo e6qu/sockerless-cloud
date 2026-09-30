@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/google/uuid"
 )
 
@@ -52,6 +54,7 @@ type BatchJobDefinition struct {
 	ContainerProperties map[string]any    `json:"containerProperties,omitempty"`
 	RetryStrategy       map[string]any    `json:"retryStrategy,omitempty"`
 	Timeout             map[string]any    `json:"timeout,omitempty"`
+	SchedulingPriority  *int              `json:"schedulingPriority,omitempty"`
 	Tags                map[string]string `json:"tags,omitempty"`
 }
 
@@ -64,19 +67,37 @@ type BatchSchedulingPolicy struct {
 }
 
 type BatchJob struct {
-	JobID           string               `json:"jobId"`
-	JobArn          string               `json:"jobArn,omitempty"`
-	JobName         string               `json:"jobName"`
-	JobQueue        string               `json:"jobQueue"`
-	Status          string               `json:"status"`
-	StatusReason    string               `json:"statusReason,omitempty"`
-	JobDefinition   string               `json:"jobDefinition"`
-	CreatedAt       int64                `json:"createdAt"`
-	StartedAt       int64                `json:"startedAt"`
-	StoppedAt       int64                `json:"stoppedAt"`
-	Container       map[string]any       `json:"container,omitempty"`
-	Tags            map[string]string    `json:"tags,omitempty"`
-	ExecutionConfig *sim.ContainerConfig `json:"-"`
+	JobID              string                `json:"jobId"`
+	JobArn             string                `json:"jobArn,omitempty"`
+	JobName            string                `json:"jobName"`
+	JobQueue           string                `json:"jobQueue"`
+	Status             string                `json:"status"`
+	StatusReason       string                `json:"statusReason,omitempty"`
+	ShareIdentifier    string                `json:"shareIdentifier,omitempty"`
+	JobDefinition      string                `json:"jobDefinition"`
+	CreatedAt          int64                 `json:"createdAt"`
+	StartedAt          int64                 `json:"startedAt,omitempty"`
+	StoppedAt          int64                 `json:"stoppedAt,omitempty"`
+	Container          map[string]any        `json:"container,omitempty"`
+	Attempts           []BatchAttempt        `json:"attempts,omitempty"`
+	RetryStrategy      map[string]any        `json:"retryStrategy,omitempty"`
+	Timeout            map[string]any        `json:"timeout,omitempty"`
+	ArrayProperties    *BatchArrayProperties `json:"arrayProperties,omitempty"`
+	IsCancelled        bool                  `json:"isCancelled,omitempty"`
+	IsTerminated       bool                  `json:"isTerminated,omitempty"`
+	DependsOn          []BatchJobDependency  `json:"dependsOn,omitempty"`
+	SchedulingPriority *int                  `json:"schedulingPriority,omitempty"`
+	Tags               map[string]string     `json:"tags,omitempty"`
+
+	ExecutionConfig  *sim.ContainerConfig `json:"-"`
+	ArrayJobID       string               `json:"-"`
+	VCPUs            float64              `json:"-"`
+	Retry            BatchRetryStrategy   `json:"-"`
+	LogConfiguration map[string]any       `json:"-"`
+	Running          *batchRunningAttempt `json:"-"`
+	// StopReason is the reason a CancelJob or TerminateJob gave, reported once
+	// the containers it stopped have exited.
+	StopReason string `json:"-"`
 }
 
 // BatchConsumableResource models a Batch consumable resource (an ARN plus a
@@ -150,7 +171,7 @@ var (
 	batchServiceEnvs   sim.Store[BatchServiceEnvironment]
 	batchServiceJobs   sim.Store[BatchServiceJob]
 	batchQuotaShares   sim.Store[BatchQuotaShare]
-	batchJobHandles    sync.Map
+	batchJobHandles    = map[string]*sim.ContainerHandle{}
 	batchMu            sync.Mutex
 )
 
@@ -160,6 +181,7 @@ func registerBatch(srv *sim.Server) {
 	batchJobDefs = sim.MakeStore[BatchJobDefinition](srv.DB(), "batch_job_definitions")
 	batchJobs = sim.MakeStore[BatchJob](srv.DB(), "batch_jobs")
 	batchSchedPols = sim.MakeStore[BatchSchedulingPolicy](srv.DB(), "batch_scheduling_policies")
+	batchShareUsages = sim.MakeStore[batchShareUsage](srv.DB(), "batch_share_usages")
 	batchJobRevisions = sim.MakeStore[int](srv.DB(), "batch_job_revisions")
 	batchConsumableRes = sim.MakeStore[BatchConsumableResource](srv.DB(), "batch_consumable_resources")
 	batchServiceEnvs = sim.MakeStore[BatchServiceEnvironment](srv.DB(), "batch_service_environments")
@@ -237,56 +259,6 @@ func registerBatch(srv *sim.Server) {
 	}
 }
 
-func recoverBatchJobs() error {
-	for _, job := range batchJobs.List() {
-		if batchTerminal(job.Status) {
-			continue
-		}
-		existing, err := sim.FindExistingContainers(map[string]string{"aws-batch-job-id": job.JobID})
-		if err != nil {
-			return fmt.Errorf("find job %s container: %w", job.JobID, err)
-		}
-		if len(existing) > 1 {
-			return fmt.Errorf("job %s has %d workload containers", job.JobID, len(existing))
-		}
-		if len(existing) == 1 {
-			cfg := sim.ContainerConfig{}
-			if job.ExecutionConfig != nil {
-				cfg = *job.ExecutionConfig
-				if cfg.Timeout > 0 {
-					cfg.Timeout -= time.Since(time.UnixMilli(job.StartedAt))
-					if cfg.Timeout <= 0 {
-						cfg.Timeout = time.Nanosecond
-					}
-				}
-			}
-			handle, err := sim.AdoptContainer(existing[0].ID, cfg, sim.NoopSink{})
-			if err != nil {
-				return fmt.Errorf("adopt job %s container: %w", job.JobID, err)
-			}
-			batchJobs.Update(job.JobID, func(current *BatchJob) {
-				current.Status = "RUNNING"
-				if current.StartedAt == 0 {
-					current.StartedAt = batchEpochMs()
-				}
-			})
-			batchJobHandles.Store(job.JobID, handle)
-			go batchWaitForJob(job.JobID, handle)
-			continue
-		}
-		if job.ExecutionConfig == nil {
-			return fmt.Errorf("job %s has neither a workload container nor a persisted execution configuration", job.JobID)
-		}
-		handle, err := sim.StartContainerSync(*job.ExecutionConfig, sim.NoopSink{})
-		if err != nil {
-			return fmt.Errorf("resume job %s before container start: %w", job.JobID, err)
-		}
-		batchJobHandles.Store(job.JobID, handle)
-		go batchRunJobLifecycle(job.JobID, handle)
-	}
-	return nil
-}
-
 func batchARN(resource string) string {
 	return fmt.Sprintf("arn:aws:batch:us-east-1:123456789012:%s", resource)
 }
@@ -357,6 +329,7 @@ func handleBatchCreateComputeEnvironment(w http.ResponseWriter, r *http.Request)
 		Tags:                   req.Tags,
 	}
 	batchComputeEnvs.Put(req.ComputeEnvironmentName, ce)
+	batchDispatchLocked()
 	batchWriteJSON(w, http.StatusOK, map[string]any{
 		"computeEnvironmentArn":  ce.ComputeEnvironmentArn,
 		"computeEnvironmentName": ce.ComputeEnvironmentName,
@@ -431,6 +404,7 @@ func handleBatchUpdateComputeEnvironment(w http.ResponseWriter, r *http.Request)
 		ce.ServiceRole = req.ServiceRole
 	}
 	batchComputeEnvs.Put(name, ce)
+	batchDispatchLocked()
 	batchWriteJSON(w, http.StatusOK, map[string]any{
 		"computeEnvironmentArn":  ce.ComputeEnvironmentArn,
 		"computeEnvironmentName": ce.ComputeEnvironmentName,
@@ -478,6 +452,10 @@ func handleBatchCreateJobQueue(w http.ResponseWriter, r *http.Request) {
 		batchWriteError(w, http.StatusBadRequest, "Job queue already exists: "+req.JobQueueName)
 		return
 	}
+	if _, ok := batchSchedPols.Get(batchNameFromARN(req.SchedulingPolicyArn)); req.SchedulingPolicyArn != "" && !ok {
+		batchWriteError(w, http.StatusBadRequest, "Scheduling policy not found: "+req.SchedulingPolicyArn)
+		return
+	}
 	state := req.State
 	if state == "" {
 		state = "ENABLED"
@@ -497,6 +475,7 @@ func handleBatchCreateJobQueue(w http.ResponseWriter, r *http.Request) {
 		Tags:                    req.Tags,
 	}
 	batchJobQueues.Put(req.JobQueueName, q)
+	batchDispatchLocked()
 	batchWriteJSON(w, http.StatusOK, map[string]any{
 		"jobQueueArn":  q.JobQueueArn,
 		"jobQueueName": q.JobQueueName,
@@ -566,12 +545,21 @@ func handleBatchUpdateJobQueue(w http.ResponseWriter, r *http.Request) {
 		q.Priority = *req.Priority
 	}
 	if req.SchedulingPolicyArn != "" {
+		if q.SchedulingPolicyArn == "" {
+			batchWriteError(w, http.StatusBadRequest, "Job queue "+q.JobQueueArn+" is a FIFO job queue and can't have a fair-share scheduling policy added")
+			return
+		}
+		if _, ok := batchSchedPols.Get(batchNameFromARN(req.SchedulingPolicyArn)); !ok {
+			batchWriteError(w, http.StatusBadRequest, "Scheduling policy not found: "+req.SchedulingPolicyArn)
+			return
+		}
 		q.SchedulingPolicyArn = req.SchedulingPolicyArn
 	}
 	if req.ComputeEnvironmentOrder != nil {
 		q.ComputeEnvironmentOrder = req.ComputeEnvironmentOrder
 	}
 	batchJobQueues.Put(name, q)
+	batchDispatchLocked()
 	batchWriteJSON(w, http.StatusOK, map[string]any{
 		"jobQueueArn":  q.JobQueueArn,
 		"jobQueueName": q.JobQueueName,
@@ -601,14 +589,27 @@ func handleBatchRegisterJobDefinition(w http.ResponseWriter, r *http.Request) {
 		ContainerProperties map[string]any    `json:"containerProperties"`
 		RetryStrategy       map[string]any    `json:"retryStrategy"`
 		Timeout             map[string]any    `json:"timeout"`
+		SchedulingPriority  *int              `json:"schedulingPriority"`
 		Tags                map[string]string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	if req.SchedulingPriority != nil && (*req.SchedulingPriority < 0 || *req.SchedulingPriority > batchMaxSchedulingPriority) {
+		batchWriteError(w, http.StatusBadRequest, fmt.Sprintf("schedulingPriority must be between 0 and %d, got %d", batchMaxSchedulingPriority, *req.SchedulingPriority))
+		return
+	}
 	if req.JobDefinitionName == "" {
 		batchWriteError(w, http.StatusBadRequest, "jobDefinitionName is required")
+		return
+	}
+	if _, err := batchParseRetryStrategy(req.RetryStrategy); err != nil {
+		batchWriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := batchCheckReservedEnvironment(req.ContainerProperties); err != nil {
+		batchWriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -633,6 +634,7 @@ func handleBatchRegisterJobDefinition(w http.ResponseWriter, r *http.Request) {
 		ContainerProperties: req.ContainerProperties,
 		RetryStrategy:       req.RetryStrategy,
 		Timeout:             req.Timeout,
+		SchedulingPriority:  req.SchedulingPriority,
 		Tags:                req.Tags,
 	}
 	batchJobDefs.Put(key, jd)
@@ -715,11 +717,19 @@ func handleBatchDeregisterJobDefinition(w http.ResponseWriter, r *http.Request) 
 
 func handleBatchSubmitJob(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		JobName            string            `json:"jobName"`
-		JobQueue           string            `json:"jobQueue"`
-		JobDefinition      string            `json:"jobDefinition"`
-		ContainerOverrides map[string]any    `json:"containerOverrides"`
-		Tags               map[string]string `json:"tags"`
+		JobName            string         `json:"jobName"`
+		JobQueue           string         `json:"jobQueue"`
+		JobDefinition      string         `json:"jobDefinition"`
+		ShareIdentifier    string         `json:"shareIdentifier"`
+		SchedulingPriority *int           `json:"schedulingPriorityOverride"`
+		ContainerOverrides map[string]any `json:"containerOverrides"`
+		ArrayProperties    *struct {
+			Size *int `json:"size"`
+		} `json:"arrayProperties"`
+		DependsOn     []BatchJobDependency `json:"dependsOn"`
+		RetryStrategy map[string]any       `json:"retryStrategy"`
+		Timeout       map[string]any       `json:"timeout"`
+		Tags          map[string]string    `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
@@ -730,9 +740,13 @@ func handleBatchSubmitJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	queueName := batchNameFromARN(req.JobQueue)
-	if _, ok := batchJobQueues.Get(queueName); !ok {
+	queue, ok := batchJobQueues.Get(batchNameFromARN(req.JobQueue))
+	if !ok {
 		batchWriteError(w, http.StatusBadRequest, "Job queue not found: "+req.JobQueue)
+		return
+	}
+	if queue.State != "ENABLED" {
+		batchWriteError(w, http.StatusBadRequest, "Job queue "+queue.JobQueueArn+" is not ENABLED")
 		return
 	}
 	jd, ok := batchLookupJobDefinition(req.JobDefinition)
@@ -744,115 +758,88 @@ func handleBatchSubmitJob(w http.ResponseWriter, r *http.Request) {
 		batchWriteError(w, http.StatusBadRequest, "Job definition is not active: "+req.JobDefinition)
 		return
 	}
+	arraySize := 0
+	if req.ArrayProperties != nil && req.ArrayProperties.Size != nil {
+		arraySize = *req.ArrayProperties.Size
+		if arraySize < 2 || arraySize > 10000 {
+			batchWriteError(w, http.StatusBadRequest, fmt.Sprintf("arrayProperties.size must be between 2 and 10000, got %d", arraySize))
+			return
+		}
+	}
+	retryStrategy := jd.RetryStrategy
+	if req.RetryStrategy != nil {
+		retryStrategy = req.RetryStrategy
+	}
+	retry, err := batchParseRetryStrategy(retryStrategy)
+	if err != nil {
+		batchWriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	timeout := jd.Timeout
+	if req.Timeout != nil {
+		timeout = req.Timeout
+	}
+	if seconds, ok := batchNumber(timeout["attemptDurationSeconds"]); ok && seconds < 60 {
+		batchWriteError(w, http.StatusBadRequest, fmt.Sprintf("timeout.attemptDurationSeconds must be at least 60, got %v", seconds))
+		return
+	}
 	cfg, containerMeta, err := batchContainerConfig(jd, req.ContainerOverrides)
 	if err != nil {
 		batchWriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	logConfiguration, _ := jd.ContainerProperties["logConfiguration"].(map[string]any)
 
 	batchMu.Lock()
 	defer batchMu.Unlock()
+	if err := batchCheckDependencies(req.DependsOn, arraySize); err != nil {
+		batchWriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := batchCheckShareLocked(queue, req.ShareIdentifier, req.SchedulingPriority); err != nil {
+		batchWriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	schedulingPriority := jd.SchedulingPriority
+	if req.SchedulingPriority != nil {
+		schedulingPriority = req.SchedulingPriority
+	}
+	if req.ShareIdentifier == "" {
+		schedulingPriority = nil
+	}
 
 	jobID := uuid.New().String()
-	now := batchEpochMs()
-	cfg.Name = "sockerless-batch-" + jobID
-	cfg.Labels = map[string]string{"aws-batch-job-id": jobID}
 	job := BatchJob{
-		JobID:           jobID,
-		JobArn:          batchARN("job/" + jobID),
-		JobName:         req.JobName,
-		JobQueue:        req.JobQueue,
-		Status:          "SUBMITTED",
-		JobDefinition:   jd.JobDefinitionArn,
-		CreatedAt:       now,
-		StartedAt:       now,
-		Container:       containerMeta,
-		Tags:            req.Tags,
-		ExecutionConfig: &cfg,
+		JobID:              jobID,
+		JobArn:             batchARN("job/" + jobID),
+		JobName:            req.JobName,
+		JobQueue:           queue.JobQueueArn,
+		Status:             batchStatusSubmitted,
+		ShareIdentifier:    req.ShareIdentifier,
+		JobDefinition:      jd.JobDefinitionArn,
+		CreatedAt:          batchEpochMs(),
+		Container:          containerMeta,
+		Attempts:           []BatchAttempt{},
+		RetryStrategy:      retryStrategy,
+		Timeout:            timeout,
+		DependsOn:          req.DependsOn,
+		SchedulingPriority: schedulingPriority,
+		Tags:               req.Tags,
+		ExecutionConfig:    &cfg,
+		VCPUs:              batchVCPUs(jd.ContainerProperties, req.ContainerOverrides),
+		Retry:              retry,
+		LogConfiguration:   logConfiguration,
+	}
+	if arraySize > 0 {
+		job.ArrayProperties = &BatchArrayProperties{Size: arraySize}
 	}
 	batchJobs.Put(jobID, job)
-
-	handle, err := sim.StartContainerSync(cfg, sim.NoopSink{})
-	if err != nil {
-		job.Status = "FAILED"
-		job.StatusReason = err.Error()
-		job.StoppedAt = batchEpochMs()
-		job.Container["reason"] = err.Error()
-		batchJobs.Put(jobID, job)
-	} else {
-		job.Container["containerInstanceArn"] = batchARN("container/" + handle.ContainerID)
-		batchJobs.Put(jobID, job)
-		batchJobHandles.Store(jobID, handle)
-		go batchRunJobLifecycle(jobID, handle)
-	}
+	bg.Go(func() { batchScheduleJob(jobID) })
 	batchWriteJSON(w, http.StatusOK, map[string]any{
 		"jobId":   jobID,
 		"jobName": req.JobName,
-		"jobArn":  batchARN("job/" + jobID),
+		"jobArn":  job.JobArn,
 	})
-}
-
-func batchTerminal(status string) bool {
-	return status == "SUCCEEDED" || status == "FAILED"
-}
-
-// batchRunJobLifecycle drives the real Batch job state machine
-// SUBMITTED→PENDING→RUNNABLE→STARTING→RUNNING (sub-second dwells, real states,
-// no synthetic timer) before delegating to batchWaitForJob for the terminal
-// transition driven by the real container exit. A job whose container has
-// already finished is not regressed back into a running state.
-func batchRunJobLifecycle(jobID string, handle *sim.ContainerHandle) {
-	for _, st := range []string{"PENDING", "RUNNABLE", "STARTING", "RUNNING"} {
-		time.Sleep(40 * time.Millisecond)
-		batchMu.Lock()
-		job, ok := batchJobs.Get(jobID)
-		if !ok || batchTerminal(job.Status) {
-			batchMu.Unlock()
-			break
-		}
-		job.Status = st
-		if st == "RUNNING" {
-			job.StartedAt = batchEpochMs()
-		}
-		batchJobs.Put(jobID, job)
-		batchMu.Unlock()
-	}
-	batchWaitForJob(jobID, handle)
-}
-
-func batchWaitForJob(jobID string, handle *sim.ContainerHandle) {
-	result := handle.Wait()
-	batchJobHandles.Delete(jobID)
-
-	batchMu.Lock()
-	defer batchMu.Unlock()
-
-	job, ok := batchJobs.Get(jobID)
-	if !ok {
-		return
-	}
-	if job.Status == "FAILED" && job.StoppedAt > 0 {
-		return
-	}
-	if result.ExitCode == 0 && result.Error == nil {
-		job.Status = "SUCCEEDED"
-	} else {
-		job.Status = "FAILED"
-		if result.Error != nil {
-			job.StatusReason = result.Error.Error()
-		} else {
-			job.StatusReason = fmt.Sprintf("Container exited with status %d", result.ExitCode)
-		}
-	}
-	job.StoppedAt = result.StoppedAt.UnixMilli()
-	if job.Container == nil {
-		job.Container = map[string]any{}
-	}
-	job.Container["exitCode"] = result.ExitCode
-	if result.Error != nil {
-		job.Container["reason"] = result.Error.Error()
-	}
-	batchJobs.Put(jobID, job)
 }
 
 func handleBatchDescribeJobs(w http.ResponseWriter, r *http.Request) {
@@ -864,52 +851,173 @@ func handleBatchDescribeJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var result []BatchJob
+	result := []BatchJob{}
 	for _, id := range req.Jobs {
 		if job, ok := batchJobs.Get(id); ok {
 			result = append(result, job)
 		}
 	}
-	if result == nil {
-		result = []BatchJob{}
-	}
 	batchWriteJSON(w, http.StatusOK, map[string]any{"jobs": result})
+}
+
+type batchListFilter struct {
+	Name   string   `json:"name"`
+	Values []string `json:"values"`
+}
+
+func (filter batchListFilter) matches(job BatchJob) bool {
+	for _, value := range filter.Values {
+		switch filter.Name {
+		case "JOB_NAME":
+			if batchGlobMatch(strings.ToLower(value), strings.ToLower(job.JobName)) {
+				return true
+			}
+		case "JOB_DEFINITION":
+			if strings.HasPrefix(value, "arn:") {
+				if value == job.JobDefinition {
+					return true
+				}
+			} else if batchGlobMatch(value, batchJobDefinitionName(job.JobDefinition)) {
+				return true
+			}
+		case "BEFORE_CREATED_AT":
+			if at, err := strconv.ParseInt(value, 10, 64); err == nil && job.CreatedAt < at {
+				return true
+			}
+		case "AFTER_CREATED_AT":
+			if at, err := strconv.ParseInt(value, 10, 64); err == nil && job.CreatedAt > at {
+				return true
+			}
+		case "SHARE_IDENTIFIER":
+			if value == job.ShareIdentifier {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func batchJobSummary(job BatchJob) map[string]any {
+	summary := map[string]any{
+		"jobId":         job.JobID,
+		"jobName":       job.JobName,
+		"jobArn":        job.JobArn,
+		"jobDefinition": job.JobDefinition,
+		"status":        job.Status,
+		"createdAt":     job.CreatedAt,
+	}
+	if job.StatusReason != "" {
+		summary["statusReason"] = job.StatusReason
+	}
+	if job.StartedAt > 0 {
+		summary["startedAt"] = job.StartedAt
+	}
+	if job.StoppedAt > 0 {
+		summary["stoppedAt"] = job.StoppedAt
+	}
+	if job.ShareIdentifier != "" {
+		summary["shareIdentifier"] = job.ShareIdentifier
+	}
+	container := map[string]any{}
+	if exitCode, ok := job.Container["exitCode"]; ok {
+		container["exitCode"] = exitCode
+	}
+	if reason, ok := job.Container["reason"]; ok {
+		container["reason"] = reason
+	}
+	if len(container) > 0 {
+		summary["container"] = container
+	}
+	if job.ArrayProperties != nil {
+		summary["arrayProperties"] = job.ArrayProperties
+	}
+	if job.IsCancelled {
+		summary["isCancelled"] = true
+	}
+	if job.IsTerminated {
+		summary["isTerminated"] = true
+	}
+	return summary
 }
 
 func handleBatchListJobs(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		JobQueue   string `json:"jobQueue"`
-		JobStatus  string `json:"jobStatus"`
-		MaxResults *int32 `json:"maxResults"`
-		NextToken  string `json:"nextToken"`
+		JobQueue       string            `json:"jobQueue"`
+		ArrayJobID     string            `json:"arrayJobId"`
+		MultiNodeJobID string            `json:"multiNodeJobId"`
+		JobStatus      string            `json:"jobStatus"`
+		Filters        []batchListFilter `json:"filters"`
+		MaxResults     *int32            `json:"maxResults"`
+		NextToken      string            `json:"nextToken"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	named := 0
+	for _, id := range []string{req.JobQueue, req.ArrayJobID, req.MultiNodeJobID} {
+		if id != "" {
+			named++
+		}
+	}
+	if named != 1 {
+		batchWriteError(w, http.StatusBadRequest, "Specify exactly one of jobQueue, arrayJobId, or multiNodeJobId")
+		return
+	}
+	if len(req.Filters) > 1 {
+		batchWriteError(w, http.StatusBadRequest, "Only one filter can be used at a time")
+		return
+	}
+	for _, filter := range req.Filters {
+		switch filter.Name {
+		case "JOB_NAME", "JOB_DEFINITION", "BEFORE_CREATED_AT", "AFTER_CREATED_AT", "SHARE_IDENTIFIER":
+		default:
+			batchWriteError(w, http.StatusBadRequest, "Unsupported filter name: "+filter.Name)
+			return
+		}
+	}
 
-	all := batchJobs.List()
-	var result []map[string]any
-	for _, job := range all {
-		if req.JobQueue != "" &&
-			job.JobQueue != req.JobQueue &&
-			batchNameFromARN(job.JobQueue) != batchNameFromARN(req.JobQueue) {
-			continue
+	var jobs []BatchJob
+	switch {
+	case req.ArrayJobID != "":
+		for _, child := range batchJobs.ListPrefix(req.ArrayJobID + ":") {
+			jobs = append(jobs, child.Item)
 		}
-		if req.JobStatus != "" && job.Status != req.JobStatus {
-			continue
-		}
-		result = append(result, map[string]any{
-			"jobId":   job.JobID,
-			"jobName": job.JobName,
-			"jobArn":  batchARN("job/" + job.JobID),
-			"status":  job.Status,
+		sort.Slice(jobs, func(i, j int) bool {
+			return *jobs[i].ArrayProperties.Index < *jobs[j].ArrayProperties.Index
+		})
+	case req.JobQueue != "":
+		queueName := batchNameFromARN(req.JobQueue)
+		jobs = batchJobs.Filter(func(job BatchJob) bool {
+			return job.ArrayJobID == "" && batchNameFromARN(job.JobQueue) == queueName
+		})
+		sort.Slice(jobs, func(i, j int) bool {
+			if jobs[i].CreatedAt != jobs[j].CreatedAt {
+				return jobs[i].CreatedAt > jobs[j].CreatedAt
+			}
+			return jobs[i].JobID < jobs[j].JobID
 		})
 	}
-	sort.Slice(result, func(i, j int) bool {
-		a, _ := result[i]["jobId"].(string)
-		b, _ := result[j]["jobId"].(string)
-		return a < b
-	})
-	if result == nil {
-		result = []map[string]any{}
+
+	// A filter lists jobs in every status, except that SHARE_IDENTIFIER
+	// combines with jobStatus; with neither, ListJobs lists RUNNING jobs.
+	filtered := len(req.Filters) == 1 && req.JobQueue != ""
+	status := req.JobStatus
+	if status == "" && !filtered {
+		status = batchStatusRunning
+	}
+	if filtered && req.Filters[0].Name != "SHARE_IDENTIFIER" {
+		status = ""
+	}
+	result := []map[string]any{}
+	for _, job := range jobs {
+		if filtered && !req.Filters[0].matches(job) {
+			continue
+		}
+		if status != "" && job.Status != status {
+			continue
+		}
+		result = append(result, batchJobSummary(job))
 	}
 	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
 	if !pageOK {
@@ -923,77 +1031,49 @@ func handleBatchListJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBatchCancelJob(w http.ResponseWriter, r *http.Request) {
+	handleBatchStopJob(w, r, batchCancelJobLocked)
+}
+
+func handleBatchTerminateJob(w http.ResponseWriter, r *http.Request) {
+	handleBatchStopJob(w, r, batchTerminateJobLocked)
+}
+
+func handleBatchStopJob(w http.ResponseWriter, r *http.Request, stop func(id, reason string)) {
 	var req struct {
 		JobID  string `json:"jobId"`
 		Reason string `json:"reason"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.JobID == "" || req.Reason == "" {
+		batchWriteError(w, http.StatusBadRequest, "jobId and reason are required")
+		return
+	}
 
 	batchMu.Lock()
 	defer batchMu.Unlock()
 
-	job, ok := batchJobs.Get(req.JobID)
-	if !ok {
-		batchWriteJSON(w, http.StatusOK, map[string]any{})
-		return
-	}
-	if job.Status != "SUCCEEDED" && job.Status != "FAILED" {
-		if handleAny, ok := batchJobHandles.Load(req.JobID); ok {
-			if handle, ok := handleAny.(*sim.ContainerHandle); ok {
-				handle.Cancel()
-			}
-			batchJobHandles.Delete(req.JobID)
-		}
-		job.Status = "FAILED"
-		job.StatusReason = req.Reason
-		job.StoppedAt = batchEpochMs()
-		batchJobs.Put(req.JobID, job)
-	}
+	stop(req.JobID, req.Reason)
+	batchDispatchLocked()
 	batchWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-func handleBatchTerminateJob(w http.ResponseWriter, r *http.Request) {
-	// Same as cancel for simulator purposes
-	handleBatchCancelJob(w, r)
-}
-
-// cancelBatchJob is the body of CancelJob without the HTTP around it, so the
-// bulk operations below apply exactly the same transition per job rather than a
-// second copy of it that can drift.
-//
-// The caller holds batchMu.
-func cancelBatchJob(id, reason string) {
-	job, ok := batchJobs.Get(id)
-	if !ok {
-		return
-	}
-	if job.Status == "SUCCEEDED" || job.Status == "FAILED" {
-		return
-	}
-	if handleAny, ok := batchJobHandles.Load(id); ok {
-		if handle, ok := handleAny.(*sim.ContainerHandle); ok {
-			handle.Cancel()
-		}
-		batchJobHandles.Delete(id)
-	}
-	job.Status = "FAILED"
-	job.StatusReason = reason
-	job.StoppedAt = batchEpochMs()
-	batchJobs.Put(id, job)
-}
-
 // handleBatchBulkTermination serves CancelJobs, TerminateJobs and
-// TerminateServiceJobs, which differ only in name: each takes a list of job ids
-// and a reason, and answers with the ids it accepted and a per-id error list for
-// the ones it did not. A job id that names nothing is reported in errors rather
-// than silently dropped, because a caller that asked to stop ten jobs and had
-// nine stopped needs to be told which one it was.
-func handleBatchBulkTermination(w http.ResponseWriter, r *http.Request) {
+// TerminateServiceJobs: each applies its singular operation to every listed
+// job and answers with the ids it accepted and a per-id error list for the
+// ones it did not. A caller that asked to stop ten jobs and had nine stopped
+// needs to be told which one it was.
+func handleBatchBulkTermination(w http.ResponseWriter, r *http.Request, exists func(string) bool, stop func(id, reason string)) {
 	var req struct {
 		Jobs   []string `json:"jobs"`
 		Reason string   `json:"reason"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
 
 	batchMu.Lock()
 	defer batchMu.Unlock()
@@ -1001,7 +1081,7 @@ func handleBatchBulkTermination(w http.ResponseWriter, r *http.Request) {
 	successful := []string{}
 	errors := []map[string]any{}
 	for _, id := range req.Jobs {
-		if _, ok := batchJobs.Get(id); !ok {
+		if !exists(id) {
 			errors = append(errors, map[string]any{
 				"job":     id,
 				"code":    "ClientError",
@@ -1009,22 +1089,31 @@ func handleBatchBulkTermination(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		cancelBatchJob(id, req.Reason)
+		stop(id, req.Reason)
 		successful = append(successful, id)
 	}
+	batchDispatchLocked()
 	batchWriteJSON(w, http.StatusOK, map[string]any{"successful": successful, "errors": errors})
 }
 
+func batchJobExists(id string) bool {
+	_, ok := batchJobs.Get(id)
+	return ok
+}
+
 func handleBatchCancelJobs(w http.ResponseWriter, r *http.Request) {
-	handleBatchBulkTermination(w, r)
+	handleBatchBulkTermination(w, r, batchJobExists, batchCancelJobLocked)
 }
 
 func handleBatchTerminateJobs(w http.ResponseWriter, r *http.Request) {
-	handleBatchBulkTermination(w, r)
+	handleBatchBulkTermination(w, r, batchJobExists, batchTerminateJobLocked)
 }
 
 func handleBatchTerminateServiceJobs(w http.ResponseWriter, r *http.Request) {
-	handleBatchBulkTermination(w, r)
+	handleBatchBulkTermination(w, r, func(id string) bool {
+		_, ok := batchServiceJobs.Get(id)
+		return ok
+	}, batchTerminateServiceJobLocked)
 }
 
 func handleBatchCreateSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
@@ -1040,6 +1129,10 @@ func handleBatchCreateSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name == "" {
 		batchWriteError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if err := batchCheckFairsharePolicy(req.FairsharePolicy); err != nil {
+		batchWriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -1117,6 +1210,10 @@ func handleBatchUpdateSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	if err := batchCheckFairsharePolicy(req.FairsharePolicy); err != nil {
+		batchWriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	batchMu.Lock()
 	defer batchMu.Unlock()
@@ -1134,6 +1231,7 @@ func handleBatchUpdateSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
 		sp.QuotaSharePolicy = req.QuotaSharePolicy
 	}
 	batchSchedPols.Put(name, sp)
+	batchDispatchLocked()
 	batchWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -1149,7 +1247,16 @@ func handleBatchDeleteSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
 	batchMu.Lock()
 	defer batchMu.Unlock()
 
-	batchSchedPols.Delete(batchNameFromARN(req.Arn))
+	name := batchNameFromARN(req.Arn)
+	if sp, ok := batchSchedPols.Get(name); ok {
+		for _, q := range batchJobQueues.List() {
+			if batchNameFromARN(q.SchedulingPolicyArn) == name {
+				batchWriteError(w, http.StatusBadRequest, "Scheduling policy "+sp.Arn+" is in use by job queue "+q.JobQueueArn)
+				return
+			}
+		}
+	}
+	batchSchedPols.Delete(name)
 	batchWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -1774,16 +1881,20 @@ func handleBatchTerminateServiceJob(w http.ResponseWriter, r *http.Request) {
 	batchMu.Lock()
 	defer batchMu.Unlock()
 
-	if job, ok := batchServiceJobs.Get(req.JobID); ok {
-		if job.Status != "SUCCEEDED" && job.Status != "FAILED" {
-			job.Status = "FAILED"
-			job.StatusReason = req.Reason
-			job.IsTerminated = true
-			job.StoppedAt = batchEpochMs()
-			batchServiceJobs.Put(req.JobID, job)
-		}
-	}
+	batchTerminateServiceJobLocked(req.JobID, req.Reason)
 	batchWriteJSON(w, http.StatusOK, map[string]any{})
+}
+
+func batchTerminateServiceJobLocked(jobID, reason string) {
+	job, ok := batchServiceJobs.Get(jobID)
+	if !ok || batchTerminal(job.Status) {
+		return
+	}
+	job.Status = batchStatusFailed
+	job.StatusReason = reason
+	job.IsTerminated = true
+	job.StoppedAt = batchEpochMs()
+	batchServiceJobs.Put(jobID, job)
 }
 
 func handleBatchUpdateServiceJob(w http.ResponseWriter, r *http.Request) {
@@ -2019,32 +2130,25 @@ func handleBatchGetJobQueueSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The front of the queue: the runnable/submitted jobs on this queue,
-	// ordered by creation time (the dispatch order), each with the earliest
-	// time it reached its current position.
-	type frontJob struct {
-		arn       string
-		createdAt int64
-	}
-	var front []frontJob
-	for _, job := range batchJobs.List() {
-		if batchNameFromARN(job.JobQueue) != queueName {
+	batchMu.Lock()
+	jobs := []map[string]any{}
+	for _, entry := range batchRunnable {
+		if entry.queue != queueName {
 			continue
 		}
-		if batchTerminal(job.Status) {
+		job, ok := batchJobs.Get(entry.jobID)
+		if !ok {
 			continue
 		}
-		front = append(front, frontJob{arn: job.JobArn, createdAt: job.CreatedAt})
-	}
-	sort.Slice(front, func(i, j int) bool { return front[i].createdAt < front[j].createdAt })
-
-	jobs := make([]map[string]any, 0, len(front))
-	for _, f := range front {
 		jobs = append(jobs, map[string]any{
-			"jobArn":                 f.arn,
-			"earliestTimeAtPosition": f.createdAt,
+			"jobArn":                 job.JobArn,
+			"earliestTimeAtPosition": job.CreatedAt,
 		})
+		if len(jobs) == 100 {
+			break
+		}
 	}
+	batchMu.Unlock()
 	batchWriteJSON(w, http.StatusOK, map[string]any{
 		"frontOfQueue": map[string]any{
 			"jobs":          jobs,
@@ -2090,6 +2194,9 @@ func batchContainerConfig(jd BatchJobDefinition, overrides map[string]any) (sim.
 	if image == "" {
 		return sim.ContainerConfig{}, nil, fmt.Errorf("containerProperties.image is required")
 	}
+	if err := batchCheckReservedEnvironment(overrides); err != nil {
+		return sim.ContainerConfig{}, nil, err
+	}
 	command := batchStringSlice(jd.ContainerProperties["command"])
 	env := batchEnvironment(jd.ContainerProperties["environment"])
 	if overrides != nil {
@@ -2100,7 +2207,6 @@ func batchContainerConfig(jd BatchJobDefinition, overrides map[string]any) (sim.
 			env[k] = v
 		}
 	}
-	timeout := batchTimeout(jd.Timeout)
 	meta := map[string]any{
 		"image": image,
 	}
@@ -2115,9 +2221,21 @@ func batchContainerConfig(jd BatchJobDefinition, overrides map[string]any) (sim.
 		Architecture: "linux/" + runtime.GOARCH,
 		Args:         command,
 		Env:          env,
-		Timeout:      timeout,
 		Sandbox:      SandboxFargate,
+		// Batch stops a job container the way Amazon ECS stops a task.
+		CancelGracePeriod: batchContainerStopTimeout,
 	}, meta, nil
+}
+
+// batchCheckReservedEnvironment refuses environment variables in the AWS_BATCH
+// prefix, which Batch reserves for the variables it sets itself.
+func batchCheckReservedEnvironment(properties map[string]any) error {
+	for name := range batchEnvironment(properties["environment"]) {
+		if strings.HasPrefix(name, "AWS_BATCH") {
+			return fmt.Errorf("environment variable %s: names beginning with AWS_BATCH are reserved", name)
+		}
+	}
+	return nil
 }
 
 func batchString(v any) string {

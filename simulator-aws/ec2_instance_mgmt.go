@@ -476,7 +476,7 @@ func ec2MonitoringResponse(w http.ResponseWriter, r *http.Request, root string, 
 	ids := ec2ParamList(r, "InstanceId")
 	for _, id := range ids {
 		if _, ok := ec2Instances.Get(id); !ok {
-			AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+			ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", id), http.StatusBadRequest)
 			return
 		}
 	}
@@ -508,7 +508,7 @@ func handleRebootInstances(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "InstanceId")
 	for _, id := range ids {
 		if _, ok := ec2Instances.Get(id); !ok {
-			AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+			ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", id), http.StatusBadRequest)
 			return
 		}
 	}
@@ -534,7 +534,7 @@ func handleReportInstanceStatus(w http.ResponseWriter, r *http.Request) {
 	reasons := ec2ParamList(r, "ReasonCode")
 	for _, id := range ids {
 		if _, ok := ec2Instances.Get(id); !ok {
-			AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+			ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", id), http.StatusBadRequest)
 			return
 		}
 		ec2InstanceStatusReports.Put(id, EC2InstanceStatusReport{
@@ -555,7 +555,7 @@ func handleResetInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("InstanceId")
 	attr := r.FormValue("Attribute")
 	if _, ok := ec2Instances.Get(id); !ok {
-		AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+		ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
 	switch attr {

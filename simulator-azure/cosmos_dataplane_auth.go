@@ -102,7 +102,7 @@ func CosmosDataPlaneAuthMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !cosmosAuthorizeDataPlane(w, r) {
+		if !cosmosAuthorizeDataPlane(w, r) || !cosmosRewriteRIDRequest(w, r) {
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -243,13 +243,18 @@ func cosmosSignedResource(requestPath string) (resourceType, resourceLink string
 		return "offers", strings.ToLower(segments[1])
 	}
 	last := segments[len(segments)-1]
+	link := segments
 	if cosmosResourceSegments[strings.ToLower(last)] {
-		return last, strings.Join(segments[:len(segments)-1], "/")
-	}
-	if len(segments) >= 2 {
+		resourceType, link = last, segments[:len(segments)-1]
+	} else if len(segments) >= 2 {
 		resourceType = segments[len(segments)-2]
 	}
-	return resourceType, strings.Join(segments, "/")
+	// A request addressing its resources by id signs the addressed id alone,
+	// lowercased.
+	if len(link) > 0 && cosmosRIDPath(segments) {
+		return resourceType, strings.ToLower(link[len(link)-1])
+	}
+	return resourceType, strings.Join(link, "/")
 }
 
 // cosmosIsReadOperation reports whether a request only reads. A query is a POST

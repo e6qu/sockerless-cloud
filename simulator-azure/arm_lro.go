@@ -70,8 +70,29 @@ func registerAzureAsyncOperations(srv *sim.Server) {
 			}
 		})
 	}
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationStatuses/{opId}", handleAzureAsyncOperationStatus)
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationResults/{opId}", handleAzureAsyncOperationStatus)
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationStatuses/{opId}", handleAzureOperationStatuses)
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationResults/{opId}", handleAzureOperationResults)
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/operations/{opId}", handleComputeOperation)
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Cache/locations/{location}/asyncOperations/{operationId}", handleCacheAsyncOperation)
+}
+
+func handleAzureOperationStatuses(w http.ResponseWriter, r *http.Request) {
+	serveAzureAsyncOperation(w, r, sim.PathParam(r, "opId"), false, r.URL.Path)
+}
+
+func handleCacheAsyncOperation(w http.ResponseWriter, r *http.Request) {
+	serveAzureAsyncOperation(w, r, sim.PathParam(r, "operationId"), false, r.URL.Path)
+}
+
+func handleAzureOperationResults(w http.ResponseWriter, r *http.Request) {
+	serveAzureAsyncOperation(w, r, sim.PathParam(r, "opId"), true, strings.Replace(r.URL.Path, "/operationResults/", "/operationStatuses/", 1))
+}
+
+// handleComputeOperation serves both of the Compute resource provider's polls
+// from one URL: the status envelope, which carries no id, and with monitor=true
+// the operation's result.
+func handleComputeOperation(w http.ResponseWriter, r *http.Request) {
+	serveAzureAsyncOperation(w, r, sim.PathParam(r, "opId"), r.URL.Query().Get("monitor") == "true", "")
 }
 
 // issueAzureAsyncOperation records an operation whose work the simulator
@@ -186,6 +207,19 @@ func azureAsyncOperationHeader(r *http.Request, sub, provider, location, kind, o
 		scheme, r.Host, sub, provider, location, kind, opID, apiVersion)
 }
 
+// computeOperationURLs mints the Compute resource provider's operation URLs:
+// the operations URL is the Azure-AsyncOperation, and the same URL with
+// monitor=true is the Location.
+func computeOperationURLs(r *http.Request, sub, location, opID string) (asyncOperation, monitor string) {
+	apiVersion := r.URL.Query().Get("api-version")
+	if apiVersion == "" {
+		apiVersion = "2024-07-01"
+	}
+	base := fmt.Sprintf("%s://%s/subscriptions/%s/providers/Microsoft.Compute/locations/%s/operations/%s",
+		azureRequestScheme(r), r.Host, sub, location, opID)
+	return base + "?api-version=" + apiVersion, base + "?monitor=true&api-version=" + apiVersion
+}
+
 func azureCurrentRequestURL(r *http.Request) string {
 	return fmt.Sprintf("%s://%s%s", azureRequestScheme(r), r.Host, r.URL.RequestURI())
 }
@@ -196,28 +230,25 @@ func writeAzureAsyncCreateHeaders(w http.ResponseWriter, opID, opURL, locationUR
 	setAzureAsyncOperationRetryAfter(w, opID)
 }
 
-func handleAzureAsyncOperationStatus(w http.ResponseWriter, r *http.Request) {
-	opID := sim.PathParam(r, "opId")
+// serveAzureAsyncOperation answers a poll of opID.
+// A status poll answers the operation envelope, carrying id when the provider's
+// envelope has one. A result poll answers 202 while the operation runs and the
+// operation's result once it ends.
+func serveAzureAsyncOperation(w http.ResponseWriter, r *http.Request, opID string, resultPoll bool, id string) {
 	op, ok := azureAsyncOps.Get(opID)
 	if !ok {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Operation %q not found.", opID)
 		return
 	}
-	op.ID = strings.Replace(r.URL.Path, "/operationResults/", "/operationStatuses/", 1)
+	op.ID = id
 	if op.Status == "InProgress" {
 		w.Header().Set("Retry-After", azureAsyncOperationRetryAfter)
-		// The operationResults route is ARM's Location-poll target: while the
-		// operation runs it answers 202 Accepted with no body; the envelope is
-		// the operationStatuses route's contract.
-		if strings.Contains(r.URL.Path, "/operationResults/") {
+		if resultPoll {
 			w.WriteHeader(http.StatusAccepted)
 			return
 		}
 	}
-	// An operation that recorded a result serves it from the Location route,
-	// which is where a final-state-via-location client reads the operation's
-	// own payload. The status envelope never carries it.
-	if strings.Contains(r.URL.Path, "/operationResults/") && len(op.Result) > 0 {
+	if resultPoll && len(op.Result) > 0 {
 		sim.WriteJSON(w, http.StatusOK, op.Result)
 		return
 	}

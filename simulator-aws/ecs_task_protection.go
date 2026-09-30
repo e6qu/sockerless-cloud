@@ -51,7 +51,7 @@ func handleECSGetTaskProtection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var protected []ECSTaskProtection
-	var failures []map[string]string
+	failures := []map[string]string{}
 	for _, ref := range req.Tasks {
 		id := ecsTaskIDFromRef(ref)
 		task, ok := ecsTasks.Get(id)
@@ -89,7 +89,7 @@ func handleECSUpdateTaskProtection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var protected []ECSTaskProtection
-	var failures []map[string]string
+	failures := []map[string]string{}
 	for _, ref := range req.Tasks {
 		id := ecsTaskIDFromRef(ref)
 		task, ok := ecsTasks.Get(id)

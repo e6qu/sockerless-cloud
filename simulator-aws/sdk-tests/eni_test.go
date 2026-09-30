@@ -49,6 +49,7 @@ func TestEC2_NetworkInterfaceLifecycle(t *testing.T) {
 		SubnetId:     sn.Subnet.SubnetId,
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, client, runOut)
 	require.NotEmpty(t, runOut.Instances)
 	instID := aws.ToString(runOut.Instances[0].InstanceId)
 

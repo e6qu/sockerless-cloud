@@ -103,6 +103,16 @@ func cosmosScriptSelfSeg(kind string) string {
 	return kind
 }
 
+func cosmosScriptRIDKind(kind string) byte {
+	switch kind {
+	case "sproc":
+		return cosmosRIDKindStoredProcedure
+	case "udf":
+		return cosmosRIDKindUserDefinedFunction
+	}
+	return cosmosRIDKindTrigger
+}
+
 func cosmosScriptBody(s CosmosScript) map[string]any {
 	out := map[string]any{
 		"id":           s.ID,
@@ -122,6 +132,13 @@ func cosmosScriptBody(s CosmosScript) map[string]any {
 
 func cosmosStoreScript(account, db, coll, kind, id, body, trigOp, trigType string) CosmosScript {
 	now := time.Now().UTC().Unix()
+	key := cosmosScriptKey(account, db, coll, kind, id)
+	var rid string
+	if existing, ok := cosmosScripts.Get(key); ok {
+		rid = existing.RID
+	} else {
+		rid = cosmosChildRID(account, db, coll, cosmosScriptRIDKind(kind))
+	}
 	s := CosmosScript{
 		Account:          account,
 		DB:               db,
@@ -132,11 +149,11 @@ func cosmosStoreScript(account, db, coll, kind, id, body, trigOp, trigType strin
 		TriggerOperation: trigOp,
 		TriggerType:      trigType,
 		ETag:             fmt.Sprintf(`"%x-%x"`, now, cosmosETagSeq.Add(1)),
-		RID:              account + "-" + db + "-" + coll + "-" + kind + "-" + id,
-		Self:             "dbs/" + db + "/colls/" + coll + "/" + cosmosScriptSelfSeg(kind) + "/" + id + "/",
+		RID:              rid,
+		Self:             cosmosChildSelf(account, db, coll, cosmosScriptSelfSeg(kind), rid),
 		TS:               now,
 	}
-	cosmosScripts.Put(cosmosScriptKey(account, db, coll, kind, id), s)
+	cosmosScripts.Put(key, s)
 	return s
 }
 

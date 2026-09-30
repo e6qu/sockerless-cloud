@@ -878,11 +878,18 @@ func TestLambdaDurableCallbackResumesAfterSimulatorRestart_SDK(t *testing.T) {
 
 	cfg := persistentSDKConfig()
 	lambdaAPI := lambda.NewFromConfig(cfg, func(o *lambda.Options) { o.BaseEndpoint = aws.String(endpoint) })
-	logsAPI := cloudwatchlogs.NewFromConfig(cfg, func(o *cloudwatchlogs.Options) { o.BaseEndpoint = aws.String(endpoint) })
+	logsAPI := cloudwatchlogs.NewFromConfig(cfg, func(o *cloudwatchlogs.Options) {
+		o.BaseEndpoint = aws.String(fmt.Sprintf("http://logs.localhost:%d", tcpPort))
+	})
 	testCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	const functionName = "persistent-callback-lambda"
+	logGroup := "/aws/lambda/" + functionName
+	// AWS Lambda writes to the function's log group when it exists, so the
+	// group is there for a Live Tail session before the function writes.
+	_, err := logsAPI.CreateLogGroup(testCtx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(logGroup)})
+	require.NoError(t, err)
 	source := `
 exports.handler = async (event) => {
   const callback = event.InitialExecutionState.Operations.find(
@@ -898,7 +905,7 @@ exports.handler = async (event) => {
   console.log("DURABLE_ARN=" + event.DurableExecutionArn);
   return {Status:"PENDING"};
 };`
-	_, err := lambdaAPI.CreateFunction(testCtx, &lambda.CreateFunctionInput{
+	_, err = lambdaAPI.CreateFunction(testCtx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(functionName),
 		Role:         aws.String("arn:aws:iam::123456789012:role/persistent-callback-role"),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
@@ -919,34 +926,10 @@ exports.handler = async (event) => {
 	durableARN := aws.ToString(invocation.DurableExecutionArn)
 	require.NotEmpty(t, durableARN)
 
-	var checkpointToken, loggedDurableARN string
-	require.Eventually(t, func() bool {
-		streams, streamErr := logsAPI.DescribeLogStreams(testCtx, &cloudwatchlogs.DescribeLogStreamsInput{
-			LogGroupName: aws.String("/aws/lambda/" + functionName),
-		})
-		if streamErr != nil {
-			return false
-		}
-		for _, stream := range streams.LogStreams {
-			events, eventErr := logsAPI.GetLogEvents(testCtx, &cloudwatchlogs.GetLogEventsInput{
-				LogGroupName:  aws.String("/aws/lambda/" + functionName),
-				LogStreamName: stream.LogStreamName,
-			})
-			if eventErr != nil {
-				continue
-			}
-			for _, event := range events.Events {
-				message := aws.ToString(event.Message)
-				if strings.Contains(message, "CHECKPOINT_TOKEN=") {
-					checkpointToken = strings.TrimSpace(strings.SplitN(message, "CHECKPOINT_TOKEN=", 2)[1])
-				}
-				if strings.Contains(message, "DURABLE_ARN=") {
-					loggedDurableARN = strings.TrimSpace(strings.SplitN(message, "DURABLE_ARN=", 2)[1])
-				}
-			}
-		}
-		return checkpointToken != "" && loggedDurableARN != ""
-	}, 30*time.Second, 100*time.Millisecond, "the durable runtime did not publish its checkpoint coordinates to Amazon CloudWatch Logs")
+	checkpointToken := strings.TrimSpace(strings.SplitN(
+		awaitLogLineTailing(t, logsAPI, logsAPI, logGroup, "CHECKPOINT_TOKEN=", 30*time.Second), "CHECKPOINT_TOKEN=", 2)[1])
+	loggedDurableARN := strings.TrimSpace(strings.SplitN(
+		awaitLogLineTailing(t, logsAPI, logsAPI, logGroup, "DURABLE_ARN=", 30*time.Second), "DURABLE_ARN=", 2)[1])
 	require.Equal(t, durableARN, loggedDurableARN)
 
 	checkpoint, err := lambdaAPI.CheckpointDurableExecution(testCtx, &lambda.CheckpointDurableExecutionInput{

@@ -74,8 +74,8 @@ func handleECSStartTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var tasks []ECSTask
-	var failures []map[string]string
+	tasks := []ECSTask{}
+	failures := []map[string]string{}
 	for _, instanceRef := range req.ContainerInstances {
 		instID := ecsContainerInstanceID(instanceRef)
 		instanceKey := ecsContainerInstanceKey(clusterName, instID)

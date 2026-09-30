@@ -19,6 +19,7 @@ func TestEC2CLI_AMIPlacementDhcp(t *testing.T) {
 		"--query", "Subnet.SubnetId", "--output", "text")
 	inst := q("ec2", "run-instances", "--image-id", "ami-12345678", "--instance-type", "t3.micro",
 		"--subnet-id", subnet, "--query", "Instances[0].InstanceId", "--output", "text")
+	terminateCLIInstanceOnCleanup(t, inst)
 
 	ami := q("ec2", "create-image", "--instance-id", inst, "--name", "cli-golden-ami",
 		"--description", "cli snapshot", "--query", "ImageId", "--output", "text")

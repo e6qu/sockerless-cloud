@@ -436,6 +436,10 @@ PCI transport never delivers the first virtio-blk completion on aarch64, and
 CI's x86_64 runners could not see it. A machine's disk outlives the guest
 process, so a stopped machine can be generalized and captured, and a
 deallocated machine keeps its disk while a deleted one discards it.
+Stopping or terminating a pending Amazon EC2 instance cancels its boot instead
+of waiting for the guest to answer. Every SDK test that launches instances
+terminates them when it ends, since each one left running kept a machine
+booting or running beside every later test's boot on the same runner.
 
 A workload host pulls its image the way the cloud pulls it. The Cloud Run and
 Cloud Functions hosts present the project's Cloud Run service agent's access
@@ -592,11 +596,89 @@ by a few seconds; that cost is accepted over checking a partial condition. EC2
 Auto Scaling answers a capacity change at once: members join Pending, each
 launch has an InProgress activity, and a background boot moves both on.
 
+Azure's asynchronous work answers the request and settles behind it, as the
+service does. An Event Grid webhook subscription stays Creating until its
+endpoint echoes the validation code or someone opens the validation URL, and
+receives events only once it has Succeeded. A Logic Apps trigger answers 202
+with the run id and runs the workflow in the background. Compute polls its
+operations at `locations/{location}/operations/{id}`, the shape armcompute's
+recordings show; every other provider uses `operationStatuses`, and a
+provider-specific path waits for a source that shows it. Cosmos DB mints
+hierarchical resource ids and accepts them in paths.
+
+Cloud Storage answers a permission question from the caller's own grants: the
+project, bucket and object or managed-folder policies, and the bucket and
+object ACLs while uniform bucket-level access is off. It refuses to delete a
+bucket that still holds live objects, and refuses a notification whose Pub/Sub
+topic is malformed, missing or closed to its service agent. Objects kept
+their custom contexts through every write, copy, rewrite and compose,
+`objects.list` filtered on them, and `objects.viewFullContext` read one back.
+Artifact Registry
+deletes cascade across both planes: a manifest DELETE over OCI removes its
+version, tags and image row, and a package or repository takes everything
+beneath it. The simulator's tokens carry Google's issuer, and its discovery
+document names that issuer with its own key and token URLs, so a relying party
+verifies them as it verifies Google's. The Google Cloud SDK tests name their
+resources per run, so a repeated run against one simulator passes.
+
+AWS work that the services finish later now finishes later in the simulator
+too, and is gated on the real inputs. An EC2 instance stays pending until its
+VM boots, whether `RunInstances` or EC2 Auto Scaling launched it, and a launch
+lifecycle hook holds it in `Pending:Wait` until the hook's action completes or
+times out. An awsvpc ECS task creates its network interface at `RunTask`, so
+`DeleteSubnet` refuses while the task holds it. Amazon S3 checks each
+notification destination's resource policy at put time and sends the test
+event. `ImportSnapshot` and `ImportImage` read the disk image from S3 and
+convert RAW, VHD and VMDK formats into real snapshot data. A waiting SQS
+receive wakes on the send, delay or visibility change it waits for. ECS
+creates an awslogs log group only when the task definition asks for it.
+
+AWS Batch answers `SubmitJob` at once and schedules the job behind it. The
+job moves on real events: RUNNABLE once the scheduler evaluated it, STARTING
+when a compute environment of its queue that is ENABLED and has the vCPUs to
+spare (`maxvCpus`) placed it, RUNNING when its container started, and a
+terminal state when the container exited; a job no environment can place waits
+in RUNNABLE until one can. Each attempt runs a new container with the
+`AWS_BATCH_*` variables the user guide lists, logs to its own
+`/aws/batch/job` stream, and is recorded in `attempts`. The request's
+`retryStrategy` overrides the job definition's, and `evaluateOnExit`
+conditions decide in order; a terminated or timed-out attempt is never
+retried. An array job spawns `<parent>:<index>` children, lists them under
+`arrayJobId`, and settles once every child has. `CancelJob` stops only jobs
+that have not started, `TerminateJob` stops the containers of started ones,
+and both reach an array parent's children.
+
+A job with `dependsOn` waits in PENDING until each dependency has finished:
+it becomes RUNNABLE when all succeeded and fails with `Dependent Job failed`
+when one failed, and the failure cascades down the chain. An array job's
+`N_TO_N` dependency pairs each child with the same index of the other array,
+and `SEQUENTIAL` runs child *i* after child *i − 1*. A PENDING job that
+`CancelJob` or `TerminateJob` reaches fails once its dependencies have
+finished, as the `CancelJob` reference describes. A queue with a fair-share
+scheduling policy takes only jobs with a `shareIdentifier`, and a FIFO queue
+none. Its scheduler places next the job of the share with the least weighted
+usage: the vCPUs the share's jobs hold, plus their average over
+`shareDecaySeconds` under exponential decay, times the share's
+`weightFactor`, matched by name or `*` prefix. Within a share, jobs go by
+`schedulingPriority`, then by arrival. `computeReservation` holds back
+(`computeReservation`/100)^active shares of `maxvCpus` for shares that hold
+none yet. Queues sharing a compute environment are served highest `priority`
+first. A queue's scheduling policy can be replaced but not added to a FIFO
+queue, and a policy that a queue uses cannot be deleted.
+
 A test asserts a boundary at a small parameterised limit rather than by
 reaching the real one: the OCI body-cap tests peaked at 7.7 GiB under the race
 detector on a 7 GiB runner until the cap became a parameter tested at 64 KiB.
 A soak test's reader pool is sized to the machine and yields. A nightly fuzz
 failure becomes a seed, so ordinary `go test` catches the regression.
+
+An Amazon ECS test that deletes its subnet first stops the tasks of its own
+cluster whose interface is in that subnet and waits for them with `aws ecs
+wait tasks-stopped`, since EC2 refuses `DeleteSubnet` while an interface
+remains. The test scans only its own cluster, because scanning every cluster
+grew with each test and pushed the ECS CLI job past its time limit. A task
+that holds the subnet traps SIGTERM, so `StopTask` ends it at once instead of
+after the container's stop timeout.
 
 Dependencies of every class — Go modules, Terraform providers, GitHub Actions,
 installed tools, the consoles' npm packages — are held to their newest release

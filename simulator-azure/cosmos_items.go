@@ -86,6 +86,10 @@ func cosmosStoreDocKey(key, account, db, coll, id string, body map[string]any) C
 		existed = false
 	}
 	seq := cosmosETagSeq.Add(1)
+	rid := previous.RID
+	if !existed {
+		rid = cosmosChildRID(account, db, coll, cosmosRIDKindDocument)
+	}
 	doc := CosmosDocument{
 		ID:      id,
 		Account: account,
@@ -93,8 +97,8 @@ func cosmosStoreDocKey(key, account, db, coll, id string, body map[string]any) C
 		Coll:    coll,
 		Body:    body,
 		ETag:    fmt.Sprintf(`"%x-%x"`, now.Unix(), seq),
-		RID:     account + "-" + db + "-" + coll + "-" + id,
-		Self:    "dbs/" + db + "/colls/" + coll + "/docs/" + id + "/",
+		RID:     rid,
+		Self:    cosmosChildSelf(account, db, coll, "docs", rid),
 		TS:      now.Unix(),
 	}
 	cosmosDocs.Put(key, doc)
@@ -121,6 +125,7 @@ func cosmosRecordDelete(doc CosmosDocument, key string, expired bool, now time.T
 // cosmosDropItems deletes every item and every recorded change under prefix —
 // a container's or a database's — as deleting that resource does.
 func cosmosDropItems(prefix string) {
+	cosmosDropRIDs(strings.TrimSuffix(prefix, "/"))
 	for _, entry := range cosmosDocs.ListPrefix(prefix) {
 		cosmosDocs.Delete(entry.ID)
 	}

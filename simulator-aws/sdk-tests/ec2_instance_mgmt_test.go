@@ -164,6 +164,7 @@ func TestEC2_MonitorInstances(t *testing.T) {
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 	instID := aws.ToString(run.Instances[0].InstanceId)
 
 	mon, err := c.MonitorInstances(ctx, &ec2.MonitorInstancesInput{InstanceIds: []string{instID}})

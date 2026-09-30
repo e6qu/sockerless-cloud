@@ -49,9 +49,10 @@ func requirePreconditionFailed(t *testing.T, err error, what string) {
 }
 
 func TestGCS_GenerationPreconditions(t *testing.T) {
+	bucketPreconditionsBucket := uniqueName("preconditions-bucket")
 	client := storageClient(t)
 	defer client.Close()
-	bucket := client.Bucket("preconditions-bucket")
+	bucket := client.Bucket(bucketPreconditionsBucket)
 	require.NoError(t, bucket.Create(ctx, "test-project", nil))
 	object := bucket.Object("manifest")
 
@@ -94,9 +95,10 @@ func TestGCS_GenerationPreconditions(t *testing.T) {
 // they read. Cloud Storage evaluates a write's preconditions and applies it as
 // one step, so exactly one writer of each round succeeds.
 func TestGCS_ConditionalWritesArbitrate(t *testing.T) {
+	bucketArbitrateBucket := uniqueName("arbitrate-bucket")
 	client := storageClient(t)
 	defer client.Close()
-	bucket := client.Bucket("arbitrate-bucket")
+	bucket := client.Bucket(bucketArbitrateBucket)
 	require.NoError(t, bucket.Create(ctx, "test-project", nil))
 	object := bucket.Object("contended")
 	const writers = 16
@@ -150,9 +152,10 @@ func TestGCS_ConditionalWritesArbitrate(t *testing.T) {
 // way the client library does, through the XML API, which describes the object
 // in the headers of the read itself.
 func TestGCS_RangedReadCarriesTheObjectsDescription(t *testing.T) {
+	bucketRangedReadBucket := uniqueName("ranged-read-bucket")
 	client := storageClient(t)
 	defer client.Close()
-	bucket := client.Bucket("ranged-read-bucket")
+	bucket := client.Bucket(bucketRangedReadBucket)
 	require.NoError(t, bucket.Create(ctx, "test-project", nil))
 	object := bucket.Object("pack")
 	written, err := writeObject(t, object, "0123456789")
@@ -175,9 +178,10 @@ func TestGCS_RangedReadCarriesTheObjectsDescription(t *testing.T) {
 // through the IAM API, as a deployment would, and reads the object with no
 // credential but the URL.
 func TestGCS_V4SignedURLReadsWithoutCredentials(t *testing.T) {
+	bucketSignedUrlBucket := uniqueName("signed-url-bucket")
 	client := storageClient(t)
 	defer client.Close()
-	bucket := client.Bucket("signed-url-bucket")
+	bucket := client.Bucket(bucketSignedUrlBucket)
 	require.NoError(t, bucket.Create(ctx, "test-project", nil))
 	_, err := writeObject(t, bucket.Object("dir/asset name"), "signed content")
 	require.NoError(t, err)
@@ -205,7 +209,7 @@ func TestGCS_V4SignedURLReadsWithoutCredentials(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &keyFile))
 
 	sign := func(expires time.Duration) string {
-		signed, err := storage.SignedURL("signed-url-bucket", "dir/asset name", &storage.SignedURLOptions{
+		signed, err := storage.SignedURL(bucketSignedUrlBucket, "dir/asset name", &storage.SignedURLOptions{
 			GoogleAccessID: keyFile.ClientEmail,
 			PrivateKey:     []byte(keyFile.PrivateKey),
 			Method:         http.MethodGet,
@@ -256,9 +260,10 @@ func TestGCS_V4SignedURLReadsWithoutCredentials(t *testing.T) {
 // TestGCS_BatchDeletesAnswerEachCall sends object deletes in one JSON API batch
 // and reads each call's answer back by its Content-ID.
 func TestGCS_BatchDeletesAnswerEachCall(t *testing.T) {
+	bucketBatchBucket := uniqueName("batch-bucket")
 	client := storageClient(t)
 	defer client.Close()
-	bucket := client.Bucket("batch-bucket")
+	bucket := client.Bucket(bucketBatchBucket)
 	require.NoError(t, bucket.Create(ctx, "test-project", nil))
 	names := []string{"a", "dir/b", "c", "never-existed"}
 	for _, name := range names[:3] {
@@ -274,7 +279,7 @@ func TestGCS_BatchDeletesAnswerEachCall(t *testing.T) {
 			"Content-ID":   {fmt.Sprintf("<item%d>", i)},
 		})
 		require.NoError(t, err)
-		fmt.Fprintf(part, "DELETE /storage/v1/b/batch-bucket/o/%s HTTP/1.1\r\n\r\n", url.PathEscape(name))
+		fmt.Fprintf(part, "DELETE /storage/v1/b/"+bucketBatchBucket+"/o/%s HTTP/1.1\r\n\r\n", url.PathEscape(name))
 	}
 	require.NoError(t, writer.Close())
 	request, err := http.NewRequest(http.MethodPost, baseURL+"/batch/storage/v1", &body)
