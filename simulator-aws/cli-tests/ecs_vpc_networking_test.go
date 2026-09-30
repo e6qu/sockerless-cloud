@@ -623,6 +623,13 @@ func TestECSVPCNetnsRouteTableEgress(t *testing.T) {
 // EC2 refuses DeleteSubnet while a task's interface is in it.
 func stopCLITasksInSubnet(t *testing.T, cluster, subnetID string) {
 	t.Helper()
+	// Amazon ECS refuses DeleteCluster while the cluster has active tasks, so a
+	// cluster the test already deleted holds none.
+	active := runCLI(t, awsCLI("ecs", "describe-clusters", "--clusters", cluster,
+		"--query", "length(clusters[?status=='ACTIVE'])", "--output", "text"))
+	if strings.TrimSpace(active) == "0" {
+		return
+	}
 	var arns []string
 	for _, desired := range []string{"RUNNING", "STOPPED"} {
 		arns = append(arns, strings.Fields(runCLI(t, awsCLI("ecs", "list-tasks", "--cluster", cluster,
