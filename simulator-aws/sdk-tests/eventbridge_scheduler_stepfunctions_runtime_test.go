@@ -85,7 +85,7 @@ func TestEventBridgeAndScheduler_StartStepFunctionsExecutions_SDK(t *testing.T) 
 		FlexibleTimeWindow: &schedtypes.FlexibleTimeWindow{Mode: schedtypes.FlexibleTimeWindowModeOff},
 		Target: &schedtypes.Target{
 			Arn:     aws.String(stateMachineARN),
-			RoleArn: aws.String("arn:aws:iam::123456789012:role/scheduler-step-functions"),
+			RoleArn: aws.String(createServiceRole(t, "scheduler-step-functions", "scheduler.amazonaws.com", "states:StartExecution")),
 			Input:   aws.String(`{"path":"scheduler"}`),
 		},
 	})

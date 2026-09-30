@@ -647,7 +647,13 @@ func iamSQSResourceARNs(r *http.Request, types []string, region, account string)
 		return nil
 	}
 	params := iamQueryRequestParameters(r)
+	// Amazon SQS speaks both the awsQuery and the awsJson protocol, and a
+	// JSON request carries its parameters in the body rather than the form.
+	jsonProtocol := r.Header.Get("X-Amz-Target") != ""
 	first := func(field string) string {
+		if jsonProtocol {
+			return iamJSONBodyField(r, field)
+		}
 		return iamFirstValue(func(f string) []string { return params[strings.ToLower(f)] }, field)
 	}
 	// The message-move operations name their queues by ARN rather than by URL,

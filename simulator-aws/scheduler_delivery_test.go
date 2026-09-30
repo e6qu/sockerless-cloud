@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -70,7 +71,8 @@ func TestSchedulerKinesisTargetPutsTheInput(t *testing.T) {
 	if status, out := awsJSONCall(t, router, "Kinesis_20131202.CreateStream", map[string]any{"StreamName": "ticks", "ShardCount": 1}); status != 200 {
 		t.Fatalf("CreateStream: %d %v", status, out)
 	}
-	target := schedulerParseTarget(json.RawMessage(`{"Arn":"` + kinesisStreamARN("ticks") + `","Input":"tick","KinesisParameters":{"PartitionKey":"clock"}}`))
+	role := putServiceRole(t, "scheduler-kinesis", "scheduler.amazonaws.com", "kinesis:PutRecord")
+	target := schedulerParseTarget(json.RawMessage(`{"Arn":"` + kinesisStreamARN("ticks") + `","RoleArn":"` + role + `","Input":"tick","KinesisParameters":{"PartitionKey":"clock"}}`))
 	if outcome := schedulerAttemptTarget(target); !outcome.OK() {
 		t.Fatalf("PutRecord outcome %v", outcome.Err)
 	}
@@ -87,8 +89,130 @@ func TestSchedulerKinesisTargetPutsTheInput(t *testing.T) {
 		t.Fatalf("record %v, want tick under partition key clock", record)
 	}
 
-	missing := schedulerParseTarget(json.RawMessage(`{"Arn":"` + kinesisStreamARN("gone") + `","Input":"tick","KinesisParameters":{"PartitionKey":"clock"}}`))
+	missing := schedulerParseTarget(json.RawMessage(`{"Arn":"` + kinesisStreamARN("gone") + `","RoleArn":"` + role + `","Input":"tick","KinesisParameters":{"PartitionKey":"clock"}}`))
 	if outcome := schedulerAttemptTarget(missing); outcome.OK() || outcome.Retry || outcome.Err.(ebTargetError).Code != "ResourceNotFoundException" {
 		t.Fatalf("PutRecord to a missing stream: %+v, want a final ResourceNotFoundException", outcome)
+	}
+}
+
+// Every target invocation runs as the schedule's execution role: a role that
+// does not trust scheduler.amazonaws.com, or does not allow the call, fails
+// the invocation without reaching the target.
+func TestSchedulerTargetsRunAsTheExecutionRole(t *testing.T) {
+	_, router, _ := buildConformanceSimulator(t)
+	queueURL, queueARN := testSQSQueue(t, router, "scheduler-role-queue")
+	allowed := putServiceRole(t, "scheduler-sends", "scheduler.amazonaws.com", "sqs:SendMessage")
+	unpermitted := putServiceRole(t, "scheduler-publishes", "scheduler.amazonaws.com", "sns:Publish")
+	untrusting := putServiceRole(t, "events-sends", "events.amazonaws.com", "sqs:SendMessage")
+
+	for name, role := range map[string]string{
+		"unpermitted": unpermitted, "untrusting": untrusting, "missing": "arn:aws:iam::" + awsAccountID() + ":role/absent",
+	} {
+		outcome := schedulerAttemptTarget(schedulerTarget{Arn: queueARN, RoleArn: role, Input: "denied"})
+		if outcome.OK() || outcome.Retry || outcome.Err.(ebTargetError).Code != "AccessDeniedException" {
+			t.Fatalf("%s role: %+v, want a final AccessDeniedException", name, outcome)
+		}
+	}
+	if !sqsQueueEmpty(t, router, queueURL) {
+		t.Fatal("a role that may not send reached the queue")
+	}
+
+	if outcome := schedulerAttemptTarget(schedulerTarget{Arn: queueARN, RoleArn: allowed, Input: "allowed"}); !outcome.OK() {
+		t.Fatalf("SendMessage as the permitted role: %v", outcome.Err)
+	}
+	if got := awaitSQSMessage(t, router, queueURL, 5*time.Second); got.Body != "allowed" {
+		t.Fatalf("queue received %q, want the target's input", got.Body)
+	}
+}
+
+// An EventBridge PutEvents target puts the Input on the bus as the detail,
+// under the target's DetailType and Source, where the bus's rules route it.
+func TestSchedulerEventBridgeTargetPutsTheEvent(t *testing.T) {
+	_, router, _ := buildConformanceSimulator(t)
+	queueURL, queueARN := sqsQueueAllowing(t, router, "scheduler-bus-events", "events.amazonaws.com")
+	ebRuleWithTarget(t, router, "scheduler.nightly", map[string]any{"Id": "queue", "Arn": queueARN})
+	role := putServiceRole(t, "scheduler-puts-events", "scheduler.amazonaws.com", "events:PutEvents")
+	target := schedulerParseTarget(json.RawMessage(`{"Arn":"` + ebBusArn("default") + `","RoleArn":"` + role +
+		`","Input":"{\"run\":\"nightly\"}","EventBridgeParameters":{"DetailType":"Nightly Run","Source":"scheduler.nightly"}}`))
+
+	if outcome := schedulerAttemptTarget(target); !outcome.OK() {
+		t.Fatalf("PutEvents outcome %v", outcome.Err)
+	}
+	var event map[string]any
+	if err := json.Unmarshal([]byte(awaitSQSMessage(t, router, queueURL, 10*time.Second).Body), &event); err != nil {
+		t.Fatal(err)
+	}
+	detail, _ := event["detail"].(map[string]any)
+	if event["source"] != "scheduler.nightly" || event["detail-type"] != "Nightly Run" || detail["run"] != "nightly" {
+		t.Fatalf("event %v, want the target's source, detail type and input", event)
+	}
+
+	target.Arn = ebBusArn("absent")
+	if outcome := schedulerAttemptTarget(target); outcome.OK() || outcome.Err.(ebTargetError).Code != "ResourceNotFoundException" {
+		t.Fatalf("PutEvents to a missing bus: %+v, want ResourceNotFoundException", outcome)
+	}
+}
+
+// A universal target calls the API action its ARN names with the Input as the
+// request, authorized as the execution role against the request's resource.
+func TestSchedulerUniversalTargetCallsTheAction(t *testing.T) {
+	_, router, _ := buildConformanceSimulator(t)
+	queueURL, queueARN := testSQSQueue(t, router, "scheduler-universal")
+	input, _ := json.Marshal(map[string]any{"QueueUrl": queueURL, "MessageBody": "universal"})
+	role := putServiceRole(t, "scheduler-universal", "scheduler.amazonaws.com")
+	iamRolePolicies.Put("scheduler-universal/targets", IAMRolePolicy{
+		RoleName: "scheduler-universal", PolicyName: "targets",
+		PolicyDocument: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sqs:SendMessage","Resource":"` + queueARN + `"}]}`,
+	})
+	target := schedulerTarget{Arn: "arn:aws:scheduler:::aws-sdk:sqs:sendMessage", RoleArn: role, Input: string(input)}
+
+	if outcome := schedulerAttemptTarget(target); !outcome.OK() {
+		t.Fatalf("sqs:sendMessage outcome %v", outcome.Err)
+	}
+	if got := awaitSQSMessage(t, router, queueURL, 5*time.Second); got.Body != "universal" {
+		t.Fatalf("queue received %q, want the request's MessageBody", got.Body)
+	}
+
+	otherURL, _ := testSQSQueue(t, router, "scheduler-universal-other")
+	other, _ := json.Marshal(map[string]any{"QueueUrl": otherURL, "MessageBody": "elsewhere"})
+	target.Input = string(other)
+	if outcome := schedulerAttemptTarget(target); outcome.OK() || outcome.Err.(ebTargetError).Code != "AccessDeniedException" {
+		t.Fatalf("sqs:sendMessage to a queue the role may not send to: %+v, want AccessDeniedException", outcome)
+	}
+	if !sqsQueueEmpty(t, router, otherURL) {
+		t.Fatal("the role reached a queue its policy does not name")
+	}
+
+	target.Arn = "arn:aws:scheduler:::aws-sdk:sagemaker:startPipelineExecution"
+	if outcome := schedulerAttemptTarget(target); outcome.OK() || outcome.Err.(ebTargetError).Code != "UnsupportedTarget" {
+		t.Fatalf("a service the simulator does not implement: %+v, want UnsupportedTarget", outcome)
+	}
+}
+
+// CreateSchedule and UpdateSchedule refuse integer members outside the ranges
+// the model declares.
+func TestSchedulerValidatesModelRanges(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		target, window string
+		accepted       bool
+	}{
+		"within":          {`{"RetryPolicy":{"MaximumRetryAttempts":185,"MaximumEventAgeInSeconds":60},"EcsParameters":{"TaskCount":10}}`, `{"Mode":"FLEXIBLE","MaximumWindowInMinutes":1440}`, true},
+		"retries above":   {`{"RetryPolicy":{"MaximumRetryAttempts":186}}`, `{"Mode":"OFF"}`, false},
+		"retries below":   {`{"RetryPolicy":{"MaximumRetryAttempts":-1}}`, `{"Mode":"OFF"}`, false},
+		"event age below": {`{"RetryPolicy":{"MaximumEventAgeInSeconds":59}}`, `{"Mode":"OFF"}`, false},
+		"event age above": {`{"RetryPolicy":{"MaximumEventAgeInSeconds":86401}}`, `{"Mode":"OFF"}`, false},
+		"task count":      {`{"EcsParameters":{"TaskCount":0}}`, `{"Mode":"OFF"}`, false},
+		"weight":          {`{"EcsParameters":{"CapacityProviderStrategy":[{"capacityProvider":"FARGATE","weight":1001}]}}`, `{"Mode":"OFF"}`, false},
+		"base":            {`{"EcsParameters":{"CapacityProviderStrategy":[{"capacityProvider":"FARGATE","base":100001}]}}`, `{"Mode":"OFF"}`, false},
+		"window":          {`{}`, `{"Mode":"FLEXIBLE","MaximumWindowInMinutes":1441}`, false},
+	} {
+		recorder := httptest.NewRecorder()
+		if accepted := schedulerValidateRanges(recorder, json.RawMessage(testCase.target), json.RawMessage(testCase.window)); accepted != testCase.accepted {
+			t.Errorf("%s: accepted %v, want %v", name, accepted, testCase.accepted)
+			continue
+		}
+		if !testCase.accepted && (recorder.Code != 400 || recorder.Header().Get("X-Amzn-Errortype") != "ValidationException") {
+			t.Errorf("%s: %d %s, want a 400 ValidationException", name, recorder.Code, recorder.Header().Get("X-Amzn-Errortype"))
+		}
 	}
 }

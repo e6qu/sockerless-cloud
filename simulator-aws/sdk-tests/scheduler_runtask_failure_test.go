@@ -54,7 +54,7 @@ func TestScheduler_ECSRunTaskFailureSurfaced(t *testing.T) {
 		FlexibleTimeWindow: &schedtypes.FlexibleTimeWindow{Mode: schedtypes.FlexibleTimeWindowModeOff},
 		Target: &schedtypes.Target{
 			Arn:     aws.String(clusterArn),
-			RoleArn: aws.String("arn:aws:iam::123456789012:role/scheduler"),
+			RoleArn: aws.String(createServiceRole(t, "scheduler-fire-ecs-badsg", "scheduler.amazonaws.com", "ecs:RunTask")),
 			EcsParameters: &schedtypes.EcsParameters{
 				TaskDefinitionArn: aws.String(tdArn),
 				LaunchType:        schedtypes.LaunchTypeFargate,

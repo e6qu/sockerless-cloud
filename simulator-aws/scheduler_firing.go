@@ -95,6 +95,10 @@ type schedulerTarget struct {
 	SqsParameters *struct {
 		MessageGroupID string `json:"MessageGroupId"`
 	} `json:"SqsParameters"`
+	EventBridgeParameters *struct {
+		DetailType string `json:"DetailType"`
+		Source     string `json:"Source"`
+	} `json:"EventBridgeParameters"`
 	RetryPolicy *struct {
 		MaximumEventAgeInSeconds *int `json:"MaximumEventAgeInSeconds"`
 		MaximumRetryAttempts     *int `json:"MaximumRetryAttempts"`
@@ -175,23 +179,149 @@ func fireSchedule(s Schedule) {
 	schedulerDeliveries.SubmitAttempted(sim.NewUUID(), schedulerDelivery{ScheduleArn: s.Arn, Target: s.Target})
 }
 
-// schedulerAttemptTarget invokes the target's service once.
+// schedulerAttemptTarget invokes the target's service once, as the
+// schedule's execution role.
 func schedulerAttemptTarget(t schedulerTarget) delivery.Outcome {
 	switch {
+	case strings.HasPrefix(t.Arn, schedulerUniversalTargetPrefix):
+		return fireUniversalTarget(t)
 	case strings.Contains(t.Arn, ":ecs:") && t.EcsParameters != nil:
+		if denied := schedulerAuthorizeRole(t, "ecs:RunTask", t.EcsParameters.TaskDefinitionArn); denied != nil {
+			return *denied
+		}
 		return fireECSTarget(t.Arn, t.EcsParameters)
 	case strings.Contains(t.Arn, ":lambda:"):
+		if denied := schedulerAuthorizeRole(t, "lambda:InvokeFunction", t.Arn); denied != nil {
+			return *denied
+		}
 		return fireLambdaTarget(t.Arn, t.Input)
 	case strings.Contains(t.Arn, ":sqs:"):
+		if denied := schedulerAuthorizeRole(t, "sqs:SendMessage", t.Arn); denied != nil {
+			return *denied
+		}
 		return fireSQSTarget(t)
 	case strings.Contains(t.Arn, ":sns:"):
+		if denied := schedulerAuthorizeRole(t, "sns:Publish", t.Arn); denied != nil {
+			return *denied
+		}
 		return fireSNSTarget(t.Arn, t.Input)
 	case strings.Contains(t.Arn, ":states:"):
+		if denied := schedulerAuthorizeRole(t, "states:StartExecution", t.Arn); denied != nil {
+			return *denied
+		}
 		return fireStepFunctionsTarget(t.Arn, t.Input)
 	case strings.Contains(t.Arn, ":kinesis:") && t.KinesisParameters != nil:
+		if denied := schedulerAuthorizeRole(t, "kinesis:PutRecord", t.Arn); denied != nil {
+			return *denied
+		}
 		return fireKinesisTarget(t.Arn, t.KinesisParameters.PartitionKey, t.Input)
+	case strings.HasPrefix(t.Arn, "arn:aws:events:") && strings.Contains(t.Arn, ":event-bus/") && t.EventBridgeParameters != nil:
+		if denied := schedulerAuthorizeRole(t, "events:PutEvents", t.Arn); denied != nil {
+			return *denied
+		}
+		return fireEventBridgeTarget(t)
 	}
 	return delivery.Permanent(ebTargetError{"UnsupportedTarget", "the simulator does not invoke targets of this service: " + t.Arn})
+}
+
+// schedulerAuthorizeRole checks that the target's execution role trusts
+// scheduler.amazonaws.com and allows the call the invocation makes.
+func schedulerAuthorizeRole(t schedulerTarget, action, resource string) *delivery.Outcome {
+	if err := iamValidateServiceRole(t.RoleArn, "scheduler.amazonaws.com", map[string]string{action: resource}); err != nil {
+		outcome := delivery.Permanent(ebTargetError{"AccessDeniedException", err.Error()})
+		return &outcome
+	}
+	return nil
+}
+
+// schedulerUniversalTargetPrefix begins a universal target ARN,
+// arn:aws:scheduler:::aws-sdk:<service>:<apiAction>, which calls any API
+// action with the target's Input as the request.
+const schedulerUniversalTargetPrefix = "arn:aws:scheduler:::aws-sdk:"
+
+// fireUniversalTarget calls the API action the target ARN names, as the
+// schedule's execution role, with the Input as its request parameters.
+func fireUniversalTarget(t schedulerTarget) delivery.Outcome {
+	service, action, ok := strings.Cut(strings.TrimPrefix(t.Arn, schedulerUniversalTargetPrefix), ":")
+	if !ok || service == "" || action == "" || strings.Contains(action, ":") || !awsSDKAuthorizableService(service) {
+		return delivery.Permanent(ebTargetError{"UnsupportedTarget", "the simulator does not invoke targets of this service: " + t.Arn})
+	}
+	input := t.Input
+	if input == "" {
+		input = "{}"
+	}
+	var request map[string]any
+	if err := json.Unmarshal([]byte(input), &request); err != nil {
+		return delivery.Permanent(ebTargetError{"ValidationException", "The Input of a universal target must be the API request as a JSON object"})
+	}
+	var eventName, eventSource string
+	authorize := func(r *http.Request) *sfnExecutionError {
+		call, ok := iamActionForRequest(r)
+		if !ok {
+			return &sfnExecutionError{Name: "UnsupportedTarget", Cause: "the simulator does not invoke targets of this service: " + t.Arn}
+		}
+		eventSource, _ = awsEventSource(r)
+		_, eventName, _ = strings.Cut(call, ":")
+		if iamPermissionlessAction(call) {
+			return nil
+		}
+		for _, target := range iamAuthorizationTargets(r, call) {
+			if err := iamValidateServiceRole(t.RoleArn, "scheduler.amazonaws.com", map[string]string{target.action: target.resource}); err != nil {
+				return &sfnExecutionError{Name: "AccessDeniedException", Cause: err.Error()}
+			}
+		}
+		return nil
+	}
+	_, callErr := awsSDKInvoke(service, action, request, authorize)
+	if callErr == nil {
+		cloudTrailRecordSchedulerFire(eventName, eventSource, "", "")
+		return delivery.Delivered()
+	}
+	code := strings.TrimPrefix(callErr.Name, service+".")
+	if eventName != "" && code != "AccessDeniedException" {
+		cloudTrailRecordSchedulerFireErr(eventName, eventSource, "", "", code, callErr.Cause)
+	}
+	failure := ebTargetError{code, callErr.Cause}
+	if code == "ThrottlingException" || code == "Throttling" || code == "InternalFailure" || code == "ServiceUnavailable" {
+		return delivery.Retryable(failure)
+	}
+	return delivery.Permanent(failure)
+}
+
+// fireEventBridgeTarget puts one event on the bus, with the target's Input as
+// its detail and its EventBridgeParameters as detail-type and source.
+func fireEventBridgeTarget(t schedulerTarget) delivery.Outcome {
+	busName := t.Arn[strings.Index(t.Arn, ":event-bus/")+len(":event-bus/"):]
+	if bus, ok := ebBusByARN(t.Arn); ok {
+		busName = bus.Name
+	}
+	status, body := callJSONHandler(handleEBPutEvents, map[string]any{"Entries": []map[string]any{{
+		"EventBusName": busName,
+		"Source":       t.EventBridgeParameters.Source,
+		"DetailType":   t.EventBridgeParameters.DetailType,
+		"Detail":       t.Input,
+	}}})
+	outcome := recordSchedulerFireResult("PutEvents", "events.amazonaws.com", "AWS::Events::EventBus", busName, status, body, false)
+	if !outcome.OK() {
+		return outcome
+	}
+	var result struct {
+		Entries []struct {
+			ErrorCode    string `json:"ErrorCode"`
+			ErrorMessage string `json:"ErrorMessage"`
+		} `json:"Entries"`
+	}
+	if json.Unmarshal(body, &result) != nil || len(result.Entries) != 1 {
+		return delivery.Permanent(ebTargetError{"InternalFailure", "PutEvents answered without the entry's result"})
+	}
+	if entry := result.Entries[0]; entry.ErrorCode != "" {
+		failure := ebTargetError{entry.ErrorCode, entry.ErrorMessage}
+		if entry.ErrorCode == "InternalFailure" || entry.ErrorCode == "ThrottlingException" {
+			return delivery.Retryable(failure)
+		}
+		return delivery.Permanent(failure)
+	}
+	return outcome
 }
 
 // schedulerFinishDelivery sends an invocation the target never accepted to

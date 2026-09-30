@@ -452,6 +452,19 @@ attached waits for that container's disconnect event and tries again, instead
 of retrying on a timer. Deleting a Cloud DNS managed zone removes its network
 first and fails, keeping the zone, when the network cannot go.
 
+Every Amazon EventBridge Scheduler target call runs as the schedule's
+execution role, which must trust `scheduler.amazonaws.com` and allow the
+call; a denied call fails with `AccessDeniedException` and reaches the
+dead-letter queue. An EventBridge target puts its event through the bus's own
+PutEvents path, so the bus's rules deliver it. A universal target calls an
+awsJson or awsQuery API action through the Step Functions AWS SDK dispatcher,
+checking every action and resource the request names against the role.
+Create and update reject values outside the ranges the model declares, and
+ListSchedules and ListScheduleGroups page by MaxResults and NextToken. The
+IAM gate reads an Amazon SQS request's queue from a JSON body as well as from
+query parameters, so a queue-scoped grant admits the awsJson protocol the SDKs
+send.
+
 A workload host pulls its image the way the cloud pulls it. The Cloud Run and
 Cloud Functions hosts present the project's Cloud Run service agent's access
 token to Artifact Registry and Container Registry and nothing elsewhere. The

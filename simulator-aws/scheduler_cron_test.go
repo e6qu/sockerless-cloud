@@ -62,7 +62,8 @@ func TestSchedulerFiresInItsTimeZoneWithinItsDates(t *testing.T) {
 	records := sim.NewStateStore[cron.Record]()
 	queueURL, queueARN := testSQSQueue(t, router, "scheduler-tz-queue")
 
-	target, _ := json.Marshal(map[string]any{"Arn": queueARN, "Input": "tick"})
+	role := putServiceRole(t, "scheduler-tz", "scheduler.amazonaws.com", "sqs:SendMessage")
+	target, _ := json.Marshal(map[string]any{"Arn": queueARN, "RoleArn": role, "Input": "tick"})
 	start := float64(time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC).Unix())
 	end := float64(time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC).Unix())
 	schedulesStore.Put("default/tokyo", Schedule{
