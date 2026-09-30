@@ -162,12 +162,14 @@ func asCompleteLifecycleAction(action ASLifecycleAction, result, reason string) 
 	}
 	if abandoned == nil {
 		asFinishActivity(action.ActivityId, "Successful", "")
+		asRefreshInstanceSettled(action.AutoScalingGroupName, action.InstanceId, "")
 		return
 	}
-	asFinishActivity(action.ActivityId, "Cancelled", fmt.Sprintf(
-		"Instance failed to complete user's Lifecycle Action: Lifecycle Action with token %s was abandoned: %s",
-		abandoned.Token, abandoned.StatusReason))
+	message := fmt.Sprintf("Instance failed to complete user's Lifecycle Action: Lifecycle Action with token %s was abandoned: %s",
+		abandoned.Token, abandoned.StatusReason)
+	asFinishActivity(action.ActivityId, "Cancelled", message)
 	asAbandonLaunchedInstance(action.AutoScalingGroupName, action.InstanceId)
+	asRefreshInstanceSettled(action.AutoScalingGroupName, action.InstanceId, message)
 }
 
 // asAbandonLaunchedInstance terminates an instance whose launch was abandoned

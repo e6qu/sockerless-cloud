@@ -3,6 +3,7 @@ package aws_sdk_test
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	astypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
@@ -168,31 +170,209 @@ func TestAutoScaling_TrafficSources(t *testing.T) {
 	assert.Empty(t, tsOut.TrafficSources)
 }
 
+// asxRefreshTemplate creates a launch template whose version 1 launches image,
+// the desired configuration an instance refresh moves a group to.
+func asxRefreshTemplate(t *testing.T, name, image string) string {
+	t.Helper()
+	ec2c := ec2Client()
+	out, err := ec2c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
+		LaunchTemplateName: aws.String(name),
+		LaunchTemplateData: &ec2types.RequestLaunchTemplateData{
+			ImageId:      aws.String(image),
+			InstanceType: ec2types.InstanceTypeT3Micro,
+		},
+	})
+	require.NoError(t, err)
+	id := aws.ToString(out.LaunchTemplate.LaunchTemplateId)
+	t.Cleanup(func() {
+		_, _ = ec2c.DeleteLaunchTemplate(ctx, &ec2.DeleteLaunchTemplateInput{LaunchTemplateId: aws.String(id)})
+	})
+	return id
+}
+
+// awaitInstanceRefresh polls DescribeInstanceRefreshes, the only view Amazon
+// EC2 Auto Scaling gives of a refresh's progress, until done accepts it.
+func awaitInstanceRefresh(t *testing.T, c *autoscaling.Client, group, id string, done func(astypes.InstanceRefresh) bool) astypes.InstanceRefresh {
+	t.Helper()
+	var ref astypes.InstanceRefresh
+	reached := assert.Eventually(t, func() bool {
+		out, err := c.DescribeInstanceRefreshes(ctx, &autoscaling.DescribeInstanceRefreshesInput{
+			AutoScalingGroupName: aws.String(group),
+			InstanceRefreshIds:   []string{id},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.InstanceRefreshes, 1)
+		ref = out.InstanceRefreshes[0]
+		return done(ref)
+	}, 5*time.Minute, 100*time.Millisecond)
+	require.True(t, reached, "instance refresh %s never reached the awaited state; last seen status=%s reason=%q percentage=%d",
+		id, ref.Status, aws.ToString(ref.StatusReason), aws.ToInt32(ref.PercentageComplete))
+	return ref
+}
+
+func asxDescribeGroup(t *testing.T, c *autoscaling.Client, group string) astypes.AutoScalingGroup {
+	t.Helper()
+	out, err := c.DescribeAutoScalingGroups(ctx, &autoscaling.DescribeAutoScalingGroupsInput{AutoScalingGroupNames: []string{group}})
+	require.NoError(t, err)
+	require.Len(t, out.AutoScalingGroups, 1)
+	return out.AutoScalingGroups[0]
+}
+
+func asxWarmingUp(r astypes.InstanceRefresh) bool {
+	return strings.HasPrefix(aws.ToString(r.StatusReason), "Waiting for instances to warm up before continuing.")
+}
+
+// TestAutoScaling_InstanceRefresh refreshes a two-member group onto a launch
+// template one member at a time and checks both members were replaced by
+// instances launched from the template, which the group then launches from.
 func TestAutoScaling_InstanceRefresh(t *testing.T) {
 	c := autoScalingClient()
 	const group = "asx-ir-grp"
-	asxSetupGroup(t, c, "asx-ir-lc", group, 0)
+	asxSetupGroup(t, c, "asx-ir-lc", group, 2)
+	before := asxDescribeGroup(t, c, group)
+	templateID := asxRefreshTemplate(t, "asx-ir-lt", "ami-asxrefresh")
 
 	startOut, err := c.StartInstanceRefresh(ctx, &autoscaling.StartInstanceRefreshInput{
 		AutoScalingGroupName: aws.String(group),
+		DesiredConfiguration: &astypes.DesiredConfiguration{LaunchTemplate: &astypes.LaunchTemplateSpecification{
+			LaunchTemplateId: aws.String(templateID),
+			Version:          aws.String("1"),
+		}},
+		Preferences: &astypes.RefreshPreferences{
+			MinHealthyPercentage: aws.Int32(50),
+			InstanceWarmup:       aws.Int32(0),
+		},
 	})
 	require.NoError(t, err)
 	refreshID := aws.ToString(startOut.InstanceRefreshId)
 	require.NotEmpty(t, refreshID)
 
-	descOut, err := c.DescribeInstanceRefreshes(ctx, &autoscaling.DescribeInstanceRefreshesInput{
+	ref := awaitInstanceRefresh(t, c, group, refreshID, func(r astypes.InstanceRefresh) bool {
+		return r.Status != astypes.InstanceRefreshStatusPending && r.Status != astypes.InstanceRefreshStatusInProgress
+	})
+	require.Equal(t, astypes.InstanceRefreshStatusSuccessful, ref.Status, aws.ToString(ref.StatusReason))
+	assert.EqualValues(t, 100, aws.ToInt32(ref.PercentageComplete))
+	assert.EqualValues(t, 0, aws.ToInt32(ref.InstancesToUpdate))
+	assert.NotNil(t, ref.EndTime)
+	require.NotNil(t, ref.Preferences)
+	assert.EqualValues(t, 50, aws.ToInt32(ref.Preferences.MinHealthyPercentage))
+	require.NotNil(t, ref.DesiredConfiguration)
+	assert.Equal(t, templateID, aws.ToString(ref.DesiredConfiguration.LaunchTemplate.LaunchTemplateId))
+
+	after := asxDescribeGroup(t, c, group)
+	require.NotNil(t, after.LaunchTemplate)
+	assert.Equal(t, templateID, aws.ToString(after.LaunchTemplate.LaunchTemplateId))
+	assert.Empty(t, aws.ToString(after.LaunchConfigurationName))
+	require.Len(t, after.Instances, 2)
+	var replaced []string
+	for _, member := range after.Instances {
+		for _, old := range before.Instances {
+			assert.NotEqual(t, aws.ToString(old.InstanceId), aws.ToString(member.InstanceId), "the refresh kept an original member")
+		}
+		require.NotNil(t, member.LaunchTemplate)
+		assert.Equal(t, templateID, aws.ToString(member.LaunchTemplate.LaunchTemplateId))
+		replaced = append(replaced, aws.ToString(member.InstanceId))
+	}
+	instances, err := ec2Client().DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: replaced})
+	require.NoError(t, err)
+	for _, res := range instances.Reservations {
+		for _, inst := range res.Instances {
+			assert.Equal(t, "ami-asxrefresh", aws.ToString(inst.ImageId))
+		}
+	}
+
+	_, err = c.RollbackInstanceRefresh(ctx, &autoscaling.RollbackInstanceRefreshInput{AutoScalingGroupName: aws.String(group)})
+	requireAWSErrorCode(t, err, "ActiveInstanceRefreshNotFound")
+}
+
+// TestAutoScaling_InstanceRefreshRollback rolls back a refresh paused at its
+// 50 percent checkpoint for an hour: the rollback replaces the instance the
+// refresh launched from the group's launch configuration, which the group
+// keeps.
+func TestAutoScaling_InstanceRefreshRollback(t *testing.T) {
+	c := autoScalingClient()
+	const group = "asx-irb-grp"
+	asxSetupGroup(t, c, "asx-irb-lc", group, 2)
+	templateID := asxRefreshTemplate(t, "asx-irb-lt", "ami-asxrollback")
+
+	_, err := c.RollbackInstanceRefresh(ctx, &autoscaling.RollbackInstanceRefreshInput{AutoScalingGroupName: aws.String(group)})
+	requireAWSErrorCode(t, err, "ActiveInstanceRefreshNotFound")
+
+	startOut, err := c.StartInstanceRefresh(ctx, &autoscaling.StartInstanceRefreshInput{
 		AutoScalingGroupName: aws.String(group),
+		DesiredConfiguration: &astypes.DesiredConfiguration{LaunchTemplate: &astypes.LaunchTemplateSpecification{
+			LaunchTemplateId: aws.String(templateID),
+			Version:          aws.String("1"),
+		}},
+		Preferences: &astypes.RefreshPreferences{
+			MinHealthyPercentage:  aws.Int32(50),
+			InstanceWarmup:        aws.Int32(0),
+			CheckpointPercentages: []int32{50, 100},
+			CheckpointDelay:       aws.Int32(3600),
+		},
 	})
 	require.NoError(t, err)
-	require.Len(t, descOut.InstanceRefreshes, 1)
-	assert.Equal(t, refreshID, aws.ToString(descOut.InstanceRefreshes[0].InstanceRefreshId))
-	assert.Equal(t, astypes.InstanceRefreshStatusSuccessful, descOut.InstanceRefreshes[0].Status)
-
-	rbOut, err := c.RollbackInstanceRefresh(ctx, &autoscaling.RollbackInstanceRefreshInput{
-		AutoScalingGroupName: aws.String(group),
+	refreshID := aws.ToString(startOut.InstanceRefreshId)
+	paused := awaitInstanceRefresh(t, c, group, refreshID, func(r astypes.InstanceRefresh) bool {
+		return aws.ToInt32(r.PercentageComplete) == 50
 	})
+	assert.Equal(t, astypes.InstanceRefreshStatusInProgress, paused.Status)
+	assert.EqualValues(t, 1, aws.ToInt32(paused.InstancesToUpdate))
+	assert.Equal(t, []int32{50, 100}, paused.Preferences.CheckpointPercentages)
+
+	_, err = c.StartInstanceRefresh(ctx, &autoscaling.StartInstanceRefreshInput{AutoScalingGroupName: aws.String(group)})
+	requireAWSErrorCode(t, err, "InstanceRefreshInProgress")
+
+	rbOut, err := c.RollbackInstanceRefresh(ctx, &autoscaling.RollbackInstanceRefreshInput{AutoScalingGroupName: aws.String(group)})
 	require.NoError(t, err)
 	assert.Equal(t, refreshID, aws.ToString(rbOut.InstanceRefreshId))
+
+	ref := awaitInstanceRefresh(t, c, group, refreshID, func(r astypes.InstanceRefresh) bool {
+		return r.Status != astypes.InstanceRefreshStatusRollbackInProgress
+	})
+	require.Equal(t, astypes.InstanceRefreshStatusRollbackSuccessful, ref.Status, aws.ToString(ref.StatusReason))
+	require.NotNil(t, ref.RollbackDetails)
+	assert.EqualValues(t, 1, aws.ToInt32(ref.RollbackDetails.InstancesToUpdateOnRollback))
+	assert.EqualValues(t, 50, aws.ToInt32(ref.RollbackDetails.PercentageCompleteOnRollback))
+	assert.EqualValues(t, 0, aws.ToInt32(ref.PercentageComplete))
+
+	after := asxDescribeGroup(t, c, group)
+	assert.Equal(t, "asx-irb-lc", aws.ToString(after.LaunchConfigurationName))
+	assert.Nil(t, after.LaunchTemplate)
+	for _, member := range after.Instances {
+		assert.Equal(t, "asx-irb-lc", aws.ToString(member.LaunchConfigurationName))
+	}
+}
+
+// TestAutoScaling_CancelInstanceRefresh cancels a refresh held in its instance
+// warmup; without a desired configuration it cannot be rolled back.
+func TestAutoScaling_CancelInstanceRefresh(t *testing.T) {
+	c := autoScalingClient()
+	const group = "asx-irc-grp"
+	asxSetupGroup(t, c, "asx-irc-lc", group, 2)
+
+	startOut, err := c.StartInstanceRefresh(ctx, &autoscaling.StartInstanceRefreshInput{
+		AutoScalingGroupName: aws.String(group),
+		Preferences: &astypes.RefreshPreferences{
+			MinHealthyPercentage: aws.Int32(50),
+			InstanceWarmup:       aws.Int32(3600),
+		},
+	})
+	require.NoError(t, err)
+	refreshID := aws.ToString(startOut.InstanceRefreshId)
+	awaitInstanceRefresh(t, c, group, refreshID, asxWarmingUp)
+
+	_, err = c.RollbackInstanceRefresh(ctx, &autoscaling.RollbackInstanceRefreshInput{AutoScalingGroupName: aws.String(group)})
+	requireAWSErrorCode(t, err, "IrreversibleInstanceRefresh")
+
+	cancelOut, err := c.CancelInstanceRefresh(ctx, &autoscaling.CancelInstanceRefreshInput{AutoScalingGroupName: aws.String(group)})
+	require.NoError(t, err)
+	assert.Equal(t, refreshID, aws.ToString(cancelOut.InstanceRefreshId))
+	ref := awaitInstanceRefresh(t, c, group, refreshID, func(r astypes.InstanceRefresh) bool {
+		return r.Status != astypes.InstanceRefreshStatusCancelling
+	})
+	assert.Equal(t, astypes.InstanceRefreshStatusCancelled, ref.Status)
+	assert.EqualValues(t, 2, aws.ToInt32(ref.InstancesToUpdate))
 }
 
 func TestAutoScaling_WarmPool(t *testing.T) {
@@ -539,4 +719,68 @@ func TestAutoScaling_CancelInstanceRefreshNotFound(t *testing.T) {
 		AutoScalingGroupName: aws.String(group),
 	})
 	requireAWSErrorCode(t, err, "ActiveInstanceRefreshNotFound")
+}
+
+// A group created from a launch template launches its members from the
+// version the template's selector picks and reports the template back, and an
+// update moves it to another template version.
+func TestAutoScaling_GroupFromLaunchTemplate(t *testing.T) {
+	c := autoScalingClient()
+	ec2c := ec2Client()
+	templateID := asxRefreshTemplate(t, "asx-lt-grp-lt", "ami-asxlt1")
+	_, err := ec2c.CreateLaunchTemplateVersion(ctx, &ec2.CreateLaunchTemplateVersionInput{
+		LaunchTemplateId:   aws.String(templateID),
+		LaunchTemplateData: &ec2types.RequestLaunchTemplateData{ImageId: aws.String("ami-asxlt2"), InstanceType: ec2types.InstanceTypeT3Micro},
+	})
+	require.NoError(t, err)
+	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.92.0.0/16")})
+	require.NoError(t, err)
+	subnetOut, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+		VpcId: vpcOut.Vpc.VpcId, CidrBlock: aws.String("10.92.1.0/24"), AvailabilityZone: aws.String("us-east-1a"),
+	})
+	require.NoError(t, err)
+
+	const group = "asx-lt-grp"
+	_, err = c.CreateAutoScalingGroup(ctx, &autoscaling.CreateAutoScalingGroupInput{
+		AutoScalingGroupName: aws.String(group),
+		LaunchTemplate:       &astypes.LaunchTemplateSpecification{LaunchTemplateId: aws.String(templateID), Version: aws.String("1")},
+		MinSize:              aws.Int32(0),
+		MaxSize:              aws.Int32(2),
+		DesiredCapacity:      aws.Int32(1),
+		VPCZoneIdentifier:    subnetOut.Subnet.SubnetId,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteAutoScalingGroup(ctx, &autoscaling.DeleteAutoScalingGroupInput{AutoScalingGroupName: aws.String(group), ForceDelete: aws.Bool(true)})
+	})
+
+	created := asxDescribeGroup(t, c, group)
+	require.NotNil(t, created.LaunchTemplate)
+	assert.Equal(t, templateID, aws.ToString(created.LaunchTemplate.LaunchTemplateId))
+	assert.Equal(t, "1", aws.ToString(created.LaunchTemplate.Version))
+	assert.Empty(t, aws.ToString(created.LaunchConfigurationName))
+	require.Len(t, created.Instances, 1)
+	require.NotNil(t, created.Instances[0].LaunchTemplate)
+	assert.Equal(t, "1", aws.ToString(created.Instances[0].LaunchTemplate.Version))
+	described, err := ec2c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{aws.ToString(created.Instances[0].InstanceId)}})
+	require.NoError(t, err)
+	require.Len(t, described.Reservations, 1)
+	assert.Equal(t, "ami-asxlt1", aws.ToString(described.Reservations[0].Instances[0].ImageId))
+
+	_, err = c.UpdateAutoScalingGroup(ctx, &autoscaling.UpdateAutoScalingGroupInput{
+		AutoScalingGroupName: aws.String(group),
+		LaunchTemplate:       &astypes.LaunchTemplateSpecification{LaunchTemplateId: aws.String(templateID), Version: aws.String("$Latest")},
+	})
+	require.NoError(t, err)
+	updated := asxDescribeGroup(t, c, group)
+	require.NotNil(t, updated.LaunchTemplate)
+	assert.Equal(t, "$Latest", aws.ToString(updated.LaunchTemplate.Version))
+
+	_, err = c.CreateAutoScalingGroup(ctx, &autoscaling.CreateAutoScalingGroupInput{
+		AutoScalingGroupName: aws.String("asx-lt-missing"),
+		LaunchTemplate:       &astypes.LaunchTemplateSpecification{LaunchTemplateId: aws.String("lt-0000000000000dead")},
+		MinSize:              aws.Int32(0),
+		MaxSize:              aws.Int32(1),
+	})
+	require.Error(t, err, "a group from a template that does not exist")
 }

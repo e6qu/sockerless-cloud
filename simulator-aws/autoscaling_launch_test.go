@@ -84,6 +84,16 @@ func asLaunchTestStores(t *testing.T) {
 		asLifecycleActions = sim.MakeStore[ASLifecycleAction](nil, "autoscaling_lifecycle_actions")
 	}
 	{
+		prev := asInstanceRefreshes
+		swap(func() { asInstanceRefreshes = prev })
+		asInstanceRefreshes = sim.MakeStore[ASInstanceRefresh](nil, "autoscaling_instance_refreshes")
+	}
+	{
+		prev := ec2LaunchTemplates
+		swap(func() { ec2LaunchTemplates = prev })
+		ec2LaunchTemplates = sim.MakeStore[EC2LaunchTemplate](nil, "ec2_launch_templates")
+	}
+	{
 		prev := ec2BootInstance
 		swap(func() { ec2BootInstance = prev })
 	}

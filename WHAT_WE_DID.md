@@ -465,6 +465,17 @@ IAM gate reads an Amazon SQS request's queue from a JSON body as well as from
 query parameters, so a queue-scoped grant admits the awsJson protocol the SDKs
 send.
 
+An EC2 Auto Scaling instance refresh runs in the background. It replaces
+instances in batches that keep MinHealthyPercentage in service, or launches
+ahead of terminating under MaxHealthyPercentage, and waits out each batch's
+instance warmup (the preference, else the group's DefaultInstanceWarmup, else
+its health-check grace period). It honours checkpoints, bake time,
+SkipMatching and the Standby and scale-in-protected preferences, and moves the
+group onto its desired launch template when it succeeds. CancelInstanceRefresh
+stops a refresh, and RollbackInstanceRefresh reverses only one still under
+way. CreateAutoScalingGroup and UpdateAutoScalingGroup take a launch template,
+and members report the template version they launched from.
+
 A workload host pulls its image the way the cloud pulls it. The Cloud Run and
 Cloud Functions hosts present the project's Cloud Run service agent's access
 token to Artifact Registry and Container Registry and nothing elsewhere. The
