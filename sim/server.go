@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -461,21 +462,23 @@ func (s *Server) ListenAndServe() error {
 		done <- err
 	}()
 
-	// Print startup banner
-	s.printBanner()
-
-	// Start server
-	var err error
-	if s.config.TLSCert != "" && s.config.TLSKey != "" {
+	// Bind before announcing: the banner's "Listening on" line is what a
+	// harness waits for, so it must not appear before the port answers.
+	ln, err := net.Listen("tcp", s.config.ListenAddr)
+	switch {
+	case err != nil:
+	case s.config.TLSCert != "" && s.config.TLSKey != "":
+		s.printBanner()
 		s.logger.Info().
 			Str("addr", s.config.ListenAddr).
 			Msg("starting HTTPS server")
-		err = srv.ListenAndServeTLS(s.config.TLSCert, s.config.TLSKey)
-	} else {
+		err = srv.ServeTLS(ln, s.config.TLSCert, s.config.TLSKey)
+	default:
+		s.printBanner()
 		s.logger.Info().
 			Str("addr", s.config.ListenAddr).
 			Msg("starting HTTP server")
-		err = srv.ListenAndServe()
+		err = srv.Serve(ln)
 	}
 
 	if err == http.ErrServerClosed {

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
 // signRawSigV4 signs a hand-built HTTP request with SigV4 using the seed
@@ -291,17 +292,12 @@ func TestMain(m *testing.M) {
 	// Start simulator
 	simCmd = newCLISimulatorCommand()
 	simCmd.Stdout = os.Stdout
-	simCmd.Stderr = os.Stderr
-	if err := simCmd.Start(); err != nil {
-		log.Fatalf("Failed to start simulator: %v", err)
-	}
-
-	baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
-
-	if err := waitForHealth(baseURL + "/health"); err != nil {
+	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		shutdownSimulator(simCmd)
 		log.Fatalf("Simulator did not become healthy: %v", err)
 	}
+
+	baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	// Create tmp dir for test files
 	tmpDir, _ = filepath.Abs("tmp")
@@ -334,11 +330,7 @@ func restartCLISimulator(t *testing.T) {
 	shutdownSimulator(simCmd)
 	simCmd = newCLISimulatorCommand()
 	simCmd.Stdout = os.Stdout
-	simCmd.Stderr = os.Stderr
-	if err := simCmd.Start(); err != nil {
-		t.Fatalf("Failed to restart simulator: %v", err)
-	}
-	if err := waitForHealth(baseURL + "/health"); err != nil {
+	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		shutdownSimulator(simCmd)
 		t.Fatalf("Restarted simulator did not become healthy: %v", err)
 	}
@@ -360,33 +352,6 @@ func shutdownSimulator(cmd *exec.Cmd) {
 		_ = cmd.Process.Kill()
 		<-done
 	}
-}
-
-func waitForHealth(url string) error {
-	client := &http.Client{Timeout: 2 * time.Second}
-	// Registration creates every persistent store table before the listener
-	// binds. That DDL phase used to measure ~25 seconds on a loaded hosted
-	// disk under synchronous=FULL SQLite, which fsynced every CREATE TABLE
-	// commit individually; synchronous=NORMAL (see sim/db.go) dropped that
-	// substantially, but the deadline stays generous so the wait fails loudly
-	// on a genuinely stuck listener rather than a merely loaded host.
-	deadline := time.Now().Add(120 * time.Second)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		resp, err := client.Get(url)
-		if err == nil && resp.StatusCode == 200 {
-			resp.Body.Close()
-			return nil
-		}
-		if resp != nil {
-			lastErr = fmt.Errorf("status %d", resp.StatusCode)
-			resp.Body.Close()
-		} else if err != nil {
-			lastErr = err
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for %s: %v", url, lastErr)
 }
 
 func awsCLI(args ...string) *exec.Cmd {

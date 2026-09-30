@@ -23,6 +23,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
 type Env struct {
@@ -99,13 +101,13 @@ func Start(t *testing.T, configDir string) *Env {
 		"SIM_DNS_PORT=0",
 	)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 	// Own process group so the whole simulator subtree can be reaped with one
 	// kill(-pgid): by t.Cleanup on the normal path, by the deadline watchdog
 	// just before a hard timeout, and by the signal reaper on Ctrl-C / SIGQUIT.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start simulator: %v", err)
+	startErr := simready.Start(cmd, os.Stderr)
+	if cmd.Process == nil {
+		t.Fatalf("start simulator: %v", startErr)
 	}
 	trackForReaping(cmd)
 	t.Cleanup(func() {
@@ -121,8 +123,8 @@ func Start(t *testing.T, configDir string) *Env {
 		dir:     configDir,
 	}
 	env.Endpoint = env.BaseURL
-	if err := waitForHealth(env.BaseURL + "/health"); err != nil {
-		t.Fatalf("simulator health: %v", err)
+	if startErr != nil {
+		t.Fatalf("simulator did not start listening: %v", startErr)
 	}
 	if os.Getenv("SOCKERLESS_TF_HTTPS_GATEWAY") == "1" {
 		startHTTPSGateway(t, env, stateDir, simDir, port)
@@ -454,27 +456,6 @@ func startHTTPSGateway(t *testing.T, env *Env, stateDir, simDir string, simPort 
 	if err := waitForHTTPSHealth(env.Endpoint+"/health", client); err != nil {
 		t.Fatalf("HTTPS gateway health: %v", err)
 	}
-}
-
-func waitForHealth(url string) error {
-	client := &http.Client{Timeout: 2 * time.Second}
-	deadline := time.Now().Add(30 * time.Second)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		resp, err := client.Get(url)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			resp.Body.Close()
-			return nil
-		}
-		if resp != nil {
-			lastErr = fmt.Errorf("status %d", resp.StatusCode)
-			resp.Body.Close()
-		} else if err != nil {
-			lastErr = err
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for %s: %v", url, lastErr)
 }
 
 func waitForHTTPSHealth(raw string, client *http.Client) error {

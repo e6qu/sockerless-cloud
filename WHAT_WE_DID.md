@@ -484,6 +484,14 @@ GetDelegatedAccessToken, and with `InvalidAccessKeyId` in an Amazon S3
 Express One Zone CreateSession. GetDelegatedAccessToken's credential acts as
 its caller.
 
+A simulator binds its port before it prints its banner, so the banner's
+`Listening on` line means the port answers, and the SDK, CLI and Terraform
+harnesses start a simulator through `testutil/simready`, which returns on that
+line or fails when the process exits first, instead of polling `/health`. The
+parent-process watch and the container reaper wait on the parent's exit event,
+a pidfd on Linux and a kqueue `NOTE_EXIT` filter on macOS, rather than probing
+it on a timer.
+
 A workload host pulls its image the way the cloud pulls it. The Cloud Run and
 Cloud Functions hosts present the project's Cloud Run service agent's access
 token to Artifact Registry and Container Registry and nothing elsewhere. The

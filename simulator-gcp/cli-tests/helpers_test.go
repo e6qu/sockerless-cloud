@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
 var (
@@ -152,18 +153,13 @@ func TestMain(m *testing.M) {
 		fmt.Sprintf("SIM_GCP_GRPC_PORT=%d", grpcPort),
 	)
 	simCmd.Stdout = os.Stdout
-	simCmd.Stderr = os.Stderr
-	if err := simCmd.Start(); err != nil {
-		log.Fatalf("Failed to start simulator: %v", err)
+	if err := simready.Start(simCmd, os.Stderr); err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Simulator did not become healthy: %v", err)
 	}
 
 	baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	grpcAddr = fmt.Sprintf("127.0.0.1:%d", grpcPort)
-
-	if err := waitForHealth(baseURL + "/health"); err != nil {
-		simCmd.Process.Kill()
-		log.Fatalf("Simulator did not become healthy: %v", err)
-	}
 
 	// Mint a real access token from the simulator's OAuth2 token endpoint. The
 	// data plane verifies the bearer on every request, so the gcloud CLI must
@@ -307,33 +303,6 @@ func installGcloudCLI() string {
 	// Prepend to PATH so gcloudCLI() picks it up.
 	os.Setenv("PATH", filepath.Dir(gcloudBin)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return gcloudBin
-}
-
-func waitForHealth(url string) error {
-	client := &http.Client{Timeout: 2 * time.Second}
-	// Registration creates every persistent store table before the listener
-	// binds. That DDL phase used to measure ~25 seconds on a loaded hosted
-	// disk under synchronous=FULL SQLite, which fsynced every CREATE TABLE
-	// commit individually; synchronous=NORMAL (see sim/db.go) dropped that
-	// substantially, but the deadline stays generous so the wait fails loudly
-	// on a genuinely stuck listener rather than a merely loaded host.
-	deadline := time.Now().Add(120 * time.Second)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		resp, err := client.Get(url)
-		if err == nil && resp.StatusCode == 200 {
-			resp.Body.Close()
-			return nil
-		}
-		if resp != nil {
-			lastErr = fmt.Errorf("status %d", resp.StatusCode)
-			resp.Body.Close()
-		} else if err != nil {
-			lastErr = err
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for %s: %v", url, lastErr)
 }
 
 // gcloudCLI creates a gcloud command with config isolation and endpoint overrides.

@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -94,11 +96,6 @@ func TestMain(m *testing.M) {
 
 	baseURL = fmt.Sprintf("http://127.0.0.1:%d", simPort)
 	tfEndpoint = baseURL
-
-	if err := waitForHealth(baseURL + "/health"); err != nil {
-		simCmd.Process.Kill()
-		log.Fatalf("Simulator did not become healthy: %v", err)
-	}
 
 	if os.Getenv("SOCKERLESS_TF_HTTPS_GATEWAY") == "1" {
 		gatewayDir, err = os.MkdirTemp("", "aws-https-gateway-*")
@@ -217,15 +214,11 @@ func startTerraformSimulator() error {
 		"SIM_DATA_DIR="+simDataDir,
 	)
 	simCmd.Stdout = os.Stdout
-	simCmd.Stderr = os.Stderr
 	// Own process group so the whole simulator subtree is reaped with one
 	// kill(-pgid) — including on Ctrl-C / the go-test hard-timeout SIGQUIT,
 	// which aborts the binary without running the post-m.Run() cleanup below.
 	simCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := simCmd.Start(); err != nil {
-		return err
-	}
-	return waitForHealth(fmt.Sprintf("http://127.0.0.1:%d/health", simPort))
+	return simready.Start(simCmd, os.Stderr)
 }
 
 func restartTerraformSimulator(t *testing.T) {
@@ -275,27 +268,6 @@ func reapSubprocessesOnSignal() {
 		signal.Reset(sig.(syscall.Signal))
 		_ = syscall.Kill(syscall.Getpid(), sig.(syscall.Signal))
 	}()
-}
-
-func waitForHealth(url string) error {
-	client := &http.Client{Timeout: 2 * time.Second}
-	deadline := time.Now().Add(30 * time.Second)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		resp, err := client.Get(url)
-		if err == nil && resp.StatusCode == 200 {
-			resp.Body.Close()
-			return nil
-		}
-		if resp != nil {
-			lastErr = fmt.Errorf("status %d", resp.StatusCode)
-			resp.Body.Close()
-		} else if err != nil {
-			lastErr = err
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for %s: %v", url, lastErr)
 }
 
 func nativeDockerPlatform() string {

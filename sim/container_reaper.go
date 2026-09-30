@@ -175,9 +175,12 @@ func RunContainerReaper() bool {
 		fmt.Fprintln(os.Stderr, "invalid container reaper identity")
 		os.Exit(2)
 	}
-	for realexec.ProcessAlive(parentPID) {
-		time.Sleep(250 * time.Millisecond)
+	parentExited, err := processExit(parentPID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "watch simulator process %d: %v\n", parentPID, err)
+		os.Exit(1)
 	}
+	parentExited()
 
 	dockerClient, err := client.New(client.FromEnv)
 	if err != nil {

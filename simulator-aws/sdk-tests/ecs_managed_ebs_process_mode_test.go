@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -46,28 +48,17 @@ func startProcessModeSim(t *testing.T) string {
 			"SIM_LOG_LEVEL=warn",
 		)
 		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		require.NoError(t, cmd.Start())
-
+		if err := simready.Start(cmd, os.Stderr); err != nil {
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+			}
+			lastErr = fmt.Errorf("process-mode simulator on :%d (Route 53 on :%d): %w", port, dnsPort, err)
+			continue
+		}
 		exited := make(chan error, 1)
 		go func() { exited <- cmd.Wait() }()
-
 		url := fmt.Sprintf("http://127.0.0.1:%d", port)
-		healthy := make(chan error, 1)
-		go func() { healthy <- waitForHealth(url + "/health") }()
-
-		select {
-		case waitErr := <-exited:
-			lastErr = fmt.Errorf("process-mode simulator exited before serving on :%d (Route 53 on :%d): %v", port, dnsPort, waitErr)
-			continue
-		case healthErr := <-healthy:
-			if healthErr != nil {
-				_ = cmd.Process.Kill()
-				<-exited
-				lastErr = healthErr
-				continue
-			}
-		}
 
 		t.Cleanup(func() {
 			_ = cmd.Process.Kill()
