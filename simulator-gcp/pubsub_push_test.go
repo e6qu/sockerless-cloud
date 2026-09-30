@@ -136,7 +136,12 @@ func TestPubSubPushDeadLettersAfterMaxDeliveryAttempts(t *testing.T) {
 			t.Fatalf("attempt %d reported deliveryAttempt %v", attempt, pushed.body["deliveryAttempt"])
 		}
 	}
-	dead := awaitPulled(t, "projects/p/subscriptions/jobs-dead-pull")
+	// Drain the fifth rejection's negative acknowledgement, then sweep at the
+	// instant the retry policy's maximum backoff has run out: the exhausted
+	// message is due for the dead-letter topic by then.
+	bg.Await()
+	psSweepDeadLetters(time.Now().Add(200 * time.Millisecond))
+	dead := pullNow(t, "projects/p/subscriptions/jobs-dead-pull")
 	if n := count.Load(); n != 5 {
 		t.Fatalf("endpoint saw %d attempts, want maxDeliveryAttempts=5", n)
 	}
@@ -149,24 +154,18 @@ func TestPubSubPushDeadLettersAfterMaxDeliveryAttempts(t *testing.T) {
 	}
 }
 
-// awaitPulled pulls from the subscription until a message arrives, sweeping
-// the dead-letter forwarding a pull subscriber would wait on.
-func awaitPulled(t *testing.T, subscription string) []psDelivered {
+// pullNow pulls once from the subscription and fails the test when nothing
+// is there.
+func pullNow(t *testing.T, subscription string) []psDelivered {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		psSweepDeadLetters(time.Now())
-		got, err := psDequeue(subscription, 10, 0)
-		if err != nil {
-			t.Fatalf("pull %s: %v", subscription, err)
-		}
-		if len(got) > 0 {
-			return got
-		}
-		time.Sleep(50 * time.Millisecond)
+	got, err := psDequeue(subscription, 10, 0)
+	if err != nil {
+		t.Fatalf("pull %s: %v", subscription, err)
 	}
-	t.Fatalf("nothing arrived on %s", subscription)
-	return nil
+	if len(got) == 0 {
+		t.Fatalf("nothing was available on %s", subscription)
+	}
+	return got
 }
 
 // TestPubSubPushAndPullShareDeliveryAttempts proves a subscription switched
@@ -174,14 +173,30 @@ func awaitPulled(t *testing.T, subscription string) []psDelivered {
 // every delivery attempt, pushed or pulled, toward one total.
 func TestPubSubPushAndPullShareDeliveryAttempts(t *testing.T) {
 	srv := buildPushTestSimulator(t)
-	failing, failed, _ := pushReceiver(t, http.StatusServiceUnavailable)
+	// The endpoint rejects every push and holds its answer to the second
+	// until the test has switched the subscription to pull, so no third push
+	// can start while the switch is in flight.
+	failed := make(chan pushedRequest, 4)
+	release := make(chan struct{})
+	var rejected atomic.Int32
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		failed <- pushedRequest{header: r.Header.Clone(), body: body}
+		if rejected.Add(1) == 2 {
+			<-release
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(failing.Close)
 	accepting, accepted, _ := pushReceiver(t, http.StatusOK)
 	const sub = "projects/p/subscriptions/switch"
 	gcpCall(t, srv, http.MethodPut, "/v1/projects/p/topics/switch", `{}`)
 	gcpCall(t, srv, http.MethodPut, "/v1/projects/p/topics/switch-dead", `{}`)
 	gcpCall(t, srv, http.MethodPut, "/v1/"+sub, `{"topic":"projects/p/topics/switch",
 		"pushConfig":{"pushEndpoint":"`+failing.URL+`"},
-		"retryPolicy":{"minimumBackoff":"1s","maximumBackoff":"1s"},
+		"retryPolicy":{"minimumBackoff":"0s","maximumBackoff":"0s"},
 		"deadLetterPolicy":{"deadLetterTopic":"projects/p/topics/switch-dead","maxDeliveryAttempts":10}}`)
 	gcpCall(t, srv, http.MethodPost, "/v1/projects/p/topics/switch:publish", `{"messages":[{"data":"`+base64.StdEncoding.EncodeToString([]byte("x"))+`"}]}`)
 	psPushSweep(context.Background())
@@ -191,15 +206,15 @@ func TestPubSubPushAndPullShareDeliveryAttempts(t *testing.T) {
 		}
 	}
 	gcpCall(t, srv, http.MethodPost, "/v1/"+sub+":modifyPushConfig", `{"pushConfig":{}}`)
+	close(release)
 	bg.Await()
 
-	pulled := awaitPulled(t, sub)
+	pulled := pullNow(t, sub)
 	if len(pulled) != 1 || pulled[0].DeliveryAttempt != 3 {
 		t.Fatalf("pull after two pushes = %+v, want the message at deliveryAttempt 3", pulled)
 	}
 	gcpCall(t, srv, http.MethodPost, "/v1/"+sub+":modifyAckDeadline", `{"ackIds":["`+pulled[0].AckID+`"],"ackDeadlineSeconds":0}`)
 	gcpCall(t, srv, http.MethodPost, "/v1/"+sub+":modifyPushConfig", `{"pushConfig":{"pushEndpoint":"`+accepting.URL+`"}}`)
-	time.Sleep(1100 * time.Millisecond)
 	psPushSweep(context.Background())
 	if got := awaitPush(t, accepted).body["deliveryAttempt"]; got != float64(4) {
 		t.Fatalf("push after the pull reported deliveryAttempt %v, want 4", got)

@@ -561,11 +561,14 @@ func webWorkflowTriggerHistoryResubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	site, _ := webResource(r)
-	opID := issueAzureAsyncOperation(func() { logicRecordTriggerRun(wf, triggerName) })
+	opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
+		logicRecordTriggerRun(wf, triggerName)
+		return nil
+	})
 	opURL := azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"), "Microsoft.Web",
 		logicResLocation(site.Location), "operationStatuses", opID, r.URL.Query().Get("api-version"))
 	w.Header().Set("Azure-AsyncOperation", opURL)
-	w.Header().Set("Retry-After", "0")
+	setAzureAsyncOperationRetryAfter(w, opID)
 	w.WriteHeader(http.StatusAccepted)
 }
 

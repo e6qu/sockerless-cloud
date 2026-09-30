@@ -142,3 +142,43 @@ func TestSDK_AzureFunctions_MultiContainerSharesLocalhost(t *testing.T) {
 	assert.Contains(t, string(body), "azf-sidecar-ok",
 		"main must reach the sidecar on localhost:9090 over the shared netns")
 }
+
+// A sidecar sitecontainer that cannot start fails the site's start: the
+// invoke is refused and names the sidecar, rather than running the main
+// without it.
+func TestSDK_AzureFunctions_SidecarThatCannotStartFailsTheSite(t *testing.T) {
+	rg := "sdk-sc-badsidecar-rg"
+	site := "sc-badsidecar-app"
+	host := createSiteForContainers(t, rg, site)
+
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	_, err = client.CreateOrUpdateSiteContainer(ctx, rg, site, "main", armappservice.SiteContainer{
+		Properties: &armappservice.SiteContainerProperties{
+			Image:          to.Ptr(httpProbeImageName),
+			IsMain:         to.Ptr(true),
+			StartUpCommand: to.Ptr("probe-retry azf-sidecar-ok"),
+		},
+	}, nil)
+	require.NoError(t, err)
+	// No registry listens on 127.0.0.1:1, so the image can be neither found
+	// nor pulled.
+	_, err = client.CreateOrUpdateSiteContainer(ctx, rg, site, "unpullable", armappservice.SiteContainer{
+		Properties: &armappservice.SiteContainerProperties{
+			Image:  to.Ptr("127.0.0.1:1/sockerless/absent-sidecar:none"),
+			IsMain: to.Ptr(false),
+		},
+	}, nil)
+	require.NoError(t, err)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/function", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	req.Host = host
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	assert.GreaterOrEqual(t, resp.StatusCode, 500, "a site whose sidecar cannot start must not serve: %s", string(body))
+	assert.Contains(t, string(body), "unpullable", "the refusal names the sidecar that failed: %s", string(body))
+	assert.NotContains(t, string(body), "azf-sidecar-ok", "the main must not have run without its sidecar")
+}

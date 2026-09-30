@@ -66,7 +66,15 @@ func asxSetupGroup(t *testing.T, asg *autoscaling.Client, lcName, groupName stri
 	require.NoError(t, err)
 	require.Len(t, groupsOut.AutoScalingGroups, 1)
 	require.NotEmpty(t, groupsOut.AutoScalingGroups[0].Instances)
-	return aws.ToString(groupsOut.AutoScalingGroups[0].Instances[0].InstanceId)
+	memberIDs := make([]string, 0, len(groupsOut.AutoScalingGroups[0].Instances))
+	for _, member := range groupsOut.AutoScalingGroups[0].Instances {
+		memberIDs = append(memberIDs, aws.ToString(member.InstanceId))
+	}
+	require.NoError(t, ec2.NewInstanceRunningWaiter(ec2c, func(o *ec2.InstanceRunningWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &ec2.DescribeInstancesInput{InstanceIds: memberIDs}, 5*time.Minute))
+	return memberIDs[0]
 }
 
 func TestAutoScaling_LoadBalancersAndTargetGroups(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"testing"
-	"time"
 
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
@@ -395,6 +394,10 @@ func spannerProvision(t *testing.T, ctx context.Context, project, instance, dbID
 	}).Do()
 	require.NoError(t, err)
 	require.True(t, op.Done)
+	t.Cleanup(func() {
+		_, err := svc.Projects.Instances.Delete(fmt.Sprintf("projects/%s/instances/%s", project, instance)).Do()
+		require.NoError(t, err)
+	})
 
 	dbOp, err := svc.Projects.Instances.Databases.Create(fmt.Sprintf("projects/%s/instances/%s", project, instance), &spanneradmin.CreateDatabaseRequest{
 		CreateStatement: "CREATE DATABASE `" + dbID + "`",
@@ -409,10 +412,8 @@ func spannerProvision(t *testing.T, ctx context.Context, project, instance, dbID
 		require.True(t, ddlOp.Done)
 	}
 
-	// Poll until the admin slice confirms the database is queryable — fixed
-	// sleeps are banned by AGENTS.md, so poll on the real readiness signal.
-	require.Eventually(t, func() bool {
-		_, err := svc.Projects.Instances.Databases.Get(dbName).Do()
-		return err == nil
-	}, 10*time.Second, 50*time.Millisecond, "database never became queryable")
+	// The create operation reported done, so the database is there and ready.
+	db, err := svc.Projects.Instances.Databases.Get(dbName).Do()
+	require.NoError(t, err)
+	require.Equal(t, "READY", db.State)
 }

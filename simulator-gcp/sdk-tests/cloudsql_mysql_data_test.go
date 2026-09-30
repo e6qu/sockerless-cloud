@@ -32,7 +32,7 @@ func TestCloudSQL_MySQLBackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 		appDatabase  = "appdb"
 	)
 
-	_, err := svc.Instances.Insert(project, &sqladmin.DatabaseInstance{
+	insertOp, err := svc.Instances.Insert(project, &sqladmin.DatabaseInstance{
 		Name:            instanceName,
 		Region:          "us-central1",
 		DatabaseVersion: "MYSQL_8_0",
@@ -40,6 +40,7 @@ func TestCloudSQL_MySQLBackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Instances.Delete(project, instanceName).Do() })
+	waitSQLOperationDone(t, svc, project, insertOp.Name)
 
 	inst, err := svc.Instances.Get(project, instanceName).Do()
 	require.NoError(t, err)
@@ -72,9 +73,9 @@ func TestCloudSQL_MySQLBackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 		connector, connectorErr := mysql.NewConnector(config)
 		require.NoError(t, connectorErr)
 		db := sql.OpenDB(connector)
-		require.Eventually(t, func() bool {
-			return db.PingContext(testContext) == nil
-		}, 5*time.Minute, 2*time.Second, "the data plane must accept the stock driver")
+		// The endpoint holds a connection while the engine boots, so a
+		// RUNNABLE instance answers the first one.
+		require.NoError(t, db.PingContext(testContext), "the data plane must accept the stock driver")
 		return db
 	}
 

@@ -71,7 +71,7 @@ func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
 		})
 	})
 
-	_, err = asC.PutScalingPolicy(ctx, &applicationautoscaling.PutScalingPolicyInput{
+	policy, err := asC.PutScalingPolicy(ctx, &applicationautoscaling.PutScalingPolicyInput{
 		PolicyName:        aws.String("cpu-50"),
 		ServiceNamespace:  ns,
 		ResourceId:        aws.String(resourceID),
@@ -86,19 +86,51 @@ func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	putCPU := func(value float64) {
-		_, err := cwC.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{
-			Namespace: aws.String("AWS/ECS"),
-			MetricData: []cwtypes.MetricDatum{{
-				MetricName: aws.String("CPUUtilization"),
-				Dimensions: []cwtypes.Dimension{
-					{Name: aws.String("ClusterName"), Value: aws.String(cluster)},
-					{Name: aws.String("ServiceName"), Value: aws.String(svcName)},
-				},
-				Value:     aws.Float64(value),
-				Timestamp: aws.Time(time.Now()),
-			}},
-		})
+	// Application Auto Scaling manages two CloudWatch alarms for the policy:
+	// AlarmHigh over three one-minute periods above the target, and AlarmLow
+	// over fifteen below 90% of it.
+	require.Len(t, policy.Alarms, 2)
+	alarmNames := make([]string, 0, len(policy.Alarms))
+	for _, alarm := range policy.Alarms {
+		alarmNames = append(alarmNames, aws.ToString(alarm.AlarmName))
+	}
+	alarms, err := cwC.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: alarmNames})
+	require.NoError(t, err)
+	require.Len(t, alarms.MetricAlarms, 2)
+	for _, alarm := range alarms.MetricAlarms {
+		assert.Equal(t, int32(60), aws.ToInt32(alarm.Period))
+		assert.Equal(t, []string{aws.ToString(policy.PolicyARN)}, alarm.AlarmActions)
+		switch alarm.ComparisonOperator {
+		case cwtypes.ComparisonOperatorGreaterThanThreshold:
+			assert.Equal(t, int32(3), aws.ToInt32(alarm.EvaluationPeriods))
+			assert.Equal(t, 50.0, aws.ToFloat64(alarm.Threshold))
+		case cwtypes.ComparisonOperatorLessThanThreshold:
+			assert.Equal(t, int32(15), aws.ToInt32(alarm.EvaluationPeriods))
+			assert.Equal(t, 45.0, aws.ToFloat64(alarm.Threshold))
+		default:
+			t.Fatalf("unexpected alarm %s comparing %s", aws.ToString(alarm.AlarmName), alarm.ComparisonOperator)
+		}
+	}
+
+	// putCPU records copies datapoints of value for each of the last minutes,
+	// as the Amazon ECS agent reports one a minute.
+	putCPU := func(value float64, minutes, copies int) {
+		now := time.Now()
+		var data []cwtypes.MetricDatum
+		for minute := 0; minute < minutes; minute++ {
+			for range copies {
+				data = append(data, cwtypes.MetricDatum{
+					MetricName: aws.String("CPUUtilization"),
+					Dimensions: []cwtypes.Dimension{
+						{Name: aws.String("ClusterName"), Value: aws.String(cluster)},
+						{Name: aws.String("ServiceName"), Value: aws.String(svcName)},
+					},
+					Value:     aws.Float64(value),
+					Timestamp: aws.Time(now.Add(-time.Duration(minute) * time.Minute)),
+				})
+			}
+		}
+		_, err := cwC.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{Namespace: aws.String("AWS/ECS"), MetricData: data})
 		require.NoError(t, err)
 	}
 
@@ -112,36 +144,38 @@ func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
 		return out.Services[0].DesiredCount
 	}
 
-	// Scale-out: pin CPU at 90% (target 50%). round(1 * 90/50) = 2 on the
-	// first tick; subsequent ticks keep climbing toward MaxCapacity as long as
-	// the metric stays high. Wait for at least one increase above the floor.
-	putCPU(90.0)
+	// Scale-out: three minutes at 90% (target 50%) put AlarmHigh in ALARM,
+	// and the policy sets round(1 * 90 / 50) = 2.
+	putCPU(90.0, 3, 1)
 	require.Eventually(t, func() bool {
-		// Keep feeding datapoints so the 5-minute lookback window never goes empty.
-		putCPU(90.0)
 		return desiredCount() > minC
-	}, 30*time.Second, 3*time.Second, "DesiredCount must increase when CPU is above the target")
-
-	// Confirm the autoscaler respects MaxCapacity: it must never exceed it.
+	}, 30*time.Second, time.Second, "DesiredCount must increase once AlarmHigh is in ALARM")
 	assert.LessOrEqual(t, desiredCount(), maxC)
 
-	// Scale-in: drop CPU to 10% (target 50%). round(current * 10/50) shrinks
-	// toward MinCapacity. Wait for the count to fall back toward the floor.
-	putCPU(10.0)
+	// Scale-in: fifteen minutes averaging well below 45% put AlarmLow in ALARM.
+	putCPU(0.0, 15, 4)
 	require.Eventually(t, func() bool {
-		putCPU(10.0)
 		return desiredCount() <= minC
-	}, 30*time.Second, 3*time.Second, "DesiredCount must decrease toward MinCapacity when CPU is below the target")
-
-	// MinCapacity is a hard floor — never below it.
+	}, 30*time.Second, time.Second, "DesiredCount must decrease toward MinCapacity once AlarmLow is in ALARM")
 	assert.GreaterOrEqual(t, desiredCount(), minC)
 
-	// The capacity change must surface as a ScalingActivity.
+	// Each capacity change surfaces as a ScalingActivity the alarm caused.
 	actOut, err := asC.DescribeScalingActivities(ctx, &applicationautoscaling.DescribeScalingActivitiesInput{
 		ServiceNamespace:  ns,
 		ResourceId:        aws.String(resourceID),
 		ScalableDimension: dim,
 	})
 	require.NoError(t, err)
-	require.NotEmpty(t, actOut.ScalingActivities, "a real capacity change must record a ScalingActivity")
+	require.Len(t, actOut.ScalingActivities, 2)
+	for _, activity := range actOut.ScalingActivities {
+		assert.Contains(t, aws.ToString(activity.Cause), "TargetTracking-"+resourceID)
+	}
+
+	_, err = asC.DeleteScalingPolicy(ctx, &applicationautoscaling.DeleteScalingPolicyInput{
+		PolicyName: aws.String("cpu-50"), ServiceNamespace: ns, ResourceId: aws.String(resourceID), ScalableDimension: dim,
+	})
+	require.NoError(t, err)
+	alarms, err = cwC.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: alarmNames})
+	require.NoError(t, err)
+	assert.Empty(t, alarms.MetricAlarms, "deleting the policy deletes the alarms Application Auto Scaling created")
 }

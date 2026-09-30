@@ -1,7 +1,6 @@
 package aws_sdk_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -181,78 +180,15 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	require.Len(t, st2.ScalableTargets, 1)
 	assert.EqualValues(t, 8, aws.ToInt32(st2.ScalableTargets[0].MaxCapacity))
 	assert.EqualValues(t, 2, aws.ToInt32(st2.ScalableTargets[0].MinCapacity))
-	// The rollout launches two replacement tasks, waits out their steady-state
-	// and target-health gating, and tears down the previous task while the
-	// scheduler's own bounded placement-retry chain (1+2+4+8+16+32s) may be
-	// recovering from a transient launch failure. Real Amazon ECS expresses
-	// this rollout in minutes, so the window covers the full retry budget and
-	// the diagnostic retains the last observed service state.
-	var rolloutDiagnostic string
-	rolled := assert.Eventually(t, func() bool {
-		services, describeErr := c.DescribeServices(ctx, &ecs.DescribeServicesInput{
-			Cluster: aws.String(cluster), Services: []string{"web"},
-		})
-		if describeErr != nil {
-			rolloutDiagnostic = "DescribeServices error: " + describeErr.Error()
-			return false
-		}
-		if len(services.Services) != 1 {
-			rolloutDiagnostic = fmt.Sprintf("DescribeServices returned %d services", len(services.Services))
-			return false
-		}
-		service := services.Services[0]
-		deploymentState, deploymentReason := "", ""
-		if len(service.Deployments) > 0 {
-			deploymentState = string(service.Deployments[0].RolloutState)
-			deploymentReason = aws.ToString(service.Deployments[0].RolloutStateReason)
-		}
-		events := ""
-		for i, event := range service.Events {
-			if i >= 3 {
-				break
-			}
-			events += " [" + aws.ToString(event.Message) + "]"
-		}
-		tasks := ""
-		if listed, listErr := c.ListTasks(ctx, &ecs.ListTasksInput{
-			Cluster: aws.String(cluster), ServiceName: aws.String("web"),
-		}); listErr == nil && len(listed.TaskArns) > 0 {
-			if described, descErr := c.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-				Cluster: aws.String(cluster), Tasks: listed.TaskArns,
-			}); descErr == nil {
-				for _, task := range described.Tasks {
-					tasks += fmt.Sprintf(" {status=%s health=%s taskDef=%s stoppedReason=%q}",
-						aws.ToString(task.LastStatus), string(task.HealthStatus),
-						aws.ToString(task.TaskDefinitionArn), aws.ToString(task.StoppedReason))
-				}
-			}
-		}
-		targets := ""
-		if groups, groupErr := elb.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{
-			Names: []string{"express-web"},
-		}); groupErr == nil && len(groups.TargetGroups) == 1 {
-			if health, healthErr := elb.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
-				TargetGroupArn: groups.TargetGroups[0].TargetGroupArn,
-			}); healthErr == nil {
-				for _, description := range health.TargetHealthDescriptions {
-					targets += fmt.Sprintf(" {target=%s:%d state=%s reason=%s}",
-						aws.ToString(description.Target.Id), aws.ToInt32(description.Target.Port),
-						string(description.TargetHealth.State), string(description.TargetHealth.Reason))
-				}
-			}
-		}
-		rolloutDiagnostic = fmt.Sprintf(
-			"desired=%d running=%d pending=%d taskDefinition=%s initialTaskDefinition=%s deployment=%s %q events=%s tasks=%s targets=%s",
-			service.DesiredCount, service.RunningCount, service.PendingCount,
-			aws.ToString(service.TaskDefinition), initialTaskDefinition,
-			deploymentState, deploymentReason, events, tasks, targets)
-		return service.DesiredCount == 2 &&
-			service.RunningCount == 2 &&
-			aws.ToString(service.TaskDefinition) != initialTaskDefinition
-	}, 2*time.Minute, time.Second)
-	require.True(t, rolled,
-		"Express update did not roll the backing Fargate service to the new managed task definition: %s",
-		rolloutDiagnostic)
+	// The rollout launches two replacement tasks and waits out their
+	// steady-state and target-health gating while the scheduler's bounded
+	// placement-retry chain (1+2+4+8+16+32s) may recover from a transient launch
+	// failure, so the wait covers the full retry budget.
+	rolled := waitForECSServicesStable(t, c, cluster, 2*time.Minute, "web").Services[0]
+	assert.EqualValues(t, 2, rolled.DesiredCount)
+	assert.EqualValues(t, 2, rolled.RunningCount)
+	assert.NotEqual(t, initialTaskDefinition, aws.ToString(rolled.TaskDefinition),
+		"Express update did not roll the backing Fargate service to the new managed task definition")
 
 	del, err := c.DeleteExpressGatewayService(ctx, &ecs.DeleteExpressGatewayServiceInput{
 		ServiceArn: svc.ServiceArn,

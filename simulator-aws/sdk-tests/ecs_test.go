@@ -1,6 +1,7 @@
 package aws_sdk_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -111,17 +112,10 @@ func TestECS_ServiceLifecycle(t *testing.T) {
 	assert.EqualValues(t, 2, createOut.Service.DesiredCount)
 	assert.Contains(t, aws.ToString(createOut.Service.ServiceArn), ":service/"+cluster+"/control-plane")
 	require.NotEmpty(t, createOut.Service.Deployments, "service must have a PRIMARY deployment")
-	require.Eventually(t, func() bool {
-		described, describeErr := c.DescribeServices(ctx, &ecs.DescribeServicesInput{
-			Cluster: aws.String(cluster), Services: []string{"control-plane"},
-		})
-		return describeErr == nil &&
-			len(described.Services) == 1 &&
-			described.Services[0].RunningCount == 2 &&
-			described.Services[0].PendingCount == 0 &&
-			len(described.Services[0].Deployments) == 1 &&
-			described.Services[0].Deployments[0].RolloutState == ecstypes.DeploymentRolloutStateCompleted
-	}, 30*time.Second, 100*time.Millisecond, "service did not reach steady state with two running tasks")
+	stable := waitForECSServicesStable(t, c, cluster, 30*time.Second, "control-plane")
+	assert.EqualValues(t, 2, stable.Services[0].RunningCount)
+	assert.EqualValues(t, 0, stable.Services[0].PendingCount)
+	assert.Equal(t, ecstypes.DeploymentRolloutStateCompleted, stable.Services[0].Deployments[0].RolloutState)
 
 	// DescribeServices + ListServices.
 	descSvc, err := c.DescribeServices(ctx, &ecs.DescribeServicesInput{
@@ -141,15 +135,9 @@ func TestECS_ServiceLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, updOut.Service.DesiredCount)
-	require.Eventually(t, func() bool {
-		described, describeErr := c.DescribeServices(ctx, &ecs.DescribeServicesInput{
-			Cluster: aws.String(cluster), Services: []string{"control-plane"},
-		})
-		return describeErr == nil &&
-			len(described.Services) == 1 &&
-			described.Services[0].RunningCount == 3 &&
-			described.Services[0].PendingCount == 0
-	}, 30*time.Second, 100*time.Millisecond, "service did not scale out to three running tasks")
+	scaled := waitForECSServicesStable(t, c, cluster, 30*time.Second, "control-plane")
+	assert.EqualValues(t, 3, scaled.Services[0].RunningCount)
+	assert.EqualValues(t, 0, scaled.Services[0].PendingCount)
 
 	// DeleteService — must settle to INACTIVE.
 	delOut, err := c.DeleteService(ctx, &ecs.DeleteServiceInput{
@@ -315,16 +303,7 @@ func TestECS_MultiContainerTaskSharesLocalhost(t *testing.T) {
 	taskArn := *runOut.Tasks[0].TaskArn
 	cleanupECSTask(t, client, clusterName, taskArn)
 
-	require.Eventually(t, func() bool {
-		desc, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-			Cluster: aws.String(clusterName),
-			Tasks:   []string{taskArn},
-		})
-		if err != nil || len(desc.Tasks) != 1 {
-			return false
-		}
-		return desc.Tasks[0].LastStatus != nil && *desc.Tasks[0].LastStatus == "STOPPED"
-	}, 20*time.Second, 500*time.Millisecond)
+	waitTaskStopped(t, client, clusterName, taskArn)
 
 	events, err := cw.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
 		LogGroupName: aws.String(logGroupName),
@@ -422,7 +401,7 @@ func TestECS_ManagedEBSVolumeSnapshotRoundTripSDK(t *testing.T) {
 	require.NoError(t, err)
 	snapshotID := aws.ToString(snapshotOut.SnapshotId)
 	require.NotEmpty(t, snapshotID)
-	waitForEC2SnapshotState(t, ec2c, snapshotID, "completed")
+	waitForEC2SnapshotCompleted(t, ec2c, snapshotID)
 	t.Cleanup(func() {
 		_, _ = ec2c.DeleteSnapshot(ctx, &ec2.DeleteSnapshotInput{SnapshotId: aws.String(snapshotID)})
 	})
@@ -690,19 +669,7 @@ func TestECS_RunTaskContainerOverridesApplyToRuntimeSDK(t *testing.T) {
 	require.Len(t, desc.Tasks[0].Overrides.ContainerOverrides[0].Environment, 2)
 	assert.Equal(t, "ws-sdk", aws.ToString(desc.Tasks[0].Overrides.ContainerOverrides[0].Environment[0].Value))
 
-	require.Eventually(t, func() bool {
-		events, ferr := cw.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
-			LogGroupName: aws.String(logGroup),
-		})
-		if ferr != nil {
-			return false
-		}
-		var messages []string
-		for _, e := range events.Events {
-			messages = append(messages, aws.ToString(e.Message))
-		}
-		return strings.Contains(strings.Join(messages, "\n"), "override:ws-sdk:from-task-definition:from-runtask")
-	}, 10*time.Second, 500*time.Millisecond)
+	awaitLogLine(t, cw, logGroup, "override:ws-sdk:from-task-definition:from-runtask", 10*time.Second)
 }
 
 func TestECS_ExitCodeNilWhileRunning(t *testing.T) {
@@ -863,24 +830,20 @@ func TestECS_StopCodeUserInitiated(t *testing.T) {
 
 // ecsRunTaskHelper creates a cluster, registers a task definition, and runs a task.
 // Returns the ECS client, cluster name, and task ARN.
-// waitTaskStopped polls DescribeTasks until the task reaches STOPPED and
-// returns it. The sim runs the task asynchronously (start + process + the
-// STOPPED state transition), so a fixed sleep races a loaded CI runner.
+// waitTaskStopped waits with the SDK's TasksStopped waiter and returns the
+// stopped task.
 func waitTaskStopped(t *testing.T, client *ecs.Client, cluster, taskArn string) ecstypes.Task {
 	t.Helper()
-	var task ecstypes.Task
-	require.Eventually(t, func() bool {
-		out, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-			Cluster: aws.String(cluster),
-			Tasks:   []string{taskArn},
-		})
-		if err != nil || len(out.Tasks) != 1 || aws.ToString(out.Tasks[0].LastStatus) != "STOPPED" {
-			return false
-		}
-		task = out.Tasks[0]
-		return true
-	}, 60*time.Second, 200*time.Millisecond)
-	return task
+	out, err := ecs.NewTasksStoppedWaiter(client, func(o *ecs.TasksStoppedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &ecs.DescribeTasksInput{
+		Cluster: aws.String(cluster),
+		Tasks:   []string{taskArn},
+	}, 60*time.Second)
+	require.NoError(t, err, "task %s did not stop", taskArn)
+	require.Len(t, out.Tasks, 1)
+	return out.Tasks[0]
 }
 
 func ecsRunTaskHelper(t *testing.T, name string, containerDef ecstypes.ContainerDefinition) (*ecs.Client, string, string) {
@@ -1011,18 +974,91 @@ func cleanupECSService(t *testing.T, client *ecs.Client, clusterName, serviceNam
 	})
 }
 
+// waitForECSTaskStatus waits for RUNNING or STOPPED with the SDK's own
+// TasksRunning or TasksStopped waiter. TasksRunning fails at once when the task
+// stops instead of running.
 func waitForECSTaskStatus(t *testing.T, client *ecs.Client, clusterName, taskArn, want string) {
 	t.Helper()
-	require.Eventually(t, func() bool {
-		desc, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-			Cluster: aws.String(clusterName),
-			Tasks:   []string{taskArn},
-		})
-		if err != nil || len(desc.Tasks) != 1 || desc.Tasks[0].LastStatus == nil {
-			return false
+	input := &ecs.DescribeTasksInput{Cluster: aws.String(clusterName), Tasks: []string{taskArn}}
+	var err error
+	switch want {
+	case "RUNNING":
+		err = ecs.NewTasksRunningWaiter(client, func(o *ecs.TasksRunningWaiterOptions) {
+			o.MinDelay = waiterMinDelay
+			o.MaxDelay = waiterMaxDelay
+		}).Wait(ctx, input, 60*time.Second)
+	case "STOPPED":
+		err = ecs.NewTasksStoppedWaiter(client, func(o *ecs.TasksStoppedWaiterOptions) {
+			o.MinDelay = waiterMinDelay
+			o.MaxDelay = waiterMaxDelay
+		}).Wait(ctx, input, 60*time.Second)
+	default:
+		t.Fatalf("the Amazon ECS SDK has no waiter for lastStatus %s", want)
+	}
+	require.NoError(t, err, "task %s did not reach %s", taskArn, want)
+}
+
+// waitForECSTasksRunning waits with the SDK's TasksRunning waiter, which fails
+// at once when any of the tasks stops instead of running.
+func waitForECSTasksRunning(t *testing.T, client *ecs.Client, cluster string, timeout time.Duration, tasks ...string) *ecs.DescribeTasksOutput {
+	t.Helper()
+	out, err := ecs.NewTasksRunningWaiter(client, func(o *ecs.TasksRunningWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &ecs.DescribeTasksInput{Cluster: aws.String(cluster), Tasks: tasks}, timeout)
+	require.NoError(t, err, "tasks %v did not reach RUNNING", tasks)
+	require.Len(t, out.Tasks, len(tasks))
+	return out
+}
+
+// waitForECSServicesStable waits with the SDK's ServicesStable waiter for
+// steady state: one deployment per service, runningCount equal to
+// desiredCount, and that deployment's rollout COMPLETED, which Amazon ECS
+// records at the same moment ("when the service reaches a steady state, the
+// deployment transitions to a COMPLETED state").
+func waitForECSServicesStable(t *testing.T, client *ecs.Client, cluster string, timeout time.Duration, services ...string) *ecs.DescribeServicesOutput {
+	t.Helper()
+	out, err := ecs.NewServicesStableWaiter(client, func(o *ecs.ServicesStableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+		o.Retryable = ecsServicesSteadyRetryable
+	}).WaitForOutput(ctx, &ecs.DescribeServicesInput{Cluster: aws.String(cluster), Services: services}, timeout)
+	if err != nil {
+		last, describeErr := client.DescribeServices(ctx, &ecs.DescribeServicesInput{Cluster: aws.String(cluster), Services: services})
+		require.NoError(t, describeErr)
+		var states []string
+		for _, service := range last.Services {
+			states = append(states, fmt.Sprintf("%s: %d deployment(s), %s",
+				aws.ToString(service.ServiceName), len(service.Deployments), describeECSService(service)))
 		}
-		return aws.ToString(desc.Tasks[0].LastStatus) == want
-	}, 60*time.Second, 500*time.Millisecond)
+		require.NoError(t, err, "services did not reach a steady state: %v", states)
+	}
+	require.Len(t, out.Services, len(services))
+	return out
+}
+
+func ecsServicesSteadyRetryable(_ context.Context, _ *ecs.DescribeServicesInput, out *ecs.DescribeServicesOutput, err error) (bool, error) {
+	if err != nil {
+		return false, err
+	}
+	for _, failure := range out.Failures {
+		if aws.ToString(failure.Reason) == "MISSING" {
+			return false, fmt.Errorf("service %s is MISSING", aws.ToString(failure.Arn))
+		}
+	}
+	for _, service := range out.Services {
+		switch status := aws.ToString(service.Status); status {
+		case "DRAINING", "INACTIVE":
+			return false, fmt.Errorf("service %s is %s", aws.ToString(service.ServiceName), status)
+		}
+	}
+	for _, service := range out.Services {
+		if len(service.Deployments) != 1 || service.RunningCount != service.DesiredCount ||
+			service.Deployments[0].RolloutState != ecstypes.DeploymentRolloutStateCompleted {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func ebsVolumeIDFromTask(t *testing.T, task ecstypes.Task) string {
@@ -1102,32 +1138,23 @@ func TestECS_TaskLogsToCloudWatch(t *testing.T) {
 
 	cw := cwLogsClient()
 
-	// Poll until the process stdout reaches CloudWatch. Image pull +
-	// container start latency on slow CI runners can exceed any fixed sleep.
+	// The awslogs driver has delivered every line by the time the task stops.
+	waitTaskStopped(t, client, clusterName, taskArn)
+	streams, err := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
+		LogGroupName: aws.String("/ecs/exec-logs"),
+	})
+	require.NoError(t, err)
+	require.Len(t, streams.LogStreams, 1)
+	out, err := cw.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
+		LogGroupName:  aws.String("/ecs/exec-logs"),
+		LogStreamName: streams.LogStreams[0].LogStreamName,
+	})
+	require.NoError(t, err)
 	var messages []string
-	require.Eventually(t, func() bool {
-		streams, serr := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
-			LogGroupName: aws.String("/ecs/exec-logs"),
-		})
-		if serr != nil || len(streams.LogStreams) == 0 {
-			return false
-		}
-		out, err := cw.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
-			LogGroupName:  aws.String("/ecs/exec-logs"),
-			LogStreamName: streams.LogStreams[0].LogStreamName,
-		})
-		if err != nil {
-			return false
-		}
-		messages = messages[:0]
-		for _, e := range out.Events {
-			messages = append(messages, *e.Message)
-			if *e.Message == "hello from process" {
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 250*time.Millisecond, "process stdout should reach CloudWatch logs; saw=%v", messages)
+	for _, e := range out.Events {
+		messages = append(messages, aws.ToString(e.Message))
+	}
+	require.Contains(t, messages, "hello from process", "process stdout should reach CloudWatch logs")
 
 	// The stream's first event is the container's own first line. Amazon ECS
 	// seeds nothing at RunTask time; a synthetic "container started" (or the
@@ -1204,9 +1231,8 @@ func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
 	}
 
 	// The application line must reach CloudWatch while the task runs.
-	require.Eventually(t, func() bool { return countLiveLines() >= 1 },
-		30*time.Second, 250*time.Millisecond,
-		"a running task's stdout must stream to CloudWatch before the task exits")
+	waitForECSTasksRunning(t, client, cluster, 30*time.Second, taskArn)
+	awaitLogLine(t, cw, "/ecs/live-logs", "live-line-from-running-task", 30*time.Second)
 
 	// The task is still RUNNING at the moment the line is observable.
 	descOut, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
@@ -1226,15 +1252,9 @@ func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
 		Reason:  aws.String("live-log streaming regression complete"),
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		out, derr := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-			Cluster: aws.String(cluster),
-			Tasks:   []string{taskArn},
-		})
-		return derr == nil && len(out.Tasks) == 1 && aws.ToString(out.Tasks[0].LastStatus) == "STOPPED"
-	}, 30*time.Second, 250*time.Millisecond, "task should stop")
-	assert.Never(t, func() bool { return countLiveLines() > 1 },
-		3*time.Second, 250*time.Millisecond,
+	// The post-exit drain has finished by the time the task reports STOPPED.
+	waitTaskStopped(t, client, cluster, taskArn)
+	assert.Equal(t, 1, countLiveLines(),
 		"the post-exit drain must not duplicate lines the live stream delivered")
 }
 
@@ -1253,18 +1273,16 @@ func TestECS_TaskNoCommandStaysRunning(t *testing.T) {
 		},
 	})
 
-	var task ecstypes.Task
-	require.Eventually(t, func() bool {
-		descOut, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-			Cluster: aws.String(cluster),
-			Tasks:   []string{taskArn},
-		})
-		if err != nil || len(descOut.Tasks) != 1 {
-			return false
-		}
-		task = descOut.Tasks[0]
-		return task.LastStatus != nil && *task.LastStatus == "RUNNING"
-	}, 30*time.Second, 250*time.Millisecond, "task with no command should reach RUNNING")
+	running, err := ecs.NewTasksRunningWaiter(client, func(o *ecs.TasksRunningWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &ecs.DescribeTasksInput{
+		Cluster: aws.String(cluster),
+		Tasks:   []string{taskArn},
+	}, 30*time.Second)
+	require.NoError(t, err, "task with no command should reach RUNNING")
+	require.Len(t, running.Tasks, 1)
+	task := running.Tasks[0]
 
 	assert.Equal(t, "RUNNING", *task.LastStatus, "task with no command should stay RUNNING")
 	for _, c := range task.Containers {
@@ -1352,24 +1370,8 @@ func TestECS_TagResource_RejectsStoppedTask(t *testing.T) {
 		Command:     []string{"sh", "-c", "exit 0"},
 	})
 
-	// Poll for STOPPED — podman lifecycle (image pull + start + exit + sim
-	// state update) can take >8s under CI contention; a fixed sleep flakes.
-	var descOut *ecs.DescribeTasksOutput
-	deadline := time.Now().Add(60 * time.Second)
-	for time.Now().Before(deadline) {
-		var err error
-		descOut, err = client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-			Cluster: aws.String(cluster),
-			Tasks:   []string{taskArn},
-		})
-		require.NoError(t, err)
-		require.Len(t, descOut.Tasks, 1)
-		if *descOut.Tasks[0].LastStatus == "STOPPED" {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	require.Equal(t, "STOPPED", *descOut.Tasks[0].LastStatus, "task should be STOPPED before this assertion")
+	stopped := waitTaskStopped(t, client, cluster, taskArn)
+	require.Equal(t, "STOPPED", aws.ToString(stopped.LastStatus), "task should be STOPPED before this assertion")
 
 	// Real ECS rejects TagResource on STOPPED tasks; sim must too.
 	_, err := client.TagResource(ctx, &ecs.TagResourceInput{
@@ -2063,13 +2065,12 @@ func TestECS_DeploymentLifecycleHookHoldsTheDeployment(t *testing.T) {
 		released.ServiceDeployments[0].LifecycleHookDetails[0].Status,
 		"a continued hook must be recorded as succeeded")
 
-	require.Eventually(t, func() bool {
-		running, listErr := c.ListTasks(ctx, &ecs.ListTasksInput{
-			Cluster: aws.String(cluster), ServiceName: aws.String("lifecycle-hook-service"),
-		})
-		return listErr == nil && len(running.TaskArns) > 0
-	}, 60*time.Second, 500*time.Millisecond,
-		"once the hook is released the service must launch the tasks it was holding")
+	waitForECSServicesStable(t, c, cluster, 60*time.Second, aws.ToString(serviceArn))
+	running, err := c.ListTasks(ctx, &ecs.ListTasksInput{
+		Cluster: aws.String(cluster), ServiceName: aws.String("lifecycle-hook-service"),
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, running.TaskArns, "once the hook is released the service must launch the tasks it was holding")
 
 	// The same hook cannot be released twice.
 	_, err = c.ContinueServiceDeployment(ctx, &ecs.ContinueServiceDeploymentInput{

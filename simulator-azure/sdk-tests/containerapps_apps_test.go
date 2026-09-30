@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -611,18 +612,16 @@ func TestSDK_ContainerAppsApps_DeleteLROEnvelope(t *testing.T) {
 	assert.Contains(t, opURL, "/providers/Microsoft.App/locations/", "operation URL follows ARM conventions")
 	assert.Contains(t, opURL, "/operationStatuses/")
 	assert.Contains(t, locURL, "/operationResults/")
-	assert.NotEmpty(t, delResp.Header.Get("Retry-After"))
 
 	// The operation-status envelope carries id/name/status and settles to
-	// Succeeded.
+	// Succeeded; while it runs it advertises the Retry-After to poll again at.
 	var envelope struct {
 		ID     string `json:"id"`
 		Name   string `json:"name"`
 		Status string `json:"status"`
 	}
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		opReq, err := http.NewRequest("GET", opURL, nil)
+	for {
+		opReq, err := http.NewRequestWithContext(ctx, "GET", opURL, nil)
 		require.NoError(t, err)
 		opReq.Header.Set("Authorization", simARMBearer)
 		opResp, err := http.DefaultClient.Do(opReq)
@@ -634,12 +633,19 @@ func TestSDK_ContainerAppsApps_DeleteLROEnvelope(t *testing.T) {
 		require.NotEmpty(t, envelope.Name, "operation envelope must carry name")
 		require.Contains(t, envelope.ID, "/operationStatuses/", "operation envelope must carry its ARM id")
 		if envelope.Status == "Succeeded" {
+			assert.Empty(t, opResp.Header.Get("Retry-After"), "a terminal operation advertises no Retry-After")
 			break
 		}
 		require.Equal(t, "InProgress", envelope.Status)
-		time.Sleep(100 * time.Millisecond)
+		retryAfter, err := strconv.Atoi(opResp.Header.Get("Retry-After"))
+		require.NoError(t, err, "a running operation advertises Retry-After in seconds")
+		require.Positive(t, retryAfter)
+		select {
+		case <-time.After(time.Duration(retryAfter) * time.Second):
+		case <-ctx.Done():
+			t.Fatal("the delete operation was still running when the test context ended")
+		}
 	}
-	require.Equal(t, "Succeeded", envelope.Status, "delete operation must settle to Succeeded")
 
 	// After the operation succeeds the resource is gone.
 	getReq, err := http.NewRequest("GET", appURL, nil)

@@ -73,10 +73,10 @@ readonly NO_ASSERTION_FLOOR=10
 readonly STATUS_ONLY_FLOOR=5
 
 # sleep-then-assert counts a bare sleep standing between an action and the
-# assertion that reads its result. The ones left are sleeps that separate
-# timestamps or hold still to prove nothing further arrives, each paired with a
-# positive control.
-readonly SLEEP_THEN_ASSERT_FLOOR=6
+# assertion that reads its result. The ones left are packet-capture tests that
+# hold still to prove nothing further arrives, each paired with a positive
+# control.
+readonly SLEEP_THEN_ASSERT_FLOOR=3
 
 report=$(mktemp)
 totals=$(mktemp)

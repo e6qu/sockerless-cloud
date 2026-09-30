@@ -102,9 +102,9 @@ type RDSSnapshot struct {
 	MasterUserSecret []byte
 }
 
-// RDSCluster models a (control-plane only) Aurora/Multi-AZ DB cluster.
-// The database engine is not simulated; Status settles to "available"
-// inline on Create, matching the sim's instance/snapshot convention.
+// RDSCluster models an Aurora or Multi-AZ DB cluster. An Aurora cluster runs
+// one engine over its cluster volume behind its writer and reader endpoints
+// and its members' instance endpoints.
 type RDSCluster struct {
 	DBClusterIdentifier        string
 	DbClusterResourceId        string
@@ -129,6 +129,10 @@ type RDSCluster struct {
 	PreferredMaintenanceWindow string
 	ARN                        string
 	Tags                       map[string]string
+	// MasterUserSecret is encrypted under the simulator cloud's AWS-owned RDS
+	// KMS key and is never rendered on the API.
+	MasterUserSecret                []byte
+	EnableIAMDatabaseAuthentication bool
 }
 
 // RDSSubnetGroup models a DB subnet group (a named set of VPC subnets
@@ -456,8 +460,10 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		engineVersion = rdsDefaultEngineVersion(engine)
 	}
 	clusterID := r.FormValue("DBClusterIdentifier")
+	var cluster RDSCluster
 	if clusterID != "" {
-		cluster, ok := rdsClusters.Get(clusterID)
+		var ok bool
+		cluster, ok = rdsClusters.Get(clusterID)
 		if !ok {
 			rdsErrorXML(w, "DBClusterNotFoundFault", fmt.Sprintf("DBCluster %s not found.", clusterID), http.StatusNotFound, sim.RequestID(r.Context()))
 			return
@@ -465,6 +471,39 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		if !rdsRequireClusterState(w, r, cluster, "available", "given a DB instance") {
 			return
 		}
+	}
+	if rdsIsAurora(cluster.Engine) {
+		if engine != cluster.Engine {
+			rdsErrorXML(w, "InvalidParameterCombination",
+				fmt.Sprintf("The engine name requested for your DB instance (%s) doesn't match the engine name of your DB cluster (%s).", engine, cluster.Engine),
+				http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+		inst := RDSInstance{
+			DBInstanceIdentifier:            id,
+			DbiResourceId:                   rdsResourceID(),
+			DBInstanceClass:                 r.FormValue("DBInstanceClass"),
+			Engine:                          cluster.Engine,
+			EngineVersion:                   cluster.EngineVersion,
+			DBInstanceStatus:                "available",
+			MasterUsername:                  cluster.MasterUsername,
+			DBName:                          cluster.DatabaseName,
+			Endpoint:                        fmt.Sprintf("%s.%s.rds.amazonaws.com", id, awsRegion()),
+			Port:                            cluster.Port,
+			AvailabilityZone:                az,
+			InstanceCreateTime:              time.Now().UTC().Format(time.RFC3339),
+			ARN:                             rdsInstanceARN(id),
+			Tags:                            parseAWSQueryTagMap(r, "Tags.Tag"),
+			EnableIAMDatabaseAuthentication: cluster.EnableIAMDatabaseAuthentication,
+			DBClusterIdentifier:             clusterID,
+		}
+		if err := rdsInstallAuroraInstanceEndpoint(&inst); err != nil {
+			rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
+			return
+		}
+		rdsInstances.Put(id, inst)
+		rdsXMLResponse(w, "CreateDBInstance", renderRDSInstance(inst), sim.RequestID(r.Context()))
+		return
 	}
 	inst := RDSInstance{
 		DBInstanceIdentifier:            id,
@@ -1238,6 +1277,7 @@ func renderRDSCluster(c RDSCluster) string {
 	fmt.Fprintf(&b, "<BackupRetentionPeriod>%d</BackupRetentionPeriod>", c.BackupRetentionPeriod)
 	fmt.Fprintf(&b, "<StorageEncrypted>%t</StorageEncrypted>", c.StorageEncrypted)
 	fmt.Fprintf(&b, "<DeletionProtection>%t</DeletionProtection>", c.DeletionProtection)
+	fmt.Fprintf(&b, "<IAMDatabaseAuthenticationEnabled>%t</IAMDatabaseAuthenticationEnabled>", c.EnableIAMDatabaseAuthentication)
 	fmt.Fprintf(&b, "<ClusterCreateTime>%s</ClusterCreateTime>", xmlEscape(c.ClusterCreateTime))
 	fmt.Fprintf(&b, "<PreferredBackupWindow>%s</PreferredBackupWindow>", xmlEscape(c.PreferredBackupWindow))
 	fmt.Fprintf(&b, "<PreferredMaintenanceWindow>%s</PreferredMaintenanceWindow>", xmlEscape(c.PreferredMaintenanceWindow))
@@ -1306,6 +1346,18 @@ func handleRDSCreateCluster(w http.ResponseWriter, r *http.Request) {
 		PreferredMaintenanceWindow: "mon:00:00-mon:03:00",
 		ARN:                        rdsClusterARN(id),
 		Tags:                       parseAWSQueryTagMap(r, "Tags.Tag"),
+
+		EnableIAMDatabaseAuthentication: strings.EqualFold(r.FormValue("EnableIAMDatabaseAuthentication"), "true"),
+	}
+	if rdsIsAurora(engine) && r.FormValue("MasterUserPassword") == "" {
+		rdsErrorXML(w, "InvalidParameterValue",
+			"The parameter MasterUserPassword must be provided and must not be blank.",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if err := rdsInstallAuroraDataPlane(&cl, r.FormValue("MasterUserPassword")); err != nil {
+		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
+		return
 	}
 	rdsClusters.Put(id, cl)
 	rdsXMLResponse(w, "CreateDBCluster", renderRDSCluster(cl), sim.RequestID(r.Context()))
@@ -1355,6 +1407,9 @@ func handleRDSModifyCluster(w http.ResponseWriter, r *http.Request) {
 		if v := r.FormValue("DeletionProtection"); v != "" {
 			c.DeletionProtection = v == "true"
 		}
+		if v := r.FormValue("EnableIAMDatabaseAuthentication"); v != "" {
+			c.EnableIAMDatabaseAuthentication = strings.EqualFold(v, "true")
+		}
 		if v := r.FormValue("Port"); v != "" {
 			if p := atoiOrZero(v); p > 0 {
 				c.Port = p
@@ -1370,6 +1425,15 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 	cl, ok := rdsClusters.Get(id)
 	if !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	members := rdsClusterMembers(id)
+	// An Aurora cluster's instances are deleted one by one before the
+	// cluster; deleting a Multi-AZ DB cluster terminates its members.
+	if rdsIsAurora(cl.Engine) && len(members) > 0 {
+		rdsErrorXML(w, "InvalidDBClusterStateFault",
+			"Cluster cannot be deleted, it still contains DB instances in non-deleting state.",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	skipFinal := strings.EqualFold(r.FormValue("SkipFinalSnapshot"), "true")
@@ -1393,8 +1457,7 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 				http.StatusConflict, sim.RequestID(r.Context()))
 			return
 		}
-		// As modeled as every cluster snapshot: clusters hold no engine
-		// volume, so the final snapshot is the same metadata tier
+		// The final snapshot is the same metadata tier
 		// CreateDBClusterSnapshot records.
 		rdsClusterSnapshots.Put(finalSnapID, RDSClusterSnapshot{
 			DBClusterSnapshotIdentifier: finalSnapID,
@@ -1416,9 +1479,17 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 			ARN:                         rdsClusterSnapshotARN(finalSnapID),
 		})
 	}
-	rdsClusters.Delete(id)
 	cl.Status = "deleting"
-	rdsXMLResponse(w, "DeleteDBCluster", renderRDSCluster(cl), sim.RequestID(r.Context()))
+	body := renderRDSCluster(cl)
+	rdsClusters.Delete(id)
+	for _, member := range members {
+		rdsInstances.Delete(member.DBInstanceIdentifier)
+		// The member is gone either way; rdsStopDataPlane logs the failure.
+		_ = rdsStopDataPlane(member.DBInstanceIdentifier, true)
+	}
+	// The cluster is gone either way; rdsStopAuroraDataPlane logs the failure.
+	_ = rdsStopAuroraDataPlane(id, true)
+	rdsXMLResponse(w, "DeleteDBCluster", body, sim.RequestID(r.Context()))
 }
 
 func rdsSubnetGroupARN(name string) string {
@@ -2228,6 +2299,20 @@ func handleRDSDescribeOrderableOptions(w http.ResponseWriter, r *http.Request) {
 // stopping→stopped. The simulator keeps the instance volume but tears down
 // the engine and listener while stopped, then reinstalls them on start.
 
+// rdsRequireStandaloneInstance answers InvalidDBClusterStateFault for a DB
+// cluster member: Amazon RDS starts and stops a cluster's instances only
+// through StartDBCluster and StopDBCluster.
+func rdsRequireStandaloneInstance(w http.ResponseWriter, r *http.Request, instance RDSInstance, action string) bool {
+	if instance.DBClusterIdentifier == "" {
+		return true
+	}
+	rdsErrorXML(w, "InvalidDBClusterStateFault",
+		fmt.Sprintf("DB instance %s is a member of DB cluster %s and cannot be %s on its own; use the DB cluster action instead.",
+			instance.DBInstanceIdentifier, instance.DBClusterIdentifier, action),
+		http.StatusBadRequest, sim.RequestID(r.Context()))
+	return false
+}
+
 // rdsRequireInstanceState answers InvalidDBInstanceState unless the instance
 // is in the one state the lifecycle action runs from, as Amazon RDS does.
 func rdsRequireInstanceState(w http.ResponseWriter, r *http.Request, instance RDSInstance, required, action string) bool {
@@ -2247,6 +2332,9 @@ func handleRDSStartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	instance, _ := rdsInstances.Get(id)
+	if !rdsRequireStandaloneInstance(w, r, instance, "started") {
+		return
+	}
 	if !rdsRequireInstanceState(w, r, instance, "stopped", "started") {
 		return
 	}
@@ -2265,6 +2353,9 @@ func handleRDSStopInstance(w http.ResponseWriter, r *http.Request) {
 	instance, ok := rdsInstances.Get(id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if !rdsRequireStandaloneInstance(w, r, instance, "stopped") {
 		return
 	}
 	if !rdsRequireInstanceState(w, r, instance, "available", "stopped") {

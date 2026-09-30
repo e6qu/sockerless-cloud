@@ -5140,11 +5140,6 @@ func ec2CaptureSnapshotData(snapshotID, dockerSrc, dockerDst, hostSrc, hostDst s
 	})
 }
 
-func ec2TransitionSnapshotToCompleted(snapshotID string) {
-	time.Sleep(100 * time.Millisecond)
-	ec2SettleSnapshot(snapshotID)
-}
-
 func ec2SettleSnapshot(snapshotID string) {
 	ec2Snapshots.Update(snapshotID, func(snap *EC2Snapshot) {
 		if snap.State == "pending" && !ec2SnapshotCompletionDue(*snap).After(time.Now().UTC()) {

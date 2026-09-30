@@ -333,7 +333,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		})
 		w.Header().Set("Location", azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"),
 			"Microsoft.Network", vnet.Location, "operationResults", opID, r.URL.Query().Get("api-version")))
-		w.Header().Set("Retry-After", "0")
+		setAzureAsyncOperationRetryAfter(w, opID)
 		w.WriteHeader(http.StatusAccepted)
 	})
 }

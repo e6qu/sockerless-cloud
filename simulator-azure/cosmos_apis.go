@@ -234,6 +234,7 @@ func cosmosStoreThroughputFromProps(props map[string]any, resID, resType string)
 		return
 	}
 	tid := resID + "/throughputSettings/default"
+	cosmosStampThroughput(tid, resource)
 	cosmosThroughputs.Put(tid, CosmosThroughput{
 		ID:         tid,
 		Name:       "default",
@@ -321,6 +322,7 @@ func cosmosMigrateThroughput(w http.ResponseWriter, r *http.Request, toAutoscale
 		resource["throughput"] = manual
 		delete(resource, "autoscaleSettings")
 	}
+	cosmosStampThroughput(id, resource)
 	t.Properties["resource"] = resource
 	cosmosThroughputs.Put(id, t)
 	sim.WriteJSON(w, http.StatusOK, t)

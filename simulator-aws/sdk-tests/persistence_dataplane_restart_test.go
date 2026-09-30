@@ -170,14 +170,14 @@ func waitForPersistentTargetInService(
 	targetGroupARN string,
 ) {
 	t.Helper()
-	require.Eventually(t, func() bool {
-		health, err := api.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
-			TargetGroupArn: aws.String(targetGroupARN),
-		})
-		return err == nil && len(health.TargetHealthDescriptions) == 1 &&
-			health.TargetHealthDescriptions[0].TargetHealth.State == elbv2types.TargetHealthStateEnumHealthy
-	}, 30*time.Second, 100*time.Millisecond,
-		"target registered in %s never entered service", targetGroupARN)
+	health, err := elbv2.NewTargetInServiceWaiter(api, func(o *elbv2.TargetInServiceWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &elbv2.DescribeTargetHealthInput{
+		TargetGroupArn: aws.String(targetGroupARN),
+	}, 30*time.Second)
+	require.NoError(t, err, "target registered in %s never entered service", targetGroupARN)
+	require.Len(t, health.TargetHealthDescriptions, 1)
 }
 
 func servePersistentTCPEcho(listener net.Listener) {

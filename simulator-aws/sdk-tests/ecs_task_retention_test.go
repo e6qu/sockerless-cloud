@@ -2,11 +2,11 @@ package aws_sdk_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -61,22 +61,11 @@ func TestECS_ListTasks_StillReportsARecentlyStoppedTask(t *testing.T) {
 
 	waitForECSTaskStatus(t, client, clusterName, taskArn, "STOPPED")
 
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		listed, err := client.ListTasks(ctx, &ecs.ListTasksInput{
-			Cluster:       aws.String(clusterName),
-			DesiredStatus: ecstypes.DesiredStatusStopped,
-		})
-		require.NoError(t, err)
-		for _, arn := range listed.TaskArns {
-			if arn == taskArn {
-				return
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("a task that stopped moments ago is not listed among %d stopped task(s); "+
-				"the retention window drops them far too early", len(listed.TaskArns))
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
+	listed, err := client.ListTasks(ctx, &ecs.ListTasksInput{
+		Cluster:       aws.String(clusterName),
+		DesiredStatus: ecstypes.DesiredStatusStopped,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, listed.TaskArns, taskArn,
+		"a task that stopped moments ago is not listed among the stopped tasks; the retention window drops them far too early")
 }

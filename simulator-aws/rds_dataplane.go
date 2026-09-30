@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,7 +57,21 @@ func rdsLoadDataPlane(instanceID string) (*rdsDataPlane, bool) {
 }
 
 func rdsRecoverDataPlanes() error {
+	if err := rdsRecoverAuroraDataPlanes(); err != nil {
+		return err
+	}
 	for _, instance := range rdsInstances.List() {
+		if rdsIsAurora(instance.Engine) && instance.DBClusterIdentifier != "" {
+			// A member of a cluster that holds no master-user credential, which
+			// only a restored cluster lacks, has no cluster volume to front.
+			if _, served := rdsLoadAuroraDataPlane(instance.DBClusterIdentifier); served && instance.DBInstanceStatus == "available" {
+				if err := rdsInstallAuroraInstanceEndpoint(&instance); err != nil {
+					return fmt.Errorf("restore DB instance %s: %w", instance.DBInstanceIdentifier, err)
+				}
+				rdsInstances.Put(instance.DBInstanceIdentifier, instance)
+			}
+			continue
+		}
 		stopping := instance.DBInstanceStatus == "stopping"
 		if stopping && len(instance.MasterUserSecret) == 0 {
 			id := instance.DBInstanceIdentifier
@@ -89,17 +104,34 @@ func rdsRecoverDataPlanes() error {
 	return nil
 }
 
+// rdsEngine names the engine an RDS engine runs. Aurora PostgreSQL 16 and
+// Aurora MySQL 3 are compatible with PostgreSQL 16 and MySQL 8.0.
 func rdsEngine(engine string) (dbengine.Engine, bool) {
 	switch {
-	case strings.HasPrefix(strings.ToLower(engine), "postgres"):
+	case strings.HasPrefix(strings.ToLower(engine), "postgres"), strings.EqualFold(engine, "aurora-postgresql"):
 		return dbengine.Postgres16.WithImage("public.ecr.aws/docker/library/postgres:16-alpine"), true
-	case strings.EqualFold(engine, "mysql"):
+	case strings.EqualFold(engine, "mysql"), strings.EqualFold(engine, "aurora-mysql"):
 		return dbengine.MySQL80.WithImage("public.ecr.aws/docker/library/mysql:8.0"), true
 	case strings.EqualFold(engine, "mariadb"):
 		return dbengine.MariaDB114.WithImage("public.ecr.aws/docker/library/mariadb:11.4"), true
 	default:
 		return dbengine.Engine{}, false
 	}
+}
+
+// rdsSealMasterPassword encrypts a master-user password under the AWS owned
+// RDS key.
+func rdsSealMasterPassword(password string) ([]byte, error) {
+	if _, ok := kmsGetKeyMaterial(rdsAWSOwnedKMSKeyID); !ok {
+		if _, err := kmsGenerateKeyMaterial(rdsAWSOwnedKMSKeyID); err != nil {
+			return nil, fmt.Errorf("generate AWS owned RDS key: %w", err)
+		}
+	}
+	ciphertext, ok := kmsEncryptBytes(rdsAWSOwnedKMSKeyID, []byte(password))
+	if !ok {
+		return nil, fmt.Errorf("encrypt RDS master-user credential")
+	}
+	return ciphertext, nil
 }
 
 func rdsInstallDataPlane(instance *RDSInstance, masterPassword string) error {
@@ -110,23 +142,18 @@ func rdsInstallDataPlane(instance *RDSInstance, masterPassword string) error {
 	if masterPassword == "" {
 		return fmt.Errorf("MasterUserPassword is required for the %s data plane", instance.Engine)
 	}
-	if _, ok := kmsGetKeyMaterial(rdsAWSOwnedKMSKeyID); !ok {
-		if _, err := kmsGenerateKeyMaterial(rdsAWSOwnedKMSKeyID); err != nil {
-			return fmt.Errorf("generate AWS owned RDS key: %w", err)
-		}
-	}
 	if len(instance.MasterUserSecret) == 0 {
-		ciphertext, ok := kmsEncryptBytes(rdsAWSOwnedKMSKeyID, []byte(masterPassword))
-		if !ok {
-			return fmt.Errorf("encrypt RDS master-user credential")
+		sealed, err := rdsSealMasterPassword(masterPassword)
+		if err != nil {
+			return err
 		}
-		instance.MasterUserSecret = ciphertext
+		instance.MasterUserSecret = sealed
 	}
 	if len(instance.BackendMasterUserSecret) == 0 {
 		instance.BackendMasterUserSecret = append([]byte(nil), instance.MasterUserSecret...)
 	}
 
-	listener, err := rdsListenForInstance(*instance)
+	listener, err := rdsListenForEndpoint(instance.Endpoint, instance.Port, instance.DBInstanceIdentifier)
 	if err != nil {
 		return fmt.Errorf("allocate RDS endpoint: %w", err)
 	}
@@ -156,13 +183,13 @@ func rdsInstallDataPlane(instance *RDSInstance, masterPassword string) error {
 	return nil
 }
 
-// rdsListenForInstance rebinds the endpoint an instance already advertises,
-// and otherwise binds the requested port on a loopback address of its own.
-func rdsListenForInstance(instance RDSInstance) (net.Listener, error) {
-	if endpointIP := net.ParseIP(instance.Endpoint); endpointIP != nil && endpointIP.IsLoopback() && instance.Port > 0 {
-		return net.Listen("tcp", net.JoinHostPort(instance.Endpoint, strconv.Itoa(instance.Port)))
+// rdsListenForEndpoint rebinds an endpoint already advertised, and otherwise
+// binds the requested port on a loopback address of its own.
+func rdsListenForEndpoint(address string, port int, identifier string) (net.Listener, error) {
+	if endpointIP := net.ParseIP(address); endpointIP != nil && endpointIP.IsLoopback() && port > 0 {
+		return net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(port)))
 	}
-	return dbengine.ListenLoopback(instance.DBInstanceIdentifier, instance.Port)
+	return dbengine.ListenLoopback(identifier, port)
 }
 
 func rdsDatabaseName(instance RDSInstance) string {
@@ -193,24 +220,27 @@ func (plane *rdsDataPlane) environment() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	database := rdsDatabaseName(instance)
-	switch plane.engine.Engine.Client {
+	return rdsEngineEnvironment(plane.engine.Engine, instance.MasterUsername, password, rdsDatabaseName(instance)), nil
+}
+
+func rdsEngineEnvironment(engine dbengine.Engine, user, password, database string) map[string]string {
+	switch engine.Client {
 	case dbengine.MariaDB114.Client:
 		return map[string]string{
-			"MARIADB_USER":          instance.MasterUsername,
+			"MARIADB_USER":          user,
 			"MARIADB_PASSWORD":      password,
 			"MARIADB_ROOT_PASSWORD": password,
 			"MARIADB_DATABASE":      database,
-		}, nil
+		}
 	case dbengine.MySQL80.Client:
 		return map[string]string{
-			"MYSQL_USER":          instance.MasterUsername,
+			"MYSQL_USER":          user,
 			"MYSQL_PASSWORD":      password,
 			"MYSQL_ROOT_PASSWORD": password,
 			"MYSQL_DATABASE":      database,
-		}, nil
+		}
 	default:
-		return dbengine.PostgresEnvironment(instance.MasterUsername, password, database), nil
+		return dbengine.PostgresEnvironment(user, password, database)
 	}
 }
 
@@ -245,7 +275,8 @@ func (plane *rdsDataPlane) authenticate(user, password string, secure bool) bool
 	if ok && user == instance.MasterUsername && subtle.ConstantTimeCompare([]byte(password), masterPassword) == 1 {
 		return true
 	}
-	return secure && instance.EnableIAMDatabaseAuthentication && rdsValidateIAMAuthToken(instance, user, password)
+	return secure && instance.EnableIAMDatabaseAuthentication &&
+		rdsValidateIAMAuthToken([]string{net.JoinHostPort(instance.Endpoint, strconv.Itoa(instance.Port))}, instance.DbiResourceId, user, password)
 }
 
 // backendLogin runs every MySQL-family session as the master user: an IAM
@@ -307,9 +338,11 @@ func rdsRotateBackendMasterPassword(plane *rdsDataPlane, newPassword string) err
 	return nil
 }
 
-func rdsValidateIAMAuthToken(instance RDSInstance, user, token string) bool {
+// rdsValidateIAMAuthToken accepts a token signed for one of endpoints that
+// grants rds-db:connect on resourceID's database user.
+func rdsValidateIAMAuthToken(endpoints []string, resourceID, user, token string) bool {
 	parsed, err := url.Parse("https://" + token)
-	if err != nil || parsed.Host != net.JoinHostPort(instance.Endpoint, strconv.Itoa(instance.Port)) {
+	if err != nil || !slices.Contains(endpoints, parsed.Host) {
 		return false
 	}
 	query := parsed.Query()
@@ -347,7 +380,7 @@ func rdsValidateIAMAuthToken(instance RDSInstance, user, token string) bool {
 	request.RemoteAddr = "127.0.0.1:0"
 	resource := fmt.Sprintf(
 		"arn:aws:rds-db:%s:%s:dbuser:%s/%s",
-		awsRegion(), awsAccountID(), instance.DbiResourceId, user,
+		awsRegion(), awsAccountID(), resourceID, user,
 	)
 	allowed, _, registered := iamAuthorize(request, "rds-db:connect", resource)
 	return !registered || allowed
@@ -356,6 +389,9 @@ func rdsValidateIAMAuthToken(instance RDSInstance, user, token string) bool {
 // rdsStartInstanceEngine reinstalls a stopped instance's endpoint and engine
 // with its recorded master-user credential.
 func rdsStartInstanceEngine(instance *RDSInstance) error {
+	if rdsIsAurora(instance.Engine) {
+		return rdsInstallAuroraInstanceEndpoint(instance)
+	}
 	if len(instance.MasterUserSecret) == 0 {
 		return nil
 	}
@@ -378,6 +414,7 @@ var rdsDataPlaneStops = sim.NewKeyedLocks()
 func rdsStopDataPlane(instanceID string, deleteVolume bool) error {
 	release := rdsDataPlaneStops.Lock(instanceID)
 	defer release()
+	rdsCloseAuroraInstanceEndpoint(instanceID)
 	var stopErr error
 	if value, ok := rdsDataPlanes.LoadAndDelete(instanceID); ok {
 		if plane, ok := value.(*rdsDataPlane); ok {

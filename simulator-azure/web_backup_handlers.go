@@ -657,7 +657,7 @@ func webRestoreFromBlob(w http.ResponseWriter, r *http.Request, storageURL, blob
 // long-running operation and answers 202 with its poll coordinates, which is
 // what `x-ms-long-running-operation: true` on every restore declares.
 func webIssueRestore(w http.ResponseWriter, r *http.Request, resID string, run func() *AsyncOperationError) {
-	opID := issueAzureAsyncOperationOutcome(run)
+	opID := startAzureAsyncOperationOutcome(run)
 	opURL := azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"),
 		"Microsoft.Web", webSiteOperationLocation(resID), "operationStatuses", opID,
 		r.URL.Query().Get("api-version"))
@@ -665,6 +665,6 @@ func webIssueRestore(w http.ResponseWriter, r *http.Request, resID string, run f
 	w.Header().Set("Location", azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"),
 		"Microsoft.Web", webSiteOperationLocation(resID), "operationResults", opID,
 		r.URL.Query().Get("api-version")))
-	w.Header().Set("Retry-After", "0")
+	setAzureAsyncOperationRetryAfter(w, opID)
 	w.WriteHeader(http.StatusAccepted)
 }

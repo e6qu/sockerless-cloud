@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
@@ -18,15 +20,17 @@ import (
 // they produce.
 //
 // The check and its associations are control-plane state, stored and returned
-// as the API defines them. The status is measured, not declared: describing
-// an instance's application status probes the check's protocol, port and path
-// against the instance's own address, exactly as the Elastic Load Balancing
-// health checker in this simulator probes its targets. An instance that is
-// not running is unhealthy without a probe — there is nothing to probe — and
-// a suppressed instance reports its suppression, not a verdict.
+// as the API defines them. The status is measured on the check's own
+// schedule: a checker probes each associated instance over the check's
+// protocol, port and path every Interval once the instance's initialization
+// grace period has passed, and moves the check to passed or failed after
+// SuccessThreshold or FailureThreshold consecutive results. DescribeApplicationStatus
+// reports what the latest checks recorded; a suppressed instance reports its
+// suppression, not a verdict.
 
 type EC2ApplicationStatusCheck struct {
 	ApplicationStatusCheckId  string   `json:"applicationStatusCheckId"`
+	Aggregation               string   `json:"aggregation,omitempty"`
 	Protocol                  string   `json:"protocol"`
 	Port                      int      `json:"port"`
 	Path                      string   `json:"path,omitempty"`
@@ -72,11 +76,23 @@ func registerEC2ApplicationStatus(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DescribeApplicationStatus", handleDescribeApplicationStatus)
 	r.Register("EnableApplicationStatusCheckSuppression", handleEnableApplicationStatusCheckSuppression)
 	r.Register("DisableApplicationStatusCheckSuppression", handleDisableApplicationStatusCheckSuppression)
+	srv.StartBackground("EC2 application status checker", func(ctx context.Context) {
+		lbplane.SweepEvery(ctx, ec2AppStatusSweep, ec2CheckApplicationStatus)
+	})
 }
+
+// ec2AppStatusSweep is how often the checker looks for checks that have come
+// due; each check runs on its own Interval.
+const ec2AppStatusSweep = time.Second
+
+var ec2AppStatusTracker = lbplane.NewHealthTracker[string]()
 
 func appStatusCheckXML(check EC2ApplicationStatusCheck) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<applicationStatusCheckId>%s</applicationStatusCheckId>", check.ApplicationStatusCheckId)
+	if check.Aggregation != "" {
+		fmt.Fprintf(&b, "<aggregation>%s</aggregation>", check.Aggregation)
+	}
 	fmt.Fprintf(&b, "<protocol>%s</protocol><port>%d</port>", check.Protocol, check.Port)
 	if check.Path != "" {
 		fmt.Fprintf(&b, "<path>%s</path>", xmlEscape(check.Path))
@@ -87,11 +103,43 @@ func appStatusCheckXML(check EC2ApplicationStatusCheck) string {
 	if check.Timeout > 0 {
 		fmt.Fprintf(&b, "<timeout>%d</timeout>", check.Timeout)
 	}
+	if check.FailureThreshold > 0 {
+		fmt.Fprintf(&b, "<failureThreshold>%d</failureThreshold>", check.FailureThreshold)
+	}
+	if check.SuccessThreshold > 0 {
+		fmt.Fprintf(&b, "<successThreshold>%d</successThreshold>", check.SuccessThreshold)
+	}
 	if check.StatusCodeMatcher != "" {
 		fmt.Fprintf(&b, "<statusCodeMatcher>%s</statusCodeMatcher>", xmlEscape(check.StatusCodeMatcher))
 	}
+	if check.InitializationGracePeriod > 0 {
+		fmt.Fprintf(&b, "<initializationGracePeriodSeconds>%d</initializationGracePeriodSeconds>", check.InitializationGracePeriod)
+	}
 	b.WriteString(writeTagSetXML(check.Tags))
 	return b.String()
+}
+
+// ec2ValidateAppStatusCheck applies the constraints the Amazon EC2 model
+// documents for a check's schedule and thresholds.
+func ec2ValidateAppStatusCheck(check EC2ApplicationStatusCheck) string {
+	switch {
+	case check.Aggregation != "included" && check.Aggregation != "excluded":
+		return fmt.Sprintf("Aggregation must be included or excluded; %q is not a value AggregationStatusEnum admits", check.Aggregation)
+	case check.Interval != 60:
+		return fmt.Sprintf("Interval %d is not valid; the valid value is 60", check.Interval)
+	case check.Timeout < 1 || check.Timeout > 30 || check.Timeout >= check.Interval:
+		return fmt.Sprintf("Timeout %d is not valid; it must be 1 to 30 and less than Interval", check.Timeout)
+	case check.FailureThreshold < 1:
+		return "FailureThreshold must be greater than 0"
+	case check.SuccessThreshold < 1:
+		return "SuccessThreshold must be greater than 0"
+	case check.InitializationGracePeriod < 0 || check.InitializationGracePeriod > 600:
+		return fmt.Sprintf("InitializationGracePeriodSeconds %d is not valid; valid values are 1 to 600", check.InitializationGracePeriod)
+	}
+	if _, err := lbplane.ParseStatusMatcher(check.StatusCodeMatcher); err != nil || len(check.StatusCodeMatcher) > 64 {
+		return fmt.Sprintf("StatusCodeMatcher %q is not a comma-separated list of status codes and ranges of at most 64 characters", check.StatusCodeMatcher)
+	}
+	return ""
 }
 
 func handleCreateApplicationStatusCheck(w http.ResponseWriter, r *http.Request) {
@@ -114,16 +162,27 @@ func handleCreateApplicationStatusCheck(w http.ResponseWriter, r *http.Request) 
 	}
 	check := EC2ApplicationStatusCheck{
 		ApplicationStatusCheckId:  ec2ID("app-status-check"),
+		Aggregation:               r.FormValue("Aggregation"),
 		Protocol:                  protocol,
 		Port:                      port,
 		Path:                      r.FormValue("Path"),
-		Interval:                  atoiDefault(r.FormValue("Interval"), 30),
+		Interval:                  atoiDefault(r.FormValue("Interval"), 60),
 		Timeout:                   atoiDefault(r.FormValue("Timeout"), 5),
 		FailureThreshold:          atoiDefault(r.FormValue("FailureThreshold"), 3),
 		SuccessThreshold:          atoiDefault(r.FormValue("SuccessThreshold"), 2),
 		StatusCodeMatcher:         r.FormValue("StatusCodeMatcher"),
 		InitializationGracePeriod: atoiDefault(r.FormValue("InitializationGracePeriodSeconds"), 0),
 		Tags:                      parseTags(r),
+	}
+	if check.Aggregation == "" {
+		check.Aggregation = "included"
+	}
+	if check.StatusCodeMatcher == "" {
+		check.StatusCodeMatcher = "200"
+	}
+	if problem := ec2ValidateAppStatusCheck(check); problem != "" {
+		ec2ErrorXML(w, "InvalidParameterValue", problem, http.StatusBadRequest)
+		return
 	}
 	ec2AppStatusChecks.Put(check.ApplicationStatusCheckId, check)
 	w.Header().Set("Content-Type", "text/xml")
@@ -158,7 +217,19 @@ func handleModifyApplicationStatusCheck(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if v := r.FormValue("Protocol"); v != "" {
-		check.Protocol = strings.ToUpper(v)
+		protocol := strings.ToLower(v)
+		if protocol != "http" && protocol != "https" {
+			ec2ErrorXML(w, "InvalidParameterValue",
+				fmt.Sprintf("Protocol must be http or https; %q is not a value NetworkProtocolEnum admits", protocol),
+				http.StatusBadRequest)
+			return
+		}
+		check.Protocol = protocol
+	}
+	if v := r.FormValue("Aggregation"); v != "" {
+		check.Aggregation = v
+	} else if check.Aggregation == "" {
+		check.Aggregation = "included"
 	}
 	if v := r.FormValue("Port"); v != "" {
 		check.Port = atoiDefault(v, check.Port)
@@ -172,8 +243,21 @@ func handleModifyApplicationStatusCheck(w http.ResponseWriter, r *http.Request) 
 	if v := r.FormValue("Timeout"); v != "" {
 		check.Timeout = atoiDefault(v, check.Timeout)
 	}
+	if v := r.FormValue("FailureThreshold"); v != "" {
+		check.FailureThreshold = atoiDefault(v, check.FailureThreshold)
+	}
+	if v := r.FormValue("SuccessThreshold"); v != "" {
+		check.SuccessThreshold = atoiDefault(v, check.SuccessThreshold)
+	}
+	if v := r.FormValue("InitializationGracePeriodSeconds"); v != "" {
+		check.InitializationGracePeriod = atoiDefault(v, check.InitializationGracePeriod)
+	}
 	if v := r.FormValue("StatusCodeMatcher"); v != "" {
 		check.StatusCodeMatcher = v
+	}
+	if problem := ec2ValidateAppStatusCheck(check); problem != "" {
+		ec2ErrorXML(w, "InvalidParameterValue", problem, http.StatusBadRequest)
+		return
 	}
 	ec2AppStatusChecks.Put(id, check)
 	w.Header().Set("Content-Type", "text/xml")
@@ -293,14 +377,87 @@ func handleDescribeApplicationStatusCheckAssociations(w http.ResponseWriter, r *
 </DescribeApplicationStatusCheckAssociationsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
-// handleDescribeApplicationStatus reports each associated instance's measured
-// status, in the exact response shape the SDK deserialises: instanceSet →
-// applicationStatus → detailSet. The verdict is real: a stopped instance's
-// checks fail because there is nothing to probe, a suppressed instance
-// reports `suppressed` at the instance level, and a running instance is
-// probed over the check's own protocol, port and path against its address — a
-// listener that answers passes, and nothing listening fails, whichever host
-// this runs on.
+// ec2CheckApplicationStatus is one sweep of the checker: every association
+// past its instance's initialization grace period whose check has come due at
+// now is probed, and the result folded into the association's record.
+func ec2CheckApplicationStatus(ctx context.Context, now time.Time) {
+	var targets []lbplane.HealthTarget[string]
+	for _, association := range ec2AppStatusAssociations.List() {
+		check, ok := ec2AppStatusChecks.Get(association.ApplicationStatusCheckId)
+		if !ok || ec2AppStatusInGracePeriod(association.InstanceId, check, now) {
+			continue
+		}
+		instanceID := association.InstanceId
+		targets = append(targets, lbplane.HealthTarget[string]{
+			Key: ec2AppStatusAssociationKey(association.ApplicationStatusCheckId, association.InstanceId),
+			Policy: lbplane.HealthPolicy{
+				Interval:                time.Duration(check.Interval) * time.Second,
+				InitialHealthyThreshold: check.SuccessThreshold,
+				HealthyThreshold:        check.SuccessThreshold,
+				UnhealthyThreshold:      check.FailureThreshold,
+			},
+			Probe: func(ctx context.Context) (int, error) {
+				return ec2ProbeApplicationCheck(ctx, instanceID, check)
+			},
+		})
+	}
+	ec2AppStatusTracker.Sweep(ctx, now, targets)
+}
+
+// ec2AppStatusInGracePeriod reports whether the check still waits out its
+// InitializationGracePeriodSeconds after the instance launched.
+func ec2AppStatusInGracePeriod(instanceID string, check EC2ApplicationStatusCheck, now time.Time) bool {
+	if check.InitializationGracePeriod <= 0 {
+		return false
+	}
+	instance, ok := ec2Instances.Get(instanceID)
+	if !ok {
+		return false
+	}
+	launched, err := time.Parse(time.RFC3339, instance.LaunchTime)
+	if err != nil {
+		return false
+	}
+	return now.Before(launched.Add(time.Duration(check.InitializationGracePeriod) * time.Second))
+}
+
+// ec2AppStatusReasonXML renders the reason the latest check recorded, in the
+// codes the ApplicationStatusReason shape documents.
+func ec2AppStatusReasonXML(health lbplane.Health, protocol string) string {
+	var code string
+	status := health.LastStatus
+	var mismatch *lbplane.StatusMismatchError
+	var netError net.Error
+	var opError *net.OpError
+	switch err := health.LastErr; {
+	case err == nil:
+		code = "ResponseCodeMatched"
+	case errors.As(err, &mismatch):
+		code, status = "ResponseCodeMismatch", mismatch.StatusCode
+	case errors.Is(err, syscall.ECONNREFUSED):
+		code = "ConnectionRefused"
+	case errors.Is(err, syscall.ECONNRESET):
+		code = "ConnectionReset"
+	case errors.As(err, &opError) && opError.Op == "dial" && opError.Timeout():
+		code = "ConnectionTimeout"
+	case errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netError) && netError.Timeout()):
+		code = "ResponseTimeout"
+	default:
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "<reason><code>%s</code>", code)
+	if status > 0 {
+		fmt.Fprintf(&b, "<statusCode>%d</statusCode>", status)
+	}
+	fmt.Fprintf(&b, "<protocol>%s</protocol></reason>", strings.ToUpper(protocol))
+	return b.String()
+}
+
+// handleDescribeApplicationStatus reports what the checker last recorded for
+// each associated instance, in the response shape the SDK deserialises:
+// instanceSet → applicationStatus → detailSet. A check the checker has not yet
+// run, or that has not reached a threshold, is initializing.
 func handleDescribeApplicationStatus(w http.ResponseWriter, r *http.Request) {
 	instanceIDs := ec2ParamList(r, "InstanceId")
 	byInstance := map[string][]EC2ApplicationStatusCheckAssociation{}
@@ -310,39 +467,66 @@ func handleDescribeApplicationStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		byInstance[association.InstanceId] = append(byInstance[association.InstanceId], association)
 	}
-	now := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	const layout = "2006-01-02T15:04:05.000Z"
+	now := time.Now().UTC()
 	var instances strings.Builder
 	for instanceID, associations := range byInstance {
-		suppressed := false
-		anyFailed := false
+		suppressed, included, impaired, initializing := false, false, false, false
+		latest := time.Time{}
 		var details strings.Builder
 		for _, association := range associations {
 			check, ok := ec2AppStatusChecks.Get(association.ApplicationStatusCheckId)
 			if !ok {
 				continue
 			}
-			if association.Suppressed {
-				suppressed = true
-			}
-			checkStatus := "passed"
-			if !ec2ProbeApplicationCheck(r.Context(), association, check) {
+			suppressed = suppressed || association.Suppressed
+			health, recorded := ec2AppStatusTracker.Health(ec2AppStatusAssociationKey(check.ApplicationStatusCheckId, instanceID))
+			checkStatus := "initializing"
+			switch {
+			case recorded && health.State == lbplane.HealthHealthy:
+				checkStatus = "passed"
+			case recorded && health.State == lbplane.HealthUnhealthy:
 				checkStatus = "failed"
-				anyFailed = true
+			}
+			stamp := time.Unix(int64(association.AssociatedAt), 0).UTC()
+			reason := ""
+			if recorded && health.Checks > 0 {
+				stamp = health.LastChecked.UTC()
+				reason = ec2AppStatusReasonXML(health, check.Protocol)
+			}
+			if stamp.After(latest) {
+				latest = stamp
+			}
+			aggregation := check.Aggregation
+			if aggregation == "" {
+				aggregation = "included"
+			}
+			if aggregation == "included" {
+				included = true
+				impaired = impaired || checkStatus == "failed"
+				initializing = initializing || checkStatus == "initializing"
 			}
 			fmt.Fprintf(&details,
-				"<item><applicationStatusCheckId>%s</applicationStatusCheckId><aggregation>included</aggregation><status>%s</status><statusTimeStamp>%s</statusTimeStamp></item>",
-				check.ApplicationStatusCheckId, checkStatus, now)
+				"<item><applicationStatusCheckId>%s</applicationStatusCheckId><aggregation>%s</aggregation><status>%s</status><statusTimeStamp>%s</statusTimeStamp>%s</item>",
+				check.ApplicationStatusCheckId, aggregation, checkStatus, stamp.Format(layout), reason)
 		}
 		instanceStatus := "ok"
 		switch {
 		case suppressed:
 			instanceStatus = "suppressed"
-		case anyFailed:
+		case !included:
+			instanceStatus = "not-applicable"
+		case impaired:
 			instanceStatus = "impaired"
+		case initializing:
+			instanceStatus = "initializing"
+		}
+		if latest.IsZero() {
+			latest = now
 		}
 		fmt.Fprintf(&instances,
 			"<item><instanceId>%s</instanceId><applicationStatus><status>%s</status><statusTimeStamp>%s</statusTimeStamp><detailSet>%s</detailSet></applicationStatus></item>",
-			instanceID, instanceStatus, now, details.String())
+			instanceID, instanceStatus, latest.Format(layout), details.String())
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeApplicationStatusResponse %s>
@@ -352,33 +536,25 @@ func handleDescribeApplicationStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // ec2ProbeApplicationCheck performs the check against the instance and
-// reports whether it passed.
-func ec2ProbeApplicationCheck(ctx context.Context, association EC2ApplicationStatusCheckAssociation, check EC2ApplicationStatusCheck) bool {
-	instance, ok := ec2Instances.Get(association.InstanceId)
+// returns the HTTP status it read. An instance that is not running has no
+// address to probe.
+func ec2ProbeApplicationCheck(ctx context.Context, instanceID string, check EC2ApplicationStatusCheck) (int, error) {
+	instance, ok := ec2Instances.Get(instanceID)
 	if !ok || instance.State != "running" || instance.PrivateIpAddress == "" {
-		return false
+		return 0, fmt.Errorf("instance %s is not running", instanceID)
 	}
-	timeout := time.Duration(check.Timeout) * time.Second
-	if timeout <= 0 {
-		timeout = 2 * time.Second
+	match, err := lbplane.ParseStatusMatcher(check.StatusCodeMatcher)
+	if err != nil {
+		return 0, err
 	}
-	match := lbplane.StatusRange(100, 399)
-	if check.StatusCodeMatcher != "" {
-		parsed, err := lbplane.ParseStatusMatcher(check.StatusCodeMatcher)
-		if err != nil {
-			return false
-		}
-		match = parsed
-	}
-	_, err := lbplane.ProbeHTTP(ctx, lbplane.HTTPProbe{
+	return lbplane.ProbeHTTP(ctx, lbplane.HTTPProbe{
 		Scheme:            strings.ToLower(check.Protocol),
 		VerifyCertificate: true,
 		Address:           net.JoinHostPort(instance.PrivateIpAddress, strconv.Itoa(check.Port)),
 		Path:              check.Path,
-		Timeout:           timeout,
+		Timeout:           time.Duration(check.Timeout) * time.Second,
 		Match:             match,
 	})
-	return err == nil
 }
 
 func ec2SetAppStatusSuppression(w http.ResponseWriter, r *http.Request, action string, suppressed bool) {

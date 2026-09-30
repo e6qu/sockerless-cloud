@@ -339,6 +339,12 @@ through hooks:
   collection and a row in the operations store, carries the metadata message
   and response type its service declares (with `verb` and `target` filled), and
   can be read back over REST and gRPC.
+- **A managed cluster runs what it says it runs.** An Aurora cluster runs one
+  PostgreSQL- or MySQL-compatible engine on its own volume behind writer,
+  reader and member endpoints that follow its members' states; Kinesis
+  reshards by real splits and merges; Application Auto Scaling acts on the
+  CloudWatch alarms it creates, within the policy's own cooldowns; EC2
+  application status checks run on their own interval and thresholds.
 - **An event reaches its subscribers because something emitted it.** Cloud
   Storage publishes JSON_API_V1 notifications for object writes, deletes and
   metadata changes; Eventarc delivers Cloud Storage triggers from those
@@ -351,6 +357,12 @@ through hooks:
   a frame, so the Service Bus and Event Hubs connection carries unconsumed bytes
   over to the next read; dropping the connection on a split frame lost
   receive-and-delete messages it had already handed out.
+- **A link receives only what its address names.** A management reply link
+  (`<entity>/$management`) is never a receiver of the entity, so a message
+  goes only to a link that attached to the entity itself; AMQP credit is the
+  receiver's delivery-count plus link-credit minus the sender's, as AMQP 1.0
+  defines it. Handing a receive-and-delete message to the SDK's reply link
+  lost it whenever that link's credit arrived first, which on CI was often.
 - **A page token proves where it came from.** Every listing tags the tokens it
   issues and refuses one it never issued with the service's invalid-argument
   error, instead of listing an empty page.
@@ -567,6 +579,18 @@ because a reconciliation requests another whenever it moves a task.
 a fan-out the caller joins leaves it waiting forever. Finite work handed to
 `Server.StartBackground` registers with the drain too (`bg.Handoff`); lifetime
 daemons do not, or the barrier would wait forever.
+
+A test waits on the event it asserts. The AWS suites use the SDK's own
+waiters, with 250 ms to 2 s delay bounds instead of the published 5 to 60 s:
+`InstanceRunning`, `SnapshotCompleted`, `TasksStopped`, and `ServicesStable`
+with a further acceptor that needs the rollout COMPLETED. Where no waiter
+exists, they use a long poll, or Live Tail opened before stored history is
+read. The SQS retention test sets a message's visibility timeout to end just
+after the retention deadline, then long-polls, so a message SQS kept would
+come back at that moment. Waiting for full steady state slowed a few ECS tests
+by a few seconds; that cost is accepted over checking a partial condition. EC2
+Auto Scaling answers a capacity change at once: members join Pending, each
+launch has an InProgress activity, and a background boot moves both on.
 
 A test asserts a boundary at a small parameterised limit rather than by
 reaching the real one: the OCI body-cap tests peaked at 7.7 GiB under the race

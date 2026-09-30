@@ -382,23 +382,11 @@ func hasLinuxCapability(mask uint64, capNumber uint) bool {
 	return mask&(uint64(1)<<capNumber) != 0
 }
 
+// waitRunning waits with `aws ecs wait tasks-running`, which fails when the
+// task stops instead of running.
 func waitRunning(t *testing.T, q func(...string) string, taskArn string) {
 	t.Helper()
-	deadline := time.Now().Add(40 * time.Second)
-	for time.Now().Before(deadline) {
-		status := q("ecs", "describe-tasks", "--cluster", "default", "--tasks", taskArn,
-			"--query", "tasks[0].lastStatus", "--output", "text")
-		if status == "RUNNING" {
-			return
-		}
-		if status == "STOPPED" {
-			reason := q("ecs", "describe-tasks", "--cluster", "default", "--tasks", taskArn,
-				"--query", "tasks[0].stoppedReason", "--output", "text")
-			t.Fatalf("task %s stopped before RUNNING: %s", taskArn, reason)
-		}
-		time.Sleep(2 * time.Second)
-	}
-	t.Fatalf("task %s never reached RUNNING", taskArn)
+	q("ecs", "wait", "tasks-running", "--cluster", "default", "--tasks", taskArn)
 }
 
 func waitTaskContainersGone(t *testing.T, taskArns ...string) {

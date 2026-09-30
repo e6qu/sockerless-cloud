@@ -65,17 +65,18 @@ func awaitSubscription(ctx context.Context, t *testing.T, snsC *sns.Client, topi
 // delivers, and hands them to the assertions that read them.
 func awaitQueueMessages(ctx context.Context, t *testing.T, sqsC *sqs.Client, queueURL *string, want int) *sqs.ReceiveMessageOutput {
 	t.Helper()
-	var received *sqs.ReceiveMessageOutput
-	require.Eventually(t, func() bool {
+	received := &sqs.ReceiveMessageOutput{}
+	deadline := time.Now().Add(alarmWaitTimeout)
+	for len(received.Messages) < want && time.Now().Before(deadline) {
 		out, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-			QueueUrl: queueURL, MaxNumberOfMessages: int32(want),
+			QueueUrl:            queueURL,
+			MaxNumberOfMessages: int32(want - len(received.Messages)),
+			WaitTimeSeconds:     int32(min(20, max(1, time.Until(deadline)/time.Second))),
 		})
-		if err != nil || len(out.Messages) < want {
-			return false
-		}
-		received = out
-		return true
-	}, alarmWaitTimeout, alarmWaitPoll, "the queue never received %d message(s)", want)
+		require.NoError(t, err)
+		received.Messages = append(received.Messages, out.Messages...)
+	}
+	require.Len(t, received.Messages, want, "the queue never received %d message(s)", want)
 	return received
 }
 

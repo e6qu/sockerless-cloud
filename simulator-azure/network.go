@@ -1179,8 +1179,7 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 
 	// Subnet network-policy prepare/unprepare — POST LROs with no resource
 	// body; real Azure returns a terminal 200 once the operation completes.
-	policyOp := func(w http.ResponseWriter, r *http.Request) {
-		issueAzureAsyncOperation(nil)
+	policyOp := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 	srv.HandleFunc("POST "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}/PrepareNetworkPolicies", policyOp)

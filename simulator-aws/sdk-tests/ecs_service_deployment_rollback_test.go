@@ -1,6 +1,7 @@
 package aws_sdk_test
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -41,53 +42,42 @@ func waitForECSServiceTaskDefinition(
 	cluster, serviceName, taskDefinition string,
 ) ecstypes.Service {
 	t.Helper()
-	var found ecstypes.Service
-	var lastErr error
-	require.Eventually(t, func() bool {
-		output, err := client.DescribeServices(ctx, &ecs.DescribeServicesInput{
+	// A rolled-back service keeps its FAILED deployment beside the PRIMARY one,
+	// so steady state here is the PRIMARY deployment's: its task definition
+	// running at the desired count with its rollout COMPLETED.
+	out, err := ecs.NewServicesStableWaiter(client, func(o *ecs.ServicesStableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+		o.Retryable = func(_ context.Context, _ *ecs.DescribeServicesInput, out *ecs.DescribeServicesOutput, err error) (bool, error) {
+			if err != nil {
+				return false, err
+			}
+			if len(out.Services) != 1 {
+				return false, fmt.Errorf("DescribeServices returned %d services", len(out.Services))
+			}
+			service := out.Services[0]
+			return aws.ToString(service.TaskDefinition) != taskDefinition ||
+				service.RunningCount != service.DesiredCount || service.PendingCount != 0 ||
+				len(service.Deployments) == 0 ||
+				service.Deployments[0].RolloutState != ecstypes.DeploymentRolloutStateCompleted, nil
+		}
+	}).WaitForOutput(ctx, &ecs.DescribeServicesInput{
+		Cluster: aws.String(cluster), Services: []string{serviceName},
+	}, 30*time.Second)
+	if err != nil {
+		last, describeErr := client.DescribeServices(ctx, &ecs.DescribeServicesInput{
 			Cluster: aws.String(cluster), Services: []string{serviceName},
 		})
-		if err != nil || len(output.Services) != 1 {
-			lastErr = err
-			return false
-		}
-		lastErr = nil
-		found = output.Services[0]
-		return aws.ToString(found.TaskDefinition) == taskDefinition &&
-			found.RunningCount == found.DesiredCount &&
-			found.PendingCount == 0 &&
-			len(found.Deployments) > 0 &&
-			found.Deployments[0].RolloutState == ecstypes.DeploymentRolloutStateCompleted
-	}, 30*time.Second, 100*time.Millisecond,
-		// A bare "Condition never satisfied" says nothing about which of the
-		// five conditions held, and this deadline is most often reached on a
-		// machine whose container engine never ran the workload at all — which
-		// looks identical from here unless the service is printed.
-		"service %s never settled on task definition %s: %s",
-		serviceName, taskDefinition, describeECSServiceForFailure(&found, &lastErr))
-	return found
-}
-
-// describeECSServiceForFailure renders what the service last looked like, for
-// a wait that timed out. It is called by require.Eventually only when the wait
-// fails, so the closure reads whatever the final poll observed.
-func describeECSServiceForFailure(service *ecstypes.Service, lastErr *error) fmt.Stringer {
-	return ecsServiceFailureReport{service: service, lastErr: lastErr}
-}
-
-type ecsServiceFailureReport struct {
-	service *ecstypes.Service
-	lastErr *error
-}
-
-func (r ecsServiceFailureReport) String() string {
-	if r.lastErr != nil && *r.lastErr != nil {
-		return fmt.Sprintf("DescribeServices last failed with %v", *r.lastErr)
+		require.NoError(t, describeErr)
+		require.Len(t, last.Services, 1)
+		require.NoError(t, err, "service %s never settled on task definition %s: %s",
+			serviceName, taskDefinition, describeECSService(last.Services[0]))
 	}
-	service := r.service
-	if service == nil || service.ServiceArn == nil {
-		return "DescribeServices never returned the service"
-	}
+	return out.Services[0]
+}
+
+// describeECSService renders the service a wait settled on.
+func describeECSService(service ecstypes.Service) string {
 	rollout := "none"
 	if len(service.Deployments) > 0 {
 		rollout = string(service.Deployments[0].RolloutState)
@@ -97,7 +87,7 @@ func (r ecsServiceFailureReport) String() string {
 	}
 	return fmt.Sprintf("task definition %s, running %d of %d desired, %d pending, rollout %s; events %v",
 		aws.ToString(service.TaskDefinition), service.RunningCount, service.DesiredCount,
-		service.PendingCount, rollout, serviceEventMessages(*service))
+		service.PendingCount, rollout, serviceEventMessages(service))
 }
 
 func createRollbackTestService(

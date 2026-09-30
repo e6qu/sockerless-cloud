@@ -127,6 +127,52 @@ func sbAMQPHandleRPC(namespace, path string, req *amqp.Message) *amqp.Message {
 			return sbAMQPRPCMessages(req, msgs, false)
 		}
 		return sbAMQPRPCMessages(req, msgs, true)
+
+	case "com.microsoft:schedule-message":
+		entries, _ := value["messages"].([]any)
+		outs := make([]sbOutgoing, 0, len(entries))
+		for _, e := range entries {
+			entry, _ := e.(map[string]any)
+			raw, _ := entry["message"].([]byte)
+			var msg amqp.Message
+			if err := msg.UnmarshalBinary(raw); err != nil {
+				return sbAMQPRPCStatus(req, 400, "The scheduled message is not an encoded AMQP message: "+err.Error())
+			}
+			outs = append(outs, sbOutgoingFromAMQP(&msg, raw))
+		}
+		if len(outs) == 0 {
+			return sbAMQPRPCStatus(req, 400, "schedule-message names no messages.")
+		}
+		return sbAMQPRPCValue(req, 200, map[string]any{"sequence-numbers": sbSchedule(namespace, path, outs)})
+
+	case "com.microsoft:cancel-scheduled-message":
+		seqs, _ := value["sequence-numbers"].([]int64)
+		sbCancelScheduled(namespace, path, seqs)
+		return sbAMQPRPCStatus(req, 200, "OK")
+
+	case "com.microsoft:renew-session-lock":
+		session, _ := value["session-id"].(string)
+		until, err := sbRenewSessionLock(namespace, path, session)
+		if err != nil {
+			resp := sbAMQPRPCStatus(req, 410, err.Error())
+			resp.ApplicationProperties["error-condition"] = "com.microsoft:session-lock-lost"
+			return resp
+		}
+		return sbAMQPRPCValue(req, 200, map[string]any{"expiration": until.UTC()})
+
+	case "com.microsoft:get-session-state":
+		session, _ := value["session-id"].(string)
+		var state any
+		if s := sbSessionState(namespace, path, session); s != nil {
+			state = s
+		}
+		return sbAMQPRPCValue(req, 200, map[string]any{"session-state": state})
+
+	case "com.microsoft:set-session-state":
+		session, _ := value["session-id"].(string)
+		state, _ := value["session-state"].([]byte)
+		sbSetSessionState(namespace, path, session, state)
+		return sbAMQPRPCStatus(req, 200, "OK")
 	}
 	return sbAMQPRPCStatus(req, 501, fmt.Sprintf("The operation %v is not supported.", req.ApplicationProperties["operation"]))
 }

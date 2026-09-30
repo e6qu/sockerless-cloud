@@ -322,7 +322,7 @@ func handlePGStartLtrBackup(w http.ResponseWriter, r *http.Request) {
 	// with. Sizes are not reported: the capture helper does not measure the
 	// volume, and a number it never read would be an invented one.
 	backupVolume := azurePGLtrBackupVolume(rg, serverName, backupName)
-	opID := issueAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {
+	opID := startAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {
 		if err := azurePGCaptureVolume(rg, serverName, backupVolume); err != nil {
 			azurePGRemoveBackupVolume(backupVolume)
 			pgLtrBackups.Update(b.ID, func(backup *PGLtrBackup) {
@@ -366,7 +366,7 @@ func handlePGStartLtrBackup(w http.ResponseWriter, r *http.Request) {
 		azureAsyncOperationHeader(r, sub, "Microsoft.DBforPostgreSQL", location, "operationStatuses", opID, apiVersion))
 	w.Header().Set("Location",
 		azureAsyncOperationHeader(r, sub, "Microsoft.DBforPostgreSQL", location, "operationResults", opID, apiVersion))
-	w.Header().Set("Retry-After", "0")
+	setAzureAsyncOperationRetryAfter(w, opID)
 	w.WriteHeader(http.StatusAccepted)
 }
 

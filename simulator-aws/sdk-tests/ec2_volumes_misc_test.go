@@ -2,6 +2,7 @@ package aws_sdk_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -58,6 +59,19 @@ func TestEC2_CreateSnapshotsSDK(t *testing.T) {
 	data, ok := byVol[aws.ToString(vol.VolumeId)]
 	require.True(t, ok, "data volume is in the snapshot set")
 	assert.Equal(t, int32(10), aws.ToInt32(data.VolumeSize))
+
+	setIDs := make([]string, 0, len(out.Snapshots))
+	for _, si := range out.Snapshots {
+		setIDs = append(setIDs, aws.ToString(si.SnapshotId))
+	}
+	completed, err := ec2.NewSnapshotCompletedWaiter(c, func(o *ec2.SnapshotCompletedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &ec2.DescribeSnapshotsInput{SnapshotIds: setIDs}, time.Minute)
+	require.NoError(t, err, "every snapshot in the set completes once its volume's data is captured")
+	for _, snap := range completed.Snapshots {
+		assert.Equal(t, "100%", aws.ToString(snap.Progress))
+	}
 
 	// ExcludeBootVolume drops the root volume, leaving only the data volume.
 	noBoot, err := c.CreateSnapshots(ctx, &ec2.CreateSnapshotsInput{

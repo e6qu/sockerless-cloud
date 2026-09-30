@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/cron"
+	"github.com/e6qu/sockerless-cloud/sim/delivery"
 )
 
 // The CRUD surface in scheduler.go stores schedules; the ticker evaluates each
@@ -83,9 +85,23 @@ func schedulerDate(epoch float64) time.Time {
 }
 
 type schedulerTarget struct {
-	Arn           string              `json:"Arn"`
-	Input         string              `json:"Input"`
-	EcsParameters *schedulerEcsParams `json:"EcsParameters"`
+	Arn               string              `json:"Arn"`
+	RoleArn           string              `json:"RoleArn"`
+	Input             string              `json:"Input"`
+	EcsParameters     *schedulerEcsParams `json:"EcsParameters"`
+	KinesisParameters *struct {
+		PartitionKey string `json:"PartitionKey"`
+	} `json:"KinesisParameters"`
+	SqsParameters *struct {
+		MessageGroupID string `json:"MessageGroupId"`
+	} `json:"SqsParameters"`
+	RetryPolicy *struct {
+		MaximumEventAgeInSeconds *int `json:"MaximumEventAgeInSeconds"`
+		MaximumRetryAttempts     *int `json:"MaximumRetryAttempts"`
+	} `json:"RetryPolicy"`
+	DeadLetterConfig *struct {
+		Arn string `json:"Arn"`
+	} `json:"DeadLetterConfig"`
 }
 
 type schedulerEcsParams struct {
@@ -102,25 +118,119 @@ type schedulerEcsParams struct {
 	} `json:"NetworkConfiguration"`
 }
 
-// fireSchedule dispatches a due schedule to its Target by invoking the sim's
-// own handler for the target service in-process.
+// schedulerDelivery is one invocation Amazon EventBridge Scheduler owes a
+// schedule's target, with the target as it stood when the schedule fired.
+type schedulerDelivery struct {
+	ScheduleArn string          `json:"ScheduleArn"`
+	Target      json.RawMessage `json:"Target"`
+}
+
+var schedulerDeliveries *delivery.Dispatcher[schedulerDelivery]
+
+func registerSchedulerDelivery(srv *sim.Server) {
+	store := sim.MakeStore[delivery.Item[schedulerDelivery]](srv.DB(), "scheduler_target_deliveries")
+	schedulerDeliveries = delivery.New(srv, "EventBridge Scheduler target deliveries", store, delivery.Handler[schedulerDelivery]{
+		Policy: func(d schedulerDelivery) delivery.Policy { return schedulerRetryPolicy(schedulerParseTarget(d.Target)) },
+		Attempt: func(_ context.Context, item *delivery.Item[schedulerDelivery]) delivery.Outcome {
+			return schedulerAttemptTarget(schedulerParseTarget(item.Payload.Target))
+		},
+		Finish: schedulerFinishDelivery,
+	})
+	schedulerDeliveries.Resume()
+}
+
+func schedulerParseTarget(raw json.RawMessage) schedulerTarget {
+	var target schedulerTarget
+	_ = json.Unmarshal(raw, &target)
+	return target
+}
+
+// schedulerRetryPolicy reads the target's RetryPolicy: MaximumRetryAttempts
+// (default 185) and MaximumEventAgeInSeconds (default 86400), retried with
+// exponential backoff.
+func schedulerRetryPolicy(target schedulerTarget) delivery.Policy {
+	retries, age := 185, 86400
+	if target.RetryPolicy != nil {
+		if target.RetryPolicy.MaximumRetryAttempts != nil {
+			retries = *target.RetryPolicy.MaximumRetryAttempts
+		}
+		if target.RetryPolicy.MaximumEventAgeInSeconds != nil {
+			age = *target.RetryPolicy.MaximumEventAgeInSeconds
+		}
+	}
+	return delivery.Policy{
+		MaxAttempts: retries + 1,
+		MaxAge:      time.Duration(age) * time.Second,
+		Backoff:     delivery.Exponential(time.Second, 5*time.Minute),
+	}
+}
+
+// fireSchedule hands a due schedule's target invocation to the delivery
+// dispatcher, which makes the first attempt at once and retries under the
+// target's RetryPolicy.
 func fireSchedule(s Schedule) {
-	var t schedulerTarget
-	if err := json.Unmarshal(s.Target, &t); err != nil || t.Arn == "" {
+	if schedulerParseTarget(s.Target).Arn == "" {
 		return
 	}
+	schedulerDeliveries.SubmitAttempted(sim.NewUUID(), schedulerDelivery{ScheduleArn: s.Arn, Target: s.Target})
+}
+
+// schedulerAttemptTarget invokes the target's service once.
+func schedulerAttemptTarget(t schedulerTarget) delivery.Outcome {
 	switch {
 	case strings.Contains(t.Arn, ":ecs:") && t.EcsParameters != nil:
-		fireECSTarget(t.Arn, t.EcsParameters)
+		return fireECSTarget(t.Arn, t.EcsParameters)
 	case strings.Contains(t.Arn, ":lambda:"):
-		fireLambdaTarget(t.Arn, t.Input)
+		return fireLambdaTarget(t.Arn, t.Input)
 	case strings.Contains(t.Arn, ":sqs:"):
-		fireSQSTarget(t.Arn, t.Input)
+		return fireSQSTarget(t)
 	case strings.Contains(t.Arn, ":sns:"):
-		fireSNSTarget(t.Arn, t.Input)
+		return fireSNSTarget(t.Arn, t.Input)
 	case strings.Contains(t.Arn, ":states:"):
-		fireStepFunctionsTarget(t.Arn, t.Input)
+		return fireStepFunctionsTarget(t.Arn, t.Input)
+	case strings.Contains(t.Arn, ":kinesis:") && t.KinesisParameters != nil:
+		return fireKinesisTarget(t.Arn, t.KinesisParameters.PartitionKey, t.Input)
 	}
+	return delivery.Permanent(ebTargetError{"UnsupportedTarget", "the simulator does not invoke targets of this service: " + t.Arn})
+}
+
+// schedulerFinishDelivery sends an invocation the target never accepted to
+// the target's DeadLetterConfig queue, as the schedule's execution role.
+func schedulerFinishDelivery(item delivery.Item[schedulerDelivery], reason delivery.Reason) {
+	if reason == delivery.Succeeded {
+		return
+	}
+	target := schedulerParseTarget(item.Payload.Target)
+	cwEvalLogger.Info().Str("schedule", item.Payload.ScheduleArn).Str("target", target.Arn).Str("reason", string(reason)).
+		Str("error", item.LastError).Msg("EventBridge Scheduler could not invoke its target")
+	if target.DeadLetterConfig == nil || !strings.HasPrefix(target.DeadLetterConfig.Arn, "arn:aws:sqs:") {
+		return
+	}
+	dlq := target.DeadLetterConfig.Arn
+	if err := iamValidateServiceRole(target.RoleArn, "scheduler.amazonaws.com", map[string]string{"sqs:SendMessage": dlq}); err != nil {
+		cwEvalLogger.Info().Str("schedule", item.Payload.ScheduleArn).Str("deadLetterQueue", dlq).Str("error", err.Error()).
+			Msg("EventBridge Scheduler cannot send to its dead-letter queue")
+		return
+	}
+	queue := snsTopicNameFromARN(dlq)
+	if _, ok := sqsQueues.Get(queue); !ok {
+		return
+	}
+	code, message, _ := strings.Cut(item.LastError, ": ")
+	attributes := map[string]SQSMessageAttribute{
+		"SCHEDULE_ARN":   {DataType: "String", StringValue: item.Payload.ScheduleArn},
+		"TARGET_ARN":     {DataType: "String", StringValue: target.Arn},
+		"ERROR_CODE":     {DataType: "String", StringValue: code},
+		"ERROR_MESSAGE":  {DataType: "String", StringValue: message},
+		"RETRY_ATTEMPTS": {DataType: "String", StringValue: strconv.Itoa(max(item.Attempts-1, 0))},
+	}
+	switch reason {
+	case delivery.AttemptsExhausted:
+		attributes["EXHAUSTED_RETRY_CONDITION"] = SQSMessageAttribute{DataType: "String", StringValue: "MaximumRetryAttempts"}
+	case delivery.AgeExceeded:
+		attributes["EXHAUSTED_RETRY_CONDITION"] = SQSMessageAttribute{DataType: "String", StringValue: "MaximumEventAgeInSeconds"}
+	}
+	sqsEnqueueBodyWithAttributes(queue, target.Input, attributes)
 }
 
 // callJSONHandler invokes an awsJson-style handler in-process with a JSON body
@@ -173,22 +283,29 @@ func awsXMLError(body []byte) (code, message string) {
 
 // recordSchedulerFireResult records a fired target invocation, reflecting a
 // failed downstream call honestly (errorCode/errorMessage) instead of a phantom
-// success — the same class of silent-swallow bug for every target type.
-func recordSchedulerFireResult(eventName, source, resType, resName string, status int, body []byte, xmlErr bool) {
-	if status >= 400 {
-		var code, message string
-		if xmlErr {
-			code, message = awsXMLError(body)
-		} else {
-			code, message = awsJSONError(body)
-		}
-		cloudTrailRecordSchedulerFireErr(eventName, source, resType, resName, code, message)
-		return
+// success — the same class of silent-swallow bug for every target type — and
+// reads the call's answer: throttling and server errors are retried, any other
+// refusal is final.
+func recordSchedulerFireResult(eventName, source, resType, resName string, status int, body []byte, xmlErr bool) delivery.Outcome {
+	if status < 400 {
+		cloudTrailRecordSchedulerFire(eventName, source, resType, resName)
+		return delivery.Delivered()
 	}
-	cloudTrailRecordSchedulerFire(eventName, source, resType, resName)
+	var code, message string
+	if xmlErr {
+		code, message = awsXMLError(body)
+	} else {
+		code, message = awsJSONError(body)
+	}
+	cloudTrailRecordSchedulerFireErr(eventName, source, resType, resName, code, message)
+	failure := ebTargetError{code, message}
+	if status == http.StatusTooManyRequests || status >= 500 || code == "ThrottlingException" || code == "Throttling" {
+		return delivery.Retryable(failure).WithStatus(status)
+	}
+	return delivery.Permanent(failure).WithStatus(status)
 }
 
-func fireECSTarget(clusterArn string, p *schedulerEcsParams) {
+func fireECSTarget(clusterArn string, p *schedulerEcsParams) delivery.Outcome {
 	count := p.TaskCount
 	if count <= 0 {
 		count = 1
@@ -215,23 +332,28 @@ func fireECSTarget(clusterArn string, p *schedulerEcsParams) {
 	// than a phantom success — e.g. RunTask rejects a security group that does
 	// not exist, so no task is created and none ever transitions to STOPPED.
 	status, respBody := callJSONHandler(handleECSRunTask, body)
-	recordSchedulerFireResult("RunTask", "ecs.amazonaws.com",
+	outcome := recordSchedulerFireResult("RunTask", "ecs.amazonaws.com",
 		"AWS::ECS::Cluster", cloudTrailShortName(clusterArn), status, respBody, false)
-}
-
-func fireSQSTarget(queueArn, input string) {
-	name := queueArn
-	if i := strings.LastIndex(queueArn, ":"); i >= 0 {
-		name = queueArn[i+1:]
+	if !outcome.OK() {
+		return outcome
 	}
-	status, respBody := callJSONHandler(handleSQSSendMessage, map[string]any{
-		"QueueUrl":    sqsQueueURL(name),
-		"MessageBody": input,
-	})
-	recordSchedulerFireResult("SendMessage", "sqs.amazonaws.com", "AWS::SQS::Queue", name, status, respBody, false)
+	return ecsRunTaskFailuresOutcome(respBody)
 }
 
-func fireLambdaTarget(functionArn, input string) {
+func fireSQSTarget(t schedulerTarget) delivery.Outcome {
+	name := t.Arn
+	if i := strings.LastIndex(t.Arn, ":"); i >= 0 {
+		name = t.Arn[i+1:]
+	}
+	request := map[string]any{"QueueUrl": sqsQueueURL(name), "MessageBody": t.Input}
+	if t.SqsParameters != nil && t.SqsParameters.MessageGroupID != "" {
+		request["MessageGroupId"] = t.SqsParameters.MessageGroupID
+	}
+	status, respBody := callJSONHandler(handleSQSSendMessage, request)
+	return recordSchedulerFireResult("SendMessage", "sqs.amazonaws.com", "AWS::SQS::Queue", name, status, respBody, false)
+}
+
+func fireLambdaTarget(functionArn, input string) delivery.Outcome {
 	name := functionArn
 	if i := strings.Index(functionArn, ":function:"); i >= 0 {
 		name = functionArn[i+len(":function:"):]
@@ -247,20 +369,32 @@ func fireLambdaTarget(functionArn, input string) {
 	req.Header.Set("X-Amz-Invocation-Type", "Event")
 	rec := httptest.NewRecorder()
 	handleLambdaInvoke(rec, req)
-	recordSchedulerFireResult("Invoke", "lambda.amazonaws.com", "AWS::Lambda::Function", name, rec.Code, rec.Body.Bytes(), false)
+	return recordSchedulerFireResult("Invoke", "lambda.amazonaws.com", "AWS::Lambda::Function", name, rec.Code, rec.Body.Bytes(), false)
 }
 
-func fireSNSTarget(topicArn, input string) {
+func fireSNSTarget(topicArn, input string) delivery.Outcome {
 	form := url.Values{"TopicArn": {topicArn}, "Message": {input}}
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	handleSNSPublish(rec, req)
-	recordSchedulerFireResult("Publish", "sns.amazonaws.com",
+	return recordSchedulerFireResult("Publish", "sns.amazonaws.com",
 		"AWS::SNS::Topic", cloudTrailShortName(topicArn), rec.Code, rec.Body.Bytes(), true)
 }
 
-func fireStepFunctionsTarget(stateMachineArn, input string) {
+// fireKinesisTarget puts the input on the stream under the target's
+// PartitionKey.
+func fireKinesisTarget(streamArn, partitionKey, input string) delivery.Outcome {
+	if _, _, err := kinesisAppendRecord("", streamArn, []byte(input), partitionKey, ""); err != nil {
+		cloudTrailRecordSchedulerFireErr("PutRecord", "kinesis.amazonaws.com", "AWS::Kinesis::Stream",
+			cloudTrailShortName(streamArn), "ResourceNotFoundException", "Stream "+streamArn+" not found")
+		return delivery.Permanent(ebTargetError{"ResourceNotFoundException", "Stream " + streamArn + " not found"})
+	}
+	cloudTrailRecordSchedulerFire("PutRecord", "kinesis.amazonaws.com", "AWS::Kinesis::Stream", cloudTrailShortName(streamArn))
+	return delivery.Delivered()
+}
+
+func fireStepFunctionsTarget(stateMachineArn, input string) delivery.Outcome {
 	if input == "" {
 		input = "{}"
 	}
@@ -274,7 +408,7 @@ func fireStepFunctionsTarget(stateMachineArn, input string) {
 			executionErr.Name,
 			executionErr.Cause,
 		)
-		return
+		return delivery.Permanent(ebTargetError{strings.TrimPrefix(executionErr.Name, "StepFunctions."), executionErr.Cause})
 	}
 	cloudTrailRecordSchedulerFire(
 		"StartExecution",
@@ -282,6 +416,7 @@ func fireStepFunctionsTarget(stateMachineArn, input string) {
 		"AWS::StepFunctions::StateMachine",
 		cloudTrailShortName(execution.StateMachineArn),
 	)
+	return delivery.Delivered()
 }
 
 // cloudTrailRecordSchedulerFire records a CloudTrail event for a target the

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/streamlog"
@@ -63,12 +64,16 @@ func kinesisMigrateRecords(db *sql.DB) error {
 		if err != nil {
 			return err
 		}
+		migratedAt := time.Now().UnixMilli()
 		for _, it := range iterators {
 			if it.Item.Index == 0 {
 				continue
 			}
+			// Those builds recorded no issue time, so the iterator's five
+			// minutes run from the migration.
 			kinesisIterators.Put(it.ID, kinesisIterator{
 				StreamName: it.Item.StreamName, ShardID: it.Item.ShardID, Next: int64(it.Item.Index),
+				IssuedAt: migratedAt,
 			})
 		}
 		return nil

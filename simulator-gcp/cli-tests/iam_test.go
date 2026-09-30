@@ -342,11 +342,14 @@ func TestIAMCredentialsPrintAccessTokenLifetimeCLI(t *testing.T) {
 	// tokens presented at the same moment: one that asked for a single
 	// second, one that took the documented hour. Neither verdict is reached
 	// by outrunning the token, which no caller can do: gcloud spends longer
-	// minting and printing a token than a one-second token lives. The wait
-	// after both are in hand puts the presentation past the short token's
-	// second however slow the host is, and leaves the hour-long one alive.
+	// minting and printing a token than a one-second token lives. The short
+	// token was minted before gcloud printed it, so its second is over one
+	// second after that print; the presentation waits for that instant, which
+	// the second mint has usually already passed, and leaves the hour-long
+	// token alive.
 	short := lastLine(runCLI(t, gcloudCLI("auth", "print-access-token",
 		"--impersonate-service-account="+email, "--lifetime=1")))
+	shortPrinted := time.Now()
 	require.NotEmpty(t, short, "gcloud printed no token for a one-second lifetime")
 
 	standard := lastLine(runCLI(t, gcloudCLI("auth", "print-access-token",
@@ -354,7 +357,7 @@ func TestIAMCredentialsPrintAccessTokenLifetimeCLI(t *testing.T) {
 	require.NotEmpty(t, standard, "gcloud printed no token for the default lifetime")
 	require.NotEqual(t, short, standard, "each invocation mints a token of its own")
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(time.Until(shortPrinted.Add(time.Second + time.Millisecond)))
 
 	live := httpGetStatusWithBearer(t, baseURL+"/v1/projects/"+project+"/serviceAccounts", standard)
 	require.Equal(t, 200, live, "a token inside its lifetime must be accepted")

@@ -93,23 +93,36 @@ func webProcessCoreDump(pid int, mappings []webProcMapping, w io.Writer) error {
 	}
 	defer mem.Close()
 
-	// Only the mappings that can actually be read become segments. A mapping
-	// is probed rather than assumed: a device mapping is readable by its
-	// permission bits and still refuses a read through /proc/<pid>/mem.
+	// Read page by page and keep each run of readable pages as its own
+	// segment: a device mapping refuses every read though its permission bits
+	// allow one, and a file mapping that extends past the file's end refuses
+	// the pages beyond it. Reading before writing the header also keeps the
+	// headers true to the bytes that follow if the process remaps meanwhile.
 	type segment struct {
-		mapping webProcMapping
-		offset  uint64
+		low    uint64
+		data   []byte
+		offset uint64
 	}
 	var segments []segment
-	probe := make([]byte, 1)
+	page := uint64(os.Getpagesize())
+	buf := make([]byte, page)
 	for _, m := range mappings {
 		if !m.Readable || m.Path == "[vvar]" || m.Path == "[vsyscall]" {
 			continue
 		}
-		if _, err := mem.ReadAt(probe, int64(m.Low)); err != nil {
-			continue
+		var run *segment
+		for addr := m.Low; addr < m.High; addr += page {
+			n := min(page, m.High-addr)
+			if _, err := mem.ReadAt(buf[:n], int64(addr)); err != nil {
+				run = nil
+				continue
+			}
+			if run == nil {
+				segments = append(segments, segment{low: addr})
+				run = &segments[len(segments)-1]
+			}
+			run.data = append(run.data, buf[:n]...)
 		}
-		segments = append(segments, segment{mapping: m})
 	}
 	if len(segments) == 0 {
 		return fmt.Errorf("no mapping of the process could be read")
@@ -120,7 +133,7 @@ func webProcessCoreDump(pid int, mappings []webProcMapping, w io.Writer) error {
 	offset := uint64(headerSize + programHeaderSize*len(segments))
 	for i := range segments {
 		segments[i].offset = offset
-		offset += segments[i].mapping.High - segments[i].mapping.Low
+		offset += uint64(len(segments[i].data))
 	}
 
 	machine := elf.EM_X86_64
@@ -146,24 +159,23 @@ func webProcessCoreDump(pid int, mappings []webProcMapping, w io.Writer) error {
 	}
 
 	for _, s := range segments {
-		size := s.mapping.High - s.mapping.Low
+		size := uint64(len(s.data))
 		ph := make([]byte, programHeaderSize)
 		order.PutUint32(ph[0:], uint32(elf.PT_LOAD))
 		order.PutUint32(ph[4:], uint32(elf.PF_R))
 		order.PutUint64(ph[8:], s.offset)
-		order.PutUint64(ph[16:], s.mapping.Low) // p_vaddr
-		order.PutUint64(ph[32:], size)          // p_filesz
-		order.PutUint64(ph[40:], size)          // p_memsz
-		order.PutUint64(ph[48:], 1)             // p_align
+		order.PutUint64(ph[16:], s.low) // p_vaddr
+		order.PutUint64(ph[32:], size)  // p_filesz
+		order.PutUint64(ph[40:], size)  // p_memsz
+		order.PutUint64(ph[48:], 1)     // p_align
 		if _, err := w.Write(ph); err != nil {
 			return err
 		}
 	}
 
 	for _, s := range segments {
-		size := int64(s.mapping.High - s.mapping.Low)
-		if _, err := io.Copy(w, io.NewSectionReader(mem, int64(s.mapping.Low), size)); err != nil {
-			return fmt.Errorf("read the mapping at %#x: %w", s.mapping.Low, err)
+		if _, err := w.Write(s.data); err != nil {
+			return err
 		}
 	}
 	return nil

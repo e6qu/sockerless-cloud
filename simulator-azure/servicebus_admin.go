@@ -727,7 +727,7 @@ func sbAdminTopicEntryFor(r *http.Request, namespace, name string, topic SBTopic
 		sbAdminEntryBase: sbAdminBaseEntry(r, namespace, name),
 		Content: sbAdminTopicContent{
 			Type:             "application/xml",
-			TopicDescription: sbAdminTopicDescriptionFor(topic),
+			TopicDescription: sbAdminTopicDescriptionFor(namespace, name, topic),
 		},
 	}
 }
@@ -775,12 +775,12 @@ func sbAdminURL(r *http.Request, namespace, path string) string {
 }
 
 // sbAdminQueueDescriptionFor renders a queue's admin-plane description.
-// MessageCount, ActiveMessageCount and DeadLetterMessageCount reflect the
-// queue's real data-plane state; scheduled and transfer counts are zero because
-// the sim models neither.
+// MessageCount, ActiveMessageCount, DeadLetterMessageCount and
+// ScheduledMessageCount reflect the queue's data-plane state; the transfer
+// counts are zero because the simulator does not forward messages.
 func sbAdminQueueDescriptionFor(namespace, name string, q SBQueue) sbAdminQueueDescription {
-	scheduled, transferDead, transfer := int32(0), int32(0), int32(0)
-	size := int64(0)
+	scheduled, transferDead, transfer := sbScheduledCount(namespace, name), int32(0), int32(0)
+	size := sbQueueBytes(namespace, name)
 	count, active, dead := sbQueueCounts(namespace, name)
 	return sbAdminQueueDescription{
 		ServiceBusSchema:                    sbDataSchema,
@@ -816,10 +816,16 @@ func sbAdminQueueDescriptionFor(namespace, name string, q SBQueue) sbAdminQueueD
 	}
 }
 
-func sbAdminTopicDescriptionFor(topic SBTopic) sbAdminTopicDescription {
-	scheduled := int32(0)
-	subCount := int32(len(sbSubscriptionsUnder(topic.ID + "/subscriptions/")))
-	size := int64(0)
+// sbAdminTopicDescriptionFor renders a topic's admin-plane description. A
+// topic keeps its messages in its subscriptions, so its size is theirs.
+func sbAdminTopicDescriptionFor(namespace, name string, topic SBTopic) sbAdminTopicDescription {
+	subs := sbAMQPTopicSubscriptions(namespace, name)
+	scheduled := sbTopicScheduledCount(namespace, name, subs)
+	subCount := int32(len(subs))
+	var size int64
+	for _, path := range subs {
+		size += sbQueueBytes(namespace, path)
+	}
 	return sbAdminTopicDescription{
 		ServiceBusSchema:                    sbDataSchema,
 		InstanceMetadataSchema:              sbXMLSchema,
@@ -847,6 +853,7 @@ func sbAdminTopicDescriptionFor(topic SBTopic) sbAdminTopicDescription {
 // description with real data-plane message counts, like the queue equivalent.
 func sbAdminSubscriptionDescriptionFor(namespace, topic, subName string, sub SBSubscription) sbAdminSubscriptionDescription {
 	transferDead, transfer := int32(0), int32(0)
+	scheduled := sbScheduledCount(namespace, topic+"/"+subName)
 	count, active, dead := sbQueueCounts(namespace, topic+"/"+subName)
 	return sbAdminSubscriptionDescription{
 		ServiceBusSchema:                          sbDataSchema,
@@ -870,6 +877,7 @@ func sbAdminSubscriptionDescriptionFor(namespace, topic, subName string, sub SBS
 		CountDetails: &sbAdminCountDetails{
 			ActiveMessageCount:             &active,
 			DeadLetterMessageCount:         &dead,
+			ScheduledMessageCount:          &scheduled,
 			TransferDeadLetterMessageCount: &transferDead,
 			TransferMessageCount:           &transfer,
 		},

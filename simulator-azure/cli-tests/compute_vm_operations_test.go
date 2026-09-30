@@ -31,12 +31,12 @@ func TestComputeVirtualMachineOperationsCLI(t *testing.T) {
 	vmPath := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/cli-vmops",
 		baseURL, subscriptionID, resourceGroup)
 	vmURL := vmPath + "?api-version=2022-03-01"
-	runCLI(t, azRest("PUT", vmURL, fmt.Sprintf(
+	azRestLongRunning(t, "PUT", vmURL, fmt.Sprintf(
 		`{"location":"eastus","properties":{"hardwareProfile":{"vmSize":"Standard_B1s"},`+
 			`"storageProfile":{"osDisk":{"name":"cli-vmops-osdisk","createOption":"FromImage","managedDisk":{"storageAccountType":"Standard_LRS"}}},`+
 			`"osProfile":{"computerName":"cli-vmops","adminUsername":"azureuser","adminPassword":"Str0ng-password-12345!"},`+
 			`"diagnosticsProfile":{"bootDiagnostics":{"enabled":true,"storageUri":"https://simbootdiag.blob.core.windows.net/"}},`+
-			`"networkProfile":{"networkInterfaces":[{"id":%q,"properties":{"primary":true}}]}}}`, nicID)))
+			`"networkProfile":{"networkInterfaces":[{"id":%q,"properties":{"primary":true}}]}}}`, nicID))
 
 	t.Run("ListAvailableSizes offers the sizes the machine can be resized to", func(t *testing.T) {
 		out := runCLI(t, azRest("GET", vmPath+"/vmSizes?api-version=2022-03-01", ""))
@@ -70,7 +70,7 @@ func TestComputeVirtualMachineOperationsCLI(t *testing.T) {
 	})
 
 	t.Run("Redeploy leaves the machine running", func(t *testing.T) {
-		runCLI(t, azRest("POST", vmPath+"/redeploy?api-version=2022-03-01", ""))
+		azRestLongRunning(t, "POST", vmPath+"/redeploy?api-version=2022-03-01", "")
 		out := runCLI(t, azRest("GET", vmPath+"/instanceView?api-version=2022-03-01", ""))
 		if !strings.Contains(out, "PowerState/running") {
 			t.Fatalf("the machine is not running after a redeploy, got %s", out)
@@ -78,7 +78,7 @@ func TestComputeVirtualMachineOperationsCLI(t *testing.T) {
 	})
 
 	t.Run("PerformMaintenance leaves the machine running", func(t *testing.T) {
-		runCLI(t, azRest("POST", vmPath+"/performMaintenance?api-version=2022-03-01", ""))
+		azRestLongRunning(t, "POST", vmPath+"/performMaintenance?api-version=2022-03-01", "")
 		out := runCLI(t, azRest("GET", vmPath+"/instanceView?api-version=2022-03-01", ""))
 		if !strings.Contains(out, "PowerState/running") {
 			t.Fatalf("the machine is not running after maintenance, got %s", out)
@@ -86,7 +86,7 @@ func TestComputeVirtualMachineOperationsCLI(t *testing.T) {
 	})
 
 	t.Run("Generalize is reported once the machine is stopped", func(t *testing.T) {
-		runCLI(t, azRest("POST", vmPath+"/powerOff?api-version=2022-03-01", ""))
+		azRestLongRunning(t, "POST", vmPath+"/powerOff?api-version=2022-03-01", "")
 		runCLI(t, azRest("POST", vmPath+"/generalize?api-version=2022-03-01", ""))
 		out := runCLI(t, azRest("GET", vmPath+"/instanceView?api-version=2022-03-01", ""))
 		if !strings.Contains(out, "OSState/generalized") {

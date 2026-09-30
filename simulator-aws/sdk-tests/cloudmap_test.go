@@ -423,30 +423,7 @@ func TestECS_CrossTaskDNS(t *testing.T) {
 
 	waitTasksRunning := func(tasks ...string) {
 		t.Helper()
-		var taskStatuses []string
-		require.Eventually(t, func() bool {
-			out, err := ecsCli.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-				Cluster: aws.String("xtask-dns"),
-				Tasks:   tasks,
-			})
-			if err != nil {
-				taskStatuses = []string{"DescribeTasks: " + err.Error()}
-				return false
-			}
-			if len(out.Tasks) < len(tasks) {
-				taskStatuses = []string{fmt.Sprintf("got %d tasks", len(out.Tasks))}
-				return false
-			}
-			taskStatuses = taskStatuses[:0]
-			for _, tk := range out.Tasks {
-				status := aws.ToString(tk.LastStatus)
-				taskStatuses = append(taskStatuses, aws.ToString(tk.TaskArn)+"="+status)
-				if status != "RUNNING" {
-					return false
-				}
-			}
-			return true
-		}, 45*time.Second, 500*time.Millisecond, "tasks should reach RUNNING: %s", strings.Join(taskStatuses, ", "))
+		waitForECSTasksRunning(t, ecsCli, "xtask-dns", 45*time.Second, tasks...)
 	}
 	containerName := func(taskArn string) string {
 		taskID := taskArn[strings.LastIndex(taskArn, "/")+1:]
@@ -664,18 +641,7 @@ func TestECS_MultiServiceDNS(t *testing.T) {
 	}
 	waitRunning := func(tasks ...string) {
 		t.Helper()
-		require.Eventually(t, func() bool {
-			out, err := ecsCli.DescribeTasks(ctx, &ecs.DescribeTasksInput{Cluster: aws.String("multi-svc-dns"), Tasks: tasks})
-			if err != nil || len(out.Tasks) < len(tasks) {
-				return false
-			}
-			for _, tk := range out.Tasks {
-				if aws.ToString(tk.LastStatus) != "RUNNING" {
-					return false
-				}
-			}
-			return true
-		}, 45*time.Second, 500*time.Millisecond, "tasks should reach RUNNING")
+		waitForECSTasksRunning(t, ecsCli, "multi-svc-dns", 45*time.Second, tasks...)
 	}
 	waitContainer := func(name string) {
 		t.Helper()

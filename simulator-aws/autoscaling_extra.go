@@ -44,8 +44,7 @@ type ASNotificationConfig struct {
 }
 
 // ASInstanceRefresh records an instance-refresh request. The sim settles a
-// refresh Successful synchronously (single-machine, no rolling delay), the same
-// way reconcileAutoScalingGroup settles scaling synchronously.
+// refresh Successful synchronously (single-machine, no rolling delay).
 type ASInstanceRefresh struct {
 	InstanceRefreshId    string
 	AutoScalingGroupName string
@@ -937,7 +936,6 @@ func handleASXLaunchInstances(w http.ResponseWriter, r *http.Request) {
 		asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 		return
 	}
-	autoScalingGroups.Put(group, asg)
 	// LaunchInstancesResult.Instances is a list of InstanceCollection, each
 	// grouping the launched instance IDs by AZ/subnet/type. The sim launches a
 	// single collection (one subnet) so we emit all IDs under one member.

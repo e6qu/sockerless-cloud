@@ -207,6 +207,7 @@ func registerCompute(srv *sim.Server) {
 	registerComputeOperations(srv)
 	azureVMStates = sim.MakeStore[string](srv.DB(), "compute_virtual_machine_states")
 	azureVMGeneralized = sim.MakeStore[bool](srv.DB(), "compute_virtual_machine_generalized")
+	registerVirtualMachineOperationRecovery(srv)
 
 	registerComputeCatalog(srv)
 	registerPublicIPAddresses(srv)
@@ -1181,37 +1182,77 @@ func registerVirtualMachines(srv *sim.Server) {
 			Tags:       req.Tags,
 			Properties: req.Properties,
 		}
-		vm.Properties.ProvisioningState = "Succeeded"
 		stripVMAdminPassword(&vm)
-		if vm.Properties.VMID == "" {
-			vm.Properties.VMID = sim.NewUUID()
+		if vm.Location == "" {
+			AzureError(w, "LocationRequired", "The location property is required for this definition.", http.StatusBadRequest)
+			return
 		}
 		// Request validation precedes provisioning, as it does in Azure: a
 		// networkProfile the Compute resource provider cannot accept is the
-		// client's error, reported as 400/404, not as the 503 that a host that
-		// failed to boot the machine earns.
+		// client's error, reported as 400/404, not as the failed operation
+		// that a host unable to boot the machine earns.
 		if fault := azureValidateVMNetworkProfile(vm); fault != nil {
 			AzureError(w, fault.code, fault.message, fault.status)
 			return
 		}
-		if err := azureStartRealVM(r.Context(), vm); err != nil {
-			logger.Error().
-				Err(err).
-				Str("subscription", sub).
-				Str("resource_group", rg).
-				Str("vm", name).
-				Msg("failed to boot real Azure virtual machine")
-			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to boot real virtual machine: %v", err)
+		created, busy := false, false
+		azureVMs.Upsert(id, func(stored *VirtualMachine) {
+			if stored.ID != "" && azureVMOperationRunning(stored.Properties.ProvisioningState) {
+				busy = true
+				return
+			}
+			created = stored.ID == ""
+			if vm.Properties.VMID == "" {
+				vm.Properties.VMID = stored.Properties.VMID
+			}
+			if vm.Properties.VMID == "" {
+				vm.Properties.VMID = sim.NewUUID()
+			}
+			vm.Properties.ProvisioningState = "Updating"
+			if created {
+				vm.Properties.ProvisioningState = "Creating"
+			}
+			*stored = vm
+		})
+		if busy {
+			azureVMOperationConflict(w, "CreateOrUpdate", id)
 			return
 		}
-		azureVMs.Put(id, vm)
-		azureVMStates.Put(id, "PowerState/running")
+		priorState, _ := azureVMStates.Get(id)
+		if created {
+			priorState = "PowerState/deallocated"
+		}
+		if !azureFabric.VMAlive(id) {
+			azureVMStates.Put(id, "PowerState/starting")
+		}
 		for _, nicRef := range vm.Properties.NetworkProfile.NetworkInterfaces {
 			azureNICs.Update(nicRef.ID, func(nic *NetworkInterface) {
 				nic.Properties.VirtualMachine = &SubResource{ID: id}
 			})
 		}
-		sim.WriteJSON(w, http.StatusOK, virtualMachineWithInstanceView(vm))
+		opID := azureRunVMOperation(id, func(ctx context.Context) *AsyncOperationError {
+			if err := azureBootVM(ctx, vm); err != nil {
+				logger.Error().
+					Err(err).
+					Str("subscription", sub).
+					Str("resource_group", rg).
+					Str("vm", name).
+					Msg("failed to boot real Azure virtual machine")
+				azureVMStates.Put(id, priorState)
+				return azureVMBootFailure(id, err)
+			}
+			azureVMStates.Put(id, "PowerState/running")
+			return nil
+		})
+		w.Header().Set("Azure-AsyncOperation", azureAsyncOperationHeader(r, sub, "Microsoft.Compute", vm.Location,
+			"operationStatuses", opID, r.URL.Query().Get("api-version")))
+		setAzureAsyncOperationRetryAfter(w, opID)
+		status := http.StatusOK
+		if created {
+			status = http.StatusCreated
+		}
+		stored, _ := azureVMs.Get(id)
+		sim.WriteJSON(w, status, virtualMachineWithInstanceView(stored))
 	})
 
 	// VirtualMachines_Update — the PATCH that carries a VirtualMachineUpdate:
@@ -1344,73 +1385,66 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
+		if azureVMOperationRunning(vm.Properties.ProvisioningState) {
+			azureVMOperationConflict(w, "Delete", id)
+			return
+		}
 		if err := azureDeleteRealVM(r.Context(), vm); err != nil {
 			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real virtual machine: %v", err)
 			return
 		}
 		azureVMs.Delete(id)
 		azureVMStates.Delete(id)
+		azureVMProvisioningErrors.Delete(id)
 		w.WriteHeader(http.StatusOK)
 	})
 
-	for _, action := range []string{"start", "powerOff", "restart", "deallocate"} {
-		action := action
-		srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/"+action, func(w http.ResponseWriter, r *http.Request) {
-			sub := sim.PathParam(r, "subscriptionId")
-			rg := sim.PathParam(r, "resourceGroupName")
-			name := sim.PathParam(r, "vmName")
-			id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/%s",
-				sub, rg, name)
-			vm, ok := azureVMs.Get(id)
+	// Each action names the power state the machine passes through and the
+	// one it settles in; a boot follows the halt only for start and restart.
+	for _, action := range []struct {
+		name, transition, settled string
+		halt, boot                bool
+	}{
+		{name: "start", transition: "PowerState/starting", settled: "PowerState/running", boot: true},
+		{name: "powerOff", transition: "PowerState/stopping", settled: "PowerState/stopped", halt: true},
+		{name: "deallocate", transition: "PowerState/deallocating", settled: "PowerState/deallocated", halt: true},
+		{name: "restart", transition: "PowerState/stopping", settled: "PowerState/running", halt: true, boot: true},
+	} {
+		srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/"+action.name, func(w http.ResponseWriter, r *http.Request) {
+			vm, id, ok := azureLookupVM(w, r)
 			if !ok {
-				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 				return
 			}
-			state := "PowerState/running"
-			if action == "powerOff" {
-				if err := azureStopRealVM(r.Context(), id); err != nil {
-					AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to power off real virtual machine: %v", err)
-					return
-				}
-				state = "PowerState/stopped"
+			priorState, _ := azureVMStates.Get(id)
+			if !azureClaimVMOperation(id, action.transition) {
+				azureVMOperationConflict(w, action.name, id)
+				return
 			}
-			if action == "deallocate" {
-				if err := azureStopRealVM(r.Context(), id); err != nil {
-					AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to deallocate real virtual machine: %v", err)
-					return
+			opID := azureRunVMOperation(id, func(ctx context.Context) *AsyncOperationError {
+				if action.halt {
+					if err := azureHaltVM(ctx, id); err != nil {
+						azureVMStates.Put(id, priorState)
+						return azureVMHaltFailure(id, err)
+					}
 				}
-				state = "PowerState/deallocated"
-			}
-			if action == "restart" {
-				if err := azureStopRealVM(r.Context(), id); err != nil {
-					AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to restart real virtual machine: %v", err)
-					return
+				if action.boot {
+					if action.halt {
+						azureVMStates.Put(id, "PowerState/starting")
+					}
+					if err := azureBootVM(ctx, vm); err != nil {
+						logger.Error().Err(err).Str("vm", id).Str("action", action.name).
+							Msg("failed to boot real Azure virtual machine")
+						if action.halt {
+							priorState = "PowerState/stopped"
+						}
+						azureVMStates.Put(id, priorState)
+						return azureVMBootFailure(id, err)
+					}
 				}
-				if err := azureStartRealVM(r.Context(), vm); err != nil {
-					logger.Error().
-						Err(err).
-						Str("subscription", sub).
-						Str("resource_group", rg).
-						Str("vm", name).
-						Msg("failed to restart real Azure virtual machine")
-					AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to restart real virtual machine: %v", err)
-					return
-				}
-			}
-			if action == "start" {
-				if err := azureStartRealVM(r.Context(), vm); err != nil {
-					logger.Error().
-						Err(err).
-						Str("subscription", sub).
-						Str("resource_group", rg).
-						Str("vm", name).
-						Msg("failed to start real Azure virtual machine")
-					AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to start real virtual machine: %v", err)
-					return
-				}
-			}
-			azureVMStates.Put(id, state)
-			sim.WriteJSON(w, http.StatusOK, map[string]any{"status": "Succeeded"})
+				azureVMStates.Put(id, action.settled)
+				return nil
+			})
+			writeAzureVMOperationAccepted(w, r, vm, opID)
 		})
 	}
 }
@@ -1422,7 +1456,7 @@ func virtualMachineWithInstanceView(vm VirtualMachine) VirtualMachine {
 	}
 	display := strings.TrimPrefix(state, "PowerState/")
 	statuses := []VMStatus{
-		{Code: "ProvisioningState/succeeded", Level: "Info", DisplayStatus: "Provisioning succeeded"},
+		azureVMProvisioningStatus(vm),
 		{Code: state, Level: "Info", DisplayStatus: "VM " + display},
 	}
 	// A generalized machine reports it, which is how a caller knows an image

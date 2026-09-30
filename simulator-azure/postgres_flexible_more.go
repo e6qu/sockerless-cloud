@@ -104,7 +104,7 @@ func registerPGFlexibleServerMore(srv *sim.Server) {
 func pgWriteActionAccepted(w http.ResponseWriter, r *http.Request, sub, location, opID string) {
 	opURL := azureAsyncOperationHeader(r, sub, "Microsoft.DBforPostgreSQL", location, "operationStatuses", opID, r.URL.Query().Get("api-version"))
 	w.Header().Set("Azure-AsyncOperation", opURL)
-	w.Header().Set("Retry-After", "0")
+	setAzureAsyncOperationRetryAfter(w, opID)
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -200,7 +200,7 @@ func handlePGUpdateServer(w http.ResponseWriter, r *http.Request) {
 		// data plane now; a running engine applies the rotation through the
 		// update's own long-running operation.
 		azurePGInstallOrExplain(sub, rg, name)
-		opID := issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
+		opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 			if err := azurePGRotateAdminPasswordIfRunning(sub, rg, name, rotatedPassword); err != nil {
 				return &AsyncOperationError{Code: "PasswordRotationFailed", Message: err.Error()}
 			}
@@ -389,7 +389,7 @@ func handlePGCreateBackup(w http.ResponseWriter, r *http.Request) {
 	// volume is actually captured. A failed capture fails the operation and
 	// withdraws the backup.
 	backupVolume := azurePGBackupVolume(rg, serverName, backupName)
-	opID := issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
+	opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 		if err := azurePGCaptureVolume(rg, serverName, backupVolume); err != nil {
 			pgBackups.Delete(b.ID)
 			azurePGRemoveBackupVolume(backupVolume)

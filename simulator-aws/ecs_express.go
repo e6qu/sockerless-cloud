@@ -985,6 +985,7 @@ func expressCreateAutoScaling(clusterName, serviceName string, st *expressScalin
 		TargetTracking:    cfg,
 		CreationTime:      float64(time.Now().Unix()),
 	}
+	appScalingReplaceAlarms(&policy)
 	appScalingPolicies.Put(appScalingPolicyKey(ns, resourceID, dim, policyName), policy)
 	return ns, resourceID, dim, policyName
 }
@@ -1018,6 +1019,7 @@ func expressUpdateAutoScaling(svc ECSExpressService, st *expressScalingTarget) {
 	})
 	appScalingPolicies.Update(appScalingPolicyKey(svc.ScalableTargetNS, svc.ScalableResource, svc.ScalableDim, svc.ScalingPolicy), func(p *AppScalingPolicy) {
 		p.TargetTracking = cfg
+		appScalingReplaceAlarms(p)
 	})
 }
 
@@ -1082,7 +1084,11 @@ func expressTeardown(svc ECSExpressService) {
 	if svc.ScalableResource != "" {
 		appScalableTargets.Delete(appScalableTargetKey(svc.ScalableTargetNS, svc.ScalableResource, svc.ScalableDim))
 		if svc.ScalingPolicy != "" {
-			appScalingPolicies.Delete(appScalingPolicyKey(svc.ScalableTargetNS, svc.ScalableResource, svc.ScalableDim, svc.ScalingPolicy))
+			key := appScalingPolicyKey(svc.ScalableTargetNS, svc.ScalableResource, svc.ScalableDim, svc.ScalingPolicy)
+			if policy, ok := appScalingPolicies.Get(key); ok {
+				appScalingDeleteAlarms(policy)
+			}
+			appScalingPolicies.Delete(key)
 		}
 	}
 }

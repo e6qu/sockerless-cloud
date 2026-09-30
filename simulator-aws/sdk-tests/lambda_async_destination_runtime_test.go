@@ -68,19 +68,7 @@ func TestLambda_AsyncFailureDestinationRuntime_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(202), invoked.StatusCode)
 
-	var destinationMessage string
-	require.Eventually(t, func() bool {
-		received, receiveErr := sqsClient.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-			QueueUrl:            aws.String(queueURL),
-			MaxNumberOfMessages: 1,
-			WaitTimeSeconds:     1,
-		})
-		if receiveErr != nil || len(received.Messages) == 0 {
-			return false
-		}
-		destinationMessage = aws.ToString(received.Messages[0].Body)
-		return true
-	}, 20*time.Second, 500*time.Millisecond, "AWS Lambda did not deliver its failed asynchronous invocation")
+	destinationMessage := aws.ToString(receiveSQSMessages(t, sqsClient, aws.String(queueURL), 1, 20*time.Second)[0].Body)
 
 	var record struct {
 		Version         string         `json:"version"`

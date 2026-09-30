@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 type ASLaunchConfiguration struct {
@@ -50,6 +51,7 @@ type ScalingActivity struct {
 	StartTime            string
 	EndTime              string
 	StatusCode           string
+	StatusMessage        string
 }
 
 type ASScalingPolicy struct {
@@ -232,7 +234,6 @@ func handleASCreateAutoScalingGroup(w http.ResponseWriter, r *http.Request) {
 		asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 		return
 	}
-	autoScalingGroups.Put(name, asg)
 	asEmptyResponse(w, "CreateAutoScalingGroup")
 }
 
@@ -299,7 +300,6 @@ func handleASUpdateAutoScalingGroup(w http.ResponseWriter, r *http.Request) {
 		asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 		return
 	}
-	autoScalingGroups.Put(name, asg)
 	asEmptyResponse(w, "UpdateAutoScalingGroup")
 }
 
@@ -318,7 +318,6 @@ func handleASSetDesiredCapacity(w http.ResponseWriter, r *http.Request) {
 		asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 		return
 	}
-	autoScalingGroups.Put(name, asg)
 	asEmptyResponse(w, "SetDesiredCapacity")
 }
 
@@ -331,15 +330,21 @@ func handleASDescribeScalingActivities(w http.ResponseWriter, r *http.Request) {
 		}
 		activities = append(activities, activity)
 	}
-	sort.Slice(activities, func(i, j int) bool { return activities[i].ActivityId < activities[j].ActivityId })
+	sort.SliceStable(activities, func(i, j int) bool {
+		ti, _ := time.Parse(time.RFC3339, activities[i].StartTime)
+		tj, _ := time.Parse(time.RFC3339, activities[j].StartTime)
+		if !ti.Equal(tj) {
+			return ti.After(tj)
+		}
+		return activities[i].ActivityId < activities[j].ActivityId
+	})
 	page, next, pageOK := awsPage(w, asBadToken, activities, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
 	if !pageOK {
 		return
 	}
 	var items strings.Builder
 	for _, activity := range page {
-		fmt.Fprintf(&items, `<member><ActivityId>%s</ActivityId><AutoScalingGroupName>%s</AutoScalingGroupName><Description>%s</Description><Cause>%s</Cause><StartTime>%s</StartTime><EndTime>%s</EndTime><StatusCode>%s</StatusCode></member>`,
-			activity.ActivityId, xmlEscape(activity.AutoScalingGroupName), xmlEscape(activity.Description), xmlEscape(activity.Cause), activity.StartTime, activity.EndTime, activity.StatusCode)
+		items.WriteString(asActivityMemberXML(activity))
 	}
 	body := fmt.Sprintf("<Activities>%s</Activities>", items.String())
 	if next != "" {
@@ -358,7 +363,40 @@ func handleASDeleteAutoScalingGroup(w http.ResponseWriter, r *http.Request) {
 	asg.DesiredCapacity = 0
 	_ = reconcileAutoScalingGroup(&asg, "Deleted Auto Scaling group")
 	autoScalingGroups.Delete(name)
+	asDeleteGroupChildren(name)
 	asEmptyResponse(w, "DeleteAutoScalingGroup")
+}
+
+// asDeleteGroupChildren removes what AWS deletes along with a group: its
+// scaling policies, scheduled actions, lifecycle hooks and actions, instance
+// refreshes, and warm pool and instance settings.
+func asDeleteGroupChildren(group string) {
+	for _, p := range asScalingPolicies.List() {
+		if p.AutoScalingGroupName == group {
+			asScalingPolicies.Delete(asResourceKey(group, p.Name))
+		}
+	}
+	for _, a := range asScheduledActions.List() {
+		if a.AutoScalingGroupName == group {
+			asScheduledActions.Delete(asResourceKey(group, a.Name))
+		}
+	}
+	for _, h := range asLifecycleHooks.List() {
+		if h.AutoScalingGroupName == group {
+			asLifecycleHooks.Delete(asResourceKey(group, h.Name))
+		}
+	}
+	for _, a := range asLifecycleActions.List() {
+		if a.AutoScalingGroupName == group {
+			asLifecycleActions.Delete(asxLifecycleKey(group, a.LifecycleHookName, a.Token, a.InstanceId))
+		}
+	}
+	for _, ref := range asInstanceRefreshes.List() {
+		if ref.AutoScalingGroupName == group {
+			asInstanceRefreshes.Delete(ref.InstanceRefreshId)
+		}
+	}
+	asGroupExtras.Delete(group)
 }
 
 func handleASCreateOrUpdateTags(w http.ResponseWriter, r *http.Request) {
@@ -561,7 +599,6 @@ func handleASExecutePolicy(w http.ResponseWriter, r *http.Request) {
 			asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 			return
 		}
-		autoScalingGroups.Put(asg.Name, asg)
 	}
 	asEmptyResponse(w, "ExecutePolicy")
 }
@@ -746,7 +783,6 @@ func handleASSetInstanceHealth(w http.ResponseWriter, r *http.Request) {
 					asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 					return
 				}
-				autoScalingGroups.Put(asg.Name, asg)
 				break
 			}
 		}
@@ -783,18 +819,8 @@ func handleASTerminateInstanceInAutoScalingGroup(w http.ResponseWriter, r *http.
 		asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 		return
 	}
-	autoScalingGroups.Put(owner.Name, *owner)
-	now := time.Now().UTC().Format(time.RFC3339)
-	activity := ScalingActivity{
-		ActivityId:           sim.NewUUID(),
-		AutoScalingGroupName: owner.Name,
-		Description:          cause,
-		Cause:                cause,
-		StartTime:            now,
-		EndTime:              now,
-		StatusCode:           "InProgress",
-	}
-	scalingActivities.Put(activity.ActivityId, activity)
+	activity := asNewActivity(owner.Name, "Terminating EC2 instance: "+instanceID, cause, "InProgress")
+	asFinishActivity(activity.ActivityId, "Successful", "")
 	asResponse(w, "TerminateInstanceInAutoScalingGroup", fmt.Sprintf("<Activity>%s</Activity>", scalingActivityInnerXML(activity)))
 }
 
@@ -918,7 +944,7 @@ func autoScalingInstanceXML(instanceID string, asg AutoScalingGroup) string {
 	fmt.Fprintf(&b, "<InstanceId>%s</InstanceId>", xmlEscape(instanceID))
 	fmt.Fprintf(&b, "<AutoScalingGroupName>%s</AutoScalingGroupName>", xmlEscape(asg.Name))
 	fmt.Fprintf(&b, "<AvailabilityZone>%s</AvailabilityZone>", xmlEscape(awsAvailabilityZone()))
-	b.WriteString("<LifecycleState>InService</LifecycleState>")
+	fmt.Fprintf(&b, "<LifecycleState>%s</LifecycleState>", asInstanceLifecycleState(asg.Name, instanceID))
 	b.WriteString("<HealthStatus>HEALTHY</HealthStatus>")
 	if asg.LaunchConfigurationName != "" {
 		fmt.Fprintf(&b, "<LaunchConfigurationName>%s</LaunchConfigurationName>", xmlEscape(asg.LaunchConfigurationName))
@@ -959,59 +985,53 @@ func indexOfString(list []string, v string) int {
 	return -1
 }
 
+// reconcileAutoScalingGroup brings the group's membership to its desired
+// capacity and stores it. Amazon EC2 Auto Scaling answers the request that
+// changed the capacity at once: each launched instance joins the group Pending
+// and its scaling activity stays InProgress until the instance is running,
+// which happens behind the request in asLaunchInstance.
 func reconcileAutoScalingGroup(asg *AutoScalingGroup, cause string) error {
-	lc, ok := asLaunchConfigurations.Get(asg.LaunchConfigurationName)
-	if !ok {
-		return fmt.Errorf("LaunchConfiguration %q not found", asg.LaunchConfigurationName)
-	}
-	subnetID := strings.TrimSpace(strings.Split(asg.VPCZoneIdentifier, ",")[0])
-	if subnetID == "" {
-		// No VPCZoneIdentifier — fall back to the account's default VPC subnet
-		// (a real ASG without AZ/subnet config lands in the default VPC), not a
-		// hardcoded ID.
-		subnetID = defaultVPCSubnetID()
-	}
-	subnet, ok := ec2Subnets.Get(subnetID)
-	if !ok {
-		return fmt.Errorf("subnet %q not found", subnetID)
-	}
-	for len(asg.InstanceIds) < asg.DesiredCapacity {
-		ip, err := AllocateSubnetIP(subnetID)
-		if err != nil {
-			return err
+	var launches []asLaunch
+	if len(asg.InstanceIds) < asg.DesiredCapacity {
+		lc, ok := asLaunchConfigurations.Get(asg.LaunchConfigurationName)
+		if !ok {
+			return fmt.Errorf("LaunchConfiguration %q not found", asg.LaunchConfigurationName)
 		}
-		inst, err := ec2CreateInstance(EC2InstanceCreateSpec{
-			Context:          context.Background(),
-			ReservationId:    ec2ID("r"),
-			ImageId:          lc.ImageId,
-			InstanceType:     lc.InstanceType,
-			Subnet:           subnet,
-			SubnetId:         subnetID,
-			PrivateIP:        ip,
-			SecurityGroupIds: nil,
-			Tags:             asg.Tags,
-			LaunchTime:       time.Now().UTC().Format(time.RFC3339),
-			KeyName:          lc.KeyName,
-			State:            "pending",
-		})
-		if err != nil {
-			return err
+		subnetID := strings.TrimSpace(strings.Split(asg.VPCZoneIdentifier, ",")[0])
+		if subnetID == "" {
+			// A group without VPCZoneIdentifier lands in the default VPC, as it
+			// does on AWS.
+			subnetID = defaultVPCSubnetID()
 		}
-		// Boot a real Firecracker VM only on a real-execution host; on an
-		// API-only host the launched instance is modeled as "running" at the
-		// control plane, like a direct RunInstances.
-		if ec2RealVMHostAvailable() {
-			if err := ec2StartRealVM(context.Background(), inst); err != nil {
-				_ = ec2DeleteRealNIC(context.Background(), inst.NetworkInterfaceId)
-				ec2Instances.Delete(inst.InstanceId)
-				ec2NetworkInterfaces.Delete(inst.NetworkInterfaceId)
-				ec2DeleteOnTerminationVolumes(inst.InstanceId)
-				return fmt.Errorf("failed to launch EC2 instance %s for Auto Scaling group %s: %w", inst.InstanceId, asg.Name, err)
+		subnet, ok := ec2Subnets.Get(subnetID)
+		if !ok {
+			return fmt.Errorf("subnet %q not found", subnetID)
+		}
+		for len(asg.InstanceIds) < asg.DesiredCapacity {
+			ip, err := AllocateSubnetIP(subnetID)
+			if err != nil {
+				return err
 			}
+			inst, err := ec2CreateInstance(EC2InstanceCreateSpec{
+				Context:       context.Background(),
+				ReservationId: ec2ID("r"),
+				ImageId:       lc.ImageId,
+				InstanceType:  lc.InstanceType,
+				Subnet:        subnet,
+				SubnetId:      subnetID,
+				PrivateIP:     ip,
+				Tags:          asg.Tags,
+				LaunchTime:    time.Now().UTC().Format(time.RFC3339),
+				KeyName:       lc.KeyName,
+				State:         "pending",
+			})
+			if err != nil {
+				return err
+			}
+			asg.InstanceIds = append(asg.InstanceIds, inst.InstanceId)
+			activity := asNewActivity(asg.Name, "Launching a new EC2 instance: "+inst.InstanceId, cause, "InProgress")
+			launches = append(launches, asLaunch{instanceID: inst.InstanceId, activityID: activity.ActivityId})
 		}
-		inst.State = "running"
-		ec2Instances.Put(inst.InstanceId, inst)
-		asg.InstanceIds = append(asg.InstanceIds, inst.InstanceId)
 	}
 	for len(asg.InstanceIds) > asg.DesiredCapacity {
 		id := asg.InstanceIds[len(asg.InstanceIds)-1]
@@ -1029,20 +1049,136 @@ func reconcileAutoScalingGroup(asg *AutoScalingGroup, cause string) error {
 				}
 			}
 			ec2DeleteOnTerminationVolumes(id)
+			asFinishActivity(asNewActivity(asg.Name, "Terminating EC2 instance: "+id, cause, "InProgress").ActivityId, "Successful", "")
 		}
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	activity := ScalingActivity{
-		ActivityId:           sim.NewUUID(),
-		AutoScalingGroupName: asg.Name,
-		Description:          fmt.Sprintf("%s to %d instances", cause, asg.DesiredCapacity),
-		Cause:                cause,
-		StartTime:            now,
-		EndTime:              now,
-		StatusCode:           "Successful",
+	autoScalingGroups.Put(asg.Name, *asg)
+	for _, l := range launches {
+		bg.Go(func() { asLaunchInstance(asg.Name, l) })
 	}
-	scalingActivities.Put(activity.ActivityId, activity)
 	return nil
+}
+
+// asBootInstance boots a launched instance's VM on a real-execution host; on an
+// API-only host the instance runs at the control plane alone, as a direct
+// RunInstances does.
+var asBootInstance = func(ctx context.Context, inst EC2Instance) error {
+	if !ec2RealVMHostAvailable() {
+		return nil
+	}
+	return ec2StartRealVM(ctx, inst)
+}
+
+type asLaunch struct {
+	instanceID string
+	activityID string
+}
+
+// asLaunchInstance boots a Pending group member. The instance turns running,
+// and so InService, only once its VM is up; a failed boot fails the launch
+// activity and takes the instance out of the group.
+func asLaunchInstance(group string, l asLaunch) {
+	inst, ok := ec2Instances.Get(l.instanceID)
+	if !ok {
+		asFinishActivity(l.activityID, "Cancelled", "The instance was deleted before it launched.")
+		return
+	}
+	if err := asBootInstance(context.Background(), inst); err != nil {
+		_ = ec2DeleteRealNIC(context.Background(), inst.NetworkInterfaceId)
+		ec2Instances.Update(l.instanceID, func(i *EC2Instance) {
+			i.State = "terminated"
+			i.StateReasonCode = "Server.InternalError"
+			i.StateReasonMessage = "Server.InternalError: Internal error on launch"
+		})
+		ec2NetworkInterfaces.Delete(inst.NetworkInterfaceId)
+		ec2DeleteOnTerminationVolumes(l.instanceID)
+		autoScalingGroups.Update(group, func(asg *AutoScalingGroup) {
+			if idx := indexOfString(asg.InstanceIds, l.instanceID); idx >= 0 {
+				asg.InstanceIds = append(asg.InstanceIds[:idx], asg.InstanceIds[idx+1:]...)
+			}
+		})
+		asFinishActivity(l.activityID, "Failed", fmt.Sprintf("Instance %s failed to launch: %v", l.instanceID, err))
+		return
+	}
+	if current, ok := ec2Instances.Get(l.instanceID); !ok || current.State != "pending" {
+		// Scale-in terminated the instance while it booted.
+		_ = ec2StopRealVM(context.Background(), l.instanceID)
+		asFinishActivity(l.activityID, "Cancelled", "The instance was terminated before it entered service.")
+		return
+	}
+	// The launch activity ends once EC2 has launched the instance, so it is
+	// Successful by the time a caller sees the instance running.
+	asFinishActivity(l.activityID, "Successful", "")
+	ec2Instances.Update(l.instanceID, func(i *EC2Instance) {
+		if i.State == "pending" {
+			i.State = "running"
+		}
+	})
+}
+
+// asActivityMemberXML renders an Activity; EndTime and StatusMessage appear
+// once the activity has them, and Progress reaches 100 when it ends.
+func asActivityMemberXML(a ScalingActivity) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "<member><ActivityId>%s</ActivityId><AutoScalingGroupName>%s</AutoScalingGroupName><Description>%s</Description><Cause>%s</Cause><StartTime>%s</StartTime>",
+		a.ActivityId, xmlEscape(a.AutoScalingGroupName), xmlEscape(a.Description), xmlEscape(a.Cause), a.StartTime)
+	progress := 50
+	if a.EndTime != "" {
+		fmt.Fprintf(&b, "<EndTime>%s</EndTime>", a.EndTime)
+		progress = 100
+	}
+	fmt.Fprintf(&b, "<StatusCode>%s</StatusCode>", a.StatusCode)
+	if a.StatusMessage != "" {
+		fmt.Fprintf(&b, "<StatusMessage>%s</StatusMessage>", xmlEscape(a.StatusMessage))
+	}
+	fmt.Fprintf(&b, "<Progress>%d</Progress></member>", progress)
+	return b.String()
+}
+
+// asActivityTimeLayout carries milliseconds so activities started within one
+// second still order newest first, as DescribeScalingActivities returns them.
+const asActivityTimeLayout = "2006-01-02T15:04:05.000Z"
+
+func asNewActivity(group, description, cause, status string) ScalingActivity {
+	a := ScalingActivity{
+		ActivityId:           sim.NewUUID(),
+		AutoScalingGroupName: group,
+		Description:          description,
+		Cause:                cause,
+		StartTime:            time.Now().UTC().Format(asActivityTimeLayout),
+		StatusCode:           status,
+	}
+	scalingActivities.Put(a.ActivityId, a)
+	return a
+}
+
+func asFinishActivity(activityID, status, message string) {
+	scalingActivities.Update(activityID, func(a *ScalingActivity) {
+		a.StatusCode = status
+		a.StatusMessage = message
+		a.EndTime = time.Now().UTC().Format(asActivityTimeLayout)
+	})
+}
+
+// asInstanceLifecycleState reports a group member's lifecycle state from the
+// EC2 instance behind it: Pending until the instance runs, then InService.
+func asInstanceLifecycleState(group, instanceID string) string {
+	if ex, ok := asGroupExtras.Get(group); ok && indexOfString(ex.StandbyInstances, instanceID) >= 0 {
+		return "Standby"
+	}
+	inst, ok := ec2Instances.Get(instanceID)
+	if !ok {
+		return "InService"
+	}
+	switch inst.State {
+	case "pending":
+		return "Pending"
+	case "shutting-down":
+		return "Terminating"
+	case "terminated":
+		return "Terminated"
+	}
+	return "InService"
 }
 
 // launchConfigurationARN builds the ARN AWS publishes for a launch
@@ -1065,7 +1201,7 @@ func autoScalingGroupXML(asg AutoScalingGroup) string {
 	for _, id := range asg.InstanceIds {
 		instances.WriteString("<member><InstanceId>")
 		instances.WriteString(id)
-		instances.WriteString("</InstanceId><LifecycleState>InService</LifecycleState><HealthStatus>Healthy</HealthStatus></member>")
+		fmt.Fprintf(&instances, "</InstanceId><LifecycleState>%s</LifecycleState><HealthStatus>Healthy</HealthStatus></member>", asInstanceLifecycleState(asg.Name, id))
 	}
 	arn := asg.ARN
 	if arn == "" {

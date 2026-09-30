@@ -161,6 +161,7 @@ type sbSenderProperties struct {
 	MessageID               string  `json:"MessageId"`
 	TimeToLive              float64 `json:"TimeToLive"`
 	ScheduledEnqueueTimeUtc string  `json:"ScheduledEnqueueTimeUtc"`
+	SessionID               string  `json:"SessionId"`
 }
 
 func handleSBSendMessage(w http.ResponseWriter, r *http.Request, namespace, path string) {
@@ -184,6 +185,7 @@ func handleSBSendMessage(w http.ResponseWriter, r *http.Request, namespace, path
 			return
 		}
 		out.messageID = props.MessageID
+		out.sessionID = props.SessionID
 		if props.TimeToLive > 0 {
 			out.ttl = time.Duration(props.TimeToLive * float64(time.Second))
 		}
@@ -207,7 +209,7 @@ func handleSBSendMessage(w http.ResponseWriter, r *http.Request, namespace, path
 // handleSBReceive answers Receive and Delete (DELETE …/messages/head) and
 // Peek-Lock (POST …/messages/head).
 func handleSBReceive(w http.ResponseWriter, r *http.Request, namespace, path string, peekLock bool) {
-	got, _ := sbReceive(namespace, path, 1, peekLock)
+	got, _ := sbReceive(namespace, path, "", 1, peekLock)
 	if len(got) == 0 {
 		w.WriteHeader(http.StatusNoContent)
 		return

@@ -107,7 +107,7 @@ func subscriptionProps(t *testing.T, resource map[string]any) map[string]any {
 }
 
 // createDirectedAlias creates a subscription directed at a tenant and an owner
-// and waits for the alias to finish provisioning. It returns the new
+// and checks that the create answered with the alias provisioned. It returns the new
 // subscription id and the settled alias resource.
 func (c *subscriptionTestClient) createDirectedAlias(aliasName, displayName, tenantID string) (string, map[string]any) {
 	c.t.Helper()
@@ -129,25 +129,18 @@ func (c *subscriptionTestClient) createDirectedAlias(aliasName, displayName, ten
 		c.t.Fatalf("alias creation reported no subscriptionId: %#v", props)
 	}
 
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		alias := c.doJSON(http.MethodGet, "/providers/Microsoft.Subscription/aliases/"+aliasName, nil, http.StatusOK)
-		props = subscriptionProps(c.t, alias)
-		if props["provisioningState"] == "Succeeded" {
-			return subscriptionID, alias
-		}
-		if time.Now().After(deadline) {
-			c.t.Fatalf("alias %q never reached Succeeded: %#v", aliasName, props)
-		}
-		time.Sleep(10 * time.Millisecond)
+	if props["provisioningState"] != "Succeeded" {
+		c.t.Fatalf("alias %q answered its create unprovisioned: %#v", aliasName, props)
 	}
+	alias := c.doJSON(http.MethodGet, "/providers/Microsoft.Subscription/aliases/"+aliasName, nil, http.StatusOK)
+	return subscriptionID, alias
 }
 
 // TestSubscriptionAcceptOwnershipLongRunningOperation walks the whole ownership
 // handover: a directed alias leaves the subscription's ownership Pending with
 // the URL an owner accepts it at, the acceptance answers 202 pointing at a
-// Microsoft.Subscription operation, that operation reports 202 while the
-// acceptance runs and 200 with the subscription's link afterwards, and both the
+// Microsoft.Subscription operation, that operation reports 200 with the
+// subscription's link, and both the
 // ownership status and the alias report the Completed state.
 func TestSubscriptionAcceptOwnershipLongRunningOperation(t *testing.T) {
 	c := newSubscriptionTestClient(t)
@@ -189,39 +182,21 @@ func TestSubscriptionAcceptOwnershipLongRunningOperation(t *testing.T) {
 	if location == "" {
 		t.Fatal("accept ownership answered 202 without a Location naming the operation to poll")
 	}
-	if rec.Header().Get("Retry-After") == "" {
-		t.Error("accept ownership answered 202 without a Retry-After")
+	// Accepting ownership is record-keeping the simulator finishes while it
+	// answers, so the operation is already complete: the 202 carries no
+	// Retry-After and the first poll of its Location reports the result.
+	if got := rec.Header().Get("Retry-After"); got != "" {
+		t.Errorf("accept ownership advertised Retry-After %q for an operation already complete", got)
 	}
 	operationPath := subscriptionLocationPath(t, location)
 
-	// While the acceptance runs the operation answers 202 and points at
-	// itself; the poll target of an Azure Resource Manager Location poll is
-	// stable across polls.
-	running := c.do(http.MethodGet, operationPath, nil)
-	if running.Code != http.StatusAccepted {
-		t.Fatalf("in-progress operation: status %d, want 202: %s", running.Code, running.Body.String())
+	poll := c.do(http.MethodGet, operationPath, nil)
+	if poll.Code != http.StatusOK {
+		t.Fatalf("operation poll: status %d, want 200: %s", poll.Code, poll.Body.String())
 	}
-	if subscriptionLocationPath(t, running.Header().Get("Location")) != operationPath {
-		t.Errorf("in-progress operation pointed at %q, want itself (%q)", running.Header().Get("Location"), operationPath)
-	}
-
 	var completed map[string]any
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		poll := c.do(http.MethodGet, operationPath, nil)
-		if poll.Code == http.StatusOK {
-			if err := json.Unmarshal(poll.Body.Bytes(), &completed); err != nil {
-				t.Fatalf("decode completed operation: %v: %s", err, poll.Body.String())
-			}
-			break
-		}
-		if poll.Code != http.StatusAccepted {
-			t.Fatalf("operation poll: status %d: %s", poll.Code, poll.Body.String())
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the ownership acceptance operation never completed")
-		}
-		time.Sleep(10 * time.Millisecond)
+	if err := json.Unmarshal(poll.Body.Bytes(), &completed); err != nil {
+		t.Fatalf("decode completed operation: %v: %s", err, poll.Body.String())
 	}
 	if completed["subscriptionLink"] != "/subscriptions/"+subscriptionID {
 		t.Fatalf("completed operation subscriptionLink = %v, want %q", completed["subscriptionLink"], "/subscriptions/"+subscriptionID)
@@ -271,16 +246,8 @@ func TestSubscriptionAcceptOwnershipRejectsNonPending(t *testing.T) {
 	}
 
 	statusPath := "/providers/Microsoft.Subscription/subscriptions/" + subscriptionID + "/acceptOwnershipStatus"
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		status := c.doJSON(http.MethodGet, statusPath, nil, http.StatusOK)
-		if status["acceptOwnershipState"] == "Completed" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the ownership acceptance never completed: %#v", status)
-		}
-		time.Sleep(10 * time.Millisecond)
+	if status := c.doJSON(http.MethodGet, statusPath, nil, http.StatusOK); status["acceptOwnershipState"] != "Completed" {
+		t.Fatalf("the ownership acceptance did not complete: %#v", status)
 	}
 
 	again := c.do(http.MethodPost, acceptPath, accept)

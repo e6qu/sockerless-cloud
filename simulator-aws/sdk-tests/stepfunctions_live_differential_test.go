@@ -258,12 +258,8 @@ func TestSFNLambdaTaskHistoryDifferentialAgainstAWS(t *testing.T) {
 					FunctionName: aws.String(functionName),
 				})
 			})
-			require.Eventually(t, func() bool {
-				configuration, getErr := target.lambda.GetFunctionConfiguration(ctx, &lambda.GetFunctionConfigurationInput{
-					FunctionName: aws.String(functionName),
-				})
-				return getErr == nil && configuration.State == lambdatypes.StateActive
-			}, 45*time.Second, time.Second)
+			require.NoError(t, lambda.NewFunctionActiveV2Waiter(target.lambda).Wait(ctx,
+				&lambda.GetFunctionInput{FunctionName: aws.String(functionName)}, 45*time.Second))
 
 			definition := fmt.Sprintf(
 				`{"StartAt":"Invoke","States":{"Invoke":{"Type":"Task","Resource":%q,"End":true}}}`,
@@ -750,12 +746,8 @@ func TestLambdaZIPAndLayerDifferentialAgainstAWS(t *testing.T) {
 				_, _ = target.client.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(functionName)})
 			})
 
-			require.Eventually(t, func() bool {
-				configuration, getErr := target.client.GetFunctionConfiguration(ctx, &lambda.GetFunctionConfigurationInput{
-					FunctionName: aws.String(functionName),
-				})
-				return getErr == nil && configuration.State == lambdatypes.StateActive
-			}, 30*time.Second, 500*time.Millisecond)
+			require.NoError(t, lambda.NewFunctionActiveV2Waiter(target.client).Wait(ctx,
+				&lambda.GetFunctionInput{FunctionName: aws.String(functionName)}, 30*time.Second))
 			function, err := target.client.GetFunction(ctx, &lambda.GetFunctionInput{
 				FunctionName: aws.String(functionName),
 			})
@@ -864,13 +856,10 @@ func TestLambdaVersionAliasDifferentialAgainstAWS(t *testing.T) {
 			t.Cleanup(func() {
 				_, _ = target.client.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(functionName)})
 			})
-			require.Eventually(t, func() bool {
-				configuration, getErr := target.client.GetFunctionConfiguration(ctx, &lambda.GetFunctionConfigurationInput{
-					FunctionName: aws.String(functionName),
-				})
-				return getErr == nil && configuration.State == lambdatypes.StateActive &&
-					configuration.LastUpdateStatus == lambdatypes.LastUpdateStatusSuccessful
-			}, 30*time.Second, 500*time.Millisecond)
+			require.NoError(t, lambda.NewFunctionActiveV2Waiter(target.client).Wait(ctx,
+				&lambda.GetFunctionInput{FunctionName: aws.String(functionName)}, 30*time.Second))
+			require.NoError(t, lambda.NewFunctionUpdatedV2Waiter(target.client).Wait(ctx,
+				&lambda.GetFunctionInput{FunctionName: aws.String(functionName)}, 30*time.Second))
 			published, publishErr := target.client.PublishVersion(ctx, &lambda.PublishVersionInput{
 				FunctionName: aws.String(functionName),
 				Description:  aws.String("immutable first release"),
@@ -883,12 +872,8 @@ func TestLambdaVersionAliasDifferentialAgainstAWS(t *testing.T) {
 				ZipFile:      secondCode,
 			})
 			require.NoError(t, updateCodeErr)
-			require.Eventually(t, func() bool {
-				configuration, getErr := target.client.GetFunctionConfiguration(ctx, &lambda.GetFunctionConfigurationInput{
-					FunctionName: aws.String(functionName),
-				})
-				return getErr == nil && configuration.LastUpdateStatus == lambdatypes.LastUpdateStatusSuccessful
-			}, 30*time.Second, 500*time.Millisecond)
+			require.NoError(t, lambda.NewFunctionUpdatedV2Waiter(target.client).Wait(ctx,
+				&lambda.GetFunctionInput{FunctionName: aws.String(functionName)}, 30*time.Second))
 			current, getErr := target.client.GetFunctionConfiguration(ctx, &lambda.GetFunctionConfigurationInput{
 				FunctionName: aws.String(functionName),
 			})
@@ -903,12 +888,8 @@ func TestLambdaVersionAliasDifferentialAgainstAWS(t *testing.T) {
 				},
 			})
 			require.NoError(t, updateConfigErr)
-			require.Eventually(t, func() bool {
-				configuration, configErr := target.client.GetFunctionConfiguration(ctx, &lambda.GetFunctionConfigurationInput{
-					FunctionName: aws.String(functionName),
-				})
-				return configErr == nil && configuration.LastUpdateStatus == lambdatypes.LastUpdateStatusSuccessful
-			}, 30*time.Second, 500*time.Millisecond)
+			require.NoError(t, lambda.NewFunctionUpdatedV2Waiter(target.client).Wait(ctx,
+				&lambda.GetFunctionInput{FunctionName: aws.String(functionName)}, 30*time.Second))
 			_, aliasErr := target.client.CreateAlias(ctx, &lambda.CreateAliasInput{
 				FunctionName:    aws.String(functionName),
 				Name:            aws.String("prod"),

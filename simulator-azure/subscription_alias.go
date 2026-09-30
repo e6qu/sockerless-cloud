@@ -5,9 +5,9 @@ package main
 // request: PUT /providers/Microsoft.Subscription/aliases/{aliasName} either
 // creates a new subscription under a billing scope or adopts an existing
 // subscription id, and the long-running operation completes through
-// provisioning-state polling of the alias resource itself (the documented
-// model: the 201 body carries properties.provisioningState "Accepted" and a
-// GET on the same URL reports "Succeeded"). Rename, cancel, and enable are
+// provisioning-state polling of the alias resource itself: a 201 body whose
+// properties.provisioningState is still "Accepted" sends the client to GET
+// the same URL until it reports "Succeeded". Rename, cancel, and enable are
 // the subscription-scoped POST actions the azurerm provider drives on
 // update and destroy. Wire shapes mirror the vendored Swagger
 // (specs/cloud-api/azure/subscription-arm-subscriptions-2021-10-01).
@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // SubscriptionAliasRecord mirrors SubscriptionAliasResponse in the
@@ -64,8 +63,8 @@ func registerSubscriptionAlias(srv *sim.Server) {
 	azureSubscriptionRecords = sim.MakeStore[AzureSubscriptionRecord](srv.DB(), "azure_subscription_records")
 
 	// PUT - Alias_Create: create a subscription under a billing scope, or
-	// adopt an existing subscription id under a new alias. Long-running:
-	// 201 with provisioningState "Accepted", terminal via GET on the alias.
+	// adopt an existing subscription id under a new alias. Long-running,
+	// terminal via the alias's own provisioningState.
 	srv.HandleFunc("PUT /providers/Microsoft.Subscription/aliases/{aliasName}", handleSubscriptionAliasCreate)
 
 	// GET - Alias_Get (also the LRO poll target).
@@ -75,11 +74,6 @@ func registerSubscriptionAlias(srv *sim.Server) {
 		if !ok {
 			subscriptionRPError(w, "NotFound", "The alias '"+name+"' cannot be found.", http.StatusNotFound)
 			return
-		}
-		if alias.ProvisioningState == "Accepted" {
-			// Real ARM advertises a poll interval on in-progress operations;
-			// a short one keeps SDK pollers from their 30s default.
-			w.Header().Set("Retry-After", "1")
 		}
 		sim.WriteJSON(w, http.StatusOK, subscriptionAliasResponse(alias))
 	})
@@ -241,18 +235,35 @@ func handleSubscriptionAliasCreate(w http.ResponseWriter, r *http.Request) {
 		subscriptionID = sim.NewUUID()
 	}
 
-	// Ownership of a directed subscription starts Pending and stays Pending
-	// until Subscription_AcceptOwnership completes the handover; a subscription
-	// created for the caller's own use needs no handover and settles Completed
-	// with the alias's provisioning.
+	// Provisioning the alias materializes the subscription record, work the
+	// simulator finishes in-process, so the create answers with the alias
+	// already Succeeded and the SDK's body poller needs no further read.
+	if adopting {
+		ensureAzureSubscriptionRecord(subscriptionID)
+	} else {
+		azureSubscriptionRecords.Put(subscriptionID, AzureSubscriptionRecord{
+			SubscriptionID: subscriptionID,
+			DisplayName:    displayName,
+			State:          "Enabled",
+			TenantID:       currentTenant,
+		})
+	}
+
+	// Ownership of a directed subscription stays Pending until
+	// Subscription_AcceptOwnership completes the handover; a subscription
+	// created for the caller's own use needs none and settles Completed.
+	ownershipState := "Completed"
+	if directed {
+		ownershipState = "Pending"
+	}
 	alias := SubscriptionAliasRecord{
 		Name:                 name,
 		SubscriptionID:       subscriptionID,
 		DisplayName:          displayName,
 		BillingScope:         req.Properties.BillingScope,
 		Workload:             workload,
-		ProvisioningState:    "Accepted",
-		AcceptOwnershipState: "Pending",
+		ProvisioningState:    "Succeeded",
+		AcceptOwnershipState: ownershipState,
 		CreatedTime:          time.Now().UTC().Format(time.RFC3339Nano),
 		ResellerID:           req.Properties.ResellerID,
 		ManagementGroupID:    managementGroupID,
@@ -275,29 +286,6 @@ func handleSubscriptionAliasCreate(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	bg.Go(func() {
-		// The subscription materializes while the alias provisions — the
-		// same async window real subscription creation has.
-		time.Sleep(50 * time.Millisecond)
-		if adopting {
-			ensureAzureSubscriptionRecord(subscriptionID)
-		} else {
-			azureSubscriptionRecords.Put(subscriptionID, AzureSubscriptionRecord{
-				SubscriptionID: subscriptionID,
-				DisplayName:    displayName,
-				State:          "Enabled",
-				TenantID:       currentTenant,
-			})
-		}
-		azureSubscriptionAliases.Update(name, func(rec *SubscriptionAliasRecord) {
-			rec.ProvisioningState = "Succeeded"
-			if !directed {
-				rec.AcceptOwnershipState = "Completed"
-			}
-		})
-	})
-
-	w.Header().Set("Retry-After", "1")
 	sim.WriteJSON(w, http.StatusCreated, subscriptionAliasResponse(alias))
 }
 

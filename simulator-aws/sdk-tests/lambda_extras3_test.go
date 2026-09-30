@@ -467,6 +467,16 @@ exports.handler = async (event) => {
 		output *lambda.InvokeOutput
 		err    error
 	}
+	// AWS Lambda writes to the function's log group when it exists, so the
+	// group is there for a Live Tail session before the function writes.
+	cw := cwLogsClient()
+	logGroup := "/aws/lambda/" + fn
+	_, err = cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(logGroup)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroup)})
+	})
+
 	invocationDone := make(chan invocationResult, 1)
 	go func() {
 		output, invokeErr := lc.Invoke(ctx, &lambda.InvokeInput{
@@ -477,35 +487,10 @@ exports.handler = async (event) => {
 		invocationDone <- invocationResult{output: output, err: invokeErr}
 	}()
 
-	cw := cwLogsClient()
-	var checkpointToken, durableARN string
-	require.Eventually(t, func() bool {
-		streams, streamErr := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
-			LogGroupName: aws.String("/aws/lambda/" + fn),
-		})
-		if streamErr != nil || len(streams.LogStreams) == 0 {
-			return false
-		}
-		for _, stream := range streams.LogStreams {
-			events, eventErr := cw.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
-				LogGroupName:  aws.String("/aws/lambda/" + fn),
-				LogStreamName: stream.LogStreamName,
-			})
-			if eventErr != nil {
-				continue
-			}
-			for _, event := range events.Events {
-				message := aws.ToString(event.Message)
-				if strings.Contains(message, "CHECKPOINT_TOKEN=") {
-					checkpointToken = strings.TrimSpace(strings.SplitN(message, "CHECKPOINT_TOKEN=", 2)[1])
-				}
-				if strings.Contains(message, "DURABLE_ARN=") {
-					durableARN = strings.TrimSpace(strings.SplitN(message, "DURABLE_ARN=", 2)[1])
-				}
-			}
-		}
-		return checkpointToken != "" && durableARN != ""
-	}, 15*time.Second, 100*time.Millisecond)
+	checkpointToken := strings.TrimSpace(strings.SplitN(
+		awaitLogLine(t, cw, logGroup, "CHECKPOINT_TOKEN=", 15*time.Second), "CHECKPOINT_TOKEN=", 2)[1])
+	durableARN := strings.TrimSpace(strings.SplitN(
+		awaitLogLine(t, cw, logGroup, "DURABLE_ARN=", 15*time.Second), "DURABLE_ARN=", 2)[1])
 
 	checkpoint, err := lc.CheckpointDurableExecution(ctx, &lambda.CheckpointDurableExecutionInput{
 		DurableExecutionArn: aws.String(durableARN),

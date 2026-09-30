@@ -85,6 +85,16 @@ func lambdaDeploymentZip(t *testing.T) []byte {
 
 // emptySHA256 is the hex SHA-256 of an empty body — the payload hash for a
 // signed GET request with no body (Lambda's REST list/get operations).
+// waiterMinDelay and waiterMaxDelay bound the gap an SDK waiter leaves between
+// its describe calls. The waiters' published defaults (5 to 60 seconds between
+// attempts, up to 120) are sized for resources that take minutes; the
+// resources these tests wait on settle within seconds, and a waiter left on
+// its defaults spends most of each test asleep past the transition.
+const (
+	waiterMinDelay = 250 * time.Millisecond
+	waiterMaxDelay = 2 * time.Second
+)
+
 const emptySHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 // signRawSigV4 signs a hand-built HTTP request with SigV4 using the seed

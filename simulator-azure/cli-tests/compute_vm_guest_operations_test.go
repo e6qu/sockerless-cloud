@@ -28,12 +28,12 @@ func TestComputeVirtualMachineGuestOperationsCLI(t *testing.T) {
 
 	vmPath := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/cli-guest",
 		baseURL, subscriptionID, resourceGroup)
-	runCLI(t, azRest("PUT", vmPath+"?api-version=2022-03-01", fmt.Sprintf(
+	azRestLongRunning(t, "PUT", vmPath+"?api-version=2022-03-01", fmt.Sprintf(
 		`{"location":"eastus","properties":{"hardwareProfile":{"vmSize":"Standard_B1s"},`+
 			`"storageProfile":{"osDisk":{"name":"cli-guest-osdisk","createOption":"FromImage","managedDisk":{"storageAccountType":"Standard_LRS"}}},`+
 			`"osProfile":{"computerName":"cli-guest","adminUsername":"azureuser","adminPassword":"Str0ng-password-12345!"},`+
 			`"diagnosticsProfile":{"bootDiagnostics":{"enabled":true,"storageUri":"https://simbootdiag.blob.core.windows.net/"}},`+
-			`"networkProfile":{"networkInterfaces":[{"id":%q,"properties":{"primary":true}}]}}}`, nicID)))
+			`"networkProfile":{"networkInterfaces":[{"id":%q,"properties":{"primary":true}}]}}}`, nicID))
 
 	t.Run("a Custom Script extension runs its command in the guest", func(t *testing.T) {
 		const marker = "cli-ran-in-the-guest"

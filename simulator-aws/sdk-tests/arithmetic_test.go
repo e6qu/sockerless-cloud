@@ -3,7 +3,6 @@ package aws_sdk_test
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -213,7 +212,7 @@ func TestECS_TaskArithmeticInvalid(t *testing.T) {
 }
 
 func TestECS_TaskArithmeticLogs(t *testing.T) {
-	_, _, _ = ecsRunTaskHelper(t, "arith-ecs-logs", ecstypes.ContainerDefinition{
+	client, clusterName, taskArn := ecsRunTaskHelper(t, "arith-ecs-logs", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
 		Image:       aws.String(evalImageName),
@@ -227,24 +226,18 @@ func TestECS_TaskArithmeticLogs(t *testing.T) {
 		},
 	})
 
-	// Poll CloudWatch until the task has run and its logs are ingested (both
-	// async in the sim) — a fixed sleep races a loaded runner.
+	// The awslogs driver has delivered every line by the time the task stops.
+	waitTaskStopped(t, client, clusterName, taskArn)
 	cw := cwLogsClient()
-	var allLogs string
-	require.Eventually(t, func() bool {
-		out, err := cw.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
-			LogGroupName: aws.String("/ecs/arith-ecs-logs"),
-		})
-		if err != nil {
-			return false
-		}
-		var messages []string
-		for _, e := range out.Events {
-			messages = append(messages, *e.Message)
-		}
-		allLogs = strings.Join(messages, "\n")
-		return strings.Contains(allLogs, "3.333") && strings.Contains(allLogs, "Parsing expression:")
-	}, 60*time.Second, 250*time.Millisecond)
+	out, err := cw.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
+		LogGroupName: aws.String("/ecs/arith-ecs-logs"),
+	})
+	require.NoError(t, err)
+	var messages []string
+	for _, e := range out.Events {
+		messages = append(messages, aws.ToString(e.Message))
+	}
+	allLogs := strings.Join(messages, "\n")
 	assert.Contains(t, allLogs, "3.333", "expected result '3.333...' in CloudWatch logs")
 	assert.Contains(t, allLogs, "Parsing expression:", "expected parsing log in CloudWatch")
 }

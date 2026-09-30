@@ -70,13 +70,11 @@ func TestECS_CLI_ServiceFamily(t *testing.T) {
 	var running struct {
 		TaskArns []string `json:"taskArns"`
 	}
-	require.Eventually(t, func() bool {
-		out := runCLI(t, awsCLI("ecs", "list-tasks",
-			"--cluster", cluster, "--service-name", "cli-svc",
-			"--desired-status", "RUNNING", "--output", "json"))
-		parseJSON(t, out, &running)
-		return len(running.TaskArns) == 2
-	}, 30*time.Second, 100*time.Millisecond, "service did not launch two real tasks")
+	runCLI(t, awsCLI("ecs", "wait", "services-stable", "--cluster", cluster, "--services", "cli-svc"))
+	parseJSON(t, runCLI(t, awsCLI("ecs", "list-tasks",
+		"--cluster", cluster, "--service-name", "cli-svc",
+		"--desired-status", "RUNNING", "--output", "json")), &running)
+	require.Len(t, running.TaskArns, 2, "service did not launch two real tasks")
 	stoppedArn := running.TaskArns[0]
 	runCLI(t, awsCLI("ecs", "stop-task", "--cluster", cluster, "--task", stoppedArn))
 	require.Eventually(t, func() bool {
@@ -166,7 +164,7 @@ func TestECS_CLI_RunTaskAndCheckLogs(t *testing.T) {
 
 	// Poll until the task reaches STOPPED; netns setup on CI can make a fixed
 	// sleep race the real container lifecycle.
-	out = pollECSTaskStopped(t, "cli-ecs-cluster", taskArn)
+	out = waitECSTaskStoppedCLI(t, "cli-ecs-cluster", taskArn)
 
 	var descResult struct {
 		Tasks []struct {
@@ -290,26 +288,24 @@ func TestECS_CLI_RunTaskContainerOverrideEnvironment(t *testing.T) {
 	taskArn := runResult.Tasks[0].TaskArn
 	cleanupCLIECSTask(t, cluster, taskArn)
 
-	pollECSTaskStopped(t, cluster, taskArn)
+	waitECSTaskStoppedCLI(t, cluster, taskArn)
 
-	require.Eventually(t, func() bool {
-		logOut := runCLI(t, awsCLI("logs", "filter-log-events",
-			"--log-group-name", logGroup,
-			"--output", "json",
-		))
-		var logResult struct {
-			Events []struct {
-				Message string `json:"message"`
-			} `json:"events"`
-		}
-		parseJSON(t, logOut, &logResult)
-		for _, e := range logResult.Events {
-			if strings.Contains(e.Message, "override:ws-cli:from-task-definition:from-runtask") {
-				return true
-			}
-		}
-		return false
-	}, 10*time.Second, 500*time.Millisecond)
+	// The awslogs driver has delivered every line by the time the task stops.
+	logOut := runCLI(t, awsCLI("logs", "filter-log-events",
+		"--log-group-name", logGroup,
+		"--output", "json",
+	))
+	var logResult struct {
+		Events []struct {
+			Message string `json:"message"`
+		} `json:"events"`
+	}
+	parseJSON(t, logOut, &logResult)
+	var messages []string
+	for _, e := range logResult.Events {
+		messages = append(messages, e.Message)
+	}
+	assert.Contains(t, strings.Join(messages, "\n"), "override:ws-cli:from-task-definition:from-runtask")
 }
 
 func TestECS_CLI_ExecuteCommandRejectedWhenNotEnabled(t *testing.T) {
@@ -526,7 +522,7 @@ func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 	}
 	parseJSON(t, out, &snapResult)
 	require.NotEmpty(t, snapResult.SnapshotId)
-	waitCLISnapshotStatus(t, snapResult.SnapshotId, "completed")
+	waitCLISnapshotCompleted(t, snapResult.SnapshotId)
 	t.Cleanup(func() {
 		runCLI(t, awsCLI("ec2", "delete-snapshot", "--snapshot-id", snapResult.SnapshotId))
 	})
@@ -646,7 +642,7 @@ func TestECS_CLI_RunTaskNonZeroExit(t *testing.T) {
 
 	// Poll until the task reaches STOPPED; netns setup on CI can make a fixed
 	// sleep race the real container lifecycle.
-	out = pollECSTaskStopped(t, "cli-ecs-fail-cluster", taskArn)
+	out = waitECSTaskStoppedCLI(t, "cli-ecs-fail-cluster", taskArn)
 
 	var descResult struct {
 		Tasks []struct {
@@ -732,22 +728,15 @@ func TestECS_CLI_TagAndUntagTask(t *testing.T) {
 	}
 }
 
+// waitCLITaskStatus waits for RUNNING or STOPPED with `aws ecs wait
+// tasks-running` or `aws ecs wait tasks-stopped`.
 func waitCLITaskStatus(t *testing.T, clusterName, taskArn, want string) {
 	t.Helper()
-	require.Eventually(t, func() bool {
-		out := runCLI(t, awsCLI("ecs", "describe-tasks",
-			"--cluster", clusterName,
-			"--tasks", taskArn,
-			"--output", "json",
-		))
-		var desc struct {
-			Tasks []struct {
-				LastStatus string `json:"lastStatus"`
-			} `json:"tasks"`
-		}
-		parseJSON(t, out, &desc)
-		return len(desc.Tasks) == 1 && desc.Tasks[0].LastStatus == want
-	}, 20*time.Second, 500*time.Millisecond)
+	waiter := map[string]string{"RUNNING": "tasks-running", "STOPPED": "tasks-stopped"}[want]
+	if waiter == "" {
+		t.Fatalf("the AWS CLI has no waiter for lastStatus %s", want)
+	}
+	runCLI(t, awsCLI("ecs", "wait", waiter, "--cluster", clusterName, "--tasks", taskArn))
 }
 
 func cliEBSVolumeID(t *testing.T, attachments []struct {

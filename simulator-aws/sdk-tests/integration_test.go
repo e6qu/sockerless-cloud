@@ -107,20 +107,15 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 
 	// The container's own first line reaches the stream while the task runs,
 	// and it is the first event: nothing precedes what the container wrote.
-	var first string
-	require.Eventually(t, func() bool {
-		events, err := cwC.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
-			LogGroupName:  aws.String(logGroup),
-			LogStreamName: streams.LogStreams[0].LogStreamName,
-			StartFromHead: aws.Bool(true),
-		})
-		if err != nil || len(events.Events) == 0 {
-			return false
-		}
-		first = aws.ToString(events.Events[0].Message)
-		return true
-	}, 30*time.Second, 250*time.Millisecond, "the running container's stdout should reach its log stream")
-	require.Equal(t, "lifecycle-app-up", first, "the stream must begin with the container's first line")
+	awaitLogLine(t, cwC, logGroup, "lifecycle-app-up", 30*time.Second)
+	events, err := cwC.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
+		LogGroupName:  aws.String(logGroup),
+		LogStreamName: streams.LogStreams[0].LogStreamName,
+		StartFromHead: aws.Bool(true),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, events.Events, "the running container's stdout should reach its log stream")
+	require.Equal(t, "lifecycle-app-up", aws.ToString(events.Events[0].Message), "the stream must begin with the container's first line")
 
 	// Stop task
 	_, err = ecsC.StopTask(ctx, &ecs.StopTaskInput{

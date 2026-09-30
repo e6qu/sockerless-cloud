@@ -151,11 +151,13 @@ func psPublishMessages(tName string, msgs []PSMessage) ([]string, error) {
 		msgs[i].PublishTime = nowTimestamp()
 	}
 	now := time.Now()
+	wakePush := false
 	for _, sub := range psSubscriptions.Filter(func(s PSSubscription) bool { return s.Topic == tName && !s.Detached }) {
 		filter, err := psParseFilter(sub.Filter)
 		if err != nil {
 			continue
 		}
+		wakePush = wakePush || psPushes(sub)
 		pol := psPolicy(sub)
 		psQueues.Upsert(sub.Name, func(q *psQueue) {
 			q.Subscription = sub.Name
@@ -171,6 +173,9 @@ func psPublishMessages(tName string, msgs []PSMessage) ([]string, error) {
 				q.Queue.Enqueue(m, opts, pol, now)
 			}
 		})
+	}
+	if wakePush {
+		psWakePush()
 	}
 	ids := make([]string, 0, len(msgs))
 	for _, m := range msgs {
@@ -291,10 +296,13 @@ func psRetained(s PSSubscription, acked []PSMessage, now time.Time) []PSMessage 
 
 // psModifyAckDeadline moves each named message's ack deadline to seconds from
 // now; zero is a negative acknowledgement that redelivers it after the retry
-// backoff.
+// backoff. A negative acknowledgement of a message's last permitted delivery
+// attempt forwards it to the dead-letter topic there and then.
 func psModifyAckDeadline(subName string, ackIDs []string, seconds int32) {
 	s, _ := psSubscriptions.Get(subName)
 	pol, now := psPolicy(s), time.Now()
+	deadLetters := seconds == 0 && s.DeadLetterPolicy != nil && s.DeadLetterPolicy.DeadLetterTopic != ""
+	var exhausted []msgq.Message[PSMessage]
 	psQueues.Update(subName, func(q *psQueue) {
 		for _, id := range ackIDs {
 			if seconds == 0 {
@@ -303,7 +311,11 @@ func psModifyAckDeadline(subName string, ackIDs []string, seconds int32) {
 			}
 			q.Queue.Extend(id, time.Duration(seconds)*time.Second, pol, now)
 		}
+		if deadLetters {
+			exhausted = q.Queue.Exhausted(pol, now)
+		}
 	})
+	psForwardDeadLetters(s, exhausted)
 }
 
 // psRelease gives back a leased message without counting the delivery, for a

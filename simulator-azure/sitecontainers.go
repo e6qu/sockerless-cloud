@@ -186,29 +186,25 @@ func siteContainerVolumeBinds(siteName string, mounts []SiteContainerVolMount) [
 // container:<mainID>). A sidecar that binds localhost:<port> is then
 // reachable from the main on localhost:<port> — the App Service
 // multi-container loopback contract. Handles are returned so the caller can
-// tear them down with the main on invoke completion.
-func startSidecarContainers(site *Site, mainContainerID string, sink sim.LogSink) []*sim.ContainerHandle {
+// tear them down with the main on invoke completion. A sidecar that does not
+// start fails the site's start, as on App Service, where a site whose
+// sitecontainer fails to start does not run; the sidecars already started are
+// stopped and the main stays the caller's to stop.
+func startSidecarContainers(ctx context.Context, site *Site, mainContainerID string, sink sim.LogSink) ([]*sim.ContainerHandle, error) {
 	sidecars := sidecarSiteContainers(site.ID)
 	if len(sidecars) == 0 {
-		return nil
+		return nil, nil
 	}
 	metadataEnv, err := hostMetadataEnv()
 	if err != nil {
-		injectAppTrace(site.Name, fmt.Sprintf("sidecars: resolve the metadata endpoint failed: %v", err))
-		return nil
+		return nil, fmt.Errorf("sidecars: resolve the metadata endpoint: %w", err)
 	}
-	var handles []*sim.ContainerHandle
+	members := make([]workload.Container, 0, len(sidecars))
 	for _, sc := range sidecars {
-		localImage := sim.ResolveLocalImage(sc.Properties.Image)
-		platform, err := workload.LocalImagePlatform(context.Background(), localImage, "")
-		if err != nil {
-			injectAppTrace(site.Name, fmt.Sprintf("sidecar %q: resolve image platform failed: %v", sc.Name, err))
-			continue
-		}
-		handle, err := sim.StartContainerSync(sim.ContainerConfig{
+		members = append(members, workload.Container{Name: sc.Name, Config: sim.ContainerConfig{
 			CancelGracePeriod: siteStopGrace(site),
-			Image:             localImage,
-			Architecture:      platform,
+			Image:             sim.ResolveLocalImage(sc.Properties.Image),
+			RegistryAuth:      acrWorkloadRegistryAuth(sc.Properties.Image, siteWorkloadRegistries(site, sc.Properties.Image)),
 			Args:              splitStartUpCommand(sc.Properties.StartUpCommand),
 			Env:               workloadhost.MergeEnv(envVarsMap(sc.Properties.EnvironmentVariables), metadataEnv),
 			Binds:             siteContainerVolumeBinds(site.Name, sc.Properties.VolumeMounts),
@@ -219,16 +215,15 @@ func startSidecarContainers(site *Site, mainContainerID string, sink sim.LogSink
 				"sockerless-sitecontainer":      sc.Name,
 				"sockerless-sitecontainer-main": mainContainerID,
 			},
-			NetworkMode: "container:" + mainContainerID,
-			Sandbox:     SandboxAZF,
-		}, sink)
-		if err != nil {
-			injectAppTrace(site.Name, fmt.Sprintf("sidecar %q: start failed: %v", sc.Name, err))
-			continue
-		}
-		handles = append(handles, handle)
+			Sandbox: SandboxAZF,
+		}})
 	}
-	return handles
+	handles, err := workload.StartSidecars(ctx, mainContainerID, members, sink)
+	if err != nil {
+		injectAppTrace(site.Name, fmt.Sprintf("sitecontainers: %v", err))
+		return nil, err
+	}
+	return handles, nil
 }
 
 // cleanupSiteContainers removes a deleted site's sitecontainers from the

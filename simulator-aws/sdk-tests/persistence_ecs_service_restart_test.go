@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,18 +53,14 @@ func TestAmazonECSServiceAdoptsItsTaskAcrossSimulatorRestart_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var originalTaskARN string
-	require.Eventually(t, func() bool {
-		listed, listErr := client.ListTasks(testCtx, &ecs.ListTasksInput{
-			Cluster: aws.String(cluster), ServiceName: aws.String(service),
-			DesiredStatus: ecstypes.DesiredStatusRunning,
-		})
-		if listErr != nil || len(listed.TaskArns) != 1 {
-			return false
-		}
-		originalTaskARN = listed.TaskArns[0]
-		return originalTaskARN != ""
-	}, 30*time.Second, 100*time.Millisecond, "service task did not reach RUNNING")
+	waitForECSServicesStable(t, client, cluster, 30*time.Second, service)
+	original, err := client.ListTasks(testCtx, &ecs.ListTasksInput{
+		Cluster: aws.String(cluster), ServiceName: aws.String(service),
+		DesiredStatus: ecstypes.DesiredStatusRunning,
+	})
+	require.NoError(t, err)
+	require.Len(t, original.TaskArns, 1, "service task did not reach RUNNING")
+	originalTaskARN := original.TaskArns[0]
 
 	shutdownSimulator(cmd)
 	cmd = startPersistentSimulator(t, stateDir, tcpPort, udpPort, "docker")
@@ -71,21 +68,15 @@ func TestAmazonECSServiceAdoptsItsTaskAcrossSimulatorRestart_SDK(t *testing.T) {
 		options.BaseEndpoint = aws.String(endpoint)
 	})
 
-	require.Eventually(t, func() bool {
-		listed, listErr := client.ListTasks(testCtx, &ecs.ListTasksInput{
-			Cluster: aws.String(cluster), ServiceName: aws.String(service),
-			DesiredStatus: ecstypes.DesiredStatusRunning,
-		})
-		if listErr != nil || len(listed.TaskArns) != 1 || listed.TaskArns[0] != originalTaskARN {
-			return false
-		}
-		described, describeErr := client.DescribeServices(testCtx, &ecs.DescribeServicesInput{
-			Cluster: aws.String(cluster), Services: []string{service},
-		})
-		return describeErr == nil && len(described.Services) == 1 &&
-			described.Services[0].RunningCount == 1 &&
-			described.Services[0].PendingCount == 0
-	}, 30*time.Second, 100*time.Millisecond, "restart did not adopt exactly the original service task")
+	adopted := waitForECSServicesStable(t, client, cluster, 30*time.Second, service).Services[0]
+	assert.EqualValues(t, 1, adopted.RunningCount)
+	assert.EqualValues(t, 0, adopted.PendingCount)
+	listed, err := client.ListTasks(testCtx, &ecs.ListTasksInput{
+		Cluster: aws.String(cluster), ServiceName: aws.String(service),
+		DesiredStatus: ecstypes.DesiredStatusRunning,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{originalTaskARN}, listed.TaskArns, "restart did not adopt exactly the original service task")
 
 	_, err = client.UpdateService(testCtx, &ecs.UpdateServiceInput{
 		Cluster: aws.String(cluster), Service: aws.String(service), DesiredCount: aws.Int32(0),
@@ -154,13 +145,7 @@ func TestAmazonECSServiceReleasesItsVPCNetworkAcrossSimulatorRestart_SDK(t *test
 		},
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		described, describeErr := ecsAPI.DescribeServices(testCtx, &ecs.DescribeServicesInput{
-			Cluster: aws.String(cluster), Services: []string{service},
-		})
-		return describeErr == nil && len(described.Services) == 1 &&
-			described.Services[0].RunningCount == 1
-	}, 30*time.Second, 100*time.Millisecond)
+	waitForECSServicesStable(t, ecsAPI, cluster, 30*time.Second, service)
 
 	shutdownSimulator(cmd)
 	cmd = startPersistentSimulator(t, stateDir, tcpPort, udpPort, "docker")

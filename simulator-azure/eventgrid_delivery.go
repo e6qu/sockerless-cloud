@@ -168,23 +168,26 @@ func eventGridBatches(es EventGridEventSubscription, events []json.RawMessage) [
 
 // eventGridFilterAdmits applies an event subscription's filter:
 // includedEventTypes, subjectBeginsWith and subjectEndsWith, compared without
-// case unless isSubjectCaseSensitive.
+// case unless isSubjectCaseSensitive, and every advanced filter.
 func eventGridFilterAdmits(es EventGridEventSubscription, raw json.RawMessage) bool {
 	filter, ok := es.Properties["filter"].(map[string]any)
 	if !ok {
 		return true
 	}
-	var event struct {
-		EventType string `json:"eventType"`
-		Subject   string `json:"subject"`
-	}
+	var event map[string]any
 	if json.Unmarshal(raw, &event) != nil {
 		return false
+	}
+	// An Event Grid schema event names its type eventType; a CloudEvents one,
+	// type.
+	eventType, _ := event["eventType"].(string)
+	if eventType == "" {
+		eventType, _ = event["type"].(string)
 	}
 	if types, ok := filter["includedEventTypes"].([]any); ok && len(types) > 0 {
 		matched := false
 		for _, t := range types {
-			if s, _ := t.(string); strings.EqualFold(s, event.EventType) {
+			if s, _ := t.(string); strings.EqualFold(s, eventType) {
 				matched = true
 			}
 		}
@@ -192,8 +195,17 @@ func eventGridFilterAdmits(es EventGridEventSubscription, raw json.RawMessage) b
 			return false
 		}
 	}
+	onArrays, _ := filter["enableAdvancedFilteringOnArrays"].(bool)
+	if advanced, ok := filter["advancedFilters"].([]any); ok {
+		for _, f := range advanced {
+			spec, _ := f.(map[string]any)
+			if !eventGridAdvancedFilterMatches(spec, event, onArrays) {
+				return false
+			}
+		}
+	}
 	caseSensitive, _ := filter["isSubjectCaseSensitive"].(bool)
-	subject := event.Subject
+	subject, _ := event["subject"].(string)
 	fold := func(s string) string {
 		if caseSensitive {
 			return s

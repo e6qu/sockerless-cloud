@@ -435,7 +435,7 @@ func handleAPIMServiceLRO(w http.ResponseWriter, r *http.Request) {
 	}
 	opID := issueAzureAsyncOperation(nil)
 	opURL := azureAsyncOperationHeader(r, sub, "Microsoft.ApiManagement", location, "operationStatuses", opID, "2022-08-01")
-	writeAzureAsyncCreateHeaders(w, opURL, azureCurrentRequestURL(r))
+	writeAzureAsyncCreateHeaders(w, opID, opURL, azureCurrentRequestURL(r))
 	w.WriteHeader(http.StatusAccepted)
 }
 

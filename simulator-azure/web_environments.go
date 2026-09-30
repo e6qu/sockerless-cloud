@@ -1414,11 +1414,12 @@ func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc))
 			return
 		}
 		sites := aseSortedSites(row.ID)
-		opID := issueAzureAsyncOperation(func() {
+		opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 			for _, site := range sites {
 				stopAzureFunctionInstance(site.Name)
 				recordWebSiteEvent(site.ID, "Restart", webEventCausePlatform)
 			}
+			return nil
 		})
 		aseAccepted(w, r, row, opID)
 	})
@@ -1505,7 +1506,7 @@ func aseAcceptedCollection(w http.ResponseWriter, r *http.Request, row AppServic
 func aseAccepted(w http.ResponseWriter, r *http.Request, row AppServiceEnvironmentResource, opID string) {
 	sub := sim.PathParam(r, "subscriptionId")
 	apiVersion := r.URL.Query().Get("api-version")
-	writeAzureAsyncCreateHeaders(w,
+	writeAzureAsyncCreateHeaders(w, opID,
 		azureAsyncOperationHeader(r, sub, "Microsoft.Web", row.Location, "operationStatuses", opID, apiVersion),
 		azureAsyncOperationHeader(r, sub, "Microsoft.Web", row.Location, "operationResults", opID, apiVersion))
 	w.WriteHeader(http.StatusAccepted)

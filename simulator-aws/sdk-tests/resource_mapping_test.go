@@ -246,6 +246,7 @@ func TestECS_RunTaskNetworkConfig(t *testing.T) {
 				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
 				Image:       aws.String("alpine:latest"),
+				Command:     []string{"sleep", "60"},
 			},
 		},
 	})
@@ -304,36 +305,20 @@ func TestECS_RunTaskNetworkConfig(t *testing.T) {
 	taskArn := *runOut.Tasks[0].TaskArn
 	cleanupECSTask(t, client, clusterName, taskArn)
 
-	// Poll until the task's ENI attachment is populated with its subnet and IP.
-	// The attachment is filled in as the task reaches RUNNING; a fixed sleep
-	// races on a loaded CI runner where that transition can take seconds.
+	// The ENI attachment carries its subnet and address once the task runs.
+	descOut := waitForECSTasksRunning(t, client, clusterName, 60*time.Second, taskArn)
 	var foundSubnet, foundIP bool
-	deadline := time.Now().Add(60 * time.Second)
-	for time.Now().Before(deadline) {
-		descOut, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-			Cluster: aws.String(clusterName),
-			Tasks:   []string{taskArn},
-		})
-		require.NoError(t, err)
-		require.Len(t, descOut.Tasks, 1)
-
-		foundSubnet, foundIP = false, false
-		for _, att := range descOut.Tasks[0].Attachments {
-			for _, detail := range att.Details {
-				if detail.Name != nil && detail.Value != nil {
-					if *detail.Name == "subnetId" && *detail.Value != "" {
-						foundSubnet = true
-					}
-					if *detail.Name == "privateIPv4Address" && *detail.Value != "" {
-						foundIP = true
-					}
+	for _, att := range descOut.Tasks[0].Attachments {
+		for _, detail := range att.Details {
+			if detail.Name != nil && detail.Value != nil {
+				if *detail.Name == "subnetId" && *detail.Value != "" {
+					foundSubnet = true
+				}
+				if *detail.Name == "privateIPv4Address" && *detail.Value != "" {
+					foundIP = true
 				}
 			}
 		}
-		if foundSubnet && foundIP {
-			break
-		}
-		time.Sleep(250 * time.Millisecond)
 	}
 	assert.True(t, foundSubnet, "task attachment should have a subnetId")
 	assert.True(t, foundIP, "task attachment should have a privateIPv4Address")

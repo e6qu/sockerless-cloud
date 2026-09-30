@@ -98,13 +98,6 @@ func registerSubscriptionOwnership(srv *sim.Server) {
 			return
 		}
 		switch op.Status {
-		case "InProgress":
-			// The Location of an in-progress operation is the operation
-			// itself; Retry-After is short so a poller re-polls promptly
-			// rather than falling back to its default frequency.
-			w.Header().Set("Location", azureCurrentRequestURL(r))
-			w.Header().Set("Retry-After", "1")
-			w.WriteHeader(http.StatusAccepted)
 		case "Failed":
 			code, message := "OperationFailed", "The operation failed."
 			if op.Error != nil {
@@ -205,7 +198,7 @@ func handleSubscriptionAcceptOwnership(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.Header().Set("Location", subscriptionOperationURL(r, opID))
-	w.Header().Set("Retry-After", "1")
+	setAzureAsyncOperationRetryAfter(w, opID)
 	w.WriteHeader(http.StatusAccepted)
 }
 

@@ -102,25 +102,6 @@ func TestCosmosScriptPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
-// TestCosmosOfferPersistenceRoundTrip asserts a throughput offer keeps its
-// Account across a store reopen — cosmosOfferFor keys offers by account+rid.
-func TestCosmosOfferPersistenceRoundTrip(t *testing.T) {
-	got := storeReopenRoundTrip(t, "cosmos_offers_test", cosmosOffer{
-		Account:         "acct1",
-		OfferID:         "offer1",
-		RID:             "offer1rid",
-		OfferResourceID: "collrid",
-		OfferVersion:    "V2",
-		Content:         map[string]any{"offerThroughput": float64(400)},
-	})
-	if got.Account != "acct1" {
-		t.Fatalf("offer Account dropped on reopen: %+v", got)
-	}
-	if got.Content["offerThroughput"] != float64(400) {
-		t.Fatalf("offer content drifted on reopen: %+v", got)
-	}
-}
-
 // TestSiteAzureStorageAccountsPersistenceRoundTrip asserts a site's Azure
 // Files mount dictionary survives a store reopen while staying off the
 // Microsoft.Web site wire shape (its own config sub-resource serves it).

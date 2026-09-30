@@ -1010,7 +1010,7 @@ func staticSiteZipDeploy(w http.ResponseWriter, r *http.Request, ss StaticSiteRe
 	apiVersion := r.URL.Query().Get("api-version")
 	opURL := azureAsyncOperationHeader(r, sub, "Microsoft.Web", ss.Location, "operationStatuses", opID, apiVersion)
 	locationURL := azureAsyncOperationHeader(r, sub, "Microsoft.Web", ss.Location, "operationResults", opID, apiVersion)
-	writeAzureAsyncCreateHeaders(w, opURL, locationURL)
+	writeAzureAsyncCreateHeaders(w, opID, opURL, locationURL)
 	w.WriteHeader(http.StatusAccepted)
 }
 

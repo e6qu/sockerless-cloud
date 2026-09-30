@@ -24,11 +24,16 @@ import (
 
 func logadminClient(t *testing.T) *logadmin.Client {
 	t.Helper()
+	return logadminClientFor(t, "test-project")
+}
+
+func logadminClientFor(t *testing.T, project string) *logadmin.Client {
+	t.Helper()
 	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 
-	client, err := logadmin.NewClient(ctx, "test-project", option.WithGRPCConn(conn))
+	client, err := logadmin.NewClient(ctx, project, option.WithGRPCConn(conn))
 	require.NoError(t, err)
 	t.Cleanup(func() { client.Close() })
 
@@ -147,26 +152,27 @@ func TestLogging_FilterByResourceType(t *testing.T) {
 		loggingPayloads(t, client, byLogName))
 }
 
+// Cloud Logging stores the timestamp the writer gives each entry, so the
+// timestamp tests set them rather than wait for the clock to separate writes.
+// Each run writes to a log of its own: Cloud Logging keeps what an earlier run
+// wrote, and a shared log would hand a cutoff-before-everything query its
+// entries too.
 func TestLogging_FilterByTimestamp(t *testing.T) {
 	client := logadminClient(t)
 
 	writeClient, err := newLoggingWriteClient(t)
 	require.NoError(t, err)
 
-	logName := "ts-filter-test"
+	logName := fmt.Sprintf("ts-filter-test-%d", time.Now().UnixNano())
 	logger := writeClient.Logger(logName)
 
-	// A cutoff comfortably before the first write, one between the two writes.
-	// The early one is truncated to the second so it is unambiguously earlier
-	// than either entry's sub-second timestamp.
-	beforeAll := time.Now().UTC().Add(-time.Second).Truncate(time.Second).Format(time.RFC3339)
-	require.NoError(t, logger.LogSync(ctx, writeEntry("old entry")))
-	time.Sleep(50 * time.Millisecond)
-	cutoff := time.Now().UTC().Format(time.RFC3339Nano)
-	time.Sleep(50 * time.Millisecond)
-	require.NoError(t, logger.LogSync(ctx, writeEntry("new entry")))
+	written := time.Now().UTC().Truncate(time.Second)
+	require.NoError(t, logger.LogSync(ctx, writeEntryAt("old entry", written)))
+	require.NoError(t, logger.LogSync(ctx, writeEntryAt("new entry", written.Add(200*time.Millisecond))))
 	require.NoError(t, writeClient.Close())
 
+	beforeAll := written.Add(-time.Second).Format(time.RFC3339)
+	cutoff := written.Add(100 * time.Millisecond).Format(time.RFC3339Nano)
 	scope := fmt.Sprintf(`logName="projects/test-project/logs/%s" AND `, logName)
 
 	// Both directions around the cutoff. A sim that dropped the timestamp
@@ -179,59 +185,58 @@ func TestLogging_FilterByTimestamp(t *testing.T) {
 		"a cutoff between the writes must exclude the earlier entry")
 }
 
+// TestLogging_FilterByTimestampStrictGT covers the strict greater-than filter
+// a follower uses, timestamp>"<cutoff>": an entry stamped exactly at the
+// cutoff is excluded.
 func TestLogging_FilterByTimestampStrictGT(t *testing.T) {
-	// This test verifies the strict greater-than (>) timestamp filter used
-	// by backends in follow mode: timestamp>"<cutoff>".
 	client := logadminClient(t)
 	writeClient, err := newLoggingWriteClient(t)
 	require.NoError(t, err)
 
-	// Use a dedicated log name to isolate from other tests
-	logName := "ts-strict-gt-test"
+	logName := fmt.Sprintf("ts-strict-gt-test-%d", time.Now().UnixNano())
 	logger := writeClient.Logger(logName)
 
-	// Write first entry
-	err = logger.LogSync(ctx, writeEntry("entry-before"))
+	cutoff := time.Now().UTC().Truncate(time.Second)
+	require.NoError(t, logger.LogSync(ctx, writeEntryAt("entry-before", cutoff.Add(-100*time.Millisecond))))
+	require.NoError(t, logger.LogSync(ctx, writeEntryAt("entry-at-cutoff", cutoff)))
+	require.NoError(t, logger.LogSync(ctx, writeEntryAt("entry-after-1", cutoff.Add(100*time.Millisecond))))
+	require.NoError(t, logger.LogSync(ctx, writeEntryAt("entry-after-2", cutoff.Add(200*time.Millisecond))))
+	require.NoError(t, writeClient.Close())
+
+	filter := fmt.Sprintf(`logName="projects/test-project/logs/%s" AND timestamp>"%s"`,
+		logName, cutoff.Format(time.RFC3339Nano))
+	assert.Equal(t, []string{"entry-after-1", "entry-after-2"}, loggingPayloads(t, client, filter),
+		"a strict > filter excludes the entries at and before the cutoff")
+}
+
+// TestLogging_RESTWriteRejectsAnUnreadableTimestamp pins that entries:write
+// refuses a timestamp that is not RFC 3339 rather than storing an entry no
+// timestamp filter or ordering could place.
+func TestLogging_RESTWriteRejectsAnUnreadableTimestamp(t *testing.T) {
+	svc := loggingRESTService(t)
+	logName := fmt.Sprintf("projects/test-project/logs/rest-bad-ts-%d", time.Now().UnixNano())
+
+	_, err := svc.Entries.Write(&loggingrpc.WriteLogEntriesRequest{
+		LogName:  logName,
+		Resource: &loggingrpc.MonitoredResource{Type: "global"},
+		Entries:  []*loggingrpc.LogEntry{{TextPayload: "unplaceable", Timestamp: "yesterday"}},
+	}).Do()
+	requireGoogleErrCode(t, err, http.StatusBadRequest)
+
+	written := time.Now().UTC().Truncate(time.Second)
+	_, err = svc.Entries.Write(&loggingrpc.WriteLogEntriesRequest{
+		LogName:  logName,
+		Resource: &loggingrpc.MonitoredResource{Type: "global"},
+		Entries: []*loggingrpc.LogEntry{
+			{TextPayload: "second", Timestamp: written.Add(500 * time.Millisecond).Format(time.RFC3339Nano)},
+			{TextPayload: "first", Timestamp: written.Format(time.RFC3339)},
+		},
+	}).Do()
 	require.NoError(t, err)
 
-	// Small delay to ensure distinct timestamps
-	time.Sleep(50 * time.Millisecond)
-
-	// Record the cutoff timestamp in RFC3339Nano (between entries)
-	cutoff := time.Now().UTC().Format(time.RFC3339Nano)
-
-	// Small delay again
-	time.Sleep(50 * time.Millisecond)
-
-	// Write second and third entries (after cutoff)
-	err = logger.LogSync(ctx, writeEntry("entry-after-1"))
-	require.NoError(t, err)
-	err = logger.LogSync(ctx, writeEntry("entry-after-2"))
-	require.NoError(t, err)
-
-	err = writeClient.Close()
-	require.NoError(t, err)
-
-	// Query with strict greater-than filter on the log name + timestamp
-	filter := fmt.Sprintf(`logName="projects/test-project/logs/%s" AND timestamp>"%s"`, logName, cutoff)
-	it := client.Entries(ctx, logadmin.Filter(filter))
-
-	var messages []string
-	for {
-		entry, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		require.NoError(t, err)
-		if s, ok := entry.Payload.(string); ok {
-			messages = append(messages, s)
-		}
-	}
-
-	// Only entries written after the cutoff should be returned
-	require.Len(t, messages, 2, "strict > filter should exclude the first entry")
-	assert.Equal(t, "entry-after-1", messages[0])
-	assert.Equal(t, "entry-after-2", messages[1])
+	assert.Equal(t, []string{"first", "second"},
+		loggingPayloads(t, logadminClient(t), fmt.Sprintf(`logName=%q`, logName)),
+		"entries come back in timestamp order whatever precision their writer stamped")
 }
 
 func loggingRESTService(t *testing.T) *loggingrpc.Service {

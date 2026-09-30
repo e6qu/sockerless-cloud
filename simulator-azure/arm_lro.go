@@ -74,6 +74,9 @@ func registerAzureAsyncOperations(srv *sim.Server) {
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationResults/{opId}", handleAzureAsyncOperationStatus)
 }
 
+// issueAzureAsyncOperation records an operation whose work the simulator
+// finishes in-process while it accepts the request: the work runs before the
+// operation is recorded, so the first status read reports its outcome.
 func issueAzureAsyncOperation(complete func()) string {
 	return issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
 		if complete != nil {
@@ -103,31 +106,72 @@ func issueAzureAsyncOperationOutcome(complete func() *AsyncOperationError) strin
 // status envelope.
 func issueAzureAsyncOperationResult(complete func() (json.RawMessage, *AsyncOperationError)) string {
 	opID := sim.NewUUID()
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	op := AsyncOperationStatus{
+		Name:      opID,
+		StartTime: time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	var result json.RawMessage
+	var opErr *AsyncOperationError
+	if complete != nil {
+		result, opErr = complete()
+	}
+	settleAzureAsyncOperation(&op, result, opErr)
+	azureAsyncOps.Put(opID, op)
+	return opID
+}
+
+// startAzureAsyncOperationOutcome records an operation InProgress and runs its
+// work in the background: the operation reports InProgress until the work
+// returns, then Succeeded, or Failed with the error the work returned.
+func startAzureAsyncOperationOutcome(work func() *AsyncOperationError) string {
+	return startAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {
+		return nil, work()
+	})
+}
+
+// startAzureAsyncOperationResult is the background form of
+// issueAzureAsyncOperationResult.
+func startAzureAsyncOperationResult(work func() (json.RawMessage, *AsyncOperationError)) string {
+	opID := sim.NewUUID()
 	azureAsyncOps.Put(opID, AsyncOperationStatus{
 		Name:      opID,
 		Status:    "InProgress",
-		StartTime: now,
+		StartTime: time.Now().UTC().Format(time.RFC3339Nano),
 	})
 	bg.Go(func() {
-		time.Sleep(50 * time.Millisecond)
-		var opErr *AsyncOperationError
-		var result json.RawMessage
-		if complete != nil {
-			result, opErr = complete()
-		}
+		result, opErr := work()
 		azureAsyncOps.Update(opID, func(op *AsyncOperationStatus) {
-			op.Status = "Succeeded"
-			op.Result = result
-			if opErr != nil {
-				op.Status = "Failed"
-				op.Error = opErr
-				op.Result = nil
-			}
-			op.EndTime = time.Now().UTC().Format(time.RFC3339Nano)
+			settleAzureAsyncOperation(op, result, opErr)
 		})
 	})
 	return opID
+}
+
+func settleAzureAsyncOperation(op *AsyncOperationStatus, result json.RawMessage, opErr *AsyncOperationError) {
+	op.Status = "Succeeded"
+	op.Result = result
+	if opErr != nil {
+		op.Status = "Failed"
+		op.Error = opErr
+		op.Result = nil
+	}
+	op.EndTime = time.Now().UTC().Format(time.RFC3339Nano)
+}
+
+// azureAsyncOperationRetryAfter is the Retry-After ARM attaches to a response
+// about an operation still running. The specifications type the header as
+// whole seconds, azcore ignores zero and falls back to its 30-second default,
+// and ARM sends 1 for its quickest operations (armnetwork's recorded public IP
+// create), so 1 is the soonest a client can learn that the work finished. ARM
+// sends none once the operation is terminal.
+const azureAsyncOperationRetryAfter = "1"
+
+// setAzureAsyncOperationRetryAfter advertises the poll interval on a response
+// about opID only while that operation is still running.
+func setAzureAsyncOperationRetryAfter(w http.ResponseWriter, opID string) {
+	if op, ok := azureAsyncOps.Get(opID); ok && op.Status == "InProgress" {
+		w.Header().Set("Retry-After", azureAsyncOperationRetryAfter)
+	}
 }
 
 func azureAsyncOperationHeader(r *http.Request, sub, provider, location, kind, opID, apiVersion string) string {
@@ -146,10 +190,10 @@ func azureCurrentRequestURL(r *http.Request) string {
 	return fmt.Sprintf("%s://%s%s", azureRequestScheme(r), r.Host, r.URL.RequestURI())
 }
 
-func writeAzureAsyncCreateHeaders(w http.ResponseWriter, opURL, locationURL string) {
+func writeAzureAsyncCreateHeaders(w http.ResponseWriter, opID, opURL, locationURL string) {
 	w.Header().Set("Azure-AsyncOperation", opURL)
 	w.Header().Set("Location", locationURL)
-	w.Header().Set("Retry-After", "0")
+	setAzureAsyncOperationRetryAfter(w, opID)
 }
 
 func handleAzureAsyncOperationStatus(w http.ResponseWriter, r *http.Request) {
@@ -160,12 +204,8 @@ func handleAzureAsyncOperationStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	op.ID = strings.Replace(r.URL.Path, "/operationResults/", "/operationStatuses/", 1)
-	// Real Azure returns a Retry-After on an in-progress operation poll; advertise
-	// a short one so the SDK poller re-polls promptly. Without it azcore falls
-	// back to its 30s default frequency (a Retry-After of 0 is ignored), which
-	// would make each long-running operation in a test take 30s.
 	if op.Status == "InProgress" {
-		w.Header().Set("Retry-After", "1")
+		w.Header().Set("Retry-After", azureAsyncOperationRetryAfter)
 		// The operationResults route is ARM's Location-poll target: while the
 		// operation runs it answers 202 Accepted with no body; the envelope is
 		// the operationStatuses route's contract.

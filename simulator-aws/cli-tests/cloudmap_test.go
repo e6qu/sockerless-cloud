@@ -277,39 +277,7 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 
 	waitTasksRunning := func(tasks ...string) {
 		t.Helper()
-		var taskStatuses []string
-		deadline := time.Now().Add(45 * time.Second)
-		for time.Now().Before(deadline) {
-			taskStatuses = taskStatuses[:0]
-			allRunning := true
-			for _, taskArn := range tasks {
-				status := strings.TrimSpace(runCLI(t, awsCLI("ecs", "describe-tasks",
-					"--cluster", "cli-xtask-dns",
-					"--tasks", taskArn,
-					"--query", "tasks[0].lastStatus",
-					"--output", "text",
-				)))
-				taskStatuses = append(taskStatuses, taskArn+"="+status)
-				if status == "STOPPED" {
-					reason := strings.TrimSpace(runCLI(t, awsCLI("ecs", "describe-tasks",
-						"--cluster", "cli-xtask-dns",
-						"--tasks", taskArn,
-						"--query", "tasks[0].stoppedReason",
-						"--output", "text",
-					)))
-					taskStatuses[len(taskStatuses)-1] += " reason=" + reason
-					t.Fatalf("task stopped before RUNNING: %s", strings.Join(taskStatuses, ", "))
-				}
-				if status != "RUNNING" {
-					allRunning = false
-				}
-			}
-			if allRunning {
-				return
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-		t.Fatalf("tasks should reach RUNNING: %s", strings.Join(taskStatuses, ", "))
+		runCLI(t, awsCLI(append([]string{"ecs", "wait", "tasks-running", "--cluster", "cli-xtask-dns", "--tasks"}, tasks...)...))
 	}
 	containerName := func(taskArn string) string {
 		return "sockerless-sim-aws-task-" + taskArn[strings.LastIndex(taskArn, "/")+1:][:12]

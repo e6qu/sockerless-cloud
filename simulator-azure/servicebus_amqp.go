@@ -19,6 +19,7 @@ import (
 	"time"
 
 	amqp "github.com/Azure/go-amqp"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
 	"github.com/gorilla/websocket"
 )
@@ -69,9 +70,31 @@ type sbAMQPConn struct {
 	// deliveries maps the delivery id of each unsettled peek-lock transfer to
 	// the message lock it carries, for the receiver's disposition.
 	deliveries map[uint32]sbAMQPDelivery
-	mu         sync.Mutex
-	writeMu    sync.Mutex
+	// sessions holds the transfer-id bookkeeping of each begun session, by
+	// channel, that every flow frame reports.
+	sessions map[uint16]*sbAMQPSession
+	// done closes when the connection ends.
+	done    chan struct{}
+	mu      sync.Mutex
+	writeMu sync.Mutex
 }
+
+// sbAMQPSession is the session state AMQP 1.0 section 2.5.6 has each endpoint
+// report in its flow frames. Guarded by sbAMQPConn.mu.
+type sbAMQPSession struct {
+	nextIncomingID uint32
+	nextOutgoingID uint32
+}
+
+// sbAMQPIncomingWindow and sbAMQPOutgoingWindow are the session windows the
+// simulator advertises in begin and flow frames.
+const (
+	sbAMQPIncomingWindow = 5000
+	sbAMQPOutgoingWindow = 1000
+	// sbAMQPSenderCredit is the link credit granted to a client's sender link;
+	// the grant is renewed once half of it is spent.
+	sbAMQPSenderCredit = 1000
+)
 
 type sbAMQPDelivery struct {
 	path      string
@@ -92,7 +115,24 @@ type sbAMQPLink struct {
 	serverHandle uint32
 	clientRole   bool
 	settledSend  bool
-	credit       uint32
+	// credit and deliveryCount are the link's flow state (AMQP 1.0 section
+	// 2.6.7). On a link the simulator sends on, deliveryCount counts the
+	// transfers it sent and credit is what the receiver still allows; on a link
+	// it receives on, deliveryCount counts the transfers it received and credit
+	// is what it last granted.
+	credit        uint32
+	deliveryCount uint32
+	// drain records that the receiver asked for its unused credit back once
+	// no more messages are available.
+	drain bool
+	// session is the message session a session receiver holds the lock of;
+	// awaitingSession marks a session receiver still waiting to accept one,
+	// which is handed nothing. owner names the link as a session lock holder,
+	// and detached closes when the link ends.
+	session         string
+	awaitingSession bool
+	owner           string
+	detached        chan struct{}
 	// readSeq is the next sequence number an Event Hubs consumer link reads.
 	readSeq int64
 }
@@ -175,7 +215,37 @@ func newSBAMQPConn(namespace string, transport sbAMQPTransport) *sbAMQPConn {
 		nextDelivery: 1,
 		links:        map[uint64]*sbAMQPLink{},
 		deliveries:   map[uint32]sbAMQPDelivery{},
+		sessions:     map[uint16]*sbAMQPSession{},
+		done:         make(chan struct{}),
 	}
+}
+
+// sessionLocked returns the state of the session on channel. The caller holds
+// c.mu.
+func (c *sbAMQPConn) sessionLocked(channel uint16) *sbAMQPSession {
+	s := c.sessions[channel]
+	if s == nil {
+		s = &sbAMQPSession{nextOutgoingID: 1}
+		c.sessions[channel] = s
+	}
+	return s
+}
+
+// linkFlowLocked encodes the flow frame reporting a link's state. The caller
+// holds c.mu.
+func (c *sbAMQPConn) linkFlowLocked(link *sbAMQPLink, drain bool) []byte {
+	s := c.sessionLocked(link.channel)
+	return encodeDescribedList(amqpDescFlow, []any{
+		s.nextIncomingID,
+		uint32(sbAMQPIncomingWindow),
+		s.nextOutgoingID,
+		uint32(sbAMQPOutgoingWindow),
+		link.serverHandle,
+		link.deliveryCount,
+		link.credit,
+		uint32(0),
+		drain,
+	})
 }
 
 func (c *sbAMQPConn) setNamespace(namespace string) {
@@ -242,6 +312,15 @@ func (c *sbAMQPConn) serve(ctx context.Context) {
 	defer func() {
 		sbAMQPActiveConns.Delete(c)
 		_ = c.transport.Close()
+		c.mu.Lock()
+		ended := make([]*sbAMQPLink, 0, len(c.links))
+		for key, link := range c.links {
+			ended = append(ended, link)
+			delete(c.links, key)
+		}
+		c.mu.Unlock()
+		c.endLinks(ended)
+		close(c.done)
 	}()
 	// AMQP is a byte stream: a read can end inside a protocol header or a
 	// frame, so bytes carry over until the rest arrives.
@@ -322,11 +401,15 @@ func (c *sbAMQPConn) handleFrame(ctx context.Context, frame amqpFrame) error {
 			uint32((time.Minute / time.Millisecond) / 2),
 		}))
 	case amqpDescBegin:
+		c.mu.Lock()
+		s := &sbAMQPSession{nextIncomingID: asUint32(field(frame.fields, 1)), nextOutgoingID: 1}
+		c.sessions[frame.channel] = s
+		c.mu.Unlock()
 		return c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescBegin, []any{
 			frame.channel,
 			uint32(1),
-			uint32(5000),
-			uint32(1000),
+			uint32(sbAMQPIncomingWindow),
+			uint32(sbAMQPOutgoingWindow),
 			uint32(math.MaxInt16),
 		}))
 	case amqpDescAttach:
@@ -334,16 +417,45 @@ func (c *sbAMQPConn) handleFrame(ctx context.Context, frame amqpFrame) error {
 	case amqpDescFlow:
 		return c.handleFlow(ctx, frame)
 	case amqpDescTransfer:
+		c.mu.Lock()
+		c.sessionLocked(frame.channel).nextIncomingID++
+		c.mu.Unlock()
+		if err := c.grantSenderCredit(frame.channel, asUint32(field(frame.fields, 0))); err != nil {
+			return err
+		}
 		return c.handleTransfer(ctx, frame)
 	case amqpDescDisposition:
 		return c.handleDisposition(frame)
 	case amqpDescDetach:
 		handle := asUint32(field(frame.fields, 0))
 		c.mu.Lock()
+		var ended []*sbAMQPLink
+		link := c.links[sbAMQPLinkKey(frame.channel, handle)]
+		if link == nil {
+			// The link was refused, and the refusal already detached it.
+			c.mu.Unlock()
+			return nil
+		}
+		ended = append(ended, link)
 		delete(c.links, sbAMQPLinkKey(frame.channel, handle))
 		c.mu.Unlock()
-		return c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescDetach, []any{handle, true}))
+		c.endLinks(ended)
+		// The detach names the link by the handle this end assigned it.
+		return c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescDetach, []any{link.serverHandle, true}))
 	case amqpDescEnd:
+		// Ending a session ends its links (AMQP 1.0 section 2.5.4): a link
+		// left behind would be handed messages its receiver can never see.
+		c.mu.Lock()
+		delete(c.sessions, frame.channel)
+		var ended []*sbAMQPLink
+		for key, link := range c.links {
+			if link.channel == frame.channel {
+				ended = append(ended, link)
+				delete(c.links, key)
+			}
+		}
+		c.mu.Unlock()
+		c.endLinks(ended)
 		return c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescEnd, nil))
 	case amqpDescClose:
 		return c.writeFrame(amqpFrameTypeAMQP, 0, encodeDescribedList(amqpDescClose, nil))
@@ -374,8 +486,8 @@ func (c *sbAMQPConn) handleAttach(frame amqpFrame) error {
 	// The CBS and management endpoints carry the handshake itself and are
 	// reachable before any claim exists; every entity link requires one.
 	if entityAddress != "$cbs" && entityAddress != "$management" &&
-		!c.hasClaimFor(sbAMQPEntityPath(entityAddress)) {
-		return c.refuseAttach(frame, name, clientHandle, clientRole, sourceAddress, entityAddress)
+		!c.hasClaimFor(entityAddress) {
+		return c.refuseAttach(frame, name, clientRole, entityAddress)
 	}
 	c.mu.Lock()
 	serverHandle := c.nextHandle
@@ -392,9 +504,34 @@ func (c *sbAMQPConn) handleAttach(frame amqpFrame) error {
 	if clientRole && ehAMQPIsReceiverAddress(c.namespace, link.address) {
 		link.readSeq = ehStartPosition(c.namespace, link.address, sbAMQPSelectorFilter(field(frame.fields, 5)))
 	}
-	c.links[sbAMQPLinkKey(frame.channel, clientHandle)] = link
+	namespace := c.namespace
 	c.mu.Unlock()
 
+	requested, sessionful := sbAMQPSessionFilter(field(frame.fields, 5))
+	if clientRole {
+		if path, entity := sbAMQPReceiverPath(link.address); entity {
+			if requires := sbSettings(namespace, path).requiresSession; requires != sessionful {
+				description := "It is not possible for an entity that requires sessions to create a non-sessionful message receiver."
+				if !requires {
+					description = "It is not possible for an entity that does not require sessions to create a sessionful message receiver."
+				}
+				return c.refuseAttachWith(frame, name, clientRole, "amqp:not-allowed", description)
+			}
+		}
+	}
+	c.mu.Lock()
+	c.links[sbAMQPLinkKey(frame.channel, clientHandle)] = link
+	if clientRole && sessionful {
+		link.awaitingSession = true
+		link.owner = fmt.Sprintf("%p/%d", c, serverHandle)
+		link.detached = make(chan struct{})
+	}
+	c.mu.Unlock()
+
+	if clientRole && sessionful {
+		bg.Go(func() { c.acceptSession(frame, link, requested, sbAMQPSessionTimeout(field(frame.fields, 13))) })
+		return nil
+	}
 	if clientRole {
 		// Echo the sender settle mode the receiver asked for: settled is
 		// receive-and-delete, anything else peek-lock. AMQP's default is mixed.
@@ -412,7 +549,7 @@ func (c *sbAMQPConn) handleAttach(frame amqpFrame) error {
 			nil,
 			nil,
 			nil,
-			nil,
+			uint32(0),
 			uint64(math.MaxUint32),
 		}))
 	}
@@ -431,23 +568,49 @@ func (c *sbAMQPConn) handleAttach(frame amqpFrame) error {
 	})); err != nil {
 		return err
 	}
-	return c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescFlow, []any{
-		uint32(0),
-		uint32(5000),
-		uint32(1),
-		uint32(1000),
-		serverHandle,
-		uint32(0),
-		uint32(1000),
-		uint32(0),
-	}))
+	c.mu.Lock()
+	link.deliveryCount = asUint32(field(frame.fields, 9))
+	link.credit = sbAMQPSenderCredit
+	flow := c.linkFlowLocked(link, false)
+	c.mu.Unlock()
+	return c.writeFrame(amqpFrameTypeAMQP, frame.channel, flow)
+}
+
+// grantSenderCredit renews a client sender link's credit once half of it is
+// spent, so a sender never runs dry however many messages it sends.
+func (c *sbAMQPConn) grantSenderCredit(channel uint16, handle uint32) error {
+	c.mu.Lock()
+	link := c.links[sbAMQPLinkKey(channel, handle)]
+	if link == nil || link.clientRole {
+		c.mu.Unlock()
+		return nil
+	}
+	link.deliveryCount++
+	if link.credit > 0 {
+		link.credit--
+	}
+	if link.credit > sbAMQPSenderCredit/2 {
+		c.mu.Unlock()
+		return nil
+	}
+	link.credit = sbAMQPSenderCredit
+	flow := c.linkFlowLocked(link, false)
+	c.mu.Unlock()
+	return c.writeFrame(amqpFrameTypeAMQP, channel, flow)
 }
 
 // refuseAttach answers an attach for an entity the connection has not
 // authenticated for. Real Service Bus and Event Hubs complete the attach
 // handshake and immediately detach the link with the amqp:unauthorized-access
 // error condition, which is what the AMQP clients surface as an auth failure.
-func (c *sbAMQPConn) refuseAttach(frame amqpFrame, name string, clientHandle uint32, clientRole bool, sourceAddress, address string) error {
+func (c *sbAMQPConn) refuseAttach(frame amqpFrame, name string, clientRole bool, address string) error {
+	return c.refuseAttachWith(frame, name, clientRole, errSASInvalidSignature.Condition,
+		fmt.Sprintf("Unauthorized access. %q claim(s) are required to perform this operation.", address))
+}
+
+// refuseAttachWith completes an attach and detaches the link at once with an
+// error, the way the services refuse a link.
+func (c *sbAMQPConn) refuseAttachWith(frame amqpFrame, name string, clientRole bool, condition, description string) error {
 	c.mu.Lock()
 	serverHandle := c.nextHandle
 	c.nextHandle++
@@ -466,9 +629,9 @@ func (c *sbAMQPConn) refuseAttach(frame amqpFrame, name string, clientHandle uin
 		nil,
 		uint64(math.MaxUint32),
 	}
-	if clientRole {
-		attachFields[5] = encodeSource(sourceAddress)
-	} else {
+	// A refused link's attach carries no terminus (AMQP 1.0 section 2.6.3),
+	// which tells the client to wait for the detach that says why.
+	if !clientRole {
 		attachFields[3] = uint8(2)
 	}
 	if err := c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescAttach, attachFields)); err != nil {
@@ -477,10 +640,7 @@ func (c *sbAMQPConn) refuseAttach(frame amqpFrame, name string, clientHandle uin
 	return c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescDetach, []any{
 		serverHandle,
 		true,
-		amqpDescribed{code: amqpDescError, value: []any{
-			amqpSymbol(errSASInvalidSignature.Condition),
-			fmt.Sprintf("Unauthorized access. %q claim(s) are required to perform this operation.", address),
-		}},
+		amqpDescribed{code: amqpDescError, value: []any{amqpSymbol(condition), description}},
 	}))
 }
 
@@ -569,6 +729,9 @@ func sbOutgoingFromAMQP(msg *amqp.Message, raw []byte) sbOutgoing {
 		}
 		if msg.Properties.ContentType != nil {
 			out.payload.ContentType = *msg.Properties.ContentType
+		}
+		if msg.Properties.GroupID != nil {
+			out.sessionID = *msg.Properties.GroupID
 		}
 	}
 	if msg.Header != nil && msg.Header.TTL > 0 {
@@ -679,7 +842,7 @@ func (c *sbAMQPConn) respondRPC(channel uint16, address string, req *amqp.Messag
 		if err != nil {
 			return err
 		}
-		return c.writeTransfer(channel, link, body, true)
+		return c.writeReply(link, body)
 	}
 	// Every other management operation addresses an entity and therefore
 	// requires a claim, even when it arrives over the $cbs link.
@@ -696,7 +859,7 @@ func (c *sbAMQPConn) respondRPC(channel uint16, address string, req *amqp.Messag
 		if err != nil {
 			return err
 		}
-		return c.writeTransfer(channel, link, body, true)
+		return c.writeReply(link, body)
 	}
 	resp, ok := ehAMQPHandleRPC(c.currentNamespace(), req)
 	if !ok && sbAMQPIsManagementAddress(address) {
@@ -710,10 +873,15 @@ func (c *sbAMQPConn) respondRPC(channel uint16, address string, req *amqp.Messag
 	if err != nil {
 		return err
 	}
-	return c.writeTransfer(channel, link, body, true)
+	return c.writeReply(link, body)
 }
 
-func (c *sbAMQPConn) handleFlow(ctx context.Context, frame amqpFrame) error {
+// handleFlow applies a receiver's flow frame to the link the simulator sends
+// on. AMQP 1.0 section 2.6.7 defines link-credit relative to the receiver's
+// delivery-count, so the credit left is the receiver's delivery-count plus its
+// link-credit minus the transfers already sent; a receiver that re-issues a
+// flow restates its allowance rather than adding to it.
+func (c *sbAMQPConn) handleFlow(_ context.Context, frame amqpFrame) error {
 	handlePtr := field(frame.fields, 4)
 	if handlePtr == nil {
 		return nil
@@ -726,21 +894,63 @@ func (c *sbAMQPConn) handleFlow(ctx context.Context, frame amqpFrame) error {
 		c.mu.Unlock()
 		return nil
 	}
-	credit := asUint32(field(frame.fields, 6))
-	if credit == 0 {
-		c.mu.Unlock()
-		return nil
+	if credit := field(frame.fields, 6); credit != nil {
+		receiverCount := link.deliveryCount
+		if count := field(frame.fields, 5); count != nil {
+			receiverCount = asUint32(count)
+		}
+		link.credit = sbAMQPSenderCreditFrom(receiverCount, asUint32(credit), link.deliveryCount)
 	}
-	link.credit += credit
+	link.drain = asBool(field(frame.fields, 8))
+	echo := asBool(field(frame.fields, 9))
 	if ehAMQPIsReceiverAddress(namespace, link.address) {
 		err := c.deliverEventHubEventsLocked(namespace, link)
 		c.mu.Unlock()
-		return err
+		if err != nil {
+			return err
+		}
+	} else {
+		path, entity := sbAMQPReceiverPath(link.address)
+		c.mu.Unlock()
+		if entity {
+			if err := c.deliverAvailableMessages([]string{path}); err != nil {
+				return err
+			}
+		}
 	}
-	path := sbAMQPEntityPath(link.address)
+	return c.completeFlow(frame.channel, handle, echo)
+}
+
+// sbAMQPSenderCreditFrom computes a sender's link-credit from a receiver's
+// flow. Delivery counts are RFC 1982 serial numbers, so the difference is
+// taken modulo 2^32; a receiver whose flow crossed transfers still in flight
+// can name a delivery-count behind the sender's, and is then owed nothing.
+func sbAMQPSenderCreditFrom(receiverCount, receiverCredit, senderCount uint32) uint32 {
+	if remaining := int32(receiverCount + receiverCredit - senderCount); remaining > 0 {
+		return uint32(remaining)
+	}
+	return 0
+}
+
+// completeFlow answers a flow once the deliveries it made possible are sent:
+// a drain gives the unused credit back by advancing the delivery count, and
+// both a drain and an echo request are answered with the link's state.
+func (c *sbAMQPConn) completeFlow(channel uint16, handle uint32, echo bool) error {
+	c.mu.Lock()
+	link := c.links[sbAMQPLinkKey(channel, handle)]
+	if link == nil || (!link.drain && !echo) {
+		c.mu.Unlock()
+		return nil
+	}
+	drained := link.drain
+	if drained {
+		link.deliveryCount += link.credit
+		link.credit = 0
+		link.drain = false
+	}
+	flow := c.linkFlowLocked(link, drained)
 	c.mu.Unlock()
-	_ = ctx
-	return c.deliverAvailableMessages([]string{path})
+	return c.writeFrame(amqpFrameTypeAMQP, channel, flow)
 }
 
 // deliverEventHubEventsLocked sends an Event Hubs consumer link the events
@@ -752,8 +962,7 @@ func (c *sbAMQPConn) deliverEventHubEventsLocked(namespace string, link *sbAMQPL
 			return nil
 		}
 		link.readSeq = next
-		link.credit--
-		if err := c.writeTransferTagged(link.channel, link, msg, link.settledSend, nil); err != nil {
+		if _, err := c.writeTransferLocked(link, msg, link.settledSend, nil); err != nil {
 			return err
 		}
 	}
@@ -792,28 +1001,33 @@ func (c *sbAMQPConn) deliverAvailableMessages(paths []string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, link := range c.links {
-		if !link.clientRole || link.credit == 0 {
+		if !link.clientRole || link.credit == 0 || link.awaitingSession {
 			continue
 		}
-		path := sbAMQPEntityPath(link.address)
+		path, entity := sbAMQPReceiverPath(link.address)
+		if !entity {
+			continue
+		}
 		if _, ok := pathSet[path]; !ok {
+			continue
+		}
+		if link.session != "" && !sbSessionHeld(namespace, path, link.session, link.owner) {
 			continue
 		}
 		// A receiver whose transfers arrive settled is receive-and-delete;
 		// otherwise every message is delivered under a peek-lock.
 		peekLock := !link.settledSend
-		msgs, _ := sbReceive(namespace, path, int(link.credit), peekLock)
+		msgs, _ := sbReceive(namespace, path, link.session, int(link.credit), peekLock)
 		for _, m := range msgs {
 			body, err := sbAMQPMessage(m, peekLock).MarshalBinary()
 			if err != nil {
 				return err
 			}
-			link.credit--
 			var tag []byte
 			if peekLock {
 				tag = sbLockTokenTag(m.Receipt)
 			}
-			id, err := c.writeTransferTaggedLocked(link.channel, link, body, link.settledSend, tag)
+			id, err := c.writeTransferLocked(link, body, link.settledSend, tag)
 			if err != nil {
 				return err
 			}
@@ -841,6 +1055,10 @@ func sbAMQPMessage(m msgq.Message[sbPayload], peekLock bool) *amqp.Message {
 		out.Properties = &amqp.MessageProperties{}
 	}
 	out.Properties.MessageID = m.ID
+	if m.Group != "" && out.Properties.GroupID == nil {
+		group := m.Group
+		out.Properties.GroupID = &group
+	}
 	if out.Header == nil {
 		out.Header = &amqp.MessageHeader{}
 	}
@@ -984,15 +1202,32 @@ func sbAMQPEntityPath(address string) string {
 	parts := strings.Split(address, "/")
 	if len(parts) >= 3 && strings.EqualFold(parts[1], "subscriptions") {
 		path := parts[0] + "/" + parts[2]
-		if len(parts) == 4 && strings.EqualFold(parts[3], sbDeadLetterSuffix) {
-			path = sbDeadLetterPath(path)
+		switch {
+		case len(parts) == 3:
+			return path
+		case len(parts) == 4 && strings.EqualFold(parts[3], sbDeadLetterSuffix):
+			return sbDeadLetterPath(path)
 		}
-		return path
+		return address
 	}
 	if len(parts) == 2 && strings.EqualFold(parts[1], sbDeadLetterSuffix) {
 		return sbDeadLetterPath(parts[0])
 	}
 	return address
+}
+
+// sbAMQPReceiverPath returns the message store a receiver link reads, and
+// false for a link that reads no entity: the CBS node, a management node, or
+// any other address that names no queue, subscription or dead-letter queue. A
+// management node's reply link sources from `<entity>/$management`; handing
+// it an entity's message loses the message.
+func sbAMQPReceiverPath(address string) (string, bool) {
+	address = strings.Trim(address, "/")
+	if address == "" || address == "$cbs" || strings.EqualFold(address, "$management") || sbAMQPIsManagementAddress(address) {
+		return "", false
+	}
+	path := sbAMQPEntityPath(address)
+	return path, !strings.Contains(path, "$") || sbIsDeadLetterPath(path)
 }
 
 // sbAMQPSelectorFilter returns the selector-filter expression of an attach's
@@ -1066,23 +1301,33 @@ func (c *sbAMQPConn) receiverForAddressMatch(address string, channel *uint16) *s
 	return links[0]
 }
 
-func (c *sbAMQPConn) writeTransfer(channel uint16, link *sbAMQPLink, payload []byte, settled bool) error {
-	return c.writeTransferTagged(channel, link, payload, settled, nil)
-}
-
-func (c *sbAMQPConn) writeTransferTagged(channel uint16, link *sbAMQPLink, payload []byte, settled bool, tag []byte) error {
-	_, err := c.writeTransferTaggedLocked(channel, link, payload, settled, tag)
+// writeReply sends a settled management or CBS reply on the receiver link a
+// lookup returned a copy of.
+func (c *sbAMQPConn) writeReply(reply *sbAMQPLink, payload []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	link := c.links[sbAMQPLinkKey(reply.channel, reply.clientHandle)]
+	if link == nil {
+		return nil
+	}
+	_, err := c.writeTransferLocked(link, payload, true, nil)
 	return err
 }
 
-// writeTransferTaggedLocked sends one transfer and returns its delivery id; a
-// nil tag gets a unique one.
-func (c *sbAMQPConn) writeTransferTaggedLocked(channel uint16, link *sbAMQPLink, payload []byte, settled bool, tag []byte) (uint32, error) {
+// writeTransferLocked sends one transfer on a link and returns its delivery
+// id; a nil tag gets a unique one. The transfer spends a unit of the link's
+// credit and advances its delivery count. The caller holds c.mu.
+func (c *sbAMQPConn) writeTransferLocked(link *sbAMQPLink, payload []byte, settled bool, tag []byte) (uint32, error) {
 	deliveryID := atomic.AddUint32(&c.nextDelivery, 1) - 1
 	if tag == nil {
 		tag = []byte(fmt.Sprintf("tag-%d", deliveryID))
 	}
-	return deliveryID, c.writeFrame(amqpFrameTypeAMQP, channel, append(encodeDescribedList(amqpDescTransfer, []any{
+	link.deliveryCount++
+	if link.credit > 0 {
+		link.credit--
+	}
+	c.sessionLocked(link.channel).nextOutgoingID++
+	return deliveryID, c.writeFrame(amqpFrameTypeAMQP, link.channel, append(encodeDescribedList(amqpDescTransfer, []any{
 		link.serverHandle,
 		deliveryID,
 		tag,
@@ -1563,7 +1808,7 @@ func encodeAMQPValue(v any) []byte {
 		binary.BigEndian.PutUint64(b[1:], uint64(t.UnixMilli()))
 		return b
 	case amqpDescribed:
-		return append([]byte{0x00, 0x53, byte(t.code)}, encodeAMQPValue(t.value)...)
+		return append(append([]byte{0x00}, encodeAMQPValue(t.code)...), encodeAMQPValue(t.value)...)
 	case []any:
 		return encodeList(t)
 	case []string:
@@ -1608,12 +1853,14 @@ func encodeList(fields []any) []byte {
 	return append(out, body...)
 }
 
+// encodeMap encodes each key as the type it has, so a symbol key stays a
+// symbol on the wire, in an order independent of map iteration.
 func encodeMap(m map[any]any) []byte {
-	keys := make([]string, 0, len(m))
+	keys := make([]any, 0, len(m))
 	for k := range m {
-		keys = append(keys, fmt.Sprint(k))
+		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	sort.Slice(keys, func(i, j int) bool { return fmt.Sprint(keys[i]) < fmt.Sprint(keys[j]) })
 	var body []byte
 	for _, k := range keys {
 		body = append(body, encodeAMQPValue(k)...)

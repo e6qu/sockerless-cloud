@@ -226,19 +226,24 @@ func TestBehavioralGate_AppAutoScaling_AdjustsECSDesiredCount(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// putCPU records a datapoint for each of the last three minutes, as the
+	// Amazon ECS agent reports one a minute, so the AlarmHigh alarm Application
+	// Auto Scaling created sees its three breaching periods.
 	putCPU := func(value float64) {
-		_, err := cwC.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{
-			Namespace: aws.String("AWS/ECS"),
-			MetricData: []cwtypes.MetricDatum{{
+		now := time.Now()
+		var data []cwtypes.MetricDatum
+		for minute := range 3 {
+			data = append(data, cwtypes.MetricDatum{
 				MetricName: aws.String("CPUUtilization"),
 				Dimensions: []cwtypes.Dimension{
 					{Name: aws.String("ClusterName"), Value: aws.String(cluster)},
 					{Name: aws.String("ServiceName"), Value: aws.String(svcName)},
 				},
 				Value:     aws.Float64(value),
-				Timestamp: aws.Time(time.Now()),
-			}},
-		})
+				Timestamp: aws.Time(now.Add(-time.Duration(minute) * time.Minute)),
+			})
+		}
+		_, err := cwC.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{Namespace: aws.String("AWS/ECS"), MetricData: data})
 		require.NoError(t, err)
 	}
 
@@ -254,9 +259,8 @@ func TestBehavioralGate_AppAutoScaling_AdjustsECSDesiredCount(t *testing.T) {
 
 	putCPU(90.0)
 	require.Eventually(t, func() bool {
-		putCPU(90.0)
 		return desiredCount() > minC
-	}, 30*time.Second, 3*time.Second, "DesiredCount must increase when CPU is above target")
+	}, 30*time.Second, time.Second, "DesiredCount must increase once AlarmHigh is in ALARM")
 	assert.LessOrEqual(t, desiredCount(), maxC)
 }
 
@@ -335,15 +339,8 @@ func TestBehavioralGate_ECSService_ConvergesRunningCount(t *testing.T) {
 	require.NoError(t, err)
 	cleanupECSService(t, ecsC, cluster, svcName)
 
-	require.Eventually(t, func() bool {
-		out, err := ecsC.DescribeServices(ctx, &ecs.DescribeServicesInput{
-			Cluster:  aws.String(cluster),
-			Services: []string{svcName},
-		})
-		require.NoError(t, err)
-		require.Len(t, out.Services, 1)
-		return out.Services[0].RunningCount == 2
-	}, 60*time.Second, 2*time.Second, "service must report runningCount == desiredCount")
+	stable := waitForECSServicesStable(t, ecsC, cluster, 60*time.Second, svcName)
+	assert.EqualValues(t, 2, stable.Services[0].RunningCount, "service must report runningCount == desiredCount")
 }
 
 // TestBehavioralGate_CloudWatchLogs_MetricFilterPublishesMetric asserts that a

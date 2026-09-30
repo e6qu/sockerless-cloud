@@ -271,15 +271,21 @@ func TestSQS_VisibilityTimeoutExpiry(t *testing.T) {
 		QueueUrl: aws.String(url), MessageBody: aws.String("vt"),
 	})
 	require.NoError(t, err)
-	_, err = client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: aws.String(url)})
+	first, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: aws.String(url)})
 	require.NoError(t, err)
-	// Wait past the 1-second visibility timeout.
-	time.Sleep(1500 * time.Millisecond)
-	recv, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: aws.String(url)})
+	require.Len(t, first.Messages, 1)
+	received := time.Now()
+	hidden, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: aws.String(url)})
+	require.NoError(t, err)
+	require.Empty(t, hidden.Messages, "a received message stays invisible for its visibility timeout")
+	// The long poll returns the moment the 1-second visibility timeout ends.
+	recv, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: aws.String(url), WaitTimeSeconds: 5})
 	require.NoError(t, err)
 	require.Len(t, recv.Messages, 1,
 		"message should be visible again after the visibility-timeout window elapsed")
 	assert.Equal(t, "vt", aws.ToString(recv.Messages[0].Body))
+	assert.GreaterOrEqual(t, time.Since(received), 900*time.Millisecond,
+		"the message came back before its visibility timeout ended")
 }
 
 // TestSQS_ChangeMessageVisibility asserts that resetting an in-flight message's
@@ -517,4 +523,24 @@ func TestSQS_ListQueues_Pagination(t *testing.T) {
 		}
 		assert.True(t, found, "queue %s should appear via pagination", n)
 	}
+}
+
+// receiveSQSMessages long-polls a queue until want messages have arrived or
+// timeout passes, and returns what arrived. Each receive returns the moment a
+// message lands.
+func receiveSQSMessages(t *testing.T, client *sqs.Client, queueURL *string, want int, timeout time.Duration) []sqstypes.Message {
+	t.Helper()
+	var messages []sqstypes.Message
+	deadline := time.Now().Add(timeout)
+	for len(messages) < want && time.Now().Before(deadline) {
+		out, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+			QueueUrl:            queueURL,
+			MaxNumberOfMessages: int32(min(10, want-len(messages))),
+			WaitTimeSeconds:     int32(min(20, max(1, time.Until(deadline)/time.Second))),
+		})
+		require.NoError(t, err)
+		messages = append(messages, out.Messages...)
+	}
+	require.Len(t, messages, want, "the queue did not receive %d message(s) within %s", want, timeout)
+	return messages
 }

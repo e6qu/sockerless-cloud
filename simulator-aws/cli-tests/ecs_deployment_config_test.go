@@ -26,12 +26,14 @@ func TestECSCLI_DeploymentConfiguration(t *testing.T) {
 		"--deployment-configuration", `{"deploymentCircuitBreaker":{"enable":true,"rollback":true,"thresholdConfiguration":{"type":"COUNT","value":1}},"maximumPercent":200,"minimumHealthyPercent":100}`))
 	cleanupCLIService(t, cluster, "cli-deploycfg-svc")
 
+	// services-stable does not read rolloutState, and the circuit breaker rolls
+	// back only to a COMPLETED deployment, so poll the deployment's own state.
 	require.Eventually(t, func() bool {
-		out := strings.TrimSpace(runCLI(t, awsCLI("ecs", "describe-services",
+		out := strings.Fields(runCLI(t, awsCLI("ecs", "describe-services",
 			"--cluster", cluster, "--services", "cli-deploycfg-svc",
 			"--query", "services[0].[taskDefinition,deployments[0].rolloutState]",
 			"--output", "text")))
-		return strings.Contains(out, stable) && strings.Contains(out, "COMPLETED")
+		return len(out) == 2 && out[0] == stable && out[1] == "COMPLETED"
 	}, time.Minute, 100*time.Millisecond)
 
 	failing := strings.TrimSpace(runCLI(t, awsCLI("ecs", "register-task-definition",

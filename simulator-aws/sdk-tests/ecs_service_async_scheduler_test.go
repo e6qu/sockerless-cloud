@@ -1,6 +1,7 @@
 package aws_sdk_test
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -78,32 +79,21 @@ func TestECS_Service_ControlPlaneAnswersWhileTheSchedulerConverges(t *testing.T)
 	assert.Equal(t, ecstypes.DeploymentRolloutStateInProgress,
 		created.Service.Deployments[0].RolloutState)
 
-	// Poll the way a client polls. Every describe is timed: while the scheduler
-	// places tasks, probes their health and completes the deployment, the read
-	// must keep answering promptly.
-	describeSteady := func(desired int32) bool {
+	// Wait the way a client waits, with the ServicesStable waiter, and time
+	// every describe it sends: while the scheduler places tasks, probes their
+	// health and completes the deployment, the read must keep answering
+	// promptly.
+	timed := ecs.New(client.Options(), func(o *ecs.Options) {
+		o.HTTPClient = budgetedHTTPClient{inner: o.HTTPClient, t: t, budget: ecsControlPlaneBudget}
+	})
+	describeSteady := func(desired int32) {
 		t.Helper()
-		started := time.Now()
-		described, describeErr := client.DescribeServices(ctx, &ecs.DescribeServicesInput{
-			Cluster: aws.String(cluster), Services: []string{serviceName},
-		})
-		elapsed := time.Since(started)
-		require.NoError(t, describeErr)
-		require.Lessf(t, elapsed, ecsControlPlaneBudget,
-			"DescribeServices took %s: the read is running a service reconciliation", elapsed)
-		if len(described.Services) != 1 {
-			return false
-		}
-		service := described.Services[0]
-		return service.DesiredCount == desired &&
-			service.RunningCount == desired &&
-			service.PendingCount == 0 &&
-			len(service.Deployments) == 1 &&
-			service.Deployments[0].RolloutState == ecstypes.DeploymentRolloutStateCompleted
+		service := waitForECSServicesStable(t, timed, cluster, 60*time.Second, serviceName).Services[0]
+		assert.EqualValues(t, desired, service.DesiredCount)
+		assert.EqualValues(t, desired, service.RunningCount)
+		assert.EqualValues(t, 0, service.PendingCount)
 	}
-	require.Eventually(t, func() bool { return describeSteady(2) },
-		60*time.Second, 100*time.Millisecond,
-		"the service scheduler did not converge the created service")
+	describeSteady(2)
 
 	updateStarted := time.Now()
 	updated, err := client.UpdateService(ctx, &ecs.UpdateServiceInput{
@@ -117,7 +107,21 @@ func TestECS_Service_ControlPlaneAnswersWhileTheSchedulerConverges(t *testing.T)
 	require.NotNil(t, updated.Service)
 	assert.EqualValues(t, 1, updated.Service.DesiredCount)
 
-	require.Eventually(t, func() bool { return describeSteady(1) },
-		60*time.Second, 100*time.Millisecond,
-		"the service scheduler did not converge the scaled-in service")
+	describeSteady(1)
+}
+
+// budgetedHTTPClient fails the test when a single request outlasts budget.
+type budgetedHTTPClient struct {
+	inner  ecs.HTTPClient
+	t      *testing.T
+	budget time.Duration
+}
+
+func (c budgetedHTTPClient) Do(r *http.Request) (*http.Response, error) {
+	started := time.Now()
+	resp, err := c.inner.Do(r)
+	elapsed := time.Since(started)
+	require.Lessf(c.t, elapsed, c.budget,
+		"%s took %s: the read is running a service reconciliation", r.Header.Get("X-Amz-Target"), elapsed)
+	return resp, err
 }

@@ -619,7 +619,7 @@ func writeStorageAsyncAccepted(w http.ResponseWriter, r *http.Request, location 
 	opID := issueAzureAsyncOperation(nil)
 	statusURL := azureAsyncOperationHeader(r, sub, "Microsoft.Storage", location, "operationStatuses", opID, apiVersion)
 	resultURL := azureAsyncOperationHeader(r, sub, "Microsoft.Storage", location, "operationResults", opID, apiVersion)
-	writeAzureAsyncCreateHeaders(w, statusURL, resultURL)
+	writeAzureAsyncCreateHeaders(w, opID, statusURL, resultURL)
 	w.WriteHeader(http.StatusAccepted)
 }
 

@@ -727,10 +727,23 @@ func handleCosmosPutThroughput(w http.ResponseWriter, r *http.Request) {
 	if req.Type == "" {
 		req.Type = cosmosThroughputType(r)
 	}
-	if _, ok := req.Properties["resource"].(map[string]any); !ok {
+	resource, ok := req.Properties["resource"].(map[string]any)
+	if !ok {
 		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid throughput body: properties.resource is required")
 		return
 	}
+	// A resource created without dedicated throughput shares its database's
+	// or account's and has no offer to update; azcosmos's ReplaceThroughput
+	// finds no offer and answers 404, and the AzureRM provider tells its user
+	// that throughput cannot be configured after creation.
+	if _, provisioned := cosmosThroughputs.Get(id); !provisioned {
+		cosmosThroughputNotFound(w, id)
+		return
+	}
+	for _, readOnly := range []string{"_rid", "_ts", "_etag", "minimumThroughput", "offerReplacePending"} {
+		delete(resource, readOnly)
+	}
+	cosmosStampThroughput(id, resource)
 	cosmosThroughputs.Put(id, req)
 	sim.WriteJSON(w, http.StatusOK, req)
 }
@@ -793,12 +806,12 @@ func handleCosmosDataCreateDB(w http.ResponseWriter, r *http.Request) {
 	// trace is its own response leaves the read that follows with nothing to
 	// find, and leaves existence to be guessed from whatever containers happen
 	// to be under it.
-	cosmosDataDBs.Put(cosmosDataDBKey(account, id), CosmosDataDB{Account: account, DB: id})
-	db := cosmosDataDB(account, id)
-	if rid, ok := db["_rid"].(string); ok {
-		cosmosProvisionOfferFromHeaders(r, account, rid)
+	if err := cosmosProvisionThroughputFromHeaders(r, account, id, ""); err != nil {
+		cosmosDataError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		return
 	}
-	cosmosWriteData(w, http.StatusCreated, db)
+	cosmosDataDBs.Put(cosmosDataDBKey(account, id), CosmosDataDB{Account: account, DB: id})
+	cosmosWriteData(w, http.StatusCreated, cosmosDataDB(account, id))
 }
 
 func handleCosmosDataListDBs(w http.ResponseWriter, r *http.Request) {
@@ -858,7 +871,7 @@ func handleCosmosDataDeleteDB(w http.ResponseWriter, r *http.Request) {
 	for _, c := range cosmosDataColls.ListPrefix(under) {
 		cosmosForgetContainer(account, db, c.Item.Coll)
 	}
-	cosmosOffers.Delete(cosmosOfferKey(account, account+"-"+db))
+	cosmosForgetSQLThroughput(account, db, "")
 	cosmosDropItems(under)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -883,13 +896,13 @@ func handleCosmosDataCreateColl(w http.ResponseWriter, r *http.Request) {
 		cosmosDataError(w, "BadRequest", "The value of defaultTtl must be -1 or a positive integer.", http.StatusBadRequest)
 		return
 	}
+	if err := cosmosProvisionThroughputFromHeaders(r, account, db, id); err != nil {
+		cosmosDataError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
 	collection := CosmosDataColl{Account: account, DB: db, Coll: id, PKPath: pkPath, DefaultTTL: defaultTTL}
 	cosmosDataColls.Put(cosmosDataCollKey(account, db, id), collection)
-	coll := cosmosDataColl(account, db, id)
-	if rid, ok := coll["_rid"].(string); ok {
-		cosmosProvisionOfferFromHeaders(r, account, rid)
-	}
-	cosmosWriteData(w, http.StatusCreated, coll)
+	cosmosWriteData(w, http.StatusCreated, cosmosDataColl(account, db, id))
 }
 
 func handleCosmosDataListColls(w http.ResponseWriter, r *http.Request) {

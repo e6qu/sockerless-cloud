@@ -14,10 +14,12 @@ import (
 // psPushBatch bounds how many messages one sweep leases to a push endpoint.
 const psPushBatch = 1000
 
-// startPubSubPush delivers every push subscription's backlog once a second
-// until the server stops. A push leases messages from the same queue a pull
-// does, so delivery attempts, ack deadlines, retry backoff and dead-lettering
-// stay one mechanism whichever way the subscription is configured.
+// startPubSubPush delivers every push subscription's backlog as soon as a
+// publish or a push-config change wakes it, and once a second for the messages
+// whose pull lease ran out, until the server stops. A push leases messages
+// from the same queue a pull does, so delivery attempts, ack deadlines, retry
+// backoff and dead-lettering stay one mechanism whichever way the subscription
+// is configured.
 func startPubSubPush(srv *sim.Server) {
 	srv.StartBackground("Pub/Sub push", func(ctx context.Context) {
 		ticker := time.NewTicker(time.Second)
@@ -27,14 +29,26 @@ func startPubSubPush(srv *sim.Server) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				// A tick and a stop can be ready together; select picks at random.
-				if ctx.Err() != nil {
-					return
-				}
-				psPushSweep(ctx)
+			case <-psPushWake:
 			}
+			// A wake and a stop can be ready together; select picks at random.
+			if ctx.Err() != nil {
+				return
+			}
+			psPushSweep(ctx)
 		}
 	})
+}
+
+// psPushWake holds at most one pending request for the push loop to deliver
+// now: Pub/Sub pushes a message when it is published, not on a schedule.
+var psPushWake = make(chan struct{}, 1)
+
+func psWakePush() {
+	select {
+	case psPushWake <- struct{}{}:
+	default:
+	}
 }
 
 func psPushSweep(ctx context.Context) {

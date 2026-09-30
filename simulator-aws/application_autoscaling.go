@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -45,6 +46,29 @@ type AppScalingPolicy struct {
 	TargetTracking    json.RawMessage `json:"TargetTrackingScalingPolicyConfiguration,omitempty"`
 	StepScaling       json.RawMessage `json:"StepScalingPolicyConfiguration,omitempty"`
 	CreationTime      float64         `json:"CreationTime"`
+	// Alarms are the CloudWatch alarms Application Auto Scaling created for a
+	// target tracking policy.
+	Alarms []AppScalingAlarm `json:"Alarms,omitempty"`
+}
+
+// appScalingReplaceAlarms replaces the alarms of a policy whose configuration
+// was set, creating the ones a target tracking policy needs.
+func appScalingReplaceAlarms(policy *AppScalingPolicy) {
+	appScalingDeleteAlarms(*policy)
+	policy.Alarms = nil
+	if strings.EqualFold(policy.PolicyType, "TargetTrackingScaling") {
+		if cfg, ok := parseTargetTrackingConfig(policy.TargetTracking); ok {
+			policy.Alarms = appScalingCreateAlarms(*policy, cfg)
+		}
+	}
+}
+
+func appScalingAlarmsJSON(alarms []AppScalingAlarm) []map[string]string {
+	out := make([]map[string]string, 0, len(alarms))
+	for _, alarm := range alarms {
+		out = append(out, map[string]string{"AlarmName": alarm.AlarmName, "AlarmARN": alarm.AlarmARN})
+	}
+	return out
 }
 
 // AppScheduledAction is a one-off or recurring schedule that adjusts a
@@ -230,6 +254,7 @@ func handleAppASDeregisterScalableTarget(w http.ResponseWriter, r *http.Request)
 		if p.ServiceNamespace == req.ServiceNamespace &&
 			p.ResourceId == req.ResourceId &&
 			p.ScalableDimension == req.ScalableDimension {
+			appScalingDeleteAlarms(p)
 			appScalingPolicies.Delete(appScalingPolicyKey(p.ServiceNamespace, p.ResourceId, p.ScalableDimension, p.PolicyName))
 		}
 	}
@@ -347,11 +372,12 @@ func handleAppASPutScalingPolicy(w http.ResponseWriter, r *http.Request) {
 	policy.PolicyType = req.PolicyType
 	policy.TargetTracking = req.TargetTracking
 	policy.StepScaling = req.StepScaling
+	appScalingReplaceAlarms(&policy)
 	appScalingPolicies.Put(key, policy)
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"PolicyARN": policy.PolicyARN,
-		"Alarms":    []any{},
+		"Alarms":    appScalingAlarmsJSON(policy.Alarms),
 	})
 }
 
@@ -367,12 +393,14 @@ func handleAppASDeleteScalingPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := appScalingPolicyKey(req.ServiceNamespace, req.ResourceId, req.ScalableDimension, req.PolicyName)
-	if _, ok := appScalingPolicies.Get(key); !ok {
+	policy, ok := appScalingPolicies.Get(key)
+	if !ok {
 		AWSErrorf(w, "ObjectNotFoundException", http.StatusBadRequest,
 			"No scaling policy named %q for %s/%s/%s",
 			req.PolicyName, req.ServiceNamespace, req.ResourceId, req.ScalableDimension)
 		return
 	}
+	appScalingDeleteAlarms(policy)
 	appScalingPolicies.Delete(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
@@ -457,7 +485,7 @@ func scalingPolicyToJSON(p AppScalingPolicy) map[string]any {
 		"ScalableDimension": p.ScalableDimension,
 		"PolicyType":        p.PolicyType,
 		"CreationTime":      p.CreationTime,
-		"Alarms":            []any{},
+		"Alarms":            appScalingAlarmsJSON(p.Alarms),
 	}
 	if p.TargetTracking != nil {
 		m["TargetTrackingScalingPolicyConfiguration"] = p.TargetTracking
