@@ -317,22 +317,30 @@ func rdsModifyDataPlaneAuthentication(instance *RDSInstance, newPassword *string
 
 func rdsRotateBackendMasterPassword(plane *rdsDataPlane, newPassword string) error {
 	instance := plane.current()
-	client := plane.engine.Engine.Client
-	var command []string
-	if plane.engine.Engine.Family == dbengine.Postgres {
-		statement := "ALTER ROLE " + dbengine.QuoteIdentifier(instance.MasterUsername) +
-			" WITH PASSWORD " + dbengine.QuoteLiteral(newPassword)
-		command = []string{client, "-v", "ON_ERROR_STOP=1", "-U", instance.MasterUsername, "-d", rdsDatabaseName(instance), "-c", statement}
-	} else {
-		oldPassword, err := plane.backendPassword()
-		if err != nil {
-			return err
-		}
-		statement := "ALTER USER " + dbengine.QuoteMySQLLiteral(instance.MasterUsername) +
-			"@'%' IDENTIFIED BY " + dbengine.QuoteMySQLLiteral(newPassword)
-		command = []string{client, "--user=root", "--password=" + oldPassword, "--execute=" + statement}
+	oldPassword, err := plane.backendPassword()
+	if err != nil {
+		return err
 	}
-	if err := plane.engine.Exec(command); err != nil {
+	return rdsRotateEnginePassword(plane.engine, instance.MasterUsername, rdsDatabaseName(instance), oldPassword, newPassword)
+}
+
+// rdsRotateEnginePassword changes the master user's password inside a running
+// engine. A MySQL-family engine's root account shares the master password, and
+// the next rotation logs in as root with it, so root moves along.
+func rdsRotateEnginePassword(engine *dbengine.Instance, user, database, oldPassword, newPassword string) error {
+	var command []string
+	if engine.Engine.Family == dbengine.Postgres {
+		statement := "ALTER ROLE " + dbengine.QuoteIdentifier(user) +
+			" WITH PASSWORD " + dbengine.QuoteLiteral(newPassword)
+		command = []string{engine.Engine.Client, "-v", "ON_ERROR_STOP=1", "-U", user, "-d", database, "-c", statement}
+	} else {
+		identified := " IDENTIFIED BY " + dbengine.QuoteMySQLLiteral(newPassword)
+		statement := "ALTER USER IF EXISTS " + dbengine.QuoteMySQLLiteral(user) + "@'%'" + identified +
+			"; ALTER USER IF EXISTS 'root'@'%'" + identified +
+			"; ALTER USER IF EXISTS 'root'@'localhost'" + identified
+		command = []string{engine.Engine.Client, "--user=root", "--password=" + oldPassword, "--execute=" + statement}
+	}
+	if err := engine.Exec(command); err != nil {
 		return fmt.Errorf("rotate the master-user password in the engine: %w", err)
 	}
 	return nil

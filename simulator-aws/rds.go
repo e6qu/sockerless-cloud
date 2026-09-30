@@ -53,6 +53,7 @@ type RDSInstance struct {
 	// that pending change when it next starts.
 	BackendMasterUserSecret         []byte
 	EnableIAMDatabaseAuthentication bool
+	DeletionProtection              bool
 	// DBClusterIdentifier names the DB cluster the instance is a member of.
 	DBClusterIdentifier string
 }
@@ -133,6 +134,10 @@ type RDSCluster struct {
 	// KMS key and is never rendered on the API.
 	MasterUserSecret                []byte
 	EnableIAMDatabaseAuthentication bool
+	// BackendMasterUserSecret is the password installed in the cluster's
+	// engine, which lags MasterUserSecret while a ModifyDBCluster waits for
+	// the engine to run.
+	BackendMasterUserSecret []byte
 }
 
 // RDSSubnetGroup models a DB subnet group (a named set of VPC subnets
@@ -423,6 +428,7 @@ func renderRDSInstance(i RDSInstance) string {
 	fmt.Fprintf(&b, "<DBInstanceArn>%s</DBInstanceArn>", xmlEscape(i.ARN))
 	fmt.Fprintf(&b, "<Endpoint><Address>%s</Address><Port>%d</Port></Endpoint>", xmlEscape(i.Endpoint), i.Port)
 	fmt.Fprintf(&b, "<IAMDatabaseAuthenticationEnabled>%t</IAMDatabaseAuthenticationEnabled>", i.EnableIAMDatabaseAuthentication)
+	fmt.Fprintf(&b, "<DeletionProtection>%t</DeletionProtection>", i.DeletionProtection)
 	if i.ReadReplicaSource != "" {
 		fmt.Fprintf(&b, "<ReadReplicaSourceDBInstanceIdentifier>%s</ReadReplicaSourceDBInstanceIdentifier>", xmlEscape(i.ReadReplicaSource))
 	}
@@ -522,6 +528,7 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		ARN:                             rdsInstanceARN(id),
 		Tags:                            parseAWSQueryTagMap(r, "Tags.Tag"),
 		EnableIAMDatabaseAuthentication: strings.EqualFold(r.FormValue("EnableIAMDatabaseAuthentication"), "true"),
+		DeletionProtection:              strings.EqualFold(r.FormValue("DeletionProtection"), "true"),
 		DBClusterIdentifier:             clusterID,
 	}
 	if err := rdsInstallDataPlane(&inst, r.FormValue("MasterUserPassword")); err != nil {
@@ -577,6 +584,9 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 	if value := r.FormValue("EnableIAMDatabaseAuthentication"); value != "" {
 		instance.EnableIAMDatabaseAuthentication = strings.EqualFold(value, "true")
 	}
+	if value := r.FormValue("DeletionProtection"); value != "" {
+		instance.DeletionProtection = strings.EqualFold(value, "true")
+	}
 	var newPassword *string
 	if value := r.FormValue("MasterUserPassword"); value != "" {
 		newPassword = &value
@@ -594,6 +604,12 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 	inst, ok := rdsInstances.Get(id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if inst.DeletionProtection {
+		rdsErrorXML(w, "InvalidParameterCombination",
+			"Cannot delete protected DB Instance, please disable deletion protection and try again.",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	skipFinal := strings.EqualFold(r.FormValue("SkipFinalSnapshot"), "true")
@@ -1387,37 +1403,123 @@ func handleRDSDescribeClusters(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSModifyCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
-	if _, ok := rdsClusters.Get(id); !ok {
-		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
+	requestID := sim.RequestID(r.Context())
+	cluster, ok := rdsClusters.Get(id)
+	if !ok {
+		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, requestID)
 		return
 	}
-	rdsClusters.Update(id, func(c *RDSCluster) {
-		if v := r.FormValue("EngineVersion"); v != "" {
-			c.EngineVersion = v
+	if cluster.Status != "available" {
+		rdsErrorXML(w, "InvalidDBClusterStateFault",
+			fmt.Sprintf("DB cluster %s is not currently in the available state.", id), http.StatusBadRequest, requestID)
+		return
+	}
+	port := cluster.Port
+	if v := r.FormValue("Port"); v != "" {
+		port = atoiOrZero(v)
+		if port < 1150 || port > 65535 {
+			rdsErrorXML(w, "InvalidParameterValue",
+				fmt.Sprintf("Invalid port %s. The port must be between 1150 and 65535.", v), http.StatusBadRequest, requestID)
+			return
 		}
-		if v := r.FormValue("BackupRetentionPeriod"); v != "" {
-			c.BackupRetentionPeriod = atoiOrZero(v)
+	}
+	password, changePassword := r.Form["MasterUserPassword"]
+	var newPassword string
+	if changePassword {
+		newPassword = password[0]
+		if !rdsValidMasterPassword(newPassword) {
+			rdsErrorXML(w, "InvalidParameterValue",
+				"The parameter MasterUserPassword is not a valid password. It must contain from 8 to 41 printable ASCII characters other than '/', '\"' and '@'.",
+				http.StatusBadRequest, requestID)
+			return
 		}
-		if v := r.FormValue("PreferredBackupWindow"); v != "" {
-			c.PreferredBackupWindow = v
+	}
+	if v := r.FormValue("EngineVersion"); v != "" {
+		cluster.EngineVersion = v
+	}
+	if v := r.FormValue("BackupRetentionPeriod"); v != "" {
+		cluster.BackupRetentionPeriod = atoiOrZero(v)
+	}
+	if v := r.FormValue("PreferredBackupWindow"); v != "" {
+		cluster.PreferredBackupWindow = v
+	}
+	if v := r.FormValue("PreferredMaintenanceWindow"); v != "" {
+		cluster.PreferredMaintenanceWindow = v
+	}
+	if v := r.FormValue("DeletionProtection"); v != "" {
+		cluster.DeletionProtection = v == "true"
+	}
+	if v := r.FormValue("EnableIAMDatabaseAuthentication"); v != "" {
+		cluster.EnableIAMDatabaseAuthentication = strings.EqualFold(v, "true")
+	}
+	if changePassword {
+		if err := rdsModifyClusterMasterPassword(&cluster, newPassword); err != nil {
+			rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, requestID)
+			return
 		}
-		if v := r.FormValue("PreferredMaintenanceWindow"); v != "" {
-			c.PreferredMaintenanceWindow = v
-		}
-		if v := r.FormValue("DeletionProtection"); v != "" {
-			c.DeletionProtection = v == "true"
-		}
-		if v := r.FormValue("EnableIAMDatabaseAuthentication"); v != "" {
-			c.EnableIAMDatabaseAuthentication = strings.EqualFold(v, "true")
-		}
-		if v := r.FormValue("Port"); v != "" {
-			if p := atoiOrZero(v); p > 0 {
-				c.Port = p
+	}
+	if port != cluster.Port {
+		if rdsIsAurora(cluster.Engine) {
+			if err := rdsRebindAuroraPort(&cluster, port); err != nil {
+				rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, requestID)
+				return
 			}
+		} else {
+			cluster.Port = port
 		}
-	})
-	updated, _ := rdsClusters.Get(id)
-	rdsXMLResponse(w, "ModifyDBCluster", renderRDSCluster(updated), sim.RequestID(r.Context()))
+	}
+	rdsClusters.Put(id, cluster)
+	rdsXMLResponse(w, "ModifyDBCluster", renderRDSCluster(cluster), requestID)
+}
+
+// rdsValidMasterPassword applies the constraints the RDS API reference states
+// for MasterUserPassword: 8 to 41 printable ASCII characters other than '/',
+// '"' and '@'.
+func rdsValidMasterPassword(password string) bool {
+	if len(password) < 8 || len(password) > 41 {
+		return false
+	}
+	for _, c := range password {
+		if c < 0x20 || c > 0x7e || c == '/' || c == '"' || c == '@' {
+			return false
+		}
+	}
+	return true
+}
+
+// rdsModifyClusterMasterPassword seals the new master password into the
+// cluster and installs it in the engine behind it: an Aurora cluster's one
+// engine, or each member of a Multi-AZ DB cluster.
+func rdsModifyClusterMasterPassword(cluster *RDSCluster, newPassword string) error {
+	sealed, err := rdsSealMasterPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	if !rdsIsAurora(cluster.Engine) {
+		for _, member := range rdsClusterMembers(cluster.DBClusterIdentifier) {
+			if err := rdsModifyDataPlaneAuthentication(&member, &newPassword); err != nil {
+				return err
+			}
+			rdsInstances.Put(member.DBInstanceIdentifier, member)
+		}
+		cluster.MasterUserSecret = sealed
+		return nil
+	}
+	if len(cluster.BackendMasterUserSecret) == 0 {
+		cluster.BackendMasterUserSecret = append([]byte(nil), cluster.MasterUserSecret...)
+	}
+	if plane, ok := rdsLoadAuroraDataPlane(cluster.DBClusterIdentifier); ok && plane.engine.Running() {
+		oldPassword, err := rdsAuroraBackendPassword(*cluster)
+		if err != nil {
+			return err
+		}
+		if err := rdsRotateEnginePassword(plane.engine, cluster.MasterUsername, rdsAuroraDatabaseName(*cluster), oldPassword, newPassword); err != nil {
+			return err
+		}
+		cluster.BackendMasterUserSecret = append([]byte(nil), sealed...)
+	}
+	cluster.MasterUserSecret = sealed
+	return nil
 }
 
 func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
@@ -1425,6 +1527,12 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 	cl, ok := rdsClusters.Get(id)
 	if !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if cl.DeletionProtection {
+		rdsErrorXML(w, "InvalidParameterCombination",
+			"Cannot delete protected Cluster, please disable deletion protection and try again.",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	members := rdsClusterMembers(id)

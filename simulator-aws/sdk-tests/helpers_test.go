@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -718,4 +719,12 @@ func nativeLambdaArchitectures() []lambdatypes.Architecture {
 		return []lambdatypes.Architecture{lambdatypes.ArchitectureArm64}
 	}
 	return []lambdatypes.Architecture{lambdatypes.ArchitectureX8664}
+}
+
+var uniqueNameSequence atomic.Int64
+
+// uniqueName suffixes prefix with a lowercase alphanumeric id unique to this
+// run, so a test run again against the same simulator names new resources.
+func uniqueName(prefix string) string {
+	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.FormatInt(uniqueNameSequence.Add(1), 36)
 }

@@ -79,6 +79,19 @@ func TestRDS_DBClusterLifecycle(t *testing.T) {
 		DBClusterIdentifier: aws.String(id),
 		SkipFinalSnapshot:   aws.Bool(true),
 	})
+	assertAWSAPIErrorCode(t, err, "InvalidParameterCombination")
+	require.ErrorContains(t, err, "disable deletion protection", "Terraform's aws_rds_cluster matches this text to lift the protection")
+
+	_, err = c.ModifyDBCluster(ctx, &rds.ModifyDBClusterInput{
+		DBClusterIdentifier: aws.String(id),
+		DeletionProtection:  aws.Bool(false),
+		ApplyImmediately:    aws.Bool(true),
+	})
+	require.NoError(t, err)
+	_, err = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
+		DBClusterIdentifier: aws.String(id),
+		SkipFinalSnapshot:   aws.Bool(true),
+	})
 	require.NoError(t, err)
 
 	_, err = c.DescribeDBClusters(ctx, &rds.DescribeDBClustersInput{
