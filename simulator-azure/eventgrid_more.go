@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -217,6 +218,8 @@ func handleEventGridUpdateEventSubscription(w http.ResponseWriter, r *http.Reque
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "event subscription %q not found", id)
 		return
 	}
+	prior := es
+	prior.Properties = maps.Clone(es.Properties)
 	// EventSubscriptionUpdateParameters carries the mutable fields at the top
 	// level (not wrapped in "properties"); merge each provided field into the
 	// stored subscription's properties.
@@ -237,9 +240,18 @@ func handleEventGridUpdateEventSubscription(w http.ResponseWriter, r *http.Reque
 			es.Properties[k] = v
 		}
 	}
-	es.Properties["provisioningState"] = "Succeeded"
-	eventGridSubscriptions.Put(id, es)
 	// EventSubscriptions_Update declares 201 as its (only) success status.
+	if !eventGridNeedsValidation(es, &prior) {
+		es.Properties["provisioningState"] = "Succeeded"
+		eventGridSubscriptions.Put(id, es)
+		sim.WriteJSON(w, http.StatusCreated, es)
+		return
+	}
+	es.Properties["provisioningState"] = "Updating"
+	eventGridSubscriptions.Put(id, es)
+	_, store, _ := eventGridScopeFromRequest(r)
+	scope, _ := store.Get(scopeID)
+	writeEventGridValidationAccepted(w, r, scope.Location, startEventGridValidation(r, es))
 	sim.WriteJSON(w, http.StatusCreated, es)
 }
 

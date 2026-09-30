@@ -98,14 +98,14 @@ func eventGridAttempt(ctx context.Context, item *delivery.Item[eventGridDelivery
 	return delivery.Post(ctx, delivery.Request{URL: d.Endpoint, Header: header, Body: body, Timeout: 30 * time.Second}, classify)
 }
 
-// eventGridSubmit queues the events of one publish for every subscription of
-// scopeID whose filter admits them, in batches of the subscription's
+// eventGridSubmit queues the events of one publish for every provisioned
+// subscription of scopeID whose filter admits them, in batches of the subscription's
 // maxEventsPerBatch (default 1) and preferredBatchSizeInKilobytes (default 64).
 func eventGridSubmit(scopeID string, events []json.RawMessage) {
 	now := time.Now().UTC()
 	for _, es := range eventGridSubscriptionsByTopic.LookupAll(eventGridSubscriptions, scopeID, eventGridSubscriptionTopics) {
 		endpoint := eventGridWebhookEndpoint(es)
-		if endpoint == "" {
+		if endpoint == "" || es.Properties["provisioningState"] != "Succeeded" {
 			continue
 		}
 		var admitted []json.RawMessage

@@ -83,6 +83,10 @@ func TestServiceBus_AMQPSDKSessions(t *testing.T) {
 		require.NoError(t, sender.SendMessage(opCtx, &azservicebus.Message{Body: []byte(m.body), SessionID: to.Ptr(m.session)}, nil))
 	}
 
+	err = sender.SendMessage(opCtx, &azservicebus.Message{Body: []byte("no session")}, nil)
+	require.ErrorContains(t, err, "amqp:not-allowed", "a session-enabled queue refuses a message without a session id")
+	require.ErrorContains(t, err, "The SessionId was not set on a message")
+
 	next, err := client.AcceptNextSessionForQueue(opCtx, queue, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = next.Close(context.Background()) })

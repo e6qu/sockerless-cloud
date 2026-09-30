@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -44,7 +45,11 @@ func pollAzureOperation(t *testing.T, path string) *httptest.ResponseRecorder {
 	request.SetPathValue("location", "eastus")
 	request.SetPathValue("opId", pathOperationID(path))
 	recorder := httptest.NewRecorder()
-	handleAzureAsyncOperationStatus(recorder, request)
+	if strings.Contains(path, "/operationResults/") {
+		handleAzureOperationResults(recorder, request)
+	} else {
+		handleAzureOperationStatuses(recorder, request)
+	}
 	return recorder
 }
 

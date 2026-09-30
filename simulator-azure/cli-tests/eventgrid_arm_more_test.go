@@ -116,13 +116,14 @@ func TestEventGridCLI_NestedEventSubscriptionsAndRegistries(t *testing.T) {
 	runCLI(t, azRest("PUT", topicURL, `{"location":"eastus"}`))
 	t.Cleanup(func() { runCLI(t, azRest("DELETE", topicURL, "")) })
 	subURL := egURL(t, "topics/cli-more-topic/eventSubscriptions/cli-nested-sub")
-	subBody := `{"properties":{"destination":{"endpointType":"WebHook","properties":{"endpointUrl":"https://example.com/hook"}},"eventDeliverySchema":"EventGridSchema"}}`
-	runCLI(t, azRest("PUT", subURL, subBody))
+	hook, _ := newEventGridCLIWebhook(t)
+	subBody := `{"properties":{"destination":{"endpointType":"WebHook","properties":{"endpointUrl":"` + hook.URL + `"}},"eventDeliverySchema":"EventGridSchema"}}`
+	azRestLongRunning(t, "PUT", subURL, subBody)
 	out = runCLI(t, azRest("GET", subURL, ""))
 	assert.Contains(t, out, "cli-nested-sub")
 	runCLI(t, azRest("PATCH", subURL, `{"labels":["green"]}`))
 	out = runCLI(t, azRest("POST", egURL(t, "topics/cli-more-topic/eventSubscriptions/cli-nested-sub/getFullUrl"), ""))
-	assert.Contains(t, out, "https://example.com/hook")
+	assert.Contains(t, out, hook.URL)
 	runCLI(t, azRest("POST", egURL(t, "topics/cli-more-topic/eventSubscriptions/cli-nested-sub/getDeliveryAttributes"), ""))
 	out = runCLI(t, azRest("GET", egURL(t, "topics/cli-more-topic/eventSubscriptions"), ""))
 	assert.Contains(t, out, "cli-nested-sub")

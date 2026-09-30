@@ -136,7 +136,7 @@ func TestCosmosThroughputOneRecordServesBothSurfaces(t *testing.T) {
 		`{"properties":{"resource":{"id":"armdb"},"options":{"throughput":400}}}`); status != http.StatusOK {
 		t.Fatalf("PUT armdb: %d %s", status, out)
 	}
-	offer := offerFor(c.account + "-armdb")
+	offer := offerFor(c.dataRID("/dbs/armdb"))
 	content, _ := offer["content"].(map[string]any)
 	if content["offerThroughput"] != float64(400) {
 		t.Fatalf("offer of a database Azure Resource Manager provisioned: %v", offer)
@@ -183,7 +183,7 @@ func TestCosmosThroughputOneRecordServesBothSurfaces(t *testing.T) {
 		`{"properties":{"resource":{"throughput":1200}}}`); status != http.StatusOK {
 		t.Fatalf("ARM PUT of a provisioned container's throughput: %d %s", status, out)
 	}
-	content, _ = offerFor(c.account + "-armdb-dpcoll")["content"].(map[string]any)
+	content, _ = offerFor(c.dataRID("/dbs/armdb/colls/dpcoll"))["content"].(map[string]any)
 	if content["offerThroughput"] != float64(1200) || content["offerAutopilotSettings"] != nil {
 		t.Fatalf("offer after Azure Resource Manager moved the container to manual throughput: %v", content)
 	}

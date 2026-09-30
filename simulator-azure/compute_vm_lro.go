@@ -132,13 +132,10 @@ func azureVMHaltFailure(id string, err error) *AsyncOperationError {
 
 // writeAzureVMOperationAccepted answers an action on a machine the way the
 // Compute resource provider does: 202 with no body, the operation's status URL
-// as Azure-AsyncOperation and its result URL as Location.
+// as Azure-AsyncOperation and its monitor URL as Location.
 func writeAzureVMOperationAccepted(w http.ResponseWriter, r *http.Request, vm VirtualMachine, opID string) {
-	sub := sim.PathParam(r, "subscriptionId")
-	apiVersion := r.URL.Query().Get("api-version")
-	writeAzureAsyncCreateHeaders(w, opID,
-		azureAsyncOperationHeader(r, sub, "Microsoft.Compute", vm.Location, "operationStatuses", opID, apiVersion),
-		azureAsyncOperationHeader(r, sub, "Microsoft.Compute", vm.Location, "operationResults", opID, apiVersion))
+	asyncOperation, monitor := computeOperationURLs(r, sim.PathParam(r, "subscriptionId"), vm.Location, opID)
+	writeAzureAsyncCreateHeaders(w, opID, asyncOperation, monitor)
 	w.WriteHeader(http.StatusAccepted)
 }
 

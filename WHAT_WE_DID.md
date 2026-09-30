@@ -592,6 +592,16 @@ by a few seconds; that cost is accepted over checking a partial condition. EC2
 Auto Scaling answers a capacity change at once: members join Pending, each
 launch has an InProgress activity, and a background boot moves both on.
 
+Azure's asynchronous work answers the request and settles behind it, as the
+service does. An Event Grid webhook subscription stays Creating until its
+endpoint echoes the validation code or someone opens the validation URL, and
+receives events only once it has Succeeded. A Logic Apps trigger answers 202
+with the run id and runs the workflow in the background. Compute polls its
+operations at `locations/{location}/operations/{id}`, the shape armcompute's
+recordings show; every other provider uses `operationStatuses`, and a
+provider-specific path waits for a source that shows it. Cosmos DB mints
+hierarchical resource ids and accepts them in paths.
+
 A test asserts a boundary at a small parameterised limit rather than by
 reaching the real one: the OCI body-cap tests peaked at 7.7 GiB under the race
 detector on a 7 GiB runner until the cap became a parameter tested at 64 KiB.

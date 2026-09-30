@@ -1,8 +1,11 @@
 package azure_sdk_test
 
 import (
+	"net/http"
 	"testing"
+	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
 	"github.com/stretchr/testify/assert"
@@ -229,8 +232,7 @@ func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
 	}
 	require.NotEmpty(t, runName, "the fired trigger must record a run")
 
-	runGot, err := runs.Get(ctx, rg, name, "wf1", runName, nil)
-	require.NoError(t, err)
+	runGot := awaitWebWorkflowRun(t, runs, rg, name, "wf1", runName)
 	require.NotNil(t, runGot.Properties)
 	assert.Equal(t, armappservice.WorkflowStatusSucceeded, *runGot.Properties.Status)
 
@@ -301,10 +303,9 @@ func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
 
 	// Cancel the recorded run.
 	_, err = runs.Cancel(ctx, rg, name, "wf1", runName, nil)
-	require.NoError(t, err)
-	cancelled, err := runs.Get(ctx, rg, name, "wf1", runName, nil)
-	require.NoError(t, err)
-	assert.Equal(t, armappservice.WorkflowStatusCancelled, *cancelled.Properties.Status)
+	var cancelErr *azcore.ResponseError
+	require.ErrorAs(t, err, &cancelErr, "a finished run refuses a cancel")
+	assert.Equal(t, http.StatusConflict, cancelErr.StatusCode)
 
 	// Versions: each deployment snapshots one.
 	var versionID string
@@ -320,4 +321,22 @@ func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
 	verGot, err := versions.Get(ctx, rg, name, "wf1", versionID, nil)
 	require.NoError(t, err)
 	require.NotNil(t, verGot.Properties)
+}
+
+// awaitWebWorkflowRun polls a hosted workflow run's own status until it leaves
+// Running: Logic Apps offers no waiter or long-running operation for a run.
+func awaitWebWorkflowRun(t *testing.T, runs *armappservice.WorkflowRunsClient, rg, site, workflow, run string) armappservice.WorkflowRun {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		got, err := runs.Get(ctx, rg, site, workflow, run, nil)
+		require.NoError(t, err)
+		if status := *got.Properties.Status; status != armappservice.WorkflowStatusRunning && status != armappservice.WorkflowStatusWaiting {
+			return got.WorkflowRun
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("workflow run %s/%s is still %s", workflow, run, *got.Properties.Status)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }

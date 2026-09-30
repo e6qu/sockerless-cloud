@@ -323,12 +323,13 @@ func TestAzureResources_MoveEventGridTopic(t *testing.T) {
 
 	subs, err := armeventgrid.NewEventSubscriptionsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
+	hook, _ := newEventGridWebhook(t)
 	subPoller, err := subs.BeginCreateOrUpdate(ctx, topicID, "eg-move-sub", armeventgrid.EventSubscription{
 		Properties: &armeventgrid.EventSubscriptionProperties{
 			Destination: &armeventgrid.WebHookEventSubscriptionDestination{
 				EndpointType: to.Ptr(armeventgrid.EndpointTypeWebHook),
 				Properties: &armeventgrid.WebHookEventSubscriptionDestinationProperties{
-					EndpointURL: to.Ptr("http://127.0.0.1:1/unused"),
+					EndpointURL: to.Ptr(hook.URL),
 				},
 			},
 		},

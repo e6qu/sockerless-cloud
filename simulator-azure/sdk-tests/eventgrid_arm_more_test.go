@@ -155,7 +155,8 @@ func TestEventGrid_ARMControlPlaneMore(t *testing.T) {
 	require.NoError(t, err)
 	scope := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.EventGrid/topics/" + topicName
 	subName := "sdk-more-sub"
-	const hookURL = "https://example.com/eventgrid-hook"
+	hook, _ := newEventGridWebhook(t)
+	hookURL := hook.URL
 	esPoller, err := subs.BeginCreateOrUpdate(ctx, scope, subName, armeventgrid.EventSubscription{
 		Properties: &armeventgrid.EventSubscriptionProperties{
 			Destination: &armeventgrid.WebHookEventSubscriptionDestination{

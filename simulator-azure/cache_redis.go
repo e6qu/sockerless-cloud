@@ -91,11 +91,9 @@ func registerCacheRedis(srv *sim.Server) {
 	srv.HandleFunc("POST "+armBase+"/{name}/flush", handleRedisFlushCache)
 	srv.HandleFunc("GET "+armBase+"/{name}/listUpgradeNotifications", handleRedisListUpgradeNotifications)
 
-	// Provider-level operations metadata, name-availability check, and the
-	// async-operation status endpoint Redis_Create's poller follows.
+	// Provider-level operations metadata and the name-availability check.
 	srv.HandleFunc("GET /providers/Microsoft.Cache/operations", handleRedisOperationsList)
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/providers/Microsoft.Cache/checknameavailability", handleRedisCheckNameAvailability)
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Cache/locations/{location}/asyncOperations/{operationId}", handleRedisAsyncOperationStatus)
 
 	// Access policies + assignments (Microsoft Entra ID data-access RBAC).
 	srv.HandleFunc("PUT "+armBase+"/{name}/accessPolicies/{policy}", handleRedisAccessPolicyPut)
@@ -562,17 +560,6 @@ func handleRedisCheckNameAvailability(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusOK)
-}
-
-func handleRedisAsyncOperationStatus(w http.ResponseWriter, r *http.Request) {
-	op, ok := azureAsyncOps.Get(sim.PathParam(r, "operationId"))
-	if !ok {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-			"Operation %q not found.", sim.PathParam(r, "operationId"))
-		return
-	}
-	setAzureAsyncOperationRetryAfter(w, op.Name)
-	sim.WriteJSON(w, http.StatusOK, op)
 }
 
 // redisChildPut is the shared create-or-update body for Redis child resources

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/delivery"
 )
 
 // Microsoft.EventGrid ARM control plane plus custom-topic publish
@@ -116,6 +114,7 @@ func registerEventGrid(srv *sim.Server) {
 	registerEventGridMore(srv)
 	registerEventGridPartner(srv)
 	registerEventGridDelivery(srv)
+	registerEventGridValidation(srv)
 
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -638,6 +637,7 @@ func handleEventGridCreateEventSubscription(w http.ResponseWriter, r *http.Reque
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "event subscription scope %q not found", scopeID)
 		return
 	}
+	scope, _ := store.Get(scopeID)
 	name := sim.PathParam(r, "eventSubscriptionName")
 	var req EventGridEventSubscription
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -656,8 +656,18 @@ func handleEventGridCreateEventSubscription(w http.ResponseWriter, r *http.Reque
 		Type:       "Microsoft.EventGrid/eventSubscriptions",
 		Properties: props,
 	}
+	var prior *EventGridEventSubscription
+	if existing, ok := eventGridSubscriptions.Get(es.ID); ok {
+		prior = &existing
+	}
+	if !eventGridNeedsValidation(es, prior) {
+		eventGridSubscriptions.Put(es.ID, es)
+		sim.WriteJSON(w, http.StatusCreated, es)
+		return
+	}
+	props["provisioningState"] = "Creating"
 	eventGridSubscriptions.Put(es.ID, es)
-	deliverEventGridValidation(es)
+	writeEventGridValidationAccepted(w, r, scope.Location, startEventGridValidation(r, es))
 	sim.WriteJSON(w, http.StatusCreated, es)
 }
 
@@ -935,34 +945,4 @@ func eventGridWebhookEndpoint(es EventGridEventSubscription) string {
 		return endpoint
 	}
 	return ""
-}
-
-func deliverEventGridValidation(es EventGridEventSubscription) {
-	endpoint := eventGridWebhookEndpoint(es)
-	if endpoint == "" {
-		return
-	}
-	event := []map[string]any{{
-		"id":        sim.NewUUID(),
-		"eventType": "Microsoft.EventGrid.SubscriptionValidationEvent",
-		"subject":   "",
-		"eventTime": time.Now().UTC().Format(time.RFC3339Nano),
-		"data": map[string]any{
-			"validationCode": sim.NewUUID(),
-			"validationUrl":  endpoint,
-		},
-		"dataVersion": "1",
-	}}
-	payload, err := json.Marshal(event)
-	if err != nil {
-		return
-	}
-	header := http.Header{}
-	header.Set("Content-Type", "application/json; charset=utf-8")
-	header.Set("aeg-event-type", "SubscriptionValidation")
-	header.Set("aeg-subscription-name", strings.ToUpper(es.Name))
-	header.Set("aeg-delivery-count", "0")
-	header.Set("aeg-metadata-version", "1")
-	header.Set("aeg-data-version", "1")
-	delivery.Post(context.Background(), delivery.Request{URL: endpoint, Header: header, Body: payload, Timeout: 30 * time.Second}, delivery.Success2xx)
 }

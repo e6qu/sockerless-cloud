@@ -198,6 +198,10 @@ func handleSBSendMessage(w http.ResponseWriter, r *http.Request, namespace, path
 			out.delay = time.Until(at)
 		}
 	}
+	if err := sbRequireSessionIDs(namespace, path, []sbOutgoing{out}); err != nil {
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
 	reached := sbSend(namespace, path, out)
 	if err := sbAMQPDeliverAvailableMessages(namespace, reached); err != nil {
 		AzureError(w, "InternalServerError", "deliver to AMQP receivers: "+err.Error(), http.StatusInternalServerError)
@@ -209,6 +213,12 @@ func handleSBSendMessage(w http.ResponseWriter, r *http.Request, namespace, path
 // handleSBReceive answers Receive and Delete (DELETE …/messages/head) and
 // Peek-Lock (POST …/messages/head).
 func handleSBReceive(w http.ResponseWriter, r *http.Request, namespace, path string, peekLock bool) {
+	// The REST plane has no way to accept a session, so it cannot receive from
+	// an entity whose messages only a session's lock holder may take.
+	if !sbIsDeadLetterPath(path) && sbSettings(namespace, path).requiresSession {
+		AzureError(w, "BadRequest", errSBSessionfulEntity.Error(), http.StatusBadRequest)
+		return
+	}
 	got, _ := sbReceive(namespace, path, "", 1, peekLock)
 	if len(got) == 0 {
 		w.WriteHeader(http.StatusNoContent)

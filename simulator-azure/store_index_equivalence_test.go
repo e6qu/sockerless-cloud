@@ -438,13 +438,13 @@ func TestEventGridDeliversToASubscriptionKnownOnlyByItsIdentifier(t *testing.T) 
 	byIdentifier := topicID + "/providers/Microsoft.EventGrid/eventSubscriptions/by-id"
 	eventGridSubscriptions.Put(byIdentifier, EventGridEventSubscription{
 		ID: byIdentifier, Name: "by-id",
-		Properties: map[string]any{"destination": destination},
+		Properties: map[string]any{"destination": destination, "provisioningState": "Succeeded"},
 	})
 	// A sibling topic's subscription, which this publish must not reach.
 	otherSub := otherID + "/providers/Microsoft.EventGrid/eventSubscriptions/other"
 	eventGridSubscriptions.Put(otherSub, EventGridEventSubscription{
 		ID: otherSub, Name: "other",
-		Properties: map[string]any{"destination": destination},
+		Properties: map[string]any{"destination": destination, "provisioningState": "Succeeded"},
 	})
 
 	if !eventGridSubscriptionBelongsToTopic(eventGridSubscriptionAt(t, byIdentifier), topicID) {

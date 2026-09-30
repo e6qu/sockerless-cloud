@@ -143,6 +143,11 @@ func sbAMQPHandleRPC(namespace, path string, req *amqp.Message) *amqp.Message {
 		if len(outs) == 0 {
 			return sbAMQPRPCStatus(req, 400, "schedule-message names no messages.")
 		}
+		if err := sbRequireSessionIDs(namespace, path, outs); err != nil {
+			resp := sbAMQPRPCStatus(req, 400, err.Error())
+			resp.ApplicationProperties["error-condition"] = "amqp:not-allowed"
+			return resp
+		}
 		return sbAMQPRPCValue(req, 200, map[string]any{"sequence-numbers": sbSchedule(namespace, path, outs)})
 
 	case "com.microsoft:cancel-scheduled-message":

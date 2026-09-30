@@ -13,17 +13,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEventGridCLI_TopicSubscriptionPublish(t *testing.T) {
-	deliveries := make(chan []map[string]any, 4)
+// newEventGridCLIWebhook serves a webhook the way an Event Grid subscriber
+// does: it echoes the subscription validation code and hands every
+// notification's events to the channel.
+func newEventGridCLIWebhook(t *testing.T) (*httptest.Server, chan []map[string]any) {
+	t.Helper()
+	deliveries := make(chan []map[string]any, 16)
 	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
 		var events []map[string]any
-		require.NoError(t, json.Unmarshal(body, &events))
+		if err != nil || json.Unmarshal(body, &events) != nil || len(events) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if r.Header.Get("aeg-event-type") == "SubscriptionValidation" {
+			data, _ := events[0]["data"].(map[string]any)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"validationResponse": data["validationCode"]})
+			return
+		}
 		deliveries <- events
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(hook.Close)
+	return hook, deliveries
+}
+
+func TestEventGridCLI_TopicSubscriptionPublish(t *testing.T) {
+	hook, deliveries := newEventGridCLIWebhook(t)
 
 	topicURL := baseURL + "/subscriptions/" + subscriptionID + "/resourceGroups/" + resourceGroup +
 		"/providers/Microsoft.EventGrid/topics/cli-topic?api-version=2021-12-01"
@@ -52,13 +69,8 @@ func TestEventGridCLI_TopicSubscriptionPublish(t *testing.T) {
 
 	subURL := baseURL + topic.ID + "/providers/Microsoft.EventGrid/eventSubscriptions/cli-sub?api-version=2021-12-01"
 	body := `{"properties":{"destination":{"endpointType":"WebHook","properties":{"endpointUrl":"` + hook.URL + `"}},"eventDeliverySchema":"EventGridSchema"}}`
-	runCLI(t, azRest("PUT", subURL, body))
-
-	select {
-	case <-deliveries:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for Event Grid subscription validation delivery")
-	}
+	// The create completes once the webhook has echoed the validation code.
+	azRestLongRunning(t, "PUT", subURL, body)
 
 	listURL := baseURL + topic.ID + "/providers/Microsoft.EventGrid/eventSubscriptions?api-version=2021-12-01"
 	out = runCLI(t, azRest("GET", listURL, ""))
@@ -159,9 +171,10 @@ func TestEventGridCLI_DomainAndSystemTopic(t *testing.T) {
 		runCLI(t, azRest("DELETE", systemTopicURL, ""))
 	})
 
+	hook, _ := newEventGridCLIWebhook(t)
 	subURL := baseURL + systemTopic.ID + "/eventSubscriptions/cli-system-sub?api-version=2021-12-01"
-	body := `{"properties":{"destination":{"endpointType":"WebHook","properties":{"endpointUrl":"http://127.0.0.1:1"}},"eventDeliverySchema":"EventGridSchema"}}`
-	runCLI(t, azRest("PUT", subURL, body))
+	body := `{"properties":{"destination":{"endpointType":"WebHook","properties":{"endpointUrl":"` + hook.URL + `"}},"eventDeliverySchema":"EventGridSchema"}}`
+	azRestLongRunning(t, "PUT", subURL, body)
 
 	out = runCLI(t, azRest("GET", baseURL+systemTopic.ID+"/eventSubscriptions?api-version=2021-12-01", ""))
 	var subList struct {
@@ -214,9 +227,10 @@ func TestEventGridCLI_PartnerTopicLifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &partnerTopic))
 	assert.Equal(t, "Activated", partnerTopic.Properties.ActivationState)
 
+	hook, _ := newEventGridCLIWebhook(t)
 	subURL := baseURL + partnerTopic.ID + "/providers/Microsoft.EventGrid/eventSubscriptions/cli-partner-sub?api-version=2022-06-15"
-	body := `{"properties":{"destination":{"endpointType":"WebHook","properties":{"endpointUrl":"http://127.0.0.1:1"}},"eventDeliverySchema":"EventGridSchema"}}`
-	runCLI(t, azRest("PUT", subURL, body))
+	body := `{"properties":{"destination":{"endpointType":"WebHook","properties":{"endpointUrl":"` + hook.URL + `"}},"eventDeliverySchema":"EventGridSchema"}}`
+	azRestLongRunning(t, "PUT", subURL, body)
 	out = runCLI(t, azRest("GET", baseURL+partnerTopic.ID+"/providers/Microsoft.EventGrid/eventSubscriptions?api-version=2022-06-15", ""))
 	var subList struct {
 		Value []struct {
