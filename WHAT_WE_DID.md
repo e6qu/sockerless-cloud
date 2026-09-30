@@ -668,6 +668,14 @@ detector on a 7 GiB runner until the cap became a parameter tested at 64 KiB.
 A soak test's reader pool is sized to the machine and yields. A nightly fuzz
 failure becomes a seed, so ordinary `go test` catches the regression.
 
+An Amazon ECS test that deletes its subnet first stops the tasks of its own
+cluster whose interface is in that subnet and waits for them with `aws ecs
+wait tasks-stopped`, since EC2 refuses `DeleteSubnet` while an interface
+remains. The test scans only its own cluster, because scanning every cluster
+grew with each test and pushed the ECS CLI job past its time limit. A task
+that holds the subnet traps SIGTERM, so `StopTask` ends it at once instead of
+after the container's stop timeout.
+
 Dependencies of every class — Go modules, Terraform providers, GitHub Actions,
 installed tools, the consoles' npm packages — are held to their newest release
 past a 24-hour adoption quarantine. `ui/bunfig.toml` sets

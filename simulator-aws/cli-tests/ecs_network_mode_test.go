@@ -34,7 +34,7 @@ func registerNetworkModeTaskDef(q func(...string) string, family, mode string) {
 		args = append(args, "--requires-compatibilities", "FARGATE", "--cpu", "256", "--memory", "512")
 	}
 	args = append(args,
-		"--container-definitions", `[{"name":"app","image":"`+vpcNetBusybox+`","stopTimeout":2,"entryPoint":["sh","-c"],"command":["sleep 120"]}]`,
+		"--container-definitions", `[{"name":"app","image":"`+vpcNetBusybox+`","stopTimeout":2,"entryPoint":["sh","-c"],"command":["trap 'exit 143' TERM; sleep 120 & wait"]}]`,
 		"--query", "taskDefinition.taskDefinitionArn", "--output", "text")
 	q(args...)
 }
@@ -109,7 +109,7 @@ func TestECSNetworkModeAwsvpcKeepsTaskOffTheDefaultBridge(t *testing.T) {
 	task := runTask(q, "netmode-awsvpc", subnetID)
 	t.Cleanup(func() {
 		runCLI(t, awsCLI("ecs", "stop-task", "--cluster", "default", "--task", task))
-		stopCLITasksInSubnet(t, subnetID)
+		stopCLITasksInSubnet(t, "default", subnetID)
 		q("ec2", "delete-subnet", "--subnet-id", subnetID)
 		q("ec2", "delete-vpc", "--vpc-id", vpcID)
 		rmDockerNetworks(ecsVPCNet(vpcID), ecsVPCNet(vpcID)+"-egress")
@@ -224,7 +224,7 @@ func TestECSNetworkModeRejectsMismatchedNetworkConfiguration(t *testing.T) {
 	octet := unusedDockerVPCOctet(t, 185, nil)
 	vpcID, subnetID := mkVPCSubnet(t, q, vpcCIDR(octet), subnetCIDR(octet))
 	t.Cleanup(func() {
-		stopCLITasksInSubnet(t, subnetID)
+		stopCLITasksInSubnet(t, "default", subnetID)
 		q("ec2", "delete-subnet", "--subnet-id", subnetID)
 		q("ec2", "delete-vpc", "--vpc-id", vpcID)
 	})
