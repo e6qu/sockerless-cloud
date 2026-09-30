@@ -76,6 +76,11 @@ type OCIRegistry struct {
 	// can register a control-plane image row against the registry the request
 	// addressed.
 	OnManifestPut func(scope, repo, ref, contentType string, data []byte)
+	// OnManifestDelete, if set, is invoked under the manifest lock after a
+	// client's DELETE removed a manifest and its aliases, so the cloud can drop
+	// the control-plane rows that describe that digest. It must not re-enter the
+	// manifest store.
+	OnManifestDelete func(scope, repo, digest string)
 	// HydrateManifest, if set, is invoked on a manifest GET/HEAD miss to let the
 	// cloud's pull-through cache populate the manifest (+ its blobs) via
 	// PutBlob, in the scope of the registry the request addressed. Returns true
@@ -506,6 +511,9 @@ func (reg *OCIRegistry) handleManifest(w http.ResponseWriter, r *http.Request, s
 			reg.Manifests.Delete(ociManifestKey(scope, repo, m.Ref))
 		}
 		reg.Manifests.Delete(ociManifestKey(scope, repo, ref))
+		if reg.OnManifestDelete != nil {
+			reg.OnManifestDelete(scope, repo, entry.Digest)
+		}
 		reg.manifestMu.Unlock()
 		w.WriteHeader(http.StatusAccepted)
 
