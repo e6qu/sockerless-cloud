@@ -22,7 +22,7 @@ require (
 	cloud.google.com/go/serviceusage v1.16.0
 	cloud.google.com/go/spanner v1.95.1
 	cloud.google.com/go/vpcaccess v1.15.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260929114915-9275986964aa
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260930220800-180cc87bb0dd
 	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260930105037-206c84ab3201
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/moby/moby/client v0.6.0
