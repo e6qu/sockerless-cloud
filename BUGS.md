@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 55.
+Open: 54.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -52,7 +52,6 @@ live in `WHAT_WE_DID.md`.
 | 3159 | P2 | EventBridge API destination secrets | `EBConnection.AuthParameters` is tagged `json:"-"`, so a connection's secret is lost from persistent state across a restart and API-destination calls then fail to authenticate; `InvocationRateLimitPerSecond` is not enforced. | Persist the secret as the connection's Secrets Manager secret, and rate-limit invocations. |
 | 3160 | P3 | EventBridge Scheduler targets | The execution role is checked only for the dead-letter queue, not for invoking the target; EventBridge `PutEvents`, SageMaker and universal targets fail as `UnsupportedTarget`; `RetryPolicy` ranges are not validated. | Assume the execution role for every target call, add the missing targets, and validate the ranges the model declares. |
 | 3161 | P3 | AWS Batch array and retry properties | `SubmitJob` ignores `arrayProperties` and `retryStrategy`. | Run array jobs and retry failed attempts as the job definition and request declare. |
-| 3162 | P3 | Kinesis UpdateShardCount lifecycle | `UpdateShardCount` completes synchronously without passing through `UPDATING` and does not enforce the documented limits (at most double or half, ten times a day). | Transition through `UPDATING` and enforce the limits. |
 | 3163 | P3 | Application Auto Scaling target tracking | The capacity formula is a `round()` simplification, and predefined metric types other than CPU and memory (such as ALBRequestCountPerTarget) create no alarms and never scale. | Compute capacity as the service documents and create alarms for every predefined metric. |
 | 3164 | P3 | AWS values taken from guides, not vendored sources | These values come from AWS service guides that no vendored source carries: the `InvalidParameterValue` for an Aurora `CreateDBCluster` without a password, the API-destination retryable status codes (401, 407, 409, 429, 5xx), the Scheduler dead-letter attribute names, ECS target input becoming overrides, and the target-tracking alarm parameters (3 and 15 evaluation periods, 90%, 300 s default cooldown). | Confirm each against the SDK sources, the AWS CLI's botocore data or the Terraform provider, and correct any that differ. |
 | 3168 | P3 | VM tests on hosts without KVM | The Azure SDK and CLI VM tests gate only on network capabilities, so on a host without `/dev/kvm` they fail instead of skipping, and their suites do not install `firecracker` and `unsquashfs`. | Gate on `/dev/kvm` (a host-kernel capability) beside the network check, and install the two tools in `TestMain`. |

@@ -128,6 +128,7 @@ func TestKinesisCLI_MergeAndSplitShards(t *testing.T) {
 		"--stream-name", stream,
 		"--shard-to-split", parent,
 		"--new-starting-hash-key", "170141183460469231731687303715884105728"))
+	runCLI(t, awsCLI("kinesis", "wait", "stream-exists", "--stream-name", stream))
 
 	var afterSplit streamDesc
 	parseJSON(t, runCLI(t, awsCLI("kinesis", "describe-stream", "--stream-name", stream)), &afterSplit)
@@ -138,6 +139,7 @@ func TestKinesisCLI_MergeAndSplitShards(t *testing.T) {
 		"--stream-name", stream,
 		"--shard-to-merge", open[0].ShardID,
 		"--adjacent-shard-to-merge", open[1].ShardID))
+	runCLI(t, awsCLI("kinesis", "wait", "stream-exists", "--stream-name", stream))
 
 	var afterMerge streamDesc
 	parseJSON(t, runCLI(t, awsCLI("kinesis", "describe-stream", "--stream-name", stream)), &afterMerge)

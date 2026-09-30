@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/streamlog"
 )
 
@@ -36,6 +37,9 @@ type KinesisStream struct {
 	// RecordDistributionStrategy is AUTO or USER_PARTITION_KEY; empty is the
 	// default, USER_PARTITION_KEY.
 	RecordDistributionStrategy string `json:"-"`
+	// ScalingTimes holds the Unix times of the UpdateShardCount calls in the
+	// last 24 hours, which the ten-per-day limit counts.
+	ScalingTimes []int64 `json:"-"`
 }
 
 const (
@@ -1127,6 +1131,40 @@ func handleKinesisStopStreamEncryption(w http.ResponseWriter, r *http.Request) {
 	writeKinesisJSON(w, http.StatusOK, map[string]any{})
 }
 
+// kinesisRequireActive refuses a resharding of a stream that is not ACTIVE,
+// as SplitShard, MergeShards and UpdateShardCount do.
+func kinesisRequireActive(w http.ResponseWriter, stream KinesisStream) bool {
+	if stream.StreamStatus == "ACTIVE" {
+		return true
+	}
+	AWSError(w, "ResourceInUseException",
+		fmt.Sprintf("Stream %s under account %s not ACTIVE, instead in state %s", stream.StreamName, awsAccountID(), stream.StreamStatus), http.StatusBadRequest)
+	return false
+}
+
+// kinesisReshardInBackground marks the stream UPDATING, which the caller
+// stores, and applies reshard behind the request before the stream turns
+// ACTIVE again. The caller holds kinesisMu.
+func kinesisReshardInBackground(stream *KinesisStream, reshard func(*KinesisStream)) {
+	stream.StreamStatus = "UPDATING"
+	name := stream.StreamName
+	bg.Go(func() {
+		kinesisMu.Lock()
+		defer kinesisMu.Unlock()
+		scaling, ok := kinesisStreams.Get(name)
+		if !ok || scaling.StreamStatus != "UPDATING" {
+			return
+		}
+		reshard(&scaling)
+		scaling.StreamStatus = "ACTIVE"
+		kinesisStreams.Put(name, scaling)
+	})
+}
+
+// kinesisShardLimit is the per-stream open-shard ceiling UpdateShardCount
+// documents.
+const kinesisShardLimit = 10000
+
 func handleKinesisUpdateShardCount(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		StreamName       string `json:"StreamName"`
@@ -1149,11 +1187,48 @@ func handleKinesisUpdateShardCount(w http.ResponseWriter, r *http.Request) {
 	kinesisMu.Lock()
 	defer kinesisMu.Unlock()
 	stream, _ = kinesisStreams.Get(stream.StreamName)
+	if stream.StreamModeDetails["StreamMode"] == "ON_DEMAND" {
+		AWSError(w, "ValidationException",
+			fmt.Sprintf("UpdateShardCount is not supported for stream %s in ON_DEMAND capacity mode.", stream.StreamName), http.StatusBadRequest)
+		return
+	}
+	if !kinesisRequireActive(w, stream) {
+		return
+	}
 	current := kinesisOpenShardCount(stream.Shards)
-	kinesisReshardUniformly(&stream, req.TargetShardCount)
+	now := time.Now()
+	var recent []int64
+	for _, at := range stream.ScalingTimes {
+		if now.Sub(time.Unix(at, 0)) < 24*time.Hour {
+			recent = append(recent, at)
+		}
+	}
+	switch {
+	case len(recent) >= 10:
+		AWSError(w, "LimitExceededException",
+			fmt.Sprintf("Stream %s has already been scaled ten times in the last 24 hours.", stream.StreamName), http.StatusBadRequest)
+		return
+	case req.TargetShardCount > 2*current:
+		AWSError(w, "LimitExceededException",
+			fmt.Sprintf("UpdateShardCount cannot scale up over double your current open shard count. Current open shard count: %d Target shard count: %d", current, req.TargetShardCount), http.StatusBadRequest)
+		return
+	case 2*req.TargetShardCount < current:
+		AWSError(w, "LimitExceededException",
+			fmt.Sprintf("UpdateShardCount cannot scale down below half your current open shard count. Current open shard count: %d Target shard count: %d", current, req.TargetShardCount), http.StatusBadRequest)
+		return
+	case req.TargetShardCount > kinesisShardLimit:
+		AWSError(w, "LimitExceededException",
+			fmt.Sprintf("UpdateShardCount cannot scale up to more than %d shards in a stream. Target shard count: %d", kinesisShardLimit, req.TargetShardCount), http.StatusBadRequest)
+		return
+	}
+	stream.ScalingTimes = append(recent, now.Unix())
+	kinesisReshardInBackground(&stream, func(scaling *KinesisStream) {
+		kinesisReshardUniformly(scaling, req.TargetShardCount)
+	})
 	kinesisStreams.Put(stream.StreamName, stream)
 	writeKinesisJSON(w, http.StatusOK, map[string]any{
 		"StreamName":        stream.StreamName,
+		"StreamARN":         stream.StreamARN,
 		"CurrentShardCount": current,
 		"TargetShardCount":  req.TargetShardCount,
 	})
@@ -1470,6 +1545,9 @@ func handleKinesisMergeShards(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
+	if !kinesisRequireActive(w, stream) {
+		return
+	}
 	left, lok := kinesisFindShard(stream, req.ShardToMerge)
 	right, rok := kinesisFindShard(stream, req.AdjacentShardToMerge)
 	if !lok || !rok {
@@ -1488,7 +1566,9 @@ func handleKinesisMergeShards(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidArgumentException", "Shards are not adjacent", http.StatusBadRequest)
 		return
 	}
-	kinesisMergeShards(&stream, left, right)
+	kinesisReshardInBackground(&stream, func(merging *KinesisStream) {
+		kinesisMergeShards(merging, left, right)
+	})
 	kinesisStreams.Put(stream.StreamName, stream)
 	writeKinesisJSON(w, http.StatusOK, map[string]any{})
 }
@@ -1509,6 +1589,9 @@ func handleKinesisSplitShard(w http.ResponseWriter, r *http.Request) {
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
 		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		return
+	}
+	if !kinesisRequireActive(w, stream) {
 		return
 	}
 	parent, ok := kinesisFindShard(stream, req.ShardToSplit)
@@ -1535,7 +1618,9 @@ func handleKinesisSplitShard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	kinesisSplitShard(&stream, parent, newStart)
+	kinesisReshardInBackground(&stream, func(splitting *KinesisStream) {
+		kinesisSplitShard(splitting, parent, newStart)
+	})
 	kinesisStreams.Put(stream.StreamName, stream)
 	writeKinesisJSON(w, http.StatusOK, map[string]any{})
 }
