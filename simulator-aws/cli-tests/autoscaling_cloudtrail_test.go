@@ -32,8 +32,13 @@ func TestAutoScalingGroupLifecycleCLI(t *testing.T) {
 		"--desired-capacity", "1",
 		"--vpc-zone-identifier", subnetID))
 
-	runCLI(t, awsCLI("autoscaling", "wait", "group-in-service",
-		"--auto-scaling-group-names", "cli-asg"))
+	firstID := strings.TrimSpace(runCLI(t, awsCLI("autoscaling", "describe-auto-scaling-groups",
+		"--auto-scaling-group-names", "cli-asg",
+		"--query", "AutoScalingGroups[0].Instances[0].InstanceId",
+		"--output", "text")))
+	// The AWS CLI has no Auto Scaling waiters; a member is InService once its
+	// EC2 instance runs.
+	runCLI(t, awsCLI("ec2", "wait", "instance-running", "--instance-ids", firstID))
 	out = runCLI(t, awsCLI("autoscaling", "describe-auto-scaling-groups",
 		"--auto-scaling-group-names", "cli-asg",
 		"--query", "AutoScalingGroups[0].Instances[0].[InstanceId,LifecycleState]",

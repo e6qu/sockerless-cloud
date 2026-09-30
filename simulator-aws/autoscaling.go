@@ -1100,20 +1100,20 @@ func asLaunchInstance(group string, l asLaunch) {
 		asFinishActivity(l.activityID, "Failed", fmt.Sprintf("Instance %s failed to launch: %v", l.instanceID, err))
 		return
 	}
-	launched := false
-	ec2Instances.Update(l.instanceID, func(i *EC2Instance) {
-		if i.State == "pending" {
-			i.State = "running"
-			launched = true
-		}
-	})
-	if !launched {
+	if current, ok := ec2Instances.Get(l.instanceID); !ok || current.State != "pending" {
 		// Scale-in terminated the instance while it booted.
 		_ = ec2StopRealVM(context.Background(), l.instanceID)
 		asFinishActivity(l.activityID, "Cancelled", "The instance was terminated before it entered service.")
 		return
 	}
+	// The launch activity ends once EC2 has launched the instance, so it is
+	// Successful by the time a caller sees the instance running.
 	asFinishActivity(l.activityID, "Successful", "")
+	ec2Instances.Update(l.instanceID, func(i *EC2Instance) {
+		if i.State == "pending" {
+			i.State = "running"
+		}
+	})
 }
 
 // asActivityMemberXML renders an Activity; EndTime and StatusMessage appear
