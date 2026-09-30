@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.6](https://github.com/e6qu/sockerless-cloud/compare/v0.33.5...v0.33.6) (2026-09-30)
+
+
+### Bug Fixes
+
+* Service Bus topic delivery on CI, Aurora engines, and a second bug sweep ([#221](https://github.com/e6qu/sockerless-cloud/issues/221)) ([8a52409](https://github.com/e6qu/sockerless-cloud/commit/8a5240981ec0264879b54e408a19e1984420d6cc))
+
 ## [0.33.5](https://github.com/e6qu/sockerless-cloud/compare/v0.33.4...v0.33.5) (2026-09-29)
 
 
