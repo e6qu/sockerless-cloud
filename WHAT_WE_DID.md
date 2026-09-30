@@ -629,6 +629,21 @@ convert RAW, VHD and VMDK formats into real snapshot data. A waiting SQS
 receive wakes on the send, delay or visibility change it waits for. ECS
 creates an awslogs log group only when the task definition asks for it.
 
+AWS Batch answers `SubmitJob` at once and schedules the job behind it. The
+job moves on real events: RUNNABLE once the scheduler evaluated it, STARTING
+when a compute environment of its queue that is ENABLED and has the vCPUs to
+spare (`maxvCpus`) placed it, RUNNING when its container started, and a
+terminal state when the container exited; a job no environment can place waits
+in RUNNABLE until one can. Each attempt runs a new container with the
+`AWS_BATCH_*` variables the user guide lists, logs to its own
+`/aws/batch/job` stream, and is recorded in `attempts`. The request's
+`retryStrategy` overrides the job definition's, and `evaluateOnExit`
+conditions decide in order; a terminated or timed-out attempt is never
+retried. An array job spawns `<parent>:<index>` children, lists them under
+`arrayJobId`, and settles once every child has. `CancelJob` stops only jobs
+that have not started, `TerminateJob` stops the containers of started ones,
+and both reach an array parent's children.
+
 A test asserts a boundary at a small parameterised limit rather than by
 reaching the real one: the OCI body-cap tests peaked at 7.7 GiB under the race
 detector on a 7 GiB runner until the cap became a parameter tested at 64 KiB.

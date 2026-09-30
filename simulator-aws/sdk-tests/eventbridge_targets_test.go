@@ -140,7 +140,10 @@ func TestEventBridge_BatchTargetSubmitsTheJob_SDK(t *testing.T) {
 	putEventBridgeEvent(t, rule, `{"id":2}`)
 
 	require.Eventually(t, func() bool {
-		jobs, err := c.ListJobs(ctx, &batch.ListJobsInput{JobQueue: aws.String("eb-target-jq")})
+		jobs, err := c.ListJobs(ctx, &batch.ListJobsInput{
+			JobQueue: aws.String("eb-target-jq"),
+			Filters:  []batchtypes.KeyValuesPair{{Name: aws.String("JOB_NAME"), Values: []string{"eb-submitted-job"}}},
+		})
 		if err != nil {
 			return false
 		}

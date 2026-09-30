@@ -208,7 +208,7 @@ func TestBatch_SubmitJob_CLI(t *testing.T) {
 	assert.Equal(t, "SUCCEEDED", described.Jobs[0].Status)
 
 	out = runCLI(t, awsCLI("batch", "list-jobs",
-		"--job-queue", "batch-cli-jq-job"))
+		"--job-queue", "batch-cli-jq-job", "--job-status", "SUCCEEDED"))
 	var listed struct {
 		JobSummaryList []struct {
 			JobID string `json:"jobId"`
@@ -559,4 +559,97 @@ func TestBatch_JobQueueSnapshot_CLI(t *testing.T) {
 	}
 	parseJSON(t, out, &snap)
 	assert.NotNil(t, snap.FrontOfQueue.Jobs)
+}
+
+// submit-job takes --array-properties and --retry-strategy: each child runs
+// with its AWS_BATCH_JOB_ARRAY_INDEX, a failed attempt is retried in a new
+// container, and list-jobs --array-job-id lists the children.
+func TestBatch_SubmitArrayJobWithRetries_CLI(t *testing.T) {
+	runCLI(t, awsCLI("batch", "create-compute-environment",
+		"--compute-environment-name", "batch-cli-ce-array",
+		"--type", "MANAGED",
+		"--state", "ENABLED",
+	))
+	t.Cleanup(func() {
+		runCLI(t, awsCLI("batch", "delete-compute-environment", "--compute-environment", "batch-cli-ce-array"))
+	})
+	runCLI(t, awsCLI("batch", "create-job-queue",
+		"--job-queue-name", "batch-cli-jq-array",
+		"--state", "ENABLED",
+		"--priority", "1",
+		"--compute-environment-order", `[{"order":1,"computeEnvironment":"batch-cli-ce-array"}]`,
+	))
+	t.Cleanup(func() {
+		runCLI(t, awsCLI("batch", "delete-job-queue", "--job-queue", "batch-cli-jq-array"))
+	})
+	out := runCLI(t, awsCLI("batch", "register-job-definition",
+		"--job-definition-name", "batch-cli-jd-array",
+		"--type", "container",
+		"--container-properties", `{"image":"public.ecr.aws/docker/library/alpine:3",`+
+			`"command":["sh","-c","[ \"$AWS_BATCH_JOB_ARRAY_INDEX\" = 0 ] || [ \"$AWS_BATCH_JOB_ATTEMPT\" -ge 2 ]"],"vcpus":1,"memory":512}`,
+	))
+	var reg struct {
+		JobDefinitionArn string `json:"jobDefinitionArn"`
+	}
+	parseJSON(t, out, &reg)
+	t.Cleanup(func() {
+		runCLI(t, awsCLI("batch", "deregister-job-definition", "--job-definition", reg.JobDefinitionArn))
+	})
+
+	out = runCLI(t, awsCLI("batch", "submit-job",
+		"--job-name", "batch-cli-array",
+		"--job-queue", "batch-cli-jq-array",
+		"--job-definition", reg.JobDefinitionArn,
+		"--array-properties", "size=2",
+		"--retry-strategy", "attempts=2",
+	))
+	var submitted struct {
+		JobID string `json:"jobId"`
+	}
+	parseJSON(t, out, &submitted)
+	require.NotEmpty(t, submitted.JobID)
+
+	type attempt struct {
+		Container struct {
+			ExitCode int `json:"exitCode"`
+		} `json:"container"`
+	}
+	var described struct {
+		Jobs []struct {
+			JobID           string    `json:"jobId"`
+			Status          string    `json:"status"`
+			Attempts        []attempt `json:"attempts"`
+			ArrayProperties struct {
+				Size          int            `json:"size"`
+				StatusSummary map[string]int `json:"statusSummary"`
+			} `json:"arrayProperties"`
+		} `json:"jobs"`
+	}
+	require.Eventually(t, func() bool {
+		parseJSON(t, runCLI(t, awsCLI("batch", "describe-jobs", "--jobs", submitted.JobID)), &described)
+		require.Len(t, described.Jobs, 1)
+		return described.Jobs[0].Status == "SUCCEEDED" || described.Jobs[0].Status == "FAILED"
+	}, 90*time.Second, 100*time.Millisecond)
+	require.Equal(t, "SUCCEEDED", described.Jobs[0].Status)
+	assert.Equal(t, 2, described.Jobs[0].ArrayProperties.Size)
+	assert.Equal(t, 2, described.Jobs[0].ArrayProperties.StatusSummary["SUCCEEDED"])
+
+	parseJSON(t, runCLI(t, awsCLI("batch", "describe-jobs",
+		"--jobs", submitted.JobID+":0", submitted.JobID+":1")), &described)
+	require.Len(t, described.Jobs, 2)
+	assert.Len(t, described.Jobs[0].Attempts, 1, "index 0 succeeds on its first attempt")
+	require.Len(t, described.Jobs[1].Attempts, 2, "index 1 fails its first attempt and is retried")
+	assert.Equal(t, 1, described.Jobs[1].Attempts[0].Container.ExitCode)
+	assert.Equal(t, 0, described.Jobs[1].Attempts[1].Container.ExitCode)
+
+	var listed struct {
+		JobSummaryList []struct {
+			JobID string `json:"jobId"`
+		} `json:"jobSummaryList"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("batch", "list-jobs",
+		"--array-job-id", submitted.JobID, "--job-status", "SUCCEEDED")), &listed)
+	require.Len(t, listed.JobSummaryList, 2)
+	assert.Equal(t, submitted.JobID+":0", listed.JobSummaryList[0].JobID)
+	assert.Equal(t, submitted.JobID+":1", listed.JobSummaryList[1].JobID)
 }
