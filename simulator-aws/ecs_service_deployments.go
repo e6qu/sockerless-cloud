@@ -141,7 +141,7 @@ func handleECSDescribeServiceDeployments(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var found []map[string]any
-	var failures []map[string]string
+	failures := []map[string]string{}
 	for _, arn := range req.ServiceDeploymentArns {
 		dep, ok := ecsServiceDeployments.Get(arn)
 		if !ok {
@@ -270,7 +270,7 @@ func handleECSDescribeServiceRevisions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var found []ECSServiceRevisionRec
-	var failures []map[string]string
+	failures := []map[string]string{}
 	for _, arn := range req.ServiceRevisionArns {
 		rev, ok := ecsServiceRevisions.Get(arn)
 		if !ok {

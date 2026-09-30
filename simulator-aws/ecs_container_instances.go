@@ -141,7 +141,7 @@ func handleECSDescribeContainerInstances(w http.ResponseWriter, r *http.Request)
 	}
 	clusterName := ecsClusterNameFromRef(req.Cluster)
 	var found []ECSContainerInstance
-	var failures []map[string]string
+	failures := []map[string]string{}
 	for _, ref := range req.ContainerInstances {
 		id := ecsContainerInstanceID(ref)
 		ci, ok := ecsContainerInstances.Get(ecsContainerInstanceKey(clusterName, id))
@@ -217,7 +217,7 @@ func handleECSUpdateContainerInstancesState(w http.ResponseWriter, r *http.Reque
 	}
 	clusterName := ecsClusterNameFromRef(req.Cluster)
 	var found []ECSContainerInstance
-	var failures []map[string]string
+	failures := []map[string]string{}
 	for _, ref := range req.ContainerInstances {
 		id := ecsContainerInstanceID(ref)
 		key := ecsContainerInstanceKey(clusterName, id)

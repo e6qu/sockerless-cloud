@@ -31,7 +31,7 @@ func handleECSDeleteTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var deleted []ECSTaskDefinition
-	var failures []map[string]string
+	failures := []map[string]string{}
 	for _, ref := range req.TaskDefinitions {
 		key := ref
 		if strings.HasPrefix(key, "arn:") {

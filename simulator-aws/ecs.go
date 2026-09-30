@@ -707,8 +707,8 @@ func handleECSDescribeClusters(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var clusters []ECSCluster
-	var failures []map[string]string
+	clusters := []ECSCluster{}
+	failures := []map[string]string{}
 
 	for _, nameOrArn := range req.Clusters {
 		// Extract cluster name from ARN if needed
@@ -1607,7 +1607,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 		requestedSubnet = in.NetworkConfiguration.AwsvpcConfiguration.Subnets[0]
 	}
 
-	var tasks []ECSTask
+	tasks := []ECSTask{}
 	failures := []ecsFailure{}
 	requested := ecsRequestedTaskSize(td, in.Overrides)
 	for i := 0; i < in.Count; i++ {
@@ -2933,8 +2933,8 @@ func handleECSDescribeTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var tasks []ECSTask
-	var failures []map[string]string
+	tasks := []ECSTask{}
+	failures := []map[string]string{}
 
 	for _, taskRef := range req.Tasks {
 		// Extract task ID from ARN
