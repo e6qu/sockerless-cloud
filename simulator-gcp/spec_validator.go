@@ -629,7 +629,8 @@ func armSpecValidator(srv *sim.Server) error {
 		for _, c := range matches {
 			streaming = streaming || isStreamingResponseOp(c.method.op)
 		}
-		if streaming {
+		trimmed := bytes.TrimLeft(respBody, " \t\r\n")
+		if streaming && (len(trimmed) == 0 || trimmed[0] == '[') {
 			elements, err := decodeStreamElements(respBody)
 			if err != nil {
 				return []sim.SpecViolation{{Op: matches[0].method.op, Kind: "malformed-json", Field: "$", Detail: err.Error()}}
