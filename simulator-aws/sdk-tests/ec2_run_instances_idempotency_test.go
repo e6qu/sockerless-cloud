@@ -50,6 +50,7 @@ func TestEC2_RunInstancesClientTokenIdempotency(t *testing.T) {
 
 	first, err := c.RunInstances(ctx, in)
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, first)
 	firstIDs := ids(first)
 	require.Len(t, firstIDs, 2)
 

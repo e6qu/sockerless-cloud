@@ -39,6 +39,7 @@ func TestEC2RoutingEIPFidelityCLI(t *testing.T) {
 	// EIP association round-trip.
 	instID := q("ec2", "run-instances", "--image-id", "ami-12345678", "--instance-type", "t3.micro",
 		"--query", "Instances[0].InstanceId", "--output", "text")
+	terminateCLIInstanceOnCleanup(t, instID)
 	eip2 := q("ec2", "allocate-address", "--domain", "vpc", "--query", "AllocationId", "--output", "text")
 	assocID := q("ec2", "associate-address", "--allocation-id", eip2, "--instance-id", instID,
 		"--query", "AssociationId", "--output", "text")

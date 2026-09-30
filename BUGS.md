@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 54.
+Open: 53.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -44,7 +44,6 @@ live in `WHAT_WE_DID.md`.
 | 3149 | P2 | SDK suites and consoles run serially | Only 2 of 3,707 SDK and CLI tests call `t.Parallel`, and Playwright runs one worker per console, so every wait in the suites lands on the wall clock. | Isolate the tests' resources and run them in parallel. |
 | 3150 | P3 | Terraform provider wait timers | The AWS provider waits 60 s after an RDS instance create and polls 10 s apart on create and delete, 30 s for ElastiCache, 15 s before a Route 53 check; three RDS stacks each pay them serially (~900 s). | Run the RDS stacks in one job concurrently so the provider's own timers overlap. |
 | 3151 | P3 | CI setup repeated per job | Base-image loading (4,803 s), pre-building the simulator and tests (1,990 s) and installing Caddy through apt (760 s) repeat in every job. | Build once and share the build and the loaded images across jobs; install Caddy from a cached binary. |
-| 3152 | P2 | EC2 Firecracker boot lock and first boot | The background VM start holds the machine lock (`realexec/fabric/fabric.go`) while pinging the guest for up to 2 minutes (`realexec/firecracker.go`), so TerminateInstances queues behind it. The first boot on a fresh CI runner takes about 60 s against about 13 s for later ones: with the kernel and root filesystem archive restored from the Firecracker cache, `ensureFirecrackerAssets` still unpacks the archive as root on first use. | Take the lock only around state changes, and unpack the root filesystem once per runner ahead of the tests (a cache that can hold root-owned files, or a setup step) so no launch pays for it. |
 | 3153 | P2 | VM boots inside control-plane requests | Compute Engine `instances.start` blocks its request 4.5–5.5 s while the machine boots, and Azure VM DELETE and SimulateEviction stop the guest inside the request; the services answer at once and do the work behind an operation or a pending state. | Answer with the operation or pending state and do the boot or stop in the background, as the Azure VM create and actions now do. |
 | 3154 | P3 | Fixed waits in tests | Sleep or poll sites in test code still wait on time instead of an event: the Azure suites, the AWS sites with no waiter (RDS stopped, ELB unhealthy, ECS replacement after StopTask, rollback completion, Batch and CodeBuild discovery, the event source mapping's LastProcessingResult), the AWS CLI waiters (unrun here), fixtures hold a Cloud Run revision 30 s, sidecar tests retry for 10 s with no sidecar, and 68 sites could use the SDK's own waiter. | Replace each with the waiter, LRO poller, blocking receive or test hook the inventory names; poll only a status field the cloud exposes nothing else for. |
 | 3155 | P3 | Stop and network-removal deadlines | Container stop and network removal wait out 10 s deadlines, and a DNS zone delete that stalls on one discards the error (`dns.go`). | Wait on the engine's stop and removal events, and surface the delete's error. |

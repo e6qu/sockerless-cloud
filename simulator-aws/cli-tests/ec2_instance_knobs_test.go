@@ -18,6 +18,7 @@ func TestEC2InstanceKnobFidelityCLI(t *testing.T) {
 		"--subnet-id", subnetID, "--key-name", "cli-key", "--ebs-optimized",
 		"--metadata-options", "HttpTokens=required,HttpPutResponseHopLimit=2",
 		"--query", "Instances[0].InstanceId", "--output", "text")
+	terminateCLIInstanceOnCleanup(t, instID)
 
 	out := q("ec2", "describe-instances", "--instance-ids", instID,
 		"--query", "Reservations[0].Instances[0].[KeyName,EbsOptimized,MetadataOptions.HttpTokens,SourceDestCheck]",

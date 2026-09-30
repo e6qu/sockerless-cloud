@@ -60,6 +60,7 @@ func TestEC2_ModifyInstanceMetadataOptionsSDK(t *testing.T) {
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 	id := aws.ToString(run.Instances[0].InstanceId)
 
 	_, err = c.ModifyInstanceMetadataOptions(ctx, &ec2.ModifyInstanceMetadataOptionsInput{

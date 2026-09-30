@@ -69,3 +69,39 @@ func TestEC2RunInstancesTerminatesAnInstanceWhoseBootFails(t *testing.T) {
 		t.Fatalf("network interface %s outlived the failed launch", inst.NetworkInterfaceId)
 	}
 }
+
+// TestEC2TerminatingAPendingInstanceCancelsItsBoot shows stopping the VM of an
+// instance still booting cancels the boot instead of waiting it out, and the
+// launch leaves the state the terminating caller set.
+func TestEC2TerminatingAPendingInstanceCancelsItsBoot(t *testing.T) {
+	asLaunchTestStores(t)
+	booting := make(chan struct{})
+	ec2BootInstance = func(ctx context.Context, _ EC2Instance) error {
+		close(booting)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	instanceID := ec2PendingInstance(t)
+	type result struct {
+		launched bool
+		err      error
+	}
+	done := make(chan result, 1)
+	bg.Go(func() {
+		launched, err := ec2LaunchInstance(instanceID, nil)
+		done <- result{launched, err}
+	})
+	<-booting
+	ec2Instances.Update(instanceID, func(i *EC2Instance) { i.State = "shutting-down" })
+	if err := ec2StopRealVM(context.Background(), instanceID); err != nil {
+		t.Fatalf("stop VM: %v", err)
+	}
+	got := <-done
+	if got.launched || got.err != nil {
+		t.Fatalf("launch of a terminated pending instance = %t, %v; want false, nil", got.launched, got.err)
+	}
+	if inst, _ := ec2Instances.Get(instanceID); inst.State != "shutting-down" || inst.StateReasonCode != "" {
+		t.Fatalf("instance after cancelled boot = %q / %q, want the terminating caller's state", inst.State, inst.StateReasonCode)
+	}
+}

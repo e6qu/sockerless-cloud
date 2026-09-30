@@ -35,6 +35,7 @@ func TestEC2_LaunchTemplateProvenanceTags(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 	id := aws.ToString(run.Instances[0].InstanceId)
 
 	desc, err := c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{id}})

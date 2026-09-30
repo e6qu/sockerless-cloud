@@ -87,6 +87,7 @@ func TestEC2_ElasticIPAssociationSDK(t *testing.T) {
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 	instID := aws.ToString(run.Instances[0].InstanceId)
 
 	assoc, err := c.AssociateAddress(ctx, &ec2.AssociateAddressInput{

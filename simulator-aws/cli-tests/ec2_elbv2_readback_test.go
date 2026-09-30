@@ -16,6 +16,7 @@ func TestEC2CLI_LaunchTemplateProvenanceTags(t *testing.T) {
 	inst := strings.TrimSpace(runCLI(t, awsCLI("ec2", "run-instances",
 		"--launch-template", "LaunchTemplateId="+lt+",Version=$Latest",
 		"--query", "Instances[0].InstanceId", "--output", "text")))
+	terminateCLIInstanceOnCleanup(t, inst)
 
 	gotID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-instances",
 		"--instance-ids", inst,

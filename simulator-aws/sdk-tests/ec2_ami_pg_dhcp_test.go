@@ -28,6 +28,7 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 	instID := aws.ToString(run.Instances[0].InstanceId)
 
 	// CreateImage from the instance.

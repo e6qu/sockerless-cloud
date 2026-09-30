@@ -39,6 +39,7 @@ func TestEC2KeyPairsImagesMetadataCLI(t *testing.T) {
 		"--query", "Subnet.SubnetId", "--output", "text")
 	instID := q("ec2", "run-instances", "--image-id", "ami-12345678", "--instance-type", "t3.micro",
 		"--subnet-id", subnetID, "--query", "Instances[0].InstanceId", "--output", "text")
+	terminateCLIInstanceOnCleanup(t, instID)
 	runCLI(t, awsCLI("ec2", "modify-instance-metadata-options", "--instance-id", instID,
 		"--http-tokens", "required", "--http-put-response-hop-limit", "3"))
 	if v := q("ec2", "describe-instances", "--instance-ids", instID,

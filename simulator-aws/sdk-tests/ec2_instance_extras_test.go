@@ -27,6 +27,7 @@ func launchInstanceFor(t *testing.T, c *ec2.Client, cidr string) string {
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 	require.Len(t, run.Instances, 1)
 	return aws.ToString(run.Instances[0].InstanceId)
 }

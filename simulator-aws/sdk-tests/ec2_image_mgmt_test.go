@@ -200,6 +200,7 @@ func TestEC2_ImageReferencesSDK(t *testing.T) {
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 	instID := aws.ToString(run.Instances[0].InstanceId)
 
 	refs, err := c.DescribeImageReferences(ctx, &ec2.DescribeImageReferencesInput{ImageIds: []string{amiID}})

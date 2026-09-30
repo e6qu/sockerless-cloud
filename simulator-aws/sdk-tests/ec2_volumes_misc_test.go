@@ -26,6 +26,7 @@ func TestEC2_CreateSnapshotsSDK(t *testing.T) {
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 	instID := aws.ToString(run.Instances[0].InstanceId)
 
 	vol, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{
@@ -158,6 +159,7 @@ func TestEC2_ReplaceRootVolumeSDK(t *testing.T) {
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 	instID := aws.ToString(run.Instances[0].InstanceId)
 
 	rrv, err := c.CreateReplaceRootVolumeTask(ctx, &ec2.CreateReplaceRootVolumeTaskInput{
@@ -337,6 +339,7 @@ func TestEC2_LaunchTemplateDataSDK(t *testing.T) {
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 	instID := aws.ToString(run.Instances[0].InstanceId)
 
 	data, err := c.GetLaunchTemplateData(ctx, &ec2.GetLaunchTemplateDataInput{InstanceId: aws.String(instID)})
@@ -449,6 +452,7 @@ func TestEC2_DefaultCreditSpecificationSDK(t *testing.T) {
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
 	instID := aws.ToString(run.Instances[0].InstanceId)
 	dns, err := c.ModifyPrivateDnsNameOptions(ctx, &ec2.ModifyPrivateDnsNameOptionsInput{
 		InstanceId: aws.String(instID), EnableResourceNameDnsARecord: aws.Bool(true),

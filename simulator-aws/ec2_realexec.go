@@ -32,7 +32,14 @@ var (
 	ec2RealEBSSlots   = map[string]map[string]string{}
 	ec2RealECSNICs    = map[string]*realexec.NamespaceNIC{} // taskID -> veth into the container netns
 	ec2RealLambdaNICs = map[string]ec2RealLambdaNIC{}       // invocation ID -> Hyperplane ENI realization
+	ec2RealBoots      = map[string]*ec2RealBoot{}           // instance ID -> the launch booting its VM
 )
+
+// ec2RealBoot is a pending instance's VM boot, which stopping or terminating
+// the instance cancels rather than waiting out.
+type ec2RealBoot struct {
+	cancel context.CancelFunc
+}
 
 // ec2SubnetReservation is what Amazon VPC keeps in every subnet: the network
 // address, the VPC router, the DNS server, one address for future use, and
@@ -601,6 +608,9 @@ func ec2InstanceMachineShape(instanceType string) (vcpus, memMiB int) {
 
 func ec2StopRealVM(ctx context.Context, instanceID string) error {
 	ec2RealMu.Lock()
+	if boot, ok := ec2RealBoots[instanceID]; ok {
+		boot.cancel()
+	}
 	delete(ec2RealEBSSlots, instanceID)
 	ec2RealMu.Unlock()
 	return ec2Fabric.StopVM(ctx, instanceID, nil)

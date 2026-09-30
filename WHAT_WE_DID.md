@@ -436,6 +436,10 @@ PCI transport never delivers the first virtio-blk completion on aarch64, and
 CI's x86_64 runners could not see it. A machine's disk outlives the guest
 process, so a stopped machine can be generalized and captured, and a
 deallocated machine keeps its disk while a deleted one discards it.
+Stopping or terminating a pending Amazon EC2 instance cancels its boot instead
+of waiting for the guest to answer. Every SDK test that launches instances
+terminates them when it ends, since each one left running kept a machine
+booting or running beside every later test's boot on the same runner.
 
 A workload host pulls its image the way the cloud pulls it. The Cloud Run and
 Cloud Functions hosts present the project's Cloud Run service agent's access
