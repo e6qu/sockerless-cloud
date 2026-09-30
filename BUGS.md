@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 54.
+Open: 53.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -49,7 +49,6 @@ live in `WHAT_WE_DID.md`.
 | 3155 | P3 | Stop and network-removal deadlines | Container stop and network removal wait out 10 s deadlines, and a DNS zone delete that stalls on one discards the error (`dns.go`). | Wait on the engine's stop and removal events, and surface the delete's error. |
 | 3156 | P3 | Aurora readers accept writes | Aurora reader and replica endpoints relay to the cluster's one engine, so writes succeed where an Aurora replica refuses them. | Open reader sessions read-only in `sim/dbengine` and route writer and reader endpoints accordingly. |
 | 3157 | P2 | Aurora cluster snapshots and restores | `CreateDBClusterSnapshot`, the final snapshot on delete, and `RestoreDBClusterFromSnapshot`, `ToPointInTime` and `FromS3` stay metadata-only; a restored Aurora cluster has no master credential or volume, so creating an instance in it fails. | Capture and restore the cluster volume, and carry the master credential through. |
-| 3159 | P2 | EventBridge API destination secrets | `EBConnection.AuthParameters` is tagged `json:"-"`, so a connection's secret is lost from persistent state across a restart and API-destination calls then fail to authenticate; `InvocationRateLimitPerSecond` is not enforced. | Persist the secret as the connection's Secrets Manager secret, and rate-limit invocations. |
 | 3160 | P3 | EventBridge Scheduler targets | The execution role is checked only for the dead-letter queue, not for invoking the target; EventBridge `PutEvents`, SageMaker and universal targets fail as `UnsupportedTarget`; `RetryPolicy` ranges are not validated. | Assume the execution role for every target call, add the missing targets, and validate the ranges the model declares. |
 | 3161 | P3 | AWS Batch array and retry properties | `SubmitJob` ignores `arrayProperties` and `retryStrategy`. | Run array jobs and retry failed attempts as the job definition and request declare. |
 | 3163 | P3 | Application Auto Scaling target tracking | The capacity formula is a `round()` simplification, and predefined metric types other than CPU and memory (such as ALBRequestCountPerTarget) create no alarms and never scale. | Compute capacity as the service documents and create alarms for every predefined metric. |

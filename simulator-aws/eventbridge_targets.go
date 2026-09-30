@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim/delivery"
@@ -272,6 +273,9 @@ func ebInvokeApiDestination(ctx context.Context, target EBTarget, input string) 
 	for key, value := range httpParams.HeaderParameters {
 		request.Header.Set(key, value)
 	}
+	if err := ebAwaitInvocationSlot(ctx, destination); err != nil {
+		return delivery.Retryable(ebTargetError{"ThrottlingException", err.Error()})
+	}
 	client := http.Client{Timeout: 5 * time.Second}
 	response, err := client.Do(request)
 	if err != nil {
@@ -287,6 +291,60 @@ func ebInvokeApiDestination(ctx context.Context, target EBTarget, input string) 
 		return delivery.Retryable(failure).WithStatus(response.StatusCode)
 	}
 	return delivery.Permanent(failure).WithStatus(response.StatusCode)
+}
+
+type ebInvocationGate struct {
+	mu   sync.Mutex
+	next time.Time
+}
+
+var (
+	ebInvocationGatesMu sync.Mutex
+	ebInvocationGates   = map[string]*ebInvocationGate{}
+)
+
+func ebInvocationGateFor(destinationArn string) *ebInvocationGate {
+	ebInvocationGatesMu.Lock()
+	defer ebInvocationGatesMu.Unlock()
+	gate, ok := ebInvocationGates[destinationArn]
+	if !ok {
+		gate = &ebInvocationGate{}
+		ebInvocationGates[destinationArn] = gate
+	}
+	return gate
+}
+
+// ebAwaitInvocationSlot holds an invocation until the API destination's
+// InvocationRateLimitPerSecond allows it.
+func ebAwaitInvocationSlot(ctx context.Context, destination EBApiDestination) error {
+	if destination.InvocationRateLimit == nil || *destination.InvocationRateLimit < 1 {
+		return nil
+	}
+	wait := time.Until(ebInvocationGateFor(destination.Arn).reserve(time.Now(), *destination.InvocationRateLimit))
+	if wait <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// reserve returns when the next invocation may go out, spacing invocations
+// evenly so no second carries more than perSecond of them.
+func (gate *ebInvocationGate) reserve(now time.Time, perSecond int32) time.Time {
+	gate.mu.Lock()
+	defer gate.mu.Unlock()
+	slot := gate.next
+	if slot.Before(now) {
+		slot = now
+	}
+	gate.next = slot.Add(time.Second / time.Duration(perSecond))
+	return slot
 }
 
 // ebApiDestinationName reads the name from an API destination ARN,
@@ -345,10 +403,11 @@ func ebConnectionAuthorization(ctx context.Context, connection EBConnection) (eb
 		InvocationHttpParameters *httpParameters `json:"InvocationHttpParameters"`
 	}
 	auth := ebAuthorization{header: map[string]string{}, query: map[string]string{}}
-	if len(connection.AuthParameters) == 0 {
-		return auth, fmt.Errorf("connection %s holds no authorization parameters", connection.Name)
+	stored, err := ebConnectionParameters(connection)
+	if err != nil {
+		return auth, err
 	}
-	if err := json.Unmarshal(connection.AuthParameters, &params); err != nil {
+	if err := json.Unmarshal(stored, &params); err != nil {
 		return auth, fmt.Errorf("connection %s authorization parameters: %w", connection.Name, err)
 	}
 	if params.InvocationHttpParameters != nil {

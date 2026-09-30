@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	ebtypes "github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,7 +46,10 @@ func TestEventBridge_ConnectionApiDestinationSDK(t *testing.T) {
 	require.NotNil(t, descConn.AuthParameters)
 	require.NotNil(t, descConn.AuthParameters.ApiKeyAuthParameters)
 	assert.Equal(t, "x-api-key", aws.ToString(descConn.AuthParameters.ApiKeyAuthParameters.ApiKeyName))
-	assert.NotEmpty(t, aws.ToString(descConn.SecretArn))
+	secretArn := aws.ToString(descConn.SecretArn)
+	secret, err := smClient().GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(secretArn)})
+	require.NoError(t, err, "the connection's SecretArn names a Secrets Manager secret")
+	assert.Contains(t, aws.ToString(secret.SecretString), "super-secret-value", "the secret holds the API key")
 
 	conns, err := eb.ListConnections(ctx, &eventbridge.ListConnectionsInput{NamePrefix: aws.String("eb-sdk-conn")})
 	require.NoError(t, err)
@@ -55,8 +59,17 @@ func TestEventBridge_ConnectionApiDestinationSDK(t *testing.T) {
 	_, err = eb.UpdateConnection(ctx, &eventbridge.UpdateConnectionInput{
 		Name:        aws.String(connName),
 		Description: aws.String("updated connection"),
+		AuthParameters: &ebtypes.UpdateConnectionAuthRequestParameters{
+			ApiKeyAuthParameters: &ebtypes.UpdateConnectionApiKeyAuthRequestParameters{
+				ApiKeyName:  aws.String("x-api-key"),
+				ApiKeyValue: aws.String("rotated-secret-value"),
+			},
+		},
 	})
 	require.NoError(t, err)
+	secret, err = smClient().GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(secretArn)})
+	require.NoError(t, err)
+	assert.Contains(t, aws.ToString(secret.SecretString), "rotated-secret-value", "UpdateConnection writes a new version of the secret")
 	descConn, err = eb.DescribeConnection(ctx, &eventbridge.DescribeConnectionInput{Name: aws.String(connName)})
 	require.NoError(t, err)
 	assert.Equal(t, "updated connection", aws.ToString(descConn.Description))
@@ -111,6 +124,8 @@ func TestEventBridge_ConnectionApiDestinationSDK(t *testing.T) {
 	require.NoError(t, err)
 	_, err = eb.DescribeConnection(ctx, &eventbridge.DescribeConnectionInput{Name: aws.String(connName)})
 	require.Error(t, err)
+	_, err = smClient().GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(secretArn)})
+	assertAWSAPIErrorCode(t, err, "ResourceNotFoundException")
 }
 
 // TestEventBridge_EndpointSDK round-trips a global endpoint: create → describe →
