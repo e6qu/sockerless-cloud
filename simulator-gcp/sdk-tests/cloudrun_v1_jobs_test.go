@@ -59,7 +59,7 @@ func createCloudRunV2JobLRO(t *testing.T, jobID string) string {
 // reads the execution and its task back through the Knative v1 surface.
 func TestCloudRunV1_ExecutionAndTaskProjection(t *testing.T) {
 	svc := newRunV1(t)
-	const jobID = "v1-proj-job"
+	jobID := uniqueName("v1-proj-job")
 	execName := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s")
 	execID := execName[strings.LastIndex(execName, "/")+1:]
 
@@ -141,7 +141,7 @@ func TestCloudRunV1_ExecutionAndTaskNotFound(t *testing.T) {
 // TestCloudRunV1_ExecutionsListPaging drives the Knative limit/continue cursor.
 func TestCloudRunV1_ExecutionsListPaging(t *testing.T) {
 	svc := newRunV1(t)
-	const jobID = "v1-paging-job"
+	jobID := uniqueName("v1-paging-job")
 	first := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s")
 	require.NotEmpty(t, first)
 	runURL := fmt.Sprintf("%s/v2/projects/%s/locations/us-central1/jobs/%s:run", baseURL, cloudRunV1Namespace, jobID)
@@ -172,7 +172,7 @@ func TestCloudRunV1_ExecutionsListPaging(t *testing.T) {
 // two API-version spellings of the poll.
 func TestCloudRunV1_OperationsWait(t *testing.T) {
 	svc := newRunV1(t)
-	opName := createCloudRunV2JobLRO(t, "v1-wait-job")
+	opName := createCloudRunV2JobLRO(t, uniqueName("v1-wait-job"))
 
 	waited, err := svc.Projects.Locations.Operations.Wait(opName, &run.GoogleLongrunningWaitOperationRequest{}).Do()
 	require.NoError(t, err)
@@ -190,7 +190,7 @@ func TestCloudRunV1_OperationsWait(t *testing.T) {
 // that it reads the policy the v2 collection writes.
 func TestCloudRunV1_JobsGetIamPolicy(t *testing.T) {
 	svc := newRunV1(t)
-	const jobID = "v1-iam-job"
+	jobID := uniqueName("v1-iam-job")
 	createCloudRunV2JobLRO(t, jobID)
 	resource := fmt.Sprintf("projects/%s/locations/us-central1/jobs/%s", cloudRunV1Namespace, jobID)
 

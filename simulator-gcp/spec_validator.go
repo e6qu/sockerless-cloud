@@ -661,14 +661,16 @@ func armSpecValidator(srv *sim.Server) error {
 	return nil
 }
 
-// isStreamingResponseOp reports whether op is a Firestore server-streaming REST
-// method. These return a JSON array of stream elements on the wire (matching
-// real GCP); each element conforms to the Discovery response schema, so the
-// validator checks elements individually rather than rejecting the array.
+// isStreamingResponseOp reports whether op is a server-streaming REST method —
+// Firestore's queries and batchGet, Cloud Logging's entries.tail. These return
+// a JSON array of stream elements on the wire (matching real GCP); each element
+// conforms to the Discovery response schema, so the validator checks elements
+// individually rather than rejecting the array.
 func isStreamingResponseOp(op string) bool {
 	return strings.HasSuffix(op, ":runQuery") ||
 		strings.HasSuffix(op, ":batchGet") ||
-		strings.HasSuffix(op, ":runAggregationQuery")
+		strings.HasSuffix(op, ":runAggregationQuery") ||
+		strings.HasSuffix(op, "entries:tail")
 }
 
 // validateDiscoveryValue walks a decoded JSON value against a Discovery

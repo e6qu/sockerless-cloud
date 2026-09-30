@@ -602,6 +602,18 @@ recordings show; every other provider uses `operationStatuses`, and a
 provider-specific path waits for a source that shows it. Cosmos DB mints
 hierarchical resource ids and accepts them in paths.
 
+Cloud Storage answers a permission question from the caller's own grants: the
+project, bucket and object or managed-folder policies, and the bucket and
+object ACLs while uniform bucket-level access is off. It refuses to delete a
+bucket that still holds live objects, and refuses a notification whose Pub/Sub
+topic is malformed, missing or closed to its service agent. Artifact Registry
+deletes cascade across both planes: a manifest DELETE over OCI removes its
+version, tags and image row, and a package or repository takes everything
+beneath it. The simulator's tokens carry Google's issuer, and its discovery
+document names that issuer with its own key and token URLs, so a relying party
+verifies them as it verifies Google's. The Google Cloud SDK tests name their
+resources per run, so a repeated run against one simulator passes.
+
 A test asserts a boundary at a small parameterised limit rather than by
 reaching the real one: the OCI body-cap tests peaked at 7.7 GiB under the race
 detector on a 7 GiB runner until the cap became a parameter tested at 64 KiB.

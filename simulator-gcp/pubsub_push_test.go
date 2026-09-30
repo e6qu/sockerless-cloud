@@ -268,4 +268,7 @@ func TestEventarcPubSubTriggerDeliversCloudEvents(t *testing.T) {
 	if _, still := psSubscriptions.Get(subscription); still {
 		t.Fatal("the trigger's push subscription outlived the trigger")
 	}
+	if _, kept := psTopics.Get("projects/p/topics/events"); !kept {
+		t.Fatal("deleting the trigger deleted the topic its caller named")
+	}
 }

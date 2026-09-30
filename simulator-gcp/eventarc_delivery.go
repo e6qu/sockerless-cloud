@@ -121,10 +121,9 @@ func eventarcProvisionTransport(t *EventarcTrigger, project, location, triggerID
 		pubsub = map[string]any{}
 	}
 	topic, _ := pubsub["topic"].(string)
-	suffix := strings.ReplaceAll(t.Uid, "-", "")
-	suffix = suffix[:min(len(suffix), 3)]
+	suffix := eventarcTransportSuffix(*t)
 	if topic == "" || isStorage {
-		topic = fmt.Sprintf("projects/%s/topics/eventarc-%s-%s-%s", project, location, triggerID, suffix)
+		topic = eventarcCreatedTopicName(*t)
 		psTopics.Put(topic, PSTopic{Name: topic})
 	}
 	if _, ok := psTopics.Get(topic); !ok {
@@ -187,8 +186,24 @@ func eventarcReleaseNotifications(t EventarcTrigger) {
 	}
 }
 
+func eventarcTransportSuffix(t EventarcTrigger) string {
+	suffix := strings.ReplaceAll(t.Uid, "-", "")
+	return suffix[:min(len(suffix), 3)]
+}
+
+// eventarcCreatedTopicName is the transport topic Eventarc creates for a
+// trigger that names none, projects/{p}/topics/eventarc-{location}-{trigger}-{suffix}.
+func eventarcCreatedTopicName(t EventarcTrigger) string {
+	parts := strings.Split(t.Name, "/")
+	if len(parts) != 6 {
+		return ""
+	}
+	return fmt.Sprintf("projects/%s/topics/eventarc-%s-%s-%s", parts[1], parts[3], parts[5], eventarcTransportSuffix(t))
+}
+
 // eventarcReleaseTransport deletes what a deleted trigger delivered through:
-// its push subscription and, for a Cloud Storage trigger, the bucket's
+// its push subscription, the transport topic when Eventarc created it rather
+// than the caller naming it, and, for a Cloud Storage trigger, the bucket's
 // notification configuration.
 func eventarcReleaseTransport(t EventarcTrigger) {
 	eventarcReleaseNotifications(t)
@@ -196,6 +211,9 @@ func eventarcReleaseTransport(t EventarcTrigger) {
 	if subscription, _ := pubsub["subscription"].(string); subscription != "" {
 		psSubscriptions.Delete(subscription)
 		psQueues.Delete(subscription)
+	}
+	if topic, _ := pubsub["topic"].(string); topic != "" && topic == eventarcCreatedTopicName(t) {
+		psTopics.Delete(topic)
 	}
 }
 

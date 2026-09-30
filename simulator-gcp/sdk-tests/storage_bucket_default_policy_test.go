@@ -17,7 +17,7 @@ import (
 // sets the defaults back, never an empty policy.
 func TestGCS_BucketCarriesDefaultPolicyFromCreation(t *testing.T) {
 	svc := storageService(t)
-	const bucket = "default-policy-bucket"
+	bucket := uniqueName("default-policy-bucket")
 	_, err := svc.Buckets.Insert("default-policy-project", &storageapi.Bucket{Name: bucket}).Do()
 	require.NoError(t, err)
 

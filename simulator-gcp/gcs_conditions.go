@@ -149,6 +149,22 @@ func writeGCSPreconditionFailed(w http.ResponseWriter) {
 	})
 }
 
+// writeGCSJSONError answers a JSON API request in the service's error
+// envelope, whose errors[].reason clients branch on.
+func writeGCSJSONError(w http.ResponseWriter, status int, reason, message string) {
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]any{
+			"code":    status,
+			"message": message,
+			"errors": []map[string]string{{
+				"message": message, "domain": "global", "reason": reason,
+			}},
+		},
+	})
+}
+
 // gcsObjectWriters serializes the writes to one object: Cloud Storage
 // evaluates a write's preconditions and applies the write as one step, so of
 // two writers stating ifGenerationMatch=0, exactly one creates the object.

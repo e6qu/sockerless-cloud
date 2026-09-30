@@ -16,20 +16,21 @@ import (
 )
 
 func TestCloudRun_JobArithmetic(t *testing.T) {
-	execName := createAndRunJobWithImageAndCommand(t, "arith-crj", evalImageName, []string{"(10 + 5) * 2"}, "10s")
+	jobID := uniqueName("arith-crj")
+	execName := createAndRunJobWithImageAndCommand(t, jobID, evalImageName, []string{"(10 + 5) * 2"}, "10s")
 
 	exec := waitExecutionDone(t, execName)
 	assert.Equal(t, float64(1), exec["succeededCount"])
 	assert.Equal(t, float64(0), exec["failedCount"])
 
 	// The container's own arithmetic reaches Cloud Logging.
-	waitForJobLogs(t, "arith-crj", func(logs string) bool {
+	waitForJobLogs(t, jobID, func(logs string) bool {
 		return strings.Contains(logs, "Result: 30")
 	})
 }
 
 func TestCloudRun_JobArithmeticInvalid(t *testing.T) {
-	execName := createAndRunJobWithImageAndCommand(t, "arith-crj-fail", evalImageName, []string{"3 +"}, "10s")
+	execName := createAndRunJobWithImageAndCommand(t, uniqueName("arith-crj-fail"), evalImageName, []string{"3 +"}, "10s")
 
 	exec := waitExecutionDone(t, execName)
 	assert.Equal(t, float64(1), exec["failedCount"])
@@ -37,10 +38,11 @@ func TestCloudRun_JobArithmeticInvalid(t *testing.T) {
 }
 
 func TestCloudRun_JobArithmeticLogs(t *testing.T) {
-	_ = createAndRunJobWithImageAndCommand(t, "arith-crj-logs", evalImageName, []string{"10 / 3"}, "10s")
+	jobID := uniqueName("arith-crj-logs")
+	_ = createAndRunJobWithImageAndCommand(t, jobID, evalImageName, []string{"10 / 3"}, "10s")
 
 	// Both the result and the parsing line the container printed are ingested.
-	waitForJobLogs(t, "arith-crj-logs", func(logs string) bool {
+	waitForJobLogs(t, jobID, func(logs string) bool {
 		return strings.Contains(logs, "3.333") && strings.Contains(logs, "Parsing expression:")
 	})
 }

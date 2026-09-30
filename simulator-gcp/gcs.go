@@ -766,17 +766,20 @@ func registerGCS(srv *sim.Server) {
 	srv.HandleFunc("DELETE /storage/v1/b/{bucket}", func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
 
+		if _, ok := buckets.Get(bucketName); !ok {
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
+			return
+		}
+		// Live objects hold a bucket and soft-deleted ones do not; the client
+		// deletes the objects itself (gcloud storage rm -r, force_destroy).
+		if len(gcsBucketObjects(bucketName, "")) > 0 {
+			writeGCSJSONError(w, http.StatusConflict, "conflict", "The bucket you tried to delete is not empty.")
+			return
+		}
 		if !buckets.Delete(bucketName) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
 			return
 		}
-
-		// Delete all objects in the bucket (index-scoped — only this
-		// bucket's rows, not every object in the store).
-		for _, obj := range gcsBucketObjects(bucketName, "") {
-			objects.Delete(bucketName + "/" + obj.Name)
-		}
-
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -2137,7 +2140,17 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		sim.WriteJSON(w, http.StatusOK, policy)
 	})
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/managedFolders/{managedFolder}/iam/testPermissions", func(w http.ResponseWriter, r *http.Request) {
-		gcsWriteTestPermissions(w, r)
+		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "managedFolder")
+		if _, exists := gcsManagedFolders.Get(key(bucket, name)); !exists {
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				"managed folder %q not found in bucket %q", name, bucket)
+			return
+		}
+		policies := gcsBucketPolicies(bucket)
+		if own, ok := gcpResourcePolicies.Get("managedFolder/" + bucket + "/" + name); ok {
+			policies = append(policies, own)
+		}
+		gcsWriteTestPermissions(w, r, policies)
 	})
 }
 
@@ -2174,6 +2187,19 @@ func registerGCSNotifications(srv *sim.Server, buckets sim.Store[Bucket], bucket
 			GCPError(w, http.StatusBadRequest, "topic is required", "INVALID_ARGUMENT")
 			return
 		}
+		topicName, valid := gcsNotificationTopicName(in.Topic)
+		if !valid {
+			writeGCSJSONError(w, http.StatusBadRequest, "invalid",
+				"Invalid Google Cloud Pub/Sub topic. It should look like '//pubsub.googleapis.com/projects/*/topics/*'.")
+			return
+		}
+		owner, _ := buckets.Get(bucket)
+		if agent := gcsServiceAgentEmail(owner.Project); !gcsAgentMayPublish(agent, topicName) {
+			writeGCSJSONError(w, http.StatusForbidden, "forbidden", fmt.Sprintf(
+				"The service account '%s' does not have permission to publish messages to to the Cloud Pub/Sub topic '%s', or that topic does not exist.",
+				agent, in.Topic))
+			return
+		}
 		id := gcsNextNotificationID(bucket)
 		in.Kind = "storage#notification"
 		in.ID = id
@@ -2200,7 +2226,7 @@ func registerGCSHmacKeys(srv *sim.Server) {
 		project := sim.PathParam(r, "projectId")
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"kind":          "storage#serviceAccount",
-			"email_address": "service-" + project + "@gs-project-accounts.iam.gserviceaccount.com",
+			"email_address": gcsServiceAgentEmail(project),
 		})
 	})
 
@@ -2592,7 +2618,11 @@ type GCSRapidCache struct {
 func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject], bucketExists func(http.ResponseWriter, string) bool) {
 	// bucket IAM testPermissions (getIamPolicy/setIamPolicy already live in iam.go)
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/iam/testPermissions", func(w http.ResponseWriter, r *http.Request) {
-		gcsWriteTestPermissions(w, r)
+		bucket := sim.PathParam(r, "bucket")
+		if !bucketExists(w, bucket) {
+			return
+		}
+		gcsWriteTestPermissions(w, r, gcsBucketPolicies(bucket))
 	})
 
 	// lockRetentionPolicy / restore both return the Bucket resource.
@@ -2762,17 +2792,16 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 	})
 }
 
-// gcsWriteTestPermissions echoes the requested permissions back as granted —
-// the sim's single-tenant model treats the caller as the bucket owner.
-func gcsWriteTestPermissions(w http.ResponseWriter, r *http.Request) {
-	perms := r.URL.Query()["permissions"]
-	if perms == nil {
-		perms = []string{}
+// gcsWriteTestPermissions answers a testIamPermissions with the requested
+// permissions the caller holds under the policies that govern the resource.
+func gcsWriteTestPermissions(w http.ResponseWriter, r *http.Request, policies []IAMPolicy) {
+	principal, owner := gcpRequestPrincipal(r)
+	held := gcpPermissionsHeldUnder(principal, owner, policies, r.URL.Query()["permissions"])
+	resp := map[string]any{"kind": "storage#testIamPermissionsResponse"}
+	if len(held) > 0 {
+		resp["permissions"] = held
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"kind":        "storage#testIamPermissionsResponse",
-		"permissions": perms,
-	})
+	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
 // GCSRelocateBucketRequest mirrors the Discovery RelocateBucketRequest schema.

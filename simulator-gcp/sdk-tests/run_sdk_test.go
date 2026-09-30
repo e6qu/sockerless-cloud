@@ -28,6 +28,18 @@ func newJobsClient(t *testing.T) *run.JobsClient {
 	return client
 }
 
+// cleanupJob deletes a Cloud Run job when the test ends and waits for the
+// delete to complete.
+func cleanupJob(t *testing.T, client *run.JobsClient, name string) {
+	t.Helper()
+	t.Cleanup(func() {
+		op, err := client.DeleteJob(ctx, &runpb.DeleteJobRequest{Name: name})
+		require.NoError(t, err, "delete job %s", name)
+		_, err = op.Wait(ctx)
+		require.NoError(t, err, "delete job %s", name)
+	})
+}
+
 func newExecutionsClient(t *testing.T) *run.ExecutionsClient {
 	t.Helper()
 	client, err := run.NewExecutionsRESTClient(ctx,
@@ -41,10 +53,11 @@ func newExecutionsClient(t *testing.T) *run.ExecutionsClient {
 
 func TestSDK_CloudRun_CreateJob(t *testing.T) {
 	client := newJobsClient(t)
+	jobID := uniqueName("sdk-create-job")
 
 	op, err := client.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
-		JobId:  "sdk-create-job",
+		JobId:  jobID,
 		Job: &runpb.Job{
 			Template: &runpb.ExecutionTemplate{
 				Template: &runpb.TaskTemplate{
@@ -59,8 +72,9 @@ func TestSDK_CloudRun_CreateJob(t *testing.T) {
 
 	job, err := op.Wait(ctx)
 	require.NoError(t, err)
+	cleanupJob(t, client, job.Name)
 
-	assert.Contains(t, job.Name, "sdk-create-job")
+	assert.Contains(t, job.Name, jobID)
 	assert.NotEmpty(t, job.Uid)
 	assert.Equal(t, int64(1), job.Generation)
 }
@@ -72,10 +86,11 @@ func TestSDK_CloudRun_CreateJob(t *testing.T) {
 // id, which masked client bugs and dropped LRO inspection by name.
 func TestSDK_CloudRun_CreateJob_OperationsPersisted(t *testing.T) {
 	client := newJobsClient(t)
+	jobID := uniqueName("sdk-ops-persist-job")
 
 	op, err := client.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
-		JobId:  "sdk-ops-persist-job",
+		JobId:  jobID,
 		Job: &runpb.Job{
 			Template: &runpb.ExecutionTemplate{
 				Template: &runpb.TaskTemplate{
@@ -89,6 +104,7 @@ func TestSDK_CloudRun_CreateJob_OperationsPersisted(t *testing.T) {
 	require.NoError(t, err)
 	job, err := op.Wait(ctx)
 	require.NoError(t, err)
+	cleanupJob(t, client, job.Name)
 	require.NotNil(t, job.TerminalCondition)
 	assert.Equal(t, runpb.Condition_CONDITION_SUCCEEDED, job.TerminalCondition.State)
 
@@ -105,11 +121,12 @@ func TestSDK_CloudRun_CreateJob_OperationsPersisted(t *testing.T) {
 
 func TestSDK_CloudRun_RunJob(t *testing.T) {
 	jobsClient := newJobsClient(t)
+	jobID := uniqueName("sdk-run-job")
 
 	// Create job first
 	createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
-		JobId:  "sdk-run-job",
+		JobId:  jobID,
 		Job: &runpb.Job{
 			Template: &runpb.ExecutionTemplate{
 				Template: &runpb.TaskTemplate{
@@ -127,24 +144,25 @@ func TestSDK_CloudRun_RunJob(t *testing.T) {
 
 	// Run job
 	runOp, err := jobsClient.RunJob(ctx, &runpb.RunJobRequest{
-		Name: "projects/test-project/locations/us-central1/jobs/sdk-run-job",
+		Name: "projects/test-project/locations/us-central1/jobs/" + jobID,
 	})
 	require.NoError(t, err)
 
 	exec, err := runOp.Wait(ctx)
 	require.NoError(t, err)
 
-	assert.Contains(t, exec.Name, "sdk-run-job")
+	assert.Contains(t, exec.Name, jobID)
 	assert.NotEmpty(t, exec.Name)
 }
 
 func TestSDK_CloudRun_RunJob_MultiContainerSharesLocalhost(t *testing.T) {
 	jobsClient := newJobsClient(t)
 	execClient := newExecutionsClient(t)
+	jobID := uniqueName("sdk-run-job-sidecar")
 
 	createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
-		JobId:  "sdk-run-job-sidecar",
+		JobId:  jobID,
 		Job: &runpb.Job{
 			Template: &runpb.ExecutionTemplate{
 				Template: &runpb.TaskTemplate{
@@ -170,7 +188,7 @@ func TestSDK_CloudRun_RunJob_MultiContainerSharesLocalhost(t *testing.T) {
 	require.NoError(t, err)
 
 	runOp, err := jobsClient.RunJob(ctx, &runpb.RunJobRequest{
-		Name: "projects/test-project/locations/us-central1/jobs/sdk-run-job-sidecar",
+		Name: "projects/test-project/locations/us-central1/jobs/" + jobID,
 	})
 	require.NoError(t, err)
 	exec, err := runOp.Wait(ctx)
@@ -182,7 +200,7 @@ func TestSDK_CloudRun_RunJob_MultiContainerSharesLocalhost(t *testing.T) {
 		"the multi-container task must succeed, not merely stop running")
 
 	client := logadminClient(t)
-	it := client.Entries(ctx, logadmin.Filter(`resource.type="cloud_run_job" AND resource.labels.job_name="sdk-run-job-sidecar"`))
+	it := client.Entries(ctx, logadmin.Filter(`resource.type="cloud_run_job" AND resource.labels.job_name="`+jobID+`"`))
 	var logs []string
 	for {
 		entry, err := it.Next()
@@ -200,11 +218,12 @@ func TestSDK_CloudRun_RunJob_MultiContainerSharesLocalhost(t *testing.T) {
 func TestSDK_CloudRun_GetExecution(t *testing.T) {
 	jobsClient := newJobsClient(t)
 	execClient := newExecutionsClient(t)
+	jobID := uniqueName("sdk-getexec-job")
 
 	// Create and run job
 	createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
-		JobId:  "sdk-getexec-job",
+		JobId:  jobID,
 		Job: &runpb.Job{
 			Template: &runpb.ExecutionTemplate{
 				Template: &runpb.TaskTemplate{
@@ -221,7 +240,7 @@ func TestSDK_CloudRun_GetExecution(t *testing.T) {
 	require.NoError(t, err)
 
 	runOp, err := jobsClient.RunJob(ctx, &runpb.RunJobRequest{
-		Name: "projects/test-project/locations/us-central1/jobs/sdk-getexec-job",
+		Name: "projects/test-project/locations/us-central1/jobs/" + jobID,
 	})
 	require.NoError(t, err)
 
@@ -265,7 +284,7 @@ func waitExecutionSettled(t *testing.T, client *run.ExecutionsClient, name strin
 func TestSDK_CloudRun_CancelExecution(t *testing.T) {
 	jobsClient := newJobsClient(t)
 	execClient := newExecutionsClient(t)
-	const jobID = "sdk-cancel-job"
+	jobID := uniqueName("sdk-cancel-job")
 	const marker = "sdk-cancel-marker"
 
 	// The container announces itself on stdout and then holds until it is
@@ -322,11 +341,12 @@ func TestSDK_CloudRun_CancelExecution(t *testing.T) {
 
 func TestSDK_CloudRun_DeleteJob(t *testing.T) {
 	client := newJobsClient(t)
+	jobID := uniqueName("sdk-delete-job")
 
 	// Create job
 	createOp, err := client.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
-		JobId:  "sdk-delete-job",
+		JobId:  jobID,
 		Job: &runpb.Job{
 			Template: &runpb.ExecutionTemplate{
 				Template: &runpb.TaskTemplate{
@@ -343,20 +363,20 @@ func TestSDK_CloudRun_DeleteJob(t *testing.T) {
 
 	// Delete job
 	deleteOp, err := client.DeleteJob(ctx, &runpb.DeleteJobRequest{
-		Name: "projects/test-project/locations/us-central1/jobs/sdk-delete-job",
+		Name: "projects/test-project/locations/us-central1/jobs/" + jobID,
 	})
 	require.NoError(t, err)
 
 	deletedJob, err := deleteOp.Wait(ctx)
 	require.NoError(t, err)
-	assert.Contains(t, deletedJob.Name, "sdk-delete-job")
+	assert.Contains(t, deletedJob.Name, jobID)
 }
 
 func TestSDK_CloudRun_ListJobs(t *testing.T) {
 	client := newJobsClient(t)
 
-	// Create two jobs with unique prefix
-	for _, id := range []string{"sdk-list-job-a", "sdk-list-job-b"} {
+	nameA, nameB := uniqueName("sdk-list-job-a"), uniqueName("sdk-list-job-b")
+	for _, id := range []string{nameA, nameB} {
 		op, err := client.CreateJob(ctx, &runpb.CreateJobRequest{
 			Parent: "projects/test-project/locations/us-central1",
 			JobId:  id,
@@ -371,8 +391,9 @@ func TestSDK_CloudRun_ListJobs(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		_, err = op.Wait(ctx)
+		job, err := op.Wait(ctx)
 		require.NoError(t, err)
+		cleanupJob(t, client, job.Name)
 	}
 
 	// List jobs
@@ -393,22 +414,22 @@ func TestSDK_CloudRun_ListJobs(t *testing.T) {
 	// Should contain at least our two jobs
 	foundA, foundB := false, false
 	for _, n := range names {
-		if n == "projects/test-project/locations/us-central1/jobs/sdk-list-job-a" {
+		if n == "projects/test-project/locations/us-central1/jobs/"+nameA {
 			foundA = true
 		}
-		if n == "projects/test-project/locations/us-central1/jobs/sdk-list-job-b" {
+		if n == "projects/test-project/locations/us-central1/jobs/"+nameB {
 			foundB = true
 		}
 	}
-	assert.True(t, foundA, "sdk-list-job-a not found in list")
-	assert.True(t, foundB, "sdk-list-job-b not found in list")
+	assert.True(t, foundA, "%s not found in list", nameA)
+	assert.True(t, foundB, "%s not found in list", nameB)
 }
 
 func TestSDK_CloudRun_ListJobsPaginationAndEmptyWireShape(t *testing.T) {
 	client := newJobsClient(t)
 	parent := "projects/test-project/locations/us-east1"
 
-	for _, id := range []string{"sdk-page-job-a", "sdk-page-job-b"} {
+	for _, id := range []string{uniqueName("sdk-page-job-a"), uniqueName("sdk-page-job-b")} {
 		op, err := client.CreateJob(ctx, &runpb.CreateJobRequest{
 			Parent: parent,
 			JobId:  id,
@@ -423,12 +444,7 @@ func TestSDK_CloudRun_ListJobsPaginationAndEmptyWireShape(t *testing.T) {
 		require.NoError(t, err)
 		_, err = op.Wait(ctx)
 		require.NoError(t, err)
-		t.Cleanup(func() {
-			deleteOp, err := client.DeleteJob(ctx, &runpb.DeleteJobRequest{Name: parent + "/jobs/" + id})
-			if err == nil {
-				_, _ = deleteOp.Wait(ctx)
-			}
-		})
+		cleanupJob(t, client, parent+"/jobs/"+id)
 	}
 
 	resp, err := http.Get(baseURL + "/v2/" + parent + "/jobs?pageSize=1")

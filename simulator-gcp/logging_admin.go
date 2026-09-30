@@ -1268,21 +1268,76 @@ func loggingExportToGCS(bucket string, entries []LogEntry) error {
 	return nil
 }
 
+// handleLoggingEntriesTail serves entries.tail over REST as the server stream
+// it is: a JSON array whose elements are TailLogEntriesResponse messages,
+// flushed as entries written after the request arrived match, until the client
+// goes away.
 func handleLoggingEntriesTail(w http.ResponseWriter, r *http.Request) {
+	sent := loggingTailBaseline()
 	var req struct {
 		ResourceNames []string `json:"resourceNames"`
 		Filter        string   `json:"filter"`
+		BufferWindow  string   `json:"bufferWindow"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid tail request: %v", err)
 		return
 	}
-	entries, _, err := listLogEntries(req.Filter, req.ResourceNames, 0, "", "timestamp desc")
-	if err != nil {
+	if len(req.ResourceNames) == 0 {
+		GCPError(w, http.StatusBadRequest, "resource_names is required", "INVALID_ARGUMENT")
+		return
+	}
+	window := loggingTailDefaultBufferWindow
+	if req.BufferWindow != "" {
+		seconds, err := strconv.ParseFloat(strings.TrimSuffix(req.BufferWindow, "s"), 64)
+		window = time.Duration(seconds * float64(time.Second))
+		if err != nil || !strings.HasSuffix(req.BufferWindow, "s") || window < 0 || window > loggingTailMaxBufferWindow {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"buffer_window must be between 0 and %s, got %q", loggingTailMaxBufferWindow, req.BufferWindow)
+			return
+		}
+	}
+	if _, err := loggingTailFresh(map[string]bool{}, req.Filter, req.ResourceNames); err != nil {
 		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"entries": entries})
+
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+	write := func(b []byte) bool {
+		if _, err := w.Write(b); err != nil {
+			return false
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return true
+	}
+	if !write([]byte("[")) {
+		return
+	}
+	ticker := time.NewTicker(max(window, loggingTailMinFlushInterval))
+	defer ticker.Stop()
+	separator := ""
+	for {
+		entries, err := loggingTailFresh(sent, req.Filter, req.ResourceNames)
+		if err != nil {
+			return
+		}
+		if len(entries) > 0 {
+			body, err := json.Marshal(map[string]any{"entries": entries})
+			if err != nil || !write(append([]byte(separator), body...)) {
+				return
+			}
+			separator = ","
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // loggingNewOperation builds a completed Operation whose response carries the

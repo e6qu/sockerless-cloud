@@ -81,7 +81,7 @@ func lroResponseName(t *testing.T, op *runv2.GoogleLongrunningOperation) string 
 
 func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
 	svc := newRunV2RESTService(t)
-	const id = "rest-wp-surface"
+	id := uniqueName("rest-wp-surface")
 	name := crV2Parent + "/workerPools/" + id
 
 	// Create → LRO polled through operations.get.
@@ -171,7 +171,7 @@ func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
 
 func TestSDK_RunV2REST_WorkerPools_IAMVerbs(t *testing.T) {
 	svc := newRunV2RESTService(t)
-	const id = "rest-wp-iam"
+	id := uniqueName("rest-wp-iam")
 	name := crV2Parent + "/workerPools/" + id
 
 	op, err := svc.Projects.Locations.WorkerPools.Create(crV2Parent, &runv2.GoogleCloudRunV2WorkerPool{
@@ -222,7 +222,7 @@ func TestSDK_RunV2REST_WorkerPools_IAMVerbs(t *testing.T) {
 func TestSDK_RunV1REST_WorkerPools_IAMVerbs(t *testing.T) {
 	v2svc := newRunV2RESTService(t)
 	v1svc := newRunV1RESTService(t)
-	const id = "rest-wp-v1-iam"
+	id := uniqueName("rest-wp-v1-iam")
 	v2Name := crV2Parent + "/workerPools/" + id
 	v1Name := crV2Parent + "/workerpools/" + id
 
@@ -271,7 +271,7 @@ func TestSDK_RunV1REST_WorkerPools_IAMVerbs(t *testing.T) {
 
 func TestSDK_RunV2REST_Instances_FullSurface(t *testing.T) {
 	svc := newRunV2RESTService(t)
-	const id = "rest-inst-surface"
+	id := uniqueName("rest-inst-surface")
 	name := crV2Parent + "/instances/" + id
 
 	op, err := svc.Projects.Locations.Instances.Create(crV2Parent, &runv2.GoogleCloudRunV2Instance{
@@ -348,7 +348,7 @@ func TestSDK_RunV2REST_Instances_FullSurface(t *testing.T) {
 
 func TestSDK_RunV2REST_Instances_IAMVerbs(t *testing.T) {
 	svc := newRunV2RESTService(t)
-	const id = "rest-inst-iam"
+	id := uniqueName("rest-inst-iam")
 	name := crV2Parent + "/instances/" + id
 
 	op, err := svc.Projects.Locations.Instances.Create(crV2Parent, &runv2.GoogleCloudRunV2Instance{
@@ -394,7 +394,7 @@ func TestSDK_RunV2REST_Instances_IAMVerbs(t *testing.T) {
 // field by field.
 func TestSDK_RunV2REST_WorkerPool_FullBodyRoundTrip(t *testing.T) {
 	svc := newRunV2RESTService(t)
-	const id = "rest-wp-full-body"
+	id := uniqueName("rest-wp-full-body")
 	name := crV2Parent + "/workerPools/" + id
 
 	want := &runv2.GoogleCloudRunV2WorkerPool{
@@ -542,7 +542,7 @@ func TestSDK_RunV2REST_WorkerPool_FullBodyRoundTrip(t *testing.T) {
 // the worker-pool full-body round-trip.
 func TestSDK_RunV2REST_Instance_FullBodyRoundTrip(t *testing.T) {
 	svc := newRunV2RESTService(t)
-	const id = "rest-inst-full-body"
+	id := uniqueName("rest-inst-full-body")
 	name := crV2Parent + "/instances/" + id
 
 	want := &runv2.GoogleCloudRunV2Instance{

@@ -17,9 +17,9 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /storage/v1/b/{bucket}/o/{object}/iam` | ✓ `simulator-gcp/gcs_object_iam.go:38::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `PUT /storage/v1/b/{bucket}/o/{object}/iam` | ✓ `simulator-gcp/gcs_object_iam.go:54::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /storage/v1/b/{bucket}/o/{object}/iam/testPermissions` | ✓ `simulator-gcp/gcs_object_iam.go:74::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /storage/v1/b/{bucket}/o/{object}/iam` | ✓ `simulator-gcp/gcs_object_iam.go:39::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PUT /storage/v1/b/{bucket}/o/{object}/iam` | ✓ `simulator-gcp/gcs_object_iam.go:55::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /storage/v1/b/{bucket}/o/{object}/iam/testPermissions` | ✓ `simulator-gcp/gcs_object_iam.go:75::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

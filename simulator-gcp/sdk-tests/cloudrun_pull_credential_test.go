@@ -25,7 +25,7 @@ func TestCloudRun_JobPullsItsImageFromArtifactRegistryAsTheServiceAgent(t *testi
 		project  = "ar-pull-project"
 		location = "us-central1"
 	)
-	arCreateRepository(t, project, location, "docker-hub")
+	arCreateDockerHubRemoteRepository(t, project, location, "docker-hub")
 
 	// The registry serves the docker-hub remote repository's content from
 	// what the host holds under the upstream's own name.
@@ -44,7 +44,7 @@ func TestCloudRun_JobPullsItsImageFromArtifactRegistryAsTheServiceAgent(t *testi
 	resp, body := arRawDo(t, http.MethodGet, fmt.Sprintf("%s/v2/%s/docker-hub/library/alpine/manifests/3.20", baseURL, project), "", nil, "")
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode, body)
 
-	execName := createAndRunJobInProject(t, project, "ar-pull-job", image, []string{"echo", "pulled as the service agent"}, "60s")
+	execName := createAndRunJobInProject(t, project, uniqueName("ar-pull-job"), image, []string{"echo", "pulled as the service agent"}, "60s")
 	execution := waitExecutionDone(t, execName)
 	assert.Equal(t, float64(1), execution["succeededCount"], "execution: %v", execution)
 	assert.Equal(t, float64(0), execution["failedCount"], "execution: %v", execution)

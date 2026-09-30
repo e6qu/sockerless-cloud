@@ -33,7 +33,7 @@ func requireEtagRotates(t *testing.T, before, after string) {
 // through the revision each deploy materializes, Revision.
 func TestSDK_RunV2REST_Service_EtagOptimisticConcurrency(t *testing.T) {
 	svc := newRunV2RESTService(t)
-	const id = "etag-service"
+	id := uniqueName("etag-service")
 	name := crV2Parent + "/services/" + id
 
 	body := func(image string) *runv2.GoogleCloudRunV2Service {
@@ -100,7 +100,7 @@ func TestSDK_RunV2REST_Service_EtagOptimisticConcurrency(t *testing.T) {
 // its revisions.
 func TestSDK_RunV2REST_WorkerPool_EtagOptimisticConcurrency(t *testing.T) {
 	svc := newRunV2RESTService(t)
-	const id = "etag-workerpool"
+	id := uniqueName("etag-workerpool")
 	name := crV2Parent + "/workerPools/" + id
 
 	body := func(image string) *runv2.GoogleCloudRunV2WorkerPool {
@@ -162,7 +162,7 @@ func TestSDK_RunV2REST_WorkerPool_EtagOptimisticConcurrency(t *testing.T) {
 // including the etag StartInstanceRequest and StopInstanceRequest carry.
 func TestSDK_RunV2REST_Instance_EtagOptimisticConcurrency(t *testing.T) {
 	svc := newRunV2RESTService(t)
-	const id = "etag-instance"
+	id := uniqueName("etag-instance")
 	name := crV2Parent + "/instances/" + id
 
 	body := func(image string) *runv2.GoogleCloudRunV2Instance {
@@ -233,7 +233,7 @@ func TestSDK_RunV2REST_Instance_EtagOptimisticConcurrency(t *testing.T) {
 // CancelExecutionRequest carries.
 func TestSDK_RunV2REST_ExecutionTask_EtagOptimisticConcurrency(t *testing.T) {
 	svc := newRunV2RESTService(t)
-	const id = "etag-exec-job"
+	id := uniqueName("etag-exec-job")
 	jobName := crV2Parent + "/jobs/" + id
 
 	// The container holds for the length of the test: every etag below is read

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -47,6 +48,39 @@ func gcsNextNotificationID(bucket string) string {
 		}
 	}
 	return strconv.Itoa(next)
+}
+
+// gcsNotificationTopicPattern is the topic a notification configuration names:
+// the full resource name of a Pub/Sub topic whose ID follows Pub/Sub's rules.
+var gcsNotificationTopicPattern = regexp.MustCompile(
+	`^//pubsub\.googleapis\.com/(projects/[a-z0-9.:-]+/topics/[A-Za-z][A-Za-z0-9._~+%-]{2,254})$`)
+
+// gcsNotificationTopicName is the Pub/Sub topic name a notification's topic
+// field names, and whether the field is well formed.
+func gcsNotificationTopicName(topic string) (string, bool) {
+	m := gcsNotificationTopicPattern.FindStringSubmatch(topic)
+	if m == nil || strings.HasPrefix(m[1][strings.LastIndex(m[1], "/")+1:], "goog") {
+		return "", false
+	}
+	return m[1], true
+}
+
+func gcsServiceAgentEmail(project string) string {
+	return "service-" + project + "@gs-project-accounts.iam.gserviceaccount.com"
+}
+
+// gcsAgentMayPublish reports whether the topic exists and Cloud Storage's
+// service agent holds pubsub.topics.publish on it, through the topic's policy
+// or its project's.
+func gcsAgentMayPublish(agent, topicName string) bool {
+	if _, exists := psTopics.Get(topicName); !exists {
+		return false
+	}
+	project := strings.TrimPrefix(topicName[:strings.Index(topicName, "/topics/")], "projects/")
+	topicPolicy, _ := gcpResourcePolicies.Get(topicName)
+	held := gcpPermissionsHeldUnder("serviceAccount:"+agent, false,
+		[]IAMPolicy{gcpProjectPolicy(project), topicPolicy}, []string{"pubsub.topics.publish"})
+	return len(held) == 1
 }
 
 // gcsNotificationPayload is the object resource a JSON_API_V1 notification

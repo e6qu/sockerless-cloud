@@ -133,6 +133,25 @@ func arFollowChallenge(t *testing.T, challenge map[string]string, authorization 
 // which is the only way one comes into existence.
 func arCreateRepository(t *testing.T, project, location, repoID string) {
 	t.Helper()
+	arCreateRepositoryFrom(t, project, location, repoID, &artifactregistry.Repository{Format: "DOCKER"})
+}
+
+// arCreateDockerHubRemoteRepository creates a remote repository whose upstream
+// is Docker Hub, the pull-through cache an image reference names in place of
+// docker.io.
+func arCreateDockerHubRemoteRepository(t *testing.T, project, location, repoID string) {
+	t.Helper()
+	arCreateRepositoryFrom(t, project, location, repoID, &artifactregistry.Repository{
+		Format: "DOCKER",
+		Mode:   "REMOTE_REPOSITORY",
+		RemoteRepositoryConfig: &artifactregistry.RemoteRepositoryConfig{
+			DockerRepository: &artifactregistry.DockerRepository{PublicRepository: "DOCKER_HUB"},
+		},
+	})
+}
+
+func arCreateRepositoryFrom(t *testing.T, project, location, repoID string, repository *artifactregistry.Repository) {
+	t.Helper()
 	service, err := artifactregistry.NewService(ctx,
 		option.WithEndpoint(baseURL+"/"),
 		option.WithTokenSource(simTokenSource()),
@@ -140,7 +159,7 @@ func arCreateRepository(t *testing.T, project, location, repoID string) {
 	require.NoError(t, err)
 	parent := fmt.Sprintf("projects/%s/locations/%s", project, location)
 	op, err := service.Projects.Locations.Repositories.
-		Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).
+		Create(parent, repository).
 		RepositoryId(repoID).Do()
 	require.NoError(t, err)
 	require.True(t, op.Done)
@@ -254,7 +273,7 @@ func TestArtifactRegistry_AcceptedCredentialForms(t *testing.T) {
 	manifestURL := baseURL + "/v2/test-project/creds-repo/app/manifests/latest"
 
 	accessToken := strings.TrimPrefix(simBearerHeader(t), "Bearer ")
-	keyFile, _ := arServiceAccountKey(t, "ar-dataplane-creds")
+	keyFile, _ := arServiceAccountKey(t, uniqueName("ar-dataplane-creds"))
 
 	for _, tc := range []struct {
 		name          string
@@ -286,8 +305,8 @@ func TestArtifactRegistry_RefusesAForgedServiceAccountKey(t *testing.T) {
 	arCreateRepository(t, "test-project", "us-central1", "forged-repo")
 	manifestURL := baseURL + "/v2/test-project/forged-repo/app/manifests/latest"
 
-	genuine, genuineFields := arServiceAccountKey(t, "ar-dataplane-genuine")
-	_, otherFields := arServiceAccountKey(t, "ar-dataplane-other")
+	genuine, genuineFields := arServiceAccountKey(t, uniqueName("ar-dataplane-genuine"))
+	_, otherFields := arServiceAccountKey(t, uniqueName("ar-dataplane-other"))
 
 	// The genuine file authenticates.
 	resp, body := arRawDo(t, http.MethodGet, manifestURL, arBasic("_json_key", string(genuine)), nil, "")

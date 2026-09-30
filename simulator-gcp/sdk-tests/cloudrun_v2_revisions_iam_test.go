@@ -56,7 +56,7 @@ func TestSDK_CloudRunV2_ServiceRevisions_RoundTrip(t *testing.T) {
 	services := newServicesClient(t)
 	revisions := newRevisionsClient(t)
 	parent := "projects/test-project/locations/us-central1"
-	const id = "v2-svc-revs"
+	id := uniqueName("v2-svc-revs")
 	createV2Service(t, services, parent, id)
 
 	servicePath := parent + "/services/" + id
@@ -95,7 +95,7 @@ func TestSDK_CloudRunV2_ServiceRevisions_RoundTrip(t *testing.T) {
 func TestSDK_CloudRunV2_ServiceIAM_RoundTrip(t *testing.T) {
 	services := newServicesClient(t)
 	parent := "projects/test-project/locations/us-central1"
-	const id = "v2-svc-iam"
+	id := uniqueName("v2-svc-iam")
 	createV2Service(t, services, parent, id)
 	resource := parent + "/services/" + id
 
@@ -141,7 +141,7 @@ func TestSDK_CloudRunV2_ServiceIAM_RoundTrip(t *testing.T) {
 func TestSDK_CloudRunV2_Operations_DeleteAndWait(t *testing.T) {
 	services := newServicesClient(t)
 	parent := "projects/test-project-ops/locations/us-central1"
-	const id = "v2-svc-ops"
+	id := uniqueName("v2-svc-ops")
 	createV2Service(t, services, parent, id)
 
 	// The create wrote an LRO under crOperations; list it (served by the

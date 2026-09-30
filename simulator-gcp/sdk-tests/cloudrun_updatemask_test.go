@@ -19,7 +19,7 @@ import (
 func TestCloudRun_UpdateServiceHonorsUpdateMask(t *testing.T) {
 	parent := "projects/test-project/locations/us-central1"
 	base := baseURL + "/v2/" + parent + "/services"
-	sid := "mask-svc"
+	sid := uniqueName("mask-svc")
 
 	doJSON := func(method, url, body string) (*http.Response, []byte) {
 		var r io.Reader
@@ -73,7 +73,7 @@ func TestCloudRun_UpdateServiceHonorsUpdateMask(t *testing.T) {
 func TestCloudRun_UpdateServiceSubPathMask(t *testing.T) {
 	parent := "projects/test-project/locations/us-central1"
 	base := baseURL + "/v2/" + parent + "/services"
-	sid := "subpath-mask-svc"
+	sid := uniqueName("subpath-mask-svc")
 
 	doJSON := func(method, url, body string) (*http.Response, []byte) {
 		var r io.Reader
@@ -142,7 +142,7 @@ func TestCloudRun_UpdateServiceSubPathMask(t *testing.T) {
 func TestCloudRun_UpdateServiceRejectsUnknownMaskPath(t *testing.T) {
 	parent := "projects/test-project/locations/us-central1"
 	base := baseURL + "/v2/" + parent + "/services"
-	sid := "badmask-svc"
+	sid := uniqueName("badmask-svc")
 
 	doJSON := func(method, url, body string) (*http.Response, []byte) {
 		var r io.Reader
@@ -201,7 +201,7 @@ func TestCloudRun_UpdateServiceRejectsUnknownMaskPath(t *testing.T) {
 func TestCloudRun_UpdateServiceTemplateFieldMask(t *testing.T) {
 	parent := "projects/test-project/locations/us-central1"
 	base := baseURL + "/v2/" + parent + "/services"
-	sid := "tmpl-sa-svc"
+	sid := uniqueName("tmpl-sa-svc")
 
 	doJSON := func(method, url, body string) (*http.Response, []byte) {
 		var r io.Reader

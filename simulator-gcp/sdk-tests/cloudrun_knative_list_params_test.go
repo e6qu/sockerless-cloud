@@ -258,7 +258,7 @@ func TestCloudRunV1_DomainMappingsList_LabelSelectorAndPaging(t *testing.T) {
 // has moved past is a modification conflict, which Cloud Run answers ABORTED.
 func TestSDK_RunV2REST_Job_RunEtagOptimisticConcurrency(t *testing.T) {
 	svc := newRunV2RESTService(t)
-	const id = "etag-job"
+	id := uniqueName("etag-job")
 	name := crV2Parent + "/jobs/" + id
 
 	body := func(image string) *runv2.GoogleCloudRunV2Job {

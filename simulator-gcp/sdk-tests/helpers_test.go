@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	mathrand "math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
@@ -368,4 +369,10 @@ func testRunSelects(name string) bool {
 		log.Fatalf("Invalid -test.run expression %q: %v", pattern, err)
 	}
 	return selected
+}
+
+// uniqueName suffixes prefix with a random id, so a test run twice against one
+// simulator creates new resources rather than colliding with its last run's.
+func uniqueName(prefix string) string {
+	return fmt.Sprintf("%s-%08x", prefix, mathrand.Uint32())
 }

@@ -120,7 +120,7 @@ func TestSDK_RunV1REST_Instances_IAMOnMissingInstance(t *testing.T) {
 // `/v1/.../instances/…` prefix answers as whichever service the request's
 // `Host` names, and that both services keep working on it.
 func TestSDK_RunV1Instances_HostResolvesOwningService(t *testing.T) {
-	const id = "host-split-inst"
+	id := uniqueName("host-split-inst")
 	createRunV2Instance(t, id)
 
 	// A Memorystore for Redis instance of the same name on the same prefix.

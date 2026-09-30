@@ -17,12 +17,13 @@ func TestArtifactRegistry_ListRepositoriesPagination(t *testing.T) {
 	svc, err := artifactregistry.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
-	parent := "projects/ar-page-project/locations/us-central1"
+	parent := "projects/" + uniqueName("ar-page-project") + "/locations/us-central1"
 	for _, id := range []string{"repo-a", "repo-b", "repo-c"} {
 		_, err = svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{
 			Format: "DOCKER",
 		}).RepositoryId(id).Do()
 		require.NoError(t, err)
+		arDeleteRepositoryOnCleanup(t, svc, parent+"/repositories/"+id)
 	}
 
 	page1, err := svc.Projects.Locations.Repositories.List(parent).PageSize(2).Do()
