@@ -32,23 +32,34 @@ func TestAutoScalingGroupLifecycleCLI(t *testing.T) {
 		"--desired-capacity", "1",
 		"--vpc-zone-identifier", subnetID))
 
+	runCLI(t, awsCLI("autoscaling", "wait", "group-in-service",
+		"--auto-scaling-group-names", "cli-asg"))
 	out = runCLI(t, awsCLI("autoscaling", "describe-auto-scaling-groups",
 		"--auto-scaling-group-names", "cli-asg",
-		"--query", "AutoScalingGroups[0].Instances[0].InstanceId",
+		"--query", "AutoScalingGroups[0].Instances[0].[InstanceId,LifecycleState]",
 		"--output", "text"))
-	if !strings.HasPrefix(strings.TrimSpace(out), "i-") {
-		t.Fatalf("expected materialized EC2 instance id, got %q", out)
+	if fields := strings.Fields(out); len(fields) != 2 || !strings.HasPrefix(fields[0], "i-") || fields[1] != "InService" {
+		t.Fatalf("expected an InService EC2 instance, got %q", out)
 	}
 
 	runCLI(t, awsCLI("autoscaling", "set-desired-capacity",
 		"--auto-scaling-group-name", "cli-asg",
 		"--desired-capacity", "2"))
+	out = runCLI(t, awsCLI("autoscaling", "describe-auto-scaling-groups",
+		"--auto-scaling-group-names", "cli-asg",
+		"--query", "AutoScalingGroups[0].Instances[].InstanceId",
+		"--output", "text"))
+	memberIDs := strings.Fields(out)
+	if len(memberIDs) != 2 {
+		t.Fatalf("expected two group members after set-desired-capacity, got %q", out)
+	}
+	runCLI(t, awsCLI(append([]string{"ec2", "wait", "instance-running", "--instance-ids"}, memberIDs...)...))
 	out = runCLI(t, awsCLI("autoscaling", "describe-scaling-activities",
 		"--auto-scaling-group-name", "cli-asg",
-		"--query", "Activities[0].StatusCode",
+		"--query", "Activities[?starts_with(Description, 'Launching')].StatusCode",
 		"--output", "text"))
-	if strings.TrimSpace(out) != "Successful" {
-		t.Fatalf("expected successful scaling activity, got %q", out)
+	if codes := strings.Fields(out); len(codes) != 2 || codes[0] != "Successful" || codes[1] != "Successful" {
+		t.Fatalf("expected two successful launch activities, got %q", out)
 	}
 
 	runCLI(t, awsCLI("autoscaling", "delete-auto-scaling-group",

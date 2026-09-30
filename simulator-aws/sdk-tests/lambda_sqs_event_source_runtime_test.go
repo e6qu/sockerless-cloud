@@ -1,7 +1,6 @@
 package aws_sdk_test
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -84,39 +83,20 @@ func TestLambda_SQSEventSourceMappingRuntime_SDK(t *testing.T) {
 	}, 30*time.Second, 250*time.Millisecond, "AWS Lambda event source mapping did not process the Amazon SQS message")
 
 	logGroup := "/aws/lambda/" + functionName
-	require.Eventually(t, func() bool {
-		streams, describeErr := logsClient.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
-			LogGroupName: aws.String(logGroup),
-		})
-		if describeErr != nil {
-			return false
-		}
-		for _, stream := range streams.LogStreams {
-			events, getErr := logsClient.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
-				LogGroupName:  aws.String(logGroup),
-				LogStreamName: stream.LogStreamName,
-				StartFromHead: aws.Bool(true),
-			})
-			if getErr != nil {
-				continue
-			}
-			for _, event := range events.Events {
-				if strings.Contains(aws.ToString(event.Message), "esm-message-from-official-sdk") {
-					return true
-				}
-			}
-		}
-		return false
-	}, 10*time.Second, 250*time.Millisecond, "CloudWatch Logs did not contain the real AWS Lambda SQS event")
+	awaitLogLine(t, logsClient, logGroup, "esm-message-from-official-sdk", 10*time.Second)
 
-	time.Sleep(1200 * time.Millisecond)
-	remaining, err := sqsClient.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-		QueueUrl:            aws.String(queueURL),
-		MaxNumberOfMessages: 1,
-		WaitTimeSeconds:     0,
-		VisibilityTimeout:   0,
+	// The mapping reported the batch OK, and AWS Lambda deletes a batch it
+	// processed before it reports the result: the message is gone, neither
+	// visible nor in flight.
+	remaining, err := sqsClient.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+		QueueUrl: aws.String(queueURL),
+		AttributeNames: []sqstypes.QueueAttributeName{
+			sqstypes.QueueAttributeNameApproximateNumberOfMessages,
+			sqstypes.QueueAttributeNameApproximateNumberOfMessagesNotVisible,
+		},
 	})
 	require.NoError(t, err)
-	assert.Empty(t, remaining.Messages, "successfully processed Amazon SQS message must be deleted")
+	assert.Equal(t, "0", remaining.Attributes["ApproximateNumberOfMessages"], "successfully processed Amazon SQS message must be deleted")
+	assert.Equal(t, "0", remaining.Attributes["ApproximateNumberOfMessagesNotVisible"], "successfully processed Amazon SQS message must be deleted")
 	_, _ = logsClient.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroup)})
 }

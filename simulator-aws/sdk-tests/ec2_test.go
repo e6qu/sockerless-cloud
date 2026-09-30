@@ -246,7 +246,7 @@ func TestEC2_InstanceLifecycle(t *testing.T) {
 	instanceID := *runOut.Instances[0].InstanceId
 	assert.Equal(t, types.InstanceStateNamePending, runOut.Instances[0].State.Name)
 
-	descOut := waitForEC2InstanceState(t, client, instanceID, types.InstanceStateNameRunning)
+	descOut := waitForEC2InstanceRunning(t, client, instanceID)
 	require.Len(t, descOut.Reservations, 1)
 	require.Len(t, descOut.Reservations[0].Instances, 1)
 	assert.Equal(t, instanceID, *descOut.Reservations[0].Instances[0].InstanceId)
@@ -387,7 +387,7 @@ func TestEC2_RunInstancesHonorsMaxCount(t *testing.T) {
 	require.Len(t, runOut.Instances, 2)
 	for _, inst := range runOut.Instances {
 		assert.Equal(t, types.InstanceStateNamePending, inst.State.Name)
-		waitForEC2InstanceState(t, client, aws.ToString(inst.InstanceId), types.InstanceStateNameRunning)
+		waitForEC2InstanceRunning(t, client, aws.ToString(inst.InstanceId))
 		_, err = client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{aws.ToString(inst.InstanceId)}})
 		require.NoError(t, err)
 	}
@@ -424,7 +424,7 @@ func TestEC2_RunInstancesClientTokenReplayReportsLaunchState(t *testing.T) {
 	instanceID := aws.ToString(first.Instances[0].InstanceId)
 
 	// Let the control plane transition the instance to running.
-	waitForEC2InstanceState(t, client, instanceID, types.InstanceStateNameRunning)
+	waitForEC2InstanceRunning(t, client, instanceID)
 
 	// The idempotent retry replays the original launch response: still pending,
 	// same instance id and reservation.
@@ -461,7 +461,7 @@ func TestEC2_EBSSnapshotCompletesWithoutVPCSDK(t *testing.T) {
 	assert.Equal(t, types.SnapshotStatePending, snapshotOut.State)
 	defer client.DeleteSnapshot(ctx, &ec2.DeleteSnapshotInput{SnapshotId: aws.String(snapshotID)})
 
-	filtered := waitForEC2SnapshotState(t, client, snapshotID, types.SnapshotStateCompleted)
+	filtered := waitForEC2SnapshotCompleted(t, client, snapshotID)
 	require.Len(t, filtered.Snapshots, 1)
 
 	unfiltered, err := client.DescribeSnapshots(ctx, &ec2.DescribeSnapshotsInput{})
@@ -508,7 +508,7 @@ func TestEC2_EBSVolumeSnapshotLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, runOut.Instances, 1)
 	instanceID := aws.ToString(runOut.Instances[0].InstanceId)
-	waitForEC2InstanceState(t, client, instanceID, types.InstanceStateNameRunning)
+	waitForEC2InstanceRunning(t, client, instanceID)
 	t.Cleanup(func() {
 		_, _ = client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{instanceID}})
 	})
@@ -564,7 +564,7 @@ func TestEC2_EBSVolumeSnapshotLifecycleSDK(t *testing.T) {
 	require.NotEmpty(t, snapshotID)
 	assert.Equal(t, types.SnapshotStatePending, snapshotOut.State)
 
-	snaps := waitForEC2SnapshotState(t, client, snapshotID, types.SnapshotStateCompleted)
+	snaps := waitForEC2SnapshotCompleted(t, client, snapshotID)
 	require.Len(t, snaps.Snapshots, 1)
 	assert.Equal(t, volumeID, aws.ToString(snaps.Snapshots[0].VolumeId))
 
@@ -588,45 +588,25 @@ func TestEC2_EBSVolumeSnapshotLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func waitForEC2InstanceState(t *testing.T, client *ec2.Client, instanceID string, want types.InstanceStateName) *ec2.DescribeInstancesOutput {
+func waitForEC2InstanceRunning(t *testing.T, client *ec2.Client, instanceID string) *ec2.DescribeInstancesOutput {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Minute)
-	var last *ec2.DescribeInstancesOutput
-	for time.Now().Before(deadline) {
-		out, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}})
-		require.NoError(t, err)
-		last = out
-		if len(out.Reservations) == 1 && len(out.Reservations[0].Instances) == 1 &&
-			out.Reservations[0].Instances[0].State.Name == want {
-			return out
-		}
-		time.Sleep(1 * time.Second)
-	}
-	if last != nil && len(last.Reservations) == 1 && len(last.Reservations[0].Instances) == 1 {
-		t.Fatalf("instance %s state = %s, want %s", instanceID, last.Reservations[0].Instances[0].State.Name, want)
-	}
-	t.Fatalf("instance %s did not reach %s", instanceID, want)
-	return nil
+	out, err := ec2.NewInstanceRunningWaiter(client, func(o *ec2.InstanceRunningWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}}, 2*time.Minute)
+	require.NoError(t, err, "instance %s did not reach running", instanceID)
+	require.Len(t, out.Reservations, 1)
+	require.Len(t, out.Reservations[0].Instances, 1)
+	return out
 }
 
-func waitForEC2SnapshotState(t *testing.T, client *ec2.Client, snapshotID string, want types.SnapshotState) *ec2.DescribeSnapshotsOutput {
+func waitForEC2SnapshotCompleted(t *testing.T, client *ec2.Client, snapshotID string) *ec2.DescribeSnapshotsOutput {
 	t.Helper()
-	// Generous deadline: the snapshot transition is fast, but a tight 2s window
-	// can expire under CI scheduling stalls / GC pauses and flake the test.
-	deadline := time.Now().Add(60 * time.Second)
-	var last *ec2.DescribeSnapshotsOutput
-	for time.Now().Before(deadline) {
-		out, err := client.DescribeSnapshots(ctx, &ec2.DescribeSnapshotsInput{SnapshotIds: []string{snapshotID}})
-		require.NoError(t, err)
-		last = out
-		if len(out.Snapshots) == 1 && out.Snapshots[0].State == want {
-			return out
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	if last != nil && len(last.Snapshots) == 1 {
-		t.Fatalf("snapshot %s state = %s, want %s", snapshotID, last.Snapshots[0].State, want)
-	}
-	t.Fatalf("snapshot %s did not reach %s", snapshotID, want)
-	return nil
+	out, err := ec2.NewSnapshotCompletedWaiter(client, func(o *ec2.SnapshotCompletedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &ec2.DescribeSnapshotsInput{SnapshotIds: []string{snapshotID}}, time.Minute)
+	require.NoError(t, err, "snapshot %s did not reach completed", snapshotID)
+	require.Len(t, out.Snapshots, 1)
+	return out
 }

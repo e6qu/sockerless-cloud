@@ -339,15 +339,8 @@ func TestBehavioralGate_ECSService_ConvergesRunningCount(t *testing.T) {
 	require.NoError(t, err)
 	cleanupECSService(t, ecsC, cluster, svcName)
 
-	require.Eventually(t, func() bool {
-		out, err := ecsC.DescribeServices(ctx, &ecs.DescribeServicesInput{
-			Cluster:  aws.String(cluster),
-			Services: []string{svcName},
-		})
-		require.NoError(t, err)
-		require.Len(t, out.Services, 1)
-		return out.Services[0].RunningCount == 2
-	}, 60*time.Second, 2*time.Second, "service must report runningCount == desiredCount")
+	stable := waitForECSServicesStable(t, ecsC, cluster, 60*time.Second, svcName)
+	assert.EqualValues(t, 2, stable.Services[0].RunningCount, "service must report runningCount == desiredCount")
 }
 
 // TestBehavioralGate_CloudWatchLogs_MetricFilterPublishesMetric asserts that a

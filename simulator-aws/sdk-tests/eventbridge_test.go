@@ -520,21 +520,19 @@ func TestEventBridge_ContentFilterPatternSDK(t *testing.T) {
 
 	// Drain the queue; exactly one message — the matching event — should arrive.
 	var bodies []string
-	require.Eventually(t, func() bool {
-		out, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-			QueueUrl:            q.QueueUrl,
-			MaxNumberOfMessages: 10,
+	out, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+		QueueUrl:            q.QueueUrl,
+		MaxNumberOfMessages: 10,
+		WaitTimeSeconds:     20,
+	})
+	require.NoError(t, err)
+	for _, m := range out.Messages {
+		bodies = append(bodies, aws.ToString(m.Body))
+		_, _ = sqsC.DeleteMessage(ctx, &sqs.DeleteMessageInput{
+			QueueUrl:      q.QueueUrl,
+			ReceiptHandle: m.ReceiptHandle,
 		})
-		require.NoError(t, err)
-		for _, m := range out.Messages {
-			bodies = append(bodies, aws.ToString(m.Body))
-			_, _ = sqsC.DeleteMessage(ctx, &sqs.DeleteMessageInput{
-				QueueUrl:      q.QueueUrl,
-				ReceiptHandle: m.ReceiptHandle,
-			})
-		}
-		return len(bodies) >= 1
-	}, 3*time.Second, 50*time.Millisecond)
+	}
 
 	require.Len(t, bodies, 1, "only the matching event must be delivered")
 	assertEventBridgeSQSEnvelope(t, bodies[0], "sockerless.content", "job",

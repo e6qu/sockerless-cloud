@@ -168,20 +168,12 @@ func TestCloudTrailRecordsSchedulerFiredTargetSDK(t *testing.T) {
 
 	// The scheduler really delivers: the message lands in the queue. Verify the
 	// firing by reading it off the queue — the faithful observation point.
-	require.Eventually(t, func() bool {
-		out, err := sqsc.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-			QueueUrl: cq.QueueUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: 1,
-		})
-		if err != nil {
-			return false
-		}
-		for _, m := range out.Messages {
-			if aws.ToString(m.Body) == "scheduled-payload" {
-				return true
-			}
-		}
-		return false
-	}, 20*time.Second, 1*time.Second, "scheduler must deliver the SendMessage to the queue")
+	delivered, err := sqsc.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+		QueueUrl: cq.QueueUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: 20,
+	})
+	require.NoError(t, err)
+	require.Len(t, delivered.Messages, 1, "scheduler must deliver the SendMessage to the queue")
+	assert.Equal(t, "scheduled-payload", aws.ToString(delivered.Messages[0].Body))
 
 	// SQS SendMessage is a CloudTrail DATA event — it must NOT appear in
 	// LookupEvents, whether client- or scheduler-initiated.

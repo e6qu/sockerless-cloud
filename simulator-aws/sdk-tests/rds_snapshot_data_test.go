@@ -92,17 +92,11 @@ func TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 			DBSnapshotIdentifier: aws.String(snapshotID),
 		})
 	})
-	require.Eventually(t, func() bool {
-		described, describeErr := c.DescribeDBSnapshots(testContext, &rds.DescribeDBSnapshotsInput{
-			DBSnapshotIdentifier: aws.String(snapshotID),
-		})
-		if describeErr != nil || len(described.DBSnapshots) != 1 {
-			return false
-		}
-		status := aws.ToString(described.DBSnapshots[0].Status)
-		require.NotEqual(t, "failed", status, "the capture must not fail")
-		return status == "available"
-	}, 3*time.Minute, time.Second, "the snapshot must settle once its capture completes")
+	require.NoError(t, rds.NewDBSnapshotAvailableWaiter(c, func(o *rds.DBSnapshotAvailableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(testContext, &rds.DescribeDBSnapshotsInput{DBSnapshotIdentifier: aws.String(snapshotID)}, 3*time.Minute),
+		"the snapshot must settle once its capture completes")
 
 	// Rows written after the snapshot are the half a restore must NOT have.
 	_, err = source.Exec(testContext, `INSERT INTO ledger VALUES ('after-snapshot')`)

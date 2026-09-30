@@ -1,7 +1,6 @@
 package aws_sdk_test
 
 import (
-	"context"
 	"crypto/tls"
 	"net"
 	"net/http"
@@ -108,19 +107,7 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	waitCtx, waitCancel := context.WithTimeout(ctx, 30*time.Second)
-	defer waitCancel()
-	var status acmtypes.CertificateStatus
-	for i := 0; i < 60; i++ {
-		d, err := acmC.DescribeCertificate(waitCtx, &acm.DescribeCertificateInput{CertificateArn: aws.String(certArn)})
-		require.NoError(t, err)
-		status = d.Certificate.Status
-		if status == acmtypes.CertificateStatusIssued {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	require.Equal(t, acmtypes.CertificateStatusIssued, status, "ACM cert must reach ISSUED before listener creation")
+	waitForACMCertificateIssued(t, acmC, certArn)
 
 	// Create an Application Load Balancer (internet-facing) — internet-facing so
 	// the sim records the AWS-shaped DNS name a real client resolves.
@@ -283,19 +270,7 @@ func TestELBv2_NLBTLSListenerTerminatesTLS(t *testing.T) {
 		ChangeBatch:  &r53types.ChangeBatch{Changes: changes},
 	})
 	require.NoError(t, err)
-	waitCtx, waitCancel := context.WithTimeout(ctx, 30*time.Second)
-	defer waitCancel()
-	var status acmtypes.CertificateStatus
-	for i := 0; i < 60; i++ {
-		d, err := acmC.DescribeCertificate(waitCtx, &acm.DescribeCertificateInput{CertificateArn: aws.String(certArn)})
-		require.NoError(t, err)
-		status = d.Certificate.Status
-		if status == acmtypes.CertificateStatusIssued {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	require.Equal(t, acmtypes.CertificateStatusIssued, status)
+	waitForACMCertificateIssued(t, acmC, certArn)
 
 	nlb, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
 		Name: aws.String("nlb-tls"), Type: elbtypes.LoadBalancerTypeEnumNetwork, Subnets: []string{subnetID},

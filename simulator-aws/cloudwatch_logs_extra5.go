@@ -3,7 +3,10 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -43,11 +46,10 @@ func cwResolveLogGroupName(identifier string) (string, bool) {
 }
 
 // handleCWStartLiveTail opens a Live Tail session over the AWS event stream.
-// A single LiveTailSessionStart frame is emitted first, then a single
-// LiveTailSessionUpdate frame carrying the log events currently stored across
-// the requested log groups' streams (the sim's stored history is what a Live
-// Tail session would surface), then the stream is closed. The session settles
-// deterministically so the SDK reader completes rather than hanging.
+// After the sessionStart frame the session streams the log events ingested
+// into the requested log groups from then on, one sessionUpdate a second, until
+// the client closes the stream or the session reaches its three-hour limit, as
+// CloudWatch Logs does. Events already stored are not replayed.
 func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LogGroupIdentifiers   []string `json:"logGroupIdentifiers"`
@@ -65,10 +67,10 @@ func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve every identifier to a stored log group; an unknown one is a 404,
-	// matching the ResourceNotFoundException the real op returns before the
-	// stream opens.
-	resolvedNames := make([]string, 0, len(req.LogGroupIdentifiers))
+	// An unknown identifier is refused before the stream opens, with the
+	// ResourceNotFoundException the real operation returns.
+	groupARNs := make(map[string]string, len(req.LogGroupIdentifiers))
+	echoedIdentifiers := make([]string, 0, len(req.LogGroupIdentifiers))
 	for _, id := range req.LogGroupIdentifiers {
 		name, ok := cwResolveLogGroupName(id)
 		if !ok {
@@ -76,121 +78,182 @@ func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 				"The specified log group does not exist: %s", id)
 			return
 		}
-		resolvedNames = append(resolvedNames, name)
+		groupARNs[name] = cwLogGroupArn(name)
+		echoedIdentifiers = append(echoedIdentifiers, groupARNs[name])
 	}
 
-	// streamFilter constrains which log streams contribute events, honoring the
-	// optional logStreamNames / logStreamNamePrefixes request fields.
-	streamFilter := func(streamName string) bool {
-		if len(req.LogStreamNames) > 0 {
-			for _, n := range req.LogStreamNames {
-				if n == streamName {
-					return true
-				}
-			}
-			return false
-		}
-		if len(req.LogStreamNamePrefixes) > 0 {
-			for _, p := range req.LogStreamNamePrefixes {
-				if strings.HasPrefix(streamName, p) {
-					return true
-				}
-			}
-			return false
-		}
-		return true
+	session := &cwLiveTailSession{
+		groupARNs:      groupARNs,
+		streamNames:    req.LogStreamNames,
+		streamPrefixes: req.LogStreamNamePrefixes,
+		filterPattern:  req.LogEventFilterPattern,
 	}
-
-	sessionID := sim.NewUUID()
-	requestID := sim.NewUUID()
-
-	// The logGroupIdentifiers echoed in the sessionStart are the canonical ARNs
-	// of the resolved groups (real Live Tail reports names+ARNs of included
-	// groups).
-	echoedIdentifiers := make([]string, 0, len(resolvedNames))
-	for _, name := range resolvedNames {
-		echoedIdentifiers = append(echoedIdentifiers, cwLogGroupArn(name))
-	}
-
-	// Gather the matching stored log events across the resolved groups, tagging
-	// each with its source group ARN and stream name exactly as a
-	// LiveTailSessionLogEvent carries them.
-	type liveEvent struct {
-		LogStreamName      string `json:"logStreamName"`
-		LogGroupIdentifier string `json:"logGroupIdentifier"`
-		Message            string `json:"message"`
-		Timestamp          int64  `json:"timestamp"`
-		IngestionTime      int64  `json:"ingestionTime"`
-	}
-	results := make([]liveEvent, 0)
-	for _, name := range resolvedNames {
-		groupArn := cwLogGroupArn(name)
-		for _, stream := range cwLogStreams.Filter(func(s CWLogStream) bool { return s.LogGroupName == name }) {
-			if !streamFilter(stream.LogStreamName) {
-				continue
-			}
-			events, ok := cwLogEvents.Get(cwEventsKey(name, stream.LogStreamName))
-			if !ok {
-				continue
-			}
-			for _, ev := range events {
-				if req.LogEventFilterPattern != "" && !strings.Contains(ev.Message, req.LogEventFilterPattern) {
-					continue
-				}
-				results = append(results, liveEvent{
-					LogStreamName:      stream.LogStreamName,
-					LogGroupIdentifier: groupArn,
-					Message:            ev.Message,
-					Timestamp:          ev.Timestamp,
-					IngestionTime:      ev.IngestionTime,
-				})
-			}
-		}
-	}
+	cwLiveTailSubscribe(session)
+	defer cwLiveTailUnsubscribe(session)
 
 	w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	w.WriteHeader(http.StatusOK)
-	flusher, _ := w.(http.Flusher)
+	// The controller reaches the connection through the middleware writers
+	// that wrap w, so each frame leaves as it is written.
+	controller := http.NewResponseController(w)
+	send := func(frame []byte) bool {
+		if _, err := w.Write(frame); err != nil {
+			return false
+		}
+		return controller.Flush() == nil
+	}
 
 	// The aws-sdk-go-v2 eventstream deserializer blocks the StartLiveTail call
 	// until it reads the initial-response message (StartLiveTailResponse has no
 	// non-event members, so its payload is an empty document). It must precede
 	// any data event, or the reader goroutine deadlocks pushing the first event
 	// before a consumer attaches.
-	_, _ = w.Write(awsEventStreamInitialResponse([]byte("{}")))
-	if flusher != nil {
-		flusher.Flush()
+	if !send(awsEventStreamInitialResponse([]byte("{}"))) {
+		return
 	}
-
-	// sessionStart: identifies the session and the included log groups.
-	_, _ = w.Write(cwEventStreamFrame("sessionStart", map[string]any{
-		"requestId":           requestID,
-		"sessionId":           sessionID,
-		"logGroupIdentifiers": echoedIdentifiers,
-		"logStreamNames":      req.LogStreamNames,
-		"logStreamNamePrefixes": func() []string {
-			if req.LogStreamNamePrefixes == nil {
-				return []string{}
-			}
-			return req.LogStreamNamePrefixes
-		}(),
+	streamPrefixes := req.LogStreamNamePrefixes
+	if streamPrefixes == nil {
+		streamPrefixes = []string{}
+	}
+	if !send(cwEventStreamFrame("sessionStart", map[string]any{
+		"requestId":             sim.NewUUID(),
+		"sessionId":             sim.NewUUID(),
+		"logGroupIdentifiers":   echoedIdentifiers,
+		"logStreamNames":        req.LogStreamNames,
+		"logStreamNamePrefixes": streamPrefixes,
 		"logEventFilterPattern": req.LogEventFilterPattern,
-	}))
-	if flusher != nil {
-		flusher.Flush()
+	})) {
+		return
 	}
 
-	// sessionUpdate: one update carrying the matched log events. Real Live Tail
-	// emits an update every second; the sim emits a single deterministic update
-	// over the stored history (an empty sessionResults array when nothing
-	// matched — the honest-empty case) and then closes.
-	_, _ = w.Write(cwEventStreamFrame("sessionUpdate", map[string]any{
-		"sessionMetadata": map[string]any{"sampled": false},
-		"sessionResults":  results,
-	}))
-	if flusher != nil {
-		flusher.Flush()
+	limit := time.NewTimer(cwLiveTailSessionLimit)
+	defer limit.Stop()
+	ticker := time.NewTicker(cwLiveTailUpdateInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-limit.C:
+			send(cwEventStreamException("SessionTimeoutException", map[string]any{
+				"message": "Live Tail session has ended as the session timeout of 3 hours has been reached.",
+			}))
+			return
+		case <-ticker.C:
+			results, sampled := session.drain()
+			if !send(cwEventStreamFrame("sessionUpdate", map[string]any{
+				"sessionMetadata": map[string]any{"sampled": sampled},
+				"sessionResults":  results,
+			})) {
+				return
+			}
+		}
 	}
+}
+
+// CloudWatch Logs sends a Live Tail session one update a second, carries at
+// most 500 events in it (sampling the rest), and ends a session after three
+// hours.
+const (
+	cwLiveTailUpdateInterval  = time.Second
+	cwLiveTailMaxUpdateEvents = 500
+	cwLiveTailSessionLimit    = 3 * time.Hour
+)
+
+type cwLiveTailEvent struct {
+	LogStreamName      string `json:"logStreamName"`
+	LogGroupIdentifier string `json:"logGroupIdentifier"`
+	Message            string `json:"message"`
+	Timestamp          int64  `json:"timestamp"`
+	IngestionTime      int64  `json:"ingestionTime"`
+}
+
+type cwLiveTailSession struct {
+	groupARNs      map[string]string
+	streamNames    []string
+	streamPrefixes []string
+	filterPattern  string
+
+	mu      sync.Mutex
+	pending []cwLiveTailEvent
+	sampled bool
+}
+
+var cwLiveTails = struct {
+	mu       sync.Mutex
+	sessions map[*cwLiveTailSession]struct{}
+}{sessions: map[*cwLiveTailSession]struct{}{}}
+
+func cwLiveTailSubscribe(s *cwLiveTailSession) {
+	cwLiveTails.mu.Lock()
+	defer cwLiveTails.mu.Unlock()
+	cwLiveTails.sessions[s] = struct{}{}
+}
+
+func cwLiveTailUnsubscribe(s *cwLiveTailSession) {
+	cwLiveTails.mu.Lock()
+	defer cwLiveTails.mu.Unlock()
+	delete(cwLiveTails.sessions, s)
+}
+
+// cwLiveTailPublish hands newly ingested events to every open Live Tail
+// session that covers their log group and stream.
+func cwLiveTailPublish(logGroup, logStream string, events []CWLogEvent) {
+	cwLiveTails.mu.Lock()
+	sessions := make([]*cwLiveTailSession, 0, len(cwLiveTails.sessions))
+	for s := range cwLiveTails.sessions {
+		sessions = append(sessions, s)
+	}
+	cwLiveTails.mu.Unlock()
+	for _, s := range sessions {
+		s.offer(logGroup, logStream, events)
+	}
+}
+
+func (s *cwLiveTailSession) covers(logStream string) bool {
+	if len(s.streamNames) > 0 {
+		return slices.Contains(s.streamNames, logStream)
+	}
+	if len(s.streamPrefixes) > 0 {
+		return slices.ContainsFunc(s.streamPrefixes, func(p string) bool { return strings.HasPrefix(logStream, p) })
+	}
+	return true
+}
+
+func (s *cwLiveTailSession) offer(logGroup, logStream string, events []CWLogEvent) {
+	groupARN, ok := s.groupARNs[logGroup]
+	if !ok || !s.covers(logStream) {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ev := range events {
+		if s.filterPattern != "" && !strings.Contains(ev.Message, s.filterPattern) {
+			continue
+		}
+		if len(s.pending) >= cwLiveTailMaxUpdateEvents {
+			s.sampled = true
+			continue
+		}
+		s.pending = append(s.pending, cwLiveTailEvent{
+			LogStreamName:      logStream,
+			LogGroupIdentifier: groupARN,
+			Message:            ev.Message,
+			Timestamp:          ev.Timestamp,
+			IngestionTime:      ev.IngestionTime,
+		})
+	}
+}
+
+func (s *cwLiveTailSession) drain() ([]cwLiveTailEvent, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	results, sampled := s.pending, s.sampled
+	if results == nil {
+		results = []cwLiveTailEvent{}
+	}
+	s.pending, s.sampled = nil, false
+	return results, sampled
 }
 
 // handleCWGetLogObject streams a large logging object back over the AWS event
@@ -307,6 +370,18 @@ func (*cwParseError) Error() string { return "not an integer" }
 // :event-type header carries the union member name exactly as the smithy model
 // spells it, which is how aws-sdk-go-v2's eventstream decoder dispatches to the
 // matching response-stream member type.
+func cwEventStreamException(exceptionType string, payload any) []byte {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		body = []byte("{}")
+	}
+	return awsEventStreamMessage(map[string]string{
+		":message-type":   "exception",
+		":exception-type": exceptionType,
+		":content-type":   "application/json",
+	}, body)
+}
+
 func cwEventStreamFrame(eventType string, payload any) []byte {
 	body, err := json.Marshal(payload)
 	if err != nil {

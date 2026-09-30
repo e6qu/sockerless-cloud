@@ -209,7 +209,7 @@ func handleCreateSnapshots(w http.ResponseWriter, r *http.Request) {
 			VolumeSize:    vol.Size,
 			State:         "pending",
 			StartTime:     now.Format(time.RFC3339),
-			CompletionDue: now.Add(100 * time.Millisecond).Format(time.RFC3339Nano),
+			CompletionDue: now.Add(ec2SnapshotCaptureNotBefore).Format(time.RFC3339Nano),
 			Progress:      "0%",
 			Description:   desc,
 			OwnerId:       ec2Owner(),
@@ -217,8 +217,18 @@ func handleCreateSnapshots(w http.ResponseWriter, r *http.Request) {
 			KmsKeyId:      vol.KmsKeyId,
 			Tags:          tags,
 		}
+		if vol.DockerVolumeName != "" {
+			snap.DockerVolumeName = ebsSnapshotDockerVolumeName(snap.SnapshotId)
+		} else {
+			snap.HostPath = ebsSnapshotHostDirPath(snap.SnapshotId)
+			if err := ebsPrepareVolumeHostPath(&vol); err != nil {
+				ec2ErrorXML(w, "InternalError", fmt.Sprintf("could not access volume data path: %v", err), http.StatusInternalServerError)
+				return
+			}
+			ec2Volumes.Put(vol.VolumeId, vol)
+		}
 		ec2Snapshots.Put(snap.SnapshotId, snap)
-		go ec2TransitionSnapshotToCompleted(snap.SnapshotId)
+		go ec2CaptureSnapshotData(snap.SnapshotId, vol.DockerVolumeName, snap.DockerVolumeName, vol.HostPath, snap.HostPath)
 		snapshots = append(snapshots, snap)
 	}
 

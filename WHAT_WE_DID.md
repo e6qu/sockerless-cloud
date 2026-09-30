@@ -580,6 +580,18 @@ a fan-out the caller joins leaves it waiting forever. Finite work handed to
 `Server.StartBackground` registers with the drain too (`bg.Handoff`); lifetime
 daemons do not, or the barrier would wait forever.
 
+A test waits on the event it asserts. The AWS suites use the SDK's own
+waiters, with 250 ms to 2 s delay bounds instead of the published 5 to 60 s:
+`InstanceRunning`, `SnapshotCompleted`, `TasksStopped`, and `ServicesStable`
+with a further acceptor that needs the rollout COMPLETED. Where no waiter
+exists, they use a long poll, or Live Tail opened before stored history is
+read. The SQS retention test sets a message's visibility timeout to end just
+after the retention deadline, then long-polls, so a message SQS kept would
+come back at that moment. Waiting for full steady state slowed a few ECS tests
+by a few seconds; that cost is accepted over checking a partial condition. EC2
+Auto Scaling answers a capacity change at once: members join Pending, each
+launch has an InProgress activity, and a background boot moves both on.
+
 A test asserts a boundary at a small parameterised limit rather than by
 reaching the real one: the OCI body-cap tests peaked at 7.7 GiB under the race
 detector on a 7 GiB runner until the cap became a parameter tested at 64 KiB.

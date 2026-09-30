@@ -3,13 +3,13 @@ package aws_sdk_test
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -83,16 +83,12 @@ func TestECS_TaskDefinitionSecretsInjected(t *testing.T) {
 	cleanupECSTask(t, client, cluster, taskArn)
 	waitForECSTaskStatus(t, client, cluster, taskArn, "STOPPED")
 
-	require.Eventually(t, func() bool {
-		ev, err := cw.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{LogGroupName: aws.String(logGroup)})
-		if err != nil {
-			return false
-		}
-		for _, e := range ev.Events {
-			if strings.Contains(aws.ToString(e.Message), "RESOLVED="+secretValue) {
-				return true
-			}
-		}
-		return false
-	}, 20*time.Second, 500*time.Millisecond, "container must receive the resolved secret as $EDD_AGENT_SECRET")
+	// The awslogs driver has delivered every line by the time the task stops.
+	ev, err := cw.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{LogGroupName: aws.String(logGroup)})
+	require.NoError(t, err)
+	var resolved bool
+	for _, e := range ev.Events {
+		resolved = resolved || strings.Contains(aws.ToString(e.Message), "RESOLVED="+secretValue)
+	}
+	assert.True(t, resolved, "container must receive the resolved secret as $EDD_AGENT_SECRET")
 }

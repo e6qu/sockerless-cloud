@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -31,22 +30,19 @@ func queueArnAndURL(t *testing.T, sqsClient *sqs.Client, name string) (url, arn 
 	return url, arn
 }
 
-// receiveOne polls a queue for a single message body, retrying briefly because
-// S3 delivery to SQS is in-process but enqueued after the PutObject response.
-func receiveOne(t *testing.T, sqsClient *sqs.Client, url string) (string, bool) {
+// receiveOne long-polls a queue for a single message body: S3 enqueues the
+// event after the PutObject response, and the receive returns the moment it
+// lands.
+func receiveOne(t *testing.T, sqsClient *sqs.Client, url string, wait int32) (string, bool) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		recv, err := sqsClient.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-			QueueUrl:            aws.String(url),
-			MaxNumberOfMessages: 1,
-			WaitTimeSeconds:     0,
-		})
-		require.NoError(t, err)
-		if len(recv.Messages) > 0 {
-			return aws.ToString(recv.Messages[0].Body), true
-		}
-		time.Sleep(50 * time.Millisecond)
+	recv, err := sqsClient.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+		QueueUrl:            aws.String(url),
+		MaxNumberOfMessages: 1,
+		WaitTimeSeconds:     wait,
+	})
+	require.NoError(t, err)
+	if len(recv.Messages) > 0 {
+		return aws.ToString(recv.Messages[0].Body), true
 	}
 	return "", false
 }
@@ -114,7 +110,7 @@ func TestS3_EventNotification_SQSDelivery(t *testing.T) {
 	require.NoError(t, err)
 
 	// Positive: the allowed queue receives a faithful S3 event record.
-	body, got := receiveOne(t, sqsc, allowedURL)
+	body, got := receiveOne(t, sqsc, allowedURL, 20)
 	require.True(t, got, "S3 must deliver the event to the authorized queue")
 
 	var envelope struct {
@@ -139,7 +135,9 @@ func TestS3_EventNotification_SQSDelivery(t *testing.T) {
 	assert.Equal(t, bucket, rec.S3.Bucket.Name)
 	assert.Equal(t, "path/to/object.txt", rec.S3.Object.Key)
 
-	// Negative: the policy-less queue receives nothing.
-	_, got = receiveOne(t, sqsc, deniedURL)
+	// Negative: the policy-less queue receives nothing. S3 dispatched both
+	// destinations for the one PutObject, and the authorized one has already
+	// delivered.
+	_, got = receiveOne(t, sqsc, deniedURL, 1)
 	assert.False(t, got, "S3 must NOT deliver to a queue whose policy does not admit it")
 }

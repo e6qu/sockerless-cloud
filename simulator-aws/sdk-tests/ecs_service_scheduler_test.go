@@ -86,9 +86,8 @@ func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 			service.Deployments[0].RolloutState == ecstypes.DeploymentRolloutStateCompleted
 	}
 
-	require.Eventually(t, func() bool {
-		return serviceIsSteady(2) && len(runningTasks()) == 2
-	}, 30*time.Second, 100*time.Millisecond, "service did not launch two real tasks")
+	waitForECSServicesStable(t, client, cluster, 30*time.Second, serviceName)
+	require.Len(t, runningTasks(), 2, "service did not launch two real tasks")
 
 	beforeStop := runningTasks()
 	require.Len(t, beforeStop, 2)
@@ -108,32 +107,25 @@ func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 		TaskDefinition: aws.String(secondRevision), DesiredCount: aws.Int32(3),
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		taskArns := runningTasks()
-		if len(taskArns) != 3 || !serviceIsSteady(3) {
-			return false
-		}
-		described, describeErr := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-			Cluster: aws.String(cluster), Tasks: taskArns,
-		})
-		if describeErr != nil || len(described.Tasks) != 3 {
-			return false
-		}
-		for _, task := range described.Tasks {
-			if aws.ToString(task.TaskDefinitionArn) != secondRevision {
-				return false
-			}
-		}
-		return true
-	}, 30*time.Second, 100*time.Millisecond, "rolling deployment did not replace every task")
+	rolled := waitForECSServicesStable(t, client, cluster, 30*time.Second, serviceName).Services[0]
+	assert.EqualValues(t, 3, rolled.RunningCount)
+	taskArns := runningTasks()
+	require.Len(t, taskArns, 3)
+	described, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
+		Cluster: aws.String(cluster), Tasks: taskArns,
+	})
+	require.NoError(t, err)
+	require.Len(t, described.Tasks, 3)
+	for _, task := range described.Tasks {
+		assert.Equal(t, secondRevision, aws.ToString(task.TaskDefinitionArn), "rolling deployment did not replace every task")
+	}
 
 	_, err = client.UpdateService(ctx, &ecs.UpdateServiceInput{
 		Cluster: aws.String(cluster), Service: aws.String(serviceName), DesiredCount: aws.Int32(0),
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		return serviceIsSteady(0) && len(runningTasks()) == 0
-	}, 30*time.Second, 100*time.Millisecond, "scale-to-zero did not drain service tasks")
+	waitForECSServicesStable(t, client, cluster, 30*time.Second, serviceName)
+	assert.Empty(t, runningTasks(), "scale-to-zero did not drain service tasks")
 
 	deleted, err := client.DeleteService(ctx, &ecs.DeleteServiceInput{
 		Cluster: aws.String(cluster), Service: aws.String(serviceName), Force: aws.Bool(true),
@@ -223,36 +215,32 @@ func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var firstTaskARN, firstTaskID, firstIP string
-	require.Eventually(t, func() bool {
-		listed, listErr := client.ListTasks(ctx, &ecs.ListTasksInput{
-			Cluster: aws.String(cluster), ServiceName: aws.String(serviceName),
-			DesiredStatus: ecstypes.DesiredStatusRunning,
-		})
-		if listErr != nil || len(listed.TaskArns) != 1 {
-			return false
-		}
-		described, describeErr := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-			Cluster: aws.String(cluster), Tasks: listed.TaskArns,
-		})
-		if describeErr != nil || len(described.Tasks) != 1 ||
-			len(described.Tasks[0].Containers) != 1 ||
-			len(described.Tasks[0].Containers[0].NetworkInterfaces) != 1 {
-			return false
-		}
-		firstTaskARN = listed.TaskArns[0]
-		firstTaskID = firstTaskARN[strings.LastIndex(firstTaskARN, "/")+1:]
-		firstIP = aws.ToString(described.Tasks[0].Containers[0].NetworkInterfaces[0].PrivateIpv4Address)
-		instance, getErr := cloudMap.GetInstance(ctx, &servicediscovery.GetInstanceInput{
-			ServiceId: aws.String(registryID), InstanceId: aws.String(firstTaskID),
-		})
-		return getErr == nil &&
-			instance.Instance.Attributes["AWS_INSTANCE_IPV4"] == firstIP &&
-			instance.Instance.Attributes["ECS_SERVICE_NAME"] == serviceName &&
-			instance.Instance.Attributes["ECS_CLUSTER_NAME"] == cluster &&
-			instance.Instance.Attributes["ECS_TASK_DEFINITION_FAMILY"] == "discovery-scheduler-task" &&
-			instance.Instance.Attributes["ECS_TASK_DEFINITION_REVISION"] == "1"
-	}, 30*time.Second, 100*time.Millisecond, "running task was not registered with its real ENI address")
+	waitForECSServicesStable(t, client, cluster, 30*time.Second, serviceName)
+	listed, err := client.ListTasks(ctx, &ecs.ListTasksInput{
+		Cluster: aws.String(cluster), ServiceName: aws.String(serviceName),
+		DesiredStatus: ecstypes.DesiredStatusRunning,
+	})
+	require.NoError(t, err)
+	require.Len(t, listed.TaskArns, 1)
+	described, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
+		Cluster: aws.String(cluster), Tasks: listed.TaskArns,
+	})
+	require.NoError(t, err)
+	require.Len(t, described.Tasks, 1)
+	require.Len(t, described.Tasks[0].Containers, 1)
+	require.Len(t, described.Tasks[0].Containers[0].NetworkInterfaces, 1)
+	firstTaskARN := listed.TaskArns[0]
+	firstTaskID := firstTaskARN[strings.LastIndex(firstTaskARN, "/")+1:]
+	firstIP := aws.ToString(described.Tasks[0].Containers[0].NetworkInterfaces[0].PrivateIpv4Address)
+	instance, err := cloudMap.GetInstance(ctx, &servicediscovery.GetInstanceInput{
+		ServiceId: aws.String(registryID), InstanceId: aws.String(firstTaskID),
+	})
+	require.NoError(t, err, "running task was not registered with its real ENI address")
+	assert.Equal(t, firstIP, instance.Instance.Attributes["AWS_INSTANCE_IPV4"])
+	assert.Equal(t, serviceName, instance.Instance.Attributes["ECS_SERVICE_NAME"])
+	assert.Equal(t, cluster, instance.Instance.Attributes["ECS_CLUSTER_NAME"])
+	assert.Equal(t, "discovery-scheduler-task", instance.Instance.Attributes["ECS_TASK_DEFINITION_FAMILY"])
+	assert.Equal(t, "1", instance.Instance.Attributes["ECS_TASK_DEFINITION_REVISION"])
 
 	_, err = client.StopTask(ctx, &ecs.StopTaskInput{
 		Cluster: aws.String(cluster), Task: aws.String(firstTaskARN),
@@ -366,9 +354,10 @@ func TestECS_ServiceTaskStreamsLogsLive(t *testing.T) {
 		return count
 	}
 
-	require.Eventually(t, func() bool { return markerEvents() >= 1 },
-		60*time.Second, 250*time.Millisecond,
-		"a service task's stdout must stream to CloudWatch while the task is RUNNING")
+	// A service task's stdout must stream to CloudWatch while the task is
+	// RUNNING.
+	waitForECSServicesStable(t, client, cluster, 60*time.Second, serviceName)
+	awaitLogLine(t, cw, logGroup, marker, 60*time.Second)
 
 	// The line is observable while the service is still holding the task, so
 	// an operator can diagnose a running service without stopping it.

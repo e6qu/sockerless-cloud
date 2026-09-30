@@ -108,6 +108,9 @@ func cwAppendLogEvents(key string, events []CWLogEvent, touch func(*CWLogStream)
 	cwLogEvents.Update(key, func(stored *[]CWLogEvent) {
 		*stored = append(*stored, events...)
 	})
+	if group, stream, ok := strings.Cut(key, ":"); ok {
+		cwLiveTailPublish(group, stream, events)
+	}
 	first, last, ingested := events[0].Timestamp, events[0].Timestamp, events[0].IngestionTime
 	for _, e := range events[1:] {
 		first, last, ingested = min(first, e.Timestamp), max(last, e.Timestamp), max(ingested, e.IngestionTime)

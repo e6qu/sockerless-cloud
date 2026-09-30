@@ -78,17 +78,8 @@ func TestAcceptedAWSLambdaAsynchronousInvocationSurvivesSimulatorRestart_SDK(t *
 		RequestContext map[string]any `json:"requestContext"`
 		RequestPayload map[string]any `json:"requestPayload"`
 	}
-	require.Eventually(t, func() bool {
-		received, receiveErr := sqsAPI.ReceiveMessage(testCtx, &sqs.ReceiveMessageInput{
-			QueueUrl:            aws.String(queueURL),
-			MaxNumberOfMessages: 1,
-			WaitTimeSeconds:     1,
-		})
-		if receiveErr != nil || len(received.Messages) != 1 {
-			return false
-		}
-		return json.Unmarshal([]byte(aws.ToString(received.Messages[0].Body)), &destinationRecord) == nil
-	}, 45*time.Second, 500*time.Millisecond)
+	delivered := receiveSQSMessages(t, sqsAPI, aws.String(queueURL), 1, 45*time.Second)
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(delivered[0].Body)), &destinationRecord))
 	require.Equal(t, "restart-test", destinationRecord.RequestPayload["source"])
 	require.Equal(t, "Success", destinationRecord.RequestContext["condition"])
 	require.GreaterOrEqual(t, destinationRecord.RequestContext["approximateInvokeCount"], float64(1))

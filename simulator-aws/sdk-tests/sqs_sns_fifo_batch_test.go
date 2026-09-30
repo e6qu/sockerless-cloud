@@ -1,6 +1,7 @@
 package aws_sdk_test
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -292,14 +293,13 @@ func TestSQS_FIFODeduplicationAndMessageGroupOrdering(t *testing.T) {
 	assert.Equal(t, "group-a-second", aws.ToString(afterDelete.Messages[0].Body))
 }
 
-func TestSQSDelayMaximumSizeAndRetentionRuntime(t *testing.T) {
+func TestSQSDelayAndMaximumSizeRuntime(t *testing.T) {
 	c := sqsClient()
 	out, err := c.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: aws.String("runtime-attributes"),
 		Attributes: map[string]string{
-			"DelaySeconds":           "1",
-			"MaximumMessageSize":     "1024",
-			"MessageRetentionPeriod": "60",
+			"DelaySeconds":       "1",
+			"MaximumMessageSize": "1024",
 		},
 	})
 	require.NoError(t, err)
@@ -314,6 +314,7 @@ func TestSQSDelayMaximumSizeAndRetentionRuntime(t *testing.T) {
 	})
 	assert.Equal(t, "InvalidParameterValue", errCode(t, err))
 
+	sent := time.Now()
 	_, err = c.SendMessage(ctx, &sqs.SendMessageInput{
 		QueueUrl:    url,
 		MessageBody: aws.String("delayed"),
@@ -325,23 +326,76 @@ func TestSQSDelayMaximumSizeAndRetentionRuntime(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Empty(t, immediate.Messages)
-	time.Sleep(1100 * time.Millisecond)
 	afterDelay, err := c.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl:            url,
 		MaxNumberOfMessages: 1,
-		VisibilityTimeout:   0,
+		WaitTimeSeconds:     5,
 	})
 	require.NoError(t, err)
 	require.Len(t, afterDelay.Messages, 1)
 	assert.Equal(t, "delayed", aws.ToString(afterDelay.Messages[0].Body))
+	assert.GreaterOrEqual(t, time.Since(sent), time.Second, "the long poll returned the message before DelaySeconds elapsed")
+}
 
-	time.Sleep(60 * time.Second)
-	afterRetention, err := c.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-		QueueUrl:            url,
-		MaxNumberOfMessages: 1,
+// TestSQSMessageRetentionPeriodDropsExpiredMessages holds the message
+// invisible until just past its retention deadline, so a queue that kept it
+// would hand it to the long poll the moment its visibility timeout ended.
+// MessageRetentionPeriod cannot go below 60 seconds, so the test runs in
+// parallel with the rest of the suite.
+func TestSQSMessageRetentionPeriodDropsExpiredMessages(t *testing.T) {
+	t.Parallel()
+	c := sqsClient()
+	const retention = 60 * time.Second
+	out, err := c.CreateQueue(ctx, &sqs.CreateQueueInput{
+		QueueName:  aws.String("retention-expiry"),
+		Attributes: map[string]string{"MessageRetentionPeriod": "60"},
 	})
 	require.NoError(t, err)
-	assert.Empty(t, afterRetention.Messages)
+	url := out.QueueUrl
+	t.Cleanup(func() {
+		_, _ = c.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: url})
+	})
+
+	_, err = c.SendMessage(ctx, &sqs.SendMessageInput{QueueUrl: url, MessageBody: aws.String("retained")})
+	require.NoError(t, err)
+	first, err := c.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+		QueueUrl:                    url,
+		MaxNumberOfMessages:         1,
+		MessageSystemAttributeNames: []sqstypes.MessageSystemAttributeName{sqstypes.MessageSystemAttributeNameSentTimestamp},
+	})
+	require.NoError(t, err)
+	require.Len(t, first.Messages, 1)
+	sentMillis, err := strconv.ParseInt(first.Messages[0].Attributes["SentTimestamp"], 10, 64)
+	require.NoError(t, err)
+	expiry := time.UnixMilli(sentMillis).Add(retention)
+
+	visibility := int32(time.Until(expiry)/time.Second) + 2
+	reappears := time.Now().Add(time.Duration(visibility) * time.Second)
+	_, err = c.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
+		QueueUrl:          url,
+		ReceiptHandle:     first.Messages[0].ReceiptHandle,
+		VisibilityTimeout: visibility,
+	})
+	require.NoError(t, err)
+
+	for time.Now().Before(reappears.Add(time.Second)) {
+		wait := min(20, int32(time.Until(reappears)/time.Second)+2)
+		got, err := c.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+			QueueUrl:            url,
+			MaxNumberOfMessages: 1,
+			WaitTimeSeconds:     wait,
+		})
+		require.NoError(t, err)
+		require.Empty(t, got.Messages, "a message past MessageRetentionPeriod came back when its visibility timeout ended")
+	}
+
+	attrs, err := c.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+		QueueUrl:       url,
+		AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameAll},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "0", attrs.Attributes["ApproximateNumberOfMessages"])
+	assert.Equal(t, "0", attrs.Attributes["ApproximateNumberOfMessagesNotVisible"])
 }
 
 // TestSNS_FifoTopicCoupling locks the SNS .fifo-name ↔ FifoTopic=true

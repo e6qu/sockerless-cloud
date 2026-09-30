@@ -162,19 +162,11 @@ func awaitCLIQueueMessage(t *testing.T, cli func(...string) *exec.Cmd, queueURL 
 			Body string `json:"Body"`
 		} `json:"Messages"`
 	}
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		out := runCLI(t, cli("sqs", "receive-message",
-			"--queue-url", queueURL, "--output", "json"))
-		parseJSON(t, out, &recv)
-		if len(recv.Messages) == 1 {
-			return recv.Messages[0].Body
-		}
-		if len(recv.Messages) > 1 {
-			t.Fatalf("expected one SQS message, got %d", len(recv.Messages))
-		}
-		time.Sleep(50 * time.Millisecond)
+	out := runCLI(t, cli("sqs", "receive-message",
+		"--queue-url", queueURL, "--wait-time-seconds", "20", "--output", "json"))
+	parseJSON(t, out, &recv)
+	if len(recv.Messages) != 1 {
+		t.Fatalf("expected the alarm notification as one SQS message, got %d", len(recv.Messages))
 	}
-	t.Fatal("the queue never received the alarm notification")
-	return ""
+	return recv.Messages[0].Body
 }

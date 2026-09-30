@@ -439,19 +439,9 @@ func TestSFN_EventingAndObservabilityIntegrations_SDK(t *testing.T) {
 	}, 10*time.Second, 100*time.Millisecond)
 
 	var bodies []string
-	require.Eventually(t, func() bool {
-		received, receiveErr := queueAPI.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-			QueueUrl: queue.QueueUrl, MaxNumberOfMessages: 10, VisibilityTimeout: 0,
-		})
-		if receiveErr != nil {
-			return false
-		}
-		bodies = bodies[:0]
-		for _, message := range received.Messages {
-			bodies = append(bodies, aws.ToString(message.Body))
-		}
-		return len(bodies) == 3
-	}, 5*time.Second, 100*time.Millisecond)
+	for _, message := range receiveSQSMessages(t, queueAPI, queue.QueueUrl, 3, 5*time.Second) {
+		bodies = append(bodies, aws.ToString(message.Body))
+	}
 	assert.Contains(t, bodies, "from-step-functions-sqs")
 	assert.Condition(t, func() bool {
 		for _, body := range bodies {
@@ -634,18 +624,9 @@ phases:
 		assert.Empty(collect, aws.ToString(described.Cause))
 	}, 3*time.Minute, 200*time.Millisecond)
 
-	var deliveredReceipt string
-	require.Eventually(t, func() bool {
-		received, receiveErr := queueAPI.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-			QueueUrl: queue.QueueUrl, MaxNumberOfMessages: 1, VisibilityTimeout: 30,
-		})
-		if receiveErr != nil || len(received.Messages) != 1 ||
-			aws.ToString(received.Messages[0].Body) != "from-step-functions-codebuild" {
-			return false
-		}
-		deliveredReceipt = aws.ToString(received.Messages[0].ReceiptHandle)
-		return true
-	}, 10*time.Second, 100*time.Millisecond)
+	delivered := receiveSQSMessages(t, queueAPI, queue.QueueUrl, 1, 10*time.Second)[0]
+	require.Equal(t, "from-step-functions-codebuild", aws.ToString(delivered.Body))
+	deliveredReceipt := aws.ToString(delivered.ReceiptHandle)
 	_, err = queueAPI.DeleteMessage(ctx, &sqs.DeleteMessageInput{
 		QueueUrl: queue.QueueUrl, ReceiptHandle: aws.String(deliveredReceipt),
 	})

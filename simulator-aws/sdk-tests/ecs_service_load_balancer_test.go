@@ -70,6 +70,7 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 		// check. Elastic Load Balancing runs those on this interval, and the
 		// 30-second default would make the test wait one out for nothing.
 		HealthCheckIntervalSeconds: aws.Int32(5),
+		HealthyThresholdCount:      aws.Int32(2),
 	})
 	require.NoError(t, err)
 	targetGroupArn := aws.ToString(targetGroup.TargetGroups[0].TargetGroupArn)
@@ -130,70 +131,17 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 	require.NoError(t, err)
 	cleanupECSService(t, ecsC, cluster, serviceName)
 
-	var firstTarget string
-	var targetDiagnostic string
-	targetBecameHealthy := assert.Eventually(t, func() bool {
-		health, healthErr := elbC.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
-			TargetGroupArn: aws.String(targetGroupArn),
-		})
-		// TargetHealth is a pointer and is absent while a target is still being
-		// registered, which is a state this closure already expects -- the
-		// diagnostic below guards it. Dereferencing it here first panicked the
-		// shard (nil pointer dereference at this line) whenever the poll
-		// happened to sample that window, which is why it failed on CI and
-		// passed locally.
-		if healthErr != nil || len(health.TargetHealthDescriptions) != 1 ||
-			health.TargetHealthDescriptions[0].TargetHealth == nil ||
-			health.TargetHealthDescriptions[0].TargetHealth.State != elbtypes.TargetHealthStateEnumHealthy {
-			// Both calls had their errors discarded and their results
-			// dereferenced anyway. DescribeTasks rejects an empty Tasks list,
-			// so every poll taken before the service has listed a task left
-			// described nil and panicked the shard on described.Tasks below.
-			// This is a diagnostic path: it reports what it can see and stays
-			// silent about what it cannot.
-			var taskArns []string
-			if listed, listErr := ecsC.ListTasks(ctx, &ecs.ListTasksInput{
-				Cluster: aws.String(cluster), ServiceName: aws.String(serviceName),
-			}); listErr == nil && listed != nil {
-				taskArns = listed.TaskArns
-			}
-			var described *ecs.DescribeTasksOutput
-			if len(taskArns) > 0 {
-				if out, describeErr := ecsC.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-					Cluster: aws.String(cluster), Tasks: taskArns,
-				}); describeErr == nil {
-					described = out
-				}
-			}
-			targetState, targetID := "", ""
-			if health != nil && len(health.TargetHealthDescriptions) > 0 &&
-				health.TargetHealthDescriptions[0].TargetHealth != nil {
-				targetState = string(health.TargetHealthDescriptions[0].TargetHealth.State)
-				targetID = aws.ToString(health.TargetHealthDescriptions[0].Target.Id)
-			}
-			taskState, stoppedReason := "", ""
-			if described != nil && len(described.Tasks) > 0 {
-				taskState = aws.ToString(described.Tasks[0].LastStatus)
-				stoppedReason = aws.ToString(described.Tasks[0].StoppedReason)
-			}
-			targetDiagnostic = fmt.Sprintf("target=%s:%s task=%s stoppedReason=%q",
-				targetID, targetState, taskState, stoppedReason)
-			return false
-		}
-		firstTarget = aws.ToString(health.TargetHealthDescriptions[0].Target.Id)
-		return firstTarget != ""
-	}, 30*time.Second, 100*time.Millisecond, "service target never became healthy")
-	require.True(t, targetBecameHealthy, "service target diagnostic: %s", targetDiagnostic)
-	require.Eventually(t, func() bool {
-		services, describeErr := ecsC.DescribeServices(ctx, &ecs.DescribeServicesInput{
-			Cluster: aws.String(cluster), Services: []string{serviceName},
-		})
-		return describeErr == nil &&
-			len(services.Services) == 1 &&
-			len(services.Services[0].Deployments) > 0 &&
-			services.Services[0].Deployments[0].RolloutState == ecstypes.DeploymentRolloutStateCompleted
-	}, 30*time.Second, 100*time.Millisecond,
-		"service deployment did not complete after its target became healthy")
+	health, err := elbv2.NewTargetInServiceWaiter(elbC, func(o *elbv2.TargetInServiceWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &elbv2.DescribeTargetHealthInput{
+		TargetGroupArn: aws.String(targetGroupArn),
+	}, 30*time.Second)
+	require.NoError(t, err, "service target never became healthy")
+	require.Len(t, health.TargetHealthDescriptions, 1)
+	firstTarget := aws.ToString(health.TargetHealthDescriptions[0].Target.Id)
+	require.NotEmpty(t, firstTarget)
+	waitForECSServicesStable(t, ecsC, cluster, 30*time.Second, serviceName)
 
 	assertServiceResponse := func() {
 		request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/customer", nil)

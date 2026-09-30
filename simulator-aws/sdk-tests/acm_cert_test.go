@@ -79,18 +79,7 @@ func TestACMIssuedCertHasPEMMaterial(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Poll for issuance (reconcile fires on DescribeCertificate).
-	var status acmtypes.CertificateStatus
-	for i := 0; i < 30; i++ {
-		desc, err = acmC.DescribeCertificate(ctx, &acm.DescribeCertificateInput{CertificateArn: aws.String(arn)})
-		require.NoError(t, err)
-		status = desc.Certificate.Status
-		if status == acmtypes.CertificateStatusIssued {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	require.Equal(t, acmtypes.CertificateStatusIssued, status)
+	waitForACMCertificateIssued(t, acmC, arn)
 
 	getOut, err := acmC.GetCertificate(ctx, &acm.GetCertificateInput{CertificateArn: aws.String(arn)})
 	require.NoError(t, err)
@@ -129,4 +118,13 @@ func TestACMIssuedCertHasPEMMaterial(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, serialBefore, renewedLeaf.SerialNumber.String(),
 		"managed renewal must rotate real certificate material")
+}
+
+func waitForACMCertificateIssued(t *testing.T, c *acm.Client, certificateARN string) {
+	t.Helper()
+	require.NoError(t, acm.NewCertificateValidatedWaiter(c, func(o *acm.CertificateValidatedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &acm.DescribeCertificateInput{CertificateArn: aws.String(certificateARN)}, time.Minute),
+		"certificate %s did not reach ISSUED", certificateARN)
 }

@@ -149,10 +149,16 @@ func TestRDS_InstanceClusterState(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, startCl.DBCluster)
 	assert.Equal(t, "starting", aws.ToString(startCl.DBCluster.Status))
-	require.NoError(t, rds.NewDBClusterAvailableWaiter(c).Wait(ctx, &rds.DescribeDBClustersInput{
+	require.NoError(t, rds.NewDBClusterAvailableWaiter(c, func(o *rds.DBClusterAvailableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &rds.DescribeDBClustersInput{
 		DBClusterIdentifier: aws.String(clusterID),
 	}, 2*time.Minute))
-	waitForRDSInstanceStatus(t, c, ctx, memberID, "available")
+	require.NoError(t, rds.NewDBInstanceAvailableWaiter(c, func(o *rds.DBInstanceAvailableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(memberID)}, 2*time.Minute))
 
 	foCl, err := c.FailoverDBCluster(ctx, &rds.FailoverDBClusterInput{
 		DBClusterIdentifier: aws.String(clusterID),

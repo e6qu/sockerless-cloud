@@ -26,13 +26,12 @@ func TestECSCLI_DeploymentConfiguration(t *testing.T) {
 		"--deployment-configuration", `{"deploymentCircuitBreaker":{"enable":true,"rollback":true,"thresholdConfiguration":{"type":"COUNT","value":1}},"maximumPercent":200,"minimumHealthyPercent":100}`))
 	cleanupCLIService(t, cluster, "cli-deploycfg-svc")
 
-	require.Eventually(t, func() bool {
-		out := strings.TrimSpace(runCLI(t, awsCLI("ecs", "describe-services",
-			"--cluster", cluster, "--services", "cli-deploycfg-svc",
-			"--query", "services[0].[taskDefinition,deployments[0].rolloutState]",
-			"--output", "text")))
-		return strings.Contains(out, stable) && strings.Contains(out, "COMPLETED")
-	}, time.Minute, 100*time.Millisecond)
+	runCLI(t, awsCLI("ecs", "wait", "services-stable", "--cluster", cluster, "--services", "cli-deploycfg-svc"))
+	settled := strings.Fields(runCLI(t, awsCLI("ecs", "describe-services",
+		"--cluster", cluster, "--services", "cli-deploycfg-svc",
+		"--query", "services[0].[taskDefinition,deployments[0].rolloutState]",
+		"--output", "text")))
+	require.Equal(t, []string{stable, "COMPLETED"}, settled)
 
 	failing := strings.TrimSpace(runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-deploycfg-task",

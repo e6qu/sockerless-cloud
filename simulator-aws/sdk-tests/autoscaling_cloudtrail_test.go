@@ -4,6 +4,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -82,12 +83,16 @@ func TestAutoScalingGroupLifecycleSDK(t *testing.T) {
 		})
 	})
 
-	groupsOut, err := asgClient.DescribeAutoScalingGroups(ctx, &autoscaling.DescribeAutoScalingGroupsInput{
+	groupsOut, err := autoscaling.NewGroupInServiceWaiter(asgClient, func(o *autoscaling.GroupInServiceWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &autoscaling.DescribeAutoScalingGroupsInput{
 		AutoScalingGroupNames: []string{"sdk-asg"},
-	})
+	}, 5*time.Minute)
 	require.NoError(t, err)
 	require.Len(t, groupsOut.AutoScalingGroups, 1)
 	require.Len(t, groupsOut.AutoScalingGroups[0].Instances, 1)
+	assert.Equal(t, types.LifecycleStateInService, groupsOut.AutoScalingGroups[0].Instances[0].LifecycleState)
 	instanceID := aws.ToString(groupsOut.AutoScalingGroups[0].Instances[0].InstanceId)
 	require.NotEmpty(t, instanceID)
 
@@ -108,12 +113,32 @@ func TestAutoScalingGroupLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, groupsOut.AutoScalingGroups, 1)
 	require.Len(t, groupsOut.AutoScalingGroups[0].Instances, 2)
+	memberIDs := make([]string, 0, 2)
+	for _, member := range groupsOut.AutoScalingGroups[0].Instances {
+		memberIDs = append(memberIDs, aws.ToString(member.InstanceId))
+	}
+	require.NoError(t, ec2.NewInstanceRunningWaiter(ec2Client, func(o *ec2.InstanceRunningWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &ec2.DescribeInstancesInput{InstanceIds: memberIDs}, 5*time.Minute))
 
 	activitiesOut, err := asgClient.DescribeScalingActivities(ctx, &autoscaling.DescribeScalingActivitiesInput{
 		AutoScalingGroupName: aws.String("sdk-asg"),
 	})
 	require.NoError(t, err)
-	require.NotEmpty(t, activitiesOut.Activities)
+	launched := map[string]types.ScalingActivityStatusCode{}
+	for _, activity := range activitiesOut.Activities {
+		for _, id := range memberIDs {
+			if aws.ToString(activity.Description) == "Launching a new EC2 instance: "+id {
+				launched[id] = activity.StatusCode
+				assert.NotNil(t, activity.EndTime, "a finished launch activity carries its EndTime")
+				assert.Equal(t, int32(100), aws.ToInt32(activity.Progress))
+			}
+		}
+	}
+	for _, id := range memberIDs {
+		assert.Equal(t, types.ScalingActivityStatusCodeSuccessful, launched[id], "launch activity of %s", id)
+	}
 
 	// DescribeAutoScalingGroups Filters: the sim used to ignore Filters and
 	// return every group. A tag:env=sdk filter must return only sdk-asg, and a

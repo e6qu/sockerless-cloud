@@ -64,24 +64,8 @@ func TestECS_RunTask_RunningDoesNotWaitForTheApplication(t *testing.T) {
 	cleanupECSTask(t, client, clusterName, taskArn)
 
 	// Well inside the minute the container spends binding nothing.
-	deadline := time.Now().Add(30 * time.Second)
-	var last string
-	for time.Now().Before(deadline) {
-		desc, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-			Cluster: aws.String(clusterName),
-			Tasks:   []string{taskArn},
-		})
-		require.NoError(t, err)
-		require.Len(t, desc.Tasks, 1)
-		last = aws.ToString(desc.Tasks[0].LastStatus)
-		if last == "RUNNING" {
-			// A task with no healthCheck has no health opinion to report.
-			require.Empty(t, string(desc.Tasks[0].HealthStatus)+"",
-				"a task whose definition declares no healthCheck reports no healthStatus")
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	t.Fatalf("the task never reported RUNNING while its container ran; last status %q — "+
-		"lastStatus is gated on something other than the container running", last)
+	running := waitForECSTasksRunning(t, client, clusterName, 30*time.Second, taskArn)
+	// A task with no healthCheck has no health opinion to report.
+	require.Empty(t, string(running.Tasks[0].HealthStatus),
+		"a task whose definition declares no healthCheck reports no healthStatus")
 }

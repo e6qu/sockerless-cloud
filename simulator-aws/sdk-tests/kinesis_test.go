@@ -2,7 +2,6 @@ package aws_sdk_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -165,27 +164,26 @@ func TestKinesisSDK_StreamLifecycleAndRecords(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, shards.Shards)
+	// PutRecord and PutRecords answer once the records are stored, so one pass
+	// of GetRecords over every shard reads all three.
 	bodies := map[string]bool{}
-	require.Eventually(t, func() bool {
-		for _, shard := range shards.Shards {
-			iter, err := client.GetShardIterator(ctx, &kinesis.GetShardIteratorInput{
-				StreamName:        aws.String(streamName),
-				ShardId:           shard.ShardId,
-				ShardIteratorType: ktypes.ShardIteratorTypeTrimHorizon,
-			})
-			require.NoError(t, err)
-			require.NotEmpty(t, aws.ToString(iter.ShardIterator))
-			out, err := client.GetRecords(ctx, &kinesis.GetRecordsInput{
-				ShardIterator: iter.ShardIterator,
-				Limit:         aws.Int32(10),
-			})
-			require.NoError(t, err)
-			for _, record := range out.Records {
-				bodies[string(record.Data)] = true
-			}
+	for _, shard := range shards.Shards {
+		iter, err := client.GetShardIterator(ctx, &kinesis.GetShardIteratorInput{
+			StreamName:        aws.String(streamName),
+			ShardId:           shard.ShardId,
+			ShardIteratorType: ktypes.ShardIteratorTypeTrimHorizon,
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, aws.ToString(iter.ShardIterator))
+		out, err := client.GetRecords(ctx, &kinesis.GetRecordsInput{
+			ShardIterator: iter.ShardIterator,
+			Limit:         aws.Int32(10),
+		})
+		require.NoError(t, err)
+		for _, record := range out.Records {
+			bodies[string(record.Data)] = true
 		}
-		return len(bodies) == 3
-	}, 2*time.Second, 50*time.Millisecond)
+	}
 	assert.Equal(t, map[string]bool{"one": true, "two": true, "three": true}, bodies)
 }
 

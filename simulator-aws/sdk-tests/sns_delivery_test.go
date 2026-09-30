@@ -247,9 +247,8 @@ func TestSNS_DeliverToSQS_DeniedWrongSourceArn(t *testing.T) {
 // TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy proves end-to-end
 // SNS→Lambda delivery: when the function's resource policy (via AddPermission)
 // admits sns.amazonaws.com lambda:InvokeFunction, a Publish performs a real
-// in-process invoke — observable through the per-invocation CloudWatch log
-// group the runtime creates (`/aws/lambda/<name>`), which exists only when the
-// function actually executed.
+// invoke — observable as the invocation's START line in the function's
+// CloudWatch Logs log group (`/aws/lambda/<name>`).
 func TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy(t *testing.T) {
 	snsC := snsClient()
 	lc := lambdaClient()
@@ -270,6 +269,11 @@ func TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = logs.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroup)})
 	})
+
+	// AWS Lambda writes to the function's log group when it exists, so a Live
+	// Tail session can watch it before the function runs.
+	_, err = logs.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(logGroup)})
+	require.NoError(t, err)
 
 	getFn, err := lc.GetFunction(ctx, &lambda.GetFunctionInput{FunctionName: aws.String(fnName)})
 	require.NoError(t, err)
@@ -303,22 +307,8 @@ func TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The invoke runs in the background; poll for the log group it creates.
-	require.Eventually(t, func() bool {
-		out, err := logs.DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{
-			LogGroupNamePrefix: aws.String(logGroup),
-		})
-		if err != nil {
-			return false
-		}
-		for _, g := range out.LogGroups {
-			if aws.ToString(g.LogGroupName) == logGroup {
-				return true
-			}
-		}
-		return false
-	}, 5*time.Second, 50*time.Millisecond,
-		"authorized SNS→Lambda delivery must invoke the function (creating its log group)")
+	// The invoke runs in the background; its START line is the invocation.
+	awaitLogLine(t, logs, logGroup, "START RequestId:", 5*time.Second)
 }
 
 // TestSNS_DeliverToLambda_DeniedNoPermission proves the IAM gate denies

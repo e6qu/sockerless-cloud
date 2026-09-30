@@ -1016,9 +1016,11 @@ func injectLambdaInvokeLogs(functionName, requestID string) (logGroup, logStream
 		Arn:                 cwLogStreamArn(logGroup, logStream),
 		UploadSequenceToken: "1",
 	})
-	cwLogEvents.Put(logKey, []CWLogEvent{
+	start := []CWLogEvent{
 		{Timestamp: startMs, Message: fmt.Sprintf("START RequestId: %s Version: $LATEST", requestID), IngestionTime: startMs},
-	})
+	}
+	cwLogEvents.Put(logKey, start)
+	cwLiveTailPublish(logGroup, logStream, start)
 	return
 }
 

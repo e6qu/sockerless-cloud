@@ -69,8 +69,16 @@ func importELBv2CertificateCLI(t *testing.T, domain string) string {
 // registered, it must pass one health check to be considered healthy" — and
 // leaving service takes UnhealthyThresholdCount consecutive failed checks at
 // the target group's configured interval.
+//
+// `aws elbv2 wait target-in-service` covers healthy; the CLI has no waiter for
+// unhealthy, so that state is polled.
 func waitForELBv2TargetHealthCLI(t *testing.T, targetGroupArn, target, want string) {
 	t.Helper()
+	if want == "healthy" {
+		runCLI(t, awsCLI("elbv2", "wait", "target-in-service",
+			"--target-group-arn", targetGroupArn, "--targets", target))
+		return
+	}
 	deadline := time.Now().Add(30 * time.Second)
 	observed := ""
 	for time.Now().Before(deadline) {

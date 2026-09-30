@@ -27,15 +27,11 @@ import (
 // nothing (restore in particular) may act on it before "available".
 func waitForRDSSnapshotAvailable(t *testing.T, c *rds.Client, ctx context.Context, id string) {
 	t.Helper()
-	require.Eventually(t, func() bool {
-		desc, err := c.DescribeDBSnapshots(ctx, &rds.DescribeDBSnapshotsInput{
-			DBSnapshotIdentifier: aws.String(id),
-		})
-		if err != nil || len(desc.DBSnapshots) != 1 {
-			return false
-		}
-		return aws.ToString(desc.DBSnapshots[0].Status) == "available"
-	}, 90*time.Second, 100*time.Millisecond, "snapshot %s must settle to available", id)
+	require.NoError(t, rds.NewDBSnapshotAvailableWaiter(c, func(o *rds.DBSnapshotAvailableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &rds.DescribeDBSnapshotsInput{DBSnapshotIdentifier: aws.String(id)}, 90*time.Second),
+		"snapshot %s must settle to available", id)
 }
 
 func TestRDS_Snapshot_Lifecycle(t *testing.T) {
