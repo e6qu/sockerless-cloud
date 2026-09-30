@@ -476,6 +476,14 @@ stops a refresh, and RollbackInstanceRefresh reverses only one still under
 way. CreateAutoScalingGroup and UpdateAutoScalingGroup take a launch template,
 and members report the template version they launched from.
 
+GetCallerIdentity reports the signing identity's own unique ID: a user's ID,
+`<role ID>:<session name>` for an assumed role, `<account>:<name>` for a
+federated user. A credential that resolves to no identity fails with
+`InvalidClientTokenId`, in GetCallerIdentity, GetWebIdentityToken and
+GetDelegatedAccessToken, and with `InvalidAccessKeyId` in an Amazon S3
+Express One Zone CreateSession. GetDelegatedAccessToken's credential acts as
+its caller.
+
 A workload host pulls its image the way the cloud pulls it. The Cloud Run and
 Cloud Functions hosts present the project's Cloud Run service agent's access
 token to Artifact Registry and Container Registry and nothing elsewhere. The

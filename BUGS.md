@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 50.
+Open: 49.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -25,7 +25,6 @@ live in `WHAT_WE_DID.md`.
 | 2712 | P2 | Amazon SNS SMS and mobile push | Every Amazon SNS operation is served and email delivery runs over real SMTP, but SMS needs a telecommunications carrier and mobile push needs Apple's and Google's hosts, which no AWS API provisions. Each such publish fails naming the missing dependency (`TestSNS_ExternalDeliveryFailsWithItsOwnReason`). | Records a boundary, not a defect. Close only if those providers become configurable through a faithful AWS API. |
 | 2977 | P3 | Azure Storage account migration read | terraform-provider-azurerm reads `accountMigrations/default` on every storage-account read and requires 200, so the simulator answers an unmigrated account with the resource envelope and empty properties. The swagger marks `properties.targetSkuName` required, and both published examples describe a started migration; `simulator-azure/spec-violation-allowlist.txt` holds the violation under this ID. | Capture `GET …/accountMigrations/default?api-version=2024-01-01` against a real, never-migrated account, answer exactly that body, and remove the allowlist line. Needs a real Azure subscription. |
 | 3084 | P2 | Cloud Storage bucket mounts | A file a Cloud Run workload writes through its Cloud Storage volume mount never becomes an object; the mount is a one-way mirror of the live generations. | Ingest writes from the mount directory as new generations, as Cloud Storage FUSE does on close. |
-| 3093 | P3 | AWS caller identity | An unrecognised credential resolves to the synthetic `arn:aws:iam::<account>:user/simulator` in GetCallerIdentity and in GetWebIdentityToken's `sub`. | Refuse the request with `InvalidClientTokenId`, as AWS does. |
 | 3094 | P3 | Azure Database for PostgreSQL plaintext refusal | The refusal of a plaintext client carries text written for the simulator; the real server likely sends a pg_hba "no encryption" FATAL. | Capture the real refusal and send it verbatim. |
 | 3097 | P2 | Host-network tests in CI | Tests tagged `realexec_host` (the NAT, firewall, security-group and fabric data-plane tests) run under no CI workflow, so a regression in the real network substrate reaches `main` unseen. | A CI job on a Linux runner with sudo, iproute2 and nftables that runs `go test -tags realexec_host` for realexec and each simulator. |
 | 3098 | P3 | Azure NIC secondary IP configurations | Every secondary ipconfig of a NIC gets the primary's address, because the fabric creates one namespace interface per NIC. | Realize each ipconfig as its own address on the NIC. |
