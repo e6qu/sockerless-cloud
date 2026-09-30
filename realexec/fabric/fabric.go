@@ -61,8 +61,15 @@ type Fabric[K ~string] struct {
 	ownedIPs map[string]net.IP
 
 	lockMu   sync.Mutex
-	netLocks map[K]*sync.RWMutex
-	vmLocks  map[K]*sync.Mutex
+	netLocks map[K]*keyedLock
+	vmLocks  map[K]*keyedLock
+}
+
+// keyedLock is one key's lock, kept in its map only while a caller holds or
+// waits for it, so the maps shrink as networks and machines go away.
+type keyedLock struct {
+	sync.RWMutex
+	refs int
 }
 
 func New[K ~string](opts Options) *Fabric[K] {
@@ -76,31 +83,40 @@ func New[K ~string](opts Options) *Fabric[K] {
 		vms:      map[K]member[K, *realexec.FirecrackerVM]{},
 		snat:     map[string]snatBinding[K]{},
 		ownedIPs: map[string]net.IP{},
-		netLocks: map[K]*sync.RWMutex{},
-		vmLocks:  map[K]*sync.Mutex{},
+		netLocks: map[K]*keyedLock{},
+		vmLocks:  map[K]*keyedLock{},
 	}
 }
 
-func (f *Fabric[K]) networkLock(key K) *sync.RWMutex {
+// acquireKeyed locks key's lock in locks, shared or exclusive, and returns
+// the unlock, which drops the lock from locks once no caller holds or awaits it.
+func (f *Fabric[K]) acquireKeyed(locks map[K]*keyedLock, key K, shared bool) (unlock func()) {
 	f.lockMu.Lock()
-	defer f.lockMu.Unlock()
-	l := f.netLocks[key]
+	l := locks[key]
 	if l == nil {
-		l = &sync.RWMutex{}
-		f.netLocks[key] = l
+		l = &keyedLock{}
+		locks[key] = l
 	}
-	return l
-}
-
-func (f *Fabric[K]) vmLock(key K) *sync.Mutex {
-	f.lockMu.Lock()
-	defer f.lockMu.Unlock()
-	l := f.vmLocks[key]
-	if l == nil {
-		l = &sync.Mutex{}
-		f.vmLocks[key] = l
+	l.refs++
+	f.lockMu.Unlock()
+	if shared {
+		l.RLock()
+	} else {
+		l.Lock()
 	}
-	return l
+	return func() {
+		if shared {
+			l.RUnlock()
+		} else {
+			l.Unlock()
+		}
+		f.lockMu.Lock()
+		l.refs--
+		if l.refs == 0 {
+			delete(locks, key)
+		}
+		f.lockMu.Unlock()
+	}
 }
 
 // HoldNetwork keeps TeardownNetwork from closing the network until release
@@ -108,9 +124,7 @@ func (f *Fabric[K]) vmLock(key K) *sync.Mutex {
 // recorded what it built, so a teardown never closes a namespace mid-attach
 // and orphans the half-built interface. Holders do not exclude each other.
 func (f *Fabric[K]) HoldNetwork(key K) (release func()) {
-	l := f.networkLock(key)
-	l.RLock()
-	return l.RUnlock
+	return f.acquireKeyed(f.netLocks, key, true)
 }
 
 func (f *Fabric[K]) Network(key K) *realexec.Network {
@@ -345,9 +359,7 @@ type VMSpec[K ~string] struct {
 func (f *Fabric[K]) StartVM(ctx context.Context, spec VMSpec[K]) (*realexec.FirecrackerVM, *realexec.TapNIC, bool, error) {
 	release := f.HoldNetwork(spec.Network)
 	defer release()
-	lk := f.vmLock(spec.Key)
-	lk.Lock()
-	defer lk.Unlock()
+	defer f.acquireKeyed(f.vmLocks, spec.Key, false)()
 
 	if vm := f.VM(spec.Key); vm.Alive() {
 		return vm, f.Tap(spec.NIC), false, nil
@@ -409,9 +421,7 @@ func (f *Fabric[K]) StartVM(ctx context.Context, spec VMSpec[K]) (*realexec.Fire
 // StopVM stops the machine; before, when set, runs against it first and
 // abandons the stop when it fails.
 func (f *Fabric[K]) StopVM(ctx context.Context, key K, before func(*realexec.FirecrackerVM) error) error {
-	lk := f.vmLock(key)
-	lk.Lock()
-	defer lk.Unlock()
+	defer f.acquireKeyed(f.vmLocks, key, false)()
 	f.mu.Lock()
 	vm := f.vms[key].value
 	delete(f.vms, key)
@@ -431,9 +441,7 @@ func (f *Fabric[K]) StopVM(ctx context.Context, key K, before func(*realexec.Fir
 // itself. It waits for every HoldNetwork holder, and extra, when set, closes
 // the cloud's own attachments in the network first.
 func (f *Fabric[K]) TeardownNetwork(ctx context.Context, key K, extra func(context.Context)) error {
-	l := f.networkLock(key)
-	l.Lock()
-	defer l.Unlock()
+	defer f.acquireKeyed(f.netLocks, key, false)()
 	if extra != nil {
 		extra(ctx)
 	}

@@ -173,3 +173,16 @@ func TestFilesHostRootIsolation(t *testing.T) {
 		t.Fatalf("fileShareHostPath = %s (ok %v), want the nested path inside the share", got, ok)
 	}
 }
+
+// TestResetFileShareHostDirReportsAnUnusableRoot shows creating a share
+// fails when its directory cannot be made, instead of logging and going on.
+func TestResetFileShareHostDirReportsAnUnusableRoot(t *testing.T) {
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocked, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SIM_AZURE_FILES_DATA_DIR", blocked)
+	if err := resetFileShareHostDir("acct", "share"); err == nil {
+		t.Fatal("resetFileShareHostDir under a file succeeded")
+	}
+}

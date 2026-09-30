@@ -105,3 +105,24 @@ func TestReservePublicIPIsOwnedUntilReleased(t *testing.T) {
 	}
 	realexec.ReleasePublicIPv4(reused)
 }
+
+func TestKeyedLocksLeaveTheMapsOnceReleased(t *testing.T) {
+	f := New[string](Options{})
+	release := f.HoldNetwork("net-a")
+	torndown := make(chan struct{})
+	go func() {
+		unlock := f.acquireKeyed(f.netLocks, "net-a", false)
+		unlock()
+		close(torndown)
+	}()
+	release()
+	<-torndown
+	if err := f.StopVM(context.Background(), "vm-a", nil); err != nil {
+		t.Fatal(err)
+	}
+	f.lockMu.Lock()
+	defer f.lockMu.Unlock()
+	if len(f.netLocks) != 0 || len(f.vmLocks) != 0 {
+		t.Fatalf("locks outlived their holders: %d network, %d machine", len(f.netLocks), len(f.vmLocks))
+	}
+}

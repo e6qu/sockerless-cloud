@@ -25,14 +25,20 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
-// GCSBucketHostDir returns the on-disk directory backing a simulated
-// GCS bucket. Created lazily; safe for concurrent callers. Exported
-// for use by the Cloud Run Jobs/Services + Cloud Functions task
-// runners when they honour `Volume{Gcs{Bucket}}`.
+// GCSBucketHostDir returns the on-disk directory backing a simulated GCS
+// bucket, which inserting the bucket makes. Exported for use by the Cloud Run
+// Jobs/Services + Cloud Functions task runners when they honour
+// `Volume{Gcs{Bucket}}`.
 func GCSBucketHostDir(bucket string) string {
-	dir := filepath.Join(sim.ScopedDataDir("SIM_GCS_DATA_DIR", "gcs", "sockerless-sim-gcs"), bucket)
-	_ = os.MkdirAll(dir, 0o777)
-	return dir
+	return filepath.Join(sim.ScopedDataDir("SIM_GCS_DATA_DIR", "gcs", "sockerless-sim-gcs"), bucket)
+}
+
+func gcsResetBucketHostDir(bucket string) error {
+	dir := GCSBucketHostDir(bucket)
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	return os.MkdirAll(dir, 0o777)
 }
 
 // gcsListLimit is the most entries one page of objects.list holds, and the
@@ -688,6 +694,12 @@ func registerGCS(srv *sim.Server) {
 		}
 		gcsApplyDefaultSoftDeletePolicy(data)
 
+		// A new bucket holds no objects, so its mount directory starts empty
+		// whatever a deleted bucket of the same name left in it.
+		if err := gcsResetBucketHostDir(name); err != nil {
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "bucket %q storage: %v", name, err)
+			return
+		}
 		bucket := Bucket{Data: data, Project: project}
 		buckets.Put(name, bucket)
 		gcsSeedDefaultObjectACL(name, bucket)

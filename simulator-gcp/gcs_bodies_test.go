@@ -289,3 +289,33 @@ func TestGCSResumableUploadStagesChunks(t *testing.T) {
 		t.Fatalf("a cancelled session answered %d", resp.StatusCode)
 	}
 }
+
+// Inserting a bucket gives it an empty mount directory, whatever a deleted
+// bucket of the same name left there, and a directory it cannot make fails the
+// insert.
+func TestGCSInsertBucketResetsItsHostDirectory(t *testing.T) {
+	c := newGCSTestClient(t)
+	stale := filepath.Join(c.root, "reused", "left-behind.txt")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c.createBucket("reused", "")
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("a new bucket's directory kept %s (stat err %v)", stale, err)
+	}
+	if info, err := os.Stat(filepath.Join(c.root, "reused")); err != nil || !info.IsDir() {
+		t.Fatalf("bucket directory missing after insert: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(c.root, "blocked"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SIM_GCS_DATA_DIR", filepath.Join(c.root, "blocked"))
+	resp, out := c.do(http.MethodPost, "/storage/v1/b?project=p", map[string]string{"Content-Type": "application/json"}, []byte(`{"name":"unmakeable"}`))
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("insert with an unusable data directory = %d %s, want 500", resp.StatusCode, out)
+	}
+}

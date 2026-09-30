@@ -31,17 +31,11 @@ func azureFilesHostRoot() string {
 	return sim.ScopedDataDir("SIM_AZURE_FILES_DATA_DIR", "files", "sockerless-sim-azure-files")
 }
 
-// FileShareHostDir returns the on-disk directory backing a simulated
-// Azure file share. Created lazily; safe for concurrent callers.
-// Exported for use by the ACA sim's Jobs/Apps executor.
+// FileShareHostDir returns the on-disk directory backing a simulated Azure
+// file share, which creating the share makes. Exported for use by the ACA
+// sim's Jobs/Apps executor.
 func FileShareHostDir(storageAccount, shareName string) string {
-	dir := filepath.Join(azureFilesHostRoot(), storageAccount, shareName)
-	// A real Azure Files SMB mount is writable by the mounting container
-	// (CIFS dir_mode and file_mode 0777).
-	if err := sim.EnsureWritableDir(dir); err != nil {
-		fmt.Fprintf(os.Stderr, "[sim-files] share directory %s: %v\n", dir, err)
-	}
-	return dir
+	return filepath.Join(azureFilesHostRoot(), storageAccount, shareName)
 }
 
 // resetFileShareHostDir empties the share's backing directory. A share that has
@@ -50,17 +44,19 @@ func FileShareHostDir(storageAccount, shareName string) string {
 // simulator's store, which starts empty on every non-persistent run, while the
 // directory outlives the process.
 func resetFileShareHostDir(storageAccount, shareName string) error {
-	if err := os.RemoveAll(filepath.Join(azureFilesHostRoot(), storageAccount, shareName)); err != nil {
+	dir := FileShareHostDir(storageAccount, shareName)
+	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}
-	FileShareHostDir(storageAccount, shareName)
-	return nil
+	// A real Azure Files SMB mount is writable by the mounting container
+	// (CIFS dir_mode and file_mode 0777).
+	return sim.EnsureWritableDir(dir)
 }
 
 // removeFileShareHostDir deletes the share's backing directory and everything
 // under it, which is what Delete Share does to a share's contents.
 func removeFileShareHostDir(storageAccount, shareName string) error {
-	return os.RemoveAll(filepath.Join(azureFilesHostRoot(), storageAccount, shareName))
+	return os.RemoveAll(FileShareHostDir(storageAccount, shareName))
 }
 
 // fileShareHostPath resolves `relPath` inside the share's backing directory —

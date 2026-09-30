@@ -441,6 +441,13 @@ of waiting for the guest to answer. Every SDK test that launches instances
 terminates them when it ends, since each one left running kept a machine
 booting or running beside every later test's boot on the same runner.
 
+The fabric keeps a network's or machine's lock only while a caller holds or
+waits for it, so its lock maps shrink as networks and machines go away.
+Creating an Azure file share or inserting a Cloud Storage bucket makes its
+empty host directory and fails the request when it cannot. The mount helpers
+only name the directory, and a bucket reuses no files that a deleted bucket
+of the same name left behind.
+
 A workload host pulls its image the way the cloud pulls it. The Cloud Run and
 Cloud Functions hosts present the project's Cloud Run service agent's access
 token to Artifact Registry and Container Registry and nothing elsewhere. The
