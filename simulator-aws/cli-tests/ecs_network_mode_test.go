@@ -109,6 +109,7 @@ func TestECSNetworkModeAwsvpcKeepsTaskOffTheDefaultBridge(t *testing.T) {
 	task := runTask(q, "netmode-awsvpc", subnetID)
 	t.Cleanup(func() {
 		runCLI(t, awsCLI("ecs", "stop-task", "--cluster", "default", "--task", task))
+		stopCLITasksInSubnet(t, subnetID)
 		q("ec2", "delete-subnet", "--subnet-id", subnetID)
 		q("ec2", "delete-vpc", "--vpc-id", vpcID)
 		rmDockerNetworks(ecsVPCNet(vpcID), ecsVPCNet(vpcID)+"-egress")
@@ -223,6 +224,7 @@ func TestECSNetworkModeRejectsMismatchedNetworkConfiguration(t *testing.T) {
 	octet := unusedDockerVPCOctet(t, 185, nil)
 	vpcID, subnetID := mkVPCSubnet(t, q, vpcCIDR(octet), subnetCIDR(octet))
 	t.Cleanup(func() {
+		stopCLITasksInSubnet(t, subnetID)
 		q("ec2", "delete-subnet", "--subnet-id", subnetID)
 		q("ec2", "delete-vpc", "--vpc-id", vpcID)
 	})

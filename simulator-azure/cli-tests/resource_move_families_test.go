@@ -186,9 +186,10 @@ func TestResourceMoveEventGridTopicCLI(t *testing.T) {
 
 	topicID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/topics/%s",
 		subscriptionID, srcRG, topic)
+	hook, _ := newEventGridCLIWebhook(t)
 	runCLI(t, env.command("eventgrid", "event-subscription", "create", "-n", "climoveegsub",
 		"--source-resource-id", topicID, "--endpoint-type", "webhook",
-		"--endpoint", "http://127.0.0.1:1/unused", "-o", "json"))
+		"--endpoint", hook.URL, "-o", "json"))
 
 	type eventGridKeys struct {
 		Key1 string `json:"key1"`

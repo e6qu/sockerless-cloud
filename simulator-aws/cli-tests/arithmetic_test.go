@@ -198,6 +198,7 @@ func createCLIECSTestSubnet(t *testing.T, startOctet int) string {
 	octet := unusedDockerVPCOctet(t, startOctet, nil)
 	vpcID, subnetID := mkVPCSubnet(t, q, vpcCIDR(octet), subnetCIDR(octet))
 	t.Cleanup(func() {
+		stopCLITasksInSubnet(t, subnetID)
 		q("ec2", "delete-subnet", "--subnet-id", subnetID)
 		q("ec2", "delete-vpc", "--vpc-id", vpcID)
 		rmDockerNetworks(ecsVPCNet(vpcID), ecsVPCNet(vpcID)+"-egress")

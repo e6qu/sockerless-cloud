@@ -715,7 +715,9 @@ func registerIAM(srv *sim.Server) {
 			// The token is signed with the simulator's access-token key (see
 			// signAccessToken) so the data-plane bearer middleware accepts it,
 			// naming the impersonated service account as its subject.
-			// expireTime is a google.protobuf.Timestamp.
+			// expireTime is a google.protobuf.Timestamp in whole seconds:
+			// google-auth, behind gcloud's impersonation, parses it with
+			// "%Y-%m-%dT%H:%M:%SZ" and rejects a fractional second.
 			var req struct {
 				Scope     []string `json:"scope"`
 				Lifetime  string   `json:"lifetime"`
@@ -734,7 +736,7 @@ func registerIAM(srv *sim.Server) {
 			expires := now.Add(lifetime)
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
 				"accessToken": signAccessToken(email, now, expires),
-				"expireTime":  protoJSONTimestamp(expires),
+				"expireTime":  protoJSONTimestamp(expires.Truncate(time.Second)),
 			})
 		case "generateIdToken":
 			// Body: { audience, includeEmail, delegates }. Response: { token }.

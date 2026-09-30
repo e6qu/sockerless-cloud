@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestRDSModifyDBClusterPasswordWaitsForTheEngine(t *testing.T) {
@@ -67,16 +66,23 @@ func TestRDSModifyDBClusterMovesTheEndpointsToTheNewPort(t *testing.T) {
 	if stored.Port != newPort {
 		t.Fatalf("member port %d, want the cluster's new port %d", stored.Port, newPort)
 	}
+	plane, _ := rdsLoadAuroraDataPlane(clusterID)
+	value, _ := rdsAuroraInstanceEndpoints.Load(member.DBInstanceIdentifier)
+	instanceListener, _ := value.(net.Listener)
+	if instanceListener == nil {
+		t.Fatal("the member has no instance endpoint")
+	}
+	for _, listener := range []net.Listener{plane.writer, plane.reader, instanceListener} {
+		if port := listener.Addr().(*net.TCPAddr).Port; port != newPort {
+			t.Fatalf("endpoint %s listens on port %d, want %d", listener.Addr(), port, newPort)
+		}
+	}
 	for _, host := range []string{cluster.Endpoint, cluster.ReaderEndpoint, member.Endpoint} {
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(newPort)), 5*time.Second)
+		freed, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(oldPort)))
 		if err != nil {
-			t.Fatalf("%s does not listen on the new port: %v", host, err)
+			t.Fatalf("%s still holds the old port %d: %v", host, oldPort, err)
 		}
-		_ = conn.Close()
-		if conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(oldPort)), 5*time.Second); err == nil {
-			_ = conn.Close()
-			t.Fatalf("%s still listens on the old port %d", host, oldPort)
-		}
+		_ = freed.Close()
 	}
 
 	for _, port := range []string{"80", "65536"} {

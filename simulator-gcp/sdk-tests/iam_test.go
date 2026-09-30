@@ -1088,6 +1088,8 @@ func TestIAMCredentials_GenerateAccessTokenHonoursTheRequestedLifetime(t *testin
 			require.NoError(t, err)
 			assert.Equal(t, `"`+resp.ExpireTime+`"`, string(canonical),
 				"expireTime is a google.protobuf.Timestamp in its canonical JSON form")
+			_, err = time.Parse("2006-01-02T15:04:05Z", resp.ExpireTime)
+			require.NoError(t, err, "google-auth parses expireTime in whole seconds: %q", resp.ExpireTime)
 			got := expiry.Sub(before)
 			// The tolerance scales with the lifetime and stays well under half
 			// the distance to the next candidate in the table, so a response

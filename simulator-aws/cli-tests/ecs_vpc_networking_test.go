@@ -81,6 +81,7 @@ func TestECSManagedEBSAwsvpcReachability(t *testing.T) {
 	octet := unusedDockerVPCOctet(t, 150, nil)
 	vpcID, subnetID := mkVPCSubnet(t, q, vpcCIDR(octet), subnetCIDR(octet))
 	t.Cleanup(func() {
+		stopCLITasksInSubnet(t, subnetID)
 		q("ec2", "delete-subnet", "--subnet-id", subnetID)
 		q("ec2", "delete-vpc", "--vpc-id", vpcID)
 		rmDockerNetworks(ecsVPCNet(vpcID), ecsVPCNet(vpcID)+"-egress")
@@ -446,6 +447,7 @@ func TestECSVPCDeleteVpcAllowsCIDRReuse(t *testing.T) {
 	waitRunning(t, q, task1)
 	runCLI(t, awsCLI("ecs", "stop-task", "--cluster", "default", "--task", task1))
 	waitTaskContainersGone(t, task1)
+	stopCLITasksInSubnet(t, subnet1)
 	q("ec2", "delete-subnet", "--subnet-id", subnet1)
 	q("ec2", "delete-vpc", "--vpc-id", vpc1)
 	if exec.Command("docker", "network", "inspect", ecsVPCNet(vpc1)).Run() == nil {
@@ -457,6 +459,7 @@ func TestECSVPCDeleteVpcAllowsCIDRReuse(t *testing.T) {
 	t.Cleanup(func() {
 		_ = awsCLI("ecs", "stop-task", "--cluster", "default", "--task", task2).Run()
 		waitTaskContainersGone(t, task2)
+		stopCLITasksInSubnet(t, subnet2)
 		_ = awsCLI("ec2", "delete-subnet", "--subnet-id", subnet2).Run()
 		_ = awsCLI("ec2", "delete-vpc", "--vpc-id", vpc2).Run()
 		rmDockerNetworks(ecsVPCNet(vpc2))
@@ -612,5 +615,55 @@ func TestECSVPCNetnsRouteTableEgress(t *testing.T) {
 	}
 	if code, out := taskWgetURL(t, privateTask, probeURL); code != 0 || !strings.Contains(out, "egress-ok") {
 		t.Fatalf("private subnet task with NAT route should reach egress probe: exit=%d out=%q", code, out)
+	}
+}
+
+// stopCLITasksInSubnet stops every Amazon ECS task whose elastic network
+// interface is in subnetID and waits with `aws ecs wait tasks-stopped`, since
+// EC2 refuses DeleteSubnet while a task's interface is in it.
+func stopCLITasksInSubnet(t *testing.T, subnetID string) {
+	t.Helper()
+	for _, cluster := range strings.Fields(runCLI(t, awsCLI("ecs", "list-clusters", "--query", "clusterArns", "--output", "text"))) {
+		var arns []string
+		for _, desired := range []string{"RUNNING", "STOPPED"} {
+			arns = append(arns, strings.Fields(runCLI(t, awsCLI("ecs", "list-tasks", "--cluster", cluster,
+				"--desired-status", desired, "--query", "taskArns", "--output", "text")))...)
+		}
+		if len(arns) == 0 {
+			continue
+		}
+		var described struct {
+			Tasks []struct {
+				TaskArn     string `json:"taskArn"`
+				LastStatus  string `json:"lastStatus"`
+				Attachments []struct {
+					Details []struct {
+						Name  string `json:"name"`
+						Value string `json:"value"`
+					} `json:"details"`
+				} `json:"attachments"`
+			} `json:"tasks"`
+		}
+		parseJSON(t, runCLI(t, awsCLI(append([]string{"ecs", "describe-tasks", "--cluster", cluster, "--tasks"}, arns...)...)), &described)
+		var inSubnet []string
+		for _, task := range described.Tasks {
+			if task.LastStatus == "STOPPED" {
+				continue
+			}
+			for _, attachment := range task.Attachments {
+				for _, detail := range attachment.Details {
+					if detail.Name == "subnetId" && detail.Value == subnetID {
+						inSubnet = append(inSubnet, task.TaskArn)
+					}
+				}
+			}
+		}
+		if len(inSubnet) == 0 {
+			continue
+		}
+		for _, arn := range inSubnet {
+			runCLI(t, awsCLI("ecs", "stop-task", "--cluster", cluster, "--task", arn))
+		}
+		runCLI(t, awsCLI(append([]string{"ecs", "wait", "tasks-stopped", "--cluster", cluster, "--tasks"}, inSubnet...)...))
 	}
 }
