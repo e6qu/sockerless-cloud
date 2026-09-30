@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"runtime"
 	"testing"
-	"time"
 )
 
 // TestProcessCoreDumpIsAnELFCoreADebuggerOpens writes a core of a real running
@@ -39,19 +38,10 @@ func TestProcessCoreDumpIsAnELFCoreADebuggerOpens(t *testing.T) {
 	})
 	pid := child.Process.Pid
 
-	// Wait for the exec to complete: until it does, the mapping table is this
-	// shell's rather than the program's.
-	var mappings []webProcMapping
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		read, ok := webProcessMappings(pid)
-		if ok && len(read) > 0 {
-			mappings = read
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if len(mappings) == 0 {
+	// Start returns once the exec has succeeded, so the mapping table is the
+	// program's own.
+	mappings, ok := webProcessMappings(pid)
+	if !ok || len(mappings) == 0 {
 		t.Fatal("the process's mapping table could not be read")
 	}
 
