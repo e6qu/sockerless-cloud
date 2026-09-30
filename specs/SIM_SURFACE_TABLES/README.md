@@ -149,6 +149,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`gcp-gcs`](gcp-gcs.md)
 - [`gcp-gcs_batch`](gcp-gcs_batch.md)
 - [`gcp-gcs_object_acls`](gcp-gcs_object_acls.md)
+- [`gcp-gcs_object_contexts`](gcp-gcs_object_contexts.md)
 - [`gcp-gcs_object_iam`](gcp-gcs_object_iam.md)
 - [`gcp-gcs_object_restore`](gcp-gcs_object_restore.md)
 - [`gcp-iam`](gcp-iam.md)

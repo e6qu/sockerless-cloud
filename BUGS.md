@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 53.
+Open: 54.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -10,6 +10,7 @@ live in `WHAT_WE_DID.md`.
 
 | ID | Sev | Area | Symptom and cause | Fix shape — what closes it |
 |----|-----|------|-------------------|----------------------------|
+| 3212 | P3 | Cloud Storage object contexts: CLI and Terraform coverage | Only the SDK suite drives object contexts and `objects.viewFullContext`. Whether gcloud's `storage objects update` / `storage cp` carry custom-context flags, and whether terraform-provider-google 8.0.0's `google_storage_bucket_object` has a contexts attribute, is unconfirmed against a released client. | Read the current gcloud and provider releases; add a `cli-tests/storage_test.go` and a `terraform-tests/main.tf` case for each surface that exists, and mark the matrix cell `not applicable` for each that does not. |
 | 3080 | P3 | Amazon EC2 Client VPN endpoint authorization policy | GetClientVpnEndpointAuthorizationPolicy, ModifyClientVpnEndpointAuthorizationPolicy and DeleteClientVpnEndpointAuthorizationPolicy entered the vendored EC2 model (aws-sdk-go-v2 09e460a419a0) before any client could call them: the only SDK release carrying them, service/ec2 v1.337.0, was inside the 24-hour adoption quarantine, and neither the AWS CLI nor the Terraform provider had them. `model_drift_test.go` exempts the three under this ID. | Once v1.337.0 clears the quarantine, serve the three from the model's semantics — one Cedar policy per endpoint, created or merged by Modify, with a shadow mode and a status — with SDK tests, add CLI and Terraform coverage as those clients ship them, and take the missing-policy and invalid-Cedar errors from the published reference or a capture. |
 | 3063 | P3 | Amazon ECR `imageSizeInBytes` | The simulator sums the manifest's layer sizes. ImageDetail defines the value as the image's size in the repository, with layers compressed, and does not say whether the config blob or the manifest itself counts. | Capture: push an image of known layer and config sizes to a real repository and read DescribeImages back. |
 | 3059 | P3 | Amazon S3 restore timing and tiers | A restore completes the moment it is requested, so HeadObject never reports `ongoing-request="true"` and `RestoreAlreadyInProgress` is never reachable, though Amazon S3 takes minutes to hours by tier. An Expedited restore of a DEEP_ARCHIVE object is accepted: `API_RestoreObject` says Expedited is unavailable for that class but names no error. | Capture against a real bucket the error an Expedited DEEP_ARCHIVE restore answers and the `x-amz-restore` sequence of a Standard restore; model the tier durations only as far as a capture shows the service reporting them. |

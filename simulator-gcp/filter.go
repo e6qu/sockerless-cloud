@@ -124,6 +124,20 @@ func gcpTokenize(s string) ([]gcpTok, error) {
 					ch == '=' || ch == '!' || ch == '<' || ch == '>' || ch == ':' {
 					break
 				}
+				// A quoted member segment (contexts."a key") may hold any of the
+				// characters that otherwise end a word.
+				if ch == '"' {
+					sc.Next()
+					for !sc.Eof() && sc.Peek() != '"' {
+						if sc.Peek() == '\\' && sc.Pos()+1 < sc.Len() {
+							sc.Next()
+						}
+						sc.Next()
+					}
+					if sc.Eof() {
+						return nil, fmt.Errorf("unterminated quoted member")
+					}
+				}
 				sc.Next()
 			}
 			word := sc.Slice(start, sc.Pos())

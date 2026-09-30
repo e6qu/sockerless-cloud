@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -82,25 +83,26 @@ func gcsSeedDefaultBucketPolicy(name string) IAMPolicy {
 
 // GCSObject represents a Cloud Storage object (metadata).
 type GCSObject struct {
-	Name               string            `json:"name"`
-	Bucket             string            `json:"bucket"`
-	Size               string            `json:"size"`
-	ContentType        string            `json:"contentType,omitempty"`
-	ContentEncoding    string            `json:"contentEncoding,omitempty"`
-	ContentLanguage    string            `json:"contentLanguage,omitempty"`
-	ContentDisposition string            `json:"contentDisposition,omitempty"`
-	CacheControl       string            `json:"cacheControl,omitempty"`
-	StorageClass       string            `json:"storageClass,omitempty"`
-	CustomTime         string            `json:"customTime,omitempty"`
-	Metadata           map[string]string `json:"metadata,omitempty"`
-	TimeCreated        string            `json:"timeCreated"`
-	Updated            string            `json:"updated"`
-	Generation         string            `json:"generation,omitempty"`
-	Metageneration     string            `json:"metageneration,omitempty"`
-	Md5Hash            string            `json:"md5Hash,omitempty"`
-	Crc32c             string            `json:"crc32c,omitempty"`
-	ComponentCount     int64             `json:"componentCount,omitempty"`
-	Etag               string            `json:"etag,omitempty"`
+	Name               string                      `json:"name"`
+	Bucket             string                      `json:"bucket"`
+	Size               string                      `json:"size"`
+	ContentType        string                      `json:"contentType,omitempty"`
+	ContentEncoding    string                      `json:"contentEncoding,omitempty"`
+	ContentLanguage    string                      `json:"contentLanguage,omitempty"`
+	ContentDisposition string                      `json:"contentDisposition,omitempty"`
+	CacheControl       string                      `json:"cacheControl,omitempty"`
+	StorageClass       string                      `json:"storageClass,omitempty"`
+	CustomTime         string                      `json:"customTime,omitempty"`
+	Metadata           map[string]string           `json:"metadata,omitempty"`
+	CustomContexts     map[string]gcsCustomContext `json:"customContexts,omitempty"`
+	TimeCreated        string                      `json:"timeCreated"`
+	Updated            string                      `json:"updated"`
+	Generation         string                      `json:"generation,omitempty"`
+	Metageneration     string                      `json:"metageneration,omitempty"`
+	Md5Hash            string                      `json:"md5Hash,omitempty"`
+	Crc32c             string                      `json:"crc32c,omitempty"`
+	ComponentCount     int64                       `json:"componentCount,omitempty"`
+	Etag               string                      `json:"etag,omitempty"`
 	// Body references the generation's contents in gcsBodies. The store
 	// persists it; no API response carries it.
 	Body           string `json:"-"`
@@ -122,7 +124,8 @@ type gcsObjectResource struct {
 	// entries and objects.patch is the other: `gcloud storage objects update
 	// --add-acl-grant` writes them here, never through the collection, so a
 	// patch that ignored this member acknowledged the grant and dropped it.
-	Acl *[]GCSObjectACL `json:"acl,omitempty"`
+	Acl      *[]GCSObjectACL  `json:"acl,omitempty"`
+	Contexts gcsContextsInput `json:"contexts"`
 }
 
 // Package-level store: gcsObjects
@@ -331,6 +334,7 @@ func persistGCSObject(objects sim.PrefixStore[GCSObject], bucketName, objectName
 	obj.Crc32c = digests.CRC32CBase64()
 	obj.Etag = etag
 	obj.Body = body
+	obj.CustomContexts = gcsStampContexts(attrs.CustomContexts, now)
 	if !attrs.metadataCloned {
 		obj.Metadata = cloneStringMap(attrs.Metadata)
 	}
@@ -604,6 +608,9 @@ func gcsObjectMetadata(r *http.Request, obj GCSObject) map[string]any {
 	if len(obj.Metadata) > 0 {
 		meta["metadata"] = cloneStringMap(obj.Metadata)
 	}
+	if len(obj.CustomContexts) > 0 {
+		meta["contexts"] = gcsContextsResource(obj.CustomContexts)
+	}
 	// The full projection carries the object's access controls; the default
 	// noAcl projection omits them, which is the difference between the two.
 	if r.URL.Query().Get("projection") == "full" {
@@ -816,6 +823,11 @@ func registerGCS(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
 			return
 		}
+		filter, err := gcsParseContextsFilter(r.URL.Query().Get("filter"))
+		if err != nil {
+			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			return
+		}
 
 		// softDeleted=true lists the retired generations instead of the live
 		// objects — the listing a client reads to find what restore can bring
@@ -824,6 +836,9 @@ func registerGCS(srv *sim.Server) {
 			retired := gcsSoftDeletedListing(bucketName, prefix)
 			items := make([]map[string]any, 0, len(retired))
 			for _, entry := range retired {
+				if !filter.Eval(gcsContextsFilterDoc(entry.Object)) {
+					continue
+				}
 				resource := gcsObjectMetadata(r, entry.Object)
 				resource["softDeleteTime"] = entry.SoftDeleteTime
 				resource["hardDeleteTime"] = entry.HardDeleteTime
@@ -856,6 +871,10 @@ func registerGCS(srv *sim.Server) {
 		// resumes past both.
 		entries := blobstore.RollUp(gcsBucketObjects(bucketName, prefix),
 			func(o GCSObject) string { return o.Name }, nil, prefix, delimiter)
+		// The filter leaves the common prefixes alone.
+		entries = slices.DeleteFunc(entries, func(e blobstore.Entry[GCSObject]) bool {
+			return !e.Prefix && !filter.Eval(gcsContextsFilterDoc(e.Item))
+		})
 		page, _, next := blobstore.PageAfter(entries, marker, limit)
 		items := []map[string]any{}
 		var prefixes []string
@@ -899,10 +918,8 @@ func registerGCS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, obj))
 	})
 
-	// Patch / Update object metadata. ObjectHandle.Update (and the JSON
-	// API's objects.patch / objects.update) mutate contentType /
-	// cacheControl / metadata etc. in place without re-uploading the
-	// payload. Merge the resource fields onto the stored object.
+	// objects.patch merges the body onto the stored metadata and
+	// objects.update replaces it; neither re-uploads the payload.
 	patchObject := func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
 		objectName := sim.PathParam(r, "object")
@@ -927,12 +944,28 @@ func registerGCS(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
+		if r.Method == http.MethodPut {
+			// objects.update replaces the writable metadata, so a field the
+			// body leaves out is cleared. customTime stays: Cloud Storage never
+			// lets it be removed once set, and storageClass changes only by
+			// rewrite.
+			obj.ContentType, obj.ContentEncoding, obj.ContentLanguage = "", "", ""
+			obj.ContentDisposition, obj.CacheControl = "", ""
+			obj.Metadata, obj.metadataCloned = nil, true
+		}
 		obj = res.applyTo(obj)
 		if err := validateGCSObjectAttrs(obj); err != nil {
 			writeGCSPersistError(w, "patch object", err)
 			return
 		}
 		obj.Updated = gcsTimestamp()
+		// objects.update replaces the resource, so contexts it leaves out go.
+		switch {
+		case r.Method == http.MethodPut:
+			obj.CustomContexts = res.Contexts.replacement(obj.CustomContexts, obj.Updated)
+		case res.Contexts.present:
+			obj.CustomContexts = res.Contexts.merged(obj.CustomContexts, obj.Updated)
+		}
 		if mg, err := strconv.ParseInt(obj.Metageneration, 10, 64); err == nil {
 			obj.Metageneration = strconv.FormatInt(mg+1, 10)
 		}
@@ -1074,6 +1107,7 @@ func registerGCS(srv *sim.Server) {
 				return
 			}
 			objAttrs = meta.applyTo(objAttrs)
+			objAttrs.CustomContexts = meta.Contexts.replacement(nil, "")
 			if err := validateGCSObjectAttrs(objAttrs); err != nil {
 				writeGCSPersistError(w, "init resumable object", err)
 				return
@@ -1124,6 +1158,7 @@ func registerGCS(srv *sim.Server) {
 					objectName = meta.Name
 				}
 				objAttrs = meta.applyTo(objAttrs)
+				objAttrs.CustomContexts = meta.Contexts.replacement(nil, "")
 			}
 			if objectName == "" {
 				GCPError(w, http.StatusBadRequest,
@@ -1257,6 +1292,12 @@ func registerGCS(srv *sim.Server) {
 			objAttrs = req.Destination.applyTo(objAttrs)
 		}
 		objAttrs.ComponentCount = componentCount
+		contexts, err := gcsDestinationContexts(r, req.Destination, sources...)
+		if err != nil {
+			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			return
+		}
+		objAttrs.CustomContexts = contexts
 		pre, err := parseGCSPreconditions(r.URL.Query(), false)
 		if err != nil {
 			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
@@ -1471,15 +1512,19 @@ func copyGCSObject(w http.ResponseWriter, r *http.Request, srcBucket, srcObject,
 		return GCSObject{}, false
 	}
 	dstAttrs := src
+	var meta gcsObjectResource
 	if r.Body != nil {
 		defer r.Body.Close()
-		var meta gcsObjectResource
 		if err := json.NewDecoder(r.Body).Decode(&meta); err != nil && err != io.EOF {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"failed to parse copy metadata: %v", err)
 			return GCSObject{}, false
 		}
 		dstAttrs = meta.applyTo(dstAttrs)
+	}
+	if dstAttrs.CustomContexts, err = gcsDestinationContexts(r, &meta, src); err != nil {
+		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+		return GCSObject{}, false
 	}
 	_, copied, digests, err := gcsCopyContents(src)
 	if err != nil {
@@ -1655,6 +1700,7 @@ func registerGCSExtras(srv *sim.Server, buckets sim.Store[Bucket], objects sim.P
 	registerGCSObjectACLs(srv, buckets, objects)
 	registerGCSObjectIAM(srv, buckets, objects)
 	registerGCSObjectRestore(srv, buckets, objects)
+	registerGCSObjectContexts(srv, buckets, objects)
 	registerGCSFolders(srv, buckets, bucketExists)
 	registerGCSManagedFolders(srv, buckets, bucketExists)
 	registerGCSNotifications(srv, buckets, bucketExists)
@@ -2759,7 +2805,7 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 			return
 		}
 		name := r.URL.Query().Get("name")
-		var res GCSObject
+		var res gcsObjectResource
 		if r.ContentLength != 0 {
 			if err := sim.ReadJSON(r, &res); err != nil {
 				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
@@ -2773,11 +2819,8 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
-		attrs := GCSObject{
-			Name:        name,
-			ContentType: res.ContentType,
-			Metadata:    res.Metadata,
-		}
+		attrs := res.applyTo(GCSObject{Name: name})
+		attrs.CustomContexts = res.Contexts.replacement(nil, "")
 		pre, err := parseGCSPreconditions(r.URL.Query(), false)
 		if err != nil {
 			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")

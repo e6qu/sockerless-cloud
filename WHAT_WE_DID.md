@@ -606,7 +606,10 @@ Cloud Storage answers a permission question from the caller's own grants: the
 project, bucket and object or managed-folder policies, and the bucket and
 object ACLs while uniform bucket-level access is off. It refuses to delete a
 bucket that still holds live objects, and refuses a notification whose Pub/Sub
-topic is malformed, missing or closed to its service agent. Artifact Registry
+topic is malformed, missing or closed to its service agent. Objects kept
+their custom contexts through every write, copy, rewrite and compose,
+`objects.list` filtered on them, and `objects.viewFullContext` read one back.
+Artifact Registry
 deletes cascade across both planes: a manifest DELETE over OCI removes its
 version, tags and image row, and a package or repository takes everything
 beneath it. The simulator's tokens carry Google's issuer, and its discovery
