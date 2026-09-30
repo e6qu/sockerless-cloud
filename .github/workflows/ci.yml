@@ -284,7 +284,7 @@ jobs:
       - uses: actions/cache@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-assets1
       - name: Install Firecracker test dependencies
         run: |
           bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iptables iputils-ping nftables openssh-client squashfs-tools
@@ -413,7 +413,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-assets1
       # The Cloud Firestore emulator is a Java program, and the component
       # refuses anything below a Java 21 runtime, which the runner's default
       # `java` is not. The runner does ship newer runtimes alongside it, each
@@ -610,7 +610,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-assets1
       - name: Install real-execution tools
         # Firecracker and the netns toolchain back the Amazon EC2 real-execution
         # tests, which all live in the compute shard ('^Test[E]'); the other
@@ -900,7 +900,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-assets1
       - name: Install real-execution tools
         run: |
           bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
@@ -1113,7 +1113,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-assets1
       # Terraform is installed from its own release archive rather than
       # through hashicorp/setup-terraform. The runner downloads every action a
       # workflow references before it evaluates any step's condition, so an
