@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 78.
+Open: 79.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -88,3 +88,4 @@ live in `WHAT_WE_DID.md`.
 | 3185 | P3 | S3 notification queue policy | `PutBucketNotificationConfiguration` accepts a queue whose policy denies Amazon S3; S3 rejects it with `InvalidArgument` (Unable to validate the destination configurations). | Evaluate the destination's resource policy at put time. |
 | 3186 | P3 | AWS tests reuse fixed names | Many ECS, Lambda and AWS Cloud Map SDK tests reuse task definition families, log groups and durable-execution names, so they fail on a second run against one simulator. | Give each run unique names, as BUG-3176 asks of the Google Cloud tests. |
 | 3187 | P3 | Live Tail needs the stream host | `sdk-tests/persistence_restart_test.go` addresses the simulator by IP, so it cannot reach Live Tail at the `stream-` host prefix the SDK adds and still polls stored log events. | Give the persistence harness a host name the SDK can prefix. |
+| 3188 | P3 | Subnet deleted under a starting task | Tests delete a subnet while a task placed in it is still starting, and the start then fails with "subnet not found"; EC2 refuses `DeleteSubnet` with `DependencyViolation` while a task's network interface is in it. | Create the task's network interface at `RunTask`, as ECS does with its PRECREATED attachment, so `DeleteSubnet` sees the dependency. |

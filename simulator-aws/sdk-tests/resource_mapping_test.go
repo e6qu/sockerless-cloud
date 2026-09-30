@@ -246,6 +246,7 @@ func TestECS_RunTaskNetworkConfig(t *testing.T) {
 				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
 				Image:       aws.String("alpine:latest"),
+				Command:     []string{"sleep", "60"},
 			},
 		},
 	})
