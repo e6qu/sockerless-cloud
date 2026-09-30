@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -622,7 +625,17 @@ func armSpecValidator(srv *sim.Server) error {
 			}
 		}
 		var body any
-		if err := json.Unmarshal(respBody, &body); err != nil {
+		streaming := false
+		for _, c := range matches {
+			streaming = streaming || isStreamingResponseOp(c.method.op)
+		}
+		if streaming {
+			elements, err := decodeStreamElements(respBody)
+			if err != nil {
+				return []sim.SpecViolation{{Op: matches[0].method.op, Kind: "malformed-json", Field: "$", Detail: err.Error()}}
+			}
+			body = elements
+		} else if err := json.Unmarshal(respBody, &body); err != nil {
 			return []sim.SpecViolation{{Op: matches[0].method.op, Kind: "malformed-json", Field: "$", Detail: err.Error()}}
 		}
 		// The response conforms when it satisfies ANY equally-specific
@@ -659,6 +672,36 @@ func armSpecValidator(srv *sim.Server) error {
 		return closest
 	})
 	return nil
+}
+
+// decodeStreamElements reads a server-streaming REST body, a JSON array whose
+// elements the server writes as they occur. A client that stops reading ends
+// the stream mid-array, so the elements read before the input ran out are the
+// whole response; any other decoding error is a malformed stream.
+func decodeStreamElements(respBody []byte) ([]any, error) {
+	dec := json.NewDecoder(bytes.NewReader(respBody))
+	tok, err := dec.Token()
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return []any{}, nil
+		}
+		return nil, err
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != '[' {
+		return nil, fmt.Errorf("stream body starts with %v, not an array", tok)
+	}
+	elements := []any{}
+	for dec.More() {
+		var el any
+		if err := dec.Decode(&el); err != nil {
+			if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+				return elements, nil
+			}
+			return nil, err
+		}
+		elements = append(elements, el)
+	}
+	return elements, nil
 }
 
 // isStreamingResponseOp reports whether op is a server-streaming REST method —
