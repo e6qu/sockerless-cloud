@@ -150,6 +150,50 @@ func TestFrontendAcceptsInsideTLS(t *testing.T) {
 	}
 }
 
+// TestFrontendOpensReadOnlySessions pins that a read-only session reaches the
+// engine with default_transaction_read_only on, whatever the client asked for.
+func TestFrontendOpensReadOnlySessions(t *testing.T) {
+	frontend := Frontend{
+		Authenticate: func(string, string, bool) bool { return true },
+		ReadOnly:     true,
+	}
+	client, server := net.Pipe()
+	defer client.Close()
+	type accepted struct {
+		startup []byte
+		err     error
+	}
+	result := make(chan accepted, 1)
+	go func() {
+		startup, _, err := frontend.Accept(server)
+		result <- accepted{startup, err}
+	}()
+	_ = client.SetDeadline(time.Now().Add(5 * time.Second))
+	parameters := []byte("user\x00dbadmin\x00Default_Transaction_Read_Only\x00off\x00database\x00application\x00\x00")
+	packet := make([]byte, 8+len(parameters))
+	binary.BigEndian.PutUint32(packet[:4], uint32(len(packet)))
+	binary.BigEndian.PutUint32(packet[4:8], protocolVersion3)
+	copy(packet[8:], parameters)
+	if _, err := client.Write(packet); err != nil {
+		t.Fatal(err)
+	}
+	expectPasswordRequest(t, client)
+	if _, err := client.Write(passwordMessage("correct")); err != nil {
+		t.Fatal(err)
+	}
+	got := <-result
+	if got.err != nil {
+		t.Fatalf("Accept: %v", got.err)
+	}
+	if int(binary.BigEndian.Uint32(got.startup[:4])) != len(got.startup) || binary.BigEndian.Uint32(got.startup[4:8]) != protocolVersion3 {
+		t.Fatalf("rewritten startup packet has a wrong header: %q", got.startup)
+	}
+	want := "user\x00dbadmin\x00database\x00application\x00default_transaction_read_only\x00on\x00\x00"
+	if string(got.startup[8:]) != want {
+		t.Fatalf("startup parameters = %q, want %q", got.startup[8:], want)
+	}
+}
+
 func runPlaintextClient(t *testing.T, frontend Frontend, user, password string, refusedBeforePassword bool) map[byte]string {
 	t.Helper()
 	client, server := net.Pipe()

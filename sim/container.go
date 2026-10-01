@@ -1733,12 +1733,18 @@ var networkRemoveRefused = func(string) {}
 // with endpoints still attached, so each refusal waits for a container to
 // disconnect from it before trying again.
 func RemoveDockerNetwork(name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return RemoveDockerNetworkContext(ctx, name)
+}
+
+// RemoveDockerNetworkContext is RemoveDockerNetwork waiting for the last
+// container to disconnect for as long as ctx allows.
+func RemoveDockerNetworkContext(ctx context.Context, name string) error {
 	cli := DockerClient()
 	if cli == nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	// Subscribe before the first attempt, so a disconnect that lands between a
 	// refused removal and the wait still wakes it.
 	disconnects := cli.Events(ctx, client.EventsListOptions{

@@ -134,11 +134,10 @@ type Instance struct {
 	// BackendLogin names the engine account a MySQL-family session logs in as.
 	BackendLogin func(user, password string) (backendUser, backendPassword string, err error)
 
-	listener net.Listener
-
-	mu      sync.RWMutex
-	backend string
-	handle  *sim.ContainerHandle
+	mu        sync.RWMutex
+	listeners []net.Listener
+	backend   string
+	handle    *sim.ContainerHandle
 
 	startMu   sync.Mutex
 	attempted bool
@@ -146,23 +145,37 @@ type Instance struct {
 }
 
 // Serve accepts clients on listener until Close.
-func (i *Instance) Serve(listener net.Listener) {
-	i.listener = listener
+func (i *Instance) Serve(listener net.Listener) { i.serve(listener, false) }
+
+// ServeReadOnly accepts clients on listener until Close and runs each session
+// read-only in the engine, the way a replica serves it: PostgreSQL opens the
+// session with default_transaction_read_only on and MySQL sets the session's
+// transactions READ ONLY, so the engine itself refuses every write.
+func (i *Instance) ServeReadOnly(listener net.Listener) { i.serve(listener, true) }
+
+func (i *Instance) serve(listener net.Listener, readOnly bool) {
+	i.mu.Lock()
+	i.listeners = append(i.listeners, listener)
+	i.mu.Unlock()
 	go func() {
 		for {
 			client, err := listener.Accept()
 			if err != nil {
 				return
 			}
-			go i.serveConnection(client)
+			go i.serveConnection(client, readOnly)
 		}
 	}()
 }
 
 // Close stops accepting clients and stops the engine; the volume stays.
 func (i *Instance) Close() error {
-	if i.listener != nil {
-		_ = i.listener.Close()
+	i.mu.Lock()
+	listeners := i.listeners
+	i.listeners = nil
+	i.mu.Unlock()
+	for _, listener := range listeners {
+		_ = listener.Close()
 	}
 	return i.Stop()
 }
@@ -395,7 +408,7 @@ func (i *Instance) Exec(command []string) error {
 	return nil
 }
 
-func (i *Instance) serveConnection(client net.Conn) {
+func (i *Instance) serveConnection(client net.Conn, readOnly bool) {
 	defer client.Close()
 	if err := i.Ensure(); err != nil {
 		log.Printf("%s data plane: %v", i.Name, err)
@@ -404,20 +417,21 @@ func (i *Instance) serveConnection(client net.Conn) {
 	backendAddress, _ := i.snapshot()
 	var err error
 	if i.Engine.Family == Postgres {
-		err = i.servePostgres(client, backendAddress)
+		err = i.servePostgres(client, backendAddress, readOnly)
 	} else {
-		err = i.serveMySQL(client, backendAddress)
+		err = i.serveMySQL(client, backendAddress, readOnly)
 	}
 	if err != nil {
 		log.Printf("%s %s session: %v", i.Name, i.Engine.Family, err)
 	}
 }
 
-func (i *Instance) servePostgres(client net.Conn, backendAddress string) error {
+func (i *Instance) servePostgres(client net.Conn, backendAddress string, readOnly bool) error {
 	frontend := pgwire.Frontend{
 		Certificate:     i.Certificate,
 		RefusePlaintext: i.RefusePlaintext,
 		Authenticate:    i.Authenticate,
+		ReadOnly:        readOnly,
 	}
 	startup, session, err := frontend.Accept(client)
 	if err != nil {
@@ -438,7 +452,7 @@ func (i *Instance) servePostgres(client net.Conn, backendAddress string) error {
 	return nil
 }
 
-func (i *Instance) serveMySQL(client net.Conn, backendAddress string) error {
+func (i *Instance) serveMySQL(client net.Conn, backendAddress string, readOnly bool) error {
 	backend, err := net.DialTimeout("tcp", backendAddress, 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("dial engine: %w", err)
@@ -448,6 +462,7 @@ func (i *Instance) serveMySQL(client net.Conn, backendAddress string) error {
 		Certificate:  i.Certificate,
 		Authenticate: i.Authenticate,
 		BackendLogin: i.BackendLogin,
+		ReadOnly:     readOnly,
 	}
 	session, err := frontend.Accept(client, backend)
 	if err != nil {

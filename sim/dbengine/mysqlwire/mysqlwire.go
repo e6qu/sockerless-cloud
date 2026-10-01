@@ -7,6 +7,8 @@
 package mysqlwire
 
 import (
+	"bytes"
+	"compress/zlib"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -20,6 +22,7 @@ import (
 
 const (
 	clientConnectWithDB              uint32 = 0x00000008
+	clientCompress                   uint32 = 0x00000020
 	clientProtocol41                 uint32 = 0x00000200
 	clientSSL                        uint32 = 0x00000800
 	clientSecureConnection           uint32 = 0x00008000
@@ -31,6 +34,7 @@ const (
 
 	protocolVersion10 = 10
 	sslRequestLength  = 32
+	comQuery          = 0x03
 )
 
 type handshake struct {
@@ -60,6 +64,9 @@ type Frontend struct {
 	// BackendLogin names the engine account the authenticated client's
 	// session logs in as.
 	BackendLogin func(user, password string) (backendUser, backendPassword string, err error)
+	// ReadOnly makes every transaction of the session read-only before the
+	// client's first command reaches the engine.
+	ReadOnly bool
 }
 
 // Accept runs the connection phase against both the client and the engine
@@ -123,7 +130,8 @@ func (f Frontend) Accept(client, backend net.Conn) (net.Conn, error) {
 		return nil, err
 	}
 
-	loginPayload := encodeBackendLogin(engineHandshake, presented.capabilities, backendUser,
+	capabilities := sessionCapabilities(engineHandshake, presented.capabilities, presented.database)
+	loginPayload := encodeBackendLogin(engineHandshake, capabilities, backendUser,
 		backendPassword, presented.database, presented.charset)
 	if err := writePacket(backend, 1, loginPayload); err != nil {
 		return nil, fmt.Errorf("write engine login: %w", err)
@@ -157,6 +165,16 @@ func (f Frontend) Accept(client, backend net.Conn) (net.Conn, error) {
 	if len(result) == 0 || result[0] != 0x00 {
 		_ = writePacket(client, sequence+1, result)
 		return nil, fmt.Errorf("engine rejected the proxied login: %x", result)
+	}
+	if f.ReadOnly {
+		refusal, err := setSessionReadOnly(backend, capabilities&clientCompress != 0)
+		if err != nil {
+			return nil, err
+		}
+		if refusal != nil {
+			_ = writePacket(client, sequence+1, refusal)
+			return nil, fmt.Errorf("engine refused a read-only session: %x", refusal)
+		}
 	}
 	if err := writePacket(client, sequence+1, result); err != nil {
 		return nil, err
@@ -310,7 +328,9 @@ func parseLogin(payload []byte) (login, error) {
 	return parsed, nil
 }
 
-func encodeBackendLogin(h handshake, clientCapabilities uint32, username, password, database string, charset byte) []byte {
+// sessionCapabilities are the capabilities the endpoint's login to the engine
+// negotiates on the client's behalf.
+func sessionCapabilities(h handshake, clientCapabilities uint32, database string) uint32 {
 	capabilities := clientCapabilities & h.capabilities
 	capabilities |= clientProtocol41 | clientSecureConnection | clientPluginAuth
 	capabilities &^= clientSSL | clientConnectAttrs | clientPluginAuthLenencClientData |
@@ -318,6 +338,85 @@ func encodeBackendLogin(h handshake, clientCapabilities uint32, username, passwo
 	if database != "" {
 		capabilities |= clientConnectWithDB
 	}
+	return capabilities
+}
+
+// setSessionReadOnly runs SET SESSION TRANSACTION READ ONLY on the engine
+// session and returns the engine's ERR packet when it refuses. A session that
+// negotiated compression carries the command in a compressed-protocol frame,
+// since the engine expects one from the first command on.
+func setSessionReadOnly(backend io.ReadWriter, compressed bool) ([]byte, error) {
+	command := append([]byte{comQuery}, "SET SESSION TRANSACTION READ ONLY"...)
+	var response []byte
+	var err error
+	if compressed {
+		var packet bytes.Buffer
+		_ = writePacket(&packet, 0, command)
+		if err = writeCompressedFrame(backend, 0, packet.Bytes()); err != nil {
+			return nil, fmt.Errorf("write engine read-only command: %w", err)
+		}
+		var frame []byte
+		if frame, err = readCompressedFrame(backend); err != nil {
+			return nil, fmt.Errorf("read engine read-only answer: %w", err)
+		}
+		_, response, err = readPacket(bytes.NewReader(frame))
+	} else {
+		if err = writePacket(backend, 0, command); err != nil {
+			return nil, fmt.Errorf("write engine read-only command: %w", err)
+		}
+		_, response, err = readPacket(backend)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read engine read-only answer: %w", err)
+	}
+	switch {
+	case len(response) > 0 && response[0] == 0x00:
+		return nil, nil
+	case len(response) > 0 && response[0] == 0xff:
+		return response, nil
+	default:
+		return nil, fmt.Errorf("engine answered the read-only command with %x", response)
+	}
+}
+
+// writeCompressedFrame sends payload in one compressed-protocol frame left
+// uncompressed, which an uncompressed length of zero declares.
+func writeCompressedFrame(connection io.Writer, sequence byte, payload []byte) error {
+	header := []byte{byte(len(payload)), byte(len(payload) >> 8), byte(len(payload) >> 16), sequence, 0, 0, 0}
+	if _, err := connection.Write(header); err != nil {
+		return err
+	}
+	_, err := connection.Write(payload)
+	return err
+}
+
+func readCompressedFrame(connection io.Reader) ([]byte, error) {
+	header := make([]byte, 7)
+	if _, err := io.ReadFull(connection, header); err != nil {
+		return nil, err
+	}
+	length := int(header[0]) | int(header[1])<<8 | int(header[2])<<16
+	uncompressedLength := int(header[4]) | int(header[5])<<8 | int(header[6])<<16
+	payload := make([]byte, length)
+	if _, err := io.ReadFull(connection, payload); err != nil {
+		return nil, err
+	}
+	if uncompressedLength == 0 {
+		return payload, nil
+	}
+	inflater, err := zlib.NewReader(bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	defer inflater.Close()
+	uncompressed := make([]byte, uncompressedLength)
+	if _, err := io.ReadFull(inflater, uncompressed); err != nil {
+		return nil, err
+	}
+	return uncompressed, nil
+}
+
+func encodeBackendLogin(h handshake, capabilities uint32, username, password, database string, charset byte) []byte {
 	plugin := h.plugin
 	var response []byte
 	switch plugin {

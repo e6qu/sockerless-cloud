@@ -35,6 +35,9 @@ type Frontend struct {
 	// Authenticate checks the password a client presented for user; secure
 	// reports whether the session runs inside TLS.
 	Authenticate func(user, password string, secure bool) bool
+	// ReadOnly opens the session with default_transaction_read_only on, so
+	// every transaction it starts refuses writes the way a hot standby does.
+	ReadOnly bool
 }
 
 // Accept runs the client's opening exchange and returns its startup packet
@@ -74,6 +77,9 @@ func (f Frontend) Accept(client net.Conn) ([]byte, net.Conn, error) {
 	user := startupParameter(startup, "user")
 	password, err := requestCleartextPassword(client)
 	if err == nil && f.Authenticate(user, password, secure) {
+		if f.ReadOnly {
+			startup = withStartupParameter(startup, "default_transaction_read_only", "on")
+		}
 		return startup, client, nil
 	}
 	writeErrorResponse(client, "FATAL", sqlStateInvalidPassword, fmt.Sprintf("password authentication failed for user %q", user))
@@ -109,6 +115,28 @@ func startupParameter(packet []byte, wanted string) string {
 		}
 	}
 	return ""
+}
+
+// withStartupParameter sets name in a startup packet, replacing any value the
+// client sent. PostgreSQL applies a startup parameter after the switches in
+// "options", so the value holds against a -c switch too.
+func withStartupParameter(packet []byte, name, value string) []byte {
+	parameters := []byte{}
+	if len(packet) > 9 {
+		fields := strings.Split(string(packet[8:len(packet)-1]), "\x00")
+		for i := 0; i+1 < len(fields); i += 2 {
+			if strings.EqualFold(fields[i], name) {
+				continue
+			}
+			parameters = append(parameters, fields[i]+"\x00"+fields[i+1]+"\x00"...)
+		}
+	}
+	parameters = append(parameters, name+"\x00"+value+"\x00\x00"...)
+	rewritten := make([]byte, 8+len(parameters))
+	binary.BigEndian.PutUint32(rewritten[:4], uint32(len(rewritten)))
+	copy(rewritten[4:8], packet[4:8])
+	copy(rewritten[8:], parameters)
+	return rewritten
 }
 
 func requestCleartextPassword(connection io.ReadWriter) (string, error) {

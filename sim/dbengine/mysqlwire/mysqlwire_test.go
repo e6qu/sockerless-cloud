@@ -2,11 +2,79 @@ package mysqlwire
 
 import (
 	"bytes"
+	"compress/zlib"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/binary"
+	"net"
 	"testing"
+	"time"
 )
+
+// TestSetSessionReadOnly pins the command a read-only session runs before the
+// client's first command, in both the plain and the compressed protocol, and
+// that an engine's refusal comes back as its ERR packet.
+func TestSetSessionReadOnly(t *testing.T) {
+	ok := []byte{0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00}
+	refusal := append([]byte{0xff, 0x15, 0x04, '#'}, "42000Access denied"...)
+	for _, testCase := range []struct {
+		name       string
+		compressed bool
+		deflate    bool
+		answer     []byte
+	}{
+		{name: "plain", answer: ok},
+		{name: "compressed", compressed: true, answer: ok},
+		{name: "compressed and deflated", compressed: true, deflate: true, answer: ok},
+		{name: "refused", answer: refusal},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			endpoint, engine := net.Pipe()
+			defer endpoint.Close()
+			received := make(chan []byte, 1)
+			go func() {
+				defer engine.Close()
+				_ = engine.SetDeadline(time.Now().Add(5 * time.Second))
+				if !testCase.compressed {
+					_, command, _ := readPacket(engine)
+					received <- command
+					_ = writePacket(engine, 1, testCase.answer)
+					return
+				}
+				frame, err := readCompressedFrame(engine)
+				if err != nil {
+					received <- nil
+					return
+				}
+				_, command, _ := readPacket(bytes.NewReader(frame))
+				received <- command
+				var packet bytes.Buffer
+				_ = writePacket(&packet, 1, testCase.answer)
+				if !testCase.deflate {
+					_ = writeCompressedFrame(engine, 1, packet.Bytes())
+					return
+				}
+				var deflated bytes.Buffer
+				writer := zlib.NewWriter(&deflated)
+				_, _ = writer.Write(packet.Bytes())
+				_ = writer.Close()
+				header := []byte{byte(deflated.Len()), byte(deflated.Len() >> 8), 0, 1, byte(packet.Len()), byte(packet.Len() >> 8), 0}
+				_, _ = engine.Write(append(header, deflated.Bytes()...))
+			}()
+			_ = endpoint.SetDeadline(time.Now().Add(5 * time.Second))
+			got, err := setSessionReadOnly(endpoint, testCase.compressed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if command := <-received; string(command) != "\x03SET SESSION TRANSACTION READ ONLY" {
+				t.Fatalf("engine received %q, want COM_QUERY SET SESSION TRANSACTION READ ONLY", command)
+			}
+			if testCase.answer[0] == 0xff && !bytes.Equal(got, refusal) || testCase.answer[0] == 0x00 && got != nil {
+				t.Fatalf("setSessionReadOnly returned refusal %q for engine answer %q", got, testCase.answer)
+			}
+		})
+	}
+}
 
 func TestHandshakeRoundTrip(t *testing.T) {
 	original := handshake{
@@ -122,8 +190,8 @@ func TestEncodeBackendLoginDropsFrontendOnlyCapabilities(t *testing.T) {
 		capabilities: 0xffffffff,
 		plugin:       "mysql_native_password",
 	}
-	payload := encodeBackendLogin(engine, clientSSL|clientConnectAttrs|clientPluginAuthLenencClientData|clientProtocol41,
-		"dbadmin", "s3cret!", "application", 45)
+	capabilities := sessionCapabilities(engine, clientSSL|clientConnectAttrs|clientPluginAuthLenencClientData|clientProtocol41, "application")
+	payload := encodeBackendLogin(engine, capabilities, "dbadmin", "s3cret!", "application", 45)
 	parsed, err := parseLogin(payload)
 	if err != nil {
 		t.Fatal(err)
