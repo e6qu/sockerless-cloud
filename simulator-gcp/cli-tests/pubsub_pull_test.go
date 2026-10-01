@@ -31,7 +31,8 @@ func TestCLI_PubSubPullWaitsForPublish(t *testing.T) {
 	})
 
 	var empty []gcloudPulledMessage
-	require.NoError(t, json.Unmarshal([]byte(runCLI(t, gcloudCLI("pubsub", "subscriptions", "pull", "cli-pull-wait-sub",
+	// The GA track drops --return-immediately and always waits; beta keeps it.
+	require.NoError(t, json.Unmarshal([]byte(runCLI(t, gcloudCLI("beta", "pubsub", "subscriptions", "pull", "cli-pull-wait-sub",
 		"--return-immediately", "--format=json"))), &empty))
 	require.Empty(t, empty, "--return-immediately answers an empty subscription with no messages")
 

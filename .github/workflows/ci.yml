@@ -1418,8 +1418,21 @@ jobs:
       - uses: actions/setup-go@v7.0.0
         with:
           go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          # setup-go's own cache restores only an exact go.sum match, so a pin
+          # or dependency move left the installable build compiling all three
+          # simulators cold, past this job's budget. The entry below falls back
+          # to the newest older one, which warms the incremental build.
+          cache: false
+      - name: Restore the Go module and build caches for the build gates
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: build-gates-go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.work', '**/go.sum') }}
+          restore-keys: |
+            build-gates-go-${{ runner.os }}-${{ runner.arch }}-
+            sim-go-${{ runner.os }}-${{ runner.arch }}-aws-
       - name: Test the shared test helpers
         run: |
           bash scripts/ci-go-mod-download.sh testutil

@@ -1139,7 +1139,9 @@ point of use fails naming the image. Jobs never delete the shared Go caches
 only when a package is missing. In the AWS SDK shards one shard saves the
 Go cache after its pre-build and the rest only restore it, so a dependency
 change no longer has every shard compress the same cache inside its time
-limit. The workflows reference as few external
+limit. The build gates keep their own Go cache with the same fallback to an
+older entry, so a pin or dependency move no longer compiles the three
+simulators cold inside the job's five minutes. The workflows reference as few external
 actions as possible, because the runner downloads every action a workflow
 names for every job. A tool a suite needs — gcloud, `cbt`, the AWS CLI — is
 installed in `TestMain` with a few retries, never skipped.
