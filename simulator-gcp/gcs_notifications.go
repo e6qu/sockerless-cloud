@@ -79,7 +79,7 @@ func gcsAgentMayPublish(agent, topicName string) bool {
 	project := strings.TrimPrefix(topicName[:strings.Index(topicName, "/topics/")], "projects/")
 	topicPolicy, _ := gcpResourcePolicies.Get(topicName)
 	held := gcpPermissionsHeldUnder("serviceAccount:"+agent, false,
-		[]IAMPolicy{gcpProjectPolicy(project), topicPolicy}, []string{"pubsub.topics.publish"})
+		[]IAMPolicy{gcpProjectPolicy(project), topicPolicy}, []string{"pubsub.topics.publish"}, gcpIAMResourceNamed(topicName))
 	return len(held) == 1
 }
 

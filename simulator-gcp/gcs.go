@@ -2240,7 +2240,11 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		if own, ok := gcpResourcePolicies.Get("managedFolder/" + bucket + "/" + name); ok {
 			policies = append(policies, own)
 		}
-		gcsWriteTestPermissions(w, r, policies)
+		gcsWriteTestPermissions(w, r, policies, gcpIAMResource{
+			Name:    "projects/_/buckets/" + bucket + "/managedFolders/" + name,
+			Type:    "storage.googleapis.com/ManagedFolder",
+			Service: "storage.googleapis.com",
+		})
 	})
 }
 
@@ -2712,7 +2716,11 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 		if !bucketExists(w, bucket) {
 			return
 		}
-		gcsWriteTestPermissions(w, r, gcsBucketPolicies(bucket))
+		gcsWriteTestPermissions(w, r, gcsBucketPolicies(bucket), gcpIAMResource{
+			Name:    "projects/_/buckets/" + bucket,
+			Type:    "storage.googleapis.com/Bucket",
+			Service: "storage.googleapis.com",
+		})
 	})
 
 	// lockRetentionPolicy / restore both return the Bucket resource.
@@ -2881,9 +2889,9 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 
 // gcsWriteTestPermissions answers a testIamPermissions with the requested
 // permissions the caller holds under the policies that govern the resource.
-func gcsWriteTestPermissions(w http.ResponseWriter, r *http.Request, policies []IAMPolicy) {
+func gcsWriteTestPermissions(w http.ResponseWriter, r *http.Request, policies []IAMPolicy, resource gcpIAMResource) {
 	principal, owner := gcpRequestPrincipal(r)
-	held := gcpPermissionsHeldUnder(principal, owner, policies, r.URL.Query()["permissions"])
+	held := gcpPermissionsHeldUnder(principal, owner, policies, r.URL.Query()["permissions"], resource)
 	resp := map[string]any{"kind": "storage#testIamPermissionsResponse"}
 	if len(held) > 0 {
 		resp["permissions"] = held

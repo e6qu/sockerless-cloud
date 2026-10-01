@@ -82,9 +82,7 @@ func TestMetadata_DefaultServiceAccountIDToken(t *testing.T) {
 	parts := strings.Split(jwt, ".")
 	require.Len(t, parts, 3, "expected JWT shape header.payload.sig, got %q", jwt)
 
-	// Real Google identity tokens are RS256; the sim signs with the same key
-	// its data-plane bearer middleware verifies against, so a workload can
-	// present this token when invoking a sibling service.
+	// Real Google identity tokens are RS256.
 	header, err := base64.RawURLEncoding.DecodeString(parts[0])
 	require.NoError(t, err)
 	var hdr struct {
@@ -97,12 +95,9 @@ func TestMetadata_DefaultServiceAccountIDToken(t *testing.T) {
 	require.NoError(t, err)
 	var claims map[string]any
 	require.NoError(t, json.Unmarshal(payload, &claims))
-	assert.Contains(t, claims["aud"], "https://example.com", "identity token must carry the caller-requested audience")
+	assert.Equal(t, "https://example.com", claims["aud"], "the identity token's only audience is the requested one")
 
-	// The token must be accepted as a data-plane bearer: this is exactly the
-	// path a Cloud Run / Cloud Functions workload takes when POSTing to a
-	// sibling service URL (the invoke bootstrap 401'd here when the metadata
-	// server still handed out an HS256 token the middleware rejected).
+	// An ID token is not an OAuth access token: a Google API refuses it.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		baseURL+"/v2/projects/test-project/locations/us-central1/services", nil)
 	require.NoError(t, err)
@@ -110,8 +105,8 @@ func TestMetadata_DefaultServiceAccountIDToken(t *testing.T) {
 	dpResp, err := rawClient.Do(req)
 	require.NoError(t, err)
 	defer dpResp.Body.Close()
-	assert.Equal(t, http.StatusOK, dpResp.StatusCode,
-		"identity token must be accepted by the data-plane bearer middleware")
+	assert.Equal(t, http.StatusUnauthorized, dpResp.StatusCode,
+		"a Google API must refuse an identity token presented as its bearer")
 }
 
 func TestMetadata_IDTokenRequiresAudience(t *testing.T) {

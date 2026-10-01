@@ -483,11 +483,26 @@ method and path goes to the ingress container on `ports[0].containerPort`
 (8080 unset, passed as `PORT`), bounded by the revision template's `timeout`
 (300 seconds unset), and the container's status, headers and body come back
 untouched; the caller's bearer reaches the container with its JWT signature
-replaced by `SIGNATURE_REMOVED_BY_GOOGLE`. A service with `invokerIamDisabled`
-or an `allUsers` `roles/run.invoker` binding is public; any other needs a
-simulator-signed access token or an ID token for the service URL or a custom
-audience, so an Eventarc push carrying its OIDC token reaches it, and Pub/Sub
-delivers to a run.app endpoint the simulator serves through this front end.
+replaced by `SIGNATURE_REMOVED_BY_GOOGLE`. A service with `invokerIamDisabled`,
+or one whose policy grants `run.routes.invoke` to `allUsers`, is public. Any
+other request carries a Google-signed ID token — in `X-Serverless-Authorization`
+when the caller sends it, which leaves `Authorization` to the application, or in
+`Authorization` — whose audience is the service URL or a custom audience, and
+the principal the token names must hold `run.routes.invoke` on the service
+through the service's policy or one it inherits from its project, folders and
+organization, conditions included. An OAuth access token is not an ID token: it
+answers 401, as does an ID token for another audience, and a principal without
+the permission answers 403 with Google's front-end error page. The front end
+had admitted any simulator-signed access token, or any ID token for the
+service, whatever principal it named. The token endpoint's `id_token` for a
+JWT-bearer grant names the grant's `target_audience`, as Google's does, so the
+`google.golang.org/api/idtoken` service-account flow reaches the service it
+names; it had carried the simulator's API audience instead, and the Compute
+Engine metadata server's identity token had carried that audience beside the
+requested one, so a Google API accepted either as an access token. Both now
+name only the requested audience, and a Google API answers them 401. Pub/Sub push and
+Eventarc deliver to a run.app endpoint the simulator serves through this front
+end, under the same check on the identity their OIDC token names.
 The simulator had served services at `POST /v2-services-invoke/{project}/{location}/{service}`,
 answered 200 whatever the container said, and lifted a consumer's
 `X-Sockerless-Exit-Code` header into its own; the route and the header went,
@@ -514,7 +529,12 @@ run.app URL and the function's `url` its
 front end serves the first and a cloudfunctions.net front end, dispatching on
 the Host header the same way, takes the function's name off the front of the
 path and hands the request to the same service, admitting an ID token for
-either URL. The container's answer passes through on both. The function's
+either URL. The service's IAM policy governs invocation on both URLs, as it
+does on Cloud Run functions: `gcloud functions add-invoker-policy-binding`
+and `--allow-unauthenticated` write roles/run.invoker into it through the
+Cloud Run Admin API, and deleting a service, directly or with its function,
+deletes its policy, so a service created again under the same name starts
+private. The container's answer passes through on both. The function's
 `timeoutSeconds`, environment variables and CPU become the service template's
 request timeout (60 seconds unset), container environment and CPU limit at
 CreateFunction, and an UpdateFunction that changes `serviceConfig` rolls the
@@ -1024,7 +1044,15 @@ declares no resource type authorizes `"*"` because that is what the reference
 says, and a test crosses every route against the reference.
 
 Google Cloud's `testIamPermissions` answers from the stored policy resolved
-through the vendored curated roles and the held custom roles. A caller
+through the vendored curated roles and the held custom roles. A conditional
+binding grants its role only while its condition holds: the simulator compiles
+the Common Expression Language expression with `cel-go` and evaluates it
+against `request.time` and the resource's `name`, `type` and `service`, and an
+expression that fails to compile or evaluate — an attribute the resource does
+not supply, a function IAM offers that the simulator does not — grants
+nothing. The Cloud Run front end's invoker check and `testIamPermissions` are
+one evaluation, so a binding that a test reads back as granting is the binding
+that admits a request. A caller
 presenting no simulator-issued token is the account's operator, as a
 credential no IAM user registered is on AWS. `generateAccessToken` honours the
 requested lifetime up to one hour, or twelve where the Organization Policy

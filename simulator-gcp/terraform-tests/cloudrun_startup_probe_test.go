@@ -1,9 +1,7 @@
 package gcp_tf_test
 
 import (
-	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +17,8 @@ import (
 // resources whose containers carry template.containers.startup_probe and
 // requests each at the uri the provider read back: the service whose HTTP
 // probe the container passes serves the request, and the one whose TCP probe
-// names a port nothing listens on answers 503.
+// names a port nothing listens on answers 503. A service account granted
+// roles/run.invoker on both presents the ID tokens the requests carry.
 func TestTerraformCloudRunV2StartupProbe(t *testing.T) {
 	image := buildProbeImage(t)
 	fixtureDir := filepath.Join("fixtures", "cloudrun-startup-probe")
@@ -39,27 +38,11 @@ func TestTerraformCloudRunV2StartupProbe(t *testing.T) {
 	require.NoError(t, err, "terraform apply failed:\n%s", out)
 
 	outputs := readOutputsInDir(t, fixtureDir)
-	request := func(uri string) (int, string) {
-		u, err := url.Parse(uri)
-		require.NoError(t, err)
-		require.True(t, strings.HasSuffix(u.Host, ".a.run.app"), "the service is served on run.app: %s", uri)
-		req, err := http.NewRequest(http.MethodGet, baseURL+"/probed", nil)
-		require.NoError(t, err)
-		req.Host = u.Host
-		req.Header.Set("Authorization", "Bearer "+accessToken)
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-		return resp.StatusCode, string(body)
-	}
-
-	status, body := request(outputs.must(t, "probed_uri"))
+	status, body := invokeWithIDToken(t, outputs.must(t, "probed_uri"), "/probed", outputs.must(t, "probed_id_token"))
 	require.Equal(t, http.StatusOK, status, "body=%q", body)
 	assert.Equal(t, "GET /probed", body)
 
-	status, body = request(outputs.must(t, "never_ready_uri"))
+	status, body = invokeWithIDToken(t, outputs.must(t, "never_ready_uri"), "/probed", outputs.must(t, "never_ready_id_token"))
 	assert.Equal(t, http.StatusServiceUnavailable, status, "body=%q", body)
 }
 

@@ -1894,7 +1894,7 @@ func bigtableTestIamPermissions(ctx context.Context, req *iampb.TestIamPermissio
 	}
 	policy, _ := gcpResourceIAMStore().Get(req.GetResource())
 	return &iampb.TestIamPermissionsResponse{
-		Permissions: gcpAnswerTestIamPermissionsForContext(ctx, policy, req.GetPermissions())}, nil
+		Permissions: gcpAnswerTestIamPermissionsForContext(ctx, policy, req.GetPermissions(), gcpIAMResourceNamed(req.GetResource()))}, nil
 }
 
 func (s *bigtableInstanceAdminGRPC) GetIamPolicy(_ context.Context, req *iampb.GetIamPolicyRequest) (*iampb.Policy, error) {

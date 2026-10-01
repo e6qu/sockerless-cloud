@@ -391,18 +391,6 @@ func httpDo(method, url string, body string) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
 }
 
-// httpDoHost sends an authenticated request to the simulator addressed to
-// host, the way a resolver hands a client a data-plane host's address.
-func httpDoHost(method, url, host string) (*http.Response, error) {
-	req, err := http.NewRequest(method, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Host = host
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	return http.DefaultClient.Do(req)
-}
-
 func httpDoJSON(t *testing.T, method, url, body string) string {
 	t.Helper()
 	resp, err := httpDo(method, url, body)

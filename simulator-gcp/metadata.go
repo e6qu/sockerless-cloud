@@ -145,14 +145,9 @@ func registerComputeMetadata(srv *sim.Server) {
 		})
 	})
 
-	// /computeMetadata/v1/instance/service-accounts/{sa}/identity?audience=...
-	// Identity token. A workload reads this to obtain the bearer it presents
-	// when invoking a sibling Cloud Run / Cloud Functions service (the
-	// google.golang.org/api/idtoken compute source fetches it verbatim). The
-	// token is signed with the simulator's access-token key (see
-	// signIdentityToken) so the invoked endpoint's data-plane bearer
-	// middleware verifies it exactly like an OAuth2 or federated token — the
-	// same consolidation the sibling `token` endpoint uses.
+	// A workload reads its identity token here to invoke a sibling Cloud Run
+	// service; the google.golang.org/api/idtoken compute source fetches it
+	// verbatim.
 	srv.HandleFunc("GET /computeMetadata/v1/instance/service-accounts/{sa}/identity", func(w http.ResponseWriter, r *http.Request) {
 		if !mustFlavor(w, r) {
 			return

@@ -68,12 +68,14 @@ func crmResolveProject(ref string) (CRMProject, bool) {
 	if p, ok := crmProjects.Get(ref); ok {
 		return p, true
 	}
-	rows := crmProjects.Filter(func(p CRMProject) bool { return p.Name == "projects/"+ref })
+	rows := crmProjectsByName.LookupAll(crmProjects, "projects/"+ref, func(p CRMProject) []string { return []string{p.Name} })
 	if len(rows) == 1 {
 		return rows[0], true
 	}
 	return CRMProject{}, false
 }
+
+var crmProjectsByName sim.GenerationIndex[CRMProject]
 
 // crmProjectPermissionDenied writes the real Cloud Resource Manager response
 // for a project the caller cannot see: 403 PERMISSION_DENIED, never 404 —

@@ -2,9 +2,7 @@ package gcp_cli_test
 
 import (
 	"fmt"
-	"io"
 	"net/http"
-	neturl "net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -142,20 +140,18 @@ func TestFunctions_CLI_InvokeAndCheckLogs(t *testing.T) {
 	httpDoJSON(t, "PATCH", baseURL+"/v2/"+fn.ServiceConfig.Service,
 		fmt.Sprintf(`{"template":{"containers":[{"image":%q,"args":["log-request"]}]}}`, httpProbeImageName))
 
-	request := func(uri, path string) (int, string) {
-		u, err := neturl.Parse(uri)
-		require.NoError(t, err)
-		resp, err := httpDoHost("GET", baseURL+path, u.Host)
-		require.NoError(t, err)
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, string(body)
-	}
 	require.True(t, strings.HasSuffix(fn.ServiceConfig.URI, ".a.run.app"), "the function is served on run.app: %s", fn.ServiceConfig.URI)
-	status, body := request(fn.ServiceConfig.URI, "/run-app")
+	invoker := cliInvokerEmail(t)
+	status, body := requestService(t, fn.URL, "/"+functionID+"/refused", cliIDToken(t, invoker, fn.URL))
+	assert.Equal(t, http.StatusForbidden, status, "a principal without roles/run.invoker: body=%q", body)
+
+	// gcloud grants roles/run.invoker on the function's Cloud Run service.
+	runCLI(t, gcloudRegionalCLI("functions", "add-invoker-policy-binding", functionID,
+		"--region="+location, "--member=serviceAccount:"+invoker, "--format=json"))
+	status, body = requestService(t, fn.ServiceConfig.URI, "/run-app", cliIDToken(t, invoker, fn.ServiceConfig.URI))
 	require.Equal(t, http.StatusOK, status, "body=%q", body)
 	assert.Equal(t, "GET /run-app", body)
-	status, body = request(fn.URL, "/"+functionID+"/cloudfunctions-net")
+	status, body = requestService(t, fn.URL, "/"+functionID+"/cloudfunctions-net", cliIDToken(t, invoker, fn.URL))
 	require.Equal(t, http.StatusOK, status, "body=%q", body)
 	assert.Equal(t, "GET /cloudfunctions-net", body)
 

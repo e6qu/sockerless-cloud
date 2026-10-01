@@ -160,11 +160,16 @@ Current state of the sockerless-cloud repository.
   is the service's `uri` host reaches the ingress container once its startup
   probes (the configured `startupProbe`, or Cloud Run's default TCP probe)
   pass against the container's own address, and gets the container's answer
-  untouched.
+  untouched. Unless the service is public, the request carries a
+  Google-signed ID token for the service whose principal holds
+  `run.routes.invoke` through the service's policy or one it inherits,
+  conditions evaluated with Common Expression Language.
 - **A Cloud Run function is served by its Cloud Run service**:
   `serviceConfig.uri` is the service's run.app URL and `url` the function's
   cloudfunctions.net URL, both served through the Cloud Run front end with
-  the container's answer passed through; DeleteFunction deletes the service.
+  the container's answer passed through and invocation on both governed by
+  the service's IAM policy; DeleteFunction deletes the service and its
+  policy.
 - **Azure workload hosts pull with what the workload declared**: a
   Container App's or Job's `registries` entry — a managed identity, as an
   identity token the registry exchanges, or a username and password secret —

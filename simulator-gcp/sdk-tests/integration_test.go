@@ -122,7 +122,7 @@ func TestIntegration_CloudFunctionsLifecycle(t *testing.T) {
 	client := newFunctionsClient(t)
 	fn := deployFunction(t, client, fnID, &runpb.Container{Image: httpProbeImageName, Args: []string{"log-request"}})
 
-	code, _, body := invokeService(t, http.DefaultClient, fn.ServiceConfig.Uri, http.MethodPost, "/integ", "{}")
+	code, _, body := invokeService(t, invokerIDToken(t, fn.ServiceConfig.Uri), fn.ServiceConfig.Uri, http.MethodPost, "/integ", "{}")
 	require.Equal(t, http.StatusOK, code, "body=%q", body)
 	assert.Equal(t, "POST /integ", body)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"google.golang.org/grpc/metadata"
@@ -63,15 +64,24 @@ func gcpBearerPrincipal(authorization string) (member string, owner bool) {
 		return "", true
 	}
 	claims, err := verifiedAccessTokenClaims(strings.TrimSpace(raw[len("bearer "):]))
-	if err != nil || claims.Sub == "" || claims.Sub == gcpDefaultPrincipal {
+	if err != nil {
+		return "", true
+	}
+	return gcpSubjectPrincipal(claims.Sub)
+}
+
+// gcpSubjectPrincipal is the IAM member a token's subject names, and whether
+// the subject is the account's operator rather than a bound principal.
+func gcpSubjectPrincipal(subject string) (member string, owner bool) {
+	if subject == "" || subject == gcpDefaultPrincipal {
 		return "", true
 	}
 	// A service account's subject is its email, and its policy member spells
 	// it with the serviceAccount: prefix.
-	if strings.Contains(claims.Sub, "@") {
-		return "serviceAccount:" + claims.Sub, false
+	if strings.Contains(subject, "@") {
+		return "serviceAccount:" + subject, false
 	}
-	return claims.Sub, false
+	return subject, false
 }
 
 // gcpRoleIncludedPermissions is the permission set a role name resolves to,
@@ -94,17 +104,19 @@ func gcpRoleIncludedPermissions(role string) []string {
 	return nil
 }
 
-// gcpMemberMatches reports whether a binding member covers the caller.
-// allUsers covers everyone and allAuthenticatedUsers covers everyone the
-// simulator issued a token to, which is every principal that reaches here.
-func gcpMemberMatches(member, principal string) bool {
+// gcpMemberMatches reports whether a binding member covers the caller, where
+// an empty principal is a caller that presented no credential. allUsers covers
+// everyone and allAuthenticatedUsers everyone who presented a credential.
+func gcpMemberMatches(member, principal string, resource gcpIAMResource, at time.Time) bool {
 	switch member {
-	case "allUsers", "allAuthenticatedUsers":
+	case "allUsers":
 		return true
+	case "allAuthenticatedUsers":
+		return principal != ""
 	}
 	if kind, project, ok := strings.Cut(member, ":"); ok {
 		if role, convenience := gcpConvenienceRoles[kind]; convenience {
-			return gcpProjectGrantsRole(project, role, principal)
+			return gcpProjectGrantsRole(project, role, principal, resource, at)
 		}
 	}
 	return member == principal
@@ -129,13 +141,36 @@ func gcpProjectPolicy(project string) IAMPolicy {
 	return policy
 }
 
-func gcpProjectGrantsRole(project, role, principal string) bool {
+// gcpHierarchyPolicies are the policies a resource in the project inherits:
+// the project's own and those of every folder and the organization above it.
+func gcpHierarchyPolicies(project string) []IAMPolicy {
+	var policies []IAMPolicy
+	for _, node := range crmOrgPolicyAncestry("projects/" + project) {
+		kind, id, _ := strings.Cut(node, "/")
+		switch kind {
+		case "projects":
+			policies = append(policies, gcpProjectPolicy(id))
+		case "folders", "organizations":
+			if gcpResourcePolicies == nil {
+				continue
+			}
+			// crmIamVerb stores a folder's and an organization's policy
+			// under the singular kind.
+			if policy, ok := gcpResourcePolicies.Get(strings.TrimSuffix(kind, "s") + "/" + id); ok {
+				policies = append(policies, policy)
+			}
+		}
+	}
+	return policies
+}
+
+func gcpProjectGrantsRole(project, role, principal string, resource gcpIAMResource, at time.Time) bool {
 	for _, binding := range gcpProjectPolicy(project).Bindings {
-		if binding.Role != role {
+		if binding.Role != role || !gcpConditionHolds(binding.Condition, resource, at) {
 			continue
 		}
 		for _, member := range binding.Members {
-			if member == principal || member == "allUsers" || member == "allAuthenticatedUsers" {
+			if member == "allUsers" || (principal != "" && (member == principal || member == "allAuthenticatedUsers")) {
 				return true
 			}
 		}
@@ -144,30 +179,31 @@ func gcpProjectGrantsRole(project, role, principal string) bool {
 }
 
 // gcpPermissionsHeldUnder answers which of the requested permissions the
-// caller holds under policies that apply together, as a resource's own policy
-// and its ancestors' do.
-func gcpPermissionsHeldUnder(principal string, owner bool, policies []IAMPolicy, requested []string) []string {
+// caller holds on the resource under policies that apply together, as a
+// resource's own policy and its ancestors' do.
+func gcpPermissionsHeldUnder(principal string, owner bool, policies []IAMPolicy, requested []string, resource gcpIAMResource) []string {
 	var effective IAMPolicy
 	for _, policy := range policies {
 		effective.Bindings = append(effective.Bindings, policy.Bindings...)
 	}
-	return gcpAnswerForPrincipal(principal, owner, effective, requested)
+	return gcpAnswerForPrincipal(principal, owner, effective, requested, resource)
 }
 
 // gcpPermissionsHeldBy returns the subset of the requested permissions the
-// principal holds under the policy, in the order the request asked for them —
-// which is the order real Google answers in.
-func gcpPermissionsHeldBy(policy IAMPolicy, principal string, requested []string) []string {
+// principal holds on the resource under the policy at the given time, in the
+// order the request asked for them — which is the order real Google answers
+// in. A conditional binding grants its role only while its condition holds.
+func gcpPermissionsHeldBy(policy IAMPolicy, principal string, requested []string, resource gcpIAMResource, at time.Time) []string {
 	held := map[string]bool{}
 	for _, binding := range policy.Bindings {
 		bound := false
 		for _, member := range binding.Members {
-			if gcpMemberMatches(member, principal) {
+			if gcpMemberMatches(member, principal, resource, at) {
 				bound = true
 				break
 			}
 		}
-		if !bound {
+		if !bound || !gcpConditionHolds(binding.Condition, resource, at) {
 			continue
 		}
 		for _, permission := range gcpRoleIncludedPermissions(binding.Role) {
@@ -184,26 +220,26 @@ func gcpPermissionsHeldBy(policy IAMPolicy, principal string, requested []string
 }
 
 // gcpAnswerTestIamPermissions is the whole operation: the permissions the
-// caller holds, out of the ones it asked about.
-func gcpAnswerTestIamPermissions(r *http.Request, policy IAMPolicy, requested []string) []string {
+// caller holds on the resource, out of the ones it asked about.
+func gcpAnswerTestIamPermissions(r *http.Request, policy IAMPolicy, requested []string, resource gcpIAMResource) []string {
 	principal, owner := gcpRequestPrincipal(r)
-	return gcpAnswerForPrincipal(principal, owner, policy, requested)
+	return gcpAnswerForPrincipal(principal, owner, policy, requested, resource)
 }
 
 // gcpAnswerTestIamPermissionsForContext is the same answer for a gRPC call.
 func gcpAnswerTestIamPermissionsForContext(
-	ctx context.Context, policy IAMPolicy, requested []string,
+	ctx context.Context, policy IAMPolicy, requested []string, resource gcpIAMResource,
 ) []string {
 	principal, owner := gcpContextPrincipal(ctx)
-	return gcpAnswerForPrincipal(principal, owner, policy, requested)
+	return gcpAnswerForPrincipal(principal, owner, policy, requested, resource)
 }
 
-func gcpAnswerForPrincipal(principal string, owner bool, policy IAMPolicy, requested []string) []string {
+func gcpAnswerForPrincipal(principal string, owner bool, policy IAMPolicy, requested []string, resource gcpIAMResource) []string {
 	if owner {
 		// The account's operator holds what it asks about.
 		answer := make([]string, len(requested))
 		copy(answer, requested)
 		return answer
 	}
-	return gcpPermissionsHeldBy(policy, principal, requested)
+	return gcpPermissionsHeldBy(policy, principal, requested, resource, time.Now())
 }

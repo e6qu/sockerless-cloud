@@ -7,6 +7,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -84,10 +85,12 @@ func registerCloudRunFrontEnd(srv *sim.Server) {
 
 // cloudRunFrontEndError writes the plain error page Google's front end answers
 // with; it is not a Google API error, so it carries no JSON error envelope.
+// message is HTML.
 func cloudRunFrontEndError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=UTF-8")
 	w.WriteHeader(status)
-	_, _ = fmt.Fprintf(w, "<html><head><title>%d %s</title></head><body><h1>Error: %s</h1><h2>%s</h2></body></html>\n",
+	_, _ = fmt.Fprintf(w, "<html><head>\n<meta http-equiv=\"content-type\" content=\"text/html;charset=utf-8\">\n"+
+		"<title>%d %s</title>\n</head>\n<body text=#000000 bgcolor=#ffffff>\n<h1>Error: %s</h1>\n<h2>%s</h2>\n<h2></h2>\n</body></html>\n",
 		status, http.StatusText(status), http.StatusText(status), message)
 }
 
@@ -134,7 +137,7 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 	sink := &cfLogSink{project: resourceProject(svc.Name), functionName: serviceID}
 	inst, err := ensureCloudRunServiceInstance(r.Context(), svc.Name, serviceID, containers, svc.Template.Volumes, sink)
 	if err != nil {
-		cloudRunFrontEndError(w, http.StatusServiceUnavailable, fmt.Sprintf("The service could not start an instance: %v", err))
+		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The service could not start an instance: %v", err)))
 		return
 	}
 	address, err := inst.awaitReady(r.Context())
@@ -142,7 +145,7 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 		if r.Context().Err() == nil {
 			deleteCloudRunServiceInstanceIf(svc.Name, inst)
 		}
-		cloudRunFrontEndError(w, http.StatusServiceUnavailable, fmt.Sprintf("The instance failed to start: %v", err))
+		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance failed to start: %v", err)))
 		return
 	}
 	err = lbplane.Forward(w, r, lbplane.Upstream{
@@ -163,16 +166,19 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 		if !sim.ContainerRunning(inst.containerID) {
 			deleteCloudRunServiceInstanceIf(svc.Name, inst)
 		}
-		cloudRunFrontEndError(w, http.StatusServiceUnavailable, fmt.Sprintf("The instance did not answer: %v", err))
+		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance did not answer: %v", err)))
 	}
 }
 
 // cloudRunForwardedHeader is the request header a container receives. Cloud
-// Run passes the caller's Authorization header on with a JWT's signature
-// replaced, so the container can read the claims but cannot replay the token.
+// Run passes on the header that carried the caller's credential with a JWT's
+// signature replaced, so the container can read the claims but cannot replay
+// the token; an Authorization header beside X-Serverless-Authorization belongs
+// to the application and passes untouched.
 func cloudRunForwardedHeader(in http.Header) http.Header {
 	header := in.Clone()
-	auth := header.Get("Authorization")
+	name := cloudRunCredentialHeader(header)
+	auth := header.Get(name)
 	const prefix = "Bearer "
 	if !strings.HasPrefix(auth, prefix) {
 		return header
@@ -180,29 +186,85 @@ func cloudRunForwardedHeader(in http.Header) http.Header {
 	parts := strings.Split(strings.TrimSpace(auth[len(prefix):]), ".")
 	if len(parts) == 3 {
 		parts[2] = "SIGNATURE_REMOVED_BY_GOOGLE"
-		header.Set("Authorization", prefix+strings.Join(parts, "."))
+		header.Set(name, prefix+strings.Join(parts, "."))
 	}
 	return header
 }
 
+// cloudRunCredentialHeader names the header Cloud Run authenticates a request
+// with: X-Serverless-Authorization when the caller sends it, which frees
+// Authorization for the application's own scheme, and Authorization otherwise.
+func cloudRunCredentialHeader(header http.Header) string {
+	if header.Get("X-Serverless-Authorization") != "" {
+		return "X-Serverless-Authorization"
+	}
+	return "Authorization"
+}
+
+// cloudRunIDTokenClaims are the claims of a Google-signed ID token the front
+// end reads to name the caller.
+type cloudRunIDTokenClaims struct {
+	Sub   string `json:"sub"`
+	Email string `json:"email"`
+}
+
 // cloudRunInvokerAuthorized admits a request to a service. A service whose
-// invoker IAM check is disabled, or whose policy grants roles/run.invoker to
-// allUsers, is public. Any other request carries a bearer the simulator
-// signed: an access token, or an ID token whose audience is the service's URL
-// or one of its custom audiences.
+// invoker IAM check is disabled admits everyone, and one whose policy, or a
+// policy it inherits from its project, folders and organization, grants
+// run.routes.invoke to allUsers admits a caller without a credential. Any
+// other request carries a Google-signed ID token whose audience is the
+// service's URL or one of its custom audiences — an OAuth access token is not
+// one — and the principal the token names holds run.routes.invoke on the
+// service, conditions on its bindings included.
 func cloudRunInvokerAuthorized(w http.ResponseWriter, r *http.Request, svc ServiceV2, urls []string) bool {
-	if svc.InvokerIamDisabled || cloudRunServiceIsPublic(svc.Name) {
+	if svc.InvokerIamDisabled {
 		return true
 	}
-	auth := r.Header.Get("Authorization")
+	resource := gcpIAMResourceNamed(svc.Name)
+	policies := gcpHierarchyPolicies(resourceProject(svc.Name))
+	if store := gcpResourceIAMStore(); store != nil {
+		if own, ok := store.Get(svc.Name); ok {
+			policies = append(policies, own)
+		}
+	}
+	mayInvoke := func(principal string, owner bool) bool {
+		return len(gcpPermissionsHeldUnder(principal, owner, policies, []string{"run.routes.invoke"}, resource)) == 1
+	}
+	if mayInvoke("", false) {
+		return true
+	}
+	forbidden := fmt.Sprintf("Your client does not have permission to get URL <code>%s</code> from this server.",
+		html.EscapeString(r.URL.Path))
+	auth := r.Header.Get(cloudRunCredentialHeader(r.Header))
 	const prefix = "Bearer "
 	if !strings.HasPrefix(auth, prefix) {
-		cloudRunFrontEndError(w, http.StatusForbidden, "Your client does not have permission to get URL from this server.")
+		cloudRunFrontEndError(w, http.StatusForbidden, forbidden)
 		return false
 	}
-	token := strings.TrimSpace(auth[len(prefix):])
-	if verifyAccessToken(token) == nil {
-		return true
+	claims, ok := cloudRunVerifyIDToken(strings.TrimSpace(auth[len(prefix):]), svc, urls)
+	if !ok {
+		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token" error_description="The access token could not be verified"`)
+		cloudRunFrontEndError(w, http.StatusUnauthorized, fmt.Sprintf(
+			"Your client does not have permission to the requested URL <code>%s</code>.", html.EscapeString(r.URL.Path)))
+		return false
+	}
+	subject := claims.Email
+	if subject == "" {
+		subject = claims.Sub
+	}
+	if !mayInvoke(gcpSubjectPrincipal(subject)) {
+		cloudRunFrontEndError(w, http.StatusForbidden, forbidden)
+		return false
+	}
+	return true
+}
+
+// cloudRunVerifyIDToken verifies an ID token Google signed for the service:
+// one whose audience is the service's URL or one of urls, with or without
+// its trailing slash, or one of the service's custom audiences.
+func cloudRunVerifyIDToken(token string, svc ServiceV2, urls []string) (cloudRunIDTokenClaims, bool) {
+	if accessSigner == nil {
+		return cloudRunIDTokenClaims{}, false
 	}
 	var audiences []string
 	for _, u := range append([]string{svc.URI}, urls...) {
@@ -210,41 +272,19 @@ func cloudRunInvokerAuthorized(w http.ResponseWriter, r *http.Request, svc Servi
 	}
 	audiences = append(audiences, svc.CustomAudiences...)
 	for _, audience := range audiences {
-		var claims accessTokenClaims
-		if accessSigner != nil && simjwt.Verify(token, &claims, simjwt.Options{
+		if audience == "" {
+			continue
+		}
+		var claims cloudRunIDTokenClaims
+		if simjwt.Verify(token, &claims, simjwt.Options{
 			Issuer:        googleTokenIssuer,
 			Audience:      audience,
 			RequireExpiry: true,
 		}, accessSigner) == nil {
-			return true
+			return claims, true
 		}
 	}
-	cloudRunFrontEndError(w, http.StatusUnauthorized, "Your client does not have permission to the requested URL.")
-	return false
-}
-
-// cloudRunServiceIsPublic reports whether the service's IAM policy grants
-// roles/run.invoker to allUsers.
-func cloudRunServiceIsPublic(name string) bool {
-	store := gcpResourceIAMStore()
-	if store == nil {
-		return false
-	}
-	policy, ok := store.Get(name)
-	if !ok {
-		return false
-	}
-	for _, binding := range policy.Bindings {
-		if binding.Role != "roles/run.invoker" || len(binding.Condition) > 0 {
-			continue
-		}
-		for _, member := range binding.Members {
-			if member == "allUsers" {
-				return true
-			}
-		}
-	}
-	return false
+	return cloudRunIDTokenClaims{}, false
 }
 
 // postToCloudRunService delivers a push to a service this simulator serves.

@@ -2837,7 +2837,7 @@ func handleResourceIAM(w http.ResponseWriter, r *http.Request, store sim.Store[I
 		}
 		policy, _ := store.Get(resource)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"permissions": gcpAnswerTestIamPermissions(r, policy, req.Permissions)})
+			"permissions": gcpAnswerTestIamPermissions(r, policy, req.Permissions, gcpIAMResourceNamed(resource))})
 	default:
 		http.NotFound(w, r)
 	}
@@ -2893,6 +2893,8 @@ func gcpPredefinedRoles() []gcpPredefinedRole {
 			Description: "Edit access to all resources.",
 			IncludedPermissions: []string{
 				"resourcemanager.projects.get",
+				"run.jobs.run",
+				"run.routes.invoke",
 				"storage.buckets.get",
 				"storage.buckets.update",
 				"storage.objects.create",
@@ -2910,7 +2912,18 @@ func gcpPredefinedRoles() []gcpPredefinedRole {
 				"resourcemanager.projects.setIamPolicy",
 				"iam.serviceAccounts.create",
 				"iam.serviceAccounts.delete",
+				"run.jobs.run",
+				"run.routes.invoke",
 				"storage.buckets.setIamPolicy",
+			},
+		},
+		{
+			Name:        "roles/run.invoker",
+			Title:       "Cloud Run Invoker",
+			Description: "Invoke Cloud Run services and execute Cloud Run jobs.",
+			IncludedPermissions: []string{
+				"run.jobs.run",
+				"run.routes.invoke",
 			},
 		},
 		{

@@ -25,6 +25,7 @@ require (
 	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261001190540-f881233b8f4e
 	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261001190540-f881233b8f4e
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
+	github.com/google/cel-go v0.30.0
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.1
 	github.com/moby/moby/client v0.6.0
@@ -40,9 +41,11 @@ require (
 )
 
 require (
+	cel.dev/expr v0.25.2 // indirect
 	cloud.google.com/go/pubsub/v2 v2.7.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/andybalholm/brotli v1.2.6 // indirect
+	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
@@ -91,6 +94,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.1 // indirect
+	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect

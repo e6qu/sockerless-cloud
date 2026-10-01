@@ -14,7 +14,9 @@ provider "google" {
   access_token          = var.access_token
   user_project_override = false
 
-  cloud_run_v2_custom_endpoint = "${var.endpoint}/v2/"
+  cloud_run_v2_custom_endpoint    = "${var.endpoint}/v2/"
+  iam_beta_custom_endpoint        = "${var.endpoint}/v1/"
+  iam_credentials_custom_endpoint = "${var.endpoint}/v1/"
 }
 
 variable "endpoint" {
@@ -80,6 +82,42 @@ resource "google_cloud_run_v2_service" "never_ready" {
       }
     }
   }
+}
+
+resource "google_service_account" "invoker" {
+  account_id   = "tf-probe-invoker"
+  display_name = "Invokes the probed services"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "invoker" {
+  for_each = {
+    probed      = google_cloud_run_v2_service.probed.name
+    never_ready = google_cloud_run_v2_service.never_ready.name
+  }
+  location = "us-central1"
+  name     = each.value
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.invoker.email}"
+}
+
+data "google_service_account_id_token" "probed" {
+  target_service_account = google_service_account.invoker.email
+  target_audience        = google_cloud_run_v2_service.probed.uri
+}
+
+data "google_service_account_id_token" "never_ready" {
+  target_service_account = google_service_account.invoker.email
+  target_audience        = google_cloud_run_v2_service.never_ready.uri
+}
+
+output "probed_id_token" {
+  value     = data.google_service_account_id_token.probed.id_token
+  sensitive = true
+}
+
+output "never_ready_id_token" {
+  value     = data.google_service_account_id_token.never_ready.id_token
+  sensitive = true
 }
 
 output "probed_uri" {
