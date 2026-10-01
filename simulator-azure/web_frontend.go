@@ -164,8 +164,14 @@ func siteContainerAddress(ctx context.Context, site *Site) (string, error) {
 // published loopback port accepts through the engine's proxy before the
 // workload listens.
 func appServiceWarmupPing(ctx context.Context, candidates []string) (string, error) {
+	// The platform waits for the warmup request's answer, however slowly the
+	// workload gives it, so only the start-time limit in ctx bounds a request;
+	// the dial stays short so a port nothing listens on yet is retried.
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			DialContext:       (&net.Dialer{Timeout: time.Second}).DialContext,
+			DisableKeepAlives: true,
+		},
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
