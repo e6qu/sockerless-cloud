@@ -1,11 +1,13 @@
 package gcp_tf_test
 
 import (
+	"bufio"
 	"encoding/base64"
 	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -340,9 +342,18 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, redisID, "projects/test-project/locations/us-central1/instances/tf-redis",
 		"Memorystore Redis id must round-trip the full resource path; got %s", redisID)
 
+	// The host and port the provider recorded reach the instance's Redis
+	// engine, which answers PING in RESP.
 	redisHost := outputs.must(t, "redis_instance_host")
-	require.True(t, strings.HasPrefix(redisHost, "10."),
-		"Memorystore Redis host must be an RFC1918 address; got %s", redisHost)
+	redisPort := outputs.mustNumber(t, "redis_instance_port")
+	redisConn, err := net.Dial("tcp", net.JoinHostPort(redisHost, strconv.Itoa(int(redisPort))))
+	require.NoError(t, err, "Memorystore Redis endpoint %s:%v must accept connections", redisHost, redisPort)
+	defer redisConn.Close()
+	_, err = redisConn.Write([]byte("*1\r\n$4\r\nPING\r\n"))
+	require.NoError(t, err)
+	pong, err := bufio.NewReader(redisConn).ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "+PONG\r\n", pong, "the Memorystore Redis endpoint is a Redis server")
 
 	sqlConnectionName := outputs.must(t, "sql_instance_connection_name")
 	require.Equal(t, "test-project:us-central1:tf-sql", sqlConnectionName,

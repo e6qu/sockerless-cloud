@@ -76,6 +76,7 @@ func TestMemorystore_RescheduleMaintenance(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, create)
 	name := parent + "/instances/cache"
+	deleteRedisOnCleanup(t, svc, name)
 
 	moved, err := svc.Projects.Locations.Instances.RescheduleMaintenance(name,
 		&redis.RescheduleMaintenanceRequest{

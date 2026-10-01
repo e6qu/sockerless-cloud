@@ -152,6 +152,7 @@ func TestSDK_MemorystoreRedis_OperationsCancel(t *testing.T) {
 	}).InstanceId("cancel-probe-redis").Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, op.Name)
+	deleteRedisOnCleanup(t, svc, parent+"/instances/cancel-probe-redis")
 
 	_, err = svc.Projects.Locations.Operations.Cancel(op.Name).Do()
 	require.NoError(t, err)

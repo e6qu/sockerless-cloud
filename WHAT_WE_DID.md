@@ -430,6 +430,27 @@ service, and snapshots captured with `cp -a --reflink=auto` — copy-on-write
 where the volume store allows it, one code path either way. A restore returns
 to the data as it was, which separates a snapshot from a metadata row.
 
+Memorystore for Redis instances and Memorystore for Redis Cluster clusters run
+a real Redis engine, one container per resource whose redis-server processes
+are its nodes, on the image the instance's `redisVersion` names (clusters run
+7.2). The create starts the engine and settles only once every node answers
+and, for a cluster, the slots are assigned and every replica has synchronised,
+so a resource reported ready is serving; the delete stops it and removes its
+volume. The `host`, `readEndpoint` and discovery endpoint the API reports are
+per-resource loopback listeners at port 6379 relaying to the engine, and each
+cluster node announces a loopback address at its own container port, because a
+replica replicates from the address its primary announces and that address
+has to reach the primary inside the container as well as from the host. AUTH
+is the engine's `requirepass`, whose value `getAuthString` returns; a failover
+promotes a replica and moves the primary endpoint to it. An export has the
+primary write its RDB with SAVE and stores that file in Cloud Storage; an
+import and an upgrade stage the snapshot as the primary's `dump.rdb` and
+restart the engine on it, removing the file once loaded so persistence stays
+off; a cluster backup keeps every shard's RDB, which `backups:export` writes to
+the bucket. A simulator started API-only (`SIM_RUNTIME=process`) runs no
+engine even when another server in the same process holds a container client,
+and its instances report no host.
+
 Firecracker boots Compute Engine, Amazon EC2 and Azure virtual machines where
 the host kernel allows it, over its default virtio-MMIO transport: the opt-in
 PCI transport never delivers the first virtio-blk completion on aarch64, and

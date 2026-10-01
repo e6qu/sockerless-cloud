@@ -73,6 +73,7 @@ func TestGCP_Operations_List(t *testing.T) {
 	require.NoError(t, err)
 	resp1.Body.Close()
 	require.Equal(t, http.StatusOK, resp1.StatusCode, "memorystore create must succeed")
+	deleteRedisOnCleanup(t, redisService(t), "projects/p1/locations/us-central1/instances/ops-test-redis")
 
 	// Two Cloud Run job creates in two regions: their operations land in two
 	// different project-scoped collections, which is what makes the `name`

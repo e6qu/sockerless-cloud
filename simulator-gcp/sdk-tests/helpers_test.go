@@ -80,6 +80,10 @@ func TestMain(m *testing.M) {
 	if testRunSelects("TestCloudSQL_MySQLBackupCapturesDataAndRestoreReturnsToIt") {
 		pullImageBeforeRun("public.ecr.aws/docker/library/mysql:8.0")
 	}
+	// Every Memorystore instance and cluster a test creates starts a real
+	// Redis engine: REDIS_7_0 is the instance default and clusters run 7.2.
+	pullImageBeforeRun("public.ecr.aws/docker/library/redis:7.0-alpine")
+	pullImageBeforeRun("public.ecr.aws/docker/library/redis:7.2-alpine")
 
 	probeDir, _ := filepath.Abs("../../testdata/http-localhost-probe")
 	httpProbeImageName = "sockerless-http-localhost-probe:gcp-sdk"

@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
 	"github.com/stretchr/testify/require"
@@ -83,6 +84,13 @@ func TestMain(m *testing.M) {
 	)
 	os.Setenv("NO_PROXY", noProxy)
 	os.Setenv("no_proxy", noProxy)
+
+	// The Memorystore instance the stack creates runs a real Redis engine.
+	// Acquiring the image here, with retries, keeps a registry hiccup out of
+	// the timed apply.
+	if err := baseimage.Ensure("public.ecr.aws/docker/library/redis:7.0-alpine"); err != nil {
+		log.Fatalf("Failed to pull the Redis engine image: %v", err)
+	}
 
 	// Each suite builds the simulator it runs into a path of its own. The
 	// three suites share one working tree, so a single `../simulator-gcp`

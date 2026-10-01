@@ -79,6 +79,18 @@ func TestOperations_RESTServiceOperationsReadOverGRPC(t *testing.T) {
 	assert.Equal(t, "backup", clusterMeta.GetVerb(), "a custom method is its own verb")
 	assert.Equal(t, clusterName, clusterMeta.GetTarget())
 
+	gcs := storageClient(t)
+	t.Cleanup(func() { gcs.Close() })
+	exportBucket := uniqueName("grpc-backup-export")
+	require.NoError(t, gcs.Bucket(exportBucket).Create(ctx, "ops-grpc-project", nil))
+	op, err = redisSvc.Projects.Locations.BackupCollections.Backups.Export(
+		parent+"/backupCollections/grpc-cluster/backups/grpc-backup",
+		&redis.ExportBackupRequest{GcsBucket: exportBucket}).Do()
+	require.NoError(t, err)
+	backup := &clusterpb.Backup{}
+	grpcOperation(t, ops, op.Name, backup, &clusterpb.OperationMetadata{})
+	assert.Equal(t, clusterName, backup.GetCluster(), "the exported backup names its cluster")
+
 	op, err = redisSvc.Projects.Locations.Clusters.Delete(clusterName).Do()
 	require.NoError(t, err)
 	clusterMeta = &clusterpb.OperationMetadata{}

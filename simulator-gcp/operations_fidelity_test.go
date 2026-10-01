@@ -90,7 +90,6 @@ func TestGCPOperationMetadataNamesVerbAndTarget(t *testing.T) {
 		{"instance update", redisHost, http.MethodPatch, "/v1/" + instance + "?updateMask=memorySizeGb", `{"memorySizeGb":2}`, "update", instance, "google.cloud.redis.v1.Instance"},
 		{"instance delete", redisHost, http.MethodDelete, "/v1/" + instance, ``, "delete", instance, "google.protobuf.Empty"},
 		{"cluster create", redisHost, http.MethodPost, base + "/clusters?clusterId=verb-cluster", `{"shardCount":1}`, "create", cluster, "google.cloud.redis.cluster.v1.Cluster"},
-		{"cluster backup", redisHost, http.MethodPost, "/v1/" + cluster + ":backup", `{"backupId":"b1"}`, "backup", cluster, "google.cloud.redis.cluster.v1.Cluster"},
 		{"cluster delete", redisHost, http.MethodDelete, "/v1/" + cluster, ``, "delete", cluster, "google.protobuf.Empty"},
 		{"api create", "apigateway.googleapis.com", http.MethodPost, "/v1/projects/p/locations/global/apis?apiId=verb-api", `{}`, "create", api, "google.cloud.apigateway.v1.Api"},
 		{"api delete", "apigateway.googleapis.com", http.MethodDelete, "/v1/" + api, ``, "delete", api, "google.protobuf.Empty"},
@@ -129,15 +128,6 @@ func TestGRPCOperationsReadRESTServiceOperations(t *testing.T) {
 	grpcReadOperation(t, op["name"].(string), cluster, clusterMeta)
 	if cluster.GetShardCount() != 2 || clusterMeta.GetTarget() != cluster.GetName() {
 		t.Fatalf("cluster %v, metadata %v", cluster, clusterMeta)
-	}
-	gcpHostOK(t, srv, "redis.googleapis.com", http.MethodPost,
-		"/v1/projects/p/locations/us-central1/clusters/grpc-cluster:backup", `{"backupId":"b1"}`)
-	op = gcpHostOK(t, srv, "redis.googleapis.com", http.MethodPost,
-		"/v1/projects/p/locations/us-central1/backupCollections/grpc-cluster/backups/b1:export", `{"gcsBucket":"any"}`)
-	backup := &clusterpb.Backup{}
-	grpcReadOperation(t, op["name"].(string), backup, &clusterpb.OperationMetadata{})
-	if backup.GetCluster() != cluster.GetName() {
-		t.Fatalf("backup %v does not name its cluster", backup)
 	}
 
 	op = gcpHostOK(t, srv, "artifactregistry.googleapis.com", http.MethodPost,

@@ -195,6 +195,7 @@ func TestMemorystoreRedis_BackupCollections(t *testing.T) {
 	require.NoError(t, err)
 
 	name := parent + "/clusters/" + id
+	deleteRedisOnCleanup(t, svc, name)
 	bop, err := svc.Projects.Locations.Clusters.Backup(name, &redis.BackupClusterRequest{
 		BackupId: "snap-1",
 	}).Do()
@@ -222,8 +223,12 @@ func TestMemorystoreRedis_BackupCollections(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", got.State)
 
+	gcs := storageClient(t)
+	t.Cleanup(func() { gcs.Close() })
+	exportBucket := uniqueName("sim-backups")
+	require.NoError(t, gcs.Bucket(exportBucket).Create(ctx, "test-project", nil))
 	expOp, err := svc.Projects.Locations.BackupCollections.Backups.Export(backupName, &redis.ExportBackupRequest{
-		GcsBucket: "gs://sim-backups",
+		GcsBucket: exportBucket,
 	}).Do()
 	require.NoError(t, err)
 	expSettled := awaitRedisLRO(t, svc, expOp)
@@ -236,7 +241,7 @@ func TestMemorystoreRedis_BackupCollections(t *testing.T) {
 	// Export resolves the backup it is given: a name no backup was minted under
 	// is NOT_FOUND rather than an export of nothing.
 	_, err = svc.Projects.Locations.BackupCollections.Backups.Export(bcName+"/backups/no-such-backup",
-		&redis.ExportBackupRequest{GcsBucket: "gs://sim-backups"}).Do()
+		&redis.ExportBackupRequest{GcsBucket: exportBucket}).Do()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "404")
 
@@ -300,6 +305,7 @@ func TestMemorystoreRedis_AclPolicies(t *testing.T) {
 	}).ClusterId("acl-cluster").Do()
 	require.NoError(t, err)
 	clName := clParent + "/clusters/acl-cluster"
+	deleteRedisOnCleanup(t, svc, clName)
 
 	addOp, err := svc.Projects.Locations.Clusters.AddTokenAuthUser(clName, &redis.AddTokenAuthUserRequest{
 		TokenAuthUser: "svc-account",

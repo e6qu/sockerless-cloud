@@ -170,8 +170,11 @@ Current state of the sockerless-cloud repository.
 - **Declined surfaces are the ones whose required content is somebody else's
   data**: Cloud Spanner's Key Visualizer scans and wire-protocol adapter,
   Cloud KMS Key Access Justifications, Firestore's streaming REST spellings,
-  Memorystore's RDB export and import, and Amazon SNS SMS and mobile push. Each
-  answers by naming what is missing.
+  and Amazon SNS SMS and mobile push. Each answers by naming what is missing.
+- **Memorystore for Redis** instances and Memorystore for Redis Cluster
+  clusters run a real Redis engine at the endpoints the API reports; exports,
+  imports and backups move the engine's own RDB snapshots through Cloud
+  Storage.
 
 ## Gates
 
