@@ -683,6 +683,22 @@ CLI never tells buildkit to stop and can leave a child holding the output pipe.
 A privileged CodeBuild environment gets the simulator's own engine, and its
 output streams to CloudWatch Logs as the service does by default.
 
+Azure Container Registry Tasks' `scheduleRun` records the Run Queued and
+answers 200 with it at once — the Azure CLI's own registry-tasks client accepts
+nothing else, and the Go SDK's poller completes on a 200 that names no
+operation — and the build runs in the background, Queued → Running →
+Succeeded, Failed, Canceled, Timeout (the DockerBuildRequest `timeout`, 3600
+seconds unset, 300 to 28800 accepted) or Error when the simulator stops under
+it; a restart ends the runs a previous process left unfinished. `Runs_Cancel`
+interrupts the run's docker steps and answers once the run has stopped and
+reads Canceled. The run's log is a blob at its log link that grows while the
+build writes it, serves the Blob service's ranged reads, and gains `Complete`
+metadata when the run ends, which is what `az acr build` streams until.
+Before, `scheduleRun` held the request until the build ended and answered with
+the finished Run, so no client could see a running build or cancel one; the
+SDK and CLI suites now take the Queued Run from the poller and follow the Run's
+own status, and cancel a build mid-run.
+
 ## Storage
 
 An object store's conditional write is one step. A client that keeps its

@@ -64,11 +64,16 @@ func moveACRRegistryARM(oldID, newID string) {
 	// A task run is stored under its own short run identifier rather than its
 	// resource ID, so its record is rewritten in place: the ID it reports
 	// names the registry, and that reference moves with the registry.
+	// Update rather than Put, because a run still executing writes its own
+	// record from the background at the same time.
 	for _, run := range acrRuns.List() {
 		if len(run.ID) <= len(oldSub) || run.ID[:len(oldSub)] != oldSub {
 			continue
 		}
-		run.ID = newSub + run.ID[len(oldSub):]
-		acrRuns.Put(run.Properties.RunID, run)
+		acrRuns.Update(run.Properties.RunID, func(run *acrRun) {
+			if len(run.ID) > len(oldSub) && run.ID[:len(oldSub)] == oldSub {
+				run.ID = newSub + run.ID[len(oldSub):]
+			}
+		})
 	}
 }

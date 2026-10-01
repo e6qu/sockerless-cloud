@@ -388,6 +388,13 @@ func registerBlobDataPlane(srv *sim.Server) {
 				next.ServeHTTP(w, r)
 				return
 			}
+			// An ACR Tasks run log is read with the Blob service's protocol,
+			// x-ms-version and all, at a link on this host whose path is not
+			// a storage account's.
+			if acrIsRunLogPath(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
 			// Path-style fallback (Azurite-compatible). When the
 			// host carries NO service-specific Azure subdomain
 			// AND the URL path starts with `/{account}/...` AND

@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -16,8 +20,9 @@ import (
 )
 
 // ACR Tasks quick-build slice. A client builds an image through the real ACR
-// Tasks API — RegistriesClient.BeginScheduleRun with a DockerBuildRequest, then
-// polling RunsClient.Get. This implements
+// Tasks API — RegistriesClient.BeginScheduleRun with a DockerBuildRequest,
+// which answers with the Run Queued, then RunsClient.Get until the Run is
+// terminal. This implements
 // that slice at cloud-API fidelity: the build context is fetched from the
 // sim's blob storage (where the backend's azblob upload landed), the
 // docker build runs on the host engine — the sim's build infrastructure,
@@ -47,6 +52,8 @@ type acrRunProperties struct {
 	LastUpdatedTime   string               `json:"lastUpdatedTime,omitempty"`
 	OutputImages      []acrImageDescriptor `json:"outputImages,omitempty"`
 	Platform          *acrPlatform         `json:"platform,omitempty"`
+	RunErrorMessage   string               `json:"runErrorMessage,omitempty"`
+	IsArchiveEnabled  bool                 `json:"isArchiveEnabled"`
 }
 
 type acrImageDescriptor struct {
@@ -79,29 +86,96 @@ type acrDockerBuildRequest struct {
 	Arguments      []acrArgument `json:"arguments"`
 	Target         string        `json:"target"`
 	Platform       *acrPlatform  `json:"platform"`
+	Timeout        *int32        `json:"timeout"`
 }
 
-var acrRuns sim.Store[acrRun]
-var acrRunLogs sim.Store[string]
-var acrTasksLogger zerolog.Logger
+// The DockerBuildRequest `timeout` bounds, in seconds, from the registry tasks
+// specification.
+const (
+	acrRunDefaultTimeoutSeconds = 3600
+	acrRunMinTimeoutSeconds     = 300
+	acrRunMaxTimeoutSeconds     = 28800
+)
+
+var (
+	errACRRunCanceled = errors.New("the run was canceled")
+	errACRRunTimedOut = errors.New("the run exceeded its timeout")
+)
+
+// acrActiveRun is a run this process is executing: what stops it, what closes
+// once its terminal status is recorded, and the log it is writing.
+type acrActiveRun struct {
+	cancel context.CancelCauseFunc
+	done   chan struct{}
+	log    *acrRunLog
+}
+
+// acrRunLog is the log of a running run, which the log link serves while the
+// run is still writing it.
+type acrRunLog struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *acrRunLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *acrRunLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+var (
+	acrRuns        sim.Store[acrRun]
+	acrRunLogs     sim.Store[string]
+	acrTasksLogger zerolog.Logger
+	acrTasksServer *sim.Server
+
+	acrActiveRunsMu sync.Mutex
+	acrActiveRuns   = map[string]*acrActiveRun{}
+)
+
+func acrRunFinished(status string) bool {
+	switch status {
+	case "Succeeded", "Failed", "Canceled", "Error", "Timeout":
+		return true
+	}
+	return false
+}
+
+// acrRunLogCompletion is the `Complete` metadata a run's log blob gains when
+// the run ends. The az CLI streams the log until the metadata appears and
+// reads the run's outcome from its value.
+func acrRunLogCompletion(status string) string {
+	switch status {
+	case "Timeout":
+		return "TimedOut"
+	case "Error":
+		return "InternalError"
+	}
+	return status
+}
 
 func registerACRTasks(srv *sim.Server) {
 	acrRuns = sim.MakeStore[acrRun](srv.DB(), "acr_runs")
 	acrRunLogs = sim.MakeStore[string](srv.DB(), "acr_run_logs")
 	acrTasksLogger = srv.Logger()
+	acrTasksServer = srv
+	acrActiveRunsMu.Lock()
+	acrActiveRuns = map[string]*acrActiveRun{}
+	acrActiveRunsMu.Unlock()
+	acrFailInterruptedRuns()
 
-	// The run-log endpoint listLogSasUrl advertises. Real ACR serves the
-	// build log as a plain text blob at a SAS-authorized URL; the sim's
-	// link carries the run id as the capability.
-	srv.HandleFunc("GET /acr/v1/logs/{runId}", func(w http.ResponseWriter, r *http.Request) {
-		log, ok := acrRunLogs.Get(sim.PathParam(r, "runId"))
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte(log))
-	})
+	// The run-log blob listLogSasUrl advertises. ACR serves a run's log as a
+	// blob at a SAS URL that grows while the run writes it and gains
+	// `Complete` metadata when the run ends; `az acr build` and `az acr task
+	// logs` stream it with the Blob service's get-properties and ranged reads.
+	// The GET pattern serves HEAD as well.
+	srv.HandleFunc("GET /acr/v1/logs/{runId}", handleACRRunLog)
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ContainerRegistry"
 	// scheduleRun / runs / the task-children action verbs are not in the
 	// path-normalization allowlist, so they are registered with the exact
@@ -180,19 +254,24 @@ func registerACRTasks(srv *sim.Server) {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", runID)
 			return
 		}
-		var req struct{}
-		_ = sim.ReadJSON(r, &req)
+		var req struct {
+			IsArchiveEnabled *bool `json:"isArchiveEnabled"`
+		}
+		if err := sim.ReadJSON(r, &req); err != nil {
+			AzureError(w, "InvalidRequestContent", "failed to parse run update: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.IsArchiveEnabled != nil {
+			acrRuns.Update(runID, func(stored *acrRun) {
+				stored.Properties.IsArchiveEnabled = *req.IsArchiveEnabled
+				stored.Properties.LastUpdatedTime = acrNow()
+			})
+			run, _ = acrRuns.Get(runID)
+		}
 		sim.WriteJSON(w, http.StatusOK, run)
 	})
 
-	// POST .../runs/{runId}/cancel — cancels a run. No response body.
-	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/runs/{runId}/cancel", func(w http.ResponseWriter, r *http.Request) {
-		runID := sim.PathParam(r, "runId")
-		acrRuns.Update(runID, func(run *acrRun) {
-			run.Properties.Status = "Canceled"
-		})
-		w.WriteHeader(http.StatusOK)
-	})
+	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/runs/{runId}/cancel", handleACRCancelRun)
 
 	// POST .../runs/{runId}/listLogSasUrl — link to the run's build logs.
 	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/runs/{runId}/listLogSasUrl", func(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +293,7 @@ func registerACRTasks(srv *sim.Server) {
 			scheme = "http"
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"logLink": fmt.Sprintf("%s://%s/acr/v1/logs/%s", scheme, r.Host, runID),
+			"logLink": fmt.Sprintf("%s://%s%s%s", scheme, r.Host, acrRunLogPathPrefix, runID),
 		})
 	})
 
@@ -244,6 +323,13 @@ func acrChildResourceID(r *http.Request, seg, nameParam string) string {
 	return fmt.Sprintf("%s/%s/%s", regID, seg, sim.PathParam(r, nameParam))
 }
 
+func acrNow() string { return time.Now().UTC().Format(time.RFC3339) }
+
+// handleACRScheduleRun records the Run Queued and answers with it at once, as
+// the service does: the build runs in the background, and a client follows it
+// through Runs_Get or the run's log. The Registries_ScheduleRun the Azure CLI's
+// SDK calls accepts only a 200, and the Go SDK's poller completes on a 200
+// that names no operation to poll.
 func handleACRScheduleRun(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
@@ -262,51 +348,225 @@ func handleACRScheduleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	timeoutSeconds := int32(acrRunDefaultTimeoutSeconds)
+	if req.Timeout != nil {
+		if *req.Timeout < acrRunMinTimeoutSeconds || *req.Timeout > acrRunMaxTimeoutSeconds {
+			AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest,
+				"The run timeout %d is out of range: it must be between %d and %d seconds.",
+				*req.Timeout, acrRunMinTimeoutSeconds, acrRunMaxTimeoutSeconds)
+			return
+		}
+		timeoutSeconds = *req.Timeout
+	}
+
 	runID := "cb" + sim.NewUUID()[:8]
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := acrNow()
 	run := acrRun{
 		ID:   fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s/runs/%s", sub, rg, registry, runID),
 		Name: runID,
 		Type: "Microsoft.ContainerRegistry/registries/runs",
 		Properties: acrRunProperties{
-			RunID:      runID,
-			RunType:    "QuickBuild",
-			CreateTime: now,
-			StartTime:  now,
-			Platform:   req.Platform,
+			RunID:             runID,
+			Status:            "Queued",
+			ProvisioningState: "Succeeded",
+			RunType:           "QuickBuild",
+			CreateTime:        now,
+			LastUpdatedTime:   now,
+			Platform:          req.Platform,
 		},
 	}
+	acrRuns.Put(runID, run)
+	acrStartRun(runID, req, reg, time.Duration(timeoutSeconds)*time.Second)
+	sim.WriteJSON(w, http.StatusOK, run)
+}
 
-	// Execute the docker build synchronously. Real ACR Tasks is async
-	// (QUEUED → RUNNING → SUCCEEDED) with status surfaced via the Run
-	// resource; the sim compresses that into the one call, so the SDK poller
-	// resolves on the first body read.
-	buildLog, buildErr := executeACRBuild(r.Context(), req, reg, runID)
-	acrRunLogs.Put(runID, buildLog)
-	run.Properties.FinishTime = time.Now().UTC().Format(time.RFC3339)
-	run.Properties.LastUpdatedTime = run.Properties.FinishTime
-	if buildErr != nil {
-		run.Properties.Status = "Failed"
-		run.Properties.ProvisioningState = "Failed"
-		acrRuns.Put(runID, run)
-		// Surface the build failure in the sim log for harness diagnosis.
-		// The response is still a 200 with the Run body (status=Failed) —
-		// real ACR returns the run resource and reports failure through
-		// its status, which the SDK body poller reads to fail the caller;
-		// an ARM error envelope here would break the poller's body read.
-		acrTasksLogger.Error().Str("runId", runID).Strs("images", req.ImageNames).
-			Err(buildErr).Msg("ACR Task build failed")
-		sim.WriteJSON(w, http.StatusOK, run)
+// acrStartRun registers the run as active before its worker starts, so a
+// cancel that arrives the moment the schedule call returns finds it.
+func acrStartRun(runID string, req acrDockerBuildRequest, reg Registry, timeout time.Duration) {
+	stop, cancel := context.WithCancelCause(context.Background())
+	active := &acrActiveRun{cancel: cancel, done: make(chan struct{})}
+	acrActiveRunsMu.Lock()
+	acrActiveRuns[runID] = active
+	acrActiveRunsMu.Unlock()
+	acrTasksServer.StartBackground("acr-tasks-run", func(serverCtx context.Context) {
+		acrExecuteRun(serverCtx, stop, active, runID, req, reg, timeout)
+	})
+}
+
+// acrExecuteRun moves a run from Queued to Running, builds, and records the
+// terminal status: Succeeded, Failed, Canceled when Runs_Cancel stopped it,
+// Timeout when it outlived its timeout, and Error when the simulator shut
+// down under it.
+func acrExecuteRun(serverCtx, stop context.Context, active *acrActiveRun, runID string, req acrDockerBuildRequest, reg Registry, timeout time.Duration) {
+	defer func() {
+		active.cancel(nil)
+		acrActiveRunsMu.Lock()
+		if acrActiveRuns[runID] == active {
+			delete(acrActiveRuns, runID)
+		}
+		acrActiveRunsMu.Unlock()
+		close(active.done)
+	}()
+
+	runCtx, cancelRun := context.WithCancelCause(serverCtx)
+	defer cancelRun(nil)
+	unlink := context.AfterFunc(stop, func() { cancelRun(context.Cause(stop)) })
+	defer unlink()
+
+	if context.Cause(stop) != nil || serverCtx.Err() != nil {
+		acrFinishRun(runID, acrRunOutcome(serverCtx, context.Cause(stop), nil))
 		return
 	}
+	log := &acrRunLog{}
+	acrActiveRunsMu.Lock()
+	active.log = log
+	acrActiveRunsMu.Unlock()
+	acrRuns.Update(runID, func(run *acrRun) {
+		now := acrNow()
+		run.Properties.Status = "Running"
+		run.Properties.StartTime = now
+		run.Properties.LastUpdatedTime = now
+	})
 
-	run.Properties.Status = "Succeeded"
-	run.Properties.ProvisioningState = "Succeeded"
-	for _, img := range req.ImageNames {
-		run.Properties.OutputImages = append(run.Properties.OutputImages, parseACRImage(img))
+	buildCtx, cancelBuild := context.WithTimeoutCause(runCtx, timeout, errACRRunTimedOut)
+	defer cancelBuild()
+	buildErr := executeACRBuild(buildCtx, req, reg, runID, log)
+	acrRunLogs.Put(runID, log.String())
+
+	outcome := acrRunOutcome(serverCtx, context.Cause(buildCtx), buildErr)
+	if outcome.status == "Succeeded" && req.IsPushEnabledOrDefault() {
+		for _, img := range req.ImageNames {
+			outcome.outputImages = append(outcome.outputImages, parseACRImage(img))
+		}
 	}
-	acrRuns.Put(runID, run)
-	sim.WriteJSON(w, http.StatusOK, run)
+	if outcome.status == "Failed" {
+		output := log.String()
+		if len(output) > 2048 {
+			output = output[len(output)-2048:]
+		}
+		acrTasksLogger.Error().Str("runId", runID).Strs("images", req.ImageNames).
+			Str("output", output).Err(buildErr).Msg("ACR Task build failed")
+	}
+	acrFinishRun(runID, outcome)
+}
+
+type acrOutcome struct {
+	status       string
+	message      string
+	outputImages []acrImageDescriptor
+}
+
+// acrRunOutcome names the terminal status of a run whose work ended with err,
+// cause being why its context ended, if it did.
+func acrRunOutcome(serverCtx context.Context, cause, err error) acrOutcome {
+	switch {
+	case errors.Is(cause, errACRRunCanceled):
+		return acrOutcome{status: "Canceled"}
+	case errors.Is(cause, errACRRunTimedOut):
+		return acrOutcome{status: "Timeout", message: errACRRunTimedOut.Error()}
+	case serverCtx.Err() != nil:
+		return acrOutcome{status: "Error", message: "The run was interrupted by a service restart before it completed."}
+	case err != nil:
+		return acrOutcome{status: "Failed", message: err.Error()}
+	}
+	return acrOutcome{status: "Succeeded"}
+}
+
+func acrFinishRun(runID string, outcome acrOutcome) {
+	acrRuns.Update(runID, func(run *acrRun) {
+		now := acrNow()
+		run.Properties.Status = outcome.status
+		run.Properties.RunErrorMessage = outcome.message
+		run.Properties.OutputImages = outcome.outputImages
+		run.Properties.FinishTime = now
+		run.Properties.LastUpdatedTime = now
+	})
+}
+
+// acrFailInterruptedRuns ends every run a previous process left Queued or
+// Running: its execution died with that process and cannot resume.
+func acrFailInterruptedRuns() {
+	for _, run := range acrRuns.Filter(func(run acrRun) bool { return !acrRunFinished(run.Properties.Status) }) {
+		acrRuns.Update(run.Properties.RunID, func(run *acrRun) {
+			if acrRunFinished(run.Properties.Status) {
+				return
+			}
+			now := acrNow()
+			run.Properties.Status = "Error"
+			run.Properties.RunErrorMessage = "The run was interrupted by a service restart before it completed."
+			run.Properties.FinishTime = now
+			run.Properties.LastUpdatedTime = now
+		})
+	}
+}
+
+// handleACRCancelRun stops a Queued or Running run and answers once the run
+// has stopped and reads Canceled. A run that already ended keeps its status.
+func handleACRCancelRun(w http.ResponseWriter, r *http.Request) {
+	runID := sim.PathParam(r, "runId")
+	if _, ok := acrRuns.Get(runID); !ok {
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", runID)
+		return
+	}
+	acrActiveRunsMu.Lock()
+	active := acrActiveRuns[runID]
+	acrActiveRunsMu.Unlock()
+	if active != nil {
+		active.cancel(errACRRunCanceled)
+		select {
+		case <-active.done:
+		case <-r.Context().Done():
+			return
+		}
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+const acrRunLogPathPrefix = "/acr/v1/logs/"
+
+func acrIsRunLogPath(path string) bool {
+	return strings.HasPrefix(path, acrRunLogPathPrefix) && !strings.Contains(path[len(acrRunLogPathPrefix):], "/")
+}
+
+// handleACRRunLog serves a run's log the way the Blob service serves the log
+// blob: absent until the run starts writing it, growing while it runs, with
+// ranged reads, and carrying `Complete` metadata once the run has ended.
+func handleACRRunLog(w http.ResponseWriter, r *http.Request) {
+	runID := sim.PathParam(r, "runId")
+	acrActiveRunsMu.Lock()
+	var live *acrRunLog
+	if active := acrActiveRuns[runID]; active != nil {
+		live = active.log
+	}
+	acrActiveRunsMu.Unlock()
+
+	var content string
+	complete := ""
+	if live != nil {
+		content = live.String()
+	} else {
+		stored, ok := acrRunLogs.Get(runID)
+		if !ok {
+			writeStorageError(w, "BlobNotFound", "The specified blob does not exist.", http.StatusNotFound)
+			return
+		}
+		content = stored
+		if run, ok := acrRuns.Get(runID); ok && acrRunFinished(run.Properties.Status) {
+			complete = acrRunLogCompletion(run.Properties.Status)
+		}
+	}
+
+	size := int64(len(content))
+	start, end, partial, ok := azureStorageReadRange(w, r, size)
+	if !ok {
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Accept-Ranges", "bytes")
+	if complete != "" {
+		w.Header().Set("x-ms-meta-Complete", complete)
+	}
+	azureStorageServeRead(w, r, strings.NewReader(content), size, start, end, partial)
 }
 
 func handleACRGetRun(w http.ResponseWriter, r *http.Request) {
@@ -325,17 +585,17 @@ func handleACRGetRun(w http.ResponseWriter, r *http.Request) {
 // the registry and removes the local copy. The registry, not the build
 // host, is the source of truth; the workload later pulls the image from the
 // registry over the standard /v2/ API. The build context is a gzipped tar
-// (Dockerfile + COPY'd files) streamed to `docker build -` on stdin.
-func executeACRBuild(ctx context.Context, req acrDockerBuildRequest, reg Registry, runID string) (string, error) {
-	var runLog strings.Builder
+// (Dockerfile + COPY'd files) streamed to `docker build -` on stdin, and the
+// docker output goes to runLog as it is written.
+func executeACRBuild(ctx context.Context, req acrDockerBuildRequest, reg Registry, runID string, runLog io.Writer) error {
 	logf := func(format string, args ...any) {
-		fmt.Fprintf(&runLog, format+"\n", args...)
+		_, _ = fmt.Fprintf(runLog, format+"\n", args...)
 	}
 	if len(req.ImageNames) == 0 {
-		return runLog.String(), fmt.Errorf("imageNames is required")
+		return fmt.Errorf("imageNames is required")
 	}
 	if req.SourceLocation == "" {
-		return runLog.String(), fmt.Errorf("sourceLocation is required (only source-based DockerBuildRequest is supported)")
+		return fmt.Errorf("sourceLocation is required (only source-based DockerBuildRequest is supported)")
 	}
 
 	// The run's docker steps push to — and pull base images from — the
@@ -346,22 +606,22 @@ func executeACRBuild(ctx context.Context, req acrDockerBuildRequest, reg Registr
 	// push and pull scopes.
 	dockerConfigDir, err := acrRunDockerConfig(reg, runID)
 	if err != nil {
-		return runLog.String(), fmt.Errorf("docker configuration: %w", err)
+		return fmt.Errorf("docker configuration: %w", err)
 	}
 	defer os.RemoveAll(dockerConfigDir)
 	dockerEnv := append(os.Environ(), sim.DockerConfigEnv(dockerConfigDir)...)
 
 	account, container, blob, err := parseACRBlobURL(req.SourceLocation)
 	if err != nil {
-		return runLog.String(), fmt.Errorf("parse sourceLocation: %w", err)
+		return fmt.Errorf("parse sourceLocation: %w", err)
 	}
 	obj, ok := blobObjects.Get(blobObjectKey(account, container, blob))
 	if !ok {
-		return runLog.String(), fmt.Errorf("source context blob %s/%s not found in storage account %s", container, blob, account)
+		return fmt.Errorf("source context blob %s/%s not found in storage account %s", container, blob, account)
 	}
 
 	if _, err := exec.LookPath("docker"); err != nil {
-		return runLog.String(), fmt.Errorf("docker CLI not available for ACR Tasks build: %w", err)
+		return fmt.Errorf("docker CLI not available for ACR Tasks build: %w", err)
 	}
 
 	dockerfile := req.DockerFilePath
@@ -370,7 +630,6 @@ func executeACRBuild(ctx context.Context, req acrDockerBuildRequest, reg Registr
 	}
 
 	args := append(workload.DockerBuildInvocation(ctx, dockerEnv), "-f", dockerfile)
-	acrTasksLogger.Info().Strs("invocation", args).Strs("images", req.ImageNames).Msg("ACR Tasks: building overlay")
 	for _, img := range req.ImageNames {
 		args = append(args, "-t", img)
 	}
@@ -391,18 +650,19 @@ func executeACRBuild(ctx context.Context, req acrDockerBuildRequest, reg Registr
 		args = append(args, "--target", req.Target)
 	}
 	args = append(args, "-") // build context from stdin (gzipped tar)
+	acrTasksLogger.Info().Str("runId", runID).Strs("invocation", args).Msg("ACR Tasks: building")
 
-	_, context, err := blobOpen(obj)
+	_, buildContext, err := blobOpen(obj)
 	if err != nil {
-		return runLog.String(), fmt.Errorf("read the build context: %w", err)
+		return fmt.Errorf("read the build context: %w", err)
 	}
-	defer func() { _ = context.Close() }()
+	defer func() { _ = buildContext.Close() }()
 	cmd := workload.DockerCommand(ctx, dockerEnv, args...)
-	cmd.Stdin = context
-	out, err := cmd.CombinedOutput()
-	runLog.Write(out)
-	if err != nil {
-		return runLog.String(), fmt.Errorf("docker build %v failed: %w: %s", req.ImageNames, err, strings.TrimSpace(string(out)))
+	cmd.Stdin = buildContext
+	cmd.Stdout = runLog
+	cmd.Stderr = runLog
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("docker build %v failed: %w", req.ImageNames, err)
 	}
 
 	// Push each tag to its registry and drop the local copy — the faithful
@@ -410,22 +670,22 @@ func executeACRBuild(ctx context.Context, req acrDockerBuildRequest, reg Registr
 	// host. The image ref's host (e.g. the configured ACR endpoint) routes
 	// to the registry's /v2/; pushing is a plain registry-client operation.
 	if !req.IsPushEnabledOrDefault() {
-		return runLog.String(), nil
+		return nil
 	}
 	for _, img := range req.ImageNames {
 		logf("The push refers to repository [%s]", img)
 		push := workload.DockerCommand(ctx, dockerEnv, "push", img)
-		out, err := push.CombinedOutput()
-		runLog.Write(out)
-		if err != nil {
-			return runLog.String(), fmt.Errorf("docker push %s failed: %w: %s", img, err, strings.TrimSpace(string(out)))
+		push.Stdout = runLog
+		push.Stderr = runLog
+		if err := push.Run(); err != nil {
+			return fmt.Errorf("docker push %s failed: %w", img, err)
 		}
 		if out, err := workload.DockerCommand(ctx, dockerEnv, "rmi", "-f", img).CombinedOutput(); err != nil {
 			acrTasksLogger.Warn().Str("image", img).Str("out", strings.TrimSpace(string(out))).
 				Msg("could not remove local ACR Task build output after push")
 		}
 	}
-	return runLog.String(), nil
+	return nil
 }
 
 // IsPushEnabledOrDefault reports whether the build output should be pushed.
