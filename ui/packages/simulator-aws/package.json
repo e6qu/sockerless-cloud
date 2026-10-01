@@ -12,11 +12,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@cloudscape-design/components": "3.0.1386",
+    "@cloudscape-design/components": "3.0.1390",
     "@cloudscape-design/design-tokens": "^3.0.113",
-    "@cloudscape-design/global-styles": "^1.0.70",
+    "@cloudscape-design/global-styles": "^1.0.71",
     "@sockerless/ui-core": "workspace:*",
-    "@tanstack/react-query": "^5.103.2",
+    "@tanstack/react-query": "^5.104.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router": "^8.4.0"
@@ -34,6 +34,6 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.2"
   }
 }

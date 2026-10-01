@@ -905,7 +905,9 @@ compared exactly and an unpinned provider is a failure. On a pull request, a
 drift byte-identical to `main`'s is reported rather than failed, since upstream
 moved under the branch. Every network lookup the check makes carries a
 deadline and fails naming what never answered. A deliberate hold names its
-cause and goes when the cause does.
+cause and goes when the cause does. Resolving the module behind a workflow's
+`go install` package path asks the module proxies alone: `direct` would answer
+each non-module prefix by cloning the whole repository.
 
 ## Continuous integration
 

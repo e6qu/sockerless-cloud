@@ -724,6 +724,13 @@ fi
 # and the reason went to /dev/null both times.
 go_tool_module_error=""
 
+# Every prefix the walk tries short of the module is a path no proxy holds, and
+# GOPROXY's `direct` fallback answers such a 404 by cloning the repository the
+# path names (all of go.googlesource.com/tools for x/tools/cmd/deadcode), which
+# outran the query deadline in CI. The walk asks the proxies alone.
+go_tool_proxies=$(GOFLAGS='' go env GOPROXY | tr ',|' '\n' | { grep -vxE 'direct|off' || true; } | paste -sd, -)
+[[ -n "$go_tool_proxies" ]] || go_tool_proxies=$(GOFLAGS='' go env GOPROXY)
+
 go_tool_module() {
   # NOT named `path`. In zsh `path` is tied to `PATH` as an array, so a
   # function-local `path=github.com/mibk/dupl` replaces the command search
@@ -740,7 +747,7 @@ go_tool_module() {
     # stderr to a file rather than `2>&1 >/dev/null`: under zsh's MULTIOS that
     # idiom does not mean what it means in bash, and it swallowed the very
     # error this was added to surface.
-    if go_proxy -versions "$candidate" >/dev/null 2>"$errfile"; then
+    if GOPROXY=$go_tool_proxies go_proxy -versions "$candidate" >/dev/null 2>"$errfile"; then
       rm -f "$errfile"
       printf '%s\n' "$candidate"
       return 0
