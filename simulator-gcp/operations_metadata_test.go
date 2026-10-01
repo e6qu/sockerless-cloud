@@ -102,14 +102,26 @@ func TestGCPOperationsCarryTheirServicesMetadata(t *testing.T) {
 			document: "artifactregistry-v1", schema: "OperationMetadata",
 		},
 		{
+			name: "Artifact Registry Apt repository", host: "artifactregistry.googleapis.com", method: http.MethodPost,
+			path: "/v1/projects/p/locations/us-central1/repositories?repositoryId=meta-apt", body: `{"format":"APT"}`,
+			wantType: "type.googleapis.com/google.devtools.artifactregistry.v1.OperationMetadata",
+			document: "artifactregistry-v1", schema: "OperationMetadata",
+		},
+		{
 			name: "Artifact Registry apt import", host: "artifactregistry.googleapis.com", method: http.MethodPost,
-			path: "/v1/projects/p/locations/us-central1/repositories/meta-repo/aptArtifacts:import", body: `{}`,
+			path: "/v1/projects/p/locations/us-central1/repositories/meta-apt/aptArtifacts:import", body: `{"gcsSource":{"uris":["gs://meta-absent/hello.deb"]}}`,
 			wantType: "type.googleapis.com/google.devtools.artifactregistry.v1.ImportAptArtifactsMetadata",
 			document: "artifactregistry-v1", schema: "ImportAptArtifactsMetadata",
 		},
 		{
+			name: "Artifact Registry Go repository", host: "artifactregistry.googleapis.com", method: http.MethodPost,
+			path: "/v1/projects/p/locations/us-central1/repositories?repositoryId=meta-go", body: `{"format":"GO"}`,
+			wantType: "type.googleapis.com/google.devtools.artifactregistry.v1.OperationMetadata",
+			document: "artifactregistry-v1", schema: "OperationMetadata",
+		},
+		{
 			name: "Artifact Registry Go module upload", host: "artifactregistry.googleapis.com", method: http.MethodPost,
-			path: "/v1/projects/p/locations/us-central1/repositories/meta-repo/goModules:create", body: `{}`,
+			path: "/upload/v1/projects/p/locations/us-central1/repositories/meta-go/goModules:create?uploadType=media", body: string(arTestGoModuleZip(t, "example.com/meta", "v1.0.0", "module example.com/meta\n")),
 			operation: func(m map[string]any) map[string]any { op, _ := m["operation"].(map[string]any); return op },
 			wantType:  "type.googleapis.com/google.devtools.artifactregistry.v1.UploadGoModuleMetadata",
 			document:  "artifactregistry-v1", schema: "UploadGoModuleMetadata",

@@ -1385,18 +1385,19 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
-		if azureVMOperationRunning(vm.Properties.ProvisioningState) {
+		if !azureClaimVMOperationAs(id, "Deleting", "") {
 			azureVMOperationConflict(w, "Delete", id)
 			return
 		}
-		if err := azureDeleteRealVM(r.Context(), vm); err != nil {
-			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real virtual machine: %v", err)
-			return
-		}
-		azureVMs.Delete(id)
-		azureVMStates.Delete(id)
-		azureVMProvisioningErrors.Delete(id)
-		w.WriteHeader(http.StatusOK)
+		opID := azureRunVMOperation(id, func(ctx context.Context) *AsyncOperationError {
+			if err := azureDestroyVM(ctx, vm); err != nil {
+				logger.Error().Err(err).Str("vm", id).Msg("failed to delete real Azure virtual machine")
+				return azureVMHaltFailure(id, err)
+			}
+			azureForgetVM(id)
+			return nil
+		})
+		writeAzureVMOperationAccepted(w, r, vm, opID)
 	})
 
 	// Each action names the power state the machine passes through and the

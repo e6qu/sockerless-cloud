@@ -8,8 +8,8 @@ require (
 	github.com/beevik/etree v1.8.1
 	github.com/containerd/errdefs v1.0.0
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260930220800-180cc87bb0dd
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260930222429-094526aa1ad9
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261001001203-11d6c2ff8957
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261001001220-345497a63ce2
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/go-git/go-git/v5 v5.19.2
@@ -24,7 +24,6 @@ require (
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/image v0.46.0
 	golang.org/x/net v0.59.0
-	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 )

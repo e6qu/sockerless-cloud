@@ -25,6 +25,18 @@ func TestRecoverComputeInstancesTerminatesInstancesWithoutBackingVMs(t *testing.
 		SelfLink: "projects/p/zones/us-central1-a/instances/was-provisioning",
 		Status:   ComputeInstanceProvisioning,
 	}
+	// A restart during a stop, a delete or a suspend catches the instance on
+	// its way down.
+	stopping := ComputeInstance{
+		Name:     "was-stopping",
+		SelfLink: "projects/p/zones/us-central1-a/instances/was-stopping",
+		Status:   ComputeInstanceStopping,
+	}
+	suspending := ComputeInstance{
+		Name:     "was-suspending",
+		SelfLink: "projects/p/zones/us-central1-a/instances/was-suspending",
+		Status:   ComputeInstanceSuspending,
+	}
 	stopped := ComputeInstance{
 		Name:     "already-stopped",
 		SelfLink: "projects/p/zones/us-central1-a/instances/already-stopped",
@@ -33,11 +45,13 @@ func TestRecoverComputeInstancesTerminatesInstancesWithoutBackingVMs(t *testing.
 	instances.Put(running.SelfLink, running)
 	instances.Put(staging.SelfLink, staging)
 	instances.Put(provisioning.SelfLink, provisioning)
+	instances.Put(stopping.SelfLink, stopping)
+	instances.Put(suspending.SelfLink, suspending)
 	instances.Put(stopped.SelfLink, stopped)
 
 	recoverComputeInstances(instances)
 
-	for _, selfLink := range []string{running.SelfLink, staging.SelfLink, provisioning.SelfLink} {
+	for _, selfLink := range []string{running.SelfLink, staging.SelfLink, provisioning.SelfLink, stopping.SelfLink, suspending.SelfLink} {
 		inst, ok := instances.Get(selfLink)
 		if !ok {
 			t.Fatalf("instance %s missing after recovery", selfLink)

@@ -3,6 +3,7 @@ package azure_sdk_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
@@ -262,14 +263,31 @@ func TestCompute_VirtualMachineSimulateEvictionDeallocatesASpotMachine(t *testin
 	_, err := vmClient.SimulateEviction(ctx, rg, vmName, nil)
 	require.NoError(t, err, "a Spot machine is evictable")
 
-	view, err := vmClient.InstanceView(ctx, rg, vmName, nil)
-	require.NoError(t, err)
-	var codes []string
-	for _, status := range view.Statuses {
-		codes = append(codes, derefString(status.Code))
+	// SimulateEviction is no long-running operation: Azure answers 204 and
+	// evicts the machine afterwards, so the instance view's power state is the
+	// only thing to watch. Poll it on the one-second cadence ARM advertises in
+	// Retry-After for its quickest operations.
+	deadline := time.Now().Add(5 * time.Minute)
+	for {
+		view, err := vmClient.InstanceView(ctx, rg, vmName, nil)
+		require.NoError(t, err)
+		if containsVMStatus(view.Statuses, "PowerState/deallocated") {
+			break
+		}
+		var codes []string
+		for _, status := range view.Statuses {
+			codes = append(codes, derefString(status.Code))
+		}
+		require.True(t, time.Now().Before(deadline),
+			"an evicted Spot machine with a Deallocate policy was never deallocated (statuses %v)", codes)
+		assert.True(t, containsVMStatus(view.Statuses, "PowerState/deallocating"),
+			"a machine being evicted reads deallocating until it is deallocated (statuses %v)", codes)
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-time.After(time.Second):
+		}
 	}
-	assert.Contains(t, codes, "PowerState/deallocated",
-		"an evicted Spot machine with a Deallocate policy is left deallocated")
 }
 
 // RetrieveBootDiagnosticsData returns the console output the guest really

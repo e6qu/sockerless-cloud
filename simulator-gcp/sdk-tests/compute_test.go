@@ -551,20 +551,33 @@ func TestCompute_Instances_Lifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assertComputeListHasName(t, list.Items, func(i *compute.Instance) string { return i.Name }, "sdk-vm-1")
 
-	_, err = svc.Instances.Stop(project, zone, "sdk-vm-1").Context(ctx).Do()
+	// Stop, start and delete answer with a RUNNING zone operation and move
+	// the machine behind it, the way insert does.
+	stopOp, err := svc.Instances.Stop(project, zone, "sdk-vm-1").Context(ctx).Do()
 	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", stopOp.Status)
+	assert.Equal(t, "stop", stopOp.OperationType)
+	stopDone := awaitZoneOperation(t, svc, project, zone, stopOp.Name)
+	require.Nil(t, stopDone.Error, "the stop operation failed: %+v", stopDone.Error)
 	stopped, err := svc.Instances.Get(project, zone, "sdk-vm-1").Context(ctx).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "TERMINATED", stopped.Status)
 
-	_, err = svc.Instances.Start(project, zone, "sdk-vm-1").Context(ctx).Do()
+	startOp, err := svc.Instances.Start(project, zone, "sdk-vm-1").Context(ctx).Do()
 	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", startOp.Status)
+	assert.Equal(t, "start", startOp.OperationType)
+	startDone := awaitZoneOperation(t, svc, project, zone, startOp.Name)
+	require.Nil(t, startDone.Error, "the start operation failed: %+v", startDone.Error)
 	running, err := svc.Instances.Get(project, zone, "sdk-vm-1").Context(ctx).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", running.Status)
 
-	_, err = svc.Instances.Delete(project, zone, "sdk-vm-1").Context(ctx).Do()
+	deleteOp, err := svc.Instances.Delete(project, zone, "sdk-vm-1").Context(ctx).Do()
 	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", deleteOp.Status)
+	deleteDone := awaitZoneOperation(t, svc, project, zone, deleteOp.Name)
+	require.Nil(t, deleteDone.Error, "the delete operation failed: %+v", deleteDone.Error)
 	_, err = svc.Instances.Get(project, zone, "sdk-vm-1").Context(ctx).Do()
 	require.Error(t, err, "get after delete must fail")
 }

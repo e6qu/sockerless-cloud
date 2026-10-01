@@ -635,8 +635,9 @@ func TestCompute_InstanceActions(t *testing.T) {
 	assert.Equal(t, "compute#serialPortOutput", out.Kind)
 	assert.Contains(t, out.SelfLink, "/instances/"+name+"/serialPort")
 
-	_, err = svc.Instances.Delete(moreProject, zone, name).Do()
+	deleteOp, err := svc.Instances.Delete(moreProject, zone, name).Do()
 	require.NoError(t, err)
+	awaitZoneOperation(t, svc, moreProject, zone, deleteOp.Name)
 	_, err = svc.Instances.Get(moreProject, zone, name).Do()
 	require.Error(t, err, "get after delete must fail")
 }

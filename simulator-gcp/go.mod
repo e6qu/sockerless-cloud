@@ -22,10 +22,13 @@ require (
 	cloud.google.com/go/serviceusage v1.16.0
 	cloud.google.com/go/spanner v1.95.1
 	cloud.google.com/go/vpcaccess v1.15.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260930220800-180cc87bb0dd
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260930222429-094526aa1ad9
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261001001203-11d6c2ff8957
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261001001220-345497a63ce2
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
+	github.com/klauspost/compress v1.20.1
 	github.com/moby/moby/client v0.6.0
+	github.com/ulikunitz/xz v0.5.17
+	go.yaml.in/yaml/v3 v3.0.5
 	google.golang.org/genproto v0.0.0-20260921155816-b14227669459
 	google.golang.org/genproto/googleapis/api v0.0.0-20260921155816-b14227669459
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260921155816-b14227669459

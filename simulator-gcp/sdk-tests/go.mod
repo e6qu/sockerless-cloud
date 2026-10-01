@@ -3,6 +3,8 @@ module github.com/e6qu/sockerless-cloud/simulator-gcp/sdk-tests
 go 1.26.0
 
 require (
+	cloud.google.com/go/apigateway v1.15.0
+	cloud.google.com/go/artifactregistry v1.27.0
 	cloud.google.com/go/bigtable v1.58.0
 	cloud.google.com/go/compute/metadata v0.10.0
 	cloud.google.com/go/eventarc v1.26.0
@@ -11,6 +13,7 @@ require (
 	cloud.google.com/go/iam v1.14.0
 	cloud.google.com/go/kms v1.35.0
 	cloud.google.com/go/logging v1.20.0
+	cloud.google.com/go/redis v1.26.0
 	cloud.google.com/go/resourcemanager v1.17.0
 	cloud.google.com/go/run v1.23.0
 	cloud.google.com/go/secretmanager v1.22.0
@@ -28,9 +31,6 @@ require (
 )
 
 require (
-	cloud.google.com/go/apigateway v1.15.0 // indirect
-	cloud.google.com/go/artifactregistry v1.27.0 // indirect
-	cloud.google.com/go/redis v1.26.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/GoogleCloudPlatform/grpc-gcp-go/grpcgcp v1.6.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.38.0 // indirect

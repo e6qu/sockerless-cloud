@@ -449,8 +449,10 @@ only name the directory, and a bucket reuses no files that a deleted bucket
 of the same name left behind.
 Removing a Docker network the engine refuses because a container is still
 attached waits for that container's disconnect event and tries again, instead
-of retrying on a timer. Deleting a Cloud DNS managed zone removes its network
-first and fails, keeping the zone, when the network cannot go.
+of retrying on a timer. Deleting a Cloud DNS managed zone succeeds whatever
+still resolves through it, as the service does; the Docker network behind the
+zone goes in the background once its last container disconnects, and a failure
+is logged rather than dropped.
 
 Every Amazon EventBridge Scheduler target call runs as the schedule's
 execution role, which must trust `scheduler.amazonaws.com` and allow the
@@ -491,6 +493,30 @@ line or fails when the process exits first, instead of polling `/health`. The
 parent-process watch and the container reaper wait on the parent's exit event,
 a pidfd on Linux and a kqueue `NOTE_EXIT` filter on macOS, rather than probing
 it on a timer.
+
+An Aurora cluster's engine serves a second, read-only address. Sessions on the
+reader endpoint (once a replica exists) and on a reader instance's own endpoint
+open read-only in the engine itself: PostgreSQL's startup packet carries
+`default_transaction_read_only=on`, and MySQL sessions run
+`SET SESSION TRANSACTION READ ONLY` before the client sees its login succeed.
+The writer's endpoints stay read-write.
+
+Artifact Registry stores the bytes of uploaded files and serves them back from
+`files.download`. The generic, Go module, KFP, Apt, Yum and GooGet uploads create
+the package, version and file their methods describe, reading each format's
+own metadata (a .deb control file in any of its compressions, an RPM header, a
+`.pkgspec`, a module zip), and `:import` publishes Cloud Storage objects the same
+way, reporting a bad object in the response's `errors`. `exportArtifact`
+resolves a version through the recorded package versions, so a pushed Docker
+image exports its manifest, config and layers, and deleting a version, package
+or repository deletes its files.
+
+Compute Engine `instances.start`, `stop`, `suspend`, `resume`,
+`startWithEncryptionKey` and `delete` answer at once with a RUNNING zone
+operation, move the instance through STAGING, STOPPING or SUSPENDING, and do
+the machine's work in the background, settling the operation when it ends. An
+Azure VM DELETE answers 202 with the long-running-operation headers and
+`SimulateEviction` answers 204, and both stop the guest in the background.
 
 A workload host pulls its image the way the cloud pulls it. The Cloud Run and
 Cloud Functions hosts present the project's Cloud Run service agent's access

@@ -203,8 +203,9 @@ func TestCompute_InstanceStartWithEncryptionKeyAndUpdate(t *testing.T) {
 	const project, zone, name = "encrypted-boot", "us-central1-a", "sealed"
 	createVerbInstance(t, svc, project, zone, name)
 
-	_, err := svc.Instances.Stop(project, zone, name).Do()
+	stopOp, err := svc.Instances.Stop(project, zone, name).Do()
 	require.NoError(t, err)
+	awaitZoneOperation(t, svc, project, zone, stopOp.Name)
 
 	// The keys are supplied per disk. A start with none named has nothing to
 	// unlock the disks with.
@@ -213,7 +214,7 @@ func TestCompute_InstanceStartWithEncryptionKeyAndUpdate(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "keys for the instance's encrypted disks")
 
-	_, err = svc.Instances.StartWithEncryptionKey(project, zone, name,
+	startOp, err := svc.Instances.StartWithEncryptionKey(project, zone, name,
 		&compute.InstancesStartWithEncryptionKeyRequest{
 			Disks: []*compute.CustomerEncryptionKeyProtectedDisk{{
 				Source: "projects/" + project + "/zones/" + zone + "/disks/boot",
@@ -223,6 +224,8 @@ func TestCompute_InstanceStartWithEncryptionKeyAndUpdate(t *testing.T) {
 			}},
 		}).Do()
 	require.NoError(t, err)
+	started := awaitZoneOperation(t, svc, project, zone, startOp.Name)
+	require.Nil(t, started.Error, "the start operation failed: %+v", started.Error)
 	got, err := svc.Instances.Get(project, zone, name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", got.Status)

@@ -249,9 +249,12 @@ func TestCustomMethodOperationsAreRecorded(t *testing.T) {
 	const arHost = "artifactregistry.googleapis.com"
 	repo := "projects/p/locations/us-central1/repositories/rec-repo"
 	gcpHostOK(t, srv, arHost, http.MethodPost, "/v1/projects/p/locations/us-central1/repositories?repositoryId=rec-repo", `{"format":"DOCKER"}`)
-	version := repo + "/packages/app/versions/sha256:0123"
-	arVersions.Put(version, ARVersion{Name: version})
-	arRegistry.Blobs.Put("rec-repo@sha256:0123", sim.OCIBlob{Digest: "sha256:0123", ContentType: "application/octet-stream", Data: []byte("layer bytes")})
+	layer := []byte("layer bytes")
+	layerDigest := digestBytes(layer)
+	arRegistry.PutBlob("", "p/rec-repo/app", layerDigest, "application/octet-stream", layer)
+	manifest := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"digest":"` + layerDigest + `","size":11},"layers":[]}`)
+	arRegistry.PutManifest("", "p/rec-repo/app", "v1", "application/vnd.oci.image.manifest.v1+json", manifest)
+	version := repo + "/packages/app/versions/" + digestBytes(manifest)
 	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=p", `{"name":"export-bucket"}`)
 
 	readBack := func(op map[string]any) map[string]any {
@@ -276,10 +279,10 @@ func TestCustomMethodOperationsAreRecorded(t *testing.T) {
 	export := readBack(gcpHostOK(t, srv, arHost, http.MethodPost, "/v1/"+repo+":exportArtifact",
 		`{"sourceVersion":"`+version+`","gcsPath":"export-bucket/out"}`))
 	metadata, _ := export["metadata"].(map[string]any)
-	if files, _ := metadata["exportedFiles"].([]any); len(files) != 1 {
+	if files, _ := metadata["exportedFiles"].([]any); len(files) != 2 {
 		t.Fatalf("export metadata = %v", metadata)
 	}
-	if data, err := GCSObjectBytes("export-bucket", "out/sha256:0123"); err != nil || string(data) != "layer bytes" {
+	if data, err := GCSObjectBytes("export-bucket", "out/"+layerDigest); err != nil || string(data) != "layer bytes" {
 		t.Fatalf("exported object = %q, %v", data, err)
 	}
 

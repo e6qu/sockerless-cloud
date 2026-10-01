@@ -148,8 +148,10 @@ func TestCompute_InstanceSuspendAndResume(t *testing.T) {
 	const project, zone, name = "verbs-suspend", "us-central1-a", "batch"
 	createVerbInstance(t, svc, project, zone, name)
 
-	_, err := svc.Instances.Suspend(project, zone, name).Do()
+	op, err := svc.Instances.Suspend(project, zone, name).Do()
 	require.NoError(t, err)
+	done := awaitZoneOperation(t, svc, project, zone, op.Name)
+	require.Nil(t, done.Error, "the suspend operation failed: %+v", done.Error)
 	got, err := svc.Instances.Get(project, zone, name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "SUSPENDED", got.Status)
@@ -159,8 +161,10 @@ func TestCompute_InstanceSuspendAndResume(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only a running instance can be suspended")
 
-	_, err = svc.Instances.Resume(project, zone, name).Do()
+	op, err = svc.Instances.Resume(project, zone, name).Do()
 	require.NoError(t, err)
+	done = awaitZoneOperation(t, svc, project, zone, op.Name)
+	require.Nil(t, done.Error, "the resume operation failed: %+v", done.Error)
 	got, err = svc.Instances.Get(project, zone, name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", got.Status)

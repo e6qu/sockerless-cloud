@@ -38,50 +38,6 @@ func registerComputeLastVerbs(srv *sim.Server) {
 			computeMoveAddress(w, r, cScopeRegion, gcpComputeRegionAddresses)
 		})
 
-	// ── Starting an instance whose disks are customer-encrypted ─────────
-	//
-	// The keys are supplied per disk and never stored: they exist for the
-	// duration of the call, which is why an instance started this way looks
-	// exactly like one started any other way afterwards.
-	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/startWithEncryptionKey",
-		func(w http.ResponseWriter, r *http.Request) {
-			project, zone, name := sim.PathParam(r, "project"), sim.PathParam(r, "zone"), sim.PathParam(r, "name")
-			var req struct {
-				Disks []struct {
-					Source string `json:"source"`
-				} `json:"disks"`
-			}
-			if err := sim.ReadJSON(r, &req); err != nil {
-				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-				return
-			}
-			if len(req.Disks) == 0 {
-				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
-					"startWithEncryptionKey needs the keys for the instance's encrypted disks")
-				return
-			}
-			key := computeInstanceSelfLink(project, zone, name)
-			inst, ok := gcpInstances.Get(key)
-			if !ok {
-				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
-					"instance %q not found in zone %q", name, zone)
-				return
-			}
-			// An instance started with its disk keys runs exactly as one
-			// started any other way, so this boots the same virtual machine the
-			// plain start boots. Recording RUNNING without starting it would
-			// report a machine that nothing is running, which a host that can
-			// actually run one immediately contradicts.
-			if err := gcpStartRealVM(r.Context(), &inst); err != nil {
-				GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION",
-					"failed to start real Compute Engine instance: %v", err)
-				return
-			}
-			inst.Status = ComputeInstanceRunning
-			gcpInstances.Put(key, inst)
-			sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, key, "startWithEncryptionKey"))
-		})
-
 	// ── What a health check is seeing ───────────────────────────────────
 	//
 	// A composite health check reports the health of the sources it names, and

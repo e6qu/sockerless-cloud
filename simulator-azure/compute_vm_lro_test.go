@@ -16,17 +16,19 @@ import (
 )
 
 // These drive the virtual-machine long-running operations in-process. The
-// guest moves are held open on channels through the azureBootVM and
-// azureHaltVM hooks, which is what lets a test read the machine and its
-// operation while the boot is still under way, on a host without nested KVM.
+// guest moves are held open on channels through the azureBootVM, azureHaltVM
+// and azureDestroyVM hooks, which is what lets a test read the machine and its
+// operation while the move is still under way, on a host without nested KVM.
 
 // vmGuestHooks replaces the guest moves with ones that announce themselves and
 // wait for the test to decide their outcome.
 type vmGuestHooks struct {
-	booting chan string
-	boot    chan error
-	halting chan string
-	halt    chan error
+	booting    chan string
+	boot       chan error
+	halting    chan string
+	halt       chan error
+	destroying chan string
+	destroy    chan error
 }
 
 func installVMGuestHooks(t *testing.T) *vmGuestHooks {
@@ -36,8 +38,11 @@ func installVMGuestHooks(t *testing.T) *vmGuestHooks {
 		boot:    make(chan error),
 		halting: make(chan string, 1),
 		halt:    make(chan error),
+
+		destroying: make(chan string, 1),
+		destroy:    make(chan error),
 	}
-	boot, halt := azureBootVM, azureHaltVM
+	boot, halt, destroy := azureBootVM, azureHaltVM, azureDestroyVM
 	azureBootVM = func(_ context.Context, vm VirtualMachine) error {
 		hooks.booting <- vm.ID
 		return <-hooks.boot
@@ -46,8 +51,12 @@ func installVMGuestHooks(t *testing.T) *vmGuestHooks {
 		hooks.halting <- id
 		return <-hooks.halt
 	}
+	azureDestroyVM = func(_ context.Context, vm VirtualMachine) error {
+		hooks.destroying <- vm.ID
+		return <-hooks.destroy
+	}
 	// Registered before vmOpsSimulator's drain, so it runs after the drain.
-	t.Cleanup(func() { azureBootVM, azureHaltVM = boot, halt })
+	t.Cleanup(func() { azureBootVM, azureHaltVM, azureDestroyVM = boot, halt, destroy })
 	return hooks
 }
 
@@ -72,6 +81,18 @@ func (h *vmGuestHooks) awaitHalt(t *testing.T, id string) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatalf("the operation never began halting %q", id)
+	}
+}
+
+func (h *vmGuestHooks) awaitDestroy(t *testing.T, id string) {
+	t.Helper()
+	select {
+	case got := <-h.destroying:
+		if got != id {
+			t.Fatalf("destroyed %q, want %q", got, id)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatalf("the operation never began deleting %q", id)
 	}
 }
 
@@ -509,5 +530,142 @@ func requireComputeOperationURL(t *testing.T, raw string, monitor bool) {
 	}
 	if parsed.Query().Get("api-version") == "" {
 		t.Fatalf("operation URL %q carries no api-version", raw)
+	}
+}
+
+// Delete answers 202 at once with both poll URLs; the machine reads Deleting,
+// stays readable and refuses other operations until its guest is gone, and is
+// gone once the operation succeeds.
+func TestVirtualMachineDeleteRunsBehindAnOperation(t *testing.T) {
+	srv, hooks := vmLROSimulator(t)
+	vm := putVMOpsMachine(t, "lro-delete-vm", "eastus", nil)
+	azureVMStates.Put(vm.ID, "PowerState/running")
+
+	rec := vmLRORequest(t, srv, http.MethodDelete, vmOpsPath("lro-delete-vm", ""), "")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("delete: status %d, want 202: %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("a 202 delete carries no body, got %s", rec.Body.String())
+	}
+	opURL := rec.Header().Get("Azure-AsyncOperation")
+	monitorURL := rec.Header().Get("Location")
+	requireComputeOperationURL(t, opURL, false)
+	requireComputeOperationURL(t, monitorURL, true)
+	if got := rec.Header().Get("Retry-After"); got != "1" {
+		t.Errorf("Retry-After = %q on a delete still running, want 1", got)
+	}
+
+	hooks.awaitDestroy(t, vm.ID)
+	if state := vmLROProvisioningState(t, srv, "lro-delete-vm"); state != "Deleting" {
+		t.Fatalf("provisioningState while deleting = %q, want Deleting", state)
+	}
+	if provisioning, _ := vmLROInstanceView(t, srv, "lro-delete-vm"); provisioning.Code != "ProvisioningState/deleting" {
+		t.Fatalf("provisioning status while deleting = %q, want ProvisioningState/deleting", provisioning.Code)
+	}
+	if op := vmLROOperationStatus(t, srv, opURL); op.Status != "InProgress" {
+		t.Fatalf("delete operation reads %q while the guest is torn down, want InProgress", op.Status)
+	}
+	if start := vmLRORequest(t, srv, http.MethodPost, vmOpsPath("lro-delete-vm", "start"), ""); start.Code != http.StatusConflict {
+		t.Fatalf("start during a delete: status %d, want 409: %s", start.Code, start.Body.String())
+	}
+
+	hooks.destroy <- nil
+	bg.Await()
+
+	if op := vmLROOperationStatus(t, srv, opURL); op.Status != "Succeeded" {
+		t.Fatalf("delete operation reads %q, want Succeeded", op.Status)
+	}
+	if monitor := vmLRORequest(t, srv, http.MethodGet, monitorURL, ""); monitor.Code != http.StatusOK {
+		t.Fatalf("monitor poll after the delete: status %d, want 200: %s", monitor.Code, monitor.Body.String())
+	}
+	if get := vmLRORequest(t, srv, http.MethodGet, vmOpsPath("lro-delete-vm", ""), ""); get.Code != http.StatusNotFound {
+		t.Fatalf("get after the delete: status %d, want 404", get.Code)
+	}
+	if _, kept := azureVMStates.Get(vm.ID); kept {
+		t.Fatal("the deleted machine's power state was left behind")
+	}
+}
+
+// A delete whose guest cannot be torn down fails the operation and leaves the
+// machine Failed, with the error in its instance view.
+func TestVirtualMachineDeleteFailureFailsTheOperation(t *testing.T) {
+	srv, hooks := vmLROSimulator(t)
+	vm := putVMOpsMachine(t, "lro-delete-fail-vm", "eastus", nil)
+
+	rec := vmLRORequest(t, srv, http.MethodDelete, vmOpsPath("lro-delete-fail-vm", ""), "")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("delete: status %d, want 202: %s", rec.Code, rec.Body.String())
+	}
+	hooks.awaitDestroy(t, vm.ID)
+	hooks.destroy <- errors.New("tap busy")
+	bg.Await()
+
+	op := vmLROOperationStatus(t, srv, rec.Header().Get("Azure-AsyncOperation"))
+	if op.Status != "Failed" || op.Error == nil || op.Error.Code != "InternalExecutionError" {
+		t.Fatalf("delete operation after a failed teardown = %+v", op)
+	}
+	if provisioning, _ := vmLROInstanceView(t, srv, "lro-delete-fail-vm"); provisioning.Code != "ProvisioningState/failed/InternalExecutionError" {
+		t.Fatalf("provisioning status after a failed delete = %q", provisioning.Code)
+	}
+}
+
+// SimulateEviction answers 204 at once; a Deallocate policy reads deallocating
+// until the guest has stopped, then deallocated.
+func TestVirtualMachineSimulateEvictionDeallocatesAfterAnswering(t *testing.T) {
+	srv, hooks := vmLROSimulator(t)
+	vm := putVMOpsMachine(t, "lro-evict-vm", "eastus", func(vm *VirtualMachine) {
+		vm.Properties.Priority = "Spot"
+		vm.Properties.EvictionPolicy = "Deallocate"
+	})
+	azureVMStates.Put(vm.ID, "PowerState/running")
+
+	rec := vmLRORequest(t, srv, http.MethodPost, vmOpsPath("lro-evict-vm", "simulateEviction"), "")
+	if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+		t.Fatalf("evict: status %d body %q, want 204 with no body", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Azure-AsyncOperation") != "" || rec.Header().Get("Location") != "" {
+		t.Fatalf("the specification declares no long-running operation, got headers %v", rec.Header())
+	}
+
+	hooks.awaitHalt(t, vm.ID)
+	provisioning, power := vmLROInstanceView(t, srv, "lro-evict-vm")
+	if provisioning.Code != "ProvisioningState/updating" || power.Code != "PowerState/deallocating" {
+		t.Fatalf("instance view while evicting = %q / %q", provisioning.Code, power.Code)
+	}
+	hooks.halt <- nil
+	bg.Await()
+
+	provisioning, power = vmLROInstanceView(t, srv, "lro-evict-vm")
+	if provisioning.Code != "ProvisioningState/succeeded" || power.Code != "PowerState/deallocated" {
+		t.Fatalf("instance view after the eviction = %q / %q", provisioning.Code, power.Code)
+	}
+}
+
+// Under a Delete policy the evicted machine reads Deleting until its guest is
+// gone, then is gone.
+func TestVirtualMachineSimulateEvictionDeletesAfterAnswering(t *testing.T) {
+	srv, hooks := vmLROSimulator(t)
+	vm := putVMOpsMachine(t, "lro-evict-delete-vm", "eastus", func(vm *VirtualMachine) {
+		vm.Properties.Priority = "Spot"
+		vm.Properties.EvictionPolicy = "Delete"
+	})
+
+	rec := vmLRORequest(t, srv, http.MethodPost, vmOpsPath("lro-evict-delete-vm", "simulateEviction"), "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("evict: status %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+	hooks.awaitDestroy(t, vm.ID)
+	if state := vmLROProvisioningState(t, srv, "lro-evict-delete-vm"); state != "Deleting" {
+		t.Fatalf("provisioningState while the eviction deletes = %q, want Deleting", state)
+	}
+	if again := vmLRORequest(t, srv, http.MethodPost, vmOpsPath("lro-evict-delete-vm", "simulateEviction"), ""); again.Code != http.StatusConflict {
+		t.Fatalf("a second eviction during the first: status %d, want 409", again.Code)
+	}
+	hooks.destroy <- nil
+	bg.Await()
+
+	if get := vmLRORequest(t, srv, http.MethodGet, vmOpsPath("lro-evict-delete-vm", ""), ""); get.Code != http.StatusNotFound {
+		t.Fatalf("get after the eviction: status %d, want 404", get.Code)
 	}
 }

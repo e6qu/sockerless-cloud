@@ -206,7 +206,8 @@ func TestVirtualMachineGeneralize(t *testing.T) {
 }
 
 // SimulateEviction applies only to Spot machines, and the eviction policy
-// decides what the eviction leaves behind.
+// decides what the eviction leaves behind. The guest moves here are the real
+// ones, which have no guest to stop on a machine that was never booted.
 func TestVirtualMachineSimulateEviction(t *testing.T) {
 	srv := vmOpsSimulator(t)
 
@@ -224,6 +225,7 @@ func TestVirtualMachineSimulateEviction(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("evicting a Spot machine: status = %d, want 204: %s", rec.Code, rec.Body.String())
 	}
+	bg.Await()
 	if state, _ := azureVMStates.Get(spot.ID); state != "PowerState/deallocated" {
 		t.Fatalf("an evicted Spot machine is in %q, want PowerState/deallocated", state)
 	}
@@ -237,6 +239,7 @@ func TestVirtualMachineSimulateEviction(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204: %s", rec.Code, rec.Body.String())
 	}
+	bg.Await()
 	if _, still := azureVMs.Get(deleted.ID); still {
 		t.Fatal("a Spot machine evicted under a Delete policy was left behind")
 	}

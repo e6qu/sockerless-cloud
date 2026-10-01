@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -11,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net/http"
 	"reflect"
@@ -307,14 +309,6 @@ func registerCloudDNS(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
-		// The zone's Docker network goes first, so a zone whose network cannot
-		// be removed stays and reports why rather than leaking the network.
-		if zone.DockerNetworkName != "" {
-			if err := sim.RemoveDockerNetwork(zone.DockerNetworkName); err != nil {
-				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "delete managed zone %q: %v", zoneName, err)
-				return
-			}
-		}
 		zones.Delete(key)
 		// The zone's IAM policy dies with the zone: a later zone created
 		// under the same name starts with no bindings.
@@ -327,6 +321,16 @@ func registerCloudDNS(srv *sim.Server) {
 			if stored.Project == project && stored.Zone == zoneName {
 				recordSets.Delete(dnsRecordSetKey(project, zoneName, stored.Record.Name, stored.Record.Type))
 			}
+		}
+
+		// Cloud DNS deletes a zone whatever still resolves through it; the
+		// network behind it goes once its last container has disconnected.
+		if network := zone.DockerNetworkName; network != "" {
+			srv.StartBackground("remove Cloud DNS zone network "+network, func(ctx context.Context) {
+				if err := sim.RemoveDockerNetworkContext(ctx, network); err != nil && ctx.Err() == nil {
+					log.Printf("cloud dns: remove network %s of deleted zone %s: %v", network, zoneName, err)
+				}
+			})
 		}
 
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
