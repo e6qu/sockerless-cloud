@@ -64,8 +64,8 @@ func TestGlue_Catalog_SDK(t *testing.T) {
 // ListTableOptimizerRuns / Delete on a table optimizer attached to a table.
 func TestGlue_TableOptimizer_SDK(t *testing.T) {
 	c := glueClient()
-	const db = "glue-sdk-opt-db"
-	const tbl = "glue-sdk-opt-tbl"
+	db := uniqueName("glue-sdk-opt-db")
+	tbl := uniqueName("glue-sdk-opt-tbl")
 
 	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
 		DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(db)},
@@ -168,7 +168,7 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	c := glueClient()
 
 	// Crawler.
-	const crawler = "glue-sdk-batch-crawler"
+	crawler := uniqueName("glue-sdk-batch-crawler")
 	_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{
 		Name:    aws.String(crawler),
 		Role:    aws.String("arn:aws:iam::123456789012:role/glue"),
@@ -185,7 +185,7 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Equal(t, []string{"no-such-crawler"}, gc.CrawlersNotFound)
 
 	// Job.
-	const job = "glue-sdk-batch-job"
+	job := uniqueName("glue-sdk-batch-job")
 	_, err = c.CreateJob(ctx, &glue.CreateJobInput{
 		Name:    aws.String(job),
 		Role:    aws.String("arn:aws:iam::123456789012:role/glue"),
@@ -200,7 +200,7 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Equal(t, []string{"no-such-job"}, gj.JobsNotFound)
 
 	// Trigger.
-	const trigger = "glue-sdk-batch-trigger"
+	trigger := uniqueName("glue-sdk-batch-trigger")
 	_, err = c.CreateTrigger(ctx, &glue.CreateTriggerInput{
 		Name: aws.String(trigger),
 		Type: gluetypes.TriggerTypeOnDemand,
@@ -219,7 +219,7 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Equal(t, []string{"no-such-trigger"}, gt.TriggersNotFound)
 
 	// Workflow.
-	const workflow = "glue-sdk-batch-workflow"
+	workflow := uniqueName("glue-sdk-batch-workflow")
 	_, err = c.CreateWorkflow(ctx, &glue.CreateWorkflowInput{Name: aws.String(workflow)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteWorkflow(ctx, &glue.DeleteWorkflowInput{Name: aws.String(workflow)}) })
@@ -239,7 +239,7 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Equal(t, []string{"no-such-entity"}, gce.CustomEntityTypesNotFound)
 
 	// BatchDeleteConnection.
-	const conn = "glue-sdk-batch-conn"
+	conn := uniqueName("glue-sdk-batch-conn")
 	_, err = c.CreateConnection(ctx, &glue.CreateConnectionInput{
 		ConnectionInput: &gluetypes.ConnectionInput{
 			Name:                 aws.String(conn),
@@ -256,8 +256,8 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Contains(t, bdc.Errors, "no-such-conn")
 
 	// BatchUpdatePartition on a partitioned table.
-	const db = "glue-sdk-batch-db"
-	const tbl = "glue-sdk-batch-tbl"
+	db := uniqueName("glue-sdk-batch-db")
+	tbl := uniqueName("glue-sdk-batch-tbl")
 	_, err = c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
 		DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(db)},
 	})

@@ -231,11 +231,15 @@ func TestGlueBusinessContextLifecycle_SDK(t *testing.T) {
 }
 
 func TestGlueEntityRecordsAndBatchEvaluationRuns_SDK(t *testing.T) {
+	rulesetName := uniqueName("business-context-rules")
+	databaseName := uniqueName("business_entities")
+	connectionName := uniqueName("glue-dynamodb-connection")
+	tableName := uniqueName("glue-business-entities")
 	client := glueClient()
 	dynamoDBClient := ddbClient()
 
 	_, err := dynamoDBClient.CreateTable(ctx, &dynamodb.CreateTableInput{
-		TableName: aws.String("glue-business-entities"),
+		TableName: aws.String(tableName),
 		AttributeDefinitions: []ddbtypes.AttributeDefinition{
 			{AttributeName: aws.String("id"), AttributeType: ddbtypes.ScalarAttributeTypeS},
 		},
@@ -258,14 +262,14 @@ func TestGlueEntityRecordsAndBatchEvaluationRuns_SDK(t *testing.T) {
 		},
 	} {
 		_, err = dynamoDBClient.PutItem(ctx, &dynamodb.PutItemInput{
-			TableName: aws.String("glue-business-entities"),
+			TableName: aws.String(tableName),
 			Item:      item,
 		})
 		require.NoError(t, err)
 	}
 	_, err = client.CreateConnection(ctx, &glue.CreateConnectionInput{
 		ConnectionInput: &gluetypes.ConnectionInput{
-			Name:                 aws.String("glue-dynamodb-connection"),
+			Name:                 aws.String(connectionName),
 			ConnectionType:       gluetypes.ConnectionTypeDynamodb,
 			ConnectionProperties: map[string]string{},
 		},
@@ -273,11 +277,11 @@ func TestGlueEntityRecordsAndBatchEvaluationRuns_SDK(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = client.CreateDatabase(ctx, &glue.CreateDatabaseInput{
-		DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String("business_entities")},
+		DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(databaseName)},
 	})
 	require.NoError(t, err)
 	_, err = client.CreateTable(ctx, &glue.CreateTableInput{
-		DatabaseName: aws.String("business_entities"),
+		DatabaseName: aws.String(databaseName),
 		TableInput: &gluetypes.TableInput{
 			Name: aws.String("sales"),
 			StorageDescriptor: &gluetypes.StorageDescriptor{
@@ -295,12 +299,12 @@ func TestGlueEntityRecordsAndBatchEvaluationRuns_SDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, entities.Entities)
 	children, err := client.ListEntities(ctx, &glue.ListEntitiesInput{
-		ConnectionName: aws.String("glue-dynamodb-connection"),
+		ConnectionName: aws.String(connectionName),
 	})
 	require.NoError(t, err)
 	var foundEntity bool
 	for _, entity := range children.Entities {
-		if aws.ToString(entity.EntityName) == "glue-business-entities" {
+		if aws.ToString(entity.EntityName) == tableName {
 			foundEntity = true
 			break
 		}
@@ -308,16 +312,16 @@ func TestGlueEntityRecordsAndBatchEvaluationRuns_SDK(t *testing.T) {
 	require.True(t, foundEntity, "connection entities should include the created DynamoDB table")
 
 	description, err := client.DescribeEntity(ctx, &glue.DescribeEntityInput{
-		ConnectionName: aws.String("glue-dynamodb-connection"),
-		EntityName:     aws.String("glue-business-entities"),
+		ConnectionName: aws.String(connectionName),
+		EntityName:     aws.String(tableName),
 	})
 	require.NoError(t, err)
 	require.Len(t, description.Fields, 1)
 	assert.Equal(t, gluetypes.FieldDataTypeString, description.Fields[0].FieldType)
 
 	records, err := client.GetEntityRecords(ctx, &glue.GetEntityRecordsInput{
-		ConnectionName:  aws.String("glue-dynamodb-connection"),
-		EntityName:      aws.String("glue-business-entities"),
+		ConnectionName:  aws.String(connectionName),
+		EntityName:      aws.String(tableName),
 		Limit:           aws.Int64(10),
 		FilterPredicate: aws.String("region='emea'"),
 		SelectedFields:  []string{"id", "amount"},
@@ -330,19 +334,19 @@ func TestGlueEntityRecordsAndBatchEvaluationRuns_SDK(t *testing.T) {
 	assert.Equal(t, "42", fmt.Sprint(record["amount"]))
 
 	_, err = client.CreateDataQualityRuleset(ctx, &glue.CreateDataQualityRulesetInput{
-		Name:    aws.String("business-context-rules"),
+		Name:    aws.String(rulesetName),
 		Ruleset: aws.String("Rules = [ColumnExists \"id\"]"),
 	})
 	require.NoError(t, err)
 	run, err := client.StartDataQualityRulesetEvaluationRun(ctx, &glue.StartDataQualityRulesetEvaluationRunInput{
 		DataSource: &gluetypes.DataSource{
 			GlueTable: &gluetypes.GlueTable{
-				DatabaseName: aws.String("business_entities"),
+				DatabaseName: aws.String(databaseName),
 				TableName:    aws.String("sales"),
 			},
 		},
 		Role:         aws.String("arn:aws:iam::000000000000:role/glue-data-quality"),
-		RulesetNames: []string{"business-context-rules"},
+		RulesetNames: []string{rulesetName},
 	})
 	require.NoError(t, err)
 	batch, err := client.BatchGetDataQualityRulesetEvaluationRun(ctx, &glue.BatchGetDataQualityRulesetEvaluationRunInput{

@@ -24,6 +24,7 @@ func describeOneVolume(t *testing.T, c *ec2.Client, id string) types.Volume {
 // volume resize updates errored (UnknownOperation).
 func TestEC2_EBSVolumeFidelitySDK(t *testing.T) {
 	c := ec2Client()
+	env := uniqueName("prod")
 
 	// gp3 with no iops/throughput → AWS returns the defaults 3000/125.
 	gp3, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{
@@ -42,7 +43,7 @@ func TestEC2_EBSVolumeFidelitySDK(t *testing.T) {
 		KmsKeyId:  aws.String("arn:aws:kms:us-east-1:123456789012:key/abc"),
 		TagSpecifications: []types.TagSpecification{{
 			ResourceType: types.ResourceTypeVolume,
-			Tags:         []types.Tag{{Key: aws.String("env"), Value: aws.String("prod")}},
+			Tags:         []types.Tag{{Key: aws.String("env"), Value: aws.String(env)}},
 		}},
 	})
 	require.NoError(t, err)
@@ -56,7 +57,7 @@ func TestEC2_EBSVolumeFidelitySDK(t *testing.T) {
 	byType, err := c.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
 		Filters: []types.Filter{
 			{Name: aws.String("volume-type"), Values: []string{"io1"}},
-			{Name: aws.String("tag:env"), Values: []string{"prod"}},
+			{Name: aws.String("tag:env"), Values: []string{env}},
 		},
 	})
 	require.NoError(t, err)

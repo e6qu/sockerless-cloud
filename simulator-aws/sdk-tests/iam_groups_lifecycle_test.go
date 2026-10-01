@@ -15,8 +15,9 @@ import (
 // AddUserToGroup/RemoveUserFromGroup/ListGroupsForUser, the group inline +
 // attached policy ops, and DeleteGroup.
 func TestIAM_GroupLifecycle(t *testing.T) {
+	managedPolicy := uniqueName("g-managed")
 	c := iamClient()
-	user, group := "gl-user", "gl-group"
+	user, group := uniqueName("gl-user"), uniqueName("gl-group")
 
 	_, err := c.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
@@ -59,7 +60,7 @@ func TestIAM_GroupLifecycle(t *testing.T) {
 	assert.Contains(t, lgp.PolicyNames, "g-inline")
 
 	managed, err := c.CreatePolicy(ctx, &iam.CreatePolicyInput{
-		PolicyName:     aws.String("g-managed"),
+		PolicyName:     aws.String(managedPolicy),
 		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sqs:SendMessage","Resource":"*"}]}`),
 	})
 	require.NoError(t, err)
@@ -79,14 +80,15 @@ func TestIAM_GroupLifecycle(t *testing.T) {
 
 // TestIAM_PermissionBoundaryPutDelete covers Put/DeleteUserPermissionsBoundary.
 func TestIAM_PermissionBoundaryPutDelete(t *testing.T) {
+	boundaryPolicy := uniqueName("pb-policy")
 	c := iamClient()
-	user := "pb-user"
+	user := uniqueName("pb-user")
 	_, err := c.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	t.Cleanup(func() { c.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)}) })
 
 	p, err := c.CreatePolicy(ctx, &iam.CreatePolicyInput{
-		PolicyName:     aws.String("pb-policy"),
+		PolicyName:     aws.String(boundaryPolicy),
 		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:Describe*","Resource":"*"}]}`),
 	})
 	require.NoError(t, err)

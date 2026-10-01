@@ -17,6 +17,7 @@ import (
 
 func queueArnAndURL(t *testing.T, sqsClient *sqs.Client, name string) (url, arn string) {
 	t.Helper()
+	name = uniqueName(name)
 	create, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(name)})
 	require.NoError(t, err)
 	url = aws.ToString(create.QueueUrl)
@@ -56,7 +57,7 @@ func TestS3_EventNotification_SQSDelivery(t *testing.T) {
 	s3c := s3Client()
 	sqsc := sqsClient()
 
-	bucket := "evt-notify-bucket"
+	bucket := uniqueName("evt-notify-bucket")
 	_, err := s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	bucketArn := "arn:aws:s3:::" + bucket

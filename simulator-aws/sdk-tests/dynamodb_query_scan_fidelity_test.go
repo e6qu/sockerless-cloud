@@ -18,13 +18,15 @@ import (
 //   - Query applies an optional FilterExpression after the key condition (it was
 //     silently dropped — the request field didn't exist).
 func TestDynamoDB_ScanLimitAndQueryFilter(t *testing.T) {
+	queryTable := uniqueName("qs-query")
+	scanTable := uniqueName("qs-scan")
 	c := ddbClient()
 
 	// --- Scan: hash-only table, 4 items (sorted a,b,c,d), 2 match kind=x. ---
-	ddbCoverageTable(t, c, "qs-scan")
+	ddbCoverageTable(t, c, scanTable)
 	for _, it := range []struct{ pk, kind string }{{"a", "x"}, {"b", "y"}, {"c", "x"}, {"d", "y"}} {
 		_, err := c.PutItem(ctx, &dynamodb.PutItemInput{
-			TableName: aws.String("qs-scan"),
+			TableName: aws.String(scanTable),
 			Item: map[string]ddbtypes.AttributeValue{
 				"PK":   &ddbtypes.AttributeValueMemberS{Value: it.pk},
 				"kind": &ddbtypes.AttributeValueMemberS{Value: it.kind},
@@ -33,7 +35,7 @@ func TestDynamoDB_ScanLimitAndQueryFilter(t *testing.T) {
 		require.NoError(t, err)
 	}
 	scan, err := c.Scan(ctx, &dynamodb.ScanInput{
-		TableName:                 aws.String("qs-scan"),
+		TableName:                 aws.String(scanTable),
 		Limit:                     aws.Int32(2),
 		FilterExpression:          aws.String("kind = :k"),
 		ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":k": &ddbtypes.AttributeValueMemberS{Value: "x"}},
@@ -45,7 +47,7 @@ func TestDynamoDB_ScanLimitAndQueryFilter(t *testing.T) {
 
 	// --- Query: composite key; FilterExpression narrows the key-matched set. ---
 	_, err = c.CreateTable(ctx, &dynamodb.CreateTableInput{
-		TableName:   aws.String("qs-query"),
+		TableName:   aws.String(queryTable),
 		BillingMode: ddbtypes.BillingModePayPerRequest,
 		AttributeDefinitions: []ddbtypes.AttributeDefinition{
 			{AttributeName: aws.String("PK"), AttributeType: ddbtypes.ScalarAttributeTypeS},
@@ -59,7 +61,7 @@ func TestDynamoDB_ScanLimitAndQueryFilter(t *testing.T) {
 	require.NoError(t, err)
 	for _, it := range []struct{ sk, kind string }{{"1", "x"}, {"2", "y"}, {"3", "x"}, {"4", "y"}} {
 		_, err := c.PutItem(ctx, &dynamodb.PutItemInput{
-			TableName: aws.String("qs-query"),
+			TableName: aws.String(queryTable),
 			Item: map[string]ddbtypes.AttributeValue{
 				"PK":   &ddbtypes.AttributeValueMemberS{Value: "p"},
 				"SK":   &ddbtypes.AttributeValueMemberS{Value: it.sk},
@@ -69,7 +71,7 @@ func TestDynamoDB_ScanLimitAndQueryFilter(t *testing.T) {
 		require.NoError(t, err)
 	}
 	q, err := c.Query(ctx, &dynamodb.QueryInput{
-		TableName:              aws.String("qs-query"),
+		TableName:              aws.String(queryTable),
 		KeyConditionExpression: aws.String("PK = :p"),
 		FilterExpression:       aws.String("kind = :k"),
 		ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{

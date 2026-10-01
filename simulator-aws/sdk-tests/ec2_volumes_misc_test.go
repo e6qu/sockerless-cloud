@@ -329,6 +329,7 @@ func TestEC2_SecurityGroupReferencesSDK(t *testing.T) {
 // TestEC2_LaunchTemplateDataSDK covers GetLaunchTemplateData (derived from an
 // instance) and DeleteLaunchTemplateVersions.
 func TestEC2_LaunchTemplateDataSDK(t *testing.T) {
+	ltName := uniqueName("sdk-lt-data")
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.213.0.0/16")})
@@ -348,7 +349,7 @@ func TestEC2_LaunchTemplateDataSDK(t *testing.T) {
 	assert.Equal(t, types.InstanceTypeT3Small, data.LaunchTemplateData.InstanceType)
 
 	lt, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
-		LaunchTemplateName: aws.String("sdk-lt-data"),
+		LaunchTemplateName: aws.String(ltName),
 		LaunchTemplateData: &types.RequestLaunchTemplateData{ImageId: aws.String("ami-11111111")},
 	})
 	require.NoError(t, err)
@@ -428,6 +429,12 @@ func TestEC2_DefaultCreditSpecificationSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "standard", aws.ToString(mod.InstanceFamilyCreditSpecification.CpuCredits))
+	t.Cleanup(func() {
+		_, err := c.ModifyDefaultCreditSpecification(ctx, &ec2.ModifyDefaultCreditSpecificationInput{
+			InstanceFamily: types.UnlimitedSupportedInstanceFamilyT3, CpuCredits: aws.String("unlimited"),
+		})
+		assert.NoError(t, err, "restore the account's T3 default credit specification")
+	})
 
 	az, err := c.ModifyAvailabilityZoneGroup(ctx, &ec2.ModifyAvailabilityZoneGroupInput{
 		GroupName: aws.String("us-east-1-wl1-bos-wlz-1"), OptInStatus: types.ModifyAvailabilityZoneOptInStatusOptedIn,

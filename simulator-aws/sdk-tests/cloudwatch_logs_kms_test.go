@@ -13,7 +13,7 @@ import (
 // and AssociateKmsKey / DisassociateKmsKey update it.
 func TestCloudWatchLogs_KmsKey(t *testing.T) {
 	c := cwLogsClient()
-	name := "/probe/kms-test"
+	name := uniqueName("/probe/kms-test")
 	kms1 := "arn:aws:kms:us-east-1:123456789012:key/d8ce7e2f-fc3e-4b45-0ff0-7d4b53ff3a40"
 
 	_, err := c.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{

@@ -1143,8 +1143,8 @@ func TestGlue_TableVersions_SDK(t *testing.T) {
 
 func TestGlue_ColumnStatistics_SDK(t *testing.T) {
 	c := glueClient()
-	db := "glue-sdk-stats-db"
-	tbl := "glue-sdk-stats-tbl"
+	db := uniqueName("glue-sdk-stats-db")
+	tbl := uniqueName("glue-sdk-stats-tbl")
 
 	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
 		DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(db)},

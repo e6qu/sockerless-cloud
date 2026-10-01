@@ -158,9 +158,10 @@ func TestRDS_ManageMasterUserPasswordConditionKeyScopesTheGrant(t *testing.T) {
 // states:StateMachineQualifier, the version or alias a request names — the key
 // a policy uses to allow a call against one published version and not another.
 func TestSFN_StateMachineQualifierConditionKeyScopesTheGrant(t *testing.T) {
+	machineName := uniqueName("cond-qualifier-sm")
 	admin := sfnClient()
 	machine, err := admin.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-		Name:       aws.String("cond-qualifier-sm"),
+		Name:       aws.String(machineName),
 		Definition: aws.String(`{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`),
 		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
 	})
@@ -238,7 +239,7 @@ func lambdaConditionFunction(t *testing.T, client *lambda.Client, name string) s
 func TestCloudMap_ServiceCreatedByAccountConditionKeyScopesTheGrant(t *testing.T) {
 	admin := cmClient()
 	namespace, err := admin.CreateHttpNamespace(ctx, &servicediscovery.CreateHttpNamespaceInput{
-		Name: aws.String("cond-created-ns")})
+		Name: aws.String(uniqueName("cond-created-ns"))})
 	require.NoError(t, err)
 	operation, err := admin.GetOperation(ctx, &servicediscovery.GetOperationInput{
 		OperationId: namespace.OperationId})

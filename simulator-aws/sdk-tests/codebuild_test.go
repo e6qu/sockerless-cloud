@@ -316,7 +316,7 @@ phases:
 // always sort alphabetically by build ID.
 func TestCodeBuild_ListBuildsSortOrder_SDK(t *testing.T) {
 	c := codebuildClient()
-	proj := "cb-sortorder-project"
+	proj := uniqueName("cb-sortorder-project")
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
 		Name:        aws.String(proj),
 		Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\n")},

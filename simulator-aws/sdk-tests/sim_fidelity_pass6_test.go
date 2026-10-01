@@ -97,8 +97,9 @@ func TestEventBridge_CreateEventBusPersistsKMS(t *testing.T) {
 // the HealthStatus filter (the handler hardcoded HEALTHY and ignored the filter).
 func TestCloudMap_DiscoverInstancesHealth(t *testing.T) {
 	client := cmClient()
+	nsName := uniqueName("health-test") + ".local"
 	createOut, err := client.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
-		Name: aws.String("health-test.local"), Vpc: aws.String("vpc-health"),
+		Name: aws.String(nsName), Vpc: aws.String("vpc-health"),
 	})
 	require.NoError(t, err)
 	opOut, err := client.GetOperation(ctx, &servicediscovery.GetOperationInput{OperationId: createOut.OperationId})
@@ -122,7 +123,7 @@ func TestCloudMap_DiscoverInstancesHealth(t *testing.T) {
 	reg("bad-1", "UNHEALTHY")
 
 	healthy, err := client.DiscoverInstances(ctx, &servicediscovery.DiscoverInstancesInput{
-		NamespaceName: aws.String("health-test.local"), ServiceName: aws.String("api"),
+		NamespaceName: aws.String(nsName), ServiceName: aws.String("api"),
 		HealthStatus: sdtypes.HealthStatusFilterHealthy,
 	})
 	require.NoError(t, err)
@@ -131,7 +132,7 @@ func TestCloudMap_DiscoverInstancesHealth(t *testing.T) {
 	assert.Equal(t, sdtypes.HealthStatusHealthy, healthy.Instances[0].HealthStatus)
 
 	unhealthy, err := client.DiscoverInstances(ctx, &servicediscovery.DiscoverInstancesInput{
-		NamespaceName: aws.String("health-test.local"), ServiceName: aws.String("api"),
+		NamespaceName: aws.String(nsName), ServiceName: aws.String("api"),
 		HealthStatus: sdtypes.HealthStatusFilterUnhealthy,
 	})
 	require.NoError(t, err)
@@ -140,7 +141,7 @@ func TestCloudMap_DiscoverInstancesHealth(t *testing.T) {
 		"unhealthy instance must report its real status, not a hardcoded HEALTHY")
 
 	all, err := client.DiscoverInstances(ctx, &servicediscovery.DiscoverInstancesInput{
-		NamespaceName: aws.String("health-test.local"), ServiceName: aws.String("api"),
+		NamespaceName: aws.String(nsName), ServiceName: aws.String("api"),
 		HealthStatus: sdtypes.HealthStatusFilterAll,
 	})
 	require.NoError(t, err)

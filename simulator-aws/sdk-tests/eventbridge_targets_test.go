@@ -75,7 +75,7 @@ func putEventBridgeEvent(t *testing.T, source, detail string) {
 // by events-rule/<rule>.
 func TestEventBridge_ECSTargetRunsTheTask_SDK(t *testing.T) {
 	ecsC := ecsClient()
-	const cluster, rule = "eb-target-cluster", "eb-ecs-target"
+	cluster, rule := uniqueName("eb-target-cluster"), uniqueName("eb-ecs-target")
 	created, err := ecsC.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	definition, err := ecsC.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{

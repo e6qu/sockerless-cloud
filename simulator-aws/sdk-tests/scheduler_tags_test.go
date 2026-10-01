@@ -16,7 +16,7 @@ import (
 // service routing of scheduler-signed tag traffic.
 func TestScheduler_ScheduleGroupTags(t *testing.T) {
 	c := schedulerClient()
-	const group = "tagged-group"
+	group := uniqueName("tagged-group")
 
 	createOut, err := c.CreateScheduleGroup(ctx, &scheduler.CreateScheduleGroupInput{
 		Name: aws.String(group),

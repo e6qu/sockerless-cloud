@@ -29,10 +29,11 @@ func TestIAM_ResourceARN_DynamoDB(t *testing.T) {
 		})
 		require.NoError(t, err)
 	}
-	mkTable("scoped-table")
-	mkTable("other-table")
+	scopedTable, otherTable := uniqueName("scoped-table"), uniqueName("other-table")
+	mkTable(scopedTable)
+	mkTable(otherTable)
 
-	user := "ddb-scoped-user"
+	user := uniqueName("ddb-scoped-user")
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer admin.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})
@@ -40,7 +41,7 @@ func TestIAM_ResourceARN_DynamoDB(t *testing.T) {
 		UserName:   aws.String(user),
 		PolicyName: aws.String("one-table"),
 		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:PutItem",` +
-			`"Resource":"arn:aws:dynamodb:us-east-1:123456789012:table/scoped-table"}]}`),
+			`"Resource":"arn:aws:dynamodb:us-east-1:123456789012:table/` + scopedTable + `"}]}`),
 	})
 	require.NoError(t, err)
 	key, err := admin.CreateAccessKey(ctx, &iam.CreateAccessKeyInput{UserName: aws.String(user)})
@@ -51,10 +52,10 @@ func TestIAM_ResourceARN_DynamoDB(t *testing.T) {
 	ddb := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
 	item := map[string]ddbtypes.AttributeValue{"id": &ddbtypes.AttributeValueMemberS{Value: "x"}}
-	_, err = ddb.PutItem(ctx, &dynamodb.PutItemInput{TableName: aws.String("scoped-table"), Item: item})
+	_, err = ddb.PutItem(ctx, &dynamodb.PutItemInput{TableName: aws.String(scopedTable), Item: item})
 	assert.NoError(t, err, "PutItem on the granted table ARN must succeed")
 
-	_, err = ddb.PutItem(ctx, &dynamodb.PutItemInput{TableName: aws.String("other-table"), Item: item})
+	_, err = ddb.PutItem(ctx, &dynamodb.PutItemInput{TableName: aws.String(otherTable), Item: item})
 	require.Error(t, err, "PutItem on a different table must be denied by the resource-scoped policy")
 	assert.Equal(t, "AccessDeniedException", errCodeOf(err))
 }
@@ -78,10 +79,11 @@ func TestIAM_ResourceARN_DynamoDBTransactionsAndBatches(t *testing.T) {
 		})
 		require.NoError(t, err)
 	}
-	mkTable("txn-scoped-table")
-	mkTable("txn-other-table")
+	scopedTable, otherTable := uniqueName("txn-scoped-table"), uniqueName("txn-other-table")
+	mkTable(scopedTable)
+	mkTable(otherTable)
 
-	user := "ddb-txn-scoped-user"
+	user := uniqueName("ddb-txn-scoped-user")
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer admin.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})
@@ -90,8 +92,8 @@ func TestIAM_ResourceARN_DynamoDBTransactionsAndBatches(t *testing.T) {
 		PolicyName: aws.String("one-table-txn"),
 		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
 			`"Action":["dynamodb:PutItem","dynamodb:GetItem","dynamodb:BatchWriteItem","dynamodb:BatchGetItem"],` +
-			`"Resource":["arn:aws:dynamodb:us-east-1:123456789012:table/txn-scoped-table",` +
-			`"arn:aws:dynamodb:us-east-1:123456789012:table/txn-scoped-table/index/*"]}]}`),
+			`"Resource":["arn:aws:dynamodb:us-east-1:123456789012:table/` + scopedTable + `",` +
+			`"arn:aws:dynamodb:us-east-1:123456789012:table/` + scopedTable + `/index/*"]}]}`),
 	})
 	require.NoError(t, err)
 	key, err := admin.CreateAccessKey(ctx, &iam.CreateAccessKeyInput{UserName: aws.String(user)})
@@ -106,36 +108,36 @@ func TestIAM_ResourceARN_DynamoDBTransactionsAndBatches(t *testing.T) {
 
 	_, err = ddb.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
 		TransactItems: []ddbtypes.TransactWriteItem{
-			{Put: &ddbtypes.Put{TableName: aws.String("txn-scoped-table"), Item: item}},
+			{Put: &ddbtypes.Put{TableName: aws.String(scopedTable), Item: item}},
 		},
 	})
 	assert.NoError(t, err, "TransactWriteItems on the granted table ARN must succeed")
 
 	_, err = ddb.TransactGetItems(ctx, &dynamodb.TransactGetItemsInput{
 		TransactItems: []ddbtypes.TransactGetItem{
-			{Get: &ddbtypes.Get{TableName: aws.String("txn-scoped-table"), Key: keyAttr}},
+			{Get: &ddbtypes.Get{TableName: aws.String(scopedTable), Key: keyAttr}},
 		},
 	})
 	assert.NoError(t, err, "TransactGetItems on the granted table ARN must succeed")
 
 	_, err = ddb.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{
 		RequestItems: map[string][]ddbtypes.WriteRequest{
-			"txn-scoped-table": {{PutRequest: &ddbtypes.PutRequest{Item: item}}},
+			scopedTable: {{PutRequest: &ddbtypes.PutRequest{Item: item}}},
 		},
 	})
 	assert.NoError(t, err, "BatchWriteItem on the granted table ARN must succeed")
 
 	_, err = ddb.BatchGetItem(ctx, &dynamodb.BatchGetItemInput{
 		RequestItems: map[string]ddbtypes.KeysAndAttributes{
-			"txn-scoped-table": {Keys: []map[string]ddbtypes.AttributeValue{keyAttr}},
+			scopedTable: {Keys: []map[string]ddbtypes.AttributeValue{keyAttr}},
 		},
 	})
 	assert.NoError(t, err, "BatchGetItem on the granted table ARN must succeed")
 
 	_, err = ddb.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
 		TransactItems: []ddbtypes.TransactWriteItem{
-			{Put: &ddbtypes.Put{TableName: aws.String("txn-scoped-table"), Item: item}},
-			{Put: &ddbtypes.Put{TableName: aws.String("txn-other-table"), Item: item}},
+			{Put: &ddbtypes.Put{TableName: aws.String(scopedTable), Item: item}},
+			{Put: &ddbtypes.Put{TableName: aws.String(otherTable), Item: item}},
 		},
 	})
 	require.Error(t, err, "a transaction touching an ungranted table must be denied")
@@ -143,7 +145,7 @@ func TestIAM_ResourceARN_DynamoDBTransactionsAndBatches(t *testing.T) {
 
 	_, err = ddb.BatchGetItem(ctx, &dynamodb.BatchGetItemInput{
 		RequestItems: map[string]ddbtypes.KeysAndAttributes{
-			"txn-other-table": {Keys: []map[string]ddbtypes.AttributeValue{keyAttr}},
+			otherTable: {Keys: []map[string]ddbtypes.AttributeValue{keyAttr}},
 		},
 	})
 	require.Error(t, err, "a batch get on an ungranted table must be denied")
@@ -160,12 +162,13 @@ func TestIAM_ResourceARN_ECR(t *testing.T) {
 	admin := iamClient()
 	ecrAdmin := ecrClient()
 
-	for _, name := range []string{"scoped-ns/control-plane", "scoped-ns/golden/omnibus", "other-ns/control-plane"} {
+	scopedNS, otherNS := uniqueName("scoped-ns"), uniqueName("other-ns")
+	for _, name := range []string{scopedNS + "/control-plane", scopedNS + "/golden/omnibus", otherNS + "/control-plane"} {
 		_, err := ecrAdmin.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(name)})
 		require.NoError(t, err)
 	}
 
-	user := "ecr-scoped-user"
+	user := uniqueName("ecr-scoped-user")
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer admin.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})
@@ -174,7 +177,7 @@ func TestIAM_ResourceARN_ECR(t *testing.T) {
 		PolicyName: aws.String("one-namespace"),
 		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
 			`"Action":["ecr:DescribeImages","ecr:ListImages"],` +
-			`"Resource":"arn:aws:ecr:us-east-1:123456789012:repository/scoped-ns/*"}]}`),
+			`"Resource":"arn:aws:ecr:us-east-1:123456789012:repository/` + scopedNS + `/*"}]}`),
 	})
 	require.NoError(t, err)
 	key, err := admin.CreateAccessKey(ctx, &iam.CreateAccessKeyInput{UserName: aws.String(user)})
@@ -184,16 +187,16 @@ func TestIAM_ResourceARN_ECR(t *testing.T) {
 		aws.ToString(key.AccessKey.AccessKeyId), aws.ToString(key.AccessKey.SecretAccessKey), "")}
 	scoped := ecr.NewFromConfig(cfg, func(o *ecr.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
-	_, err = scoped.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String("scoped-ns/control-plane")})
+	_, err = scoped.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String(scopedNS + "/control-plane")})
 	assert.NoError(t, err, "DescribeImages on a repository under the granted prefix must succeed")
 
-	_, err = scoped.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String("scoped-ns/golden/omnibus")})
+	_, err = scoped.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String(scopedNS + "/golden/omnibus")})
 	assert.NoError(t, err, "a nested repository name under the granted prefix must succeed")
 
-	_, err = scoped.ListImages(ctx, &ecr.ListImagesInput{RepositoryName: aws.String("scoped-ns/control-plane")})
+	_, err = scoped.ListImages(ctx, &ecr.ListImagesInput{RepositoryName: aws.String(scopedNS + "/control-plane")})
 	assert.NoError(t, err, "ListImages on a repository under the granted prefix must succeed")
 
-	_, err = scoped.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String("other-ns/control-plane")})
+	_, err = scoped.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String(otherNS + "/control-plane")})
 	require.Error(t, err, "a repository outside the granted prefix must be denied")
 	assert.Equal(t, "AccessDeniedException", errCodeOf(err))
 }

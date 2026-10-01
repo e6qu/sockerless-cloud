@@ -522,7 +522,7 @@ func psPullAll(t *testing.T, sc pubsubpb.SubscriberClient, sub string, count int
 // is an INVALID_ARGUMENT, not a silent restart from the first page.
 func TestPubSubGRPC_ListRefusesAMalformedPage(t *testing.T) {
 	pub, _ := psRawClient(t)
-	project := "projects/ps-grpc-paging"
+	project := "projects/" + uniqueName("ps-grpc-paging")
 	for _, id := range []string{"a", "b", "c"} {
 		_, err := pub.CreateTopic(ctx, &pubsubpb.Topic{Name: project + "/topics/" + id})
 		require.NoError(t, err)

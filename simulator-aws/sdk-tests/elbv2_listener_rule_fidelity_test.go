@@ -25,6 +25,7 @@ func elbv2FidVPCSubnet(t *testing.T, cidr, snCidr string) (string, string) {
 
 func elbv2FidTargetGroup(t *testing.T, elb *elbv2.Client, vpcID, name string) string {
 	t.Helper()
+	name = uniqueName(name)
 	tg, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
 		Name: aws.String(name), Protocol: elbtypes.ProtocolEnumHttp, Port: aws.Int32(80),
 		VpcId: aws.String(vpcID), TargetType: elbtypes.TargetTypeEnumIp,
@@ -35,6 +36,7 @@ func elbv2FidTargetGroup(t *testing.T, elb *elbv2.Client, vpcID, name string) st
 
 func elbv2FidLoadBalancer(t *testing.T, elb *elbv2.Client, subnetID, name string, lbType elbtypes.LoadBalancerTypeEnum) string {
 	t.Helper()
+	name = uniqueName(name)
 	lb, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
 		Name: aws.String(name), Type: lbType, Subnets: []string{subnetID},
 	})

@@ -592,7 +592,7 @@ func TestConformanceCloudMapServiceNotFoundStatus(t *testing.T) {
 // WAFDuplicateItemException on the second call.
 func TestConformanceWAFv2CreateWebACLDuplicate(t *testing.T) {
 	c := wafClient()
-	name := "conf-dup-acl"
+	name := uniqueName("conf-dup-acl")
 	visibility := &wafv2types.VisibilityConfig{
 		CloudWatchMetricsEnabled: true,
 		MetricName:               aws.String(name),

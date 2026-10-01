@@ -16,7 +16,7 @@ import (
 // : Set → Get round-trip + Delete.
 func TestECR_RepositoryPolicy(t *testing.T) {
 	c := ecrClient()
-	repo := "policy-repo"
+	repo := uniqueName("policy-repo")
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 
@@ -43,7 +43,7 @@ func TestECR_RepositoryPolicy(t *testing.T) {
 // BatchCheckLayerAvailability reflecting the real store before/after.
 func TestECR_LayerUploadPipeline(t *testing.T) {
 	c := ecrClient()
-	repo := "layer-repo"
+	repo := uniqueName("layer-repo")
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 
@@ -124,9 +124,10 @@ func ecrLayerDigest(b []byte) string {
 // — image tag mutability, scan-on-push, and encryption config
 // round-trip through CreateRepository + DescribeRepositories.
 func TestECR_RepositoryConfiguration(t *testing.T) {
+	defaultRepo := uniqueName("config-default-repo")
 	c := ecrClient()
 
-	repo := "config-repo"
+	repo := uniqueName("config-repo")
 	created, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName:             aws.String(repo),
 		ImageTagMutability:         ecrtypes.ImageTagMutabilityImmutable,
@@ -149,7 +150,7 @@ func TestECR_RepositoryConfiguration(t *testing.T) {
 	assert.Equal(t, ecrtypes.EncryptionTypeAes256, got.EncryptionConfiguration.EncryptionType)
 
 	// A bare repository gets the AWS defaults (MUTABLE / AES256 / no scan).
-	def, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String("config-default-repo")})
+	def, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(defaultRepo)})
 	require.NoError(t, err)
 	assert.Equal(t, ecrtypes.ImageTagMutabilityMutable, def.Repository.ImageTagMutability)
 	assert.Equal(t, ecrtypes.EncryptionTypeAes256, def.Repository.EncryptionConfiguration.EncryptionType)

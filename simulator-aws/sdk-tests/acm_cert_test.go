@@ -26,10 +26,8 @@ func TestACMIssuedCertHasPEMMaterial(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	const (
-		domain = "api.example.test"
-		san    = "www.example.test"
-	)
+	domain := uniqueName("api") + ".example.test"
+	san := uniqueName("www") + ".example.test"
 	reqOut, err := acmC.RequestCertificate(ctx, &acm.RequestCertificateInput{
 		DomainName:              aws.String(domain),
 		ValidationMethod:        acmtypes.ValidationMethodDns,

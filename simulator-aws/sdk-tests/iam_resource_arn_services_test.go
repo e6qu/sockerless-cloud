@@ -23,6 +23,7 @@ import (
 // test credential.
 func scopedCredentials(t *testing.T, user, policyName, policyDocument string) aws.Config {
 	t.Helper()
+	user = uniqueName(user)
 	admin := iamClient()
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)

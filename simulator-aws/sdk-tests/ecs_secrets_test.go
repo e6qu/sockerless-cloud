@@ -18,32 +18,34 @@ import (
 // resolved at task launch and injected as the named environment variable,
 // indistinguishable from a plain `environment` entry to the container.
 func TestECS_TaskDefinitionSecretsInjected(t *testing.T) {
+	family := uniqueName("ecs-secrets")
+	secretName := uniqueName("ecs/inject-secret")
 	client := ecsClient()
 	sm := smClient()
 	cw := cwLogsClient()
 
 	const secretValue = "sockerless-ecs-secret-deadbeef"
 	created, err := sm.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
-		Name:         aws.String("ecs/inject-secret"),
+		Name:         aws.String(secretName),
 		SecretString: aws.String(secretValue),
 	})
 	require.NoError(t, err)
 	secretArn := aws.ToString(created.ARN)
 	require.NotEmpty(t, secretArn)
 
-	const cluster = "ecs-secrets-cluster"
+	cluster := uniqueName("ecs-secrets-cluster")
 	_, err = client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	subnetID := createECSTestSubnet(t, "secrets")
 
-	const logGroup = "/ecs/secrets-inject"
+	logGroup := uniqueName("/ecs/secrets-inject")
 	_, _ = cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(logGroup)})
 	t.Cleanup(func() {
 		_, _ = cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroup)})
 	})
 
 	td, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family:                  aws.String("ecs-secrets"),
+		Family:                  aws.String(family),
 		NetworkMode:             ecstypes.NetworkModeAwsvpc,
 		RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
 		Cpu:                     aws.String("256"),

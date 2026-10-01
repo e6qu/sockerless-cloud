@@ -227,8 +227,8 @@ func TestCrossDoor_Firestore(t *testing.T) {
 func TestCrossDoor_PubSub(t *testing.T) {
 	rest := pubsubService(t)
 	const project = "projects/cross-door-pubsub"
-	topicName := project + "/topics/crossing"
-	subName := project + "/subscriptions/crossing-sub"
+	topicName := project + "/topics/" + uniqueName("crossing")
+	subName := project + "/subscriptions/" + uniqueName("crossing-sub")
 
 	// Topic and subscription created over REST.
 	_, err := rest.Projects.Topics.Create(topicName, &pubsub.Topic{}).Do()

@@ -16,6 +16,7 @@ import (
 // from DescribeCapacityReservation. Returning CapacityUnits=0 makes the provider
 // read a configured 0 and plan "capacity_units = 0 -> null" every idempotency plan.
 func TestELBv2_CapacityReservationOmitsUnsetMinimum(t *testing.T) {
+	lbName := uniqueName("cap-res-lb")
 	ec2c := ec2Client()
 	vpc, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.73.0.0/16")})
 	require.NoError(t, err)
@@ -26,7 +27,7 @@ func TestELBv2_CapacityReservationOmitsUnsetMinimum(t *testing.T) {
 
 	c := elbv2Client()
 	lb, err := c.CreateLoadBalancer(ctx, &elasticloadbalancingv2.CreateLoadBalancerInput{
-		Name:    aws.String("cap-res-lb"),
+		Name:    aws.String(lbName),
 		Type:    elbv2types.LoadBalancerTypeEnumApplication,
 		Subnets: []string{aws.ToString(sub.Subnet.SubnetId)},
 	})

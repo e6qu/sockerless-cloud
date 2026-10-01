@@ -162,7 +162,7 @@ func TestEC2_CapacityReservationFleetLifecycle(t *testing.T) {
 // read it back; ModifyFleet adjusts target; DeleteFleets removes it.
 func TestEC2_FleetLifecycle(t *testing.T) {
 	c := ec2Client()
-	ltID := createFleetLaunchTemplate(t, c, "fleet-lt-sdk")
+	ltID := createFleetLaunchTemplate(t, c, uniqueName("fleet-lt-sdk"))
 
 	created, err := c.CreateFleet(ctx, &ec2.CreateFleetInput{
 		Type: types.FleetTypeMaintain,

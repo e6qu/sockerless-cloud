@@ -33,7 +33,7 @@ func ecrPutTestImage(t *testing.T, client *ecr.Client, repo, tag string) string 
 // DescribeRepositories to confirm they round-trip.
 func TestECR_ImageTagMutabilityAndScanningConfig(t *testing.T) {
 	client := ecrClient()
-	repo := "ecr-config-repo"
+	repo := uniqueName("ecr-config-repo")
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName: aws.String(repo),
 	})
@@ -95,7 +95,7 @@ func TestECR_ImageScan(t *testing.T) {
 // then reads the preview back.
 func TestECR_LifecyclePolicyPreview(t *testing.T) {
 	client := ecrClient()
-	repo := "ecr-lifecycle-preview-repo"
+	repo := uniqueName("ecr-lifecycle-preview-repo")
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName: aws.String(repo),
 	})

@@ -25,7 +25,7 @@ import (
 // denied the very writes it was written to permit.
 func TestCloudWatch_PutMetricDataIsScopedByItsNamespaceCondition(t *testing.T) {
 	iamc := iamClient()
-	user := "cw-namespace-writer"
+	user := uniqueName("cw-namespace-writer")
 
 	_, err := iamc.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)

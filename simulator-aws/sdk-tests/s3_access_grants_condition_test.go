@@ -30,7 +30,7 @@ func TestS3_AccessGrantsInstanceArnConditionKeyScopesTheGrant(t *testing.T) {
 	control := s3ControlClient()
 	admin := s3Client()
 	iamc := iamClient()
-	bucket := "grants-condition-bucket"
+	bucket := uniqueName("grants-condition-bucket")
 
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
@@ -40,7 +40,7 @@ func TestS3_AccessGrantsInstanceArnConditionKeyScopesTheGrant(t *testing.T) {
 
 	// The location's role may read the object only when the request carries
 	// credentials this Access Grants instance issued.
-	const roleName = "s3-grants-condition-role"
+	roleName := uniqueName("s3-grants-condition-role")
 	role, err := iamc.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName: aws.String(roleName),
 		AssumeRolePolicyDocument: aws.String(

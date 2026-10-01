@@ -107,6 +107,7 @@ func cwLogsClient() *cloudwatchlogs.Client {
 }
 
 func TestLambda_FunctionConfigurationOmitsCodeAndTags(t *testing.T) {
+	rawFn := uniqueName("raw-shape-fn")
 	lc := lambdaClient()
 	fnName := "shape-fn"
 	deployment := lambdaDeploymentZip(t)
@@ -163,7 +164,7 @@ func TestLambda_FunctionConfigurationOmitsCodeAndTags(t *testing.T) {
 	}
 
 	rawReq, err := json.Marshal(map[string]any{
-		"FunctionName": "raw-shape-fn",
+		"FunctionName": rawFn,
 		"Role":         "arn:aws:iam::123456789012:role/test-role",
 		"Runtime":      "nodejs20.x",
 		"Handler":      "index.handler",
@@ -187,7 +188,7 @@ func TestLambda_FunctionConfigurationOmitsCodeAndTags(t *testing.T) {
 	assert.NotContains(t, string(body), `"Tags"`)
 	assert.NotContains(t, string(body), "zip-bytes")
 
-	rawGetReq, err := http.NewRequest(http.MethodGet, baseURL+"/2015-03-31/functions/raw-shape-fn", nil)
+	rawGetReq, err := http.NewRequest(http.MethodGet, baseURL+"/2015-03-31/functions/"+rawFn, nil)
 	require.NoError(t, err)
 	signRawSigV4(t, rawGetReq, "lambda", emptySHA256)
 	getResp, err := http.DefaultClient.Do(rawGetReq)

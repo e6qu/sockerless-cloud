@@ -61,7 +61,7 @@ func TestRDS_CustomEngineVersions(t *testing.T) {
 // ModifyDBRecommendation (which flips the recommendation status).
 func TestRDS_DBRecommendations(t *testing.T) {
 	c := rdsClient()
-	instID := "rec-pg-db"
+	instID := uniqueName("rec-pg-db")
 	created, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
 		Engine:               aws.String("postgres"),
@@ -107,7 +107,7 @@ func TestRDS_DBRecommendations(t *testing.T) {
 // the source instance of a stored snapshot.
 func TestRDS_SnapshotTenantDatabases(t *testing.T) {
 	c := rdsClient()
-	instID := "stdb-oracle-db"
+	instID := uniqueName("stdb-oracle-db")
 	_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
 		Engine:               aws.String("oracle-ee"),
@@ -133,7 +133,7 @@ func TestRDS_SnapshotTenantDatabases(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snapID := "stdb-snap"
+	snapID := uniqueName("stdb-snap")
 	_, err = c.CreateDBSnapshot(ctx, &rds.CreateDBSnapshotInput{
 		DBSnapshotIdentifier: aws.String(snapID),
 		DBInstanceIdentifier: aws.String(instID),

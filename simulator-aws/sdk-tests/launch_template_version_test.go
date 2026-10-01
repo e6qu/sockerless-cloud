@@ -14,10 +14,11 @@ import (
 // CreateLaunchTemplateVersion appends a version (latest, not
 // default) and ModifyLaunchTemplate moves the default version.
 func TestEC2_LaunchTemplateVersions(t *testing.T) {
+	ltName := uniqueName("lt-versions")
 	client := ec2Client()
 
 	created, err := client.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
-		LaunchTemplateName: aws.String("lt-versions"),
+		LaunchTemplateName: aws.String(ltName),
 		LaunchTemplateData: &types.RequestLaunchTemplateData{
 			ImageId:      aws.String("ami-11111111"),
 			InstanceType: types.InstanceTypeT3Micro,

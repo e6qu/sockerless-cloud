@@ -16,8 +16,8 @@ import (
 // every column authorized and no Lake Formation registration.
 func TestGlue_UnfilteredMetadata_SDK(t *testing.T) {
 	c := glueClient()
-	db := "glue-unf-db"
-	tbl := "glue-unf-tbl"
+	db := uniqueName("glue-unf-db")
+	tbl := uniqueName("glue-unf-tbl")
 
 	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
 		DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(db)},

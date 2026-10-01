@@ -139,7 +139,7 @@ func TestDDB_RestoreToPointInTime(t *testing.T) {
 // ListGlobalTables / UpdateGlobalTable and the settings + autoscaling reads.
 func TestDDB_GlobalTables(t *testing.T) {
 	c := ddbClient()
-	table := "ddb-gt"
+	table := uniqueName("ddb-gt")
 	ddbMakeTable(t, c, table)
 
 	cg, err := c.CreateGlobalTable(ctx, &dynamodb.CreateGlobalTableInput{

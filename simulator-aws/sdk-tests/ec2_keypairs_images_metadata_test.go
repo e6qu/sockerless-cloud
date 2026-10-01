@@ -78,9 +78,10 @@ func TestEC2_ModifyInstanceMetadataOptionsSDK(t *testing.T) {
 // TestEC2_LaunchTemplateMarketCreditSDK covers the launch-template
 // instance_market_options + credit_specification round-trip.
 func TestEC2_LaunchTemplateMarketCreditSDK(t *testing.T) {
+	ltName := uniqueName("market-credit-lt")
 	c := ec2Client()
 	lt, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
-		LaunchTemplateName: aws.String("market-credit-lt"),
+		LaunchTemplateName: aws.String(ltName),
 		LaunchTemplateData: &types.RequestLaunchTemplateData{
 			ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
 			CreditSpecification: &types.CreditSpecificationRequest{CpuCredits: aws.String("unlimited")},

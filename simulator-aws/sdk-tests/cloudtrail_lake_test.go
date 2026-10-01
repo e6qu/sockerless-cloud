@@ -19,7 +19,7 @@ import (
 // DeleteEventDataStore → RestoreEventDataStore.
 func TestCloudTrail_EventDataStoreLifecycleSDK(t *testing.T) {
 	ct := cloudTrailClient()
-	const name = "ct-eds-lifecycle"
+	name := uniqueName("ct-eds-lifecycle")
 
 	created, err := ct.CreateEventDataStore(ctx, &cloudtrail.CreateEventDataStoreInput{
 		Name:            aws.String(name),
@@ -99,9 +99,10 @@ func TestCloudTrail_EventDataStoreLifecycleSDK(t *testing.T) {
 // an event data store ingested: StartQuery → DescribeQuery / GetQueryResults /
 // ListQueries → CancelQuery, plus GenerateQuery and SearchSampleQueries.
 func TestCloudTrail_LakeQuerySDK(t *testing.T) {
+	edsName := uniqueName("lake-query-eds")
 	ct := cloudTrailClient()
 	created, err := ct.CreateEventDataStore(ctx, &cloudtrail.CreateEventDataStoreInput{
-		Name:                         aws.String("lake-query-eds"),
+		Name:                         aws.String(edsName),
 		RetentionPeriod:              aws.Int32(7),
 		TerminationProtectionEnabled: aws.Bool(false),
 	})
@@ -274,6 +275,8 @@ func TestCloudTrail_ImportLifecycleSDK(t *testing.T) {
 // PutEventConfiguration / GetEventConfiguration, ListPublicKeys,
 // ListInsightsMetricData / ListInsightsData, UpdateChannel.
 func TestCloudTrail_GovernanceSDK(t *testing.T) {
+	channelName := uniqueName("ct-gov-channel")
+	renamedChannel := uniqueName("ct-gov-channel-renamed")
 	ct := cloudTrailClient()
 
 	// Resource policy round-trip against a Lake channel ARN.
@@ -304,7 +307,7 @@ func TestCloudTrail_GovernanceSDK(t *testing.T) {
 	require.NoError(t, err)
 
 	// Event configuration round-trip against an event data store.
-	edsName := "ct-gov-eds"
+	edsName := uniqueName("ct-gov-eds")
 	created, err := ct.CreateEventDataStore(ctx, &cloudtrail.CreateEventDataStoreInput{Name: aws.String(edsName)})
 	require.NoError(t, err)
 	edsArn := aws.ToString(created.EventDataStoreArn)
@@ -338,7 +341,7 @@ func TestCloudTrail_GovernanceSDK(t *testing.T) {
 
 	// UpdateChannel changes a Lake channel's name.
 	ch, err := ct.CreateChannel(ctx, &cloudtrail.CreateChannelInput{
-		Name:   aws.String("ct-gov-channel"),
+		Name:   aws.String(channelName),
 		Source: aws.String("Custom"),
 		Destinations: []cttypes.Destination{{
 			Type:     cttypes.DestinationTypeEventDataStore,
@@ -350,8 +353,8 @@ func TestCloudTrail_GovernanceSDK(t *testing.T) {
 	t.Cleanup(func() { _, _ = ct.DeleteChannel(ctx, &cloudtrail.DeleteChannelInput{Channel: aws.String(chArn)}) })
 	updCh, err := ct.UpdateChannel(ctx, &cloudtrail.UpdateChannelInput{
 		Channel: aws.String(chArn),
-		Name:    aws.String("ct-gov-channel-renamed"),
+		Name:    aws.String(renamedChannel),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "ct-gov-channel-renamed", aws.ToString(updCh.Name))
+	assert.Equal(t, renamedChannel, aws.ToString(updCh.Name))
 }

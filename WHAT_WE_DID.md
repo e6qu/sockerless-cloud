@@ -1054,6 +1054,10 @@ table, as such a range, with no derived key index to invalidate at every write
 site. Amazon ECR's DescribeImages reads the `<repository>:` range, and Amazon
 ECS's task-definition listings read the family's range from a cached store,
 because a listing polled every few seconds must not decode the database.
+Deleting an Amazon ECR repository deletes the same ranges: its images and
+registry manifests under `<repository>:`, its blobs and layers under
+`<repository>@`, and its lifecycle and repository policies, so a repository
+created again under the same name starts empty.
 
 ## Authorization and authentication
 
@@ -1196,8 +1200,14 @@ deletes cascade across both planes: a manifest DELETE over OCI removes its
 version, tags and image row, and a package or repository takes everything
 beneath it. The simulator's tokens carry Google's issuer, and its discovery
 document names that issuer with its own key and token URLs, so a relying party
-verifies them as it verifies Google's. The Google Cloud SDK tests name their
-resources per run, so a repeated run against one simulator passes.
+verifies them as it verifies Google's. The Google Cloud SDK tests, Cloud
+Pub/Sub's included, and the AWS SDK tests name their resources per run with
+`uniqueName`, so a repeated run against one simulator passes: a test that
+creates a resource under a fixed name, filters a listing by a fixed tag,
+aggregates a metric in a fixed namespace or reuses an idempotency token or
+client token collides with its own previous run. A test that changes an
+account-wide setting, such as the Amazon EC2 default credit specification or
+the account's Amazon VPC encryption control, restores it at cleanup.
 
 AWS work that the services finish later now finishes later in the simulator
 too, and is gated on the real inputs. An EC2 instance stays pending until its

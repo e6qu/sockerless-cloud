@@ -16,10 +16,17 @@ import (
 // `docker push` / `docker pull` go over the OCI Distribution `/v2/` API. This
 // mounts the shared OCI data plane and registers each pushed manifest as an ECR
 // image so the control plane sees it.
+var (
+	ecrOCIManifests sim.Store[sim.OCIManifest]
+	ecrOCIBlobs     sim.Store[sim.OCIBlob]
+)
+
 func registerECROCI(srv *sim.Server) {
+	ecrOCIManifests = sim.MakeStore[sim.OCIManifest](srv.DB(), "ecr_oci_manifests")
+	ecrOCIBlobs = sim.MakeStore[sim.OCIBlob](srv.DB(), "ecr_oci_blobs")
 	reg := &sim.OCIRegistry{
-		Manifests: sim.MakeStore[sim.OCIManifest](srv.DB(), "ecr_oci_manifests"),
-		Blobs:     sim.MakeStore[sim.OCIBlob](srv.DB(), "ecr_oci_blobs"),
+		Manifests: ecrOCIManifests,
+		Blobs:     ecrOCIBlobs,
 		Uploads:   sim.MakeStore[sim.OCIUpload](srv.DB(), "ecr_oci_uploads"),
 		// Amazon ECR is a private registry: every registry request carries the
 		// authorization token GetAuthorizationToken issued (ecr_dataplane_auth.go).

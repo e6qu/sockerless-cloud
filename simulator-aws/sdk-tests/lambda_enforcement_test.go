@@ -62,7 +62,7 @@ func TestLambda_UnsignedAndWrongSecretRejected(t *testing.T) {
 // proves for EC2/ECS, now covering Lambda's REST control plane.
 func TestLambda_CallTimeIAMEnforcement(t *testing.T) {
 	admin := iamClient()
-	user := "lambda-restricted-user"
+	user := uniqueName("lambda-restricted-user")
 
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)

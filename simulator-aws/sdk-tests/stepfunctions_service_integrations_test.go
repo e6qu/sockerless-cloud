@@ -343,13 +343,16 @@ func TestSFN_GenericAWSSDKIntegrations_SDK(t *testing.T) {
 // Amazon States Language definitions. Every resource and observation travels
 // through an official AWS SDK client at the simulator coordinate.
 func TestSFN_EventingAndObservabilityIntegrations_SDK(t *testing.T) {
+	namespace := uniqueName("Sockerless/StepFunctions")
+	machineName := uniqueName("sfn-service-integrations")
+	integrationName := uniqueName("sfn-integrations")
 	queueAPI := sqsClient()
 	topicAPI := snsClient()
 	eventAPI := eventbridgeClient()
 	statesAPI := sfnClient()
 	metricsAPI := cloudwatchClient()
 
-	queue, err := queueAPI.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("sfn-integrations")})
+	queue, err := queueAPI.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(integrationName)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = queueAPI.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: queue.QueueUrl}) })
 	attributes, err := queueAPI.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
@@ -366,7 +369,7 @@ func TestSFN_EventingAndObservabilityIntegrations_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	topic, err := topicAPI.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String("sfn-integrations")})
+	topic, err := topicAPI.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(integrationName)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = topicAPI.DeleteTopic(ctx, &sns.DeleteTopicInput{TopicArn: topic.TopicArn}) })
 	_, err = topicAPI.Subscribe(ctx, &sns.SubscribeInput{
@@ -374,7 +377,7 @@ func TestSFN_EventingAndObservabilityIntegrations_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ruleName := "sfn-integrations"
+	ruleName := integrationName
 	pattern := `{"source":["sfn.integration"]}`
 	_, err = eventAPI.PutRule(ctx, &eventbridge.PutRuleInput{
 		Name: aws.String(ruleName), EventPattern: aws.String(pattern),
@@ -415,7 +418,7 @@ func TestSFN_EventingAndObservabilityIntegrations_SDK(t *testing.T) {
 			"Metric": map[string]any{
 				"Type": "Task", "Resource": "arn:aws:states:::aws-sdk:cloudwatch:putMetricData",
 				"Parameters": map[string]any{
-					"Namespace":  "Sockerless/StepFunctions",
+					"Namespace":  namespace,
 					"MetricData": []any{map[string]any{"MetricName": "Completed", "Value": 1}},
 				},
 				"End": true,
@@ -424,7 +427,7 @@ func TestSFN_EventingAndObservabilityIntegrations_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	machine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-		Name: aws.String("sfn-service-integrations"), Definition: aws.String(string(definition)),
+		Name: aws.String(machineName), Definition: aws.String(string(definition)),
 		RoleArn: aws.String("arn:aws:iam::123456789012:role/sfn-role"),
 	})
 	require.NoError(t, err)
@@ -478,7 +481,7 @@ func TestSFN_EventingAndObservabilityIntegrations_SDK(t *testing.T) {
 			Id: aws.String("completed"),
 			MetricStat: &cwtypes.MetricStat{
 				Metric: &cwtypes.Metric{
-					Namespace:  aws.String("Sockerless/StepFunctions"),
+					Namespace:  aws.String(namespace),
 					MetricName: aws.String("Completed"),
 				},
 				Period: aws.Int32(60),

@@ -67,7 +67,7 @@ func seedLogGroupWithEvents(t *testing.T, cw *cloudwatchlogs.Client, group, stre
 // the events ingested after it started, and not the history stored before it.
 func TestLogs_StartLiveTail(t *testing.T) {
 	cw := cwLogsStreamClient()
-	group := "livetail-group"
+	group := uniqueName("livetail-group")
 	stream := "livetail-stream"
 	groupArn := seedLogGroupWithEvents(t, cw, group, stream, []string{"stored before the session"})
 
@@ -127,7 +127,7 @@ func TestLogs_StartLiveTail(t *testing.T) {
 // a plain-text line that merely contains the value is not streamed.
 func TestLogs_StartLiveTail_FilterPattern(t *testing.T) {
 	cw := cwLogsStreamClient()
-	group := "livetail-filter-group"
+	group := uniqueName("livetail-filter-group")
 	stream := "livetail-filter-stream"
 	groupArn := seedLogGroupWithEvents(t, cw, group, stream, []string{`{"level":"error","msg":"stored"}`})
 
@@ -173,7 +173,7 @@ func TestLogs_StartLiveTail_FilterPattern(t *testing.T) {
 // structured pattern before the stream opens.
 func TestLogs_StartLiveTail_MalformedFilterPattern(t *testing.T) {
 	cw := cwLogsStreamClient()
-	groupArn := seedLogGroupWithEvents(t, cw, "livetail-bad-filter-group", "s", []string{"x"})
+	groupArn := seedLogGroupWithEvents(t, cw, uniqueName("livetail-bad-filter-group"), "s", []string{"x"})
 	_, err := cw.StartLiveTail(ctx, &cloudwatchlogs.StartLiveTailInput{
 		LogGroupIdentifiers:   []string{groupArn},
 		LogEventFilterPattern: aws.String(`{ $.level = }`),
@@ -250,7 +250,7 @@ func TestLogs_StartLiveTail_UnknownGroup(t *testing.T) {
 // and asserts the FieldsData carries the referenced event's bytes.
 func TestLogs_GetLogObject(t *testing.T) {
 	cw := cwLogsStreamClient()
-	group := "getlogobject-group"
+	group := uniqueName("getlogobject-group")
 	stream := "getlogobject-stream"
 	seedLogGroupWithEvents(t, cw, group, stream, []string{
 		"object-line-0",

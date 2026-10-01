@@ -402,10 +402,32 @@ func handleECRDeleteRepository(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ecrRepositories.Delete(req.RepositoryName)
+	ecrDeleteRepositoryContents(req.RepositoryName)
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"repository": repo,
 	})
+}
+
+// ecrDeleteRepositoryContents removes what a repository holds along with it, so
+// a repository created again under the same name starts empty, as on Amazon ECR.
+// Image and manifest keys are "<repository>:…" and blob and layer keys
+// "<repository>@…"; a repository name contains neither separator.
+func ecrDeleteRepositoryContents(repo string) {
+	for _, row := range ecrImages.ListPrefix(repo + ":") {
+		ecrImages.Delete(row.ID)
+	}
+	for _, row := range ecrOCIManifests.ListPrefix(repo + ":") {
+		ecrOCIManifests.Delete(row.ID)
+	}
+	for _, row := range ecrOCIBlobs.ListPrefix(repo + "@") {
+		ecrOCIBlobs.Delete(row.ID)
+	}
+	for _, row := range ecrLayers.ListPrefix(repo + "@") {
+		ecrLayers.Delete(row.ID)
+	}
+	ecrLifecyclePolicies.Delete(repo)
+	ecrRepoPolicies.Delete(repo)
 }
 
 func handleECRGetAuthorizationToken(w http.ResponseWriter, r *http.Request) {

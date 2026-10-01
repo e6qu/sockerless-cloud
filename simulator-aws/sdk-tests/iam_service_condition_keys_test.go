@@ -25,6 +25,7 @@ import (
 // its access key, so a test can call as a principal the policy governs.
 func restrictedCredential(t *testing.T, user, policy string) (akid, secret string) {
 	t.Helper()
+	user = uniqueName(user)
 	iamc := iamClient()
 	_, err := iamc.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
@@ -247,6 +248,8 @@ func TestIAM_PermissionsBoundaryConditionKeyScopesTheGrant(t *testing.T) {
 // which is Amazon RDS's own spelling of the tags a request carries — the key a
 // policy uses to require that everything created be labelled.
 func TestRDS_RequestTagConditionKeyScopesTheGrant(t *testing.T) {
+	untaggedGroup := uniqueName("cond-untagged-group")
+	taggedGroup := uniqueName("cond-tagged-group")
 	akid, secret := restrictedCredential(t, "rds-must-tag-env",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"rds:CreateDBParameterGroup",
 		  "Resource":"*","Condition":{"StringEquals":{"rds:req-tag/env":"dev"}}}]}`)
@@ -255,7 +258,7 @@ func TestRDS_RequestTagConditionKeyScopesTheGrant(t *testing.T) {
 		func(o *rds.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
 	_, err := restricted.CreateDBParameterGroup(ctx, &rds.CreateDBParameterGroupInput{
-		DBParameterGroupName:   aws.String("cond-tagged-group"),
+		DBParameterGroupName:   aws.String(taggedGroup),
 		DBParameterGroupFamily: aws.String("postgres17"),
 		Description:            aws.String("carries the tag the grant requires"),
 		Tags:                   []rdstypes.Tag{{Key: aws.String("env"), Value: aws.String("dev")}},
@@ -263,7 +266,7 @@ func TestRDS_RequestTagConditionKeyScopesTheGrant(t *testing.T) {
 	assert.NoError(t, err, "the request carries the tag the grant requires")
 
 	_, err = restricted.CreateDBParameterGroup(ctx, &rds.CreateDBParameterGroupInput{
-		DBParameterGroupName:   aws.String("cond-untagged-group"),
+		DBParameterGroupName:   aws.String(untaggedGroup),
 		DBParameterGroupFamily: aws.String("postgres17"),
 		Description:            aws.String("carries no such tag"),
 	})

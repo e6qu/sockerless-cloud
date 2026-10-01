@@ -27,6 +27,7 @@ func acmpcaClient() *acmpca.Client {
 
 func activateRootPrivateCA(t *testing.T, name string) string {
 	t.Helper()
+	token := uniqueName("pca")
 	client := acmpcaClient()
 	created, err := client.CreateCertificateAuthority(ctx, &acmpca.CreateCertificateAuthorityInput{
 		CertificateAuthorityType: pcatypes.CertificateAuthorityTypeRoot,
@@ -35,7 +36,7 @@ func activateRootPrivateCA(t *testing.T, name string) string {
 			SigningAlgorithm: pcatypes.SigningAlgorithmSha256withrsa,
 			Subject:          &pcatypes.ASN1Subject{CommonName: aws.String(name), Organization: aws.String("Sockerless")},
 		},
-		IdempotencyToken: aws.String(name),
+		IdempotencyToken: aws.String(token),
 		Tags:             []pcatypes.Tag{{Key: aws.String("environment"), Value: aws.String("test")}},
 	})
 	require.NoError(t, err)
@@ -52,7 +53,7 @@ func activateRootPrivateCA(t *testing.T, name string) string {
 		SigningAlgorithm:        pcatypes.SigningAlgorithmSha256withrsa,
 		TemplateArn:             aws.String("arn:aws:acm-pca:::template/RootCACertificate/V1"),
 		Validity:                &pcatypes.Validity{Type: pcatypes.ValidityPeriodTypeYears, Value: aws.Int64(10)},
-		IdempotencyToken:        aws.String(name + "-root"),
+		IdempotencyToken:        aws.String(token + "-root"),
 	})
 	require.NoError(t, err)
 	root, err := client.GetCertificate(ctx, &acmpca.GetCertificateInput{
@@ -175,7 +176,7 @@ func TestPrivateCA_CompleteLifecycleAndACMIntegration(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	bucket := "sdk-private-ca-audit"
+	bucket := uniqueName("sdk-private-ca-audit")
 	s3c := s3Client()
 	_, err = s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)

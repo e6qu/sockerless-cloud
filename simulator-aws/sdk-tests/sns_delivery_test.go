@@ -250,11 +250,12 @@ func TestSNS_DeliverToSQS_DeniedWrongSourceArn(t *testing.T) {
 // invoke — observable as the invocation's START line in the function's
 // CloudWatch Logs log group (`/aws/lambda/<name>`).
 func TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy(t *testing.T) {
+	topicName := uniqueName("sns-deliver-lambda-t")
 	snsC := snsClient()
 	lc := lambdaClient()
 	logs := cwLogsClient()
 
-	fnName := "sns-deliver-fn"
+	fnName := uniqueName("sns-deliver-fn")
 	logGroup := "/aws/lambda/" + fnName
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
@@ -279,7 +280,7 @@ func TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy(t *testing.T) {
 	require.NoError(t, err)
 	functionARN := aws.ToString(getFn.Configuration.FunctionArn)
 
-	tpc, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String("sns-deliver-lambda-t")})
+	tpc, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(topicName)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = snsC.DeleteTopic(ctx, &sns.DeleteTopicInput{TopicArn: tpc.TopicArn}) })
 

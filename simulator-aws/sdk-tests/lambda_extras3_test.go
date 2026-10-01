@@ -281,7 +281,7 @@ func TestLambda_InvokeWithResponseStream(t *testing.T) {
 // idempotent execution-name behavior through the official SDK.
 func TestLambda_DurableExecutionLifecycle(t *testing.T) {
 	lc := lambdaClient()
-	fn := "extras3-durable-fn"
+	fn := uniqueName("extras3-durable-fn")
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fn),
 		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
@@ -426,7 +426,7 @@ func TestLambda_DurableExecutionLifecycle(t *testing.T) {
 // to replay the function and return its customer result.
 func TestLambda_DurableCheckpointAndCallbackReplay(t *testing.T) {
 	lc := lambdaClient()
-	fn := "extras3-durable-callback-fn"
+	fn := uniqueName("extras3-durable-callback-fn")
 	source := `
 exports.handler = async (event) => {
   const callback = event.InitialExecutionState.Operations.find(

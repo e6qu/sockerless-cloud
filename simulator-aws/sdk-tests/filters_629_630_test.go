@@ -15,7 +15,7 @@ import (
 // TestECS_ListTaskDefinitions_SortAndStatus covers issue #630.
 func TestECS_ListTaskDefinitions_SortAndStatus(t *testing.T) {
 	c := ecsClient()
-	fam := "ltd-probe-630"
+	fam := uniqueName("ltd-probe-630")
 	var arns []string
 	for i := 0; i < 3; i++ {
 		reg, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
@@ -52,14 +52,16 @@ func TestECS_ListTaskDefinitions_SortAndStatus(t *testing.T) {
 
 // TestSM_ListSecrets_TagKeyFilter covers issue #629.
 func TestSM_ListSecrets_TagKeyFilter(t *testing.T) {
+	nameB := uniqueName("sm629-b")
+	nameA := uniqueName("sm629-a")
 	c := smClient()
 	_, err := c.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
-		Name: aws.String("sm629-a"), SecretString: aws.String("x"),
+		Name: aws.String(nameA), SecretString: aws.String("x"),
 		Tags: []smtypes.Tag{{Key: aws.String("sm629:workspace-id"), Value: aws.String("w")}},
 	})
 	require.NoError(t, err)
 	_, err = c.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
-		Name: aws.String("sm629-b"), SecretString: aws.String("y"),
+		Name: aws.String(nameB), SecretString: aws.String("y"),
 		Tags: []smtypes.Tag{{Key: aws.String("sm629-other"), Value: aws.String("z")}},
 	})
 	require.NoError(t, err)
@@ -78,6 +80,6 @@ func TestSM_ListSecrets_TagKeyFilter(t *testing.T) {
 	for _, s := range one.SecretList {
 		names = append(names, *s.Name)
 	}
-	assert.Contains(t, names, "sm629-a")
-	assert.NotContains(t, names, "sm629-b")
+	assert.Contains(t, names, nameA)
+	assert.NotContains(t, names, nameB)
 }

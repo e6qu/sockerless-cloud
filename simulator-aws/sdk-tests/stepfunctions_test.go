@@ -118,10 +118,11 @@ func TestSFN_StateMachineCRUD_SDK(t *testing.T) {
 }
 
 func TestSFN_ExecutionLifecycle_SDK(t *testing.T) {
+	machineName := uniqueName("sfn-sdk-exec-sm")
 	c := sfnClient()
 
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-		Name:       aws.String("sfn-sdk-exec-sm"),
+		Name:       aws.String(machineName),
 		Definition: aws.String(`{"Comment":"exec test","StartAt":"Pass","States":{"Pass":{"Type":"Pass","End":true}}}`),
 		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
 	})
@@ -225,12 +226,13 @@ func TestSFN_FailState_SDK(t *testing.T) {
 // ListTagsForResource. The SDK silently drops unknown members, so the
 // describe response is probed raw.
 func TestSFNDescribeStateMachineOmitsTags(t *testing.T) {
+	machineName := uniqueName("sfn-tags-shape")
 	c := sfnClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-		Name:       aws.String("sfn-tags-shape"),
+		Name:       aws.String(machineName),
 		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
 		Definition: aws.String(`{"StartAt":"Done","States":{"Done":{"Type":"Succeed"}}}`),
 		Tags:       []sfntypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}},
@@ -262,9 +264,10 @@ func TestSFNDescribeStateMachineOmitsTags(t *testing.T) {
 // TestSFN_GetExecutionHistory_SDK covers GetExecutionHistory and exercises the
 // Choice interpreter end-to-end (input routes to the >5 branch).
 func TestSFN_GetExecutionHistory_SDK(t *testing.T) {
+	machineName := uniqueName("sfn-sdk-history-sm")
 	c := sfnClient()
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-		Name: aws.String("sfn-sdk-history-sm"),
+		Name: aws.String(machineName),
 		Definition: aws.String(`{"StartAt":"C","States":{` +
 			`"C":{"Type":"Choice","Choices":[{"Variable":"$.x","NumericGreaterThan":5,"Next":"Big"}],"Default":"Small"},` +
 			`"Big":{"Type":"Pass","Result":"big","End":true},` +

@@ -35,27 +35,29 @@ func errCode(t *testing.T, err error) string {
 // that already exists must be rejected (real ELBv2 behavior), not silently
 // create a second resource.
 func TestELBv2_DuplicateNames(t *testing.T) {
+	tgName := uniqueName("dup-tg")
+	lbName := uniqueName("dup-lb")
 	c := elbv2Client()
 	_, err := c.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name:    aws.String("dup-lb"),
+		Name:    aws.String(lbName),
 		Subnets: []string{"subnet-aaaa1111", "subnet-bbbb2222"},
 	})
 	require.NoError(t, err)
 	_, err = c.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name:    aws.String("dup-lb"),
+		Name:    aws.String(lbName),
 		Subnets: []string{"subnet-aaaa1111", "subnet-bbbb2222"},
 	})
 	assert.Equal(t, "DuplicateLoadBalancerName", errCode(t, err))
 
 	_, err = c.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
-		Name:     aws.String("dup-tg"),
+		Name:     aws.String(tgName),
 		Protocol: elbv2types.ProtocolEnumHttp,
 		Port:     aws.Int32(80),
 		VpcId:    aws.String("vpc-12345678"),
 	})
 	require.NoError(t, err)
 	_, err = c.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
-		Name:     aws.String("dup-tg"),
+		Name:     aws.String(tgName),
 		Protocol: elbv2types.ProtocolEnumHttp,
 		Port:     aws.Int32(80),
 		VpcId:    aws.String("vpc-12345678"),
@@ -66,15 +68,16 @@ func TestELBv2_DuplicateNames(t *testing.T) {
 // TestRoute53_CallerReferenceIdempotency — a reused CallerReference returns
 // HostedZoneAlreadyExists, the idempotency key Terraform relies on for retries.
 func TestRoute53_CallerReferenceIdempotency(t *testing.T) {
+	callerRef := uniqueName("audit-ref")
 	c := r53Client()
 	_, err := c.CreateHostedZone(ctx, &route53.CreateHostedZoneInput{
 		Name:            aws.String("audit-example.com"),
-		CallerReference: aws.String("audit-ref-1"),
+		CallerReference: aws.String(callerRef),
 	})
 	require.NoError(t, err)
 	_, err = c.CreateHostedZone(ctx, &route53.CreateHostedZoneInput{
 		Name:            aws.String("audit-example.com"),
-		CallerReference: aws.String("audit-ref-1"),
+		CallerReference: aws.String(callerRef),
 	})
 	assert.Equal(t, "HostedZoneAlreadyExists", errCode(t, err))
 }

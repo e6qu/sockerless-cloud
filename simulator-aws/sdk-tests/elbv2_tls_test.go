@@ -31,6 +31,8 @@ import (
 // (verifying the handshake completes against the cert), and the target
 // receives a plain-HTTP request, proving termination + forwarding.
 func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
+	lbName := uniqueName("alb-tls")
+	tgName := uniqueName("alb-tls-tg")
 	elb := elbv2Client()
 	acmC := acmClient()
 	r53C := r53Client()
@@ -113,7 +115,7 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	// Create an Application Load Balancer (internet-facing) — internet-facing so
 	// the sim records the AWS-shaped DNS name a real client resolves.
 	alb, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String("alb-tls"), Type: elbtypes.LoadBalancerTypeEnumApplication, Subnets: []string{subnetID},
+		Name: aws.String(lbName), Type: elbtypes.LoadBalancerTypeEnumApplication, Subnets: []string{subnetID},
 	})
 	require.NoError(t, err)
 	lbArn := aws.ToString(alb.LoadBalancers[0].LoadBalancerArn)
@@ -121,7 +123,7 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 
 	// HTTP target group pointing at the plain-HTTP backend.
 	tg, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
-		Name: aws.String("alb-tls-tg"), Protocol: elbtypes.ProtocolEnumHttp, Port: aws.Int32(int32(targetPort)),
+		Name: aws.String(tgName), Protocol: elbtypes.ProtocolEnumHttp, Port: aws.Int32(int32(targetPort)),
 		VpcId: aws.String(vpcID), TargetType: elbtypes.TargetTypeEnumIp,
 		HealthCheckProtocol: elbtypes.ProtocolEnumHttp, HealthCheckPath: aws.String("/healthz"),
 		HealthCheckTimeoutSeconds: aws.Int32(5),
@@ -186,6 +188,8 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 // handshake completes against the cert, and the decrypted line round-trips to
 // the target.
 func TestELBv2_NLBTLSListenerTerminatesTLS(t *testing.T) {
+	lbName := uniqueName("nlb-tls")
+	tgName := uniqueName("nlb-tls-tg")
 	elb := elbv2Client()
 	acmC := acmClient()
 	r53C := r53Client()
@@ -272,14 +276,14 @@ func TestELBv2_NLBTLSListenerTerminatesTLS(t *testing.T) {
 	waitForACMCertificateIssued(t, acmC, certArn)
 
 	nlb, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String("nlb-tls"), Type: elbtypes.LoadBalancerTypeEnumNetwork, Subnets: []string{subnetID},
+		Name: aws.String(lbName), Type: elbtypes.LoadBalancerTypeEnumNetwork, Subnets: []string{subnetID},
 	})
 	require.NoError(t, err)
 	lbArn := aws.ToString(nlb.LoadBalancers[0].LoadBalancerArn)
 	defer elb.DeleteLoadBalancer(ctx, &elbv2.DeleteLoadBalancerInput{LoadBalancerArn: aws.String(lbArn)})
 
 	tg, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
-		Name: aws.String("nlb-tls-tg"), Protocol: elbtypes.ProtocolEnumTcp, Port: aws.Int32(int32(backendPort)),
+		Name: aws.String(tgName), Protocol: elbtypes.ProtocolEnumTcp, Port: aws.Int32(int32(backendPort)),
 		VpcId: aws.String(vpcID), TargetType: elbtypes.TargetTypeEnumIp,
 		HealthCheckProtocol: elbtypes.ProtocolEnumTcp, HealthCheckTimeoutSeconds: aws.Int32(5),
 	})

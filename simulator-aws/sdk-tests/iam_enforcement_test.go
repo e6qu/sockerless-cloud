@@ -22,7 +22,7 @@ import (
 // why the setup calls (run with the default creds) work.
 func TestIAM_CallTimeEnforcement(t *testing.T) {
 	admin := iamClient()
-	user := "restricted-user"
+	user := uniqueName("restricted-user")
 
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)

@@ -24,6 +24,8 @@ import (
 // byte stream round-trips through to the target (the SSH-through-NLB shape). No
 // HTTP is involved on the data path.
 func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
+	lbName := uniqueName("nlb-rawtcp")
+	tgName := uniqueName("nlb-rawtcp-tg")
 	elb := elbv2Client()
 	ec2c := ec2Client()
 
@@ -67,7 +69,7 @@ func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	nlb, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String("nlb-rawtcp"), Type: elbtypes.LoadBalancerTypeEnumNetwork, Subnets: []string{subnetID},
+		Name: aws.String(lbName), Type: elbtypes.LoadBalancerTypeEnumNetwork, Subnets: []string{subnetID},
 	})
 	require.NoError(t, err)
 	lbArn := aws.ToString(nlb.LoadBalancers[0].LoadBalancerArn)
@@ -77,7 +79,7 @@ func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
 	defer elb.DeleteLoadBalancer(ctx, &elbv2.DeleteLoadBalancerInput{LoadBalancerArn: aws.String(lbArn)})
 
 	tg, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
-		Name: aws.String("nlb-rawtcp-tg"), Protocol: elbtypes.ProtocolEnumTcp, Port: aws.Int32(int32(backendPort)),
+		Name: aws.String(tgName), Protocol: elbtypes.ProtocolEnumTcp, Port: aws.Int32(int32(backendPort)),
 		VpcId: aws.String(vpcID), TargetType: elbtypes.TargetTypeEnumIp,
 	})
 	require.NoError(t, err)
@@ -149,6 +151,8 @@ func resolveNLBHostname(dnsName string) string {
 // host:port), unchanged across calls, and a CanonicalHostedZoneId is present so
 // a Route53 alias target can reference it.
 func TestELBv2_NLBDescribeStableHostname(t *testing.T) {
+	lbName := uniqueName("nlb-stable")
+	tgName := uniqueName("nlb-stable-tg")
 	elb := elbv2Client()
 	ec2c := ec2Client()
 
@@ -161,7 +165,7 @@ func TestELBv2_NLBDescribeStableHostname(t *testing.T) {
 	subnetID := aws.ToString(sn.Subnet.SubnetId)
 
 	nlb, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String("nlb-stable-dns"), Type: elbtypes.LoadBalancerTypeEnumNetwork, Subnets: []string{subnetID},
+		Name: aws.String(lbName), Type: elbtypes.LoadBalancerTypeEnumNetwork, Subnets: []string{subnetID},
 	})
 	require.NoError(t, err)
 	lbArn := aws.ToString(nlb.LoadBalancers[0].LoadBalancerArn)
@@ -169,7 +173,7 @@ func TestELBv2_NLBDescribeStableHostname(t *testing.T) {
 	defer elb.DeleteLoadBalancer(ctx, &elbv2.DeleteLoadBalancerInput{LoadBalancerArn: aws.String(lbArn)})
 
 	tg, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
-		Name: aws.String("nlb-stable-dns-tg"), Protocol: elbtypes.ProtocolEnumTcp, Port: aws.Int32(443),
+		Name: aws.String(tgName), Protocol: elbtypes.ProtocolEnumTcp, Port: aws.Int32(443),
 		VpcId: vpc.Vpc.VpcId, TargetType: elbtypes.TargetTypeEnumIp,
 	})
 	require.NoError(t, err)
@@ -183,7 +187,7 @@ func TestELBv2_NLBDescribeStableHostname(t *testing.T) {
 	})
 	_ = listenerPort
 
-	shape := regexp.MustCompile(`^nlb-stable-dns-[0-9a-f]+\.elb\.us-east-1\.amazonaws\.com$`)
+	shape := regexp.MustCompile(`^` + regexp.QuoteMeta(lbName) + `-[0-9a-f]+\.elb\.us-east-1\.amazonaws\.com$`)
 
 	desc1, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{LoadBalancerArns: []string{lbArn}})
 	require.NoError(t, err)
