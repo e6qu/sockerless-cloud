@@ -308,6 +308,21 @@ var allowedNonSpecGCPRoutes = map[string]string{
 	"PUT /upload/storage/v1/b/{bucket}/o": "GCS resumable upload session continuation",
 	// Cancelling a resumable upload is a DELETE on the same session URI.
 	"DELETE /upload/storage/v1/b/{bucket}/o": "GCS resumable upload session cancellation",
+
+	// Artifact Registry's resumable media methods. Discovery declares the
+	// /resumable/upload path in mediaUpload.protocols.resumable, which this
+	// loader does not index; the chunk PUTs and the cancelling DELETE address
+	// the session URI on whichever media path the session began.
+	"POST /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload":              "Artifact Registry resumable upload session start (Discovery mediaUpload.protocols.resumable.path)",
+	"POST /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create":   "Artifact Registry resumable upload session start (Discovery mediaUpload.protocols.resumable.path)",
+	"PUT /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload":                         "Artifact Registry resumable upload session continuation",
+	"DELETE /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload":                      "Artifact Registry resumable upload session cancellation",
+	"PUT /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload":               "Artifact Registry resumable upload session continuation",
+	"DELETE /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload":            "Artifact Registry resumable upload session cancellation",
+	"PUT /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create":              "Artifact Registry resumable upload session continuation",
+	"DELETE /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create":           "Artifact Registry resumable upload session cancellation",
+	"PUT /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create":    "Artifact Registry resumable upload session continuation",
+	"DELETE /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create": "Artifact Registry resumable upload session cancellation",
 }
 
 var allowedNonSpecGCPPrefixes = map[string]string{

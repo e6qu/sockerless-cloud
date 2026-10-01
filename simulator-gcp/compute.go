@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
@@ -139,8 +140,6 @@ func recordComputeOp(rec ComputeOperationRecord) {
 	computeOpRegistry.Put(rec.Name, rec)
 }
 
-func computeOpKnown(name string) bool { _, ok := computeOpRegistry.Get(name); return ok }
-
 // computeOpFinish moves a running operation to DONE. A nil err completes it
 // successfully; a non-nil one populates the error members Compute Engine
 // reports for an operation that failed while it was being processed.
@@ -153,6 +152,7 @@ func computeOpKnown(name string) bool { _, ok := computeOpRegistry.Get(name); re
 // accompanying HTTP status is the one the simulator answers when it cannot
 // bring a machine up.
 func computeOpFinish(name string, err error) {
+	defer computeOpSignalDone(name)
 	computeOpRegistry.Update(name, func(rec *ComputeOperationRecord) {
 		rec.Status = "DONE"
 		rec.Progress = 100
@@ -165,6 +165,33 @@ func computeOpFinish(name string, err error) {
 		rec.HTTPErrorStatusCode = http.StatusServiceUnavailable
 		rec.HTTPErrorMessage = "SERVICE UNAVAILABLE"
 	})
+}
+
+// computeOpWaiters holds, per running operation someone waits on, the channel
+// computeOpFinish closes when the operation reaches DONE.
+var computeOpWaiters = struct {
+	sync.Mutex
+	done map[string]chan struct{}
+}{done: map[string]chan struct{}{}}
+
+func computeOpDoneSignal(name string) <-chan struct{} {
+	computeOpWaiters.Lock()
+	defer computeOpWaiters.Unlock()
+	ch, ok := computeOpWaiters.done[name]
+	if !ok {
+		ch = make(chan struct{})
+		computeOpWaiters.done[name] = ch
+	}
+	return ch
+}
+
+func computeOpSignalDone(name string) {
+	computeOpWaiters.Lock()
+	defer computeOpWaiters.Unlock()
+	if ch, ok := computeOpWaiters.done[name]; ok {
+		close(ch)
+		delete(computeOpWaiters.done, name)
+	}
 }
 
 // computeOpJSON renders a recorded operation as the `compute#operation`
@@ -238,27 +265,36 @@ const computeOperationWaitBudget = 2 * time.Minute
 // than being cut short by whoever stopped waiting first.
 const computeInstanceBootBudget = 5 * time.Minute
 
-// computeWaitOperation implements that contract: it polls the record until the
-// operation is DONE, the budget runs out, or the client goes away, then answers
-// with whatever state the operation is in.
+// computeWaitOperation implements that contract: it blocks until the operation
+// reaches DONE, the budget runs out, or the client goes away, then answers with
+// whatever state the operation is in.
 func computeWaitOperation(w http.ResponseWriter, r *http.Request, name string) {
-	deadline := time.Now().Add(computeOperationWaitBudget)
-	for {
-		rec, ok := computeOpRegistry.Get(name)
-		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
-			return
-		}
-		if rec.Status == "DONE" || time.Now().After(deadline) {
-			sim.WriteJSON(w, http.StatusOK, computeOpJSON(rec))
-			return
-		}
+	// Subscribe before reading, so a finish between the read and the wait still
+	// wakes it.
+	done := computeOpDoneSignal(name)
+	rec, ok := computeOpRegistry.Get(name)
+	if !ok {
+		computeOpSignalDone(name)
+		GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
+		return
+	}
+	if rec.Status == "DONE" {
+		computeOpSignalDone(name)
+	} else {
+		budget := time.NewTimer(computeOperationWaitBudget)
+		defer budget.Stop()
 		select {
 		case <-r.Context().Done():
 			return
-		case <-time.After(200 * time.Millisecond):
+		case <-done:
+		case <-budget.C:
+		}
+		if rec, ok = computeOpRegistry.Get(name); !ok {
+			GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
+			return
 		}
 	}
+	sim.WriteJSON(w, http.StatusOK, computeOpJSON(rec))
 }
 
 func newComputeOp(project, scope string, targetLink string) map[string]any {

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -151,46 +153,48 @@ func arWriteError(w http.ResponseWriter, err error) {
 // come as a multipart/related body whose first part is the request message and
 // whose second is the media (uploadType=multipart), or alone on the /upload
 // path (uploadType=media). The plain /v1 path carries the message and no bytes.
-func arReadMediaUpload(r *http.Request, request any) ([]byte, string, error) {
+func arReadMediaUpload(r *http.Request) (request, data []byte, contentType string, err error) {
 	mediaType, params, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if mediaType == "multipart/related" {
 		parts := multipart.NewReader(r.Body, params["boundary"])
 		meta, err := parts.NextPart()
 		if err != nil {
-			return nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload's request part: %v", err)
+			return nil, nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload's request part: %v", err)
 		}
-		metaBytes, err := io.ReadAll(meta)
+		request, err := io.ReadAll(meta)
 		if err != nil {
-			return nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload's request part: %v", err)
-		}
-		if len(strings.TrimSpace(string(metaBytes))) > 0 {
-			if err := json.Unmarshal(metaBytes, request); err != nil {
-				return nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "parse the upload's request part: %v", err)
-			}
+			return nil, nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload's request part: %v", err)
 		}
 		media, err := parts.NextPart()
 		if err != nil {
-			return nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload's media part: %v", err)
+			return nil, nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload's media part: %v", err)
 		}
 		data, err := io.ReadAll(media)
 		if err != nil {
-			return nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload's media part: %v", err)
+			return nil, nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload's media part: %v", err)
 		}
-		return data, media.Header.Get("Content-Type"), nil
+		return request, data, media.Header.Get("Content-Type"), nil
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload body: %v", err)
+		return nil, nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload body: %v", err)
 	}
 	if strings.HasPrefix(r.URL.Path, "/upload/") {
-		return body, r.Header.Get("Content-Type"), nil
+		return nil, body, r.Header.Get("Content-Type"), nil
 	}
-	if len(strings.TrimSpace(string(body))) > 0 {
-		if err := json.Unmarshal(body, request); err != nil {
-			return nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-		}
+	return body, nil, "", nil
+}
+
+// arDecodeUploadRequest parses an upload's request message; an absent one
+// leaves every member unset.
+func arDecodeUploadRequest(request []byte, into any) error {
+	if len(bytes.TrimSpace(request)) == 0 {
+		return nil
 	}
-	return nil, "", nil
+	if err := json.Unmarshal(request, into); err != nil {
+		return arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request message: %v", err)
+	}
+	return nil
 }
 
 // arArtifactFormats names the repository format each artifact kind publishes to.
@@ -220,26 +224,23 @@ type arUploadRequest struct {
 	Description        string            `json:"description"`
 }
 
-// arHandleArtifactUpload serves the :create media methods. Each stores the
+// arFinishArtifactUpload completes a :create media method. Each stores the
 // uploaded bytes as a File and records the Package and Version the artifact
 // names, which is what the method's description says it creates.
-func arHandleArtifactUpload(w http.ResponseWriter, r *http.Request, repo Repository, kind string) {
+func arFinishArtifactUpload(repo Repository, kind string, request, data []byte, contentType string) (any, error) {
 	var req arUploadRequest
-	data, contentType, err := arReadMediaUpload(r, &req)
-	if err != nil {
-		arWriteError(w, err)
-		return
+	if err := arDecodeUploadRequest(request, &req); err != nil {
+		return nil, err
 	}
 	if err := arCheckFormat(repo, kind); err != nil {
-		arWriteError(w, err)
-		return
+		return nil, err
 	}
 	if len(data) == 0 {
-		GCPError(w, http.StatusBadRequest, "the upload carries no artifact content", "INVALID_ARGUMENT")
-		return
+		return nil, arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "the upload carries no artifact content")
 	}
 	arPublishMu.Lock()
 	var response any
+	var err error
 	switch kind {
 	case "genericArtifacts":
 		response, err = arPublishGeneric(repo.Name, req, data, contentType)
@@ -258,13 +259,12 @@ func arHandleArtifactUpload(w http.ResponseWriter, r *http.Request, repo Reposit
 	}
 	arPublishMu.Unlock()
 	if err != nil {
-		arWriteError(w, err)
-		return
+		return nil, err
 	}
 	project, location, _ := arRepoParts(repo.Name)
 	ops := arArtifactOperations[kind]
 	lro := newLRO(project, location, response, arTypePrefix+ops.uploadResponse, gcpEmptyOperationMetadata(arTypePrefix+ops.uploadMetadata))
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"operation": lro})
+	return map[string]any{"operation": lro}, nil
 }
 
 // The ID rules UploadGenericArtifactRequest states for each member.
@@ -502,22 +502,24 @@ type arExportFile struct {
 }
 
 // arVersionFiles returns the files an artifact version consists of: the Files
-// it owns, or, for a Docker image, whose content lives in the registry rather
-// than in Files, its manifest and every manifest and blob that manifest
-// references, each named by its digest.
+// it owns, or, for a Docker image, whose layers other images may share and so
+// own, its manifest and every manifest and blob that manifest references, each
+// named by its digest.
 func arVersionFiles(repo string, version ARVersion) ([]arExportFile, error) {
-	owned := arFiles.Filter(func(f ARFile) bool { return f.Owner == version.Name })
-	sort.Slice(owned, func(i, j int) bool { return owned[i].Name < owned[j].Name })
 	var files []arExportFile
-	for _, f := range owned {
-		content, ok := arFileContents.Get(f.Name)
-		if !ok {
-			return nil, fmt.Errorf("file %q has no stored content", f.Name)
+	if repository, _ := arRepos.Get(repo); repository.Format != "DOCKER" {
+		owned := arFiles.Filter(func(f ARFile) bool { return f.Owner == version.Name })
+		sort.Slice(owned, func(i, j int) bool { return owned[i].Name < owned[j].Name })
+		for _, f := range owned {
+			data, err := arFileBytes(f)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, arExportFile{id: arFileID(f.Name), name: f.Name, contentType: f.ContentType, data: data})
 		}
-		files = append(files, arExportFile{id: arFileID(f.Name), name: f.Name, contentType: f.ContentType, data: content.Data})
-	}
-	if len(files) > 0 {
-		return files, nil
+		if len(files) > 0 {
+			return files, nil
+		}
 	}
 	pkgID, digest, ok := strings.Cut(strings.TrimPrefix(version.Name, repo+"/packages/"), "/versions/")
 	if !ok || arRegistry == nil {
@@ -663,9 +665,9 @@ func arServeFileDownload(w http.ResponseWriter, r *http.Request, name string) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
-	content, ok := arFileContents.Get(name)
-	if !ok {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "file %q has no stored content", name)
+	data, err := arFileBytes(file)
+	if err != nil {
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
 		return
 	}
 	contentType := file.ContentType
@@ -673,9 +675,151 @@ func arServeFileDownload(w http.ResponseWriter, r *http.Request, name string) {
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Length", strconv.Itoa(len(content.Data)))
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
 	if r.Method != http.MethodHead {
-		_, _ = w.Write(content.Data)
+		_, _ = w.Write(data)
+	}
+}
+
+// arFileBytes reads a file's content: from the registry for a Docker
+// repository's manifest or blob, from arFileContents for any other.
+func arFileBytes(f ARFile) ([]byte, error) {
+	if f.DockerRepo == "" {
+		content, ok := arFileContents.Get(f.Name)
+		if !ok {
+			return nil, fmt.Errorf("file %q has no stored content", f.Name)
+		}
+		return content.Data, nil
+	}
+	digest := arFileID(f.Name)
+	if arRegistry != nil {
+		manifests := arRegistry.Manifests.Filter(func(m sim.OCIManifest) bool { return m.Repo == f.DockerRepo && m.Digest == digest })
+		if len(manifests) > 0 {
+			return manifests[0].Data, nil
+		}
+		if data, ok := arRegistry.GetBlob("", f.DockerRepo, digest); ok {
+			return data, nil
+		}
+	}
+	return nil, fmt.Errorf("file %q is not in the registry", f.Name)
+}
+
+// arDigestHashes reports a digest-named file's SHA256, which is the digest
+// itself.
+func arDigestHashes(digest string) []ARHash {
+	sum, err := hex.DecodeString(strings.TrimPrefix(digest, "sha256:"))
+	if err != nil || !strings.HasPrefix(digest, "sha256:") {
+		return nil
+	}
+	return []ARHash{{Type: "SHA256", Value: base64.StdEncoding.EncodeToString(sum)}}
+}
+
+// arDockerFilesMu serializes reconciling a Docker repository's files, which a
+// push, a registry DELETE and a control-plane delete all do.
+var arDockerFilesMu sync.Mutex
+
+// arSyncDockerFiles makes a Docker repository's Files the manifests its
+// registry holds and the config and layer blobs they reference, each named by
+// its digest. A blob several images share is one file, owned by the version
+// of the image that pushed it first, and stays while any manifest still
+// references it.
+func arSyncDockerFiles(repo string) {
+	if arRegistry == nil || arFiles == nil {
+		return
+	}
+	project, _, repoID := arRepoParts(repo)
+	if project == "" {
+		return
+	}
+	arDockerFilesMu.Lock()
+	defer arDockerFilesMu.Unlock()
+	prefix := project + "/" + repoID + "/"
+	manifests := arRegistry.Manifests.Filter(func(m sim.OCIManifest) bool {
+		return strings.HasPrefix(m.Repo, prefix) && m.Ref == m.Digest
+	})
+	sort.Slice(manifests, func(i, j int) bool {
+		if !manifests[i].Pushed.Equal(manifests[j].Pushed) {
+			return manifests[i].Pushed.Before(manifests[j].Pushed)
+		}
+		return manifests[i].Repo+manifests[i].Digest < manifests[j].Repo+manifests[j].Digest
+	})
+	type dockerFile struct {
+		size        int
+		contentType string
+		owners      []string
+		dockerRepos []string
+	}
+	want := map[string]*dockerFile{}
+	add := func(digest string, size int, contentType, owner, dockerRepo string) {
+		f := want[digest]
+		if f == nil {
+			f = &dockerFile{size: size, contentType: contentType}
+			want[digest] = f
+		}
+		f.owners = append(f.owners, owner)
+		f.dockerRepos = append(f.dockerRepos, dockerRepo)
+	}
+	for _, m := range manifests {
+		imagePath := strings.TrimPrefix(m.Repo, prefix)
+		version := repo + "/packages/" + url.PathEscape(imagePath) + "/versions/" + m.Digest
+		add(m.Digest, len(m.Data), m.ContentType, version, m.Repo)
+		var doc struct {
+			Config *arDescriptor  `json:"config"`
+			Layers []arDescriptor `json:"layers"`
+		}
+		if err := json.Unmarshal(m.Data, &doc); err != nil {
+			continue
+		}
+		blobs := doc.Layers
+		if doc.Config != nil {
+			blobs = append([]arDescriptor{*doc.Config}, blobs...)
+		}
+		for _, d := range blobs {
+			if data, ok := arRegistry.GetBlob("", m.Repo, d.Digest); ok {
+				add(d.Digest, len(data), d.MediaType, version, m.Repo)
+			}
+		}
+	}
+	now := nowTimestamp()
+	for digest, f := range want {
+		name := arFileName(repo, digest)
+		existing, exists := arFiles.Get(name)
+		if exists && existing.DockerRepo == "" {
+			continue
+		}
+		owner, dockerRepo := f.owners[0], f.dockerRepos[0]
+		if exists {
+			for i, candidate := range f.owners {
+				if candidate == existing.Owner {
+					owner, dockerRepo = candidate, f.dockerRepos[i]
+					break
+				}
+			}
+			if existing.Owner == owner && existing.DockerRepo == dockerRepo {
+				continue
+			}
+		}
+		file := ARFile{
+			Name:        name,
+			SizeBytes:   strconv.Itoa(f.size),
+			Hashes:      arDigestHashes(digest),
+			CreateTime:  now,
+			UpdateTime:  now,
+			Owner:       owner,
+			ContentType: f.contentType,
+			DockerRepo:  dockerRepo,
+		}
+		if exists {
+			file.CreateTime, file.Annotations = existing.CreateTime, existing.Annotations
+		}
+		arFiles.Put(name, file)
+	}
+	for _, f := range arFiles.Filter(func(f ARFile) bool {
+		return f.DockerRepo != "" && strings.HasPrefix(f.Name, repo+"/files/")
+	}) {
+		if _, keep := want[arFileID(f.Name)]; !keep {
+			arFiles.Delete(f.Name)
+		}
 	}
 }

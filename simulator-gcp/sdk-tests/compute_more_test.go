@@ -1,11 +1,13 @@
 package gcp_sdk_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/compute/v1"
+	"google.golang.org/api/googleapi"
 )
 
 // Exercises the Compute Engine (compute v1) control-plane CRUD surface
@@ -576,9 +578,13 @@ func TestCompute_InstanceActions(t *testing.T) {
 	done := awaitZoneOperation(t, svc, moreProject, zone, op.Name)
 	require.Nil(t, done.Error, "the insert operation failed: %+v", done.Error)
 
-	// A reset reboots the machine in place: the instance stays, and stays up.
-	_, err = svc.Instances.Reset(moreProject, zone, name).Do()
+	// A reset reboots the machine in place behind its operation: the instance
+	// stays, and stays up.
+	resetOp, err := svc.Instances.Reset(moreProject, zone, name).Do()
 	require.NoError(t, err)
+	assert.Equal(t, "reset", resetOp.OperationType)
+	resetDone := awaitZoneOperation(t, svc, moreProject, zone, resetOp.Name)
+	require.Nil(t, resetDone.Error, "the reset operation failed: %+v", resetDone.Error)
 	afterReset, err := svc.Instances.Get(moreProject, zone, name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", afterReset.Status)
@@ -634,6 +640,20 @@ func TestCompute_InstanceActions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "compute#serialPortOutput", out.Kind)
 	assert.Contains(t, out.SelfLink, "/instances/"+name+"/serialPort")
+
+	_, err = svc.Instances.SetDeletionProtection(moreProject, zone, name).DeletionProtection(true).Do()
+	require.NoError(t, err)
+	_, err = svc.Instances.Delete(moreProject, zone, name).Do()
+	var refused *googleapi.Error
+	require.ErrorAs(t, err, &refused, "a protected instance must refuse the delete")
+	assert.Equal(t, http.StatusBadRequest, refused.Code)
+	require.NotEmpty(t, refused.Errors)
+	assert.Equal(t, "resourceInUseByAnotherResource", refused.Errors[0].Reason)
+	protected, err := svc.Instances.Get(moreProject, zone, name).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", protected.Status, "a refused delete must leave the instance alone")
+	_, err = svc.Instances.SetDeletionProtection(moreProject, zone, name).DeletionProtection(false).Do()
+	require.NoError(t, err)
 
 	deleteOp, err := svc.Instances.Delete(moreProject, zone, name).Do()
 	require.NoError(t, err)

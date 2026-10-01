@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -46,6 +47,15 @@ var (
 	}
 	computeDeleteMove = computeInstanceMove{
 		verb: "delete", interim: ComputeInstanceStopping, remove: true,
+		refuse: func(inst ComputeInstance) error {
+			if inst.DeletionProtection {
+				return computeFieldRefusal{
+					reason:  "resourceInUseByAnotherResource",
+					message: "Invalid resource usage: 'Resource cannot be deleted if it's protected against deletion.'.",
+				}
+			}
+			return nil
+		},
 		move: func(ctx context.Context, inst *ComputeInstance) error { return gcpDestroyVM(ctx, inst) },
 	}
 	computeSuspendMove = computeInstanceMove{
@@ -58,6 +68,26 @@ var (
 		},
 		move: func(ctx context.Context, inst *ComputeInstance) error { return gcpHaltVM(ctx, inst) },
 	}
+	// A reset is a hard reset: the guest halts without a graceful shutdown and
+	// boots again, and the instance reads RUNNING throughout.
+	computeResetMove = computeInstanceMove{
+		verb: "reset", interim: ComputeInstanceRunning, settled: ComputeInstanceRunning,
+		refuse: func(inst ComputeInstance) error {
+			if inst.Status != ComputeInstanceRunning {
+				return errComputeInvalid("only a running instance can be reset")
+			}
+			return nil
+		},
+		move: func(ctx context.Context, inst *ComputeInstance) error {
+			if err := gcpHaltVM(ctx, inst); err != nil {
+				return err
+			}
+			if err := gcpBootVM(ctx, inst); err != nil {
+				return computeMoveHalted{err}
+			}
+			return nil
+		},
+	}
 	computeResumeMove = computeInstanceMove{
 		verb: "resume", interim: ComputeInstanceStaging, settled: ComputeInstanceRunning,
 		refuse: func(inst ComputeInstance) error {
@@ -69,6 +99,19 @@ var (
 		move: func(ctx context.Context, inst *ComputeInstance) error { return gcpBootVM(ctx, inst) },
 	}
 )
+
+// computeFieldRefusal is a refusal Compute Engine answers with an errors[]
+// reason a client branches on.
+type computeFieldRefusal struct{ reason, message string }
+
+func (e computeFieldRefusal) Error() string { return e.message }
+
+// computeMoveHalted is a move that failed after it halted the machine, which
+// leaves the instance TERMINATED rather than in the status it started in.
+type computeMoveHalted struct{ err error }
+
+func (e computeMoveHalted) Error() string { return e.err.Error() }
+func (e computeMoveHalted) Unwrap() error { return e.err }
 
 func (m computeInstanceMove) as(verb string) computeInstanceMove {
 	m.verb = verb
@@ -105,6 +148,11 @@ func registerComputeInstancePower(srv *sim.Server) {
 			return
 		}
 		if refused != nil {
+			var field computeFieldRefusal
+			if errors.As(refused, &field) {
+				computeFieldError(w, field.reason, field.message)
+				return
+			}
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", refused)
 			return
 		}
@@ -118,7 +166,11 @@ func registerComputeInstancePower(srv *sim.Server) {
 				logger.Error().Err(err).
 					Str("project", project).Str("zone", zone).Str("instance", name).Str("verb", m.verb).
 					Msg("failed to move real Compute Engine instance")
-				gcpInstances.Update(link, func(inst *ComputeInstance) { inst.Status = prior })
+				unwound := prior
+				if errors.As(err, new(computeMoveHalted)) {
+					unwound = ComputeInstanceTerminated
+				}
+				gcpInstances.Update(link, func(inst *ComputeInstance) { inst.Status = unwound })
 				computeOpFinish(op.Name, err)
 				return
 			}
@@ -157,6 +209,9 @@ func registerComputeInstancePower(srv *sim.Server) {
 	})
 	srv.HandleFunc("POST "+base+"/stop", func(w http.ResponseWriter, r *http.Request) {
 		run(w, r, computeStopMove)
+	})
+	srv.HandleFunc("POST "+base+"/reset", func(w http.ResponseWriter, r *http.Request) {
+		run(w, r, computeResetMove)
 	})
 	srv.HandleFunc("POST "+base+"/suspend", func(w http.ResponseWriter, r *http.Request) {
 		run(w, r, computeSuspendMove)

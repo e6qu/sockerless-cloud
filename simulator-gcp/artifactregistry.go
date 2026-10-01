@@ -34,7 +34,7 @@ type Repository struct {
 	// terraform-provider-google read path round-trips without drift.
 	CleanupPolicies json.RawMessage `json:"cleanupPolicies,omitempty"`
 	DockerConfig    json.RawMessage `json:"dockerConfig,omitempty"`
-	RegistryURI     string          `json:"registryUri,omitempty"` // external: canonical `<location>-docker.pkg.dev/<project>/<repo>` URI; sim serves OCI at the configured endpoint, not pkg.dev
+	RegistryURI     string          `json:"registryUri,omitempty"` // external: canonical `<location>-<format>.pkg.dev/<project>/<repo>` URI; sim serves at the configured endpoint, not pkg.dev
 	CreateTime      string          `json:"createTime"`
 	UpdateTime      string          `json:"updateTime"`
 }
@@ -88,6 +88,10 @@ type ARFile struct {
 	// ContentType is the media type the file was published with, which a
 	// download answers with.
 	ContentType string `json:"-"`
+	// DockerRepo names the registry repository (PROJECT/REPOSITORY/IMAGE) whose
+	// manifest or blob a Docker repository's file is; its bytes stay in the
+	// registry rather than in arFileContents.
+	DockerRepo string `json:"-"`
 }
 
 // ARHash mirrors the artifactregistry-v1 Hash schema.
@@ -232,14 +236,18 @@ func registerArtifactRegistry(srv *sim.Server) {
 		},
 		OnManifestPut: func(_, repo, ref, contentType string, data []byte) {
 			registerDockerImageFromManifest(dockerImagesForHooks, repo, ref, contentType, data)
+			if project, location, repoID, _, ok := artifactRegistryImageParts(repo); ok {
+				arSyncDockerFiles(fmt.Sprintf("projects/%s/locations/%s/repositories/%s", project, location, repoID))
+			}
 		},
 		OnManifestDelete: func(_, repo, digest string) {
 			project, location, repoID, imagePath, ok := artifactRegistryImageParts(repo)
 			if !ok {
 				return
 			}
-			arForgetVersion(dockerImagesForHooks,
-				fmt.Sprintf("projects/%s/locations/%s/repositories/%s", project, location, repoID), imagePath, digest)
+			repoName := fmt.Sprintf("projects/%s/locations/%s/repositories/%s", project, location, repoID)
+			arForgetVersion(dockerImagesForHooks, repoName, imagePath, digest)
+			arSyncDockerFiles(repoName)
 		},
 		HydrateManifest: func(reg *sim.OCIRegistry, scope, repo, ref string) bool {
 			if err := hydrateOCIImageFromLocalDocker(reg, scope, dockerImagesForHooks, repo, ref); err != nil {
@@ -286,7 +294,7 @@ func registerArtifactRegistry(srv *sim.Server) {
 		if repo.Mode == "" {
 			repo.Mode = "STANDARD_REPOSITORY"
 		}
-		repo.RegistryURI = fmt.Sprintf("%s-docker.pkg.dev/%s/%s", location, project, repoID)
+		repo.RegistryURI = arRegistryURI(location, project, repoID, repo.Format)
 		repo.RemoteRepositoryConfig = sanitizeRemoteRepositoryConfig(repo.RemoteRepositoryConfig)
 		repo.CreateTime = now
 		repo.UpdateTime = now
@@ -483,6 +491,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 	files := sim.MakeStore[ARFile](srv.DB(), "ar_files")
 	arFiles = files
 	arFileContents = sim.MakeStore[arFileContent](srv.DB(), "ar_file_contents")
+	arResumableUploads = sim.MakeStore[arResumableUpload](srv.DB(), "ar_resumable_uploads")
 	rules := sim.MakeStore[ARRule](srv.DB(), "ar_rules")
 	attachments := sim.MakeStore[ARAttachment](srv.DB(), "ar_attachments")
 	projectSettings := sim.MakeStore[ARProjectSettings](srv.DB(), "ar_project_settings")
@@ -921,6 +930,12 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "file %q not found", name)
 			return
 		}
+		// "It is only allowed on generic repositories," files.delete says.
+		if repository, _ := repos.Get(repo); repository.Format != "GENERIC" {
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+				"repository %q has format %s; files can be deleted only from generic repositories", repo, repository.Format)
+			return
+		}
 		arDeleteFiles(func(f ARFile) bool { return f.Name == name })
 		lro := artifactRegistryLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), nil, gcpEmptyType)
 		sim.WriteJSON(w, http.StatusOK, lro)
@@ -943,35 +958,41 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 
 	// File upload. Registered on the plain /v1 path as well as the media
 	// /upload/v1 one, because the document declares both and the service
-	// answers both. A file with no fileId is named by the sha256 digest of its
+	// answers both, and on the /resumable/upload/v1 path its resumable protocol
+	// names. A file with no fileId is named by the sha256 digest of its
 	// content, as UploadFileRequest says.
+	finishFileUpload := func(repo string, request, data []byte, contentType string) (any, error) {
+		var req struct {
+			FileID   string `json:"fileId"`
+			FileType string `json:"fileType"`
+		}
+		if err := arDecodeUploadRequest(request, &req); err != nil {
+			return nil, err
+		}
+		if data == nil {
+			return nil, arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "the upload carries no file content")
+		}
+		fileID := req.FileID
+		if fileID == "" {
+			fileID = digestBytes(data)
+		}
+		f := arPutFile(repo, fileID, "", contentType, data)
+		project, location, _ := arRepoParts(repo)
+		return map[string]any{"operation": artifactRegistryLRO(project, location, f, fileType)}, nil
+	}
 	uploadFile := func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := repoExists(w, r)
 		if !ok {
 			return
 		}
-		var req struct {
-			FileID   string `json:"fileId"`
-			FileType string `json:"fileType"`
-		}
-		body, contentType, err := arReadMediaUpload(r, &req)
-		if err != nil {
-			arWriteError(w, err)
-			return
-		}
-		if body == nil {
-			GCPError(w, http.StatusBadRequest, "the upload carries no file content", "INVALID_ARGUMENT")
-			return
-		}
-		fileID := req.FileID
-		if fileID == "" {
-			fileID = digestBytes(body)
-		}
-		f := arPutFile(repo, fileID, "", contentType, body)
-		lro := artifactRegistryLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), f, fileType)
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"operation": lro})
+		arServeMediaUpload(w, r, repo, "files:upload", true, finishFileUpload)
 	}
 	srv.HandleFunc("POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload", uploadFile)
+	srv.HandleFunc("PUT /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload", uploadFile)
+	srv.HandleFunc("DELETE /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload", uploadFile)
+	srv.HandleFunc("POST /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload", uploadFile)
+	srv.HandleFunc("PUT /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload", uploadFile)
+	srv.HandleFunc("DELETE /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload", uploadFile)
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload", uploadFile)
 
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/rules", func(w http.ResponseWriter, r *http.Request) {
@@ -1163,24 +1184,39 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 
 	// :create rides the media /upload/v1 prefix and answers {operation:
 	// Operation}; :import is a control-plane POST answering an Operation.
-	registerARArtifactCreate := func(kind string) {
-		create := func(w http.ResponseWriter, r *http.Request) {
+	artifactCreate := func(kind string) http.HandlerFunc {
+		finish := func(name string, request, data []byte, contentType string) (any, error) {
+			repo, ok := repos.Get(name)
+			if !ok {
+				return nil, arRefuse(http.StatusNotFound, "NOT_FOUND", "repository %q not found", name)
+			}
+			return arFinishArtifactUpload(repo, kind, request, data, contentType)
+		}
+		return func(w http.ResponseWriter, r *http.Request) {
 			name, ok := repoExists(w, r)
 			if !ok {
 				return
 			}
-			repo, _ := repos.Get(name)
-			arHandleArtifactUpload(w, r, repo, kind)
+			arServeMediaUpload(w, r, name, kind+":create", kind == "genericArtifacts", finish)
 		}
-		// The document gives each media method two paths — the /upload/v1
-		// media path that carries the bytes and the plain /v1 one — and the
-		// service answers both.
+	}
+	// The document gives each media method two paths — the /upload/v1 media
+	// path that carries the bytes and the plain /v1 one — and the service
+	// answers both.
+	for _, kind := range []string{"aptArtifacts", "yumArtifacts", "googetArtifacts", "goModules", "genericArtifacts", "kfpArtifacts"} {
+		create := artifactCreate(kind)
 		srv.HandleFunc("POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/"+kind+":create", create)
 		srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/repositories/{repo}/"+kind+":create", create)
 	}
-	for _, kind := range []string{"aptArtifacts", "yumArtifacts", "googetArtifacts", "goModules", "genericArtifacts", "kfpArtifacts"} {
-		registerARArtifactCreate(kind)
-	}
+	// Of the :create methods, only genericArtifacts.upload declares the
+	// resumable protocol, whose chunks and cancellation address the session
+	// URI on either media path.
+	genericCreate := artifactCreate("genericArtifacts")
+	srv.HandleFunc("PUT /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create", genericCreate)
+	srv.HandleFunc("DELETE /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create", genericCreate)
+	srv.HandleFunc("POST /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create", genericCreate)
+	srv.HandleFunc("PUT /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create", genericCreate)
+	srv.HandleFunc("DELETE /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create", genericCreate)
 
 	registerARArtifactImport := func(kind string) {
 		srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/repositories/{repo}/"+kind+":import", func(w http.ResponseWriter, r *http.Request) {
@@ -1565,6 +1601,15 @@ func registerDockerImageFromManifest(dockerImages sim.Store[DockerImage], imageN
 	arRecordPush(fmt.Sprintf("projects/%s/locations/%s/repositories/%s", project, location, repoID), imagePath, reference, manifestDigest, now)
 }
 
+// arRegistryURI is a repository's endpoint, LOCATION-FORMAT.pkg.dev/PROJECT/
+// REPOSITORY with the format lowercased: the formula gcloud's
+// AddRegistryBaseToRepositoryInfo applies to every format. A domain-scoped
+// project ID's colon becomes a path separator.
+func arRegistryURI(location, project, repoID, format string) string {
+	return fmt.Sprintf("%s-%s.pkg.dev/%s/%s", location, strings.ToLower(format),
+		strings.ReplaceAll(project, ":", "/"), repoID)
+}
+
 // arPackageName is the resource name of the package a request addresses. A
 // package id escapes the slashes of a nested image name, and the router hands
 // the path segment over unescaped.
@@ -1621,6 +1666,7 @@ func arDeleteImageManifests(repo, imagePath, digest string) {
 	}) {
 		arRegistry.DeleteManifest(m.Scope, m.Repo, m.Ref)
 	}
+	arSyncDockerFiles(repo)
 }
 
 // arDeleteRepositoryContents deletes a deleted repository's packages,

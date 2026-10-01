@@ -952,10 +952,12 @@ func registerComputeOperationsMore(srv *sim.Server) {
 	})
 
 	delOp := func(w http.ResponseWriter, r *http.Request) {
-		if !computeOpKnown(sim.PathParam(r, "name")) {
-			GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", sim.PathParam(r, "name"))
+		name := sim.PathParam(r, "name")
+		if !computeOpRegistry.Delete(name) {
+			GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
 			return
 		}
+		computeOpSignalDone(name)
 		w.WriteHeader(http.StatusNoContent)
 	}
 	srv.HandleFunc("DELETE /compute/v1/projects/{project}/zones/{zone}/operations/{name}", delOp)
@@ -1068,7 +1070,7 @@ func registerComputeAggregatedExisting(srv *sim.Server) {
 
 // registerComputeInstanceActions adds the instance lifecycle + mutation
 // methods the existing instances handler (registerComputeInstances)
-// doesn't cover: reset, setMachineType, setMetadata, attachDisk,
+// doesn't cover: setMachineType, setMetadata, attachDisk,
 // detachDisk, and getSerialPortOutput. All mutate the package-global
 // gcpInstances store and return a zonal Operation.
 func registerComputeInstanceActions(srv *sim.Server) {
@@ -1088,14 +1090,6 @@ func registerComputeInstanceActions(srv *sim.Server) {
 		_, ok := gcpInstances.Get(instSelfLink(r))
 		return ok
 	}
-
-	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/reset", func(w http.ResponseWriter, r *http.Request) {
-		if !exists(r) {
-			notFound(w, r)
-			return
-		}
-		zoneOp(w, r, "reset")
-	})
 
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/setMachineType", func(w http.ResponseWriter, r *http.Request) {
 		if !exists(r) {

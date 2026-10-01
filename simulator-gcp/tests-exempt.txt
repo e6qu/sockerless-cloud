@@ -105,3 +105,28 @@ POST /compute/v1/projects/{project}/regions/{region}/advice/capacityHistory
 # Storage Go SDK, gcloud and the Terraform provider never send it: a cancelled
 # writer abandons its session. TestGCSResumableUploadStagesChunks covers it.
 DELETE /upload/storage/v1/b/{bucket}/o
+
+# Artifact Registry's resumable upload session routes. The Go client begins a
+# session on the /upload path and POSTs its chunks there, which the SDK suite
+# drives; apitools (gcloud) begins on the /resumable/upload path and PUTs its
+# chunks, but only for media over 5 MiB, and no client the suites run cancels
+# a session. TestARResumableSessionRoutes drives each route.
+POST /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
+# Resumable session chunk PUT (apitools, googleapiclient); see above.
+PUT /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
+# Resumable session cancellation; see above.
+DELETE /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
+# Resumable session chunk PUT on the media path (googleapiclient); see above.
+PUT /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
+# Resumable session cancellation on the media path; see above.
+DELETE /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
+# Resumable session start on the resumable path (apitools); see above.
+POST /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create
+# Resumable session chunk PUT (apitools, googleapiclient); see above.
+PUT /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create
+# Resumable session cancellation; see above.
+DELETE /resumable/upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create
+# Resumable session chunk PUT on the media path (googleapiclient); see above.
+PUT /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create
+# Resumable session cancellation on the media path; see above.
+DELETE /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create

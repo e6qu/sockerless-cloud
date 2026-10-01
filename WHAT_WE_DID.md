@@ -511,12 +511,38 @@ resolves a version through the recorded package versions, so a pushed Docker
 image exports its manifest, config and layers, and deleting a version, package
 or repository deletes its files.
 
-Compute Engine `instances.start`, `stop`, `suspend`, `resume`,
+`files.upload` and `genericArtifacts.upload` speak Google's resumable media
+protocol as well as the simple one, the two methods whose Discovery
+`mediaUpload` declares it. A session begins with `uploadType=resumable` on the
+`/upload` path (the Go client, googleapiclient) or the `/resumable/upload` path
+(apitools), answers 200 with the session URI in `Location`, and takes chunks
+POSTed or PUT there under `Content-Range`, answering 308 with a `Range` of the
+bytes received — 200 with `X-Http-Status-Code-Override: 308` for a client that
+sends `X-GUploader-No-308` — and the method's own response on the last byte; a
+`bytes */*` query reports progress, and a DELETE cancels with 499. The session
+lives in the store, so a restart does not lose it. A Docker push records a
+File per manifest and per referenced blob, named by digest and served from the
+registry, so an exported blob's `files/<digest>` resolves; a layer two images
+share is owned by the first to push it and passes to another on deletion.
+`files.delete` refuses repositories that are not generic, and `registryUri`
+follows the repository format as gcloud's `AddRegistryBaseToRepositoryInfo`
+spells it: `LOCATION-FORMAT.pkg.dev/PROJECT/REPOSITORY`.
+
+Compute Engine `instances.start`, `stop`, `suspend`, `resume`, `reset`,
 `startWithEncryptionKey` and `delete` answer at once with a RUNNING zone
 operation, move the instance through STAGING, STOPPING or SUSPENDING, and do
-the machine's work in the background, settling the operation when it ends. An
-Azure VM DELETE answers 202 with the long-running-operation headers and
-`SimulateEviction` answers 204, and both stop the guest in the background.
+the machine's work in the background, settling the operation when it ends.
+`reset` is a hard reset: it halts the guest and boots it again while the
+instance reads RUNNING, and a reboot that fails leaves the instance
+TERMINATED. `delete` refuses an instance with `deletionProtection` before
+anything moves. The operations' `wait` methods block on a signal
+`computeOpFinish` raises when the operation reaches DONE, bounded by the
+documented two minutes, instead of re-reading the record on a timer, and
+`zoneOperations.delete` and its regional and global siblings delete the record
+and wake its waiters. An Azure VM DELETE answers 202 with the
+long-running-operation headers and `SimulateEviction` answers 204, and both
+stop the guest in the background; the machine leaving takes its name off the
+`properties.virtualMachine` of every network interface it had attached.
 
 A workload host pulls its image the way the cloud pulls it. The Cloud Run and
 Cloud Functions hosts present the project's Cloud Run service agent's access

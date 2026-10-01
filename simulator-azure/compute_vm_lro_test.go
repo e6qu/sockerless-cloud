@@ -533,6 +533,44 @@ func requireComputeOperationURL(t *testing.T, raw string, monitor bool) {
 	}
 }
 
+// A create names the machine on each network interface it attaches, and the
+// delete that removes the machine takes that reference with it: the interface
+// outlives the machine and reads unattached.
+func TestVirtualMachineDeleteDetachesItsNetworkInterfaces(t *testing.T) {
+	srv, hooks := vmLROSimulator(t)
+	id := vmOpsID("lro-detach-vm")
+	nicID := "/subscriptions/" + vmOpsSubscription + "/resourceGroups/" + vmOpsResourceGroup +
+		"/providers/Microsoft.Network/networkInterfaces/lro-detach-vm-nic"
+
+	if rec := createVMLROMachine(t, srv, "lro-detach-vm"); rec.Code != http.StatusCreated {
+		t.Fatalf("create: status %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+	hooks.awaitBoot(t, id)
+	hooks.boot <- nil
+	bg.Await()
+	if nic, _ := azureNICs.Get(nicID); nic.Properties.VirtualMachine == nil || nic.Properties.VirtualMachine.ID != id {
+		t.Fatalf("the attached interface names machine %+v, want %q", nic.Properties.VirtualMachine, id)
+	}
+
+	if rec := vmLRORequest(t, srv, http.MethodDelete, vmOpsPath("lro-detach-vm", ""), ""); rec.Code != http.StatusAccepted {
+		t.Fatalf("delete: status %d, want 202: %s", rec.Code, rec.Body.String())
+	}
+	hooks.awaitDestroy(t, id)
+	if nic, _ := azureNICs.Get(nicID); nic.Properties.VirtualMachine == nil {
+		t.Fatal("the interface was detached before the machine was gone")
+	}
+	hooks.destroy <- nil
+	bg.Await()
+
+	nic, ok := azureNICs.Get(nicID)
+	if !ok {
+		t.Fatal("deleting the machine deleted its network interface")
+	}
+	if nic.Properties.VirtualMachine != nil {
+		t.Fatalf("the deleted machine's interface still names it: %+v", nic.Properties.VirtualMachine)
+	}
+}
+
 // Delete answers 202 at once with both poll URLs; the machine reads Deleting,
 // stays readable and refuses other operations until its guest is gone, and is
 // gone once the operation succeeds.
