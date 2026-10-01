@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
 // registerAppServiceFrontEnd implements the App Service front end for a site
@@ -87,7 +87,7 @@ func serveSiteRequest(w http.ResponseWriter, r *http.Request, site *Site) {
 
 // siteContainerAddress starts the site's container if none is running and
 // returns the address its port answers on. Like the platform's start-up ping,
-// it waits until the port accepts a connection, the container exits, or
+// it waits until the port answers an HTTP request, the container exits, or
 // WEBSITES_CONTAINER_START_TIME_LIMIT passes.
 func siteContainerAddress(ctx context.Context, site *Site) (string, error) {
 	inst := azfInstanceFor(site.Name)
@@ -128,7 +128,7 @@ func siteContainerAddress(ctx context.Context, site *Site) (string, error) {
 		case <-waitCtx.Done():
 		}
 	}()
-	reached, err := workload.FirstReachable(waitCtx, candidates, limit)
+	reached, err := appServiceWarmupPing(waitCtx, candidates)
 	if err != nil {
 		select {
 		case <-exited:
@@ -156,4 +156,41 @@ func siteContainerAddress(ctx context.Context, site *Site) (string, error) {
 	}
 	inst.mu.Unlock()
 	return parsed.Host, nil
+}
+
+// appServiceWarmupPing asks each candidate for /robots933456.txt, the path the
+// platform pings while a container starts, and returns the first that answers
+// with any HTTP response. A port that only accepts connections is not ready: a
+// published loopback port accepts through the engine's proxy before the
+// workload listens.
+func appServiceWarmupPing(ctx context.Context, candidates []string) (string, error) {
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	var lastErr error
+	for {
+		for _, candidate := range candidates {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, candidate+"/robots933456.txt", nil)
+			if err != nil {
+				return "", err
+			}
+			resp, err := client.Do(req)
+			if err == nil {
+				_ = resp.Body.Close()
+				return candidate, nil
+			}
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			if lastErr != nil {
+				return "", fmt.Errorf("%w: %w", ctx.Err(), lastErr)
+			}
+			return "", ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
