@@ -75,9 +75,10 @@ type BQSchema struct {
 }
 
 type BQFieldSchema struct {
-	Name string `json:"name"`
-	Type string `json:"type,omitempty"`
-	Mode string `json:"mode,omitempty"`
+	Name   string          `json:"name"`
+	Type   string          `json:"type,omitempty"`
+	Mode   string          `json:"mode,omitempty"`
+	Fields []BQFieldSchema `json:"fields,omitempty"`
 }
 
 type BQRowSet struct {
@@ -219,6 +220,7 @@ func registerBigQuery(srv *sim.Server) {
 	bqModels = sim.MakeStore[BQModel](srv.DB(), "bigquery_models")
 	bqRoutines = sim.MakeStore[BQRoutine](srv.DB(), "bigquery_routines")
 	bqRAPs = sim.MakeStore[BQRowAccessPolicy](srv.DB(), "bigquery_row_access_policies")
+	recoverBQJobs()
 
 	srv.HandleFunc("GET /bigquery/v2/projects", handleBQListProjects)
 
@@ -369,10 +371,10 @@ func bqApplyTableDefaults(r *http.Request, t BQTable, project, dataset, table st
 	t.LastModifiedTime = now
 	if rows, ok := bqRows.Get(bqTableKey(project, dataset, table)); ok {
 		t.NumRows = strconv.Itoa(len(rows.Rows))
-	} else if t.NumRows == "" {
-		t.NumRows = "0"
+		t.NumBytes = strconv.FormatInt(bqRowsSize(t.Schema, rows.Rows), 10)
+	} else {
+		t.NumRows, t.NumBytes = "0", "0"
 	}
-	t.NumBytes = strconv.Itoa(len(t.NumRows))
 	t.Etag = bqEtag(t)
 	return t
 }
@@ -523,7 +525,15 @@ func handleBQGetTable(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, bqApplyTableDefaults(r, t, project, dataset, table))
+	// A read reports the stored rows' count and size without modifying the
+	// table.
+	modified := t.LastModifiedTime
+	t = bqApplyTableDefaults(r, t, project, dataset, table)
+	if modified != "" {
+		t.LastModifiedTime = modified
+		t.Etag = bqEtag(t)
+	}
+	sim.WriteJSON(w, http.StatusOK, t)
 }
 
 func handleBQListTables(w http.ResponseWriter, r *http.Request) {
@@ -718,9 +728,31 @@ func handleBQInsertJob(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid job body: %v", err)
 		return
 	}
+	var start func(*http.Request, string, BQJob) (storedBQJob, error)
+	switch {
+	case req.Configuration["load"] != nil:
+		start = bqInsertURILoadJob
+	case req.Configuration["copy"] != nil:
+		start = bqInsertCopyJob
+	case req.Configuration["extract"] != nil:
+		start = bqInsertExtractJob
+	}
+	if start != nil {
+		job, err := start(r, project, req)
+		if err != nil {
+			writeAPIError(w, err)
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, job.BQJob)
+		return
+	}
 	jobID := req.JobReference.JobID
 	if jobID == "" {
 		jobID = "job_" + sim.NewUUID()
+	}
+	if _, exists := bqJobs.Get(bqJobKey(project, jobID)); exists {
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Already Exists: Job %s:%s", project, jobID)
+		return
 	}
 	location := req.JobReference.Location
 	query := ""
@@ -946,14 +978,20 @@ func handleBQGetServiceAccount(w http.ResponseWriter, r *http.Request) {
 
 func handleBQCancelJob(w http.ResponseWriter, r *http.Request) {
 	project, jobID := sim.PathParam(r, "project"), sim.PathParam(r, "job")
-	job, ok := bqJobs.Get(bqJobKey(project, jobID))
+	key := bqJobKey(project, jobID)
+	if _, ok := bqJobs.Get(key); !ok {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Job %s:%s", project, jobID)
+		return
+	}
+	// Cancelling returns at once with the job as it stands; a running job
+	// then stops and finishes DONE with reason "stopped", and a finished one
+	// is unchanged.
+	bqCancelRun(key)
+	job, ok := bqJobs.Get(key)
 	if !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Job %s:%s", project, jobID)
 		return
 	}
-	// Query jobs in the sim complete synchronously, so a cancel request on an
-	// already-DONE job is a no-op that returns the job's terminal state — the
-	// same shape real BigQuery returns when cancelling a finished job.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"kind": "bigquery#jobCancelResponse",
 		"job":  job.BQJob,
@@ -962,6 +1000,7 @@ func handleBQCancelJob(w http.ResponseWriter, r *http.Request) {
 
 func handleBQDeleteJob(w http.ResponseWriter, r *http.Request) {
 	project, jobID := sim.PathParam(r, "project"), sim.PathParam(r, "job")
+	bqCancelRun(bqJobKey(project, jobID))
 	if !bqJobs.Delete(bqJobKey(project, jobID)) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Job %s:%s", project, jobID)
 		return
@@ -1352,25 +1391,53 @@ func handleBQRAPVerb(w http.ResponseWriter, r *http.Request) {
 }
 
 func bqEncodeRows(schema *BQSchema, rows []map[string]any) []BQTableRow {
-	fields := []string{}
+	var fields []BQFieldSchema
 	if schema != nil {
-		for _, f := range schema.Fields {
-			fields = append(fields, f.Name)
-		}
+		fields = schema.Fields
 	}
 	if len(fields) == 0 && len(rows) > 0 {
+		names := make([]string, 0, len(rows[0]))
 		for k := range rows[0] {
-			fields = append(fields, k)
+			names = append(names, k)
 		}
-		sort.Strings(fields)
+		sort.Strings(names)
+		for _, name := range names {
+			fields = append(fields, BQFieldSchema{Name: name})
+		}
 	}
 	out := make([]BQTableRow, 0, len(rows))
 	for _, row := range rows {
-		tr := BQTableRow{F: make([]map[string]any, 0, len(fields))}
-		for _, f := range fields {
-			tr.F = append(tr.F, map[string]any{"v": row[f]})
-		}
-		out = append(out, tr)
+		out = append(out, bqEncodeRow(fields, row))
 	}
 	return out
+}
+
+// bqEncodeRow writes a row in the tabledata wire form: each cell is {"v": …},
+// a RECORD cell holds a nested row, and a REPEATED cell a list of cells.
+func bqEncodeRow(fields []BQFieldSchema, row map[string]any) BQTableRow {
+	tr := BQTableRow{F: make([]map[string]any, 0, len(fields))}
+	for _, f := range fields {
+		tr.F = append(tr.F, map[string]any{"v": bqEncodeCell(f, row[f.Name])})
+	}
+	return tr
+}
+
+func bqEncodeCell(f BQFieldSchema, v any) any {
+	if bqRepeated(f) {
+		items, ok := v.([]any)
+		if !ok {
+			return v
+		}
+		elem := f
+		elem.Mode = "NULLABLE"
+		out := make([]any, 0, len(items))
+		for _, item := range items {
+			out = append(out, map[string]any{"v": bqEncodeCell(elem, item)})
+		}
+		return out
+	}
+	if obj, ok := v.(map[string]any); ok && bqType(f) == "STRUCT" {
+		return bqEncodeRow(f.Fields, obj)
+	}
+	return v
 }

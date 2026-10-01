@@ -593,6 +593,30 @@ and `maxBadRecords`, and reports a failed load as a DONE job with an
 `errorResult`. Before, the media path parsed the request body as a JSON Job and
 dropped the bytes.
 
+BigQuery load, copy and extract jobs ran as real jobs. `jobs.insert` recorded
+the job PENDING and answered at once; a goroutine moved it to RUNNING, did the
+work, and settled it DONE with its statistics and, on failure, an
+`errorResult`. A job checked its destination and wrote it under the table's
+lock as one atomic update, `jobs.cancel` and `configuration.jobTimeoutMs`
+stopped a running job before it wrote anything, a job ID could not be reused,
+and a restart settled the jobs it caught unfinished. A load read its
+`sourceUris` from the simulator's Cloud Storage store, one `*` per URI matching
+any run of an object name, inflated gzip sources, and parsed CSV through its
+own splitter (`quote`, `allowQuotedNewlines`, `encoding`, `nullMarkers`) so
+quoting followed BigQuery rather than `encoding/csv`. Every cell was converted
+to its column's type and stored in the string form `tabledata.list` carries, so
+a value the type could not hold became a bad record. `autodetect` detected CSV
+and newline-delimited JSON schemas, including CSV headers and nested and
+repeated JSON fields; AVRO loads went through `hamba/avro` and PARQUET through
+`parquet-go`, taking the table's schema from the file. A copy wrote the rows of
+one or more tables sharing a schema under the create and write dispositions,
+and an extract wrote CSV, newline-delimited JSON, Avro or Parquet objects,
+compressed and sharded through a wildcard URI. `numBytes` was computed from the
+stored rows by BigQuery's logical size of each type, and `tabledata.list`
+nested RECORD and REPEATED cells in their wire form. The media-load tests waited
+on the job through the client's `Job.Wait` instead of reading a DONE state off
+the insert response.
+
 Compute Engine `instances.start`, `stop`, `suspend`, `resume`, `reset`,
 `startWithEncryptionKey` and `delete` answer at once with a RUNNING zone
 operation, move the instance through STAGING, STOPPING or SUSPENDING, and do

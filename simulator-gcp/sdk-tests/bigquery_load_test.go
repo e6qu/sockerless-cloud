@@ -30,6 +30,15 @@ func bqLoadJob(project, dataset, table, format, write string) *bigquery.Job {
 	}}}
 }
 
+// bqFinishedJob waits for an inserted job to finish and reads it back.
+func bqFinishedJob(t *testing.T, svc *bigquery.Service, project string, job *bigquery.Job) *bigquery.Job {
+	t.Helper()
+	bqWaitJob(t, project, job.JobReference.JobId, job.JobReference.Location)
+	done, err := svc.Jobs.Get(project, job.JobReference.JobId).Do()
+	require.NoError(t, err)
+	return done
+}
+
 func TestBigQuery_LoadJobFromMedia(t *testing.T) {
 	svc := bqService(t)
 	project, dataset := "sock-proj", strings.ReplaceAll(uniqueName("ds_loads"), "-", "_")
@@ -48,6 +57,7 @@ func TestBigQuery_LoadJobFromMedia(t *testing.T) {
 		Do()
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(progress), 4, "the client sent the source in chunks")
+	job = bqFinishedJob(t, svc, project, job)
 	require.Equal(t, "DONE", job.Status.State)
 	require.Nil(t, job.Status.ErrorResult)
 	assert.Equal(t, int64(rows), job.Statistics.Load.OutputRows)
@@ -65,6 +75,7 @@ func TestBigQuery_LoadJobFromMedia(t *testing.T) {
 		Media(bytes.NewReader([]byte("1,one\n2,\"two, quoted\"\n")), googleapi.ContentType("text/csv")).
 		Do()
 	require.NoError(t, err)
+	job = bqFinishedJob(t, svc, project, job)
 	require.Nil(t, job.Status.ErrorResult)
 	assert.Equal(t, int64(2), job.Statistics.Load.OutputRows)
 	data, err := svc.Tabledata.List(project, dataset, "words").Do()
@@ -77,6 +88,7 @@ func TestBigQuery_LoadJobFromMedia(t *testing.T) {
 		Media(bytes.NewReader([]byte("1,two,three\n")), googleapi.ContentType("text/csv")).
 		Do()
 	require.NoError(t, err)
+	job = bqFinishedJob(t, svc, project, job)
 	require.NotNil(t, job.Status.ErrorResult)
 	assert.Equal(t, "invalid", job.Status.ErrorResult.Reason)
 }

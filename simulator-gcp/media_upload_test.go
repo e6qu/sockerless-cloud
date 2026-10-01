@@ -137,7 +137,9 @@ func bqTestSend(t *testing.T, srv *sim.Server, method, target string, headers ma
 	return rec
 }
 
-func bqTestJob(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+// bqTestJob waits for the job jobs.insert answered with to finish and returns
+// it as jobs.get then reports it.
+func bqTestJob(t *testing.T, srv *sim.Server, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	if rec.Code != http.StatusOK {
 		t.Fatalf("jobs.insert answered %d %s", rec.Code, rec.Body)
@@ -146,7 +148,19 @@ func bqTestJob(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	if err := json.Unmarshal(rec.Body.Bytes(), &job); err != nil {
 		t.Fatalf("job %s: %v", rec.Body, err)
 	}
-	return job
+	ref, _ := job["jobReference"].(map[string]any)
+	project, _ := ref["projectId"].(string)
+	jobID, _ := ref["jobId"].(string)
+	return bqAwaitJob(t, srv, project, jobID)
+}
+
+// bqAwaitJob blocks until the job's run ends and returns it from jobs.get.
+func bqAwaitJob(t *testing.T, srv *sim.Server, project, jobID string) map[string]any {
+	t.Helper()
+	if run, ok := bqRunning.Load(bqJobKey(project, jobID)); ok {
+		<-run.(*bqRun).done
+	}
+	return gcpHostOK(t, srv, bqTestHost, http.MethodGet, "/bigquery/v2/projects/"+project+"/jobs/"+jobID, ``)
 }
 
 func bqTestRows(t *testing.T, srv *sim.Server, table string) []any {
@@ -190,7 +204,7 @@ func TestBQLoadJobFromMedia(t *testing.T) {
 		if rec.Code != http.StatusPermanentRedirect || rec.Header().Get("Range") != "bytes=0-9" {
 			t.Fatalf("%s: first chunk answered %d Range %q", path, rec.Code, rec.Header().Get("Range"))
 		}
-		job := bqTestJob(t, bqTestSend(t, srv, http.MethodPut, session,
+		job := bqTestJob(t, srv, bqTestSend(t, srv, http.MethodPut, session,
 			map[string]string{"Content-Range": fmt.Sprintf("bytes 10-%d/%d", len(csvData)-1, len(csvData))}, csvData[10:]))
 		status, _ := job["status"].(map[string]any)
 		stats, _ := job["statistics"].(map[string]any)
@@ -222,7 +236,7 @@ func TestBQLoadJobFromMedia(t *testing.T) {
 	contentType, body := bqTestMultipart(`{"configuration":{"load":{"sourceFormat":"NEWLINE_DELIMITED_JSON",
 		"destinationTable":{"datasetId":"loads","tableId":"people"},"writeDisposition":"WRITE_TRUNCATE"}}}`,
 		[]byte("{\"name\":\"edsger\",\"age\":72}\n\n{\"name\":\"barbara\"}\n"))
-	job := bqTestJob(t, bqTestSend(t, srv, http.MethodPost, "/upload/bigquery/v2/projects/p/jobs?uploadType=multipart",
+	job := bqTestJob(t, srv, bqTestSend(t, srv, http.MethodPost, "/upload/bigquery/v2/projects/p/jobs?uploadType=multipart",
 		map[string]string{"Content-Type": contentType}, body))
 	if load := job["statistics"].(map[string]any)["load"].(map[string]any); load["outputRows"] != "2" {
 		t.Fatalf("multipart load %v", job)
@@ -236,7 +250,7 @@ func TestBQLoadJobFromMedia(t *testing.T) {
 	failing := func(load string, data string) map[string]any {
 		t.Helper()
 		contentType, body := bqTestMultipart(`{"configuration":{"load":`+load+`}}`, []byte(data))
-		job := bqTestJob(t, bqTestSend(t, srv, http.MethodPost, "/upload/bigquery/v2/projects/p/jobs?uploadType=multipart",
+		job := bqTestJob(t, srv, bqTestSend(t, srv, http.MethodPost, "/upload/bigquery/v2/projects/p/jobs?uploadType=multipart",
 			map[string]string{"Content-Type": contentType}, body))
 		status := job["status"].(map[string]any)
 		errorResult, _ := status["errorResult"].(map[string]any)
@@ -267,7 +281,7 @@ func TestBQLoadJobFromMedia(t *testing.T) {
 	// maxBadRecords lets a load skip that many bad records.
 	contentType, body = bqTestMultipart(`{"configuration":{"load":{"destinationTable":{"datasetId":"loads","tableId":"people"},"maxBadRecords":1}}}`,
 		[]byte("ok,1\ntoo,many,values\n"))
-	job = bqTestJob(t, bqTestSend(t, srv, http.MethodPost, "/upload/bigquery/v2/projects/p/jobs?uploadType=multipart",
+	job = bqTestJob(t, srv, bqTestSend(t, srv, http.MethodPost, "/upload/bigquery/v2/projects/p/jobs?uploadType=multipart",
 		map[string]string{"Content-Type": contentType}, body))
 	if load := job["statistics"].(map[string]any)["load"].(map[string]any); load["outputRows"] != "1" || load["badRecords"] != "1" {
 		t.Fatalf("load with a tolerated bad record %v", job)
