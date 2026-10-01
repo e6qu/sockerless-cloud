@@ -20,8 +20,8 @@ github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4
 github.com/docker/go-units v0.5.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
 github.com/dustin/go-humanize v1.1.0 h1:dbKTrvD0klcbBV/h4AWJdMuZogJACoMlvWIWZ5b2xWg=
 github.com/dustin/go-humanize v1.1.0/go.mod h1:hc1CvRkJMsgxqjmjMQF3QNRAZBwY8AXBAzKYoSX9sFI=
-github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261001121026-4249fe883722 h1:skpj+gsQW7GQHvWt4MIPYYDPZFZCClIyJJhBYEbq+Y0=
-github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261001121026-4249fe883722/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261001141830-51ce52737f68 h1:d6/Lq3KjCh5Iq5T535ma/n3qKSJ1W+fNLp/7ooAAXJA=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261001141830-51ce52737f68/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261001121026-4249fe883722 h1:6IVmNHyorhgeuULztuHjpce4jZlHReNG4ItWWYDVGH0=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261001121026-4249fe883722/go.mod h1:dbWPc7DIMq49VRGfGl5uk/9/w6NS1bgKBZ74HnbFOzw=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff h1:QSRn3RZ/F1p1r2idkV3KH9E9k0fEagRtQyjjss2W2HA=
