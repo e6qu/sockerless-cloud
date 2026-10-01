@@ -471,6 +471,7 @@ func sbRenewLock(namespace, path, lockToken string) (time.Time, error) {
 	if !held {
 		return time.Time{}, errSBLockLost
 	}
+	bg.AfterFunc(settings.lock, func() { sbNotifyReceivers(namespace, path) })
 	return now.Add(settings.lock), nil
 }
 

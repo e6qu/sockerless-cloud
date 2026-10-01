@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
 )
 
@@ -40,6 +42,7 @@ func registerServiceBusDataPlane(srv *sim.Server) {
 	if err := sbMigrateQueues(srv.DB()); err != nil {
 		log.Fatalf("servicebus: %v", err)
 	}
+	sbRearmAvailability(time.Now())
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			host := r.Host
@@ -210,8 +213,26 @@ func handleSBSendMessage(w http.ResponseWriter, r *http.Request, namespace, path
 	w.WriteHeader(http.StatusCreated)
 }
 
+// sbRESTReceiveDefaultTimeout is how long a receive without `timeout` waits
+// for a message.
+const sbRESTReceiveDefaultTimeout = 60 * time.Second
+
+// sbRESTReceiveTimeout reads the `timeout` query parameter, in whole seconds.
+func sbRESTReceiveTimeout(r *http.Request) (time.Duration, bool) {
+	v := r.URL.Query().Get("timeout")
+	if v == "" {
+		return sbRESTReceiveDefaultTimeout, true
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return time.Duration(n) * time.Second, true
+}
+
 // handleSBReceive answers Receive and Delete (DELETE …/messages/head) and
-// Peek-Lock (POST …/messages/head).
+// Peek-Lock (POST …/messages/head). Both wait up to `timeout` for a message
+// to become receivable and answer 204 when none does.
 func handleSBReceive(w http.ResponseWriter, r *http.Request, namespace, path string, peekLock bool) {
 	// The REST plane has no way to accept a session, so it cannot receive from
 	// an entity whose messages only a session's lock holder may take.
@@ -219,9 +240,17 @@ func handleSBReceive(w http.ResponseWriter, r *http.Request, namespace, path str
 		AzureError(w, "BadRequest", errSBSessionfulEntity.Error(), http.StatusBadRequest)
 		return
 	}
-	got, _ := sbReceive(namespace, path, "", 1, peekLock)
+	timeout, ok := sbRESTReceiveTimeout(r)
+	if !ok {
+		AzureError(w, "BadRequest", "The value '"+r.URL.Query().Get("timeout")+
+			"' of the timeout query parameter is not a non-negative whole number of seconds.", http.StatusBadRequest)
+		return
+	}
+	got := sbAwaitReceive(r.Context(), namespace, path, timeout, peekLock)
 	if len(got) == 0 {
-		w.WriteHeader(http.StatusNoContent)
+		if r.Context().Err() == nil {
+			w.WriteHeader(http.StatusNoContent)
+		}
 		return
 	}
 	m := got[0]
@@ -233,6 +262,49 @@ func handleSBReceive(w http.ResponseWriter, r *http.Request, namespace, path str
 	// the client DELETEs it verbatim to complete the message.
 	location := fmt.Sprintf("https://%s/%s/messages/%s/%s", r.Host, sbRESTEntityPath(path), m.ID, m.Receipt)
 	writeSBMessageResponse(w, m, location, http.StatusCreated)
+}
+
+// sbAwaitReceive receives one message from path, waiting up to timeout for
+// one to be sent, scheduled into view, abandoned or freed by an expired lock.
+// It returns nothing when the timeout ends or the caller goes away first.
+func sbAwaitReceive(ctx context.Context, namespace, path string, timeout time.Duration, peekLock bool) []msgq.Message[sbPayload] {
+	sim.DeclareWait(ctx, timeout)
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for {
+		signal := sbEnqueueSignal(namespace, path)
+		if got, _ := sbReceive(namespace, path, "", 1, peekLock); len(got) > 0 {
+			return got
+		}
+		select {
+		case <-signal:
+		case <-timer.C:
+			return nil
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
+// sbRearmAvailability wakes the receivers of every stored entity at the
+// moment each of its scheduled or locked messages becomes receivable, which
+// the timers of the process that stored them no longer do.
+func sbRearmAvailability(now time.Time) {
+	for _, kv := range sbQueueDurable.ListPrefix("") {
+		namespace, path, ok := strings.Cut(kv.ID, "/")
+		if !ok {
+			continue
+		}
+		at := map[int64]bool{}
+		for _, m := range kv.Item.Queue.Messages {
+			if m.AvailableAt > now.UnixMilli() {
+				at[m.AvailableAt] = true
+			}
+		}
+		for ms := range at {
+			bg.AfterFunc(time.UnixMilli(ms).Sub(now), func() { sbNotifyReceivers(namespace, path) })
+		}
+	}
 }
 
 // sbRESTEntityPath spells a store path the way the REST plane addresses it.

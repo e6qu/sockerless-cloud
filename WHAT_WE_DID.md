@@ -363,6 +363,17 @@ through hooks:
   receiver's delivery-count plus link-credit minus the sender's, as AMQP 1.0
   defines it. Handing a receive-and-delete message to the SDK's reply link
   lost it whenever that link's credit arrived first, which on CI was often.
+- **A REST receive waits for its `timeout`.** Service Bus Receive and Delete
+  and Peek-Lock on a queue or subscription waited up to the `timeout` query
+  parameter (60 seconds when absent) for a message and answered 204 only when
+  none became receivable; the simulator had answered 204 at once. The wait
+  wakes on the entity's arrival signal — a send, a scheduled message reaching
+  its time, an abandon, or a lock running out — ends with the caller's
+  request, and declares itself with `sim.DeclareWait`. A renewed lock re-arms
+  the lock-expiry wake-up, and a restarted simulator re-arms the wake-ups of
+  the scheduled and locked messages it loads, so neither a REST waiter nor an
+  AMQP receiver holding credit misses a message whose timer belonged to the
+  old process.
 - **A page token proves where it came from.** Every listing tags the tokens it
   issues and refuses one it never issued with the service's invalid-argument
   error, instead of listing an empty page.
@@ -996,6 +1007,22 @@ event. `ImportSnapshot` and `ImportImage` read the disk image from S3 and
 convert RAW, VHD and VMDK formats into real snapshot data. A waiting SQS
 receive wakes on the send, delay or visibility change it waits for. ECS
 creates an awslogs log group only when the task definition asks for it.
+
+A Cloud Pub/Sub `Pull`, over gRPC and REST alike, holds an empty subscription
+open unless the caller sets the deprecated but honoured `returnImmediately`,
+and answers with at most `maxMessages` once a message becomes deliverable, the
+server's bound passes, or the caller goes away; it had answered an empty
+subscription at once whatever the flag said, so a client that pulled before
+publishing read nothing. The wait wakes on the subscription's own signal,
+which a publish, an acknowledgement, a negative acknowledgement or ack
+deadline change, a seek, and the subscription's update, detachment or deletion
+fire, and on a timer set to the moment the queue next changes by itself, a
+lapsed ack deadline or the end of a retry backoff. `StreamingPull` waits on the
+same two things instead of re-reading the queue every 50 ms. The REST pull
+declares its bound with `sim.DeclareWait`; the gRPC listener sits outside
+`sim.InFlightMiddleware`, so the declaration there is a no-op. Suites that
+check a subscription is drained pull with `returnImmediately`, as a client
+does that must not wait.
 
 AWS Batch answers `SubmitJob` at once and schedules the job behind it. The
 job moves on real events: RUNNABLE once the scheduler evaluated it, STARTING
