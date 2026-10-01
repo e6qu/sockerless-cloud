@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
@@ -152,7 +151,7 @@ func recordComputeOp(rec ComputeOperationRecord) {
 // accompanying HTTP status is the one the simulator answers when it cannot
 // bring a machine up.
 func computeOpFinish(name string, err error) {
-	defer computeOpSignalDone(name)
+	defer gcpOperationSignalDone(name)
 	computeOpRegistry.Update(name, func(rec *ComputeOperationRecord) {
 		rec.Status = "DONE"
 		rec.Progress = 100
@@ -165,33 +164,6 @@ func computeOpFinish(name string, err error) {
 		rec.HTTPErrorStatusCode = http.StatusServiceUnavailable
 		rec.HTTPErrorMessage = "SERVICE UNAVAILABLE"
 	})
-}
-
-// computeOpWaiters holds, per running operation someone waits on, the channel
-// computeOpFinish closes when the operation reaches DONE.
-var computeOpWaiters = struct {
-	sync.Mutex
-	done map[string]chan struct{}
-}{done: map[string]chan struct{}{}}
-
-func computeOpDoneSignal(name string) <-chan struct{} {
-	computeOpWaiters.Lock()
-	defer computeOpWaiters.Unlock()
-	ch, ok := computeOpWaiters.done[name]
-	if !ok {
-		ch = make(chan struct{})
-		computeOpWaiters.done[name] = ch
-	}
-	return ch
-}
-
-func computeOpSignalDone(name string) {
-	computeOpWaiters.Lock()
-	defer computeOpWaiters.Unlock()
-	if ch, ok := computeOpWaiters.done[name]; ok {
-		close(ch)
-		delete(computeOpWaiters.done, name)
-	}
 }
 
 // computeOpJSON renders a recorded operation as the `compute#operation`
@@ -271,15 +243,15 @@ const computeInstanceBootBudget = 5 * time.Minute
 func computeWaitOperation(w http.ResponseWriter, r *http.Request, name string) {
 	// Subscribe before reading, so a finish between the read and the wait still
 	// wakes it.
-	done := computeOpDoneSignal(name)
+	done := gcpOperationDoneSignal(name)
 	rec, ok := computeOpRegistry.Get(name)
 	if !ok {
-		computeOpSignalDone(name)
+		gcpOperationSignalDone(name)
 		GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
 		return
 	}
 	if rec.Status == "DONE" {
-		computeOpSignalDone(name)
+		gcpOperationSignalDone(name)
 	} else {
 		budget := time.NewTimer(computeOperationWaitBudget)
 		defer budget.Stop()

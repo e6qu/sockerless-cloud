@@ -426,18 +426,25 @@ fi
 echo "TEST: cloud run jobs run via curl (json)"
 output=$(sim_curl POST "$JOBS_BASE/bash-test-job:run" "")
 exec_name=""
-if echo "$output" | jq -e '.response.name' >/dev/null 2>&1; then
-    exec_name=$(echo "$output" | jq -r '.response.name')
+op_name=""
+if echo "$output" | jq -e '.metadata.name and .name' >/dev/null 2>&1; then
+    exec_name=$(echo "$output" | jq -r '.metadata.name')
+    op_name=$(echo "$output" | jq -r '.name')
     pass
 else
-    fail "expected execution name in run response: $output"
+    fail "expected the execution in the run operation's metadata: $output"
 fi
 
 # --- get execution (json) ---
 if [ -n "$exec_name" ]; then
     echo "TEST: cloud run executions get via curl (json)"
-    # Wait for execution to complete
-    sleep 3
+    # The RunJob operation completes when the execution does; operations.wait
+    # blocks until then, and may answer early, so a not-done answer is waited
+    # on again.
+    done_flag="false"
+    while [ "$done_flag" != "true" ]; do
+        done_flag=$(sim_curl POST "$BASE_URL/v2/$op_name:wait" '{"timeout":"120s"}' | jq -r '.done')
+    done
     output=$(sim_curl GET "$BASE_URL/v2/$exec_name")
     if echo "$output" | jq -e '.name' >/dev/null 2>&1; then
         pass

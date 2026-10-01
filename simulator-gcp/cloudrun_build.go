@@ -80,25 +80,9 @@ func cloudRunSubmitBuild(w http.ResponseWriter, r *http.Request) {
 	}
 	build.Name = fmt.Sprintf("projects/%s/locations/%s/builds/%s", project, location, build.ID)
 	cbBuilds.Put(build.ID, build)
-	result := executeCancellableBuild(r.Context(), build)
-
-	operation := CloudBuildOperation{
-		Name: fmt.Sprintf("operations/build/%s/%s", project, result.ID),
-		Done: true,
-		Metadata: map[string]any{
-			"@type": "type.googleapis.com/google.devtools.cloudbuild.v1.BuildOperationMetadata",
-			"build": result,
-		},
-	}
-	if result.Status == "SUCCESS" {
-		operation.Response = map[string]any{"@type": "type.googleapis.com/google.devtools.cloudbuild.v1.Build"}
-		for k, v := range structToMap(result) {
-			operation.Response[k] = v
-		}
-	} else {
-		operation.Error = cloudBuildOperationError(result)
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"buildOperation": operation})
+	sim.WriteJSON(w, http.StatusOK, map[string]any{
+		"buildOperation": cbBuildOperation(project, startCloudBuild(build)),
+	})
 }
 
 // cloudRunUploadSource names the Cloud Storage location a client uploads its

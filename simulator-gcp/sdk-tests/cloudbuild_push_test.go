@@ -3,13 +3,13 @@ package gcp_sdk_test
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 
 	"github.com/e6qu/sockerless-cloud/testutil/registrytrust"
@@ -57,24 +57,14 @@ func TestCloudBuild_FaithfulBuildPush(t *testing.T) {
 			{"name":"gcr.io/cloud-builders/docker","args":["build","-t",%q,"."]},
 			{"name":"gcr.io/cloud-builders/docker","args":["push",%q]}
 		],
-		"images":[%q]
+		"images":[%q],
+		"timeout":"120s"
 	}`, bucket, objectName, imageName, imageName, imageName)
-	// Bound the synchronous build+push: on a healthy runtime it completes in
-	// <15s, but a wedged container runtime (e.g. Podman-on-macOS in its gvproxy
-	// 500 state) or a stalled registry would otherwise hang the push forever
-	// and consume the whole suite's -timeout. A 120s budget is generous for a
-	// real build yet fails fast with a clear deadline error instead of an 8m
-	// hang. The server-side push goroutine outlives this client
-	// give-up, but the sim process is torn down at suite end regardless.
-	buildCtx, buildCancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer buildCancel()
-	breq, _ := http.NewRequestWithContext(buildCtx, http.MethodPost, buildURL, strings.NewReader(body))
-	breq.Header.Set("Content-Type", "application/json")
-	bresp, err := http.DefaultClient.Do(breq)
-	require.NoError(t, err, "build+push request (deadline 120s; a timeout means the container runtime or registry is unresponsive)")
-	defer bresp.Body.Close()
-	resp, _ := io.ReadAll(bresp.Body)
-	require.Contains(t, string(resp), `"status":"SUCCESS"`, "build+push should succeed: %s", string(resp))
+	// The build's own timeout bounds it: a wedged container runtime or a
+	// stalled registry ends the build TIMEOUT, which fails the wait below.
+	built, err := waitBuild(t, readStartedBuild(t, httpPOST(t, buildURL, body)))
+	require.NoError(t, err, "build+push should succeed")
+	require.Equal(t, cloudbuildpb.Build_SUCCESS, built.GetStatus())
 
 	// Faithful build→push: the image must live in the registry (pullable via
 	// /v2/), NOT on the build host's local daemon.

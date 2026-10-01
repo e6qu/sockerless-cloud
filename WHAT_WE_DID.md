@@ -588,6 +588,30 @@ long-running-operation headers and `SimulateEviction` answers 204, and both
 stop the guest in the background; the machine leaving takes its name off the
 `properties.virtualMachine` of every network interface it had attached.
 
+Cloud Run's v2 `RunJob` answers with an operation that stays running while the
+execution runs, carrying the Execution as its metadata, as the method's
+`operation_info` declares; the execution's settle completes it once the tasks,
+the job's reference and the log lines are written — the Execution as the
+response when every task succeeded, the failed `Completed` condition's message
+under FAILED_PRECONDITION when one failed, CANCELLED when it was cancelled, and
+NOT_FOUND when the execution was deleted while it ran. Cancelling the operation
+cancels the execution, and a restart completes the operations of executions
+that settled without them. `operations.wait` on REST and `WaitOperation` on
+gRPC block on a signal `gcpFinishOperation` raises, bounded by the request's
+`timeout` or else by the caller's connection. Cloud Build's `CreateBuild`, its
+regional twin, `RetryBuild`, `ApproveBuild`, `RunBuildTrigger`, the trigger
+webhooks and Cloud Run's `builds:submit` record the build QUEUED and return its
+operation at once, with a `BuildOperationMetadata` carrying the build; the
+build runs in the background under its own `timeout` (sixty minutes unset,
+ending TIMEOUT with DEADLINE_EXCEEDED), and the operation is a view of the
+record that turns done once the build is terminal and its steps have stopped,
+with the full Build as the response. Before, `RunJob` returned its operation
+done the moment the execution started and `CreateBuild` held the request until
+the build ended, so the SDK, CLI and bash suites polled execution and build
+status; they now wait on the operation — `op.Wait`, `operations.wait`, or the
+Cloud Build SDK's `CreateBuildOperation(name).Wait` — and read the execution's
+name from the operation's metadata where the workload must still be running.
+
 A workload host pulls its image the way the cloud pulls it. The Cloud Run and
 Cloud Functions hosts present the project's Cloud Run service agent's access
 token to Artifact Registry and Container Registry and nothing elsewhere. The

@@ -273,7 +273,7 @@ func registerComputeOrganizationOperations(srv *sim.Server) {
 				"operation %q not found", sim.PathParam(r, "operation"))
 			return
 		}
-		computeOpSignalDone(sim.PathParam(r, "operation"))
+		gcpOperationSignalDone(sim.PathParam(r, "operation"))
 		w.WriteHeader(http.StatusNoContent)
 	})
 }

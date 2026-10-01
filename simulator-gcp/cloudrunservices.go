@@ -946,14 +946,16 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		name := gcpLocationOperationName(project, location, opID)
 		switch action {
 		case "wait":
-			op, ok := gcpLookupOperation(name)
+			timeout, err := gcpWaitOperationTimeout(r)
+			if err != nil {
+				GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+				return
+			}
+			op, ok := gcpAwaitOperation(r.Context(), name, timeout)
 			if !ok {
 				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 				return
 			}
-			// The sim does no async work — every LRO is already done — so
-			// WaitOperation returns the (completed) operation immediately, as
-			// real Cloud Run does once the underlying resource has settled.
 			sim.WriteJSON(w, http.StatusOK, op)
 		case "cancel":
 			handleGCPCancelOperation(w, name)

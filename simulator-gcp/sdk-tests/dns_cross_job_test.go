@@ -79,8 +79,12 @@ func TestDNS_CrossJobResolution(t *testing.T) {
 			Name: "projects/" + project + "/locations/us-central1/jobs/" + name,
 		})
 		require.NoError(t, err)
-		exec, err := runOp.Wait(ctx)
+		// The workload keeps running while the test wires DNS around it, so
+		// the execution comes from the operation's Execution metadata rather
+		// than from the operation's completion.
+		exec, err := runOp.Metadata()
 		require.NoError(t, err)
+		require.NotNil(t, exec)
 		return exec.Name
 	}
 

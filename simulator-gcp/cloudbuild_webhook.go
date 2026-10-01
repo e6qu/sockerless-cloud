@@ -234,7 +234,7 @@ func cbStartTriggeredBuild(r *http.Request, trigger BuildTrigger, delivery cbWeb
 		}
 	}
 	cbBuilds.Put(started.ID, started)
-	return executeCancellableBuild(r.Context(), started), true
+	return startCloudBuild(started), true
 }
 
 // cbTriggerProject reads the project a trigger belongs to out of its resource

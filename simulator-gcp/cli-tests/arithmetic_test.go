@@ -30,20 +30,8 @@ func TestCloudRun_CLI_ArithmeticEval(t *testing.T) {
 	}`, evalImageName)
 	httpDoJSON(t, "POST", jobsBaseURL()+"?jobId="+jobID, createBody)
 
-	// Run the job
-	out := httpDoJSON(t, "POST", jobURL(jobID+":run"), "")
-
-	var lro struct {
-		Response struct {
-			Name string `json:"name"`
-		} `json:"response"`
-	}
-	parseJSON(t, out, &lro)
-	require.NotEmpty(t, lro.Response.Name)
-
-	// Poll until the execution reaches a terminal state (succeeded+failed > 0)
-	// rather than racing on a fixed sleep that a loaded CI runner could exceed.
-	exec := waitForExecution(t, lro.Response.Name)
+	exec, op := runJobToCompletion(t, jobID)
+	require.Nil(t, op.Error, "the execution succeeded, so its RunJob operation did")
 	assert.Equal(t, 1, exec.SucceededCount, "expected job to succeed")
 	assert.Equal(t, 0, exec.FailedCount)
 
@@ -53,6 +41,7 @@ func TestCloudRun_CLI_ArithmeticEval(t *testing.T) {
 	// document is satisfied without the job's output ever being found; the
 	// assertion is on an entry whose textPayload is the evaluated result and
 	// nothing else.
+	var out string
 	var payloads []string
 	require.Eventually(t, func() bool {
 		out = runCLI(t, gcloudCLI("logging", "read",
@@ -97,24 +86,15 @@ type cloudRunExecutionCounts struct {
 	FailedCount    int `json:"failedCount"`
 }
 
-// waitForExecution polls the Cloud Run execution resource until it reaches a
-// terminal state (at least one task succeeded or failed). This replaces a fixed
-// sleep, which races on a loaded CI runner where the job may not finish in time.
-func waitForExecution(t *testing.T, execName string) cloudRunExecutionCounts {
+// runJobToCompletion runs a job, waits on the RunJob operation until the
+// execution finishes, and returns the settled execution with the operation.
+func runJobToCompletion(t *testing.T, jobID string) (cloudRunExecutionCounts, runOperationResult) {
 	t.Helper()
-	deadline := time.Now().Add(60 * time.Second)
+	run := runJob(t, jobID)
+	op := waitRunOperation(t, run.Operation)
 	var exec cloudRunExecutionCounts
-	for time.Now().Before(deadline) {
-		out := httpDoJSON(t, "GET", baseURL+"/v2/"+execName, "")
-		exec = cloudRunExecutionCounts{}
-		parseJSON(t, out, &exec)
-		if exec.SucceededCount+exec.FailedCount > 0 {
-			return exec
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-	t.Fatalf("execution %s did not reach a terminal state within deadline", execName)
-	return exec
+	parseJSON(t, httpDoJSON(t, "GET", baseURL+"/v2/"+run.Execution, ""), &exec)
+	return exec, op
 }
 
 func TestCloudRun_CLI_ArithmeticInvalid(t *testing.T) {
@@ -135,20 +115,8 @@ func TestCloudRun_CLI_ArithmeticInvalid(t *testing.T) {
 	}`, evalImageName)
 	httpDoJSON(t, "POST", jobsBaseURL()+"?jobId="+jobID, createBody)
 
-	// Run the job
-	out := httpDoJSON(t, "POST", jobURL(jobID+":run"), "")
-
-	var lro struct {
-		Response struct {
-			Name string `json:"name"`
-		} `json:"response"`
-	}
-	parseJSON(t, out, &lro)
-	require.NotEmpty(t, lro.Response.Name)
-
-	// Poll until the execution reaches a terminal state (succeeded+failed > 0)
-	// rather than racing on a fixed sleep that a loaded CI runner could exceed.
-	exec := waitForExecution(t, lro.Response.Name)
+	exec, op := runJobToCompletion(t, jobID)
+	require.NotNil(t, op.Error, "a failed execution fails its RunJob operation")
 	assert.Equal(t, 0, exec.SucceededCount)
 	assert.Equal(t, 1, exec.FailedCount, "expected job to fail")
 

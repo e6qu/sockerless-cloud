@@ -48,12 +48,13 @@ func TestCloudRunV2_Executions_CancelIsServedAndUnknownVerbsAreNot(t *testing.T)
 
 	runOp, err := svc.Projects.Locations.Jobs.Run(jobName, &runv2.GoogleCloudRunV2RunJobRequest{}).Do()
 	require.NoError(t, err)
-	awaitRunV2Operation(t, svc, runOp)
-
-	executions, err := svc.Projects.Locations.Jobs.Executions.List(jobName).Do()
-	require.NoError(t, err)
-	require.NotEmpty(t, executions.Executions)
-	execName := executions.Executions[0].Name
+	// The workload sleeps, so the operation is still running; its Execution
+	// metadata names the execution.
+	require.False(t, runOp.Done, "the RunJob operation completes only when the execution does")
+	var started runv2.GoogleCloudRunV2Execution
+	require.NoError(t, json.Unmarshal(runOp.Metadata, &started))
+	execName := started.Name
+	require.NotEmpty(t, execName)
 
 	// A verb the service does not publish is refused as an unknown method,
 	// not silently treated as the one verb the collection does publish.
@@ -81,6 +82,11 @@ func TestCloudRunV2_Executions_CancelIsServedAndUnknownVerbsAreNot(t *testing.T)
 	cancelled, err := svc.Projects.Locations.Jobs.Executions.Get(execName).Do()
 	require.NoError(t, err)
 	assert.NotEmpty(t, cancelled.CompletionTime, "cancel settled the execution")
+
+	// The RunJob operation ends with the cancellation once the workload stops.
+	finished := waitRunV2Operation(t, svc, runOp)
+	require.NotNil(t, finished.Error, "a cancelled execution's RunJob operation carries an error")
+	assert.Equal(t, int64(1), finished.Error.Code, "google.rpc.Code.CANCELLED")
 }
 
 // postRunV2Verb POSTs an AIP-136 custom method on a Cloud Run v2 resource by

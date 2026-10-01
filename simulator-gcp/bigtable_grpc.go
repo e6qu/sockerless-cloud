@@ -431,7 +431,11 @@ func (s *grpcOperationsService) GetOperation(_ context.Context, req *longrunning
 }
 
 func (s *grpcOperationsService) WaitOperation(ctx context.Context, req *longrunningpb.WaitOperationRequest) (*longrunningpb.Operation, error) {
-	return s.GetOperation(ctx, &longrunningpb.GetOperationRequest{Name: req.GetName()})
+	stored, ok := gcpAwaitOperation(ctx, req.GetName(), req.GetTimeout().AsDuration())
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "operation %q not found", req.GetName())
+	}
+	return grpcOperationFromStored(stored)
 }
 
 func (s *grpcOperationsService) DeleteOperation(_ context.Context, req *longrunningpb.DeleteOperationRequest) (*emptypb.Empty, error) {
@@ -466,14 +470,15 @@ func (s *grpcOperationsService) ListOperations(_ context.Context, req *longrunni
 	return &longrunningpb.ListOperationsResponse{Operations: page, NextPageToken: next}, nil
 }
 
-// CancelOperation asks the service to stop an operation. Every Cloud Bigtable
-// admin operation this service issues is already complete when the caller
-// receives it, so there is never work left to interrupt: a known operation is
-// acknowledged and keeps its result, and an unknown name is a NotFound.
+// CancelOperation asks the service to stop an operation. A done operation is
+// acknowledged and keeps its result, an unfinished one has its work stopped,
+// and an unknown name is a NotFound.
 func (s *grpcOperationsService) CancelOperation(_ context.Context, req *longrunningpb.CancelOperationRequest) (*emptypb.Empty, error) {
-	if _, ok := crOperations.Get(req.GetName()); !ok {
+	op, ok := crOperations.Get(req.GetName())
+	if !ok {
 		return nil, status.Errorf(codes.NotFound, "operation %q not found", req.GetName())
 	}
+	gcpCancelOperationWork(op)
 	return &emptypb.Empty{}, nil
 }
 

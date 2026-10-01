@@ -62,21 +62,37 @@ func gcpLookupOperation(name string) (Operation, bool) {
 
 // handleGCPCancelOperation answers CancelOperation for one operation name.
 //
-// Every operation the simulator records is complete before its name can reach
-// a client: the work each service's LRO wraps runs inside the request that
-// returns the operation, so the record is written with done set. A cancel is
-// therefore always the late cancel the method's own description contemplates —
-// "the operation completed despite cancellation" — and the honest answer is to
-// leave the recorded result untouched and return Empty.
-// TestGCPOperationsAreRecordedComplete pins that invariant, so an operation
-// store that ever starts holding unfinished work fails there rather than
-// silently getting a no-op cancel here.
+// An operation that is done takes the late cancel the method's own description
+// contemplates — "the operation completed despite cancellation" — and keeps
+// its recorded result. The one operation these stores hold unfinished is Cloud
+// Run's RunJob, whose cancel cancels the execution it runs; the operation then
+// completes with CANCELLED once the execution's workload has stopped.
+// TestGCPOperationsAreRecordedComplete pins that every other service records
+// its operations complete, so a store that starts holding other unfinished
+// work fails there rather than silently getting a no-op cancel here.
 func handleGCPCancelOperation(w http.ResponseWriter, name string) {
-	if _, ok := gcpLookupOperation(name); !ok {
+	op, ok := gcpLookupOperation(name)
+	if !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 		return
 	}
+	gcpCancelOperationWork(op)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
+}
+
+// gcpCancelOperationWork stops the work an unfinished operation stands for.
+func gcpCancelOperationWork(op Operation) {
+	if op.Done || op.Metadata["@type"] != cloudRunExecutionType {
+		return
+	}
+	execName, _ := op.Metadata["name"].(string)
+	parts := strings.Split(execName, "/")
+	if len(parts) != 8 || parts[0] != "projects" || parts[2] != "locations" || parts[4] != "jobs" || parts[6] != "executions" {
+		return
+	}
+	if exec, ok := crjExecutions.Get(execName); ok && exec.RunningCount > 0 {
+		cancelCloudRunExecution(parts[1], parts[3], parts[5], parts[7])
+	}
 }
 
 // registerOperationsCancel mounts the cancel spellings that do not sit under

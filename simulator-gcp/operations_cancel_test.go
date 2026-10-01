@@ -11,18 +11,18 @@ import (
 )
 
 // TestGCPOperationsAreRecordedComplete pins the invariant the standard
-// CancelOperation handler rests on: every long-running operation the simulator
-// records is complete before its name can reach a client, because the work
-// each service's LRO wraps runs inside the request that returns the operation.
-// That is why cancelling a recorded operation is always the late cancel
-// AIP-151 describes — "the operation completed despite cancellation" — and why
-// handleGCPCancelOperation leaves the recorded result alone.
+// CancelOperation handler rests on: the services minted here record their
+// operations complete, because the work each one's LRO wraps runs inside the
+// request that returns the operation. Cancelling such an operation is the late
+// cancel AIP-151 describes — "the operation completed despite cancellation" —
+// and handleGCPCancelOperation leaves the recorded result alone.
 //
 // A service that starts recording an operation before its work finishes fails
 // here, which is the signal that cancel has to grow a branch that stops that
-// work rather than silently no-opping on it. (Cloud Build already has such a
-// branch: its build operations are projections of the build record, not rows
-// in these stores, and cancelling one terminates the running build steps.)
+// work rather than silently no-opping on it. Cloud Run's RunJob has that
+// branch (gcpCancelOperationWork cancels the execution), and Cloud Build's
+// build operations are projections of the build record, not rows in these
+// stores, whose cancel terminates the running build steps.
 func TestGCPOperationsAreRecordedComplete(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, err := buildSimulator(sim.Config{Provider: "gcp", ListenAddr: ":0", LogLevel: "error"})

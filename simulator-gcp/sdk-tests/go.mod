@@ -6,6 +6,7 @@ require (
 	cloud.google.com/go/apigateway v1.15.0
 	cloud.google.com/go/artifactregistry v1.27.0
 	cloud.google.com/go/bigtable v1.58.0
+	cloud.google.com/go/cloudbuild v1.34.0
 	cloud.google.com/go/compute/metadata v0.10.0
 	cloud.google.com/go/eventarc v1.26.0
 	cloud.google.com/go/firestore v1.26.0
@@ -22,6 +23,7 @@ require (
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/redis/go-redis/v9 v9.22.0
 	github.com/stretchr/testify v1.12.1
 	google.golang.org/api v0.299.0
 	google.golang.org/genproto v0.0.0-20260921155816-b14227669459
@@ -39,7 +41,6 @@ require (
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/redis/go-redis/v9 v9.22.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 )

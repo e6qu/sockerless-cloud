@@ -53,17 +53,26 @@ func newRunV1RESTService(t *testing.T) *runv1.APIService {
 // around the returned operation.
 func awaitRunV2Operation(t *testing.T, svc *runv2.Service, op *runv2.GoogleLongrunningOperation) *runv2.GoogleLongrunningOperation {
 	t.Helper()
-	require.NotEmpty(t, op.Name, "operation must carry a resource name to poll")
-	for i := 0; i < 30; i++ {
-		got, err := svc.Projects.Locations.Operations.Get(op.Name).Do()
+	got := waitRunV2Operation(t, svc, op)
+	require.Nil(t, got.Error, "operation must not fail")
+	return got
+}
+
+// waitRunV2Operation blocks on run.projects.locations.operations.wait until the
+// operation is done and returns it. The method may answer before the operation
+// is done, so a not-done answer is waited on again.
+func waitRunV2Operation(t *testing.T, svc *runv2.Service, op *runv2.GoogleLongrunningOperation) *runv2.GoogleLongrunningOperation {
+	t.Helper()
+	require.NotEmpty(t, op.Name, "operation must carry a resource name to wait on")
+	got := op
+	for !got.Done {
+		var err error
+		got, err = svc.Projects.Locations.Operations.Wait(op.Name, &runv2.GoogleLongrunningWaitOperationRequest{
+			Timeout: "120s",
+		}).Context(ctx).Do()
 		require.NoError(t, err)
-		if got.Done {
-			require.Nil(t, got.Error, "operation must not fail")
-			return got
-		}
 	}
-	t.Fatalf("operation %s never reached done", op.Name)
-	return nil
+	return got
 }
 
 // lroResponseName decodes the resource name out of an operation's

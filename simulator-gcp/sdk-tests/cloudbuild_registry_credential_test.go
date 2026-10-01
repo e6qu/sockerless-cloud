@@ -1,15 +1,14 @@
 package gcp_sdk_test
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,23 +52,19 @@ func TestCloudBuild_DockerStepsPullAndPushAsTheBuildServiceAccount(t *testing.T)
 		"Dockerfile": "FROM " + base + "\nRUN echo pulled-as-the-build-service-account > /opt/payload\n",
 	}))
 
-	buildCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
 	reqBody := fmt.Sprintf(`{
 		"source":{"storageSource":{"bucket":%q,"object":%q}},
 		"steps":[
 			{"name":"gcr.io/cloud-builders/docker","args":["build","-t",%q,"."]},
 			{"name":"gcr.io/cloud-builders/docker","args":["push",%q]}
 		],
-		"images":[%q]
+		"images":[%q],
+		"timeout":"120s"
 	}`, bucket, objectName, built, built, built)
-	req, _ := http.NewRequestWithContext(buildCtx, http.MethodPost, fmt.Sprintf("%s/v1/projects/%s/builds", baseURL, project), strings.NewReader(reqBody))
-	req.Header.Set("Content-Type", "application/json")
-	bresp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer bresp.Body.Close()
-	out, _ := io.ReadAll(bresp.Body)
-	require.Contains(t, string(out), `"status":"SUCCESS"`, "build must pull its base image and push its result as the build's service account: %s", string(out))
+	result, err := waitBuild(t, readStartedBuild(t,
+		httpPOST(t, fmt.Sprintf("%s/v1/projects/%s/builds", baseURL, project), reqBody)))
+	require.NoError(t, err, "build must pull its base image and push its result as the build's service account")
+	require.Equal(t, cloudbuildpb.Build_SUCCESS, result.GetStatus())
 
 	// The pushed image is in the registry, which still refuses the anonymous
 	// read of it.

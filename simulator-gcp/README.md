@@ -156,7 +156,7 @@ provider "google" {
 
 ## Services
 
-All services use REST/JSON routing with Go 1.22+ path patterns. Long-running operations return an LRO wrapper with `done: true` and the resource in `response`.
+All services use REST/JSON routing with Go 1.22+ path patterns. Long-running operations return an LRO wrapper with `done: true` and the resource in `response` once their work has finished. Cloud Run's `RunJob` and Cloud Build's `CreateBuild` (and the methods that start a build) return their operation at once and complete it when the execution or build ends.
 
 | Service | Base Path | Endpoints |
 |---|---|---|
@@ -283,6 +283,16 @@ The response is a long-running operation with `"done": true` and the job in the 
 ```bash
 curl -s -X POST 'http://localhost:4567/v2/projects/my-project/locations/us-central1/jobs/hello-job:run' \
   -H 'Content-Type: application/json' -d '{}'
+```
+
+The response is a long-running operation that stays `"done": false` while the
+execution runs, with the Execution in `metadata`. Cloud Run completes it when
+the execution finishes: the Execution in `response` when every task succeeded,
+an `error` otherwise. `operations.wait` blocks until then:
+
+```bash
+curl -s -X POST 'http://localhost:4567/v2/<operation-name>:wait' \
+  -H 'Content-Type: application/json' -d '{"timeout":"120s"}'
 ```
 
 **Check execution status:**

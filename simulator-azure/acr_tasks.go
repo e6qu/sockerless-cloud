@@ -279,9 +279,8 @@ func handleACRScheduleRun(w http.ResponseWriter, r *http.Request) {
 
 	// Execute the docker build synchronously. Real ACR Tasks is async
 	// (QUEUED → RUNNING → SUCCEEDED) with status surfaced via the Run
-	// resource; the sim compresses that into the one call, exactly as the
-	// GCP Cloud Build slice does, so the SDK poller resolves on the first
-	// body read.
+	// resource; the sim compresses that into the one call, so the SDK poller
+	// resolves on the first body read.
 	buildLog, buildErr := executeACRBuild(r.Context(), req, reg, runID)
 	acrRunLogs.Put(runID, buildLog)
 	run.Properties.FinishTime = time.Now().UTC().Format(time.RFC3339)
