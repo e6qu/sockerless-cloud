@@ -217,6 +217,17 @@ func TestMain(m *testing.M) {
 		pullImageBeforeRun("public.ecr.aws/docker/library/postgres:16-alpine")
 	}
 
+	// The App Service platform images the built-in-stack web apps run. The
+	// simulator pulls a missing one inside the site's start-time limit, as the
+	// platform does; fetching them here keeps a cold registry transfer out of
+	// the timed request.
+	if testRunSelects("TestSDK_WebApps_NodeStackRunsTheDeployedContent") {
+		pullImageBeforeRun("mcr.microsoft.com/appsvc/node:20-lts_20260904.5.tuxprod")
+	}
+	if testRunSelects("TestSDK_WebApps_PythonStackRunsFromPackage") {
+		pullImageBeforeRun("mcr.microsoft.com/appsvc/python:3.12_20260910.5.tuxprod")
+	}
+
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		log.Fatalf("Failed to find free port: %v", err)

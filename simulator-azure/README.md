@@ -398,6 +398,21 @@ az rest --method POST --url "http://localhost:4568/api/function" --body '{}' \
 # Query AppTraces
 az rest --method POST --url "http://localhost:4568/v1/workspaces/default/query" \
   --body '{"query": "AppTraces | where AppRoleName == \"my-func-app\""}'
+
+# Create a Linux web app on a built-in stack (NODE|20-lts, NODE|22-lts or
+# PYTHON|3.12): the site runs the platform's mcr.microsoft.com/appsvc image for
+# that stack on the content its deployments wrote, and serves the platform's
+# default page until something is deployed
+az rest --method PUT \
+  --url "http://localhost:4568/subscriptions/.../resourceGroups/my-rg/providers/Microsoft.Web/sites/my-node-app?api-version=2022-09-01" \
+  --body '{"location": "eastus", "kind": "app,linux",
+    "properties": {"serverFarmId": ".../serverfarms/my-plan", "siteConfig": {"linuxFxVersion": "NODE|20-lts"}}}'
+
+# Deploy a zip package from a URL through the MSDeploy extension; the
+# deployment restarts the site on the new content
+az rest --method PUT \
+  --url "http://localhost:4568/subscriptions/.../resourceGroups/my-rg/providers/Microsoft.Web/sites/my-node-app/extensions/MSDeploy?api-version=2022-09-01" \
+  --body '{"properties": {"packageUri": "https://example.com/app.zip"}}'
 ```
 
 ### Log Analytics

@@ -488,6 +488,30 @@ exits first, fails the instance and answers 503. Cloud Functions runs its
 per-invocation container behind the same startup probe, read from the backing
 service's container, and `workload.FirstReachable` was removed.
 
+A Linux web app on a built-in runtime stack runs the platform's own image for
+that stack. `siteConfig.linuxFxVersion` `NODE|20-lts`, `NODE|22-lts` or
+`PYTHON|3.12` selects `mcr.microsoft.com/appsvc/node` or `appsvc/python`,
+pinned to one build, with the site's `/home` mounted from the simulator's data
+directory and `site/wwwroot` filled from what the site's MSDeploy and OneDeploy
+operations deployed, or from the package a `WEBSITE_RUN_FROM_PACKAGE` URL
+names, mounted read-only. The image's own entrypoint runs Oryx, which starts
+the startup command, else the app it detects (`server.js`, a `start` script,
+`app.py` under gunicorn), else the platform's "waiting for your content"
+default page; the front end forwards to the port the image declares (8080 for
+Node, 8000 for Python) unless `WEBSITES_PORT` names one. A deployment restarts
+such a site. The runtime-stack catalogs (`webAppStacks`, `availableStacks`)
+list exactly these stacks from the same table, so `az webapp list-runtimes` and
+`az webapp create --runtime` see what the site path runs. A site created
+without a kind reports `app`, or `app,linux` on a reserved plan, rather than
+`functionapp`, and every site reports `hostNameSslStates` with its Standard
+and Repository (SCM) hostnames, which `az webapp deploy` and the azurerm
+provider read the SCM host from. Before this, a site with no container image answered every
+request on its hostname with 200 `{}` and an AppTraces row reading "Function
+invoked" without running anything; a site the simulator has nothing to run for
+now answers 503 naming what it lacks — a function app without an image (the
+simulator runs no Azure Functions host), a stack it does not run, or no runtime
+at all — and the authLevel and invoke tests run against container sites.
+
 RunTask places a task only where it fits. The simulator runs real containers on
 one finite host, so rather than invent a capacity it commits each placed task's
 declared memory and CPU against what the simulator's own cgroup, or the

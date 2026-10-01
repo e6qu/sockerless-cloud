@@ -1,11 +1,14 @@
 package azure_tf_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,6 +67,9 @@ import (
 func TestTerraformApplyDestroy(t *testing.T) {
 	requireTerraformNetworkHost(t)
 	dir := tfStackWorkspace(t)
+	nodeAppPackageURL = serveZipPackage(t, map[string]string{
+		"server.js": `require("http").createServer((req, res) => res.end("node " + process.version + " " + req.url)).listen(process.env.PORT)`,
+	})
 	out, err := runTimed(t, "terraform init", terraformCmd(dir, "init"))
 	require.NoError(t, err, "terraform init failed:\n%s", out)
 
@@ -445,6 +451,10 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		outputs.must(t, "azrm_container_function_app_hostname"),
 		outputs.must(t, "azrm_container_function_app_command_line"))
 
+	assertStackWebAppsServe(t,
+		outputs.must(t, "azrm_node_web_app_hostname"),
+		outputs.must(t, "azrm_python_web_app_hostname"))
+
 	out, err = runTimed(t, "terraform destroy", terraformCmd(dir, "destroy", "-auto-approve"))
 	require.NoError(t, err, "terraform destroy failed:\n%s", out)
 }
@@ -467,6 +477,60 @@ func assertContainerFunctionAppServes(t *testing.T, hostname, commandLine string
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 	require.Equal(t, "from-the-terraform-startup-command", strings.TrimSpace(string(body)))
+}
+
+// nodeAppPackageURL is the package the Node web app's WEBSITE_RUN_FROM_PACKAGE
+// names; terraformCmd passes it as the node_app_package_url variable.
+var nodeAppPackageURL string
+
+// serveZipPackage hosts a zip of files over HTTP, the coordinate a
+// WEBSITE_RUN_FROM_PACKAGE URL points at.
+func serveZipPackage(t *testing.T, files map[string]string) string {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, content := range files {
+		f, err := zw.Create(name)
+		require.NoError(t, err)
+		_, err = f.Write([]byte(content))
+		require.NoError(t, err)
+	}
+	require.NoError(t, zw.Close())
+	pkg := buf.Bytes()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/zip")
+		_, _ = w.Write(pkg)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL + "/node-app.zip"
+}
+
+// assertStackWebAppsServe requests each built-in-stack web app's hostname: the
+// Node app answers from the package it runs from, on the platform's Node 20
+// image, and the Python app, with no content, serves the platform's default
+// page.
+func assertStackWebAppsServe(t *testing.T, nodeHost, pythonHost string) {
+	t.Helper()
+	get := func(host, path string) (int, string) {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", simPort, path), nil)
+		require.NoError(t, err)
+		req.Host = host
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		return resp.StatusCode, string(body)
+	}
+	require.Equal(t, "tf-azrm-node-app.azurewebsites.net", nodeHost)
+	status, body := get(nodeHost, "/from-terraform")
+	require.Equal(t, http.StatusOK, status, "body: %s", body)
+	require.Regexp(t, `^node v20\.\d+\.\d+ /from-terraform$`, body)
+
+	require.Equal(t, "tf-azrm-python-app.azurewebsites.net", pythonHost)
+	status, body = get(pythonHost, "/")
+	require.Equal(t, http.StatusOK, status, "body: %s", body)
+	require.Contains(t, body, "waiting for your content")
 }
 
 // assertACRDataPlaneAuthenticates drives the container registry's own data

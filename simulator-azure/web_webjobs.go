@@ -279,15 +279,11 @@ func materializeWebJobDir(resID, kind, name string) (string, error) {
 // execution model App Service gives a webjob — and returns the live handle.
 func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string) (*sim.ContainerHandle, error) {
 	image := siteContainerImage(site)
+	if stack, ok := siteBuiltInStack(site); ok {
+		image = stack.Image
+	}
 	if image == "" {
-		if stack := siteRuntimeStack(site); stack != "" {
-			return nil, fmt.Errorf(
-				"site %q is configured with the built-in runtime stack %q, and this simulator runs "+
-					"container images: the platform image that stack names is Microsoft's. Configure "+
-					"the site with a container image (linuxFxVersion \"DOCKER|<image>\") to run webjob %q",
-				site.Name, stack, rec.Name)
-		}
-		return nil, fmt.Errorf("site %q has no container image (linuxFxVersion) to run webjob %q in", site.Name, rec.Name)
+		return nil, fmt.Errorf("webjob %q: %w", rec.Name, siteImageMissing(site))
 	}
 	localImage := sim.ResolveLocalImage(image)
 	ctx, cancel := context.WithTimeout(context.Background(), 230*time.Second)

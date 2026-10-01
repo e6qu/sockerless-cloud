@@ -320,7 +320,11 @@ func stage3AwaitCLI(t *testing.T, check func() (string, bool), what string) {
 func TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth(t *testing.T) {
 	app := "stage3-rest-app"
 	siteURL := funcURL("sites/" + app)
-	runCLI(t, azRest("PUT", siteURL, `{"location":"eastus","kind":"functionapp","properties":{"siteConfig":{}}}`))
+	// The app runs a container that answers every request the authLevel
+	// check lets through.
+	runCLI(t, azRest("PUT", siteURL, fmt.Sprintf(
+		`{"location":"eastus","kind":"functionapp,linux,container","properties":{"siteConfig":{"linuxFxVersion":"DOCKER|%s","appCommandLine":"serve 80 invoked"}}}`,
+		commandImageName)))
 	defer runCLI(t, azRest("DELETE", siteURL, ""))
 
 	base := strings.TrimSuffix(siteURL, "?api-version="+functionsAPIVersion)

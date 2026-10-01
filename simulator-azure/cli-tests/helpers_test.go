@@ -166,6 +166,8 @@ func TestMain(m *testing.M) {
 	for _, image := range []string{
 		"public.ecr.aws/docker/library/alpine:latest",
 		"public.ecr.aws/docker/library/alpine:3.20",
+		// The App Service platform image the Node web app test runs.
+		"mcr.microsoft.com/appsvc/node:20-lts_20260904.5.tuxprod",
 	} {
 		pullWorkloadImage(image)
 	}

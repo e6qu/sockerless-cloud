@@ -251,10 +251,6 @@ var allowedNonSpecAzurePrefixes = map[string]string{
 	"/v1.0/": "Microsoft Graph v1.0 surface (spec lives in msgraph-metadata)",
 	"/beta/": "Microsoft Graph beta surface (spec lives in msgraph-metadata)",
 
-	// Azure Functions host — the per-function invoke endpoint of the
-	// Functions host runtime; no swagger exists.
-	"/api/function": "Functions host invoke endpoint",
-
 	// IMDS-adjacent identity endpoints: managed-identity token via IMDS
 	// (/metadata/identity/oauth2/token), App Service MSI (/msi/token),
 	// and the ARM /metadata/endpoints bootstrap used by terraform's

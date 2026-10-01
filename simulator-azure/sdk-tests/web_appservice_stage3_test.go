@@ -272,10 +272,11 @@ func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 // Azure Functions authLevel enforcement on the real invocation path: the
 // declared httpTrigger authLevel decides which key (if any) POST /api/function
 // demands, and a wrong or missing key answers 401 exactly as the real
-// Functions host does.
+// Functions host does. The app runs a container that answers every request it
+// is let through.
 func TestSDK_WebApps_InvokeAuthLevelContract(t *testing.T) {
 	rg, name := "sdk-invoke-auth-rg", "invoke-auth-app"
-	azureCreateSite(t, rg, name)
+	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 invoked", nil)
 	defer azureDeleteSite(rg, name)
 
 	cred := &fakeCredential{}

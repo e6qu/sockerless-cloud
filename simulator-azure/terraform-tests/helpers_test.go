@@ -96,6 +96,15 @@ func TestMain(m *testing.M) {
 	if err := baseimage.Ensure(pullImage); err != nil {
 		log.Fatalf("Failed to pre-pull alpine image: %v", err)
 	}
+	// The App Service platform images the stack's Linux web apps run.
+	for _, image := range []string{
+		"mcr.microsoft.com/appsvc/node:20-lts_20260904.5.tuxprod",
+		"mcr.microsoft.com/appsvc/python:3.12_20260910.5.tuxprod",
+	} {
+		if err := baseimage.Ensure(image); err != nil {
+			log.Fatalf("Failed to pre-pull %s: %v", image, err)
+		}
+	}
 	tag := exec.Command("docker", "tag", pullImage, "alpine:latest")
 	if err := tag.Run(); err != nil {
 		log.Fatalf("Failed to retag alpine: %v", err)
@@ -575,6 +584,9 @@ func terraformCmd(dir string, args ...string) *exec.Cmd {
 		"ARM_TENANT_ID=11111111-1111-1111-1111-111111111111",
 		"ARM_SUBSCRIPTION_ID=00000000-0000-0000-0000-000000000001",
 	)
+	if nodeAppPackageURL != "" {
+		cmd.Env = append(cmd.Env, "TF_VAR_node_app_package_url="+nodeAppPackageURL)
+	}
 	if v := os.Getenv("TF_LOG"); v != "" {
 		cmd.Env = append(cmd.Env, "TF_LOG="+v)
 	}

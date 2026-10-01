@@ -794,6 +794,49 @@ resource "azurerm_linux_function_app" "az_container_fa" {
   }
 }
 
+# Linux web apps on built-in runtime stacks: application_stack becomes
+# linuxFxVersion "NODE|20-lts" / "PYTHON|3.12", and the platform runs that
+# stack's image on the app's content. The Node app runs the zip package
+# WEBSITE_RUN_FROM_PACKAGE names; the Python app has no content and serves the
+# platform's default page.
+resource "azurerm_service_plan" "az_web_sp" {
+  name                = "tf-azrm-web-sp"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  location            = azurerm_resource_group.az_rg.location
+  os_type             = "Linux"
+  sku_name            = "B1"
+}
+
+resource "azurerm_linux_web_app" "az_node_app" {
+  name                = "tf-azrm-node-app"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  location            = azurerm_resource_group.az_rg.location
+  service_plan_id     = azurerm_service_plan.az_web_sp.id
+
+  app_settings = {
+    WEBSITE_RUN_FROM_PACKAGE = var.node_app_package_url
+  }
+
+  site_config {
+    application_stack {
+      node_version = "20-lts"
+    }
+  }
+}
+
+resource "azurerm_linux_web_app" "az_python_app" {
+  name                = "tf-azrm-python-app"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  location            = azurerm_resource_group.az_rg.location
+  service_plan_id     = azurerm_service_plan.az_web_sp.id
+
+  site_config {
+    application_stack {
+      python_version = "3.12"
+    }
+  }
+}
+
 # App Service public certificate — the Microsoft.Web/sites/publicCertificates
 # child resource. The provider PUTs the DER blob and reads the resource back
 # on every plan, so the sim must derive and round-trip the certificate's
@@ -1497,6 +1540,14 @@ output "azrm_function_app_id" {
 
 output "azrm_container_function_app_hostname" {
   value = azurerm_linux_function_app.az_container_fa.default_hostname
+}
+
+output "azrm_node_web_app_hostname" {
+  value = azurerm_linux_web_app.az_node_app.default_hostname
+}
+
+output "azrm_python_web_app_hostname" {
+  value = azurerm_linux_web_app.az_python_app.default_hostname
 }
 
 output "azrm_container_function_app_command_line" {

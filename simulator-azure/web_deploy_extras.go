@@ -202,28 +202,39 @@ const webDeployPackageLimit = 256 << 20 // 256 MiB
 // 1 GB file system quota of the Free tier, the smallest App Service plan.
 const webSiteContentLimit = 1 << 30
 
+// webFetchPackage fetches the deployment package at packageURI.
+func webFetchPackage(packageURI string) ([]byte, error) {
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Get(packageURI)
+	if err != nil {
+		return nil, fmt.Errorf("fetch package: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch package: %s returned %d", packageURI, resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, webDeployPackageLimit+1))
+	if err != nil {
+		return nil, fmt.Errorf("read package: %w", err)
+	}
+	if len(data) > webDeployPackageLimit {
+		return nil, fmt.Errorf("package exceeds %d bytes", webDeployPackageLimit)
+	}
+	return data, nil
+}
+
 // webApplyDeploymentPackage fetches the package at packageURI, unpacks the
 // zip, and persists every file as the site's deployed content, then
-// rediscovers the site's webjobs. Returns the number of files written.
+// rediscovers the site's webjobs and restarts a site that runs its content on
+// a built-in stack, as a deployment restarts the app. Returns the number of
+// files written.
 func webApplyDeploymentPackage(resID, packageURI string) (int, error) {
 	if packageURI == "" {
 		return 0, fmt.Errorf("packageUri is required")
 	}
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Get(packageURI)
+	data, err := webFetchPackage(packageURI)
 	if err != nil {
-		return 0, fmt.Errorf("fetch package: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("fetch package: %s returned %d", packageURI, resp.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, webDeployPackageLimit+1))
-	if err != nil {
-		return 0, fmt.Errorf("read package: %w", err)
-	}
-	if len(data) > webDeployPackageLimit {
-		return 0, fmt.Errorf("package exceeds %d bytes", webDeployPackageLimit)
+		return 0, err
 	}
 	written := 0
 	err = archive.ReadZip(data, webSiteContentLimit, func(f archive.File) error {
@@ -243,6 +254,11 @@ func webApplyDeploymentPackage(resID, packageURI string) (int, error) {
 	// The app's content just changed, so the platform's automatic-backup
 	// snapshot of this app state exists from here on.
 	webCaptureAppSnapshot(resID)
+	if site, ok := azfSites.Get(resID); ok {
+		if _, runsStack := siteBuiltInStack(&site); runsStack {
+			restartAzureFunctionInstance(site)
+		}
+	}
 	return written, nil
 }
 

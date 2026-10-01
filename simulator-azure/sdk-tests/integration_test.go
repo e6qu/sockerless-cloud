@@ -99,12 +99,16 @@ func TestIntegration_AzureFunctionsLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	rgResp.Body.Close()
 
-	// 2. Create function app
+	// 2. Create a function app that runs a container image
 	site := map[string]any{
 		"location": "eastus",
-		"kind":     "functionapp",
+		"kind":     "functionapp,linux,container",
 		"properties": map[string]any{
 			"serverFarmId": "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Web/serverFarms/plan",
+			"siteConfig": map[string]any{
+				"linuxFxVersion": "DOCKER|" + commandImageName,
+				"appCommandLine": "serve 80 integration-invoked",
+			},
 		},
 	}
 	siteBody, _ := json.Marshal(site)
@@ -134,17 +138,23 @@ func TestIntegration_AzureFunctionsLifecycle(t *testing.T) {
 	invokeReq.Host = defaultHostName
 	invokeResp, err := http.DefaultClient.Do(invokeReq)
 	require.NoError(t, err)
+	invokeBody, err := io.ReadAll(invokeResp.Body)
 	invokeResp.Body.Close()
+	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, invokeResp.StatusCode)
+	require.Equal(t, "integration-invoked", string(invokeBody))
 
-	// 5. Query AppTraces for the function we just invoked. Poll until the trace
-	// is ingested rather than racing on a fixed sleep that a loaded runner could
-	// exceed.
-	kql := `AppTraces | where AppRoleName == "` + siteName + `"`
+	// 5. The container's access-log line for the request reaches AppTraces.
+	// The engine's log stream delivers it after the response and App Service
+	// offers no event for its arrival, so read the log until it does.
 	require.Eventually(t, func() bool {
-		result := queryWorkspace(t, "default", kql)
-		return len(result.Tables) == 1 && len(result.Tables[0].Rows) >= 1
-	}, 30*time.Second, 200*time.Millisecond, "should have at least one Function invoked AppTraces entry")
+		for _, msg := range appTraceMessages(t, siteName) {
+			if msg == "POST /api/function" {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 200*time.Millisecond, "the container's access-log line should reach AppTraces")
 
 	// 6. Delete function app
 	delReq, _ := http.NewRequestWithContext(ctx, "DELETE",
