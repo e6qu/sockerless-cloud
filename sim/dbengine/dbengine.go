@@ -133,6 +133,10 @@ type Instance struct {
 	RefusePlaintext func() (message string, refuse bool)
 	// BackendLogin names the engine account a MySQL-family session logs in as.
 	BackendLogin func(user, password string) (backendUser, backendPassword string, err error)
+	// Log receives the engine container's output, each line dated by the
+	// container runtime. An adopted container replays its whole output, so
+	// the sink sees lines it already holds again. Nil discards the output.
+	Log sim.LogSink
 
 	mu        sync.RWMutex
 	listeners []net.Listener
@@ -214,7 +218,7 @@ func (i *Instance) Adopt() error {
 			return fmt.Errorf("resume database engine container %s: %w", existing[0].ID, err)
 		}
 	}
-	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{CancelGracePeriod: stopGrace}, sim.NoopSink{})
+	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{CancelGracePeriod: stopGrace}, i.logSink())
 	if err != nil {
 		return err
 	}
@@ -285,7 +289,7 @@ func (i *Instance) start() (string, *sim.ContainerHandle, error) {
 		Binds:             []string{i.Volume + ":" + i.Engine.DataPath},
 		Labels:            i.Labels,
 		Sandbox:           i.Sandbox,
-	}, sim.NoopSink{})
+	}, i.logSink())
 	if err != nil {
 		return "", nil, fmt.Errorf("start %s database engine: %w", i.Engine.Family, err)
 	}
@@ -294,6 +298,13 @@ func (i *Instance) start() (string, *sim.ContainerHandle, error) {
 	i.backend, i.handle = backend, handle
 	i.mu.Unlock()
 	return backend, handle, nil
+}
+
+func (i *Instance) logSink() sim.LogSink {
+	if i.Log == nil {
+		return sim.NoopSink{}
+	}
+	return i.Log
 }
 
 func reservePort() (int, error) {
