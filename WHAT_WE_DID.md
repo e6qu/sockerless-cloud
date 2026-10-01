@@ -351,6 +351,20 @@ through hooks:
   metadata changes; Eventarc delivers Cloud Storage triggers from those
   notifications as binary-mode CloudEvents; Cloud Logging `entries:copy` copies
   the entries its sinks routed to the bucket.
+- **A subscription stays open for as long as the cloud holds it.** Amazon Kinesis
+  Data Streams `SubscribeToShard` holds its event stream for the documented
+  five minutes, declared with `sim.DeclareWait`. It sends the backlog from the
+  `StartingPosition` and then one `SubscribeToShardEvent` each time a put, a
+  reshard or a deletion signals the shard. Every event carries a
+  `ContinuationSequenceNumber` and `MillisBehindLatest`. The event that drains
+  a closed shard names its `ChildShards` and ends the stream. A second call for
+  the same consumer and shard within five seconds fails with
+  `ResourceInUseException`, and a later one takes the subscription over.
+  Deregistering the consumer ends the stream with `ResourceNotFoundException`.
+  The handler had sent the stored records in one event and closed, so a
+  consumer never saw a record put after it subscribed. `DeleteStream` refuses a
+  stream with registered consumers unless `EnforceConsumerDeletion` is set, and
+  consumers carry their own tags, as `aws_kinesis_stream_consumer` reads them.
 - **A revoked session stays revoked.** `workforcePools.subjects.revokeSessions`
   records when a subject's sessions end, and every check of a simulator-minted
   access token refuses one issued to that subject at or before that second.

@@ -567,14 +567,9 @@ func installLatestAWSCLI() string {
 		if out, err := exec.Command("unzip", "-q", zip, "-d", binDir).CombinedOutput(); err != nil {
 			log.Fatalf("Failed to unzip aws CLI: %v\n%s", err, out)
 		}
-		// The upstream archive extracts to aws/aws, not aws-cli/aws. Rename it
-		// so installDir always points at the directory containing the aws binary.
-		extracted := filepath.Join(binDir, "aws")
-		if _, err := os.Stat(extracted); err == nil {
-			if err := os.Rename(extracted, installDir); err != nil {
-				log.Fatalf("Failed to rename aws CLI install dir: %v", err)
-			}
-		}
+		// The upstream archive holds the runnable binary at aws/dist/aws, next
+		// to the libraries it loads from the same directory.
+		installDir = filepath.Join(binDir, "aws", "dist")
 	default:
 		log.Fatalf("Unsupported OS for automatic aws CLI install: %s", runtime.GOOS)
 	}
