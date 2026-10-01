@@ -342,6 +342,7 @@ func registerCloudFunctions(srv *sim.Server) {
 			project := parts[1]
 
 			var exitCode int
+			sim.DeclareWait(r.Context(), cloudFunctionTimeout(fn))
 			responseBody, exitCode = invokeCloudFunctionProcess(fn, project, functionID)
 			if exitCode != 0 {
 				// Real Cloud Functions returns HTTP error when function crashes
@@ -582,6 +583,15 @@ func cloudFunctionRuntimes() []map[string]any {
 // A function with no backing service image has been created but never
 // deployed with an overlay; there is nothing to execute, so the sim records
 // the invocation in Cloud Logging and returns an empty body.
+// cloudFunctionTimeout is the function's serviceConfig.timeoutSeconds, or the
+// 60-second default Cloud Run functions applies.
+func cloudFunctionTimeout(fn *storedFunction) time.Duration {
+	if fn.ServiceConfig != nil && fn.ServiceConfig.TimeoutSeconds > 0 {
+		return time.Duration(fn.ServiceConfig.TimeoutSeconds) * time.Second
+	}
+	return 60 * time.Second
+}
+
 func invokeCloudFunctionProcess(fn *storedFunction, project, functionID string) ([]byte, int) {
 	// Container image lives on the underlying Cloud Run service — read it
 	// back from there; the sim has no other source of truth for what to
@@ -605,10 +615,7 @@ func invokeCloudFunctionProcess(fn *storedFunction, project, functionID string) 
 		return []byte("{}"), 0
 	}
 
-	timeout := 60 * time.Second // GCP default
-	if fn.ServiceConfig != nil && fn.ServiceConfig.TimeoutSeconds > 0 {
-		timeout = time.Duration(fn.ServiceConfig.TimeoutSeconds) * time.Second
-	}
+	timeout := cloudFunctionTimeout(fn)
 
 	// Cloud-faithful: HTTP-invoke the overlay's bootstrap.
 	env := serviceEnv

@@ -592,10 +592,7 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 
 	// Build invocation + sidecar.
 	requestID := sim.NewUUID()
-	timeoutSec := fn.Timeout
-	if timeoutSec == 0 {
-		timeoutSec = 3
-	}
+	timeoutSec := lambdaTimeoutSeconds(fn)
 	inv := &lambdaInvocation{
 		RequestID:   requestID,
 		FunctionArn: fn.FunctionArn,
@@ -923,6 +920,22 @@ initPhase:
 // concurrency, SnapStart and Managed Instances are exempt from it, and this
 // simulator initialises on demand.
 const lambdaInitPhaseLimit = 10 * time.Second
+
+// lambdaTimeoutSeconds is the function's configured timeout, or Lambda's
+// default of three seconds.
+func lambdaTimeoutSeconds(fn LambdaFunction) int {
+	if fn.Timeout == 0 {
+		return 3
+	}
+	return fn.Timeout
+}
+
+// lambdaInvokeWaitLimit bounds a synchronous invocation: the Init phase's own
+// limit, then the function timeout the Invoke phase shares with a retried Init
+// phase.
+func lambdaInvokeWaitLimit(fn LambdaFunction) time.Duration {
+	return lambdaInitPhaseLimit + time.Duration(lambdaTimeoutSeconds(fn))*time.Second
+}
 
 // lambdaSignalRaised reports whether a lifecycle signal channel has been closed
 // already, without waiting for one that has not.

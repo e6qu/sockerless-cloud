@@ -131,6 +131,7 @@ func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sim.DeclareWait(r.Context(), cwLiveTailSessionLimit)
 	limit := time.NewTimer(cwLiveTailSessionLimit)
 	defer limit.Stop()
 	ticker := time.NewTicker(cwLiveTailUpdateInterval)

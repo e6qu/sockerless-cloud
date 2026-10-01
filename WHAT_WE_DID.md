@@ -578,6 +578,24 @@ before the snapshot and none after, a point-in-time restore holds every
 committed row, and a restore from the final snapshot holds the cluster as it
 was deleted.
 
+Every volume capture holds one crash-consistent point in time, the property a
+block-level storage snapshot gives. `sim.SnapshotVolume` lists the running
+containers that mount the source volume writable, pauses each through the
+Docker Engine API's cgroup freezer for the length of the `cp -a`, and thaws it
+after; a per-container hold count lets concurrent captures of one volume share
+the freeze, and `sim.AdoptContainer` thaws a container a dead process left
+frozen. A copy that walked the files while the engine wrote had held each file
+as of a different moment, which crash recovery could not always open. The
+frozen engine keeps its client connections, whose I/O waits out the copy, as
+a Single-AZ RDS instance's I/O suspends briefly during its snapshot. Amazon RDS
+instance and cluster snapshots, final snapshots, point-in-time clones of a
+running cluster and the Azure Database for PostgreSQL flexible server backups
+all go through it. A `sim` test captures a volume twice at once while a
+writer renames 64 files to each round number in turn and proves both captures
+show a single instant of the writer; the SDK suite snapshots a PostgreSQL
+instance under a transaction stream and proves the restore holds a gapless
+sequence prefix whose length both account balances agree with.
+
 Artifact Registry stores the bytes of uploaded files and serves them back from
 `files.download`. The generic, Go module, KFP, Apt, Yum and GooGet uploads create
 the package, version and file their methods describe, reading each format's
@@ -875,6 +893,20 @@ travel on the context (`realexec.WithMark`), and `/debug/stores` reports each
 table's size; the deployed database's size was once blamed on object bodies
 that held 4 KiB. A duration says only "fast today", so concurrency fixes are
 proven by counting — peak readers inside a lock, items a query read.
+
+The slow-request diagnostic (`sim.InFlightMiddleware`) reports a request only
+once it outlives the wait its handler declared by `SlowRequestThreshold`. A
+method that blocks by design names its bound on the request context:
+`sim.DeclareWait` for a long poll, an operation wait or a synchronous run of
+the caller's workload under its configured timeout, `sim.DeclareOpenEndedWait`
+for a stream or a wait the caller left without a timeout. The middleware
+treats an upgraded connection as open-ended by itself, so every WebSocket
+session is covered without a declaration. The framework holds no list of such
+methods; each cloud's handler says what the cloud documents. Reporting every
+`operations.wait` that blocked past ten seconds had pointed the goroutine-dump
+hint at healthy requests. The watcher reads an injected clock, and the
+middleware waits for it before finishing a request, so its tests step time
+instead of waiting it out and a report cannot land after the request ended.
 
 The race detector runs on every pull request over every module. `bg.Go` and
 `bg.AfterFunc` count goroutines and pending timers; a drain (`bg.Await`) is a

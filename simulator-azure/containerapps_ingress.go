@@ -107,6 +107,7 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp) {
 		RawQuery: r.URL.RawQuery,
 		Timeout:  10 * time.Minute,
 	}
+	sim.DeclareWait(r.Context(), up.Timeout)
 
 	// The replica's HTTP listener binds a moment after the container starts;
 	// retry a connection that reached no listener briefly so an invoke racing

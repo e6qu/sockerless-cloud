@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	sim "github.com/e6qu/sockerless-cloud/sim"
 )
 
 // gcpOperationWaiters holds, per unfinished operation a client waits on, the
@@ -62,6 +64,11 @@ func gcpFinishOperation(name string, settle func(*Operation)) {
 // waits for as long as the caller's connection does, which is what the method
 // documents for a request that leaves it blank.
 func gcpAwaitOperation(ctx context.Context, name string, timeout time.Duration) (Operation, bool) {
+	if timeout > 0 {
+		sim.DeclareWait(ctx, timeout)
+	} else {
+		sim.DeclareOpenEndedWait(ctx)
+	}
 	// Subscribe before reading, so a finish between the read and the wait
 	// still wakes it.
 	done := gcpOperationDoneSignal(name)

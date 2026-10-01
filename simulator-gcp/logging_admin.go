@@ -1302,6 +1302,7 @@ func handleLoggingEntriesTail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sim.DeclareOpenEndedWait(r.Context())
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
 	flusher, _ := w.(http.Flusher)

@@ -241,6 +241,7 @@ const computeInstanceBootBudget = 5 * time.Minute
 // reaches DONE, the budget runs out, or the client goes away, then answers with
 // whatever state the operation is in.
 func computeWaitOperation(w http.ResponseWriter, r *http.Request, name string) {
+	sim.DeclareWait(r.Context(), computeOperationWaitBudget)
 	// Subscribe before reading, so a finish between the read and the wait still
 	// wakes it.
 	done := gcpOperationDoneSignal(name)

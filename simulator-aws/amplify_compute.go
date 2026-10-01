@@ -455,12 +455,14 @@ func amplifyServeManifestTarget(w http.ResponseWriter, r *http.Request, app Ampl
 // (nothing written) so the caller's fallback target applies; every other
 // response streams through untouched.
 func amplifyProxyToCompute(w http.ResponseWriter, r *http.Request, port int, interceptNotFound bool) (bool, error) {
+	const exchangeTimeout = 30 * time.Second
+	sim.DeclareWait(r.Context(), exchangeTimeout)
 	err := lbplane.Forward(w, r, lbplane.Upstream{
 		Scheme:   "http",
 		Address:  net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
 		Path:     r.URL.EscapedPath(),
 		RawQuery: r.URL.RawQuery,
-		Timeout:  30 * time.Second,
+		Timeout:  exchangeTimeout,
 		Decline: func(status int) bool {
 			return interceptNotFound && status == http.StatusNotFound
 		},

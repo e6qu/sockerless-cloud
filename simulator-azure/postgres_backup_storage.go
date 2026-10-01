@@ -19,7 +19,9 @@ import (
 // a backup deletes its volume; deleting the server deletes its backups and
 // their volumes, as the service does.
 //
-// The capture is sim.SnapshotVolume's single `cp -a --reflink=auto`: on a
+// The capture is sim.SnapshotVolume's single `cp -a --reflink=auto`, run
+// with the engine's container frozen so it holds one crash-consistent point
+// in time: on a
 // container engine whose volume store sits on btrfs, XFS with reflinks, or
 // OpenZFS with block cloning, the capture clones blocks copy-on-write and is
 // effectively instant however large the database; on any other filesystem the

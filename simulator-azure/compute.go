@@ -732,6 +732,7 @@ func handleAzureLoadBalancerDataPlane(w http.ResponseWriter, r *http.Request, lb
 	if idle <= 0 {
 		idle = 4 * time.Minute
 	}
+	sim.DeclareWait(r.Context(), idle)
 	err := lbplane.Forward(w, r, lbplane.Upstream{
 		Scheme:   "http",
 		Address:  target.Address,

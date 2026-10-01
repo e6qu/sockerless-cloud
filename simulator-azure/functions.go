@@ -454,6 +454,7 @@ func registerAzureFunctions(srv *sim.Server) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		sim.DeclareWait(r.Context(), azureFunctionsHTTPRequestLimit)
 
 		responseBody := []byte("{}")
 		hasCmd := false
@@ -1124,6 +1125,12 @@ func hasAzureFunctionHTTPBootstrap(site *Site) bool {
 	return false
 }
 
+// azureFunctionsHTTPRequestLimit is how long an HTTP-triggered function may
+// take to answer: "Regardless of the function app timeout setting, 230 seconds
+// is the maximum amount of time that an HTTP triggered function can take to
+// respond to a request."
+const azureFunctionsHTTPRequestLimit = 230 * time.Second
+
 func invokeAzureFunctionHTTP(site *Site, body io.Reader, contentType string) ([]byte, int, error) {
 	if site == nil || site.Properties.SiteConfig == nil {
 		return nil, -1, fmt.Errorf("site config is required")
@@ -1148,9 +1155,9 @@ func invokeAzureFunctionHTTP(site *Site, body io.Reader, contentType string) ([]
 	if bootstrapURL == "" {
 		return nil, -1, fmt.Errorf("site %q runs a non-HTTP service container; it has no function bootstrap to invoke", site.Name)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 230*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), azureFunctionsHTTPRequestLimit)
 	defer cancel()
-	return workload.PostBootstrap(ctx, bootstrapURL, body, contentType, 230*time.Second)
+	return workload.PostBootstrap(ctx, bootstrapURL, body, contentType, azureFunctionsHTTPRequestLimit)
 }
 
 // ensureStarted starts the site's persistent container if it isn't already
@@ -1555,7 +1562,7 @@ func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
 		}
 	}
 
-	timeout := 230 * time.Second // Azure Functions default timeout
+	timeout := azureFunctionsHTTPRequestLimit
 	sink := &funcLogSink{appName: site.Name}
 	var stdout bytes.Buffer
 	collectSink := sim.FuncSink(func(line sim.LogLine) {

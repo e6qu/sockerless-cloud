@@ -1013,7 +1013,9 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			body = bytes.NewReader(bodyBytes)
 		}
 		sink := &cfLogSink{project: project, functionName: serviceID}
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+		const invokeLimit = 5 * time.Minute
+		sim.DeclareWait(r.Context(), invokeLimit)
+		ctx, cancel := context.WithTimeout(r.Context(), invokeLimit)
 		defer cancel()
 		inst, err := ensureCloudRunServiceInstance(ctx, name, serviceID, svc.Template.Containers, svc.Template.Volumes, sink)
 		if err != nil {

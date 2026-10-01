@@ -832,6 +832,7 @@ func applicationGatewayForward(w http.ResponseWriter, r *http.Request, settings 
 			applicationGatewayApplyResponseRewrites(rewrite, applicationGatewayServerVariables(r, host, status), header)
 		}
 	}
+	sim.DeclareWait(r.Context(), up.Timeout)
 	return lbplane.Forward(w, r, up)
 }
 
