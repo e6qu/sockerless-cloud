@@ -13,8 +13,8 @@
 #       not among them. No network access.
 #   scripts/check-required-status-checks.sh --verify-branch-protection
 #       Additionally read `main`'s live required-status-checks via `gh api` and
-#       fail if the manifest and branch protection disagree. Requires GitHub
-#       admin credentials; fails loudly (never skips) if they are unavailable.
+#       fail if the manifest and branch protection disagree. Requires read
+#       access to the repository; fails loudly (never skips) if they are unavailable.
 set -euo pipefail
 
 root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
@@ -260,7 +260,9 @@ if [[ "${1:-}" == "--verify-branch-protection" ]]; then
 	fi
 	origin="$(git -C "$root" remote get-url origin)"
 	slug="$(sed -E 's#^.*github\.com[:/]+##; s#\.git$##' <<<"$origin")"
-	if ! live="$(gh api "repos/$slug/branches/main/protection/required_status_checks" --jq '.contexts[]' 2>/tmp/rsc-read-error)"; then
+	# The branch resource carries the required contexts to any reader, where the
+	# protection resource answers only an administrator.
+	if ! live="$(gh api "repos/$slug/branches/main" --jq '(.protection.required_status_checks.contexts // [])[]' 2>/tmp/rsc-read-error)"; then
 		# The read failing and the manifest disagreeing are different findings,
 		# and a message that conflates them sends a reader looking for drift
 		# that is not there. The commonest cause by far is the API's own rate
@@ -274,7 +276,7 @@ if [[ "${1:-}" == "--verify-branch-protection" ]]; then
 			echo "check-required-status-checks: could not read branch protection for $slug — the GitHub API rate limit is exhausted, so this proved nothing either way ($wait_for)." >&2
 		else
 			echo "check-required-status-checks: could not read branch protection for $slug" >&2
-			echo "(needs GitHub admin credentials — this mode is for maintainers, not the default gate)." >&2
+			echo "(needs read access to the repository)." >&2
 			sed 's/^/  /' /tmp/rsc-read-error >&2 || true
 		fi
 		rm -f /tmp/rsc-read-error
