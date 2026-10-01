@@ -479,8 +479,13 @@ func StartExistingContainer(containerID string) error {
 // AdoptContainer attaches lifecycle observation to a container created by an
 // earlier persistent simulator process. It never restarts the workload; callers
 // decide whether an exited cloud workload should remain terminal or resume.
+// A container the earlier process left frozen by a volume capture it did not
+// finish is thawed, since no capture of this process holds it.
 func AdoptContainer(containerID string, cfg ContainerConfig, sink LogSink) (*ContainerHandle, error) {
 	if err := RequireContainerRuntime("adopting a running container"); err != nil {
+		return nil, err
+	}
+	if err := thawAbandonedFreeze(containerID); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())

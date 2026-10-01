@@ -1,12 +1,15 @@
 package sim
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,8 +34,14 @@ import (
 
 // SlowRequestThreshold is the age at which an in-flight request is reported as
 // slow. It bounds nothing and cancels nothing -- it only decides when the
-// simulator starts talking about a request it is still serving.
+// simulator starts talking about a request it is still serving. A request
+// whose handler declared a wait (DeclareWait) is measured against the end of
+// that wait instead of its start.
 const SlowRequestThreshold = 10 * time.Second
+
+// openEndedWait marks a request that blocks for as long as its caller holds
+// the connection: a stream, a WebSocket session, a wait with no timeout.
+const openEndedWait time.Duration = -1
 
 type inFlightRequest struct {
 	ID      uint64
@@ -40,19 +49,107 @@ type inFlightRequest struct {
 	Path    string
 	Target  string
 	Started time.Time
+	// Wait is how long the request may block by design, as its handler
+	// declared it; openEndedWait when it has no bound.
+	Wait time.Duration
 }
 
 var (
-	inFlightMu       sync.Mutex
-	inFlight         = map[uint64]*inFlightRequest{}
-	inFlightNextID   atomic.Uint64
-	slowRequestNoted sync.Map // request id -> struct{}, so each is logged once
+	inFlightMu     sync.Mutex
+	inFlight       = map[uint64]*inFlightRequest{}
+	inFlightNextID atomic.Uint64
 )
 
+type inFlightKey struct{}
+
+// DeclareWait records that the request ctx belongs to may block for up to d by
+// design -- a long poll, an operation wait, a synchronous run of the caller's
+// own workload bounded by its configured timeout. The slow-request diagnostic
+// then reports it only once it outlives d by SlowRequestThreshold. Several
+// declarations keep the longest; a context outside InFlightMiddleware ignores
+// it.
+func DeclareWait(ctx context.Context, d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	declareWait(ctx, d)
+}
+
+// DeclareOpenEndedWait records that the request ctx belongs to blocks for as
+// long as its caller keeps the connection -- a stream, or a wait the caller
+// left without a timeout -- so the slow-request diagnostic never reports it.
+func DeclareOpenEndedWait(ctx context.Context) {
+	declareWait(ctx, openEndedWait)
+}
+
+func declareWait(ctx context.Context, d time.Duration) {
+	entry, ok := ctx.Value(inFlightKey{}).(*inFlightRequest)
+	if !ok {
+		return
+	}
+	inFlightMu.Lock()
+	defer inFlightMu.Unlock()
+	if entry.Wait == openEndedWait {
+		return
+	}
+	if d == openEndedWait || d > entry.Wait {
+		entry.Wait = d
+	}
+}
+
+// DeclaredWait reports the wait the handler serving ctx's request declared:
+// its bound, or openEnded when it has none. A request that declared nothing,
+// or a context outside InFlightMiddleware, reads zero.
+func DeclaredWait(ctx context.Context) (wait time.Duration, openEnded bool) {
+	entry, ok := ctx.Value(inFlightKey{}).(*inFlightRequest)
+	if !ok {
+		return 0, false
+	}
+	inFlightMu.Lock()
+	defer inFlightMu.Unlock()
+	if entry.Wait == openEndedWait {
+		return 0, true
+	}
+	return entry.Wait, false
+}
+
+// slowReportDue answers when entry turns slow, or false while its declared
+// wait is open-ended.
+func slowReportDue(entry *inFlightRequest) (time.Time, time.Duration, bool) {
+	inFlightMu.Lock()
+	wait := entry.Wait
+	inFlightMu.Unlock()
+	if wait == openEndedWait {
+		return time.Time{}, wait, false
+	}
+	return entry.Started.Add(wait + SlowRequestThreshold), wait, true
+}
+
+// diagnosticsClock is the time source the slow-request watcher reads, so a test
+// drives it without waiting out the threshold.
+type diagnosticsClock interface {
+	Now() time.Time
+	// After delivers once d has passed; stop releases it early.
+	After(d time.Duration) (fired <-chan time.Time, stop func())
+}
+
+type wallClock struct{}
+
+func (wallClock) Now() time.Time { return time.Now() }
+
+func (wallClock) After(d time.Duration) (<-chan time.Time, func()) {
+	timer := time.NewTimer(d)
+	return timer.C, func() { timer.Stop() }
+}
+
 // InFlightMiddleware records every request while it runs, and reports the ones
-// that outlive SlowRequestThreshold. A request that finishes quickly costs a
-// map insert and delete.
+// that outlive SlowRequestThreshold beyond the wait their handler declared. A
+// request that finishes quickly costs a map insert and delete.
 func InFlightMiddleware(next http.Handler) http.Handler {
+	return inFlightMiddleware(next, wallClock{}, os.Stderr)
+}
+
+func inFlightMiddleware(next http.Handler, clock diagnosticsClock, log io.Writer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := inFlightNextID.Add(1)
 		entry := &inFlightRequest{
@@ -60,40 +157,79 @@ func InFlightMiddleware(next http.Handler) http.Handler {
 			Method:  r.Method,
 			Path:    r.URL.Path,
 			Target:  requestOperation(r),
-			Started: time.Now(),
+			Started: clock.Now(),
+		}
+		// An upgraded connection is a session: it lasts as long as its peers
+		// keep it, whatever the handler behind it is.
+		if isUpgradeRequest(r) {
+			entry.Wait = openEndedWait
 		}
 		inFlightMu.Lock()
 		inFlight[id] = entry
 		inFlightMu.Unlock()
 
 		done := make(chan struct{})
-		go watchSlowRequest(entry, done)
+		reported := make(chan bool, 1)
+		go func() { reported <- watchSlowRequest(entry, done, clock, log) }()
 
 		defer func() {
 			close(done)
+			if <-reported {
+				fmt.Fprintf(log, "[sim-slow] finished %s %s %s after %s\n",
+					entry.Method, entry.Path, entry.Target, clock.Now().Sub(entry.Started).Round(time.Second))
+			}
 			inFlightMu.Lock()
 			delete(inFlight, id)
 			inFlightMu.Unlock()
-			if _, noted := slowRequestNoted.LoadAndDelete(id); noted {
-				fmt.Fprintf(os.Stderr, "[sim-slow] finished %s %s %s after %s\n",
-					entry.Method, entry.Path, entry.Target, time.Since(entry.Started).Round(time.Second))
-			}
 		}()
 
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), inFlightKey{}, entry)))
 	})
 }
 
-func watchSlowRequest(entry *inFlightRequest, done <-chan struct{}) {
-	timer := time.NewTimer(SlowRequestThreshold)
-	defer timer.Stop()
-	select {
-	case <-done:
-	case <-timer.C:
-		slowRequestNoted.Store(entry.ID, struct{}{})
-		fmt.Fprintf(os.Stderr, "[sim-slow] still serving %s %s %s after %s -- goroutine dump: /debug/pprof/goroutine?debug=2\n",
-			entry.Method, entry.Path, entry.Target, SlowRequestThreshold)
+// watchSlowRequest reports entry once it outlives its declared wait by
+// SlowRequestThreshold, and answers whether it did. A wait the handler declares
+// after the watch began moves the report back when the first deadline comes.
+func watchSlowRequest(entry *inFlightRequest, done <-chan struct{}, clock diagnosticsClock, log io.Writer) bool {
+	for {
+		due, wait, bounded := slowReportDue(entry)
+		var fired <-chan time.Time
+		stop := func() {}
+		if bounded {
+			fired, stop = clock.After(due.Sub(clock.Now()))
+		}
+		select {
+		case <-done:
+			stop()
+			return false
+		case <-fired:
+			stop()
+		}
+		if later, _, stillBounded := slowReportDue(entry); !stillBounded || later.After(due) {
+			continue
+		}
+		declared := ""
+		if wait > 0 {
+			declared = fmt.Sprintf(" (declared wait %s)", wait)
+		}
+		fmt.Fprintf(log, "[sim-slow] still serving %s %s %s after %s%s -- goroutine dump: /debug/pprof/goroutine?debug=2\n",
+			entry.Method, entry.Path, entry.Target, wait+SlowRequestThreshold, declared)
+		return true
 	}
+}
+
+func isUpgradeRequest(r *http.Request) bool {
+	if r.Header.Get("Upgrade") == "" {
+		return false
+	}
+	for _, value := range r.Header.Values("Connection") {
+		for _, token := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(token), "upgrade") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // requestOperation names what the caller asked for, which the path alone does
@@ -157,8 +293,15 @@ func startDiagnosticsListener() {
 		requests := InFlightSnapshot()
 		fmt.Fprintf(w, "%d in-flight request(s)\n", len(requests))
 		for _, entry := range requests {
-			fmt.Fprintf(w, "%8s  %s %s %s\n",
-				now.Sub(entry.Started).Round(time.Millisecond), entry.Method, entry.Path, entry.Target)
+			wait := ""
+			switch {
+			case entry.Wait == openEndedWait:
+				wait = "  (open-ended wait)"
+			case entry.Wait > 0:
+				wait = fmt.Sprintf("  (declared wait %s)", entry.Wait)
+			}
+			fmt.Fprintf(w, "%8s  %s %s %s%s\n",
+				now.Sub(entry.Started).Round(time.Millisecond), entry.Method, entry.Path, entry.Target, wait)
 		}
 	})
 
