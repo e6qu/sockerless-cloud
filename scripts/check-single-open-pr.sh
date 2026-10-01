@@ -24,7 +24,8 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 0
 fi
 
-if ! open_json=$(gh pr list --state open --limit 100 --json number,title,isDraft,headRefName 2>/dev/null); then
+if ! open_json=$(gh api --paginate 'repos/{owner}/{repo}/pulls?state=open&per_page=100' \
+  --jq '.[] | {number, title, isDraft: .draft, headRefName: .head.ref}' 2>/dev/null | jq -s .); then
   if [ -n "$have_token" ]; then
     echo "ERROR: could not query open PRs despite a token being present." >&2
     exit 1
