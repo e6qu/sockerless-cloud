@@ -14,3 +14,11 @@
 # has migrated is uncaptured, and inventing a value would be worse than omitting
 # it. A capture from a real account closes this.
 GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts/{accountName}/accountMigrations/{migrationName}	missing-required	$.properties.targetSkuName
+
+# BUG-3291: the Log Analytics query API answers a query it cannot parse with a
+# SYN0002 innermost error that carries the parse position as `line`, `pos` and
+# `token`, as the service's own SyntaxError does; the vendored ErrorInfo schema
+# declares only code, message, details and innererror.
+POST /v1/$batch	unknown-field	$.responses[].body.error.innererror.innererror.line
+POST /v1/$batch	unknown-field	$.responses[].body.error.innererror.innererror.pos
+POST /v1/$batch	unknown-field	$.responses[].body.error.innererror.innererror.token

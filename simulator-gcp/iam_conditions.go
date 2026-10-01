@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/cel-go/cel"
+	"cel.dev/cel-go/cel"
 )
 
 // gcpIAMResource is the resource a permission is checked on, as a binding's

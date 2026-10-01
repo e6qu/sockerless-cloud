@@ -3,6 +3,7 @@ module github.com/e6qu/sockerless-cloud/simulator-gcp
 go 1.26.3
 
 require (
+	cel.dev/cel-go v0.32.0
 	cloud.google.com/go/apigateway v1.15.0
 	cloud.google.com/go/artifactregistry v1.27.0
 	cloud.google.com/go/bigtable v1.58.0
@@ -25,7 +26,6 @@ require (
 	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261001190540-f881233b8f4e
 	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261001190540-f881233b8f4e
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
-	github.com/google/cel-go v0.30.0
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.1
 	github.com/moby/moby/client v0.6.0
