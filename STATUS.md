@@ -156,6 +156,11 @@ Current state of the sockerless-cloud repository.
   On, with every request on the site's hostname forwarded to it; the host
   reads no consumer-named setting and nothing from an image reference's
   spelling.
+- **A Cloud Run service is served at its run.app URL**: a request whose Host
+  is the service's `uri` host reaches the ingress container once its startup
+  probes (the configured `startupProbe`, or Cloud Run's default TCP probe)
+  pass against the container's own address, and gets the container's answer
+  untouched; Cloud Functions waits on the same probe.
 - **Azure workload hosts pull with what the workload declared**: a
   Container App's or Job's `registries` entry — a managed identity, as an
   identity token the registry exchanges, or a username and password secret —

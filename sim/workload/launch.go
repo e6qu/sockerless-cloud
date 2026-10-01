@@ -1,8 +1,7 @@
 // Package workload holds what every simulator does to launch and reach a
-// workload container: reading the platform off the image, picking a host
-// port, waiting for the workload's listener, posting to its bootstrap,
-// starting a main container with sidecars in its network namespace, and
-// building images with the host's docker CLI.
+// workload container: reading the platform off the image, posting to its
+// bootstrap, starting a main container with sidecars in its network namespace,
+// and building images with the host's docker CLI.
 package workload
 
 import (
@@ -10,10 +9,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
-	"strconv"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -43,68 +39,14 @@ func LocalImagePlatform(ctx context.Context, image, registryAuth string) (string
 	return inspect.Os + "/" + inspect.Architecture, nil
 }
 
-// FirstReachable polls the candidate URLs, each round in order, and returns
-// the first whose host accepts a TCP connection before timeout. A URL without
-// a port is dialled on its scheme's default port.
-func FirstReachable(ctx context.Context, cands []string, timeout time.Duration) (string, error) {
-	deadline := time.Now().Add(timeout)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		for _, cand := range cands {
-			addr, err := dialAddress(cand)
-			if err != nil {
-				lastErr = err
-				continue
-			}
-			conn, err := net.DialTimeout("tcp", addr, time.Second)
-			if err == nil {
-				_ = conn.Close()
-				return cand, nil
-			}
-			lastErr = err
-		}
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("timeout after %s", timeout)
-	}
-	return "", lastErr
-}
-
-func dialAddress(raw string) (string, error) {
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return "", fmt.Errorf("parse url %q: %w", raw, err)
-	}
-	if parsed.Hostname() == "" {
-		return "", fmt.Errorf("url %q has no host", raw)
-	}
-	if parsed.Port() != "" {
-		return parsed.Host, nil
-	}
-	port := "80"
-	if parsed.Scheme == "https" {
-		port = "443"
-	}
-	return net.JoinHostPort(parsed.Hostname(), port), nil
-}
-
-// ExitCodeHeader carries the exit status of the handler process a bootstrap
-// ran for one invocation.
-const ExitCodeHeader = "X-Sockerless-Exit-Code"
-
 // bootstrapConnectWindow bounds how long PostBootstrap keeps retrying a
 // bootstrap whose listener refuses connections while it finishes starting.
 const bootstrapConnectWindow = 30 * time.Second
 
 // PostBootstrap POSTs body to a workload's bootstrap URL, retrying while the
 // connection fails, and returns the response body with the invocation's exit
-// code: ExitCodeHeader when the bootstrap set it, otherwise 1 for an HTTP
-// error status and 0 for success. timeout bounds each attempt.
+// code: 1 for an HTTP error status and 0 for success. timeout bounds each
+// attempt.
 func PostBootstrap(ctx context.Context, bootstrapURL string, body io.Reader, contentType string, timeout time.Duration) ([]byte, int, error) {
 	var bodyBytes []byte
 	if body != nil {
@@ -146,11 +88,6 @@ func PostBootstrap(ctx context.Context, bootstrapURL string, body io.Reader, con
 }
 
 func exitCode(resp *http.Response) int {
-	if hdr := resp.Header.Get(ExitCodeHeader); hdr != "" {
-		if n, err := strconv.Atoi(hdr); err == nil {
-			return n
-		}
-	}
 	if resp.StatusCode >= 400 {
 		return 1
 	}

@@ -328,7 +328,6 @@ var allowedNonSpecGCPPrefixes = map[string]string{
 	"/sim/v1/":             "simulator control + dashboard surface (sockerless-specific)",
 	"/computeMetadata/":    "GCE metadata server (documented Google surface; no Discovery document)",
 	"/v2-functions-invoke": "deterministic Cloud Functions invoke host surface (run.app/cloudfunctions.net URL emulation)",
-	"/v2-services-invoke":  "deterministic Cloud Run service invoke host surface (run.app URL emulation)",
 	"/sockerless/":         "simulator-internal host-dispatch surface",
 }
 

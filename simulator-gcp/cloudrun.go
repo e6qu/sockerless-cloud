@@ -121,21 +121,13 @@ type CRTraffic struct {
 }
 
 // CRServiceStatus is the status block returned on every Cloud Run
-// service describe. `URL` and `Address.URL` are the canonical
-// run.app invocation endpoints real Cloud Run emits
-// (`https://<service>-<hash>-<region>.a.run.app`). The sim emits a
-// canonical-shape URL on every describe so SDK consumers see what
-// they expect, but the sim's actual invocation surface is at its
-// own configured endpoint via the `/v2-services-invoke/...` path —
-// NOT at the advertised run.app URL. Operators wanting to invoke a
-// sim service do so via the documented endpoint, not by following
-// the URL field. Per the `sim-emitted-url-roundtrip` skill's
-// "document external" branch.
+// service describe. `URL` is the run.app URL the service is served on; the
+// simulator's Cloud Run front end answers it for a request whose Host names it.
 type CRServiceStatus struct {
 	ObservedGeneration        int64         `json:"observedGeneration,omitempty"`
 	LatestReadyRevisionName   string        `json:"latestReadyRevisionName,omitempty"`
 	LatestCreatedRevisionName string        `json:"latestCreatedRevisionName,omitempty"`
-	URL                       string        `json:"url,omitempty"` // external: canonical run.app URL; sim invokes via /v2-services-invoke at the configured endpoint
+	URL                       string        `json:"url,omitempty"`
 	Address                   *CRAddress    `json:"address,omitempty"`
 	Conditions                []CRCondition `json:"conditions,omitempty"`
 	Traffic                   []CRTraffic   `json:"traffic,omitempty"`

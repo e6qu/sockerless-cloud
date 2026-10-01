@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -135,4 +137,47 @@ func TestCloudRunV2Services_Wire_CreateGetDelete(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, 404, resp.StatusCode, "GetService after delete must 404")
+}
+
+// TestCloudRunV2Services_Wire_StartupProbeGatesTheServiceURL creates services
+// whose containers carry a startup probe, the `startupProbe` gcloud run deploy
+// --startup-probe writes, and requests each at its run.app URL: a probe the
+// container passes admits the request, and one it keeps failing answers 503.
+func TestCloudRunV2Services_Wire_StartupProbeGatesTheServiceURL(t *testing.T) {
+	create := func(id, probe string) string {
+		body := fmt.Sprintf(`{"template":{"containers":[{"image":%q,"args":["echo-request"],"startupProbe":%s}]}}`, httpProbeImageName, probe)
+		out := httpDoJSON(t, "POST", servicesBaseURL()+"?serviceId="+id, body)
+		t.Cleanup(func() {
+			resp, err := httpDo("DELETE", runServiceURL(id), "")
+			if err == nil {
+				resp.Body.Close()
+			}
+		})
+		var lro struct {
+			Response struct {
+				URI string `json:"uri"`
+			} `json:"response"`
+		}
+		parseJSON(t, out, &lro)
+		require.NotEmpty(t, lro.Response.URI)
+		return lro.Response.URI
+	}
+	request := func(uri string) (int, string) {
+		u, err := url.Parse(uri)
+		require.NoError(t, err)
+		resp, err := httpDoHost("GET", baseURL+"/probed", u.Host)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(body)
+	}
+
+	passing := create("cli-svc-probe-ok", `{"periodSeconds":1,"timeoutSeconds":1,"failureThreshold":10,"httpGet":{"path":"/healthz","port":8080}}`)
+	status, body := request(passing)
+	require.Equal(t, http.StatusOK, status, "body=%q", body)
+	assert.Equal(t, "GET /probed", body)
+
+	failing := create("cli-svc-probe-bad", `{"periodSeconds":1,"timeoutSeconds":1,"failureThreshold":2,"tcpSocket":{"port":9999}}`)
+	status, body = request(failing)
+	assert.Equal(t, http.StatusServiceUnavailable, status, "body=%q", body)
 }

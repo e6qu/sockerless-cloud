@@ -23,14 +23,15 @@ import (
 )
 
 var (
-	baseURL          string
-	grpcAddr         string // host:port of the sim's gRPC server (Bigtable data/admin + Cloud Logging)
-	cbtPath          string // absolute path to an installed cbt binary (Bigtable data-plane CLI)
-	simCmd           *exec.Cmd
-	binaryPath       string
-	evalImageName    string
-	commandImageName string
-	tmpDir           string
+	baseURL            string
+	grpcAddr           string // host:port of the sim's gRPC server (Bigtable data/admin + Cloud Logging)
+	cbtPath            string // absolute path to an installed cbt binary (Bigtable data-plane CLI)
+	simCmd             *exec.Cmd
+	binaryPath         string
+	evalImageName      string
+	commandImageName   string
+	httpProbeImageName string
+	tmpDir             string
 
 	project  = "test-project"
 	location = "us-central1"
@@ -132,6 +133,10 @@ func TestMain(m *testing.M) {
 	commandDir, _ := filepath.Abs("../../testdata/container-command")
 	commandImageName = "sockerless-container-command:gcp-cli"
 	buildGoScratchImage(commandImageName, commandDir, "container-command", workloadPlatform)
+
+	probeDir, _ := filepath.Abs("../../testdata/http-localhost-probe")
+	httpProbeImageName = "sockerless-http-localhost-probe:gcp-cli"
+	buildGoScratchImage(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform)
 
 	// Find free ports for HTTP and gRPC
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -382,6 +387,18 @@ func httpDo(method, url string, body string) (*http.Response, error) {
 	// raw HTTP calls must present the same real, simulator-minted token the
 	// gcloud CLI carries via CLOUDSDK_AUTH_ACCESS_TOKEN — differing from a real
 	// Google request only in the endpoint coordinate and the token source.
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	return http.DefaultClient.Do(req)
+}
+
+// httpDoHost sends an authenticated request to the simulator addressed to
+// host, the way a resolver hands a client a data-plane host's address.
+func httpDoHost(method, url, host string) (*http.Response, error) {
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Host = host
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	return http.DefaultClient.Do(req)
 }

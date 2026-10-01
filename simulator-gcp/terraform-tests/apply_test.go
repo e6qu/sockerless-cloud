@@ -124,11 +124,8 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		"AR remote repo id must be the canonical projects/{p}/locations/{l}/repositories/{id} path; got %s", arRemoteRepoID)
 
 	crServiceURI := outputs.must(t, "cloud_run_v2_service_uri")
-	// Real Cloud Run returns https://<service>-<hash>.<region>.run.app; the
-	// sim returns its local invocation URL (http://host:port/v2-services-invoke/...).
-	// Both must include the service name so callers can target it.
-	require.Contains(t, crServiceURI, "tf-crv2-svc",
-		"Cloud Run v2 service URI must reference the service name; got %s", crServiceURI)
+	require.True(t, strings.HasPrefix(crServiceURI, "https://tf-crv2-svc-") && strings.HasSuffix(crServiceURI, "-us-central1.a.run.app"),
+		"Cloud Run v2 service URI must be the service's run.app URL; got %s", crServiceURI)
 
 	crJobID := outputs.must(t, "cloud_run_v2_job_id")
 	require.Contains(t, crJobID, "projects/test-project/locations/us-central1/jobs/tf-crv2-job",
