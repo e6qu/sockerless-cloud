@@ -42,6 +42,7 @@ func TestRDS_RestoreFamily(t *testing.T) {
 		_, _ = c.DeleteDBClusterSnapshot(ctx, &rds.DeleteDBClusterSnapshotInput{
 			DBClusterSnapshotIdentifier: aws.String(snapID)})
 	})
+	waitForRDSClusterSnapshotAvailable(t, c, ctx, snapID)
 
 	// RestoreDBClusterFromSnapshot
 	restored := "rext-restored-from-snap"
@@ -53,11 +54,12 @@ func TestRDS_RestoreFamily(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, rOut.DBCluster)
 	assert.Equal(t, restored, aws.ToString(rOut.DBCluster.DBClusterIdentifier))
-	assert.Equal(t, "available", aws.ToString(rOut.DBCluster.Status))
+	assert.Equal(t, "creating", aws.ToString(rOut.DBCluster.Status))
 	t.Cleanup(func() {
 		_, _ = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
 			DBClusterIdentifier: aws.String(restored), SkipFinalSnapshot: aws.Bool(true)})
 	})
+	waitForRDSClusterAvailable(t, c, ctx, restored)
 
 	// RestoreDBClusterToPointInTime
 	pit := "rext-cluster-pit"
@@ -69,10 +71,12 @@ func TestRDS_RestoreFamily(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, pitOut.DBCluster)
 	assert.Equal(t, "aurora-mysql", aws.ToString(pitOut.DBCluster.Engine))
+	assert.Equal(t, "creating", aws.ToString(pitOut.DBCluster.Status))
 	t.Cleanup(func() {
 		_, _ = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
 			DBClusterIdentifier: aws.String(pit), SkipFinalSnapshot: aws.Bool(true)})
 	})
+	waitForRDSClusterAvailable(t, c, ctx, pit)
 
 	// RestoreDBClusterFromS3
 	s3cluster := "rext-cluster-from-s3"
@@ -591,6 +595,7 @@ func TestRDS_SnapshotAttributesAndModify(t *testing.T) {
 		_, _ = c.DeleteDBClusterSnapshot(ctx, &rds.DeleteDBClusterSnapshotInput{
 			DBClusterSnapshotIdentifier: aws.String(csID)})
 	})
+	waitForRDSClusterSnapshotAvailable(t, c, ctx, csID)
 
 	_, err = c.ModifyDBClusterSnapshotAttribute(ctx, &rds.ModifyDBClusterSnapshotAttributeInput{
 		DBClusterSnapshotIdentifier: aws.String(csID),

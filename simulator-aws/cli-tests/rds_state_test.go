@@ -314,6 +314,8 @@ func TestRDSCLI_EventSubParamDetailEndpoint(t *testing.T) {
 		_ = awsCLI("rds", "delete-db-cluster-snapshot",
 			"--db-cluster-snapshot-identifier", srcSnap).Run()
 	})
+	runCLI(t, awsCLI("rds", "wait", "db-cluster-snapshot-available",
+		"--db-cluster-snapshot-identifier", srcSnap))
 	copySnap := "cli-copy-cluster-snap"
 	out = runCLI(t, awsCLI("rds", "copy-db-cluster-snapshot",
 		"--source-db-cluster-snapshot-identifier", srcSnap,
@@ -326,11 +328,13 @@ func TestRDSCLI_EventSubParamDetailEndpoint(t *testing.T) {
 	}
 	parseJSON(t, out, &copyResp)
 	assert.Equal(t, copySnap, copyResp.DBClusterSnapshot.DBClusterSnapshotIdentifier)
-	assert.Equal(t, "available", copyResp.DBClusterSnapshot.Status)
+	assert.Equal(t, "copying", copyResp.DBClusterSnapshot.Status)
 	t.Cleanup(func() {
 		_ = awsCLI("rds", "delete-db-cluster-snapshot",
 			"--db-cluster-snapshot-identifier", copySnap).Run()
 	})
+	runCLI(t, awsCLI("rds", "wait", "db-cluster-snapshot-available",
+		"--db-cluster-snapshot-identifier", copySnap))
 }
 
 // waitForCLIRDSClusterStatus polls describe-db-clusters until the cluster

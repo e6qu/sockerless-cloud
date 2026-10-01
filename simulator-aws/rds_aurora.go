@@ -292,6 +292,9 @@ func (plane *rdsAuroraDataPlane) readerTarget() (string, bool) {
 // instanceTarget is the engine behind a member's instance endpoint: read-write
 // for the cluster's writer, read-only for an Aurora Replica.
 func (plane *rdsAuroraDataPlane) instanceTarget(instanceID string) (string, bool) {
+	if cluster, ok := rdsClusters.Get(plane.clusterID); !ok || cluster.Status != "available" {
+		return "", false
+	}
 	for index, member := range rdsClusterMembers(plane.clusterID) {
 		if member.DBInstanceIdentifier != instanceID {
 			continue
@@ -380,7 +383,7 @@ func rdsStopAuroraDataPlane(clusterID string, deleteVolume bool) error {
 // clusters a previous process served and adopts their engines.
 func rdsRecoverAuroraDataPlanes() error {
 	for _, cluster := range rdsClusters.List() {
-		serving := cluster.Status == "available" || cluster.Status == "stopping"
+		serving := cluster.Status == "available" || cluster.Status == "stopping" || cluster.Status == "creating"
 		if !rdsIsAurora(cluster.Engine) || !serving || len(cluster.MasterUserSecret) == 0 {
 			continue
 		}

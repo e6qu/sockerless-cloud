@@ -63,7 +63,8 @@ func rdsRecoverDataPlanes() error {
 	for _, instance := range rdsInstances.List() {
 		if rdsIsAurora(instance.Engine) && instance.DBClusterIdentifier != "" {
 			// A member of a cluster that holds no master-user credential, which
-			// only a restored cluster lacks, has no cluster volume to front.
+			// only a cluster restored from Amazon S3 lacks, has no cluster
+			// volume to front.
 			if _, served := rdsLoadAuroraDataPlane(instance.DBClusterIdentifier); served && instance.DBInstanceStatus == "available" {
 				if err := rdsInstallAuroraInstanceEndpoint(&instance); err != nil {
 					return fmt.Errorf("restore DB instance %s: %w", instance.DBInstanceIdentifier, err)

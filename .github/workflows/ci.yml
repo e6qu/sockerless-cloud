@@ -1026,8 +1026,8 @@ jobs:
             timeout_minutes: 12
           - suite: aws Amazon RDS snapshot
             cloud: aws
-            tf_packages: "./rds-snapshot"
-            timeout_minutes: 12
+            tf_packages: "./rds-snapshot ./rds-cluster-snapshot"
+            timeout_minutes: 14
           - suite: aws AWS Certificate Manager validation
             cloud: aws
             tf_packages: "./acm-validation"

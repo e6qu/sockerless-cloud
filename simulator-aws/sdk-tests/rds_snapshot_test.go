@@ -294,6 +294,7 @@ func TestRDS_DeleteDBCluster_FinalSnapshotContract(t *testing.T) {
 			DBClusterSnapshotIdentifier: aws.String("final-snap-cluster-1"),
 		})
 	})
+	waitForRDSClusterSnapshotAvailable(t, c, ctx, "final-snap-cluster-1")
 
 	snaps, err := c.DescribeDBClusterSnapshots(ctx, &rds.DescribeDBClusterSnapshotsInput{
 		DBClusterSnapshotIdentifier: aws.String("final-snap-cluster-1"),

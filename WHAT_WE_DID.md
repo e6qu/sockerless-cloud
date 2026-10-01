@@ -522,6 +522,27 @@ open read-only in the engine itself: PostgreSQL's startup packet carries
 `SET SESSION TRANSACTION READ ONLY` before the client sees its login succeed.
 The writer's endpoints stay read-write.
 
+An Aurora DB cluster snapshot carries the cluster volume's data.
+CreateDBClusterSnapshot and the final snapshot DeleteDBCluster takes answer
+`creating` and settle `available` once `sim.CaptureVolume` has copied the
+cluster volume into the snapshot's own volume (`failed` with the copy's error
+otherwise); the final snapshot's capture runs before the engine stops and its
+volume goes. CopyDBClusterSnapshot answers `copying` and clones the source's
+volume, and DeleteDBClusterSnapshot refuses a snapshot still being taken and
+removes its volume. The snapshot holds the cluster's sealed master credential
+and the one its engine holds. RestoreDBClusterFromSnapshot and
+RestoreDBClusterToPointInTime with `UseLatestRestorableTime` record the new
+cluster `creating` with that credential, bind its endpoints, seed its cluster
+volume from the snapshot's or the source cluster's in the background, and land
+it `available` (`incompatible-restore` when the seed fails); every endpoint,
+instance endpoints included, refuses clients while the cluster is not
+available, so the engine first starts on the seeded volume. A process restart
+resumes a capture, copy or seed in flight. The SDK suite proves it with pgx
+and the MySQL driver: a restore from a copied snapshot holds the rows written
+before the snapshot and none after, a point-in-time restore holds every
+committed row, and a restore from the final snapshot holds the cluster as it
+was deleted.
+
 Artifact Registry stores the bytes of uploaded files and serves them back from
 `files.download`. The generic, Go module, KFP, Apt, Yum and GooGet uploads create
 the package, version and file their methods describe, reading each format's

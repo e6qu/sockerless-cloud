@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // registerRDSRestoreExtras mounts the second tranche of Amazon RDS
@@ -285,16 +286,67 @@ func handleRDSRestoreClusterFromSnapshot(w http.ResponseWriter, r *http.Request)
 			http.StatusConflict, sim.RequestID(r.Context()))
 		return
 	}
+	if snap.Status != "available" {
+		rdsErrorXML(w, "InvalidDBClusterSnapshotStateFault",
+			fmt.Sprintf("DBClusterSnapshot %q is %s; it must be available to restore from", snap.DBClusterSnapshotIdentifier, snap.Status),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	engine := r.FormValue("Engine")
 	if engine == "" {
 		engine = snap.Engine
 	}
-	cl := rdsClusterFromSource(r, newID, engine, snap.EngineVersion)
+	if !strings.EqualFold(engine, snap.Engine) {
+		rdsErrorXML(w, "InvalidParameterCombination",
+			fmt.Sprintf("The engine %s is not compatible with the engine %s of DB cluster snapshot %s.", engine, snap.Engine, snap.DBClusterSnapshotIdentifier),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	cl := rdsClusterFromSource(r, newID, snap.Engine, snap.EngineVersion)
+	if r.FormValue("Port") == "" && snap.Port > 0 {
+		cl.Port = snap.Port
+	}
+	if mode := r.FormValue("EngineMode"); mode != "" {
+		cl.EngineMode = mode
+	} else if snap.EngineMode != "" {
+		cl.EngineMode = snap.EngineMode
+	}
+	if cl.DatabaseName == "" {
+		cl.DatabaseName = snap.DatabaseName
+	}
 	cl.MasterUsername = snap.MasterUsername
 	cl.AllocatedStorage = snap.AllocatedStorage
 	cl.StorageEncrypted = snap.StorageEncrypted
-	rdsClusters.Put(newID, cl)
-	rdsXMLResponse(w, "RestoreDBClusterFromSnapshot", renderRDSCluster(cl), sim.RequestID(r.Context()))
+	cl.DeletionProtection = strings.EqualFold(r.FormValue("DeletionProtection"), "true")
+	cl.EnableIAMDatabaseAuthentication = strings.EqualFold(r.FormValue("EnableIAMDatabaseAuthentication"), "true")
+	cl.MasterUserSecret = append([]byte(nil), snap.MasterUserSecret...)
+	cl.BackendMasterUserSecret = append([]byte(nil), snap.BackendMasterUserSecret...)
+	cl.RestoreSourceVolume = rdsClusterSnapshotVolume(snap.DBClusterSnapshotIdentifier)
+	rdsStartClusterRestore(w, r, cl, "RestoreDBClusterFromSnapshot")
+}
+
+// rdsStartClusterRestore records a restored cluster as creating, binds an
+// Aurora cluster's endpoints in front of the engine it will run, and seeds its
+// cluster volume in the background. The engine starts on the restored data
+// under the master credential the data was written with.
+func rdsStartClusterRestore(w http.ResponseWriter, r *http.Request, cluster RDSCluster, operation string) {
+	cluster.Status = "creating"
+	if rdsIsAurora(cluster.Engine) {
+		if len(cluster.MasterUserSecret) == 0 {
+			rdsErrorXML(w, "InvalidRestoreFault",
+				fmt.Sprintf("The restore source of DB cluster %s holds no master-user credential.", cluster.DBClusterIdentifier),
+				http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+		if err := rdsInstallAuroraDataPlane(&cluster, ""); err != nil {
+			rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
+			return
+		}
+	}
+	rdsClusters.Put(cluster.DBClusterIdentifier, cluster)
+	id := cluster.DBClusterIdentifier
+	bg.Go(func() { rdsFinishClusterRestore(id) })
+	rdsXMLResponse(w, operation, renderRDSCluster(cluster), sim.RequestID(r.Context()))
 }
 
 func handleRDSRestoreClusterToPointInTime(w http.ResponseWriter, r *http.Request) {
@@ -322,14 +374,48 @@ func handleRDSRestoreClusterToPointInTime(w http.ResponseWriter, r *http.Request
 			http.StatusConflict, sim.RequestID(r.Context()))
 		return
 	}
+	latest := strings.EqualFold(r.FormValue("UseLatestRestorableTime"), "true")
+	restoreToTime := r.FormValue("RestoreToTime")
+	switch {
+	case latest && restoreToTime != "":
+		rdsErrorXML(w, "InvalidParameterCombination",
+			"Cannot specify both RestoreToTime and UseLatestRestorableTime.",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	case restoreToTime != "" && r.FormValue("RestoreType") == "copy-on-write":
+		rdsErrorXML(w, "InvalidParameterCombination",
+			"Cannot specify RestoreToTime with the copy-on-write RestoreType.",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	case restoreToTime != "":
+		rdsErrorXML(w, "InvalidRestoreFault",
+			fmt.Sprintf("DB cluster %s keeps no continuous backup to restore to %s from; restore it with UseLatestRestorableTime.", srcID, restoreToTime),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	case !latest:
+		rdsErrorXML(w, "InvalidParameterCombination",
+			"RestoreToTime must be specified unless UseLatestRestorableTime is enabled.",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if !rdsClusterVolumeSettled(w, r, src) {
+		return
+	}
 	cl := rdsClusterFromSource(r, newID, src.Engine, src.EngineVersion)
+	if r.FormValue("Port") == "" {
+		cl.Port = src.Port
+	}
+	cl.EngineMode = src.EngineMode
 	cl.MasterUsername = src.MasterUsername
 	cl.DatabaseName = src.DatabaseName
 	cl.AllocatedStorage = src.AllocatedStorage
 	cl.StorageEncrypted = src.StorageEncrypted
-	cl.Port = src.Port
-	rdsClusters.Put(newID, cl)
-	rdsXMLResponse(w, "RestoreDBClusterToPointInTime", renderRDSCluster(cl), sim.RequestID(r.Context()))
+	cl.DeletionProtection = strings.EqualFold(r.FormValue("DeletionProtection"), "true")
+	cl.EnableIAMDatabaseAuthentication = strings.EqualFold(r.FormValue("EnableIAMDatabaseAuthentication"), "true")
+	cl.MasterUserSecret = append([]byte(nil), src.MasterUserSecret...)
+	cl.BackendMasterUserSecret = append([]byte(nil), src.BackendMasterUserSecret...)
+	cl.RestoreSourceVolume = rdsClusterVolume(src.DBClusterIdentifier)
+	rdsStartClusterRestore(w, r, cl, "RestoreDBClusterToPointInTime")
 }
 
 func handleRDSRestoreClusterFromS3(w http.ResponseWriter, r *http.Request) {
