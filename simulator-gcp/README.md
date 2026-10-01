@@ -1,6 +1,6 @@
 # simulator-gcp
 
-Local reimplementation of a slice of Google Cloud. Not a mock — Cloud Run job executions respect the task template `timeout` for completion, Cloud Functions invoke and produce real log entries, Cloud Logging entries are written and queryable with the standard filter syntax, and Artifact Registry stores real OCI manifests.
+Local reimplementation of a slice of Google Cloud. Not a mock — Cloud Run job executions respect the task template `timeout` for completion, Cloud Functions serve requests from their own containers and log what those containers write, Cloud Logging entries are written and queryable with the standard filter syntax, and Artifact Registry stores real OCI manifests.
 
 ## Reference adaptor
 
@@ -161,7 +161,7 @@ All services use REST/JSON routing with Go 1.22+ path patterns. Long-running ope
 | Service | Base Path | Endpoints |
 |---|---|---|
 | **Cloud Run Jobs** | `/v2/projects/.../jobs` | Create, Get, List, Delete, Run (create execution), Get/List/Cancel Executions |
-| **Cloud Functions v2** | `/v2/projects/.../functions` | Create, Get, List, Delete, Invoke |
+| **Cloud Functions v2** | `/v2/projects/.../functions` | Create, Get, List, Update, Delete; each function served on its Cloud Run service's run.app URL and its cloudfunctions.net URL |
 | **Cloud DNS** | `/dns/v1/projects/...` | Managed Zones (CRUD), Record Sets (CRUD) |
 | **GCS** | `/storage/v1/b/...` | Buckets (CRUD, list), Objects (upload, download, list, delete, compose, rewrite/copy) — JSON + XML APIs |
 | **BigQuery** | `/bigquery/v2/projects/...` | Datasets, Tables, streaming inserts, tabledata list, query jobs, synchronous queries |
@@ -346,19 +346,32 @@ http.DefaultClient.Do(runReq)
 
 ### Cloud Functions
 
-Create a function, invoke it, and check logs. Cloud Functions Gen2 run on a
-backing Cloud Run service; the invoke endpoint executes that service's overlay
-container. A function with no deployed image records the invocation in Cloud
-Logging and returns an empty body.
+Create a function, deploy a container to the Cloud Run service that serves it,
+and request it. CreateFunction creates that service and reports its run.app URL
+as `serviceConfig.uri`; the function's `url` is
+`https://<region>-<project>.cloudfunctions.net/<function>`. The simulator serves
+both hosts on its own endpoint and dispatches on the `Host` header, the address
+a resolver pointed at the simulator hands a client. The cloudfunctions.net front
+end takes the function's name off the front of the path, and both pass the
+container's answer through.
 
 ```bash
 curl -s -X POST 'http://localhost:4567/v2/projects/my-project/locations/us-central1/functions?functionId=my-fn' \
   -H 'Content-Type: application/json' \
   -d '{"buildConfig":{"runtime":"go121","entryPoint":"Handler"}}'
-# The LRO response includes serviceConfig.uri pointing to the invoke endpoint.
+# serviceConfig.service: projects/my-project/locations/us-central1/services/my-fn
+# serviceConfig.uri:     https://my-fn-<hash>-us-central1.a.run.app
+# url:                   https://us-central1-my-project.cloudfunctions.net/my-fn
 
-curl -s -X POST 'http://localhost:4567/v2-functions-invoke/my-fn' -d '{}'
-# => {}   (and a "Function invoked" entry in Cloud Logging)
+curl -s -X PATCH 'http://localhost:4567/v2/projects/my-project/locations/us-central1/services/my-fn' \
+  -H 'Content-Type: application/json' \
+  -d '{"template":{"containers":[{"image":"my-function-image"}]}}'
+
+curl -s -X POST 'http://localhost:4567/my-fn/hello' \
+  -H 'Host: us-central1-my-project.cloudfunctions.net' \
+  -H "Authorization: Bearer $TOKEN" -d '{}'
+# The container receives POST /hello; its stdout reaches Cloud Logging under
+# resource.type="cloud_run_revision" AND resource.labels.service_name="my-fn".
 ```
 
 ### Cloud Logging

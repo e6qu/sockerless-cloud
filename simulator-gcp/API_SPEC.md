@@ -1878,7 +1878,7 @@ Docker/OCI endpoints use a different error format from the standard GCP format:
   },
   "stateMessages": [],
   "environment": "GEN_2",
-  "url": "https://{functionId}-{hash}-{location}.a.run.app",
+  "url": "https://{location}-{project}.cloudfunctions.net/{functionId}",
   "kmsKeyName": "",
   "satisfiesPzs": false,
   "createTime": "2024-01-15T10:25:00.000000Z"
@@ -2128,24 +2128,26 @@ POST https://cloudfunctions.googleapis.com/v2/projects/{project}/locations/{loca
 
 ### 7.9 HTTP Trigger Invocation
 
-When a function is deployed with an HTTP trigger, it receives a URL in `serviceConfig.uri`.
+A function is served by the Cloud Run service named in `serviceConfig.service`.
+`serviceConfig.uri` is that service's run.app URL, and the function's `url` is
+its cloudfunctions.net URL; a request to either reaches the service's container.
 
 **Invocation:**
 
 ```
-POST https://{functionId}-{hash}-{location}.a.run.app
+POST https://{functionId}-{hash}-{location}.a.run.app/{path}
+POST https://{location}-{project}.cloudfunctions.net/{functionId}/{path}
 Content-Type: application/json
 Authorization: Bearer {id-token-or-access-token}
 
 {arbitrary request body}
 ```
 
-**Notes for simulator:**
-- The function URL is assigned during deployment
-- For authenticated functions, require a valid auth header
-- For unauthenticated functions (with `allUsers` invoker binding), no auth needed
-- The response is whatever the function code returns
-- The simulator should execute the function container and return its HTTP response
+**Behaviour:**
+- The cloudfunctions.net front end takes `/{functionId}` off the front of the path; the container receives `/{path}`
+- A request without a valid bearer is refused unless the service's IAM policy grants `roles/run.invoker` to `allUsers`; an ID token's audience may be either URL
+- The caller receives the container's status, headers and body unchanged
+- Deleting the function deletes its service, and both URLs then answer 404
 
 ### 7.10 Operations Endpoint
 

@@ -484,9 +484,28 @@ rather than through the engine's published loopback port, whose userland proxy
 accepts a connection before the workload listens, so a bare TCP accept there
 proved nothing and reset the first request; a host that routes no container
 address reaches the workload only through that port. A probe that fails its threshold, or a container that
-exits first, fails the instance and answers 503. Cloud Functions runs its
-per-invocation container behind the same startup probe, read from the backing
-service's container, and `workload.FirstReachable` was removed.
+exits first, fails the instance and answers 503, and `workload.FirstReachable`
+was removed.
+
+A Cloud Run function is served by the Cloud Run service CreateFunction creates
+for it, as on Cloud Run functions. `serviceConfig.uri` reports that service's
+run.app URL and the function's `url` its
+`https://<region>-<project>.cloudfunctions.net/<function>` URL; the run.app
+front end serves the first and a cloudfunctions.net front end, dispatching on
+the Host header the same way, takes the function's name off the front of the
+path and hands the request to the same service, admitting an ID token for
+either URL. The container's answer passes through on both. The function's
+`timeoutSeconds`, environment variables and CPU become the service template's
+request timeout (60 seconds unset), container environment and CPU limit at
+CreateFunction, and an UpdateFunction that changes `serviceConfig` rolls the
+service to a new revision while the output-only `uri` and `service` survive it.
+DeleteFunction deletes the service, its revisions and its instance, so both URLs
+then answer 404. The simulator had served functions at
+`POST /v2-functions-invoke/{functionID}`, reported that URL as
+`serviceConfig.uri`, started a container per invocation, answered 500 for any
+error status the container returned, and logged a "Function invoked" line for a
+function with no image; the route, the per-invocation container path and the
+synthetic log line went.
 
 A Linux web app on a built-in runtime stack runs the platform's own image for
 that stack. `siteConfig.linuxFxVersion` `NODE|20-lts`, `NODE|22-lts` or

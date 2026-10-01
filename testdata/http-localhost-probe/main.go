@@ -10,7 +10,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|echo-request|teapot [MESSAGE]")
+		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|echo-request|log-request|teapot [MESSAGE]")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -72,6 +72,18 @@ func main() {
 	case "echo-request":
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			_, _ = fmt.Fprintf(w, "%s %s", r.Method, r.URL.RequestURI())
+		})
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "log-request":
+		// Write each request line to stdout as well as answering with it, so
+		// the platform's log collection shows which requests reached it.
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			line := fmt.Sprintf("%s %s", r.Method, r.URL.RequestURI())
+			fmt.Println(line)
+			_, _ = io.WriteString(w, line)
 		})
 		if err := http.ListenAndServe(":8080", nil); err != nil {
 			fmt.Fprintln(os.Stderr, err)

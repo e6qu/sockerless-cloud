@@ -109,8 +109,11 @@ func cloudRunStartupBound(c Container) time.Duration {
 		time.Duration(p.FailureThreshold)*time.Duration(max(p.PeriodSeconds, p.TimeoutSeconds))*time.Second
 }
 
-func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2) {
-	if !cloudRunInvokerAuthorized(w, r, svc) {
+// serveCloudRunService serves a request to a service. An ID token is admitted
+// when its audience is the service's URL, one of its custom audiences, or one
+// of urls, the further URLs the request reached the service on.
+func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2, urls ...string) {
+	if !cloudRunInvokerAuthorized(w, r, svc, urls) {
 		return
 	}
 	if svc.Template == nil || len(svc.Template.Containers) == 0 || svc.Template.Containers[0].Image == "" {
@@ -187,7 +190,7 @@ func cloudRunForwardedHeader(in http.Header) http.Header {
 // allUsers, is public. Any other request carries a bearer the simulator
 // signed: an access token, or an ID token whose audience is the service's URL
 // or one of its custom audiences.
-func cloudRunInvokerAuthorized(w http.ResponseWriter, r *http.Request, svc ServiceV2) bool {
+func cloudRunInvokerAuthorized(w http.ResponseWriter, r *http.Request, svc ServiceV2, urls []string) bool {
 	if svc.InvokerIamDisabled || cloudRunServiceIsPublic(svc.Name) {
 		return true
 	}
@@ -201,7 +204,11 @@ func cloudRunInvokerAuthorized(w http.ResponseWriter, r *http.Request, svc Servi
 	if verifyAccessToken(token) == nil {
 		return true
 	}
-	audiences := append([]string{svc.URI, strings.TrimRight(svc.URI, "/") + "/"}, svc.CustomAudiences...)
+	var audiences []string
+	for _, u := range append([]string{svc.URI}, urls...) {
+		audiences = append(audiences, u, strings.TrimRight(u, "/")+"/")
+	}
+	audiences = append(audiences, svc.CustomAudiences...)
 	for _, audience := range audiences {
 		var claims accessTokenClaims
 		if accessSigner != nil && simjwt.Verify(token, &claims, simjwt.Options{

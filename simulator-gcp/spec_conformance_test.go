@@ -325,10 +325,9 @@ var allowedNonSpecGCPRoutes = map[string]string{
 }
 
 var allowedNonSpecGCPPrefixes = map[string]string{
-	"/sim/v1/":             "simulator control + dashboard surface (sockerless-specific)",
-	"/computeMetadata/":    "GCE metadata server (documented Google surface; no Discovery document)",
-	"/v2-functions-invoke": "deterministic Cloud Functions invoke host surface (run.app/cloudfunctions.net URL emulation)",
-	"/sockerless/":         "simulator-internal host-dispatch surface",
+	"/sim/v1/":          "simulator control + dashboard surface (sockerless-specific)",
+	"/computeMetadata/": "GCE metadata server (documented Google surface; no Discovery document)",
+	"/sockerless/":      "simulator-internal host-dispatch surface",
 }
 
 // specPath is one method URI from a Discovery document, pre-split into

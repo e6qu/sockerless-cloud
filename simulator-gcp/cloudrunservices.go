@@ -648,6 +648,40 @@ func reconcileServiceRevision(store sim.Store[RevisionV2], serviceName, revName 
 	store.Put(full, rev)
 }
 
+// rollOutServiceRevision stores a service whose spec changed as its next
+// generation, with the immutable revision that generation deploys.
+func rollOutServiceRevision(svc ServiceV2) ServiceV2 {
+	serviceID := svc.Name[strings.LastIndex(svc.Name, "/")+1:]
+	svc.Generation++
+	svc.UpdateTime = nowTimestamp()
+	svc.TerminalCondition = &Condition{
+		Type:               "Ready",
+		State:              "CONDITION_SUCCEEDED",
+		LastTransitionTime: svc.UpdateTime,
+	}
+	revName := fmt.Sprintf("%s-%05d-abc", serviceID, svc.Generation)
+	svc.LatestCreatedRevision = svc.Name + "/revisions/" + revName
+	svc.LatestReadyRevision = svc.LatestCreatedRevision
+	svc.Etag = sim.NewUUID()
+	crv2Services.Put(svc.Name, svc)
+	reconcileServiceRevision(crv2Revisions, svc.Name, revName, svc)
+	projectCloudRunV2ToV1(svc)
+	return svc
+}
+
+// removeCloudRunServiceV2 deletes a service, its revisions and its v1
+// projections, and stops its running instance.
+func removeCloudRunServiceV2(project, location, serviceID string) {
+	name := fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID)
+	crv2Services.Delete(name)
+	deleteCloudRunServiceProjections(project, location, serviceID)
+	deleteCloudRunServiceInstance(name)
+	revPrefix := name + "/revisions/"
+	for _, rev := range crv2Revisions.Filter(func(r RevisionV2) bool { return strings.HasPrefix(r.Name, revPrefix) }) {
+		crv2Revisions.Delete(rev.Name)
+	}
+}
+
 func registerCloudRunServicesV2(srv *sim.Server) {
 	services := sim.MakeStore[ServiceV2](srv.DB(), "crv2_services")
 	crv2Services = services
@@ -767,13 +801,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		if !cloudRunEtagOK(w, "service", svc.Name, svc.Etag, r.URL.Query().Get("etag")) {
 			return
 		}
-		services.Delete(name)
-		deleteCloudRunServiceProjections(project, location, serviceID)
-		deleteCloudRunServiceInstance(name)
-		revPrefix := name + "/revisions/"
-		for _, rev := range revisions.Filter(func(r RevisionV2) bool { return strings.HasPrefix(r.Name, revPrefix) }) {
-			revisions.Delete(rev.Name)
-		}
+		removeCloudRunServiceV2(project, location, serviceID)
 		lro := cloudRunLRO(project, location, svc, "type.googleapis.com/google.cloud.run.v2.Service")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
@@ -839,25 +867,12 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		update.Name = existing.Name
 		update.UID = existing.UID
 		update.CreateTime = existing.CreateTime
-		update.Generation = existing.Generation + 1
-		update.UpdateTime = nowTimestamp()
+		update.Generation = existing.Generation
 		if update.LaunchStage == "" {
 			update.LaunchStage = existing.LaunchStage
 		}
-		update.TerminalCondition = &Condition{
-			Type:               "Ready",
-			State:              "CONDITION_SUCCEEDED",
-			LastTransitionTime: update.UpdateTime,
-		}
-		revName := fmt.Sprintf("%s-%05d-abc", serviceID, update.Generation)
-		update.LatestCreatedRevision = fmt.Sprintf("%s/revisions/%s", name, revName)
-		update.LatestReadyRevision = update.LatestCreatedRevision
 		update.URI = existing.URI
-		update.Etag = sim.NewUUID()
-
-		services.Put(name, update)
-		reconcileServiceRevision(revisions, name, revName, update)
-		projectCloudRunV2ToV1(update)
+		update = rollOutServiceRevision(update)
 		lro := cloudRunLRO(project, location, update, "type.googleapis.com/google.cloud.run.v2.Service")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})

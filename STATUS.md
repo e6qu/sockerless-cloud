@@ -160,14 +160,18 @@ Current state of the sockerless-cloud repository.
   is the service's `uri` host reaches the ingress container once its startup
   probes (the configured `startupProbe`, or Cloud Run's default TCP probe)
   pass against the container's own address, and gets the container's answer
-  untouched; Cloud Functions waits on the same probe.
+  untouched.
+- **A Cloud Run function is served by its Cloud Run service**:
+  `serviceConfig.uri` is the service's run.app URL and `url` the function's
+  cloudfunctions.net URL, both served through the Cloud Run front end with
+  the container's answer passed through; DeleteFunction deletes the service.
 - **Azure workload hosts pull with what the workload declared**: a
   Container App's or Job's `registries` entry — a managed identity, as an
   identity token the registry exchanges, or a username and password secret —
   and a site's Azure Container Registry managed identity or
   `DOCKER_REGISTRY_SERVER_*` settings; nothing for an undeclared registry.
 - **Workload hosts pull as the cloud pulls**: the Cloud Run job and service
-  hosts and the Cloud Functions host present the project's Cloud Run service
+  hosts (which serve Cloud Functions too) present the project's Cloud Run service
   agent to Artifact Registry and Container Registry, and nothing to any other
   registry; the framework carries the credential as the engine's
   `RegistryAuth`.

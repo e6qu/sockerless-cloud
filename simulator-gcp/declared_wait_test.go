@@ -82,12 +82,17 @@ func TestLoggingEntriesTailDeclaresAnOpenEndedWait(t *testing.T) {
 	}
 }
 
-func TestCloudFunctionTimeoutReadsTheServiceConfig(t *testing.T) {
-	if got := cloudFunctionTimeout(&storedFunction{}); got != 60*time.Second {
-		t.Fatalf("timeout of a function without a service config = %s, want the 60-second default", got)
+func TestCloudFunctionTimeoutBoundsTheServingRequest(t *testing.T) {
+	serving := func(fn storedFunction) time.Duration {
+		svc := ServiceV2{Template: &RevisionTemplate{Containers: []Container{{Image: "img"}}}}
+		applyFunctionServiceConfig(&svc, fn)
+		return cloudRunRequestTimeout(svc)
 	}
-	fn := &storedFunction{ServiceConfig: &storedServiceConfig{ServiceConfig{TimeoutSeconds: 540}}}
-	if got := cloudFunctionTimeout(fn); got != 540*time.Second {
-		t.Fatalf("timeout of a function configured for 540 seconds = %s", got)
+	if got := serving(storedFunction{}); got != 60*time.Second {
+		t.Fatalf("request timeout of a function without a service config = %s, want the 60-second default", got)
+	}
+	fn := storedFunction{ServiceConfig: &storedServiceConfig{ServiceConfig{TimeoutSeconds: 540}}}
+	if got := serving(fn); got != 540*time.Second {
+		t.Fatalf("request timeout of a function configured for 540 seconds = %s", got)
 	}
 }

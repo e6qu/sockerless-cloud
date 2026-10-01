@@ -2,12 +2,12 @@ package gcp_sdk_test
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
 	"testing"
 
-	"cloud.google.com/go/logging/logadmin"
+	"cloud.google.com/go/functions/apiv2/functionspb"
+	"cloud.google.com/go/run/apiv2/runpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -116,66 +116,21 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 }
 
 // TestIntegration_CloudFunctionsLifecycle exercises the full Cloud Functions
-// flow: create → verify URI → invoke → logs → delete.
+// flow: create → deploy → invoke at serviceConfig.uri → logs → delete.
 func TestIntegration_CloudFunctionsLifecycle(t *testing.T) {
 	const fnID = "integ-gcf"
+	client := newFunctionsClient(t)
+	fn := deployFunction(t, client, fnID, &runpb.Container{Image: httpProbeImageName, Args: []string{"log-request"}})
 
-	// 1. Create function
-	fn := map[string]any{
-		"buildConfig": map[string]any{
-			"runtime":    "go121",
-			"entryPoint": "Handler",
-		},
-	}
-	body, _ := json.Marshal(fn)
-	createReq, _ := http.NewRequestWithContext(ctx, "POST",
-		baseURL+"/v2/projects/test-project/locations/us-central1/functions?functionId="+fnID,
-		strings.NewReader(string(body)))
-	createReq.Header.Set("Content-Type", "application/json")
-	createResp, err := http.DefaultClient.Do(createReq)
+	code, _, body := invokeService(t, http.DefaultClient, fn.ServiceConfig.Uri, http.MethodPost, "/integ", "{}")
+	require.Equal(t, http.StatusOK, code, "body=%q", body)
+	assert.Equal(t, "POST /integ", body)
+
+	waitForFunctionLogMessage(t, fnID, "POST /integ")
+
+	op, err := client.DeleteFunction(ctx, &functionspb.DeleteFunctionRequest{Name: fn.Name})
 	require.NoError(t, err)
-	defer createResp.Body.Close()
-	require.Equal(t, http.StatusOK, createResp.StatusCode)
-
-	// 2. Extract and verify ServiceConfig.Uri
-	var lro map[string]any
-	data, _ := io.ReadAll(createResp.Body)
-	require.NoError(t, json.Unmarshal(data, &lro))
-	response := lro["response"].(map[string]any)
-	svcConfig := response["serviceConfig"].(map[string]any)
-	uri := svcConfig["uri"].(string)
-	assert.Contains(t, uri, "/v2-functions-invoke/"+fnID)
-
-	// 3. Invoke function via the returned URI
-	invokeResp, err := http.DefaultClient.Post(uri, "application/json", strings.NewReader("{}"))
-	require.NoError(t, err)
-	invokeResp.Body.Close()
-	assert.Equal(t, http.StatusOK, invokeResp.StatusCode)
-
-	// 4. Verify log entries
-	logClient := logadminClient(t)
-	filter := `resource.type="cloud_run_revision" AND resource.labels.service_name="` + fnID + `"`
-	it := logClient.Entries(ctx, logadmin.Filter(filter))
-
-	entry, err := it.Next()
-	require.NoError(t, err)
-	assert.Equal(t, "cloud_run_revision", entry.Resource.Type)
-	assert.Equal(t, fnID, entry.Resource.Labels["service_name"])
-	assert.Equal(t, "Function invoked", entry.Payload)
-
-	// 5. Delete function
-	delReq, _ := http.NewRequestWithContext(ctx, "DELETE",
-		baseURL+"/v2/projects/test-project/locations/us-central1/functions/"+fnID, nil)
-	delResp, err := http.DefaultClient.Do(delReq)
-	require.NoError(t, err)
-	delResp.Body.Close()
-	assert.Equal(t, http.StatusOK, delResp.StatusCode)
-
-	// Verify function is gone
-	getReq, _ := http.NewRequestWithContext(ctx, "GET",
-		baseURL+"/v2/projects/test-project/locations/us-central1/functions/"+fnID, nil)
-	getResp, err := http.DefaultClient.Do(getReq)
-	require.NoError(t, err)
-	getResp.Body.Close()
-	assert.Equal(t, http.StatusNotFound, getResp.StatusCode)
+	require.NoError(t, op.Wait(ctx))
+	_, err = client.GetFunction(ctx, &functionspb.GetFunctionRequest{Name: fn.Name})
+	assert.Equal(t, codes.NotFound, status.Code(err), "a deleted function must be gone: %v", err)
 }

@@ -111,7 +111,7 @@ func TestStoredFunctionRoundTrip(t *testing.T) {
 		"name": "projects/p/locations/l/functions/f",
 		"state": "ACTIVE",
 		"serviceConfig": {
-			"uri": "http://sim/v2-functions-invoke/f",
+			"uri": "https://f-abcdefghij-l.a.run.app",
 			"service": "projects/p/locations/l/services/f",
 			"environmentVariables": {"FOO": "bar"}
 		}
@@ -141,7 +141,7 @@ func TestStoredFunctionRoundTrip(t *testing.T) {
 		t.Fatalf("unmarshal wire function: %v", err)
 	}
 	wantMembers := map[string]any{
-		"uri":                  "http://sim/v2-functions-invoke/f",
+		"uri":                  "https://f-abcdefghij-l.a.run.app",
 		"service":              "projects/p/locations/l/services/f",
 		"environmentVariables": map[string]any{"FOO": "bar"},
 	}
