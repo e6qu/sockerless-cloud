@@ -3,6 +3,7 @@ package lbplane
 import (
 	"context"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -76,16 +77,28 @@ func TestTCPProxyCloseEndsAStreamInFlight(t *testing.T) {
 	upstream, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer upstream.Close()
+	// Hold each accepted connection open and never speak, which is what a long
+	// idle stream looks like. The slice keeps them referenced: an unreferenced
+	// net.Conn is closed by its finalizer when the collector runs, which ends
+	// the proxied stream before the test can see it.
+	var heldMu sync.Mutex
+	var held []net.Conn
+	t.Cleanup(func() {
+		heldMu.Lock()
+		defer heldMu.Unlock()
+		for _, conn := range held {
+			_ = conn.Close()
+		}
+	})
 	go func() {
 		for {
 			conn, acceptErr := upstream.Accept()
 			if acceptErr != nil {
 				return
 			}
-			// Hold the connection open and never speak, which is what a long
-			// idle stream looks like.
-			go func() { <-make(chan struct{}) }()
-			_ = conn
+			heldMu.Lock()
+			held = append(held, conn)
+			heldMu.Unlock()
 		}
 	}()
 
