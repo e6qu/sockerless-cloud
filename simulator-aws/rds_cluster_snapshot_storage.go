@@ -10,11 +10,9 @@ import (
 
 // An Aurora cluster's data lives in its one cluster volume, so a DB cluster
 // snapshot captures that volume and a cluster restore seeds the new cluster's
-// volume from it before the engine first starts. The underscore cannot occur
-// in an RDS identifier, so no instance or cluster volume shares a cluster
-// snapshot volume's name.
+// volume from it before the engine first starts.
 func rdsClusterSnapshotVolume(snapshotID string) string {
-	return "sockerless-rds-cluster-snapshot_" + snapshotID
+	return rdsVolume("cluster-snapshot", snapshotID)
 }
 
 // rdsCaptureClusterSnapshotData captures the cluster volume into the
@@ -83,14 +81,17 @@ func rdsRecoverClusterSnapshots() {
 		id := snapshot.DBClusterSnapshotIdentifier
 		switch snapshot.Status {
 		case "creating":
-			clusterID := snapshot.DBClusterIdentifier
+			if rdsClusterSnapshotSourceGone(snapshot) {
+				// rdsMoveVolumesToKindNames moved the cluster's data into the
+				// snapshot's volume.
+				rdsSettleClusterSnapshot(id, "available", "")
+				continue
+			}
+			clusterID, resourceID := snapshot.DBClusterIdentifier, snapshot.DbClusterResourceId
 			bg.Go(func() {
 				rdsCaptureClusterSnapshotData(id, clusterID)
-				if _, exists := rdsClusters.Get(clusterID); !exists {
-					// A final snapshot outlives its cluster, whose volume
-					// waited only for this capture.
-					sim.RemoveVolumeSettled(rdsClusterVolume(clusterID), "rds")
-				}
+				// A final snapshot's cluster waited in deleting for this capture.
+				rdsFinishClusterDeletion(clusterID, resourceID)
 			})
 		case "copying":
 			source, ok := findRDSClusterSnapshotByARN(snapshot.SourceDBClusterSnapshotArn)

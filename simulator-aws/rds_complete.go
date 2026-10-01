@@ -814,6 +814,9 @@ func handleRDSSwitchoverReadReplica(w http.ResponseWriter, r *http.Request) {
 			http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	if rdsRefuseDeletingInstance(w, r, replica) {
+		return
+	}
 	if replica.ReadReplicaSource == "" {
 		rdsErrorXML(w, "InvalidDBInstanceState",
 			fmt.Sprintf("DBInstance %q is not a read replica", id),

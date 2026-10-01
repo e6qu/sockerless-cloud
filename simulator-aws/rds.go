@@ -390,10 +390,14 @@ func registerRDS(r *AWSQueryRouter, srv *sim.Server) {
 	registerRDSProxiesRoles(r, srv)
 	registerRDSRestoreExtras(r, srv)
 	registerRDSComplete(r, srv)
+	if err := rdsMoveVolumesToKindNames(); err != nil {
+		panic(fmt.Sprintf("move Amazon Relational Database Service volumes: %v", err))
+	}
 	if err := rdsRecoverDataPlanes(); err != nil {
 		panic(fmt.Sprintf("restore Amazon Relational Database Service data planes: %v", err))
 	}
 	rdsRecoverClusterTransitions()
+	rdsRecoverInstanceSnapshots()
 }
 
 func rdsInstanceARN(id string) string {
@@ -583,6 +587,9 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	if rdsRefuseDeletingInstance(w, r, instance) {
+		return
+	}
 	if value := r.FormValue("DBInstanceClass"); value != "" {
 		instance.DBInstanceClass = value
 	}
@@ -615,6 +622,12 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 	inst, ok := rdsInstances.Get(id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if inst.DBInstanceStatus == "deleting" {
+		rdsErrorXML(w, "InvalidDBInstanceState",
+			fmt.Sprintf("Instance %s is already being deleted.", id),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	if inst.DeletionProtection {
@@ -661,19 +674,19 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	inst.DBInstanceStatus = "deleting"
-	rdsInstances.Delete(id)
+	rdsInstances.Put(id, inst)
+	resourceID := inst.DbiResourceId
 	if finalSnapID != "" {
 		// The final snapshot captures the instance's volume before the data
-		// plane and the volume go away — the capture must finish first, so
-		// the shutdown runs after it in the same background task.
+		// plane and the volume go away, and the deleting instance holds its
+		// identifier until then.
 		snapID := finalSnapID
 		bg.Go(func() {
 			rdsCaptureSnapshotData(snapID, id)
-			// The instance is gone either way; rdsStopDataPlane logs the failure.
-			_ = rdsStopDataPlane(id, true)
+			rdsFinishInstanceDeletion(id, resourceID)
 		})
 	} else {
-		_ = rdsStopDataPlane(id, true)
+		rdsFinishInstanceDeletion(id, resourceID)
 	}
 	rdsXMLResponse(w, "DeleteDBInstance", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
@@ -1045,6 +1058,9 @@ func handleRDSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBInstanceNotFound",
 			fmt.Sprintf("DBInstance %q not found", instID),
 			http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if rdsRefuseDeletingInstance(w, r, inst) {
 		return
 	}
 	if _, exists := rdsSnapshots.Get(snapID); exists {
@@ -1540,13 +1556,25 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	if cl.Status == "deleting" {
+		rdsErrorXML(w, "InvalidDBClusterStateFault",
+			fmt.Sprintf("DB cluster %s is already being deleted.", id),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	if cl.DeletionProtection {
 		rdsErrorXML(w, "InvalidParameterCombination",
 			"Cannot delete protected Cluster, please disable deletion protection and try again.",
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	members := rdsClusterMembers(id)
+	// A deleting member finishes its own deletion.
+	var members []RDSInstance
+	for _, member := range rdsClusterMembers(id) {
+		if member.DBInstanceStatus != "deleting" {
+			members = append(members, member)
+		}
+	}
 	// An Aurora cluster's instances are deleted one by one before the
 	// cluster; deleting a Multi-AZ DB cluster terminates its members.
 	if rdsIsAurora(cl.Engine) && len(members) > 0 {
@@ -1582,24 +1610,25 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 		rdsClusterSnapshots.Put(finalSnapID, rdsNewClusterSnapshot(cl, finalSnapID))
 	}
 	cl.Status = "deleting"
+	rdsClusters.Put(id, cl)
 	body := renderRDSCluster(cl)
-	rdsClusters.Delete(id)
 	for _, member := range members {
 		rdsInstances.Delete(member.DBInstanceIdentifier)
 		// The member is gone either way; rdsStopDataPlane logs the failure.
 		_ = rdsStopDataPlane(member.DBInstanceIdentifier, true)
 	}
+	resourceID := cl.DbClusterResourceId
 	if finalSnapID != "" {
 		// The final snapshot captures the cluster volume before the engine
-		// and the volume go.
+		// and the volume go, and the deleting cluster holds its identifier
+		// until then.
 		snapID := finalSnapID
 		bg.Go(func() {
 			rdsCaptureClusterSnapshotData(snapID, id)
-			// The cluster is gone either way; rdsStopAuroraDataPlane logs the failure.
-			_ = rdsStopAuroraDataPlane(id, true)
+			rdsFinishClusterDeletion(id, resourceID)
 		})
 	} else {
-		_ = rdsStopAuroraDataPlane(id, true)
+		rdsFinishClusterDeletion(id, resourceID)
 	}
 	rdsXMLResponse(w, "DeleteDBCluster", body, sim.RequestID(r.Context()))
 }
@@ -2020,9 +2049,9 @@ func handleRDSCreateClusterSnapshot(w http.ResponseWriter, r *http.Request) {
 }
 
 // rdsClusterVolumeSettled answers InvalidDBClusterStateFault for a cluster
-// whose volume a restore has not finished seeding.
+// whose volume a restore has not finished seeding or a deletion is removing.
 func rdsClusterVolumeSettled(w http.ResponseWriter, r *http.Request, cluster RDSCluster) bool {
-	if cluster.Status != "creating" && cluster.Status != "incompatible-restore" {
+	if cluster.Status != "creating" && cluster.Status != "incompatible-restore" && cluster.Status != "deleting" {
 		return true
 	}
 	rdsErrorXML(w, "InvalidDBClusterStateFault",
@@ -2461,6 +2490,18 @@ func rdsRequireStandaloneInstance(w http.ResponseWriter, r *http.Request, instan
 	return false
 }
 
+// rdsRefuseDeletingInstance answers InvalidDBInstanceState for an instance
+// that is being deleted, which takes no further action.
+func rdsRefuseDeletingInstance(w http.ResponseWriter, r *http.Request, instance RDSInstance) bool {
+	if instance.DBInstanceStatus != "deleting" {
+		return false
+	}
+	rdsErrorXML(w, "InvalidDBInstanceState",
+		fmt.Sprintf("Instance %s is not in available state.", instance.DBInstanceIdentifier),
+		http.StatusBadRequest, sim.RequestID(r.Context()))
+	return true
+}
+
 // rdsRequireInstanceState answers InvalidDBInstanceState unless the instance
 // is in the one state the lifecycle action runs from, as Amazon RDS does.
 func rdsRequireInstanceState(w http.ResponseWriter, r *http.Request, instance RDSInstance, required, action string) bool {
@@ -2525,6 +2566,9 @@ func handleRDSPromoteReadReplica(w http.ResponseWriter, r *http.Request) {
 	inst, ok := rdsInstances.Get(id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if rdsRefuseDeletingInstance(w, r, inst) {
 		return
 	}
 	src := inst.ReadReplicaSource

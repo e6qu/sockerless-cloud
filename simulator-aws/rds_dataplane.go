@@ -433,12 +433,106 @@ func rdsStopDataPlane(instanceID string, deleteVolume bool) error {
 			}
 		}
 	}
+	if deleteVolume {
+		rdsRemoveEngineContainers("Amazon RDS "+instanceID, map[string]string{"sockerless-rds-instance": instanceID})
+	}
 	if deleteVolume && sim.VolumeExists(rdsInstanceVolume(instanceID)) {
 		if err := sim.RemoveVolume(rdsInstanceVolume(instanceID)); err != nil {
 			log.Printf("Amazon RDS %s: remove data volume: %v", instanceID, err)
 		}
 	}
 	return stopErr
+}
+
+// rdsRemoveEngineContainers removes the engine containers an earlier process
+// left for a resource being deleted, which no data plane of this process
+// holds and which would otherwise keep its volume in use.
+func rdsRemoveEngineContainers(name string, labels map[string]string) {
+	if sim.RequireContainerRuntime("removing "+name+"'s engine") != nil {
+		return
+	}
+	engines, err := sim.FindExistingContainers(labels)
+	if err != nil {
+		log.Printf("%s: list engine containers: %v", name, err)
+		return
+	}
+	for _, engine := range engines {
+		if err := sim.RemoveExistingContainer(engine.ID); err != nil {
+			log.Printf("%s: remove engine container %s: %v", name, engine.ID, err)
+		}
+	}
+}
+
+// rdsDeletingInstance reports whether id still names the deleting instance
+// whose DbiResourceId is resourceID, the one generation a deletion's teardown
+// may touch.
+func rdsDeletingInstance(id, resourceID string) bool {
+	instance, ok := rdsInstances.Get(id)
+	return ok && instance.DBInstanceStatus == "deleting" && instance.DbiResourceId == resourceID
+}
+
+// rdsFinishInstanceDeletion stops the deleting instance's engine, removes its
+// volume and drops its record, which held the identifier until then.
+func rdsFinishInstanceDeletion(id, resourceID string) {
+	if !rdsDeletingInstance(id, resourceID) {
+		return
+	}
+	// The instance goes either way; rdsStopDataPlane logs a failed stop.
+	_ = rdsStopDataPlane(id, true)
+	if rdsDeletingInstance(id, resourceID) {
+		rdsInstances.Delete(id)
+	}
+}
+
+// rdsRecoverInstanceSnapshots resumes the snapshot captures and copies a
+// previous process started but did not settle, and the deletions that waited
+// on them: a deleting instance's teardown follows its final snapshot.
+func rdsRecoverInstanceSnapshots() {
+	captures := map[string][]string{}
+	for _, snapshot := range rdsSnapshots.List() {
+		if snapshot.Status != "creating" {
+			continue
+		}
+		id := snapshot.DBSnapshotIdentifier
+		if snapshot.SourceDBSnapshotIdentifier != "" {
+			source, ok := findRDSSnapshotByARN(snapshot.SourceDBSnapshotIdentifier)
+			if !ok {
+				rdsSettleSnapshot(id, "failed", "the source DB snapshot no longer exists")
+				continue
+			}
+			sourceID := source.DBSnapshotIdentifier
+			bg.Go(func() { rdsCopySnapshotData(id, sourceID) })
+			continue
+		}
+		if rdsSnapshotSourceGone(snapshot) {
+			// rdsMoveVolumesToKindNames moved the instance's data into the
+			// snapshot's volume.
+			rdsSettleSnapshot(id, "available", "")
+			continue
+		}
+		captures[snapshot.DBInstanceIdentifier] = append(captures[snapshot.DBInstanceIdentifier], id)
+	}
+	for _, instance := range rdsInstances.List() {
+		if instance.DBInstanceStatus != "deleting" {
+			continue
+		}
+		id, resourceID := instance.DBInstanceIdentifier, instance.DbiResourceId
+		snapshots := captures[id]
+		delete(captures, id)
+		bg.Go(func() {
+			for _, snapshotID := range snapshots {
+				rdsCaptureSnapshotData(snapshotID, id)
+			}
+			rdsFinishInstanceDeletion(id, resourceID)
+		})
+	}
+	for instanceID, snapshots := range captures {
+		bg.Go(func() {
+			for _, snapshotID := range snapshots {
+				rdsCaptureSnapshotData(snapshotID, instanceID)
+			}
+		})
+	}
 }
 
 // rdsFinishStop stops a stopping instance's engine and lands the instance

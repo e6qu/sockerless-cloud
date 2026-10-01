@@ -21,7 +21,7 @@ func rdsIsAurora(engine string) bool {
 	return strings.EqualFold(engine, "aurora-postgresql") || strings.EqualFold(engine, "aurora-mysql")
 }
 
-func rdsClusterVolume(clusterID string) string { return "sockerless-rds-cluster-" + clusterID }
+func rdsClusterVolume(clusterID string) string { return rdsVolume("cluster", clusterID) }
 
 // rdsAuroraDataPlane is an Aurora cluster's engine over its cluster volume.
 // Every Aurora instance reads the one cluster volume, so the writer and
@@ -371,12 +371,36 @@ func rdsStopAuroraDataPlane(clusterID string, deleteVolume bool) error {
 			}
 		}
 	}
+	if deleteVolume {
+		rdsRemoveEngineContainers("Amazon Aurora "+clusterID, map[string]string{"sockerless-rds-cluster": clusterID})
+	}
 	if deleteVolume && sim.VolumeExists(rdsClusterVolume(clusterID)) {
 		if err := sim.RemoveVolume(rdsClusterVolume(clusterID)); err != nil {
 			log.Printf("Amazon Aurora %s: remove cluster volume: %v", clusterID, err)
 		}
 	}
 	return stopErr
+}
+
+// rdsDeletingCluster reports whether id still names the deleting cluster whose
+// DbClusterResourceId is resourceID, the one generation a deletion's teardown
+// may touch.
+func rdsDeletingCluster(id, resourceID string) bool {
+	cluster, ok := rdsClusters.Get(id)
+	return ok && cluster.Status == "deleting" && cluster.DbClusterResourceId == resourceID
+}
+
+// rdsFinishClusterDeletion stops the deleting cluster's engine, removes its
+// cluster volume and drops its record, which held the identifier until then.
+func rdsFinishClusterDeletion(id, resourceID string) {
+	if !rdsDeletingCluster(id, resourceID) {
+		return
+	}
+	// The cluster goes either way; rdsStopAuroraDataPlane logs a failed stop.
+	_ = rdsStopAuroraDataPlane(id, true)
+	if rdsDeletingCluster(id, resourceID) {
+		rdsClusters.Delete(id)
+	}
 }
 
 // rdsRecoverAuroraDataPlanes reinstalls the data planes of the Aurora

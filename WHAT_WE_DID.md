@@ -430,6 +430,22 @@ service, and snapshots captured with `cp -a --reflink=auto` — copy-on-write
 where the volume store allows it, one code path either way. A restore returns
 to the data as it was, which separates a snapshot from a metadata row.
 
+Each Amazon RDS volume is named `sockerless-rds-<kind>_<identifier>` for an
+instance, cluster, snapshot or cluster snapshot. No RDS identifier contains an
+underscore, so no two resources share a volume, as an instance `cluster-x` and
+a cluster `x` once did. At startup the simulator copies a volume from its
+earlier name into the new one, first removing any engine container still on
+it. When two resources claimed the same earlier name, it leaves that volume
+for the operator. DeleteDBInstance and DeleteDBCluster with a final snapshot
+keep the resource `deleting` until the capture and teardown finish, as Amazon
+RDS does. While it is deleting, its identifier answers `DBInstanceAlreadyExists`
+or `DBClusterAlreadyExistsFault` to a create and `InvalidDBInstanceState` or
+`InvalidDBClusterStateFault` to further actions. The teardown acts only while
+the record still carries the resource ID it was started for. A restart resumes
+an unfinished capture, copy or deletion. A final snapshot whose capture an
+earlier simulator left unfinished, after it had already dropped the resource,
+takes that resource's volume as its own.
+
 Memorystore for Redis instances and Memorystore for Redis Cluster clusters run
 a real Redis engine, one container per resource whose redis-server processes
 are its nodes, on the image the instance's `redisVersion` names (clusters run
