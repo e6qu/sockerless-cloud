@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // cbBuildActionHandled serves the build colon-verbs beyond cancel. It reports
@@ -40,7 +42,7 @@ func cbHandleRetryBuild(w http.ResponseWriter, r *http.Request, project, id stri
 	retried.CreateTime = time.Now().UTC().Format(time.RFC3339)
 	retried.Name = fmt.Sprintf("projects/%s/locations/global/builds/%s", project, retried.ID)
 	cbBuilds.Put(retried.ID, retried)
-	cbWriteBuildOperation(w, project, executeCancellableBuild(r.Context(), retried))
+	cbWriteBuildOperation(w, project, startCloudBuild(retried))
 }
 
 // cbHandleApproveBuild records the decision on a build waiting for one. A build
@@ -89,7 +91,7 @@ func cbHandleApproveBuild(w http.ResponseWriter, r *http.Request, project, id st
 		cbWriteBuildOperation(w, project, build)
 		return
 	}
-	cbWriteBuildOperation(w, project, executeCancellableBuild(r.Context(), build))
+	cbWriteBuildOperation(w, project, startCloudBuild(build))
 }
 
 // cbTriggerActionHandled serves the Cloud Build trigger colon-verbs. Eventarc
@@ -127,7 +129,7 @@ func cbHandleRunTrigger(w http.ResponseWriter, r *http.Request, project, locatio
 	started.Name = fmt.Sprintf("projects/%s/locations/global/builds/%s", project, started.ID)
 	started.BuildTriggerID = trigger.ID
 	cbBuilds.Put(started.ID, started)
-	cbWriteBuildOperation(w, project, executeCancellableBuild(r.Context(), started))
+	cbWriteBuildOperation(w, project, startCloudBuild(started))
 }
 
 // cbHandleTriggerWebhook answers the webhook a trigger exposes. The caller
@@ -188,24 +190,53 @@ func cbTriggerWebhookSecretMatches(w http.ResponseWriter, r *http.Request, trigg
 	return true
 }
 
-func cbWriteBuildOperation(w http.ResponseWriter, project string, result Build) {
+func cbWriteBuildOperation(w http.ResponseWriter, project string, build Build) {
+	sim.WriteJSON(w, http.StatusOK, cbBuildOperation(project, build))
+}
+
+// cbBuildTerminal reports whether a build status is one the build does not
+// leave: the Build.Status values the API documents after WORKING.
+func cbBuildTerminal(status string) bool {
+	switch status {
+	case "SUCCESS", "FAILURE", "INTERNAL_ERROR", "TIMEOUT", "CANCELLED", "EXPIRED":
+		return true
+	}
+	return false
+}
+
+// cbBuildOperation renders the operation that tracks a build. Cloud Build's
+// build operations are a view of the build record: the metadata is a
+// BuildOperationMetadata carrying the build as it stands, and the operation is
+// done once the build reaches a terminal status and its steps have stopped,
+// with the Build as its response when it succeeded and an error otherwise.
+func cbBuildOperation(project string, build Build) CloudBuildOperation {
+	_, stepsRunning := cbRunning.Load(build.ID)
 	op := CloudBuildOperation{
-		Name: fmt.Sprintf("operations/build/%s/%s", project, result.ID),
-		Done: true,
+		Name: fmt.Sprintf("operations/build/%s/%s", project, build.ID),
+		Done: cbBuildTerminal(build.Status) && !stepsRunning,
 		Metadata: map[string]any{
 			"@type": "type.googleapis.com/google.devtools.cloudbuild.v1.BuildOperationMetadata",
-			"build": result,
+			"build": build,
 		},
 	}
-	if result.Status == "SUCCESS" {
-		op.Response = map[string]any{"@type": "type.googleapis.com/google.devtools.cloudbuild.v1.Build"}
-		for k, v := range structToMap(result) {
-			op.Response[k] = v
-		}
-	} else {
-		op.Error = cloudBuildOperationError(result)
+	if !op.Done {
+		return op
 	}
-	sim.WriteJSON(w, http.StatusOK, op)
+	if build.Status == "SUCCESS" {
+		op.Response = gcpOperationAny(build, "type.googleapis.com/google.devtools.cloudbuild.v1.Build")
+	} else {
+		op.Error = cloudBuildOperationError(build)
+	}
+	return op
+}
+
+// startCloudBuild runs a recorded QUEUED build in the background and returns
+// it as it stands, which is what CreateBuild and the methods that start a
+// build answer with: the operation comes back at once and completes when the
+// build ends.
+func startCloudBuild(build Build) Build {
+	bg.Go(func() { executeCancellableBuild(context.Background(), build) })
+	return build
 }
 
 func registerCloudBuildRegional(srv *sim.Server) {
@@ -225,7 +256,7 @@ func registerCloudBuildRegional(srv *sim.Server) {
 		build.CreateTime = time.Now().UTC().Format(time.RFC3339)
 		build.Name = fmt.Sprintf("projects/%s/locations/%s/builds/%s", project, location, build.ID)
 		cbBuilds.Put(build.ID, build)
-		cbWriteBuildOperation(w, project, executeCancellableBuild(r.Context(), build))
+		cbWriteBuildOperation(w, project, startCloudBuild(build))
 	})
 
 	// Global trigger colon-verbs. The regional ones arrive through Eventarc's

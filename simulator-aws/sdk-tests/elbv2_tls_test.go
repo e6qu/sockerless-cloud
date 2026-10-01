@@ -2,6 +2,7 @@ package aws_sdk_test
 
 import (
 	"crypto/tls"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -163,21 +164,19 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 		},
 	}
 
-	var body string
-	for i := 0; i < 50; i++ {
-		resp, err := client.Get("https://" + endpoint + "/")
-		if err == nil {
-			buf := make([]byte, 64)
-			n, _ := resp.Body.Read(buf)
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				body = string(buf[:n])
-				break
-			}
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	assert.Equal(t, "https-terminated", body, "HTTPS listener must terminate TLS and forward plain HTTP to the target")
+	// The listener forwards only to a target the health checker has put in
+	// service.
+	waitForELBv2TargetHealth(t, tgArn,
+		elbtypes.TargetDescription{Id: aws.String(targetHost), Port: aws.Int32(int32(targetPort))},
+		elbtypes.TargetHealthStateEnumHealthy)
+
+	resp, err := client.Get("https://" + endpoint + "/")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "https-terminated", string(body), "HTTPS listener must terminate TLS and forward plain HTTP to the target")
 }
 
 // TestELBv2_NLBTLSListenerTerminatesTLS proves a Network Load Balancer TLS
@@ -319,16 +318,9 @@ func TestELBv2_NLBTLSListenerTerminatesTLS(t *testing.T) {
 	// (proving termination), then the decrypted byte stream round-trips to the
 	// raw-TCP target.
 	tlsDialer := &tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}}
-	var conn *tls.Conn
-	for i := 0; i < 50; i++ {
-		c, err := tlsDialer.DialContext(ctx, "tcp", endpoint)
-		if err == nil {
-			conn = c.(*tls.Conn)
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	require.NotNil(t, conn, "TLS handshake to NLB TLS listener must complete")
+	c, err := tlsDialer.DialContext(ctx, "tcp", endpoint)
+	require.NoError(t, err, "TLS handshake to NLB TLS listener must complete")
+	conn := c.(*tls.Conn)
 	defer conn.Close()
 
 	require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))

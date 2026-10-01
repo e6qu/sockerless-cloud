@@ -190,24 +190,21 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 	require.ElementsMatch(t, []string{"extra", "keepme", "report"}, backupCLIWebJobs(t, site),
 		"a deployment merges: it does not remove files it does not carry")
 
-	runCLI(t, azRest("POST", backupCLIURL("sites/"+site+"/backups/"+backupID+"/restore"),
+	azRestLongRunning(t, "POST", backupCLIURL("sites/"+site+"/backups/"+backupID+"/restore"),
 		fmt.Sprintf(`{"properties":{"storageAccountUrl":%q,"blobName":%q,"overwrite":true}}`,
-			containerURL, item.Properties.BlobName)))
-	backupCLIAwait(t, func() bool {
-		return len(backupCLIWebJobs(t, site)) == 2
-	}, "the restore must reinstate exactly the backed-up file set")
-	assert.ElementsMatch(t, []string{"keepme", "report"}, backupCLIWebJobs(t, site))
+			containerURL, item.Properties.BlobName))
+	assert.ElementsMatch(t, []string{"keepme", "report"}, backupCLIWebJobs(t, site),
+		"the restore must reinstate exactly the backed-up file set")
 
 	// RestoreFromBackupBlob into a second app.
 	target := "cli-backup-target"
 	runCLI(t, azRest("PUT", backupCLIURL("sites/"+target), `{"location":"eastus","kind":"functionapp"}`))
 	t.Cleanup(func() { _ = azRest("DELETE", backupCLIURL("sites/"+target), "").Run() })
-	runCLI(t, azRest("POST", backupCLIURL("sites/"+target+"/restoreFromBackupBlob"),
+	azRestLongRunning(t, "POST", backupCLIURL("sites/"+target+"/restoreFromBackupBlob"),
 		fmt.Sprintf(`{"properties":{"storageAccountUrl":%q,"blobName":%q,"overwrite":true}}`,
-			containerURL, item.Properties.BlobName)))
-	backupCLIAwait(t, func() bool {
-		return len(backupCLIWebJobs(t, target)) == 2
-	}, "the archive must restore into a different app")
+			containerURL, item.Properties.BlobName))
+	assert.ElementsMatch(t, []string{"keepme", "report"}, backupCLIWebJobs(t, target),
+		"the archive must restore into a different app")
 
 	var snaps struct {
 		Value []struct {
@@ -275,11 +272,10 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 	recovered := "cli-backup-recovered"
 	runCLI(t, azRest("PUT", backupCLIURL("sites/"+recovered), `{"location":"eastus","kind":"functionapp"}`))
 	t.Cleanup(func() { _ = azRest("DELETE", backupCLIURL("sites/"+recovered), "").Run() })
-	runCLI(t, azRest("POST", backupCLIURL("sites/"+recovered+"/restoreFromDeletedApp"),
-		fmt.Sprintf(`{"properties":{"deletedSiteId":"%d","recoverConfiguration":true}}`, deletedID)))
-	backupCLIAwait(t, func() bool {
-		return len(backupCLIWebJobs(t, recovered)) == 2
-	}, "the deleted app's content must be restored into the recovery app")
+	azRestLongRunning(t, "POST", backupCLIURL("sites/"+recovered+"/restoreFromDeletedApp"),
+		fmt.Sprintf(`{"properties":{"deletedSiteId":"%d","recoverConfiguration":true}}`, deletedID))
+	assert.Len(t, backupCLIWebJobs(t, recovered), 2,
+		"the deleted app's content must be restored into the recovery app")
 }
 
 // backupCLIDeploy publishes a package through the MSDeploy extension and waits
@@ -288,16 +284,14 @@ func backupCLIDeploy(t *testing.T, site string, files map[string]string) {
 	t.Helper()
 	pkgURL := stage3ServeZip(t, stage3Zip(t, files))
 	msDeploy := backupCLIURL("sites/" + site + "/extensions/MSDeploy")
-	runCLI(t, azRest("PUT", msDeploy, fmt.Sprintf(`{"properties":{"packageUri":%q}}`, pkgURL)))
-	backupCLIAwait(t, func() bool {
-		var status struct {
-			Properties struct {
-				ProvisioningState string `json:"provisioningState"`
-			} `json:"properties"`
-		}
-		parseJSON(t, runCLI(t, azRest("GET", msDeploy, "")), &status)
-		return status.Properties.ProvisioningState == "succeeded"
-	}, "MSDeploy provisioningState")
+	azRestLongRunning(t, "PUT", msDeploy, fmt.Sprintf(`{"properties":{"packageUri":%q}}`, pkgURL))
+	var status struct {
+		Properties struct {
+			ProvisioningState string `json:"provisioningState"`
+		} `json:"properties"`
+	}
+	parseJSON(t, runCLI(t, azRest("GET", msDeploy, "")), &status)
+	require.Equal(t, "succeeded", status.Properties.ProvisioningState, "MSDeploy provisioningState")
 }
 
 // backupCLIWebJobs lists the site's discovered webjobs, the observable
@@ -319,21 +313,4 @@ func backupCLIWebJobs(t *testing.T, site string) []string {
 		out = append(out, name)
 	}
 	return out
-}
-
-// backupCLIAwait polls a long-running operation's observable effect. The
-// restores are declared long-running, so the caller sees the accepted response
-// before the work lands.
-func backupCLIAwait(t *testing.T, done func() bool, what string) {
-	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		if done() {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
 }

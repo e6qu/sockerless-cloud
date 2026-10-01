@@ -1257,6 +1257,10 @@ output "redis_instance_host" {
   value = google_redis_instance.tf_redis.host
 }
 
+output "redis_instance_port" {
+  value = google_redis_instance.tf_redis.port
+}
+
 output "sql_instance_connection_name" {
   value = google_sql_database_instance.tf_sql.connection_name
 }

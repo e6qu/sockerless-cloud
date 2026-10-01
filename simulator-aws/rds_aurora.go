@@ -21,18 +21,21 @@ func rdsIsAurora(engine string) bool {
 	return strings.EqualFold(engine, "aurora-postgresql") || strings.EqualFold(engine, "aurora-mysql")
 }
 
-func rdsClusterVolume(clusterID string) string { return "sockerless-rds-cluster-" + clusterID }
+func rdsClusterVolume(clusterID string) string { return rdsVolume("cluster", clusterID) }
 
 // rdsAuroraDataPlane is an Aurora cluster's engine over its cluster volume.
 // Every Aurora instance reads the one cluster volume, so the writer and
 // reader endpoints and each member's instance endpoint relay to the one
-// engine while an instance stands behind them.
+// engine while an instance stands behind them. A session that reaches an
+// Aurora Replica enters the engine through replicaAddress, which runs it
+// read-only.
 type rdsAuroraDataPlane struct {
-	clusterID     string
-	engine        *dbengine.Instance
-	engineAddress string
-	writer        net.Listener
-	reader        net.Listener
+	clusterID      string
+	engine         *dbengine.Instance
+	engineAddress  string
+	replicaAddress string
+	writer         net.Listener
+	reader         net.Listener
 }
 
 var (
@@ -72,14 +75,21 @@ func rdsInstallAuroraDataPlane(cluster *RDSCluster, masterPassword string) error
 	if err != nil {
 		return fmt.Errorf("allocate Aurora engine address: %w", err)
 	}
+	replicaListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		_ = engineListener.Close()
+		return fmt.Errorf("allocate Aurora Replica engine address: %w", err)
+	}
 	writer, err := rdsListenForEndpoint(cluster.Endpoint, cluster.Port, id+".cluster")
 	if err != nil {
 		_ = engineListener.Close()
+		_ = replicaListener.Close()
 		return fmt.Errorf("allocate Aurora cluster endpoint: %w", err)
 	}
 	reader, err := rdsListenForEndpoint(cluster.ReaderEndpoint, cluster.Port, id+".cluster-ro")
 	if err != nil {
 		_ = engineListener.Close()
+		_ = replicaListener.Close()
 		_ = writer.Close()
 		return fmt.Errorf("allocate Aurora reader endpoint: %w", err)
 	}
@@ -87,16 +97,18 @@ func rdsInstallAuroraDataPlane(cluster *RDSCluster, masterPassword string) error
 	readerIP, readerErr := rdsListenerIP(reader)
 	if writerErr != nil || readerErr != nil {
 		_ = engineListener.Close()
+		_ = replicaListener.Close()
 		_ = writer.Close()
 		_ = reader.Close()
 		return fmt.Errorf("allocate Aurora endpoints: %w", errors.Join(writerErr, readerErr))
 	}
 	cluster.Endpoint, cluster.ReaderEndpoint = writerIP, readerIP
 	plane := &rdsAuroraDataPlane{
-		clusterID:     id,
-		engineAddress: engineListener.Addr().String(),
-		writer:        writer,
-		reader:        reader,
+		clusterID:      id,
+		engineAddress:  engineListener.Addr().String(),
+		replicaAddress: replicaListener.Addr().String(),
+		writer:         writer,
+		reader:         reader,
 	}
 	plane.engine = &dbengine.Instance{
 		Name:         "Amazon Aurora " + id,
@@ -113,6 +125,7 @@ func rdsInstallAuroraDataPlane(cluster *RDSCluster, masterPassword string) error
 	}
 	rdsAuroraDataPlanes.Store(id, plane)
 	plane.engine.Serve(engineListener)
+	plane.engine.ServeReadOnly(replicaListener)
 	rdsServeRelay(writer, plane.writerTarget)
 	rdsServeRelay(reader, plane.readerTarget)
 	return nil
@@ -256,19 +269,61 @@ func (plane *rdsAuroraDataPlane) writerTarget() (string, bool) {
 	return plane.engineAddress, true
 }
 
-// readerTarget is the engine while any instance is available: the reader
-// endpoint connects to the writer when the cluster has no Aurora Replica.
+// readerTarget is an available Aurora Replica, whose sessions are read-only.
+// The reader endpoint connects to the writer instead, read-write, while the
+// cluster has no available Aurora Replica.
 func (plane *rdsAuroraDataPlane) readerTarget() (string, bool) {
 	cluster, ok := rdsClusters.Get(plane.clusterID)
 	if !ok || cluster.Status != "available" {
 		return "", false
 	}
-	for _, member := range rdsClusterMembers(plane.clusterID) {
-		if member.DBInstanceStatus == "available" {
-			return plane.engineAddress, true
+	members := rdsClusterMembers(plane.clusterID)
+	for index, member := range members {
+		if index > 0 && member.DBInstanceStatus == "available" {
+			return plane.replicaAddress, true
 		}
 	}
+	if len(members) > 0 && members[0].DBInstanceStatus == "available" {
+		return plane.engineAddress, true
+	}
 	return "", false
+}
+
+// instanceTarget is the engine behind a member's instance endpoint: read-write
+// for the cluster's writer, read-only for an Aurora Replica.
+func (plane *rdsAuroraDataPlane) instanceTarget(instanceID string) (string, bool) {
+	if cluster, ok := rdsClusters.Get(plane.clusterID); !ok || cluster.Status != "available" {
+		return "", false
+	}
+	for index, member := range rdsClusterMembers(plane.clusterID) {
+		if member.DBInstanceIdentifier != instanceID {
+			continue
+		}
+		if member.DBInstanceStatus != "available" {
+			return "", false
+		}
+		if index == 0 {
+			return plane.engineAddress, true
+		}
+		return plane.replicaAddress, true
+	}
+	return "", false
+}
+
+// rdsAuroraInstanceTarget resolves an Aurora member's instance endpoint at
+// each connection, through whichever data plane its cluster runs then.
+func rdsAuroraInstanceTarget(instanceID string) func() (string, bool) {
+	return func() (string, bool) {
+		member, ok := rdsInstances.Get(instanceID)
+		if !ok {
+			return "", false
+		}
+		plane, ok := rdsLoadAuroraDataPlane(member.DBClusterIdentifier)
+		if !ok {
+			return "", false
+		}
+		return plane.instanceTarget(instanceID)
+	}
 }
 
 // rdsInstallAuroraInstanceEndpoint binds an Aurora member's instance endpoint
@@ -287,19 +342,8 @@ func rdsInstallAuroraInstanceEndpoint(instance *RDSInstance) error {
 		return err
 	}
 	instance.Endpoint = endpointIP
-	id := instance.DBInstanceIdentifier
-	rdsAuroraInstanceEndpoints.Store(id, listener)
-	rdsServeRelay(listener, func() (string, bool) {
-		member, ok := rdsInstances.Get(id)
-		if !ok || member.DBInstanceStatus != "available" {
-			return "", false
-		}
-		plane, ok := rdsLoadAuroraDataPlane(member.DBClusterIdentifier)
-		if !ok {
-			return "", false
-		}
-		return plane.engineAddress, true
-	})
+	rdsAuroraInstanceEndpoints.Store(instance.DBInstanceIdentifier, listener)
+	rdsServeRelay(listener, rdsAuroraInstanceTarget(instance.DBInstanceIdentifier))
 	return nil
 }
 
@@ -327,6 +371,9 @@ func rdsStopAuroraDataPlane(clusterID string, deleteVolume bool) error {
 			}
 		}
 	}
+	if deleteVolume {
+		rdsRemoveEngineContainers("Amazon Aurora "+clusterID, map[string]string{"sockerless-rds-cluster": clusterID})
+	}
 	if deleteVolume && sim.VolumeExists(rdsClusterVolume(clusterID)) {
 		if err := sim.RemoveVolume(rdsClusterVolume(clusterID)); err != nil {
 			log.Printf("Amazon Aurora %s: remove cluster volume: %v", clusterID, err)
@@ -335,11 +382,32 @@ func rdsStopAuroraDataPlane(clusterID string, deleteVolume bool) error {
 	return stopErr
 }
 
+// rdsDeletingCluster reports whether id still names the deleting cluster whose
+// DbClusterResourceId is resourceID, the one generation a deletion's teardown
+// may touch.
+func rdsDeletingCluster(id, resourceID string) bool {
+	cluster, ok := rdsClusters.Get(id)
+	return ok && cluster.Status == "deleting" && cluster.DbClusterResourceId == resourceID
+}
+
+// rdsFinishClusterDeletion stops the deleting cluster's engine, removes its
+// cluster volume and drops its record, which held the identifier until then.
+func rdsFinishClusterDeletion(id, resourceID string) {
+	if !rdsDeletingCluster(id, resourceID) {
+		return
+	}
+	// The cluster goes either way; rdsStopAuroraDataPlane logs a failed stop.
+	_ = rdsStopAuroraDataPlane(id, true)
+	if rdsDeletingCluster(id, resourceID) {
+		rdsClusters.Delete(id)
+	}
+}
+
 // rdsRecoverAuroraDataPlanes reinstalls the data planes of the Aurora
 // clusters a previous process served and adopts their engines.
 func rdsRecoverAuroraDataPlanes() error {
 	for _, cluster := range rdsClusters.List() {
-		serving := cluster.Status == "available" || cluster.Status == "stopping"
+		serving := cluster.Status == "available" || cluster.Status == "stopping" || cluster.Status == "creating"
 		if !rdsIsAurora(cluster.Engine) || !serving || len(cluster.MasterUserSecret) == 0 {
 			continue
 		}
@@ -449,15 +517,8 @@ func rdsRebindAuroraPort(cluster *RDSCluster, port int) error {
 			continue
 		}
 		rdsCloseAuroraInstanceEndpoint(member.DBInstanceIdentifier)
-		id := member.DBInstanceIdentifier
-		rdsAuroraInstanceEndpoints.Store(id, listener)
-		rdsServeRelay(listener, func() (string, bool) {
-			current, ok := rdsInstances.Get(id)
-			if !ok || current.DBInstanceStatus != "available" {
-				return "", false
-			}
-			return plane.engineAddress, true
-		})
+		rdsAuroraInstanceEndpoints.Store(member.DBInstanceIdentifier, listener)
+		rdsServeRelay(listener, rdsAuroraInstanceTarget(member.DBInstanceIdentifier))
 	}
 	cluster.Port = port
 	return nil

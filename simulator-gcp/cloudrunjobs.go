@@ -340,6 +340,7 @@ type Execution struct {
 	FailedCount    int32             `json:"failedCount"`
 	CancelledCount int32             `json:"cancelledCount"`
 	Conditions     []Condition       `json:"conditions,omitempty"`
+	Job            string            `json:"job,omitempty"`
 	TaskCount      int32             `json:"taskCount"`
 	Template       *TaskTemplate     `json:"template,omitempty"`
 	Etag           string            `json:"etag,omitempty"`
@@ -428,43 +429,16 @@ type OperationError struct {
 }
 
 // newLRO creates a completed Long-Running Operation and persists it so
-// subsequent GET /operations/{op} polls return the same record. The sim does
-// no asynchronous work, so the operation is always returned with `done=true`
-// and the embedded response — that matches what real Cloud Run returns once
-// the underlying resource has settled.
+// subsequent GET /operations/{op} polls return the same record, for the methods
+// whose work the request that returns the operation already finished.
 //
 // metadata builds the metadata message the method declares; each service
 // supplies its own, since the message belongs to the API and not to the
 // response type.
 func newLRO(project, location string, resource any, typeName string, metadata gcpOperationMetadata) Operation {
-	opID := sim.NewUUID()
-	// Convert resource to a map and add @type for protobuf Any compatibility.
-	// GCP REST clients expect the response field to be a google.protobuf.Any
-	// which requires @type in the JSON representation.
-	//
-	// resource is always an in-process struct we declared; Marshal can only
-	// fail on unsupported types (chan/func/unsafe.Pointer). Surface that
-	// loudly rather than silently emitting an empty Operation — a regression
-	// here would be invisible in production and break every consuming SDK.
-	var responseMap map[string]any
-	if resource != nil {
-		data, err := json.Marshal(resource)
-		if err != nil {
-			panic(fmt.Errorf("newLRO: marshal %s resource: %w", typeName, err))
-		}
-		if err := json.Unmarshal(data, &responseMap); err != nil {
-			panic(fmt.Errorf("newLRO: unmarshal %s response to map: %w", typeName, err))
-		}
-		if responseMap == nil {
-			responseMap = map[string]any{}
-		}
-		responseMap["@type"] = typeName
-	} else {
-		responseMap = map[string]any{"@type": typeName}
-	}
-
+	responseMap := gcpOperationAny(resource, typeName)
 	op := Operation{
-		Name:     fmt.Sprintf("projects/%s/locations/%s/operations/%s", project, location, opID),
+		Name:     fmt.Sprintf("projects/%s/locations/%s/operations/%s", project, location, sim.NewUUID()),
 		Metadata: metadata(responseMap),
 		Done:     true,
 		Response: responseMap,
@@ -475,8 +449,119 @@ func newLRO(project, location string, resource any, typeName string, metadata gc
 	return op
 }
 
+// gcpOperationAny renders resource as the JSON spelling of a
+// google.protobuf.Any holding typeName, which is what an operation's response
+// and metadata members carry.
+func gcpOperationAny(resource any, typeName string) map[string]any {
+	if resource == nil {
+		return map[string]any{"@type": typeName}
+	}
+	// resource is always a struct this package declares, so Marshal fails only
+	// on a type it cannot encode — a regression that would break every SDK
+	// reading the operation, and so fails loudly.
+	data, err := json.Marshal(resource)
+	if err != nil {
+		panic(fmt.Errorf("marshal %s operation payload: %w", typeName, err))
+	}
+	var body map[string]any
+	if err := json.Unmarshal(data, &body); err != nil {
+		panic(fmt.Errorf("unmarshal %s operation payload to map: %w", typeName, err))
+	}
+	if body == nil {
+		body = map[string]any{}
+	}
+	body["@type"] = typeName
+	return body
+}
+
 func cloudRunLRO(project, location string, resource any, typeName string) Operation {
 	return newLRO(project, location, resource, typeName, gcpResourceOperationMetadata)
+}
+
+const cloudRunExecutionType = "type.googleapis.com/google.cloud.run.v2.Execution"
+
+// startCloudRunJobRunOperation records the operation RunJob returns. The method
+// declares Execution as both its response and its metadata, and Cloud Run
+// completes the operation only when the execution finishes, so the operation
+// starts out running with the execution as its metadata.
+func startCloudRunJobRunOperation(project, location string, exec Execution) Operation {
+	op := Operation{
+		Name:     gcpLocationOperationName(project, location, sim.NewUUID()),
+		Metadata: gcpOperationAny(exec, cloudRunExecutionType),
+	}
+	crOperations.Put(op.Name, op)
+	// The execution may have finished before the record above existed, and
+	// its settle then had no operation to complete.
+	if current, ok := crjExecutions.Get(exec.Name); ok && current.CompletionTime != "" {
+		finishCloudRunJobRunOperations(exec.Name)
+	}
+	if current, ok := crOperations.Get(op.Name); ok {
+		return current
+	}
+	return op
+}
+
+// finishCloudRunJobRunOperations completes the RunJob operation that started
+// the execution named execName, from the execution's final record: a succeeded
+// execution is the operation's response, and one that failed or was cancelled
+// is the operation's error. An execution deleted while it ran leaves nothing to
+// respond with.
+func finishCloudRunJobRunOperations(execName string) {
+	if crOperations == nil {
+		return
+	}
+	running := crOperations.Filter(func(op Operation) bool {
+		return !op.Done && op.Metadata["@type"] == cloudRunExecutionType && op.Metadata["name"] == execName
+	})
+	if len(running) == 0 {
+		return
+	}
+	exec, found := crjExecutions.Get(execName)
+	for _, op := range running {
+		gcpFinishOperation(op.Name, func(o *Operation) {
+			if !found {
+				o.Error = &OperationError{Code: int(codes.NotFound),
+					Message: fmt.Sprintf("execution %q was deleted before it finished", execName)}
+				return
+			}
+			body := gcpOperationAny(exec, cloudRunExecutionType)
+			o.Metadata = body
+			if failure := cloudRunExecutionOperationError(exec); failure != nil {
+				o.Error = failure
+				return
+			}
+			o.Response = body
+		})
+	}
+}
+
+// cloudRunExecutionOperationError is the error a finished execution's RunJob
+// operation carries, or nil when every task succeeded. A cancelled execution
+// reports google.rpc.Code.CANCELLED, which AIP-151 gives a cancelled operation;
+// a failed one reports the message its terminal Completed condition carries.
+func cloudRunExecutionOperationError(exec Execution) *OperationError {
+	switch {
+	case exec.CancelledCount > 0:
+		id := exec.Name[strings.LastIndex(exec.Name, "/")+1:]
+		return &OperationError{Code: int(codes.Canceled), Message: fmt.Sprintf("Execution %s was cancelled.", id)}
+	case exec.FailedCount > 0 || exec.SucceededCount < exec.TaskCount:
+		failure := &OperationError{Code: int(codes.FailedPrecondition)}
+		for _, c := range exec.Conditions {
+			if c.Type == "Completed" {
+				failure.Message = c.Message
+			}
+		}
+		return failure
+	}
+	return nil
+}
+
+// cloudRunExecutionFailureMessage is the message Cloud Run puts on a failed
+// execution's terminal conditions.
+func cloudRunExecutionFailureMessage(exec Execution) string {
+	id := exec.Name[strings.LastIndex(exec.Name, "/")+1:]
+	return fmt.Sprintf("Execution %s has failed to complete, %d/%d tasks were a success.",
+		id, exec.SucceededCount, exec.TaskCount)
 }
 
 func renameGCPOperation(op Operation, collection string) Operation {
@@ -578,6 +663,22 @@ func recoverCloudRunJobExecutions(jobs sim.Store[Job], executions sim.Store[Exec
 	}
 }
 
+// recoverCloudRunJobRunOperations completes every persisted RunJob operation
+// whose execution has already finished or no longer exists, which is what a
+// restart leaves behind when it lands between an execution settling and its
+// operation completing, or after recoverCloudRunJobExecutions settled it.
+func recoverCloudRunJobRunOperations() {
+	for _, op := range crOperations.Filter(func(op Operation) bool {
+		return !op.Done && op.Metadata["@type"] == cloudRunExecutionType
+	}) {
+		execName, _ := op.Metadata["name"].(string)
+		if exec, ok := crjExecutions.Get(execName); ok && exec.CompletionTime == "" {
+			continue
+		}
+		finishCloudRunJobRunOperations(execName)
+	}
+}
+
 // crjJobs, crjExecutions and crjTasks are the Cloud Run jobs stores. A job,
 // its executions and its tasks are each one resource addressable through two
 // API versions — the v2 resource-oriented surface and the v1 Knative
@@ -599,6 +700,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
 	}
 	recoverCloudRunJobExecutions(jobs, executions, tasks)
+	recoverCloudRunJobRunOperations()
 
 	// Create job
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/jobs", func(w http.ResponseWriter, r *http.Request) {
@@ -809,8 +911,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		}
 
 		exec := runCloudRunJob(project, location, jobID, job, request.Overrides)
-		lro := cloudRunLRO(project, location, exec, "type.googleapis.com/google.cloud.run.v2.Execution")
-		sim.WriteJSON(w, http.StatusOK, lro)
+		sim.WriteJSON(w, http.StatusOK, startCloudRunJobRunOperation(project, location, exec))
 	})
 
 	// Get execution
@@ -1061,6 +1162,7 @@ func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrid
 	exec := Execution{
 		Name:         execName,
 		UID:          sim.NewUUID(),
+		Job:          jobID,
 		Generation:   1,
 		Labels:       job.Labels,
 		Parallelism:  parallelism,
@@ -1246,18 +1348,23 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 			e.FailedCount = taskCount
 		}
 		state := "CONDITION_SUCCEEDED"
-		reason := ""
+		reason, message := "", ""
 		if !succeeded {
 			state = "CONDITION_FAILED"
 			reason = "NonZeroExitCode"
+			message = cloudRunExecutionFailureMessage(*e)
 		}
 		e.Conditions = []Condition{
-			{Type: "Ready", State: enumString(state), LastTransitionTime: completionTime, Reason: reason},
-			{Type: "Completed", State: enumString(state), LastTransitionTime: completionTime, Reason: reason},
+			{Type: "Ready", State: enumString(state), LastTransitionTime: completionTime, Reason: reason, Message: message},
+			{Type: "Completed", State: enumString(state), LastTransitionTime: completionTime, Reason: reason, Message: message},
 		}
 		e.Reconciling = false
 		e.Etag = sim.NewUUID()
 	})
+	// The RunJob operation completes once everything the execution's end
+	// writes — tasks, job reference, log lines — is in place, so a client the
+	// operation wakes reads the settled state.
+	defer finishCloudRunJobRunOperations(execName)
 	if !completed && !cancelled {
 		return
 	}

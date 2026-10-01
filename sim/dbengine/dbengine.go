@@ -133,12 +133,15 @@ type Instance struct {
 	RefusePlaintext func() (message string, refuse bool)
 	// BackendLogin names the engine account a MySQL-family session logs in as.
 	BackendLogin func(user, password string) (backendUser, backendPassword string, err error)
+	// Log receives the engine container's output, each line dated by the
+	// container runtime. An adopted container replays its whole output, so
+	// the sink sees lines it already holds again. Nil discards the output.
+	Log sim.LogSink
 
-	listener net.Listener
-
-	mu      sync.RWMutex
-	backend string
-	handle  *sim.ContainerHandle
+	mu        sync.RWMutex
+	listeners []net.Listener
+	backend   string
+	handle    *sim.ContainerHandle
 
 	startMu   sync.Mutex
 	attempted bool
@@ -146,23 +149,37 @@ type Instance struct {
 }
 
 // Serve accepts clients on listener until Close.
-func (i *Instance) Serve(listener net.Listener) {
-	i.listener = listener
+func (i *Instance) Serve(listener net.Listener) { i.serve(listener, false) }
+
+// ServeReadOnly accepts clients on listener until Close and runs each session
+// read-only in the engine, the way a replica serves it: PostgreSQL opens the
+// session with default_transaction_read_only on and MySQL sets the session's
+// transactions READ ONLY, so the engine itself refuses every write.
+func (i *Instance) ServeReadOnly(listener net.Listener) { i.serve(listener, true) }
+
+func (i *Instance) serve(listener net.Listener, readOnly bool) {
+	i.mu.Lock()
+	i.listeners = append(i.listeners, listener)
+	i.mu.Unlock()
 	go func() {
 		for {
 			client, err := listener.Accept()
 			if err != nil {
 				return
 			}
-			go i.serveConnection(client)
+			go i.serveConnection(client, readOnly)
 		}
 	}()
 }
 
 // Close stops accepting clients and stops the engine; the volume stays.
 func (i *Instance) Close() error {
-	if i.listener != nil {
-		_ = i.listener.Close()
+	i.mu.Lock()
+	listeners := i.listeners
+	i.listeners = nil
+	i.mu.Unlock()
+	for _, listener := range listeners {
+		_ = listener.Close()
 	}
 	return i.Stop()
 }
@@ -192,18 +209,20 @@ func (i *Instance) Adopt() error {
 	if len(existing) != 1 {
 		return fmt.Errorf("found %d database engine containers", len(existing))
 	}
-	backendPort := existing[0].PublishedPorts[i.Engine.Port]
-	if backendPort == 0 {
-		return fmt.Errorf("container %s has no published database port %d", existing[0].ID, i.Engine.Port)
-	}
 	if !existing[0].Running {
 		if err := sim.StartExistingContainer(existing[0].ID); err != nil {
 			return fmt.Errorf("resume database engine container %s: %w", existing[0].ID, err)
 		}
 	}
-	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{CancelGracePeriod: stopGrace}, sim.NoopSink{})
+	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{CancelGracePeriod: stopGrace}, i.logSink())
 	if err != nil {
 		return err
+	}
+	backendPort, err := handle.PublishedPort(context.Background(), i.Engine.Port)
+	if err != nil {
+		handle.Cancel()
+		_ = handle.Wait()
+		return fmt.Errorf("database engine container %s: %w", existing[0].ID, err)
 	}
 	i.mu.Lock()
 	i.backend, i.handle = net.JoinHostPort("127.0.0.1", strconv.Itoa(backendPort)), handle
@@ -258,22 +277,24 @@ func (i *Instance) start() (string, *sim.ContainerHandle, error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve database engine platform: %w", err)
 	}
-	backendPort, err := reservePort()
-	if err != nil {
-		return "", nil, err
-	}
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
 		CancelGracePeriod: stopGrace,
 		Image:             i.Engine.Image,
 		Architecture:      platform,
 		Args:              i.Engine.Args,
 		Env:               environment,
-		PublishPorts:      map[int]int{i.Engine.Port: backendPort},
+		PublishPorts:      []int{i.Engine.Port},
 		Binds:             []string{i.Volume + ":" + i.Engine.DataPath},
 		Labels:            i.Labels,
 		Sandbox:           i.Sandbox,
-	}, sim.NoopSink{})
+	}, i.logSink())
 	if err != nil {
+		return "", nil, fmt.Errorf("start %s database engine: %w", i.Engine.Family, err)
+	}
+	backendPort, err := handle.PublishedPort(context.Background(), i.Engine.Port)
+	if err != nil {
+		handle.Cancel()
+		_ = handle.Wait()
 		return "", nil, fmt.Errorf("start %s database engine: %w", i.Engine.Family, err)
 	}
 	backend := net.JoinHostPort("127.0.0.1", strconv.Itoa(backendPort))
@@ -283,20 +304,11 @@ func (i *Instance) start() (string, *sim.ContainerHandle, error) {
 	return backend, handle, nil
 }
 
-func reservePort() (int, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("allocate database engine port: %w", err)
+func (i *Instance) logSink() sim.LogSink {
+	if i.Log == nil {
+		return sim.NoopSink{}
 	}
-	address, ok := listener.Addr().(*net.TCPAddr)
-	if !ok {
-		_ = listener.Close()
-		return 0, fmt.Errorf("database engine listener returned address type %T", listener.Addr())
-	}
-	if err := listener.Close(); err != nil {
-		return 0, fmt.Errorf("release database engine port: %w", err)
-	}
-	return address.Port, nil
+	return i.Log
 }
 
 func awaitReady(engine Engine, backend string, handle *sim.ContainerHandle) error {
@@ -395,7 +407,7 @@ func (i *Instance) Exec(command []string) error {
 	return nil
 }
 
-func (i *Instance) serveConnection(client net.Conn) {
+func (i *Instance) serveConnection(client net.Conn, readOnly bool) {
 	defer client.Close()
 	if err := i.Ensure(); err != nil {
 		log.Printf("%s data plane: %v", i.Name, err)
@@ -404,20 +416,21 @@ func (i *Instance) serveConnection(client net.Conn) {
 	backendAddress, _ := i.snapshot()
 	var err error
 	if i.Engine.Family == Postgres {
-		err = i.servePostgres(client, backendAddress)
+		err = i.servePostgres(client, backendAddress, readOnly)
 	} else {
-		err = i.serveMySQL(client, backendAddress)
+		err = i.serveMySQL(client, backendAddress, readOnly)
 	}
 	if err != nil {
 		log.Printf("%s %s session: %v", i.Name, i.Engine.Family, err)
 	}
 }
 
-func (i *Instance) servePostgres(client net.Conn, backendAddress string) error {
+func (i *Instance) servePostgres(client net.Conn, backendAddress string, readOnly bool) error {
 	frontend := pgwire.Frontend{
 		Certificate:     i.Certificate,
 		RefusePlaintext: i.RefusePlaintext,
 		Authenticate:    i.Authenticate,
+		ReadOnly:        readOnly,
 	}
 	startup, session, err := frontend.Accept(client)
 	if err != nil {
@@ -438,7 +451,7 @@ func (i *Instance) servePostgres(client net.Conn, backendAddress string) error {
 	return nil
 }
 
-func (i *Instance) serveMySQL(client net.Conn, backendAddress string) error {
+func (i *Instance) serveMySQL(client net.Conn, backendAddress string, readOnly bool) error {
 	backend, err := net.DialTimeout("tcp", backendAddress, 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("dial engine: %w", err)
@@ -448,6 +461,7 @@ func (i *Instance) serveMySQL(client net.Conn, backendAddress string) error {
 		Certificate:  i.Certificate,
 		Authenticate: i.Authenticate,
 		BackendLogin: i.BackendLogin,
+		ReadOnly:     readOnly,
 	}
 	session, err := frontend.Accept(client, backend)
 	if err != nil {

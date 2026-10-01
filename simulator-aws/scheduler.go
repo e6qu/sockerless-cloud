@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -98,7 +100,6 @@ func registerScheduler(srv *sim.Server) {
 		})
 	})
 
-	// Evaluate ScheduleExpressions and invoke due targets (ECS/Lambda/SQS/SNS).
 	registerSchedulerDelivery(srv)
 	startSchedulerFiringLoop(srv, schedules, schedulerFireRecs)
 }
@@ -199,6 +200,9 @@ func handleSchedulerCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.FlexibleTimeWindow == nil {
 		schedulerError(w, "ValidationException", http.StatusBadRequest, "FlexibleTimeWindow is required")
+		return
+	}
+	if !schedulerValidateRanges(w, req.Target, req.FlexibleTimeWindow) {
 		return
 	}
 	key := scheduleKey(group, name)
@@ -312,6 +316,9 @@ func handleSchedulerUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	if !schedulerValidateExpression(w, req.ScheduleExpression, req.ScheduleExpressionTimezone) {
 		return
 	}
+	if !schedulerValidateRanges(w, req.Target, req.FlexibleTimeWindow) {
+		return
+	}
 	key := scheduleKey(group, name)
 	existing, ok := schedules.Get(key)
 	if !ok {
@@ -356,6 +363,9 @@ func handleSchedulerDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 
 func handleSchedulerListSchedules(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	if !schedulerValidateMaxResults(w, q.Get("MaxResults")) {
+		return
+	}
 	groupFilter := q.Get("ScheduleGroup")
 	namePrefix := q.Get("NamePrefix")
 	stateFilter := q.Get("State")
@@ -390,7 +400,28 @@ func handleSchedulerListSchedules(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, item)
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Schedules": out})
+	page, next, ok := schedulerPage(w, out, q)
+	if !ok {
+		return
+	}
+	resp := map[string]any{"Schedules": page}
+	if next != "" {
+		resp["NextToken"] = next
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
+}
+
+// schedulerMaxResults is the largest page the list operations' MaxResults
+// range admits, and the page size when a request names none.
+const schedulerMaxResults = 100
+
+func schedulerPage(w http.ResponseWriter, items []map[string]any, q url.Values) ([]map[string]any, string, bool) {
+	size, _ := strconv.Atoi(q.Get("MaxResults"))
+	return awsPage(w, schedulerBadToken, items, q.Get("NextToken"), size, schedulerMaxResults)
+}
+
+var schedulerBadToken awsBadToken = func(w http.ResponseWriter, token string) {
+	schedulerError(w, "ValidationException", http.StatusBadRequest, "%s", awsBadTokenMessage(token))
 }
 
 // targetARN extracts the Arn from a stored Target JSON object, for the
@@ -625,6 +656,9 @@ func handleSchedulerListTagsForResource(w http.ResponseWriter, r *http.Request) 
 }
 
 func handleSchedulerListScheduleGroups(w http.ResponseWriter, r *http.Request) {
+	if !schedulerValidateMaxResults(w, r.URL.Query().Get("MaxResults")) {
+		return
+	}
 	namePrefix := r.URL.Query().Get("NamePrefix")
 	groups := scheduleGroups.List()
 	groups = sortBy(groups, func(g ScheduleGroup) string { return g.Name })
@@ -644,7 +678,15 @@ func handleSchedulerListScheduleGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, scheduleGroupToJSON(g))
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"ScheduleGroups": out})
+	page, next, ok := schedulerPage(w, out, r.URL.Query())
+	if !ok {
+		return
+	}
+	resp := map[string]any{"ScheduleGroups": page}
+	if next != "" {
+		resp["NextToken"] = next
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
 // schedulerValidateExpression rejects, as Amazon EventBridge Scheduler does at
@@ -664,4 +706,97 @@ func schedulerValidateExpression(w http.ResponseWriter, expr, timezone string) b
 		return false
 	}
 	return true
+}
+
+// schedulerRange is one integer member and the smithy.api#range trait its
+// shape declares in the Amazon EventBridge Scheduler model.
+type schedulerRange struct {
+	path     string
+	value    *int64
+	min, max int64
+}
+
+// schedulerValidateRanges rejects a Target or FlexibleTimeWindow whose integer
+// members fall outside the ranges the model declares.
+func schedulerValidateRanges(w http.ResponseWriter, target, window json.RawMessage) bool {
+	var t struct {
+		RetryPolicy *struct {
+			MaximumEventAgeInSeconds *int64 `json:"MaximumEventAgeInSeconds"`
+			MaximumRetryAttempts     *int64 `json:"MaximumRetryAttempts"`
+		} `json:"RetryPolicy"`
+		EcsParameters *struct {
+			TaskCount                *int64 `json:"TaskCount"`
+			CapacityProviderStrategy []struct {
+				Weight *int64 `json:"weight"`
+				Base   *int64 `json:"base"`
+			} `json:"CapacityProviderStrategy"`
+		} `json:"EcsParameters"`
+	}
+	var f struct {
+		MaximumWindowInMinutes *int64 `json:"MaximumWindowInMinutes"`
+	}
+	if len(target) > 0 {
+		if err := json.Unmarshal(target, &t); err != nil {
+			schedulerError(w, "ValidationException", http.StatusBadRequest, "invalid request body: %v", err)
+			return false
+		}
+	}
+	if len(window) > 0 {
+		if err := json.Unmarshal(window, &f); err != nil {
+			schedulerError(w, "ValidationException", http.StatusBadRequest, "invalid request body: %v", err)
+			return false
+		}
+	}
+	ranges := []schedulerRange{{"flexibleTimeWindow.maximumWindowInMinutes", f.MaximumWindowInMinutes, 1, 1440}}
+	if t.RetryPolicy != nil {
+		ranges = append(ranges,
+			schedulerRange{"target.retryPolicy.maximumEventAgeInSeconds", t.RetryPolicy.MaximumEventAgeInSeconds, 60, 86400},
+			schedulerRange{"target.retryPolicy.maximumRetryAttempts", t.RetryPolicy.MaximumRetryAttempts, 0, 185})
+	}
+	if t.EcsParameters != nil {
+		ranges = append(ranges, schedulerRange{"target.ecsParameters.taskCount", t.EcsParameters.TaskCount, 1, 10})
+		for i, item := range t.EcsParameters.CapacityProviderStrategy {
+			member := fmt.Sprintf("target.ecsParameters.capacityProviderStrategy.%d.member", i+1)
+			ranges = append(ranges,
+				schedulerRange{member + ".weight", item.Weight, 0, 1000},
+				schedulerRange{member + ".base", item.Base, 0, 100000})
+		}
+	}
+	return schedulerCheckRanges(w, ranges)
+}
+
+// schedulerValidateMaxResults rejects a MaxResults query parameter outside
+// the model's range of 1 to 100.
+func schedulerValidateMaxResults(w http.ResponseWriter, raw string) bool {
+	if raw == "" {
+		return true
+	}
+	value, err := strconv.ParseInt(raw, 10, 32)
+	if err != nil {
+		schedulerError(w, "ValidationException", http.StatusBadRequest, "invalid MaxResults %q", raw)
+		return false
+	}
+	return schedulerCheckRanges(w, []schedulerRange{{"maxResults", &value, 1, 100}})
+}
+
+func schedulerCheckRanges(w http.ResponseWriter, ranges []schedulerRange) bool {
+	var violations []string
+	for _, r := range ranges {
+		switch {
+		case r.value == nil:
+		case *r.value < r.min:
+			violations = append(violations, fmt.Sprintf("Value '%d' at '%s' failed to satisfy constraint: Member must have value greater than or equal to %d", *r.value, r.path, r.min))
+		case *r.value > r.max:
+			violations = append(violations, fmt.Sprintf("Value '%d' at '%s' failed to satisfy constraint: Member must have value less than or equal to %d", *r.value, r.path, r.max))
+		}
+	}
+	if len(violations) == 0 {
+		return true
+	}
+	noun := "error"
+	if len(violations) > 1 {
+		noun = "errors"
+	}
+	schedulerError(w, "ValidationException", http.StatusBadRequest, "%d validation %s detected: %s", len(violations), noun, strings.Join(violations, "; "))
+	return false
 }

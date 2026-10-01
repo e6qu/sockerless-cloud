@@ -964,6 +964,7 @@ func handleSQSReceiveMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sim.DeclareWait(r.Context(), time.Duration(waitSeconds)*time.Second)
 	picked, ok := sqsLongPoll(r.Context().Done(), name, maxN, visTimeout, time.Now().Add(time.Duration(waitSeconds)*time.Second))
 	if !ok {
 		return

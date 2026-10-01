@@ -1,7 +1,6 @@
 package azure_cli_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,11 +13,14 @@ func TestEventHubsCLI_ARMResources(t *testing.T) {
 	group := "clicg"
 
 	nsURL := armURL("Microsoft.EventHub", "namespaces/"+ns, "2024-01-01")
-	nsOut := runCLI(t, azRest("PUT", nsURL, `{
+	t.Cleanup(func() {
+		_ = azRest("DELETE", nsURL, "").Run()
+	})
+	nsOut := azRestLongRunning(t, "PUT", nsURL, `{
 		"location":"eastus",
 		"sku":{"name":"Standard","tier":"Standard","capacity":1},
 		"tags":{"env":"cli"}
-	}`))
+	}`)
 	var createdNS struct {
 		Name       string `json:"name"`
 		Properties struct {
@@ -30,13 +32,8 @@ func TestEventHubsCLI_ARMResources(t *testing.T) {
 	assert.Equal(t, ns, createdNS.Name)
 	assert.Equal(t, "Creating", createdNS.Properties.ProvisioningState)
 	assert.Contains(t, createdNS.Properties.ServiceBusEndpoint, ns+".servicebus.")
-	t.Cleanup(func() {
-		_ = azRest("DELETE", nsURL, "").Run()
-	})
 
-	nsOut = waitForCLIJSON(t, nsURL, func(data string) bool {
-		return strings.Contains(data, `"provisioningState": "Succeeded"`)
-	})
+	nsOut = runCLI(t, azRest("GET", nsURL, ""))
 	parseJSON(t, nsOut, &createdNS)
 	assert.Equal(t, "Succeeded", createdNS.Properties.ProvisioningState)
 

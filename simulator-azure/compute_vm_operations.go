@@ -250,7 +250,12 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 
 	// VirtualMachines_SimulateEviction — Azure evicts a Spot machine, which
 	// stops it. It applies only to Spot machines and is refused for any other,
-	// because a regular machine is never evicted. The response carries no body.
+	// because a regular machine is never evicted. The specification declares
+	// the call no long-running operation and its only success 204 with no body:
+	// Azure accepts the eviction and carries it out afterwards, deleting an
+	// evicted machine whose eviction policy says Delete and deallocating one
+	// whose policy says Deallocate, so the machine's own state is where the
+	// eviction shows.
 	srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/simulateEviction", func(w http.ResponseWriter, r *http.Request) {
 		vm, id, ok := azureLookupVM(w, r)
 		if !ok {
@@ -262,21 +267,35 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 				id, vm.Properties.Priority)
 			return
 		}
-		if err := azureStopRealVM(r.Context(), id); err != nil {
-			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable,
-				"failed to evict the virtual machine: %v", err)
+		deletes := strings.EqualFold(vm.Properties.EvictionPolicy, "Delete")
+		priorState, _ := azureVMStates.Get(id)
+		var claimed bool
+		if deletes {
+			claimed = azureClaimVMOperationAs(id, "Deleting", "")
+		} else {
+			claimed = azureClaimVMOperation(id, "PowerState/deallocating")
+		}
+		if !claimed {
+			azureVMOperationConflict(w, "SimulateEviction", id)
 			return
 		}
-		// Azure deletes an evicted machine whose eviction policy says Delete and
-		// deallocates one whose policy says Deallocate.
-		if strings.EqualFold(vm.Properties.EvictionPolicy, "Delete") {
-			_ = azureDeleteRealVM(r.Context(), vm)
-			azureVMs.Delete(id)
-			azureVMStates.Delete(id)
-			azureVMProvisioningErrors.Delete(id)
-		} else {
+		azureRunVMWork(id, func(ctx context.Context) *AsyncOperationError {
+			if deletes {
+				if err := azureDestroyVM(ctx, vm); err != nil {
+					logger.Error().Err(err).Str("vm", id).Msg("failed to delete an evicted virtual machine")
+					return azureVMHaltFailure(id, err)
+				}
+				azureForgetVM(id)
+				return nil
+			}
+			if err := azureHaltVM(ctx, id); err != nil {
+				logger.Error().Err(err).Str("vm", id).Msg("failed to deallocate an evicted virtual machine")
+				azureVMStates.Put(id, priorState)
+				return azureVMHaltFailure(id, err)
+			}
 			azureVMStates.Put(id, "PowerState/deallocated")
-		}
+			return nil
+		})
 		w.WriteHeader(http.StatusNoContent)
 	})
 }

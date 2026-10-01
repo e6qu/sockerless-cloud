@@ -3,10 +3,10 @@
 # scripts/check-simulator-tests.sh enforces: an exemption whose reason nobody
 # wrote is indistinguishable from a test nobody wrote.
 
-# The run-log body an ACR Tasks log link points at. The SDK's part — that
-# GetLogSasUrl returns a link — is asserted by the ACR Tasks SDK test; fetching
-# the body behind it is a plain HTTP GET, which against the real registry goes
-# to an opaque blob-storage SAS URL rather than to the ACR API at all.
+# The run-log blob an ACR Tasks log link points at. The ACR Tasks SDK test reads
+# it with azblob's blob client at the link GetLogSasUrl returns, the way
+# `az acr build` streams it; against the real registry that link is an opaque
+# blob-storage SAS URL rather than an ACR API path, so no route token names it.
 GET /acr/v1/logs/{runId}
 
 # The registry's properties APIs, all dispatched from one greedy route per

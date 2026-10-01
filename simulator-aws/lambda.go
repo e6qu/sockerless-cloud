@@ -1132,9 +1132,11 @@ func handleLambdaInvoke(w http.ResponseWriter, r *http.Request) {
 		var responseBody []byte
 		var unhandled bool
 		if durableARN != "" {
+			lambdaDeclareDurableWait(r.Context(), fn)
 			lambdaStartDurableCoordinator(durableARN, fn)
 			responseBody, unhandled = lambdaWaitForDurableExecution(r.Context(), durableARN)
 		} else {
+			sim.DeclareWait(r.Context(), lambdaInvokeWaitLimit(fn))
 			responseBody, unhandled, _ = invokeLambdaViaRuntimeAPI(fn, payload)
 		}
 		if unhandled {

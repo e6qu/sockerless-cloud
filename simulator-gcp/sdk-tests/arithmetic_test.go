@@ -17,9 +17,10 @@ import (
 
 func TestCloudRun_JobArithmetic(t *testing.T) {
 	jobID := uniqueName("arith-crj")
-	execName := createAndRunJobWithImageAndCommand(t, jobID, evalImageName, []string{"(10 + 5) * 2"}, "10s")
+	run := createAndRunJobWithImageAndCommand(t, jobID, evalImageName, []string{"(10 + 5) * 2"}, "10s")
 
-	exec := waitExecutionDone(t, execName)
+	exec, err := waitJobRun(t, run)
+	require.NoError(t, err)
 	assert.Equal(t, float64(1), exec["succeededCount"])
 	assert.Equal(t, float64(0), exec["failedCount"])
 
@@ -30,9 +31,10 @@ func TestCloudRun_JobArithmetic(t *testing.T) {
 }
 
 func TestCloudRun_JobArithmeticInvalid(t *testing.T) {
-	execName := createAndRunJobWithImageAndCommand(t, uniqueName("arith-crj-fail"), evalImageName, []string{"3 +"}, "10s")
+	run := createAndRunJobWithImageAndCommand(t, uniqueName("arith-crj-fail"), evalImageName, []string{"3 +"}, "10s")
 
-	exec := waitExecutionDone(t, execName)
+	exec, err := waitJobRun(t, run)
+	require.Error(t, err, "the execution fails, and so does its RunJob operation")
 	assert.Equal(t, float64(1), exec["failedCount"])
 	assert.Equal(t, float64(0), exec["succeededCount"])
 }

@@ -7,8 +7,8 @@ require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917134425-9515e908cf03
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905213638-ef4567e91da5
-	github.com/google/uuid v1.6.0
 	github.com/go-jose/go-jose/v4 v4.1.5
+	github.com/google/uuid v1.6.0
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.6.0
 	github.com/opencontainers/image-spec v1.1.1
@@ -25,7 +25,7 @@ require (
 	go.opentelemetry.io/otel/sdk/log v0.22.0
 	go.opentelemetry.io/otel/sdk/metric v1.46.0
 	golang.org/x/sys v0.48.0
-	modernc.org/sqlite v1.59.0
+	modernc.org/sqlite v1.60.1
 )
 
 require (

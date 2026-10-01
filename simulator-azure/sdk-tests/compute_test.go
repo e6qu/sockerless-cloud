@@ -236,10 +236,19 @@ func TestCompute_VirtualMachineLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, containsVMStatus(view.Statuses, "PowerState/running"))
 
+	attached, err := nicClient.Get(ctx, rg, nicName, nil)
+	require.NoError(t, err)
+	require.NotNil(t, attached.Properties.VirtualMachine)
+	assert.True(t, strings.EqualFold(*attached.Properties.VirtualMachine.ID, *vmResp.ID))
+
 	del, err := vmClient.BeginDelete(ctx, rg, vmName, nil)
 	require.NoError(t, err)
 	_, err = del.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
+
+	detached, err := nicClient.Get(ctx, rg, nicName, nil)
+	require.NoError(t, err)
+	assert.Nil(t, detached.Properties.VirtualMachine, "the deleted VM's network interface still names it")
 }
 
 func containsVMStatus(statuses []*armcompute.InstanceViewStatus, code string) bool {

@@ -41,7 +41,7 @@ func TestRDSCLI_ClusterSnapshotAndParamGroup(t *testing.T) {
 	parseJSON(t, out, &created)
 	require.Equal(t, snapID, created.DBClusterSnapshot.DBClusterSnapshotIdentifier)
 	assert.Equal(t, clusterID, created.DBClusterSnapshot.DBClusterIdentifier)
-	assert.Equal(t, "available", created.DBClusterSnapshot.Status)
+	assert.Equal(t, "creating", created.DBClusterSnapshot.Status)
 	assert.Equal(t, "aurora-mysql", created.DBClusterSnapshot.Engine)
 	assert.Equal(t, "manual", created.DBClusterSnapshot.SnapshotType)
 	csArn := created.DBClusterSnapshot.DBClusterSnapshotArn
@@ -73,6 +73,8 @@ func TestRDSCLI_ClusterSnapshotAndParamGroup(t *testing.T) {
 	require.Len(t, tagsCS.TagList, 1)
 	assert.Equal(t, "team", tagsCS.TagList[0].Key)
 
+	runCLI(t, awsCLI("rds", "wait", "db-cluster-snapshot-available",
+		"--db-cluster-snapshot-identifier", snapID))
 	runCLI(t, awsCLI("rds", "delete-db-cluster-snapshot",
 		"--db-cluster-snapshot-identifier", snapID))
 

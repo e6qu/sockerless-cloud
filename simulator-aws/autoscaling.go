@@ -41,6 +41,31 @@ type AutoScalingGroup struct {
 	InstanceIds             []string
 	CreatedTime             string
 	Tags                    []EC2Tag
+	LaunchTemplate          ASLaunchTemplateSpec
+	// DefaultInstanceWarmup is nil until set; -1 on update clears it.
+	DefaultInstanceWarmup *int
+	// InstanceSources records what each member was launched from.
+	InstanceSources map[string]ASLaunchSource
+}
+
+// ASLaunchTemplateSpec names a launch template and the version a group
+// launches from: a version number, $Latest or $Default.
+type ASLaunchTemplateSpec struct {
+	LaunchTemplateId   string
+	LaunchTemplateName string
+	Version            string
+}
+
+func (s ASLaunchTemplateSpec) set() bool {
+	return s.LaunchTemplateId != "" || s.LaunchTemplateName != ""
+}
+
+// ASLaunchSource is what an instance launches from: a launch configuration or
+// a launch template. A member's source carries the version number it launched
+// from; a group's carries the version as configured.
+type ASLaunchSource struct {
+	LaunchConfigurationName string
+	LaunchTemplate          ASLaunchTemplateSpec
 }
 
 type ScalingActivity struct {
@@ -230,6 +255,14 @@ func handleASCreateAutoScalingGroup(w http.ResponseWriter, r *http.Request) {
 		CreatedTime:             time.Now().UTC().Format(time.RFC3339),
 		Tags:                    autoscalingTags(r),
 	}
+	asg.LaunchTemplate = asLaunchTemplateParam(r)
+	if asg.LaunchTemplate.set() {
+		if _, err := asResolveLaunchSource(asg.launchSource()); err != nil {
+			asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	asSetDefaultInstanceWarmup(&asg, r)
 	if err := reconcileAutoScalingGroup(&asg, "Created Auto Scaling group"); err != nil {
 		asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 		return
@@ -283,6 +316,15 @@ func handleASUpdateAutoScalingGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	if v := r.FormValue("LaunchConfigurationName"); v != "" {
 		asg.LaunchConfigurationName = v
+		asg.LaunchTemplate = ASLaunchTemplateSpec{}
+	}
+	if lt := asLaunchTemplateParam(r); lt.set() {
+		if _, err := asResolveLaunchSource(ASLaunchSource{LaunchTemplate: lt}); err != nil {
+			asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
+			return
+		}
+		asg.LaunchTemplate = lt
+		asg.LaunchConfigurationName = ""
 	}
 	if v := r.FormValue("MinSize"); v != "" {
 		asg.MinSize = asAtoiDefault(v, asg.MinSize)
@@ -296,11 +338,22 @@ func handleASUpdateAutoScalingGroup(w http.ResponseWriter, r *http.Request) {
 	if v := r.FormValue("VPCZoneIdentifier"); v != "" {
 		asg.VPCZoneIdentifier = v
 	}
+	asSetDefaultInstanceWarmup(&asg, r)
 	if err := reconcileAutoScalingGroup(&asg, "Updated Auto Scaling group"); err != nil {
 		asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 		return
 	}
 	asEmptyResponse(w, "UpdateAutoScalingGroup")
+}
+
+// asLaunchTemplateParam reads a request's LaunchTemplate specification, which
+// names the template by ID or name and a version selector.
+func asLaunchTemplateParam(r *http.Request) ASLaunchTemplateSpec {
+	return ASLaunchTemplateSpec{
+		LaunchTemplateId:   r.FormValue("LaunchTemplate.LaunchTemplateId"),
+		LaunchTemplateName: r.FormValue("LaunchTemplate.LaunchTemplateName"),
+		Version:            r.FormValue("LaunchTemplate.Version"),
+	}
 }
 
 func handleASSetDesiredCapacity(w http.ResponseWriter, r *http.Request) {
@@ -812,10 +865,8 @@ func handleASTerminateInstanceInAutoScalingGroup(w http.ResponseWriter, r *http.
 	decrement := r.FormValue("ShouldDecrementDesiredCapacity") == "true"
 	var owner *AutoScalingGroup
 	for _, asg := range autoScalingGroups.List() {
-		if idx := indexOfString(asg.InstanceIds, instanceID); idx >= 0 {
-			asg.InstanceIds = append(asg.InstanceIds[:idx], asg.InstanceIds[idx+1:]...)
-			ownerCopy := asg
-			owner = &ownerCopy
+		if indexOfString(asg.InstanceIds, instanceID) >= 0 {
+			owner = &asg
 			break
 		}
 	}
@@ -823,17 +874,15 @@ func handleASTerminateInstanceInAutoScalingGroup(w http.ResponseWriter, r *http.
 		asError(w, "ValidationError", fmt.Sprintf("Instance %q is not part of an Auto Scaling group", instanceID), http.StatusBadRequest)
 		return
 	}
-	terminateASGInstance(instanceID)
+	cause := fmt.Sprintf("Terminating instance %s", instanceID)
+	activity := asTerminateMember(owner, instanceID, cause)
 	if decrement && owner.DesiredCapacity > 0 {
 		owner.DesiredCapacity--
 	}
-	cause := fmt.Sprintf("Terminating instance %s", instanceID)
 	if err := reconcileAutoScalingGroup(owner, cause); err != nil {
 		asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 		return
 	}
-	activity := asNewActivity(owner.Name, "Terminating EC2 instance: "+instanceID, cause, "InProgress")
-	asFinishActivity(activity.ActivityId, "Successful", "")
 	asResponse(w, "TerminateInstanceInAutoScalingGroup", fmt.Sprintf("<Activity>%s</Activity>", scalingActivityInnerXML(activity)))
 }
 
@@ -959,9 +1008,7 @@ func autoScalingInstanceXML(instanceID string, asg AutoScalingGroup) string {
 	fmt.Fprintf(&b, "<AvailabilityZone>%s</AvailabilityZone>", xmlEscape(awsAvailabilityZone()))
 	fmt.Fprintf(&b, "<LifecycleState>%s</LifecycleState>", asInstanceLifecycleState(asg.Name, instanceID))
 	b.WriteString("<HealthStatus>HEALTHY</HealthStatus>")
-	if asg.LaunchConfigurationName != "" {
-		fmt.Fprintf(&b, "<LaunchConfigurationName>%s</LaunchConfigurationName>", xmlEscape(asg.LaunchConfigurationName))
-	}
+	b.WriteString(asLaunchSourceXML(asMemberLaunchSource(asg, instanceID)))
 	if instanceType != "" {
 		fmt.Fprintf(&b, "<InstanceType>%s</InstanceType>", xmlEscape(instanceType))
 	}
@@ -1005,45 +1052,11 @@ func indexOfString(list []string, v string) int {
 // which happens behind the request in asLaunchInstance.
 func reconcileAutoScalingGroup(asg *AutoScalingGroup, cause string) error {
 	var launches []asLaunch
-	if len(asg.InstanceIds) < asg.DesiredCapacity {
-		lc, ok := asLaunchConfigurations.Get(asg.LaunchConfigurationName)
-		if !ok {
-			return fmt.Errorf("LaunchConfiguration %q not found", asg.LaunchConfigurationName)
-		}
-		subnetID := strings.TrimSpace(strings.Split(asg.VPCZoneIdentifier, ",")[0])
-		if subnetID == "" {
-			// A group without VPCZoneIdentifier lands in the default VPC, as it
-			// does on AWS.
-			subnetID = defaultVPCSubnetID()
-		}
-		subnet, ok := ec2Subnets.Get(subnetID)
-		if !ok {
-			return fmt.Errorf("subnet %q not found", subnetID)
-		}
-		for len(asg.InstanceIds) < asg.DesiredCapacity {
-			ip, err := AllocateSubnetIP(subnetID)
-			if err != nil {
-				return err
-			}
-			inst, err := ec2CreateInstance(EC2InstanceCreateSpec{
-				Context:       context.Background(),
-				ReservationId: ec2ID("r"),
-				ImageId:       lc.ImageId,
-				InstanceType:  lc.InstanceType,
-				Subnet:        subnet,
-				SubnetId:      subnetID,
-				PrivateIP:     ip,
-				Tags:          asg.Tags,
-				LaunchTime:    time.Now().UTC().Format(time.RFC3339),
-				KeyName:       lc.KeyName,
-				State:         "pending",
-			})
-			if err != nil {
-				return err
-			}
-			asg.InstanceIds = append(asg.InstanceIds, inst.InstanceId)
-			activity := asNewActivity(asg.Name, "Launching a new EC2 instance: "+inst.InstanceId, cause, "InProgress")
-			launches = append(launches, asLaunch{instanceID: inst.InstanceId, activityID: activity.ActivityId})
+	if missing := asg.DesiredCapacity - len(asg.InstanceIds); missing > 0 {
+		var err error
+		launches, err = asLaunchMembers(asg, asGroupLaunchSource(*asg), missing, cause)
+		if err != nil {
+			return err
 		}
 	}
 	for len(asg.InstanceIds) > asg.DesiredCapacity {
@@ -1065,11 +1078,215 @@ func reconcileAutoScalingGroup(asg *AutoScalingGroup, cause string) error {
 			asFinishActivity(asNewActivity(asg.Name, "Terminating EC2 instance: "+id, cause, "InProgress").ActivityId, "Successful", "")
 		}
 	}
-	autoScalingGroups.Put(asg.Name, *asg)
-	for _, l := range launches {
-		bg.Go(func() { asLaunchInstance(asg.Name, l) })
+	for id := range asg.InstanceSources {
+		if indexOfString(asg.InstanceIds, id) < 0 {
+			delete(asg.InstanceSources, id)
+		}
 	}
+	autoScalingGroups.Put(asg.Name, *asg)
+	asStartLaunches(asg.Name, launches)
 	return nil
+}
+
+// asLaunchMembers creates n Pending members from src and a launch activity for
+// each. The caller stores the group and then boots them with asStartLaunches.
+func asLaunchMembers(asg *AutoScalingGroup, src ASLaunchSource, n int, cause string) ([]asLaunch, error) {
+	spec, err := asResolveLaunchSource(src)
+	if err != nil {
+		return nil, err
+	}
+	subnetID := strings.TrimSpace(strings.Split(asg.VPCZoneIdentifier, ",")[0])
+	if subnetID == "" {
+		// A group without VPCZoneIdentifier lands in the default VPC, as it
+		// does on AWS.
+		subnetID = defaultVPCSubnetID()
+	}
+	subnet, ok := ec2Subnets.Get(subnetID)
+	if !ok {
+		return nil, fmt.Errorf("subnet %q not found", subnetID)
+	}
+	var launches []asLaunch
+	for range n {
+		ip, err := AllocateSubnetIP(subnetID)
+		if err != nil {
+			return launches, err
+		}
+		inst, err := ec2CreateInstance(EC2InstanceCreateSpec{
+			Context:       context.Background(),
+			ReservationId: ec2ID("r"),
+			ImageId:       spec.imageID,
+			InstanceType:  spec.instanceType,
+			Subnet:        subnet,
+			SubnetId:      subnetID,
+			PrivateIP:     ip,
+			Tags:          asg.Tags,
+			LaunchTime:    time.Now().UTC().Format(time.RFC3339),
+			KeyName:       spec.keyName,
+			State:         "pending",
+		})
+		if err != nil {
+			return launches, err
+		}
+		asg.InstanceIds = append(asg.InstanceIds, inst.InstanceId)
+		if asg.InstanceSources == nil {
+			asg.InstanceSources = map[string]ASLaunchSource{}
+		}
+		asg.InstanceSources[inst.InstanceId] = spec.source
+		activity := asNewActivity(asg.Name, "Launching a new EC2 instance: "+inst.InstanceId, cause, "InProgress")
+		launches = append(launches, asLaunch{instanceID: inst.InstanceId, activityID: activity.ActivityId})
+	}
+	return launches, nil
+}
+
+func asStartLaunches(group string, launches []asLaunch) {
+	for _, l := range launches {
+		bg.Go(func() { asLaunchInstance(group, l) })
+	}
+}
+
+// asTerminateMember takes an instance out of its group and terminates it,
+// recording the termination activity.
+func asTerminateMember(asg *AutoScalingGroup, instanceID, cause string) ScalingActivity {
+	if idx := indexOfString(asg.InstanceIds, instanceID); idx >= 0 {
+		asg.InstanceIds = append(asg.InstanceIds[:idx], asg.InstanceIds[idx+1:]...)
+	}
+	delete(asg.InstanceSources, instanceID)
+	if ex, ok := asGroupExtras.Get(asg.Name); ok {
+		if idx := indexOfString(ex.StandbyInstances, instanceID); idx >= 0 {
+			ex.StandbyInstances = append(ex.StandbyInstances[:idx], ex.StandbyInstances[idx+1:]...)
+		}
+		if idx := indexOfString(ex.ProtectedInstances, instanceID); idx >= 0 {
+			ex.ProtectedInstances = append(ex.ProtectedInstances[:idx], ex.ProtectedInstances[idx+1:]...)
+		}
+		asGroupExtras.Put(asg.Name, ex)
+	}
+	terminateASGInstance(instanceID)
+	activity := asNewActivity(asg.Name, "Terminating EC2 instance: "+instanceID, cause, "InProgress")
+	asFinishActivity(activity.ActivityId, "Successful", "")
+	return activity
+}
+
+// asMessage is an error whose text the service returns verbatim, as Amazon EC2
+// words it.
+type asMessage string
+
+func (m asMessage) Error() string { return string(m) }
+
+type asLaunchSpec struct {
+	imageID      string
+	instanceType string
+	keyName      string
+	source       ASLaunchSource
+}
+
+// asResolveLaunchSource reads what src launches: a launch configuration, or
+// the launch template version its version selector picks now.
+func asResolveLaunchSource(src ASLaunchSource) (asLaunchSpec, error) {
+	if !src.LaunchTemplate.set() {
+		lc, ok := asLaunchConfigurations.Get(src.LaunchConfigurationName)
+		if !ok {
+			return asLaunchSpec{}, fmt.Errorf("LaunchConfiguration %q not found", src.LaunchConfigurationName)
+		}
+		return asLaunchSpec{imageID: lc.ImageId, instanceType: lc.InstanceType, keyName: lc.KeyName, source: src}, nil
+	}
+	spec := src.LaunchTemplate
+	lt, ok := lookupLaunchTemplate(spec.LaunchTemplateId, spec.LaunchTemplateName)
+	if !ok {
+		return asLaunchSpec{}, asMessage(fmt.Sprintf("Launch template %s does not exist.", firstNonEmpty(spec.LaunchTemplateId, spec.LaunchTemplateName)))
+	}
+	number := lt.DefaultVersionNumber
+	switch spec.Version {
+	case "", "$Default":
+	case "$Latest":
+		number = lt.LatestVersionNumber
+	default:
+		n, err := strconv.ParseInt(spec.Version, 10, 64)
+		if err != nil || !ltHasVersion(lt, n) {
+			return asLaunchSpec{}, asMessage(fmt.Sprintf("Launch template version %s does not exist.", spec.Version))
+		}
+		number = n
+	}
+	for _, v := range lt.Versions {
+		if v.VersionNumber != number {
+			continue
+		}
+		return asLaunchSpec{
+			imageID:      v.Data.ImageId,
+			instanceType: v.Data.InstanceType,
+			keyName:      v.Data.KeyName,
+			source: ASLaunchSource{LaunchTemplate: ASLaunchTemplateSpec{
+				LaunchTemplateId:   lt.LaunchTemplateId,
+				LaunchTemplateName: lt.LaunchTemplateName,
+				Version:            strconv.FormatInt(number, 10),
+			}},
+		}, nil
+	}
+	return asLaunchSpec{}, asMessage(fmt.Sprintf("Launch template version %d does not exist.", number))
+}
+
+func (asg AutoScalingGroup) launchSource() ASLaunchSource {
+	if asg.LaunchTemplate.set() {
+		return ASLaunchSource{LaunchTemplate: asg.LaunchTemplate}
+	}
+	return ASLaunchSource{LaunchConfigurationName: asg.LaunchConfigurationName}
+}
+
+// asGroupLaunchSource is what the group launches from now: the desired
+// configuration of an instance refresh under way, which is what a scale-out
+// during the refresh launches, else the group's own.
+func asGroupLaunchSource(asg AutoScalingGroup) ASLaunchSource {
+	if ref := asActiveRefresh(asg.Name); ref != nil && ref.Desired != nil && ref.Rollback == nil {
+		return *ref.Desired
+	}
+	return asg.launchSource()
+}
+
+// asMemberLaunchSource is what a member launched from; a member that predates
+// the record launched from the group's own configuration.
+func asMemberLaunchSource(asg AutoScalingGroup, instanceID string) ASLaunchSource {
+	if src, ok := asg.InstanceSources[instanceID]; ok {
+		return src
+	}
+	return asg.launchSource()
+}
+
+func asLaunchSourceXML(src ASLaunchSource) string {
+	if !src.LaunchTemplate.set() {
+		if src.LaunchConfigurationName == "" {
+			return ""
+		}
+		return fmt.Sprintf("<LaunchConfigurationName>%s</LaunchConfigurationName>", xmlEscape(src.LaunchConfigurationName))
+	}
+	return "<LaunchTemplate>" + asLaunchTemplateSpecXML(src.LaunchTemplate) + "</LaunchTemplate>"
+}
+
+func asLaunchTemplateSpecXML(spec ASLaunchTemplateSpec) string {
+	var b strings.Builder
+	if spec.LaunchTemplateId != "" {
+		fmt.Fprintf(&b, "<LaunchTemplateId>%s</LaunchTemplateId>", xmlEscape(spec.LaunchTemplateId))
+	}
+	if spec.LaunchTemplateName != "" {
+		fmt.Fprintf(&b, "<LaunchTemplateName>%s</LaunchTemplateName>", xmlEscape(spec.LaunchTemplateName))
+	}
+	if spec.Version != "" {
+		fmt.Fprintf(&b, "<Version>%s</Version>", xmlEscape(spec.Version))
+	}
+	return b.String()
+}
+
+// asSetDefaultInstanceWarmup applies DefaultInstanceWarmup from a create or
+// update request; -1 removes a value set before.
+func asSetDefaultInstanceWarmup(asg *AutoScalingGroup, r *http.Request) {
+	raw := r.FormValue("DefaultInstanceWarmup")
+	if raw == "" {
+		return
+	}
+	v := asAtoiDefault(raw, -1)
+	if v < 0 {
+		asg.DefaultInstanceWarmup = nil
+		return
+	}
+	asg.DefaultInstanceWarmup = &v
 }
 
 type asLaunch struct {
@@ -1082,7 +1299,9 @@ type asLaunch struct {
 // activity and takes the instance out of the group.
 func asLaunchInstance(group string, l asLaunch) {
 	if _, ok := ec2Instances.Get(l.instanceID); !ok {
-		asFinishActivity(l.activityID, "Cancelled", "The instance was deleted before it launched.")
+		const reason = "The instance was deleted before it launched."
+		asFinishActivity(l.activityID, "Cancelled", reason)
+		asRefreshInstanceSettled(group, l.instanceID, reason)
 		return
 	}
 	// The launch activity ends once EC2 has launched the instance, so it is
@@ -1103,11 +1322,17 @@ func asLaunchInstance(group string, l asLaunch) {
 				asg.InstanceIds = append(asg.InstanceIds[:idx], asg.InstanceIds[idx+1:]...)
 			}
 		})
-		asFinishActivity(l.activityID, "Failed", fmt.Sprintf("Instance %s failed to launch: %v", l.instanceID, err))
+		reason := fmt.Sprintf("Instance %s failed to launch: %v", l.instanceID, err)
+		asFinishActivity(l.activityID, "Failed", reason)
+		asRefreshInstanceSettled(group, l.instanceID, reason)
 	case !launched:
-		asFinishActivity(l.activityID, "Cancelled", "The instance was terminated before it entered service.")
+		const reason = "The instance was terminated before it entered service."
+		asFinishActivity(l.activityID, "Cancelled", reason)
+		asRefreshInstanceSettled(group, l.instanceID, reason)
 	case len(hooks) > 0:
 		asBeginLaunchLifecycleActions(group, l.instanceID, l.activityID, hooks)
+	default:
+		asRefreshInstanceSettled(group, l.instanceID, "")
 	}
 }
 
@@ -1197,9 +1422,8 @@ func autoScalingGroupARN(name string) string {
 func autoScalingGroupXML(asg AutoScalingGroup) string {
 	var instances strings.Builder
 	for _, id := range asg.InstanceIds {
-		instances.WriteString("<member><InstanceId>")
-		instances.WriteString(id)
-		fmt.Fprintf(&instances, "</InstanceId><LifecycleState>%s</LifecycleState><HealthStatus>Healthy</HealthStatus></member>", asInstanceLifecycleState(asg.Name, id))
+		fmt.Fprintf(&instances, "<member><InstanceId>%s</InstanceId><LifecycleState>%s</LifecycleState><HealthStatus>Healthy</HealthStatus>%s</member>",
+			id, asInstanceLifecycleState(asg.Name, id), asLaunchSourceXML(asMemberLaunchSource(asg, id)))
 	}
 	arn := asg.ARN
 	if arn == "" {
@@ -1209,8 +1433,12 @@ func autoScalingGroupXML(asg AutoScalingGroup) string {
 	if healthCheckType == "" {
 		healthCheckType = "EC2"
 	}
-	return fmt.Sprintf(`<member><AutoScalingGroupName>%s</AutoScalingGroupName><AutoScalingGroupARN>%s</AutoScalingGroupARN><LaunchConfigurationName>%s</LaunchConfigurationName><MinSize>%d</MinSize><MaxSize>%d</MaxSize><DesiredCapacity>%d</DesiredCapacity><DefaultCooldown>300</DefaultCooldown><HealthCheckType>%s</HealthCheckType><HealthCheckGracePeriod>%d</HealthCheckGracePeriod><AvailabilityZones><member>%s</member></AvailabilityZones><VPCZoneIdentifier>%s</VPCZoneIdentifier><CreatedTime>%s</CreatedTime><Instances>%s</Instances><Tags>%s</Tags></member>`,
-		xmlEscape(asg.Name), xmlEscape(arn), xmlEscape(asg.LaunchConfigurationName), asg.MinSize, asg.MaxSize, asg.DesiredCapacity, xmlEscape(healthCheckType), asg.HealthCheckGracePeriod, awsAvailabilityZone(), xmlEscape(asg.VPCZoneIdentifier), asg.CreatedTime, instances.String(), autoscalingTagXML(asg.Tags))
+	warmup := ""
+	if asg.DefaultInstanceWarmup != nil {
+		warmup = fmt.Sprintf("<DefaultInstanceWarmup>%d</DefaultInstanceWarmup>", *asg.DefaultInstanceWarmup)
+	}
+	return fmt.Sprintf(`<member><AutoScalingGroupName>%s</AutoScalingGroupName><AutoScalingGroupARN>%s</AutoScalingGroupARN>%s<MinSize>%d</MinSize><MaxSize>%d</MaxSize><DesiredCapacity>%d</DesiredCapacity><DefaultCooldown>300</DefaultCooldown><HealthCheckType>%s</HealthCheckType><HealthCheckGracePeriod>%d</HealthCheckGracePeriod><AvailabilityZones><member>%s</member></AvailabilityZones><VPCZoneIdentifier>%s</VPCZoneIdentifier><CreatedTime>%s</CreatedTime><Instances>%s</Instances><Tags>%s</Tags>%s</member>`,
+		xmlEscape(asg.Name), xmlEscape(arn), asLaunchSourceXML(asg.launchSource()), asg.MinSize, asg.MaxSize, asg.DesiredCapacity, xmlEscape(healthCheckType), asg.HealthCheckGracePeriod, awsAvailabilityZone(), xmlEscape(asg.VPCZoneIdentifier), asg.CreatedTime, instances.String(), autoscalingTagXML(asg.Tags), warmup)
 }
 
 func autoscalingTagXML(tags []EC2Tag) string {

@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
 // startProcessModeSim starts a second simulator-aws instance with
@@ -30,20 +32,17 @@ func startProcessModeSim(t *testing.T) string {
 		"SIM_LOG_LEVEL=warn",
 	)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start process-mode sim: %v", err)
-	}
+	startErr := simready.Start(cmd, os.Stderr)
 	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+		}
 	})
-
-	url := fmt.Sprintf("http://127.0.0.1:%d", port)
-	if err := waitForHealth(url + "/health"); err != nil {
-		t.Fatalf("process-mode sim health: %v", err)
+	if startErr != nil {
+		t.Fatalf("start process-mode sim: %v", startErr)
 	}
-	return url
+	return fmt.Sprintf("http://127.0.0.1:%d", port)
 }
 
 // TestECS_CLI_ManagedEBSProcessMode covers issue #569 via the aws CLI: a

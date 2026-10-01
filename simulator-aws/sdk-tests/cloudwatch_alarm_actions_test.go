@@ -81,25 +81,14 @@ func TestCloudWatch_AlarmActionsDispatchedToSNS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Poll DescribeAlarms until the evaluator surfaces ALARM. DescribeAlarms
-	// re-derives state from the live metric data, so this turning ALARM proves
-	// the same input the evaluator sees has crossed the threshold.
-	deadline := time.Now().Add(15 * time.Second)
-	var sawAlarm bool
-	for time.Now().Before(deadline) {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		if len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm {
-			sawAlarm = true
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	require.True(t, sawAlarm, "alarm should transition to ALARM after breaching datapoint")
+	// DescribeAlarms re-derives state from the live metric data, so the alarm
+	// listed under StateValue ALARM proves the same input the evaluator sees
+	// has crossed the threshold.
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "alarm should transition to ALARM after breaching datapoint")
 
 	// Poll the SQS subscriber for the alarm notification envelope. The
 	// evaluator ticks every ~2s, so allow a wide margin.
-	deadline = time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	var notification map[string]any
 	for time.Now().Before(deadline) {
 		recv, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
@@ -222,11 +211,7 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 
 	// DescribeAlarms reports the state the evaluator recorded, so seeing ALARM
 	// is seeing the transition the OK below has to follow.
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 25*time.Millisecond, "alarm should reach ALARM with the breaching datapoint")
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "alarm should reach ALARM with the breaching datapoint")
 	// The recovery below has to follow a recorded ALARM, or the transition it
 	// produces skips a state and the notification reports the wrong one.
 	awaitRecordedTransition(ctx, t, cw, alarmName, "ALARM")
@@ -238,11 +223,7 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueOk
-	}, 15*time.Second, 25*time.Millisecond, "alarm should return to OK after the non-breaching datapoint")
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueOk, "alarm should return to OK after the non-breaching datapoint")
 
 	// Drain the queue for the OK notification.
 	deadline := time.Now().Add(15 * time.Second)
@@ -336,11 +317,7 @@ func TestCloudWatch_ActionsDisabledSkipsDispatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 500*time.Millisecond, "alarm should still transition to ALARM (state evaluation is independent of ActionsEnabled)")
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "alarm should still transition to ALARM (state evaluation is independent of ActionsEnabled)")
 
 	// The alarm has transitioned, so the dispatch that must not happen would
 	// have happened by now; this watches for it and fails the moment one shows.

@@ -216,6 +216,9 @@ func loadDiscoveryIndex(dir string) (*discoveryIndex, error) {
 				Simple struct {
 					Path string `json:"path"`
 				} `json:"simple"`
+				Resumable struct {
+					Path string `json:"path"`
+				} `json:"resumable"`
 			} `json:"protocols"`
 		} `json:"mediaUpload"`
 	}
@@ -334,11 +337,15 @@ func loadDiscoveryIndex(dir string) (*discoveryIndex, error) {
 					addTemplate("/download"+join(rel), true)
 				}
 			}
-			// Media-upload variant rides its own absolute path
-			// (/upload/storage/v1/b/{bucket}/o); its response is the
-			// resource JSON, validated like any other.
-			if m.MediaUpload != nil && m.MediaUpload.Protocols.Simple.Path != "" {
-				addTemplate("/"+strings.TrimPrefix(m.MediaUpload.Protocols.Simple.Path, "/"), false)
+			// Each media-upload protocol rides its own absolute path
+			// (/upload/storage/v1/b/{bucket}/o, /resumable/upload/...); its
+			// response is the resource JSON, validated like any other.
+			if m.MediaUpload != nil {
+				for _, path := range []string{m.MediaUpload.Protocols.Simple.Path, m.MediaUpload.Protocols.Resumable.Path} {
+					if path != "" {
+						addTemplate("/"+strings.TrimPrefix(path, "/"), false)
+					}
+				}
 			}
 			methods = append(methods, sm)
 			return nil

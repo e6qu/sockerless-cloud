@@ -56,7 +56,13 @@ func TestCloudRun_SubmitBuild(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 	require.NotNil(t, submitted.BuildOperation)
-	assert.True(t, submitted.BuildOperation.Done, "the build operation resolves")
+	require.False(t, submitted.BuildOperation.Done, "the build operation comes back before the build runs")
+
+	// The build operation completes when the build ends. The uploaded object
+	// is not a source archive, so the build fails on extracting it.
+	_, err = waitBuild(t, startedBuild{Operation: submitted.BuildOperation.Name})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "extract source")
 
 	// A submit without an image has nothing to produce.
 	_, err = runSvc.Projects.Locations.Builds.Submit(parent, &run.GoogleCloudRunV2SubmitBuildRequest{
@@ -76,6 +82,7 @@ func TestMemorystore_RescheduleMaintenance(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, create)
 	name := parent + "/instances/cache"
+	deleteRedisOnCleanup(t, svc, name)
 
 	moved, err := svc.Projects.Locations.Instances.RescheduleMaintenance(name,
 		&redis.RescheduleMaintenanceRequest{

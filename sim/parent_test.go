@@ -21,14 +21,14 @@ func TestWatchParentFiresWhenTheProcessExits(t *testing.T) {
 	defer func() { _ = child.Process.Kill() }()
 
 	fired := make(chan struct{})
-	if !watchParent(strconv.Itoa(child.Process.Pid), 10*time.Millisecond, func() { close(fired) }) {
+	if !watchParent(strconv.Itoa(child.Process.Pid), func() { close(fired) }) {
 		t.Fatal("a live pid must start a watch")
 	}
 
 	select {
 	case <-fired:
 		t.Fatal("the watch fired while its process was still running")
-	case <-time.After(100 * time.Millisecond):
+	default:
 	}
 
 	if err := child.Process.Kill(); err != nil {
@@ -53,10 +53,9 @@ func TestWatchParentIgnoresWhatItCannotWatch(t *testing.T) {
 		"this process": strconv.Itoa(os.Getpid()),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if watchParent(value, time.Millisecond, func() { t.Error("no watch should have started") }) {
+			if watchParent(value, func() { t.Error("no watch should have started") }) {
 				t.Errorf("%q started a watch", value)
 			}
-			time.Sleep(20 * time.Millisecond)
 		})
 	}
 }

@@ -55,8 +55,8 @@ Current state of the sockerless-cloud repository.
   s3-outposts or s3-object-lambda. One route is tested as ungated and says why:
   no vendored document declares an action for the control plane's
   DeleteBucketLifecycleConfiguration.
-- **Google Cloud**: 5,576 of 5,576 Discovery method spellings across 30
-  documents reach a route that names them — 5,522 served and 54 answering a
+- **Google Cloud**: 5,583 of 5,583 Discovery method spellings across 30
+  documents reach a route that names them — 5,529 served and 54 answering a
   declared 501; the gRPC surfaces serve 213 of 216 methods, the three unserved
   each needing state the simulator does not hold.
   Every gRPC service is crossed against its REST door.
@@ -170,8 +170,11 @@ Current state of the sockerless-cloud repository.
 - **Declined surfaces are the ones whose required content is somebody else's
   data**: Cloud Spanner's Key Visualizer scans and wire-protocol adapter,
   Cloud KMS Key Access Justifications, Firestore's streaming REST spellings,
-  Memorystore's RDB export and import, and Amazon SNS SMS and mobile push. Each
-  answers by naming what is missing.
+  and Amazon SNS SMS and mobile push. Each answers by naming what is missing.
+- **Memorystore for Redis** instances and Memorystore for Redis Cluster
+  clusters run a real Redis engine at the endpoints the API reports; exports,
+  imports and backups move the engine's own RDB snapshots through Cloud
+  Storage.
 
 ## Gates
 

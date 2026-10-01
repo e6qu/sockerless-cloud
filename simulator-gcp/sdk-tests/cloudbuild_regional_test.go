@@ -35,7 +35,7 @@ func TestCloudBuild_RegionalBuildCreateAndRetry(t *testing.T) {
 		Steps: []*cloudbuild.BuildStep{{Name: "alpine", Args: []string{"true"}}},
 	}).Do()
 	require.NoError(t, err)
-	require.True(t, op.Done)
+	require.False(t, op.Done, "the operation comes back before the build runs")
 
 	// The build is addressable under the location it was created in.
 	created := buildFromOperation(t, op)
@@ -46,7 +46,7 @@ func TestCloudBuild_RegionalBuildCreateAndRetry(t *testing.T) {
 	retried, err := svc.Projects.Locations.Builds.Retry(
 		parent+"/builds/"+created.Id, &cloudbuild.RetryBuildRequest{}).Do()
 	require.NoError(t, err)
-	require.True(t, retried.Done)
+	require.False(t, retried.Done, "the retried build runs after the operation comes back")
 	second := buildFromOperation(t, retried)
 	assert.NotEqual(t, created.Id, second.Id, "retry starts a new build")
 
@@ -99,7 +99,7 @@ func TestCloudBuild_RunTriggerStartsItsInlineBuild(t *testing.T) {
 	op, err := svc.Projects.Locations.Triggers.Run(parent+"/triggers/"+trigger.Id,
 		&cloudbuild.RunBuildTriggerRequest{}).Do()
 	require.NoError(t, err)
-	require.True(t, op.Done)
+	require.False(t, op.Done, "the operation comes back before the build runs")
 	started := buildFromOperation(t, op)
 	assert.Equal(t, trigger.Id, started.BuildTriggerId,
 		"the started build names the trigger that ran it")

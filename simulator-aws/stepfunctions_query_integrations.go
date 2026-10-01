@@ -191,7 +191,7 @@ func sfnQueryError(body io.Reader) (string, string) {
 	return code, message
 }
 
-func sfnInvokeQueryService(service, action string, input any) (any, *sfnExecutionError) {
+func sfnInvokeQueryService(service, action string, input any, authorize awsSDKRequestAuthorizer) (any, *sfnExecutionError) {
 	config, ok := sfnAWSQueryServices[service]
 	if !ok {
 		return nil, &sfnExecutionError{
@@ -225,6 +225,11 @@ func sfnInvokeQueryService(service, action string, input any) (any, *sfnExecutio
 	}
 	request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if authorize != nil {
+		if denied := authorize(request); denied != nil {
+			return nil, denied
+		}
+	}
 	response := httptest.NewRecorder()
 	handler(response, request)
 	if response.Code >= http.StatusBadRequest {

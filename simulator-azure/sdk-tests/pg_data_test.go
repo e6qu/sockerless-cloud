@@ -54,11 +54,10 @@ func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testin
 		`{"location":"eastus","properties":{"version":"16","administratorLogin":%q,"administratorLoginPassword":%q}}`,
 		adminLogin, adminPassword))
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
-	opURL := resp.Header.Get("Azure-AsyncOperation")
-	require.NotEmpty(t, opURL)
-	resp.Body.Close()
+	require.NotEmpty(t, resp.Header.Get("Azure-AsyncOperation"))
 	t.Cleanup(func() { armReq(t, "DELETE", serverPath, "").Body.Close() })
-	waitPGDataAsyncOperation(t, opURL)
+	awaitARMOperation[map[string]any](t, resp)
+	resp.Body.Close()
 
 	server := pgDataGetServer(t, serverPath)
 	fqdn, _ := server["fullyQualifiedDomainName"].(string)
@@ -107,10 +106,9 @@ func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testin
 	// long-running operation succeeds only once the capture settles.
 	resp = armReq(t, "PUT", serverPath+"/backups/"+backupName, "")
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
-	backupOpURL := resp.Header.Get("Azure-AsyncOperation")
-	require.NotEmpty(t, backupOpURL)
+	require.NotEmpty(t, resp.Header.Get("Azure-AsyncOperation"))
+	awaitARMOperation[map[string]any](t, resp)
 	resp.Body.Close()
-	waitPGDataAsyncOperation(t, backupOpURL)
 
 	resp = armReq(t, "GET", serverPath+"/backups/"+backupName, "")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -130,11 +128,10 @@ func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testin
 		`{"location":"eastus","properties":{"createMode":"PointInTimeRestore","sourceServerResourceId":%q,"pointInTimeUTC":%q}}`,
 		sourceServerID, pointInTime))
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
-	restoreOpURL := resp.Header.Get("Azure-AsyncOperation")
-	require.NotEmpty(t, restoreOpURL)
-	resp.Body.Close()
+	require.NotEmpty(t, resp.Header.Get("Azure-AsyncOperation"))
 	t.Cleanup(func() { armReq(t, "DELETE", restoredPath, "").Body.Close() })
-	waitPGDataAsyncOperation(t, restoreOpURL)
+	awaitARMOperation[map[string]any](t, resp)
+	resp.Body.Close()
 
 	restoredServer := pgDataGetServer(t, restoredPath)
 	restoredFQDN, _ := restoredServer["fullyQualifiedDomainName"].(string)
@@ -204,28 +201,4 @@ func azurePGLookupLoopback(t *testing.T, fqdn string) string {
 			fqdn, addresses, err, runtime.GOOS)
 	}
 	return addresses[0]
-}
-
-// waitPGDataAsyncOperation polls an Azure-AsyncOperation URL until the
-// operation settles, failing on Failed — the budget covers a real volume
-// capture, which pulls the helper image on first use.
-func waitPGDataAsyncOperation(t *testing.T, opURL string) {
-	t.Helper()
-	deadline := time.Now().Add(3 * time.Minute)
-	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, opURL, nil)
-		require.NoError(t, err)
-		req.Header.Set("Authorization", simARMBearer)
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
-		if strings.Contains(string(body), `"status":"Succeeded"`) {
-			return
-		}
-		require.NotContains(t, string(body), `"status":"Failed"`, "operation failed: %s", string(body))
-		require.True(t, time.Now().Before(deadline), "operation did not settle: %s", string(body))
-		time.Sleep(250 * time.Millisecond)
-	}
 }

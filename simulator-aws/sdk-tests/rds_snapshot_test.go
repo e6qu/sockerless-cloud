@@ -232,23 +232,39 @@ func TestRDS_DeleteDBInstance_FinalSnapshotContract(t *testing.T) {
 	assertAWSAPIErrorCode(t, err, "InvalidParameterCombination")
 
 	// Naming the final snapshot deletes the instance and leaves the snapshot,
-	// which settles through the same capture as CreateDBSnapshot.
-	_, err = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
+	// which settles through the same capture as CreateDBSnapshot. The
+	// instance is deleting until then, and its identifier is free once it is
+	// gone.
+	deleted, err := c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
 		DBInstanceIdentifier:      aws.String("final-snap-src"),
 		FinalDBSnapshotIdentifier: aws.String("final-snap-1"),
 	})
 	require.NoError(t, err)
+	assert.Equal(t, "deleting", aws.ToString(deleted.DBInstance.DBInstanceStatus))
 	t.Cleanup(func() {
 		_, _ = c.DeleteDBSnapshot(ctx, &rds.DeleteDBSnapshotInput{
 			DBSnapshotIdentifier: aws.String("final-snap-1"),
 		})
 	})
 	waitForRDSSnapshotAvailable(t, c, ctx, "final-snap-1")
+	require.NoError(t, rds.NewDBInstanceDeletedWaiter(c, func(o *rds.DBInstanceDeletedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String("final-snap-src")}, 90*time.Second))
 
-	_, err = c.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{
+	_, err = c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String("final-snap-src"),
+		DBInstanceClass:      aws.String("db.t3.micro"),
+		Engine:               aws.String("postgres"),
+		MasterUsername:       aws.String("admin"),
+		MasterUserPassword:   aws.String("SnapshotPassword-123!"),
+		AllocatedStorage:     aws.Int32(20),
 	})
-	assertAWSAPIErrorCode(t, err, "DBInstanceNotFound")
+	require.NoError(t, err, "the deleted instance's identifier must be free once it is gone")
+	require.NoError(t, rds.NewDBInstanceAvailableWaiter(c, func(o *rds.DBInstanceAvailableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String("final-snap-src")}, 90*time.Second))
 }
 
 // TestRDS_DeleteDBCluster_FinalSnapshotContract proves DeleteDBCluster
@@ -284,16 +300,22 @@ func TestRDS_DeleteDBCluster_FinalSnapshotContract(t *testing.T) {
 	})
 	assertAWSAPIErrorCode(t, err, "InvalidParameterCombination")
 
-	_, err = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
+	deleted, err := c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
 		DBClusterIdentifier:       aws.String("final-snap-cluster"),
 		FinalDBSnapshotIdentifier: aws.String("final-snap-cluster-1"),
 	})
 	require.NoError(t, err)
+	assert.Equal(t, "deleting", aws.ToString(deleted.DBCluster.Status))
 	t.Cleanup(func() {
 		_, _ = c.DeleteDBClusterSnapshot(ctx, &rds.DeleteDBClusterSnapshotInput{
 			DBClusterSnapshotIdentifier: aws.String("final-snap-cluster-1"),
 		})
 	})
+	waitForRDSClusterSnapshotAvailable(t, c, ctx, "final-snap-cluster-1")
+	require.NoError(t, rds.NewDBClusterDeletedWaiter(c, func(o *rds.DBClusterDeletedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &rds.DescribeDBClustersInput{DBClusterIdentifier: aws.String("final-snap-cluster")}, 90*time.Second))
 
 	snaps, err := c.DescribeDBClusterSnapshots(ctx, &rds.DescribeDBClusterSnapshotsInput{
 		DBClusterSnapshotIdentifier: aws.String("final-snap-cluster-1"),

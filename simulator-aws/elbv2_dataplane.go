@@ -80,13 +80,15 @@ func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listene
 	if strings.EqualFold(targetGroup.Protocol, "HTTPS") {
 		scheme = "https"
 	}
+	const exchangeTimeout = 30 * time.Second
+	sim.DeclareWait(r.Context(), exchangeTimeout)
 	err = lbplane.Forward(w, r, lbplane.Upstream{
 		Scheme:   scheme,
 		Address:  address,
 		Path:     r.URL.EscapedPath(),
 		RawQuery: r.URL.RawQuery,
 		Host:     elbv2TargetHostHeader(r.Host, listener),
-		Timeout:  30 * time.Second,
+		Timeout:  exchangeTimeout,
 		// "The load balancer establishes TLS connections with the targets
 		// using certificates that you install on the targets. The load balancer
 		// does not validate these certificates."

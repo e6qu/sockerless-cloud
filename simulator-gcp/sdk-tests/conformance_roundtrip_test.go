@@ -1024,6 +1024,7 @@ func TestConformance_MemorystoreRedisPatchUpdateMask(t *testing.T) {
 	require.NoError(t, err)
 
 	name := parent + "/instances/conf-redis"
+	deleteRedisOnCleanup(t, svc, name)
 	// Patch only displayName via updateMask — memorySizeGb must be preserved.
 	_, err = svc.Projects.Locations.Instances.Patch(name, &redis.Instance{
 		DisplayName:  "after",

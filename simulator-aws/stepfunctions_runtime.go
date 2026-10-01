@@ -450,9 +450,7 @@ var sfnAWSJSONServiceTargets = map[string]string{
 }
 
 // sfnInvokeAWSSDK dispatches a generic AWS SDK integration through the same
-// registered awsJson handler used by official clients. The Step Functions
-// resource uses the SDK's lower-camel operation name while X-Amz-Target uses
-// the Smithy operation name, whose first letter is uppercase.
+// registered handler used by official clients.
 func sfnInvokeAWSSDK(resource string, input any) (any, *sfnExecutionError) {
 	const prefix = "arn:aws:states:::aws-sdk:"
 	integration := strings.TrimPrefix(resource, prefix)
@@ -463,7 +461,33 @@ func sfnInvokeAWSSDK(resource string, input any) (any, *sfnExecutionError) {
 			Cause: fmt.Sprintf("The resource provided in the task state is not a valid AWS SDK integration ARN: %s", resource),
 		}
 	}
-	service, action := parts[0], parts[1]
+	return awsSDKInvoke(parts[0], parts[1], input, nil)
+}
+
+// awsSDKRequestAuthorizer vets the request an AWS SDK integration is about to
+// send; an error stops the call.
+type awsSDKRequestAuthorizer func(*http.Request) *sfnExecutionError
+
+// awsSDKAuthorizableService reports whether the IAM gate can derive the
+// action and resources of a call to service from its request: it can for
+// the awsJson and awsQuery protocols, whose requests name their operation.
+func awsSDKAuthorizableService(service string) bool {
+	_, query := sfnAWSQueryServices[service]
+	_, json := sfnAWSJSONServiceTargets[service]
+	return query || json
+}
+
+// awsSDKInvoke calls one AWS API operation, named as an AWS SDK integration
+// names it: the SDK's service name and lower-camel operation name, whose
+// Smithy operation name starts uppercase. A non-nil authorize vets the request
+// first, and applies only to services awsSDKAuthorizableService admits.
+func awsSDKInvoke(service, action string, input any, authorize awsSDKRequestAuthorizer) (any, *sfnExecutionError) {
+	if authorize != nil && !awsSDKAuthorizableService(service) {
+		return nil, &sfnExecutionError{
+			Name:  "States.TaskFailed",
+			Cause: fmt.Sprintf("The service %q cannot be called as a role", service),
+		}
+	}
 	if _, restJSONService := sfnAWSRESTJSONOperations[service]; restJSONService {
 		return sfnInvokeRESTJSONService(service, action, input)
 	}
@@ -471,7 +495,7 @@ func sfnInvokeAWSSDK(resource string, input any) (any, *sfnExecutionError) {
 		return sfnInvokeRESTXMLService(service, action, input)
 	}
 	if _, queryService := sfnAWSQueryServices[service]; queryService {
-		return sfnInvokeQueryService(service, action, input)
+		return sfnInvokeQueryService(service, action, input, authorize)
 	}
 	targetPrefix, ok := sfnAWSJSONServiceTargets[service]
 	if !ok {
@@ -488,7 +512,7 @@ func sfnInvokeAWSSDK(resource string, input any) (any, *sfnExecutionError) {
 			Cause: fmt.Sprintf("The operation %s:%s is not implemented by the AWS service slice", service, action),
 		}
 	}
-	return sfnInvokeJSONService(handler, input)
+	return sfnInvokeJSONTarget(handler, targetPrefix+"."+action, input, authorize)
 }
 
 func sfnInvokeECSRunTask(resource string, input, context any, cancel <-chan struct{}, heartbeat time.Duration) (any, *sfnExecutionError) {
@@ -795,12 +819,26 @@ func sfnWaitForCodeBuildBatch(batchID string, cancel <-chan struct{}) (any, *sfn
 }
 
 func sfnInvokeJSONService(handler http.HandlerFunc, input any) (any, *sfnExecutionError) {
+	return sfnInvokeJSONTarget(handler, "", input, nil)
+}
+
+// sfnInvokeJSONTarget calls an awsJson handler, sending target, when set, as
+// the X-Amz-Target header that names the operation to the IAM gate.
+func sfnInvokeJSONTarget(handler http.HandlerFunc, target string, input any, authorize awsSDKRequestAuthorizer) (any, *sfnExecutionError) {
 	body, err := json.Marshal(input)
 	if err != nil {
 		return nil, &sfnExecutionError{Name: "States.Runtime", Cause: err.Error()}
 	}
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+	if target != "" {
+		req.Header.Set("X-Amz-Target", target)
+	}
+	if authorize != nil {
+		if denied := authorize(req); denied != nil {
+			return nil, denied
+		}
+	}
 	rec := httptest.NewRecorder()
 	handler(rec, req)
 	if rec.Code >= http.StatusBadRequest {

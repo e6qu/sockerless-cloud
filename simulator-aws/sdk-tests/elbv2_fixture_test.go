@@ -34,6 +34,19 @@ func waitForELBv2TargetHealth(
 ) {
 	t.Helper()
 	elb := elbv2Client()
+	if want == elbtypes.TargetHealthStateEnumHealthy {
+		err := elbv2.NewTargetInServiceWaiter(elb, func(o *elbv2.TargetInServiceWaiterOptions) {
+			o.MinDelay = waiterMinDelay
+			o.MaxDelay = waiterMaxDelay
+		}).Wait(ctx, &elbv2.DescribeTargetHealthInput{
+			TargetGroupArn: aws.String(targetGroupArn),
+			Targets:        []elbtypes.TargetDescription{target},
+		}, 30*time.Second)
+		require.NoError(t, err, "target %s:%d in %s never reported healthy",
+			aws.ToString(target.Id), aws.ToInt32(target.Port), targetGroupArn)
+		return
+	}
+	// Elastic Load Balancing has no waiter for a target leaving service.
 	observed := "none"
 	require.Eventuallyf(t, func() bool {
 		health, err := elb.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{

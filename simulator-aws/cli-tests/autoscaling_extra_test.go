@@ -3,6 +3,7 @@ package aws_cli_test
 import (
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -110,26 +111,61 @@ func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
 		"--auto-scaling-group-name", group,
 		"--traffic-sources", "Identifier="+tgARN+",Type=elbv2"))
 
-	// Instance refresh.
+	// Instance refresh: it replaces the group's one member in the background,
+	// so describe-instance-refreshes is polled until the refresh ends.
+	var membersBefore struct {
+		AutoScalingGroups []struct {
+			Instances []struct {
+				InstanceId string `json:"InstanceId"`
+			} `json:"Instances"`
+		} `json:"AutoScalingGroups"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("autoscaling", "describe-auto-scaling-groups",
+		"--auto-scaling-group-names", group, "--output", "json")), &membersBefore)
+	require.Len(t, membersBefore.AutoScalingGroups, 1)
+	require.Len(t, membersBefore.AutoScalingGroups[0].Instances, 1)
 	var refreshOut struct {
 		InstanceRefreshId string `json:"InstanceRefreshId"`
 	}
 	parseJSON(t, runCLI(t, awsCLI("autoscaling", "start-instance-refresh",
-		"--auto-scaling-group-name", group, "--output", "json")), &refreshOut)
+		"--auto-scaling-group-name", group,
+		"--preferences", "MinHealthyPercentage=0,InstanceWarmup=0",
+		"--output", "json")), &refreshOut)
 	require.NotEmpty(t, refreshOut.InstanceRefreshId)
 	var refreshesOut struct {
 		InstanceRefreshes []struct {
-			InstanceRefreshId string `json:"InstanceRefreshId"`
-			Status            string `json:"Status"`
+			InstanceRefreshId  string `json:"InstanceRefreshId"`
+			Status             string `json:"Status"`
+			StatusReason       string `json:"StatusReason"`
+			PercentageComplete int    `json:"PercentageComplete"`
+			InstancesToUpdate  int    `json:"InstancesToUpdate"`
 		} `json:"InstanceRefreshes"`
 	}
-	parseJSON(t, runCLI(t, awsCLI("autoscaling", "describe-instance-refreshes",
-		"--auto-scaling-group-name", group, "--output", "json")), &refreshesOut)
-	require.Len(t, refreshesOut.InstanceRefreshes, 1)
-	assert.Equal(t, "Successful", refreshesOut.InstanceRefreshes[0].Status)
-	runCLI(t, awsCLI("autoscaling", "rollback-instance-refresh", "--auto-scaling-group-name", group))
-	// CancelInstanceRefresh has no in-progress refresh -> real error.
-	runCLIExpectError(t, awsCLI("autoscaling", "cancel-instance-refresh", "--auto-scaling-group-name", group))
+	require.Eventually(t, func() bool {
+		parseJSON(t, runCLI(t, awsCLI("autoscaling", "describe-instance-refreshes",
+			"--auto-scaling-group-name", group, "--output", "json")), &refreshesOut)
+		require.Len(t, refreshesOut.InstanceRefreshes, 1)
+		switch refreshesOut.InstanceRefreshes[0].Status {
+		case "Pending", "InProgress":
+			return false
+		}
+		return true
+	}, 5*time.Minute, 100*time.Millisecond)
+	refreshed := refreshesOut.InstanceRefreshes[0]
+	assert.Equal(t, refreshOut.InstanceRefreshId, refreshed.InstanceRefreshId)
+	require.Equal(t, "Successful", refreshed.Status, refreshed.StatusReason)
+	assert.Equal(t, 100, refreshed.PercentageComplete)
+	assert.Equal(t, 0, refreshed.InstancesToUpdate)
+	membersAfter := membersBefore
+	membersAfter.AutoScalingGroups = nil
+	parseJSON(t, runCLI(t, awsCLI("autoscaling", "describe-auto-scaling-groups",
+		"--auto-scaling-group-names", group, "--output", "json")), &membersAfter)
+	require.Len(t, membersAfter.AutoScalingGroups[0].Instances, 1)
+	assert.NotEqual(t, membersBefore.AutoScalingGroups[0].Instances[0].InstanceId, membersAfter.AutoScalingGroups[0].Instances[0].InstanceId)
+	// Neither a finished refresh nor one without a desired configuration can be
+	// rolled back, and there is no refresh in progress to cancel.
+	assert.Contains(t, runCLIExpectError(t, awsCLI("autoscaling", "rollback-instance-refresh", "--auto-scaling-group-name", group)), "ActiveInstanceRefreshNotFound")
+	assert.Contains(t, runCLIExpectError(t, awsCLI("autoscaling", "cancel-instance-refresh", "--auto-scaling-group-name", group)), "ActiveInstanceRefreshNotFound")
 
 	// Warm pool.
 	runCLI(t, awsCLI("autoscaling", "put-warm-pool",

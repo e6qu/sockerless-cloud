@@ -30,6 +30,8 @@ func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 		_ = awsCLI("rds", "delete-db-cluster-snapshot",
 			"--db-cluster-snapshot-identifier", snapID).Run()
 	})
+	runCLI(t, awsCLI("rds", "wait", "db-cluster-snapshot-available",
+		"--db-cluster-snapshot-identifier", snapID))
 
 	restored := "cli-rext-restored"
 	out := runCLI(t, awsCLI("rds", "restore-db-cluster-from-snapshot",
@@ -44,11 +46,13 @@ func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 	}
 	parseJSON(t, out, &rOut)
 	assert.Equal(t, restored, rOut.DBCluster.DBClusterIdentifier)
-	assert.Equal(t, "available", rOut.DBCluster.Status)
+	assert.Equal(t, "creating", rOut.DBCluster.Status)
 	t.Cleanup(func() {
 		_ = awsCLI("rds", "delete-db-cluster",
 			"--db-cluster-identifier", restored, "--skip-final-snapshot").Run()
 	})
+	runCLI(t, awsCLI("rds", "wait", "db-cluster-available",
+		"--db-cluster-identifier", restored))
 
 	pit := "cli-rext-cluster-pit"
 	runCLI(t, awsCLI("rds", "restore-db-cluster-to-point-in-time",
@@ -59,6 +63,8 @@ func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 		_ = awsCLI("rds", "delete-db-cluster",
 			"--db-cluster-identifier", pit, "--skip-final-snapshot").Run()
 	})
+	runCLI(t, awsCLI("rds", "wait", "db-cluster-available",
+		"--db-cluster-identifier", pit))
 
 	s3cluster := "cli-rext-cluster-s3"
 	runCLI(t, awsCLI("rds", "restore-db-cluster-from-s3",
@@ -463,6 +469,8 @@ func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 		_ = awsCLI("rds", "delete-db-cluster-snapshot",
 			"--db-cluster-snapshot-identifier", csID).Run()
 	})
+	runCLI(t, awsCLI("rds", "wait", "db-cluster-snapshot-available",
+		"--db-cluster-snapshot-identifier", csID))
 	runCLI(t, awsCLI("rds", "modify-db-cluster-snapshot-attribute",
 		"--db-cluster-snapshot-identifier", csID,
 		"--attribute-name", "restore",

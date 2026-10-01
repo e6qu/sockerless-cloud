@@ -47,7 +47,7 @@ func TestRDS_ClusterSnapshotAndParamGroup(t *testing.T) {
 	require.NotNil(t, csOut.DBClusterSnapshot)
 	assert.Equal(t, snapID, aws.ToString(csOut.DBClusterSnapshot.DBClusterSnapshotIdentifier))
 	assert.Equal(t, clusterID, aws.ToString(csOut.DBClusterSnapshot.DBClusterIdentifier))
-	assert.Equal(t, "available", aws.ToString(csOut.DBClusterSnapshot.Status))
+	assert.Equal(t, "creating", aws.ToString(csOut.DBClusterSnapshot.Status))
 	assert.Equal(t, "aurora-mysql", aws.ToString(csOut.DBClusterSnapshot.Engine))
 	csArn := aws.ToString(csOut.DBClusterSnapshot.DBClusterSnapshotArn)
 	require.NotEmpty(t, csArn)
@@ -72,6 +72,7 @@ func TestRDS_ClusterSnapshotAndParamGroup(t *testing.T) {
 	require.Len(t, tagsCS.TagList, 1)
 	assert.Equal(t, "team", aws.ToString(tagsCS.TagList[0].Key))
 
+	waitForRDSClusterSnapshotAvailable(t, c, ctx, snapID)
 	delCS, err := c.DeleteDBClusterSnapshot(ctx, &rds.DeleteDBClusterSnapshotInput{
 		DBClusterSnapshotIdentifier: aws.String(snapID),
 	})

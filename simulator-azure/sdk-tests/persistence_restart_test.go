@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
@@ -55,9 +57,7 @@ func startPersistentAzureSimulator(t *testing.T, stateDir string, port int) *exe
 		"SIM_LOG_LEVEL=warn",
 	)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	require.NoError(t, cmd.Start())
-	require.NoError(t, waitForHealth(fmt.Sprintf("http://127.0.0.1:%d/health", port)))
+	require.NoError(t, simready.Start(cmd, os.Stderr))
 	return cmd
 }
 

@@ -62,25 +62,9 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 			baseURL, project, location, name)
 		_ = httpDoJSON(t, "POST", createURL, body)
 
-		runURL := fmt.Sprintf("%s/v2/projects/%s/locations/%s/jobs/%s:run",
-			baseURL, project, location, name)
-		runOut := httpDoJSON(t, "POST", runURL, "{}")
-		// The response is an LRO with an embedded Execution whose
-		// `name` is projects/.../executions/<execID>.
-		var op struct {
-			Response struct {
-				Name string `json:"name"`
-			} `json:"response"`
-		}
-		if err := json.Unmarshal([]byte(runOut), &op); err == nil && op.Response.Name != "" {
-			return op.Response.Name
-		}
-		// Fallback: RunJob returns the Execution directly on success.
-		var execResp struct {
-			Name string `json:"name"`
-		}
-		parseJSON(t, runOut, &execResp)
-		return execResp.Name
+		// The workload keeps running while the test wires DNS around it, so
+		// the execution comes from the RunJob operation's Execution metadata.
+		return runJob(t, name).Execution
 	}
 
 	alphaExec := createJob("cli-alpha", []string{"resolve", "beta", "30", "gcp-cli-cross-job-dns-ok", "10"})

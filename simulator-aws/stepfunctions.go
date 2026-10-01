@@ -1849,6 +1849,11 @@ func handleSFNListActivities(w http.ResponseWriter, r *http.Request) {
 	sfnWriteJSON(w, http.StatusOK, resp)
 }
 
+// sfnActivityTaskPollLimit is how long GetActivityTask holds a poll open: "the
+// maximum time the service holds on to the request before responding is 60
+// seconds".
+const sfnActivityTaskPollLimit = 60 * time.Second
+
 func handleSFNGetActivityTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ActivityArn string `json:"activityArn"`
@@ -1863,7 +1868,8 @@ func handleSFNGetActivityTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deadline := time.NewTimer(60 * time.Second)
+	sim.DeclareWait(r.Context(), sfnActivityTaskPollLimit)
+	deadline := time.NewTimer(sfnActivityTaskPollLimit)
 	defer deadline.Stop()
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
@@ -2768,6 +2774,10 @@ func handleSFNTestState(w http.ResponseWriter, r *http.Request) {
 	sfnWriteJSON(w, http.StatusOK, resp)
 }
 
+// sfnExpressMaxDuration is the longest an Express workflow runs: "Express
+// Workflows can run for up to five minutes."
+const sfnExpressMaxDuration = 5 * time.Minute
+
 func handleSFNStartSyncExecution(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		StateMachineArn string `json:"stateMachineArn"`
@@ -2803,6 +2813,7 @@ func handleSFNStartSyncExecution(w http.ResponseWriter, r *http.Request) {
 	if input == "" {
 		input = "{}"
 	}
+	sim.DeclareWait(r.Context(), sfnExpressMaxDuration)
 	startDate := sfnEpochNow()
 	output, status, err := sfnExecute(sm.Definition, input, nil)
 	stopDate := sfnEpochNow()

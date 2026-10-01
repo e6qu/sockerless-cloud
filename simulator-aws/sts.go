@@ -102,18 +102,47 @@ func iamPrincipalForAccessKey(akid string) (arn string, docs []iamPolicyDoc, use
 	return "", nil, "", false
 }
 
-// stsCallerArn is the ARN of the identity that signed the request.
-func stsCallerArn(r *http.Request) string {
-	if principalArn, _, _, ok := iamPrincipalForAccessKey(iamAccessKeyIDFromRequest(r)); ok {
-		return principalArn
+// stsCallerIdentity is the ARN and unique ID of the identity that signed the
+// request: a user's own ID, `<role ID>:<session name>` for an assumed role, and
+// `<account>:<name>` for a federated user. ok is false for a credential that
+// resolves to no identity.
+func stsCallerIdentity(r *http.Request) (arn, userID string, ok bool) {
+	akid := iamAccessKeyIDFromRequest(r)
+	if tc, found := iamTempCreds.Get(akid); found {
+		_, name, _ := strings.Cut(tc.PrincipalArn[strings.LastIndex(tc.PrincipalArn, ":")+1:], "/")
+		switch {
+		case tc.RoleName != "":
+			role, rok := iamRoles.Get(tc.RoleName)
+			if !rok {
+				return "", "", false
+			}
+			return tc.PrincipalArn, role.RoleId + ":" + name[strings.LastIndex(name, "/")+1:], true
+		case tc.UserName != "":
+			u, uok := iamUsers.Get(tc.UserName)
+			if !uok {
+				return "", "", false
+			}
+			return tc.PrincipalArn, u.UserId, true
+		case strings.Contains(tc.PrincipalArn, ":federated-user/"):
+			return tc.PrincipalArn, awsAccountID() + ":" + name, true
+		}
+		return "", "", false
 	}
-	return fmt.Sprintf("arn:aws:iam::%s:user/simulator", awsAccountID())
+	if key, found := iamAccessKeys.Get(akid); found {
+		if u, uok := iamUsers.Get(key.UserName); uok {
+			return u.Arn, u.UserId, true
+		}
+	}
+	return "", "", false
 }
 
 func handleGetCallerIdentity(w http.ResponseWriter, r *http.Request) {
 	acct := awsAccountID()
-	arn := stsCallerArn(r)
-	userID := "AIDASIMULATORCALLER0"
+	arn, userID, ok := stsCallerIdentity(r)
+	if !ok {
+		stsErrorXML(w, "InvalidClientTokenId", sigMsgInvalidTok, http.StatusForbidden)
+		return
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
   <GetCallerIdentityResult>
@@ -506,11 +535,22 @@ func handleSTSGetDelegatedAccessToken(w http.ResponseWriter, r *http.Request) {
 		stsErrorXML(w, "ValidationError", "TradeInToken is required", http.StatusBadRequest)
 		return
 	}
+	principal, _, ok := stsCallerIdentity(r)
+	if !ok {
+		stsErrorXML(w, "InvalidClientTokenId", sigMsgInvalidTok, http.StatusForbidden)
+		return
+	}
+	caller := IAMTempCred{PrincipalArn: principal}
+	if tc, found := iamTempCreds.Get(iamAccessKeyIDFromRequest(r)); found {
+		caller.UserName, caller.RoleName = tc.UserName, tc.RoleName
+	} else if key, found := iamAccessKeys.Get(iamAccessKeyIDFromRequest(r)); found {
+		caller.UserName = key.UserName
+	}
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
 	akid, secret, token := stsMintTempCred(exp)
-	principal := fmt.Sprintf("arn:aws:iam::%s:user/simulator", awsAccountID())
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token, PrincipalArn: principal,
+		UserName: caller.UserName, RoleName: caller.RoleName,
 		Expiration: exp.Format(time.RFC3339), CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	})
 	w.Header().Set("Content-Type", "text/xml")

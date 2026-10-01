@@ -23,11 +23,11 @@ The extractor reads the route out of a single string literal, so a registration 
 | `PATCH /v2/projects/{project}/locations/{location}/functions/{function}` | ✓ `simulator-gcp/cloudfunctions.go:264::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v2/projects/{project}/locations/{location}/functions` | ✓ `simulator-gcp/cloudfunctions.go:291::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v2-functions-invoke/{functionID}` | ✓ `simulator-gcp/cloudfunctions.go:321::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v2/projects/{project}/locations/{location}/functions/{function}` | ✓ `simulator-gcp/cloudfunctions.go:361::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/projects/{project}/locations/{location}/functions/{functionAction}` | ✓ `simulator-gcp/cloudfunctions.go:384::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/locations` | ○ `simulator-gcp/cloudfunctions.go:460::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/locations/{location}/operations` | ✓ `simulator-gcp/cloudfunctions.go:484::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/locations/{location}/runtimes` | ○ `simulator-gcp/cloudfunctions.go:509::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v2/projects/{project}/locations/{location}/functions/{function}` | ✓ `simulator-gcp/cloudfunctions.go:362::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/projects/{project}/locations/{location}/functions/{functionAction}` | ✓ `simulator-gcp/cloudfunctions.go:385::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/locations` | ○ `simulator-gcp/cloudfunctions.go:461::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/locations/{location}/operations` | ✓ `simulator-gcp/cloudfunctions.go:485::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/locations/{location}/runtimes` | ○ `simulator-gcp/cloudfunctions.go:510::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

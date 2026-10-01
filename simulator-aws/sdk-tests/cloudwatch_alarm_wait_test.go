@@ -61,6 +61,22 @@ func awaitSubscription(ctx context.Context, t *testing.T, snsC *sns.Client, topi
 	}, alarmWaitTimeout, alarmWaitPoll, "the topic never reported its subscription to %s", endpoint)
 }
 
+// awaitAlarmState waits with CloudWatch's AlarmExists waiter on DescribeAlarms
+// filtered to the wanted state, and returns the alarm once it is in it.
+func awaitAlarmState(ctx context.Context, t *testing.T, cw *cloudwatch.Client, alarmName string, want cwtypes.StateValue, why string) cwtypes.MetricAlarm {
+	t.Helper()
+	out, err := cloudwatch.NewAlarmExistsWaiter(cw, func(o *cloudwatch.AlarmExistsWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &cloudwatch.DescribeAlarmsInput{
+		AlarmNames: []string{alarmName},
+		StateValue: want,
+	}, alarmWaitTimeout)
+	require.NoError(t, err, why)
+	require.Len(t, out.MetricAlarms, 1, why)
+	return out.MetricAlarms[0]
+}
+
 // awaitQueueMessages waits for a queue to hold the messages an alarm action
 // delivers, and hands them to the assertions that read them.
 func awaitQueueMessages(ctx context.Context, t *testing.T, sqsC *sqs.Client, queueURL *string, want int) *sqs.ReceiveMessageOutput {
@@ -119,11 +135,10 @@ func awaitRecordedTransition(ctx context.Context, t *testing.T, cw *cloudwatch.C
 // watches for a delivery that must not happen, and fails as soon as one does.
 func requireQueueStaysEmpty(ctx context.Context, t *testing.T, sqsC *sqs.Client, queueURL *string, why string) {
 	t.Helper()
-	deadline := time.Now().Add(alarmQuietWindow)
-	for time.Now().Before(deadline) {
-		out, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: queueURL})
-		require.NoError(t, err)
-		require.Empty(t, out.Messages, why)
-		time.Sleep(alarmWaitPoll)
-	}
+	out, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+		QueueUrl:        queueURL,
+		WaitTimeSeconds: int32(alarmQuietWindow / time.Second),
+	})
+	require.NoError(t, err)
+	require.Empty(t, out.Messages, why)
 }

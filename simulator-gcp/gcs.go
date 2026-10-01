@@ -25,14 +25,20 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
-// GCSBucketHostDir returns the on-disk directory backing a simulated
-// GCS bucket. Created lazily; safe for concurrent callers. Exported
-// for use by the Cloud Run Jobs/Services + Cloud Functions task
-// runners when they honour `Volume{Gcs{Bucket}}`.
+// GCSBucketHostDir returns the on-disk directory backing a simulated GCS
+// bucket, which inserting the bucket makes. Exported for use by the Cloud Run
+// Jobs/Services + Cloud Functions task runners when they honour
+// `Volume{Gcs{Bucket}}`.
 func GCSBucketHostDir(bucket string) string {
-	dir := filepath.Join(sim.ScopedDataDir("SIM_GCS_DATA_DIR", "gcs", "sockerless-sim-gcs"), bucket)
-	_ = os.MkdirAll(dir, 0o777)
-	return dir
+	return filepath.Join(sim.ScopedDataDir("SIM_GCS_DATA_DIR", "gcs", "sockerless-sim-gcs"), bucket)
+}
+
+func gcsResetBucketHostDir(bucket string) error {
+	dir := GCSBucketHostDir(bucket)
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	return os.MkdirAll(dir, 0o777)
 }
 
 // gcsListLimit is the most entries one page of objects.list holds, and the
@@ -382,6 +388,19 @@ type gcsResumableSession struct {
 	// Preconditions stated when the session began, which the write that
 	// completes the upload must meet.
 	Preconditions gcsPreconditions `json:"preconditions"`
+	// Response is the finished object's metadata, which a request to the
+	// session answers with once the last byte has arrived.
+	Response json.RawMessage `json:"response,omitempty"`
+}
+
+// gcsStagedSize is how many bytes a session's staging payload holds.
+func gcsStagedSize(ref string) (int64, error) {
+	staged, err := gcsBodies.Open(ref)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = staged.Close() }()
+	return staged.Seek(0, io.SeekEnd)
 }
 
 var gcsResumableSessions sim.Store[gcsResumableSession]
@@ -425,19 +444,37 @@ func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID st
 	}
 	defer func() { _ = chunkReader.Close() }()
 
-	start, _, total, rangeErr := parseGCSContentRange(r.Header.Get("Content-Range"), r.ContentLength)
-	if rangeErr != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
-			"%s", rangeErr.Error())
-		return
-	}
-
 	release := gcsResumableWriters.Lock(uploadID)
 	sess, ok = gcsResumableSessions.Get(uploadID)
 	if !ok {
 		release()
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"resumable upload session %q not found", uploadID)
+		return
+	}
+	if sess.Response != nil {
+		release()
+		sim.WriteJSON(w, http.StatusOK, sess.Response)
+		return
+	}
+	held, err := gcsStagedSize(sess.Body)
+	if err != nil {
+		release()
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "read the staged upload: %v", err)
+		return
+	}
+	// The chunk streams to the staging payload unread, so its length is known
+	// only once written.
+	contentRange := r.Header.Get("Content-Range")
+	start, total, status, err := resumableChunkPlacement(contentRange, -1, held)
+	if err != nil {
+		release()
+		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+		return
+	}
+	if status {
+		release()
+		resumeIncomplete(w, r, held)
 		return
 	}
 	staged, received, err := gcsBodies.WriteAt(sess.Body, start, chunkReader)
@@ -450,7 +487,7 @@ func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID st
 	sess.Body = staged
 	// A chunk without Content-Range is the whole object, however long its
 	// body turned out to be.
-	if r.Header.Get("Content-Range") == "" {
+	if contentRange == "" {
 		total = received
 	}
 	if total < 0 || received < total {
@@ -458,43 +495,44 @@ func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID st
 		// resumes with them even across a simulator restart.
 		gcsResumableSessions.Put(uploadID, sess)
 		release()
-		// Resume Incomplete names the bytes received, and names none
-		// before the first arrives.
-		if received > 0 {
-			w.Header().Set("Range", fmt.Sprintf("bytes=0-%d", received-1))
-		}
-		if strings.EqualFold(r.Header.Get("X-GUploader-No-308"), "yes") {
-			w.Header().Set("X-Http-Status-Code-Override", "308")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		w.WriteHeader(308)
+		resumeIncomplete(w, r, received)
 		return
 	}
 
 	// The last chunk: the staged bytes, cut to the declared total, become
-	// the object's generation.
-	gcsResumableSessions.Delete(uploadID)
-	release()
+	// the object's generation, and the session answers every later request
+	// with the object's metadata.
+	defer release()
+	fail := func() {
+		gcsResumableSessions.Delete(uploadID)
+		gcsReleaseBody(staged)
+	}
 	if received > total {
 		if err := gcsBodies.Truncate(staged, total); err != nil {
-			gcsReleaseBody(staged)
+			fail()
 			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "finalize resumable upload: %v", err)
 			return
 		}
 	}
 	digests, err := gcsBodies.Digest(staged)
 	if err != nil {
-		gcsReleaseBody(staged)
+		fail()
 		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "finalize resumable upload: %v", err)
 		return
 	}
 	obj, err := persistGCSObject(objects, sess.Bucket, sess.Object, staged, digests, sess.Attrs, sess.Preconditions)
 	if err != nil {
+		gcsResumableSessions.Delete(uploadID)
 		writeGCSPersistError(w, "write resumable object", err)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, obj))
+	response, err := json.Marshal(gcsObjectMetadata(r, obj))
+	if err != nil {
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "encode the object metadata: %v", err)
+		return
+	}
+	gcsResumableSessions.Put(uploadID, gcsResumableSession{Bucket: sess.Bucket, Object: sess.Object, Response: response})
+	sim.WriteJSON(w, http.StatusOK, json.RawMessage(response))
 }
 
 // handleGCSResumableCancel cancels a resumable upload: Cloud Storage answers
@@ -688,6 +726,12 @@ func registerGCS(srv *sim.Server) {
 		}
 		gcsApplyDefaultSoftDeletePolicy(data)
 
+		// A new bucket holds no objects, so its mount directory starts empty
+		// whatever a deleted bucket of the same name left in it.
+		if err := gcsResetBucketHostDir(name); err != nil {
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "bucket %q storage: %v", name, err)
+			return
+		}
 		bucket := Bucket{Data: data, Project: project}
 		buckets.Put(name, bucket)
 		gcsSeedDefaultObjectACL(name, bucket)
@@ -1016,32 +1060,29 @@ func registerGCS(srv *sim.Server) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// Resumable chunk uploads come back as PUT on the same path with
-	// `upload_id` in the query — share the same dispatch by treating
-	// PUT identically to POST for the upload route.
-	srv.HandleFunc("PUT /upload/storage/v1/b/{bucket}/o", func(w http.ResponseWriter, r *http.Request) {
+	// A resumable session's chunks are PUTs to its session URI and its
+	// cancellation a DELETE there, on whichever media path the session began.
+	resumableChunk := func(w http.ResponseWriter, r *http.Request) {
 		uploadID := r.URL.Query().Get("upload_id")
 		if uploadID == "" {
-			GCPError(w, http.StatusBadRequest,
-				"PUT /upload/... requires upload_id (resumable chunk only)",
-				"INVALID_ARGUMENT")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"%s on the upload path addresses a resumable upload session and needs its upload_id", r.Method)
+			return
+		}
+		if r.Method == http.MethodDelete {
+			handleGCSResumableCancel(w, uploadID)
 			return
 		}
 		handleGCSResumableChunk(w, r, uploadID, buckets, objects)
-	})
-	srv.HandleFunc("DELETE /upload/storage/v1/b/{bucket}/o", func(w http.ResponseWriter, r *http.Request) {
-		uploadID := r.URL.Query().Get("upload_id")
-		if uploadID == "" {
-			GCPError(w, http.StatusBadRequest,
-				"DELETE /upload/... requires upload_id (resumable session cancel only)",
-				"INVALID_ARGUMENT")
-			return
-		}
-		handleGCSResumableCancel(w, uploadID)
-	})
+	}
+	srv.HandleFunc("PUT /upload/storage/v1/b/{bucket}/o", resumableChunk)
+	srv.HandleFunc("DELETE /upload/storage/v1/b/{bucket}/o", resumableChunk)
+	srv.HandleFunc("PUT /resumable/upload/storage/v1/b/{bucket}/o", resumableChunk)
+	srv.HandleFunc("DELETE /resumable/upload/storage/v1/b/{bucket}/o", resumableChunk)
 
-	// Upload object
-	srv.HandleFunc("POST /upload/storage/v1/b/{bucket}/o", func(w http.ResponseWriter, r *http.Request) {
+	// objects.insert on its media paths: /upload takes every protocol, and
+	// /resumable/upload only begins and continues resumable sessions.
+	uploadObject := func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
 		objectName := r.URL.Query().Get("name")
 		uploadType := r.URL.Query().Get("uploadType")
@@ -1070,6 +1111,9 @@ func registerGCS(srv *sim.Server) {
 		defer r.Body.Close()
 		if uploadID != "" {
 			handleGCSResumableChunk(w, r, uploadID, buckets, objects)
+			return
+		}
+		if uploadType != "resumable" && refuseNonResumableOnResumablePath(w, r) {
 			return
 		}
 
@@ -1119,9 +1163,7 @@ func registerGCS(srv *sim.Server) {
 				Attrs:         objAttrs,
 				Preconditions: pre,
 			})
-			location := fmt.Sprintf("%s://%s/upload/storage/v1/b/%s/o?uploadType=resumable&upload_id=%s",
-				requestScheme(r), r.Host, bucketName, sessionID)
-			w.Header().Set("Location", location)
+			w.Header().Set("Location", mediaUploadSessionURI(r, sessionID))
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -1213,7 +1255,9 @@ func registerGCS(srv *sim.Server) {
 		// on apply, so missing it means the attribute is empty
 		// downstream.
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, obj))
-	})
+	}
+	srv.HandleFunc("POST /upload/storage/v1/b/{bucket}/o", uploadObject)
+	srv.HandleFunc("POST /resumable/upload/storage/v1/b/{bucket}/o", uploadObject)
 
 	// Objects.compose — concatenate source objects into a destination
 	// object. Real GCS reads up to 32 source objects in order and

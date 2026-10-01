@@ -1,11 +1,9 @@
 package sim
 
 import (
+	"fmt"
 	"os"
 	"strconv"
-	"time"
-
-	"github.com/e6qu/sockerless-cloud/realexec"
 )
 
 // ParentPIDVariable names the process this simulator must not outlive.
@@ -24,11 +22,6 @@ import (
 // this is the same relationship one level up.
 const ParentPIDVariable = "SOCKERLESS_PARENT_PID"
 
-// parentPollInterval is how often the watch asks whether its parent is still
-// there — far below the lifetime of anything this guards, and far above the
-// cost of one signal-zero probe.
-const parentPollInterval = time.Second
-
 // ExitWithParent ends this process once the process named by
 // SOCKERLESS_PARENT_PID has exited. It returns immediately, and does nothing
 // when the variable is unset or unusable: a simulator run by hand, by a service
@@ -36,21 +29,24 @@ const parentPollInterval = time.Second
 // inferring one from os.Getppid() would end a `nohup`ed run the moment its
 // shell closed.
 func ExitWithParent() {
-	watchParent(os.Getenv(ParentPIDVariable), parentPollInterval, func() { os.Exit(0) })
+	watchParent(os.Getenv(ParentPIDVariable), func() { os.Exit(0) })
 }
 
 // watchParent is ExitWithParent's testable core: it reads the pid, and when
 // that names a process other than this one, starts a watch calling onExit once
 // the process is gone. It reports whether a watch was started.
-func watchParent(value string, interval time.Duration, onExit func()) bool {
+func watchParent(value string, onExit func()) bool {
 	pid, err := strconv.Atoi(value)
 	if err != nil || pid <= 0 || pid == os.Getpid() {
 		return false
 	}
+	wait, err := processExit(pid)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sockerless: cannot watch parent process %d: %v\n", pid, err)
+		return false
+	}
 	go func() {
-		for realexec.ProcessAlive(pid) {
-			time.Sleep(interval)
-		}
+		wait()
 		onExit()
 	}()
 	return true

@@ -92,6 +92,7 @@ lives.
 | `gcp-compute_bulk_verbs` | [`gcp-compute_bulk_verbs`](SIM_SURFACE_TABLES/gcp-compute_bulk_verbs.md) | [`gcp-compute_bulk_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_catalogs` | [`gcp-compute_catalogs`](SIM_SURFACE_TABLES/gcp-compute_catalogs.md) | [`gcp-compute_catalogs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_disk_verbs` | [`gcp-compute_disk_verbs`](SIM_SURFACE_TABLES/gcp-compute_disk_verbs.md) | [`gcp-compute_disk_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_instance_power` | [`gcp-compute_instance_power`](SIM_SURFACE_TABLES/gcp-compute_instance_power.md) | [`gcp-compute_instance_power`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_instance_verbs` | [`gcp-compute_instance_verbs`](SIM_SURFACE_TABLES/gcp-compute_instance_verbs.md) | [`gcp-compute_instance_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_interconnect_diagnostics` | [`gcp-compute_interconnect_diagnostics`](SIM_SURFACE_TABLES/gcp-compute_interconnect_diagnostics.md) | [`gcp-compute_interconnect_diagnostics`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_interconnect_locations` | [`gcp-compute_interconnect_locations`](SIM_SURFACE_TABLES/gcp-compute_interconnect_locations.md) | [`gcp-compute_interconnect_locations`](SIM_TEST_COVERAGE_MATRIX.md) |

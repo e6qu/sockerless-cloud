@@ -5,7 +5,6 @@ import (
 	"io"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
@@ -265,9 +264,5 @@ func packetCaptureFixtureVM(t *testing.T, rg, vnetName, subnetName, nicName, vmN
 	vm, err := vmPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, vm.ID)
-
-	// A capture reads frames off a running machine's interface, so give the
-	// interface a moment to come up before one is started against it.
-	time.Sleep(500 * time.Millisecond)
 	return *vm.ID
 }

@@ -610,6 +610,7 @@ func handleLambdaInvokeWithResponseStream(w http.ResponseWriter, r *http.Request
 	// then a terminal InvokeComplete event. This is the same wire framing
 	// real Lambda uses for response streaming, so aws-sdk-go-v2's
 	// eventstream decoder reassembles it natively.
+	sim.DeclareWait(r.Context(), lambdaInvokeWaitLimit(fn))
 	responseBody, unhandled, _ := invokeLambdaViaRuntimeAPI(fn, payload)
 	w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	w.Header().Set("X-Amz-Executed-Version", executedVersion)
@@ -1029,6 +1030,17 @@ func lambdaWaitForDurableExecution(ctx context.Context, arn string) ([]byte, boo
 		case <-ticker.C:
 		}
 	}
+}
+
+// lambdaDeclareDurableWait bounds a synchronous durable invocation by the
+// execution timeout its DurableConfig sets; without one, only the caller's
+// connection bounds it.
+func lambdaDeclareDurableWait(ctx context.Context, fn LambdaFunction) {
+	if timeout := lambdaDurableExecutionTimeout(fn.DurableConfig); timeout > 0 {
+		sim.DeclareWait(ctx, time.Duration(timeout)*time.Second)
+		return
+	}
+	sim.DeclareOpenEndedWait(ctx)
 }
 
 func lambdaDurableExecutionTimeout(config map[string]any) int {

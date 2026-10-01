@@ -43,22 +43,6 @@ func LocalImagePlatform(ctx context.Context, image, registryAuth string) (string
 	return inspect.Os + "/" + inspect.Architecture, nil
 }
 
-// FreeTCPPort returns a loopback TCP port nothing listens on. The engine binds
-// it when it publishes the workload's port, so another process can take it in
-// between; the container start then fails loudly rather than misroutes.
-func FreeTCPPort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = l.Close() }()
-	addr, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("listener address is not a *net.TCPAddr: %T", l.Addr())
-	}
-	return addr.Port, nil
-}
-
 // FirstReachable polls the candidate URLs, each round in order, and returns
 // the first whose host accepts a TCP connection before timeout. A URL without
 // a port is dialled on its scheme's default port.

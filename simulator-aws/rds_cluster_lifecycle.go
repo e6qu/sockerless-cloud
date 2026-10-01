@@ -163,16 +163,31 @@ func rdsFinishClusterStart(clusterID string) {
 	}
 }
 
-// rdsRecoverClusterTransitions finishes the stops and starts a previous
-// process took but did not see through.
+// rdsRecoverClusterTransitions finishes the stops, starts, restores and
+// snapshots a previous process took but did not see through.
 func rdsRecoverClusterTransitions() {
+	capturing := map[string]bool{}
+	for _, snapshot := range rdsClusterSnapshots.List() {
+		if snapshot.Status == "creating" {
+			capturing[snapshot.DbClusterResourceId] = true
+		}
+	}
 	for _, cluster := range rdsClusters.List() {
 		id := cluster.DBClusterIdentifier
 		switch cluster.Status {
+		case "deleting":
+			// A deletion with a final snapshot resumes after the capture
+			// rdsRecoverClusterSnapshots resumes.
+			if resourceID := cluster.DbClusterResourceId; !capturing[resourceID] {
+				bg.Go(func() { rdsFinishClusterDeletion(id, resourceID) })
+			}
 		case "stopping":
 			bg.Go(func() { rdsFinishClusterStop(id) })
 		case "starting":
 			bg.Go(func() { rdsFinishClusterStart(id) })
+		case "creating":
+			bg.Go(func() { rdsFinishClusterRestore(id) })
 		}
 	}
+	rdsRecoverClusterSnapshots()
 }

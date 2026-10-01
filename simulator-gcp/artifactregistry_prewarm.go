@@ -95,7 +95,7 @@ func arRepoVerbHandled(w http.ResponseWriter, r *http.Request, repo, verb string
 	case "removePrewarmedArtifact":
 		arHandleRemovePrewarmed(w, r, repo)
 	case "exportArtifact":
-		arHandleExportArtifact(w, r, repo, versions, tags)
+		arHandleExportArtifact(w, r, repo)
 	}
 	return true
 }
@@ -203,73 +203,6 @@ func arPrewarmedFromRequest(w http.ResponseWriter, r *http.Request, repo string)
 		return ARPrewarmedArtifact{}, false
 	}
 	return artifact, true
-}
-
-// arHandleExportArtifact copies the artifact's blob into Cloud Storage, which
-// this simulator also serves. The bytes come from the OCI blob the digest
-// names; an artifact whose blob is absent is NOT_FOUND rather than an export
-// of invented content.
-func arHandleExportArtifact(w http.ResponseWriter, r *http.Request, repo string, versions sim.Store[ARVersion], tags sim.Store[ARTag]) {
-	var req struct {
-		SourceVersion string `json:"sourceVersion"`
-		SourceTag     string `json:"sourceTag"`
-		GcsPath       string `json:"gcsPath"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-		return
-	}
-	name, _, err := arArtifactSelector(repo, req.SourceVersion, req.SourceTag)
-	if err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
-		return
-	}
-	version, ok := arResolveVersion(name, versions, tags)
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "artifact %q not found", name)
-		return
-	}
-	// gcsPath starts with the bucket name and may carry a directory, per the
-	// member's own description; the object keeps the artifact's digest.
-	bucket, prefix, _ := strings.Cut(strings.TrimPrefix(req.GcsPath, "gs://"), "/")
-	if bucket == "" {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
-			"gcsPath %q must start with a bucket name", req.GcsPath)
-		return
-	}
-	if _, exists := gcsBuckets.Get(bucket); !exists {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
-		return
-	}
-	digest := version.Name[strings.LastIndex(version.Name, "/")+1:]
-	project, repoLocation, repoID := arRepoParts(repo)
-	blob, ok := arRegistry.Blobs.Get(repoID + "@" + digest)
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
-			"no stored blob for %q, so there is nothing to export", digest)
-		return
-	}
-	object := strings.TrimSuffix(prefix, "/")
-	if object != "" {
-		object += "/"
-	}
-	object += digest
-	if _, err := persistGCSObjectBytes(bucket, object, blob.Data, GCSObject{
-		ContentType: blob.ContentType,
-		Metadata:    map[string]string{"artifactregistry-source": version.Name, "artifactregistry-location": repoLocation},
-	}, gcsPreconditions{}); err != nil {
-		writeGCSPersistError(w, "export artifact", err)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, newLRO(project, repoLocation, map[string]any{"exportedVersion": version},
-		"type.googleapis.com/google.devtools.artifactregistry.v1.ExportArtifactResponse",
-		gcpFixedOperationMetadata(map[string]any{
-			"@type": "type.googleapis.com/google.devtools.artifactregistry.v1.ExportArtifactMetadata",
-			"exportedFiles": []map[string]any{{
-				"name":          digest,
-				"gcsObjectPath": "gs://" + bucket + "/" + object,
-			}},
-		})))
 }
 
 // arResolveVersion follows a tag to its version, or reads the version directly.

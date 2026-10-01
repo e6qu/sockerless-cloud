@@ -383,11 +383,29 @@ unset), Cloud Run's ten seconds, a Container App template's
 `terminationGracePeriodSeconds`, App Service's
 `WEBSITES_CONTAINER_STOP_TIME_LIMIT`. Azure Container Instances and the
 managed-database engines keep five seconds because their clouds publish none.
+A stopping Amazon ECS task signals all its containers together, so it takes
+as long as its slowest container rather than the sum of their timeouts, and
+the awsvpc pause container that holds the task's network namespace stops only
+after the containers that run in it have exited; a task start reports the
+pause image's resolution (`pause-image`) apart from the pause container's
+start (`pause-start`).
 An Amazon ECS container definition's `workingDirectory` reaches the engine,
 which creates the directory when the image lacks it, and an ExecuteCommand
 session inherits it. An AWS Lambda invocation's timeout starts when the
 runtime first asks for work, with Init separately bounded at ten seconds, as
 AWS documents.
+
+The engine allocates every loopback port a workload publishes, and the
+simulator reads the bound port back from the container's inspection after each
+start (`ContainerHandle.PublishedPort`, `sim.PublishedHostPort`). The
+simulators had picked a free port by listening on `127.0.0.1:0` and closing the
+listener before asking the engine to publish it, so anything that bound the
+port in between failed the start with "port is already allocated"; the
+database engines, the Memorystore for Redis engine, Cloud Run services, Cloud
+Functions, Azure Functions HTTP sites and AWS Amplify Hosting compute stopped
+choosing ports. A stopped container holds no published port and a resumed one
+holds a new one, so adopting an engine left by an earlier process reads its
+ports after resuming it.
 
 RunTask places a task only where it fits. The simulator runs real containers on
 one finite host, so rather than invent a capacity it commits each placed task's
@@ -430,6 +448,62 @@ service, and snapshots captured with `cp -a --reflink=auto` — copy-on-write
 where the volume store allows it, one code path either way. A restore returns
 to the data as it was, which separates a snapshot from a metadata row.
 
+Each Amazon RDS volume is named `sockerless-rds-<kind>_<identifier>` for an
+instance, cluster, snapshot or cluster snapshot. No RDS identifier contains an
+underscore, so no two resources share a volume, as an instance `cluster-x` and
+a cluster `x` once did. At startup the simulator copies a volume from its
+earlier name into the new one, first removing any engine container still on
+it. When two resources claimed the same earlier name, it leaves that volume
+for the operator. DeleteDBInstance and DeleteDBCluster with a final snapshot
+keep the resource `deleting` until the capture and teardown finish, as Amazon
+RDS does. While it is deleting, its identifier answers `DBInstanceAlreadyExists`
+or `DBClusterAlreadyExistsFault` to a create and `InvalidDBInstanceState` or
+`InvalidDBClusterStateFault` to further actions. The teardown acts only while
+the record still carries the resource ID it was started for. A restart resumes
+an unfinished capture, copy or deletion. A final snapshot whose capture an
+earlier simulator left unfinished, after it had already dropped the resource,
+takes that resource's volume as its own.
+
+An Amazon RDS instance's log files are its engine's own output.
+`dbengine.Instance` hands the engine container's lines, each dated by the
+container runtime, to a sink. The Amazon RDS sink stores them by hour under the
+instance's resource ID, so they outlive a stop, a reboot and a simulator
+restart. An adopted container replays its output from the start, and the sink
+drops every line no later than the last one its stream recorded.
+DescribeDBLogFiles and DownloadDBLogFilePortion lay the lines out as Amazon RDS
+names the files. PostgreSQL gets one `error/postgresql.log.YYYY-MM-DD-HH` file
+per hour, kept for 4320 minutes. MySQL and MariaDB get `error/mysql-error.log`,
+which RDS moves into `error/mysql-error-running.log` every five minutes, and
+the hourly `error/mysql-error-running.log.N`, numbered by the hour it rotated
+and kept for 24 hours; the AWS CLI's describe-db-log-files example fixes those
+names and times. Sizes and LastWritten come from the lines themselves. An
+instance whose engine has not started has no log files, and a deleted
+instance's output goes with it. DownloadDBLogFilePortion follows the model: the
+most recent lines without a Marker, the lines after the marker (a byte offset,
+`0` being the start) with one, at most 10,000 lines by default and 1 MB in any
+case.
+
+Memorystore for Redis instances and Memorystore for Redis Cluster clusters run
+a real Redis engine, one container per resource whose redis-server processes
+are its nodes, on the image the instance's `redisVersion` names (clusters run
+7.2). The create starts the engine and settles only once every node answers
+and, for a cluster, the slots are assigned and every replica has synchronised,
+so a resource reported ready is serving; the delete stops it and removes its
+volume. The `host`, `readEndpoint` and discovery endpoint the API reports are
+per-resource loopback listeners at port 6379 relaying to the engine, and each
+cluster node announces a loopback address at its own container port, because a
+replica replicates from the address its primary announces and that address
+has to reach the primary inside the container as well as from the host. AUTH
+is the engine's `requirepass`, whose value `getAuthString` returns; a failover
+promotes a replica and moves the primary endpoint to it. An export has the
+primary write its RDB with SAVE and stores that file in Cloud Storage; an
+import and an upgrade stage the snapshot as the primary's `dump.rdb` and
+restart the engine on it, removing the file once loaded so persistence stays
+off; a cluster backup keeps every shard's RDB, which `backups:export` writes to
+the bucket. A simulator started API-only (`SIM_RUNTIME=process`) runs no
+engine even when another server in the same process holds a container client,
+and its instances report no host.
+
 Firecracker boots Compute Engine, Amazon EC2 and Azure virtual machines where
 the host kernel allows it, over its default virtio-MMIO transport: the opt-in
 PCI transport never delivers the first virtio-blk completion on aarch64, and
@@ -440,6 +514,219 @@ Stopping or terminating a pending Amazon EC2 instance cancels its boot instead
 of waiting for the guest to answer. Every SDK test that launches instances
 terminates them when it ends, since each one left running kept a machine
 booting or running beside every later test's boot on the same runner.
+
+The fabric keeps a network's or machine's lock only while a caller holds or
+waits for it, so its lock maps shrink as networks and machines go away.
+Creating an Azure file share or inserting a Cloud Storage bucket makes its
+empty host directory and fails the request when it cannot. The mount helpers
+only name the directory, and a bucket reuses no files that a deleted bucket
+of the same name left behind.
+Removing a Docker network the engine refuses because a container is still
+attached waits for that container's disconnect event and tries again, instead
+of retrying on a timer. Deleting a Cloud DNS managed zone succeeds whatever
+still resolves through it, as the service does; the Docker network behind the
+zone goes in the background once its last container disconnects, and a failure
+is logged rather than dropped.
+
+Every Amazon EventBridge Scheduler target call runs as the schedule's
+execution role, which must trust `scheduler.amazonaws.com` and allow the
+call; a denied call fails with `AccessDeniedException` and reaches the
+dead-letter queue. An EventBridge target puts its event through the bus's own
+PutEvents path, so the bus's rules deliver it. A universal target calls an
+awsJson or awsQuery API action through the Step Functions AWS SDK dispatcher,
+checking every action and resource the request names against the role.
+Create and update reject values outside the ranges the model declares, and
+ListSchedules and ListScheduleGroups page by MaxResults and NextToken. The
+IAM gate reads an Amazon SQS request's queue from a JSON body as well as from
+query parameters, so a queue-scoped grant admits the awsJson protocol the SDKs
+send.
+
+An EC2 Auto Scaling instance refresh runs in the background. It replaces
+instances in batches that keep MinHealthyPercentage in service, or launches
+ahead of terminating under MaxHealthyPercentage, and waits out each batch's
+instance warmup (the preference, else the group's DefaultInstanceWarmup, else
+its health-check grace period). It honours checkpoints, bake time,
+SkipMatching and the Standby and scale-in-protected preferences, and moves the
+group onto its desired launch template when it succeeds. CancelInstanceRefresh
+stops a refresh, and RollbackInstanceRefresh reverses only one still under
+way. CreateAutoScalingGroup and UpdateAutoScalingGroup take a launch template,
+and members report the template version they launched from.
+
+GetCallerIdentity reports the signing identity's own unique ID: a user's ID,
+`<role ID>:<session name>` for an assumed role, `<account>:<name>` for a
+federated user. A credential that resolves to no identity fails with
+`InvalidClientTokenId`, in GetCallerIdentity, GetWebIdentityToken and
+GetDelegatedAccessToken, and with `InvalidAccessKeyId` in an Amazon S3
+Express One Zone CreateSession. GetDelegatedAccessToken's credential acts as
+its caller.
+
+A simulator binds its port before it prints its banner, so the banner's
+`Listening on` line means the port answers, and the SDK, CLI and Terraform
+harnesses start a simulator through `testutil/simready`, which returns on that
+line or fails when the process exits first, instead of polling `/health`. The
+parent-process watch and the container reaper wait on the parent's exit event,
+a pidfd on Linux and a kqueue `NOTE_EXIT` filter on macOS, rather than probing
+it on a timer.
+
+An Aurora cluster's engine serves a second, read-only address. Sessions on the
+reader endpoint (once a replica exists) and on a reader instance's own endpoint
+open read-only in the engine itself: PostgreSQL's startup packet carries
+`default_transaction_read_only=on`, and MySQL sessions run
+`SET SESSION TRANSACTION READ ONLY` before the client sees its login succeed.
+The writer's endpoints stay read-write.
+
+An Aurora DB cluster snapshot carries the cluster volume's data.
+CreateDBClusterSnapshot and the final snapshot DeleteDBCluster takes answer
+`creating` and settle `available` once `sim.CaptureVolume` has copied the
+cluster volume into the snapshot's own volume (`failed` with the copy's error
+otherwise); the final snapshot's capture runs before the engine stops and its
+volume goes. CopyDBClusterSnapshot answers `copying` and clones the source's
+volume, and DeleteDBClusterSnapshot refuses a snapshot still being taken and
+removes its volume. The snapshot holds the cluster's sealed master credential
+and the one its engine holds. RestoreDBClusterFromSnapshot and
+RestoreDBClusterToPointInTime with `UseLatestRestorableTime` record the new
+cluster `creating` with that credential, bind its endpoints, seed its cluster
+volume from the snapshot's or the source cluster's in the background, and land
+it `available` (`incompatible-restore` when the seed fails); every endpoint,
+instance endpoints included, refuses clients while the cluster is not
+available, so the engine first starts on the seeded volume. A process restart
+resumes a capture, copy or seed in flight. The SDK suite proves it with pgx
+and the MySQL driver: a restore from a copied snapshot holds the rows written
+before the snapshot and none after, a point-in-time restore holds every
+committed row, and a restore from the final snapshot holds the cluster as it
+was deleted.
+
+Every volume capture holds one crash-consistent point in time, the property a
+block-level storage snapshot gives. `sim.SnapshotVolume` lists the running
+containers that mount the source volume writable, pauses each through the
+Docker Engine API's cgroup freezer for the length of the `cp -a`, and thaws it
+after; a per-container hold count lets concurrent captures of one volume share
+the freeze, and `sim.AdoptContainer` thaws a container a dead process left
+frozen. A copy that walked the files while the engine wrote had held each file
+as of a different moment, which crash recovery could not always open. The
+frozen engine keeps its client connections, whose I/O waits out the copy, as
+a Single-AZ RDS instance's I/O suspends briefly during its snapshot. Amazon RDS
+instance and cluster snapshots, final snapshots, point-in-time clones of a
+running cluster and the Azure Database for PostgreSQL flexible server backups
+all go through it. A `sim` test captures a volume twice at once while a
+writer renames 64 files to each round number in turn and proves both captures
+show a single instant of the writer; the SDK suite snapshots a PostgreSQL
+instance under a transaction stream and proves the restore holds a gapless
+sequence prefix whose length both account balances agree with.
+
+Artifact Registry stores the bytes of uploaded files and serves them back from
+`files.download`. The generic, Go module, KFP, Apt, Yum and GooGet uploads create
+the package, version and file their methods describe, reading each format's
+own metadata (a .deb control file in any of its compressions, an RPM header, a
+`.pkgspec`, a module zip), and `:import` publishes Cloud Storage objects the same
+way, reporting a bad object in the response's `errors`. `exportArtifact`
+resolves a version through the recorded package versions, so a pushed Docker
+image exports its manifest, config and layers, and deleting a version, package
+or repository deletes its files.
+
+`files.upload` and `genericArtifacts.upload` speak Google's resumable media
+protocol as well as the simple one, the two methods whose Discovery
+`mediaUpload` declares it. A session begins with `uploadType=resumable` on the
+`/upload` path (the Go client, googleapiclient) or the `/resumable/upload` path
+(apitools), answers 200 with the session URI in `Location`, and takes chunks
+POSTed or PUT there under `Content-Range`, answering 308 with a `Range` of the
+bytes received — 200 with `X-Http-Status-Code-Override: 308` for a client that
+sends `X-GUploader-No-308` — and the method's own response on the last byte; a
+`bytes */*` query reports progress, and a DELETE cancels with 499. The session
+lives in the store, so a restart does not lose it. A Docker push records a
+File per manifest and per referenced blob, named by digest and served from the
+registry, so an exported blob's `files/<digest>` resolves; a layer two images
+share is owned by the first to push it and passes to another on deletion.
+`files.delete` refuses repositories that are not generic, and `registryUri`
+follows the repository format as gcloud's `AddRegistryBaseToRepositoryInfo`
+spells it: `LOCATION-FORMAT.pkg.dev/PROJECT/REPOSITORY`.
+
+Every resumable path Discovery declares is served. The conformance loader and
+the response validator index `mediaUpload.protocols.resumable.path` beside the
+simple path, so the `/resumable/upload/...` routes are checked as Discovery
+methods rather than allowlisted, and a PUT or DELETE is accepted on any media
+path of a method that declares the resumable protocol, the session URI the
+protocol addresses. The session protocol is one module, `media_upload.go`,
+shared by Artifact Registry and BigQuery: a session keyed by its `upload_id`,
+owned by the resource and method it began on, finished by the method's own
+callback. Cloud Storage keeps its own sessions, because they stage bytes in the
+object payload store, but places chunks, answers 308 and builds the session URI
+through the same helpers: `objects.insert` takes sessions on
+`/resumable/upload/storage/v1/b/{bucket}/o`, the session URI echoes the path and
+query the session began on, a `bytes */*` query reports progress, a chunk that
+would leave a gap is refused, and a finished session answers later requests
+with the object's metadata. BigQuery `jobs.insert` runs a load job on its media
+paths, whether the source data arrives in one multipart request or a resumable
+session: it parses CSV (`skipLeadingRows`, `fieldDelimiter`, `nullMarker`,
+`allowJaggedRows`) or newline-delimited JSON (`ignoreUnknownValues`) against the
+table's schema or the job's, honours `createDisposition`, `writeDisposition`
+and `maxBadRecords`, and reports a failed load as a DONE job with an
+`errorResult`. Before, the media path parsed the request body as a JSON Job and
+dropped the bytes.
+
+BigQuery load, copy and extract jobs ran as real jobs. `jobs.insert` recorded
+the job PENDING and answered at once; a goroutine moved it to RUNNING, did the
+work, and settled it DONE with its statistics and, on failure, an
+`errorResult`. A job checked its destination and wrote it under the table's
+lock as one atomic update, `jobs.cancel` and `configuration.jobTimeoutMs`
+stopped a running job before it wrote anything, a job ID could not be reused,
+and a restart settled the jobs it caught unfinished. A load read its
+`sourceUris` from the simulator's Cloud Storage store, one `*` per URI matching
+any run of an object name, inflated gzip sources, and parsed CSV through its
+own splitter (`quote`, `allowQuotedNewlines`, `encoding`, `nullMarkers`) so
+quoting followed BigQuery rather than `encoding/csv`. Every cell was converted
+to its column's type and stored in the string form `tabledata.list` carries, so
+a value the type could not hold became a bad record. `autodetect` detected CSV
+and newline-delimited JSON schemas, including CSV headers and nested and
+repeated JSON fields; AVRO loads went through `hamba/avro` and PARQUET through
+`parquet-go`, taking the table's schema from the file. A copy wrote the rows of
+one or more tables sharing a schema under the create and write dispositions,
+and an extract wrote CSV, newline-delimited JSON, Avro or Parquet objects,
+compressed and sharded through a wildcard URI. `numBytes` was computed from the
+stored rows by BigQuery's logical size of each type, and `tabledata.list`
+nested RECORD and REPEATED cells in their wire form. The media-load tests waited
+on the job through the client's `Job.Wait` instead of reading a DONE state off
+the insert response.
+
+Compute Engine `instances.start`, `stop`, `suspend`, `resume`, `reset`,
+`startWithEncryptionKey` and `delete` answer at once with a RUNNING zone
+operation, move the instance through STAGING, STOPPING or SUSPENDING, and do
+the machine's work in the background, settling the operation when it ends.
+`reset` is a hard reset: it halts the guest and boots it again while the
+instance reads RUNNING, and a reboot that fails leaves the instance
+TERMINATED. `delete` refuses an instance with `deletionProtection` before
+anything moves. The operations' `wait` methods block on a signal
+`computeOpFinish` raises when the operation reaches DONE, bounded by the
+documented two minutes, instead of re-reading the record on a timer, and
+`zoneOperations.delete` and its regional and global siblings delete the record
+and wake its waiters. An Azure VM DELETE answers 202 with the
+long-running-operation headers and `SimulateEviction` answers 204, and both
+stop the guest in the background; the machine leaving takes its name off the
+`properties.virtualMachine` of every network interface it had attached.
+
+Cloud Run's v2 `RunJob` answers with an operation that stays running while the
+execution runs, carrying the Execution as its metadata, as the method's
+`operation_info` declares; the execution's settle completes it once the tasks,
+the job's reference and the log lines are written — the Execution as the
+response when every task succeeded, the failed `Completed` condition's message
+under FAILED_PRECONDITION when one failed, CANCELLED when it was cancelled, and
+NOT_FOUND when the execution was deleted while it ran. Cancelling the operation
+cancels the execution, and a restart completes the operations of executions
+that settled without them. `operations.wait` on REST and `WaitOperation` on
+gRPC block on a signal `gcpFinishOperation` raises, bounded by the request's
+`timeout` or else by the caller's connection. Cloud Build's `CreateBuild`, its
+regional twin, `RetryBuild`, `ApproveBuild`, `RunBuildTrigger`, the trigger
+webhooks and Cloud Run's `builds:submit` record the build QUEUED and return its
+operation at once, with a `BuildOperationMetadata` carrying the build; the
+build runs in the background under its own `timeout` (sixty minutes unset,
+ending TIMEOUT with DEADLINE_EXCEEDED), and the operation is a view of the
+record that turns done once the build is terminal and its steps have stopped,
+with the full Build as the response. Before, `RunJob` returned its operation
+done the moment the execution started and `CreateBuild` held the request until
+the build ended, so the SDK, CLI and bash suites polled execution and build
+status; they now wait on the operation — `op.Wait`, `operations.wait`, or the
+Cloud Build SDK's `CreateBuildOperation(name).Wait` — and read the execution's
+name from the operation's metadata where the workload must still be running.
 
 A workload host pulls its image the way the cloud pulls it. The Cloud Run and
 Cloud Functions hosts present the project's Cloud Run service agent's access
@@ -466,6 +753,56 @@ interrupts on cancel and bounds the unwind with `WaitDelay`, because a killed
 CLI never tells buildkit to stop and can leave a child holding the output pipe.
 A privileged CodeBuild environment gets the simulator's own engine, and its
 output streams to CloudWatch Logs as the service does by default.
+
+Azure Container Registry Tasks' `scheduleRun` records the Run Queued and
+answers 200 with it at once — the Azure CLI's own registry-tasks client accepts
+nothing else, and the Go SDK's poller completes on a 200 that names no
+operation — and the build runs in the background, Queued → Running →
+Succeeded, Failed, Canceled, Timeout (the DockerBuildRequest `timeout`, 3600
+seconds unset, 300 to 28800 accepted) or Error when the simulator stops under
+it; a restart ends the runs a previous process left unfinished. `Runs_Cancel`
+interrupts the run's docker steps and answers once the run has stopped and
+reads Canceled. The run's log is a blob at its log link that grows while the
+build writes it, serves the Blob service's ranged reads, and gains `Complete`
+metadata when the run ends, which is what `az acr build` streams until.
+Before, `scheduleRun` held the request until the build ended and answered with
+the finished Run, so no client could see a running build or cancel one; the
+SDK and CLI suites now take the Queued Run from the poller and follow the Run's
+own status, and cancel a build mid-run.
+
+`scheduleRun` ran only a DockerBuildRequest whose source was a full blob URL,
+so `az acr build .`, `az acr run`, `az acr task run` and
+`azurerm_container_registry_task_schedule_run_now` could not run. All four run
+requests now go through the one background run lifecycle. A
+FileTaskRunRequest, an EncodedTaskRunRequest and a TaskRunRequest of a task
+file run the ACR Tasks YAML as the service's open-source run engine
+(Azure/acr-builder) reads it: Go templates over `{{.Run.*}}` (the date as
+`20060102-150405z`) and `{{.Values.*}}` from the values file under `--set` and
+`--set-secret`, then from v1.1.0 the `$` aliases, custom ones and the documented
+image aliases, then `build`, `push` and `cmd` steps ordered by `when`, each with
+its timeout, retries, repeat, start delay, environment and ignore-errors.
+Steps share the source in a run volume mounted at `/workspace`, on a run
+network where each step answers to its ID; a cmd step's writes are read back
+for the build steps after it. A TaskRunRequest runs the Task's Docker, FileTask
+or EncodedTask step with the request's file, context, arguments and values
+merged in, and reports the task's name. `listBuildSourceUploadUrl` hands out a
+Shared Access Signature URL into storage the registry service owns (an account
+name no customer can hold), served by the Blob service's own handlers, Put
+Block List included; a run request's relative `sourceLocation` resolves to that
+upload. A DockerBuildRequest renders its image names and places a name without
+a registry in the run's registry. An agent pool runs as many runs as its
+`count` of agents, the rest wait Queued, and `listQueueStatus` counts them.
+The run engine drives its cmd and push steps through the Docker Engine API,
+not the docker CLI: it creates the run's network and volume, creates each step
+container on that network under its step-ID alias, seeds the volume through
+the archive endpoint and reads it back the same way, and removes the
+containers, images, network and volume at the run's end. Pulls and pushes to
+the run's registry present the run's identity token as the engine's registry
+credential; only `docker build` stays a CLI invocation. A step's output
+reaches the run log through a followed log stream opened at the container's
+start, which carries all of it even when the container exits before a reader
+attaches, and its exit code through a next-exit wait registered before the
+start.
 
 ## Storage
 
@@ -575,6 +912,20 @@ table's size; the deployed database's size was once blamed on object bodies
 that held 4 KiB. A duration says only "fast today", so concurrency fixes are
 proven by counting — peak readers inside a lock, items a query read.
 
+The slow-request diagnostic (`sim.InFlightMiddleware`) reports a request only
+once it outlives the wait its handler declared by `SlowRequestThreshold`. A
+method that blocks by design names its bound on the request context:
+`sim.DeclareWait` for a long poll, an operation wait or a synchronous run of
+the caller's workload under its configured timeout, `sim.DeclareOpenEndedWait`
+for a stream or a wait the caller left without a timeout. The middleware
+treats an upgraded connection as open-ended by itself, so every WebSocket
+session is covered without a declaration. The framework holds no list of such
+methods; each cloud's handler says what the cloud documents. Reporting every
+`operations.wait` that blocked past ten seconds had pointed the goroutine-dump
+hint at healthy requests. The watcher reads an injected clock, and the
+middleware waits for it before finishing a request, so its tests step time
+instead of waiting it out and a report cannot land after the request ended.
+
 The race detector runs on every pull request over every module. `bg.Go` and
 `bg.AfterFunc` count goroutines and pending timers; a drain (`bg.Await`) is a
 barrier that stops unfired timers and drops work requested while it runs,
@@ -595,6 +946,19 @@ come back at that moment. Waiting for full steady state slowed a few ECS tests
 by a few seconds; that cost is accepted over checking a partial condition. EC2
 Auto Scaling answers a capacity change at once: members join Pending, each
 launch has an InProgress activity, and a background boot moves both on.
+
+An Azure test that starts a long-running operation by hand waits for it the
+way a client does. The SDK suites hand the raw response to azcore's own poller
+(`awaitARMOperation`), which follows Azure-AsyncOperation or Location on the
+Retry-After cadence; the CLI suites drive `az rest --debug` through
+`azLongRunning`, which reads the same headers and answers a Location poll's 202
+by waiting its Retry-After. A delete, restore, MSDeploy publish, Redis or Event
+Hubs create, or ownership acceptance is read once after its operation ends,
+never polled for its effect. Every simulator a test starts in-process waits on the banner it
+prints after binding (`simready`), not on a health loop. The AWS suites wait
+for an alarm state with the AlarmExists waiter filtered by StateValue, for a
+target with TargetInService, and watch a queue that must stay empty with one
+long poll for the window instead of receives in a loop.
 
 Azure's asynchronous work answers the request and settles behind it, as the
 service does. An Event Grid webhook subscription stays Creating until its
@@ -689,7 +1053,9 @@ compared exactly and an unpinned provider is a failure. On a pull request, a
 drift byte-identical to `main`'s is reported rather than failed, since upstream
 moved under the branch. Every network lookup the check makes carries a
 deadline and fails naming what never answered. A deliberate hold names its
-cause and goes when the cause does.
+cause and goes when the cause does. Resolving the module behind a workflow's
+`go install` package path asks the module proxies alone: `direct` would answer
+each non-module prefix by cloning the whole repository.
 
 ## Continuous integration
 
@@ -707,7 +1073,10 @@ asks the host first; a pull that tests a simulator's own registry is the named
 exception. Warming is `continue-on-error`, because it primes a cache and the
 point of use fails naming the image. Jobs never delete the shared Go caches
 (`actions/setup-go` saves what is left at post-job), and refresh the apt index
-only when a package is missing. The workflows reference as few external
+only when a package is missing. In the AWS SDK shards one shard saves the
+Go cache after its pre-build and the rest only restore it, so a dependency
+change no longer has every shard compress the same cache inside its time
+limit. The workflows reference as few external
 actions as possible, because the runner downloads every action a workflow
 names for every job. A tool a suite needs — gcloud, `cbt`, the AWS CLI — is
 installed in `TestMain` with a few retries, never skipped.

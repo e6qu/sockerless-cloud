@@ -714,6 +714,7 @@ func s3ObjectLambdaGetObject(w http.ResponseWriter, r *http.Request, olap S3Obje
 		return
 	}
 
+	sim.DeclareWait(r.Context(), lambdaInvokeWaitLimit(fn))
 	route := s3ObjectLambdaID()
 	token := s3ObjectLambdaID()
 	reply := make(chan s3ObjectLambdaResult, 1)

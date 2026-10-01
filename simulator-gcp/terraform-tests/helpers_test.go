@@ -20,6 +20,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -82,6 +85,13 @@ func TestMain(m *testing.M) {
 	os.Setenv("NO_PROXY", noProxy)
 	os.Setenv("no_proxy", noProxy)
 
+	// The Memorystore instance the stack creates runs a real Redis engine.
+	// Acquiring the image here, with retries, keeps a registry hiccup out of
+	// the timed apply.
+	if err := baseimage.Ensure("public.ecr.aws/docker/library/redis:7.0-alpine"); err != nil {
+		log.Fatalf("Failed to pull the Redis engine image: %v", err)
+	}
+
 	// Each suite builds the simulator it runs into a path of its own. The
 	// three suites share one working tree, so a single `../simulator-gcp`
 	// would have one suite's `go build -o` overwrite the binary another is
@@ -124,18 +134,13 @@ func TestMain(m *testing.M) {
 		fmt.Sprintf("SIM_GCP_GRPC_PORT=%d", grpcPort),
 	)
 	simCmd.Stdout = os.Stdout
-	simCmd.Stderr = os.Stderr
-	if err := simCmd.Start(); err != nil {
-		log.Fatalf("Failed to start simulator: %v", err)
+	if err := simready.Start(simCmd, os.Stderr); err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Simulator did not become healthy: %v", err)
 	}
 
 	baseURL = fmt.Sprintf("http://127.0.0.1:%d", simPort)
 	tfEndpoint = baseURL
-
-	if err := waitForHealth(baseURL + "/health"); err != nil {
-		simCmd.Process.Kill()
-		log.Fatalf("Simulator did not become healthy: %v", err)
-	}
 
 	// The data plane verifies the bearer on every request, so the terraform
 	// google provider must present a token the simulator signed. Mint one from
@@ -210,22 +215,6 @@ func TestMain(m *testing.M) {
 	simCmd.Process.Kill()
 	simCmd.Wait()
 	os.Exit(code)
-}
-
-func waitForHealth(url string) error {
-	client := &http.Client{Timeout: 2 * time.Second}
-	for i := 0; i < 50; i++ {
-		resp, err := client.Get(url)
-		if err == nil && resp.StatusCode == 200 {
-			resp.Body.Close()
-			return nil
-		}
-		if resp != nil {
-			resp.Body.Close()
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for %s", url)
 }
 
 // The dependency lock beside each configuration is untracked local state, so

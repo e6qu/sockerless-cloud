@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -52,7 +53,12 @@ type Build struct {
 	Options          map[string]any    `json:"options,omitempty"`
 	Approval         *BuildApproval    `json:"approval,omitempty"`
 	BuildTriggerID   string            `json:"buildTriggerId,omitempty"`
+	Timeout          string            `json:"timeout,omitempty"`
 }
+
+// cloudBuildDefaultTimeout is how long a build runs when it names no timeout:
+// "Default time is 60 minutes."
+const cloudBuildDefaultTimeout = 60 * time.Minute
 
 // BuildApproval mirrors the Cloud Build v1 BuildApproval schema. A build only
 // carries one when its trigger requires approval.
@@ -195,10 +201,12 @@ type BitbucketServerConfig struct {
 var cbBuilds sim.Store[Build]
 
 // cbRunning holds the cancel function of the context a build's steps execute
-// under, keyed by build ID, for as long as those steps are running. Cancelling
-// a build is not a status flag: the entry is what lets CancelBuild and the
-// build operation's cancel reach the `docker` process a step is running and
-// terminate it, which is what "cancels a build in progress" means.
+// under, keyed by build ID, for as long as those steps are running and until
+// the build's record has settled from them. Cancelling a build is not a status
+// flag: the entry is what lets CancelBuild and the build operation's cancel
+// reach the `docker` process a step is running and terminate it, which is what
+// "cancels a build in progress" means. Its presence also holds the build's
+// operation open, so the operation completes on the settled record.
 var cbRunning sync.Map
 
 var cbTriggers sim.Store[BuildTrigger]
@@ -231,30 +239,7 @@ func registerCloudBuild(srv *sim.Server) {
 		build.Name = fmt.Sprintf("projects/%s/locations/global/builds/%s", project, build.ID)
 
 		cbBuilds.Put(build.ID, build)
-
-		// Execute synchronously — real Cloud Build is async with
-		// status transitions QUEUED → WORKING → SUCCESS/FAILURE; the
-		// simulator compresses this into one call so `op.Wait()` on
-		// the backend returns the final state immediately. The steps
-		// still run under a cancellable context registered against the
-		// build ID, so a concurrent CancelBuild terminates them.
-		result := executeCancellableBuild(r.Context(), build)
-
-		// Return LRO wrapper with done=true so `op.Wait(ctx)` resolves.
-		op := CloudBuildOperation{
-			Name:     fmt.Sprintf("operations/build/%s/%s", project, result.ID),
-			Done:     true,
-			Metadata: map[string]any{"@type": "type.googleapis.com/google.devtools.cloudbuild.v1.BuildOperationMetadata", "build": result},
-		}
-		if result.Status == "SUCCESS" {
-			op.Response = map[string]any{"@type": "type.googleapis.com/google.devtools.cloudbuild.v1.Build"}
-			for k, v := range structToMap(result) {
-				op.Response[k] = v
-			}
-		} else {
-			op.Error = cloudBuildOperationError(result)
-		}
-		sim.WriteJSON(w, http.StatusOK, op)
+		cbWriteBuildOperation(w, project, startCloudBuild(build))
 	})
 
 	srv.HandleFunc("POST /v1/projects/{project}/triggers", handleCreateBuildTrigger)
@@ -325,21 +310,7 @@ func registerCloudBuild(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation for build %s not found", id)
 			return
 		}
-		op := CloudBuildOperation{
-			Name: fmt.Sprintf("operations/build/%s/%s", project, id),
-			Done: build.Status == "SUCCESS" || build.Status == "FAILURE" || build.Status == "CANCELLED",
-		}
-		if op.Done {
-			if build.Status == "SUCCESS" {
-				op.Response = map[string]any{"@type": "type.googleapis.com/google.devtools.cloudbuild.v1.Build"}
-				for k, v := range structToMap(build) {
-					op.Response[k] = v
-				}
-			} else {
-				op.Error = cloudBuildOperationError(build)
-			}
-		}
-		sim.WriteJSON(w, http.StatusOK, op)
+		cbWriteBuildOperation(w, project, build)
 	})
 
 	// Global GetOperation: GET /v1/operations/{operation}. The cloudbuild
@@ -436,21 +407,7 @@ func handleCloudBuildGetOperation(w http.ResponseWriter, r *http.Request) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation for build %s not found", id)
 			return
 		}
-		op := CloudBuildOperation{
-			Name: name,
-			Done: build.Status == "SUCCESS" || build.Status == "FAILURE" || build.Status == "CANCELLED",
-		}
-		if op.Done {
-			if build.Status == "SUCCESS" {
-				op.Response = map[string]any{"@type": "type.googleapis.com/google.devtools.cloudbuild.v1.Build"}
-				for k, v := range structToMap(build) {
-					op.Response[k] = v
-				}
-			} else {
-				op.Error = cloudBuildOperationError(build)
-			}
-		}
-		sim.WriteJSON(w, http.StatusOK, op)
+		cbWriteBuildOperation(w, parts[2], build)
 		return
 	}
 	// Other (config / worker-pool) LROs resolve synchronously.
@@ -915,12 +872,49 @@ func handleDeleteBuildTrigger(w http.ResponseWriter, r *http.Request) {
 // and reporting that failure would erase the cancel the client asked for, so
 // the record the cancel wrote wins.
 func executeCancellableBuild(ctx context.Context, b Build) Build {
+	timeout := cloudBuildDefaultTimeout
+	if b.Timeout != "" {
+		d, err := time.ParseDuration(b.Timeout)
+		if err != nil || d <= 0 {
+			cbBuilds.Update(b.ID, func(stored *Build) {
+				stored.Status = "FAILURE"
+				stored.StatusDetail = fmt.Sprintf("invalid build timeout %q", b.Timeout)
+				stored.FinishTime = time.Now().UTC().Format(time.RFC3339)
+			})
+			stored, _ := cbBuilds.Get(b.ID)
+			return stored
+		}
+		timeout = d
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cbRunning.Store(b.ID, cancel)
+	// Register inside the record's own update, so a cancel either lands first
+	// and the steps never start, or lands after and finds the entry to stop
+	// them.
+	cancelledFirst := false
+	cbBuilds.Update(b.ID, func(stored *Build) {
+		if stored.Status == "CANCELLED" {
+			cancelledFirst = true
+			return
+		}
+		cbRunning.Store(b.ID, cancel)
+	})
+	if cancelledFirst {
+		stored, _ := cbBuilds.Get(b.ID)
+		return stored
+	}
 	defer cbRunning.Delete(b.ID)
+	// The timeout ticks from startTime, which executeBuild stamps as it
+	// begins.
+	stepsCtx, stopTimer := context.WithTimeout(ctx, timeout)
+	defer stopTimer()
 
-	result := executeBuild(ctx, b)
+	result := executeBuild(stepsCtx, b)
+	if errors.Is(stepsCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+		result.Status = "TIMEOUT"
+		result.StatusDetail = fmt.Sprintf("build exceeded its timeout of %s", timeout)
+		result.FinishTime = time.Now().UTC().Format(time.RFC3339)
+	}
 
 	// Settle the record in one update so a cancel landing between reading the
 	// stored build and writing the result cannot be lost: a build the cancel
@@ -984,7 +978,7 @@ func cancelCloudBuild(id string) (Build, bool) {
 		return Build{}, false
 	}
 	if build.Status == "CANCELLED" {
-		if v, loaded := cbRunning.LoadAndDelete(id); loaded {
+		if v, loaded := cbRunning.Load(id); loaded {
 			if cancel, isFunc := v.(context.CancelFunc); isFunc {
 				cancel()
 			}
@@ -1008,11 +1002,15 @@ func handleCloudBuildCancelOperation(w http.ResponseWriter, id string) {
 
 // cloudBuildOperationError is the error a settled build's operation carries.
 // A cancelled build reports google.rpc.Code.CANCELLED, which is the code
-// AIP-151 says a successfully cancelled operation ends up with; any other
-// unsuccessful build reports INTERNAL with the build's own status detail.
+// AIP-151 says a successfully cancelled operation ends up with; a build that
+// ran out of time reports DEADLINE_EXCEEDED, and any other unsuccessful build
+// reports INTERNAL with the build's own status detail.
 func cloudBuildOperationError(b Build) *BuildError {
-	if b.Status == "CANCELLED" {
+	switch b.Status {
+	case "CANCELLED":
 		return &BuildError{Code: 1, Message: "The operation was cancelled."}
+	case "TIMEOUT":
+		return &BuildError{Code: 4, Message: b.StatusDetail}
 	}
 	return &BuildError{Code: 13, Message: b.StatusDetail}
 }
@@ -1216,24 +1214,4 @@ func cloudBuildStepDir(workDir, dir string) (string, error) {
 		return "", fmt.Errorf("step dir %q leaves %s", dir, cloudBuildWorkspace)
 	}
 	return filepath.Join(workDir, filepath.FromSlash(rel)), nil
-}
-
-// structToMap converts a Build to a generic map[string]any for
-// embedding inside the LRO's response envelope. The real API wraps
-// `Build` as a protobuf Any with the full proto shape; our JSON
-// structure is close enough for the SDK's unmarshal.
-func structToMap(b Build) map[string]any {
-	return map[string]any{
-		"id":         b.ID,
-		"name":       b.Name,
-		"projectId":  b.ProjectID,
-		"status":     b.Status,
-		"source":     b.Source,
-		"steps":      b.Steps,
-		"images":     b.Images,
-		"createTime": b.CreateTime,
-		"startTime":  b.StartTime,
-		"finishTime": b.FinishTime,
-		"logsBucket": b.LogsBucket,
-	}
 }

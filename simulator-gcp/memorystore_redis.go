@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"hash/fnv"
+	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -12,20 +13,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// simRedisHost derives a deterministic RFC1918 address from the
-// instance ID so terraform-provider-google reads + redis-cli probes
-// see a syntactically valid IP rather than a `.example` placeholder.
-func simRedisHost(id string) string {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(id))
-	v := h.Sum32()
-	return fmt.Sprintf("10.%d.%d.%d", (v>>16)&0xff, (v>>8)&0xff, v&0xff)
-}
-
-// Cloud Memorystore for Redis v1 — REST surface scoped to instance
-// lifecycle. Real API: https://redis.googleapis.com/$discovery/rest?version=v1
-// The Redis engine itself is not simulated; the sim reports
-// State=READY immediately after Create.
+// Cloud Memorystore for Redis v1. Real API:
+// https://redis.googleapis.com/$discovery/rest?version=v1
+// Each instance and cluster runs a real Redis engine; see
+// memorystore_redis_engine.go.
 
 type MSRedisInstance struct {
 	Name              string            `json:"name"` // projects/{p}/locations/{loc}/instances/{id}
@@ -35,6 +26,10 @@ type MSRedisInstance struct {
 	MemorySizeGb      int               `json:"memorySizeGb,omitempty"`
 	Host              string            `json:"host,omitempty"`
 	Port              int               `json:"port,omitempty"`
+	ReplicaCount      int               `json:"replicaCount,omitempty"`
+	ReadReplicasMode  string            `json:"readReplicasMode,omitempty"`
+	ReadEndpoint      string            `json:"readEndpoint,omitempty"`
+	ReadEndpointPort  int               `json:"readEndpointPort,omitempty"`
 	State             string            `json:"state,omitempty"`
 	CreateTime        string            `json:"createTime,omitempty"`
 	Labels            map[string]string `json:"labels,omitempty"`
@@ -54,6 +49,12 @@ var msRedisInstances sim.Store[MSRedisInstance]
 
 func registerMemorystoreRedis(srv *sim.Server) {
 	msRedisInstances = sim.MakeStore[MSRedisInstance](srv.DB(), "memorystore_redis")
+	msRedisPlaneRecords = sim.MakeStore[msRedisPlaneRecord](srv.DB(), "memorystore_redis_data_planes")
+	mode, err := sim.ResolveRuntimeMode()
+	if err != nil {
+		log.Fatalf("Memorystore for Redis: %v", err)
+	}
+	msRedisEnginesEnabled = mode.ExecutesWorkloads()
 
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/instances", handleMSRedisCreate)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/instances/{id}", handleMSRedisGet)
@@ -73,6 +74,15 @@ func registerMemorystoreRedis(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/instances/{idAction}", handleMSRedisAction)
 
 	registerMemorystoreRedisClusters(srv)
+
+	// A persistent control-plane restart rebinds every endpoint and re-adopts
+	// the engine containers the earlier process left running. The API-only
+	// tier runs no engines.
+	if msRedisRunsEngines() {
+		if err := msRedisRecoverPlanes(); err != nil {
+			log.Fatalf("recover Memorystore for Redis data planes: %v", err)
+		}
+	}
 }
 
 // Memorystore for Redis Cluster API
@@ -224,6 +234,8 @@ func registerMemorystoreRedisClusters(srv *sim.Server) {
 	msRedisAclRevisions = sim.MakeStore[MSRedisAclPolicyRevision](srv.DB(), "memorystore_redis_acl_policy_revisions")
 	msRedisTokenAuthUsers = sim.MakeStore[MSRedisTokenAuthUser](srv.DB(), "memorystore_redis_token_auth_users")
 	msRedisAuthTokens = sim.MakeStore[MSRedisAuthToken](srv.DB(), "memorystore_redis_auth_tokens")
+	msRedisBackupContents = sim.MakeStore[msRedisBackupContent](srv.DB(), "memorystore_redis_backup_contents")
+	msRedisOpenBackupPayloads(srv)
 
 	base := "/v1/projects/{project}/locations/{location}"
 
@@ -305,11 +317,23 @@ func handleMSRedisClusterCreate(w http.ResponseWriter, r *http.Request) {
 		DeletionProtectionEnabled: req.DeletionProtectionEnabled,
 		Labels:                    req.Labels,
 		AclPolicy:                 req.AclPolicy,
-		DiscoveryEndpoints: []MSRedisDiscoveryEndpoint{{
-			Address: simRedisHost(id),
-			Port:    6379,
-		}},
 	}
+	if _, err := msRedisEngineDirectives(0, cluster.RedisConfigs); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		return
+	}
+	if _, exists := msRedisClusters.Get(name); exists {
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "cluster %s already exists", name)
+		return
+	}
+	record := msRedisPlaneRecord{}
+	msRedisInstallCluster(&cluster, &record)
+	if err := msRedisStartEngine(name); err != nil {
+		op := redisClusterLRO(r, project, location, name, cluster, msRedisClusterType)
+		sim.WriteJSON(w, http.StatusOK, msRedisSettle(op, err))
+		return
+	}
+	msRedisPlaneRecords.Put(name, record)
 	msRedisClusters.Put(name, cluster)
 	op := redisClusterLRO(r, project, location, name, cluster, msRedisClusterType)
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -390,6 +414,7 @@ func handleMSRedisClusterDelete(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster not found: %s", name)
 		return
 	}
+	msRedisRemovePlane(name)
 	op := redisClusterLRO(r, project, location, name, nil, "type.googleapis.com/google.protobuf.Empty")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
@@ -433,6 +458,11 @@ func handleMSRedisClusterBackup(w http.ResponseWriter, r *http.Request, project,
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
+	plane, err := msRedisEngine(cluster.Name)
+	if err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "%v", err)
+		return
+	}
 	// A manual backup materializes a BackupCollection for the cluster
 	// (named after the cluster) and a Backup within it — the same shape
 	// the BackupCollections/Backups read APIs enumerate.
@@ -451,13 +481,20 @@ func handleMSRedisClusterBackup(w http.ResponseWriter, r *http.Request, project,
 		backupID = "backup-" + sim.NewUUID()
 	}
 	backupName := bcName + "/backups/" + backupID
+	content, files, total, err := msRedisSnapshotCluster(plane)
+	op := redisClusterLRO(r, project, location, cluster.Name, cluster, msRedisClusterType)
+	if err != nil {
+		sim.WriteJSON(w, http.StatusOK, msRedisSettle(op, err))
+		return
+	}
 	backup := MSRedisBackup{
 		Name:           backupName,
 		CreateTime:     nowTimestamp(),
 		Cluster:        cluster.Name,
 		ClusterUid:     cluster.Uid,
-		TotalSizeBytes: "0",
-		EngineVersion:  "REDIS_7_2",
+		TotalSizeBytes: strconv.FormatInt(total, 10),
+		EngineVersion:  msRedisClusterEngineVersion,
+		BackupFiles:    files,
 		NodeType:       cluster.NodeType,
 		ReplicaCount:   cluster.ReplicaCount,
 		ShardCount:     cluster.ShardCount,
@@ -465,9 +502,45 @@ func handleMSRedisClusterBackup(w http.ResponseWriter, r *http.Request, project,
 		State:          "ACTIVE",
 		Uid:            sim.NewUUID(),
 	}
+	msRedisReleaseBackup(backupName)
+	msRedisBackupContents.Put(backupName, content)
 	msRedisBackups.Put(backupName, backup)
-	op := redisClusterLRO(r, project, location, cluster.Name, cluster, msRedisClusterType)
 	sim.WriteJSON(w, http.StatusOK, op)
+}
+
+// msRedisSnapshotCluster takes an RDB snapshot of every shard's primary and
+// keeps each as a payload.
+func msRedisSnapshotCluster(plane *msRedisPlane) (msRedisBackupContent, []MSRedisBackupFile, int64, error) {
+	plane.opMu.Lock()
+	defer plane.opMu.Unlock()
+	var content msRedisBackupContent
+	var files []MSRedisBackupFile
+	var total int64
+	release := func() {
+		for _, file := range content.Files {
+			_ = msRedisBackupPayloads.Remove(file.Ref)
+		}
+	}
+	if err := plane.Ensure(); err != nil {
+		return content, nil, 0, err
+	}
+	for shard := 0; shard < plane.topology.Shards; shard++ {
+		data, err := plane.Snapshot(shard)
+		if err != nil {
+			release()
+			return msRedisBackupContent{}, nil, 0, err
+		}
+		ref, _, err := msRedisBackupPayloads.Write(data)
+		if err != nil {
+			release()
+			return msRedisBackupContent{}, nil, 0, err
+		}
+		name := fmt.Sprintf("shard-%d.rdb", shard)
+		content.Files = append(content.Files, msRedisBackupFileContent{FileName: name, Ref: ref})
+		files = append(files, MSRedisBackupFile{FileName: name, SizeBytes: strconv.Itoa(len(data)), CreateTime: nowTimestamp()})
+		total += int64(len(data))
+	}
+	return content, files, total, nil
 }
 
 func handleMSRedisClusterGetCA(w http.ResponseWriter, r *http.Request) {
@@ -695,6 +768,7 @@ func handleMSRedisBackupDelete(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", name)
 		return
 	}
+	msRedisReleaseBackup(name)
 	op := redisClusterLRO(r, project, location, name, nil, "type.googleapis.com/google.protobuf.Empty")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
@@ -726,8 +800,36 @@ func handleMSRedisBackupAction(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
+	bucket := strings.TrimPrefix(req.GcsBucket, "gs://")
+	if bucket == "" || strings.Contains(bucket, "/") {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "gcsBucket %q is not a Cloud Storage bucket name", req.GcsBucket)
+		return
+	}
 	op := redisClusterLRO(r, project, location, name, backup, "type.googleapis.com/google.cloud.redis.cluster.v1.Backup")
-	sim.WriteJSON(w, http.StatusOK, op)
+	sim.WriteJSON(w, http.StatusOK, msRedisSettle(op, msRedisExportBackup(name, bid, bucket)))
+}
+
+// msRedisExportBackup writes every file of a backup to the bucket, under a
+// folder named after the backup.
+func msRedisExportBackup(name, backupID, bucket string) error {
+	if _, ok := gcsBuckets.Get(bucket); !ok {
+		return msRedisOperationFailure(rpcNotFound, "bucket %q not found", bucket)
+	}
+	content, ok := msRedisBackupContents.Get(name)
+	if !ok {
+		return fmt.Errorf("backup %s holds no files", name)
+	}
+	for _, file := range content.Files {
+		data, err := msRedisBackupPayloads.Read(file.Ref)
+		if err != nil {
+			return fmt.Errorf("read backup file %s: %w", file.FileName, err)
+		}
+		if _, err := persistGCSObjectBytes(bucket, backupID+"/"+file.FileName, data,
+			GCSObject{ContentType: "application/octet-stream"}, gcsPreconditions{}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func handleMSRedisAclPolicyCreate(w http.ResponseWriter, r *http.Request) {
@@ -932,126 +1034,6 @@ func handleMSRedisAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleMSRedisUpgrade(w http.ResponseWriter, r *http.Request, id string) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	key := msRedisInstanceName(project, location, id)
-	inst, ok := msRedisInstances.Get(key)
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
-			"Memorystore instance %q not found", id)
-		return
-	}
-	var req struct {
-		RedisVersion string `json:"redisVersion"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-		return
-	}
-	if req.RedisVersion != "" {
-		inst.RedisVersion = req.RedisVersion
-	}
-	inst.State = "READY"
-	msRedisInstances.Put(key, inst)
-	now := nowTimestamp()
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"name":     "operations/upgrade-" + sim.NewUUID(),
-		"done":     true,
-		"metadata": map[string]any{"operationType": "UPGRADE_INSTANCE", "startTime": now, "endTime": now},
-		"response": inst,
-	})
-}
-
-func handleMSRedisFailover(w http.ResponseWriter, r *http.Request, id string) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	key := msRedisInstanceName(project, location, id)
-	inst, ok := msRedisInstances.Get(key)
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
-			"Memorystore instance %q not found", id)
-		return
-	}
-	inst.State = "READY"
-	msRedisInstances.Put(key, inst)
-	now := nowTimestamp()
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"name":     "operations/failover-" + sim.NewUUID(),
-		"done":     true,
-		"metadata": map[string]any{"operationType": "FAILOVER_INSTANCE", "startTime": now, "endTime": now},
-		"response": inst,
-	})
-}
-
-// handleMSRedisTransfer moves an instance's contents to or from a Cloud Storage
-// object. Both directions run through the same state: the instance is
-// IMPORTING or EXPORTING while the transfer is under way and READY when it
-// settles, which is what a client polling the instance sees.
-//
-// The Cloud Storage URI is required and has to be one — a transfer with nowhere
-// to read from or write to is not a transfer, and accepting it would report
-// success for a move that never happened.
-func handleMSRedisTransfer(w http.ResponseWriter, r *http.Request, id, direction string) {
-	project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
-	key := msRedisInstanceName(project, location, id)
-	inst, ok := msRedisInstances.Get(key)
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
-			"Memorystore instance %q not found", id)
-		return
-	}
-	var req struct {
-		InputConfig *struct {
-			GcsSource *struct {
-				URI string `json:"uri"`
-			} `json:"gcsSource"`
-		} `json:"inputConfig"`
-		OutputConfig *struct {
-			GcsDestination *struct {
-				URI string `json:"uri"`
-			} `json:"gcsDestination"`
-		} `json:"outputConfig"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-		return
-	}
-	uri := ""
-	switch direction {
-	case "import":
-		if req.InputConfig != nil && req.InputConfig.GcsSource != nil {
-			uri = req.InputConfig.GcsSource.URI
-		}
-	case "export":
-		if req.OutputConfig != nil && req.OutputConfig.GcsDestination != nil {
-			uri = req.OutputConfig.GcsDestination.URI
-		}
-	}
-	if uri == "" {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
-			"an %s needs the Cloud Storage URI it reads from or writes to", direction)
-		return
-	}
-	if !strings.HasPrefix(uri, "gs://") {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
-			"%q is not a Cloud Storage URI", uri)
-		return
-	}
-	inst.State = "READY"
-	msRedisInstances.Put(key, inst)
-	now := nowTimestamp()
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"name": "operations/" + direction + "-" + sim.NewUUID(),
-		"done": true,
-		"metadata": map[string]any{
-			"operationType": strings.ToUpper(direction) + "_INSTANCE",
-			"startTime":     now, "endTime": now,
-		},
-		"response": inst,
-	})
-}
-
 func msRedisInstanceName(project, location, id string) string {
 	return fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, id)
 }
@@ -1070,18 +1052,12 @@ func handleMSRedisCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inst := MSRedisInstance{
-		Name:         msRedisInstanceName(project, location, id),
-		DisplayName:  req.DisplayName,
-		Tier:         defaultStr(req.Tier, "BASIC"),
-		RedisVersion: defaultStr(req.RedisVersion, "REDIS_7_0"),
-		MemorySizeGb: defaultInt(req.MemorySizeGb, 1),
-		// Real Memorystore returns an RFC1918 address that the workload
-		// connects to; emit a deterministic 10.x.x.x derived from the
-		// instance ID so callers and terraform-provider-google reads
-		// see a syntactically valid IP rather than a `.example` placeholder
-		// that resolves to NXDOMAIN.
-		Host:                  simRedisHost(id),
-		Port:                  6379,
+		Name:                  msRedisInstanceName(project, location, id),
+		DisplayName:           req.DisplayName,
+		Tier:                  defaultStr(req.Tier, "BASIC"),
+		RedisVersion:          defaultStr(req.RedisVersion, "REDIS_7_0"),
+		MemorySizeGb:          defaultInt(req.MemorySizeGb, 1),
+		ReadReplicasMode:      req.ReadReplicasMode,
 		State:                 "READY",
 		CreateTime:            nowTimestamp(),
 		Labels:                req.Labels,
@@ -1091,6 +1067,35 @@ func handleMSRedisCreate(w http.ResponseWriter, r *http.Request) {
 		ConnectMode:           defaultStr(req.ConnectMode, "DIRECT_PEERING"),
 		TransitEncryptionMode: defaultStr(req.TransitEncryptionMode, "DISABLED"),
 	}
+	if inst.Tier == "STANDARD_HA" {
+		inst.ReadReplicasMode = defaultStr(inst.ReadReplicasMode, "READ_REPLICAS_DISABLED")
+	}
+	inst.ReplicaCount = msRedisInstanceReplicas(inst.Tier, inst.ReadReplicasMode, req.ReplicaCount)
+	image, known := msRedisEngineImage(inst.RedisVersion)
+	if !known {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "redisVersion %q is not a supported Redis version", inst.RedisVersion)
+		return
+	}
+	configs, err := msRedisEngineDirectives(inst.MemorySizeGb, inst.RedisConfigs)
+	if err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		return
+	}
+	if _, exists := msRedisInstances.Get(inst.Name); exists {
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "instance %s already exists", inst.Name)
+		return
+	}
+	record := msRedisPlaneRecord{}
+	if inst.AuthEnabled {
+		record.AuthString = sim.NewUUID()
+	}
+	msRedisInstallInstance(&inst, &record, image, configs)
+	if err := msRedisStartEngine(inst.Name); err != nil {
+		op := redisInstanceLRO(r, project, location, inst.Name, inst, msRedisInstanceType)
+		sim.WriteJSON(w, http.StatusOK, msRedisSettle(op, err))
+		return
+	}
+	msRedisPlaneRecords.Put(inst.Name, record)
 	msRedisInstances.Put(inst.Name, inst)
 	op := redisInstanceLRO(r, project, location, inst.Name, inst, "type.googleapis.com/google.cloud.redis.v1.Instance")
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -1150,6 +1155,25 @@ func handleMSRedisPatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	wants := func(name string) bool { return len(fields) == 0 || fields[name] }
+	current, _ := msRedisInstances.Get(name)
+	memorySizeGb, redisConfigs := current.MemorySizeGb, current.RedisConfigs
+	if wants("memorySizeGb") {
+		memorySizeGb = req.MemorySizeGb
+	}
+	if wants("redisConfigs") {
+		redisConfigs = req.RedisConfigs
+	}
+	directives, err := msRedisEngineDirectives(memorySizeGb, redisConfigs)
+	if err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		return
+	}
+	if plane, ok := msRedisLoadPlane(name); ok && (wants("memorySizeGb") || wants("redisConfigs")) {
+		if err := plane.Configure(directives); err != nil {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "the Redis engine refused the configuration: %v", err)
+			return
+		}
+	}
 	msRedisInstances.Update(name, func(i *MSRedisInstance) {
 		if wants("displayName") {
 			i.DisplayName = req.DisplayName
@@ -1177,13 +1201,14 @@ func handleMSRedisDelete(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
 		return
 	}
+	msRedisRemovePlane(name)
 	op := redisInstanceLRO(r, project, location, name, nil, "type.googleapis.com/google.protobuf.Empty")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
-// handleMSRedisAuthString returns the instance AUTH string. Real Memorystore
-// only issues an AUTH string when OSS Redis AUTH is enabled on the instance;
-// with AUTH disabled the response carries an empty authString.
+// handleMSRedisAuthString returns the AUTH string the instance's engine
+// requires. Memorystore issues one only when OSS Redis AUTH is enabled; with
+// AUTH disabled the response carries an empty authString.
 func handleMSRedisAuthString(w http.ResponseWriter, r *http.Request) {
 	name := msRedisInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "id"))
 	inst, ok := msRedisInstances.Get(name)
@@ -1192,10 +1217,8 @@ func handleMSRedisAuthString(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{}
-	if inst.AuthEnabled {
-		h := fnv.New32a()
-		_, _ = h.Write([]byte(name + ":auth"))
-		out["authString"] = fmt.Sprintf("sim-redis-auth-%08x", h.Sum32())
+	if record, ok := msRedisPlaneRecords.Get(name); ok && inst.AuthEnabled && record.AuthString != "" {
+		out["authString"] = record.AuthString
 	}
 	sim.WriteJSON(w, http.StatusOK, out)
 }
@@ -1216,11 +1239,6 @@ func defaultInt(v, def int) int {
 // handleMSRedisRescheduleMaintenance moves the upcoming maintenance window.
 // SPECIFIC_TIME takes the caller's time; the other modes resolve to one the
 // service picks, which here is the moment the reschedule was asked for.
-//
-// export and import are not served beside this: both move an RDB snapshot of
-// the instance's keyspace, and this slice models the control plane only — there
-// is no Redis behind the instance, so there are no bytes to write out and
-// nothing an import could load. Serving them would fabricate an RDB.
 func handleMSRedisRescheduleMaintenance(w http.ResponseWriter, r *http.Request, id string) {
 	key := msRedisInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), id)
 	inst, ok := msRedisInstances.Get(key)

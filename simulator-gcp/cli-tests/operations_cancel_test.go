@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -28,8 +27,8 @@ import (
 //	POST /v1/projects/{project}/builds/{idAction}                        (legacy global path)
 //	POST /v1/projects/{project}/locations/{location}/builds/{idAction}   (regional path)
 //
-// The build's step sleeps for an hour, so a cancel that does not terminate it
-// leaves the submitting request blocked past this test's deadline.
+// The build's step sleeps for an hour, so the build is genuinely running when
+// the cancel lands.
 func TestCloudBuildCLI_CancelStopsARunningBuild(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -52,11 +51,8 @@ func TestCloudBuildCLI_CancelStopsARunningBuild(t *testing.T) {
 			out := runCLI(t, gcloudCLI(args...))
 			assert.Contains(t, out, "CANCELLED",
 				"gcloud builds cancel reports the build's new status")
-
-			require.Eventually(t, func() bool {
-				return buildStatusJSON(t, id) == "CANCELLED"
-			}, 60*time.Second, 500*time.Millisecond,
-				"the cancel did not stop the running build step")
+			assert.Equal(t, "CANCELLED", buildStatusJSON(t, id),
+				"gcloud builds describe reads the cancel back")
 		})
 	}
 }
@@ -305,44 +301,31 @@ func uploadCancelSource(t *testing.T, bucket, object, dockerfile string) {
 }
 
 // submitCancellableBuild submits a build whose step cannot finish on its own
-// and returns its id once the simulator reports it running. The submit blocks
-// until the build settles, so it runs on its own goroutine.
+// and returns its id once the build's step is running. CreateBuild answers at
+// once with the build's operation, whose BuildOperationMetadata names the
+// build.
 func submitCancellableBuild(t *testing.T, bucket, object, image string) string {
 	t.Helper()
 	body := fmt.Sprintf(`{
 		"source": {"storageSource": {"bucket": %q, "object": %q}},
 		"steps": [{"name": "gcr.io/cloud-builders/docker", "args": ["build", "-t", %q, "."]}]
 	}`, bucket, object, image)
-	go func() {
-		resp, err := httpDo("POST", fmt.Sprintf("%s/v1/projects/%s/builds", baseURL, project), body)
-		if err == nil {
-			resp.Body.Close()
-		}
-	}()
+	var op struct {
+		Done     bool `json:"done"`
+		Metadata struct {
+			Build struct {
+				ID string `json:"id"`
+			} `json:"build"`
+		} `json:"metadata"`
+	}
+	parseJSON(t, httpDoJSON(t, "POST", fmt.Sprintf("%s/v1/projects/%s/builds", baseURL, project), body), &op)
+	require.False(t, op.Done, "the operation comes back before the build runs")
+	id := op.Metadata.Build.ID
+	require.NotEmpty(t, id, "the operation's metadata names the build")
 
-	var id string
-	require.Eventually(t, func() bool {
-		out := runCLI(t, gcloudCLI("builds", "list", "--format=json"))
-		var builds []struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-		}
-		if err := json.Unmarshal([]byte(out), &builds); err != nil {
-			return false
-		}
-		for _, b := range builds {
-			if b.Status == "WORKING" {
-				id = b.ID
-				return true
-			}
-		}
-		return false
-	}, 120*time.Second, 500*time.Millisecond, "no build reached WORKING")
-
-	// WORKING is recorded before the source is even fetched, so it alone does
-	// not mean a step is executing. The step's own status is what says the RUN
-	// is under way, and it is what makes the cancel below cancel work that is
-	// genuinely in flight.
+	// The build has no event that says a step started, so the step's status is
+	// read until it does. It is what makes the cancel below cancel work that
+	// is genuinely in flight.
 	require.Eventually(t, func() bool {
 		return buildFirstStepStatusJSON(t, id) == "WORKING"
 	}, 120*time.Second, 50*time.Millisecond, "the build's first step never started running")

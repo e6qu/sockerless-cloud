@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 	"github.com/e6qu/sockerless-cloud/testutil/registrytrust"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -139,13 +141,20 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	result, err := poller.PollUntilDone(ctx, nil)
-	require.NoError(t, err, "ACR Task run should succeed")
-	require.NotNil(t, result.Properties)
-	require.NotNil(t, result.Properties.Status)
-	assert.Equal(t, armcontainerregistry.RunStatusSucceeded, *result.Properties.Status)
-	require.NotNil(t, result.Properties.RunID)
-	assert.NotEmpty(t, *result.Properties.RunID)
+	// The operation completes once the run is queued; the build runs after.
+	queued, err := poller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	require.NotNil(t, queued.Properties)
+	require.NotNil(t, queued.Properties.RunID)
+	assert.Equal(t, armcontainerregistry.RunStatusQueued, ptrVal(queued.Properties.Status))
+
+	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	result := awaitACRRun(t, runsClient, rg, regName, *queued.Properties.RunID)
+	require.Equal(t, armcontainerregistry.RunStatusSucceeded, ptrVal(result.Properties.Status),
+		"ACR Task run should succeed: %s", ptrVal(result.Properties.RunErrorMessage))
+	assert.NotNil(t, result.Properties.StartTime)
+	assert.NotNil(t, result.Properties.FinishTime)
 
 	// 3. Faithful build→push: the image must live in the registry (pullable
 	// via /v2/), NOT on the build host's local daemon.
@@ -161,27 +170,22 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	assert.Error(t, exec.Command("docker", "image", "inspect", imageName).Run(),
 		"built overlay image %s must NOT remain on the local daemon after push", imageName)
 
-	// 4. GetRun round-trips the run record.
-	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
-	require.NoError(t, err)
-	got, err := runsClient.Get(ctx, rg, regName, *result.Properties.RunID, nil)
-	require.NoError(t, err)
-	require.NotNil(t, got.Properties)
-	assert.Equal(t, armcontainerregistry.RunStatusSucceeded, *got.Properties.Status)
-
-	// 5. The run's build log is retrievable through the advertised log link,
-	// as a plain GET of the SAS-style URL — real ACR serves the full docker
-	// build/push output there.
+	// 4. The run's build log is a blob at the advertised link, read the way
+	// `az acr build` streams it: the Blob service's get-properties, whose
+	// `Complete` metadata says the run ended and how, then the content.
 	sas, err := runsClient.GetLogSasURL(ctx, rg, regName, *result.Properties.RunID, nil)
 	require.NoError(t, err)
 	require.NotNil(t, sas.LogLink)
-	assert.Contains(t, *sas.LogLink, "/acr/v1/logs/",
-		"the log link must point at the sim's run-log endpoint")
-	logResp, err := http.Get(*sas.LogLink)
+	logBlob, err := blob.NewClientWithNoCredential(*sas.LogLink, nil)
 	require.NoError(t, err)
-	logBytes, _ := io.ReadAll(logResp.Body)
-	logResp.Body.Close()
-	require.Equal(t, http.StatusOK, logResp.StatusCode, "advertised logLink must resolve: %s", *sas.LogLink)
+	props, err := logBlob.GetProperties(ctx, nil)
+	require.NoError(t, err, "advertised logLink must resolve: %s", *sas.LogLink)
+	assert.Equal(t, "Succeeded", acrLogCompletion(props.Metadata))
+	download, err := logBlob.DownloadStream(ctx, nil)
+	require.NoError(t, err)
+	logBytes, err := io.ReadAll(download.Body)
+	require.NoError(t, err)
+	require.NoError(t, download.Body.Close())
 	assert.Contains(t, string(logBytes), "The push refers to repository",
 		"the run log must carry the docker build/push output")
 
@@ -351,12 +355,159 @@ func TestACRTasks_ScheduleRunMissingContextFails(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	result, err := poller.PollUntilDone(ctx, nil)
+	queued, err := poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	require.NotNil(t, result.Properties)
-	require.NotNil(t, result.Properties.Status)
-	assert.Equal(t, armcontainerregistry.RunStatusFailed, *result.Properties.Status,
+	require.NotNil(t, queued.Properties)
+	require.NotNil(t, queued.Properties.RunID)
+	assert.Equal(t, armcontainerregistry.RunStatusQueued, ptrVal(queued.Properties.Status))
+
+	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	result := awaitACRRun(t, runsClient, "acr-tasks-rg", "acrbuildreg", *queued.Properties.RunID)
+	assert.Equal(t, armcontainerregistry.RunStatusFailed, ptrVal(result.Properties.Status),
 		"missing build context must report the run as Failed")
+	assert.Contains(t, ptrVal(result.Properties.RunErrorMessage), "not found",
+		"the run says why it failed")
+}
+
+// TestACRTasks_CancelStopsARunningBuild schedules a build that would run for
+// ten minutes, waits until it is Running, and cancels it: Runs_Cancel answers
+// once the build has stopped, the run reads Canceled, and no image was built.
+func TestACRTasks_CancelStopsARunningBuild(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Fatalf("docker CLI required for ACR Tasks build test (no fallback): %v", err)
+	}
+	const (
+		rg      = "acr-tasks-rg"
+		account = "acrcancelacct"
+		regName = "acrcancelreg"
+		ctr     = "build-context"
+	)
+	acrEnsureRegistry(t, rg, regName)
+	createStorageAccount(t, rg, account)
+	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
+
+	blobClient, err := azblob.NewClientWithNoCredential(storageSDKURL(t, account, "blob"),
+		&azblob.ClientOptions{ClientOptions: storageSDKOptions()})
+	require.NoError(t, err)
+	_, _ = blobClient.CreateContainer(ctx, ctr, nil)
+	blobName := fmt.Sprintf("build-context/%d.tar.gz", time.Now().UnixNano())
+	_, err = blobClient.UploadBuffer(ctx, ctr, blobName, makeACRBuildContext(t, map[string]string{
+		"Dockerfile": "FROM public.ecr.aws/docker/library/alpine:3.20\nRUN echo build-started && sleep 600\n",
+	}), nil)
+	require.NoError(t, err)
+	imageName := fmt.Sprintf("%s.azurecr.io/canceled:%d", regName, time.Now().UnixNano())
+	t.Cleanup(func() { _ = exec.Command("docker", "image", "rm", "-f", imageName).Run() })
+
+	regClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	poller, err := regClient.BeginScheduleRun(ctx, rg, regName, &armcontainerregistry.DockerBuildRequest{
+		Type:           to.Ptr("DockerBuildRequest"),
+		DockerFilePath: to.Ptr("Dockerfile"),
+		ImageNames:     []*string{to.Ptr(imageName)},
+		SourceLocation: to.Ptr(fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", account, ctr, blobName)),
+		IsPushEnabled:  to.Ptr(false),
+		NoCache:        to.Ptr(true),
+		Platform:       &armcontainerregistry.PlatformProperties{OS: to.Ptr(armcontainerregistry.OSLinux)},
+	}, nil)
+	require.NoError(t, err)
+	queued, err := poller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	runID := *queued.Properties.RunID
+
+	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	running := awaitACRRunLeaves(t, runsClient, rg, regName, runID, armcontainerregistry.RunStatusQueued)
+	require.Equal(t, armcontainerregistry.RunStatusRunning, ptrVal(running.Properties.Status))
+	require.NotNil(t, running.Properties.StartTime)
+	assert.Nil(t, running.Properties.FinishTime, "a running run has not finished")
+
+	// Follow the log the way `az acr build` streams it until the build's own
+	// step has started, so the cancel lands on a docker step in flight.
+	sas, err := runsClient.GetLogSasURL(ctx, rg, regName, runID, nil)
+	require.NoError(t, err)
+	logBlob, err := blob.NewClientWithNoCredential(*sas.LogLink, nil)
+	require.NoError(t, err)
+	awaitACRRunLog(t, logBlob, "build-started")
+
+	cancel, err := runsClient.BeginCancel(ctx, rg, regName, runID, nil)
+	require.NoError(t, err)
+	_, err = cancel.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+
+	got, err := runsClient.Get(ctx, rg, regName, runID, nil)
+	require.NoError(t, err)
+	assert.Equal(t, armcontainerregistry.RunStatusCanceled, ptrVal(got.Properties.Status))
+	assert.NotNil(t, got.Properties.FinishTime)
+	assert.Error(t, exec.Command("docker", "image", "inspect", imageName).Run(),
+		"a canceled build produces no image")
+	props, err := logBlob.GetProperties(ctx, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "Canceled", acrLogCompletion(props.Metadata))
+}
+
+// awaitACRRunLog reads a running run's log blob until it holds want, while the
+// blob carries no `Complete` metadata: the cadence `az acr build` streams at.
+func awaitACRRunLog(t *testing.T, logBlob *blob.Client, want string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		var content []byte
+		props, err := logBlob.GetProperties(ctx, nil)
+		if err == nil {
+			download, err := logBlob.DownloadStream(ctx, nil)
+			require.NoError(t, err)
+			content, err = io.ReadAll(download.Body)
+			require.NoError(t, err)
+			require.NoError(t, download.Body.Close())
+			if strings.Contains(string(content), want) {
+				return
+			}
+			require.Empty(t, acrLogCompletion(props.Metadata),
+				"the run ended before its log held %q: %s", want, content)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the run's log never held %q: %s", want, content)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// awaitACRRun polls the run's own status until it is terminal: ACR Tasks
+// offers no waiter or operation for a run once it is queued.
+func awaitACRRun(t *testing.T, runs *armcontainerregistry.RunsClient, rg, registry, runID string) armcontainerregistry.Run {
+	t.Helper()
+	return awaitACRRunLeaves(t, runs, rg, registry, runID,
+		armcontainerregistry.RunStatusQueued, armcontainerregistry.RunStatusStarted, armcontainerregistry.RunStatusRunning)
+}
+
+// awaitACRRunLeaves polls the run until its status is none of pending.
+func awaitACRRunLeaves(t *testing.T, runs *armcontainerregistry.RunsClient, rg, registry, runID string, pending ...armcontainerregistry.RunStatus) armcontainerregistry.Run {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Minute)
+	for {
+		got, err := runs.Get(ctx, rg, registry, runID, nil)
+		require.NoError(t, err)
+		status := ptrVal(got.Properties.Status)
+		if !slices.Contains(pending, status) {
+			return got.Run
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("ACR Tasks run %s is still %s", runID, status)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// acrLogCompletion reads the `Complete` metadata of a run's log blob, whose
+// key casing the Blob service does not fix.
+func acrLogCompletion(metadata map[string]*string) string {
+	for key, value := range metadata {
+		if strings.EqualFold(key, "complete") && value != nil {
+			return *value
+		}
+	}
+	return ""
 }
 
 func makeACRBuildContext(t *testing.T, files map[string]string) []byte {

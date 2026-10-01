@@ -215,7 +215,9 @@ func handleS3CreateSession(w http.ResponseWriter, r *http.Request) {
 	// that principal and is evaluated against that principal's policies.
 	principalArn, _, userName, known := iamPrincipalForAccessKey(iamAccessKeyIDFromRequest(r))
 	if !known {
-		principalArn = fmt.Sprintf("arn:aws:iam::%s:user/simulator", awsAccountID())
+		S3ErrorXML(w, "InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records.",
+			bucket, sim.RequestID(r.Context()), http.StatusForbidden)
+		return
 	}
 	expires := time.Now().UTC().Add(s3ExpressSessionDuration)
 	akid, secret, token := stsMintTempCred(expires)

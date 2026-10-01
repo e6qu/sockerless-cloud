@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
 // Microsoft Entra ID instance discovery, exercised through the client contract
@@ -301,35 +302,14 @@ func startTLSSimulator(t *testing.T, certPath, keyPath string) string {
 		"SIM_RUNTIME=process",
 	)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
+	if err := simready.Start(cmd, os.Stderr); err != nil {
 		t.Fatalf("start the TLS simulator: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 	})
-
-	probe := &http.Client{
-		Timeout: 2 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // health probe only, before the trusted-root client is built
-		},
-	}
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		resp, err := probe.Get("https://" + addr + "/health")
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				return addr
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("TLS simulator at %s did not become healthy", addr)
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	return addr
 }
 
 // authorityRoutedHTTPClient returns an http.Client that resolves the authority

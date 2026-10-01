@@ -3,6 +3,7 @@ package main
 import (
 	"compress/gzip"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -43,6 +44,11 @@ type discoveryDoc struct {
 	// probe must send the document's host to reach that document's service.
 	Host    string
 	Methods []discoveryMethod
+	// ResumableSessionPaths are the media paths of the methods that declare
+	// the resumable upload protocol. A session's chunks are PUTs to its
+	// session URI on one of them and its cancellation a DELETE there; the
+	// protocol, not the document, describes both.
+	ResumableSessionPaths []string
 }
 
 func loadDiscoveryDocs(t *testing.T) []*discoveryDoc {
@@ -67,6 +73,9 @@ func loadDiscoveryDocs(t *testing.T) []*discoveryDoc {
 				Simple struct {
 					Path string `json:"path"`
 				} `json:"simple"`
+				Resumable struct {
+					Path string `json:"path"`
+				} `json:"resumable"`
 			} `json:"protocols"`
 		} `json:"mediaUpload"`
 	}
@@ -144,10 +153,23 @@ func loadDiscoveryDocs(t *testing.T) []*discoveryDoc {
 					d.Methods = append(d.Methods, discoveryMethod{HTTPMethod: m.HTTPMethod, Path: "/download" + join(rel), PathParams: pathParams})
 				}
 			}
-			// Media-upload variant rides its own absolute path
-			// (/upload/storage/v1/b/{bucket}/o).
-			if m.MediaUpload != nil && m.MediaUpload.Protocols.Simple.Path != "" {
-				d.Methods = append(d.Methods, discoveryMethod{HTTPMethod: m.HTTPMethod, Path: m.MediaUpload.Protocols.Simple.Path, PathParams: pathParams})
+			// Each media-upload protocol rides its own absolute path
+			// (/upload/storage/v1/b/{bucket}/o for simple,
+			// /resumable/upload/storage/v1/b/{bucket}/o for resumable). A
+			// resumable session begun on either addresses its session URI
+			// there, so both are session paths when the method declares the
+			// resumable protocol.
+			if m.MediaUpload != nil {
+				simple, resumable := m.MediaUpload.Protocols.Simple.Path, m.MediaUpload.Protocols.Resumable.Path
+				for _, path := range []string{simple, resumable} {
+					if path == "" {
+						continue
+					}
+					d.Methods = append(d.Methods, discoveryMethod{HTTPMethod: m.HTTPMethod, Path: path, PathParams: pathParams})
+					if resumable != "" {
+						d.ResumableSessionPaths = append(d.ResumableSessionPaths, path)
+					}
+				}
 			}
 		}
 		var walk func(res rawResource)
@@ -300,14 +322,6 @@ var allowedNonSpecGCPRoutes = map[string]string{
 	"PUT /v2/token":    "Artifact Registry Docker token service (405: GET-only)",
 	"PATCH /v2/token":  "Artifact Registry Docker token service (405: GET-only)",
 	"DELETE /v2/token": "Artifact Registry Docker token service (405: GET-only)",
-
-	// GCS resumable upload protocol: Discovery describes only the
-	// initiating POST (uploadType=resumable); the follow-up chunk PUTs
-	// go to the returned session URI on the same /upload path. Real,
-	// documented surface (resumable-uploads protocol).
-	"PUT /upload/storage/v1/b/{bucket}/o": "GCS resumable upload session continuation",
-	// Cancelling a resumable upload is a DELETE on the same session URI.
-	"DELETE /upload/storage/v1/b/{bucket}/o": "GCS resumable upload session cancellation",
 }
 
 var allowedNonSpecGCPPrefixes = map[string]string{
@@ -423,8 +437,12 @@ func TestRoutesExistInDiscoveryDocs(t *testing.T) {
 
 	all := flattenDocs(docs)
 	byFile := map[string][]specPath{}
+	var sessionPaths []specPath
 	for _, d := range docs {
 		byFile[d.File] = flattenDocs([]*discoveryDoc{d})
+		for _, p := range d.ResumableSessionPaths {
+			sessionPaths = append(sessionPaths, specPath{Method: http.MethodPost, Segs: splitNormSegs(p)})
+		}
 	}
 
 	var offenders []string
@@ -467,6 +485,9 @@ func TestRoutesExistInDiscoveryDocs(t *testing.T) {
 			continue
 		}
 
+		if (method == http.MethodPut || method == http.MethodDelete) && matchesAnySpec(sessionPaths, http.MethodPost, path) {
+			continue
+		}
 		if !matchesAnySpec(all, method, path) {
 			offenders = append(offenders, pattern+"  (normalized: "+method+" "+normalizeGCPPath(path)+")")
 		}

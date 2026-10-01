@@ -133,7 +133,33 @@ func TestRDSDeleteMultiAZDBClusterTerminatesItsMembers(t *testing.T) {
 	}
 }
 
-func rdsExpectEcho(t *testing.T, endpoint string) {
+// rdsStandInEngine answers each client on address with label followed by
+// the client's bytes, so a test sees which engine entrance a relay reached.
+func rdsStandInEngine(t *testing.T, address, label string) {
+	t.Helper()
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				if _, err := conn.Write([]byte(label)); err != nil {
+					return
+				}
+				_, _ = io.Copy(conn, conn)
+			}()
+		}
+	}()
+}
+
+func rdsExpectEcho(t *testing.T, endpoint, label string) {
 	t.Helper()
 	conn, err := net.DialTimeout("tcp", endpoint, 5*time.Second)
 	if err != nil {
@@ -144,9 +170,9 @@ func rdsExpectEcho(t *testing.T, endpoint string) {
 	if _, err := conn.Write([]byte("ping")); err != nil {
 		t.Fatalf("write to %s: %v", endpoint, err)
 	}
-	reply := make([]byte, 4)
-	if _, err := io.ReadFull(conn, reply); err != nil || string(reply) != "ping" {
-		t.Fatalf("%s relayed %q, %v; want the engine's echo", endpoint, reply, err)
+	reply := make([]byte, len(label)+4)
+	if _, err := io.ReadFull(conn, reply); err != nil || string(reply) != label+"ping" {
+		t.Fatalf("%s relayed %q, %v; want %q", endpoint, reply, err, label+"ping")
 	}
 }
 
@@ -169,7 +195,10 @@ func rdsExpectRefused(t *testing.T, endpoint string) {
 
 // The cluster, reader and instance endpoints of an Aurora cluster all reach
 // the one engine over the cluster volume, and only while an instance serves
-// them.
+// them. The cluster endpoint and the writer's instance endpoint enter it
+// read-write; the reader endpoint and an Aurora Replica's instance endpoint
+// enter it read-only, except that the reader endpoint reaches the writer while
+// the cluster has no Aurora Replica.
 func TestRDSAuroraEndpointsServeTheClusterEngine(t *testing.T) {
 	rdsResetAuroraStores(t)
 	clusterID := "aurora-endpoints"
@@ -194,33 +223,19 @@ func TestRDSAuroraEndpointsServeTheClusterEngine(t *testing.T) {
 		t.Fatal("the cluster engine does not authenticate by the cluster's master-user password")
 	}
 
-	// Stand an echo service in for the engine so the relays are observable
-	// without a container runtime.
+	// Stand echo services in for the engine's read-write and read-only
+	// entrances so the relays are observable without a container runtime.
 	if err := plane.engine.Close(); err != nil {
 		t.Fatal(err)
 	}
-	echo, err := net.Listen("tcp", plane.engineAddress)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = echo.Close() })
-	go func() {
-		for {
-			conn, err := echo.Accept()
-			if err != nil {
-				return
-			}
-			go func() {
-				defer conn.Close()
-				_, _ = io.Copy(conn, conn)
-			}()
-		}
-	}()
+	rdsStandInEngine(t, plane.engineAddress, "read-write:")
+	rdsStandInEngine(t, plane.replicaAddress, "read-only:")
 
 	rdsExpectRefused(t, writerEndpoint)
 	rdsExpectRefused(t, readerEndpoint)
 
 	writer := rdsCreateAuroraMember(t, clusterID, "aurora-endpoints-1", "aurora-postgresql")
+	rdsExpectEcho(t, readerEndpoint, "read-write:")
 	replica := rdsCreateAuroraMember(t, clusterID, "aurora-endpoints-2", "aurora-postgresql")
 	if writer.Port != cluster.Port || writer.MasterUsername != "admin" || writer.Endpoint == cluster.Endpoint {
 		t.Fatalf("member endpoint %s:%d user %q, want its own address on the cluster port with the cluster's master user", writer.Endpoint, writer.Port, writer.MasterUsername)
@@ -230,12 +245,13 @@ func TestRDSAuroraEndpointsServeTheClusterEngine(t *testing.T) {
 		!strings.Contains(described, "<DBInstanceIdentifier>aurora-endpoints-2</DBInstanceIdentifier><IsClusterWriter>false</IsClusterWriter>") {
 		t.Fatalf("DescribeDBClusters %s, want the first member as writer", described)
 	}
-	for _, endpoint := range []string{
-		writerEndpoint, readerEndpoint,
-		net.JoinHostPort(writer.Endpoint, strconv.Itoa(writer.Port)),
-		net.JoinHostPort(replica.Endpoint, strconv.Itoa(replica.Port)),
+	for endpoint, label := range map[string]string{
+		writerEndpoint: "read-write:",
+		readerEndpoint: "read-only:",
+		net.JoinHostPort(writer.Endpoint, strconv.Itoa(writer.Port)):   "read-write:",
+		net.JoinHostPort(replica.Endpoint, strconv.Itoa(replica.Port)): "read-only:",
 	} {
-		rdsExpectEcho(t, endpoint)
+		rdsExpectEcho(t, endpoint, label)
 	}
 
 	stop := rdsClusterCall(t, handleRDSStopCluster, clusterID)

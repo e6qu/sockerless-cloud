@@ -20,12 +20,17 @@ import (
 
 func resetOutboundFederationState(t *testing.T) {
 	flags, temp, keys, outbound := iamAccountFlags, iamTempCreds, iamAccessKeys, stsOutboundKeys
+	users, userPolicies := iamUsers, iamUserPolicies
 	t.Cleanup(func() {
 		iamAccountFlags, iamTempCreds, iamAccessKeys, stsOutboundKeys = flags, temp, keys, outbound
+		iamUsers, iamUserPolicies = users, userPolicies
 	})
 	iamAccountFlags = sim.NewStateStore[IAMAccountFeature]()
 	iamTempCreds = sim.NewStateStore[IAMTempCred]()
 	iamAccessKeys = sim.NewStateStore[IAMAccessKey]()
+	iamUsers = sim.NewStateStore[IAMUser]()
+	iamUserPolicies = sim.NewStateStore[IAMUserPolicy]()
+	seedRootAdminCredential()
 	stsOutboundKeys = sim.NewStateStore[string]()
 	stsOutboundSignersMu.Lock()
 	stsOutboundSignerByID = map[string]*simjwt.Signer{}
@@ -35,6 +40,7 @@ func resetOutboundFederationState(t *testing.T) {
 func callQuery(handler http.HandlerFunc, form url.Values) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+seedAdminAccessKey+"/20260101/us-east-1/sts/aws4_request, SignedHeaders=host, Signature=0")
 	rec := httptest.NewRecorder()
 	handler(rec, req)
 	return rec
@@ -170,7 +176,7 @@ func TestGetWebIdentityTokenVerifiesAgainstTheIssuer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s token did not verify against the issuer: %v", alg, err)
 		}
-		if idToken.Subject != "arn:aws:iam::123456789012:user/simulator" {
+		if idToken.Subject != iamUserArn(seedAdminUserName, "/") {
 			t.Errorf("sub = %q", idToken.Subject)
 		}
 		if got := idToken.Expiry.Sub(idToken.IssuedAt); got != 300*time.Second {
@@ -196,5 +202,40 @@ func TestGetWebIdentityTokenVerifiesAgainstTheIssuer(t *testing.T) {
 	stsOutboundIssuerMiddleware(http.NotFoundHandler()).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || strings.Count(rec.Body.String(), `"kid"`) != 2 {
 		t.Fatalf("JWKS after disable: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSTSCallerIdentityResolvesEachKindOfCaller(t *testing.T) {
+	resetOutboundFederationState(t)
+	roles := iamRoles
+	t.Cleanup(func() { iamRoles = roles })
+	iamRoles = sim.NewStateStore[IAMRole]()
+	iamRoles.Put("deployer", IAMRole{RoleName: "deployer", RoleId: "AROADEPLOYER000000000"})
+	iamTempCreds.Put("ASIAROLE", IAMTempCred{AccessKeyID: "ASIAROLE", RoleName: "deployer",
+		PrincipalArn: "arn:aws:sts::123456789012:assumed-role/deployer/nightly"})
+	iamTempCreds.Put("ASIAFED", IAMTempCred{AccessKeyID: "ASIAFED",
+		PrincipalArn: "arn:aws:sts::123456789012:federated-user/alice"})
+	signedBy := func(akid string) *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+akid+"/20260101/us-east-1/sts/aws4_request, SignedHeaders=host, Signature=0")
+		return req
+	}
+	for akid, want := range map[string][2]string{
+		seedAdminAccessKey: {iamUserArn(seedAdminUserName, "/"), "AIDAROOTSIMADMIN00000"},
+		"ASIAROLE":         {"arn:aws:sts::123456789012:assumed-role/deployer/nightly", "AROADEPLOYER000000000:nightly"},
+		"ASIAFED":          {"arn:aws:sts::123456789012:federated-user/alice", awsAccountID() + ":alice"},
+	} {
+		arn, userID, ok := stsCallerIdentity(signedBy(akid))
+		if !ok || arn != want[0] || userID != want[1] {
+			t.Errorf("%s: identity = %q %q %v, want %q %q", akid, arn, userID, ok, want[0], want[1])
+		}
+	}
+	if _, _, ok := stsCallerIdentity(signedBy("AKIAUNKNOWN")); ok {
+		t.Error("an unknown access key resolved to an identity")
+	}
+	rec := httptest.NewRecorder()
+	handleGetCallerIdentity(rec, signedBy("AKIAUNKNOWN"))
+	if rec.Code != http.StatusForbidden || xmlErrorCode(t, rec) != "InvalidClientTokenId" {
+		t.Fatalf("GetCallerIdentity for an unknown key = %d %s", rec.Code, rec.Body.String())
 	}
 }

@@ -139,8 +139,6 @@ func recordComputeOp(rec ComputeOperationRecord) {
 	computeOpRegistry.Put(rec.Name, rec)
 }
 
-func computeOpKnown(name string) bool { _, ok := computeOpRegistry.Get(name); return ok }
-
 // computeOpFinish moves a running operation to DONE. A nil err completes it
 // successfully; a non-nil one populates the error members Compute Engine
 // reports for an operation that failed while it was being processed.
@@ -153,6 +151,7 @@ func computeOpKnown(name string) bool { _, ok := computeOpRegistry.Get(name); re
 // accompanying HTTP status is the one the simulator answers when it cannot
 // bring a machine up.
 func computeOpFinish(name string, err error) {
+	defer gcpOperationSignalDone(name)
 	computeOpRegistry.Update(name, func(rec *ComputeOperationRecord) {
 		rec.Status = "DONE"
 		rec.Progress = 100
@@ -238,27 +237,37 @@ const computeOperationWaitBudget = 2 * time.Minute
 // than being cut short by whoever stopped waiting first.
 const computeInstanceBootBudget = 5 * time.Minute
 
-// computeWaitOperation implements that contract: it polls the record until the
-// operation is DONE, the budget runs out, or the client goes away, then answers
-// with whatever state the operation is in.
+// computeWaitOperation implements that contract: it blocks until the operation
+// reaches DONE, the budget runs out, or the client goes away, then answers with
+// whatever state the operation is in.
 func computeWaitOperation(w http.ResponseWriter, r *http.Request, name string) {
-	deadline := time.Now().Add(computeOperationWaitBudget)
-	for {
-		rec, ok := computeOpRegistry.Get(name)
-		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
-			return
-		}
-		if rec.Status == "DONE" || time.Now().After(deadline) {
-			sim.WriteJSON(w, http.StatusOK, computeOpJSON(rec))
-			return
-		}
+	sim.DeclareWait(r.Context(), computeOperationWaitBudget)
+	// Subscribe before reading, so a finish between the read and the wait still
+	// wakes it.
+	done := gcpOperationDoneSignal(name)
+	rec, ok := computeOpRegistry.Get(name)
+	if !ok {
+		gcpOperationSignalDone(name)
+		GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
+		return
+	}
+	if rec.Status == "DONE" {
+		gcpOperationSignalDone(name)
+	} else {
+		budget := time.NewTimer(computeOperationWaitBudget)
+		defer budget.Stop()
 		select {
 		case <-r.Context().Done():
 			return
-		case <-time.After(200 * time.Millisecond):
+		case <-done:
+		case <-budget.C:
+		}
+		if rec, ok = computeOpRegistry.Get(name); !ok {
+			GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
+			return
 		}
 	}
+	sim.WriteJSON(w, http.StatusOK, computeOpJSON(rec))
 }
 
 func newComputeOp(project, scope string, targetLink string) map[string]any {
@@ -614,6 +623,8 @@ const (
 	ComputeInstanceRunning      ComputeInstanceStatus = "RUNNING"
 	ComputeInstanceStopping     ComputeInstanceStatus = "STOPPING"
 	ComputeInstanceStopped      ComputeInstanceStatus = "STOPPED"
+	ComputeInstanceSuspending   ComputeInstanceStatus = "SUSPENDING"
+	ComputeInstanceSuspended    ComputeInstanceStatus = "SUSPENDED"
 	ComputeInstanceTerminated   ComputeInstanceStatus = "TERMINATED"
 )
 
@@ -2480,22 +2491,32 @@ func computeInstancePreRunning(status ComputeInstanceStatus) bool {
 	return status == ComputeInstanceProvisioning || status == ComputeInstanceStaging
 }
 
+// computeInstanceHoldsMachine reports whether an instance in status has a
+// machine running or moving: up, on its way up, or on its way down.
+func computeInstanceHoldsMachine(status ComputeInstanceStatus) bool {
+	switch status {
+	case ComputeInstanceRunning, ComputeInstanceStopping, ComputeInstanceSuspending:
+		return true
+	}
+	return computeInstancePreRunning(status)
+}
+
 // recoverComputeInstances transitions persisted instances that claim to be
-// running, or that a restart caught mid-boot, to TERMINATED when their real
+// running, or that a restart caught moving, to TERMINATED when their real
 // backing — the Firecracker VM, its tap NIC, and the metadata IP mapping — did
 // not survive the control-plane restart. Real Compute Engine reports an
 // instance whose VM is gone as TERMINATED with a human-readable statusMessage;
 // the sim does the same and never re-adopts a lost VM.
 func recoverComputeInstances(instances sim.Store[ComputeInstance]) {
 	for _, inst := range instances.List() {
-		if inst.Status != ComputeInstanceRunning && !computeInstancePreRunning(inst.Status) {
+		if !computeInstanceHoldsMachine(inst.Status) {
 			continue
 		}
 		if gcpFabric.VMAlive(inst.SelfLink) {
 			continue
 		}
 		instances.Update(inst.SelfLink, func(in *ComputeInstance) {
-			if in.Status != ComputeInstanceRunning && !computeInstancePreRunning(in.Status) {
+			if !computeInstanceHoldsMachine(in.Status) {
 				return
 			}
 			in.Status = ComputeInstanceTerminated
@@ -2782,61 +2803,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "compute#instanceAggregatedList", "items": grouped})
 	})
 
-	srv.HandleFunc("DELETE /compute/v1/projects/{project}/zones/{zone}/instances/{name}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		zone := sim.PathParam(r, "zone")
-		name := sim.PathParam(r, "name")
-		selfLink := instanceSelfLink(project, zone, name)
-		inst, ok := instances.Get(selfLink)
-		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
-			return
-		}
-		_ = gcpDeleteRealVM(r.Context(), inst)
-		instances.Delete(selfLink)
-		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "delete"))
-	})
-
-	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/stop", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		zone := sim.PathParam(r, "zone")
-		name := sim.PathParam(r, "name")
-		selfLink := instanceSelfLink(project, zone, name)
-		if err := gcpFabric.StopVM(r.Context(), selfLink, nil); err != nil {
-			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to stop real Compute Engine instance: %v", err)
-			return
-		}
-		if ok := instances.Update(selfLink, func(inst *ComputeInstance) { inst.Status = ComputeInstanceTerminated }); !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "stop"))
-	})
-
-	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/start", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		zone := sim.PathParam(r, "zone")
-		name := sim.PathParam(r, "name")
-		selfLink := instanceSelfLink(project, zone, name)
-		inst, ok := instances.Get(selfLink)
-		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
-			return
-		}
-		if err := gcpStartRealVM(r.Context(), &inst); err != nil {
-			logger.Error().
-				Err(err).
-				Str("project", project).
-				Str("zone", zone).
-				Str("instance", inst.Name).
-				Msg("failed to start real Compute Engine instance")
-			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to start real Compute Engine instance: %v", err)
-			return
-		}
-		inst.Status = ComputeInstanceRunning
-		instances.Put(selfLink, inst)
-		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "start"))
-	})
+	registerComputeInstancePower(srv)
 
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/setLabels", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")

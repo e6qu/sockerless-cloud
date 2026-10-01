@@ -494,6 +494,7 @@ func TestRDS_ClusterEndpointAndCopyClusterSnapshot(t *testing.T) {
 			DBClusterSnapshotIdentifier: aws.String(srcSnap),
 		})
 	})
+	waitForRDSClusterSnapshotAvailable(t, c, ctx, srcSnap)
 
 	copySnap := "sdk-copy-cluster-snap"
 	copyOut, err := c.CopyDBClusterSnapshot(ctx, &rds.CopyDBClusterSnapshotInput{
@@ -506,11 +507,13 @@ func TestRDS_ClusterEndpointAndCopyClusterSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, copyOut.DBClusterSnapshot)
 	assert.Equal(t, copySnap, aws.ToString(copyOut.DBClusterSnapshot.DBClusterSnapshotIdentifier))
-	assert.Equal(t, "available", aws.ToString(copyOut.DBClusterSnapshot.Status))
+	assert.Equal(t, "copying", aws.ToString(copyOut.DBClusterSnapshot.Status))
 	assert.Equal(t, clusterID, aws.ToString(copyOut.DBClusterSnapshot.DBClusterIdentifier))
+	assert.Contains(t, aws.ToString(copyOut.DBClusterSnapshot.SourceDBClusterSnapshotArn), ":cluster-snapshot:"+srcSnap)
 	t.Cleanup(func() {
 		_, _ = c.DeleteDBClusterSnapshot(ctx, &rds.DeleteDBClusterSnapshotInput{
 			DBClusterSnapshotIdentifier: aws.String(copySnap),
 		})
 	})
+	waitForRDSClusterSnapshotAvailable(t, c, ctx, copySnap)
 }

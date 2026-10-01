@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/cloudbuild/v1"
@@ -21,10 +22,10 @@ import (
 )
 
 // TestCloudBuild_DockerBuild exercises the Cloud Build slice: the GCP simulator
-// implements CreateBuild + LRO, the handler extracts the uploaded GCS source
-// tarball, runs `docker build` against it, and returns a done=true LRO with
-// status=SUCCESS. Uses direct REST against the simulator rather than the gRPC
-// cloudbuild Go client (which doesn't easily accept endpoint overrides).
+// implements CreateBuild + LRO: the create answers at once with the build's
+// operation, the build extracts the uploaded GCS source tarball and runs
+// `docker build` against it, and the operation completes with the SUCCESS
+// build, which the Cloud Build SDK's operation wait returns.
 //
 // The build's verdict alone would be satisfied by a handler that never ran the
 // step, so the image the step was told to produce is inspected on the daemon
@@ -60,21 +61,12 @@ func TestCloudBuild_DockerBuild(t *testing.T) {
 			{"name":"gcr.io/cloud-builders/docker","args":["build","-t",%q,"."]}
 		]
 	}`, bucket, objectName, imageTag)
-	resp := httpPOST(t, buildURL, body)
+	started := readStartedBuild(t, httpPOST(t, buildURL, body))
 
-	var op struct {
-		Name     string         `json:"name"`
-		Done     bool           `json:"done"`
-		Response map[string]any `json:"response"`
-		Error    *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(resp), &op))
-	require.True(t, op.Done, "LRO should be done; simulator executes synchronously")
-	require.Nil(t, op.Error, "build should succeed: %+v", op.Error)
-	assert.Equal(t, "SUCCESS", op.Response["status"])
+	built, err := waitBuild(t, started)
+	require.NoError(t, err, "build should succeed")
+	assert.Equal(t, started.BuildID, built.GetId())
+	assert.Equal(t, cloudbuildpb.Build_SUCCESS, built.GetStatus())
 
 	// The step really ran: the tag it was given names an image the daemon now
 	// holds, whose history carries the layer the Dockerfile's RUN produced.
@@ -137,19 +129,9 @@ func TestCloudBuild_SecretEnvExpansion(t *testing.T) {
 			"versionName": fmt.Sprintf("projects/%s/secrets/%s/versions/latest", project, secretID),
 			"env":         "MYSECRET",
 		}}})
-	resp := httpPOST(t, buildURL, body)
-
-	var op struct {
-		Done  bool `json:"done"`
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-		Response map[string]any `json:"response"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(resp), &op))
-	require.True(t, op.Done)
-	require.Nil(t, op.Error, "build should succeed with resolved secret: %+v", op.Error)
-	assert.Equal(t, "SUCCESS", op.Response["status"])
+	built, err := waitBuild(t, readStartedBuild(t, httpPOST(t, buildURL, body)))
+	require.NoError(t, err, "build should succeed with resolved secret")
+	assert.Equal(t, cloudbuildpb.Build_SUCCESS, built.GetStatus())
 }
 
 // TestCloudBuild_SecretEnvWithoutMatchingAvailableSecret pins what the
@@ -199,20 +181,10 @@ func TestCloudBuild_SecretEnvWithoutMatchingAvailableSecret(t *testing.T) {
 			"versionName": fmt.Sprintf("projects/%s/secrets/%s/versions/latest", project, secretID),
 			"env":         "DECLARED",
 		}}})
-	resp := httpPOST(t, buildURL, body)
-
-	var op struct {
-		Done  bool `json:"done"`
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-		Response map[string]any `json:"response"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(resp), &op))
-	require.True(t, op.Done)
-	require.Nil(t, op.Error,
-		"the build is accepted today rather than refused for the undeclared secretEnv: %+v", op.Error)
-	assert.Equal(t, "SUCCESS", op.Response["status"])
+	built, err := waitBuild(t, readStartedBuild(t, httpPOST(t, buildURL, body)))
+	require.NoError(t, err,
+		"the build is accepted today rather than refused for the undeclared secretEnv")
+	assert.Equal(t, cloudbuildpb.Build_SUCCESS, built.GetStatus())
 }
 
 // cbBaseImage is the base every Cloud Build step in this file builds from and
@@ -275,18 +247,9 @@ func TestCloudBuild_MissingSecretFails(t *testing.T) {
 			{"versionName":"projects/%s/secrets/doesnotexist/versions/1","env":"NOPE"}
 		]}
 	}`, bucket, objectName, project)
-	resp := httpPOST(t, buildURL, body)
-
-	var op struct {
-		Done  bool `json:"done"`
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(resp), &op))
-	require.True(t, op.Done)
-	require.NotNil(t, op.Error, "build should fail when secret reference unresolvable")
-	assert.Contains(t, op.Error.Message, "resolve secret")
+	_, err := waitBuild(t, readStartedBuild(t, httpPOST(t, buildURL, body)))
+	require.Error(t, err, "build should fail when secret reference unresolvable")
+	assert.Contains(t, err.Error(), "resolve secret")
 }
 
 func makeTarGz(t *testing.T, files map[string]string) []byte {

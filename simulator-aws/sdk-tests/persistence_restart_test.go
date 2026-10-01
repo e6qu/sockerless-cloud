@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/amplify"
 	amplifytypes "github.com/aws/aws-sdk-go-v2/service/amplify/types"
@@ -65,9 +67,7 @@ func startPersistentSimulator(t *testing.T, stateDir string, tcpPort, udpPort in
 		"SIM_LOG_LEVEL=warn",
 	)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	require.NoError(t, cmd.Start())
-	require.NoError(t, waitForHealth(fmt.Sprintf("http://127.0.0.1:%d/health", tcpPort)))
+	require.NoError(t, simready.Start(cmd, os.Stderr))
 	return cmd
 }
 

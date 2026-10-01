@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
+
 	"cloud.google.com/go/bigtable"
 	pubsubpb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	"cloud.google.com/go/spanner"
@@ -56,25 +58,9 @@ func startPersistentSimulator(t *testing.T, stateDir string, httpPort, grpcPort 
 		"SIM_LOG_LEVEL=warn",
 	)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	require.NoError(t, cmd.Start())
-	require.NoError(t, waitForHealth(fmt.Sprintf("http://127.0.0.1:%d/health", httpPort)))
-	require.NoError(t, waitForTCP(fmt.Sprintf("127.0.0.1:%d", grpcPort)))
+	// The gRPC listener binds before the HTTP one announces itself.
+	require.NoError(t, simready.Start(cmd, os.Stderr))
 	return cmd
-}
-
-// waitForTCP waits until addr accepts a TCP connection — the gRPC server
-// starts concurrently with the HTTP listener the health check covers.
-func waitForTCP(addr string) error {
-	for i := 0; i < 50; i++ {
-		conn, err := net.DialTimeout("tcp", addr, time.Second)
-		if err == nil {
-			conn.Close()
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for %s", addr)
 }
 
 // shutdownPersistentSimulator asks the process to exit via SIGTERM (the

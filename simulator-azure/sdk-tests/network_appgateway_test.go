@@ -656,10 +656,6 @@ func applicationGatewayNames(t *testing.T, client *armnetwork.ApplicationGateway
 	return names
 }
 
-// gatewayRequest sends one request at the application gateway's own frontend
-// address. The TCP connection goes to the simulator's endpoint — the one
-// coordinate that differs from real Azure — while the Host header carries the
-// gateway address, exactly as a client that resolved that address would send.
 // awaitGatewayServing waits for the gateway to answer path with 200, which it
 // does once its health probes have found the backend Up.
 func awaitGatewayServing(t *testing.T, gatewayHost, path string) {
@@ -677,6 +673,10 @@ func awaitGatewayServing(t *testing.T, gatewayHost, path string) {
 	}
 }
 
+// gatewayRequest sends one request at the application gateway's own frontend
+// address. The TCP connection goes to the simulator's endpoint — the one
+// coordinate that differs from real Azure — while the Host header carries the
+// gateway address, exactly as a client that resolved that address would send.
 func gatewayRequest(t *testing.T, method, gatewayHost, target string, body *strings.Reader) (string, *http.Response) {
 	t.Helper()
 	var reader *strings.Reader

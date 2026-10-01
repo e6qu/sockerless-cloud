@@ -2,9 +2,9 @@ package azure_cli_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const caeAPIVersion = "2023-05-01"
@@ -45,21 +45,11 @@ func TestContainerAppEnv_CreateAndShow(t *testing.T) {
 func TestContainerAppEnv_Delete(t *testing.T) {
 	url := caeURL("managedEnvironments/delete-test-env")
 	runCLI(t, azRest("PUT", url, `{"location":"eastus","properties":{}}`))
-	runCLI(t, azRest("DELETE", url, ""))
+	azRestLongRunning(t, "DELETE", url, "")
 
-	// ARM DELETE is a 202 LRO: the environment stays observable in
-	// provisioningState=Deleting until the operation completes, then GET
-	// fails with 404. Poll like a real client.
-	deadline := time.Now().Add(10 * time.Second)
-	var failure string
-	for time.Now().Before(deadline) {
-		out, err := azRest("GET", url, "").CombinedOutput()
-		if err != nil {
-			failure = string(out)
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	out, err := azRest("GET", url, "").CombinedOutput()
+	require.Error(t, err, "GET after the delete operation completes must fail: %s", out)
+	failure := string(out)
 	assert.Contains(t, failure, "ResourceNotFound",
 		"a deleted managed environment must answer GET with ResourceNotFound once the"+
 			" delete operation completes, got: %s", failure)

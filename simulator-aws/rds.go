@@ -138,6 +138,9 @@ type RDSCluster struct {
 	// engine, which lags MasterUserSecret while a ModifyDBCluster waits for
 	// the engine to run.
 	BackendMasterUserSecret []byte
+	// RestoreSourceVolume is the volume a creating restored cluster seeds its
+	// cluster volume from.
+	RestoreSourceVolume string
 }
 
 // RDSSubnetGroup models a DB subnet group (a named set of VPC subnets
@@ -178,10 +181,9 @@ type RDSClusterParamGroup struct {
 	Tags                        map[string]string
 }
 
-// RDSClusterSnapshot models a DB cluster snapshot. Like the instance
-// snapshot, the creating→available transition is collapsed into an
-// inline-settle (Status=available from the start) — there is no async
-// engine work to gate on.
+// RDSClusterSnapshot models a DB cluster snapshot: creating (or copying)
+// while its cluster volume is captured, then available, or failed with the
+// capture's error in StatusReason.
 type RDSClusterSnapshot struct {
 	DBClusterSnapshotIdentifier string
 	DBClusterIdentifier         string
@@ -190,18 +192,27 @@ type RDSClusterSnapshot struct {
 	EngineVersion               string
 	EngineMode                  string
 	Status                      string
-	AllocatedStorage            int
-	MasterUsername              string
-	Port                        int
-	VpcId                       string
-	StorageEncrypted            bool
-	SnapshotCreateTime          string
-	ClusterCreateTime           string
-	SnapshotType                string // manual | automated
-	PercentProgress             int
-	AvailabilityZones           []string
-	ARN                         string
-	Tags                        map[string]string
+	StatusReason                string
+	SourceDBClusterSnapshotArn  string
+	DatabaseName                string
+	IAMDatabaseAuthentication   bool
+	// MasterUserSecret and BackendMasterUserSecret carry the cluster's
+	// master credential and the one its engine holds, so a restored engine
+	// opens the captured data under the credentials it was written with.
+	MasterUserSecret        []byte
+	BackendMasterUserSecret []byte
+	AllocatedStorage        int
+	MasterUsername          string
+	Port                    int
+	VpcId                   string
+	StorageEncrypted        bool
+	SnapshotCreateTime      string
+	ClusterCreateTime       string
+	SnapshotType            string // manual | automated
+	PercentProgress         int
+	AvailabilityZones       []string
+	ARN                     string
+	Tags                    map[string]string
 }
 
 // RDSOptionGroup models an option group (a named collection of engine
@@ -379,10 +390,14 @@ func registerRDS(r *AWSQueryRouter, srv *sim.Server) {
 	registerRDSProxiesRoles(r, srv)
 	registerRDSRestoreExtras(r, srv)
 	registerRDSComplete(r, srv)
+	if err := rdsMoveVolumesToKindNames(); err != nil {
+		panic(fmt.Sprintf("move Amazon Relational Database Service volumes: %v", err))
+	}
 	if err := rdsRecoverDataPlanes(); err != nil {
 		panic(fmt.Sprintf("restore Amazon Relational Database Service data planes: %v", err))
 	}
 	rdsRecoverClusterTransitions()
+	rdsRecoverInstanceSnapshots()
 }
 
 func rdsInstanceARN(id string) string {
@@ -572,6 +587,9 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	if rdsRefuseDeletingInstance(w, r, instance) {
+		return
+	}
 	if value := r.FormValue("DBInstanceClass"); value != "" {
 		instance.DBInstanceClass = value
 	}
@@ -604,6 +622,12 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 	inst, ok := rdsInstances.Get(id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if inst.DBInstanceStatus == "deleting" {
+		rdsErrorXML(w, "InvalidDBInstanceState",
+			fmt.Sprintf("Instance %s is already being deleted.", id),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	if inst.DeletionProtection {
@@ -650,19 +674,19 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	inst.DBInstanceStatus = "deleting"
-	rdsInstances.Delete(id)
+	rdsInstances.Put(id, inst)
+	resourceID := inst.DbiResourceId
 	if finalSnapID != "" {
 		// The final snapshot captures the instance's volume before the data
-		// plane and the volume go away — the capture must finish first, so
-		// the shutdown runs after it in the same background task.
+		// plane and the volume go away, and the deleting instance holds its
+		// identifier until then.
 		snapID := finalSnapID
 		bg.Go(func() {
 			rdsCaptureSnapshotData(snapID, id)
-			// The instance is gone either way; rdsStopDataPlane logs the failure.
-			_ = rdsStopDataPlane(id, true)
+			rdsFinishInstanceDeletion(id, resourceID)
 		})
 	} else {
-		_ = rdsStopDataPlane(id, true)
+		rdsFinishInstanceDeletion(id, resourceID)
 	}
 	rdsXMLResponse(w, "DeleteDBInstance", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
@@ -1034,6 +1058,9 @@ func handleRDSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBInstanceNotFound",
 			fmt.Sprintf("DBInstance %q not found", instID),
 			http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if rdsRefuseDeletingInstance(w, r, inst) {
 		return
 	}
 	if _, exists := rdsSnapshots.Get(snapID); exists {
@@ -1529,13 +1556,25 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	if cl.Status == "deleting" {
+		rdsErrorXML(w, "InvalidDBClusterStateFault",
+			fmt.Sprintf("DB cluster %s is already being deleted.", id),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	if cl.DeletionProtection {
 		rdsErrorXML(w, "InvalidParameterCombination",
 			"Cannot delete protected Cluster, please disable deletion protection and try again.",
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	members := rdsClusterMembers(id)
+	// A deleting member finishes its own deletion.
+	var members []RDSInstance
+	for _, member := range rdsClusterMembers(id) {
+		if member.DBInstanceStatus != "deleting" {
+			members = append(members, member)
+		}
+	}
 	// An Aurora cluster's instances are deleted one by one before the
 	// cluster; deleting a Multi-AZ DB cluster terminates its members.
 	if rdsIsAurora(cl.Engine) && len(members) > 0 {
@@ -1565,38 +1604,32 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 				http.StatusConflict, sim.RequestID(r.Context()))
 			return
 		}
-		// The final snapshot is the same metadata tier
-		// CreateDBClusterSnapshot records.
-		rdsClusterSnapshots.Put(finalSnapID, RDSClusterSnapshot{
-			DBClusterSnapshotIdentifier: finalSnapID,
-			DBClusterIdentifier:         id,
-			DbClusterResourceId:         cl.DbClusterResourceId,
-			Engine:                      cl.Engine,
-			EngineVersion:               cl.EngineVersion,
-			EngineMode:                  cl.EngineMode,
-			Status:                      "available",
-			AllocatedStorage:            cl.AllocatedStorage,
-			MasterUsername:              cl.MasterUsername,
-			Port:                        cl.Port,
-			StorageEncrypted:            cl.StorageEncrypted,
-			SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
-			ClusterCreateTime:           cl.ClusterCreateTime,
-			SnapshotType:                "manual",
-			PercentProgress:             100,
-			AvailabilityZones:           cl.AvailabilityZones,
-			ARN:                         rdsClusterSnapshotARN(finalSnapID),
-		})
+		if !rdsClusterVolumeSettled(w, r, cl) {
+			return
+		}
+		rdsClusterSnapshots.Put(finalSnapID, rdsNewClusterSnapshot(cl, finalSnapID))
 	}
 	cl.Status = "deleting"
+	rdsClusters.Put(id, cl)
 	body := renderRDSCluster(cl)
-	rdsClusters.Delete(id)
 	for _, member := range members {
 		rdsInstances.Delete(member.DBInstanceIdentifier)
 		// The member is gone either way; rdsStopDataPlane logs the failure.
 		_ = rdsStopDataPlane(member.DBInstanceIdentifier, true)
 	}
-	// The cluster is gone either way; rdsStopAuroraDataPlane logs the failure.
-	_ = rdsStopAuroraDataPlane(id, true)
+	resourceID := cl.DbClusterResourceId
+	if finalSnapID != "" {
+		// The final snapshot captures the cluster volume before the engine
+		// and the volume go, and the deleting cluster holds its identifier
+		// until then.
+		snapID := finalSnapID
+		bg.Go(func() {
+			rdsCaptureClusterSnapshotData(snapID, id)
+			rdsFinishClusterDeletion(id, resourceID)
+		})
+	} else {
+		rdsFinishClusterDeletion(id, resourceID)
+	}
 	rdsXMLResponse(w, "DeleteDBCluster", body, sim.RequestID(r.Context()))
 }
 
@@ -1970,6 +2003,10 @@ func renderRDSClusterSnapshot(s RDSClusterSnapshot) string {
 	fmt.Fprintf(&b, "<SnapshotType>%s</SnapshotType>", xmlEscape(s.SnapshotType))
 	fmt.Fprintf(&b, "<PercentProgress>%d</PercentProgress>", s.PercentProgress)
 	fmt.Fprintf(&b, "<DBClusterSnapshotArn>%s</DBClusterSnapshotArn>", xmlEscape(s.ARN))
+	if s.SourceDBClusterSnapshotArn != "" {
+		fmt.Fprintf(&b, "<SourceDBClusterSnapshotArn>%s</SourceDBClusterSnapshotArn>", xmlEscape(s.SourceDBClusterSnapshotArn))
+	}
+	fmt.Fprintf(&b, "<IAMDatabaseAuthenticationEnabled>%t</IAMDatabaseAuthenticationEnabled>", s.IAMDatabaseAuthentication)
 	b.WriteString("<AvailabilityZones>")
 	for _, az := range s.AvailabilityZones {
 		fmt.Fprintf(&b, "<AvailabilityZone>%s</AvailabilityZone>", xmlEscape(az))
@@ -2001,28 +2038,53 @@ func handleRDSCreateClusterSnapshot(w http.ResponseWriter, r *http.Request) {
 			http.StatusConflict, sim.RequestID(r.Context()))
 		return
 	}
-	snap := RDSClusterSnapshot{
-		DBClusterSnapshotIdentifier: snapID,
-		DBClusterIdentifier:         clusterID,
-		DbClusterResourceId:         cl.DbClusterResourceId,
-		Engine:                      cl.Engine,
-		EngineVersion:               cl.EngineVersion,
-		EngineMode:                  cl.EngineMode,
-		Status:                      "available",
-		AllocatedStorage:            cl.AllocatedStorage,
-		MasterUsername:              cl.MasterUsername,
-		Port:                        cl.Port,
-		StorageEncrypted:            cl.StorageEncrypted,
-		SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
-		ClusterCreateTime:           cl.ClusterCreateTime,
-		SnapshotType:                "manual",
-		PercentProgress:             100,
-		AvailabilityZones:           cl.AvailabilityZones,
-		ARN:                         rdsClusterSnapshotARN(snapID),
-		Tags:                        parseAWSQueryTagMap(r, "Tags.Tag"),
+	if !rdsClusterVolumeSettled(w, r, cl) {
+		return
 	}
+	snap := rdsNewClusterSnapshot(cl, snapID)
+	snap.Tags = parseAWSQueryTagMap(r, "Tags.Tag")
 	rdsClusterSnapshots.Put(snapID, snap)
+	bg.Go(func() { rdsCaptureClusterSnapshotData(snapID, clusterID) })
 	rdsXMLResponse(w, "CreateDBClusterSnapshot", renderRDSClusterSnapshot(snap), sim.RequestID(r.Context()))
+}
+
+// rdsClusterVolumeSettled answers InvalidDBClusterStateFault for a cluster
+// whose volume a restore has not finished seeding or a deletion is removing.
+func rdsClusterVolumeSettled(w http.ResponseWriter, r *http.Request, cluster RDSCluster) bool {
+	if cluster.Status != "creating" && cluster.Status != "incompatible-restore" && cluster.Status != "deleting" {
+		return true
+	}
+	rdsErrorXML(w, "InvalidDBClusterStateFault",
+		fmt.Sprintf("DB cluster %s is %s and its data cannot be captured.", cluster.DBClusterIdentifier, cluster.Status),
+		http.StatusBadRequest, sim.RequestID(r.Context()))
+	return false
+}
+
+// rdsNewClusterSnapshot is a manual snapshot of cluster, creating until its
+// cluster volume is captured.
+func rdsNewClusterSnapshot(cluster RDSCluster, snapID string) RDSClusterSnapshot {
+	return RDSClusterSnapshot{
+		DBClusterSnapshotIdentifier: snapID,
+		DBClusterIdentifier:         cluster.DBClusterIdentifier,
+		DbClusterResourceId:         cluster.DbClusterResourceId,
+		Engine:                      cluster.Engine,
+		EngineVersion:               cluster.EngineVersion,
+		EngineMode:                  cluster.EngineMode,
+		Status:                      "creating",
+		DatabaseName:                cluster.DatabaseName,
+		IAMDatabaseAuthentication:   cluster.EnableIAMDatabaseAuthentication,
+		MasterUserSecret:            append([]byte(nil), cluster.MasterUserSecret...),
+		BackendMasterUserSecret:     append([]byte(nil), cluster.BackendMasterUserSecret...),
+		AllocatedStorage:            cluster.AllocatedStorage,
+		MasterUsername:              cluster.MasterUsername,
+		Port:                        cluster.Port,
+		StorageEncrypted:            cluster.StorageEncrypted,
+		SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
+		ClusterCreateTime:           cluster.ClusterCreateTime,
+		SnapshotType:                "manual",
+		AvailabilityZones:           cluster.AvailabilityZones,
+		ARN:                         rdsClusterSnapshotARN(snapID),
+	}
 }
 
 func handleRDSDescribeClusterSnapshots(w http.ResponseWriter, r *http.Request) {
@@ -2063,7 +2125,14 @@ func handleRDSDeleteClusterSnapshot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if snap.Status == "creating" || snap.Status == "copying" {
+		rdsErrorXML(w, "InvalidDBClusterSnapshotStateFault",
+			fmt.Sprintf("Cannot delete the snapshot because it is not in available state, current state: %s", snap.Status),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	rdsClusterSnapshots.Delete(snap.DBClusterSnapshotIdentifier)
+	sim.RemoveVolumeSettled(rdsClusterSnapshotVolume(snap.DBClusterSnapshotIdentifier), "rds")
 	snap.Status = "deleted"
 	rdsXMLResponse(w, "DeleteDBClusterSnapshot", renderRDSClusterSnapshot(snap), sim.RequestID(r.Context()))
 }
@@ -2421,6 +2490,18 @@ func rdsRequireStandaloneInstance(w http.ResponseWriter, r *http.Request, instan
 	return false
 }
 
+// rdsRefuseDeletingInstance answers InvalidDBInstanceState for an instance
+// that is being deleted, which takes no further action.
+func rdsRefuseDeletingInstance(w http.ResponseWriter, r *http.Request, instance RDSInstance) bool {
+	if instance.DBInstanceStatus != "deleting" {
+		return false
+	}
+	rdsErrorXML(w, "InvalidDBInstanceState",
+		fmt.Sprintf("Instance %s is not in available state.", instance.DBInstanceIdentifier),
+		http.StatusBadRequest, sim.RequestID(r.Context()))
+	return true
+}
+
 // rdsRequireInstanceState answers InvalidDBInstanceState unless the instance
 // is in the one state the lifecycle action runs from, as Amazon RDS does.
 func rdsRequireInstanceState(w http.ResponseWriter, r *http.Request, instance RDSInstance, required, action string) bool {
@@ -2485,6 +2566,9 @@ func handleRDSPromoteReadReplica(w http.ResponseWriter, r *http.Request) {
 	inst, ok := rdsInstances.Get(id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if rdsRefuseDeletingInstance(w, r, inst) {
 		return
 	}
 	src := inst.ReadReplicaSource
@@ -2786,19 +2870,29 @@ func handleRDSCopyClusterSnapshot(w http.ResponseWriter, r *http.Request) {
 			http.StatusConflict, sim.RequestID(r.Context()))
 		return
 	}
+	if src.Status != "available" {
+		rdsErrorXML(w, "InvalidDBClusterSnapshotStateFault",
+			fmt.Sprintf("DBClusterSnapshot %q is %s; it must be available to copy", src.DBClusterSnapshotIdentifier, src.Status),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	tags := parseAWSQueryTagMap(r, "Tags.Tag")
 	if r.FormValue("CopyTags") == "true" {
 		tags = mergeTags(tags, src.Tags)
 	}
 	cp := src
 	cp.DBClusterSnapshotIdentifier = targetID
-	cp.Status = "available"
+	cp.Status = "copying"
+	cp.StatusReason = ""
+	cp.SourceDBClusterSnapshotArn = src.ARN
 	cp.SnapshotType = "manual"
-	cp.PercentProgress = 100
+	cp.PercentProgress = 0
 	cp.SnapshotCreateTime = time.Now().UTC().Format(time.RFC3339)
 	cp.ARN = rdsClusterSnapshotARN(targetID)
 	cp.Tags = tags
 	rdsClusterSnapshots.Put(targetID, cp)
+	sourceID := src.DBClusterSnapshotIdentifier
+	bg.Go(func() { rdsCopyClusterSnapshotData(targetID, sourceID) })
 	rdsXMLResponse(w, "CopyDBClusterSnapshot", renderRDSClusterSnapshot(cp), sim.RequestID(r.Context()))
 }
 

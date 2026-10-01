@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -169,10 +170,6 @@ func recoverAmplifyComputeInstances() error {
 			}
 			jobID = job.Job.Summary.JobId
 		}
-		hostPort := workload.PublishedPorts[amplifyComputePort]
-		if hostPort == 0 {
-			return fmt.Errorf("AWS Amplify Hosting compute container %s has no published port %d", workload.ID, amplifyComputePort)
-		}
 		if !workload.Running {
 			if err := sim.StartExistingContainer(workload.ID); err != nil {
 				return fmt.Errorf("restart AWS Amplify Hosting compute container %s: %w", workload.ID, err)
@@ -180,6 +177,11 @@ func recoverAmplifyComputeInstances() error {
 		}
 		handle, err := sim.AdoptContainer(workload.ID, sim.ContainerConfig{}, sim.NoopSink{})
 		if err != nil {
+			return fmt.Errorf("adopt AWS Amplify Hosting compute container %s: %w", workload.ID, err)
+		}
+		hostPort, err := handle.PublishedPort(context.Background(), amplifyComputePort)
+		if err != nil {
+			handle.Cancel()
 			return fmt.Errorf("adopt AWS Amplify Hosting compute container %s: %w", workload.ID, err)
 		}
 		if err := amplifyWaitForPort(hostPort, 60*time.Second); err != nil {
@@ -259,12 +261,6 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 	if err != nil {
 		return 0, err
 	}
-	hostPort, err := amplifyFreeLoopbackPort()
-	if err != nil {
-		_ = os.RemoveAll(bundleDir)
-		return 0, err
-	}
-
 	env := map[string]string{}
 	for k, v := range app.EnvironmentVariables {
 		env[k] = v
@@ -289,10 +285,16 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 			"sockerless-amplify-job-id":     content.JobID,
 			"sockerless-amplify-bundle-dir": bundleDir,
 		},
-		PublishPorts: map[int]int{amplifyComputePort: hostPort},
+		PublishPorts: []int{amplifyComputePort},
 		Sandbox:      SandboxFargate,
 	}, sim.NoopSink{})
 	if err != nil {
+		_ = os.RemoveAll(bundleDir)
+		return 0, fmt.Errorf("start compute container: %w", err)
+	}
+	hostPort, err := handle.PublishedPort(context.Background(), amplifyComputePort)
+	if err != nil {
+		handle.Cancel()
 		_ = os.RemoveAll(bundleDir)
 		return 0, fmt.Errorf("start compute container: %w", err)
 	}
@@ -333,21 +335,6 @@ func amplifyExtractBundle(files map[string][]byte) (string, error) {
 		}
 	}
 	return dir, nil
-}
-
-func amplifyFreeLoopbackPort() (int, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	addr, ok := ln.Addr().(*net.TCPAddr)
-	if !ok {
-		_ = ln.Close()
-		return 0, fmt.Errorf("unexpected listener address type %T", ln.Addr())
-	}
-	port := addr.Port
-	_ = ln.Close()
-	return port, nil
 }
 
 // amplifyWaitForPort blocks until the compute server answers an HTTP
@@ -455,12 +442,14 @@ func amplifyServeManifestTarget(w http.ResponseWriter, r *http.Request, app Ampl
 // (nothing written) so the caller's fallback target applies; every other
 // response streams through untouched.
 func amplifyProxyToCompute(w http.ResponseWriter, r *http.Request, port int, interceptNotFound bool) (bool, error) {
+	const exchangeTimeout = 30 * time.Second
+	sim.DeclareWait(r.Context(), exchangeTimeout)
 	err := lbplane.Forward(w, r, lbplane.Upstream{
 		Scheme:   "http",
 		Address:  net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
 		Path:     r.URL.EscapedPath(),
 		RawQuery: r.URL.RawQuery,
-		Timeout:  30 * time.Second,
+		Timeout:  exchangeTimeout,
 		Decline: func(status int) bool {
 			return interceptNotFound && status == http.StatusNotFound
 		},

@@ -88,6 +88,9 @@ func TestGCS_EmittedURLsHTTPS(t *testing.T) {
 // 2. PUT partial chunk with Content-Range → 308 Resume Incomplete
 // 3. PUT final chunk → 200 + object metadata
 // 4. GET on the destination returns the concatenated payload
+//
+//	POST /upload/storage/v1/b/{bucket}/o
+//	PUT /upload/storage/v1/b/{bucket}/o
 func TestGCS_ResumableUpload(t *testing.T) {
 	bucket := uniqueName("resumable-bucket")
 	gcsRESTCreate(t, bucket)

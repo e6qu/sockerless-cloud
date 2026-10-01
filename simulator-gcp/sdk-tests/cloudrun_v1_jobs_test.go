@@ -60,7 +60,7 @@ func createCloudRunV2JobLRO(t *testing.T, jobID string) string {
 func TestCloudRunV1_ExecutionAndTaskProjection(t *testing.T) {
 	svc := newRunV1(t)
 	jobID := uniqueName("v1-proj-job")
-	execName := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s")
+	execName := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s").Execution
 	execID := execName[strings.LastIndex(execName, "/")+1:]
 
 	execution, err := svc.Namespaces.Executions.Get(
@@ -142,7 +142,7 @@ func TestCloudRunV1_ExecutionAndTaskNotFound(t *testing.T) {
 func TestCloudRunV1_ExecutionsListPaging(t *testing.T) {
 	svc := newRunV1(t)
 	jobID := uniqueName("v1-paging-job")
-	first := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s")
+	first := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s").Execution
 	require.NotEmpty(t, first)
 	runURL := fmt.Sprintf("%s/v2/projects/%s/locations/us-central1/jobs/%s:run", baseURL, cloudRunV1Namespace, jobID)
 	req, err := http.NewRequestWithContext(ctx, "POST", runURL, strings.NewReader("{}"))

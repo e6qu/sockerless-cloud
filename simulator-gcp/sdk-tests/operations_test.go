@@ -73,6 +73,7 @@ func TestGCP_Operations_List(t *testing.T) {
 	require.NoError(t, err)
 	resp1.Body.Close()
 	require.Equal(t, http.StatusOK, resp1.StatusCode, "memorystore create must succeed")
+	deleteRedisOnCleanup(t, redisService(t), "projects/p1/locations/us-central1/instances/ops-test-redis")
 
 	// Two Cloud Run job creates in two regions: their operations land in two
 	// different project-scoped collections, which is what makes the `name`
@@ -99,35 +100,32 @@ func TestGCP_Operations_List(t *testing.T) {
 	// services use the project-scoped `projects/.../operations/{id}` form;
 	// Bigtable admin legitimately uses the flat `operations/{id}` collection
 	// (AIP-151 allows both), so accept either.
-	allNames := make([]string, 0, len(afterList.Operations))
 	for _, op := range afterList.Operations {
 		name, _ := op["name"].(string)
 		assert.True(t,
 			strings.Contains(name, "/operations/") || strings.HasPrefix(name, "operations/"),
 			"op name must carry an operations collection, got %q", name)
-		allNames = append(allNames, name)
 	}
 
-	// `filter=done:true` selects the operations whose record says done. Every
-	// record the collection holds is a completed one, so the filtered set is
-	// the whole set — and every member of it carries done=true in its body, so
-	// the filter is answering about the field it names rather than echoing the
-	// unfiltered list.
-	doneList := gcpListOperations(t, "?filter=done:true")
-	doneNames := make([]string, 0, len(doneList))
-	for _, op := range doneList {
+	// `filter=done:true` and `filter=done:false` answer about the field they
+	// name: each member's body carries the filtered value, no operation is in
+	// both, and this test's own operations, which have completed, are under
+	// done:true. Other tests' Cloud Run RunJob operations run until their
+	// executions end, so done:false need not be empty.
+	doneNames := map[string]bool{}
+	for _, op := range gcpListOperations(t, "?filter=done:true") {
 		assert.Equal(t, true, op["done"], "an operation under done:true reports done in its body")
 		name, _ := op["name"].(string)
-		doneNames = append(doneNames, name)
+		doneNames[name] = true
 	}
-	assert.ElementsMatch(t, allNames, doneNames,
-		"filter=done:true selects every recorded operation, because every one has completed")
-
-	// `filter=done:false` is the complement, and it is empty for the same
-	// reason: no operation in the collection is still running.
-	pendingList := gcpListOperations(t, "?filter=done:false")
-	assert.Empty(t, pendingList,
-		"filter=done:false is the complement of done:true and shares no member with it")
+	for _, name := range []string{centralJobOp, europeJobOp} {
+		assert.True(t, doneNames[name], "the completed job create %q is under done:true", name)
+	}
+	for _, op := range gcpListOperations(t, "?filter=done:false") {
+		assert.NotEqual(t, true, op["done"], "an operation under done:false reports not done in its body")
+		name, _ := op["name"].(string)
+		assert.False(t, doneNames[name], "%q is under both done:true and done:false", name)
+	}
 
 	// The `name` filter discriminates on the operation's own collection. The
 	// two jobs created above are in two regions, so a prefix naming one

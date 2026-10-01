@@ -2,11 +2,15 @@ package sim
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 )
 
 // Volume snapshots for the managed-database services.
@@ -25,6 +29,15 @@ import (
 // full copy, which is slower and still a complete, real capture. One code
 // path; the filesystem underneath decides the speed; the cloud API above
 // never changes shape either way.
+//
+// A database engine writing to the source while cp walks it would leave a
+// capture that holds each file as of a different moment, which the engine's
+// crash recovery cannot always open. SnapshotVolume therefore freezes every
+// running container that mounts the source writable — the cgroup freezer
+// behind the Docker Engine's pause — for the length of the copy, so the
+// capture is one crash-consistent point in time, the property a block-level
+// storage snapshot gives. A frozen engine keeps its client connections; their
+// I/O waits until the copy ends and the engine thaws.
 //
 // The copy runs in a one-shot helper container with the source mounted
 // read-only, because the volume store belongs to the engine and may not even
@@ -49,6 +62,11 @@ var volumeCopySandbox = SandboxProfile{
 // volume, creating dst. It returns the filesystem the volume store reported,
 // for logging — "btrfs" and "zfs" are the copy-on-write substrates.
 func SnapshotVolume(ctx context.Context, src, dst string) (filesystem string, err error) {
+	thaw, err := freezeVolumeWriters(ctx, src)
+	if err != nil {
+		return "", err
+	}
+	defer func() { err = errors.Join(err, thaw()) }()
 	// `cp --reflink=auto` uses the filesystem's block cloning when it exists
 	// and copies otherwise; `-a` keeps ownership, modes and timestamps, which
 	// database engines check on startup. The trailing `/.` copies dotfiles.
@@ -137,6 +155,106 @@ func VolumeSnapshotIsInstant(filesystem string) bool {
 		return true
 	}
 	return false
+}
+
+// volumeFreezes counts, per container, the captures that hold it frozen, so
+// concurrent captures of one volume pause its writers once and thaw them when
+// the last capture ends.
+var volumeFreezes = struct {
+	sync.Mutex
+	holds map[string]int
+}{holds: map[string]int{}}
+
+// freezeVolumeWriters pauses every running container that mounts volume
+// writable and returns the function that thaws them.
+func freezeVolumeWriters(ctx context.Context, volume string) (thaw func() error, err error) {
+	filters := client.Filters{}
+	filters.Add("volume", volume)
+	listed, err := dockerClient.ContainerList(ctx, client.ContainerListOptions{Filters: filters})
+	if err != nil {
+		return nil, fmt.Errorf("list the writers of volume %s: %w", volume, err)
+	}
+	var frozen []string
+	thaw = func() error {
+		var errs []error
+		for _, id := range frozen {
+			errs = append(errs, releaseVolumeFreeze(id))
+		}
+		return errors.Join(errs...)
+	}
+	for _, summary := range listed.Items {
+		if !mountsVolumeWritable(summary.Mounts, volume) {
+			continue
+		}
+		if err := holdVolumeFreeze(ctx, summary.ID); err != nil {
+			return nil, errors.Join(fmt.Errorf("freeze container %s, a writer of volume %s: %w", summary.ID, volume, err), thaw())
+		}
+		frozen = append(frozen, summary.ID)
+	}
+	return thaw, nil
+}
+
+func mountsVolumeWritable(mounts []container.MountPoint, volume string) bool {
+	for _, mount := range mounts {
+		if mount.Name == volume && mount.RW {
+			return true
+		}
+	}
+	return false
+}
+
+func holdVolumeFreeze(ctx context.Context, containerID string) error {
+	volumeFreezes.Lock()
+	defer volumeFreezes.Unlock()
+	if volumeFreezes.holds[containerID] == 0 {
+		if _, err := dockerClient.ContainerPause(ctx, containerID, client.ContainerPauseOptions{}); err != nil {
+			return err
+		}
+	}
+	volumeFreezes.holds[containerID]++
+	return nil
+}
+
+// releaseVolumeFreeze thaws the container once no capture holds it, on a
+// context of its own: a capture cancelled mid-copy must still thaw its engine.
+func releaseVolumeFreeze(containerID string) error {
+	volumeFreezes.Lock()
+	defer volumeFreezes.Unlock()
+	volumeFreezes.holds[containerID]--
+	if volumeFreezes.holds[containerID] > 0 {
+		return nil
+	}
+	delete(volumeFreezes.holds, containerID)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := dockerClient.ContainerUnpause(ctx, containerID, client.ContainerUnpauseOptions{}); err != nil && !containerNotFoundError(err) {
+		return fmt.Errorf("thaw container %s: %w", containerID, err)
+	}
+	return nil
+}
+
+func thawAbandonedFreeze(containerID string) error {
+	volumeFreezes.Lock()
+	defer volumeFreezes.Unlock()
+	if volumeFreezes.holds[containerID] > 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	inspected, err := dockerClient.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+	if containerNotFoundError(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect container %s: %w", containerID, err)
+	}
+	if inspected.Container.State == nil || !inspected.Container.State.Paused {
+		return nil
+	}
+	if _, err := dockerClient.ContainerUnpause(ctx, containerID, client.ContainerUnpauseOptions{}); err != nil {
+		return fmt.Errorf("thaw container %s: %w", containerID, err)
+	}
+	return nil
 }
 
 // volumeSnapshotSink collects the helper's few output lines, which carry the

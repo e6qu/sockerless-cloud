@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -11,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net/http"
 	"reflect"
@@ -321,9 +323,14 @@ func registerCloudDNS(srv *sim.Server) {
 			}
 		}
 
-		// Drop the Docker network backing the private zone.
-		if zone.DockerNetworkName != "" {
-			_ = sim.RemoveDockerNetwork(zone.DockerNetworkName)
+		// Cloud DNS deletes a zone whatever still resolves through it; the
+		// network behind it goes once its last container has disconnected.
+		if network := zone.DockerNetworkName; network != "" {
+			srv.StartBackground("remove Cloud DNS zone network "+network, func(ctx context.Context) {
+				if err := sim.RemoveDockerNetworkContext(ctx, network); err != nil && ctx.Err() == nil {
+					log.Printf("cloud dns: remove network %s of deleted zone %s: %v", network, zoneName, err)
+				}
+			})
 		}
 
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})

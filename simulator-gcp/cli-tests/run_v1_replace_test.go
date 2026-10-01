@@ -141,15 +141,8 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 		}
 	})
 
-	out := httpDoJSON(t, "POST", jobURL(jobID+":run"), "")
-	var lro struct {
-		Response struct {
-			Name string `json:"name"`
-		} `json:"response"`
-	}
-	parseJSON(t, out, &lro)
-	require.NotEmpty(t, lro.Response.Name)
-	execID := lro.Response.Name[strings.LastIndex(lro.Response.Name, "/")+1:]
+	run := runJob(t, jobID)
+	execID := run.Execution[strings.LastIndex(run.Execution, "/")+1:]
 
 	// The task has to be genuinely in flight when the cancel lands, otherwise
 	// the cancelled count the cancel records would be zero.
@@ -167,7 +160,7 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 	}
 	readExecution := func() v2Execution {
 		var execution v2Execution
-		parseJSON(t, httpDoJSON(t, "GET", baseURL+"/v2/"+lro.Response.Name, ""), &execution)
+		parseJSON(t, httpDoJSON(t, "GET", baseURL+"/v2/"+run.Execution, ""), &execution)
 		return execution
 	}
 	// The container's own line in Cloud Logging is what says it is up.
@@ -182,11 +175,13 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 	runCLI(t, gcloudRegionalRunCLI("run", "jobs", "executions", "cancel", execID,
 		"--region="+location, "--format=value(metadata.name)"))
 
-	var settled v2Execution
-	require.Eventually(t, func() bool {
-		settled = readExecution()
-		return settled.CompletionTime != ""
-	}, 60*time.Second, 250*time.Millisecond, "the cancel the CLI sent must settle the execution")
+	// The RunJob operation completes CANCELLED once the cancelled workload has
+	// stopped and the execution and its task have settled.
+	op := waitRunOperation(t, run.Operation)
+	require.NotNil(t, op.Error, "the cancel the CLI sent must end the RunJob operation")
+	assert.Equal(t, 1, op.Error.Code, "google.rpc.Code.CANCELLED")
+	settled := readExecution()
+	require.NotEmpty(t, settled.CompletionTime, "the cancel the CLI sent must settle the execution")
 
 	// A cancelled execution is not merely finished: the task it stopped is
 	// counted as cancelled, none succeeded or failed on their own, and both
@@ -207,24 +202,20 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 	// execution owned has to be stopped too, or an hour of `sleep 3600` keeps
 	// running behind an execution both API versions call cancelled. The task
 	// settles from the container's exit, with the code its SIGTERM handler
-	// returned; the task resource has no watch, so its status is polled.
+	// returned.
 	var task struct {
 		CompletionTime    string `json:"completionTime"`
 		LastAttemptResult *struct {
 			ExitCode int `json:"exitCode"`
 		} `json:"lastAttemptResult"`
 	}
-	require.Eventually(t, func() bool {
-		var tasks struct {
-			Tasks []json.RawMessage `json:"tasks"`
-		}
-		parseJSON(t, httpDoJSON(t, "GET", baseURL+"/v2/"+lro.Response.Name+"/tasks", ""), &tasks)
-		if len(tasks.Tasks) != 1 {
-			return false
-		}
-		require.NoError(t, json.Unmarshal(tasks.Tasks[0], &task))
-		return task.CompletionTime != ""
-	}, 60*time.Second, 250*time.Millisecond, "the cancelled execution's task never settled")
+	var tasks struct {
+		Tasks []json.RawMessage `json:"tasks"`
+	}
+	parseJSON(t, httpDoJSON(t, "GET", baseURL+"/v2/"+run.Execution+"/tasks", ""), &tasks)
+	require.Len(t, tasks.Tasks, 1)
+	require.NoError(t, json.Unmarshal(tasks.Tasks[0], &task))
+	require.NotEmpty(t, task.CompletionTime, "the cancelled execution's task settled")
 	require.NotNil(t, task.LastAttemptResult)
 	assert.Equal(t, 143, task.LastAttemptResult.ExitCode,
 		"the cancel must stop the workload container through its SIGTERM handler, not just the record")
@@ -240,7 +231,7 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 	assert.Equal(t, 404, resp.StatusCode, "body: %s", v1Body)
 	assert.Contains(t, string(v1Body), "unknown action")
 
-	resp, err = httpDo("POST", baseURL+"/v2/"+lro.Response.Name+":teleport", "{}")
+	resp, err = httpDo("POST", baseURL+"/v2/"+run.Execution+":teleport", "{}")
 	require.NoError(t, err)
 	v2Body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()

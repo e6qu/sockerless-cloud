@@ -1,7 +1,6 @@
 package azure_cli_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -11,11 +10,11 @@ func TestRedisCLI_ARMResources(t *testing.T) {
 	name := "cliredis"
 
 	cacheURL := armURL("Microsoft.Cache", "Redis/"+name, "2024-11-01")
-	out := runCLI(t, azRest("PUT", cacheURL, `{
+	out := azRestLongRunning(t, "PUT", cacheURL, `{
 		"location":"eastus",
 		"properties":{"sku":{"name":"Basic","family":"C","capacity":1},"minimumTlsVersion":"1.2","redisVersion":"6"},
 		"tags":{"env":"cli"}
-	}`))
+	}`)
 	t.Cleanup(func() {
 		_ = azRest("DELETE", cacheURL, "").Run()
 	})
@@ -38,9 +37,7 @@ func TestRedisCLI_ARMResources(t *testing.T) {
 	require.Equal(t, 6380, cache.Properties.SSLPort)
 	require.Equal(t, "cli", cache.Tags["env"])
 
-	out = waitForCLIJSON(t, cacheURL, func(data string) bool {
-		return strings.Contains(data, `"provisioningState": "Succeeded"`)
-	})
+	out = runCLI(t, azRest("GET", cacheURL, ""))
 	parseJSON(t, out, &cache)
 	require.Equal(t, "Succeeded", cache.Properties.ProvisioningState)
 

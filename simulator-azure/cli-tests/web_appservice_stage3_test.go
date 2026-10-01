@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -182,17 +183,20 @@ func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
 	}))
 	msDeployURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/extensions/MSDeploy?api-version=2025-03-01",
 		env.baseURL, subscriptionID, rg, app)
-	runCLI(t, env.command("rest", "--method", "PUT", "--url", msDeployURL,
-		"--body", fmt.Sprintf(`{"properties":{"packageUri":"%s"}}`, pkgURL), "-o", "json"))
-	stage3AwaitCLI(t, func() (string, bool) {
-		var status struct {
-			Properties struct {
-				ProvisioningState string `json:"provisioningState"`
-			} `json:"properties"`
+	azLongRunning(t, func(method, url, body string, extra ...string) *exec.Cmd {
+		args := []string{"rest", "--method", method, "--url", url, "-o", "json"}
+		if body != "" {
+			args = append(args, "--body", body)
 		}
-		parseJSON(t, runCLI(t, env.command("rest", "--method", "GET", "--url", msDeployURL, "-o", "json")), &status)
-		return status.Properties.ProvisioningState, status.Properties.ProvisioningState == "succeeded"
-	}, "MSDeploy provisioningState")
+		return env.command(append(args, extra...)...)
+	}, "PUT", msDeployURL, fmt.Sprintf(`{"properties":{"packageUri":"%s"}}`, pkgURL))
+	var deployStatus struct {
+		Properties struct {
+			ProvisioningState string `json:"provisioningState"`
+		} `json:"properties"`
+	}
+	parseJSON(t, runCLI(t, env.command("rest", "--method", "GET", "--url", msDeployURL, "-o", "json")), &deployStatus)
+	require.Equal(t, "succeeded", deployStatus.Properties.ProvisioningState, "MSDeploy provisioningState")
 
 	var triggered []struct {
 		Name string `json:"name"`

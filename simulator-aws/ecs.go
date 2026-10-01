@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -495,12 +496,24 @@ func stopECSTaskProcesses(p *ecsTaskProcesses) {
 	if p == nil {
 		return
 	}
+	// Amazon ECS signals the containers of a stopping task together, each with
+	// its own stopTimeout, so the task takes as long as its slowest container,
+	// not the sum of them. The pause container holds the network namespace the
+	// others run in; it stops, with no grace, once they have exited.
+	var stopping sync.WaitGroup
 	for name, h := range p.Handles {
-		if h != nil {
-			// The pause container holds the task's network namespace and runs
-			// nothing of the task's; it gets no grace.
-			sim.StopContainer(h.ContainerID, p.StopGrace[name])
+		if h == nil || name == "__pause__" {
+			continue
 		}
+		stopping.Add(1)
+		go func(containerID string, grace time.Duration) {
+			defer stopping.Done()
+			sim.StopContainer(containerID, grace)
+		}(h.ContainerID, p.StopGrace[name])
+	}
+	stopping.Wait()
+	if pause := p.Handles["__pause__"]; pause != nil {
+		sim.StopContainer(pause.ContainerID, 0)
 	}
 }
 
@@ -2242,7 +2255,7 @@ func ecsPauseImage() string {
 // — "conflicting options: dns and the network mode" — and rightly so: the
 // resolver is a property of the namespace, and every task container inherits
 // this one along with the interface.
-func startECSPauseContainer(taskID string, td ECSTaskDefinition, dns []string, sink sim.LogSink) (*sim.ContainerHandle, error) {
+func startECSPauseContainer(taskID string, td ECSTaskDefinition, dns []string, sink sim.LogSink, mark func(step string)) (*sim.ContainerHandle, error) {
 	img := sim.ResolveLocalImage(ecsPauseImage())
 	registryAuth, err := ecrWorkloadRegistryAuth(img)
 	if err != nil {
@@ -2252,6 +2265,7 @@ func startECSPauseContainer(taskID string, td ECSTaskDefinition, dns []string, s
 	if err != nil {
 		return nil, fmt.Errorf("resolve pause image platform: %w", err)
 	}
+	mark("pause-image")
 	return sim.StartContainerSync(sim.ContainerConfig{
 		Image:        img,
 		Architecture: platform,
@@ -2458,7 +2472,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 	// so the next slow start is attributable from the simulator's log.
 	phases.Mark("volumes")
 	if netnsTier {
-		pause, perr := startECSPauseContainer(taskID, td, taskDNS, sink)
+		pause, perr := startECSPauseContainer(taskID, td, taskDNS, sink, phases.Mark)
 		if perr != nil {
 			return nil, perr
 		}
@@ -2620,10 +2634,9 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 		// container listener. The public Amazon ECS/ENI coordinate remains the
 		// task IP; the mapping is rediscovered from Docker on restart.
 		if networkMode == ecsNetworkModeAwsvpc && !netnsTier {
-			cfg.PublishPorts = make(map[int]int)
 			for _, mapping := range cd.PortMappings {
-				if mapping.ContainerPort > 0 {
-					cfg.PublishPorts[mapping.ContainerPort] = 0
+				if mapping.ContainerPort > 0 && !slices.Contains(cfg.PublishPorts, mapping.ContainerPort) {
+					cfg.PublishPorts = append(cfg.PublishPorts, mapping.ContainerPort)
 				}
 			}
 		}

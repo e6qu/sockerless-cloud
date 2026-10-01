@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
+
 	functions "cloud.google.com/go/functions/apiv2"
 	"cloud.google.com/go/functions/apiv2/functionspb"
 	run "cloud.google.com/go/run/apiv2"
@@ -45,19 +47,17 @@ func startQuotaIsolatedSim(t *testing.T, budget float64) string {
 		"SIM_GCP_CPU_QUOTA_WINDOW=1m",
 	)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	require.NoError(t, cmd.Start())
+	startErr := simready.Start(cmd, os.Stderr)
 	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
 	})
-
-	url := fmt.Sprintf("http://127.0.0.1:%d", port)
-	if err := waitForHealth(url + "/health"); err != nil {
-		_ = cmd.Process.Kill()
-		log.Fatalf("isolated sim did not become healthy: %v", err)
+	if startErr != nil {
+		log.Fatalf("isolated sim did not start listening: %v", startErr)
 	}
-	return url
+	return fmt.Sprintf("http://127.0.0.1:%d", port)
 }
 
 // TestSDK_RegionalCPUQuota_RejectsCloudRunDeployOverBudget exercises

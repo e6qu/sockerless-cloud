@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -148,16 +150,25 @@ func TestSDK_CloudRun_RunJob(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// The operation carries the execution from the start and completes only
+	// when it finishes, with the settled Execution as its response.
+	started, err := runOp.Metadata()
+	require.NoError(t, err)
+	require.NotNil(t, started)
+	assert.Contains(t, started.Name, jobID)
+	assert.Equal(t, jobID, started.Job)
+
 	exec, err := runOp.Wait(ctx)
 	require.NoError(t, err)
-
-	assert.Contains(t, exec.Name, jobID)
-	assert.NotEmpty(t, exec.Name)
+	assert.True(t, runOp.Done())
+	assert.Equal(t, started.Name, exec.Name)
+	assert.Equal(t, int32(1), exec.SucceededCount)
+	assert.Equal(t, int32(0), exec.RunningCount)
+	assert.NotNil(t, exec.CompletionTime)
 }
 
 func TestSDK_CloudRun_RunJob_MultiContainerSharesLocalhost(t *testing.T) {
 	jobsClient := newJobsClient(t)
-	execClient := newExecutionsClient(t)
 	jobID := uniqueName("sdk-run-job-sidecar")
 
 	createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{
@@ -191,10 +202,8 @@ func TestSDK_CloudRun_RunJob_MultiContainerSharesLocalhost(t *testing.T) {
 		Name: "projects/test-project/locations/us-central1/jobs/" + jobID,
 	})
 	require.NoError(t, err)
-	exec, err := runOp.Wait(ctx)
+	settled, err := runOp.Wait(ctx)
 	require.NoError(t, err)
-
-	settled := waitExecutionSettled(t, execClient, exec.Name)
 	require.Equal(t, int32(0), settled.GetRunningCount())
 	require.Equal(t, int32(1), settled.GetSucceededCount(),
 		"the multi-container task must succeed, not merely stop running")
@@ -244,41 +253,16 @@ func TestSDK_CloudRun_GetExecution(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// The operation completes when the execution finishes.
 	exec, err := runOp.Wait(ctx)
 	require.NoError(t, err)
 
-	// runOp.Wait returns when the execution STARTS; poll GetExecution until it
-	// completes (CompletionTime set) — a fixed sleep races a loaded runner.
-	gotExec := waitExecutionSettled(t, execClient, exec.Name)
-
+	gotExec, err := execClient.GetExecution(ctx, &runpb.GetExecutionRequest{Name: exec.Name})
+	require.NoError(t, err)
 	assert.Equal(t, exec.Name, gotExec.Name)
 	assert.Equal(t, int32(1), gotExec.SucceededCount)
 	assert.Equal(t, int32(0), gotExec.RunningCount)
 	assert.NotNil(t, gotExec.CompletionTime)
-}
-
-// waitExecutionSettled polls an execution through the Cloud Run SDK until it
-// reports a completion time, and returns it. The poll runs on the calling
-// goroutine, so a failed read fails the test with the SDK's own error instead
-// of being retried until the deadline expires.
-func waitExecutionSettled(t *testing.T, client *run.ExecutionsClient, name string) *runpb.Execution {
-	t.Helper()
-	// Generous deadline so a slow real container start on a loaded CI runner
-	// doesn't expire before the execution completes.
-	deadline := time.Now().Add(60 * time.Second)
-	for {
-		exec, err := client.GetExecution(ctx, &runpb.GetExecutionRequest{Name: name})
-		require.NoError(t, err, "get execution %q", name)
-		if exec.GetCompletionTime() != nil {
-			return exec
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("execution %q did not complete within 60s: running=%d succeeded=%d failed=%d cancelled=%d",
-				name, exec.GetRunningCount(), exec.GetSucceededCount(),
-				exec.GetFailedCount(), exec.GetCancelledCount())
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
 }
 
 func TestSDK_CloudRun_CancelExecution(t *testing.T) {
@@ -314,8 +298,11 @@ func TestSDK_CloudRun_CancelExecution(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	exec, err := runOp.Wait(ctx)
+	// The execution is running, so the RunJob operation is too; its Execution
+	// metadata names the execution to cancel.
+	exec, err := runOp.Metadata()
 	require.NoError(t, err)
+	require.NotNil(t, exec)
 
 	// Cancel while that container is demonstrably running.
 	waitForJobLogMessage(t, jobID, marker)
@@ -337,6 +324,11 @@ func TestSDK_CloudRun_CancelExecution(t *testing.T) {
 	assert.Equal(t, int32(0), cancelledExec.SucceededCount)
 	assert.Equal(t, int32(0), cancelledExec.FailedCount)
 	assert.NotNil(t, cancelledExec.CompletionTime)
+
+	// The RunJob operation ends CANCELLED once the workload has stopped.
+	_, err = runOp.Wait(ctx)
+	require.Error(t, err)
+	assert.Equal(t, codes.Canceled, status.Code(err), "RunJob operation error: %v", err)
 }
 
 func TestSDK_CloudRun_DeleteJob(t *testing.T) {

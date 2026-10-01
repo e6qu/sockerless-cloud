@@ -22,6 +22,8 @@ import (
 	redis "google.golang.org/api/redis/v1"
 	serviceusage "google.golang.org/api/serviceusage/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // google.longrunning.Operations.CancelOperation across the Google Cloud
@@ -152,6 +154,7 @@ func TestSDK_MemorystoreRedis_OperationsCancel(t *testing.T) {
 	}).InstanceId("cancel-probe-redis").Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, op.Name)
+	deleteRedisOnCleanup(t, svc, parent+"/instances/cancel-probe-redis")
 
 	_, err = svc.Projects.Locations.Operations.Cancel(op.Name).Do()
 	require.NoError(t, err)
@@ -335,15 +338,15 @@ func TestSDK_CloudSQL_OperationsCancel(t *testing.T) {
 // processes, so a build step is a live build on the Docker daemon and
 // cancelling has to abort it.
 //
-// The step here is a `docker build` whose Dockerfile sleeps for an hour — 120
-// times the deadline this test allows the cancelled create call to return
-// within. The build is left running long enough to be unambiguously inside
-// that sleep before the cancel is issued, so the cancel cannot be racing a
-// step that never started; and the create call is required to come back
-// CANCELLED, with its operation reporting google.rpc.Code.CANCELLED and no
-// image produced. A cancel that only relabels the record leaves the create
-// call blocked for the hour and the test fails on its deadline — which is what
-// deleting the terminating call in cancelCloudBuild produces.
+// The step here is a `docker build` whose Dockerfile sleeps for an hour. The
+// build is left running long enough to be unambiguously inside that sleep
+// before the cancel is issued, so the cancel cannot be racing a step that never
+// started; and the build's operation is required to complete with
+// google.rpc.Code.CANCELLED, with no image produced. The operation completes
+// once the build's steps have stopped, so a cancel that only relabels the
+// record leaves the wait blocked for the hour and the test fails on its
+// deadline — which is what deleting the terminating call in cancelCloudBuild
+// produces.
 func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 	svc := cloudbuildService(t)
 
@@ -368,27 +371,15 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 		}},
 	}
 
-	type createResult struct {
-		op  *cloudbuild.Operation
-		err error
-	}
-	// The project is shared with the other builds in this file, so record which
-	// builds already exist: the one this test cancels has to be the one this
-	// test started.
-	preexisting := buildIDs(t, svc)
+	// CreateBuild answers at once with the operation tracking the build, whose
+	// BuildOperationMetadata names the build this test cancels.
+	op, err := svc.Projects.Builds.Create(cancelProject, build).Do()
+	require.NoError(t, err)
+	require.False(t, op.Done, "the operation comes back before the build runs")
+	id := buildIDFromOperationName(t, op.Name)
 
-	done := make(chan createResult, 1)
-	go func() {
-		op, err := svc.Projects.Builds.Create(cancelProject, build).Do()
-		done <- createResult{op, err}
-	}()
-
-	// The build record is written before its steps run and moves to WORKING
-	// when they start, so the client can see the build go live.
-	id := awaitBuildStatus(t, svc, preexisting, "WORKING", 120*time.Second)
-	// WORKING is recorded before the source is even fetched, so it alone does
-	// not mean a step is executing. The step's own status is what says the RUN
-	// is under way, and it is what makes the cancel below cancel work that is
+	// The build has no event that says a step started, so the step's status is
+	// read until it does. It is what makes the cancel below cancel work that is
 	// genuinely in flight rather than race a step that has not begun.
 	require.Eventually(t, func() bool {
 		build, err := svc.Projects.Builds.Get(cancelProject, id).Do()
@@ -401,22 +392,12 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "CANCELLED", cancelled.Status)
 
-	select {
-	case res := <-done:
-		require.NoError(t, res.err)
-		require.NotNil(t, res.op)
-		// The operation the create returned is the operation of the build this
-		// test cancelled — the two identify the same build, so the cancel above
-		// cannot have hit a build some other test left running.
-		require.Equal(t, id, buildIDFromOperationName(t, res.op.Name),
-			"the cancelled build is the build this test started")
-		require.True(t, res.op.Done)
-		require.NotNil(t, res.op.Error, "a cancelled build's operation carries an error")
-		assert.EqualValues(t, 1, res.op.Error.Code,
-			"a cancelled operation reports google.rpc.Code.CANCELLED")
-	case <-time.After(30 * time.Second):
-		t.Fatal("the create call never returned: the cancel did not stop the running build step")
-	}
+	// The build's operation completes with the cancellation, through the Cloud
+	// Build SDK's own wait on it.
+	_, err = waitBuild(t, startedBuild{Operation: op.Name, BuildID: id})
+	require.Error(t, err, "a cancelled build's operation carries an error")
+	assert.Equal(t, codes.Canceled, status.Code(err),
+		"a cancelled operation reports google.rpc.Code.CANCELLED: %v", err)
 
 	got, err := svc.Projects.Builds.Get(cancelProject, id).Do()
 	require.NoError(t, err)
@@ -492,44 +473,6 @@ func TestSDK_CloudBuild_RegionalOperationsCancel(t *testing.T) {
 	assert.Contains(t, err.Error(), "404")
 }
 
-// buildIDs returns the ids of every build the project currently holds. Taken
-// before a create, it is the set awaitBuildStatus must ignore so a build another
-// test left behind can never be mistaken for this one's.
-func buildIDs(t *testing.T, svc *cloudbuild.Service) map[string]bool {
-	t.Helper()
-	list, err := svc.Projects.Builds.List(cancelProject).Do()
-	require.NoError(t, err)
-	ids := make(map[string]bool, len(list.Builds))
-	for _, b := range list.Builds {
-		ids[b.Id] = true
-	}
-	return ids
-}
-
-// awaitBuildStatus waits for a build outside `ignore` to reach a status and
-// returns its id. The project is shared with the other builds in this file, so
-// the caller snapshots the ids that already exist and this only ever reports a
-// build the caller's own create started.
-func awaitBuildStatus(t *testing.T, svc *cloudbuild.Service, ignore map[string]bool, status string, within time.Duration) string {
-	t.Helper()
-	deadline := time.Now().Add(within)
-	for time.Now().Before(deadline) {
-		list, err := svc.Projects.Builds.List(cancelProject).Do()
-		require.NoError(t, err)
-		for _, b := range list.Builds {
-			if ignore[b.Id] {
-				continue
-			}
-			if b.Status == status {
-				return b.Id
-			}
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	t.Fatalf("no new build reached %s", status)
-	return ""
-}
-
 // buildIDFromOperationName extracts the build id from a Cloud Build build
 // operation's name, which is `operations/build/{project}/{id}`.
 func buildIDFromOperationName(t *testing.T, name string) string {
@@ -570,8 +513,10 @@ func TestSDK_CloudBuild_OperationsCancel(t *testing.T) {
 		}},
 	}).Do()
 	require.NoError(t, err)
-	require.True(t, op.Done)
+	require.False(t, op.Done, "the operation comes back before the build runs")
 
+	_, err = waitBuild(t, startedBuild{Operation: op.Name, BuildID: buildIDFromOperationName(t, op.Name)})
+	require.NoError(t, err)
 	settled, err := svc.Operations.Get(op.Name).Do()
 	require.NoError(t, err)
 	require.True(t, settled.Done)

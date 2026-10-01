@@ -82,12 +82,14 @@ func handleGCPComputeLoadBalancerDataPlane(w http.ResponseWriter, r *http.Reques
 	}
 	// The load balancer sends the client's own Host header, and does not
 	// validate the certificate an HTTPS backend presents.
+	timeout := time.Duration(gcpDefaultBackendTimeout(bs.TimeoutSec)) * time.Second
+	sim.DeclareWait(r.Context(), timeout)
 	err := lbplane.Forward(w, r, lbplane.Upstream{
 		Scheme:                 scheme,
 		Address:                target.Address,
 		Path:                   r.URL.EscapedPath(),
 		RawQuery:               r.URL.RawQuery,
-		Timeout:                time.Duration(gcpDefaultBackendTimeout(bs.TimeoutSec)) * time.Second,
+		Timeout:                timeout,
 		SkipTargetVerification: true,
 	})
 	switch {

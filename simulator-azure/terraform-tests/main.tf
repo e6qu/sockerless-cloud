@@ -116,6 +116,30 @@ resource "azurerm_container_registry" "az_acr" {
   admin_enabled       = true
 }
 
+# An Azure Container Registry Tasks task whose step is an inline task file,
+# and a run of it: azurerm_container_registry_task_schedule_run_now schedules a
+# TaskRunRequest and completes only once Runs_Get reports the run Succeeded.
+resource "azurerm_container_registry_task" "az_acr_task" {
+  name                  = "tfazrmtask"
+  container_registry_id = azurerm_container_registry.az_acr.id
+
+  platform {
+    os = "Linux"
+  }
+
+  encoded_step {
+    task_content = <<-EOT
+      version: v1.1.0
+      steps:
+        - cmd: public.ecr.aws/docker/library/alpine:3.20 echo run-now from $RegistryName
+    EOT
+  }
+}
+
+resource "azurerm_container_registry_task_schedule_run_now" "az_acr_task_run" {
+  container_registry_task_id = azurerm_container_registry_task.az_acr_task.id
+}
+
 resource "azurerm_redis_cache" "az_redis" {
   name                = "tfazrmredis"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -1291,6 +1315,14 @@ output "azrm_acr_admin_username" {
 output "azrm_acr_admin_password" {
   value     = azurerm_container_registry.az_acr.admin_password
   sensitive = true
+}
+
+output "azrm_acr_task_id" {
+  value = azurerm_container_registry_task.az_acr_task.id
+}
+
+output "azrm_acr_task_run_now_id" {
+  value = azurerm_container_registry_task_schedule_run_now.az_acr_task_run.id
 }
 
 output "azrm_redis_cache_hostname" {

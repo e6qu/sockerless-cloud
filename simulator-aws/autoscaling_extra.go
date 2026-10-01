@@ -43,18 +43,6 @@ type ASNotificationConfig struct {
 	TopicARN         string
 }
 
-// ASInstanceRefresh records an instance-refresh request. The sim settles a
-// refresh Successful synchronously (single-machine, no rolling delay).
-type ASInstanceRefresh struct {
-	InstanceRefreshId    string
-	AutoScalingGroupName string
-	Status               string
-	StartTime            string
-	EndTime              string
-	StatusReason         string
-	Rollbackable         bool
-}
-
 // ASLifecycleAction tracks a pending lifecycle action created when an instance
 // enters a Pending:Wait / Terminating:Wait transition gated by a lifecycle
 // hook. CompleteLifecycleAction / RecordLifecycleActionHeartbeat advance it.
@@ -82,6 +70,7 @@ func registerAutoScalingExtra(r *AWSQueryRouter, srv *sim.Server) {
 	asInstanceRefreshes = sim.MakeStore[ASInstanceRefresh](srv.DB(), "autoscaling_instance_refreshes")
 	asLifecycleActions = sim.MakeStore[ASLifecycleAction](srv.DB(), "autoscaling_lifecycle_actions")
 	asResumeLifecycleWaits()
+	asResumeInstanceRefreshes()
 
 	reg := func(action string, h http.HandlerFunc) {
 		r.RegisterVersioned("2011-01-01", action, h)
@@ -279,6 +268,7 @@ func handleASXExitStandby(w http.ResponseWriter, r *http.Request) {
 	}
 	asGroupExtras.Put(group, ex)
 	autoScalingGroups.Put(group, asg)
+	asRefreshKick(group)
 	asResponse(w, "ExitStandby", asxActivitiesXML(acts))
 }
 
@@ -304,6 +294,7 @@ func handleASXSetInstanceProtection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	asGroupExtras.Put(group, ex)
+	asRefreshKick(group)
 	asEmptyResponse(w, "SetInstanceProtection")
 }
 
@@ -481,119 +472,6 @@ func asxParseTrafficSources(r *http.Request) []ASTrafficSource {
 		})
 	}
 	return out
-}
-
-func handleASXStartInstanceRefresh(w http.ResponseWriter, r *http.Request) {
-	group := r.FormValue("AutoScalingGroupName")
-	if _, ok := asxRequireGroup(w, group); !ok {
-		return
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	ref := ASInstanceRefresh{
-		InstanceRefreshId:    sim.NewUUID(),
-		AutoScalingGroupName: group,
-		Status:               "Successful",
-		StartTime:            now,
-		EndTime:              now,
-		StatusReason:         "Instance refresh has completed successfully.",
-		Rollbackable:         true,
-	}
-	asInstanceRefreshes.Put(ref.InstanceRefreshId, ref)
-	asResponse(w, "StartInstanceRefresh", fmt.Sprintf("<InstanceRefreshId>%s</InstanceRefreshId>", xmlEscape(ref.InstanceRefreshId)))
-}
-
-func handleASXCancelInstanceRefresh(w http.ResponseWriter, r *http.Request) {
-	group := r.FormValue("AutoScalingGroupName")
-	if _, ok := asxRequireGroup(w, group); !ok {
-		return
-	}
-	// CancelInstanceRefresh only acts on an in-progress (Pending/InProgress)
-	// refresh. The sim settles every refresh Successful synchronously, so no
-	// in-progress refresh ever exists to cancel — matching the real API, which
-	// raises ActiveInstanceRefreshNotFound when there is none.
-	var active *ASInstanceRefresh
-	for _, ref := range asInstanceRefreshes.List() {
-		if ref.AutoScalingGroupName != group {
-			continue
-		}
-		if ref.Status == "Pending" || ref.Status == "InProgress" {
-			c := ref
-			active = &c
-			break
-		}
-	}
-	if active == nil {
-		asError(w, "ActiveInstanceRefreshNotFound", fmt.Sprintf("No in-progress instance refresh found for Auto Scaling group %s.", group), http.StatusBadRequest)
-		return
-	}
-	active.Status = "Cancelling"
-	asInstanceRefreshes.Put(active.InstanceRefreshId, *active)
-	asResponse(w, "CancelInstanceRefresh", fmt.Sprintf("<InstanceRefreshId>%s</InstanceRefreshId>", xmlEscape(active.InstanceRefreshId)))
-}
-
-func handleASXRollbackInstanceRefresh(w http.ResponseWriter, r *http.Request) {
-	group := r.FormValue("AutoScalingGroupName")
-	if _, ok := asxRequireGroup(w, group); !ok {
-		return
-	}
-	latest := asxLatestRefresh(group)
-	if latest == nil || !latest.Rollbackable {
-		asError(w, "IrreversibleInstanceRefresh", fmt.Sprintf("No rollbackable instance refresh found for Auto Scaling group %s.", group), http.StatusBadRequest)
-		return
-	}
-	latest.Status = "RollbackSuccessful"
-	latest.EndTime = time.Now().UTC().Format(time.RFC3339)
-	latest.StatusReason = "Instance refresh rollback completed successfully."
-	asInstanceRefreshes.Put(latest.InstanceRefreshId, *latest)
-	asResponse(w, "RollbackInstanceRefresh", fmt.Sprintf("<InstanceRefreshId>%s</InstanceRefreshId>", xmlEscape(latest.InstanceRefreshId)))
-}
-
-func handleASXDescribeInstanceRefreshes(w http.ResponseWriter, r *http.Request) {
-	group := r.FormValue("AutoScalingGroupName")
-	if _, ok := asxRequireGroup(w, group); !ok {
-		return
-	}
-	wantIDs := autoscalingParamList(r, "InstanceRefreshIds.member")
-	refs := make([]ASInstanceRefresh, 0)
-	for _, ref := range asInstanceRefreshes.List() {
-		if ref.AutoScalingGroupName != group {
-			continue
-		}
-		if len(wantIDs) > 0 && !containsString(wantIDs, ref.InstanceRefreshId) {
-			continue
-		}
-		refs = append(refs, ref)
-	}
-	// Sorted by creation timestamp descending, matching the real API contract.
-	sort.Slice(refs, func(i, j int) bool { return refs[i].StartTime > refs[j].StartTime })
-	page, next, pageOK := awsPage(w, asBadToken, refs, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
-	if !pageOK {
-		return
-	}
-	var items strings.Builder
-	for _, ref := range page {
-		fmt.Fprintf(&items, "<member><InstanceRefreshId>%s</InstanceRefreshId><AutoScalingGroupName>%s</AutoScalingGroupName><Status>%s</Status><StatusReason>%s</StatusReason><StartTime>%s</StartTime><EndTime>%s</EndTime><PercentageComplete>100</PercentageComplete><InstancesToUpdate>0</InstancesToUpdate></member>",
-			xmlEscape(ref.InstanceRefreshId), xmlEscape(ref.AutoScalingGroupName), xmlEscape(ref.Status), xmlEscape(ref.StatusReason), ref.StartTime, ref.EndTime)
-	}
-	body := fmt.Sprintf("<InstanceRefreshes>%s</InstanceRefreshes>", items.String())
-	if next != "" {
-		body += "<NextToken>" + xmlEscape(next) + "</NextToken>"
-	}
-	asResponse(w, "DescribeInstanceRefreshes", body)
-}
-
-func asxLatestRefresh(group string) *ASInstanceRefresh {
-	var latest *ASInstanceRefresh
-	for _, ref := range asInstanceRefreshes.List() {
-		if ref.AutoScalingGroupName != group {
-			continue
-		}
-		if latest == nil || ref.StartTime > latest.StartTime {
-			c := ref
-			latest = &c
-		}
-	}
-	return latest
 }
 
 func handleASXPutWarmPool(w http.ResponseWriter, r *http.Request) {

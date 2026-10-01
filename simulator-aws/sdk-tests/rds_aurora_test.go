@@ -13,6 +13,7 @@ import (
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -78,7 +79,9 @@ func TestRDS_AuroraMemberLifecycleFollowsTheCluster(t *testing.T) {
 
 // An Aurora cluster's writer, reader and instance endpoints serve the one
 // cluster volume: a row the writer endpoint commits reads back through the
-// reader endpoint and through each instance's own endpoint.
+// reader endpoint and through each instance's own endpoint. The writer's
+// endpoints write; the reader endpoint and the Aurora Replica's instance
+// endpoint refuse a write with the engine's read-only transaction error.
 func TestRDS_AuroraEndpointsShareTheClusterVolume(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -150,6 +153,19 @@ func TestRDS_AuroraEndpointsShareTheClusterVolume(t *testing.T) {
 			require.NoError(t, connect(endpoint).QueryRow(testContext, `SELECT value FROM shared_volume WHERE id = 1`).Scan(&value))
 			assert.Equal(t, "written-through-the-cluster-endpoint", value, endpoint)
 		}
+
+		_, err = connect(endpoints[2]).Exec(testContext, `INSERT INTO shared_volume (id, value) VALUES (2, 'written-through-the-writer-instance')`)
+		require.NoError(t, err)
+		for _, endpoint := range []string{endpoints[1], endpoints[3]} {
+			_, err := connect(endpoint).Exec(testContext, `INSERT INTO shared_volume (id, value) VALUES (3, 'written-through-a-replica')`)
+			var refusal *pgconn.PgError
+			require.ErrorAs(t, err, &refusal, endpoint)
+			assert.Equal(t, "25006", refusal.Code, endpoint)
+			assert.Equal(t, "cannot execute INSERT in a read-only transaction", refusal.Message, endpoint)
+		}
+		var rows int
+		require.NoError(t, writer.QueryRow(testContext, `SELECT count(*) FROM shared_volume`).Scan(&rows))
+		assert.Equal(t, 2, rows)
 	})
 
 	t.Run("Aurora MySQL", func(t *testing.T) {
@@ -174,5 +190,19 @@ func TestRDS_AuroraEndpointsShareTheClusterVolume(t *testing.T) {
 			require.NoError(t, connect(endpoint).QueryRowContext(testContext, `SELECT value FROM shared_volume WHERE id = 1`).Scan(&value))
 			assert.Equal(t, "written-through-the-cluster-endpoint", value, endpoint)
 		}
+
+		_, err = connect(endpoints[2]).ExecContext(testContext, `INSERT INTO shared_volume (id, value) VALUES (2, 'written-through-the-writer-instance')`)
+		require.NoError(t, err)
+		for _, endpoint := range []string{endpoints[1], endpoints[3]} {
+			_, err := connect(endpoint).ExecContext(testContext, `INSERT INTO shared_volume (id, value) VALUES (3, 'written-through-a-replica')`)
+			var refusal *mysql.MySQLError
+			require.ErrorAs(t, err, &refusal, endpoint)
+			assert.Equal(t, uint16(1792), refusal.Number, endpoint)
+			assert.Equal(t, "25006", string(refusal.SQLState[:]), endpoint)
+			assert.Equal(t, "Cannot execute statement in a READ ONLY transaction.", refusal.Message, endpoint)
+		}
+		var rows int
+		require.NoError(t, writer.QueryRowContext(testContext, `SELECT count(*) FROM shared_volume`).Scan(&rows))
+		assert.Equal(t, 2, rows)
 	})
 }

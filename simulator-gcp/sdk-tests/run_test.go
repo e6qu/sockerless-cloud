@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Cloud Run Jobs v2 uses REST API.
@@ -204,8 +206,8 @@ func TestCloudRun_RunJobInjectsLogEntries(t *testing.T) {
 	assert.Equal(t, "Execution completed successfully", messages[1])
 }
 
-// createAndRunJob creates a job and runs it, returning the execution name from the LRO response.
-func createAndRunJob(t *testing.T, jobID string) string {
+// createAndRunJob creates a job and runs it, returning what the run started.
+func createAndRunJob(t *testing.T, jobID string) jobRun {
 	t.Helper()
 	job := map[string]any{
 		"template": map[string]any{
@@ -235,19 +237,46 @@ func createAndRunJob(t *testing.T, jobID string) string {
 	require.NoError(t, err)
 	defer runResp.Body.Close()
 	require.Equal(t, http.StatusOK, runResp.StatusCode)
-
-	var lro map[string]any
-	data, _ := io.ReadAll(runResp.Body)
-	require.NoError(t, json.Unmarshal(data, &lro))
-	response := lro["response"].(map[string]any)
-	return response["name"].(string)
+	return readJobRun(t, runResp.Body)
 }
 
-// waitExecutionDone polls getExecution until the execution completes
-// (completionTime set) and returns it. The sim runs the job asynchronously
-// (container start + completion), so a fixed sleep races a loaded CI runner.
-// The poll runs on the calling goroutine so a failing fetch fails the test with
-// its own error rather than being retried until the deadline expires.
+// jobRun names what a RunJob call started: the operation, which completes when
+// the execution finishes, and the execution, which the operation's Execution
+// metadata names from the start.
+type jobRun struct {
+	Operation string
+	Execution string
+}
+
+func readJobRun(t *testing.T, body io.Reader) jobRun {
+	t.Helper()
+	var lro struct {
+		Name     string `json:"name"`
+		Metadata struct {
+			Type string `json:"@type"`
+			Name string `json:"name"`
+		} `json:"metadata"`
+	}
+	data, err := io.ReadAll(body)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &lro), "RunJob response: %s", data)
+	require.Equal(t, "type.googleapis.com/google.cloud.run.v2.Execution", lro.Metadata.Type,
+		"RunJob reports the Execution as its operation metadata: %s", data)
+	require.NotEmpty(t, lro.Name, "RunJob response: %s", data)
+	require.NotEmpty(t, lro.Metadata.Name, "RunJob response: %s", data)
+	return jobRun{Operation: lro.Name, Execution: lro.Metadata.Name}
+}
+
+// waitJobRun waits on the RunJob operation through the Cloud Run SDK, which
+// completes it when the execution finishes, and returns the settled execution
+// together with the operation's outcome: nil for an execution whose tasks all
+// succeeded, the operation's error otherwise.
+func waitJobRun(t *testing.T, run jobRun) (map[string]any, error) {
+	t.Helper()
+	_, err := newJobsClient(t).RunJobOperation(run.Operation).Wait(ctx)
+	return getExecution(t, run.Execution), err
+}
+
 // awaitExecutionRunning returns the first snapshot in which the execution has
 // a task running. An execution that settles without ever reporting one is the
 // failure — the running state is what the caller is here to observe, and a
@@ -268,21 +297,6 @@ func awaitExecutionRunning(t *testing.T, execName string) map[string]any {
 			t.Fatalf("execution %q never reported a running task within 60s: %v", execName, exec)
 		}
 		time.Sleep(100 * time.Millisecond)
-	}
-}
-
-func waitExecutionDone(t *testing.T, execName string) map[string]any {
-	t.Helper()
-	deadline := time.Now().Add(60 * time.Second)
-	for {
-		exec := getExecution(t, execName)
-		if ct, _ := exec["completionTime"].(string); ct != "" {
-			return exec
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("execution %q did not complete within 60s: %v", execName, exec)
-		}
-		time.Sleep(200 * time.Millisecond)
 	}
 }
 
@@ -315,11 +329,11 @@ func TestCloudRun_ExecutionRunningState(t *testing.T) {
 	// that has already settled. Widening the hold only moves the number.
 	// Watching cannot lose it — the running state either occurs, and the poll
 	// sees it, or it never occurs, which is the defect this test is for.
-	execName := createAndRunJobWithImageAndCommand(t, jobID, commandImageName,
+	run := createAndRunJobWithImageAndCommand(t, jobID, commandImageName,
 		[]string{"log", marker, "30"}, "120s")
 	waitForJobLogMessage(t, jobID, marker)
 
-	exec := awaitExecutionRunning(t, execName)
+	exec := awaitExecutionRunning(t, run.Execution)
 	assert.Equal(t, float64(1), exec["runningCount"])
 	assert.Equal(t, float64(0), exec["succeededCount"])
 	assert.Equal(t, float64(0), exec["failedCount"])
@@ -327,7 +341,8 @@ func TestCloudRun_ExecutionRunningState(t *testing.T) {
 
 	// The running task was a real container: once it exits, the execution
 	// settles from its exit status as one succeeded task.
-	done := waitExecutionDone(t, execName)
+	done, err := waitJobRun(t, run)
+	require.NoError(t, err)
 	assert.Equal(t, float64(0), done["runningCount"])
 	assert.Equal(t, float64(1), done["succeededCount"])
 	assert.Equal(t, float64(0), done["failedCount"])
@@ -335,9 +350,10 @@ func TestCloudRun_ExecutionRunningState(t *testing.T) {
 }
 
 func TestCloudRun_ExecutionSucceededState(t *testing.T) {
-	execName := createAndRunJob(t, uniqueName("status-succeeded-job"))
+	run := createAndRunJob(t, uniqueName("status-succeeded-job"))
 
-	exec := waitExecutionDone(t, execName)
+	exec, err := waitJobRun(t, run)
+	require.NoError(t, err)
 	assert.Equal(t, float64(0), exec["runningCount"])
 	assert.Equal(t, float64(1), exec["succeededCount"])
 	assert.Equal(t, float64(0), exec["failedCount"])
@@ -352,8 +368,9 @@ func TestCloudRun_ExecutionCancelledState(t *testing.T) {
 	// cancelled. Cancelling a workload that had already exited would settle
 	// the execution from its exit status instead, leaving the cancelled count
 	// at zero and the assertions below unprovable.
-	execName := createAndRunJobWithImageAndCommand(t, jobID, commandImageName,
+	run := createAndRunJobWithImageAndCommand(t, jobID, commandImageName,
 		[]string{"log", marker, "60"}, "60s")
+	execName := run.Execution
 	waitForJobLogMessage(t, jobID, marker)
 
 	running := getExecution(t, execName)
@@ -375,18 +392,23 @@ func TestCloudRun_ExecutionCancelledState(t *testing.T) {
 	assert.Equal(t, float64(0), exec["succeededCount"])
 	assert.Equal(t, float64(0), exec["failedCount"])
 	assert.NotEmpty(t, exec["completionTime"])
+
+	// The RunJob operation ends with the cancellation once the workload stops.
+	_, err = waitJobRun(t, run)
+	require.Error(t, err)
+	assert.Equal(t, codes.Canceled, status.Code(err), "RunJob operation error: %v", err)
 }
 
-func createAndRunJobWithCommand(t *testing.T, jobID string, cmd []string, timeout string) string {
+func createAndRunJobWithCommand(t *testing.T, jobID string, cmd []string, timeout string) jobRun {
 	return createAndRunJobWithImageAndCommand(t, jobID, "alpine:latest", cmd, timeout)
 }
 
-func createAndRunJobWithImageAndCommand(t *testing.T, jobID string, image string, cmd []string, timeout string) string {
+func createAndRunJobWithImageAndCommand(t *testing.T, jobID string, image string, cmd []string, timeout string) jobRun {
 	t.Helper()
 	return createAndRunJobInProject(t, "test-project", jobID, image, cmd, timeout)
 }
 
-func createAndRunJobInProject(t *testing.T, project, jobID string, image string, cmd []string, timeout string) string {
+func createAndRunJobInProject(t *testing.T, project, jobID string, image string, cmd []string, timeout string) jobRun {
 	t.Helper()
 	containers := []map[string]any{
 		{
@@ -420,18 +442,14 @@ func createAndRunJobInProject(t *testing.T, project, jobID string, image string,
 	require.NoError(t, err)
 	defer runResp.Body.Close()
 	require.Equal(t, http.StatusOK, runResp.StatusCode)
-
-	var lro map[string]any
-	data, _ := io.ReadAll(runResp.Body)
-	require.NoError(t, json.Unmarshal(data, &lro))
-	response := lro["response"].(map[string]any)
-	return response["name"].(string)
+	return readJobRun(t, runResp.Body)
 }
 
 func TestCloudRun_ExecutionRunsCommand(t *testing.T) {
-	execName := createAndRunJobWithCommand(t, uniqueName("exec-cmd-job"), []string{"echo", "hello"}, "5s")
+	run := createAndRunJobWithCommand(t, uniqueName("exec-cmd-job"), []string{"echo", "hello"}, "5s")
 
-	exec := waitExecutionDone(t, execName)
+	exec, err := waitJobRun(t, run)
+	require.NoError(t, err)
 	assert.Equal(t, float64(0), exec["runningCount"])
 	assert.Equal(t, float64(1), exec["succeededCount"])
 	assert.Equal(t, float64(0), exec["failedCount"])
@@ -439,9 +457,11 @@ func TestCloudRun_ExecutionRunsCommand(t *testing.T) {
 }
 
 func TestCloudRun_ExecutionFailedState(t *testing.T) {
-	execName := createAndRunJobWithCommand(t, uniqueName("exec-fail-job"), []string{"sh", "-c", "exit 1"}, "5s")
+	run := createAndRunJobWithCommand(t, uniqueName("exec-fail-job"), []string{"sh", "-c", "exit 1"}, "5s")
 
-	exec := waitExecutionDone(t, execName)
+	exec, err := waitJobRun(t, run)
+	require.Error(t, err, "a failed execution fails its RunJob operation")
+	assert.Contains(t, err.Error(), "has failed to complete, 0/1 tasks were a success")
 	assert.Equal(t, float64(0), exec["runningCount"])
 	assert.Equal(t, float64(0), exec["succeededCount"])
 	assert.Equal(t, float64(1), exec["failedCount"])

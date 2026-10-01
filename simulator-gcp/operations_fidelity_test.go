@@ -90,7 +90,6 @@ func TestGCPOperationMetadataNamesVerbAndTarget(t *testing.T) {
 		{"instance update", redisHost, http.MethodPatch, "/v1/" + instance + "?updateMask=memorySizeGb", `{"memorySizeGb":2}`, "update", instance, "google.cloud.redis.v1.Instance"},
 		{"instance delete", redisHost, http.MethodDelete, "/v1/" + instance, ``, "delete", instance, "google.protobuf.Empty"},
 		{"cluster create", redisHost, http.MethodPost, base + "/clusters?clusterId=verb-cluster", `{"shardCount":1}`, "create", cluster, "google.cloud.redis.cluster.v1.Cluster"},
-		{"cluster backup", redisHost, http.MethodPost, "/v1/" + cluster + ":backup", `{"backupId":"b1"}`, "backup", cluster, "google.cloud.redis.cluster.v1.Cluster"},
 		{"cluster delete", redisHost, http.MethodDelete, "/v1/" + cluster, ``, "delete", cluster, "google.protobuf.Empty"},
 		{"api create", "apigateway.googleapis.com", http.MethodPost, "/v1/projects/p/locations/global/apis?apiId=verb-api", `{}`, "create", api, "google.cloud.apigateway.v1.Api"},
 		{"api delete", "apigateway.googleapis.com", http.MethodDelete, "/v1/" + api, ``, "delete", api, "google.protobuf.Empty"},
@@ -129,15 +128,6 @@ func TestGRPCOperationsReadRESTServiceOperations(t *testing.T) {
 	grpcReadOperation(t, op["name"].(string), cluster, clusterMeta)
 	if cluster.GetShardCount() != 2 || clusterMeta.GetTarget() != cluster.GetName() {
 		t.Fatalf("cluster %v, metadata %v", cluster, clusterMeta)
-	}
-	gcpHostOK(t, srv, "redis.googleapis.com", http.MethodPost,
-		"/v1/projects/p/locations/us-central1/clusters/grpc-cluster:backup", `{"backupId":"b1"}`)
-	op = gcpHostOK(t, srv, "redis.googleapis.com", http.MethodPost,
-		"/v1/projects/p/locations/us-central1/backupCollections/grpc-cluster/backups/b1:export", `{"gcsBucket":"any"}`)
-	backup := &clusterpb.Backup{}
-	grpcReadOperation(t, op["name"].(string), backup, &clusterpb.OperationMetadata{})
-	if backup.GetCluster() != cluster.GetName() {
-		t.Fatalf("backup %v does not name its cluster", backup)
 	}
 
 	op = gcpHostOK(t, srv, "artifactregistry.googleapis.com", http.MethodPost,
@@ -249,9 +239,12 @@ func TestCustomMethodOperationsAreRecorded(t *testing.T) {
 	const arHost = "artifactregistry.googleapis.com"
 	repo := "projects/p/locations/us-central1/repositories/rec-repo"
 	gcpHostOK(t, srv, arHost, http.MethodPost, "/v1/projects/p/locations/us-central1/repositories?repositoryId=rec-repo", `{"format":"DOCKER"}`)
-	version := repo + "/packages/app/versions/sha256:0123"
-	arVersions.Put(version, ARVersion{Name: version})
-	arRegistry.Blobs.Put("rec-repo@sha256:0123", sim.OCIBlob{Digest: "sha256:0123", ContentType: "application/octet-stream", Data: []byte("layer bytes")})
+	layer := []byte("layer bytes")
+	layerDigest := digestBytes(layer)
+	arRegistry.PutBlob("", "p/rec-repo/app", layerDigest, "application/octet-stream", layer)
+	manifest := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"digest":"` + layerDigest + `","size":11},"layers":[]}`)
+	arRegistry.PutManifest("", "p/rec-repo/app", "v1", "application/vnd.oci.image.manifest.v1+json", manifest)
+	version := repo + "/packages/app/versions/" + digestBytes(manifest)
 	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=p", `{"name":"export-bucket"}`)
 
 	readBack := func(op map[string]any) map[string]any {
@@ -276,10 +269,10 @@ func TestCustomMethodOperationsAreRecorded(t *testing.T) {
 	export := readBack(gcpHostOK(t, srv, arHost, http.MethodPost, "/v1/"+repo+":exportArtifact",
 		`{"sourceVersion":"`+version+`","gcsPath":"export-bucket/out"}`))
 	metadata, _ := export["metadata"].(map[string]any)
-	if files, _ := metadata["exportedFiles"].([]any); len(files) != 1 {
+	if files, _ := metadata["exportedFiles"].([]any); len(files) != 2 {
 		t.Fatalf("export metadata = %v", metadata)
 	}
-	if data, err := GCSObjectBytes("export-bucket", "out/sha256:0123"); err != nil || string(data) != "layer bytes" {
+	if data, err := GCSObjectBytes("export-bucket", "out/"+layerDigest); err != nil || string(data) != "layer bytes" {
 		t.Fatalf("exported object = %q, %v", data, err)
 	}
 

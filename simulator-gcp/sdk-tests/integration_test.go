@@ -10,6 +10,8 @@ import (
 	"cloud.google.com/go/logging/logadmin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // TestIntegration_CloudRunJobLifecycle exercises the full Cloud Run backend
@@ -52,15 +54,8 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	defer runResp.Body.Close()
 	require.Equal(t, http.StatusOK, runResp.StatusCode)
-
-	var lro map[string]any
-	data, err := io.ReadAll(runResp.Body)
-	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(data, &lro))
-	response, ok := lro["response"].(map[string]any)
-	require.True(t, ok, "the run operation must carry the execution: %s", data)
-	execName, ok := response["name"].(string)
-	require.True(t, ok, "the execution must be named: %s", data)
+	run := readJobRun(t, runResp.Body)
+	execName := run.Execution
 
 	// 3. The workload really started: the line the container printed on its
 	// own stdout reached Cloud Logging, and the execution's own start entry
@@ -97,6 +92,11 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	assert.Equal(t, float64(0), exec["succeededCount"])
 	assert.Equal(t, float64(0), exec["failedCount"])
 	assert.NotEmpty(t, exec["completionTime"])
+
+	// The RunJob operation ends with the cancellation.
+	_, err = waitJobRun(t, run)
+	require.Error(t, err)
+	assert.Equal(t, codes.Canceled, status.Code(err), "RunJob operation error: %v", err)
 
 	// 7. Delete job
 	delReq, _ := http.NewRequestWithContext(ctx, "DELETE",

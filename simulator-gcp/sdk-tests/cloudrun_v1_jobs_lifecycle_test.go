@@ -357,7 +357,7 @@ func TestCloudRunV1_JobsDryRun(t *testing.T) {
 func TestCloudRunV1_ExecutionDeleteRemovesItsTasks(t *testing.T) {
 	svc := newRunV1(t)
 	jobID := uniqueName("v1-exec-delete-job")
-	execName := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s")
+	execName := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s").Execution
 	executionID := execName[strings.LastIndex(execName, "/")+1:]
 	parent := "namespaces/" + cloudRunV1Namespace
 

@@ -8,23 +8,25 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Azure Resource Manager answers a virtual-machine create, start, restart,
-// power-off, deallocate, redeploy, reimage, reapply or maintenance request at
-// once — 201/200 for the PUT, 202 for the actions — with an
-// Azure-AsyncOperation to poll, and the Compute resource provider moves the
-// machine behind that operation: provisioningState reads Creating or Updating
-// and the instance view's power state reads starting, stopping or deallocating
-// until the guest has really moved, then Succeeded (or Failed) and the settled
-// power state.
+// power-off, deallocate, redeploy, reimage, reapply, maintenance or delete
+// request at once — 201/200 for the PUT, 202 for the actions and the DELETE —
+// with an Azure-AsyncOperation to poll, and the Compute resource provider moves
+// the machine behind that operation: provisioningState reads Creating, Updating
+// or Deleting and the instance view's power state reads starting, stopping or
+// deallocating until the guest has really moved, then Succeeded (or Failed) and
+// the settled power state.
 
-// azureBootVM and azureHaltVM move a machine's guest. A unit test on a host
-// without nested KVM substitutes them to hold a boot open on a channel and
-// observe the operation around it.
+// azureBootVM, azureHaltVM and azureDestroyVM move a machine's guest. A unit
+// test on a host without nested KVM substitutes them to hold a move open on a
+// channel and observe the operation around it.
 var (
-	azureBootVM = azureStartRealVM
-	azureHaltVM = azureStopRealVM
+	azureBootVM    = azureStartRealVM
+	azureHaltVM    = azureStopRealVM
+	azureDestroyVM = azureDeleteRealVM
 )
 
 // azureVMProvisioningErrors holds the error of each machine whose last
@@ -57,20 +59,34 @@ func registerVirtualMachineOperationRecovery(srv *sim.Server) {
 	}
 }
 
+// azureVMOperationRunning reports the provisioning states Microsoft's "States
+// and billing status of Azure Virtual Machines" names for an operation still in
+// progress on the machine.
 func azureVMOperationRunning(provisioningState string) bool {
-	return provisioningState == "Creating" || provisioningState == "Updating"
+	switch provisioningState {
+	case "Creating", "Updating", "Deleting":
+		return true
+	}
+	return false
 }
 
 // azureClaimVMOperation moves an existing machine to provisioningState
 // Updating and its power state to transition, and reports false when another
 // operation still holds the machine.
 func azureClaimVMOperation(id, transition string) bool {
+	return azureClaimVMOperationAs(id, "Updating", transition)
+}
+
+// azureClaimVMOperationAs is azureClaimVMOperation for an operation that
+// reports a provisioningState of its own; an empty transition leaves the power
+// state alone.
+func azureClaimVMOperationAs(id, provisioningState, transition string) bool {
 	claimed := false
 	azureVMs.Update(id, func(vm *VirtualMachine) {
 		if azureVMOperationRunning(vm.Properties.ProvisioningState) {
 			return
 		}
-		vm.Properties.ProvisioningState = "Updating"
+		vm.Properties.ProvisioningState = provisioningState
 		claimed = true
 	})
 	if claimed && transition != "" {
@@ -93,17 +109,49 @@ func azureRunVMOperation(id string, work func(ctx context.Context) *AsyncOperati
 	azureVMProvisioningErrors.Delete(id)
 	return startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 		opErr := work(context.Background())
-		azureVMs.Update(id, func(vm *VirtualMachine) {
-			vm.Properties.ProvisioningState = "Succeeded"
-			if opErr != nil {
-				vm.Properties.ProvisioningState = "Failed"
-			}
-		})
-		if opErr != nil {
-			azureVMProvisioningErrors.Put(id, *opErr)
-		}
+		azureSettleVMOperation(id, opErr)
 		return opErr
 	})
+}
+
+// azureRunVMWork runs work in the background for a request Azure answers
+// without an operation to poll; the machine's provisioningState and instance
+// view are where its outcome shows.
+func azureRunVMWork(id string, work func(ctx context.Context) *AsyncOperationError) {
+	azureVMProvisioningErrors.Delete(id)
+	bg.Go(func() { azureSettleVMOperation(id, work(context.Background())) })
+}
+
+// azureSettleVMOperation settles the provisioningState of a machine whose
+// operation ended; a machine the operation deleted has nothing to settle.
+func azureSettleVMOperation(id string, opErr *AsyncOperationError) {
+	settled := azureVMs.Update(id, func(vm *VirtualMachine) {
+		vm.Properties.ProvisioningState = "Succeeded"
+		if opErr != nil {
+			vm.Properties.ProvisioningState = "Failed"
+		}
+	})
+	if settled && opErr != nil {
+		azureVMProvisioningErrors.Put(id, *opErr)
+	}
+}
+
+// azureForgetVM drops everything the simulator holds about a deleted machine,
+// and detaches its network interfaces, which outlive it.
+func azureForgetVM(id string) {
+	if vm, ok := azureVMs.Get(id); ok && azureNICs != nil {
+		for _, ref := range vm.Properties.NetworkProfile.NetworkInterfaces {
+			azureNICs.Update(ref.ID, func(nic *NetworkInterface) {
+				if nic.Properties.VirtualMachine != nil && strings.EqualFold(nic.Properties.VirtualMachine.ID, id) {
+					nic.Properties.VirtualMachine = nil
+				}
+			})
+		}
+	}
+	azureVMs.Delete(id)
+	azureVMStates.Delete(id)
+	azureVMProvisioningErrors.Delete(id)
+	azureVMGeneralized.Delete(id)
 }
 
 // azureVMBootFailure is the error a failed operation reports when the host
@@ -147,6 +195,8 @@ func azureVMProvisioningStatus(vm VirtualMachine) VMStatus {
 		return VMStatus{Code: "ProvisioningState/creating", Level: "Info", DisplayStatus: "Creating"}
 	case "Updating":
 		return VMStatus{Code: "ProvisioningState/updating", Level: "Info", DisplayStatus: "Updating"}
+	case "Deleting":
+		return VMStatus{Code: "ProvisioningState/deleting", Level: "Info", DisplayStatus: "Deleting"}
 	case "Failed":
 		status := VMStatus{Code: "ProvisioningState/failed", Level: "Error", DisplayStatus: "Provisioning failed"}
 		if opErr, ok := azureVMProvisioningErrors.Get(vm.ID); ok {

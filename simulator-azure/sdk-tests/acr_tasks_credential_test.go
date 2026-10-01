@@ -64,10 +64,14 @@ func acrTasksPushImage(t *testing.T, rg, regName, account, repository string) (s
 		Platform:       &armcontainerregistry.PlatformProperties{OS: to.Ptr(armcontainerregistry.OSLinux)},
 	}, nil)
 	require.NoError(t, err)
-	result, err := poller.PollUntilDone(ctx, nil)
+	queued, err := poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	require.NotNil(t, result.Properties.Status)
-	require.Equal(t, armcontainerregistry.RunStatusSucceeded, *result.Properties.Status, "the run pushes into its registry with the run's own credential")
+	require.NotNil(t, queued.Properties.RunID)
+	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	result := awaitACRRun(t, runsClient, rg, regName, *queued.Properties.RunID)
+	require.Equal(t, armcontainerregistry.RunStatusSucceeded, ptrVal(result.Properties.Status),
+		"the run pushes into its registry with the run's own credential: %s", ptrVal(result.Properties.RunErrorMessage))
 	return loginServer, imageName
 }
 

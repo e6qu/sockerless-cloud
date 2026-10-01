@@ -149,3 +149,52 @@ func TestScheduler_ScheduleGroups(t *testing.T) {
 	require.Len(t, listOut.Schedules, 1)
 	assert.Equal(t, name, aws.ToString(listOut.Schedules[0].Name))
 }
+
+// ListSchedules pages by MaxResults and NextToken, and refuses a token it never
+// issued.
+func TestScheduler_ListSchedulesPages_SDK(t *testing.T) {
+	c := schedulerClient()
+	group := uniqueName("page-group")
+	_, err := c.CreateScheduleGroup(ctx, &scheduler.CreateScheduleGroupInput{Name: aws.String(group)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteScheduleGroup(ctx, &scheduler.DeleteScheduleGroupInput{Name: aws.String(group)})
+	})
+	want := []string{"page-a", "page-b", "page-c"}
+	for _, name := range want {
+		_, err := c.CreateSchedule(ctx, &scheduler.CreateScheduleInput{
+			Name:               aws.String(name),
+			GroupName:          aws.String(group),
+			ScheduleExpression: aws.String("rate(1 hour)"),
+			FlexibleTimeWindow: &schedtypes.FlexibleTimeWindow{Mode: schedtypes.FlexibleTimeWindowModeOff},
+			Target: &schedtypes.Target{
+				Arn:     aws.String("arn:aws:lambda:us-east-1:123456789012:function:paged"),
+				RoleArn: aws.String("arn:aws:iam::123456789012:role/scheduler-role"),
+			},
+		})
+		require.NoError(t, err)
+		name := name
+		t.Cleanup(func() {
+			_, _ = c.DeleteSchedule(ctx, &scheduler.DeleteScheduleInput{Name: aws.String(name), GroupName: aws.String(group)})
+		})
+	}
+
+	var got []string
+	pages := 0
+	paginator := scheduler.NewListSchedulesPaginator(c, &scheduler.ListSchedulesInput{GroupName: aws.String(group), MaxResults: aws.Int32(2)})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		require.NoError(t, err)
+		assert.LessOrEqual(t, len(page.Schedules), 2)
+		for _, s := range page.Schedules {
+			got = append(got, aws.ToString(s.Name))
+		}
+		pages++
+	}
+	assert.Equal(t, want, got)
+	assert.Equal(t, 2, pages)
+
+	_, err = c.ListSchedules(ctx, &scheduler.ListSchedulesInput{GroupName: aws.String(group), NextToken: aws.String("not-a-token")})
+	var validation *schedtypes.ValidationException
+	assert.ErrorAs(t, err, &validation)
+}

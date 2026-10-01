@@ -1,6 +1,7 @@
 package gcp_cli_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -16,6 +17,59 @@ func jobsBaseURL() string {
 
 func jobURL(name string) string {
 	return fmt.Sprintf("%s/v2/projects/%s/locations/%s/jobs/%s", baseURL, project, location, name)
+}
+
+// jobRun names what a v2 RunJob call started: the operation, which Cloud Run
+// completes when the execution finishes, and the execution its Execution
+// metadata names from the start.
+type jobRun struct {
+	Operation string
+	Execution string
+}
+
+// runJob runs a job through the v2 RunJob method. gcloud's own `run jobs
+// execute` drives the v1 Knative run, which answers with the Execution and no
+// operation, so the v2 method is put on the wire directly.
+func runJob(t *testing.T, jobID string) jobRun {
+	t.Helper()
+	out := httpDoJSON(t, "POST", jobURL(jobID+":run"), "")
+	var op struct {
+		Name     string `json:"name"`
+		Metadata struct {
+			Type string `json:"@type"`
+			Name string `json:"name"`
+		} `json:"metadata"`
+	}
+	parseJSON(t, out, &op)
+	require.Equal(t, "type.googleapis.com/google.cloud.run.v2.Execution", op.Metadata.Type,
+		"RunJob reports the Execution as its operation metadata: %s", out)
+	require.NotEmpty(t, op.Name, out)
+	require.NotEmpty(t, op.Metadata.Name, out)
+	return jobRun{Operation: op.Name, Execution: op.Metadata.Name}
+}
+
+// runOperationResult is a finished google.longrunning.Operation of the Cloud
+// Run v2 API.
+type runOperationResult struct {
+	Done  bool `json:"done"`
+	Error *struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+	Response json.RawMessage `json:"response"`
+}
+
+// waitRunOperation blocks on run.projects.locations.operations.wait until the
+// operation is done. The method may answer before then, so a not-done answer is
+// waited on again.
+func waitRunOperation(t *testing.T, name string) runOperationResult {
+	t.Helper()
+	var op runOperationResult
+	for !op.Done {
+		op = runOperationResult{}
+		parseJSON(t, httpDoJSON(t, "POST", baseURL+"/v2/"+name+":wait", `{"timeout":"120s"}`), &op)
+	}
+	return op
 }
 
 func TestCloudRun_CLI_RunJobAndCheckLogs(t *testing.T) {
@@ -36,30 +90,19 @@ func TestCloudRun_CLI_RunJobAndCheckLogs(t *testing.T) {
 	}`
 	httpDoJSON(t, "POST", jobsBaseURL()+"?jobId=cli-run-job", createBody)
 
-	// Run the job
-	out := httpDoJSON(t, "POST", jobURL("cli-run-job:run"), "")
+	// Run the job and wait on its operation, which completes when the
+	// execution does.
+	run := runJob(t, "cli-run-job")
+	op := waitRunOperation(t, run.Operation)
+	require.Nil(t, op.Error, "the execution succeeded, so its RunJob operation did")
 
-	// Parse LRO to get execution name
-	var lro struct {
-		Response struct {
-			Name string `json:"name"`
-		} `json:"response"`
-	}
-	parseJSON(t, out, &lro)
-	require.NotEmpty(t, lro.Response.Name)
-
-	// Poll until the execution completes (run + completion are async in the
-	// sim) — a fixed sleep races a loaded runner.
 	var exec struct {
 		SucceededCount int `json:"succeededCount"`
 		FailedCount    int `json:"failedCount"`
 		RunningCount   int `json:"runningCount"`
 	}
-	require.Eventually(t, func() bool {
-		out = httpDoJSON(t, "GET", baseURL+"/v2/"+lro.Response.Name, "")
-		parseJSON(t, out, &exec)
-		return exec.RunningCount == 0 && exec.SucceededCount+exec.FailedCount > 0
-	}, 60*time.Second, 250*time.Millisecond)
+	out := httpDoJSON(t, "GET", baseURL+"/v2/"+run.Execution, "")
+	parseJSON(t, out, &exec)
 	assert.Equal(t, 1, exec.SucceededCount, "expected job to succeed")
 	assert.Equal(t, 0, exec.FailedCount)
 	assert.Equal(t, 0, exec.RunningCount)
@@ -95,18 +138,13 @@ func TestCloudRun_CLI_RunJobFailure(t *testing.T) {
 	}`
 	httpDoJSON(t, "POST", jobsBaseURL()+"?jobId=cli-fail-job", createBody)
 
-	// Run the job
-	out := httpDoJSON(t, "POST", jobURL("cli-fail-job:run"), "")
+	// Run the job and wait on its operation, which completes when the
+	// execution does and carries the execution's failure.
+	run := runJob(t, "cli-fail-job")
+	op := waitRunOperation(t, run.Operation)
+	require.NotNil(t, op.Error, "a failed execution fails its RunJob operation")
+	assert.Contains(t, op.Error.Message, "has failed to complete, 0/1 tasks were a success")
 
-	var lro struct {
-		Response struct {
-			Name string `json:"name"`
-		} `json:"response"`
-	}
-	parseJSON(t, out, &lro)
-	require.NotEmpty(t, lro.Response.Name)
-
-	// Poll until the execution completes (async in the sim).
 	var exec struct {
 		SucceededCount int `json:"succeededCount"`
 		FailedCount    int `json:"failedCount"`
@@ -115,11 +153,8 @@ func TestCloudRun_CLI_RunJobFailure(t *testing.T) {
 			State string `json:"state"`
 		} `json:"conditions"`
 	}
-	require.Eventually(t, func() bool {
-		out = httpDoJSON(t, "GET", baseURL+"/v2/"+lro.Response.Name, "")
-		parseJSON(t, out, &exec)
-		return exec.RunningCount == 0 && exec.SucceededCount+exec.FailedCount > 0
-	}, 60*time.Second, 250*time.Millisecond)
+	out := httpDoJSON(t, "GET", baseURL+"/v2/"+run.Execution, "")
+	parseJSON(t, out, &exec)
 	assert.Equal(t, 0, exec.SucceededCount)
 	assert.Equal(t, 1, exec.FailedCount, "expected job to fail")
 	assert.Equal(t, 0, exec.RunningCount)

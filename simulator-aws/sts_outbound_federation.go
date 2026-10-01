@@ -187,7 +187,11 @@ func handleSTSGetWebIdentityToken(w http.ResponseWriter, r *http.Request) {
 		stsErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError)
 		return
 	}
-	principal := stsCallerArn(r)
+	principal, _, ok := stsCallerIdentity(r)
+	if !ok {
+		stsErrorXML(w, "InvalidClientTokenId", sigMsgInvalidTok, http.StatusForbidden)
+		return
+	}
 	aws := map[string]any{
 		"aws_account":   awsAccountID(),
 		"source_region": awsRegion(),
