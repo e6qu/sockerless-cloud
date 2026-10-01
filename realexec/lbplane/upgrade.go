@@ -30,7 +30,7 @@ func IsUpgradeRequest(r *http.Request) bool {
 	return false
 }
 
-// TunnelUpgradedResponse finishes a 101 Switching Protocols by introducing the two
+// tunnelUpgradedResponse finishes a 101 Switching Protocols by introducing the two
 // connections to each other and copying bytes until one of them ends.
 //
 // Relaying the handshake is not enough, and getting only that half right fails in a
@@ -45,7 +45,10 @@ func IsUpgradeRequest(r *http.Request) bool {
 // hijacked, so the caller can still write an error response. Once the hijack
 // succeeds the ResponseWriter is spent and nothing may be written to it; a tunnel
 // torn down by either peer is a normal ending, not a proxy error, so it reports nil.
-func TunnelUpgradedResponse(w http.ResponseWriter, resp *http.Response) error {
+//
+// A positive idle closes the tunnel once that long passes with no byte read from
+// either peer, and activity runs whenever a byte is.
+func tunnelUpgradedResponse(w http.ResponseWriter, resp *http.Response, idle time.Duration, activity func()) error {
 	// Go's transport exposes a 101's connection as a ReadWriteCloser precisely so it
 	// can be tunnelled; anything else means the response never really upgraded.
 	target, ok := resp.Body.(io.ReadWriteCloser)
@@ -85,9 +88,14 @@ func TunnelUpgradedResponse(w http.ResponseWriter, resp *http.Response) error {
 	// Read the client through clientBuf, never through the raw connection: a client
 	// that speaks first has its opening bytes sitting in that reader already, and
 	// reading past it drops them.
+	watch := newIdleWatch(idle, activity, func() {
+		client.Close()
+		target.Close()
+	})
+	defer watch.stop()
 	done := make(chan struct{}, 2)
-	go func() { _, _ = io.Copy(target, clientBuf); done <- struct{}{} }()
-	go func() { _, _ = io.Copy(client, target); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(target, watch.reader(clientBuf)); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(client, watch.reader(target)); done <- struct{}{} }()
 	<-done
 	// One direction ended, so the session is over; closing both unblocks the other
 	// copy, which would otherwise hold this handler open for the connection's life.
