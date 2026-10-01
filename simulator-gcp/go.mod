@@ -22,8 +22,8 @@ require (
 	cloud.google.com/go/serviceusage v1.16.0
 	cloud.google.com/go/spanner v1.95.1
 	cloud.google.com/go/vpcaccess v1.15.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261001141830-51ce52737f68
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261001121026-4249fe883722
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261001155128-46d45faedbab
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261001164747-4a99ceb9d8a6
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.1
