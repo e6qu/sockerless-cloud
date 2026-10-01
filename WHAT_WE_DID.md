@@ -1023,7 +1023,10 @@ asks the host first; a pull that tests a simulator's own registry is the named
 exception. Warming is `continue-on-error`, because it primes a cache and the
 point of use fails naming the image. Jobs never delete the shared Go caches
 (`actions/setup-go` saves what is left at post-job), and refresh the apt index
-only when a package is missing. The workflows reference as few external
+only when a package is missing. In the AWS SDK shards one shard saves the
+Go cache after its pre-build and the rest only restore it, so a dependency
+change no longer has every shard compress the same cache inside its time
+limit. The workflows reference as few external
 actions as possible, because the runner downloads every action a workflow
 names for every job. A tool a suite needs — gcloud, `cbt`, the AWS CLI — is
 installed in `TestMain` with a few retries, never skipped.

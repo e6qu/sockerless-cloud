@@ -595,14 +595,15 @@ jobs:
           # per cloud below holds what these shards actually build.
           cache: false
       - name: Restore the Go module and build caches for this cloud's simulator jobs
-        uses: actions/cache@v6.1.0
+        id: go-cache
+        uses: actions/cache/restore@v6.1.0
         with:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
           # Keyed on the dependency set, so it turns over when go.sum changes
           # and an older entry warms the incremental build until then. The
-          # pre-build steps run as the runner user, so the files this saves
+          # pre-build steps run as the runner user, so the files the data shard saves
           # are readable; the sudo-run test steps only add to what is cached.
           key: sim-go-${{ runner.os }}-${{ runner.arch }}-aws-${{ hashFiles('go.work', '**/go.sum') }}
           restore-keys: |
@@ -658,6 +659,19 @@ jobs:
         # against an empty one. Six minutes was under twice the warm cost,
         # which is no margin for the case the step is for.
         timeout-minutes: 10
+      # One shard saves the entry, once its pre-build has filled it. Every shard
+      # saving on a miss let the shards that started before the first save each
+      # spend a minute or more compressing the same caches inside their job
+      # budget, which cancelled two of them at the limit after their tests had
+      # passed. The data shard finishes with the most budget to spare.
+      - name: Save the Go module and build caches
+        if: matrix.suite == 'data' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
       # Free disk before the timed run — but never the Go caches. Deleting
       # those poisons the cache for every later job: setup-go saves at
       # post-job, a branch's first run restores the default branch's entry and
