@@ -194,10 +194,14 @@ func acrTasksQueuedRun(t *testing.T, reg Registry, runID string) (*acrActiveRun,
 	return active, stop
 }
 
-var acrTasksMissingContext = acrDockerBuildRequest{
-	Type:           "DockerBuildRequest",
-	ImageNames:     []string{"tasksreg.azurecr.io/app:v1"},
-	SourceLocation: "https://nosuchacct.blob.core.windows.net/ctx/missing.tar.gz",
+// acrTasksMissingContext is a docker build run whose source does not exist.
+func acrTasksMissingContext(timeout time.Duration) acrRunSpec {
+	return acrRunSpec{
+		runType: "QuickBuild",
+		timeout: timeout,
+		source:  "https://nosuchacct.blob.core.windows.net/ctx/missing.tar.gz",
+		docker:  &acrDockerBuildSpec{ImageNames: []string{"tasksreg.azurecr.io/app:v1"}, IsPushEnabled: true},
+	}
 }
 
 // A run whose timeout passes ends Timeout, not Failed, whatever its build
@@ -206,7 +210,7 @@ func TestACRRunPastItsTimeoutEndsTimeout(t *testing.T) {
 	srv := newACRTasksTestServer(t)
 	reg := acrTasksRegistry(t, srv, "taskdeadlinereg")
 	active, stop := acrTasksQueuedRun(t, reg, "cbdeadline")
-	acrExecuteRun(context.Background(), stop, active, "cbdeadline", acrTasksMissingContext, reg, 1)
+	acrExecuteRun(context.Background(), stop, active, "cbdeadline", acrTasksMissingContext(1), reg)
 
 	run, _ := acrRuns.Get("cbdeadline")
 	if run.Properties.Status != "Timeout" {
@@ -225,7 +229,7 @@ func TestACRCancelRun(t *testing.T) {
 
 	active, stop := acrTasksQueuedRun(t, reg, "cbqueued")
 	active.cancel(errACRRunCanceled)
-	acrExecuteRun(context.Background(), stop, active, "cbqueued", acrTasksMissingContext, reg, acrRunDefaultTimeoutSeconds)
+	acrExecuteRun(context.Background(), stop, active, "cbqueued", acrTasksMissingContext(acrRunDefaultTimeoutSeconds*time.Second), reg)
 	run := acrTasksGetRun(t, srv, reg, "cbqueued")
 	if run.Properties.Status != "Canceled" {
 		t.Fatalf("run canceled while queued ended %q, want Canceled", run.Properties.Status)

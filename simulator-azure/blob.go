@@ -388,10 +388,10 @@ func registerBlobDataPlane(srv *sim.Server) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			// An ACR Tasks run log is read with the Blob service's protocol,
-			// x-ms-version and all, at a link on this host whose path is not
-			// a storage account's.
-			if acrIsRunLogPath(r.URL.Path) {
+			// An ACR Tasks run log and an ACR Tasks build source upload speak
+			// the Blob service's protocol, x-ms-version and all, at links on
+			// this host whose paths are not a storage account's.
+			if acrIsRunLogPath(r.URL.Path) || acrIsBuildSourcePath(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}

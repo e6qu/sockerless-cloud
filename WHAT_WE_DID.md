@@ -715,6 +715,32 @@ the finished Run, so no client could see a running build or cancel one; the
 SDK and CLI suites now take the Queued Run from the poller and follow the Run's
 own status, and cancel a build mid-run.
 
+`scheduleRun` ran only a DockerBuildRequest whose source was a full blob URL,
+so `az acr build .`, `az acr run`, `az acr task run` and
+`azurerm_container_registry_task_schedule_run_now` could not run. All four run
+requests now go through the one background run lifecycle. A
+FileTaskRunRequest, an EncodedTaskRunRequest and a TaskRunRequest of a task
+file run the ACR Tasks YAML as the service's open-source run engine
+(Azure/acr-builder) reads it: Go templates over `{{.Run.*}}` (the date as
+`20060102-150405z`) and `{{.Values.*}}` from the values file under `--set` and
+`--set-secret`, then from v1.1.0 the `$` aliases, custom ones and the documented
+image aliases, then `build`, `push` and `cmd` steps ordered by `when`, each with
+its timeout, retries, repeat, start delay, environment and ignore-errors.
+Steps share the source in a run volume mounted at `/workspace`, on a run
+network where each step answers to its ID; a cmd step's writes are read back
+for the build steps after it. A TaskRunRequest runs the Task's Docker, FileTask
+or EncodedTask step with the request's file, context, arguments and values
+merged in, and reports the task's name. `listBuildSourceUploadUrl` hands out a
+Shared Access Signature URL into storage the registry service owns (an account
+name no customer can hold), served by the Blob service's own handlers, Put
+Block List included; a run request's relative `sourceLocation` resolves to that
+upload. A DockerBuildRequest renders its image names and places a name without
+a registry in the run's registry. An agent pool runs as many runs as its
+`count` of agents, the rest wait Queued, and `listQueueStatus` counts them.
+A step's output reaches the run log through `docker logs --follow` from the
+container's start, which carries all of it even when the container exits
+before a reader attaches, and its exit code through `docker wait`.
+
 ## Storage
 
 An object store's conditional write is one step. A client that keeps its

@@ -843,6 +843,8 @@ type acrChildKind struct {
 	allowIdentity bool
 	patch         bool
 	store         sim.Store[acrSubResource]
+	// afterWrite runs once a create, update or delete has been stored.
+	afterWrite func()
 }
 
 // acrRegistryID returns the registry ARM resource ID for the request and
@@ -903,7 +905,14 @@ func (k acrChildKind) handlePut(w http.ResponseWriter, r *http.Request) {
 	props["provisioningState"] = "Succeeded"
 	res.Properties = props
 	k.store.Put(resID, res)
+	k.wrote()
 	sim.WriteJSON(w, http.StatusOK, res)
+}
+
+func (k acrChildKind) wrote() {
+	if k.afterWrite != nil {
+		k.afterWrite()
+	}
 }
 
 func (k acrChildKind) handleGet(w http.ResponseWriter, r *http.Request) {
@@ -963,12 +972,14 @@ func (k acrChildKind) handlePatch(w http.ResponseWriter, r *http.Request) {
 			s.Properties["provisioningState"] = "Succeeded"
 		}
 	})
+	k.wrote()
 	res, _ := k.store.Get(resID)
 	sim.WriteJSON(w, http.StatusOK, res)
 }
 
 func (k acrChildKind) handleDelete(w http.ResponseWriter, r *http.Request) {
 	if k.store.Delete(k.resourceID(r)) {
+		k.wrote()
 		w.WriteHeader(http.StatusOK)
 	} else {
 		w.WriteHeader(http.StatusNoContent)

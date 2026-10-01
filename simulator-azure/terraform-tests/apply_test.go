@@ -142,6 +142,15 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		outputs.must(t, "azrm_acr_admin_username"),
 		outputs.must(t, "azrm_acr_admin_password"))
 
+	// The run-now resource exists only once its TaskRunRequest run of the
+	// task reached Succeeded.
+	azrmTask := outputs.must(t, "azrm_acr_task_id")
+	require.Contains(t, azrmTask, "/registries/tfazrmacr/tasks/tfazrmtask",
+		"azurerm ACR task id must include canonical ARM path; got %s", azrmTask)
+	azrmTaskRun := outputs.must(t, "azrm_acr_task_run_now_id")
+	require.Contains(t, azrmTaskRun, "/registries/tfazrmacr/tasks/tfazrmtask",
+		"azurerm ACR task run-now id names the task it ran; got %s", azrmTaskRun)
+
 	azrmRedisHost := outputs.must(t, "azrm_redis_cache_hostname")
 	require.Contains(t, azrmRedisHost, "tfazrmredis.redis.cache.",
 		"azurerm Redis hostname must include Azure Cache for Redis host shape; got %s", azrmRedisHost)
