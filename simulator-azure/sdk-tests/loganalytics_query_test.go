@@ -2,6 +2,7 @@ package azure_sdk_test
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -79,6 +80,74 @@ func TestLogAnalytics_QueryBatchSDK(t *testing.T) {
 	assert.Equal(t, "req-1", *resp.Responses[0].CorrelationID)
 	require.NotNil(t, resp.Responses[0].Body)
 	require.NotEmpty(t, resp.Responses[0].Body.Tables)
+}
+
+// TestLogAnalytics_QueryBooleanOperatorsSDK runs where clauses joined with and
+// and or, and a string literal holding a pipe, through the azquery Logs client.
+func TestLogAnalytics_QueryBooleanOperatorsSDK(t *testing.T) {
+	const role = "azquery-and-or-role"
+	ts := time.Now().UTC().Format(time.RFC3339)
+	ingestLogs(t, []map[string]any{
+		{"TimeGenerated": ts, "Message": "alpha | beta", "AppRoleName": role},
+		{"TimeGenerated": ts, "Message": "gamma", "AppRoleName": role},
+		{"TimeGenerated": ts, "Message": "alpha | beta", "AppRoleName": "azquery-other-role"},
+	})
+
+	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
+	require.NoError(t, err)
+
+	resp, err := client.QueryWorkspace(ctx, "default", azquery.Body{
+		Query: to.Ptr(`AppTraces | where AppRoleName == "` + role + `" and Message == "alpha | beta" | project Message`),
+	}, nil)
+	require.NoError(t, err)
+	require.Len(t, resp.Tables, 1)
+	require.Len(t, resp.Tables[0].Columns, 1)
+	assert.Equal(t, "Message", *resp.Tables[0].Columns[0].Name)
+	require.Len(t, resp.Tables[0].Rows, 1, "and keeps only the row both comparisons match")
+	assert.Equal(t, "alpha | beta", resp.Tables[0].Rows[0][0])
+
+	resp, err = client.QueryWorkspace(ctx, "default", azquery.Body{
+		Query: to.Ptr(`AppTraces | where AppRoleName == "` + role + `" and (Message == "gamma" or Message has "beta") | summarize n = count() by AppRoleName`),
+	}, nil)
+	require.NoError(t, err)
+	require.Len(t, resp.Tables[0].Rows, 1)
+	assert.Equal(t, role, resp.Tables[0].Rows[0][0])
+	assert.EqualValues(t, 2, resp.Tables[0].Rows[0][1], "or matches both of the role's rows")
+	assert.Equal(t, azquery.LogsColumnTypeLong, *resp.Tables[0].Columns[1].Type)
+}
+
+// TestLogAnalytics_QuerySyntaxErrorSDK sends a query that does not parse and
+// reads back the service's BadArgumentError, alone and inside a batch.
+func TestLogAnalytics_QuerySyntaxErrorSDK(t *testing.T) {
+	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
+	require.NoError(t, err)
+
+	const broken = `AppTraces | where AppRoleName == "x" and`
+	_, err = client.QueryWorkspace(ctx, "default", azquery.Body{Query: to.Ptr(broken)}, nil)
+	require.Error(t, err)
+	var respErr *azcore.ResponseError
+	require.True(t, errors.As(err, &respErr), "a refused query is a response error: %v", err)
+	assert.Equal(t, http.StatusBadRequest, respErr.StatusCode)
+	assert.Equal(t, "BadArgumentError", respErr.ErrorCode)
+	assert.Contains(t, respErr.Error(), "SyntaxError")
+
+	_, err = client.QueryWorkspace(ctx, "default", azquery.Body{
+		Query: to.Ptr(`AppTraces | where NoSuchColumn == "x"`),
+	}, nil)
+	require.True(t, errors.As(err, &respErr), "an unresolved column is refused: %v", err)
+	assert.Equal(t, "BadArgumentError", respErr.ErrorCode)
+	assert.Contains(t, respErr.Error(), "SemanticError")
+
+	good := azquery.NewBatchQueryRequest("default", `AppTraces | take 1`, azquery.TimeInterval("PT1H"), "ok", azquery.LogsQueryOptions{})
+	bad := azquery.NewBatchQueryRequest("default", broken, azquery.TimeInterval("PT1H"), "bad", azquery.LogsQueryOptions{})
+	batch, err := client.QueryBatch(ctx, azquery.BatchRequest{Requests: []*azquery.BatchQueryRequest{&good, &bad}}, nil)
+	require.NoError(t, err)
+	require.Len(t, batch.Responses, 2)
+	assert.EqualValues(t, http.StatusOK, *batch.Responses[0].Status)
+	assert.EqualValues(t, http.StatusBadRequest, *batch.Responses[1].Status)
+	require.NotNil(t, batch.Responses[1].Body.Error)
+	assert.Equal(t, "BadArgumentError", batch.Responses[1].Body.Error.Code)
+	assert.Contains(t, batch.Responses[1].Body.Error.Error(), "SyntaxError")
 }
 
 // TestLogAnalytics_GetQueryAndMetadataREST exercises the GET query overload and

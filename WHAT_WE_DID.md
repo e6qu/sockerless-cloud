@@ -389,6 +389,26 @@ through hooks:
   the scheduled and locked messages it loads, so neither a REST waiter nor an
   AMQP receiver holding credit misses a message whose timer belonged to the
   old process.
+- **A Log Analytics query runs or is refused, never half-read.** The query
+  engine had split a query on every `|` and read each stage as
+  `where <field> <op> <value>`, `take`, `limit` or `project`, dropping anything
+  else, so `and`/`or` folded into a comparison's value and a pipe inside a
+  string literal split the query. It became a tokenizer that honours single,
+  double, verbatim and obfuscated string literals with their escapes, a typed
+  expression parser (`and`, `or`, `not()`, parentheses, the comparison, string,
+  `in`/`in~`, `has_any`, `between` and `matches regex` operators, arithmetic
+  over numbers, datetimes and timespans), and the tabular operators `where`,
+  `take`/`limit`, `project`, `project-away`, `project-rename`, `extend`,
+  `order by`/`sort by`, `top`, `count`, `summarize` and `distinct`, where each
+  `extend` item sees the columns the items before it define. Every
+  expression is typed against the schema before a row is read, so an unknown
+  table, column or function, a type mismatch, or an operator the engine does
+  not run answers HTTP 400 `BadArgumentError` with a nested `SyntaxError`
+  (`SYN0002`, with line, position and token) or `SemanticError`, as the
+  service does — alone and per member of a `$batch`. An unknown table had been
+  read with the Container Apps console schema; the Application Insights tables
+  got their own schemas instead. The request's `timespan` bounds
+  `TimeGenerated` before the query runs.
 - **A page token proves where it came from.** Every listing tags the tokens it
   issues and refuses one it never issued with the service's invalid-argument
   error, instead of listing an empty page.

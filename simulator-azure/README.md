@@ -246,7 +246,7 @@ verifiers can validate requests signed with the simulator-emitted account key.
 |---|---|
 | **Log Analytics Workspaces** | CRUD, Shared keys |
 | **Log Ingestion** | POST entries via data collection rules |
-| **Log Query** | KQL query execution (simple `where`/`take` parsing) |
+| **Log Query** | KQL query execution: `where`, `take`/`limit`, `project`, `project-away`, `project-rename`, `extend`, `order by`/`sort by`, `top`, `count`, `summarize`, `distinct`; refused queries answer `BadArgumentError` |
 | **Application Insights** | Component CRUD, Billing features, Query |
 
 ### DNS
@@ -333,7 +333,7 @@ Active Azure simulator bugs live in [BUGS.md](../BUGS.md). On macOS the Terrafor
 
 ## What's out of scope
 
-- **Full KQL**: the query engine handles `where` with `==`, `>` and `>=` predicates (including `datetime()` bounds), `project`, `take` and `limit`; `order by` is accepted and ignored.
+- **Full KQL**: the query engine runs a single tabular expression over one table with the operators `where`, `take`/`limit`, `project`, `project-away`, `project-rename`, `extend`, `order by`/`sort by`, `top`, `count`, `summarize` (`count`, `countif`, `dcount`, `sum`, `avg`, `min`, `max`) and `distinct`, the comparison, string and set operators, and a core set of scalar functions. `let`, `join`, `union` and every other operator or function answer the service's `SyntaxError` or `SemanticError` rather than running.
 - **gRPC for Application Insights ingestion**: REST only.
 - **Multi-region replication / availability zones**.
 - **Cost / billing surfaces**.
@@ -428,7 +428,7 @@ az rest --method POST \
   --url "http://localhost:4568/dataCollectionRules/dcr-1/streams/Custom-Logs" \
   --body '[{"TimeGenerated":"2025-01-01T00:00:00Z","ContainerGroupName_s":"my-job","Log_s":"running","Stream_s":"stdout"}]'
 
-# KQL query (supports where, take/limit, datetime filters)
+# KQL query
 az rest --method POST --url "http://localhost:4568/v1/workspaces/default/query" \
   --body '{"query": "ContainerAppConsoleLogs_CL | where ContainerGroupName_s == \"my-job\" | take 100"}'
 ```

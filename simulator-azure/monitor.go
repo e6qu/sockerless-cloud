@@ -379,7 +379,7 @@ func registerAzureMonitor(srv *sim.Server) {
 			AzureError(w, "BadArgumentError", "The 'query' property is required.", http.StatusBadRequest)
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, runKQLQuery(workspaceID, req.Query))
+		writeKQLResult(w, workspaceID, req.Query, req.Timespan)
 	}
 	getQueryHandler := func(w http.ResponseWriter, r *http.Request) {
 		workspaceID := sim.PathParam(r, "workspaceId")
@@ -388,7 +388,7 @@ func registerAzureMonitor(srv *sim.Server) {
 			AzureError(w, "BadArgumentError", "The 'query' parameter is required.", http.StatusBadRequest)
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, runKQLQuery(workspaceID, query))
+		writeKQLResult(w, workspaceID, query, r.URL.Query().Get("timespan"))
 	}
 	srv.HandleFunc("POST /v1/workspaces/{workspaceId}/query", postQueryHandler)
 	srv.HandleFunc("GET /v1/workspaces/{workspaceId}/query", getQueryHandler)
@@ -444,10 +444,15 @@ func registerAzureMonitor(srv *sim.Server) {
 		}
 		responses := make([]map[string]any, 0, len(batch.Requests))
 		for _, req := range batch.Requests {
+			result, qerr := runKQLQuery(req.Workspace, req.Body.Query, req.Body.Timespan)
+			if qerr != nil {
+				responses = append(responses, map[string]any{
+					"id": req.ID, "status": http.StatusBadRequest, "body": qerr.body(),
+				})
+				continue
+			}
 			responses = append(responses, map[string]any{
-				"id":     req.ID,
-				"status": http.StatusOK,
-				"body":   runKQLQuery(req.Workspace, req.Body.Query),
+				"id": req.ID, "status": http.StatusOK, "body": result,
 			})
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"responses": responses})

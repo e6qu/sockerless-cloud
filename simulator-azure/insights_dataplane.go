@@ -54,7 +54,7 @@ func registerInsightsDataPlane(srv *sim.Server) {
 			AzureError(w, "BadArgumentError", "The 'query' property is required.", http.StatusBadRequest)
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, runKQLQuery(sim.PathParam(r, "appId"), req.Query))
+		writeKQLResult(w, sim.PathParam(r, "appId"), req.Query, req.Timespan)
 	})
 	srv.HandleFunc("GET /v1/apps/{appId}/query", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query().Get("query")
@@ -62,7 +62,7 @@ func registerInsightsDataPlane(srv *sim.Server) {
 			AzureError(w, "BadArgumentError", "The 'query' parameter is required.", http.StatusBadRequest)
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, runKQLQuery(sim.PathParam(r, "appId"), query))
+		writeKQLResult(w, sim.PathParam(r, "appId"), query, r.URL.Query().Get("timespan"))
 	})
 
 	// Metadata_Get and Metadata_Post — the schema the application's telemetry
@@ -116,7 +116,10 @@ func insightsEventRows(appID, eventType string) ([]map[string]any, bool) {
 	if !ok {
 		return nil, false
 	}
-	result := runKQLQuery(appID, table)
+	result, err := runKQLQuery(appID, table, "")
+	if err != nil {
+		return nil, false
+	}
 	var rows []map[string]any
 	for _, t := range result.Tables {
 		for _, row := range t.Rows {

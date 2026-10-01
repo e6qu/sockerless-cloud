@@ -1,7 +1,9 @@
 package azure_cli_test
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,4 +122,55 @@ func TestAppInsights_InstrumentationKeyInConnectionString(t *testing.T) {
 	assert.Contains(t, comp.Properties.ConnectionString, comp.Properties.InstrumentationKey)
 
 	runCLI(t, azRest("DELETE", url, ""))
+}
+
+// TestLogAnalytics_QueryBooleanOperatorsCLI drives the Log Analytics query
+// endpoint through `az rest` with where clauses joined by and/or and a string
+// literal holding a pipe, and reads back the BadArgumentError a query that does
+// not parse is refused with.
+func TestLogAnalytics_QueryBooleanOperatorsCLI(t *testing.T) {
+	const role = "cli-and-or-role"
+	ts := time.Now().UTC().Format(time.RFC3339)
+	rows, err := json.Marshal([]map[string]string{
+		{"TimeGenerated": ts, "Message": "alpha | beta", "AppRoleName": role},
+		{"TimeGenerated": ts, "Message": "gamma", "AppRoleName": role},
+		{"TimeGenerated": ts, "Message": "alpha | beta", "AppRoleName": "cli-other-role"},
+	})
+	require.NoError(t, err)
+	runCLI(t, azRest("POST", baseURL+"/dataCollectionRules/dcr-1/streams/Custom-Logs", string(rows)))
+
+	queryURL := baseURL + "/v1/workspaces/default/query"
+	query := func(kql string) string {
+		body, err := json.Marshal(map[string]string{"query": kql})
+		require.NoError(t, err)
+		return string(body)
+	}
+	var result struct {
+		Tables []struct {
+			Columns []struct {
+				Name string `json:"name"`
+				Type string `json:"type"`
+			} `json:"columns"`
+			Rows [][]any `json:"rows"`
+		} `json:"tables"`
+	}
+
+	out := runCLI(t, azRest("POST", queryURL,
+		query(`AppTraces | where AppRoleName == "`+role+`" and Message == "alpha | beta" | project Message`)))
+	parseJSON(t, out, &result)
+	require.Len(t, result.Tables, 1)
+	require.Len(t, result.Tables[0].Rows, 1, "and keeps only the row both comparisons match: %s", out)
+	assert.Equal(t, "alpha | beta", result.Tables[0].Rows[0][0])
+
+	out = runCLI(t, azRest("POST", queryURL,
+		query(`AppTraces | where AppRoleName == "`+role+`" and (Message == "gamma" or Message has "beta") | count`)))
+	parseJSON(t, out, &result)
+	require.Len(t, result.Tables[0].Rows, 1)
+	assert.Equal(t, "Count", result.Tables[0].Columns[0].Name)
+	assert.EqualValues(t, 2, result.Tables[0].Rows[0][0], "or matches both of the role's rows: %s", out)
+
+	failure := runCLIExpectFailure(t, azRest("POST", queryURL,
+		query(`AppTraces | where AppRoleName == "x" and`)))
+	assert.Contains(t, failure, "BadArgumentError")
+	assert.Contains(t, failure, "SyntaxError")
 }
