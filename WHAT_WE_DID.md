@@ -528,6 +528,29 @@ share is owned by the first to push it and passes to another on deletion.
 follows the repository format as gcloud's `AddRegistryBaseToRepositoryInfo`
 spells it: `LOCATION-FORMAT.pkg.dev/PROJECT/REPOSITORY`.
 
+Every resumable path Discovery declares is served. The conformance loader and
+the response validator index `mediaUpload.protocols.resumable.path` beside the
+simple path, so the `/resumable/upload/...` routes are checked as Discovery
+methods rather than allowlisted, and a PUT or DELETE is accepted on any media
+path of a method that declares the resumable protocol, the session URI the
+protocol addresses. The session protocol is one module, `media_upload.go`,
+shared by Artifact Registry and BigQuery: a session keyed by its `upload_id`,
+owned by the resource and method it began on, finished by the method's own
+callback. Cloud Storage keeps its own sessions, because they stage bytes in the
+object payload store, but places chunks, answers 308 and builds the session URI
+through the same helpers: `objects.insert` takes sessions on
+`/resumable/upload/storage/v1/b/{bucket}/o`, the session URI echoes the path and
+query the session began on, a `bytes */*` query reports progress, a chunk that
+would leave a gap is refused, and a finished session answers later requests
+with the object's metadata. BigQuery `jobs.insert` runs a load job on its media
+paths, whether the source data arrives in one multipart request or a resumable
+session: it parses CSV (`skipLeadingRows`, `fieldDelimiter`, `nullMarker`,
+`allowJaggedRows`) or newline-delimited JSON (`ignoreUnknownValues`) against the
+table's schema or the job's, honours `createDisposition`, `writeDisposition`
+and `maxBadRecords`, and reports a failed load as a DONE job with an
+`errorResult`. Before, the media path parsed the request body as a JSON Job and
+dropped the bytes.
+
 Compute Engine `instances.start`, `stop`, `suspend`, `resume`, `reset`,
 `startWithEncryptionKey` and `delete` answer at once with a RUNNING zone
 operation, move the instance through STAGING, STOPPING or SUSPENDING, and do

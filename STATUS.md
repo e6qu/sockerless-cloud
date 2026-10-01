@@ -55,8 +55,8 @@ Current state of the sockerless-cloud repository.
   s3-outposts or s3-object-lambda. One route is tested as ungated and says why:
   no vendored document declares an action for the control plane's
   DeleteBucketLifecycleConfiguration.
-- **Google Cloud**: 5,576 of 5,576 Discovery method spellings across 30
-  documents reach a route that names them — 5,522 served and 54 answering a
+- **Google Cloud**: 5,583 of 5,583 Discovery method spellings across 30
+  documents reach a route that names them — 5,529 served and 54 answering a
   declared 501; the gRPC surfaces serve 213 of 216 methods, the three unserved
   each needing state the simulator does not hold.
   Every gRPC service is crossed against its REST door.

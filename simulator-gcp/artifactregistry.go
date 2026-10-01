@@ -491,7 +491,6 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 	files := sim.MakeStore[ARFile](srv.DB(), "ar_files")
 	arFiles = files
 	arFileContents = sim.MakeStore[arFileContent](srv.DB(), "ar_file_contents")
-	arResumableUploads = sim.MakeStore[arResumableUpload](srv.DB(), "ar_resumable_uploads")
 	rules := sim.MakeStore[ARRule](srv.DB(), "ar_rules")
 	attachments := sim.MakeStore[ARAttachment](srv.DB(), "ar_attachments")
 	projectSettings := sim.MakeStore[ARProjectSettings](srv.DB(), "ar_project_settings")
@@ -970,7 +969,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 			return nil, err
 		}
 		if data == nil {
-			return nil, arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "the upload carries no file content")
+			return nil, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "the upload carries no file content")
 		}
 		fileID := req.FileID
 		if fileID == "" {
@@ -985,7 +984,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		if !ok {
 			return
 		}
-		arServeMediaUpload(w, r, repo, "files:upload", true, finishFileUpload)
+		serveMediaUpload(w, r, repo, "files:upload", true, finishFileUpload)
 	}
 	srv.HandleFunc("POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload", uploadFile)
 	srv.HandleFunc("PUT /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload", uploadFile)
@@ -1188,7 +1187,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		finish := func(name string, request, data []byte, contentType string) (any, error) {
 			repo, ok := repos.Get(name)
 			if !ok {
-				return nil, arRefuse(http.StatusNotFound, "NOT_FOUND", "repository %q not found", name)
+				return nil, apiRefuse(http.StatusNotFound, "NOT_FOUND", "repository %q not found", name)
 			}
 			return arFinishArtifactUpload(repo, kind, request, data, contentType)
 		}
@@ -1197,7 +1196,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 			if !ok {
 				return
 			}
-			arServeMediaUpload(w, r, name, kind+":create", kind == "genericArtifacts", finish)
+			serveMediaUpload(w, r, name, kind+":create", kind == "genericArtifacts", finish)
 		}
 	}
 	// The document gives each media method two paths — the /upload/v1 media

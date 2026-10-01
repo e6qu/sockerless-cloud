@@ -65,8 +65,8 @@ import (
 // update both tables together.
 var gcpDeclaredMethodTotals = map[string]int{
 	"apigateway-v1":           60,
-	"artifactregistry-v1":     147,
-	"bigquery-v2":             95,
+	"artifactregistry-v1":     149,
+	"bigquery-v2":             96,
 	"bigtableadmin-v2":        164,
 	"cloudbilling-v1":         56,
 	"cloudbuild-v1":           114,
@@ -92,7 +92,7 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"spanner-v1":              198,
 	"sqladmin-v1":             170,
 	"sqladmin-v1beta4":        170,
-	"storage-v1":              90,
+	"storage-v1":              91,
 	"vpcaccess-v1":            16,
 }
 
@@ -292,10 +292,11 @@ var gcpMethodFloor = map[string]int{
 	// this simulator does not run — there is no export whose status to report.
 	"cloudrun-v2": 119,
 
-	// BigQuery v2: the whole document is served. jobs.insert declares both a
-	// JSON path and the /upload media path that carries a load job's bytes;
-	// the same handler answers both, because the body is the same Job either way.
-	"bigquery-v2": 95,
+	// BigQuery v2: the whole document is served. jobs.insert declares a JSON
+	// path, the /upload media path that carries a load job's bytes, and the
+	// /resumable/upload path apitools begins a resumable session on; the media
+	// paths run the load.
+	"bigquery-v2": 96,
 
 	// Cloud DNS: every documented method is served. The managed-zone IAM
 	// triple (getIamPolicy, setIamPolicy, testIamPermissions) rides the same
@@ -356,7 +357,10 @@ var gcpMethodFloor = map[string]int{
 	// objects.get, whose JSON 404 the probe reads as an answer. Only .insert
 	// looked missing, because POST had no catch-all to swallow it. Check the
 	// siblings of any collection sitting under a multi-segment wildcard.
-	"storage-v1": 90,
+	//
+	// objects.insert counts three spellings: its JSON path, its /upload media
+	// path and its /resumable/upload path.
+	"storage-v1": 91,
 
 	// Artifact Registry: the whole document is served. Raised from 125 by the
 	// prewarmed-artifact family and the plain /v1 spellings of the media
@@ -368,8 +372,10 @@ var gcpMethodFloor = map[string]int{
 	// records the artifact against a stream location with an expiry, check and
 	// remove read and delete that record, list reports it (it previously
 	// answered a hardcoded empty array), and exportArtifact writes the version
-	// into the Cloud Storage bucket the request names.
-	"artifactregistry-v1": 147,
+	// into the Cloud Storage bucket the request names. files.upload and
+	// genericArtifacts.upload declare a /resumable/upload path too, counted
+	// as two more spellings.
+	"artifactregistry-v1": 149,
 
 	// Cloud Build: the whole document is served. Raised from 86 by the
 	// regional build create, builds.retry and .approve, triggers.run and

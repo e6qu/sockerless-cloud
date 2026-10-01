@@ -6,11 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"mime"
-	"mime/multipart"
 	"net/http"
 	"net/url"
 	"path"
@@ -126,65 +122,6 @@ func arRecordVersion(repo, packageID, versionID string) (ARVersion, bool) {
 	return version, created
 }
 
-// arRequestError is a refusal with the status and code the API answers it with.
-type arRequestError struct {
-	status  int
-	code    string
-	message string
-}
-
-func (e *arRequestError) Error() string { return e.message }
-
-func arRefuse(status int, code, format string, args ...any) error {
-	return &arRequestError{status: status, code: code, message: fmt.Sprintf(format, args...)}
-}
-
-func arWriteError(w http.ResponseWriter, err error) {
-	var refusal *arRequestError
-	if errors.As(err, &refusal) {
-		GCPError(w, refusal.status, refusal.message, refusal.code)
-		return
-	}
-	GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
-}
-
-// arReadMediaUpload reads a media method's request message and its bytes. The
-// Discovery document declares the simple protocol with multipart, so the bytes
-// come as a multipart/related body whose first part is the request message and
-// whose second is the media (uploadType=multipart), or alone on the /upload
-// path (uploadType=media). The plain /v1 path carries the message and no bytes.
-func arReadMediaUpload(r *http.Request) (request, data []byte, contentType string, err error) {
-	mediaType, params, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if mediaType == "multipart/related" {
-		parts := multipart.NewReader(r.Body, params["boundary"])
-		meta, err := parts.NextPart()
-		if err != nil {
-			return nil, nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload's request part: %v", err)
-		}
-		request, err := io.ReadAll(meta)
-		if err != nil {
-			return nil, nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload's request part: %v", err)
-		}
-		media, err := parts.NextPart()
-		if err != nil {
-			return nil, nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload's media part: %v", err)
-		}
-		data, err := io.ReadAll(media)
-		if err != nil {
-			return nil, nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload's media part: %v", err)
-		}
-		return request, data, media.Header.Get("Content-Type"), nil
-	}
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, nil, "", arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "read the upload body: %v", err)
-	}
-	if strings.HasPrefix(r.URL.Path, "/upload/") {
-		return nil, body, r.Header.Get("Content-Type"), nil
-	}
-	return body, nil, "", nil
-}
-
 // arDecodeUploadRequest parses an upload's request message; an absent one
 // leaves every member unset.
 func arDecodeUploadRequest(request []byte, into any) error {
@@ -192,7 +129,7 @@ func arDecodeUploadRequest(request []byte, into any) error {
 		return nil
 	}
 	if err := json.Unmarshal(request, into); err != nil {
-		return arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request message: %v", err)
+		return apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request message: %v", err)
 	}
 	return nil
 }
@@ -209,7 +146,7 @@ var arArtifactFormats = map[string]string{
 
 func arCheckFormat(repo Repository, kind string) error {
 	if want := arArtifactFormats[kind]; repo.Format != want {
-		return arRefuse(http.StatusBadRequest, "FAILED_PRECONDITION",
+		return apiRefuse(http.StatusBadRequest, "FAILED_PRECONDITION",
 			"repository %q has format %s; %s publish to %s repositories", repo.Name, repo.Format, kind, want)
 	}
 	return nil
@@ -236,7 +173,7 @@ func arFinishArtifactUpload(repo Repository, kind string, request, data []byte, 
 		return nil, err
 	}
 	if len(data) == 0 {
-		return nil, arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "the upload carries no artifact content")
+		return nil, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "the upload carries no artifact content")
 	}
 	arPublishMu.Lock()
 	var response any
@@ -281,21 +218,21 @@ var (
 func arPublishGeneric(repo string, req arUploadRequest, data []byte, contentType string) (any, error) {
 	switch {
 	case !arGenericPackageID.MatchString(req.PackageID) || len(req.PackageID) > 256:
-		return nil, arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "packageId %q is not a valid package ID", req.PackageID)
+		return nil, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "packageId %q is not a valid package ID", req.PackageID)
 	case !arGenericVersionID.MatchString(req.VersionID) || len(req.VersionID) > 128:
-		return nil, arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "versionId %q is not a valid version ID", req.VersionID)
+		return nil, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "versionId %q is not a valid version ID", req.VersionID)
 	case req.VersionID == "latest":
-		return nil, arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "a version called latest is not allowed")
+		return nil, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "a version called latest is not allowed")
 	case !arGenericFilename.MatchString(req.Filename):
-		return nil, arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "filename %q is not a valid file name", req.Filename)
+		return nil, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "filename %q is not a valid file name", req.Filename)
 	}
 	fileID := req.PackageID + ":" + req.VersionID + ":" + req.Filename
 	if _, exists := arFiles.Get(arFileName(repo, fileID)); exists {
-		return nil, arRefuse(http.StatusConflict, "ALREADY_EXISTS", "file %q already exists", arFileName(repo, fileID))
+		return nil, apiRefuse(http.StatusConflict, "ALREADY_EXISTS", "file %q already exists", arFileName(repo, fileID))
 	}
 	versionName := repo + "/packages/" + url.PathEscape(req.PackageID) + "/versions/" + url.PathEscape(req.VersionID)
 	if _, exists := arVersions.Get(versionName); exists && len(req.VersionAnnotations) > 0 {
-		return nil, arRefuse(http.StatusBadRequest, "FAILED_PRECONDITION",
+		return nil, apiRefuse(http.StatusBadRequest, "FAILED_PRECONDITION",
 			"version %q already exists, so versionAnnotations cannot be applied", versionName)
 	}
 	version, created := arRecordVersion(repo, req.PackageID, req.VersionID)
@@ -317,11 +254,11 @@ func arPublishGeneric(repo string, req arUploadRequest, data []byte, contentType
 func arPublishGoModule(repo string, data []byte, contentType string) (any, error) {
 	module, err := arParseGoModuleZip(data)
 	if err != nil {
-		return nil, arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		return nil, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 	}
 	versionName := repo + "/packages/" + url.PathEscape(module.Path) + "/versions/" + url.PathEscape(module.Version)
 	if _, exists := arVersions.Get(versionName); exists {
-		return nil, arRefuse(http.StatusConflict, "ALREADY_EXISTS", "module %s@%s already exists", module.Path, module.Version)
+		return nil, apiRefuse(http.StatusConflict, "ALREADY_EXISTS", "module %s@%s already exists", module.Path, module.Version)
 	}
 	version, _ := arRecordVersion(repo, module.Path, module.Version)
 	base := arGoEscapePath(module.Path) + "/@v/" + module.Version
@@ -341,7 +278,7 @@ func arPublishGoModule(repo string, data []byte, contentType string) (any, error
 func arPublishKfp(repo string, req arUploadRequest, data []byte, contentType string) (any, error) {
 	pipeline, err := arParseKfp(data)
 	if err != nil {
-		return nil, arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		return nil, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 	}
 	version, _ := arRecordVersion(repo, pipeline.Name, pipeline.Digest)
 	if req.Description != "" {
@@ -373,7 +310,7 @@ var arPackageParsers = map[string]func([]byte) (arPackageArtifact, error){
 func arPublishPackage(repo, kind string, data []byte, contentType string) (map[string]any, error) {
 	parsed, err := arPackageParsers[kind](data)
 	if err != nil {
-		return nil, arRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		return nil, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 	}
 	if _, exists := arFiles.Get(arFileName(repo, parsed.FileName)); exists {
 		return nil, nil
@@ -410,7 +347,7 @@ func arHandleArtifactImport(w http.ResponseWriter, r *http.Request, repo Reposit
 		return
 	}
 	if err := arCheckFormat(repo, kind); err != nil {
-		arWriteError(w, err)
+		writeAPIError(w, err)
 		return
 	}
 	if req.GcsSource == nil || len(req.GcsSource.URIs) == 0 {

@@ -275,9 +275,14 @@ func registerBigQuery(srv *sim.Server) {
 
 	srv.HandleFunc("POST /bigquery/v2/projects/{project}/queries", handleBQQuery)
 	srv.HandleFunc("POST /bigquery/v2/projects/{project}/jobs", handleBQInsertJob)
-	// jobs.insert also rides the media /upload path, which is how a load job
-	// carries its bytes; the JSON body is the same Job resource either way.
-	srv.HandleFunc("POST /upload/bigquery/v2/projects/{project}/jobs", handleBQInsertJob)
+	// jobs.insert also rides the media paths, which is how a load job carries
+	// its source data.
+	srv.HandleFunc("POST /upload/bigquery/v2/projects/{project}/jobs", handleBQUploadJob)
+	srv.HandleFunc("PUT /upload/bigquery/v2/projects/{project}/jobs", handleBQUploadJob)
+	srv.HandleFunc("DELETE /upload/bigquery/v2/projects/{project}/jobs", handleBQUploadJob)
+	srv.HandleFunc("POST /resumable/upload/bigquery/v2/projects/{project}/jobs", handleBQUploadJob)
+	srv.HandleFunc("PUT /resumable/upload/bigquery/v2/projects/{project}/jobs", handleBQUploadJob)
+	srv.HandleFunc("DELETE /resumable/upload/bigquery/v2/projects/{project}/jobs", handleBQUploadJob)
 	srv.HandleFunc("GET /bigquery/v2/projects/{project}/jobs", handleBQListJobs)
 	srv.HandleFunc("GET /bigquery/v2/projects/{project}/jobs/{job}", handleBQGetJob)
 	srv.HandleFunc("POST /bigquery/v2/projects/{project}/jobs/{job}/cancel", handleBQCancelJob)
