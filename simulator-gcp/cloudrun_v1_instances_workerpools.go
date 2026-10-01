@@ -401,7 +401,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 				"instance %q already exists in namespace %q", body.Metadata.Name, namespace)
 			return
 		}
-		instance := seedInstanceV2Defaults(cloudRunV1InstanceToV2(body), r.Host, namespace, cloudRunDefaultLocation, body.Metadata.Name)
+		instance := seedInstanceV2Defaults(cloudRunV1InstanceToV2(body), namespace, cloudRunDefaultLocation, body.Metadata.Name)
 		instance.Etag = sim.NewUUID()
 		if !dryRun {
 			crv2Instances.Put(name, instance)

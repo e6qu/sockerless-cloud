@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/moby/moby/client"
 )
 
 const volumeSnapshotTestImage = "public.ecr.aws/docker/library/alpine:3.22"
@@ -168,4 +170,91 @@ func readVolumeSnapshotTestFiles(t *testing.T, volume string) []int {
 		values[k] = value
 	}
 	return values
+}
+
+// A command into a container a capture holds frozen waits for the thaw and
+// then runs, and a capture waits out a command that holds the container
+// thawed.
+func TestHoldThawedWaitsOutAFreeze(t *testing.T) {
+	InitDocker("aws", true, t.TempDir())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	engine, err := StartContainerSync(ContainerConfig{
+		Image:             volumeSnapshotTestImage,
+		Architecture:      "linux/" + runtime.GOARCH,
+		Command:           []string{"sleep"},
+		Args:              []string{"600"},
+		Name:              "sockerless-sim-thaw-engine-" + strconv.FormatInt(time.Now().UnixNano(), 10),
+		Timeout:           5 * time.Minute,
+		CancelGracePeriod: time.Second,
+	}, &volumeSnapshotSink{})
+	if err != nil {
+		t.Fatalf("start engine: %v", err)
+	}
+	t.Cleanup(func() {
+		engine.Cancel()
+		_ = engine.Wait()
+	})
+	id := engine.ContainerID
+
+	if err := holdVolumeFreeze(ctx, id); err != nil {
+		t.Fatalf("freeze: %v", err)
+	}
+	if _, err := dockerClient.ExecCreate(ctx, id, client.ExecCreateOptions{Cmd: []string{"true"}}); err == nil {
+		t.Fatal("the Docker Engine created an exec in a paused container")
+	}
+	expired, expire := context.WithCancel(ctx)
+	expire()
+	if _, err := HoldThawed(expired, id); err == nil {
+		t.Fatal("HoldThawed returned while a capture held the container frozen")
+	}
+
+	type outcome struct {
+		paused bool
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		release, err := HoldThawed(ctx, id)
+		if err != nil {
+			done <- outcome{err: err}
+			return
+		}
+		defer release()
+		inspected, err := dockerClient.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+		if err != nil {
+			done <- outcome{err: err}
+			return
+		}
+		_, err = dockerClient.ExecCreate(ctx, id, client.ExecCreateOptions{Cmd: []string{"true"}})
+		done <- outcome{paused: inspected.Container.State.Paused, err: err}
+	}()
+	if err := releaseVolumeFreeze(id); err != nil {
+		t.Fatalf("thaw: %v", err)
+	}
+	result := <-done
+	if result.err != nil || result.paused {
+		t.Fatalf("command after the thaw: paused %v, err %v", result.paused, result.err)
+	}
+
+	release, err := HoldThawed(ctx, id)
+	if err != nil {
+		t.Fatalf("hold thawed: %v", err)
+	}
+	frozen := make(chan error, 1)
+	go func() { frozen <- holdVolumeFreeze(ctx, id) }()
+	inspected, err := dockerClient.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+	if err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	if inspected.Container.State.Paused {
+		t.Fatal("a capture froze a container a command held thawed")
+	}
+	release()
+	if err := <-frozen; err != nil {
+		t.Fatalf("freeze after the command: %v", err)
+	}
+	if err := releaseVolumeFreeze(id); err != nil {
+		t.Fatalf("thaw: %v", err)
+	}
 }

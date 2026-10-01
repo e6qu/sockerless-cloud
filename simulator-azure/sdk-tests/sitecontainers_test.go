@@ -138,8 +138,7 @@ func TestSDK_AzureFunctions_MultiContainerSharesLocalhost(t *testing.T) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "invoke should succeed: %s", string(body))
-	assert.Equal(t, "0", resp.Header.Get("X-Sockerless-Exit-Code"), "probe should reach the sidecar over localhost: %s", string(body))
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "main should reach the sidecar over localhost: %s", string(body))
 	assert.Contains(t, string(body), "azf-sidecar-ok",
 		"main must reach the sidecar on localhost:9090 over the shared netns")
 }

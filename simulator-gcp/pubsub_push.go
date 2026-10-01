@@ -147,7 +147,7 @@ func psPush(ctx context.Context, subName string, d psDelivered) bool {
 		header.Set("Authorization", "Bearer "+signServiceAccountIDToken(oidc.ServiceAccountEmail, audience, true, now, now.Add(time.Hour)))
 	}
 	req := delivery.Request{URL: sub.PushConfig.PushEndpoint, Header: header, Body: body, Timeout: psPushAckDeadline(sub)}
-	outcome := delivery.Post(ctx, req, psPushAckCode)
+	outcome := deliverPush(ctx, req, psPushAckCode)
 	if ctx.Err() != nil {
 		// The server is stopping; the lease runs out and a restarted
 		// simulator redelivers the message.

@@ -14,18 +14,22 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// registerAppServiceFrontEnd implements the App Service front end for a site
-// that runs a container: a request whose Host is one of the site's hostnames
-// goes to the site's container on its port, verbatim, after the container is
-// started if none is running. The simulator serves every site on its one
-// endpoint, so it dispatches on the Host header, as Container Apps ingress
-// does.
+// registerAppServiceFrontEnd implements the App Service front end: a request
+// whose Host is one of a site's hostnames goes to the site's container on its
+// port, verbatim, after the container is started if none is running. The
+// simulator serves every site on its one endpoint, so it dispatches on the
+// Host header, as Container Apps ingress does. A site the simulator has
+// nothing to run for answers 503 naming what it lacks.
 func registerAppServiceFrontEnd(srv *sim.Server) {
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			site, ok := appServiceSiteByHost(r.Host)
-			if !ok || !siteRunsContainer(&site) {
+			if !ok {
 				next.ServeHTTP(w, r)
+				return
+			}
+			if !siteRunsContainer(&site) {
+				AzureErrorf(w, "ServiceUnavailable", http.StatusServiceUnavailable, "%v", siteImageMissing(&site))
 				return
 			}
 			serveSiteRequest(w, r, &site)

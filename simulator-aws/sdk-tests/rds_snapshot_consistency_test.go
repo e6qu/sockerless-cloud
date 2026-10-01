@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -203,4 +204,86 @@ func TestRDS_SnapshotUnderWriteLoadIsOnePointInTime(t *testing.T) {
 	assert.GreaterOrEqual(t, high, beforeSnapshot, "the capture holds every transaction committed before CreateDBSnapshot")
 	assert.Equal(t, high, credited, "each captured transaction's credit is in the capture, and no other")
 	assert.Equal(t, opening-high, debited, "each captured transaction's debit is in the capture, and no other")
+}
+
+// A master-password change issued alongside an Amazon RDS snapshot takes
+// effect whichever of the two reaches the engine first — the change waits out
+// the capture's brief I/O suspension, or the capture waits for the change —
+// and the snapshot still completes.
+func TestRDS_MasterPasswordChangeDuringSnapshot(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	c := rdsClient()
+	const (
+		instanceID      = "rds-snapshot-password-source"
+		snapshotID      = "rds-snapshot-password-snap"
+		username        = "dbadmin"
+		initialPassword = "MasterPassword-123!"
+		rotatedPassword = "DuringSnapshot-456!"
+		database        = "application"
+	)
+	_, err := c.CreateDBInstance(testContext, &rds.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String(instanceID),
+		DBInstanceClass:      aws.String("db.t3.micro"),
+		Engine:               aws.String("postgres"),
+		AllocatedStorage:     aws.Int32(20),
+		MasterUsername:       aws.String(username),
+		MasterUserPassword:   aws.String(initialPassword),
+		DBName:               aws.String(database),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteDBInstance(context.Background(), &rds.DeleteDBInstanceInput{
+			DBInstanceIdentifier: aws.String(instanceID), SkipFinalSnapshot: aws.Bool(true),
+		})
+	})
+	described, err := rds.NewDBInstanceAvailableWaiter(c, func(o *rds.DBInstanceAvailableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(testContext, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(instanceID)}, 3*time.Minute)
+	require.NoError(t, err)
+	endpoint := described.DBInstances[0].Endpoint
+	connect := func(password string) (*pgx.Conn, error) {
+		config, err := pgx.ParseConfig(fmt.Sprintf("postgres://%s@%s:%d/%s?sslmode=require",
+			username, aws.ToString(endpoint.Address), aws.ToInt32(endpoint.Port), database))
+		require.NoError(t, err)
+		config.Password = password
+		config.TLSConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} // test-only CA coordinate
+		return pgx.ConnectConfig(testContext, config)
+	}
+	initial, err := connect(initialPassword)
+	require.NoError(t, err)
+	require.NoError(t, initial.Close(testContext))
+
+	_, err = c.CreateDBSnapshot(testContext, &rds.CreateDBSnapshotInput{
+		DBSnapshotIdentifier: aws.String(snapshotID),
+		DBInstanceIdentifier: aws.String(instanceID),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteDBSnapshot(context.Background(), &rds.DeleteDBSnapshotInput{
+			DBSnapshotIdentifier: aws.String(snapshotID),
+		})
+	})
+	_, err = c.ModifyDBInstance(testContext, &rds.ModifyDBInstanceInput{
+		DBInstanceIdentifier: aws.String(instanceID),
+		MasterUserPassword:   aws.String(rotatedPassword),
+		ApplyImmediately:     aws.Bool(true),
+	})
+	require.NoError(t, err, "a password change during a snapshot waits for the capture's I/O suspension to end")
+
+	rotated, err := connect(rotatedPassword)
+	require.NoError(t, err, "the rotated master password authenticates")
+	var one int
+	require.NoError(t, rotated.QueryRow(testContext, `SELECT 1`).Scan(&one))
+	require.NoError(t, rotated.Close(testContext))
+	_, err = connect(initialPassword)
+	var refusal *pgconn.PgError
+	require.ErrorAs(t, err, &refusal, "the previous master password stops authenticating")
+	require.Equal(t, "28P01", refusal.Code, "PostgreSQL refuses the previous password as invalid_password")
+
+	require.NoError(t, rds.NewDBSnapshotAvailableWaiter(c, func(o *rds.DBSnapshotAvailableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(testContext, &rds.DescribeDBSnapshotsInput{DBSnapshotIdentifier: aws.String(snapshotID)}, 3*time.Minute))
 }

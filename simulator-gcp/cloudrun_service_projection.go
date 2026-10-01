@@ -140,7 +140,7 @@ func cloudRunV2ToV1(service ServiceV2, project, serviceID string) CRService {
 	}
 	url := service.URI
 	if url == "" {
-		url = fmt.Sprintf("https://%s-%s-%s.a.run.app", serviceID, project, location)
+		url = cloudRunServiceURI(project, location, serviceID)
 	}
 	return CRService{
 		APIVersion: "serving.knative.dev/v1",
@@ -168,7 +168,7 @@ func cloudRunV1ToV2(service CRService, project, location string) ServiceV2 {
 		created = nowTimestamp()
 	}
 	revision := serviceID + "-00001"
-	uri := fmt.Sprintf("https://%s-%s-%s.a.run.app", serviceID, project, location)
+	uri := cloudRunServiceURI(project, location, serviceID)
 	if service.Status != nil {
 		if service.Status.LatestReadyRevisionName != "" {
 			revision = service.Status.LatestReadyRevisionName

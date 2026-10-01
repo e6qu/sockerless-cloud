@@ -93,7 +93,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "instance %q already exists", name)
 			return
 		}
-		inst = seedInstanceV2Defaults(inst, r.Host, project, location, instanceID)
+		inst = seedInstanceV2Defaults(inst, project, location, instanceID)
 		inst.Etag = sim.NewUUID()
 		instances.Put(name, inst)
 		lro := cloudRunLRO(project, location, inst, instType)
@@ -309,7 +309,7 @@ func instanceIAM(w http.ResponseWriter, r *http.Request, instances sim.Store[Ins
 	handleResourceIAM(w, r, gcpResourceIAMStore(), name, action)
 }
 
-func seedInstanceV2Defaults(inst InstanceV2, host, project, location, instanceID string) InstanceV2 {
+func seedInstanceV2Defaults(inst InstanceV2, project, location, instanceID string) InstanceV2 {
 	now := nowTimestamp()
 	inst.Name = fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, instanceID)
 	inst.UID = sim.NewUUID()
@@ -329,7 +329,7 @@ func seedInstanceV2Defaults(inst InstanceV2, host, project, location, instanceID
 		{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
 	}
 	if !inst.DefaultUriDisabled {
-		inst.URLs = []string{fmt.Sprintf("http://%s/v2-services-invoke/%s/%s/%s", host, project, location, instanceID)}
+		inst.URLs = []string{cloudRunServiceURI(project, location, instanceID)}
 	}
 	return inst
 }

@@ -144,38 +144,6 @@ func appTraceMessages(t *testing.T, siteName string) []string {
 	return out
 }
 
-func TestAzureFunctions_InvokeInjectsLogEntries(t *testing.T) {
-	rg, name := "func-log-rg", "log-func-app"
-	azureCreateSite(t, rg, name)
-	defer azureDeleteSite(rg, name)
-
-	azureInvokeFunction(t, name)
-
-	kql := `AppTraces | where AppRoleName == "log-func-app"`
-	result := queryWorkspace(t, "default", kql)
-
-	require.Len(t, result.Tables, 1)
-	table := result.Tables[0]
-	require.GreaterOrEqual(t, len(table.Rows), 1, "should have at least one log entry from invocation")
-
-	msgIdx := -1
-	roleIdx := -1
-	for i, col := range table.Columns {
-		if col.Name == "Message" {
-			msgIdx = i
-		}
-		if col.Name == "AppRoleName" {
-			roleIdx = i
-		}
-	}
-	require.GreaterOrEqual(t, msgIdx, 0, "Message column not found")
-	require.GreaterOrEqual(t, roleIdx, 0, "AppRoleName column not found")
-
-	lastRow := table.Rows[len(table.Rows)-1]
-	assert.Equal(t, "Function invoked", lastRow[msgIdx])
-	assert.Equal(t, "log-func-app", lastRow[roleIdx])
-}
-
 // The startup command (siteConfig.appCommandLine) is the container's command,
 // and the image's own entrypoint runs it: container-command's ENTRYPOINT is
 // the binary, and "serve 80 …" are its arguments. The request reaches the
@@ -265,7 +233,7 @@ func TestAzureFunctions_ContainerOutputReachesAppTraces(t *testing.T) {
 
 func TestAzureFunctions_DefaultHostNameReachability(t *testing.T) {
 	rg, name := "func-host-rg", "host-func-app"
-	azureCreateSite(t, rg, name)
+	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 reached-by-hostname", nil)
 	defer azureDeleteSite(rg, name)
 
 	// Get function app to extract DefaultHostName
@@ -295,8 +263,11 @@ func TestAzureFunctions_DefaultHostNameReachability(t *testing.T) {
 	invokeResp, err := http.DefaultClient.Do(invokeReq)
 	require.NoError(t, err)
 	defer invokeResp.Body.Close()
+	invokeBody, err := io.ReadAll(invokeResp.Body)
+	require.NoError(t, err)
 
 	assert.Equal(t, http.StatusOK, invokeResp.StatusCode)
+	assert.Equal(t, "reached-by-hostname", string(invokeBody))
 }
 
 func TestSDK_Functions_CreateAndGet(t *testing.T) {

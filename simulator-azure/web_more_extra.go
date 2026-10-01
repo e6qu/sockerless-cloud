@@ -181,7 +181,8 @@ func registerWebSlotCRUD(srv *sim.Server) {
 	srv.HandleFunc("PUT "+base+"/slots/{slot}", func(w http.ResponseWriter, r *http.Request) {
 		siteID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s",
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "siteName"))
-		if _, ok := azfSites.Get(siteID); !ok {
+		parent, ok := azfSites.Get(siteID)
+		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' was not found.", sim.PathParam(r, "siteName"))
 			return
@@ -194,9 +195,10 @@ func registerWebSlotCRUD(srv *sim.Server) {
 		name := sim.PathParam(r, "siteName")
 		slot := sim.PathParam(r, "slot")
 		resourceID := webResourceID(r)
+		// A slot is a deployment of its app, so it is the app's kind.
 		kind := req.Kind
 		if kind == "" {
-			kind = "functionapp"
+			kind = parent.Kind
 		}
 		host := name + "-" + slot + ".azurewebsites.net"
 		siteConfig := req.Properties.SiteConfig
@@ -211,18 +213,19 @@ func registerWebSlotCRUD(srv *sim.Server) {
 			Location: req.Location,
 			Tags:     req.Tags,
 			Properties: SiteProperties{
-				State:            "Running",
-				DefaultHostName:  host,
-				HostNames:        []string{host},
-				Enabled:          true,
-				EnabledHostNames: []string{host, name + "-" + slot + ".scm.azurewebsites.net"},
-				ServerFarmID:     req.Properties.ServerFarmID,
-				SKU:              webPlanSKUFor(req.Properties.ServerFarmID),
-				Reserved:         req.Properties.Reserved,
-				SiteConfig:       siteConfig,
-				ResourceGroup:    sim.PathParam(r, "resourceGroupName"),
-				LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
-				HTTPSOnly:        req.Properties.HTTPSOnly,
+				State:             "Running",
+				DefaultHostName:   host,
+				HostNames:         []string{host},
+				Enabled:           true,
+				EnabledHostNames:  []string{host, name + "-" + slot + ".scm.azurewebsites.net"},
+				HostNameSslStates: siteHostNameSslStates(host, name+"-"+slot+".scm.azurewebsites.net"),
+				ServerFarmID:      req.Properties.ServerFarmID,
+				SKU:               webPlanSKUFor(req.Properties.ServerFarmID),
+				Reserved:          req.Properties.Reserved,
+				SiteConfig:        siteConfig,
+				ResourceGroup:     sim.PathParam(r, "resourceGroupName"),
+				LastModifiedTime:  time.Now().UTC().Format(time.RFC3339),
+				HTTPSOnly:         req.Properties.HTTPSOnly,
 			},
 		}
 		webSlots.Put(resourceID, slotSite)

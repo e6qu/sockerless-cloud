@@ -1041,6 +1041,11 @@ jobs:
           - suite: aws Amazon RDS snapshot
             cloud: aws
             tf_packages: "./rds-snapshot ./rds-cluster-snapshot"
+            # The two stacks start their own simulator and gateway on ports
+            # they reserve, and spend most of their time in the provider's
+            # RDS status waits, so they run side by side rather than one
+            # after the other against the job's budget.
+            tf_parallelism: 2
             timeout_minutes: 14
           - suite: aws AWS Certificate Manager validation
             cloud: aws
@@ -1163,7 +1168,8 @@ jobs:
           if [ "${{ matrix.cloud }}" = "aws" ]; then
             sudo env "PATH=$PATH" "HOME=$HOME" \
               SOCKERLESS_SPEC_VALIDATE="$SOCKERLESS_SPEC_VALIDATE" SOCKERLESS_SPEC_DIR="$SOCKERLESS_SPEC_DIR" \
-              make terraform-https-test TERRAFORM_TEST_TIMEOUT=600s TERRAFORM_TEST_PACKAGES="${{ matrix.tf_packages }}"
+              make terraform-https-test TERRAFORM_TEST_TIMEOUT=600s TERRAFORM_TEST_PACKAGES="${{ matrix.tf_packages }}" \
+                TERRAFORM_TEST_PACKAGE_PARALLELISM="${{ matrix.tf_parallelism || 1 }}"
           elif [ "${{ matrix.cloud }}" = "azure" ]; then
             sudo env "PATH=$PATH" "HOME=$HOME" \
               SOCKERLESS_SPEC_VALIDATE="$SOCKERLESS_SPEC_VALIDATE" SOCKERLESS_SPEC_DIR="$SOCKERLESS_SPEC_DIR" \

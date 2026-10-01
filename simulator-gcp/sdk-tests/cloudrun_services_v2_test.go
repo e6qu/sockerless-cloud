@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -300,13 +301,9 @@ func TestSDK_CloudRunV2Services_MultiContainerSharesLocalhost(t *testing.T) {
 	require.NotEmpty(t, svc.Uri)
 	cleanupService(t, client, svc.Name)
 
-	resp, err := http.Post(svc.Uri, "application/json", strings.NewReader("{}"))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode, "body=%q", body)
-	assert.Equal(t, "cloudrun-sidecar-ok", string(body), "Cloud Run Service main must reach sidecar on localhost")
+	status, _, body := invokeService(t, http.DefaultClient, svc.Uri, http.MethodPost, "/", "{}")
+	require.Equal(t, http.StatusOK, status, "body=%q", body)
+	assert.Equal(t, "cloudrun-sidecar-ok", body, "Cloud Run Service main must reach sidecar on localhost")
 }
 
 func TestSDK_CloudRunV2Services_ForwardsRequestPath(t *testing.T) {
@@ -324,13 +321,159 @@ func TestSDK_CloudRunV2Services_ForwardsRequestPath(t *testing.T) {
 	require.NoError(t, err)
 	cleanupService(t, client, svc.Name)
 
-	resp, err := http.Post(svc.Uri+"/_sockerless/ready?source=sdk", "application/json", nil)
+	u, err := url.Parse(svc.Uri)
+	require.NoError(t, err)
+	assert.Equal(t, "https", u.Scheme)
+	assert.True(t, strings.HasPrefix(u.Host, svc.Name[strings.LastIndex(svc.Name, "/")+1:]+"-"), "the run.app host starts with the service name: %s", u.Host)
+	assert.True(t, strings.HasSuffix(u.Host, "-us-central1.a.run.app"), "the service is served on run.app: %s", u.Host)
+
+	status, _, body := invokeService(t, http.DefaultClient, svc.Uri, http.MethodPut, "/items/7?source=sdk", "")
+	require.Equal(t, http.StatusOK, status, "body=%q", body)
+	assert.Equal(t, "PUT /items/7?source=sdk", body)
+}
+
+// invokeService sends a request to a Cloud Run service's URL. The request is
+// addressed to the service's run.app host; the simulator's endpoint is where
+// it connects, the coordinate a resolver gives a real client.
+func invokeService(t *testing.T, client *http.Client, uri, method, path, body string) (int, http.Header, string) {
+	t.Helper()
+	u, err := url.Parse(uri)
+	require.NoError(t, err)
+	var reader io.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, baseURL+path, reader)
+	require.NoError(t, err)
+	req.Host = u.Host
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := client.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, "POST /_sockerless/ready?source=sdk", string(body))
+	return resp.StatusCode, resp.Header, string(data)
+}
+
+func createInvokableService(t *testing.T, client *run.ServicesClient, prefix string, service *runpb.Service) *runpb.Service {
+	t.Helper()
+	op, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
+		Parent:    "projects/test-project/locations/us-central1",
+		ServiceId: uniqueName(prefix),
+		Service:   service,
+	})
+	require.NoError(t, err)
+	svc, err := op.Wait(ctx)
+	require.NoError(t, err)
+	cleanupService(t, client, svc.Name)
+	return svc
+}
+
+// Cloud Run hands the caller whatever the container answered: its status,
+// its headers and its body.
+func TestSDK_CloudRunV2Services_PassesTheContainersAnswerThrough(t *testing.T) {
+	client := newServicesClient(t)
+	svc := createInvokableService(t, client, "v2-svc-teapot", &runpb.Service{
+		Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{
+			Image: httpProbeImageName,
+			Args:  []string{"teapot"},
+		}}},
+	})
+
+	status, header, body := invokeService(t, http.DefaultClient, svc.Uri, http.MethodGet, "/", "")
+	assert.Equal(t, http.StatusTeapot, status)
+	assert.Equal(t, "teapot", header.Get("X-Workload"))
+	assert.Equal(t, "short and stout", body)
+}
+
+// A configured HTTP startup probe gates the instance: traffic reaches the
+// container once the probe's GET answers 2xx.
+func TestSDK_CloudRunV2Services_HTTPStartupProbeAdmitsTraffic(t *testing.T) {
+	client := newServicesClient(t)
+	svc := createInvokableService(t, client, "v2-svc-http-probe", &runpb.Service{
+		Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{
+			Image: httpProbeImageName,
+			Args:  []string{"echo-request"},
+			Ports: []*runpb.ContainerPort{{ContainerPort: 8080}},
+			StartupProbe: &runpb.Probe{
+				PeriodSeconds:    1,
+				TimeoutSeconds:   1,
+				FailureThreshold: 10,
+				ProbeType: &runpb.Probe_HttpGet{HttpGet: &runpb.HTTPGetAction{
+					Path: "/healthz",
+				}},
+			},
+		}}},
+	})
+
+	status, _, body := invokeService(t, http.DefaultClient, svc.Uri, http.MethodGet, "/hello", "")
+	require.Equal(t, http.StatusOK, status, "body=%q", body)
+	assert.Equal(t, "GET /hello", body)
+}
+
+// A startup probe that keeps failing fails the instance, and the request it
+// was started for gets 503 instead of reaching the container.
+func TestSDK_CloudRunV2Services_FailingStartupProbeAnswers503(t *testing.T) {
+	client := newServicesClient(t)
+	cases := map[string]*runpb.Probe{
+		// The teapot answers every GET with 418, which is not a success.
+		"http": {
+			PeriodSeconds: 1, TimeoutSeconds: 1, FailureThreshold: 2,
+			ProbeType: &runpb.Probe_HttpGet{HttpGet: &runpb.HTTPGetAction{Path: "/ready"}},
+		},
+		// Nothing in the container listens on 9999.
+		"tcp": {
+			PeriodSeconds: 1, TimeoutSeconds: 1, FailureThreshold: 2,
+			ProbeType: &runpb.Probe_TcpSocket{TcpSocket: &runpb.TCPSocketAction{Port: 9999}},
+		},
+	}
+	for name, probe := range cases {
+		t.Run(name, func(t *testing.T) {
+			svc := createInvokableService(t, client, "v2-svc-bad-probe-"+name, &runpb.Service{
+				Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{
+					Image:        httpProbeImageName,
+					Args:         []string{"teapot"},
+					StartupProbe: probe,
+				}}},
+			})
+			status, _, body := invokeService(t, http.DefaultClient, svc.Uri, http.MethodGet, "/", "")
+			assert.Equal(t, http.StatusServiceUnavailable, status, "body=%q", body)
+			assert.NotContains(t, body, "short and stout", "the request must not reach a container whose startup probe failed")
+		})
+	}
+}
+
+// A private service refuses a request without a credential; one whose invoker
+// IAM check is disabled admits it.
+func TestSDK_CloudRunV2Services_InvokerAuthentication(t *testing.T) {
+	client := newServicesClient(t)
+	anonymous := &http.Client{}
+
+	private := createInvokableService(t, client, "v2-svc-private", &runpb.Service{
+		Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{
+			Image: httpProbeImageName, Args: []string{"echo-request"},
+		}}},
+	})
+	status, _, _ := invokeService(t, anonymous, private.Uri, http.MethodGet, "/", "")
+	assert.Equal(t, http.StatusForbidden, status)
+
+	public := createInvokableService(t, client, "v2-svc-public", &runpb.Service{
+		InvokerIamDisabled: true,
+		Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{
+			Image: httpProbeImageName, Args: []string{"echo-request"},
+		}}},
+	})
+	status, _, body := invokeService(t, anonymous, public.Uri, http.MethodGet, "/open", "")
+	assert.Equal(t, http.StatusOK, status, "body=%q", body)
+	assert.Equal(t, "GET /open", body)
+}
+
+// A run.app host that names no service is not found.
+func TestSDK_CloudRunV2Services_UnknownHostIsNotFound(t *testing.T) {
+	status, _, _ := invokeService(t, http.DefaultClient, "https://no-such-service-abcdefghij-us-central1.a.run.app", http.MethodGet, "/", "")
+	assert.Equal(t, http.StatusNotFound, status)
 }
 
 func TestSDK_CloudRunV2Services_UpdateBumpsGeneration(t *testing.T) {

@@ -345,6 +345,10 @@ func publishesAPIMethod(mux *http.ServeMux, r *http.Request) bool {
 func isAuthExempt(r *http.Request) bool {
 	p := r.URL.Path
 	switch {
+	case isCloudRunHost(r.Host):
+		// A run.app request is for a Cloud Run workload, whose front end
+		// authenticates the invoker itself.
+		return true
 	case p == "/health":
 		return true
 	case p == "/":

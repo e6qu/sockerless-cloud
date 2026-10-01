@@ -717,15 +717,13 @@ func (idx *azureSpecIndex) match(method, reqPath string) []*azureSpecOp {
 // matching because their short paths are otherwise valid spellings of
 // leading-parameter data-plane templates — Graph's "POST /v1.0/groups"
 // and its beta spelling "POST /beta/groups" both unify with the blob
-// "POST /{containerName}/{blob}" template, and a Functions invoke body is
-// workload-defined, not a swagger shape.
+// "POST /{containerName}/{blob}" template.
 // /metadata/identity/ is deliberately NOT here: the vendored IMDS
 // swagger describes it, so it validates like any other surface.
 var azureNonSpecRequestPrefixes = []string{
 	"/dbs",                // Cosmos DB SQL data plane (documented REST API, no upstream swagger)
 	"/v1.0/",              // Microsoft Graph v1.0 surface (spec lives in msgraph-metadata)
 	"/beta/",              // Microsoft Graph beta surface (spec lives in msgraph-metadata)
-	"/api/function",       // Functions host invoke endpoint (body is workload output)
 	"/msi/token",          // App Service MSI token endpoint
 	"/metadata/endpoints", // ARM cloud-environment metadata bootstrap (terraform metadata_host)
 }
@@ -775,6 +773,9 @@ func armSpecValidator(srv *sim.Server) error {
 		}
 		if azureNonSpecRequestPath(req.URL.Path) {
 			return nil // documented non-spec surface; no swagger shape exists
+		}
+		if _, ok := appServiceSiteByHost(req.Host); ok {
+			return nil // an App Service site's answer is its workload's
 		}
 		if cosmosIsDataPlaneRequest(req) {
 			// The Cosmos DB SQL data plane (incl. the account-discovery GET /)

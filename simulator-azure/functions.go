@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,19 +42,22 @@ type Site struct {
 
 // SiteProperties holds the properties of a function app.
 type SiteProperties struct {
-	State            string      `json:"state,omitempty"`
-	DefaultHostName  string      `json:"defaultHostName,omitempty"`
-	HostNames        []string    `json:"hostNames,omitempty"`
-	Enabled          bool        `json:"enabled"`
-	EnabledHostNames []string    `json:"enabledHostNames,omitempty"`
-	ServerFarmID     string      `json:"serverFarmId,omitempty"`
-	SKU              string      `json:"sku,omitempty"`
-	Reserved         bool        `json:"reserved,omitempty"`
-	SiteConfig       *SiteConfig `json:"siteConfig,omitempty"`
-	ResourceGroup    string      `json:"resourceGroup,omitempty"`
-	LastModifiedTime string      `json:"lastModifiedTimeUtc,omitempty"`
-	HTTPSOnly        bool        `json:"httpsOnly,omitempty"`
-	ClientCertMode   string      `json:"clientCertMode,omitempty"`
+	State            string   `json:"state,omitempty"`
+	DefaultHostName  string   `json:"defaultHostName,omitempty"`
+	HostNames        []string `json:"hostNames,omitempty"`
+	Enabled          bool     `json:"enabled"`
+	EnabledHostNames []string `json:"enabledHostNames,omitempty"`
+	// HostNameSslStates names the site's hostnames by role: the Standard host
+	// requests reach and the Repository (SCM) host deployments go to.
+	HostNameSslStates []HostNameSslState `json:"hostNameSslStates,omitempty"`
+	ServerFarmID      string             `json:"serverFarmId,omitempty"`
+	SKU               string             `json:"sku,omitempty"`
+	Reserved          bool               `json:"reserved,omitempty"`
+	SiteConfig        *SiteConfig        `json:"siteConfig,omitempty"`
+	ResourceGroup     string             `json:"resourceGroup,omitempty"`
+	LastModifiedTime  string             `json:"lastModifiedTimeUtc,omitempty"`
+	HTTPSOnly         bool               `json:"httpsOnly,omitempty"`
+	ClientCertMode    string             `json:"clientCertMode,omitempty"`
 	// VirtualNetworkSubnetID is the modern spelling of regional VNet
 	// integration (`az webapp vnet-integration add`, terraform's
 	// virtual_network_subnet_id): writing it joins the site to the subnet's
@@ -87,6 +93,79 @@ type SiteConfig struct {
 	MinTLSVersion                          string `json:"minTlsVersion,omitempty"`
 	ScmMinTLSVersion                       string `json:"scmMinTlsVersion,omitempty"`
 	ScmIPSecurityRestrictionsDefaultAction string `json:"scmIpSecurityRestrictionsDefaultAction,omitempty"`
+	// Extra holds the siteConfig properties the simulator does not act on,
+	// exactly as the client sent them, so a read returns what was written.
+	Extra map[string]json.RawMessage `json:"-"`
+}
+
+// siteConfigFields names the properties SiteConfig decodes into fields.
+var siteConfigFields = func() map[string]bool {
+	names := map[string]bool{}
+	t := reflect.TypeOf(SiteConfig{})
+	for i := range t.NumField() {
+		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
+		if name != "" && name != "-" {
+			names[name] = true
+		}
+	}
+	return names
+}()
+
+// UnmarshalJSON decodes onto the receiver, so a PATCH decoded onto the stored
+// configuration keeps every property the request leaves out.
+func (c *SiteConfig) UnmarshalJSON(data []byte) error {
+	type fields SiteConfig
+	if err := json.Unmarshal(data, (*fields)(c)); err != nil {
+		return err
+	}
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return err
+	}
+	// A PATCH decodes onto a copy of the stored row, which shares this map.
+	c.Extra = maps.Clone(c.Extra)
+	for name, value := range all {
+		if siteConfigFields[name] {
+			continue
+		}
+		if c.Extra == nil {
+			c.Extra = map[string]json.RawMessage{}
+		}
+		c.Extra[name] = value
+	}
+	return nil
+}
+
+func (c SiteConfig) MarshalJSON() ([]byte, error) {
+	type fields SiteConfig
+	known, err := json.Marshal(fields(c))
+	if err != nil || len(c.Extra) == 0 {
+		return known, err
+	}
+	all := map[string]json.RawMessage{}
+	if err := json.Unmarshal(known, &all); err != nil {
+		return nil, err
+	}
+	for name, value := range c.Extra {
+		all[name] = value
+	}
+	return json.Marshal(all)
+}
+
+// HostNameSslState mirrors armappservice.HostNameSSLState.
+type HostNameSslState struct {
+	Name     string `json:"name"`
+	SslState string `json:"sslState"`
+	HostType string `json:"hostType"`
+}
+
+// siteHostNameSslStates lists a site's default and SCM hostnames, neither
+// bound to a certificate.
+func siteHostNameSslStates(defaultHost, scmHost string) []HostNameSslState {
+	return []HostNameSslState{
+		{Name: defaultHost, SslState: "Disabled", HostType: "Standard"},
+		{Name: scmHost, SslState: "Disabled", HostType: "Repository"},
+	}
 }
 
 // NameValuePair holds a name-value pair for app settings.
@@ -222,7 +301,7 @@ func registerAzureFunctions(srv *sim.Server) {
 
 		kind := req.Kind
 		if kind == "" {
-			kind = "functionapp"
+			kind = webDefaultSiteKind(req.Properties.Reserved, req.Properties.ServerFarmID)
 		}
 
 		// Real Azure assigns a per-site hostname `<site>.azurewebsites.net`
@@ -277,6 +356,7 @@ func registerAzureFunctions(srv *sim.Server) {
 				HostNames:                 []string{defaultHostName},
 				Enabled:                   true,
 				EnabledHostNames:          []string{defaultHostName, name + ".scm.azurewebsites.net"},
+				HostNameSslStates:         siteHostNameSslStates(defaultHostName, name+".scm.azurewebsites.net"),
 				ServerFarmID:              req.Properties.ServerFarmID,
 				SKU:                       webPlanSKUFor(req.Properties.ServerFarmID),
 				Reserved:                  req.Properties.Reserved,
@@ -447,33 +527,6 @@ func registerAzureFunctions(srv *sim.Server) {
 		}
 
 		sim.WriteJSON(w, http.StatusOK, fn)
-	})
-
-	// A site that runs a container is served by the front end in
-	// registerAppServiceFrontEnd, which forwards every request on the site's
-	// hostname to that container. This route answers a request to a site
-	// with no container image.
-	srv.HandleFunc("POST /api/function", func(w http.ResponseWriter, r *http.Request) {
-		matchedSite, ok := appServiceSiteByHost(r.Host)
-		if !ok {
-			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-				"no function app with DefaultHostName=%q (set Host header to <site>.azurewebsites.net)", r.Host)
-			return
-		}
-
-		// The real Azure Functions authLevel contract: when the site declares
-		// the addressed function's config, the host demands the key its
-		// httpTrigger binding's authLevel requires (x-functions-key header or
-		// ?code= query) and answers 401 on a wrong or missing key. See
-		// azureFunctionInvokeAuthorized.
-		if !azureFunctionInvokeAuthorized(&matchedSite, r) {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		injectAppTrace(matchedSite.Name, "Function invoked")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("{}"))
 	})
 
 	// PUT - Update site's azurestorageaccounts mapping. Backend's
@@ -1098,10 +1151,14 @@ func azfInstanceFor(siteName string) *azureFunctionInstance {
 }
 
 // siteRunsContainer reports whether App Service runs the site as a container
-// this simulator can start: a sitecontainers site, or a linuxFxVersion naming
-// an image.
+// this simulator can start: a sitecontainers site, a linuxFxVersion naming an
+// image, or a web app on a built-in stack this App Service runs.
 func siteRunsContainer(site *Site) bool {
-	return mainSiteContainer(site.ID) != nil || siteContainerImage(site) != ""
+	if mainSiteContainer(site.ID) != nil || siteContainerImage(site) != "" {
+		return true
+	}
+	_, ok := siteBuiltInStack(site)
+	return ok
 }
 
 // siteAlwaysOn reports the site's Always On setting: the platform keeps such a
@@ -1172,16 +1229,28 @@ func siteNetAliases(site *Site) []string {
 	return out
 }
 
-// siteImageMissing explains why a site has no container image to run.
+// siteImageMissing explains why the simulator has nothing to run for a site.
 func siteImageMissing(site *Site) error {
-	if stack := siteRuntimeStack(site); stack != "" {
+	stack := siteRuntimeStack(site)
+	switch {
+	case siteIsFunctionApp(site) && stack != "":
 		return fmt.Errorf(
-			"site %q is configured with the built-in runtime stack %q, and this simulator runs "+
-				"container images: the platform image that stack names is Microsoft's. Configure "+
-				"the site with a container image (linuxFxVersion \"DOCKER|<image>\")",
-			site.Name, stack)
+			"function app %q is configured with the built-in runtime stack %q, and this simulator "+
+				"does not run the Azure Functions host: configure the app with a container image "+
+				"(linuxFxVersion \"DOCKER|<image>\")", site.Name, stack)
+	case siteIsFunctionApp(site):
+		return fmt.Errorf(
+			"function app %q names no container image, and this simulator does not run the Azure "+
+				"Functions host: configure the app with a container image (linuxFxVersion \"DOCKER|<image>\")",
+			site.Name)
+	case stack != "":
+		return fmt.Errorf(
+			"site %q is configured with the built-in runtime stack %q, which this simulator does not "+
+				"run; the stacks it runs are %s", site.Name, stack, strings.Join(appServiceLinuxStackNames(), ", "))
 	}
-	return fmt.Errorf("site %q has no container image", site.Name)
+	return fmt.Errorf(
+		"site %q names no runtime: configure a built-in stack (%s) or a container image "+
+			"(linuxFxVersion \"DOCKER|<image>\")", site.Name, strings.Join(appServiceLinuxStackNames(), ", "))
 }
 
 // startLocked runs the site's container the way App Service runs a Linux
@@ -1207,6 +1276,23 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		if p, err := strconv.Atoi(strings.TrimSpace(main.Properties.TargetPort)); err == nil && p > 0 && p < 65536 {
 			port = p
 		}
+	} else if stack, ok := siteBuiltInStack(site); ok {
+		// The stack image's entrypoint takes the startup command as its
+		// arguments and hands it to Oryx as the user startup command.
+		image = stack.Image
+		if site.Properties.SiteConfig != nil {
+			if cmd := strings.TrimSpace(site.Properties.SiteConfig.AppCommandLine); cmd != "" {
+				args = []string{cmd}
+			}
+		}
+		if _, set := siteAppSettings(site)["WEBSITES_PORT"]; !set {
+			port = stack.Port
+		}
+		home, err := prepareSiteHome(site)
+		if err != nil {
+			return err
+		}
+		binds = append(home, siteAzureStorageBinds(site)...)
 	} else {
 		image = siteContainerImage(site)
 		if site.Properties.SiteConfig != nil {
@@ -1364,12 +1450,12 @@ func stopAzureFunctionInstance(siteName string) {
 	inst := azureFunctionInstances.bySite[siteName]
 	delete(azureFunctionInstances.bySite, siteName)
 	azureFunctionInstances.Unlock()
-	if inst == nil {
-		return
+	if inst != nil {
+		inst.mu.Lock()
+		inst.teardownLocked()
+		inst.mu.Unlock()
 	}
-	inst.mu.Lock()
-	inst.teardownLocked()
-	inst.mu.Unlock()
+	removeSiteHome(siteName)
 }
 
 // restartAzureFunctionInstance restarts a site the way App Service does after a
@@ -1406,20 +1492,13 @@ func startAlwaysOnSite(site Site) {
 	}()
 }
 
-// siteContainerImage is the container image a site runs, read from its
+// siteContainerImage is the custom container image a site runs, read from its
 // linuxFxVersion.
 //
 // The field names two different things depending on its prefix. "DOCKER|" and
 // the other container prefixes name an image; a built-in runtime stack —
 // "PHP|8.2", "NODE|20-lts", "DOTNETCORE|8.0" — names a version of a platform
-// image App Service supplies. Taking whatever follows the bar as an image
-// treated the second as the first, so a site configured the ordinary way tried
-// to pull an image called "8.2" and failed as if a registry were missing one.
-//
-// A built-in stack has no image here, so this reports none and the callers say
-// what is actually wrong. That is the same fact the stack catalogue states by
-// declining: this simulator runs container images, and the platform images
-// those stack versions name are Microsoft's.
+// image App Service supplies, which siteBuiltInStack resolves.
 func siteContainerImage(site *Site) string {
 	if site == nil || site.Properties.SiteConfig == nil {
 		return ""
@@ -1444,9 +1523,8 @@ func siteLinuxFxNamesAnImage(prefix string) bool {
 	return false
 }
 
-// siteRuntimeStack is the built-in runtime stack a site is configured with, or
-// empty when it names a container image. Callers use it to say why a site with
-// no image has none.
+// siteRuntimeStack is the built-in runtime stack a site's linuxFxVersion
+// names, or empty when it names a container image or nothing.
 func siteRuntimeStack(site *Site) string {
 	if site == nil || site.Properties.SiteConfig == nil {
 		return ""

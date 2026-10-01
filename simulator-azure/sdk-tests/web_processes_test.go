@@ -51,7 +51,7 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 			Image:          to.Ptr(httpProbeImageName),
 			IsMain:         to.Ptr(true),
 			TargetPort:     to.Ptr("8080"),
-			StartUpCommand: to.Ptr("probe-retry webproc-ok"),
+			StartUpCommand: to.Ptr("echo-request"),
 		},
 	}, nil)
 	require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	for _, p := range procs {
 		require.NotNil(t, p.Properties)
 		require.NotNil(t, p.Properties.Identifier)
-		if p.Properties.CommandLine != nil && strings.Contains(*p.Properties.CommandLine, "probe-retry") {
+		if p.Properties.CommandLine != nil && strings.Contains(*p.Properties.CommandLine, "echo-request") {
 			main = p
 		}
 	}

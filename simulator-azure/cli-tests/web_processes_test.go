@@ -60,7 +60,7 @@ func TestWebApps_CLI_InstancesAndProcesses(t *testing.T) {
 	defer runCLI(t, azRest("DELETE", siteURL, ""))
 
 	runCLI(t, azRest("PUT", url("sites/"+site+"/sitecontainers/main"), fmt.Sprintf(`{
-		"properties": {"image": %q, "isMain": true, "targetPort": "8080", "startUpCommand": "probe-retry cli-webproc-ok"}
+		"properties": {"image": %q, "isMain": true, "targetPort": "8080", "startUpCommand": "echo-request"}
 	}`, httpProbeImageName)))
 	runCLI(t, azRest("PUT", url("sites/"+site+"/sitecontainers/sidecar"), fmt.Sprintf(`{
 		"properties": {"image": %q, "isMain": false, "targetPort": "9090", "startUpCommand": "server"}
@@ -116,7 +116,7 @@ func TestWebApps_CLI_InstancesAndProcesses(t *testing.T) {
 	require.NotEmpty(t, processes.Value)
 	pid := 0
 	for _, p := range processes.Value {
-		if strings.Contains(p.Properties.CommandLine, "probe-retry") {
+		if strings.Contains(p.Properties.CommandLine, "echo-request") {
 			pid = p.Properties.Identifier
 			assert.NotEmpty(t, p.Properties.UserName)
 			assert.NotEmpty(t, p.Properties.FileName)
@@ -138,7 +138,7 @@ func TestWebApps_CLI_InstancesAndProcesses(t *testing.T) {
 	}
 	parseJSON(t, runCLI(t, azRest("GET", url("sites/"+site+"/processes/"+pidStr), "")), &single)
 	assert.Equal(t, pid, single.Properties.Identifier)
-	assert.Contains(t, single.Properties.CommandLine, "probe-retry")
+	assert.Contains(t, single.Properties.CommandLine, "echo-request")
 
 	// GET .../processes/{processId}/threads reads the engine's thread rows.
 	var threads webProcessCollection

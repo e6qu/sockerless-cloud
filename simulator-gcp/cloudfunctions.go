@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -184,7 +185,7 @@ func registerCloudFunctions(srv *sim.Server) {
 					Resources: functionCPUResources(fn),
 				}},
 			},
-		}, r.Host, project, location, functionID)
+		}, project, location, functionID)
 		if !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(backingService)) {
 			regionalCPUQuotaErrorJSON(w, backingService.Name)
 			return
@@ -577,8 +578,8 @@ func cloudFunctionRuntimes() []map[string]any {
 // reads the image back from the backing service and HTTP-invokes the
 // overlay's bootstrap — start the container, POST the request envelope to
 // its bootstrap listener, read the response, stop the container — exactly
-// what real Cloud Run Functions Gen2 does on every invocation. The exit
-// code rides in the `X-Sockerless-Exit-Code` header.
+// what real Cloud Run Functions Gen2 does on every invocation. An error
+// status from the container reads as a failed invocation.
 //
 // A function with no backing service image has been created but never
 // deployed with an overlay; there is nothing to execute, so the sim records
@@ -596,17 +597,16 @@ func invokeCloudFunctionProcess(fn *storedFunction, project, functionID string) 
 	// Container image lives on the underlying Cloud Run service — read it
 	// back from there; the sim has no other source of truth for what to
 	// execute.
-	var image string
-	var serviceEnv map[string]string
+	var container Container
 	if fn.ServiceConfig != nil && fn.ServiceConfig.Service != "" {
 		if svc, ok := crv2Services.Get(fn.ServiceConfig.Service); ok {
 			if svc.Template != nil && len(svc.Template.Containers) > 0 {
-				container := svc.Template.Containers[0]
-				image = container.Image
-				serviceEnv = containerEnvMap(container.Env)
+				container = svc.Template.Containers[0]
 			}
 		}
 	}
+	image := container.Image
+	serviceEnv := containerEnvMap(container.Env)
 
 	sink := &cfLogSink{project: project, functionName: functionID}
 
@@ -622,7 +622,7 @@ func invokeCloudFunctionProcess(fn *storedFunction, project, functionID string) 
 	if fn.ServiceConfig != nil {
 		env = workloadhost.MergeEnv(fn.ServiceConfig.EnvironmentVariables, serviceEnv)
 	}
-	body, exitCode, err := invokeOverlayContainerHTTP(project, image, functionID, timeout, sink, env)
+	body, exitCode, err := invokeOverlayContainerHTTP(project, container, functionID, timeout, sink, env)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[sim-gcf] invocation error fn=%s img=%s: %v\n", functionID, image, err)
 		injectCloudFunctionLog(project, functionID,
@@ -695,15 +695,12 @@ func injectCloudFunctionLog(project, functionName, text string) {
 // invokeOverlayContainerHTTP runs the cloud-faithful invocation flow:
 // start the overlay container detached, wait for the bootstrap HTTP
 // server to be ready on its assigned host port, POST to it, read the
-// response body + the bootstrap-set `X-Sockerless-Exit-Code` header,
-// then stop and remove the container.
+// response, then stop and remove the container. An error status reads as
+// a failed invocation.
 //
 // This mirrors what real Cloud Run does for every Cloud Functions Gen2
-// invocation: route the request to the underlying container's HTTP
-// listener and return the response. The exit code header is set by
-// `sockerless-gcf-bootstrap` so the docker-shell perceives the
-// underlying subprocess's true exit status (matters for `docker run
-// --rm <fail>` semantics where 1 should propagate, etc.).
+// invocation: wait for the container's startup probe, route the request to
+// the underlying container's HTTP listener and return the response.
 //
 // The container is short-lived per invocation (start → POST → stop).
 // That keeps the sim's container-state footprint bounded — at most one
@@ -716,8 +713,8 @@ func injectCloudFunctionLog(project, functionName, text string) {
 // Errors are returned only for infrastructure failures (image pull,
 // container start, networking). Subprocess non-zero exit is NOT an
 // error — it surfaces via the `exitCode` return value.
-func invokeOverlayContainerHTTP(project, image, functionID string, timeout time.Duration, sink sim.LogSink, env map[string]string) (responseBody []byte, exitCode int, err error) {
-	return invokeOverlayContainerHTTPWithBody(project, image, functionID, timeout, sink, env, nil, "application/json")
+func invokeOverlayContainerHTTP(project string, container Container, functionID string, timeout time.Duration, sink sim.LogSink, env map[string]string) (responseBody []byte, exitCode int, err error) {
+	return invokeOverlayContainerHTTPWithBody(project, container, functionID, timeout, sink, env, nil, "application/json")
 }
 
 // invokeOverlayContainerHTTPWithBody is the body-aware variant. The
@@ -725,13 +722,14 @@ func invokeOverlayContainerHTTP(project, image, functionID string, timeout time.
 // envelope-style POST body the gcf backend sends to the overlay
 // bootstrap. Cloud Functions Gen2 invocations have no useful body so
 // invokeOverlayContainerHTTP delegates here with `body=nil`.
-func invokeOverlayContainerHTTPWithBody(project, image, functionID string, timeout time.Duration, sink sim.LogSink, env map[string]string, body io.Reader, contentType string) (responseBody []byte, exitCode int, err error) {
+func invokeOverlayContainerHTTPWithBody(project string, container Container, functionID string, timeout time.Duration, sink sim.LogSink, env map[string]string, body io.Reader, contentType string) (responseBody []byte, exitCode int, err error) {
 	cli := sim.DockerClient()
 	if cli == nil {
 		return nil, -1, fmt.Errorf("docker client not initialized")
 	}
 
-	localImage := sim.ResolveLocalImage(image)
+	localImage := sim.ResolveLocalImage(container.Image)
+	port := cloudRunContainerPort(container)
 
 	containerName := fmt.Sprintf("sockerless-sim-gcf-%s-%s", functionID, sim.RandomHex(8))
 
@@ -753,7 +751,7 @@ func invokeOverlayContainerHTTPWithBody(project, image, functionID string, timeo
 	containerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{
 		Image:        localImage,
 		Architecture: platform,
-		Env:          workloadhost.MergeEnv(map[string]string{"PORT": "8080"}, env, metadataEnv),
+		Env:          workloadhost.MergeEnv(map[string]string{"PORT": strconv.Itoa(port)}, env, metadataEnv),
 		Name:         containerName,
 		Labels: map[string]string{
 			"sockerless-sim-function": functionID,
@@ -775,26 +773,19 @@ func invokeOverlayContainerHTTPWithBody(project, image, functionID string, timeo
 	logStreamCtx, logStreamCancel := context.WithCancel(context.Background())
 	defer logStreamCancel()
 	go sim.StreamContainerLogs(logStreamCtx, containerID, sink)
-	hostPort, err := sim.PublishedHostPort(ctx, containerID, 8080)
-	if err != nil {
-		return nil, -1, fmt.Errorf("start overlay container: %w", err)
-	}
 
-	// Reach the bootstrap by whichever address is connectable: the workload's
-	// bridge container IP:8080 (works when the sim runs INSIDE a harness
-	// container, where the host-published port binds the host's loopback, not
-	// the sim container's), else 127.0.0.1:<hostPort> (sim on the host). Same
-	// fix as the Cloud Run Services invoke path.
-	var cands []string
-	if ip := sim.ContainerIPv4(containerID); ip != "" {
-		cands = append(cands, fmt.Sprintf("http://%s:8080", ip))
-	}
-	cands = append(cands, fmt.Sprintf("http://127.0.0.1:%d", hostPort))
-	base, err := workload.FirstReachable(ctx, cands, 60*time.Second)
+	// The function runs on a Cloud Run service, so its container takes
+	// requests once the service's startup probe succeeds.
+	exited, releaseWait := watchCloudRunContainerExit(containerID)
+	defer releaseWait()
+	route, err := cloudRunContainerRoute(ctx, containerID, port)
 	if err != nil {
-		return nil, -1, fmt.Errorf("bootstrap not ready (tried %d address(es)): %w", len(cands), err)
+		return nil, -1, fmt.Errorf("reach overlay container: %w", err)
 	}
-	bootstrapURL := base + "/"
+	if err := runStartupProbe(ctx, cloudRunStartupProbe(container), route, port, port, exited); err != nil {
+		return nil, -1, fmt.Errorf("overlay container did not start: %w", err)
+	}
+	bootstrapURL := "http://" + route + "/"
 
 	// POST the invocation. Body is forwarded from the caller (the gcf
 	// backend's exec envelope) when present. Cloud Functions Gen2

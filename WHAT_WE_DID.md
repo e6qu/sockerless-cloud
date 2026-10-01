@@ -454,6 +454,64 @@ invocation whose stdout became the response, and told a long-lived HTTP site
 from a raw service by two more such settings; none of those is an Azure
 setting, and the simulator reads none of them.
 
+A Cloud Run service is served at its own URL,
+`https://<service>-<hash>-<region>.a.run.app`, which `uri` reports and the
+Knative projection reports as `status.url`. The front end dispatches on the
+Host header, so a client connects to the simulator's endpoint (the address a
+resolver would hand it) and names the service host, as with App Service. Every
+method and path goes to the ingress container on `ports[0].containerPort`
+(8080 unset, passed as `PORT`), bounded by the revision template's `timeout`
+(300 seconds unset), and the container's status, headers and body come back
+untouched; the caller's bearer reaches the container with its JWT signature
+replaced by `SIGNATURE_REMOVED_BY_GOOGLE`. A service with `invokerIamDisabled`
+or an `allUsers` `roles/run.invoker` binding is public; any other needs a
+simulator-signed access token or an ID token for the service URL or a custom
+audience, so an Eventarc push carrying its OIDC token reaches it, and Pub/Sub
+delivers to a run.app endpoint the simulator serves through this front end.
+The simulator had served services at `POST /v2-services-invoke/{project}/{location}/{service}`,
+answered 200 whatever the container said, and lifted a consumer's
+`X-Sockerless-Exit-Code` header into its own; the route and the header went,
+and with them `workload.ExitCodeHeader`, so `PostBootstrap` reads an error
+status as a failed invocation. An instance takes traffic once its startup
+probes succeed: the container's configured `startupProbe` (`tcpSocket`,
+`httpGet` with 2xx–3xx success, or `grpc` health), with the API's defaults of a
+1-second timeout, 10-second period and threshold 3, or the TCP probe on the
+container port Cloud Run applies when none is configured (timeout and period
+240 seconds, threshold 1); sidecars that configure one are probed after it.
+The probes and the traffic go to the container's own address wherever the host
+routes to it, which a connection the container accepts or refuses proves,
+rather than through the engine's published loopback port, whose userland proxy
+accepts a connection before the workload listens, so a bare TCP accept there
+proved nothing and reset the first request; a host that routes no container
+address reaches the workload only through that port. A probe that fails its threshold, or a container that
+exits first, fails the instance and answers 503. Cloud Functions runs its
+per-invocation container behind the same startup probe, read from the backing
+service's container, and `workload.FirstReachable` was removed.
+
+A Linux web app on a built-in runtime stack runs the platform's own image for
+that stack. `siteConfig.linuxFxVersion` `NODE|20-lts`, `NODE|22-lts` or
+`PYTHON|3.12` selects `mcr.microsoft.com/appsvc/node` or `appsvc/python`,
+pinned to one build, with the site's `/home` mounted from the simulator's data
+directory and `site/wwwroot` filled from what the site's MSDeploy and OneDeploy
+operations deployed, or from the package a `WEBSITE_RUN_FROM_PACKAGE` URL
+names, mounted read-only. The image's own entrypoint runs Oryx, which starts
+the startup command, else the app it detects (`server.js`, a `start` script,
+`app.py` under gunicorn), else the platform's "waiting for your content"
+default page; the front end forwards to the port the image declares (8080 for
+Node, 8000 for Python) unless `WEBSITES_PORT` names one. A deployment restarts
+such a site. The runtime-stack catalogs (`webAppStacks`, `availableStacks`)
+list exactly these stacks from the same table, so `az webapp list-runtimes` and
+`az webapp create --runtime` see what the site path runs. A site created
+without a kind reports `app`, or `app,linux` on a reserved plan, rather than
+`functionapp`, and every site reports `hostNameSslStates` with its Standard
+and Repository (SCM) hostnames, which `az webapp deploy` and the azurerm
+provider read the SCM host from. Before this, a site with no container image answered every
+request on its hostname with 200 `{}` and an AppTraces row reading "Function
+invoked" without running anything; a site the simulator has nothing to run for
+now answers 503 naming what it lacks — a function app without an image (the
+simulator runs no Azure Functions host), a stack it does not run, or no runtime
+at all — and the authLevel and invoke tests run against container sites.
+
 RunTask places a task only where it fits. The simulator runs real containers on
 one finite host, so rather than invent a capacity it commits each placed task's
 declared memory and CPU against what the simulator's own cgroup, or the
@@ -659,7 +717,13 @@ all go through it. A `sim` test captures a volume twice at once while a
 writer renames 64 files to each round number in turn and proves both captures
 show a single instant of the writer; the SDK suite snapshots a PostgreSQL
 instance under a transaction stream and proves the restore holds a gapless
-sequence prefix whose length both account balances agree with.
+sequence prefix whose length both account balances agree with. The Docker
+Engine refuses `exec` into a paused container, so `dbengine.Instance.Exec` ran
+each engine command — a ModifyDBInstance master-password change, a Cloud SQL
+or Azure Database for PostgreSQL user change — under `sim.HoldThawed`, which
+waited on a channel for the last capture to thaw the container and kept new
+captures from freezing it until the command ended; the change applied after
+the brief I/O suspension, as the real service applies it.
 
 Artifact Registry stores the bytes of uploaded files and serves them back from
 `files.download`. The generic, Go module, KFP, Apt, Yum and GooGet uploads create

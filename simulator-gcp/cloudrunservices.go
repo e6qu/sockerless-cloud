@@ -1,17 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
@@ -304,11 +301,47 @@ func containerEnvMap(envVars []EnvVar) map[string]string {
 
 type cloudRunServiceInstance struct {
 	containerID string
-	containerIP string // bridge IP — preferred when the sim runs in a container
 	sidecars    []*sim.ContainerHandle
-	hostPort    int
 	specSig     string
-	cancelLogs  context.CancelFunc
+	// stop ends the instance's log stream, startup probe and exit watch.
+	stop context.CancelFunc
+	// ready closes once the startup probes settle; address and startErr are
+	// written before it closes and read only after.
+	ready    chan struct{}
+	address  string
+	startErr error
+}
+
+// awaitReady waits for the instance's startup probes and returns the address
+// its ingress container answers on.
+func (inst *cloudRunServiceInstance) awaitReady(ctx context.Context) (string, error) {
+	select {
+	case <-inst.ready:
+		return inst.address, inst.startErr
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// awaitStartup runs the startup probe of the ingress container and then of
+// each sidecar that configures one, against the address the ingress port is
+// reached at; the containers share one network namespace.
+func (inst *cloudRunServiceInstance) awaitStartup(ctx context.Context, containers []Container, exited <-chan struct{}) {
+	defer close(inst.ready)
+	port := cloudRunContainerPort(containers[0])
+	route, err := cloudRunContainerRoute(ctx, inst.containerID, port)
+	if err == nil {
+		err = runStartupProbe(ctx, cloudRunStartupProbe(containers[0]), route, port, port, exited)
+	}
+	for _, sidecar := range containers[1:] {
+		if err != nil {
+			break
+		}
+		if sidecar.StartupProbe != nil {
+			err = runStartupProbe(ctx, cloudRunStartupProbe(sidecar), route, port, cloudRunContainerPort(sidecar), exited)
+		}
+	}
+	inst.address, inst.startErr = route, err
 }
 
 var cloudRunServiceInstances = struct {
@@ -316,6 +349,9 @@ var cloudRunServiceInstances = struct {
 	byName map[string]*cloudRunServiceInstance
 }{byName: map[string]*cloudRunServiceInstance{}}
 
+// ensureCloudRunServiceInstance returns the service's running instance, or
+// starts one whose startup probes run in the background; awaitReady waits for
+// them.
 func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, containers []Container, volumes []Volume, sink sim.LogSink) (*cloudRunServiceInstance, error) {
 	specSig := serviceContainersSignature(containers, volumes)
 
@@ -352,7 +388,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		Architecture: platform,
 		Command:      main.Command,
 		Args:         main.Args,
-		Env:          workloadhost.MergeEnv(map[string]string{"PORT": "8080"}, env, metadataEnv),
+		Env:          workloadhost.MergeEnv(map[string]string{"PORT": strconv.Itoa(cloudRunContainerPort(main))}, env, metadataEnv),
 		Name:         fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-%s", serviceID, instanceID),
 		Labels:       map[string]string{"sockerless-sim-service": serviceID},
 		Binds:        bindsFor(main),
@@ -362,20 +398,15 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	if err != nil {
 		return nil, fmt.Errorf("start service container: %w", err)
 	}
-	hostPort, err := sim.PublishedHostPort(ctx, containerID, 8080)
-	if err != nil {
-		sim.StopAndRemoveContainer(containerID, cloudRunStopGrace)
-		return nil, fmt.Errorf("start service container: %w", err)
-	}
 
-	logCtx, cancelLogs := context.WithCancel(context.Background())
+	lifeCtx, stop := context.WithCancel(context.Background())
 	instanceStored := false
 	defer func() {
 		if !instanceStored {
-			cancelLogs()
+			stop()
 		}
 	}()
-	go sim.StreamContainerLogs(logCtx, containerID, sink)
+	go sim.StreamContainerLogs(lifeCtx, containerID, sink)
 
 	members := make([]workload.Container, 0, len(containers)-1)
 	for i, sidecar := range containers[1:] {
@@ -404,11 +435,10 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 
 	inst := &cloudRunServiceInstance{
 		containerID: containerID,
-		containerIP: sim.ContainerIPv4(containerID),
 		sidecars:    sidecars,
-		hostPort:    hostPort,
 		specSig:     specSig,
-		cancelLogs:  cancelLogs,
+		stop:        stop,
+		ready:       make(chan struct{}),
 	}
 	cloudRunServiceInstances.Lock()
 	if old := cloudRunServiceInstances.byName[name]; old != nil {
@@ -419,6 +449,13 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	cloudRunServiceInstances.byName[name] = inst
 	instanceStored = true
 	cloudRunServiceInstances.Unlock()
+
+	exited, releaseWait := watchCloudRunContainerExit(containerID)
+	go func() {
+		<-lifeCtx.Done()
+		releaseWait()
+	}()
+	go inst.awaitStartup(lifeCtx, containers, exited)
 	return inst, nil
 }
 
@@ -430,41 +467,30 @@ func deleteCloudRunServiceInstance(name string) {
 	stopCloudRunServiceInstance(inst)
 }
 
+// deleteCloudRunServiceInstanceIf stops inst and forgets it, unless the
+// service has already moved on to another instance.
+func deleteCloudRunServiceInstanceIf(name string, inst *cloudRunServiceInstance) {
+	cloudRunServiceInstances.Lock()
+	if cloudRunServiceInstances.byName[name] != inst {
+		cloudRunServiceInstances.Unlock()
+		return
+	}
+	delete(cloudRunServiceInstances.byName, name)
+	cloudRunServiceInstances.Unlock()
+	stopCloudRunServiceInstance(inst)
+}
+
 func stopCloudRunServiceInstance(inst *cloudRunServiceInstance) {
 	if inst == nil {
 		return
 	}
-	if inst.cancelLogs != nil {
-		inst.cancelLogs()
+	if inst.stop != nil {
+		inst.stop()
 	}
 	for _, h := range inst.sidecars {
 		h.Cancel()
 	}
 	sim.StopAndRemoveContainer(inst.containerID, cloudRunStopGrace)
-}
-
-func postCloudRunServiceInstance(ctx context.Context, inst *cloudRunServiceInstance, requestPath, rawQuery string, body io.Reader, contentType string) ([]byte, int, error) {
-	// Reach the workload's bootstrap by whichever address is connectable:
-	//   - <containerIP>:8080 — works when the sim runs INSIDE a harness
-	//     container (the host-published port binds the host's loopback, not
-	//     the sim container's, so 127.0.0.1:hostPort is unreachable there);
-	//   - 127.0.0.1:<hostPort> — works when the sim runs directly on the host
-	//     (and on podman, the host forwards the published port to loopback).
-	var cands []string
-	if inst.containerIP != "" {
-		cands = append(cands, fmt.Sprintf("http://%s:8080", inst.containerIP))
-	}
-	cands = append(cands, fmt.Sprintf("http://127.0.0.1:%d", inst.hostPort))
-
-	base, err := workload.FirstReachable(ctx, cands, 60*time.Second)
-	if err != nil {
-		return nil, -1, fmt.Errorf("bootstrap not ready (tried %d address(es)): %w", len(cands), err)
-	}
-	bootstrapURL := base + requestPath
-	if rawQuery != "" {
-		bootstrapURL += "?" + rawQuery
-	}
-	return workload.PostBootstrap(ctx, bootstrapURL, body, contentType, 5*time.Minute)
 }
 
 func envSignature(env map[string]string) string {
@@ -563,11 +589,7 @@ var crv2Services sim.Store[ServiceV2]
 // revision); the sim mirrors it for both REST CreateService and the
 // cloudfunctions auto-wire path so a single source of truth controls
 // the shape of "just-created" services.
-//
-// `host` is the configured cloud API coordinate (Request.Host), so the URI
-// routes invocations through this Cloud Run data plane just as a real-cloud
-// coordinate routes them through run.app.
-func seedServiceV2Defaults(svc ServiceV2, host, project, location, serviceID string) ServiceV2 {
+func seedServiceV2Defaults(svc ServiceV2, project, location, serviceID string) ServiceV2 {
 	now := nowTimestamp()
 	svc.Name = fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID)
 	svc.UID = sim.NewUUID()
@@ -588,7 +610,7 @@ func seedServiceV2Defaults(svc ServiceV2, host, project, location, serviceID str
 	svc.LatestReadyRevision = fmt.Sprintf("%s/revisions/%s-00001-abc", svc.Name, serviceID)
 	svc.LatestCreatedRevision = svc.LatestReadyRevision
 	if !svc.DefaultUriDisabled {
-		svc.URI = fmt.Sprintf("http://%s/v2-services-invoke/%s/%s/%s", host, project, location, serviceID)
+		svc.URI = cloudRunServiceURI(project, location, serviceID)
 	}
 	return svc
 }
@@ -667,7 +689,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			return
 		}
 
-		svc = seedServiceV2Defaults(svc, r.Host, project, location, serviceID)
+		svc = seedServiceV2Defaults(svc, project, location, serviceID)
 		svc.Etag = sim.NewUUID()
 
 		services.Put(name, svc)
@@ -970,72 +992,5 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 	// versions share. One collection, two spellings.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/operations/{opAction}", operationVerb)
 
-	// Invoke handler. Real Cloud Run hosts the service URI as
-	// `https://<service>-<project>.run.app`; the sim's seedServiceV2Defaults
-	// hands back `http://<sim>/v2-services-invoke/<project>/<location>/<service>`
-	// instead so backends invoke the sim directly. The handler runs the
-	// overlay container on demand and forwards the request envelope to
-	// the bootstrap's HTTP listener — same flow as Cloud Functions Gen2
-	// (`/v2-functions-invoke/`).
-	invokeService := func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		location := sim.PathParam(r, "location")
-		serviceID := sim.PathParam(r, "service")
-		name := fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID)
-		svc, ok := services.Get(name)
-		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "service %q not found", name)
-			return
-		}
-		if svc.Template == nil || len(svc.Template.Containers) == 0 || svc.Template.Containers[0].Image == "" {
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "service %q has no container image", name)
-			return
-		}
-		// Cloud Run invoke body is the user's HTTP request payload.
-		// Real Cloud Run accepts gzip-encoded request bodies (the
-		// gateway transparently decompresses for HTTP/1.1 clients);
-		// the sim does the same via openStreamingBody. Malformed
-		// or unsupported encoding bubbles up as a real bad-request
-		// error rather than being silently stored mis-decoded.
-		rc, err := openStreamingBody(r)
-		if err != nil {
-			GCPErrorf(w, http.StatusUnsupportedMediaType, "INVALID_ARGUMENT", "%s", err.Error())
-			return
-		}
-		bodyBytes, readErr := io.ReadAll(rc)
-		_ = rc.Close()
-		if readErr != nil {
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "failed to read invoke body: %v", readErr)
-			return
-		}
-		ct := r.Header.Get("Content-Type")
-		var body io.Reader
-		if len(bodyBytes) > 0 {
-			body = bytes.NewReader(bodyBytes)
-		}
-		sink := &cfLogSink{project: project, functionName: serviceID}
-		const invokeLimit = 5 * time.Minute
-		sim.DeclareWait(r.Context(), invokeLimit)
-		ctx, cancel := context.WithTimeout(r.Context(), invokeLimit)
-		defer cancel()
-		inst, err := ensureCloudRunServiceInstance(ctx, name, serviceID, svc.Template.Containers, svc.Template.Volumes, sink)
-		if err != nil {
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "invoke service %q: %v", name, err)
-			return
-		}
-		requestPath := "/"
-		if suffix := sim.PathParam(r, "path"); suffix != "" {
-			requestPath += suffix
-		}
-		respBody, exitCode, err := postCloudRunServiceInstance(ctx, inst, requestPath, r.URL.RawQuery, body, ct)
-		if err != nil {
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "invoke service %q: %v", name, err)
-			return
-		}
-		w.Header().Set(workload.ExitCodeHeader, strconv.Itoa(exitCode))
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(respBody)
-	}
-	srv.HandleFunc("POST /v2-services-invoke/{project}/{location}/{service}", invokeService)
-	srv.HandleFunc("POST /v2-services-invoke/{project}/{location}/{service}/{path...}", invokeService)
+	registerCloudRunFrontEnd(srv)
 }

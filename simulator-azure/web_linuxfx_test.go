@@ -44,3 +44,31 @@ func TestSiteContainerImageDistinguishesAStackFromAnImage(t *testing.T) {
 		t.Fatal(`"PHP|8.2" resolved to the image "8.2"; a stack version is not an image`)
 	}
 }
+
+// TestSiteBuiltInStackRunsOnlyWebAppsOnCataloguedStacks pins which sites run a
+// stack's platform image: a web app whose linuxFxVersion names a catalogued
+// stack, in any letter case. A function app runs on the Functions host, which
+// this simulator does not run, and an uncatalogued stack has no image here.
+func TestSiteBuiltInStackRunsOnlyWebAppsOnCataloguedStacks(t *testing.T) {
+	site := func(kind, fx string) *Site {
+		return &Site{Kind: kind, Properties: SiteProperties{SiteConfig: &SiteConfig{LinuxFxVersion: fx}}}
+	}
+	for _, tc := range []struct {
+		kind, fx string
+		image    string
+	}{
+		{kind: "app,linux", fx: "NODE|20-lts", image: "mcr.microsoft.com/appsvc/node:20-lts_20260904.5.tuxprod"},
+		{kind: "app,linux", fx: "node|22-LTS", image: "mcr.microsoft.com/appsvc/node:22-lts_20260904.5.tuxprod"},
+		{kind: "app,linux", fx: "PYTHON|3.12", image: "mcr.microsoft.com/appsvc/python:3.12_20260910.5.tuxprod"},
+		{kind: "app,linux", fx: "PHP|8.2"},
+		{kind: "app,linux", fx: "DOCKER|nginx:1.27"},
+		{kind: "app,linux", fx: ""},
+		{kind: "functionapp,linux", fx: "NODE|20-lts"},
+	} {
+		s := site(tc.kind, tc.fx)
+		stack, ok := siteBuiltInStack(s)
+		if got := stack.Image; got != tc.image || ok != (tc.image != "") {
+			t.Errorf("siteBuiltInStack(%s, %q) = %q, %v; want %q", tc.kind, tc.fx, got, ok, tc.image)
+		}
+	}
+}

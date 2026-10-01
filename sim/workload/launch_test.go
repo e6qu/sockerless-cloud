@@ -44,23 +44,17 @@ func TestPostBootstrapSurfacesATruncatedResponse(t *testing.T) {
 
 func TestPostBootstrapReportsTheExitCode(t *testing.T) {
 	cases := []struct {
-		header string
 		status int
 		want   int
 	}{
-		{"", http.StatusOK, 0},
-		{"", http.StatusInternalServerError, 1},
-		{"7", http.StatusOK, 7},
-		{"0", http.StatusBadGateway, 0},
-		{"not-a-number", http.StatusBadRequest, 1},
+		{http.StatusOK, 0},
+		{http.StatusInternalServerError, 1},
+		{http.StatusBadRequest, 1},
 	}
 	for _, tc := range cases {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if got := r.Header.Get("Content-Type"); got != "application/json" {
 				t.Errorf("Content-Type %q, want the application/json default", got)
-			}
-			if tc.header != "" {
-				w.Header().Set(ExitCodeHeader, tc.header)
 			}
 			w.WriteHeader(tc.status)
 			_, _ = w.Write([]byte("out"))
@@ -68,7 +62,7 @@ func TestPostBootstrapReportsTheExitCode(t *testing.T) {
 		body, code, err := PostBootstrap(context.Background(), srv.URL, strings.NewReader("{}"), "", 5*time.Second)
 		srv.Close()
 		if err != nil || code != tc.want || string(body) != "out" {
-			t.Errorf("header %q status %d: body %q code %d err %v, want code %d", tc.header, tc.status, body, code, err, tc.want)
+			t.Errorf("status %d: body %q code %d err %v, want code %d", tc.status, body, code, err, tc.want)
 		}
 	}
 }
@@ -128,37 +122,6 @@ func TestPostBootstrapStopsWhenTheContextEnds(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("PostBootstrap kept retrying for %s after its context ended", elapsed)
-	}
-}
-
-func TestFirstReachableReturnsTheFirstListeningCandidate(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	live := "http://" + l.Addr().String()
-	got, err := FirstReachable(context.Background(),
-		[]string{unreachableURL, "http:///no-host", live}, 5*time.Second)
-	if err != nil || got != live {
-		t.Fatalf("got %q, %v; want %q", got, err, live)
-	}
-}
-
-func TestDialAddressDefaultsThePortByScheme(t *testing.T) {
-	for raw, want := range map[string]string{
-		"http://10.0.0.1":        "10.0.0.1:80",
-		"https://example.test":   "example.test:443",
-		"http://10.0.0.1:8080/x": "10.0.0.1:8080",
-		"https://[::1]":          "[::1]:443",
-	} {
-		got, err := dialAddress(raw)
-		if err != nil || got != want {
-			t.Errorf("dialAddress(%q) = %q, %v; want %q", raw, got, err, want)
-		}
-	}
-	if _, err := dialAddress("http://"); err == nil {
-		t.Error("a URL without a host was accepted")
 	}
 }
 

@@ -159,11 +159,61 @@ func VolumeSnapshotIsInstant(filesystem string) bool {
 
 // volumeFreezes counts, per container, the captures that hold it frozen, so
 // concurrent captures of one volume pause its writers once and thaw them when
-// the last capture ends.
+// the last capture ends, and the commands that hold it thawed, which a capture
+// waits out before it pauses the container. changed closes, and is replaced, on
+// every count change.
 var volumeFreezes = struct {
 	sync.Mutex
-	holds map[string]int
-}{holds: map[string]int{}}
+	holds   map[string]int
+	thawed  map[string]int
+	changed chan struct{}
+}{holds: map[string]int{}, thawed: map[string]int{}, changed: make(chan struct{})}
+
+func broadcastVolumeFreezeChange() {
+	close(volumeFreezes.changed)
+	volumeFreezes.changed = make(chan struct{})
+}
+
+// awaitVolumeFreezeChange waits, with volumeFreezes locked on entry and on
+// return, until a count changes or ctx ends.
+func awaitVolumeFreezeChange(ctx context.Context) error {
+	changed := volumeFreezes.changed
+	volumeFreezes.Unlock()
+	defer volumeFreezes.Lock()
+	select {
+	case <-changed:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// HoldThawed waits until no volume capture holds the container frozen, then
+// keeps new captures from freezing it until release runs. The Docker Engine
+// refuses to exec into a paused container, so a command run into a database
+// engine's container waits out a snapshot's brief I/O suspension under this
+// hold.
+func HoldThawed(ctx context.Context, containerID string) (release func(), err error) {
+	volumeFreezes.Lock()
+	defer volumeFreezes.Unlock()
+	for volumeFreezes.holds[containerID] > 0 {
+		if err := awaitVolumeFreezeChange(ctx); err != nil {
+			return nil, fmt.Errorf("wait for container %s to thaw: %w", containerID, err)
+		}
+	}
+	volumeFreezes.thawed[containerID]++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			volumeFreezes.Lock()
+			defer volumeFreezes.Unlock()
+			if volumeFreezes.thawed[containerID]--; volumeFreezes.thawed[containerID] == 0 {
+				delete(volumeFreezes.thawed, containerID)
+			}
+			broadcastVolumeFreezeChange()
+		})
+	}, nil
+}
 
 // freezeVolumeWriters pauses every running container that mounts volume
 // writable and returns the function that thaws them.
@@ -206,6 +256,11 @@ func mountsVolumeWritable(mounts []container.MountPoint, volume string) bool {
 func holdVolumeFreeze(ctx context.Context, containerID string) error {
 	volumeFreezes.Lock()
 	defer volumeFreezes.Unlock()
+	for volumeFreezes.thawed[containerID] > 0 {
+		if err := awaitVolumeFreezeChange(ctx); err != nil {
+			return err
+		}
+	}
 	if volumeFreezes.holds[containerID] == 0 {
 		if _, err := dockerClient.ContainerPause(ctx, containerID, client.ContainerPauseOptions{}); err != nil {
 			return err
@@ -225,6 +280,7 @@ func releaseVolumeFreeze(containerID string) error {
 		return nil
 	}
 	delete(volumeFreezes.holds, containerID)
+	defer broadcastVolumeFreezeChange()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if _, err := dockerClient.ContainerUnpause(ctx, containerID, client.ContainerUnpauseOptions{}); err != nil && !containerNotFoundError(err) {

@@ -10,7 +10,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-once [MESSAGE]")
+		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|echo-request|teapot [MESSAGE]")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -27,14 +27,11 @@ func main() {
 			client := &http.Client{Timeout: 500 * time.Millisecond}
 			resp, err := client.Get("http://127.0.0.1:9090/")
 			if err != nil {
-				w.Header().Set("X-Sockerless-Exit-Code", "1")
-				w.WriteHeader(http.StatusOK)
+				w.WriteHeader(http.StatusServiceUnavailable)
 				_, _ = io.WriteString(w, "sidecar-missing")
 				return
 			}
 			_ = resp.Body.Close()
-			w.Header().Set("X-Sockerless-Exit-Code", "0")
-			w.WriteHeader(http.StatusOK)
 			_, _ = io.WriteString(w, "cloudrun-sidecar-ok")
 		})
 		if err := http.ListenAndServe(":8080", nil); err != nil {
@@ -57,14 +54,11 @@ func main() {
 				resp, err := client.Get("http://127.0.0.1:9090/")
 				if err == nil {
 					_ = resp.Body.Close()
-					w.Header().Set("X-Sockerless-Exit-Code", "0")
-					w.WriteHeader(http.StatusOK)
 					_, _ = io.WriteString(w, message)
 					return
 				}
 				if time.Now().After(deadline) {
-					w.Header().Set("X-Sockerless-Exit-Code", "1")
-					w.WriteHeader(http.StatusOK)
+					w.WriteHeader(http.StatusServiceUnavailable)
 					_, _ = io.WriteString(w, "sidecar-missing")
 					return
 				}
@@ -78,6 +72,18 @@ func main() {
 	case "echo-request":
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			_, _ = fmt.Fprintf(w, "%s %s", r.Method, r.URL.RequestURI())
+		})
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "teapot":
+		// Answers every request with a status, a header and a body of its
+		// own, so a front end that rewrites any of them shows.
+		http.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("X-Workload", "teapot")
+			w.WriteHeader(http.StatusTeapot)
+			_, _ = io.WriteString(w, "short and stout")
 		})
 		if err := http.ListenAndServe(":8080", nil); err != nil {
 			fmt.Fprintln(os.Stderr, err)

@@ -435,14 +435,9 @@ var azureMethodFloor = map[string]int{
 	// spellings (availableStacks, webAppStacks, functionAppStacks and their
 	// per-location and subscription forms). They used to decline as
 	// Microsoft-published catalog data. What the catalogs report is which
-	// built-in runtime stacks the App Service *offers*, and this one offers
-	// none: a site here runs the container image its linuxFxVersion names, and
-	// a site configured with a stack instead cannot start — the platform image
-	// that stack names is Microsoft's, which is what the start path tells the
-	// caller. An empty collection states exactly that, from the same fact the
-	// site path uses, so the two cannot come to disagree. Every lifecycle field
-	// in those schemas (isPreview, isDeprecated, isHidden, endOfLifeDate) hangs
-	// off a stack entry, and there are no entries.
+	// built-in runtime stacks the App Service runs, and they list exactly the
+	// stacks whose platform images the site path starts, from the same table,
+	// so the two cannot come to disagree.
 	//
 	// Raised from 545 by the two families that were the last recorded App
 	// Service deferrals: App Service Environments with Kubernetes Environments
