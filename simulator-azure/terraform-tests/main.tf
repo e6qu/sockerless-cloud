@@ -764,6 +764,36 @@ resource "azurerm_linux_function_app" "az_backup_fa" {
   }
 }
 
+# A Linux custom-container Function App: application_stack.docker becomes
+# linuxFxVersion "DOCKER|public.ecr.aws/docker/library/alpine:latest", and
+# app_command_line is the startup command the platform runs on the image's
+# entrypoint. WEBSITES_PORT names the port requests go to. busybox nc answers
+# each connection after reading the request's headers.
+resource "azurerm_linux_function_app" "az_container_fa" {
+  name                       = "tf-azrm-container-fa"
+  resource_group_name        = azurerm_resource_group.az_rg.name
+  location                   = azurerm_resource_group.az_rg.location
+  service_plan_id            = azurerm_service_plan.az_backup_sp.id
+  storage_account_name       = azurerm_storage_account.az_st.name
+  storage_account_access_key = azurerm_storage_account.az_st.primary_access_key
+
+  app_settings = {
+    WEBSITES_PORT = "8080"
+  }
+
+  site_config {
+    app_command_line = "nc -lk -p 8080 -e sh -c \"while read -r l && [ $${#l} -gt 1 ]; do :; done; printf 'HTTP/1.1 200 OK\\r\\nConnection: close\\r\\n\\r\\n'; echo from-the-terraform-startup-command\""
+
+    application_stack {
+      docker {
+        registry_url = "https://public.ecr.aws"
+        image_name   = "docker/library/alpine"
+        image_tag    = "latest"
+      }
+    }
+  }
+}
+
 # App Service public certificate — the Microsoft.Web/sites/publicCertificates
 # child resource. The provider PUTs the DER blob and reads the resource back
 # on every plan, so the sim must derive and round-trip the certificate's
@@ -1463,6 +1493,14 @@ output "azrm_storage_share_directory_name" {
 
 output "azrm_function_app_id" {
   value = azurerm_linux_function_app.az_fa.id
+}
+
+output "azrm_container_function_app_hostname" {
+  value = azurerm_linux_function_app.az_container_fa.default_hostname
+}
+
+output "azrm_container_function_app_command_line" {
+  value = azurerm_linux_function_app.az_container_fa.site_config[0].app_command_line
 }
 
 output "azrm_static_web_app_id" {

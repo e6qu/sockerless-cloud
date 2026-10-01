@@ -495,9 +495,10 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettingsV2", props))
 	})
 
-	// PATCH /config/web — partial SiteConfig update (both levels). GET/PUT
+	// PATCH /config/web — partial SiteConfig update (both levels): the fields
+	// the request carries replace the stored ones. GET/PUT
 	// for the production site are in functions.go.
-	both("PATCH", "/config/web", webConfigWebPut)
+	both("PATCH", "/config/web", webConfigWebPatch)
 	slot("GET", "/config/web", webConfigWebGet)
 	slot("PUT", "/config/web", webConfigWebPut)
 
@@ -540,21 +541,44 @@ func webConfigWebGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func webConfigWebPut(w http.ResponseWriter, r *http.Request) {
+	webConfigWebWrite(w, r, false)
+}
+
+func webConfigWebPatch(w http.ResponseWriter, r *http.Request) {
+	webConfigWebWrite(w, r, true)
+}
+
+// webConfigWebWrite stores a SiteConfig write. A PUT replaces the
+// configuration and a PATCH decodes onto the stored one; either keeps the
+// app settings when the request carries none, as they are their own resource.
+// A production site's workload restarts on the change, as App Service
+// restarts an app whose configuration changed.
+func webConfigWebWrite(w http.ResponseWriter, r *http.Request, merge bool) {
 	if webMissing(w, r) {
 		return
 	}
+	store := webResourceStore(r)
+	row, _ := store.Get(webResourceID(r))
 	var req struct {
 		Properties SiteConfig `json:"properties"`
+	}
+	if merge && row.Properties.SiteConfig != nil {
+		req.Properties = *row.Properties.SiteConfig
+		req.Properties.AppSettings = nil
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
-	store := webResourceStore(r)
-	row, _ := store.Get(webResourceID(r))
+	if req.Properties.AppSettings == nil && row.Properties.SiteConfig != nil {
+		req.Properties.AppSettings = row.Properties.SiteConfig.AppSettings
+	}
 	row.Properties.SiteConfig = &req.Properties
 	store.Put(webResourceID(r), row)
 	webRecordConfigSnapshot(webResourceID(r), row.Properties.SiteConfig)
+	if sim.PathParam(r, "slot") == "" {
+		restartAzureFunctionInstance(row)
+	}
 	sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "web", row.Properties.SiteConfig))
 }
 
@@ -586,7 +610,7 @@ func registerWebLifecycle(both func(string, string, http.HandlerFunc)) {
 			return
 		}
 		site, _ := webResource(r)
-		stopAzureFunctionInstance(site.Name)
+		restartAzureFunctionInstance(site)
 		recordWebSiteEvent(webResourceID(r), "Restart", webEventCauseUser)
 		w.WriteHeader(http.StatusOK)
 	})

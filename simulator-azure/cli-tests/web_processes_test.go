@@ -60,7 +60,7 @@ func TestWebApps_CLI_InstancesAndProcesses(t *testing.T) {
 	defer runCLI(t, azRest("DELETE", siteURL, ""))
 
 	runCLI(t, azRest("PUT", url("sites/"+site+"/sitecontainers/main"), fmt.Sprintf(`{
-		"properties": {"image": %q, "isMain": true, "startUpCommand": "probe-retry cli-webproc-ok"}
+		"properties": {"image": %q, "isMain": true, "targetPort": "8080", "startUpCommand": "probe-retry cli-webproc-ok"}
 	}`, httpProbeImageName)))
 	runCLI(t, azRest("PUT", url("sites/"+site+"/sitecontainers/sidecar"), fmt.Sprintf(`{
 		"properties": {"image": %q, "isMain": false, "targetPort": "9090", "startUpCommand": "server"}

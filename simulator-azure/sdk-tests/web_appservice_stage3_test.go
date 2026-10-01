@@ -152,7 +152,7 @@ func stage3Invoke(t *testing.T, siteName, key, carrier string) int {
 
 func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 	rg, name := "sdk-web-keys-rg", "sdk-keys-app"
-	azureCreateSite(t, rg, name, nil)
+	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
 	cred := &fakeCredential{}
@@ -275,7 +275,7 @@ func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 // Functions host does.
 func TestSDK_WebApps_InvokeAuthLevelContract(t *testing.T) {
 	rg, name := "sdk-invoke-auth-rg", "invoke-auth-app"
-	azureCreateSite(t, rg, name, nil)
+	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
 	cred := &fakeCredential{}
@@ -313,7 +313,7 @@ func TestSDK_WebApps_InvokeAuthLevelContract(t *testing.T) {
 func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
 	pullImageWithRetry(t, stage3AlpineImage)
 	rg, name := "sdk-webjobs-rg", "sdk-webjobs-app"
-	azureCreateSiteWithImage(t, rg, name, nil, stage3AlpineImage)
+	azureCreateContainerSite(t, rg, name, stage3AlpineImage, "", nil)
 	defer azureDeleteSite(rg, name)
 
 	cred := &fakeCredential{}
@@ -493,7 +493,7 @@ func stage3AwaitContinuousStatus(t *testing.T, client *armappservice.WebAppsClie
 
 func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 	rg, name := "sdk-deploy-extra-rg", "sdk-deploy-extra-app"
-	azureCreateSite(t, rg, name, nil)
+	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
 	cred := &fakeCredential{}

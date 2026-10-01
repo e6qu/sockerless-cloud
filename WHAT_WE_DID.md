@@ -21,8 +21,9 @@ that consumed them: they are a general-purpose reimplementation of slices of
 the clouds, anything that speaks a cloud's API can be pointed at one, and what
 is built on them is downstream. The simulator reads nothing from a consumer's
 conventions — the Azure Functions host once told an HTTP-bootstrap site from a
-one-shot one by the image path containing a consumer's overlay name, and now
-reads what the site declares in its app settings.
+one-shot one by the image path containing a consumer's overlay name, and later
+by app settings named after that consumer; it now runs every container site
+the way App Service does (see Execution).
 
 ## The framework is one module
 
@@ -417,6 +418,27 @@ Functions, Azure Functions HTTP sites and AWS Amplify Hosting compute stopped
 choosing ports. A stopped container holds no published port and a resumed one
 holds a new one, so adopting an engine left by an earlier process reads its
 ports after resuming it.
+
+An App Service or Azure Functions site that names a container image runs it
+the way App Service runs a Linux custom container, and nothing else. The image's
+own ENTRYPOINT runs with `siteConfig.appCommandLine` (`az functionapp config set
+--startup-file`, terraform's `app_command_line`), or a sitecontainer's
+`startUpCommand`, as its command in place of the image's CMD; the app settings
+and `PORT` are its environment; and the front end forwards every request on
+one of the site's hostnames, any method and path, to the container's port —
+`WEBSITES_PORT`, else 80, or the main sitecontainer's `targetPort` — passing
+the container's status, headers and body back untouched. A request starts the
+container when none runs, and Always On (`siteConfig.alwaysOn`) starts it
+without one; the start waits until the port accepts a connection, the
+container exits, or `WEBSITES_CONTAINER_START_TIME_LIMIT` (230 seconds unset)
+passes, and fails the start with 503. A restart, a configuration write and an
+app-settings write restart the container and keep its VNet integration;
+`PATCH config/web` merges onto the stored configuration. The host had run a
+site's command from base64 JSON in two app settings named after a downstream
+consumer (`SOCKERLESS_CMD`, `SOCKERLESS_ENTRYPOINT`), in a container per
+invocation whose stdout became the response, and told a long-lived HTTP site
+from a raw service by two more such settings; none of those is an Azure
+setting, and the simulator reads none of them.
 
 RunTask places a task only where it fits. The simulator runs real containers on
 one finite host, so rather than invent a capacity it commits each placed task's

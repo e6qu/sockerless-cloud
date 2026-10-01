@@ -1,8 +1,6 @@
 package azure_sdk_test
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -73,42 +71,24 @@ func stage5EnsurePlan(t *testing.T, rg, plan, skuName, skuTier string) string {
 	return *created.ID
 }
 
+// unstartedSiteImage is the image of a site no request reaches and that is not
+// Always On, so its container never starts and the image is never pulled: VNet
+// integration of such a site records the connection and starts nothing.
+const unstartedSiteImage = "registry.example/functions/azf:test"
+
 // stage5CreateSite creates a function app bound to planID. A non-empty image
-// becomes the site's Linux container; a non-empty command rides the real
-// SOCKERLESS_CMD app-setting contract, exactly as a sockerless invocation
-// delivers it.
-// httpFunctionImage is the image of a site whose app settings declare an HTTP
-// bootstrap: the host invokes such a site over HTTP and VNet integration
-// records the connection without starting a service container.
-const httpFunctionImage = "registry.example/functions/azf:test"
-
-// httpFunctionBootstrap is the app setting that declares the HTTP bootstrap:
-// SOCKERLESS_USER_CMD carrying base64(["/bin/true"]).
-func httpFunctionBootstrap() *armappservice.NameValuePair {
-	return &armappservice.NameValuePair{
-		Name:  to.Ptr("SOCKERLESS_USER_CMD"),
-		Value: to.Ptr("WyIvYmluL3RydWUiXQ=="),
-	}
-}
-
-func stage5CreateSite(t *testing.T, rg, name, planID, image string, command []string) string {
+// becomes the site's Linux container, appCommandLine its startup command, and
+// alwaysOn its Always On setting.
+func stage5CreateSite(t *testing.T, rg, name, planID, image, appCommandLine string, alwaysOn bool) string {
 	t.Helper()
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	siteConfig := &armappservice.SiteConfig{}
+	siteConfig := &armappservice.SiteConfig{AlwaysOn: to.Ptr(alwaysOn)}
 	if image != "" {
 		siteConfig.LinuxFxVersion = to.Ptr("DOCKER|" + image)
 	}
-	if image == httpFunctionImage {
-		siteConfig.AppSettings = []*armappservice.NameValuePair{httpFunctionBootstrap()}
-	}
-	if len(command) > 0 {
-		cmdJSON, err := json.Marshal(command)
-		require.NoError(t, err)
-		siteConfig.AppSettings = []*armappservice.NameValuePair{{
-			Name:  to.Ptr("SOCKERLESS_CMD"),
-			Value: to.Ptr(base64.StdEncoding.EncodeToString(cmdJSON)),
-		}}
+	if appCommandLine != "" {
+		siteConfig.AppCommandLine = to.Ptr(appCommandLine)
 	}
 	p, err := client.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
 		Location: to.Ptr("eastus"),
@@ -170,7 +150,7 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 	rg := "stage5-vnet-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-vnet-plan", "S1", "Standard")
-	stage5CreateSite(t, rg, "s5-vnet-app", planID, httpFunctionImage, nil)
+	stage5CreateSite(t, rg, "s5-vnet-app", planID, unstartedSiteImage, "", false)
 	subnetID := stage5Subnet(t, rg, "s5-vnet", "10.60.0.0/16", "appsvc", "10.60.1.0/24")
 
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -260,8 +240,7 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 		Properties: &armappservice.SiteProperties{
 			ServerFarmID: to.Ptr(planID),
 			SiteConfig: &armappservice.SiteConfig{
-				LinuxFxVersion: to.Ptr("DOCKER|" + httpFunctionImage),
-				AppSettings:    []*armappservice.NameValuePair{httpFunctionBootstrap()},
+				LinuxFxVersion: to.Ptr("DOCKER|" + unstartedSiteImage),
 			},
 		},
 	}, nil)
@@ -323,7 +302,7 @@ func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 	rg := "stage5-plan-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-tail-plan", "S1", "Standard")
-	stage5CreateSite(t, rg, "s5-tail-app", planID, httpFunctionImage, nil)
+	stage5CreateSite(t, rg, "s5-tail-app", planID, unstartedSiteImage, "", false)
 	subnetID := stage5Subnet(t, rg, "s5-tail-vnet", "10.61.0.0/16", "appsvc", "10.61.1.0/24")
 
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -435,32 +414,33 @@ func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 }
 
 // TestSDK_WebVnet_JoinsRealNetwork proves a VNet connection is a real join,
-// not a record: a redis `services:` site put on the VNet through the CLASSIC
-// spelling starts its real container on the VNet's Docker network, a function
-// site integrated through the swift spelling reaches it BY NAME from its
-// per-invocation container, and deleting the classic connection really
-// disconnects — the same probe then fails.
+// not a record: an Always On redis site put on the VNet through the CLASSIC
+// spelling has its real container running on the VNet's Docker network, a
+// function site integrated through the swift spelling reaches it BY NAME from
+// its container, and deleting the classic connection really disconnects — the
+// same probe then fails.
 func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	rg := "stage5-join-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-join-plan", "S1", "Standard")
 	subnetID := stage5Subnet(t, rg, "s5-join-vnet", "10.62.0.0/16", "appsvc", "10.62.1.0/24")
 
-	// A redis `services:` site: no function bootstrap, so VNet integration is
-	// its run trigger.
-	stage5CreateSite(t, rg, "s5-join-redis", planID, "public.ecr.aws/docker/library/redis:7-alpine", nil)
+	// An Always On redis site: its container runs without a request to start
+	// it.
+	stage5CreateSite(t, rg, "s5-join-redis", planID, "public.ecr.aws/docker/library/redis:7-alpine", "", true)
 	defer azureDeleteSite(rg, "s5-join-redis")
 
 	// The probe function site: speaks the redis protocol to the service BY
 	// SITE NAME over the VNet.
-	stage5CreateSite(t, rg, "s5-join-probe", planID, "public.ecr.aws/docker/library/alpine:latest",
-		[]string{"sh", "-c", "printf 'PING\\r\\n' | nc -w 5 s5-join-redis 6379"})
+	stage5CreateSite(t, rg, "s5-join-probe", planID, commandImageName,
+		"relay-http 80 s5-join-redis:6379 PING", false)
 	defer azureDeleteSite(rg, "s5-join-probe")
 
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// Classic PUT joins the redis site — its container starts on the network.
+	// Classic PUT joins the redis site — its running container joins the
+	// network before the PUT returns.
 	_, err = web.CreateOrUpdateVnetConnection(ctx, rg, "s5-join-redis", "s5-join-vnet_appsvc", armappservice.VnetInfoResource{
 		Properties: &armappservice.VnetInfo{VnetResourceID: to.Ptr(subnetID)},
 	}, nil)
@@ -472,8 +452,8 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// The probe's invocation container runs on the VNet and reaches redis by
-	// name: the wire answer is redis's own +PONG.
+	// The probe's container runs on the VNet and reaches redis by name: the
+	// wire answer is redis's own +PONG.
 	//
 	// The connection PUT returns once the redis container has started, and
 	// redis opens 6379 a moment later — App Service starts a site's container
@@ -494,17 +474,18 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	// the same probe now fails.
 	_, err = web.DeleteVnetConnection(ctx, rg, "s5-join-redis", "s5-join-vnet_appsvc", nil)
 	require.NoError(t, err)
-	azureInvokeFunctionExpectError(t, "s5-join-probe")
+	status, body := azureInvokeFunctionResponse(t, "s5-join-probe")
+	assert.Equal(t, http.StatusBadGateway, status, "the probe can no longer reach redis: %s", body)
 
 	// The plan's worker-instance surface answers from the same real container
-	// state: the redis site's persistent container is the plan's one live
-	// worker, and rebooting it through the plan API really tears it down.
+	// state: each site's running container is one of the plan's live workers,
+	// and rebooting one through the plan API really tears it down.
 	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	details, err := plans.GetServerFarmInstanceDetails(ctx, rg, "s5-join-plan", nil)
 	require.NoError(t, err)
-	require.Equal(t, int32(1), *details.InstanceCount)
-	require.Len(t, details.Instances, 1)
+	require.Equal(t, int32(2), *details.InstanceCount)
+	require.Len(t, details.Instances, 2)
 	workerName := *details.Instances[0].InstanceName
 	require.NotEmpty(t, workerName)
 	assert.Equal(t, "Ready", *details.Instances[0].Status)
@@ -513,7 +494,7 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	require.NoError(t, err)
 	details, err = plans.GetServerFarmInstanceDetails(ctx, rg, "s5-join-plan", nil)
 	require.NoError(t, err)
-	assert.Equal(t, int32(0), *details.InstanceCount)
+	assert.Equal(t, int32(1), *details.InstanceCount)
 }
 
 // TestSDK_WebHybridConnections_SiteAndPlanViews covers both hybrid connection
@@ -522,7 +503,7 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 	rg := "stage5-hybrid-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-hyb-plan", "S1", "Standard")
-	siteID := stage5CreateSite(t, rg, "s5-hyb-app", planID, httpFunctionImage, nil)
+	siteID := stage5CreateSite(t, rg, "s5-hyb-app", planID, unstartedSiteImage, "", false)
 
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -695,7 +676,7 @@ func TestSDK_WebPrivateAccess_RoundTrip(t *testing.T) {
 	rg := "stage5-pa-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-pa-plan", "S1", "Standard")
-	stage5CreateSite(t, rg, "s5-pa-app", planID, httpFunctionImage, nil)
+	stage5CreateSite(t, rg, "s5-pa-app", planID, unstartedSiteImage, "", false)
 
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -762,7 +743,7 @@ func TestSDK_WebSitePrivateEndpointConnections(t *testing.T) {
 	rg := "stage5-pec-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-pec-plan", "S1", "Standard")
-	siteID := stage5CreateSite(t, rg, "s5-pec-app", planID, httpFunctionImage, nil)
+	siteID := stage5CreateSite(t, rg, "s5-pec-app", planID, unstartedSiteImage, "", false)
 	subnetID := stage5Subnet(t, rg, "s5-pec-vnet", "10.63.0.0/16", "pe-subnet", "10.63.1.0/24")
 
 	// A private endpoint targeting the site opens the connection on the

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"net"
@@ -12,7 +13,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: container-command hold|http|probe-http|log|print|resolve|sleep|stdin-echo")
+		fmt.Fprintln(os.Stderr, "usage: container-command hold|http|serve|relay-http|probe-http|log|print|resolve|sleep|stdin-echo")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -40,6 +41,62 @@ func main() {
 		}
 		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = io.WriteString(w, os.Args[3])
+		})
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), handler); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "serve":
+		// An HTTP server that answers every request with RESPONSE and writes
+		// one access-log line per request to stdout.
+		if len(os.Args) != 4 {
+			fmt.Fprintln(os.Stderr, "usage: container-command serve PORT RESPONSE")
+			os.Exit(2)
+		}
+		port, err := strconv.Atoi(os.Args[2])
+		if err != nil || port < 1 || port > 65535 {
+			fmt.Fprintf(os.Stderr, "invalid HTTP port %q\n", os.Args[2])
+			os.Exit(2)
+		}
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Printf("%s %s\n", r.Method, r.URL.Path)
+			_, _ = io.WriteString(w, os.Args[3])
+		})
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), handler); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "relay-http":
+		// An HTTP server that, per request, sends PAYLOAD and CRLF to the TCP
+		// ADDRESS and answers with the first line that comes back, or 502
+		// when the exchange fails.
+		if len(os.Args) != 5 {
+			fmt.Fprintln(os.Stderr, "usage: container-command relay-http PORT ADDRESS PAYLOAD")
+			os.Exit(2)
+		}
+		port, err := strconv.Atoi(os.Args[2])
+		if err != nil || port < 1 || port > 65535 {
+			fmt.Fprintf(os.Stderr, "invalid HTTP port %q\n", os.Args[2])
+			os.Exit(2)
+		}
+		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			conn, err := net.DialTimeout("tcp", os.Args[3], 2*time.Second)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			defer conn.Close()
+			_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+			if _, err := io.WriteString(conn, os.Args[4]+"\r\n"); err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			line, err := bufio.NewReader(conn).ReadString('\n')
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			_, _ = io.WriteString(w, line)
 		})
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), handler); err != nil {
 			fmt.Fprintln(os.Stderr, err)

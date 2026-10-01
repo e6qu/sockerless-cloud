@@ -353,10 +353,9 @@ func handleClassicVnetPut(w http.ResponseWriter, r *http.Request) {
 
 // upsertVnetConnection records the connection and performs the real join:
 // the VNet's Docker network is ensured and the site's containers attach to it.
-// A `services:` container (no HTTP function bootstrap, e.g. redis) is never
-// invoked, so VNet integration is its run trigger — it starts now on the
-// network. An HTTP function site is started by its own invoke (asynchronously);
-// the network is recorded and a live container is attached immediately.
+// An Always On site's container runs whether or not a request arrives, so it
+// is running on the network when the integration returns; any other site's
+// container attaches when a request starts it, and a live one attaches now.
 // Regional (delegated-subnet) integration is single per site: a new
 // subnet-backed connection replaces a previous one under a different name,
 // exactly as a swift PUT re-points the integration.
@@ -379,7 +378,7 @@ func upsertVnetConnection(r *http.Request, site Site, conn WebVnetConnection) er
 	defer inst.mu.Unlock()
 	inst.addNetworkLocked(dockerNet)
 	s := site
-	if !hasAzureFunctionHTTPBootstrap(&s) && siteContainerImage(&s) != "" {
+	if siteAlwaysOn(&s) && siteRunsContainer(&s) {
 		return inst.ensureStarted(&s)
 	}
 	if inst.containerID != "" && sim.ContainerRunning(inst.containerID) {

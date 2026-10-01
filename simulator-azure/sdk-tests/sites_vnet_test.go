@@ -23,17 +23,15 @@ func TestSDK_SiteVNetIntegration_RoundTrip(t *testing.T) {
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// A site whose app settings declare an HTTP bootstrap is an HTTP function
-	// site, so VNet integration only records the connection (no service
-	// container to start) — keeping this an ARM round-trip test, not a
-	// workload test.
+	// A site that is not Always On and receives no request runs no container,
+	// so VNet integration only records the connection — keeping this an ARM
+	// round-trip test, not a workload test.
 	p, err := client.BeginCreateOrUpdate(ctx, rg, site, armappservice.Site{
 		Location: to.Ptr("eastus"),
 		Kind:     to.Ptr("functionapp,linux,container"),
 		Properties: &armappservice.SiteProperties{
 			SiteConfig: &armappservice.SiteConfig{
-				LinuxFxVersion: to.Ptr("DOCKER|" + httpFunctionImage),
-				AppSettings:    []*armappservice.NameValuePair{httpFunctionBootstrap()},
+				LinuxFxVersion: to.Ptr("DOCKER|" + unstartedSiteImage),
 			},
 		},
 	}, nil)

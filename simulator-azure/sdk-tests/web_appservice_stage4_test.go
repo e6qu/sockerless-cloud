@@ -512,24 +512,28 @@ func TestSDK_WebApps_ConfigSnapshotsAndRecover(t *testing.T) {
 func TestSDK_WebApps_ContainerLogs(t *testing.T) {
 	rg := "stage4-logs-rg"
 	name := "s4-logs-site"
-	azureCreateSiteWithImage(t, rg, name, []string{"echo", "hello-from-stage4"}, "public.ecr.aws/docker/library/alpine:latest")
+	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 hello-from-stage4", nil)
 	t.Cleanup(func() { azureDeleteSite(rg, name) })
 
 	// Run the site container for real; its output flows through the site's
 	// log sink into the retained container log.
-	azureInvokeFunction(t, name)
+	assert.Equal(t, "hello-from-stage4", string(azureInvokeFunction(t, name)))
 
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	logsResp, err := client.GetWebSiteContainerLogs(ctx, rg, name, nil)
-	require.NoError(t, err)
-	logText, err := io.ReadAll(logsResp.Body)
-	require.NoError(t, err)
-	logsResp.Body.Close()
-	require.NotEmpty(t, logText, "an invoked site has retained container log lines")
-	assert.Contains(t, string(logText), "hello-from-stage4",
-		"the log text carries the container's real stdout")
+	// The engine's log stream delivers the container's access-log line after
+	// the response; App Service offers no event for its arrival, so read the
+	// log until it carries it.
+	var logText []byte
+	require.Eventually(t, func() bool {
+		logsResp, err := client.GetWebSiteContainerLogs(ctx, rg, name, nil)
+		require.NoError(t, err)
+		logText, err = io.ReadAll(logsResp.Body)
+		require.NoError(t, err)
+		logsResp.Body.Close()
+		return strings.Contains(string(logText), "POST /api/function")
+	}, 30*time.Second, 200*time.Millisecond, "the log text carries the container's real stdout")
 
 	// The zip spelling carries the same log content in one docker log file.
 	zipResp, err := client.GetContainerLogsZip(ctx, rg, name, nil)
@@ -551,7 +555,7 @@ func TestSDK_WebApps_ContainerLogs(t *testing.T) {
 
 	// A site whose container never ran has no log content: 204.
 	quietRG := "stage4-logs-quiet-rg"
-	azureCreateSiteWithImage(t, quietRG, "s4-logs-quiet", nil, evalImageName)
+	azureCreateContainerSite(t, quietRG, "s4-logs-quiet", commandImageName, "serve 80 quiet", nil)
 	t.Cleanup(func() { azureDeleteSite(quietRG, "s4-logs-quiet") })
 	quiet, err := client.GetWebSiteContainerLogs(ctx, quietRG, "s4-logs-quiet", nil)
 	require.NoError(t, err)

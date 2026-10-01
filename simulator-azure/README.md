@@ -214,7 +214,7 @@ tokens without shared secrets.
 |---|---|
 | **Container App Environments** | CRUD for managed environments |
 | **Container App Jobs** | CRUD, Start execution, Stop execution, List/Get executions |
-| **Azure Functions (Sites)** | CRUD for function apps, List functions, Invoke (`/api/function`) |
+| **Azure Functions (Sites)** | CRUD for function apps, List functions, a front end that forwards requests on a site's hostname to its container |
 | **App Service Plans** | CRUD (serverFarms) |
 | **ACR** | Registry CRUD, Name availability, [OCI Distribution](https://github.com/opencontainers/distribution-spec) (`/v2/` manifests + blobs + chunked upload) |
 
@@ -366,12 +366,14 @@ az rest --method POST --url "http://localhost:4568/v1/workspaces/default/query" 
 ### Azure Functions
 
 ```bash
-# Create App Service Plan (Consumption tier)
+# Create a Linux App Service plan (Basic tier; a custom container needs a
+# dedicated or Premium plan)
 az rest --method PUT \
   --url "http://localhost:4568/subscriptions/.../resourceGroups/my-rg/providers/Microsoft.Web/serverfarms/my-plan?api-version=2022-09-01" \
-  --body '{"location":"eastus","sku":{"name":"Y1","tier":"Dynamic"}}'
+  --body '{"location":"eastus","kind":"linux","sku":{"name":"B1","tier":"Basic"},"properties":{"reserved":true}}'
 
-# Create Function App with normal container configuration
+# Create a Function App that runs a container image: the image's entrypoint
+# runs with appCommandLine as its command, listening on WEBSITES_PORT (80 unset)
 az rest --method PUT \
   --url "http://localhost:4568/subscriptions/.../resourceGroups/my-rg/providers/Microsoft.Web/sites/my-func-app?api-version=2022-09-01" \
   --body '{
@@ -380,15 +382,18 @@ az rest --method PUT \
       "serverFarmId": ".../serverfarms/my-plan",
       "siteConfig": {
         "linuxFxVersion": "DOCKER|myregistry.azurecr.io/my-function:latest",
+        "appCommandLine": "serve --port 8080",
         "appSettings": [
-          {"name": "FUNCTIONS_WORKER_RUNTIME", "value": "custom"}
+          {"name": "FUNCTIONS_WORKER_RUNTIME", "value": "custom"},
+          {"name": "WEBSITES_PORT", "value": "8080"}
         ]
       }
     }
   }'
 
-# Invoke the configured container/function endpoint
-az rest --method POST --url "http://localhost:4568/api/function" --body '{}'
+# Send a request to the site's hostname; the front end forwards it to the container
+az rest --method POST --url "http://localhost:4568/api/function" --body '{}' \
+  --headers "Host=my-func-app.azurewebsites.net" --skip-authorization-header
 
 # Query AppTraces
 az rest --method POST --url "http://localhost:4568/v1/workspaces/default/query" \
