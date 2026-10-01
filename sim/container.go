@@ -93,12 +93,15 @@ type ContainerConfig struct {
 	DNS        []string
 	WorkingDir string // working directory inside the container (optional)
 
-	// PublishPorts maps containerPort → hostPort (bound on 127.0.0.1).
-	// Used by host-addressed data planes that must reach a workload's
-	// listener cross-platform: container IPs are only routable from the
-	// host on Linux, while a loopback port binding works on Docker
-	// Desktop (macOS/Windows) too. The caller allocates the host port.
-	PublishPorts map[int]int
+	// PublishPorts lists container TCP ports the engine publishes on
+	// 127.0.0.1, each on a host port the engine allocates when it starts the
+	// container; read it back with ContainerHandle.PublishedPort. Host-addressed
+	// data planes use it to reach a workload's listener cross-platform:
+	// container IPs are only routable from the host on Linux, while a loopback
+	// port binding works on Docker Desktop (macOS/Windows) too. The engine
+	// allocates the port because a port the caller picked is free only until
+	// something else binds it.
+	PublishPorts []int
 
 	// Sandbox: per-platform capability + permission restrictions. Each
 	// cloud-product handler picks the matching profile (SandboxLambda,
@@ -148,6 +151,47 @@ func (h *ContainerHandle) Wait() ProcessResult { return <-h.done }
 
 // Cancel stops and removes the container.
 func (h *ContainerHandle) Cancel() { h.cancel() }
+
+// PublishedPort returns the 127.0.0.1 host port the engine bound for the
+// container's containerPort/tcp, listed in ContainerConfig.PublishPorts.
+func (h *ContainerHandle) PublishedPort(ctx context.Context, containerPort int) (int, error) {
+	return PublishedHostPort(ctx, h.ContainerID, containerPort)
+}
+
+// PublishedHostPort returns the host port the engine bound for a running
+// container's containerPort/tcp. The engine allocates the port when it starts
+// the container and releases it when the container stops, so a resumed
+// container holds a new one: read it after every start.
+func PublishedHostPort(ctx context.Context, containerID string, containerPort int) (int, error) {
+	if err := RequireContainerRuntime("reading a container's published port"); err != nil {
+		return 0, err
+	}
+	inspected, err := dockerClient.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+	if err != nil {
+		return 0, fmt.Errorf("inspect container %s: %w", containerID, err)
+	}
+	info := inspected.Container
+	if info.State == nil || !info.State.Running {
+		return 0, fmt.Errorf("container %s is not running, so it publishes no port", containerID)
+	}
+	port, err := network.ParsePort(strconv.Itoa(containerPort) + "/tcp")
+	if err != nil {
+		return 0, fmt.Errorf("container port %d: %w", containerPort, err)
+	}
+	if info.NetworkSettings != nil {
+		for _, binding := range info.NetworkSettings.Ports[port] {
+			if binding.HostPort == "" {
+				continue
+			}
+			hostPort, err := strconv.Atoi(binding.HostPort)
+			if err != nil {
+				return 0, fmt.Errorf("container %s publishes %s on host port %q: %w", containerID, port, binding.HostPort, err)
+			}
+			return hostPort, nil
+		}
+	}
+	return 0, fmt.Errorf("container %s publishes no host port for %s", containerID, port)
+}
 
 // MemoryPeakBytes reports the highest memory usage the container engine
 // accounted to this container while it ran. It is zero when the engine reported
@@ -725,7 +769,6 @@ func bindHasRelabelOption(options string) bool {
 type HTTPContainerConfig struct {
 	Image        string            // overlay image (must be locally available)
 	Architecture string            // OS/arch (e.g. "linux/arm64"); workload's spec — never derived from host
-	HostPort     int               // host port to publish container's :8080 to
 	Command      []string          // entrypoint override (empty = use image default)
 	Args         []string          // command override (empty = use image default)
 	Env          map[string]string // env vars (must include PORT to match the published port-target)
@@ -737,7 +780,8 @@ type HTTPContainerConfig struct {
 }
 
 // StartHTTPContainer starts a container detached, with its container-internal
-// :8080 published to the requested host port, and returns the container ID;
+// :8080 published on a 127.0.0.1 port the engine allocates (read it back with
+// PublishedHostPort), and returns the container ID;
 // the caller stops and removes it with StopAndRemoveContainer. The image must
 // already be present in the local engine — the simulator runs entirely on
 // local images, so an absent one surfaces as a real "image not present" error
@@ -786,7 +830,7 @@ func StartHTTPContainer(ctx context.Context, cfg HTTPContainerConfig) (string, e
 	}
 	hostCfg := &container.HostConfig{
 		PortBindings: network.PortMap{
-			exposedPort: []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: strconv.Itoa(cfg.HostPort)}},
+			exposedPort: []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1")}},
 		},
 		Binds:      selinuxRelabelBinds(cfg.Binds),
 		ExtraHosts: cfg.ExtraHosts,
@@ -1062,7 +1106,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	if cfg.NetworkMode != "" {
 		hostCfg.NetworkMode = container.NetworkMode(cfg.NetworkMode)
 	}
-	for containerPort, hostPort := range cfg.PublishPorts {
+	for _, containerPort := range cfg.PublishPorts {
 		port, err := network.ParsePort(strconv.Itoa(containerPort) + "/tcp")
 		if err != nil {
 			return "", fmt.Errorf("publish port %d: %w", containerPort, err)
@@ -1071,11 +1115,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		if hostCfg.PortBindings == nil {
 			hostCfg.PortBindings = network.PortMap{}
 		}
-		publicPort := ""
-		if hostPort > 0 {
-			publicPort = strconv.Itoa(hostPort)
-		}
-		hostCfg.PortBindings[port] = []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: publicPort}}
+		hostCfg.PortBindings[port] = []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1")}}
 	}
 
 	// Enforce sandbox parity with the real cloud platform. Empty profile

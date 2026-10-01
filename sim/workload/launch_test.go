@@ -6,8 +6,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -73,40 +73,56 @@ func TestPostBootstrapReportsTheExitCode(t *testing.T) {
 	}
 }
 
-func TestPostBootstrapRetriesUntilTheListenerIsUp(t *testing.T) {
-	port, err := FreeTCPPort()
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := "127.0.0.1:" + strconv.Itoa(port)
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		l, err := net.Listen("tcp", addr)
+// refusingFirstListener drops the first connection it accepts, the way a
+// bootstrap's published port answers before the listener behind it is up.
+type refusingFirstListener struct {
+	net.Listener
+	accepted atomic.Int32
+}
+
+func (l *refusingFirstListener) Accept() (net.Conn, error) {
+	for {
+		conn, err := l.Listener.Accept()
 		if err != nil {
-			t.Error(err)
-			return
+			return nil, err
 		}
-		srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = w.Write([]byte("up"))
-		})}
-		t.Cleanup(func() { _ = srv.Close() })
-		_ = srv.Serve(l)
-	}()
-	body, code, err := PostBootstrap(context.Background(), "http://"+addr+"/", nil, "", 5*time.Second)
-	if err != nil || code != 0 || string(body) != "up" {
-		t.Fatalf("body %q code %d err %v", body, code, err)
+		if l.accepted.Add(1) > 1 {
+			return conn, nil
+		}
+		_ = conn.Close()
 	}
 }
 
-func TestPostBootstrapStopsWhenTheContextEnds(t *testing.T) {
-	port, err := FreeTCPPort()
+func TestPostBootstrapRetriesUntilTheListenerIsUp(t *testing.T) {
+	inner, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
+	listener := &refusingFirstListener{Listener: inner}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("up"))
+	})}
+	go func() { _ = srv.Serve(listener) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	body, code, err := PostBootstrap(context.Background(), "http://"+inner.Addr().String()+"/", nil, "", 5*time.Second)
+	if err != nil || code != 0 || string(body) != "up" {
+		t.Fatalf("body %q code %d err %v", body, code, err)
+	}
+	if got := listener.accepted.Load(); got < 2 {
+		t.Fatalf("the bootstrap answered on connection %d; PostBootstrap did not retry the dropped first connection", got)
+	}
+}
+
+// unreachableURL names port 0, which no listener can hold, so every dial to it
+// fails.
+const unreachableURL = "http://127.0.0.1:0/"
+
+func TestPostBootstrapStopsWhenTheContextEnds(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, _, err = PostBootstrap(ctx, "http://127.0.0.1:"+strconv.Itoa(port)+"/", nil, "", time.Second)
+	_, _, err := PostBootstrap(ctx, unreachableURL, nil, "", time.Second)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err %v, want the context's deadline", err)
 	}
@@ -121,13 +137,9 @@ func TestFirstReachableReturnsTheFirstListeningCandidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer l.Close()
-	closed, err := FreeTCPPort()
-	if err != nil {
-		t.Fatal(err)
-	}
 	live := "http://" + l.Addr().String()
 	got, err := FirstReachable(context.Background(),
-		[]string{"http://127.0.0.1:" + strconv.Itoa(closed), "http:///no-host", live}, 5*time.Second)
+		[]string{unreachableURL, "http:///no-host", live}, 5*time.Second)
 	if err != nil || got != live {
 		t.Fatalf("got %q, %v; want %q", got, err, live)
 	}

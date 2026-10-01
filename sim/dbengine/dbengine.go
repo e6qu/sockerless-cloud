@@ -209,10 +209,6 @@ func (i *Instance) Adopt() error {
 	if len(existing) != 1 {
 		return fmt.Errorf("found %d database engine containers", len(existing))
 	}
-	backendPort := existing[0].PublishedPorts[i.Engine.Port]
-	if backendPort == 0 {
-		return fmt.Errorf("container %s has no published database port %d", existing[0].ID, i.Engine.Port)
-	}
 	if !existing[0].Running {
 		if err := sim.StartExistingContainer(existing[0].ID); err != nil {
 			return fmt.Errorf("resume database engine container %s: %w", existing[0].ID, err)
@@ -221,6 +217,12 @@ func (i *Instance) Adopt() error {
 	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{CancelGracePeriod: stopGrace}, i.logSink())
 	if err != nil {
 		return err
+	}
+	backendPort, err := handle.PublishedPort(context.Background(), i.Engine.Port)
+	if err != nil {
+		handle.Cancel()
+		_ = handle.Wait()
+		return fmt.Errorf("database engine container %s: %w", existing[0].ID, err)
 	}
 	i.mu.Lock()
 	i.backend, i.handle = net.JoinHostPort("127.0.0.1", strconv.Itoa(backendPort)), handle
@@ -275,22 +277,24 @@ func (i *Instance) start() (string, *sim.ContainerHandle, error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve database engine platform: %w", err)
 	}
-	backendPort, err := reservePort()
-	if err != nil {
-		return "", nil, err
-	}
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
 		CancelGracePeriod: stopGrace,
 		Image:             i.Engine.Image,
 		Architecture:      platform,
 		Args:              i.Engine.Args,
 		Env:               environment,
-		PublishPorts:      map[int]int{i.Engine.Port: backendPort},
+		PublishPorts:      []int{i.Engine.Port},
 		Binds:             []string{i.Volume + ":" + i.Engine.DataPath},
 		Labels:            i.Labels,
 		Sandbox:           i.Sandbox,
 	}, i.logSink())
 	if err != nil {
+		return "", nil, fmt.Errorf("start %s database engine: %w", i.Engine.Family, err)
+	}
+	backendPort, err := handle.PublishedPort(context.Background(), i.Engine.Port)
+	if err != nil {
+		handle.Cancel()
+		_ = handle.Wait()
 		return "", nil, fmt.Errorf("start %s database engine: %w", i.Engine.Family, err)
 	}
 	backend := net.JoinHostPort("127.0.0.1", strconv.Itoa(backendPort))
@@ -305,22 +309,6 @@ func (i *Instance) logSink() sim.LogSink {
 		return sim.NoopSink{}
 	}
 	return i.Log
-}
-
-func reservePort() (int, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("allocate database engine port: %w", err)
-	}
-	address, ok := listener.Addr().(*net.TCPAddr)
-	if !ok {
-		_ = listener.Close()
-		return 0, fmt.Errorf("database engine listener returned address type %T", listener.Addr())
-	}
-	if err := listener.Close(); err != nil {
-		return 0, fmt.Errorf("release database engine port: %w", err)
-	}
-	return address.Port, nil
 }
 
 func awaitReady(engine Engine, backend string, handle *sim.ContainerHandle) error {
