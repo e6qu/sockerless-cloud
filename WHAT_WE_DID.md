@@ -756,9 +756,17 @@ Block List included; a run request's relative `sourceLocation` resolves to that
 upload. A DockerBuildRequest renders its image names and places a name without
 a registry in the run's registry. An agent pool runs as many runs as its
 `count` of agents, the rest wait Queued, and `listQueueStatus` counts them.
-A step's output reaches the run log through `docker logs --follow` from the
-container's start, which carries all of it even when the container exits
-before a reader attaches, and its exit code through `docker wait`.
+The run engine drives its cmd and push steps through the Docker Engine API,
+not the docker CLI: it creates the run's network and volume, creates each step
+container on that network under its step-ID alias, seeds the volume through
+the archive endpoint and reads it back the same way, and removes the
+containers, images, network and volume at the run's end. Pulls and pushes to
+the run's registry present the run's identity token as the engine's registry
+credential; only `docker build` stays a CLI invocation. A step's output
+reaches the run log through a followed log stream opened at the container's
+start, which carries all of it even when the container exits before a reader
+attaches, and its exit code through a next-exit wait registered before the
+start.
 
 ## Storage
 

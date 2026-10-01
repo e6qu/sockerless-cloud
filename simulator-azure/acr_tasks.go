@@ -440,13 +440,18 @@ func acrExecuteRun(serverCtx, stop context.Context, active *acrActiveRun, runID 
 // acrExecuteSpec executes a run with the registry credential the run holds,
 // and returns the images it pushed.
 func acrExecuteSpec(ctx context.Context, spec acrRunSpec, reg Registry, runID string, runLog io.Writer) ([]string, error) {
-	// The run's docker steps push to — and pull base images from — the
-	// registry as the run itself: a Docker configuration whose credential
-	// helper answers this registry's login server with an identity token
-	// of the run, which the client exchanges through the registry's
-	// refresh-token grant, the way an ACR Tasks run holds its registry's
-	// push and pull scopes.
-	dockerConfigDir, err := acrRunDockerConfig(reg, runID)
+	// The run pushes to — and pulls images from — its registry as the run
+	// itself: with an identity token of the run, which the engine exchanges
+	// through the registry's refresh-token grant, the way an ACR Tasks run
+	// holds its registry's push and pull scopes. Cmd and push steps present
+	// it through the engine API; docker builds through a Docker
+	// configuration whose credential helper answers the registry's login
+	// server with it.
+	refreshToken, err := acrMintRefreshToken(reg, "acr-task-run:"+runID)
+	if err != nil {
+		return nil, err
+	}
+	dockerConfigDir, err := acrRunDockerConfig(reg, refreshToken)
 	if err != nil {
 		return nil, fmt.Errorf("docker configuration: %w", err)
 	}
@@ -520,14 +525,21 @@ func acrExecuteSpec(ctx context.Context, spec acrRunSpec, reg Registry, runID st
 		_ = os.RemoveAll(workDir)
 		return nil, err
 	}
+	if err := sim.RequireContainerRuntime("an ACR Tasks run"); err != nil {
+		_ = os.RemoveAll(workDir)
+		return nil, err
+	}
 	x := &acrTaskRun{
-		runID:     runID,
-		log:       runLog,
-		dockerEnv: dockerEnv,
-		platform:  acrDockerPlatform(spec.platform),
-		network:   acrTaskDefaultNetwork + "_" + runID,
-		volume:    vars.SharedVolume,
-		workDir:   workDir,
+		runID:        runID,
+		log:          runLog,
+		engine:       sim.DockerClient(),
+		dockerEnv:    dockerEnv,
+		platform:     acrDockerPlatform(spec.platform),
+		network:      acrTaskDefaultNetwork + "_" + runID,
+		volume:       vars.SharedVolume,
+		registryHost: acrBareHost(acrLoginServer(reg)),
+		registryAuth: sim.RegistryIdentityToken(refreshToken),
+		workDir:      workDir,
 	}
 	err = acrRunTaskFile(ctx, task, x)
 	return x.pushed, err
@@ -724,11 +736,7 @@ func executeACRBuild(ctx context.Context, req acrDockerBuildSpec, source io.Read
 	args = append(args, "-")
 	acrTasksLogger.Info().Str("runId", vars.ID).Strs("images", images).Msg("ACR Tasks: building")
 
-	cmd := workload.DockerCommand(ctx, dockerEnv, args...)
-	cmd.Stdin = source
-	cmd.Stdout = runLog
-	cmd.Stderr = runLog
-	if err := cmd.Run(); err != nil {
+	if err := acrDockerBuild(ctx, dockerEnv, args, "", source, runLog); err != nil {
 		return nil, fmt.Errorf("docker build %v failed: %w", images, err)
 	}
 	if !req.IsPushEnabled || len(images) == 0 {
@@ -751,6 +759,18 @@ func executeACRBuild(ctx context.Context, req acrDockerBuildSpec, source io.Read
 		}
 	}
 	return images, nil
+}
+
+// acrDockerBuild runs a docker build on the host engine with the run's Docker
+// configuration in env: in dir, or reading its context from stdin when the
+// arguments name `-` as the context.
+func acrDockerBuild(ctx context.Context, env, args []string, dir string, stdin io.Reader, runLog io.Writer) error {
+	cmd := workload.DockerCommand(ctx, env, args...)
+	cmd.Dir = dir
+	cmd.Stdin = stdin
+	cmd.Stdout = runLog
+	cmd.Stderr = runLog
+	return cmd.Run()
 }
 
 // acrRunImageNames renders a docker build's image names with the run's
@@ -819,11 +839,7 @@ func parseACRImage(img string) acrImageDescriptor {
 // acrRunDockerConfig writes the Docker configuration an ACR Tasks run's
 // docker steps use: the registry's login server, with or without its port,
 // answered with an identity token of the run.
-func acrRunDockerConfig(reg Registry, runID string) (string, error) {
-	refreshToken, err := acrMintRefreshToken(reg, "acr-task-run:"+runID)
-	if err != nil {
-		return "", err
-	}
+func acrRunDockerConfig(reg Registry, refreshToken string) (string, error) {
 	return sim.WriteDockerConfig(sim.DockerConfigSpec{
 		HostPatterns: []string{acrBareHost(acrLoginServer(reg)) + ":*"},
 		Hosts:        []string{acrLoginServer(reg), acrBareHost(acrLoginServer(reg))},

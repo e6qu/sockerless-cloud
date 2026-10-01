@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
+	"math/big"
+	"net/netip"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -14,7 +16,14 @@ import (
 	"sync"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/jsonstream"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // acrTaskRun carries out a task file's steps on the build host's container
@@ -26,10 +35,15 @@ import (
 type acrTaskRun struct {
 	runID     string
 	log       io.Writer
+	engine    *client.Client
 	dockerEnv []string
 	platform  string
 	network   string
 	volume    string
+	// registryHost is the run's registry login server without its port;
+	// registryAuth is the engine API credential the run holds for it.
+	registryHost string
+	registryAuth string
 
 	mu          sync.Mutex
 	workDir     string
@@ -48,16 +62,46 @@ func (x *acrTaskRun) logf(format string, args ...any) {
 	_, _ = fmt.Fprintf(x.log, time.Now().UTC().Format("2006/01/02 15:04:05 ")+format+"\n", args...)
 }
 
-func (x *acrTaskRun) docker(ctx context.Context, args ...string) *exec.Cmd {
-	return workload.DockerCommand(ctx, x.dockerEnv, args...)
+// credentialFor is the credential the engine presents to the registry an
+// image names: the run's own for its registry, none for any other.
+func (x *acrTaskRun) credentialFor(image string) string {
+	if acrBareHost(acrImageDomain(image)) == x.registryHost {
+		return x.registryAuth
+	}
+	return ""
 }
 
-// dockerQuiet runs a docker command whose output belongs to the run's
-// housekeeping rather than to a step.
-func (x *acrTaskRun) dockerQuiet(ctx context.Context, args ...string) error {
-	out, err := x.docker(ctx, args...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("docker %s: %w: %s", args[0], err, strings.TrimSpace(string(out)))
+// acrImageDomain is the registry host an image reference names, by the Docker
+// reference grammar: the first path component when it holds a dot or a port
+// or is localhost, Docker Hub otherwise.
+func acrImageDomain(image string) string {
+	first, _, ok := strings.Cut(image, "/")
+	if ok && (strings.ContainsAny(first, ".:") || first == "localhost") {
+		return first
+	}
+	return "docker.io"
+}
+
+// writeProgress writes an engine pull or push progress stream to the run log
+// the way the docker CLI prints one to a non-terminal, and returns the error
+// the stream ends with.
+func (x *acrTaskRun) writeProgress(messages iter.Seq2[jsonstream.Message, error]) error {
+	for m, err := range messages {
+		if err != nil {
+			return err
+		}
+		if m.Error != nil {
+			return m.Error
+		}
+		switch {
+		case m.Stream != "":
+			_, _ = io.WriteString(x.log, m.Stream)
+		case m.Status == "" || m.Progress != nil:
+		case m.ID != "":
+			_, _ = fmt.Fprintf(x.log, "%s: %s\n", m.ID, m.Status)
+		default:
+			_, _ = fmt.Fprintln(x.log, m.Status)
+		}
 	}
 	return nil
 }
@@ -69,12 +113,12 @@ func acrRunTaskFile(ctx context.Context, task *acrTaskFile, x *acrTaskRun) error
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
-	if err := x.dockerQuiet(ctx, "network", "create", x.network); err != nil {
-		return err
+	if _, err := x.engine.NetworkCreate(ctx, x.network, client.NetworkCreateOptions{Driver: "bridge"}); err != nil {
+		return fmt.Errorf("create the run's network: %w", err)
 	}
-	if err := x.dockerQuiet(ctx, "volume", "create", x.volume); err != nil {
-		_ = x.dockerQuiet(context.Background(), "network", "rm", x.network)
-		return err
+	if _, err := x.engine.VolumeCreate(ctx, client.VolumeCreateOptions{Name: x.volume}); err != nil {
+		_, _ = x.engine.NetworkRemove(context.Background(), x.network, client.NetworkRemoveOptions{})
+		return fmt.Errorf("create the run's volume: %w", err)
 	}
 	defer x.cleanup()
 
@@ -214,55 +258,189 @@ func stepWorkingDirectory(s *acrTaskStep) string {
 	return wd
 }
 
+// acrOCIPlatform reads an os[/architecture[/variant]] platform string.
+func acrOCIPlatform(p string) *ocispec.Platform {
+	if p == "" {
+		return nil
+	}
+	parts := strings.SplitN(p, "/", 3)
+	platform := &ocispec.Platform{OS: parts[0]}
+	if len(parts) > 1 {
+		platform.Architecture = parts[1]
+	}
+	if len(parts) > 2 {
+		platform.Variant = parts[2]
+	}
+	return platform
+}
+
+// acrStepPorts reads a cmd step's `ports` (docker's
+// [ip:][hostPort:]containerPort[/protocol] publish form) and `expose` into the
+// ports its container exposes and binds on the host.
+func acrStepPorts(publish, expose []string) (network.PortSet, network.PortMap, error) {
+	exposed := network.PortSet{}
+	bindings := network.PortMap{}
+	for _, e := range expose {
+		pr, err := network.ParsePortRange(e)
+		if err != nil {
+			return nil, nil, fmt.Errorf("expose %q: %w", e, err)
+		}
+		for p := range pr.All() {
+			exposed[p] = struct{}{}
+		}
+	}
+	for _, spec := range publish {
+		rest, proto, _ := strings.Cut(spec, "/")
+		var ip, host, ctr string
+		if strings.HasPrefix(rest, "[") {
+			addr, ports, ok := strings.Cut(rest[1:], "]:")
+			if !ok {
+				return nil, nil, fmt.Errorf("ports %q: unterminated IPv6 address", spec)
+			}
+			ip = addr
+			if host, ctr, ok = strings.Cut(ports, ":"); !ok {
+				return nil, nil, fmt.Errorf("ports %q: an address needs a host port and a container port", spec)
+			}
+		} else {
+			switch parts := strings.Split(rest, ":"); len(parts) {
+			case 1:
+				ctr = parts[0]
+			case 2:
+				host, ctr = parts[0], parts[1]
+			case 3:
+				ip, host, ctr = parts[0], parts[1], parts[2]
+			default:
+				return nil, nil, fmt.Errorf("ports %q: want [ip:][hostPort:]containerPort[/protocol]", spec)
+			}
+		}
+		ctrRange, err := network.ParsePortRange(ctr + "/" + proto)
+		if err != nil {
+			return nil, nil, fmt.Errorf("ports %q: %w", spec, err)
+		}
+		var hostIP netip.Addr
+		if ip != "" {
+			if hostIP, err = netip.ParseAddr(ip); err != nil {
+				return nil, nil, fmt.Errorf("ports %q: %w", spec, err)
+			}
+		}
+		var hostRange network.PortRange
+		if host != "" {
+			if hostRange, err = network.ParsePortRange(host); err != nil {
+				return nil, nil, fmt.Errorf("ports %q: %w", spec, err)
+			}
+		}
+		ctrCount := int(ctrRange.End()) - int(ctrRange.Start()) + 1
+		hostCount := int(hostRange.End()) - int(hostRange.Start()) + 1
+		if host != "" && hostCount != ctrCount && ctrCount != 1 {
+			return nil, nil, fmt.Errorf("ports %q: the host and container port ranges differ in size", spec)
+		}
+		i := 0
+		for p := range ctrRange.All() {
+			hostPort := ""
+			switch {
+			case host == "":
+			case ctrCount == 1:
+				hostPort = host
+			default:
+				hostPort = strconv.Itoa(int(hostRange.Start()) + i)
+			}
+			exposed[p] = struct{}{}
+			bindings[p] = append(bindings[p], network.PortBinding{HostIP: hostIP, HostPort: hostPort})
+			i++
+		}
+	}
+	return exposed, bindings, nil
+}
+
+// pullStepImage makes a cmd step's image available on the engine: pulled
+// every time when the step asks to pull, otherwise only when the engine does
+// not hold it for the run's platform.
+func (x *acrTaskRun) pullStepImage(ctx context.Context, image string, always bool) error {
+	platform := acrOCIPlatform(x.platform)
+	if !always {
+		if held, err := x.engine.ImageInspect(ctx, image); err == nil {
+			if platform == nil || ((platform.Architecture == "" || platform.Architecture == held.Architecture) &&
+				(platform.OS == "" || platform.OS == held.Os)) {
+				return nil
+			}
+		} else if !cerrdefs.IsNotFound(err) {
+			return fmt.Errorf("inspect image %s: %w", image, err)
+		}
+		_, _ = fmt.Fprintf(x.log, "Unable to find image '%s' locally\n", image)
+	}
+	opts := client.ImagePullOptions{RegistryAuth: x.credentialFor(image)}
+	if platform != nil {
+		opts.Platforms = []ocispec.Platform{*platform}
+	}
+	pull, err := x.engine.ImagePull(ctx, image, opts)
+	if err != nil {
+		return fmt.Errorf("pull image %s: %w", image, err)
+	}
+	defer func() { _ = pull.Close() }()
+	if err := x.writeProgress(pull.JSONMessages(ctx)); err != nil {
+		return fmt.Errorf("pull image %s: %w", image, err)
+	}
+	return nil
+}
+
 func (x *acrTaskRun) runCmdStep(ctx context.Context, s *acrTaskStep) error {
 	words, err := acrSplitArgs(s.Cmd)
 	if err != nil {
 		return fmt.Errorf("step %s: %w", s.ID, err)
 	}
-	name := x.runID + "_" + s.ID
-	args := []string{"create", "--name", name,
-		"--network", x.network, "--network-alias", s.ID,
-		"--volume", x.volume + ":" + acrTaskWorkspace}
-	if wd := stepWorkingDirectory(s); wd != "" {
-		args = append(args, "--workdir", wd)
+	if len(words) == 0 || strings.HasPrefix(words[0], "-") {
+		return fmt.Errorf("step %s: cmd must name the image to run first, then its arguments", s.ID)
 	}
-	for _, e := range s.Env {
-		args = append(args, "--env", e)
+	image := words[0]
+	name := x.runID + "_" + s.ID
+	cfg := &container.Config{
+		Image:        image,
+		Env:          s.Env,
+		User:         s.User,
+		WorkingDir:   stepWorkingDirectory(s),
+		AttachStdout: true,
+		AttachStderr: true,
+	}
+	if len(words) > 1 {
+		cfg.Cmd = words[1:]
 	}
 	if s.EntryPoint != "" {
-		args = append(args, "--entrypoint", s.EntryPoint)
+		cfg.Entrypoint = []string{s.EntryPoint}
 	}
-	if s.User != "" {
-		args = append(args, "--user", s.User)
+	hostCfg := &container.HostConfig{
+		NetworkMode: container.NetworkMode(x.network),
+		Binds:       []string{x.volume + ":" + acrTaskWorkspace},
+		Privileged:  s.Privileged,
+		Isolation:   container.Isolation(s.Isolation),
 	}
-	if s.Privileged {
-		args = append(args, "--privileged")
-	}
-	for _, p := range s.Ports {
-		args = append(args, "--publish", p)
-	}
-	for _, p := range s.Expose {
-		args = append(args, "--expose", p)
+	if cfg.ExposedPorts, hostCfg.PortBindings, err = acrStepPorts(s.Ports, s.Expose); err != nil {
+		return fmt.Errorf("step %s: %w", s.ID, err)
 	}
 	if s.CPUs != "" {
-		args = append(args, "--cpus", s.CPUs)
+		cpus, ok := new(big.Rat).SetString(s.CPUs)
+		if !ok || cpus.Sign() < 0 {
+			return fmt.Errorf("step %s: cpus %q is not a number of CPUs", s.ID, s.CPUs)
+		}
+		nano := new(big.Rat).Mul(cpus, big.NewRat(1e9, 1))
+		if !nano.IsInt() {
+			return fmt.Errorf("step %s: cpus %q is more precise than a billionth of a CPU", s.ID, s.CPUs)
+		}
+		hostCfg.NanoCPUs = nano.Num().Int64()
 	}
-	if s.Isolation != "" {
-		args = append(args, "--isolation", s.Isolation)
-	}
-	if s.Pull {
-		args = append(args, "--pull", "always")
-	}
-	if x.platform != "" {
-		args = append(args, "--platform", x.platform)
-	}
-	args = append(args, words...)
 
 	x.logf("Launching container with name: %s", s.ID)
-	create := x.docker(ctx, args...)
-	create.Stdout = io.Discard
-	create.Stderr = x.log
-	if err := create.Run(); err != nil {
+	if err := x.pullStepImage(ctx, image, s.Pull); err != nil {
+		return fmt.Errorf("step %s: %w", s.ID, err)
+	}
+	if _, err := x.engine.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name:       name,
+		Config:     cfg,
+		HostConfig: hostCfg,
+		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
+			x.network: {Aliases: []string{s.ID}},
+		}},
+		Platform: acrOCIPlatform(x.platform),
+	}); err != nil {
 		return fmt.Errorf("step %s: create its container: %w", s.ID, err)
 	}
 	x.mu.Lock()
@@ -273,7 +451,10 @@ func (x *acrTaskRun) runCmdStep(ctx context.Context, s *acrTaskStep) error {
 	}
 
 	if s.Detach {
-		return x.dockerQuiet(ctx, "start", name)
+		if _, err := x.engine.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
+			return fmt.Errorf("step %s: start its container: %w", s.ID, err)
+		}
+		return nil
 	}
 	executions := 0
 	err = attempts(ctx, s, func() error {
@@ -281,7 +462,7 @@ func (x *acrTaskRun) runCmdStep(ctx context.Context, s *acrTaskStep) error {
 		return x.execute(ctx, s.ID, name, executions > 1)
 	})
 	if ctx.Err() != nil {
-		_ = x.dockerQuiet(context.Background(), "kill", name)
+		_, _ = x.engine.ContainerKill(context.Background(), name, client.ContainerKillOptions{})
 	}
 	if err != nil {
 		return err
@@ -292,37 +473,47 @@ func (x *acrTaskRun) runCmdStep(ctx context.Context, s *acrTaskStep) error {
 // execute starts a step's container and streams its output to the run log
 // until it exits. The log follows the container from its start, so output a
 // short-lived container writes before a reader attaches is not lost; a
-// re-execution reads only what it wrote itself.
+// re-execution reads only what it wrote itself. The wait for the exit is in
+// place before the start, so an exit cannot slip past it.
 func (x *acrTaskRun) execute(ctx context.Context, stepID, name string, again bool) error {
+	waitCtx, stopWait := context.WithCancel(ctx)
+	defer stopWait()
+	exited := x.engine.ContainerWait(waitCtx, name, client.ContainerWaitOptions{Condition: container.WaitConditionNextExit})
 	since := time.Now().UTC().Format(time.RFC3339Nano)
-	if err := x.dockerQuiet(ctx, "start", name); err != nil {
+	if _, err := x.engine.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
 		return fmt.Errorf("failed to run step ID: %s: %w", stepID, err)
 	}
-	args := []string{"logs", "--follow"}
+	opts := client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true, Follow: true}
 	if again {
-		args = append(args, "--since", since)
+		opts.Since = since
 	}
-	logs := x.docker(ctx, append(args, name)...)
-	logs.Stdout = x.log
-	logs.Stderr = x.log
-	if err := logs.Run(); err != nil && ctx.Err() == nil {
+	logs, err := x.engine.ContainerLogs(ctx, name, opts)
+	if err != nil {
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
 		return fmt.Errorf("failed to run step ID: %s: read its output: %w", stepID, err)
 	}
-	out, err := x.docker(ctx, "wait", name).Output()
-	if err != nil {
+	_, copyErr := stdcopy.StdCopy(x.log, x.log, logs)
+	_ = logs.Close()
+	if copyErr != nil && ctx.Err() == nil {
+		return fmt.Errorf("failed to run step ID: %s: read its output: %w", stepID, copyErr)
+	}
+	select {
+	case res := <-exited.Result:
+		if res.Error != nil && res.Error.Message != "" {
+			return fmt.Errorf("failed to run step ID: %s: %s", stepID, res.Error.Message)
+		}
+		if res.StatusCode != 0 {
+			return fmt.Errorf("failed to run step ID: %s: exit status %d", stepID, res.StatusCode)
+		}
+		return nil
+	case err := <-exited.Error:
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
 		}
 		return fmt.Errorf("failed to run step ID: %s: %w", stepID, err)
 	}
-	code, err := strconv.Atoi(strings.TrimSpace(string(out)))
-	if err != nil {
-		return fmt.Errorf("failed to run step ID: %s: read its exit code %q: %w", stepID, out, err)
-	}
-	if code != 0 {
-		return fmt.Errorf("failed to run step ID: %s: exit status %d", stepID, code)
-	}
-	return nil
 }
 
 // seedVolume copies the run's source into the shared volume through the first
@@ -335,12 +526,13 @@ func (x *acrTaskRun) seedVolume(ctx context.Context, container string) error {
 	}
 	pr, pw := io.Pipe()
 	go func() { pw.CloseWithError(acrTarDirectory(x.workDir, pw)) }()
-	cp := x.docker(ctx, "cp", "-", container+":"+acrTaskWorkspace)
-	cp.Stdin = pr
-	out, err := cp.CombinedOutput()
+	_, err := x.engine.CopyToContainer(ctx, container, client.CopyToContainerOptions{
+		DestinationPath: acrTaskWorkspace,
+		Content:         pr,
+	})
 	_ = pr.Close()
 	if err != nil {
-		return fmt.Errorf("copy the source into the run's volume: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("copy the source into the run's volume: %w", err)
 	}
 	x.volumeReady = true
 	return nil
@@ -355,23 +547,16 @@ func (x *acrTaskRun) collectWorkspace(ctx context.Context, container string) err
 	if err != nil {
 		return err
 	}
-	cp := x.docker(ctx, "cp", container+":"+acrTaskWorkspace+"/.", "-")
-	stdout, err := cp.StdoutPipe()
+	copied, err := x.engine.CopyFromContainer(ctx, container, client.CopyFromContainerOptions{SourcePath: acrTaskWorkspace + "/."})
 	if err != nil {
 		_ = os.RemoveAll(fresh)
-		return err
+		return fmt.Errorf("read the run's volume back: %w", err)
 	}
-	var stderr strings.Builder
-	cp.Stderr = &stderr
-	if err := cp.Start(); err != nil {
+	extractErr := acrExtractSource(copied.Content, fresh)
+	_ = copied.Content.Close()
+	if extractErr != nil {
 		_ = os.RemoveAll(fresh)
-		return err
-	}
-	extractErr := acrExtractSource(stdout, fresh)
-	_, _ = io.Copy(io.Discard, stdout)
-	if err := cp.Wait(); err != nil || extractErr != nil {
-		_ = os.RemoveAll(fresh)
-		return fmt.Errorf("read the run's volume back: %v %v: %s", err, extractErr, strings.TrimSpace(stderr.String()))
+		return fmt.Errorf("read the run's volume back: %w", extractErr)
 	}
 	_ = os.RemoveAll(x.workDir)
 	x.workDir = fresh
@@ -416,12 +601,7 @@ func (x *acrTaskRun) runBuildStep(ctx context.Context, s *acrTaskStep) error {
 		if err != nil {
 			return err
 		}
-		build := x.docker(ctx, args...)
-		build.Dir = dir
-		build.Env = append(append([]string(nil), x.dockerEnv...), s.Env...)
-		build.Stdout = x.log
-		build.Stderr = x.log
-		if err := build.Run(); err != nil {
+		if err := acrDockerBuild(ctx, append(append([]string(nil), x.dockerEnv...), s.Env...), args, dir, nil, x.log); err != nil {
 			return fmt.Errorf("failed to run step ID: %s: %w", s.ID, err)
 		}
 		x.mu.Lock()
@@ -452,11 +632,13 @@ func acrBuildTags(words []string) []string {
 func (x *acrTaskRun) runPushStep(ctx context.Context, s *acrTaskStep) error {
 	for _, img := range s.Push {
 		x.logf("Pushing image: %s, attempt 1", img)
-		push := x.docker(ctx, "push", img)
-		push.Env = append(append([]string(nil), x.dockerEnv...), s.Env...)
-		push.Stdout = x.log
-		push.Stderr = x.log
-		if err := push.Run(); err != nil {
+		push, err := x.engine.ImagePush(ctx, img, client.ImagePushOptions{RegistryAuth: x.credentialFor(img)})
+		if err != nil {
+			return fmt.Errorf("failed to push image %s: %w", img, err)
+		}
+		err = x.writeProgress(push.JSONMessages(ctx))
+		_ = push.Close()
+		if err != nil {
 			return fmt.Errorf("failed to push image %s: %w", img, err)
 		}
 		x.mu.Lock()
@@ -480,18 +662,20 @@ func (x *acrTaskRun) cleanup() {
 			kept = true
 			continue
 		}
-		if err := x.dockerQuiet(ctx, "rm", "--force", c.name); err != nil {
+		if _, err := x.engine.ContainerRemove(ctx, c.name, client.ContainerRemoveOptions{Force: true}); err != nil {
 			acrTasksLogger.Warn().Err(err).Str("container", c.name).Msg("could not remove an ACR Tasks step container")
 		}
 	}
 	for _, img := range x.built {
-		_ = x.dockerQuiet(ctx, "rmi", "--force", img)
+		if _, err := x.engine.ImageRemove(ctx, img, client.ImageRemoveOptions{Force: true}); err != nil && !cerrdefs.IsNotFound(err) {
+			acrTasksLogger.Warn().Err(err).Str("image", img).Msg("could not remove an image an ACR Tasks run built")
+		}
 	}
 	if !kept {
-		if err := x.dockerQuiet(ctx, "network", "rm", x.network); err != nil {
+		if _, err := x.engine.NetworkRemove(ctx, x.network, client.NetworkRemoveOptions{}); err != nil {
 			acrTasksLogger.Warn().Err(err).Str("network", x.network).Msg("could not remove an ACR Tasks run network")
 		}
-		if err := x.dockerQuiet(ctx, "volume", "rm", "--force", x.volume); err != nil {
+		if _, err := x.engine.VolumeRemove(ctx, x.volume, client.VolumeRemoveOptions{Force: true}); err != nil {
 			acrTasksLogger.Warn().Err(err).Str("volume", x.volume).Msg("could not remove an ACR Tasks run volume")
 		}
 	}

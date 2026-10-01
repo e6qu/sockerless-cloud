@@ -25,7 +25,7 @@ import (
 // registries over TLS with a certificate the container engine's token client
 // does not consult per-registry trust for. The SDK suite covers the push.
 func TestACRTasksCLI_BuildRunAndTaskRun(t *testing.T) {
-	env := startAzLoginSimulator(t)
+	env := startAzTLSSimulator(t)
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-acr-tasks",
 		"--endpoint-resource-manager", env.baseURL,
 		"--endpoint-active-directory", env.baseURL+"/adfs",
