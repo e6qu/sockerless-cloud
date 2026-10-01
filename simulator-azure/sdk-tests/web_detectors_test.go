@@ -55,7 +55,7 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 			Image:          to.Ptr(httpProbeImageName),
 			IsMain:         to.Ptr(true),
 			TargetPort:     to.Ptr("8080"),
-			StartUpCommand: to.Ptr("probe-retry detector-ok"),
+			StartUpCommand: to.Ptr("echo-request"),
 		},
 	}, nil)
 	require.NoError(t, err)

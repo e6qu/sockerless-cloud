@@ -29,7 +29,7 @@ func TestSDK_WebApps_ProcessModulesAndKill(t *testing.T) {
 			Image:          to.Ptr(httpProbeImageName),
 			IsMain:         to.Ptr(true),
 			TargetPort:     to.Ptr("8080"),
-			StartUpCommand: to.Ptr("probe-retry proc-verbs-ok"),
+			StartUpCommand: to.Ptr("echo-request"),
 		},
 	}, nil)
 	require.NoError(t, err)
