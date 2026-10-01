@@ -373,12 +373,19 @@ func (i *Instance) stopEngine() error {
 }
 
 // Exec runs command inside the running engine container and fails with the
-// command's output when it exits non-zero.
+// command's output when it exits non-zero. A command that lands while a
+// volume capture holds the engine frozen waits for the capture, which bounds
+// the freeze, to thaw it.
 func (i *Instance) Exec(command []string) error {
 	_, handle := i.snapshot()
 	if handle == nil {
 		return fmt.Errorf("database engine is not running")
 	}
+	release, err := sim.HoldThawed(context.Background(), handle.ContainerID)
+	if err != nil {
+		return err
+	}
+	defer release()
 	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
 	defer cancel()
 	docker := sim.DockerClient()

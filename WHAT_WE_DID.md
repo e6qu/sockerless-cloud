@@ -693,7 +693,13 @@ all go through it. A `sim` test captures a volume twice at once while a
 writer renames 64 files to each round number in turn and proves both captures
 show a single instant of the writer; the SDK suite snapshots a PostgreSQL
 instance under a transaction stream and proves the restore holds a gapless
-sequence prefix whose length both account balances agree with.
+sequence prefix whose length both account balances agree with. The Docker
+Engine refuses `exec` into a paused container, so `dbengine.Instance.Exec` ran
+each engine command — a ModifyDBInstance master-password change, a Cloud SQL
+or Azure Database for PostgreSQL user change — under `sim.HoldThawed`, which
+waited on a channel for the last capture to thaw the container and kept new
+captures from freezing it until the command ended; the change applied after
+the brief I/O suspension, as the real service applies it.
 
 Artifact Registry stores the bytes of uploaded files and serves them back from
 `files.download`. The generic, Go module, KFP, Apt, Yum and GooGet uploads create
