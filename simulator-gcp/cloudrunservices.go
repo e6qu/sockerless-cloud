@@ -338,10 +338,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	if err != nil {
 		return nil, err
 	}
-	hostPort, err := workload.FreeTCPPort()
-	if err != nil {
-		return nil, fmt.Errorf("pick free port: %w", err)
-	}
+	instanceID := sim.RandomHex(8)
 	metadataEnv, err := hostMetadataEnv()
 	if err != nil {
 		return nil, err
@@ -353,17 +350,21 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	containerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{
 		Image:        localImage,
 		Architecture: platform,
-		HostPort:     hostPort,
 		Command:      main.Command,
 		Args:         main.Args,
 		Env:          workloadhost.MergeEnv(map[string]string{"PORT": "8080"}, env, metadataEnv),
-		Name:         fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-%d", serviceID, hostPort),
+		Name:         fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-%s", serviceID, instanceID),
 		Labels:       map[string]string{"sockerless-sim-service": serviceID},
 		Binds:        bindsFor(main),
 		ExtraHosts:   extraHosts,
 		Sandbox:      SandboxCloudRun,
 	})
 	if err != nil {
+		return nil, fmt.Errorf("start service container: %w", err)
+	}
+	hostPort, err := sim.PublishedHostPort(ctx, containerID, 8080)
+	if err != nil {
+		sim.StopAndRemoveContainer(containerID, cloudRunStopGrace)
 		return nil, fmt.Errorf("start service container: %w", err)
 	}
 
@@ -386,7 +387,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 			Command:           sidecar.Command,
 			Args:              sidecar.Args,
 			Env:               workloadhost.MergeEnv(containerEnvMap(sidecar.Env), metadataEnv),
-			Name:              fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-sidecar-%d-%d", serviceID, i, hostPort),
+			Name:              fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-sidecar-%d-%s", serviceID, i, instanceID),
 			Labels: map[string]string{
 				"sockerless-sim-service":           serviceID,
 				"sockerless-sim-service-container": sidecar.Name,

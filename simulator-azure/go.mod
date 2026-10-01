@@ -6,7 +6,7 @@ require (
 	github.com/Azure/go-amqp v1.7.0
 	github.com/containerd/errdefs v1.0.0
 	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261001001203-11d6c2ff8957
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261001081451-530b829cafda
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261001094015-8d262bf632b7
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/gorilla/websocket v1.5.3
 	github.com/miekg/dns v1.1.73

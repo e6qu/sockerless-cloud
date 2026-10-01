@@ -733,14 +733,7 @@ func invokeOverlayContainerHTTPWithBody(project, image, functionID string, timeo
 
 	localImage := sim.ResolveLocalImage(image)
 
-	// Bootstrap listens on $PORT (defaults 8080). Bind to a random host
-	// port so concurrent invocations on the same host don't collide.
-	hostPort, err := workload.FreeTCPPort()
-	if err != nil {
-		return nil, -1, fmt.Errorf("pick free port: %w", err)
-	}
-
-	containerName := fmt.Sprintf("sockerless-sim-gcf-%s-%d", functionID, hostPort)
+	containerName := fmt.Sprintf("sockerless-sim-gcf-%s-%s", functionID, sim.RandomHex(8))
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -760,7 +753,6 @@ func invokeOverlayContainerHTTPWithBody(project, image, functionID string, timeo
 	containerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{
 		Image:        localImage,
 		Architecture: platform,
-		HostPort:     hostPort,
 		Env:          workloadhost.MergeEnv(map[string]string{"PORT": "8080"}, env, metadataEnv),
 		Name:         containerName,
 		Labels: map[string]string{
@@ -783,6 +775,10 @@ func invokeOverlayContainerHTTPWithBody(project, image, functionID string, timeo
 	logStreamCtx, logStreamCancel := context.WithCancel(context.Background())
 	defer logStreamCancel()
 	go sim.StreamContainerLogs(logStreamCtx, containerID, sink)
+	hostPort, err := sim.PublishedHostPort(ctx, containerID, 8080)
+	if err != nil {
+		return nil, -1, fmt.Errorf("start overlay container: %w", err)
+	}
 
 	// Reach the bootstrap by whichever address is connectable: the workload's
 	// bridge container IP:8080 (works when the sim runs INSIDE a harness

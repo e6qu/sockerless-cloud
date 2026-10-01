@@ -383,11 +383,29 @@ unset), Cloud Run's ten seconds, a Container App template's
 `terminationGracePeriodSeconds`, App Service's
 `WEBSITES_CONTAINER_STOP_TIME_LIMIT`. Azure Container Instances and the
 managed-database engines keep five seconds because their clouds publish none.
+A stopping Amazon ECS task signals all its containers together, so it takes
+as long as its slowest container rather than the sum of their timeouts, and
+the awsvpc pause container that holds the task's network namespace stops only
+after the containers that run in it have exited; a task start reports the
+pause image's resolution (`pause-image`) apart from the pause container's
+start (`pause-start`).
 An Amazon ECS container definition's `workingDirectory` reaches the engine,
 which creates the directory when the image lacks it, and an ExecuteCommand
 session inherits it. An AWS Lambda invocation's timeout starts when the
 runtime first asks for work, with Init separately bounded at ten seconds, as
 AWS documents.
+
+The engine allocates every loopback port a workload publishes, and the
+simulator reads the bound port back from the container's inspection after each
+start (`ContainerHandle.PublishedPort`, `sim.PublishedHostPort`). The
+simulators had picked a free port by listening on `127.0.0.1:0` and closing the
+listener before asking the engine to publish it, so anything that bound the
+port in between failed the start with "port is already allocated"; the
+database engines, the Memorystore for Redis engine, Cloud Run services, Cloud
+Functions, Azure Functions HTTP sites and AWS Amplify Hosting compute stopped
+choosing ports. A stopped container holds no published port and a resumed one
+holds a new one, so adopting an engine left by an earlier process reads its
+ports after resuming it.
 
 RunTask places a task only where it fits. The simulator runs real containers on
 one finite host, so rather than invent a capacity it commits each placed task's

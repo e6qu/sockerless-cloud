@@ -430,15 +430,9 @@ func (p *msRedisPlane) start() error {
 	image, primary := p.image, p.primary
 	p.mu.RUnlock()
 	nodes := p.topology.nodes()
-	publish := make(map[int]int, nodes)
-	hostPorts := make([]int, nodes)
-	for node := 0; node < nodes; node++ {
-		port, err := msRedisReservePort()
-		if err != nil {
-			return err
-		}
-		publish[msRedisNodePort(node)] = port
-		hostPorts[node] = port
+	publish := make([]int, nodes)
+	for node := range publish {
+		publish[node] = msRedisNodePort(node)
 	}
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
 		CancelGracePeriod: msRedisStopGrace,
@@ -453,26 +447,28 @@ func (p *msRedisPlane) start() error {
 	if err != nil {
 		return fmt.Errorf("start the Redis engine: %w", err)
 	}
+	hostPorts, err := msRedisPublishedPorts(handle, nodes)
+	if err != nil {
+		handle.Cancel()
+		_ = handle.Wait()
+		return fmt.Errorf("start the Redis engine: %w", err)
+	}
 	p.mu.Lock()
 	p.handle, p.hostPorts = handle, hostPorts
 	p.mu.Unlock()
 	return nil
 }
 
-func msRedisReservePort() (int, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("allocate a Redis engine port: %w", err)
+func msRedisPublishedPorts(handle *sim.ContainerHandle, nodes int) ([]int, error) {
+	hostPorts := make([]int, nodes)
+	for node := range hostPorts {
+		port, err := handle.PublishedPort(context.Background(), msRedisNodePort(node))
+		if err != nil {
+			return nil, fmt.Errorf("node %d: %w", node, err)
+		}
+		hostPorts[node] = port
 	}
-	address, ok := listener.Addr().(*net.TCPAddr)
-	if !ok {
-		_ = listener.Close()
-		return 0, fmt.Errorf("listener returned address type %T", listener.Addr())
-	}
-	if err := listener.Close(); err != nil {
-		return 0, fmt.Errorf("release a Redis engine port: %w", err)
-	}
-	return address.Port, nil
+	return hostPorts, nil
 }
 
 // awaitNodes waits until every node answers PING with its dataset loaded. A
@@ -925,13 +921,6 @@ func (p *msRedisPlane) Adopt() error {
 	if len(existing) != 1 {
 		return fmt.Errorf("found %d Redis engine containers", len(existing))
 	}
-	hostPorts := make([]int, p.topology.nodes())
-	for node := range hostPorts {
-		hostPorts[node] = existing[0].PublishedPorts[msRedisNodePort(node)]
-		if hostPorts[node] == 0 {
-			return fmt.Errorf("container %s publishes no port for node %d", existing[0].ID, node)
-		}
-	}
 	if !existing[0].Running {
 		if err := sim.StartExistingContainer(existing[0].ID); err != nil {
 			return fmt.Errorf("resume Redis engine container %s: %w", existing[0].ID, err)
@@ -940,6 +929,12 @@ func (p *msRedisPlane) Adopt() error {
 	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{CancelGracePeriod: msRedisStopGrace}, sim.NoopSink{})
 	if err != nil {
 		return err
+	}
+	hostPorts, err := msRedisPublishedPorts(handle, p.topology.nodes())
+	if err != nil {
+		handle.Cancel()
+		_ = handle.Wait()
+		return fmt.Errorf("adopt the Redis engine container %s: %w", existing[0].ID, err)
 	}
 	p.mu.Lock()
 	p.handle, p.hostPorts = handle, hostPorts

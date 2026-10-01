@@ -1305,11 +1305,6 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	if err != nil {
 		return err
 	}
-	hostPort, err := workload.FreeTCPPort()
-	if err != nil {
-		return fmt.Errorf("pick free port: %w", err)
-	}
-
 	env := workloadhost.MergeEnv(map[string]string{
 		"PORT":          "8080",
 		"WEBSITES_PORT": "8080",
@@ -1324,11 +1319,10 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	containerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{
 		Image:        localImage,
 		Architecture: platform,
-		HostPort:     hostPort,
 		Env:          env,
 		Args:         mainCmd,
 		Binds:        mainBinds,
-		Name:         fmt.Sprintf("sockerless-sim-azure-func-http-%s-%d", site.Name, hostPort),
+		Name:         fmt.Sprintf("sockerless-sim-azure-func-http-%s-%s", site.Name, sim.RandomHex(8)),
 		Labels: map[string]string{
 			"sockerless-sim-type": "azure-function-http",
 			"sockerless-site":     site.Name,
@@ -1337,6 +1331,11 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		Sandbox:    SandboxAZF,
 	})
 	if err != nil {
+		return fmt.Errorf("start function http container: %w", err)
+	}
+	hostPort, err := sim.PublishedHostPort(ctx, containerID, 8080)
+	if err != nil {
+		sim.StopAndRemoveContainer(containerID, siteStopGrace(site))
 		return fmt.Errorf("start function http container: %w", err)
 	}
 	logCtx, cancelLogs := context.WithCancel(context.Background())
