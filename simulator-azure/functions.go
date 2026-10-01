@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -90,6 +93,63 @@ type SiteConfig struct {
 	MinTLSVersion                          string `json:"minTlsVersion,omitempty"`
 	ScmMinTLSVersion                       string `json:"scmMinTlsVersion,omitempty"`
 	ScmIPSecurityRestrictionsDefaultAction string `json:"scmIpSecurityRestrictionsDefaultAction,omitempty"`
+	// Extra holds the siteConfig properties the simulator does not act on,
+	// exactly as the client sent them, so a read returns what was written.
+	Extra map[string]json.RawMessage `json:"-"`
+}
+
+// siteConfigFields names the properties SiteConfig decodes into fields.
+var siteConfigFields = func() map[string]bool {
+	names := map[string]bool{}
+	t := reflect.TypeOf(SiteConfig{})
+	for i := range t.NumField() {
+		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
+		if name != "" && name != "-" {
+			names[name] = true
+		}
+	}
+	return names
+}()
+
+// UnmarshalJSON decodes onto the receiver, so a PATCH decoded onto the stored
+// configuration keeps every property the request leaves out.
+func (c *SiteConfig) UnmarshalJSON(data []byte) error {
+	type fields SiteConfig
+	if err := json.Unmarshal(data, (*fields)(c)); err != nil {
+		return err
+	}
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return err
+	}
+	// A PATCH decodes onto a copy of the stored row, which shares this map.
+	c.Extra = maps.Clone(c.Extra)
+	for name, value := range all {
+		if siteConfigFields[name] {
+			continue
+		}
+		if c.Extra == nil {
+			c.Extra = map[string]json.RawMessage{}
+		}
+		c.Extra[name] = value
+	}
+	return nil
+}
+
+func (c SiteConfig) MarshalJSON() ([]byte, error) {
+	type fields SiteConfig
+	known, err := json.Marshal(fields(c))
+	if err != nil || len(c.Extra) == 0 {
+		return known, err
+	}
+	all := map[string]json.RawMessage{}
+	if err := json.Unmarshal(known, &all); err != nil {
+		return nil, err
+	}
+	for name, value := range c.Extra {
+		all[name] = value
+	}
+	return json.Marshal(all)
 }
 
 // HostNameSslState mirrors armappservice.HostNameSSLState.
