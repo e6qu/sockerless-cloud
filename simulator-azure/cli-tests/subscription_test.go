@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 )
 
 const subscriptionAPIVersion = "2021-10-01"
@@ -145,19 +144,12 @@ func TestCLISubscriptionOwnershipAcceptance(t *testing.T) {
 		t.Fatalf("ownership status names tenant %q, want %q", status.SubscriptionTenantID, simTenantID)
 	}
 
-	runCLI(t, azRest("POST", microsoftSubscriptionURL(wantAcceptURL),
-		`{"properties":{"displayName":"CLI Accepted Subscription","tags":{"owner":"accepted"}}}`))
+	azRestLongRunning(t, "POST", microsoftSubscriptionURL(wantAcceptURL),
+		`{"properties":{"displayName":"CLI Accepted Subscription","tags":{"owner":"accepted"}}}`)
 
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		status = readCLIOwnershipStatus(t, statusPath)
-		if status.AcceptOwnershipState == "Completed" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the ownership acceptance never completed: %#v", status)
-		}
-		time.Sleep(200 * time.Millisecond)
+	status = readCLIOwnershipStatus(t, statusPath)
+	if status.AcceptOwnershipState != "Completed" {
+		t.Fatalf("the ownership acceptance did not complete with its operation: %#v", status)
 	}
 	if status.ProvisioningState != "Succeeded" {
 		t.Errorf("provisioningState after acceptance = %q, want Succeeded", status.ProvisioningState)

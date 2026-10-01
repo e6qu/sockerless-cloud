@@ -33,6 +33,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	azruntime "github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
+	"github.com/stretchr/testify/require"
 )
 
 // simTenantID is the tenant the simulator presents; the token endpoint accepts
@@ -140,6 +142,22 @@ func clientOpts() *arm.ClientOptions {
 			InsecureAllowCredentialWithHTTP: true,
 		},
 	}
+}
+
+// awaitARMOperation drives a long-running operation a hand-built request
+// started to completion with azcore's own poller, which follows the
+// Azure-AsyncOperation or Location the response names on the cadence its
+// Retry-After sets, and returns the operation's result. resp's body must be
+// unread.
+func awaitARMOperation[T any](t *testing.T, resp *http.Response) T {
+	t.Helper()
+	client, err := arm.NewClient("sdk-tests", "v0.0.0", &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	poller, err := azruntime.NewPoller[T](resp, client.Pipeline(), nil)
+	require.NoError(t, err)
+	result, err := poller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	return result
 }
 
 func TestMain(m *testing.M) {

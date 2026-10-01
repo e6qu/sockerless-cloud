@@ -2,7 +2,6 @@ package azure_cli_test
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,14 +12,11 @@ import (
 func createCLIRedisCache(t *testing.T, name string) string {
 	t.Helper()
 	cacheURL := armURL("Microsoft.Cache", "Redis/"+name, "2024-11-01")
-	runCLI(t, azRest("PUT", cacheURL, `{
+	t.Cleanup(func() { _ = azRest("DELETE", cacheURL, "").Run() })
+	azRestLongRunning(t, "PUT", cacheURL, `{
 		"location":"eastus",
 		"properties":{"sku":{"name":"Basic","family":"C","capacity":1}}
-	}`))
-	t.Cleanup(func() { _ = azRest("DELETE", cacheURL, "").Run() })
-	waitForCLIJSON(t, cacheURL, func(data string) bool {
-		return strings.Contains(data, `"provisioningState": "Succeeded"`)
-	})
+	}`)
 	return cacheURL
 }
 

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
 	"github.com/stretchr/testify/require"
 )
@@ -116,16 +117,11 @@ func TestMain(m *testing.M) {
 		"SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON="+azureGatewayDataPlaneEndpoints(gatewayPort),
 	)
 	simCmd.Stdout = os.Stdout
-	simCmd.Stderr = os.Stderr
-	if err := simCmd.Start(); err != nil {
+	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		log.Fatalf("Failed to start simulator: %v", err)
 	}
 
 	directURL := fmt.Sprintf("http://127.0.0.1:%d", simPort)
-	if err := waitForHTTPHealth(directURL + "/health"); err != nil {
-		simCmd.Process.Kill()
-		log.Fatalf("Simulator did not become healthy: %v", err)
-	}
 	if err := verifyDirectMetadata(directURL, fmt.Sprintf("azure.sockerless.localhost:%d", gatewayPort)); err != nil {
 		simCmd.Process.Kill()
 		log.Fatalf("Simulator metadata did not become healthy: %v", err)
@@ -394,28 +390,6 @@ func azureGatewayDataPlaneEndpoints(port int) string {
 		log.Fatalf("Failed to encode Azure gateway endpoint config: %v", err)
 	}
 	return string(data)
-}
-
-func waitForHTTPHealth(url string) error {
-	client := &http.Client{Timeout: 2 * time.Second}
-	for i := 0; i < 50; i++ {
-		resp, err := client.Get(url)
-		if err == nil && resp.StatusCode == 200 {
-			var body struct {
-				Status   string `json:"status"`
-				Provider string `json:"provider"`
-			}
-			if decodeErr := json.NewDecoder(resp.Body).Decode(&body); decodeErr == nil && body.Status == "ok" && body.Provider == "azure" {
-				resp.Body.Close()
-				return nil
-			}
-		}
-		if resp != nil {
-			resp.Body.Close()
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for %s", url)
 }
 
 func verifyDirectMetadata(baseURL, host string) error {

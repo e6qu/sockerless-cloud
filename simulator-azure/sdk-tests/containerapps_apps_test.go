@@ -273,9 +273,8 @@ func TestSDK_ContainerAppsApps_SystemDataPreservedAcrossUpdates(t *testing.T) {
 	originalCreatedAt := *created.SystemData.CreatedAt
 	require.NotEmpty(t, originalCreatedAt, "createdAt must be stamped on initial create")
 
-	// Update with a different image — wait long enough that any restamp
-	// would produce a strictly later timestamp than originalCreatedAt.
-	time.Sleep(20 * time.Millisecond)
+	// ARM stamps systemData to a tenth of a microsecond, so a restamp by
+	// this later request would differ from originalCreatedAt.
 	upPoller, err := client.BeginCreateOrUpdate(ctx, rg, "sdk-systemdata-app", mkApp("public.ecr.aws/docker/library/alpine:latest"), nil)
 	require.NoError(t, err)
 	updated, err := upPoller.PollUntilDone(ctx, nil)

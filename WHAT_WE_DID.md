@@ -812,6 +812,19 @@ by a few seconds; that cost is accepted over checking a partial condition. EC2
 Auto Scaling answers a capacity change at once: members join Pending, each
 launch has an InProgress activity, and a background boot moves both on.
 
+An Azure test that starts a long-running operation by hand waits for it the
+way a client does. The SDK suites hand the raw response to azcore's own poller
+(`awaitARMOperation`), which follows Azure-AsyncOperation or Location on the
+Retry-After cadence; the CLI suites drive `az rest --debug` through
+`azLongRunning`, which reads the same headers and answers a Location poll's 202
+by waiting its Retry-After. A delete, restore, MSDeploy publish, Redis or Event
+Hubs create, or ownership acceptance is read once after its operation ends,
+never polled for its effect. Every simulator a test starts in-process waits on the banner it
+prints after binding (`simready`), not on a health loop. The AWS suites wait
+for an alarm state with the AlarmExists waiter filtered by StateValue, for a
+target with TargetInService, and watch a queue that must stay empty with one
+long poll for the window instead of receives in a loop.
+
 Azure's asynchronous work answers the request and settles behind it, as the
 service does. An Event Grid webhook subscription stays Creating until its
 endpoint echoes the validation code or someone opens the validation URL, and

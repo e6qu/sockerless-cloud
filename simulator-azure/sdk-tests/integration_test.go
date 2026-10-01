@@ -69,29 +69,20 @@ func TestIntegration_ACAJobLifecycle(t *testing.T) {
 	delReq.Header.Set("Authorization", simARMBearer)
 	delResp, err := http.DefaultClient.Do(delReq)
 	require.NoError(t, err)
-	delResp.Body.Close()
 	require.Equal(t, http.StatusAccepted, delResp.StatusCode)
 	require.NotEmpty(t, delResp.Header.Get("Azure-AsyncOperation"))
+	awaitARMOperation[struct{}](t, delResp)
+	delResp.Body.Close()
 
-	// 9. Verify 404 once the delete operation completes — poll like a real
-	// ARM client.
+	// 9. Verify 404 once the delete operation completes.
 	getReq, _ := http.NewRequestWithContext(ctx, "GET",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.App/jobs/"+jobName+"?api-version=2024-03-01",
 		nil)
 	getReq.Header.Set("Authorization", simARMBearer)
-	deadline := time.Now().Add(10 * time.Second)
-	status := 0
-	for time.Now().Before(deadline) {
-		getResp, err := http.DefaultClient.Do(getReq)
-		require.NoError(t, err)
-		getResp.Body.Close()
-		status = getResp.StatusCode
-		if status == http.StatusNotFound {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	assert.Equal(t, http.StatusNotFound, status)
+	getResp, err := http.DefaultClient.Do(getReq)
+	require.NoError(t, err)
+	getResp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, getResp.StatusCode)
 }
 
 func TestIntegration_AzureFunctionsLifecycle(t *testing.T) {

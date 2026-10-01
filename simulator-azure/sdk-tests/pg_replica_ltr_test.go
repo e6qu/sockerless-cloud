@@ -41,7 +41,7 @@ func pgCreateServerRaw(t *testing.T, serverPath, body string) {
 	require.NotEmpty(t, opURL)
 	resp.Body.Close()
 	t.Cleanup(func() { armReq(t, "DELETE", serverPath, "").Body.Close() })
-	waitPGDataAsyncOperation(t, opURL)
+	waitAzureAsyncOperation(t, opURL)
 }
 
 // pgTryDataPlane resolves a server's fullyQualifiedDomainName through the
@@ -138,7 +138,7 @@ func TestAzurePGFlexibleServer_LtrBackupLifecycle(t *testing.T) {
 	assert.NotEmpty(t, resp.Header.Get("Location"),
 		"startLtrBackup declares its final state via Location")
 	resp.Body.Close()
-	waitPGDataAsyncOperation(t, opURL)
+	waitAzureAsyncOperation(t, opURL)
 
 	resp = armReq(t, "GET", serverPath+"/ltrBackupOperations/"+backupName, "")
 	body, _ := io.ReadAll(resp.Body)
@@ -304,7 +304,7 @@ func TestAzurePGFlexibleServer_GeoRestoreRestoresLatestBackup(t *testing.T) {
 	backupOpURL := resp.Header.Get("Azure-AsyncOperation")
 	require.NotEmpty(t, backupOpURL)
 	resp.Body.Close()
-	waitPGDataAsyncOperation(t, backupOpURL)
+	waitAzureAsyncOperation(t, backupOpURL)
 
 	if dataPlane {
 		_, err := source.Exec(testContext, `INSERT INTO ledger VALUES ('after-backup')`)

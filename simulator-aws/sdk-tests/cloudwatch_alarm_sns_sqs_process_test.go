@@ -109,11 +109,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM")
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "alarm should reach ALARM")
 
 	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "SQS subscriber should receive the alarm notification")
@@ -221,11 +217,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM")
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "alarm should reach ALARM")
 
 	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "first transition should deliver one notification")
@@ -245,11 +237,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 500*time.Millisecond, "recreated alarm should reach ALARM again")
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "recreated alarm should reach ALARM again")
 
 	recv2 := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv2.Messages, 1, "recreated alarm must dispatch AlarmActions again")
@@ -369,11 +357,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_ResilientToOneBadAlarm(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{goodAlarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 500*time.Millisecond, "good alarm should reach ALARM")
+	awaitAlarmState(ctx, t, cw, goodAlarmName, cwtypes.StateValueAlarm, "good alarm should reach ALARM")
 
 	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "good alarm must still deliver even when a sibling alarm has an invalid action target")
@@ -498,11 +482,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDanglingAlarms(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM after dangling alarms")
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "alarm should reach ALARM after dangling alarms")
 
 	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "alarm notification must be delivered even after evaluator processed dangling alarms")
@@ -598,11 +578,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDeleteAndRecreate(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 500*time.Millisecond, "first alarm should reach ALARM")
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "first alarm should reach ALARM")
 
 	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "first incarnation must deliver")
@@ -640,11 +616,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDeleteAndRecreate(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 500*time.Millisecond, "recreated alarm should reach ALARM")
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "recreated alarm should reach ALARM")
 
 	recv = awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "recreated alarm must deliver after delete+recreate")
@@ -720,11 +692,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_NoSubscription(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM")
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "alarm should reach ALARM")
 
 	requireQueueStaysEmpty(ctx, t, sqsC, q.QueueUrl, "alarm with no topic subscriptions must not deliver")
 }
@@ -812,11 +780,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_PolicyDenied(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM")
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "alarm should reach ALARM")
 
 	requireQueueStaysEmpty(ctx, t, sqsC, q.QueueUrl, "alarm with denying queue policy must not deliver")
 }

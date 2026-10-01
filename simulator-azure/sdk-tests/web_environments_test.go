@@ -1,7 +1,6 @@
 package azure_sdk_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -9,7 +8,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
@@ -154,35 +152,14 @@ func aseActionApps(t *testing.T, action, body string) []*armappservice.Site {
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusAccepted, resp.StatusCode, string(raw))
-	location := resp.Header.Get("Location")
-	require.NotEmpty(t, location,
+	if resp.StatusCode != http.StatusAccepted {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("%s answered %d, want 202: %s", action, resp.StatusCode, raw)
+	}
+	require.NotEmpty(t, resp.Header.Get("Location"),
 		"a long-running operation whose final state comes via Location must send one")
 
-	// Poll the Location the way a client does: 202 while the operation runs,
-	// then the operation's own result.
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		pollReq, pollErr := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
-		require.NoError(t, pollErr)
-		pollReq.Header.Set("Authorization", simARMBearer)
-		pollResp, pollErr := http.DefaultClient.Do(pollReq)
-		require.NoError(t, pollErr)
-		body, pollErr := io.ReadAll(pollResp.Body)
-		pollResp.Body.Close()
-		require.NoError(t, pollErr)
-		if pollResp.StatusCode == http.StatusOK {
-			var collection armappservice.WebAppCollection
-			require.NoError(t, json.Unmarshal(body, &collection), string(body))
-			return collection.Value
-		}
-		require.Equal(t, http.StatusAccepted, pollResp.StatusCode, string(body))
-		require.True(t, time.Now().Before(deadline),
-			"the %s operation never completed at its Location", action)
-		time.Sleep(100 * time.Millisecond)
-	}
+	return awaitARMOperation[armappservice.WebAppCollection](t, resp).Value
 }
 
 // aseAppStates reduces an app collection to name→state so an assertion names

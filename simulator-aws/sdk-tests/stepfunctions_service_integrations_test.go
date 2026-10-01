@@ -765,9 +765,8 @@ phases:
 		builds, getErr := buildAPI.BatchGetBuilds(ctx, &codebuild.BatchGetBuildsInput{Ids: []string{cancelledBuildID}})
 		return getErr == nil && len(builds.Builds) == 1 && builds.Builds[0].BuildStatus == cbtypes.StatusTypeStopped
 	}, 10*time.Second, 100*time.Millisecond)
-	time.Sleep(6 * time.Second)
 	received, err := queueAPI.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-		QueueUrl: queue.QueueUrl, MaxNumberOfMessages: 10, VisibilityTimeout: 0,
+		QueueUrl: queue.QueueUrl, MaxNumberOfMessages: 10, VisibilityTimeout: 0, WaitTimeSeconds: 6,
 	})
 	require.NoError(t, err)
 	assert.Empty(t, received.Messages, "a stopped CodeBuild container must not complete its delayed Amazon SQS write")

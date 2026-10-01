@@ -2,6 +2,7 @@ package azure_cli_test
 
 import (
 	"fmt"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -79,36 +80,68 @@ func TestComputeVirtualMachineLifecycleCLI(t *testing.T) {
 }
 
 // azRestLongRunning sends a request that starts an Azure Resource Manager
-// long-running operation and waits for the operation the way the Azure SDK's
-// pollers do. `az rest` returns once the request is accepted, so read the
-// Azure-AsyncOperation it names from az's --debug log, then read the operation
-// again after each Retry-After it advertises until it is terminal.
-func azRestLongRunning(t *testing.T, method, url, body string) {
+// long-running operation, waits for the operation the way the Azure SDK's
+// pollers do, and returns the initial response body.
+func azRestLongRunning(t *testing.T, method, url, body string) string {
 	t.Helper()
-	_, stderr := runCLIStreams(t, azRest(method, url, body, "--debug"))
-	opURL := azDebugResponseHeader(stderr, "Azure-AsyncOperation")
-	if opURL == "" {
-		t.Fatalf("%s %s answered without an Azure-AsyncOperation:\n%s", method, url, stderr)
+	return azLongRunning(t, azRest, method, url, body)
+}
+
+// azLongRunning drives one long-running operation through rest, which builds
+// an `az rest` command. `az rest` returns once the request is accepted, so read
+// the Azure-AsyncOperation or Location it names from az's --debug log, then
+// read it again after each Retry-After it advertises until it is terminal.
+func azLongRunning(t *testing.T, rest func(method, url, body string, extra ...string) *exec.Cmd, method, url, body string) string {
+	t.Helper()
+	initial, stderr := runCLIStreams(t, rest(method, url, body, "--debug"))
+	if opURL := azDebugResponseHeader(stderr, "Azure-AsyncOperation"); opURL != "" {
+		for {
+			stdout, stderr := runCLIStreams(t, rest("GET", opURL, "", "--debug"))
+			var op struct {
+				Status string `json:"status"`
+			}
+			parseJSON(t, stdout, &op)
+			switch op.Status {
+			case "Succeeded":
+				return initial
+			case "InProgress":
+			default:
+				t.Fatalf("%s %s ended %s: %s", method, url, op.Status, stdout)
+			}
+			azAwaitRetryAfter(t, stderr)
+		}
+	}
+	location := azDebugResponseHeader(stderr, "Location")
+	if location == "" {
+		t.Fatalf("%s %s answered without an Azure-AsyncOperation or Location:\n%s", method, url, stderr)
 	}
 	for {
-		stdout, stderr := runCLIStreams(t, azRest("GET", opURL, "", "--debug"))
-		var op struct {
-			Status string `json:"status"`
+		_, stderr := runCLIStreams(t, rest("GET", location, "", "--debug"))
+		if azDebugResponseStatus(t, stderr) != "202" {
+			return initial
 		}
-		parseJSON(t, stdout, &op)
-		switch op.Status {
-		case "Succeeded":
-			return
-		case "InProgress":
-		default:
-			t.Fatalf("%s %s ended %s: %s", method, url, op.Status, stdout)
-		}
-		seconds, err := strconv.Atoi(azDebugResponseHeader(stderr, "Retry-After"))
-		if err != nil || seconds <= 0 {
-			t.Fatalf("a running operation advertised no Retry-After in seconds:\n%s", stderr)
-		}
-		time.Sleep(time.Duration(seconds) * time.Second)
+		azAwaitRetryAfter(t, stderr)
 	}
+}
+
+// azAwaitRetryAfter waits the interval a running operation's poll advertised.
+func azAwaitRetryAfter(t *testing.T, debugLog string) {
+	t.Helper()
+	seconds, err := strconv.Atoi(azDebugResponseHeader(debugLog, "Retry-After"))
+	if err != nil || seconds <= 0 {
+		t.Fatalf("a running operation advertised no Retry-After in seconds:\n%s", debugLog)
+	}
+	time.Sleep(time.Duration(seconds) * time.Second)
+}
+
+// azDebugResponseStatus reads the last response status az's --debug log names.
+func azDebugResponseStatus(t *testing.T, debugLog string) string {
+	t.Helper()
+	matches := regexp.MustCompile(`Response status: (\d+)`).FindAllStringSubmatch(debugLog, -1)
+	if matches == nil {
+		t.Fatalf("az's debug log names no response status:\n%s", debugLog)
+	}
+	return matches[len(matches)-1][1]
 }
 
 // azDebugResponseHeader reads a response header from az's --debug log. The

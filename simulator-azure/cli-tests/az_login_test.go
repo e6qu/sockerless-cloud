@@ -3,20 +3,20 @@ package azure_cli_test
 import (
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
 	"math/big"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
 // The real Azure CLI, logged in to the simulator through Azure's own
@@ -226,8 +226,7 @@ func startAzTLSSimulator(t *testing.T, extraEnv ...string) azLoginEnv {
 	)
 	cmd.Env = append(cmd.Env, extraEnv...)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
+	if err := simready.Start(cmd, os.Stderr); err != nil {
 		t.Fatalf("start the TLS simulator: %v", err)
 	}
 	t.Cleanup(func() {
@@ -238,26 +237,6 @@ func startAzTLSSimulator(t *testing.T, extraEnv ...string) azLoginEnv {
 	// The certificate names localhost, so address the simulator by that name —
 	// the CLI verifies the hostname against the trusted bundle.
 	base := "https://localhost" + port
-	probe := &http.Client{
-		Timeout: 2 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // health probe only; the CLI itself verifies against the bundle
-		},
-	}
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		resp, err := probe.Get(base + "/health")
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				break
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("TLS simulator at %s did not become healthy", base)
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
 
 	return azLoginEnv{
 		baseURL:   base,

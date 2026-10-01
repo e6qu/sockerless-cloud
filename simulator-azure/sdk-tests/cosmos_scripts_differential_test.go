@@ -152,9 +152,9 @@ func cosmosRESTReq(t *testing.T, endpoint cosmosCoordinate, method, path, resour
 		if body != "" {
 			br = strings.NewReader(body)
 		}
-		req, err := http.NewRequest(method, strings.TrimRight(endpoint.url, "/")+path, br)
-		if err != nil {
-			t.Fatalf("new request: %v", err)
+		req, reqErr := http.NewRequest(method, strings.TrimRight(endpoint.url, "/")+path, br)
+		if reqErr != nil {
+			t.Fatalf("new request: %v", reqErr)
 		}
 		req.Header.Set("x-ms-date", xmsDate)
 		req.Header.Set("x-ms-version", "2018-12-31")

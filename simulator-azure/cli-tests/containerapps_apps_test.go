@@ -54,30 +54,19 @@ func TestContainerAppsApps_CLI_CreateGetDelete(t *testing.T) {
 	parseJSON(t, out, &got)
 	assert.Equal(t, "cli-test-app", got.Name)
 
-	runCLI(t, azRest("DELETE", appURL, ""))
+	azRestLongRunning(t, "DELETE", appURL, "")
 
-	// ARM DELETE is a 202 LRO: the app stays observable in
-	// provisioningState=Deleting until the operation completes, then GET
-	// returns 404. Poll like a real client — verify via raw HTTP since
-	// `az rest` exits non-zero on 404 and runCLI requires success.
+	// `az rest` exits non-zero on 404 and runCLI requires success, so read
+	// the deleted app over raw HTTP.
 	req, err := http.NewRequest("GET", baseURL+"/subscriptions/"+subscriptionID+
 		"/resourceGroups/"+resourceGroup+
 		"/providers/Microsoft.App/containerApps/cli-test-app?api-version="+acaAPIVersion, nil)
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+armBearer)
-	deadline := time.Now().Add(10 * time.Second)
-	status := 0
-	for time.Now().Before(deadline) {
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		resp.Body.Close()
-		status = resp.StatusCode
-		if status == 404 {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	assert.Equal(t, 404, status, "GET after the delete operation completes must be 404")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "GET after the delete operation completes must be 404")
 }
 
 // TestContainerAppsApps_CLI_PatchMergeSemantics drives the RFC 7396 PATCH
