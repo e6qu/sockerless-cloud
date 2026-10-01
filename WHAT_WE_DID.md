@@ -446,6 +446,25 @@ an unfinished capture, copy or deletion. A final snapshot whose capture an
 earlier simulator left unfinished, after it had already dropped the resource,
 takes that resource's volume as its own.
 
+An Amazon RDS instance's log files are its engine's own output.
+`dbengine.Instance` hands the engine container's lines, each dated by the
+container runtime, to a sink. The Amazon RDS sink stores them by hour under the
+instance's resource ID, so they outlive a stop, a reboot and a simulator
+restart. An adopted container replays its output from the start, and the sink
+drops every line no later than the last one its stream recorded.
+DescribeDBLogFiles and DownloadDBLogFilePortion lay the lines out as Amazon RDS
+names the files. PostgreSQL gets one `error/postgresql.log.YYYY-MM-DD-HH` file
+per hour, kept for 4320 minutes. MySQL and MariaDB get `error/mysql-error.log`,
+which RDS moves into `error/mysql-error-running.log` every five minutes, and
+the hourly `error/mysql-error-running.log.N`, numbered by the hour it rotated
+and kept for 24 hours; the AWS CLI's describe-db-log-files example fixes those
+names and times. Sizes and LastWritten come from the lines themselves. An
+instance whose engine has not started has no log files, and a deleted
+instance's output goes with it. DownloadDBLogFilePortion follows the model: the
+most recent lines without a Marker, the lines after the marker (a byte offset,
+`0` being the start) with one, at most 10,000 lines by default and 1 MB in any
+case.
+
 Memorystore for Redis instances and Memorystore for Redis Cluster clusters run
 a real Redis engine, one container per resource whose redis-server processes
 are its nodes, on the image the instance's `redisVersion` names (clusters run

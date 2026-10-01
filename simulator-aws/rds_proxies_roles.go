@@ -267,6 +267,8 @@ func registerRDSProxiesRoles(r *AWSQueryRouter, srv *sim.Server) {
 	// Pending maintenance actions
 	r.RegisterVersioned(rdsAPIVersion, "ApplyPendingMaintenanceAction", handleRDSApplyPendingMaintenanceAction)
 	r.RegisterVersioned(rdsAPIVersion, "DescribePendingMaintenanceActions", handleRDSDescribePendingMaintenanceActions)
+
+	rdsEngineLogs = sim.MakeStore[RDSEngineLogHour](srv.DB(), "rds_engine_logs")
 }
 
 func rdsProxyARN(name string) string {
@@ -1292,57 +1294,6 @@ func handleRDSDeleteClusterAutomatedBackup(w http.ResponseWriter, r *http.Reques
 	found.Status = "deleting"
 	rdsClusterAutomatedBackups.Delete(key)
 	rdsXMLResponse(w, "DeleteDBClusterAutomatedBackup", renderRDSClusterAutoBackup(found), sim.RequestID(r.Context()))
-}
-
-// Log files
-
-func rdsLogFileData(inst RDSInstance) string {
-	return fmt.Sprintf(
-		"%s UTC [1]: [1-1] LOG:  database system is ready to accept connections\n"+
-			"%s UTC [1]: [2-1] LOG:  instance %q (%s) started\n",
-		time.Now().UTC().Format("2006-01-02 15:04:05"),
-		time.Now().UTC().Format("2006-01-02 15:04:05"),
-		inst.DBInstanceIdentifier, inst.Engine)
-}
-
-func handleRDSDescribeLogFiles(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("DBInstanceIdentifier")
-	inst, ok := rdsInstances.Get(id)
-	if !ok {
-		rdsErrorXML(w, "DBInstanceNotFound", fmt.Sprintf("DBInstance %q not found", id), http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	data := rdsLogFileData(inst)
-	var b strings.Builder
-	b.WriteString("<DescribeDBLogFiles>")
-	for _, fn := range []string{"error/postgresql.log.1", "error/postgresql.log"} {
-		b.WriteString("<DescribeDBLogFilesDetails>")
-		fmt.Fprintf(&b, "<LogFileName>%s</LogFileName>", xmlEscape(fn))
-		fmt.Fprintf(&b, "<LastWritten>%d</LastWritten>", time.Now().UnixMilli())
-		fmt.Fprintf(&b, "<Size>%d</Size>", len(data))
-		b.WriteString("</DescribeDBLogFilesDetails>")
-	}
-	b.WriteString("</DescribeDBLogFiles>")
-	rdsXMLResponse(w, "DescribeDBLogFiles", b.String(), sim.RequestID(r.Context()))
-}
-
-func handleRDSDownloadLogFilePortion(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("DBInstanceIdentifier")
-	inst, ok := rdsInstances.Get(id)
-	if !ok {
-		rdsErrorXML(w, "DBInstanceNotFound", fmt.Sprintf("DBInstance %q not found", id), http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	if r.FormValue("LogFileName") == "" {
-		rdsErrorXML(w, "MissingParameter", "LogFileName is required", http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	data := rdsLogFileData(inst)
-	var b strings.Builder
-	fmt.Fprintf(&b, "<LogFileData>%s</LogFileData>", xmlEscape(data))
-	b.WriteString("<Marker>0:0</Marker>")
-	b.WriteString("<AdditionalDataPending>false</AdditionalDataPending>")
-	rdsXMLResponse(w, "DownloadDBLogFilePortion", b.String(), sim.RequestID(r.Context()))
 }
 
 // Parameter / option group copies

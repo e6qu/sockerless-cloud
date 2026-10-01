@@ -178,6 +178,7 @@ func rdsInstallDataPlane(instance *RDSInstance, masterPassword string) error {
 		Certificate:  rdsServerCertificate,
 		Authenticate: plane.authenticate,
 		BackendLogin: plane.backendLogin,
+		Log:          newRDSEngineLogSink(instance.DbiResourceId),
 	}
 	rdsDataPlanes.Store(instance.DBInstanceIdentifier, plane)
 	plane.engine.Serve(listener)
@@ -479,6 +480,7 @@ func rdsFinishInstanceDeletion(id, resourceID string) {
 	}
 	// The instance goes either way; rdsStopDataPlane logs a failed stop.
 	_ = rdsStopDataPlane(id, true)
+	rdsDeleteEngineLogs(resourceID)
 	if rdsDeletingInstance(id, resourceID) {
 		rdsInstances.Delete(id)
 	}

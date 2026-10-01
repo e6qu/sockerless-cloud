@@ -1,11 +1,13 @@
 package aws_sdk_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -333,19 +335,17 @@ func TestRDS_CertificatesAndBackups(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Log files.
+	// The instance's engine has not started, so it has written no log file.
 	logs, err := c.DescribeDBLogFiles(ctx, &rds.DescribeDBLogFilesInput{DBInstanceIdentifier: aws.String(instID)})
 	require.NoError(t, err)
-	require.NotEmpty(t, logs.DescribeDBLogFiles)
-	logName := aws.ToString(logs.DescribeDBLogFiles[0].LogFileName)
-	require.NotEmpty(t, logName)
-
-	dl, err := c.DownloadDBLogFilePortion(ctx, &rds.DownloadDBLogFilePortionInput{
+	assert.Empty(t, logs.DescribeDBLogFiles)
+	_, err = c.DownloadDBLogFilePortion(ctx, &rds.DownloadDBLogFilePortionInput{
 		DBInstanceIdentifier: aws.String(instID),
-		LogFileName:          aws.String(logName),
+		LogFileName:          aws.String("error/postgresql.log"),
 	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, aws.ToString(dl.LogFileData))
+	var logErr smithy.APIError
+	require.True(t, errors.As(err, &logErr), "got %v", err)
+	assert.Equal(t, "DBLogFileNotFoundFault", logErr.ErrorCode())
 }
 
 // TestRDS_CopyGroupsAndSourceIdentifiers exercises CopyDBParameterGroup,

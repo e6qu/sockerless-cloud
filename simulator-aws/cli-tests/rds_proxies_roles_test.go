@@ -1,7 +1,11 @@
 package aws_cli_test
 
 import (
+	"net"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -225,22 +229,63 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 	runCLI(t, awsCLI("rds", "delete-db-cluster-automated-backup",
 		"--db-cluster-resource-id", cab.DBClusterAutomatedBackups[0].DbClusterResourceId))
 
-	out = runCLI(t, awsCLI("rds", "describe-db-log-files", "--db-instance-identifier", instID))
-	var logs struct {
+	type logFiles struct {
 		DescribeDBLogFiles []struct {
 			LogFileName string `json:"LogFileName"`
+			Size        int64  `json:"Size"`
 		} `json:"DescribeDBLogFiles"`
 	}
-	parseJSON(t, out, &logs)
-	require.NotEmpty(t, logs.DescribeDBLogFiles)
-	out = runCLI(t, awsCLI("rds", "download-db-log-file-portion",
-		"--db-instance-identifier", instID,
-		"--log-file-name", logs.DescribeDBLogFiles[0].LogFileName))
-	var dl struct {
-		LogFileData string `json:"LogFileData"`
+	var before logFiles
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-log-files", "--db-instance-identifier", instID)), &before)
+	assert.Empty(t, before.DescribeDBLogFiles, "an engine that has not started has written no log")
+	assert.Contains(t, runCLIExpectError(t, awsCLI("rds", "download-db-log-file-portion",
+		"--db-instance-identifier", instID, "--log-file-name", "error/mysql-error.log")), "DBLogFileNotFoundFault")
+
+	// The first client starts the engine, and the endpoint greets it once the
+	// engine accepts connections.
+	var described struct {
+		DBInstances []struct {
+			Endpoint struct {
+				Address string `json:"Address"`
+				Port    int    `json:"Port"`
+			} `json:"Endpoint"`
+		} `json:"DBInstances"`
 	}
-	parseJSON(t, out, &dl)
-	assert.NotEmpty(t, dl.LogFileData)
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-instances", "--db-instance-identifier", instID)), &described)
+	require.Len(t, described.DBInstances, 1)
+	endpoint := described.DBInstances[0].Endpoint
+	client, err := net.Dial("tcp", net.JoinHostPort(endpoint.Address, strconv.Itoa(endpoint.Port)))
+	require.NoError(t, err)
+	require.NoError(t, client.SetReadDeadline(time.Now().Add(5*time.Minute)))
+	_, err = client.Read(make([]byte, 1))
+	require.NoError(t, err, "the MySQL endpoint never greeted its client")
+	_ = client.Close()
+
+	var holding string
+	require.Eventually(t, func() bool {
+		var listed logFiles
+		parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-log-files", "--db-instance-identifier", instID)), &listed)
+		for _, file := range listed.DescribeDBLogFiles {
+			var whole struct {
+				LogFileData string `json:"LogFileData"`
+			}
+			parseJSON(t, runCLI(t, awsCLI("rds", "download-db-log-file-portion",
+				"--db-instance-identifier", instID,
+				"--log-file-name", file.LogFileName,
+				"--starting-token", "0")), &whole)
+			if strings.Contains(whole.LogFileData, "ready for connections") {
+				holding = file.LogFileName
+				return true
+			}
+		}
+		return false
+	}, 2*time.Minute, 500*time.Millisecond, "the engine's startup never reached a log file")
+	assert.True(t, strings.HasPrefix(holding, "error/mysql-error"), "log file %q", holding)
+	var filtered logFiles
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-log-files",
+		"--db-instance-identifier", instID, "--filename-contains", "mysql-error.log")), &filtered)
+	require.Len(t, filtered.DescribeDBLogFiles, 1)
+	assert.Equal(t, "error/mysql-error.log", filtered.DescribeDBLogFiles[0].LogFileName)
 
 	srcPG := "cli-copy-src-pg"
 	runCLI(t, awsCLI("rds", "create-db-parameter-group",

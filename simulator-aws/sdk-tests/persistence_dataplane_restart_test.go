@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -251,6 +252,10 @@ func TestAmazonRDSDataAndEndpointSurviveSimulatorRestart_SDK(t *testing.T) {
 	require.NoError(t, err)
 	_, err = connection.Exec(testCtx, `INSERT INTO persistence (id, value) VALUES (1, 'survived-restart')`)
 	require.NoError(t, err)
+	_, err = connection.Exec(testCtx, `SELECT * FROM logged_before_restart`)
+	require.Error(t, err)
+	const loggedBefore = `relation "logged_before_restart" does not exist`
+	rdsAwaitLogFileHolding(testCtx, t, rdsAPI, instanceID, loggedBefore)
 	require.NoError(t, connection.Close(testCtx))
 
 	shutdownSimulator(cmd)
@@ -271,6 +276,21 @@ func TestAmazonRDSDataAndEndpointSurviveSimulatorRestart_SDK(t *testing.T) {
 	var value string
 	require.NoError(t, connection.QueryRow(testCtx, `SELECT value FROM persistence WHERE id = 1`).Scan(&value))
 	assert.Equal(t, "survived-restart", value)
+
+	// The simulator adopts the running engine and reads its output again from
+	// the start; the log files keep each line once.
+	_, err = connection.Exec(testCtx, `SELECT * FROM logged_after_restart`)
+	require.Error(t, err)
+	rdsAwaitLogFileHolding(testCtx, t, rdsAPI, instanceID, `relation "logged_after_restart" does not exist`)
+	listed, err := rdsAPI.DescribeDBLogFiles(testCtx, &rds.DescribeDBLogFilesInput{DBInstanceIdentifier: aws.String(instanceID)})
+	require.NoError(t, err)
+	var all strings.Builder
+	for _, file := range listed.DescribeDBLogFiles {
+		whole, err := rdsDownloadWholeLogFile(testCtx, rdsAPI, instanceID, aws.ToString(file.LogFileName))
+		require.NoError(t, err)
+		all.WriteString(whole)
+	}
+	assert.Equal(t, 1, strings.Count(all.String(), loggedBefore), "a line logged before the restart must appear once")
 }
 
 func connectPersistentPostgreSQL(
