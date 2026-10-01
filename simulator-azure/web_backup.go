@@ -226,14 +226,25 @@ type webBackupArchive struct {
 	contentBytes int64
 }
 
+var webHostNameBindingsBySite sim.GenerationIndex[WebHostNameBinding]
+
+// webChildParent returns the resource ID a child resource ID names under
+// segment, or "" when it holds no such segment.
+func webChildParent(id, segment string) string {
+	if i := strings.LastIndex(id, segment); i >= 0 {
+		return id[:i]
+	}
+	return ""
+}
+
 // webCustomHostNames lists the custom domains bound to a site or slot, sorted.
 // These — not the platform's own `<app>.azurewebsites.net` hostnames — are what
 // Microsoft documents the backup manifest listing and a restore reconciling.
 func webCustomHostNames(resID string) []string {
 	prefix := resID + "/hostNameBindings/"
 	var out []string
-	for _, b := range webHostNameBindings.Filter(func(b WebHostNameBinding) bool {
-		return strings.HasPrefix(b.ID, prefix)
+	for _, b := range webHostNameBindingsBySite.LookupAll(webHostNameBindings, resID, func(b WebHostNameBinding) []string {
+		return []string{webChildParent(b.ID, "/hostNameBindings/")}
 	}) {
 		out = append(out, strings.TrimPrefix(b.ID, prefix))
 	}

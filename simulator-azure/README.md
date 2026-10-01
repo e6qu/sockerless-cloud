@@ -148,7 +148,9 @@ SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON='{
   },
   "keyVault": "https://{vault}.vault.shim.azure.local/",
   "serviceBus": "https://{namespace}.servicebus.shim.azure.local/",
-  "eventGrid": "https://{topic}.eventgrid.shim.azure.local/api/events"
+  "eventGrid": "https://{topic}.eventgrid.shim.azure.local/api/events",
+  "acr": "https://{name}.azurecr.shim.azure.local/",
+  "appServiceScm": "https://{name}.scm.shim.azure.local/"
 }' ./simulator-azure
 ```
 
@@ -157,8 +159,14 @@ Supported template variables are `{name}`, `{account}`, `{vault}`,
 and `{port}`. Storage Account ARM responses fill `properties.primaryEndpoints`,
 Key Vault fills `properties.vaultUri`, Service Bus and Event Hubs fill
 `serviceBusEndpoint` plus listKeys connection strings, Event Grid fills topic
-and domain publish endpoints, and `/metadata/endpoints` emits matching storage
+and domain publish endpoints, Azure Container Registry fills `loginServer`, App
+Service web apps report the `appServiceScm` host as their SCM (Kudu) site — the
+Repository entry of `hostNameSslStates`, which `az webapp deploy`, `az webapp
+deployment source config-zip` and terraform-provider-azurerm's
+`zip_deploy_file` deploy to — and `/metadata/endpoints` emits matching storage
 and Key Vault suffixes for Azure clients that validate custom-cloud metadata.
+Without an `appServiceScm` template, a web app's SCM host is its subdomain of
+the ARM request host, such as `myapp.scm.localhost:4568`.
 
 ```bash
 # 2. Point Azure clients at it.

@@ -70,6 +70,9 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	nodeAppPackageURL = serveZipPackage(t, map[string]string{
 		"server.js": `require("http").createServer((req, res) => res.end("node " + process.version + " " + req.url)).listen(process.env.PORT)`,
 	})
+	zipAppPackagePath = writeZipPackage(t, map[string]string{
+		"server.js": `require("http").createServer((req, res) => res.end("zip deployed on node " + process.version + " " + req.url)).listen(process.env.PORT)`,
+	})
 	out, err := runTimed(t, "terraform init", terraformCmd(dir, "init"))
 	require.NoError(t, err, "terraform init failed:\n%s", out)
 
@@ -454,6 +457,7 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	assertStackWebAppsServe(t,
 		outputs.must(t, "azrm_node_web_app_hostname"),
 		outputs.must(t, "azrm_python_web_app_hostname"))
+	assertZipDeployedWebAppServes(t, outputs.must(t, "azrm_zip_web_app_hostname"))
 
 	out, err = runTimed(t, "terraform destroy", terraformCmd(dir, "destroy", "-auto-approve"))
 	require.NoError(t, err, "terraform destroy failed:\n%s", out)
@@ -477,6 +481,47 @@ func assertContainerFunctionAppServes(t *testing.T, hostname, commandLine string
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 	require.Equal(t, "from-the-terraform-startup-command", strings.TrimSpace(string(body)))
+}
+
+// zipAppPackagePath is the local package the zip-deployed web app's
+// zip_deploy_file names; terraformCmd passes it as the zip_app_package_path
+// variable.
+var zipAppPackagePath string
+
+// writeZipPackage writes a zip of files to a local path, the coordinate
+// zip_deploy_file names.
+func writeZipPackage(t *testing.T, files map[string]string) string {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, content := range files {
+		f, err := zw.Create(name)
+		require.NoError(t, err)
+		_, err = f.Write([]byte(content))
+		require.NoError(t, err)
+	}
+	require.NoError(t, zw.Close())
+	p := filepath.Join(t.TempDir(), "zip-app.zip")
+	require.NoError(t, os.WriteFile(p, buf.Bytes(), 0o644))
+	return p
+}
+
+// assertZipDeployedWebAppServes requests the zip-deployed web app's hostname:
+// it answers from the package the provider published through the app's SCM
+// site, on the platform's Node 20 image.
+func assertZipDeployedWebAppServes(t *testing.T, host string) {
+	t.Helper()
+	require.Equal(t, "tf-azrm-zip-app.azurewebsites.net", host)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/from-zip-deploy", simPort), nil)
+	require.NoError(t, err)
+	req.Host = host
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+	require.Regexp(t, `^zip deployed on node v20\.\d+\.\d+ /from-zip-deploy$`, string(body))
 }
 
 // nodeAppPackageURL is the package the Node web app's WEBSITE_RUN_FROM_PACKAGE

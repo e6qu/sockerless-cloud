@@ -48,7 +48,8 @@ https://*.vault.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443}
 https://*.servicebus.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
 https://*.eventgrid.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
 https://*.documents.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
-https://*.azurecr.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
+https://*.azurecr.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.scm.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
 	tls internal
 	reverse_proxy 127.0.0.1:{$SOCKERLESS_AZURE_SIM_PORT:4568} {
 		header_up X-Forwarded-Proto https

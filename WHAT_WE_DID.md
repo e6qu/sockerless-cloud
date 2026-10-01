@@ -571,6 +571,42 @@ now answers 503 naming what it lacks — a function app without an image (the
 simulator runs no Azure Functions host), a stack it does not run, or no runtime
 at all — and the authLevel and invoke tests run against container sites.
 
+A web app's SCM site serves Kudu's deployment API. The Repository entry of
+`hostNameSslStates` — the host `az webapp deploy`, `az webapp deployment source
+config-zip` and terraform-provider-azurerm's `zip_deploy_file` read and send the
+artifact to — had named `<app>.scm.azurewebsites.net`, which resolves to no
+simulator, and nothing answered there. It became a coordinate like the other
+data planes: the app's subdomain of the ARM request host (`<app>.scm.<host>`),
+or the `appServiceScm` template of `SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON`,
+and a handler wrapper routes a request whose Host is an app's or slot's SCM
+hostname (or the platform's own `<app>.scm.azurewebsites.net`) to that site's
+Kudu through a generation index. Kudu admits the site's publishing credentials
+(`$<app>`, a slot's `$<app>__<slot>`) or the subscription's deployment user as
+basic auth while the site's scm basic publishing credentials policy allows it —
+the policy became stored state, where its PUT had been ignored and every read
+answered `allow: true` — and a Microsoft Entra token for Azure Resource
+Manager or App Service. `/api/zipdeploy` (KuduSync semantics: files the last
+zip deployment wrote that the new package lacks are deleted) and
+`/api/publish?type=zip|war|jar|ear|lib|static|startup` (OneDeploy's per-type
+targets, `path`, `clean` and `restart`) land the artifact through the one
+placement the Azure Resource Manager OneDeploy and MSDeploy operations share,
+synchronously (200) or with `isAsync`/`async` (202 and a `Location` on
+`/api/deployments/latest`), behind a per-site lock that answers a concurrent
+deployment 409. Each deployment is a Kudu record — `/api/deployments`, `/latest`,
+`/{id}`, `/{id}/log`, and the legacy `/deployments` the provider's warmup reads
+— that Azure Resource Manager's `/deployments` proxies, plus a deploymentStatus
+that goes `BuildInProgress`, `RuntimeStarting`, then `RuntimeSuccessful` once
+the restarted site answers the platform's warmup request, or `RuntimeFailed`
+naming why it did not start, which is what the Azure CLI polls after a Linux
+deployment. `WEBSITE_RUN_FROM_PACKAGE=1` makes each zip deployment the whole of
+wwwroot, mounted read-only. The CLI suite reaches the `.localhost` SCM host
+through an HTTPS proxy the test runs, the CLI analogue of the SDK suite's
+dialer: the commands and their requests are the ones a real deployment sends.
+Because the SCM site sits behind a handler wrapper, every store read a Kudu
+deployment reaches answers from a generation index — a site's Kudu
+deployments, webjobs and host-name bindings, and a webjob's runs — instead of
+a full-store scan.
+
 RunTask places a task only where it fits. The simulator runs real containers on
 one finite host, so rather than invent a capacity it commits each placed task's
 declared memory and CPU against what the simulator's own cgroup, or the

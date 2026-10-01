@@ -267,8 +267,10 @@ func writeAzLoginTLSCert(t *testing.T, dir string) (string, string) {
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 		IsCA:                  true,
-		DNSNames:              []string{"localhost"},
-		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+		// A web app's SCM site is <app>.scm.<host>, the hostname the
+		// deployment commands connect to.
+		DNSNames:    []string{"localhost", "*.scm.localhost"},
+		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
 	}
 	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {

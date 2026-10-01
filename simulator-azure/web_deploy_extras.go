@@ -5,8 +5,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
+	"net/url"
+	"os"
+	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,6 +105,16 @@ type WebDeploymentStatusRecord struct {
 
 var webDeploymentStatuses sim.Store[WebDeploymentStatusRecord]
 
+// WebDeployManifest lists the wwwroot files a site's last zip deployment
+// wrote, the manifest KuduSync diffs the next zip deployment against. Keyed
+// by the site's resource ID.
+type WebDeployManifest struct {
+	ID    string   `json:"id"`
+	Paths []string `json:"paths"`
+}
+
+var webDeployManifests sim.Store[WebDeployManifest]
+
 // WebPublishingUserRow is the provider-global publishing user
 // (GetPublishingUser / UpdatePublishingUser). The password is stored but,
 // like real Azure's x-ms-secret member, never echoed on reads.
@@ -133,6 +148,8 @@ func initWebDeployStores(srv *sim.Server) {
 	webMSDeployOps = sim.MakeStore[WebMSDeployRecord](srv.DB(), "web_msdeploy_ops")
 	webOneDeployOps = sim.MakeStore[WebOneDeployRecord](srv.DB(), "web_onedeploy_ops")
 	webDeploymentStatuses = sim.MakeStore[WebDeploymentStatusRecord](srv.DB(), "web_deployment_statuses")
+	webDeployManifests = sim.MakeStore[WebDeployManifest](srv.DB(), "web_deploy_manifests")
+	initWebKuduStore(srv)
 	webPublishingUser = sim.MakeStore[WebPublishingUserRow](srv.DB(), "web_publishing_user")
 	webProviderSourceControls = sim.MakeStore[WebProviderSourceControlRow](srv.DB(), "web_provider_sourcecontrols")
 	// An MSDeploy operation persisted mid-flight lost its goroutine with the
@@ -181,6 +198,16 @@ func webCleanupDeployments(resID string) {
 	for _, rec := range webDeploymentStatuses.Filter(func(rec WebDeploymentStatusRecord) bool { return strings.HasPrefix(rec.ID, subPrefix) }) {
 		webDeploymentStatuses.Delete(rec.ID)
 	}
+	webDeployManifests.Delete(resID)
+	webCleanupKudu(resID)
+	for _, protocol := range []string{"ftp", "scm"} {
+		webBasicPublishingPolicies.Delete(webBasicPublishingPolicyID(resID, protocol))
+	}
+	if i := strings.LastIndex(resID, "/sites/"); i >= 0 {
+		if site, slot, ok := strings.Cut(resID[i+len("/sites/"):], "/slots/"); ok {
+			_ = os.RemoveAll(webSiteHomeDir(&Site{Name: site + "/" + slot}))
+		}
+	}
 	azureDropKeyGens(resID, "publishingPassword")
 	webCleanupBackups(resID)
 }
@@ -223,11 +250,9 @@ func webFetchPackage(packageURI string) ([]byte, error) {
 	return data, nil
 }
 
-// webApplyDeploymentPackage fetches the package at packageURI, unpacks the
-// zip, and persists every file as the site's deployed content, then
-// rediscovers the site's webjobs and restarts a site that runs its content on
-// a built-in stack, as a deployment restarts the app. Returns the number of
-// files written.
+// webApplyDeploymentPackage fetches the package at packageURI and unpacks it
+// over the site's wwwroot, as MSDeploy syncs a package, restarting the site.
+// Returns the number of files written.
 func webApplyDeploymentPackage(resID, packageURI string) (int, error) {
 	if packageURI == "" {
 		return 0, fmt.Errorf("packageUri is required")
@@ -236,30 +261,286 @@ func webApplyDeploymentPackage(resID, packageURI string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	written := 0
-	err = archive.ReadZip(data, webSiteContentLimit, func(f archive.File) error {
-		webSiteContent.Put(resID+"|"+f.Name, WebSiteContentFile{
-			ID:   resID + "|" + f.Name,
-			Path: f.Name,
-			Mode: uint32(f.Mode),
-			Data: f.Data,
-		})
-		written++
-		return nil
-	})
+	return webDeployArtifact(resID, data, webArtifact{Type: "zip", Target: webWWWRoot, Restart: true})
+}
+
+// webFetchAndDeployArtifact fetches the package at packageURI and lands it as
+// the artifact a describes.
+func webFetchAndDeployArtifact(resID, packageURI string, a webArtifact) (int, error) {
+	data, err := webFetchPackage(packageURI)
 	if err != nil {
-		return written, fmt.Errorf("unpack package: %w", err)
+		return 0, err
+	}
+	return webDeployArtifact(resID, data, a)
+}
+
+// webJSONFlag renders a JSON boolean or string flag the way a query string
+// carries it; an absent flag is "".
+func webJSONFlag(v any) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprint(v)
+}
+
+// webWWWRoot is the directory a site serves its content from.
+const webWWWRoot = "/home/site/wwwroot"
+
+// webArtifact is where and how one deployment artifact lands: the OneDeploy
+// placement the Kudu publish API, its Azure Resource Manager twin, zip deploy
+// and MSDeploy share.
+type webArtifact struct {
+	// Type is the OneDeploy artifact type: zip, war, jar, ear, lib, static
+	// or startup.
+	Type string
+	// Target is an absolute path under /home: the directory a zip unpacks
+	// into, the file any other artifact becomes.
+	Target string
+	// Clean empties the target directory before the artifact lands.
+	Clean bool
+	// Restart restarts the site once the artifact landed.
+	Restart bool
+	// SyncManifest gives zip deploy's KuduSync semantics: files the
+	// previous zip deployment wrote that the new package lacks are deleted,
+	// and files no zip deployment wrote are kept.
+	SyncManifest bool
+}
+
+// oneDeployRefusal is a OneDeploy request Kudu refuses, worded as Kudu
+// words it.
+type oneDeployRefusal string
+
+func (e oneDeployRefusal) Error() string { return string(e) }
+
+func refuseOneDeploy(format string, args ...any) error {
+	return oneDeployRefusal(fmt.Sprintf(format, args...))
+}
+
+// webOneDeployArtifact resolves the OneDeploy query a client sent — type,
+// path, clean, restart — into the artifact's placement, applying each type's
+// defaults the way the platform does.
+func webOneDeployArtifact(site *Site, artifactType, targetPath, clean, restart string) (webArtifact, error) {
+	a := webArtifact{Type: strings.ToLower(strings.TrimSpace(artifactType)), Restart: true}
+	base := webWWWRoot
+	switch a.Type {
+	case "zip":
+		a.Clean = true
+		a.Target = webWWWRoot
+	case "war", "jar", "ear":
+		a.Clean = true
+		a.Target = webWWWRoot + "/app." + a.Type
+	case "static":
+		if strings.TrimSpace(targetPath) == "" {
+			return a, refuseOneDeploy("Path must be defined for static file deployments")
+		}
+	case "startup":
+		if !siteIsLinux(site) {
+			base = "/home/site/scripts"
+			a.Target = base + "/startup.cmd"
+		} else {
+			a.Target = webWWWRoot + "/startup.sh"
+		}
+	case "lib":
+		if strings.TrimSpace(targetPath) == "" {
+			return a, refuseOneDeploy("Path must be defined for library deployments")
+		}
+		base = "/home/site/libs"
+	case "":
+		return a, refuseOneDeploy("Artifact type is required: one of zip, war, jar, ear, lib, static or startup")
+	default:
+		return a, refuseOneDeploy("Artifact type '%s' not supported: use one of zip, war, jar, ear, lib, static or startup", artifactType)
+	}
+	if p := strings.TrimSpace(targetPath); p != "" {
+		if !strings.HasPrefix(p, "/") {
+			p = base + "/" + p
+		}
+		cleaned := path.Clean(p)
+		if cleaned != "/home" && !strings.HasPrefix(cleaned, "/home/") {
+			return a, refuseOneDeploy("Path '%s' is outside /home", targetPath)
+		}
+		a.Target = cleaned
+	}
+	for _, flag := range []struct {
+		raw string
+		dst *bool
+	}{{clean, &a.Clean}, {restart, &a.Restart}} {
+		if strings.TrimSpace(flag.raw) == "" {
+			continue
+		}
+		v, err := strconv.ParseBool(strings.TrimSpace(flag.raw))
+		if err != nil {
+			return a, fmt.Errorf("invalid boolean %q", flag.raw)
+		}
+		*flag.dst = v
+	}
+	return a, nil
+}
+
+// siteIsLinux reports whether the site runs on Linux.
+func siteIsLinux(site *Site) bool {
+	return site.Properties.Reserved || strings.Contains(strings.ToLower(site.Kind), "linux")
+}
+
+// webSiteRunsFromDeployedPackage reports whether the site has
+// WEBSITE_RUN_FROM_PACKAGE=1: every zip deployment then becomes the whole of
+// wwwroot, which the site mounts read-only.
+func webSiteRunsFromDeployedPackage(site *Site) bool {
+	return strings.TrimSpace(siteAppSettings(site)["WEBSITE_RUN_FROM_PACKAGE"]) == "1"
+}
+
+// webDeployArtifact lands one artifact: wwwroot content in the site's durable
+// content, anything else under /home in the site's persistent storage. It
+// then rediscovers the site's webjobs, records the app-state snapshot, and
+// restarts a site that runs its content, as a deployment restarts the app.
+// Returns the number of files written.
+func webDeployArtifact(resID string, data []byte, a webArtifact) (int, error) {
+	site, ok := webJobSite(resID)
+	if !ok {
+		return 0, fmt.Errorf("site %s not found", resID)
+	}
+	if a.Type == "zip" && webSiteRunsFromDeployedPackage(&site) {
+		a.Target, a.Clean, a.SyncManifest = webWWWRoot, true, false
+	}
+	var files []archive.File
+	if a.Type == "zip" {
+		if err := archive.ReadZip(data, webSiteContentLimit, func(f archive.File) error {
+			files = append(files, f)
+			return nil
+		}); err != nil {
+			return 0, fmt.Errorf("unpack package: %w", err)
+		}
+	} else {
+		mode := fs.FileMode(0o644)
+		if a.Type == "startup" {
+			mode = 0o755
+		}
+		files = []archive.File{{Name: path.Base(a.Target), Mode: mode, Data: data}}
+		a.Target = path.Dir(a.Target)
+	}
+	var written int
+	var err error
+	if rel, inRoot := webWWWRootRelative(a.Target); inRoot {
+		written = webWriteSiteContent(resID, rel, files, a)
+	} else {
+		written, err = webWriteSiteHome(&site, a.Target, files, a.Clean)
+	}
+	if err != nil {
+		return written, err
 	}
 	webDiscoverWebJobs(resID)
 	// The app's content just changed, so the platform's automatic-backup
 	// snapshot of this app state exists from here on.
 	webCaptureAppSnapshot(resID)
-	if site, ok := azfSites.Get(resID); ok {
-		if _, runsStack := siteBuiltInStack(&site); runsStack {
-			restartAzureFunctionInstance(site)
+	if a.Restart {
+		if site, ok := azfSites.Get(resID); ok {
+			if _, runsStack := siteBuiltInStack(&site); runsStack {
+				restartAzureFunctionInstance(site)
+			}
 		}
 	}
 	return written, nil
+}
+
+// webWWWRootRelative returns target relative to wwwroot ("" for wwwroot
+// itself) when it lies inside it.
+func webWWWRootRelative(target string) (string, bool) {
+	if target == webWWWRoot {
+		return "", true
+	}
+	rel, ok := strings.CutPrefix(target, webWWWRoot+"/")
+	return rel, ok
+}
+
+// webWriteSiteContent writes files under dir (wwwroot-relative) into the
+// site's durable content.
+func webWriteSiteContent(resID, dir string, files []archive.File, a webArtifact) int {
+	under := func(p string) bool { return dir == "" || p == dir || strings.HasPrefix(p, dir+"/") }
+	join := func(name string) string {
+		if dir == "" {
+			return name
+		}
+		return dir + "/" + name
+	}
+	incoming := make(map[string]bool, len(files))
+	for _, f := range files {
+		incoming[join(f.Name)] = true
+	}
+	switch {
+	case a.Clean:
+		for _, f := range webSiteContent.Filter(func(f WebSiteContentFile) bool {
+			return strings.HasPrefix(f.ID, resID+"|") && under(f.Path)
+		}) {
+			webSiteContent.Delete(f.ID)
+		}
+	case a.SyncManifest:
+		if prev, ok := webDeployManifests.Get(resID); ok {
+			for _, p := range prev.Paths {
+				if !incoming[p] {
+					webSiteContent.Delete(resID + "|" + p)
+				}
+			}
+		}
+	}
+	paths := make([]string, 0, len(files))
+	for _, f := range files {
+		p := join(f.Name)
+		webSiteContent.Put(resID+"|"+p, WebSiteContentFile{ID: resID + "|" + p, Path: p, Mode: uint32(f.Mode), Data: f.Data})
+		paths = append(paths, p)
+	}
+	if a.SyncManifest {
+		sort.Strings(paths)
+		webDeployManifests.Put(resID, WebDeployManifest{ID: resID, Paths: paths})
+	}
+	return len(files)
+}
+
+// webWriteSiteHome writes files under dir, an absolute /home path outside
+// wwwroot, into the site's persistent /home storage.
+func webWriteSiteHome(site *Site, dir string, files []archive.File, clean bool) (int, error) {
+	home := webSiteHomeDir(site)
+	rel := strings.TrimPrefix(strings.TrimPrefix(dir, "/home"), "/")
+	if err := sim.EnsureWritableDir(home); err != nil {
+		return 0, fmt.Errorf("create site storage: %w", err)
+	}
+	root, err := os.OpenRoot(home)
+	if err != nil {
+		return 0, fmt.Errorf("open site storage: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+	if rel == "" {
+		rel = "."
+	}
+	if clean && rel != "." {
+		if err := root.RemoveAll(rel); err != nil {
+			return 0, fmt.Errorf("clean %s: %w", dir, err)
+		}
+	}
+	for _, f := range files {
+		name := path.Join(rel, f.Name)
+		if err := root.MkdirAll(path.Dir(name), 0o777); err != nil {
+			return 0, fmt.Errorf("write %s: %w", "/home/"+name, err)
+		}
+		mode := f.Mode & fs.ModePerm
+		if mode == 0 {
+			mode = 0o644
+		}
+		if err := root.WriteFile(name, f.Data, mode); err != nil {
+			return 0, fmt.Errorf("write %s: %w", "/home/"+name, err)
+		}
+	}
+	return len(files), nil
+}
+
+// webPublishingScmURI is the scmUri a site's publishing credentials carry:
+// its SCM site with the credentials embedded.
+func webPublishingScmURI(site *Site, user, password string) string {
+	return (&url.URL{Scheme: "https", User: url.UserPassword(user, password), Host: siteScmHost(site)}).String()
+}
+
+// webSiteHomeDir is the persistent /home storage of a site or slot. A slot's
+// is its own, beside its app's.
+func webSiteHomeDir(site *Site) string {
+	return siteHomeDir(strings.Replace(site.Name, "/", "__", 1))
 }
 
 func msDeployStatusWire(rec WebMSDeployRecord) map[string]any {
@@ -530,6 +811,9 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 			Properties struct {
 				PackageURI string `json:"packageUri"`
 				Type       string `json:"type"`
+				Path       string `json:"path"`
+				Clean      any    `json:"clean"`
+				Restart    any    `json:"restart"`
 			} `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
@@ -540,11 +824,18 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 			AzureError(w, "InvalidRequestContent", "The OneDeploy request must name a packageUri.", http.StatusBadRequest)
 			return
 		}
+		site, _ := webResource(r)
+		artifact, err := webOneDeployArtifact(&site, req.Properties.Type, req.Properties.Path,
+			webJSONFlag(req.Properties.Clean), webJSONFlag(req.Properties.Restart))
+		if err != nil {
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			return
+		}
 		resID := webResourceID(r)
 		recID := resID + "/extensions/onedeploy"
 		start := time.Now().UTC()
 		deploymentID := sim.NewUUID()
-		written, err := webApplyDeploymentPackage(resID, req.Properties.PackageURI)
+		written, err := webFetchAndDeployArtifact(resID, req.Properties.PackageURI, artifact)
 		end := time.Now().UTC().Format(time.RFC3339)
 		rec := WebOneDeployRecord{
 			ID:           recID,
