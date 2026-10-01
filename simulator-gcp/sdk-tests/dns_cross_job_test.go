@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/dns/v1"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -54,6 +56,12 @@ func TestDNS_CrossJobResolution(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { jobsClient.Close() })
+	execClient, err := run.NewExecutionsRESTClient(ctx,
+		option.WithEndpoint(baseURL),
+		option.WithTokenSource(simTokenSource()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { execClient.Close() })
 
 	createJob := func(name string, args []string) string {
 		createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{
@@ -85,6 +93,15 @@ func TestDNS_CrossJobResolution(t *testing.T) {
 		exec, err := runOp.Metadata()
 		require.NoError(t, err)
 		require.NotNil(t, exec)
+		t.Cleanup(func() {
+			cancelOp, err := execClient.CancelExecution(ctx, &runpb.CancelExecutionRequest{Name: exec.Name})
+			if err == nil {
+				_, err = cancelOp.Wait(ctx)
+			}
+			if err != nil && status.Code(err) != codes.FailedPrecondition {
+				t.Errorf("cancel %s: %v", exec.Name, err)
+			}
+		})
 		return exec.Name
 	}
 
