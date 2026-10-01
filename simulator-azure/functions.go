@@ -1,13 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
+	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +14,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
+	mobycontainer "github.com/moby/moby/api/types/container"
+	mobyclient "github.com/moby/moby/client"
 )
 
 // Site represents an Azure Function App (Web App).
@@ -68,6 +68,11 @@ type SiteProperties struct {
 type SiteConfig struct {
 	AppSettings    []NameValuePair `json:"appSettings,omitempty"`
 	LinuxFxVersion string          `json:"linuxFxVersion,omitempty"`
+	// AppCommandLine is the site's startup command (`az functionapp config set
+	// --startup-file`, terraform's app_command_line). The platform runs it as
+	// the container's command, after the image's own entrypoint.
+	AppCommandLine string `json:"appCommandLine,omitempty"`
+	AlwaysOn       bool   `json:"alwaysOn,omitempty"`
 	// AcrUseManagedIdentityCreds asks the platform to pull the site's image
 	// from Azure Container Registry with a managed identity: the
 	// user-assigned identity AcrUserManagedIdentityID names by client id,
@@ -88,6 +93,21 @@ type SiteConfig struct {
 type NameValuePair struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+}
+
+// nameValuePairs renders a settings dictionary as the siteConfig list, ordered
+// by name.
+func nameValuePairs(settings map[string]string) []NameValuePair {
+	names := make([]string, 0, len(settings))
+	for name := range settings {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]NameValuePair, 0, len(names))
+	for _, name := range names {
+		out = append(out, NameValuePair{Name: name, Value: settings[name]})
+	}
+	return out
 }
 
 // FunctionEnvelope represents a function within a function app.
@@ -269,6 +289,7 @@ func registerAzureFunctions(srv *sim.Server) {
 			},
 		}
 
+		_, existed := sites.Get(resourceID)
 		sites.Put(resourceID, site)
 		// Real Azure provisions the Functions host key set (master key +
 		// "default" host function key) with the new site.
@@ -306,6 +327,11 @@ func registerAzureFunctions(srv *sim.Server) {
 			syncSiteVnetSubnetProperty(r)
 		}
 		site, _ = sites.Get(resourceID)
+		if existed {
+			restartAzureFunctionInstance(site)
+		} else {
+			startAlwaysOnSite(site)
+		}
 
 		// Always return 200 OK so the ARM SDK's BeginCreateOrUpdate poller
 		// treats this as an immediately completed operation.
@@ -423,25 +449,15 @@ func registerAzureFunctions(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, fn)
 	})
 
-	// POST /api/function — invoke a function app, identified by HTTP Host
-	// header matching the site's DefaultHostName (real Azure routing).
-	// Each site has a unique `<name>.azurewebsites.net` hostname; the
-	// azure-functions backend builds invoke URLs from DefaultHostName, and
-	// SDK tests set the Host header explicitly when connecting to the sim's
-	// TCP port.
+	// A site that runs a container is served by the front end in
+	// registerAppServiceFrontEnd, which forwards every request on the site's
+	// hostname to that container. This route answers a request to a site
+	// with no container image.
 	srv.HandleFunc("POST /api/function", func(w http.ResponseWriter, r *http.Request) {
-		host := r.Host
-		var matchedSite *Site
-		for _, s := range sites.List() {
-			if s.Properties.DefaultHostName == host {
-				s := s
-				matchedSite = &s
-				break
-			}
-		}
-		if matchedSite == nil {
+		matchedSite, ok := appServiceSiteByHost(r.Host)
+		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-				"no function app with DefaultHostName=%q (set Host header to <site>.azurewebsites.net)", host)
+				"no function app with DefaultHostName=%q (set Host header to <site>.azurewebsites.net)", r.Host)
 			return
 		}
 
@@ -450,53 +466,14 @@ func registerAzureFunctions(srv *sim.Server) {
 		// httpTrigger binding's authLevel requires (x-functions-key header or
 		// ?code= query) and answers 401 on a wrong or missing key. See
 		// azureFunctionInvokeAuthorized.
-		if !azureFunctionInvokeAuthorized(matchedSite, r) {
+		if !azureFunctionInvokeAuthorized(&matchedSite, r) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		sim.DeclareWait(r.Context(), azureFunctionsHTTPRequestLimit)
-
-		responseBody := []byte("{}")
-		hasCmd := false
-		if matchedSite.Properties.SiteConfig != nil {
-			if hasAzureFunctionHTTPBootstrap(matchedSite) {
-				body, exitCode, err := invokeAzureFunctionHTTP(matchedSite, r.Body, r.Header.Get("Content-Type"))
-				if err != nil {
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusInternalServerError)
-					_, _ = fmt.Fprintf(w, `{"error":"%s"}`, err.Error())
-					return
-				}
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				w.Header().Set(workload.ExitCodeHeader, strconv.Itoa(exitCode))
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write(body)
-				return
-			}
-			for _, setting := range matchedSite.Properties.SiteConfig.AppSettings {
-				if setting.Name == "SOCKERLESS_CMD" || setting.Name == "SOCKERLESS_ENTRYPOINT" {
-					hasCmd = true
-					break
-				}
-			}
-		}
-		if hasCmd {
-			var exitCode int
-			responseBody, exitCode = invokeAzureFunctionProcess(matchedSite)
-			if exitCode != 0 {
-				// Real Azure Functions returns HTTP error when function crashes
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusInternalServerError)
-				_, _ = w.Write(responseBody)
-				return
-			}
-		} else {
-			injectAppTrace(matchedSite.Name, "Function invoked")
-		}
-
+		injectAppTrace(matchedSite.Name, "Function invoked")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(responseBody)
+		_, _ = w.Write([]byte("{}"))
 	})
 
 	// PUT - Update site's azurestorageaccounts mapping. Backend's
@@ -723,6 +700,7 @@ func registerAzureFunctions(srv *sim.Server) {
 	})
 
 	registerSiteConfigHandlers(srv, armBase, sites)
+	registerAppServiceFrontEnd(srv)
 	registerSiteContainerHandlers(srv, armBase)
 	registerSiteVNetIntegration(srv)
 }
@@ -802,6 +780,16 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		cfg, _ := siteConfigStore.Get(resourceID)
 		cfg.AppSettings = req.Properties
 		siteConfigStore.Put(resourceID, cfg)
+		// The site's workload reads its settings from siteConfig.appSettings,
+		// and a settings change restarts it, as it restarts an App Service app.
+		if site, ok := sites.Get(resourceID); ok {
+			if site.Properties.SiteConfig == nil {
+				site.Properties.SiteConfig = &SiteConfig{}
+			}
+			site.Properties.SiteConfig.AppSettings = nameValuePairs(req.Properties)
+			sites.Put(resourceID, site)
+			restartAzureFunctionInstance(site)
+		}
 		sim.WriteJSON(w, http.StatusOK, AzureSiteAppSettings{
 			ID:         resourceID + "/config/appsettings",
 			Name:       "appsettings",
@@ -966,9 +954,13 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
+		if req.Properties.AppSettings == nil && site.Properties.SiteConfig != nil {
+			req.Properties.AppSettings = site.Properties.SiteConfig.AppSettings
+		}
 		site.Properties.SiteConfig = &req.Properties
 		sites.Put(resourceID, site)
 		webRecordConfigSnapshot(resourceID, site.Properties.SiteConfig)
+		restartAzureFunctionInstance(site)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"id":         resourceID + "/config/web",
 			"name":       "web",
@@ -1022,19 +1014,27 @@ type AzureStorageInfoValue struct {
 	MountPath   string `json:"mountPath,omitempty"`
 }
 
-// azureFunctionInstance tracks the persistent App Service site container for a
-// function app. On an always-on plan (the only plan the sim models for a
-// container-image site) the platform keeps one container running for the life
-// of the site; invokes route to it and it is torn down only when the site is
-// deleted. The per-instance mutex serializes the lazy start so concurrent
-// invokes to the same site share one container.
+// azureFunctionInstance tracks the container App Service runs for a site. The
+// platform keeps one container per site instance: a request to the site starts
+// it when none is running, Always On starts it without one, and a restart, a
+// configuration change or the site's deletion tears it down. The per-instance
+// mutex serializes the start so concurrent requests share one container.
 type azureFunctionInstance struct {
 	mu             sync.Mutex
 	containerID    string
 	cancelLogs     context.CancelFunc
 	sidecarHandles []*sim.ContainerHandle
-	rawHandle      *sim.ContainerHandle // non-HTTP service container (e.g. a redis `services:` site)
-	bootstrapURL   string               // "" for a raw service (no HTTP invoke)
+	// exited closes when the main container stops running; logsDone closes
+	// once its output has been read to the end.
+	exited   <-chan struct{}
+	logsDone <-chan struct{}
+	stopWait context.CancelFunc
+	// port is the container port the front end forwards the site's requests
+	// to; candidates are the addresses that port may be reached at, and
+	// address is the one that answered.
+	port       int
+	candidates []string
+	address    string
 	// stopGrace is the WEBSITES_CONTAINER_STOP_TIME_LIMIT the containers were
 	// started under, applied when they are torn down.
 	stopGrace time.Duration
@@ -1042,6 +1042,7 @@ type azureFunctionInstance struct {
 	// (sim-vnet-<vnet>) the site joined, set by the virtualNetwork connection
 	// handlers (both the swift and the classic spelling). The site's containers
 	// attach to every one with the site's identity aliases so peers resolve it.
+	// They outlive a restart, as the integration does.
 	dockerNetworks []string
 }
 
@@ -1077,15 +1078,6 @@ func (inst *azureFunctionInstance) connectNetworksLocked(containerID string, sit
 	}
 }
 
-// instanceNetworks snapshots the recorded VNet-integration networks for a
-// site, for container launches that happen outside the instance lock.
-func instanceNetworks(siteName string) []string {
-	inst := azfInstanceFor(siteName)
-	inst.mu.Lock()
-	defer inst.mu.Unlock()
-	return append([]string(nil), inst.dockerNetworks...)
-}
-
 var azureFunctionInstances = struct {
 	sync.Mutex
 	bySite map[string]*azureFunctionInstance
@@ -1105,24 +1097,17 @@ func azfInstanceFor(siteName string) *azureFunctionInstance {
 	return inst
 }
 
-func hasAzureFunctionHTTPBootstrap(site *Site) bool {
-	if site == nil || site.Properties.SiteConfig == nil {
-		return false
-	}
-	// A multi-container (sitecontainers) site always runs as a long-lived
-	// main container with its sidecars sharing one network namespace.
-	if mainSiteContainer(site.ID) != nil {
-		return true
-	}
-	// A site declares that its image serves HTTP for the host to invoke
-	// through its app settings; the image reference's spelling says nothing.
-	for _, setting := range site.Properties.SiteConfig.AppSettings {
-		switch setting.Name {
-		case "SOCKERLESS_USER_ENTRYPOINT", "SOCKERLESS_USER_CMD":
-			return true
-		}
-	}
-	return false
+// siteRunsContainer reports whether App Service runs the site as a container
+// this simulator can start: a sitecontainers site, or a linuxFxVersion naming
+// an image.
+func siteRunsContainer(site *Site) bool {
+	return mainSiteContainer(site.ID) != nil || siteContainerImage(site) != ""
+}
+
+// siteAlwaysOn reports the site's Always On setting: the platform keeps such a
+// site's container running without waiting for a request to start it.
+func siteAlwaysOn(site *Site) bool {
+	return site != nil && site.Properties.SiteConfig != nil && site.Properties.SiteConfig.AlwaysOn
 }
 
 // azureFunctionsHTTPRequestLimit is how long an HTTP-triggered function may
@@ -1131,48 +1116,43 @@ func hasAzureFunctionHTTPBootstrap(site *Site) bool {
 // respond to a request."
 const azureFunctionsHTTPRequestLimit = 230 * time.Second
 
-func invokeAzureFunctionHTTP(site *Site, body io.Reader, contentType string) ([]byte, int, error) {
-	if site == nil || site.Properties.SiteConfig == nil {
-		return nil, -1, fmt.Errorf("site config is required")
+// siteContainerPort is the port App Service forwards a single-container site's
+// requests to: the WEBSITES_PORT app setting, else 80.
+func siteContainerPort(site *Site) int {
+	if port, err := strconv.Atoi(strings.TrimSpace(siteAppSettings(site)["WEBSITES_PORT"])); err == nil && port > 0 && port < 65536 {
+		return port
 	}
-
-	// App Service runs the site's container persistently on an always-on plan:
-	// start it on first invoke and keep it for the life of the site. Subsequent
-	// invokes (gitlab-runner cycles create/start/exec/wait per stage against the
-	// same site) reuse the one long-lived container — its in-container bootstrap
-	// HTTP server handles repeated buffered invokes, and its reverse-agent stays
-	// registered for docker exec. The container is torn down only when the site
-	// is deleted (stopAzureFunctionInstance, from the DELETE handler).
-	inst := azfInstanceFor(site.Name)
-	inst.mu.Lock()
-	if err := inst.ensureStarted(site); err != nil {
-		inst.mu.Unlock()
-		return nil, -1, err
-	}
-	bootstrapURL := inst.bootstrapURL
-	inst.mu.Unlock()
-
-	if bootstrapURL == "" {
-		return nil, -1, fmt.Errorf("site %q runs a non-HTTP service container; it has no function bootstrap to invoke", site.Name)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), azureFunctionsHTTPRequestLimit)
-	defer cancel()
-	return workload.PostBootstrap(ctx, bootstrapURL, body, contentType, azureFunctionsHTTPRequestLimit)
+	return 80
 }
 
-// ensureStarted starts the site's persistent container if it isn't already
-// running, and (for a VNet-integrated site) ensures it's attached to its App
-// Service network. Caller holds inst.mu. Used by both the HTTP invoke path and
-// the swift VNet-integration handler (which starts a non-HTTP service such as a
-// `services:` redis that is never invoked).
-func (inst *azureFunctionInstance) ensureStarted(site *Site) error {
-	if inst.containerID != "" && sim.ContainerRunning(inst.containerID) {
-		inst.connectNetworksLocked(inst.containerID, site)
-		return nil
+// siteStartTimeLimit is how long App Service waits for a site's container to
+// answer on its port before it fails the start: the
+// WEBSITES_CONTAINER_START_TIME_LIMIT app setting in seconds, 230 when the site
+// sets none, and at most the 1800 the platform accepts.
+func siteStartTimeLimit(site *Site) time.Duration {
+	const defaultLimit, maxLimit = 230, 1800
+	raw := strings.TrimSpace(siteAppSettings(site)["WEBSITES_CONTAINER_START_TIME_LIMIT"])
+	seconds, err := strconv.Atoi(raw)
+	if raw == "" || err != nil || seconds <= 0 {
+		return defaultLimit * time.Second
 	}
+	if seconds > maxLimit {
+		seconds = maxLimit
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// ensureStarted starts the site's container if none is running, and attaches
+// a running one to the site's VNet-integration networks. Caller holds inst.mu.
+func (inst *azureFunctionInstance) ensureStarted(site *Site) error {
 	if inst.containerID != "" {
-		// A previously-started container died; reap before restarting.
-		inst.teardownLocked()
+		select {
+		case <-inst.exited:
+			inst.teardownLocked()
+		default:
+			inst.connectNetworksLocked(inst.containerID, site)
+			return nil
+		}
 	}
 	return inst.startLocked(site)
 }
@@ -1192,210 +1172,173 @@ func siteNetAliases(site *Site) []string {
 	return out
 }
 
-// startRawServiceLocked runs a non-bootstrap site image (a `services:` container
-// such as redis) directly on its App Service VNet network, with the site's
-// identity aliases, so peers reach it by name over that network. It serves its
-// own port (e.g. redis 6379) container-to-container — there is no HTTP function
-// bootstrap, so bootstrapURL stays "". Caller holds inst.mu.
-func (inst *azureFunctionInstance) startRawServiceLocked(site *Site) error {
-	image := siteContainerImage(site)
-	if image == "" {
-		if stack := siteRuntimeStack(site); stack != "" {
-			return fmt.Errorf(
-				"site %q is configured with the built-in runtime stack %q, and this simulator runs "+
-					"container images: the platform image that stack names is Microsoft's. Configure "+
-					"the site with a container image (linuxFxVersion \"DOCKER|<image>\")",
-				site.Name, stack)
-		}
-		return fmt.Errorf("site %q has no container image", site.Name)
+// siteImageMissing explains why a site has no container image to run.
+func siteImageMissing(site *Site) error {
+	if stack := siteRuntimeStack(site); stack != "" {
+		return fmt.Errorf(
+			"site %q is configured with the built-in runtime stack %q, and this simulator runs "+
+				"container images: the platform image that stack names is Microsoft's. Configure "+
+				"the site with a container image (linuxFxVersion \"DOCKER|<image>\")",
+			site.Name, stack)
 	}
-	localImage := sim.ResolveLocalImage(image)
-	ctx, cancel := context.WithTimeout(context.Background(), 230*time.Second)
-	defer cancel()
-	platform, err := workload.LocalImagePlatform(ctx, localImage, "")
-	if err != nil {
-		return err
-	}
-	metadataEnv, err := hostMetadataEnv()
-	if err != nil {
-		return err
-	}
-	sink := &funcLogSink{appName: site.Name}
-	var primaryNetwork string
-	if len(inst.dockerNetworks) > 0 {
-		primaryNetwork = inst.dockerNetworks[0]
-	}
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
-		CancelGracePeriod: siteStopGrace(site),
-		Image:             localImage,
-		Architecture:      platform,
-		Env:               workloadhost.MergeEnv(siteAppSettings(site), metadataEnv),
-		Binds:             siteAzureStorageBinds(site),
-		Name:              fmt.Sprintf("sockerless-sim-azure-svc-%s-%s", site.Name, randomSuffix(6)),
-		Labels:            map[string]string{"sockerless-sim-type": "azure-service", "sockerless-site": site.Name},
-		Network:           primaryNetwork,
-		NetworkAliases:    siteNetAliases(site),
-		Sandbox:           SandboxAZF,
-	}, sink)
-	if err != nil {
-		return fmt.Errorf("start service container: %w", err)
-	}
-	// The launch config carries one network; a site integrated with several
-	// joins the rest post-start.
-	if len(inst.dockerNetworks) > 1 {
-		for _, network := range inst.dockerNetworks[1:] {
-			_ = sim.ConnectContainerToNetwork(handle.ContainerID, network, siteNetAliases(site))
-		}
-	}
-	inst.containerID = handle.ContainerID
-	inst.rawHandle = handle
-	inst.stopGrace = siteStopGrace(site)
-	inst.bootstrapURL = ""
-	return nil
+	return fmt.Errorf("site %q has no container image", site.Name)
 }
 
-// startLocked launches the persistent site container (plus any sidecar
-// sitecontainers) and resolves the reachable in-container bootstrap URL,
-// recording everything on the instance. Caller holds inst.mu.
+// startLocked runs the site's container the way App Service runs a Linux
+// custom container: the image's own entrypoint, with the site's startup command
+// (siteConfig.appCommandLine, or a sitecontainer's startUpCommand) as the
+// container command in place of the image's CMD, the app settings and PORT in
+// its environment, and any sidecar sitecontainers in its network namespace.
+// Caller holds inst.mu.
 func (inst *azureFunctionInstance) startLocked(site *Site) error {
-	// A site whose image carries no sockerless function bootstrap (a `services:`
-	// container such as redis) runs its own process directly on the VNet network
-	// and is reached by peers over it — not via an HTTP invoke.
-	if !hasAzureFunctionHTTPBootstrap(site) {
-		return inst.startRawServiceLocked(site)
-	}
-
-	// Multi-container (sitecontainers) sites run the IsMain member as the
-	// long-lived HTTP container; the LinuxFxVersion-derived image is the
-	// single-container fallback.
 	main := mainSiteContainer(site.ID)
 	var (
-		containerImage string
-		mainCmd        []string
-		mainEnv        map[string]string
-		mainBinds      []string
+		image        string
+		args         []string
+		containerEnv map[string]string
+		binds        []string
 	)
+	port := siteContainerPort(site)
 	if main != nil {
-		containerImage = main.Properties.Image
-		mainCmd = splitStartUpCommand(main.Properties.StartUpCommand)
-		mainEnv = envVarsMap(main.Properties.EnvironmentVariables)
-		mainBinds = siteContainerVolumeBinds(site.Name, main.Properties.VolumeMounts)
+		image = main.Properties.Image
+		args = splitStartUpCommand(main.Properties.StartUpCommand)
+		containerEnv = envVarsMap(main.Properties.EnvironmentVariables)
+		binds = siteContainerVolumeBinds(site.Name, main.Properties.VolumeMounts)
+		if p, err := strconv.Atoi(strings.TrimSpace(main.Properties.TargetPort)); err == nil && p > 0 && p < 65536 {
+			port = p
+		}
 	} else {
-		containerImage = siteContainerImage(site)
-		// Single-container site: mount the site's Azure Files shares (attached
-		// via WebApps.UpdateAzureStorageAccounts). A shared named volume like
-		// gitlab-runner's /builds dir maps to one share, so every container that
-		// mounts that volume sees the same workspace — the build container must
-		// see what the helper container cloned into /builds.
-		mainBinds = siteAzureStorageBinds(site)
+		image = siteContainerImage(site)
+		if site.Properties.SiteConfig != nil {
+			args = splitStartUpCommand(site.Properties.SiteConfig.AppCommandLine)
+		}
+		// A shared named volume like gitlab-runner's /builds dir maps to one
+		// Azure Files share, so every container that mounts it sees the same
+		// workspace.
+		binds = siteAzureStorageBinds(site)
 	}
-	if containerImage == "" {
-		return fmt.Errorf("site %q has no container image", site.Name)
+	if image == "" {
+		return siteImageMissing(site)
 	}
 
-	localImage := sim.ResolveLocalImage(containerImage)
-	ctx, cancel := context.WithTimeout(context.Background(), 230*time.Second)
+	localImage := sim.ResolveLocalImage(image)
+	ctx, cancel := context.WithTimeout(context.Background(), siteStartTimeLimit(site))
 	defer cancel()
 
 	// The host pulls the site's image with the credential the site declared
 	// for its registry — its Azure Container Registry managed identity or
 	// its DOCKER_REGISTRY_SERVER_* settings — as App Service does.
-	registryAuth := acrWorkloadRegistryAuth(containerImage, siteWorkloadRegistries(site, containerImage))
+	registryAuth := acrWorkloadRegistryAuth(image, siteWorkloadRegistries(site, image))
 	platform, err := workload.LocalImagePlatform(ctx, localImage, registryAuth)
 	if err != nil {
 		return err
 	}
-	env := workloadhost.MergeEnv(map[string]string{
-		"PORT":          "8080",
-		"WEBSITES_PORT": "8080",
-	}, siteAppSettings(site))
 	metadataEnv, err := hostMetadataEnv()
 	if err != nil {
 		return err
 	}
-	env = workloadhost.MergeEnv(env, metadataEnv, mainEnv)
+	env := workloadhost.MergeEnv(siteAppSettings(site), map[string]string{"PORT": strconv.Itoa(port)}, metadataEnv, containerEnv)
 	sink := &funcLogSink{appName: site.Name}
 
 	containerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{
 		Image:        localImage,
 		Architecture: platform,
 		Env:          env,
-		Args:         mainCmd,
-		Binds:        mainBinds,
-		Name:         fmt.Sprintf("sockerless-sim-azure-func-http-%s-%s", site.Name, sim.RandomHex(8)),
+		Args:         args,
+		Binds:        binds,
+		Name:         fmt.Sprintf("sockerless-sim-azure-site-%s-%s", site.Name, sim.RandomHex(8)),
 		Labels: map[string]string{
-			"sockerless-sim-type": "azure-function-http",
+			"sockerless-sim-type": "azure-site",
 			"sockerless-site":     site.Name,
 		},
 		ExtraHosts: workloadhost.ExtraHosts(),
 		Sandbox:    SandboxAZF,
 	})
 	if err != nil {
-		return fmt.Errorf("start function http container: %w", err)
+		return fmt.Errorf("start site container: %w", err)
 	}
-	hostPort, err := sim.PublishedHostPort(ctx, containerID, 8080)
-	if err != nil {
-		sim.StopAndRemoveContainer(containerID, siteStopGrace(site))
-		return fmt.Errorf("start function http container: %w", err)
-	}
+	exited, stopWait := watchContainerExit(containerID)
 	logCtx, cancelLogs := context.WithCancel(context.Background())
+	logsDone := make(chan struct{})
+	go func() {
+		defer close(logsDone)
+		sim.StreamContainerLogs(logCtx, containerID, sink)
+	}()
 
 	// Sidecar sitecontainers share the main's network namespace, so a
 	// sidecar that binds a port is reachable from the main on
 	// localhost:<port> — the App Service multi-container loopback contract.
 	sidecarHandles, err := startSidecarContainers(ctx, site, containerID, sink)
 	if err != nil {
+		stopWait()
 		cancelLogs()
 		sim.StopAndRemoveContainer(containerID, siteStopGrace(site))
 		return fmt.Errorf("start sitecontainers: %w", err)
 	}
-	go sim.StreamContainerLogs(logCtx, containerID, sink)
 
-	// Reach the bootstrap by whichever address connects:
-	//   - <containerIP>:8080 — works when the sim runs INSIDE a harness
-	//     container (the host-published port binds the host's loopback, not the
-	//     sim container's, so 127.0.0.1:hostPort is unreachable there);
-	//   - 127.0.0.1:<hostPort> — works when the sim runs directly on the host.
-	// Same reach the gcp sim's Cloud Run/Functions invoke and the ACA App
-	// invoke use.
-	var cands []string
+	// The container's bridge address reaches the port from the host and from a
+	// harness container alike; the engine publishes 8080 on the host's
+	// loopback, which also reaches it where bridge addresses are not routed.
+	var candidates []string
 	if ip := sim.ContainerIPv4(containerID); ip != "" {
-		cands = append(cands, fmt.Sprintf("http://%s:8080/api/function", ip))
+		candidates = append(candidates, "http://"+net.JoinHostPort(ip, strconv.Itoa(port)))
 	}
-	cands = append(cands, fmt.Sprintf("http://127.0.0.1:%d/api/function", hostPort))
-	bootstrapURL, err := workload.FirstReachable(ctx, cands, 30*time.Second)
-	if err != nil {
-		// Failed to come up — reap the partial container set.
-		cancelLogs()
-		for _, h := range sidecarHandles {
-			h.Cancel()
+	if port == 8080 {
+		if hostPort, err := sim.PublishedHostPort(ctx, containerID, 8080); err == nil {
+			candidates = append(candidates, fmt.Sprintf("http://127.0.0.1:%d", hostPort))
 		}
-		sim.StopAndRemoveContainer(containerID, siteStopGrace(site))
-		return fmt.Errorf("bootstrap not ready (tried %d address(es)): %w", len(cands), err)
 	}
 
-	// VNet-integrated site: attach the (running) HTTP container to its App
-	// Service networks so peers resolve it by name. The container's :8080 is
-	// for the function bootstrap; cross-site reachability is over these
-	// networks.
 	inst.connectNetworksLocked(containerID, site)
 
 	inst.containerID = containerID
 	inst.cancelLogs = cancelLogs
 	inst.sidecarHandles = sidecarHandles
-	inst.bootstrapURL = bootstrapURL
+	inst.exited = exited
+	inst.logsDone = logsDone
+	inst.stopWait = stopWait
+	inst.port = port
+	inst.candidates = candidates
+	inst.address = ""
 	inst.stopGrace = siteStopGrace(site)
 	return nil
 }
 
+// watchContainerExit returns a channel the engine's own wait closes when the
+// container stops running, and the function that releases the wait.
+func watchContainerExit(containerID string) (<-chan struct{}, context.CancelFunc) {
+	exited := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cli := sim.DockerClient()
+	if cli == nil {
+		close(exited)
+		return exited, cancel
+	}
+	wait := cli.ContainerWait(ctx, containerID, mobyclient.ContainerWaitOptions{Condition: mobycontainer.WaitConditionNotRunning})
+	go func() {
+		select {
+		case <-wait.Result:
+			close(exited)
+		case err := <-wait.Error:
+			if ctx.Err() == nil && err != nil {
+				close(exited)
+			}
+		case <-ctx.Done():
+		}
+	}()
+	return exited, cancel
+}
+
 // teardownLocked stops the instance's main container, its sidecars, and its log
-// stream, clearing the recorded handles. Caller holds inst.mu.
+// stream, clearing the recorded handles. The VNet-integration networks stay
+// recorded: the integration belongs to the site, not to one container. Caller
+// holds inst.mu.
 func (inst *azureFunctionInstance) teardownLocked() {
 	for _, h := range inst.sidecarHandles {
 		h.Cancel()
 	}
-	if inst.rawHandle != nil {
-		inst.rawHandle.Cancel()
+	if inst.stopWait != nil {
+		inst.stopWait()
 	}
 	if inst.cancelLogs != nil {
 		inst.cancelLogs()
@@ -1406,10 +1349,16 @@ func (inst *azureFunctionInstance) teardownLocked() {
 	inst.containerID = ""
 	inst.cancelLogs = nil
 	inst.sidecarHandles = nil
-	inst.rawHandle = nil
-	inst.bootstrapURL = ""
+	inst.exited = nil
+	inst.logsDone = nil
+	inst.stopWait = nil
+	inst.port = 0
+	inst.candidates = nil
+	inst.address = ""
 }
 
+// stopAzureFunctionInstance tears a deleted site's container down and forgets
+// the site.
 func stopAzureFunctionInstance(siteName string) {
 	azureFunctionInstances.Lock()
 	inst := azureFunctionInstances.bySite[siteName]
@@ -1421,6 +1370,40 @@ func stopAzureFunctionInstance(siteName string) {
 	inst.mu.Lock()
 	inst.teardownLocked()
 	inst.mu.Unlock()
+}
+
+// restartAzureFunctionInstance restarts a site the way App Service does after a
+// restart request or a configuration change: the running container stops, and
+// the next one starts from the site's current configuration — at once for an
+// Always On site, otherwise on the next request.
+func restartAzureFunctionInstance(site Site) {
+	inst := azfInstanceFor(site.Name)
+	inst.mu.Lock()
+	inst.teardownLocked()
+	inst.mu.Unlock()
+	startAlwaysOnSite(site)
+}
+
+// startAlwaysOnSite starts an Always On site's container in the background, as
+// the platform does once the site is created or changed; a start that fails is
+// recorded in the site's log, and the next request retries it.
+func startAlwaysOnSite(site Site) {
+	if !siteAlwaysOn(&site) || !siteRunsContainer(&site) {
+		return
+	}
+	go func() {
+		inst := azfInstanceFor(site.Name)
+		inst.mu.Lock()
+		defer inst.mu.Unlock()
+		// The site may have been deleted or changed while the start waited.
+		current, ok := azfSites.Get(site.ID)
+		if !ok || !siteAlwaysOn(&current) || !siteRunsContainer(&current) {
+			return
+		}
+		if err := inst.ensureStarted(&current); err != nil {
+			injectAppTrace(current.Name, fmt.Sprintf("Site start failed: %v", err))
+		}
+	}()
 }
 
 // siteContainerImage is the container image a site runs, read from its
@@ -1501,151 +1484,6 @@ func siteAppSettings(site *Site) map[string]string {
 		out[s.Name] = s.Value
 	}
 	return out
-}
-
-// invokeAzureFunctionProcess executes a function app's container via sim.StartContainerSync
-// and returns the stdout output as the response body plus the process exit code.
-func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
-	var entrypoint, cmd []string
-	if site.Properties.SiteConfig != nil {
-		// Cloud-native: read SOCKERLESS_ENTRYPOINT + SOCKERLESS_CMD
-		// separately so docker's ENTRYPOINT vs CMD semantics are preserved.
-		for _, s := range site.Properties.SiteConfig.AppSettings {
-			switch s.Name {
-			case "SOCKERLESS_ENTRYPOINT":
-				decoded, err := base64.StdEncoding.DecodeString(s.Value)
-				if err != nil {
-					msg := fmt.Sprintf("invalid SOCKERLESS_ENTRYPOINT base64: %v", err)
-					return []byte(msg), 1
-				}
-				if err := json.Unmarshal(decoded, &entrypoint); err != nil {
-					msg := fmt.Sprintf("invalid SOCKERLESS_ENTRYPOINT JSON: %v", err)
-					return []byte(msg), 1
-				}
-			case "SOCKERLESS_CMD":
-				decoded, err := base64.StdEncoding.DecodeString(s.Value)
-				if err != nil {
-					msg := fmt.Sprintf("invalid SOCKERLESS_CMD base64: %v", err)
-					return []byte(msg), 1
-				}
-				if err := json.Unmarshal(decoded, &cmd); err != nil {
-					msg := fmt.Sprintf("invalid SOCKERLESS_CMD JSON: %v", err)
-					return []byte(msg), 1
-				}
-			}
-		}
-	}
-	if len(entrypoint) == 0 && len(cmd) == 0 {
-		return []byte("{}"), 0
-	}
-
-	// Derive container image from LinuxFxVersion (e.g., "DOCKER|myimage:latest")
-	var containerImage string
-	if site.Properties.SiteConfig != nil && site.Properties.SiteConfig.LinuxFxVersion != "" {
-		parts := strings.SplitN(site.Properties.SiteConfig.LinuxFxVersion, "|", 2)
-		if len(parts) == 2 {
-			containerImage = parts[1]
-		}
-	}
-	if containerImage == "" {
-		// No container image configured — cannot run
-		return []byte("{}"), 0
-	}
-
-	// Extract environment from app settings
-	var cmdEnv map[string]string
-	if site.Properties.SiteConfig != nil && len(site.Properties.SiteConfig.AppSettings) > 0 {
-		cmdEnv = make(map[string]string, len(site.Properties.SiteConfig.AppSettings))
-		for _, s := range site.Properties.SiteConfig.AppSettings {
-			cmdEnv[s.Name] = s.Value
-		}
-	}
-
-	timeout := azureFunctionsHTTPRequestLimit
-	sink := &funcLogSink{appName: site.Name}
-	var stdout bytes.Buffer
-	collectSink := sim.FuncSink(func(line sim.LogLine) {
-		sink.WriteLog(line)
-		if line.Stream == "stdout" {
-			stdout.WriteString(line.Text)
-			stdout.WriteByte('\n')
-		}
-	})
-
-	containerName := fmt.Sprintf("sockerless-sim-azure-func-%s-%d", site.Name, time.Now().UnixNano())
-	localImage := sim.ResolveLocalImage(containerImage)
-	// The host pulls the site's image with the credential the site declared
-	// for its registry, as App Service does.
-	registryAuth := acrWorkloadRegistryAuth(containerImage, siteWorkloadRegistries(site, containerImage))
-	platform, err := workload.LocalImagePlatform(context.Background(), localImage, registryAuth)
-	if err != nil {
-		injectAppTrace(site.Name,
-			fmt.Sprintf("Function execution error: resolve image platform failed: %v", err))
-		return []byte("{}"), -1
-	}
-
-	// A VNet-integrated site runs every one of its containers inside the
-	// integration network — the per-invocation container included, exactly
-	// like the persistent-site container, so the function reaches the VNet's
-	// other members by name.
-	metadataEnv, err := hostMetadataEnv()
-	if err != nil {
-		injectAppTrace(site.Name,
-			fmt.Sprintf("Function execution error: resolve the metadata endpoint failed: %v", err))
-		return []byte("{}"), -1
-	}
-	networks := instanceNetworks(site.Name)
-	var primaryNetwork string
-	var networkAliases []string
-	if len(networks) > 0 {
-		primaryNetwork = networks[0]
-		networkAliases = siteNetAliases(site)
-	}
-
-	// Host metadata: route IMDS + identity reads via env.
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
-		CancelGracePeriod: siteStopGrace(site),
-		Image:             localImage,
-		RegistryAuth:      registryAuth,
-		Architecture:      platform,
-		Command:           entrypoint,
-		Args:              cmd,
-		Env:               workloadhost.MergeEnv(cmdEnv, metadataEnv),
-		Timeout:           timeout,
-		Name:              containerName,
-		Labels: map[string]string{
-			"sockerless-sim-type": "azure-function-invocation",
-			"sockerless-site":     site.Name,
-		},
-		ExtraHosts:     workloadhost.ExtraHosts(),
-		Network:        primaryNetwork,
-		NetworkAliases: networkAliases,
-		Sandbox:        SandboxAZF,
-	}, collectSink)
-	if err != nil {
-		injectAppTrace(site.Name,
-			fmt.Sprintf("Function execution error: container start failed: %v", err))
-		return []byte("{}"), -1
-	}
-	// The launch config carries one network; a site integrated with several
-	// joins the rest post-start.
-	if len(networks) > 1 {
-		for _, network := range networks[1:] {
-			_ = sim.ConnectContainerToNetwork(handle.ContainerID, network, siteNetAliases(site))
-		}
-	}
-	result := handle.Wait()
-
-	if result.ExitCode != 0 {
-		injectAppTrace(site.Name,
-			fmt.Sprintf("Function execution error: process exited with code %d", result.ExitCode))
-	}
-
-	output := strings.TrimRight(stdout.String(), "\n")
-	if output == "" {
-		return []byte("{}"), result.ExitCode
-	}
-	return []byte(output), result.ExitCode
 }
 
 // funcLogSink implements sim.LogSink and writes log lines to AppTraces

@@ -390,11 +390,9 @@ func webFunctionsAdminToken(defaultHostName, masterKey string) string {
 //     the master key;
 //   - "admin" — the master key only.
 //
-// A site with no declared function config is a container site (Web App for
-// Containers / the sockerless bootstrap): App Service routes the request
-// straight to the site's container with no function.json for the host to
-// read, so no key check applies — which is why fixtures that declare no
-// function stay keyless.
+// A site with no declared function config has no function.json for the host
+// to read, so no key check applies; App Service routes a container site's
+// request straight to its container.
 func azureFunctionInvokeAuthorized(site *Site, r *http.Request) bool {
 	fn, ok := azfFunctionConfigs.Get(site.ID + "/functions/function")
 	if !ok {

@@ -150,8 +150,12 @@ Current state of the sockerless-cloud repository.
 - **An Amazon ECR pull-through-cache reference runs its rule's upstream
   image**: the Lambda and ECS hosts resolve `<prefix>/<path>` through the
   registered rule, as ECR hydrates the cache from that upstream.
-- **A Functions site declares its HTTP bootstrap** through its app settings;
-  the host reads nothing from an image reference's spelling.
+- **An App Service or Functions site runs its container as App Service
+  does**: the image's entrypoint with `siteConfig.appCommandLine` as its
+  command, on `WEBSITES_PORT` (80 unset), started by a request or by Always
+  On, with every request on the site's hostname forwarded to it; the host
+  reads no consumer-named setting and nothing from an image reference's
+  spelling.
 - **Azure workload hosts pull with what the workload declared**: a
   Container App's or Job's `registries` entry — a managed identity, as an
   identity token the registry exchanges, or a username and password secret —

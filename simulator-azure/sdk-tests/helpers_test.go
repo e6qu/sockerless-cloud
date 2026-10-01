@@ -57,9 +57,12 @@ var (
 	evalImageName      string // Docker image containing eval-arithmetic binary
 	httpProbeImageName string // Docker image containing localhost probe/server binary
 	commandImageName   string // Docker image containing container-command binary
-	sbAMQPEndpoint     string
-	ctx                = context.Background()
-	subscriptionID     = "00000000-0000-0000-0000-000000000001"
+	// servingImageName is container-command with an image CMD that serves
+	// "from-image-cmd" on port 80, for a site that sets no startup command.
+	servingImageName string
+	sbAMQPEndpoint   string
+	ctx              = context.Background()
+	subscriptionID   = "00000000-0000-0000-0000-000000000001"
 
 	// simAzureDNSAddr is the simulator's DNS front (SIM_AZURE_DNS_LISTEN_ADDR).
 	// Tests that dial a resource by its advertised hostname — a PostgreSQL
@@ -202,6 +205,9 @@ func TestMain(m *testing.M) {
 	commandDir, _ := filepath.Abs("../../testdata/container-command")
 	commandImageName = "sockerless-container-command:azure-sdk"
 	buildGoScratchImage(commandImageName, commandDir, "container-command", workloadPlatform)
+	servingImageName = "sockerless-container-command-serving:azure-sdk"
+	buildGoScratchImageWithCmd(servingImageName, commandDir, "container-command", workloadPlatform,
+		`["serve", "80", "from-image-cmd"]`)
 
 	// The flexible-server data plane boots a real engine from this image at
 	// first connection. Pulling it inside the timed test made a live registry
@@ -414,6 +420,12 @@ func nativeDockerPlatform() string {
 }
 
 func buildGoScratchImage(imageName, sourceDir, binaryName, platform string) {
+	buildGoScratchImageWithCmd(imageName, sourceDir, binaryName, platform, "")
+}
+
+// buildGoScratchImageWithCmd builds the image buildGoScratchImage does, with
+// cmd — a JSON array, or empty for none — as the image's CMD.
+func buildGoScratchImageWithCmd(imageName, sourceDir, binaryName, platform, cmd string) {
 	buildDir, err := os.MkdirTemp("", "sockerless-azure-image-*")
 	if err != nil {
 		log.Fatalf("Failed to create image build dir: %v", err)
@@ -437,6 +449,9 @@ func buildGoScratchImage(imageName, sourceDir, binaryName, platform string) {
 COPY %s /usr/local/bin/%s
 ENTRYPOINT ["/usr/local/bin/%s"]
 `, binaryName, binaryName, binaryName)
+	if cmd != "" {
+		dockerfile += "CMD " + cmd + "\n"
+	}
 	// On a docker-container buildx driver (the default on many dev machines),
 	// `docker build -t` leaves the image in the build cache only — never the
 	// daemon store — so the sim's container start can't find it. `docker buildx

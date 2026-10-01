@@ -1,12 +1,12 @@
 package azure_sdk_test
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
@@ -25,17 +25,17 @@ func azureDeleteSite(rg, name string) {
 	}
 }
 
-// azureCreateSite creates a resource group and function app, optionally with a
-// command supplied via the real SOCKERLESS_CMD app-setting contract.
-func azureCreateSite(t *testing.T, rg, name string, command []string) {
-	azureCreateSiteWithImage(t, rg, name, command, "")
+// azureCreateSite creates a resource group and a function app that names no
+// container image.
+func azureCreateSite(t *testing.T, rg, name string) {
+	azureCreateContainerSite(t, rg, name, "", "", nil)
 }
 
-// azureCreateSiteWithImage creates a function app with a Docker image and an
-// optional command. The command is delivered exactly as the azure-functions
-// backend delivers it: a SOCKERLESS_CMD app setting carrying
-// base64(json.Marshal(argv)) — the same contract a real invocation uses.
-func azureCreateSiteWithImage(t *testing.T, rg, name string, command []string, image string) {
+// azureCreateContainerSite creates a function app that runs image as a Linux
+// custom container ("DOCKER|<image>"), with appCommandLine as its startup
+// command and appSettings as its application settings; an empty value leaves
+// the field out.
+func azureCreateContainerSite(t *testing.T, rg, name, image, appCommandLine string, appSettings map[string]string) {
 	t.Helper()
 	rgBody := `{"location":"eastus"}`
 	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
@@ -51,14 +51,18 @@ func azureCreateSiteWithImage(t *testing.T, rg, name string, command []string, i
 		"serverFarmId": "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Web/serverFarms/test-plan",
 	}
 	siteConfig := map[string]any{}
-	if len(command) > 0 {
-		cmdJSON, _ := json.Marshal(command)
-		siteConfig["appSettings"] = []map[string]any{
-			{"name": "SOCKERLESS_CMD", "value": base64.StdEncoding.EncodeToString(cmdJSON)},
-		}
-	}
 	if image != "" {
 		siteConfig["linuxFxVersion"] = "DOCKER|" + image
+	}
+	if appCommandLine != "" {
+		siteConfig["appCommandLine"] = appCommandLine
+	}
+	if len(appSettings) > 0 {
+		var settings []map[string]any
+		for name, value := range appSettings {
+			settings = append(settings, map[string]any{"name": name, "value": value})
+		}
+		siteConfig["appSettings"] = settings
 	}
 	if len(siteConfig) > 0 {
 		props["siteConfig"] = siteConfig
@@ -80,12 +84,13 @@ func azureCreateSiteWithImage(t *testing.T, rg, name string, command []string, i
 	require.Equal(t, http.StatusOK, siteResp.StatusCode)
 }
 
-// azureInvokeFunction connects to the sim's TCP port but sets the Host header
-// to the site's `<name>.azurewebsites.net` (real Azure routing).
+// azureInvokeFunction POSTs to the site's /api/function and requires 200. The
+// request goes to the simulator's TCP port with the Host header set to the
+// site's `<name>.azurewebsites.net`, which is how App Service routes it.
 func azureInvokeFunction(t *testing.T, siteName string) []byte {
 	t.Helper()
 	status, body := azureInvokeFunctionResponse(t, siteName)
-	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, http.StatusOK, status, "invoke answered: %s", body)
 	return body
 }
 
@@ -93,35 +98,55 @@ func azureInvokeFunction(t *testing.T, siteName string) []byte {
 // and body as they came, for a caller that waits on what the function answers.
 func azureInvokeFunctionResponse(t *testing.T, siteName string) (int, []byte) {
 	t.Helper()
-	invokeReq, _ := http.NewRequestWithContext(ctx, "POST",
-		baseURL+"/api/function",
-		strings.NewReader("{}"))
-	invokeReq.Header.Set("Content-Type", "application/json")
-	invokeReq.Host = siteName + ".azurewebsites.net"
-	invokeResp, err := http.DefaultClient.Do(invokeReq)
-	require.NoError(t, err)
-	defer invokeResp.Body.Close()
-	body, err := io.ReadAll(invokeResp.Body)
-	require.NoError(t, err)
-	return invokeResp.StatusCode, body
+	return azureSiteRequest(t, siteName, http.MethodPost, "/api/function", "{}")
 }
 
-func azureInvokeFunctionExpectError(t *testing.T, siteName string) {
+// azureSiteRequest sends one request to the site's hostname.
+func azureSiteRequest(t *testing.T, siteName, method, path, body string) (int, []byte) {
 	t.Helper()
-	invokeReq, _ := http.NewRequestWithContext(ctx, "POST",
-		baseURL+"/api/function",
-		strings.NewReader("{}"))
-	invokeReq.Header.Set("Content-Type", "application/json")
-	invokeReq.Host = siteName + ".azurewebsites.net"
-	invokeResp, err := http.DefaultClient.Do(invokeReq)
+	var reader io.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, baseURL+path, reader)
 	require.NoError(t, err)
-	invokeResp.Body.Close()
-	require.Equal(t, http.StatusInternalServerError, invokeResp.StatusCode)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Host = siteName + ".azurewebsites.net"
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp.StatusCode, respBody
+}
+
+// appTraceMessages returns the Message column of a site's AppTraces rows.
+func appTraceMessages(t *testing.T, siteName string) []string {
+	t.Helper()
+	result := queryWorkspace(t, "default", `AppTraces | where AppRoleName == "`+siteName+`"`)
+	require.Len(t, result.Tables, 1)
+	table := result.Tables[0]
+	msgIdx := -1
+	for i, col := range table.Columns {
+		if col.Name == "Message" {
+			msgIdx = i
+		}
+	}
+	require.GreaterOrEqual(t, msgIdx, 0, "Message column not found")
+	var out []string
+	for _, row := range table.Rows {
+		if msg, ok := row[msgIdx].(string); ok {
+			out = append(out, msg)
+		}
+	}
+	return out
 }
 
 func TestAzureFunctions_InvokeInjectsLogEntries(t *testing.T) {
 	rg, name := "func-log-rg", "log-func-app"
-	azureCreateSite(t, rg, name, nil)
+	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
 	azureInvokeFunction(t, name)
@@ -151,82 +176,96 @@ func TestAzureFunctions_InvokeInjectsLogEntries(t *testing.T) {
 	assert.Equal(t, "log-func-app", lastRow[roleIdx])
 }
 
-func TestAzureFunctions_InvokeExecutesCommand(t *testing.T) {
-	rg, name := "func-exec-rg", "exec-func-app"
-	azureCreateSiteWithImage(t, rg, name, []string{"echo", "hello-from-azure"}, "public.ecr.aws/docker/library/alpine:latest")
+// The startup command (siteConfig.appCommandLine) is the container's command,
+// and the image's own entrypoint runs it: container-command's ENTRYPOINT is
+// the binary, and "serve 80 …" are its arguments. The request reaches the
+// container verbatim on port 80, App Service's default.
+func TestAzureFunctions_StartupCommandRunsOnTheImageEntrypoint(t *testing.T) {
+	rg, name := "func-startup-rg", "startup-func-app"
+	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 hello-from-azure", nil)
 	defer azureDeleteSite(rg, name)
 
-	respBody := azureInvokeFunction(t, name)
-	assert.Contains(t, string(respBody), "hello-from-azure")
+	assert.Equal(t, "hello-from-azure", string(azureInvokeFunction(t, name)))
+
+	// The front end forwards every path and method on the site's hostname,
+	// not one invoke route.
+	status, body := azureSiteRequest(t, name, http.MethodGet, "/any/path?x=1", "")
+	assert.Equal(t, http.StatusOK, status)
+	assert.Equal(t, "hello-from-azure", string(body))
 }
 
-func TestAzureFunctions_InvokeNonZeroExit(t *testing.T) {
+// A site with no startup command runs its image's own ENTRYPOINT and CMD; a
+// startup command set afterwards through the configuration API restarts the
+// site with that command in place of the CMD.
+func TestAzureFunctions_ImageCMDUntilAStartupCommandReplacesIt(t *testing.T) {
+	rg, name := "func-imagecmd-rg", "imagecmd-func-app"
+	azureCreateContainerSite(t, rg, name, servingImageName, "", nil)
+	defer azureDeleteSite(rg, name)
+
+	assert.Equal(t, "from-image-cmd", string(azureInvokeFunction(t, name)))
+
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	updated, err := client.UpdateConfiguration(ctx, rg, name, armappservice.SiteConfigResource{
+		Properties: &armappservice.SiteConfig{AppCommandLine: to.Ptr("serve 80 from-startup-command")},
+	}, nil)
+	require.NoError(t, err)
+	require.NotNil(t, updated.Properties)
+	assert.Equal(t, "serve 80 from-startup-command", *updated.Properties.AppCommandLine)
+	assert.Equal(t, "DOCKER|"+servingImageName, *updated.Properties.LinuxFxVersion,
+		"a configuration PATCH keeps the fields it does not carry")
+
+	assert.Equal(t, "from-startup-command", string(azureInvokeFunction(t, name)))
+}
+
+// WEBSITES_PORT names the port the front end forwards to, and the platform
+// tells the container that port in PORT.
+func TestAzureFunctions_WebsitesPortRoutesRequests(t *testing.T) {
+	rg, name := "func-port-rg", "port-func-app"
+	azureCreateContainerSite(t, rg, name, commandImageName, "serve 8080 on-8080",
+		map[string]string{"WEBSITES_PORT": "8080"})
+	defer azureDeleteSite(rg, name)
+
+	assert.Equal(t, "on-8080", string(azureInvokeFunction(t, name)))
+}
+
+// A container that exits without answering on its port fails the site's
+// start: the front end answers 503, and the container's own output is in the
+// site's log.
+func TestAzureFunctions_ContainerThatExitsFailsTheSiteStart(t *testing.T) {
 	rg, name := "func-fail-rg", "fail-func-app"
-	azureCreateSiteWithImage(t, rg, name, []string{"sh", "-c", "exit 1"}, "public.ecr.aws/docker/library/alpine:latest")
+	azureCreateContainerSite(t, rg, name, commandImageName, "log site-start-output", nil)
 	defer azureDeleteSite(rg, name)
 
-	azureInvokeFunctionExpectError(t, name)
-
-	kql := `AppTraces | where AppRoleName == "fail-func-app"`
-	result := queryWorkspace(t, "default", kql)
-
-	require.Len(t, result.Tables, 1)
-	table := result.Tables[0]
-	require.GreaterOrEqual(t, len(table.Rows), 1, "should have log entries from execution")
-
-	msgIdx := -1
-	for i, col := range table.Columns {
-		if col.Name == "Message" {
-			msgIdx = i
-		}
-	}
-	require.GreaterOrEqual(t, msgIdx, 0, "Message column not found")
-
-	found := false
-	for _, row := range table.Rows {
-		msg, ok := row[msgIdx].(string)
-		if ok && strings.Contains(msg, "error") && strings.Contains(msg, "exit") {
-			found = true
-		}
-	}
-	assert.True(t, found, "expected error log entry about non-zero exit")
+	status, body := azureInvokeFunctionResponse(t, name)
+	assert.Equal(t, http.StatusServiceUnavailable, status, "body: %s", body)
+	assert.Contains(t, string(body), "exited before it answered on port 80")
+	assert.Contains(t, appTraceMessages(t, name), "site-start-output")
 }
 
-func TestAzureFunctions_InvokeLogsRealOutput(t *testing.T) {
+// What the site's container writes to stdout reaches the site's AppTraces.
+func TestAzureFunctions_ContainerOutputReachesAppTraces(t *testing.T) {
 	rg, name := "func-out-rg", "out-func-app"
-	azureCreateSiteWithImage(t, rg, name, []string{"echo", "real-azure-output"}, "public.ecr.aws/docker/library/alpine:latest")
+	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 real-azure-output", nil)
 	defer azureDeleteSite(rg, name)
 
 	azureInvokeFunction(t, name)
 
-	kql := `AppTraces | where AppRoleName == "out-func-app"`
-	result := queryWorkspace(t, "default", kql)
-
-	require.Len(t, result.Tables, 1)
-	table := result.Tables[0]
-	require.GreaterOrEqual(t, len(table.Rows), 1, "should have log entries from execution")
-
-	msgIdx := -1
-	for i, col := range table.Columns {
-		if col.Name == "Message" {
-			msgIdx = i
+	// The engine's log stream delivers the line after the response; App
+	// Service offers no event for its arrival, so read the log until it does.
+	require.Eventually(t, func() bool {
+		for _, msg := range appTraceMessages(t, name) {
+			if msg == "POST /api/function" {
+				return true
+			}
 		}
-	}
-	require.GreaterOrEqual(t, msgIdx, 0, "Message column not found")
-
-	found := false
-	for _, row := range table.Rows {
-		msg, ok := row[msgIdx].(string)
-		if ok && msg == "real-azure-output" {
-			found = true
-		}
-	}
-	assert.True(t, found, "process stdout should appear in AppTraces")
+		return false
+	}, 30*time.Second, 200*time.Millisecond, "the container's access-log line should reach AppTraces")
 }
 
 func TestAzureFunctions_DefaultHostNameReachability(t *testing.T) {
 	rg, name := "func-host-rg", "host-func-app"
-	azureCreateSite(t, rg, name, nil)
+	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
 	// Get function app to extract DefaultHostName

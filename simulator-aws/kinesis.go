@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"math"
 	"math/big"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -101,11 +103,12 @@ type kinesisIterator struct {
 // (arn:...:stream/Name/consumer/CName:<ts>) exactly as real Kinesis does, so
 // re-registering after a delete yields a distinct ARN.
 type KinesisConsumer struct {
-	ConsumerName              string  `json:"ConsumerName"`
-	ConsumerARN               string  `json:"ConsumerARN"`
-	ConsumerStatus            string  `json:"ConsumerStatus"`
-	ConsumerCreationTimestamp float64 `json:"ConsumerCreationTimestamp"`
-	StreamARN                 string  `json:"StreamARN"`
+	ConsumerName              string            `json:"ConsumerName"`
+	ConsumerARN               string            `json:"ConsumerARN"`
+	ConsumerStatus            string            `json:"ConsumerStatus"`
+	ConsumerCreationTimestamp float64           `json:"ConsumerCreationTimestamp"`
+	StreamARN                 string            `json:"StreamARN"`
+	Tags                      map[string]string `json:"Tags,omitempty"`
 }
 
 // KinesisAccountSettings holds the account-level minimum-throughput billing
@@ -365,8 +368,9 @@ func handleKinesisCreateStream(w http.ResponseWriter, r *http.Request) {
 
 func handleKinesisDeleteStream(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		StreamName string `json:"StreamName"`
-		StreamARN  string `json:"StreamARN"`
+		StreamName              string `json:"StreamName"`
+		StreamARN               string `json:"StreamARN"`
+		EnforceConsumerDeletion bool   `json:"EnforceConsumerDeletion"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
@@ -377,10 +381,25 @@ func handleKinesisDeleteStream(w http.ResponseWriter, r *http.Request) {
 		writeKinesisJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
+	var consumers []KinesisConsumer
+	for _, c := range kinesisConsumers.List() {
+		if c.StreamARN == stream.StreamARN {
+			consumers = append(consumers, c)
+		}
+	}
+	if len(consumers) > 0 && !req.EnforceConsumerDeletion {
+		AWSErrorf(w, "ResourceInUseException", http.StatusBadRequest,
+			"Stream %s under account %s has registered consumers.", stream.StreamName, awsAccountID())
+		return
+	}
+	for _, c := range consumers {
+		kinesisDeleteConsumer(c)
+	}
 	kinesisStreams.Delete(stream.StreamName)
 	for _, shard := range stream.Shards {
 		kinesisLog.Drop(kinesisShardRecordKey(stream.StreamName, shard.ShardId))
 	}
+	kinesisNotifyStream(stream)
 	writeKinesisJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -684,18 +703,21 @@ func kinesisAppendRecord(streamName, streamARN string, data []byte, partitionKey
 	now := time.Now()
 	kinesisTrim(stream, shardID, now)
 	rec := kinesisLog.Append(partition, now, kinesisRecord{Data: data, PartitionKey: partitionKey, ExplicitHashKey: explicitHashKey})[0]
+	kinesisNotify(kinesisShardSignalKey(partition))
 	return shardID, kinesisSequenceNumber(rec.Seq), nil
 }
 
 // kinesisSequenceNumber spells a shard log position as the record's
-// SequenceNumber: its ordinal in the shard, from 1.
+// SequenceNumber: its ordinal in the shard, from 1. 0 names the position
+// before the first record, which a SubscribeToShardEvent's
+// ContinuationSequenceNumber reports before any record arrived.
 func kinesisSequenceNumber(seq int64) string {
 	return strconv.FormatInt(seq+1, 10)
 }
 
 func kinesisParseSequenceNumber(s string) (int64, bool) {
 	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil || n < 1 {
+	if err != nil || n < 0 {
 		return 0, false
 	}
 	return n - 1, true
@@ -1158,6 +1180,7 @@ func kinesisReshardInBackground(stream *KinesisStream, reshard func(*KinesisStre
 		reshard(&scaling)
 		scaling.StreamStatus = "ACTIVE"
 		kinesisStreams.Put(name, scaling)
+		kinesisNotifyStream(scaling)
 	})
 }
 
@@ -1305,6 +1328,7 @@ func handleKinesisRegisterStreamConsumer(w http.ResponseWriter, r *http.Request)
 		ConsumerStatus:            "ACTIVE",
 		ConsumerCreationTimestamp: float64(ts),
 		StreamARN:                 stream.StreamARN,
+		Tags:                      req.Tags,
 	}
 	kinesisConsumers.Put(kinesisConsumerKey(consumerARN), consumer)
 	writeKinesisJSON(w, http.StatusOK, map[string]any{
@@ -1332,9 +1356,15 @@ func handleKinesisDeregisterStreamConsumer(w http.ResponseWriter, r *http.Reques
 		AWSError(w, "ResourceNotFoundException", "Consumer not found", http.StatusBadRequest)
 		return
 	}
+	kinesisDeleteConsumer(consumer)
+	writeKinesisJSON(w, http.StatusOK, map[string]any{})
+}
+
+// kinesisDeleteConsumer deregisters a consumer and ends its subscriptions.
+func kinesisDeleteConsumer(consumer KinesisConsumer) {
 	kinesisConsumers.Delete(kinesisConsumerKey(consumer.ConsumerARN))
 	iamDeleteResourcePolicy(consumer.ConsumerARN)
-	writeKinesisJSON(w, http.StatusOK, map[string]any{})
+	kinesisNotify(kinesisConsumerSignalKey(consumer.ConsumerARN))
 }
 
 // kinesisResolveConsumer locates a consumer either by its ARN (preferred) or by
@@ -1661,14 +1691,38 @@ func kinesisOpenShardCount(shards []KinesisShard) int64 {
 	return open
 }
 
-// kinesisTagTarget resolves a resource ARN to the stream that owns the tags.
-// Kinesis tag operations address a stream (consumers are not separately
-// taggable through TagResource in this slice), so the ARN must name a stream.
-func kinesisTagStream(resourceARN string) (KinesisStream, bool) {
-	if resourceARN == "" || strings.Contains(resourceARN, "/consumer/") {
-		return KinesisStream{}, false
+// kinesisResourceTags applies update to the tags of the stream or consumer
+// resourceARN names, stores them when update is non-nil, and returns them.
+func kinesisResourceTags(resourceARN string, update func(map[string]string)) (map[string]string, bool) {
+	if resourceARN == "" {
+		return nil, false
 	}
-	return kinesisStreamByARN(resourceARN)
+	if strings.Contains(resourceARN, "/consumer/") {
+		consumer, ok := kinesisConsumers.Get(kinesisConsumerKey(resourceARN))
+		if !ok {
+			return nil, false
+		}
+		if consumer.Tags == nil {
+			consumer.Tags = map[string]string{}
+		}
+		if update != nil {
+			update(consumer.Tags)
+			kinesisConsumers.Put(kinesisConsumerKey(resourceARN), consumer)
+		}
+		return consumer.Tags, true
+	}
+	stream, ok := kinesisStreamByARN(resourceARN)
+	if !ok {
+		return nil, false
+	}
+	if stream.Tags == nil {
+		stream.Tags = map[string]string{}
+	}
+	if update != nil {
+		update(stream.Tags)
+		kinesisStreams.Put(stream.StreamName, stream)
+	}
+	return stream.Tags, true
 }
 
 func handleKinesisTagResource(w http.ResponseWriter, r *http.Request) {
@@ -1680,18 +1734,12 @@ func handleKinesisTagResource(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	stream, ok := kinesisTagStream(req.ResourceARN)
-	if !ok {
+	if _, ok := kinesisResourceTags(req.ResourceARN, func(tags map[string]string) {
+		maps.Copy(tags, req.Tags)
+	}); !ok {
 		AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
 		return
 	}
-	if stream.Tags == nil {
-		stream.Tags = map[string]string{}
-	}
-	for k, v := range req.Tags {
-		stream.Tags[k] = v
-	}
-	kinesisStreams.Put(stream.StreamName, stream)
 	writeKinesisJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -1704,15 +1752,14 @@ func handleKinesisUntagResource(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	stream, ok := kinesisTagStream(req.ResourceARN)
-	if !ok {
+	if _, ok := kinesisResourceTags(req.ResourceARN, func(tags map[string]string) {
+		for _, key := range req.TagKeys {
+			delete(tags, key)
+		}
+	}); !ok {
 		AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
 		return
 	}
-	for _, key := range req.TagKeys {
-		delete(stream.Tags, key)
-	}
-	kinesisStreams.Put(stream.StreamName, stream)
 	writeKinesisJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -1724,19 +1771,15 @@ func handleKinesisListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	stream, ok := kinesisTagStream(req.ResourceARN)
+	resourceTags, ok := kinesisResourceTags(req.ResourceARN, nil)
 	if !ok {
 		AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
 		return
 	}
-	keys := make([]string, 0, len(stream.Tags))
-	for key := range stream.Tags {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(resourceTags))
 	tags := make([]map[string]string, 0, len(keys))
 	for _, key := range keys {
-		tags = append(tags, map[string]string{"Key": key, "Value": stream.Tags[key]})
+		tags = append(tags, map[string]string{"Key": key, "Value": resourceTags[key]})
 	}
 	writeKinesisJSON(w, http.StatusOK, map[string]any{"Tags": tags})
 }

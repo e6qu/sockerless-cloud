@@ -646,6 +646,7 @@ func handlePSPatchSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	psSubscriptions.Put(name, existing)
+	psSignalSubscription(name)
 	sim.WriteJSON(w, http.StatusOK, existing)
 }
 
@@ -734,6 +735,7 @@ func handlePSDeleteSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	psQueues.Delete(name)
+	psSignalSubscription(name)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -803,6 +805,7 @@ func handlePSDetach(w http.ResponseWriter, r *http.Request, subName string) {
 		s.Detached = true
 	})
 	psQueues.Delete(subName)
+	psSignalSubscription(subName)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -846,13 +849,14 @@ func handlePSSeek(w http.ResponseWriter, r *http.Request, subName string) {
 
 func handlePSPull(w http.ResponseWriter, r *http.Request, subName string) {
 	var req struct {
-		MaxMessages int `json:"maxMessages"`
+		MaxMessages       int  `json:"maxMessages"`
+		ReturnImmediately bool `json:"returnImmediately"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
 		return
 	}
-	delivered, err := psDequeue(subName, req.MaxMessages, 0)
+	delivered, err := psPull(r.Context(), subName, req.MaxMessages, req.ReturnImmediately)
 	if err != nil {
 		psWriteRPCError(w, err)
 		return

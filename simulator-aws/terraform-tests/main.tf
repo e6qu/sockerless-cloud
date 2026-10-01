@@ -82,6 +82,15 @@ resource "aws_kinesis_stream" "tf_stream" {
   }
 }
 
+resource "aws_kinesis_stream_consumer" "tf_consumer" {
+  name       = "tf-kinesis-consumer"
+  stream_arn = aws_kinesis_stream.tf_stream.arn
+
+  tags = {
+    env = "terraform"
+  }
+}
+
 data "aws_caller_identity" "current" {}
 
 resource "aws_vpc" "tf_ec2_vpc" {
@@ -1754,6 +1763,9 @@ output "autoscaling_group_name" {
 }
 output "cloudtrail_arn" {
   value = aws_cloudtrail.tf_trail.arn
+}
+output "kinesis_stream_consumer_arn" {
+  value = aws_kinesis_stream_consumer.tf_consumer.arn
 }
 output "firehose_delivery_stream_arn" {
   value = aws_kinesis_firehose_delivery_stream.tf_firehose.arn

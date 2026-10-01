@@ -98,7 +98,8 @@ func TestPubSub_TopicAndSubscriptionLifecycle(t *testing.T) {
 
 	// Second pull should be empty (queue drained by ack).
 	pullResp2, err := svc.Projects.Subscriptions.Pull(subName, &pubsub.PullRequest{
-		MaxMessages: 10,
+		MaxMessages:       10,
+		ReturnImmediately: true,
 	}).Do()
 	require.NoError(t, err)
 	assert.Empty(t, pullResp2.ReceivedMessages,

@@ -258,7 +258,7 @@ func TestCrossDoor_PubSub(t *testing.T) {
 		AckIds:       []string{pulled.ReceivedMessages[0].AckId},
 	})
 	require.NoError(t, err)
-	again, err := rest.Projects.Subscriptions.Pull(subName, &pubsub.PullRequest{MaxMessages: 10}).Do()
+	again, err := rest.Projects.Subscriptions.Pull(subName, &pubsub.PullRequest{MaxMessages: 10, ReturnImmediately: true}).Do()
 	require.NoError(t, err)
 	require.Empty(t, again.ReceivedMessages,
 		"a message acknowledged over gRPC must not be redelivered over REST")

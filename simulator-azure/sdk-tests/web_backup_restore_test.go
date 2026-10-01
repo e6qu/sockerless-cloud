@@ -334,7 +334,7 @@ func TestSDK_WebApps_BackupPrerequisites(t *testing.T) {
 // the blob IS the backup rather than a copy the service kept.
 func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	rg, name := "sdk-backup-rg", "sdk-backup-app"
-	azureCreateSite(t, rg, name, nil)
+	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -534,9 +534,9 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 func TestSDK_WebApps_BackupRestoreIntoAnotherApp(t *testing.T) {
 	rg := "sdk-backup-xfer-rg"
 	source, dest := "sdk-backup-src", "sdk-backup-dst"
-	azureCreateSite(t, rg, source, nil)
+	azureCreateSite(t, rg, source)
 	defer azureDeleteSite(rg, source)
-	azureCreateSite(t, rg, dest, nil)
+	azureCreateSite(t, rg, dest)
 	defer azureDeleteSite(rg, dest)
 
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -575,7 +575,7 @@ func TestSDK_WebApps_BackupRestoreIntoAnotherApp(t *testing.T) {
 // names no Blob endpoint, and a container that does not exist.
 func TestSDK_WebApps_BackupRefusals(t *testing.T) {
 	rg, name := "sdk-backup-refuse-rg", "sdk-backup-refuse-app"
-	azureCreateSite(t, rg, name, nil)
+	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -617,7 +617,7 @@ func TestSDK_WebApps_BackupRefusals(t *testing.T) {
 // archive and its manifest from the storage account, not just the ARM record.
 func TestSDK_WebApps_BackupDeleteRemovesTheBlobs(t *testing.T) {
 	rg, name := "sdk-backup-del-rg", "sdk-backup-del-app"
-	azureCreateSite(t, rg, name, nil)
+	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -653,7 +653,7 @@ func TestSDK_WebApps_BackupDeleteRemovesTheBlobs(t *testing.T) {
 // retention that WebApps_RestoreFromDeletedApp replays.
 func TestSDK_WebApps_SnapshotsAndDeletedAppRestore(t *testing.T) {
 	rg, name := "sdk-snapshot-rg", "sdk-snapshot-app"
-	azureCreateSite(t, rg, name, nil)
+	azureCreateSite(t, rg, name)
 
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -718,7 +718,7 @@ func TestSDK_WebApps_SnapshotsAndDeletedAppRestore(t *testing.T) {
 	assert.NotEmpty(t, snaps.SnapshotArray, "the deleted app keeps its snapshot history")
 
 	target := "sdk-snapshot-restored"
-	azureCreateSite(t, rg, target, nil)
+	azureCreateSite(t, rg, target)
 	defer azureDeleteSite(rg, target)
 	require.Empty(t, webJobNames(t, client, rg, target))
 
@@ -746,7 +746,7 @@ func TestSDK_WebApps_SnapshotsAndDeletedAppRestore(t *testing.T) {
 // deployment-slot scope, where every operation has its own spelling.
 func TestSDK_WebApps_BackupRestoreOnASlot(t *testing.T) {
 	rg, name, slot := "sdk-backup-slot-rg", "sdk-backup-slot-app", "staging"
-	azureCreateSite(t, rg, name, nil)
+	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())

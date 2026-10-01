@@ -1416,7 +1416,7 @@ func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc))
 		sites := aseSortedSites(row.ID)
 		opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 			for _, site := range sites {
-				stopAzureFunctionInstance(site.Name)
+				restartAzureFunctionInstance(site)
 				recordWebSiteEvent(site.ID, "Restart", webEventCausePlatform)
 			}
 			return nil

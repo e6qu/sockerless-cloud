@@ -54,6 +54,7 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 		Properties: &armappservice.SiteContainerProperties{
 			Image:          to.Ptr(httpProbeImageName),
 			IsMain:         to.Ptr(true),
+			TargetPort:     to.Ptr("8080"),
 			StartUpCommand: to.Ptr("probe-retry detector-ok"),
 		},
 	}, nil)

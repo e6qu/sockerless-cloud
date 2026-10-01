@@ -3,6 +3,7 @@ package azure_tf_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -440,8 +441,32 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		outputs.mustList(t, "azrm_app_service_environment_internal_inbound_ip_addresses"),
 		"the environment answers on an address out of its own subnet")
 
+	assertContainerFunctionAppServes(t,
+		outputs.must(t, "azrm_container_function_app_hostname"),
+		outputs.must(t, "azrm_container_function_app_command_line"))
+
 	out, err = runTimed(t, "terraform destroy", terraformCmd(dir, "destroy", "-auto-approve"))
 	require.NoError(t, err, "terraform destroy failed:\n%s", out)
+}
+
+// assertContainerFunctionAppServes sends a request to the container Function
+// App's hostname and reads the answer of the startup command the provider
+// configured: the command ran on the image's entrypoint, on WEBSITES_PORT.
+func assertContainerFunctionAppServes(t *testing.T, hostname, commandLine string) {
+	t.Helper()
+	require.Equal(t, "tf-azrm-container-fa.azurewebsites.net", hostname)
+	require.Contains(t, commandLine, "from-the-terraform-startup-command",
+		"the provider reads the startup command back")
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", simPort), nil)
+	require.NoError(t, err)
+	req.Host = hostname
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+	require.Equal(t, "from-the-terraform-startup-command", strings.TrimSpace(string(body)))
 }
 
 // assertACRDataPlaneAuthenticates drives the container registry's own data

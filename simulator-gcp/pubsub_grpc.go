@@ -505,6 +505,7 @@ func (s *pubsubPublisherGRPC) DetachSubscription(_ context.Context, req *pspb.De
 	}
 	psSubscriptions.Update(name, func(s *PSSubscription) { s.Detached = true })
 	psQueues.Delete(name)
+	psSignalSubscription(name)
 	return &pspb.DetachSubscriptionResponse{}, nil
 }
 
@@ -596,6 +597,7 @@ func (s *pubsubSubscriberGRPC) UpdateSubscription(_ context.Context, req *pspb.U
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	psSubscriptions.Put(name, existing)
+	psSignalSubscription(name)
 	return psSubscriptionToProto(existing), nil
 }
 
@@ -627,6 +629,7 @@ func (s *pubsubSubscriberGRPC) DeleteSubscription(_ context.Context, req *pspb.D
 		return nil, status.Errorf(codes.NotFound, "Resource not found (resource=%s)", name)
 	}
 	psQueues.Delete(name)
+	psSignalSubscription(name)
 	return &emptypb.Empty{}, nil
 }
 
@@ -675,15 +678,11 @@ func (s *pubsubSubscriberGRPC) ModifyPushConfig(_ context.Context, req *pspb.Mod
 	return &emptypb.Empty{}, nil
 }
 
-func (s *pubsubSubscriberGRPC) Pull(_ context.Context, req *pspb.PullRequest) (*pspb.PullResponse, error) {
-	delivered, err := psDequeue(req.GetSubscription(), int(req.GetMaxMessages()), 0)
+func (s *pubsubSubscriberGRPC) Pull(ctx context.Context, req *pspb.PullRequest) (*pspb.PullResponse, error) {
+	delivered, err := psPull(ctx, req.GetSubscription(), int(req.GetMaxMessages()), req.GetReturnImmediately())
 	if err != nil {
 		return nil, err
 	}
-	// Real Pub/Sub blocks until a message is available (or the deadline elapses)
-	// when returnImmediately is false. The high-level client polls in a loop, so
-	// returning promptly when the queue is empty is faithful to the emulator's
-	// observable behaviour and avoids holding an RPC open.
 	resp := &pspb.PullResponse{ReceivedMessages: make([]*pspb.ReceivedMessage, 0, len(delivered))}
 	for _, d := range delivered {
 		resp.ReceivedMessages = append(resp.ReceivedMessages, psReceivedToProto(d))
@@ -728,10 +727,8 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 		clientErr <- psStreamingPullReadLoop(stream, subName)
 	})
 
-	tick := time.NewTicker(50 * time.Millisecond)
-	defer tick.Stop()
-
 	for {
+		arrival := psSubscriptionSignal(subName)
 		// Count messages currently inflight for this subscription so flow control
 		// is honoured — the client will not ack faster than its handlers run, so
 		// capping outstanding delivery prevents flooding it.
@@ -752,12 +749,22 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 				}
 			}
 		}
+		var lapse <-chan time.Time
+		stop := func() bool { return false }
+		if next, ok := psNextQueueChange(subName, time.Now()); ok {
+			timer := time.NewTimer(time.Until(next))
+			lapse, stop = timer.C, timer.Stop
+		}
 		select {
 		case <-ctx.Done():
+			stop()
 			return ctx.Err()
 		case e := <-clientErr:
+			stop()
 			return e
-		case <-tick.C:
+		case <-arrival:
+			stop()
+		case <-lapse:
 		}
 	}
 }

@@ -173,6 +173,7 @@ func psPublishMessages(tName string, msgs []PSMessage) ([]string, error) {
 				q.Queue.Enqueue(m, opts, pol, now)
 			}
 		})
+		psSignalSubscription(sub.Name)
 	}
 	if wakePush {
 		psWakePush()
@@ -268,6 +269,7 @@ func psAcknowledge(subName string, ackIDs []string) {
 		}
 		q.Acked = psRetained(s, q.Acked, now)
 	})
+	psSignalSubscription(subName)
 }
 
 // psRetained keeps the acknowledged messages still inside the subscription's
@@ -315,6 +317,7 @@ func psModifyAckDeadline(subName string, ackIDs []string, seconds int32) {
 			exhausted = q.Queue.Exhausted(pol, now)
 		}
 	})
+	psSignalSubscription(subName)
 	psForwardDeadLetters(s, exhausted)
 }
 
@@ -326,6 +329,7 @@ func psRelease(subName, ackID string) {
 	psQueues.Update(subName, func(q *psQueue) {
 		q.Queue.Release(ackID, pol, now)
 	})
+	psSignalSubscription(subName)
 }
 
 func psValidAckDeadline(seconds int32) bool {
@@ -391,6 +395,7 @@ func psSeekTime(subName string, t time.Time) {
 		}
 	}
 	psRestore(subName, replay)
+	psSignalSubscription(subName)
 }
 
 func psRestore(subName string, msgs []PSMessage) {
@@ -412,6 +417,7 @@ func psRestore(subName string, msgs []PSMessage) {
 			q.Queue.Enqueue(m, opts, pol, now)
 		}
 	})
+	psSignalSubscription(subName)
 }
 
 // pubsubDeadLetterSweeper forwards the messages whose last permitted delivery

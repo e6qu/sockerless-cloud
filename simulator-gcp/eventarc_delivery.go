@@ -211,6 +211,7 @@ func eventarcReleaseTransport(t EventarcTrigger) {
 	if subscription, _ := pubsub["subscription"].(string); subscription != "" {
 		psSubscriptions.Delete(subscription)
 		psQueues.Delete(subscription)
+		psSignalSubscription(subscription)
 	}
 	if topic, _ := pubsub["topic"].(string); topic != "" && topic == eventarcCreatedTopicName(t) {
 		psTopics.Delete(topic)

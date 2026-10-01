@@ -69,7 +69,7 @@ func TestServiceBus_QueueRESTRoundTrip(t *testing.T) {
 	assert.Contains(t, brokerProps, `"MessageId":`)
 
 	// ReceiveAndDelete on empty queue must return 204.
-	resp = sbReq(t, "DELETE", ns, "/"+queue+"/messages/head", nil, nil)
+	resp = sbReq(t, "DELETE", ns, "/"+queue+"/messages/head?timeout=0", nil, nil)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode,
 		"ReceiveAndDelete on empty queue must return 204")
 	resp.Body.Close()
@@ -99,7 +99,7 @@ func TestServiceBus_PeekLockComplete(t *testing.T) {
 	require.NotEmpty(t, location, "PeekLock must carry Location header")
 
 	// Same message must NOT be returned by a second PeekLock (it's locked).
-	resp = sbReq(t, "POST", ns, "/"+queue+"/messages/head", nil, nil)
+	resp = sbReq(t, "POST", ns, "/"+queue+"/messages/head?timeout=0", nil, nil)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode,
 		"PeekLock on a locked queue must return 204 (no other unlocked messages)")
 	resp.Body.Close()
@@ -131,7 +131,7 @@ func TestServiceBus_PeekLockComplete(t *testing.T) {
 		"CompleteLock must return 204")
 
 	// Queue is now empty.
-	resp = sbReq(t, "DELETE", ns, "/"+queue+"/messages/head", nil, nil)
+	resp = sbReq(t, "DELETE", ns, "/"+queue+"/messages/head?timeout=0", nil, nil)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode,
 		"Queue should be empty after CompleteLock")
 	resp.Body.Close()
@@ -161,9 +161,59 @@ func TestServiceBus_TopicSubscriptionRoundTrip(t *testing.T) {
 
 	// Empty after consumption.
 	resp = sbReq(t, "DELETE", ns,
-		"/"+topic+"/subscriptions/"+sub+"/messages/head", nil, nil)
+		"/"+topic+"/subscriptions/"+sub+"/messages/head?timeout=0", nil, nil)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 	resp.Body.Close()
+}
+
+// TestServiceBus_RESTReceiveWaitsForASend starts a Receive and Delete on an
+// empty queue, then sends through azservicebus; the waiting receive answers
+// with the message.
+func TestServiceBus_RESTReceiveWaitsForASend(t *testing.T) {
+	ns, queue := "sb-rest-wait", "waitqueue"
+	req, err := http.NewRequest("DELETE", baseURL+"/"+queue+"/messages/head?timeout=60", nil)
+	require.NoError(t, err)
+	req.Host = ns + ".servicebus.localhost"
+	req.Header.Set("Authorization", serviceBusHTTPAuthorization(t, ns))
+	type result struct {
+		status int
+		body   string
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			done <- result{err: err}
+			return
+		}
+		defer resp.Body.Close()
+		b, err := io.ReadAll(resp.Body)
+		done <- result{status: resp.StatusCode, body: string(b), err: err}
+	}()
+
+	client := sbAMQPClient(t, ns)
+	t.Cleanup(func() { _ = client.Close(context.Background()) })
+	sender, err := client.NewSender(queue, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sender.Close(context.Background()) })
+	require.NoError(t, sender.SendMessage(ctx, &azservicebus.Message{Body: []byte("worth the wait")}, nil))
+
+	got := <-done
+	require.NoError(t, got.err)
+	require.Equal(t, http.StatusOK, got.status, "the waiting receive must answer with the sent message")
+	assert.Equal(t, "worth the wait", got.body)
+}
+
+// TestServiceBus_RESTReceiveTimesOut answers a Peek-Lock on an empty
+// subscription with 204 once its timeout ends.
+func TestServiceBus_RESTReceiveTimesOut(t *testing.T) {
+	start := time.Now()
+	resp := sbReq(t, "POST", "sb-rest-timeout", "/idletopic/subscriptions/idlesub/messages/head?timeout=1", nil, nil)
+	resp.Body.Close()
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+	assert.GreaterOrEqual(t, time.Since(start), time.Second,
+		"the receive must wait out its timeout before answering 204")
 }
 
 func sbAMQPClient(t *testing.T, namespace string) *azservicebus.Client {

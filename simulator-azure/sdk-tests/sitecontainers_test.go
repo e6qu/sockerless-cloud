@@ -111,6 +111,7 @@ func TestSDK_AzureFunctions_MultiContainerSharesLocalhost(t *testing.T) {
 		Properties: &armappservice.SiteContainerProperties{
 			Image:          to.Ptr(httpProbeImageName),
 			IsMain:         to.Ptr(true),
+			TargetPort:     to.Ptr("8080"),
 			StartUpCommand: to.Ptr("probe-retry azf-sidecar-ok"),
 		},
 	}, nil)
@@ -157,6 +158,7 @@ func TestSDK_AzureFunctions_SidecarThatCannotStartFailsTheSite(t *testing.T) {
 		Properties: &armappservice.SiteContainerProperties{
 			Image:          to.Ptr(httpProbeImageName),
 			IsMain:         to.Ptr(true),
+			TargetPort:     to.Ptr("8080"),
 			StartUpCommand: to.Ptr("probe-retry azf-sidecar-ok"),
 		},
 	}, nil)

@@ -21,8 +21,9 @@ that consumed them: they are a general-purpose reimplementation of slices of
 the clouds, anything that speaks a cloud's API can be pointed at one, and what
 is built on them is downstream. The simulator reads nothing from a consumer's
 conventions — the Azure Functions host once told an HTTP-bootstrap site from a
-one-shot one by the image path containing a consumer's overlay name, and now
-reads what the site declares in its app settings.
+one-shot one by the image path containing a consumer's overlay name, and later
+by app settings named after that consumer; it now runs every container site
+the way App Service does (see Execution).
 
 ## The framework is one module
 
@@ -350,6 +351,20 @@ through hooks:
   metadata changes; Eventarc delivers Cloud Storage triggers from those
   notifications as binary-mode CloudEvents; Cloud Logging `entries:copy` copies
   the entries its sinks routed to the bucket.
+- **A subscription stays open for as long as the cloud holds it.** Amazon Kinesis
+  Data Streams `SubscribeToShard` holds its event stream for the documented
+  five minutes, declared with `sim.DeclareWait`. It sends the backlog from the
+  `StartingPosition` and then one `SubscribeToShardEvent` each time a put, a
+  reshard or a deletion signals the shard. Every event carries a
+  `ContinuationSequenceNumber` and `MillisBehindLatest`. The event that drains
+  a closed shard names its `ChildShards` and ends the stream. A second call for
+  the same consumer and shard within five seconds fails with
+  `ResourceInUseException`, and a later one takes the subscription over.
+  Deregistering the consumer ends the stream with `ResourceNotFoundException`.
+  The handler had sent the stored records in one event and closed, so a
+  consumer never saw a record put after it subscribed. `DeleteStream` refuses a
+  stream with registered consumers unless `EnforceConsumerDeletion` is set, and
+  consumers carry their own tags, as `aws_kinesis_stream_consumer` reads them.
 - **A revoked session stays revoked.** `workforcePools.subjects.revokeSessions`
   records when a subject's sessions end, and every check of a simulator-minted
   access token refuses one issued to that subject at or before that second.
@@ -363,6 +378,17 @@ through hooks:
   receiver's delivery-count plus link-credit minus the sender's, as AMQP 1.0
   defines it. Handing a receive-and-delete message to the SDK's reply link
   lost it whenever that link's credit arrived first, which on CI was often.
+- **A REST receive waits for its `timeout`.** Service Bus Receive and Delete
+  and Peek-Lock on a queue or subscription waited up to the `timeout` query
+  parameter (60 seconds when absent) for a message and answered 204 only when
+  none became receivable; the simulator had answered 204 at once. The wait
+  wakes on the entity's arrival signal — a send, a scheduled message reaching
+  its time, an abandon, or a lock running out — ends with the caller's
+  request, and declares itself with `sim.DeclareWait`. A renewed lock re-arms
+  the lock-expiry wake-up, and a restarted simulator re-arms the wake-ups of
+  the scheduled and locked messages it loads, so neither a REST waiter nor an
+  AMQP receiver holding credit misses a message whose timer belonged to the
+  old process.
 - **A page token proves where it came from.** Every listing tags the tokens it
   issues and refuses one it never issued with the service's invalid-argument
   error, instead of listing an empty page.
@@ -406,6 +432,27 @@ Functions, Azure Functions HTTP sites and AWS Amplify Hosting compute stopped
 choosing ports. A stopped container holds no published port and a resumed one
 holds a new one, so adopting an engine left by an earlier process reads its
 ports after resuming it.
+
+An App Service or Azure Functions site that names a container image runs it
+the way App Service runs a Linux custom container, and nothing else. The image's
+own ENTRYPOINT runs with `siteConfig.appCommandLine` (`az functionapp config set
+--startup-file`, terraform's `app_command_line`), or a sitecontainer's
+`startUpCommand`, as its command in place of the image's CMD; the app settings
+and `PORT` are its environment; and the front end forwards every request on
+one of the site's hostnames, any method and path, to the container's port —
+`WEBSITES_PORT`, else 80, or the main sitecontainer's `targetPort` — passing
+the container's status, headers and body back untouched. A request starts the
+container when none runs, and Always On (`siteConfig.alwaysOn`) starts it
+without one; the start waits until the port accepts a connection, the
+container exits, or `WEBSITES_CONTAINER_START_TIME_LIMIT` (230 seconds unset)
+passes, and fails the start with 503. A restart, a configuration write and an
+app-settings write restart the container and keep its VNet integration;
+`PATCH config/web` merges onto the stored configuration. The host had run a
+site's command from base64 JSON in two app settings named after a downstream
+consumer (`SOCKERLESS_CMD`, `SOCKERLESS_ENTRYPOINT`), in a container per
+invocation whose stdout became the response, and told a long-lived HTTP site
+from a raw service by two more such settings; none of those is an Azure
+setting, and the simulator reads none of them.
 
 RunTask places a task only where it fits. The simulator runs real containers on
 one finite host, so rather than invent a capacity it commits each placed task's
@@ -997,6 +1044,22 @@ convert RAW, VHD and VMDK formats into real snapshot data. A waiting SQS
 receive wakes on the send, delay or visibility change it waits for. ECS
 creates an awslogs log group only when the task definition asks for it.
 
+A Cloud Pub/Sub `Pull`, over gRPC and REST alike, holds an empty subscription
+open unless the caller sets the deprecated but honoured `returnImmediately`,
+and answers with at most `maxMessages` once a message becomes deliverable, the
+server's bound passes, or the caller goes away; it had answered an empty
+subscription at once whatever the flag said, so a client that pulled before
+publishing read nothing. The wait wakes on the subscription's own signal,
+which a publish, an acknowledgement, a negative acknowledgement or ack
+deadline change, a seek, and the subscription's update, detachment or deletion
+fire, and on a timer set to the moment the queue next changes by itself, a
+lapsed ack deadline or the end of a retry backoff. `StreamingPull` waits on the
+same two things instead of re-reading the queue every 50 ms. The REST pull
+declares its bound with `sim.DeclareWait`; the gRPC listener sits outside
+`sim.InFlightMiddleware`, so the declaration there is a no-op. Suites that
+check a subscription is drained pull with `returnImmediately`, as a client
+does that must not wait.
+
 AWS Batch answers `SubmitJob` at once and schedules the job behind it. The
 job moves on real events: RUNNABLE once the scheduler evaluated it, STARTING
 when a compute environment of its queue that is ENABLED and has the vCPUs to
@@ -1076,7 +1139,9 @@ point of use fails naming the image. Jobs never delete the shared Go caches
 only when a package is missing. In the AWS SDK shards one shard saves the
 Go cache after its pre-build and the rest only restore it, so a dependency
 change no longer has every shard compress the same cache inside its time
-limit. The workflows reference as few external
+limit. The build gates keep their own Go cache with the same fallback to an
+older entry, so a pin or dependency move no longer compiles the three
+simulators cold inside the job's five minutes. The workflows reference as few external
 actions as possible, because the runner downloads every action a workflow
 names for every job. A tool a suite needs — gcloud, `cbt`, the AWS CLI — is
 installed in `TestMain` with a few retries, never skipped.

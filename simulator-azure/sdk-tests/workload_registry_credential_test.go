@@ -81,8 +81,10 @@ func TestFunctions_SitePullsFromItsRegistryAsItsIdentity(t *testing.T) {
 			"acrUserManagedIdentityID":   "11111111-2222-3333-4444-555555555555",
 			"appSettings": []map[string]any{
 				{"name": "DOCKER_REGISTRY_SERVER_URL", "value": "https://" + loginServer},
-				{"name": "SOCKERLESS_CMD", "value": "WyJjYXQiLCAiL29wdC9wYXlsb2FkIl0="},
 			},
+			// busybox nc answers each connection with the image's payload
+			// after reading the request's headers.
+			"appCommandLine": `nc -lk -p 80 -e sh -c "while read -r l && [ ${#l} -gt 1 ]; do :; done; printf 'HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n'; cat /opt/payload"`,
 		},
 	}
 	site := map[string]any{"location": "eastus", "kind": "functionapp", "properties": props}
@@ -97,6 +99,7 @@ func TestFunctions_SitePullsFromItsRegistryAsItsIdentity(t *testing.T) {
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	out := azureInvokeFunction(t, "registry-identity-site")
+	status, out := azureSiteRequest(t, "registry-identity-site", http.MethodGet, "/", "")
+	require.Equal(t, http.StatusOK, status, "body: %s", out)
 	assert.Contains(t, string(out), "pushed-as-the-run", "the site's host pulled the image from the registry as the site's identity")
 }

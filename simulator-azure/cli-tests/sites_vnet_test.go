@@ -13,18 +13,16 @@ import (
 // discovery. A site joins a Microsoft.Web-delegated subnet; the connection
 // round-trips on GET and is removable.
 func TestSiteVNetIntegration_CLI_RoundTrip(t *testing.T) {
-	// A site whose app settings declare an HTTP bootstrap is an HTTP function
-	// site, so VNet integration only records the connection (no service
-	// container to start) — keeping this an ARM round-trip test, not a
-	// workload test.
+	// A site that is not Always On and receives no request runs no container,
+	// so VNet integration only records the connection — keeping this an ARM
+	// round-trip test, not a workload test.
 	url := funcURL("sites/cli-sitevnet-app")
 	body := `{
 		"location": "eastus",
 		"kind": "functionapp,linux,container",
 		"properties": {
 			"siteConfig": {
-				"linuxFxVersion": "DOCKER|registry.example/functions/azf:test",
-				"appSettings": [{"name": "SOCKERLESS_USER_CMD", "value": "WyIvYmluL3RydWUiXQ=="}]
+				"linuxFxVersion": "DOCKER|registry.example/functions/azf:test"
 			}
 		}
 	}`

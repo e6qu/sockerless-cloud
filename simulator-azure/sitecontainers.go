@@ -67,12 +67,20 @@ type SiteContainerVolMount struct {
 // (<siteID>/sitecontainers/<name>).
 var azfSiteContainers sim.Store[SiteContainer]
 
-// siteContainersFor returns every sitecontainer belonging to a site,
-// querying the cloud store (the source of truth) by resource-ID prefix.
+// azfSiteContainersBySite indexes sitecontainers by the ARM id of their site.
+// The App Service front end asks for a site's containers on every request to
+// a site's hostname.
+var azfSiteContainersBySite sim.GenerationIndex[SiteContainer]
+
+// siteContainersFor returns every sitecontainer belonging to a site, in the
+// order the store lists them.
 func siteContainersFor(siteID string) []SiteContainer {
-	prefix := siteID + "/sitecontainers/"
-	return azfSiteContainers.Filter(func(c SiteContainer) bool {
-		return strings.HasPrefix(c.ID, prefix)
+	return azfSiteContainersBySite.LookupAll(azfSiteContainers, siteID, func(c SiteContainer) []string {
+		i := strings.LastIndex(c.ID, "/sitecontainers/")
+		if i < 0 {
+			return nil
+		}
+		return []string{c.ID[:i]}
 	})
 }
 

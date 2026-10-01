@@ -99,8 +99,7 @@ func webMoreCreateSite(t *testing.T, client *armappservice.WebAppsClient, rg, na
 		Properties: &armappservice.SiteProperties{
 			ServerFarmID: to.Ptr(planID),
 			SiteConfig: &armappservice.SiteConfig{
-				LinuxFxVersion: to.Ptr("DOCKER|" + httpFunctionImage),
-				AppSettings:    []*armappservice.NameValuePair{httpFunctionBootstrap()},
+				LinuxFxVersion: to.Ptr("DOCKER|" + unstartedSiteImage),
 			},
 		},
 	}, nil)
