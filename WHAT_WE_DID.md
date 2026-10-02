@@ -236,6 +236,16 @@ through hooks:
   answers `RepositoryNotEmptyException` for a repository holding images unless
   the request sets `force`, which the Terraform provider sends from
   `force_delete`; a test that deletes a repository holding images says so.
+- **A NAT gateway route translates the subnets its route table governs now.**
+  The translation's sources are recomputed on every association change —
+  AssociateRouteTable, DisassociateRouteTable, ReplaceRouteTableAssociation,
+  CreateSubnet and DeleteSubnet — and include the subnets the main route table
+  governs implicitly; a route table that governs no subnet translates nothing.
+  The probe that proves it reads the source address a task's request arrives
+  from, because egress through an untranslated route still reached the host.
+  DeleteSubnet ends the subnet's association, and DeleteRouteTable refuses the
+  main route table or one still associated with `DependencyViolation`, as EC2
+  does, and withdraws its NAT translations when it succeeds.
 - **A managed EBS volume is a block device, and the engine is asked for
   nothing it has to interpret.** A plain engine volume showed the workload the
   host's disk. The volume is an image file of the requested size and

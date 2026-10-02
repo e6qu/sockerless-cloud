@@ -893,8 +893,11 @@ func ec2NATRouteOwner(routeTableID, destinationCIDR string) string {
 	return routeTableID + "|" + destinationCIDR
 }
 
-// ec2ConfigureRealNATRoute translates the traffic of every subnet associated
-// with the route table to the NAT gateway's public address.
+// ec2ConfigureRealNATRoute translates the traffic of every subnet the route
+// table governs to the NAT gateway's public address: its explicitly associated
+// subnets and, for the main route table, every subnet of the VPC without an
+// explicit association. A route table that governs no subnet translates
+// nothing.
 func ec2ConfigureRealNATRoute(ctx context.Context, routeTableID, destinationCIDR, natID string) error {
 	nat, ok := ec2NatGateways.Get(natID)
 	if !ok {
@@ -914,20 +917,46 @@ func ec2ConfigureRealNATRoute(ctx context.Context, routeTableID, destinationCIDR
 		return err
 	}
 	var sources []string
-	for _, assoc := range rt.Associations {
-		if subnet, ok := ec2Subnets.Get(assoc.SubnetId); ok {
+	for _, subnet := range ec2Subnets.List() {
+		if subnet.VpcId != rt.VpcId {
+			continue
+		}
+		if governing, ok := ec2EffectiveRouteTableForSubnet(subnet.SubnetId, rt.VpcId); ok && governing.RouteTableId == routeTableID {
 			sources = append(sources, subnet.CidrBlock)
 		}
-	}
-	if len(sources) == 0 {
-		if subnet, ok := ec2Subnets.Get(nat.SubnetId); ok {
-			sources = append(sources, subnet.CidrBlock)
-		}
-	}
-	if len(sources) == 0 {
-		return fmt.Errorf("route table %s has no subnet CIDR for NAT source", routeTableID)
 	}
 	return ec2Fabric.ConfigureSNAT(ctx, rt.VpcId, ec2NATRouteOwner(routeTableID, destinationCIDR), sources, net.ParseIP(nat.NatGatewayAddresses[0].PublicIp))
+}
+
+// ec2ReprogramRealNATRoutes recomputes the sources of every NAT route in the
+// VPC after a change to which route table governs which subnet.
+func ec2ReprogramRealNATRoutes(ctx context.Context, vpcID string) error {
+	if ec2Fabric.Network(vpcID) == nil {
+		return nil
+	}
+	var errs []error
+	for _, rt := range ec2RouteTables.List() {
+		if rt.VpcId != vpcID {
+			continue
+		}
+		for _, route := range rt.Routes {
+			if route.NatGatewayId == "" || route.DestinationCidrBlock == "" || route.State != "active" {
+				continue
+			}
+			if nat, ok := ec2NatGateways.Get(route.NatGatewayId); !ok || nat.State != "available" {
+				continue
+			}
+			errs = append(errs, ec2ConfigureRealNATRoute(ctx, rt.RouteTableId, route.DestinationCidrBlock, route.NatGatewayId))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// ec2ApplyRealRouteTableMembership reprograms what depends on which route
+// table governs which subnet of a VPC: its NAT translations and its egress
+// policy.
+func ec2ApplyRealRouteTableMembership(ctx context.Context, vpcID string) error {
+	return errors.Join(ec2ReprogramRealNATRoutes(ctx, vpcID), ec2ApplyRealVPCEgressPolicy(ctx, vpcID))
 }
 
 func ec2ReleaseRealNATRoute(ctx context.Context, routeTableID, destinationCIDR string) error {

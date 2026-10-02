@@ -1065,6 +1065,9 @@ func handleCreateSubnet(w http.ResponseWriter, r *http.Request) {
 		PrivateDnsHostnameTypeOnLaunch: "ip-name",
 	}
 	ec2Subnets.Put(id, subnet)
+	if err := ec2ApplyRealRouteTableMembership(r.Context(), vpcId); err != nil {
+		fmt.Fprintf(os.Stderr, "sim: real NAT and egress policy for %s unavailable after subnet create: %v\n", vpcId, err)
+	}
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateSubnetResponse %s>
@@ -1258,7 +1261,8 @@ func handleModifySubnetAttribute(w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteSubnet(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("SubnetId")
-	if _, ok := ec2Subnets.Get(id); !ok {
+	deleted, ok := ec2Subnets.Get(id)
+	if !ok {
 		ec2ErrorXML(w, "InvalidSubnetID.NotFound", fmt.Sprintf("The subnet ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
@@ -1275,6 +1279,26 @@ func handleDeleteSubnet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ec2Subnets.Delete(id)
+	// Deleting a subnet ends its explicit route table association.
+	for _, rt := range ec2RouteTables.List() {
+		for _, assoc := range rt.Associations {
+			if assoc.SubnetId == id {
+				ec2RouteTables.Update(rt.RouteTableId, func(rt *EC2RouteTable) {
+					var kept []EC2RouteTableAssociation
+					for _, a := range rt.Associations {
+						if a.SubnetId != id {
+							kept = append(kept, a)
+						}
+					}
+					rt.Associations = kept
+				})
+				break
+			}
+		}
+	}
+	if err := ec2ApplyRealRouteTableMembership(r.Context(), deleted.VpcId); err != nil {
+		fmt.Fprintf(os.Stderr, "sim: real NAT and egress policy for %s unavailable after subnet delete: %v\n", deleted.VpcId, err)
+	}
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteSubnetResponse %s>
@@ -1975,6 +1999,25 @@ func handleDescribeRouteTables(w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteRouteTable(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("RouteTableId")
+	rt, ok := ec2RouteTables.Get(id)
+	if !ok {
+		ec2ErrorXML(w, "InvalidRouteTableID.NotFound", fmt.Sprintf("The routeTable ID '%s' does not exist", id), http.StatusBadRequest)
+		return
+	}
+	// EC2 refuses to delete the main route table or one still associated with a
+	// subnet or gateway.
+	if len(rt.Associations) > 0 {
+		ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("The routeTable '%s' has dependencies and cannot be deleted.", id), http.StatusBadRequest)
+		return
+	}
+	for _, route := range rt.Routes {
+		if route.NatGatewayId == "" || route.DestinationCidrBlock == "" {
+			continue
+		}
+		if err := ec2ReleaseRealNATRoute(r.Context(), id, route.DestinationCidrBlock); err != nil {
+			fmt.Fprintf(os.Stderr, "sim: real NAT translation for %s %s not withdrawn after route table delete: %v\n", id, route.DestinationCidrBlock, err)
+		}
+	}
 	ec2RouteTables.Delete(id)
 
 	w.Header().Set("Content-Type", "text/xml")
@@ -2145,8 +2188,10 @@ func handleAssociateRouteTable(w http.ResponseWriter, r *http.Request) {
 			Main:          false,
 		})
 	})
-	if err := ec2ApplyRealRouteTableEgressPolicy(r.Context(), rtId); err != nil {
-		fmt.Fprintf(os.Stderr, "sim: real route-table egress policy for %s unavailable after association: %v\n", rtId, err)
+	if rt, ok := ec2RouteTables.Get(rtId); ok {
+		if err := ec2ApplyRealRouteTableMembership(r.Context(), rt.VpcId); err != nil {
+			fmt.Fprintf(os.Stderr, "sim: real NAT and egress policy for %s unavailable after association: %v\n", rt.VpcId, err)
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/xml")
@@ -2172,8 +2217,8 @@ func handleDisassociateRouteTable(w http.ResponseWriter, r *http.Request) {
 					}
 					rt.Associations = filtered
 				})
-				if err := ec2ApplyRealRouteTableEgressPolicy(r.Context(), rt.RouteTableId); err != nil {
-					fmt.Fprintf(os.Stderr, "sim: real route-table egress policy for %s unavailable after disassociation: %v\n", rt.RouteTableId, err)
+				if err := ec2ApplyRealRouteTableMembership(r.Context(), rt.VpcId); err != nil {
+					fmt.Fprintf(os.Stderr, "sim: real NAT and egress policy for %s unavailable after disassociation: %v\n", rt.VpcId, err)
 				}
 				break
 			}

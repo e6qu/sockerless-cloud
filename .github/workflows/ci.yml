@@ -1078,6 +1078,10 @@ jobs:
             cloud: aws
             tf_packages: "./ecr-force-delete"
             timeout_minutes: 12
+          - suite: aws NAT gateway route associations
+            cloud: aws
+            tf_packages: "./nat-associations"
+            timeout_minutes: 12
           - suite: gcp
             cloud: gcp
             timeout_minutes: 12

@@ -162,6 +162,9 @@ Current state of the sockerless-cloud repository.
   after its writes are objects. Linux only; the rest is BUGS.md 3084.
 - **Refused deletes are refused.** Amazon ECR refuses to delete a
   repository holding images without `force`.
+- **A NAT gateway route translates the subnets its route table governs**,
+  explicitly associated or implicitly through the main route table, recomputed
+  on every association change.
 - **An Amazon ECR pull-through-cache reference runs its rule's upstream
   image**: the Lambda and ECS hosts resolve `<prefix>/<path>` through the
   registered rule, as ECR hydrates the cache from that upstream.
