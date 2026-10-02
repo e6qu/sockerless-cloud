@@ -330,8 +330,22 @@ func handleELBv2DeleteLoadBalancer(w http.ResponseWriter, r *http.Request) {
 
 func handleELBv2ModifyLoadBalancerAttributes(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("LoadBalancerArn")
+	modified := parseELBv2Attributes(r, "Attributes")
+	if _, ok := elbv2LoadBalancers.Get(arn); !ok {
+		elbv2ErrorXML(w, "LoadBalancerNotFound", "Load balancer not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if value, ok := modified["idle_timeout.timeout_seconds"]; ok {
+		if seconds, err := strconv.Atoi(value); err != nil || seconds < elbv2MinIdleTimeoutSeconds || seconds > elbv2MaxIdleTimeoutSeconds {
+			elbv2ErrorXML(w, "InvalidConfigurationRequest",
+				fmt.Sprintf("Load balancer attribute value '%s' for key 'idle_timeout.timeout_seconds' is not valid; it must be an integer from %d to %d",
+					value, elbv2MinIdleTimeoutSeconds, elbv2MaxIdleTimeoutSeconds),
+				http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+	}
 	if !elbv2LoadBalancers.Update(arn, func(lb *ELBv2LoadBalancer) {
-		for k, v := range parseELBv2Attributes(r, "Attributes") {
+		for k, v := range modified {
 			lb.Attributes[k] = v
 		}
 	}) {
@@ -1521,12 +1535,20 @@ func elbv2StringMembersXMLInner(values []string) string {
 	return b.String()
 }
 
+// An Application Load Balancer's idle_timeout.timeout_seconds: "The valid
+// range is 1-4000 seconds. The default is 60 seconds."
+const (
+	elbv2DefaultIdleTimeoutSeconds = 60
+	elbv2MinIdleTimeoutSeconds     = 1
+	elbv2MaxIdleTimeoutSeconds     = 4000
+)
+
 func defaultELBv2LoadBalancerAttributes() map[string]string {
 	return map[string]string{
 		"deletion_protection.enabled":                     "false",
 		"load_balancing.cross_zone.enabled":               "false",
 		"access_logs.s3.enabled":                          "false",
-		"idle_timeout.timeout_seconds":                    "60",
+		"idle_timeout.timeout_seconds":                    strconv.Itoa(elbv2DefaultIdleTimeoutSeconds),
 		"routing.http2.enabled":                           "true",
 		"routing.http.drop_invalid_header_fields.enabled": "false",
 		"routing.http.preserve_host_header.enabled":       "false",

@@ -409,6 +409,19 @@ through hooks:
   read with the Container Apps console schema; the Application Insights tables
   got their own schemas instead. The request's `timespan` bounds
   `TimeGenerated` before the query runs.
+- **A proxy's bound comes from the resource, and idle is not a deadline.**
+  The Application Load Balancer data plane had bounded every request at a
+  fixed 30 seconds and Container Apps ingress at ten minutes. `lbplane` keeps
+  two bounds apart: `Upstream.Timeout` ends an exchange at a fixed time, and
+  `Upstream.IdleTimeout` ends it only once no byte has moved either way for
+  that long, covering an upgraded connection too, with `Upstream.Activity`
+  letting the caller move its `sim.DeclareWait` out as bytes flow. The
+  Application Load Balancer reads `idle_timeout.timeout_seconds` (1 to 4000,
+  default 60, refused outside that range as `InvalidConfigurationRequest`)
+  for each request, so `ModifyLoadBalancerAttributes` governs the next one,
+  and answers its `504 Gateway Time-out` page when a target stays silent past
+  it. Container Apps ingress bounds a request at the service's documented 240
+  seconds and answers Envoy's `504 upstream request timeout`.
 - **A page token proves where it came from.** Every listing tags the tokens it
   issues and refuses one it never issued with the service's invalid-argument
   error, instead of listing an empty page.

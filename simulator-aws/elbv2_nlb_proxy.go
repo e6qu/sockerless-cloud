@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -105,11 +104,7 @@ func elbv2StartListenerProxy(listener ELBv2Listener) error {
 	proxy := &elbv2ListenerProxy{lbArn: listener.LoadBalancerArn}
 	switch {
 	case strings.EqualFold(listener.Protocol, "HTTPS"):
-		idle := 60 * time.Second
-		if seconds, err := strconv.Atoi(elbv2LoadBalancerAttributes(listener.LoadBalancerArn)["idle_timeout.timeout_seconds"]); err == nil && seconds > 0 {
-			idle = time.Duration(seconds) * time.Second
-		}
-		srv, err := lbplane.StartHTTPSServer(bindAddr, tlsConfig, elbv2HTTPSListenerHandler(listenerArn), idle)
+		srv, err := lbplane.StartHTTPSServer(bindAddr, tlsConfig, elbv2HTTPSListenerHandler(listenerArn), elbv2IdleTimeout(listener.LoadBalancerArn))
 		if err != nil {
 			elbv2LoadBalancerHosts.Release(listener.LoadBalancerArn)
 			return fmt.Errorf("bind HTTPS listener %s on %s: %w", listenerArn, bindAddr, err)

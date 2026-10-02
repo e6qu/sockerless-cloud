@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -80,15 +81,17 @@ func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listene
 	if strings.EqualFold(targetGroup.Protocol, "HTTPS") {
 		scheme = "https"
 	}
-	const exchangeTimeout = 30 * time.Second
-	sim.DeclareWait(r.Context(), exchangeTimeout)
+	idle := elbv2IdleTimeout(listener.LoadBalancerArn)
+	started := time.Now()
+	sim.DeclareWait(r.Context(), idle)
 	err = lbplane.Forward(w, r, lbplane.Upstream{
-		Scheme:   scheme,
-		Address:  address,
-		Path:     r.URL.EscapedPath(),
-		RawQuery: r.URL.RawQuery,
-		Host:     elbv2TargetHostHeader(r.Host, listener),
-		Timeout:  exchangeTimeout,
+		Scheme:      scheme,
+		Address:     address,
+		Path:        r.URL.EscapedPath(),
+		RawQuery:    r.URL.RawQuery,
+		Host:        elbv2TargetHostHeader(r.Host, listener),
+		IdleTimeout: idle,
+		Activity:    func() { sim.DeclareWait(r.Context(), time.Since(started)+idle) },
 		// "The load balancer establishes TLS connections with the targets
 		// using certificates that you install on the targets. The load balancer
 		// does not validate these certificates."
@@ -100,9 +103,32 @@ func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listene
 		// Nothing reaches a client that has gone; the status records the
 		// abandoned request the way the load balancer access logs do.
 		w.WriteHeader(lbplane.StatusClientClosedRequest)
+	case errors.Is(err, lbplane.ErrIdleTimeout) && errors.As(err, new(*lbplane.SendError)):
+		// "HTTP 504: Gateway timeout ... The load balancer established a
+		// connection to the target but the target did not respond before the
+		// idle timeout period elapsed."
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusGatewayTimeout)
+		_, _ = io.WriteString(w, elbv2GatewayTimeoutPage)
+	case errors.Is(err, lbplane.ErrIdleTimeout):
+		// The target's answer had begun, so the load balancer closes the
+		// connection on it instead of ending the answer as though complete.
+		panic(http.ErrAbortHandler)
 	default:
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	}
+}
+
+const elbv2GatewayTimeoutPage = "<html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n</body>\r\n</html>\r\n"
+
+// elbv2IdleTimeout reads the load balancer's idle_timeout.timeout_seconds for
+// each request, so ModifyLoadBalancerAttributes governs the next one.
+func elbv2IdleTimeout(lbArn string) time.Duration {
+	seconds, err := strconv.Atoi(elbv2LoadBalancerAttributes(lbArn)["idle_timeout.timeout_seconds"])
+	if err != nil {
+		seconds = elbv2DefaultIdleTimeoutSeconds
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // elbv2ListenersByLoadBalancerPort indexes listeners by the load balancer and
