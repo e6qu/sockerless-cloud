@@ -19,9 +19,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 	monitoredres "google.golang.org/genproto/googleapis/api/monitoredres"
+	_ "google.golang.org/genproto/googleapis/cloud/audit"
+	ltype "google.golang.org/genproto/googleapis/logging/type"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -37,8 +41,12 @@ type LogEntry struct {
 	Severity    string             `json:"severity,omitempty"`
 	TextPayload string             `json:"textPayload,omitempty"`
 	JsonPayload map[string]any     `json:"jsonPayload,omitempty"`
-	InsertID    string             `json:"insertId,omitempty"`
-	Labels      map[string]string  `json:"labels,omitempty"`
+	// ProtoPayload is the JSON form of a google.protobuf.Any: its "@type"
+	// names the message, such as google.cloud.audit.AuditLog.
+	ProtoPayload     map[string]any    `json:"protoPayload,omitempty"`
+	InsertID         string            `json:"insertId,omitempty"`
+	Labels           map[string]string `json:"labels,omitempty"`
+	ReceiveTimestamp string            `json:"receiveTimestamp,omitempty"`
 }
 
 // MonitoredResource represents the monitored resource that produced a log entry.
@@ -431,6 +439,12 @@ func registerCloudLogging(srv *sim.Server) {
 			return
 		}
 		for i, entry := range req.Entries {
+			if entry.ProtoPayload != nil {
+				if _, err := logProtoPayloadAny(entry.ProtoPayload); err != nil {
+					GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "entries[%d].protoPayload: %v", i, err)
+					return
+				}
+			}
 			if entry.Timestamp == "" {
 				continue
 			}
@@ -682,8 +696,11 @@ func (s *loggingServer) WriteLogEntries(_ context.Context, req *loggingpb.WriteL
 	}
 
 	var entries []LogEntry
-	for _, pe := range req.Entries {
-		entry := protoToLogEntry(pe)
+	for i, pe := range req.Entries {
+		entry, err := protoToLogEntry(pe)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "entries[%d]: %v", i, err)
+		}
 		entries = append(entries, entry)
 	}
 
@@ -699,7 +716,11 @@ func (s *loggingServer) ListLogEntries(_ context.Context, req *loggingpb.ListLog
 
 	var pbEntries []*loggingpb.LogEntry
 	for _, e := range entries {
-		pbEntries = append(pbEntries, logEntryToProto(e))
+		pe, err := logEntryToProto(e)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		pbEntries = append(pbEntries, pe)
 	}
 
 	return &loggingpb.ListLogEntriesResponse{
@@ -815,7 +836,11 @@ func (s *loggingServer) TailLogEntries(stream loggingpb.LoggingServiceV2_TailLog
 		if len(entries) > 0 {
 			fresh := make([]*loggingpb.LogEntry, 0, len(entries))
 			for _, e := range entries {
-				fresh = append(fresh, logEntryToProto(e))
+				pe, err := logEntryToProto(e)
+				if err != nil {
+					return status.Error(codes.Internal, err.Error())
+				}
+				fresh = append(fresh, pe)
 			}
 			if err := stream.Send(&loggingpb.TailLogEntriesResponse{Entries: fresh}); err != nil {
 				return err
@@ -892,7 +917,7 @@ func registerCloudLoggingGRPC(gs *grpc.Server) {
 
 // Conversion helpers
 
-func protoToLogEntry(pe *loggingpb.LogEntry) LogEntry {
+func protoToLogEntry(pe *loggingpb.LogEntry) (LogEntry, error) {
 	entry := LogEntry{
 		LogName:  pe.LogName,
 		InsertID: pe.InsertId,
@@ -921,12 +946,34 @@ func protoToLogEntry(pe *loggingpb.LogEntry) LogEntry {
 		if p.JsonPayload != nil {
 			entry.JsonPayload = p.JsonPayload.AsMap()
 		}
+	case *loggingpb.LogEntry_ProtoPayload:
+		raw, err := protojson.Marshal(p.ProtoPayload)
+		if err != nil {
+			return LogEntry{}, fmt.Errorf("protoPayload: %w", err)
+		}
+		if err := json.Unmarshal(raw, &entry.ProtoPayload); err != nil {
+			return LogEntry{}, fmt.Errorf("protoPayload: %w", err)
+		}
 	}
 
-	return entry
+	return entry, nil
 }
 
-func logEntryToProto(e LogEntry) *loggingpb.LogEntry {
+// logProtoPayloadAny is the google.protobuf.Any a protoPayload's JSON form
+// spells. Its "@type" has to name a message the simulator knows.
+func logProtoPayloadAny(payload map[string]any) (*anypb.Any, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	var out anypb.Any
+	if err := protojson.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func logEntryToProto(e LogEntry) (*loggingpb.LogEntry, error) {
 	pe := &loggingpb.LogEntry{
 		LogName:  e.LogName,
 		InsertId: e.InsertID,
@@ -946,15 +993,33 @@ func logEntryToProto(e LogEntry) *loggingpb.LogEntry {
 			pe.Timestamp = timestamppb.New(t)
 		}
 	}
+	if e.ReceiveTimestamp != "" {
+		t, err := parseTimestamp(e.ReceiveTimestamp)
+		if err == nil {
+			pe.ReceiveTimestamp = timestamppb.New(t)
+		}
+	}
+	if e.Severity != "" {
+		if level, ok := ltype.LogSeverity_value[e.Severity]; ok {
+			pe.Severity = ltype.LogSeverity(level)
+		}
+	}
 
-	if e.TextPayload != "" {
+	switch {
+	case e.TextPayload != "":
 		pe.Payload = &loggingpb.LogEntry_TextPayload{TextPayload: e.TextPayload}
-	} else if len(e.JsonPayload) > 0 {
+	case len(e.JsonPayload) > 0:
 		s, err := structpb.NewStruct(e.JsonPayload)
 		if err == nil {
 			pe.Payload = &loggingpb.LogEntry_JsonPayload{JsonPayload: s}
 		}
+	case e.ProtoPayload != nil:
+		payload, err := logProtoPayloadAny(e.ProtoPayload)
+		if err != nil {
+			return nil, fmt.Errorf("entry %q protoPayload: %w", e.InsertID, err)
+		}
+		pe.Payload = &loggingpb.LogEntry_ProtoPayload{ProtoPayload: payload}
 	}
 
-	return pe
+	return pe, nil
 }

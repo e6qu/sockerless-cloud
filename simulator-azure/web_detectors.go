@@ -614,7 +614,7 @@ func measureSiteDeployments(o webSiteObservation) webDetectorFinding {
 			failed++
 		}
 		finding.rows = append(finding.rows, []string{
-			at.UTC().Format(time.RFC3339), d.Properties.ID, strconv.Itoa(d.Properties.Status),
+			at.UTC().Format(time.RFC3339), d.Name, strconv.Itoa(d.Properties.Status),
 			strconv.FormatBool(d.Properties.Active), d.Properties.Author, d.Properties.Message,
 		})
 	}

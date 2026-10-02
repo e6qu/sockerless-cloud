@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appcontainers/armappcontainers/v3"
@@ -222,7 +221,7 @@ func TestSDK_ContainerAppsApps_PatchDaprMemberPreservesSiblings(t *testing.T) {
 // with dapr enabled and proves the sim runs the real daprd sidecar in
 // the replica's network namespace: a client container in the replica
 // fetches http://localhost:3500/v1.0/metadata and the response — carried
-// through the app's console logs, the same observation path
+// through the client container's console log stream, the same observation path
 // TestSDK_ContainerAppsApps_StartsRealReplicaAndLogs uses — reports the
 // configured appId and appPort, proving the configuration reached daprd.
 func TestSDK_ContainerAppsApps_DaprSidecarServesRealDaprAPI(t *testing.T) {
@@ -292,26 +291,17 @@ func TestSDK_ContainerAppsApps_DaprSidecarServesRealDaprAPI(t *testing.T) {
 	// The daprd metadata response proves the real sidecar is serving the
 	// Dapr HTTP API on the replica's localhost with the configured
 	// identity: `id` carries the appId, `appConnectionProperties` the
-	// appPort and protocol daprd was told to reach the app on. Generous
-	// deadline: the first run pulls the pinned daprd image.
-	require.Eventually(t, func() bool {
-		result := queryWorkspace(t, "default", `ContainerAppConsoleLogs_CL | where ContainerAppName_s == "`+appName+`"`)
-		if len(result.Tables) == 0 {
-			return false
-		}
-		var logs strings.Builder
-		for _, row := range result.Tables[0].Rows {
-			for _, cell := range row {
-				if s, ok := cell.(string); ok {
-					logs.WriteString(s)
-					logs.WriteString("\n")
-				}
-			}
-		}
-		joined := logs.String()
-		return strings.Contains(joined, `"id":"sdk-dapr-app"`) &&
-			strings.Contains(joined, `"port":8080`) &&
-			strings.Contains(joined, `"protocol":"http"`)
-	}, 90*time.Second, 500*time.Millisecond,
+	// appPort and protocol daprd was told to reach the app on. The client
+	// container prints it once daprd answers, and its console stream ends
+	// when the container exits.
+	app, err := client.Get(ctx, rg, appName, nil)
+	require.NoError(t, err)
+	metadata := func(line string) bool {
+		return strings.Contains(line, `"id":"sdk-dapr-app"`) &&
+			strings.Contains(line, `"port":8080`) &&
+			strings.Contains(line, `"protocol":"http"`)
+	}
+	lines := readContainerAppConsole(t, client, rg, appName, ptrVal(app.Properties.LatestRevisionName), "client", metadata)
+	require.True(t, metadata(lines[len(lines)-1]),
 		"expected the replica's client container to read the real daprd metadata endpoint on localhost:3500")
 }

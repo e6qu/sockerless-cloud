@@ -14,6 +14,8 @@ import (
 // TestELBv2_ListenerRulesAndModifyListener covers listener-rule
 // CRUD (host-header routing) plus ModifyListener changing the default action.
 func TestELBv2_ListenerRulesAndModifyListener(t *testing.T) {
+	tgName := uniqueName("rule-tg")
+	lbName := uniqueName("rule-lb")
 	ec2c := ec2Client()
 	elb := elbv2Client()
 
@@ -26,7 +28,7 @@ func TestELBv2_ListenerRulesAndModifyListener(t *testing.T) {
 	require.NoError(t, err)
 
 	lb, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name:    aws.String("rule-lb"),
+		Name:    aws.String(lbName),
 		Type:    elbtypes.LoadBalancerTypeEnumApplication,
 		Subnets: []string{aws.ToString(sn1.Subnet.SubnetId), aws.ToString(sn2.Subnet.SubnetId)},
 	})
@@ -34,7 +36,7 @@ func TestELBv2_ListenerRulesAndModifyListener(t *testing.T) {
 	lbArn := aws.ToString(lb.LoadBalancers[0].LoadBalancerArn)
 
 	tg, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
-		Name:       aws.String("rule-tg"),
+		Name:       aws.String(tgName),
 		Protocol:   elbtypes.ProtocolEnumHttp,
 		Port:       aws.Int32(80),
 		VpcId:      aws.String(vpcID),

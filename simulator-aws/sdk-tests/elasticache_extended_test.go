@@ -16,7 +16,7 @@ func TestElastiCache_Snapshots(t *testing.T) {
 	c := ecClient()
 	ctx := t.Context()
 
-	clusterID := "snap-src-cluster"
+	clusterID := uniqueName("snap-src-cluster")
 	_, err := c.CreateCacheCluster(ctx, &elasticache.CreateCacheClusterInput{
 		CacheClusterId: aws.String(clusterID),
 		Engine:         aws.String("redis"),
@@ -30,7 +30,7 @@ func TestElastiCache_Snapshots(t *testing.T) {
 		})
 	})
 
-	snapName := "snap-one"
+	snapName := uniqueName("snap-one")
 	snap, err := c.CreateSnapshot(ctx, &elasticache.CreateSnapshotInput{
 		SnapshotName:   aws.String(snapName),
 		CacheClusterId: aws.String(clusterID),
@@ -51,7 +51,7 @@ func TestElastiCache_Snapshots(t *testing.T) {
 	require.Len(t, desc.Snapshots, 1)
 	assert.Equal(t, "redis", aws.ToString(desc.Snapshots[0].Engine))
 
-	copyName := "snap-copy"
+	copyName := uniqueName("snap-copy")
 	cp, err := c.CopySnapshot(ctx, &elasticache.CopySnapshotInput{
 		SourceSnapshotName: aws.String(snapName),
 		TargetSnapshotName: aws.String(copyName),
@@ -147,7 +147,7 @@ func TestElastiCache_ParameterDetail(t *testing.T) {
 	c := ecClient()
 	ctx := t.Context()
 
-	pgName := "param-detail-group"
+	pgName := uniqueName("param-detail-group")
 	_, err := c.CreateCacheParameterGroup(ctx, &elasticache.CreateCacheParameterGroupInput{
 		CacheParameterGroupName:   aws.String(pgName),
 		CacheParameterGroupFamily: aws.String("redis7"),
@@ -210,7 +210,7 @@ func TestElastiCache_DescribeReadOnly(t *testing.T) {
 	c := ecClient()
 	ctx := t.Context()
 
-	clusterID := "evt-cluster"
+	clusterID := uniqueName("evt-cluster")
 	_, err := c.CreateCacheCluster(ctx, &elasticache.CreateCacheClusterInput{
 		CacheClusterId: aws.String(clusterID),
 		Engine:         aws.String("redis"),

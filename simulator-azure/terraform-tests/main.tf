@@ -824,6 +824,28 @@ resource "azurerm_linux_web_app" "az_node_app" {
   }
 }
 
+# zip_deploy_file publishes the package to the app's SCM site: the provider
+# reads the Repository hostname from hostNameSslStates and the publishing
+# credentials, warms Kudu up at /deployments, posts the zip to
+# /api/zipdeploy?isAsync=true and polls /api/deployments/latest.
+resource "azurerm_linux_web_app" "az_zip_app" {
+  name                = "tf-azrm-zip-app"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  location            = azurerm_resource_group.az_rg.location
+  service_plan_id     = azurerm_service_plan.az_web_sp.id
+  zip_deploy_file     = var.zip_app_package_path
+
+  app_settings = {
+    WEBSITE_RUN_FROM_PACKAGE = "1"
+  }
+
+  site_config {
+    application_stack {
+      node_version = "20-lts"
+    }
+  }
+}
+
 resource "azurerm_linux_web_app" "az_python_app" {
   name                = "tf-azrm-python-app"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -1544,6 +1566,10 @@ output "azrm_container_function_app_hostname" {
 
 output "azrm_node_web_app_hostname" {
   value = azurerm_linux_web_app.az_node_app.default_hostname
+}
+
+output "azrm_zip_web_app_hostname" {
+  value = azurerm_linux_web_app.az_zip_app.default_hostname
 }
 
 output "azrm_python_web_app_hostname" {

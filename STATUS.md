@@ -147,6 +147,17 @@ Current state of the sockerless-cloud repository.
 - **A bucket carries Cloud Storage's default policy** from creation — the
   four legacy bindings for the project's owners, editors and viewers — so a
   client revoking what it granted sets the defaults back, never nothing.
+- **A Cloud Storage volume mount writes back as Cloud Storage FUSE does.**
+  A Cloud Run job task or service instance binds the bucket's host directory
+  (or its `only-dir` directory) into the container, read-only when the volume
+  is. While a workload mounts it writable, an inotify watch turns a close
+  after writing into a new generation conditioned on the generation the file
+  held, a `mkdir` into a placeholder object, an unlink or `rmdir` into a
+  delete and a rename into a copy and delete; the simulator's own mirror of
+  API writes is staged outside the bucket directories and renamed in, so the
+  watch never ingests it. Every Cloud Storage JSON API request first waits
+  for the events queued before it, and a task's execution completes only
+  after its writes are objects. Linux only; the rest is BUGS.md 3084.
 - **An Amazon ECR pull-through-cache reference runs its rule's upstream
   image**: the Lambda and ECS hosts resolve `<prefix>/<path>` through the
   registered rule, as ECR hydrates the cache from that upstream.
@@ -156,18 +167,38 @@ Current state of the sockerless-cloud repository.
   On, with every request on the site's hostname forwarded to it; the host
   reads no consumer-named setting and nothing from an image reference's
   spelling.
+- **A web app's SCM site serves Kudu's deployment API** at the Repository
+  hostname it reports: zip deploy and OneDeploy, authenticated with the
+  publishing credentials or a Microsoft Entra token, land the artifact
+  through the placement the Azure Resource Manager deployments use, restart
+  the site and track its start in deploymentStatus.
 - **A Cloud Run service is served at its run.app URL**: a request whose Host
   is the service's `uri` host reaches the ingress container once its startup
   probes (the configured `startupProbe`, or Cloud Run's default TCP probe)
   pass against the container's own address, and gets the container's answer
-  untouched; Cloud Functions waits on the same probe.
+  untouched. Unless the service is public, the request carries a
+  Google-signed ID token for the service whose principal holds
+  `run.routes.invoke` through the service's policy or one it inherits,
+  conditions evaluated with Common Expression Language.
+- **A Cloud Run function is served by its Cloud Run service**:
+  `serviceConfig.uri` is the service's run.app URL and `url` the function's
+  cloudfunctions.net URL, both served through the Cloud Run front end with
+  the container's answer passed through and invocation on both governed by
+  the service's IAM policy; DeleteFunction deletes the service and its
+  policy.
+- **Audited calls write Cloud Audit Logs entries**: Cloud Storage's JSON
+  API and the Cloud Run Admin v2, Pub/Sub, Secret Manager, Artifact Registry
+  and Cloud Functions v2 APIs write Admin Activity entries, and Data Access
+  entries where the project's `auditConfigs` enable them, naming the caller
+  its token resolves to; Eventarc `google.cloud.audit.log.v1.written`
+  triggers deliver the matching entries as CloudEvents.
 - **Azure workload hosts pull with what the workload declared**: a
   Container App's or Job's `registries` entry — a managed identity, as an
   identity token the registry exchanges, or a username and password secret —
   and a site's Azure Container Registry managed identity or
   `DOCKER_REGISTRY_SERVER_*` settings; nothing for an undeclared registry.
 - **Workload hosts pull as the cloud pulls**: the Cloud Run job and service
-  hosts and the Cloud Functions host present the project's Cloud Run service
+  hosts (which serve Cloud Functions too) present the project's Cloud Run service
   agent to Artifact Registry and Container Registry, and nothing to any other
   registry; the framework carries the credential as the engine's
   `RegistryAuth`.
@@ -181,8 +212,11 @@ Current state of the sockerless-cloud repository.
   Cloud KMS Key Access Justifications, Firestore's streaming REST spellings,
   and Amazon SNS SMS and mobile push. Each answers by naming what is missing.
 - **Memorystore for Redis** instances and Memorystore for Redis Cluster
-  clusters run a real Redis engine at the endpoints the API reports; exports,
-  imports and backups move the engine's own RDB snapshots through Cloud
+  clusters run a real Redis engine, one container per node, at the endpoints
+  the API reports; replica-count and shard-count updates reshape the running
+  engine, TLS comes from the server CA the API reports, IAM and token auth are
+  enforced, persistence runs as configured, and exports, imports, backups and
+  cluster import sources move the engine's own RDB snapshots through Cloud
   Storage.
 
 ## Gates

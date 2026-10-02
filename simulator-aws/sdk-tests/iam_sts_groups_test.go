@@ -27,7 +27,7 @@ func errCodeOf(err error) string {
 // policies — and that GetCallerIdentity reports the assumed-role ARN.
 func TestSTS_AssumeRoleEnforcement(t *testing.T) {
 	admin := iamClient()
-	role := "sts-enf-role"
+	role := uniqueName("sts-enf-role")
 
 	_, err := admin.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName: aws.String(role),
@@ -74,7 +74,7 @@ func TestSTS_AssumeRoleEnforcement(t *testing.T) {
 // policies under enforcement.
 func TestIAM_GroupInheritanceEnforcement(t *testing.T) {
 	admin := iamClient()
-	user, group := "grp-user", "describe-group"
+	user, group := uniqueName("grp-user"), uniqueName("describe-group")
 
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
@@ -108,8 +108,9 @@ func TestIAM_GroupInheritanceEnforcement(t *testing.T) {
 // TestIAM_PermissionBoundaryEnforcement proves a permission boundary caps a
 // user whose identity policy is broader than the boundary.
 func TestIAM_PermissionBoundaryEnforcement(t *testing.T) {
+	boundaryPolicy := uniqueName("describe-boundary")
 	admin := iamClient()
-	user := "boundary-user"
+	user := uniqueName("boundary-user")
 
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
@@ -125,7 +126,7 @@ func TestIAM_PermissionBoundaryEnforcement(t *testing.T) {
 
 	// Boundary allows only ec2:Describe*.
 	boundary, err := admin.CreatePolicy(ctx, &iam.CreatePolicyInput{
-		PolicyName:     aws.String("describe-boundary"),
+		PolicyName:     aws.String(boundaryPolicy),
 		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:Describe*","Resource":"*"}]}`),
 	})
 	require.NoError(t, err)

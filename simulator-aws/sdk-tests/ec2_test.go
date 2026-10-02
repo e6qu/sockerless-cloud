@@ -408,7 +408,7 @@ func TestEC2_RunInstancesClientTokenReplayReportsLaunchState(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	token := "replay-token-run-instances"
+	token := uniqueName("replay-token-run-instances")
 	input := &ec2.RunInstancesInput{
 		ImageId:      aws.String("ami-replay1234"),
 		InstanceType: types.InstanceTypeT3Micro,

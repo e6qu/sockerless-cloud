@@ -130,9 +130,10 @@ func TestMemorystoreRedis_ClusterLifecycle(t *testing.T) {
 	id := "test-cluster"
 
 	op, err := svc.Projects.Locations.Clusters.Create(parent, &redis.Cluster{
-		ShardCount:   3,
-		ReplicaCount: 1,
-		NodeType:     "REDIS_HIGHMEM_MEDIUM",
+		ShardCount:            3,
+		ReplicaCount:          1,
+		NodeType:              "REDIS_HIGHMEM_MEDIUM",
+		TransitEncryptionMode: "TRANSIT_ENCRYPTION_MODE_SERVER_AUTHENTICATION",
 	}).ClusterId(id).Do()
 	require.NoError(t, err)
 	awaitRedisLRO(t, svc, op)

@@ -81,7 +81,7 @@ func TestElastiCache_ServerlessSnapshots(t *testing.T) {
 	c := ecClient()
 	ctx := t.Context()
 
-	cacheName := "sl-snap-cache"
+	cacheName := uniqueName("sl-snap-cache")
 	_, err := c.CreateServerlessCache(ctx, &elasticache.CreateServerlessCacheInput{
 		ServerlessCacheName: aws.String(cacheName),
 		Engine:              aws.String("valkey"),
@@ -94,7 +94,7 @@ func TestElastiCache_ServerlessSnapshots(t *testing.T) {
 		})
 	})
 
-	snapName := "sl-snap-one"
+	snapName := uniqueName("sl-snap-one")
 	snap, err := c.CreateServerlessCacheSnapshot(ctx, &elasticache.CreateServerlessCacheSnapshotInput{
 		ServerlessCacheSnapshotName: aws.String(snapName),
 		ServerlessCacheName:         aws.String(cacheName),
@@ -117,7 +117,7 @@ func TestElastiCache_ServerlessSnapshots(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, descS.ServerlessCacheSnapshots, 1)
 
-	copyName := "sl-snap-copy"
+	copyName := uniqueName("sl-snap-copy")
 	cp, err := c.CopyServerlessCacheSnapshot(ctx, &elasticache.CopyServerlessCacheSnapshotInput{
 		SourceServerlessCacheSnapshotName: aws.String(snapName),
 		TargetServerlessCacheSnapshotName: aws.String(copyName),
@@ -148,10 +148,11 @@ func TestElastiCache_ServerlessSnapshots(t *testing.T) {
 // failover, node-group increase/decrease, rebalance, disassociate, and
 // delete.
 func TestElastiCache_GlobalReplicationGroup(t *testing.T) {
+	globalSuffix := uniqueName("myglobal")
 	c := ecClient()
 	ctx := t.Context()
 
-	primary := "grg-primary"
+	primary := uniqueName("grg-primary")
 	_, err := c.CreateReplicationGroup(ctx, &elasticache.CreateReplicationGroupInput{
 		ReplicationGroupId:          aws.String(primary),
 		ReplicationGroupDescription: aws.String("primary for global"),
@@ -167,7 +168,7 @@ func TestElastiCache_GlobalReplicationGroup(t *testing.T) {
 	})
 
 	created, err := c.CreateGlobalReplicationGroup(ctx, &elasticache.CreateGlobalReplicationGroupInput{
-		GlobalReplicationGroupIdSuffix:    aws.String("myglobal"),
+		GlobalReplicationGroupIdSuffix:    aws.String(globalSuffix),
 		PrimaryReplicationGroupId:         aws.String(primary),
 		GlobalReplicationGroupDescription: aws.String("global datastore"),
 	})
@@ -288,7 +289,7 @@ func TestElastiCache_UpdateActions(t *testing.T) {
 	c := ecClient()
 	ctx := t.Context()
 
-	clusterID := "ua-cluster"
+	clusterID := uniqueName("ua-cluster")
 	_, err := c.CreateCacheCluster(ctx, &elasticache.CreateCacheClusterInput{
 		CacheClusterId: aws.String(clusterID),
 		Engine:         aws.String("redis"),
@@ -336,7 +337,7 @@ func TestElastiCache_ReplicaAndShardConfig(t *testing.T) {
 	c := ecClient()
 	ctx := t.Context()
 
-	rgID := "rsc-group"
+	rgID := uniqueName("rsc-group")
 	_, err := c.CreateReplicationGroup(ctx, &elasticache.CreateReplicationGroupInput{
 		ReplicationGroupId:          aws.String(rgID),
 		ReplicationGroupDescription: aws.String("replica/shard tests"),
@@ -412,6 +413,7 @@ func TestElastiCache_ReplicaAndShardConfig(t *testing.T) {
 // ListAllowedNodeTypeModifications and
 // PurchaseReservedCacheNodesOffering.
 func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
+	reservationID := uniqueName("my-reservation")
 	c := ecClient()
 	ctx := t.Context()
 
@@ -430,12 +432,12 @@ func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
 
 	purchased, err := c.PurchaseReservedCacheNodesOffering(ctx, &elasticache.PurchaseReservedCacheNodesOfferingInput{
 		ReservedCacheNodesOfferingId: offering.ReservedCacheNodesOfferingId,
-		ReservedCacheNodeId:          aws.String("my-reservation"),
+		ReservedCacheNodeId:          aws.String(reservationID),
 		CacheNodeCount:               aws.Int32(1),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, purchased.ReservedCacheNode)
-	assert.Equal(t, "my-reservation", aws.ToString(purchased.ReservedCacheNode.ReservedCacheNodeId))
+	assert.Equal(t, reservationID, aws.ToString(purchased.ReservedCacheNode.ReservedCacheNodeId))
 	assert.Equal(t, int32(1), aws.ToInt32(purchased.ReservedCacheNode.CacheNodeCount))
 	assert.Equal(t, aws.ToString(offering.CacheNodeType), aws.ToString(purchased.ReservedCacheNode.CacheNodeType))
 	assert.Equal(t, aws.ToString(offering.ProductDescription), aws.ToString(purchased.ReservedCacheNode.ProductDescription))
@@ -444,7 +446,7 @@ func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
 	// What was bought can be read back. A purchase the account cannot see
 	// afterwards is a receipt for nothing.
 	held, err := c.DescribeReservedCacheNodes(ctx, &elasticache.DescribeReservedCacheNodesInput{
-		ReservedCacheNodeId: aws.String("my-reservation"),
+		ReservedCacheNodeId: aws.String(reservationID),
 	})
 	require.NoError(t, err)
 	require.Len(t, held.ReservedCacheNodes, 1)

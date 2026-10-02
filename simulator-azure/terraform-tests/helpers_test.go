@@ -380,6 +380,9 @@ func azureGatewayDataPlaneEndpoints(port int) string {
 		ServiceBus string            `json:"serviceBus,omitempty"`
 		EventGrid  string            `json:"eventGrid,omitempty"`
 		ACR        string            `json:"acr,omitempty"`
+		// AppServiceScm is a web app's SCM (Kudu) site, where
+		// zip_deploy_file publishes.
+		AppServiceScm string `json:"appServiceScm,omitempty"`
 	}{
 		Storage: map[string]string{
 			"blob":  fmt.Sprintf("https://{account}.blob.%s/", host),
@@ -389,10 +392,11 @@ func azureGatewayDataPlaneEndpoints(port int) string {
 			"web":   fmt.Sprintf("https://{account}.web.%s/", host),
 			"dfs":   fmt.Sprintf("https://{account}.dfs.%s/", host),
 		},
-		KeyVault:   fmt.Sprintf("https://{vault}.vault.%s/", host),
-		ServiceBus: fmt.Sprintf("https://{namespace}.servicebus.%s/", host),
-		EventGrid:  fmt.Sprintf("https://{topic}.eventgrid.%s/api/events", host),
-		ACR:        fmt.Sprintf("https://{name}.azurecr.%s/", host),
+		KeyVault:      fmt.Sprintf("https://{vault}.vault.%s/", host),
+		ServiceBus:    fmt.Sprintf("https://{namespace}.servicebus.%s/", host),
+		EventGrid:     fmt.Sprintf("https://{topic}.eventgrid.%s/api/events", host),
+		ACR:           fmt.Sprintf("https://{name}.azurecr.%s/", host),
+		AppServiceScm: fmt.Sprintf("https://{name}.scm.%s/", host),
 	}
 	data, err := json.Marshal(cfg)
 	if err != nil {
@@ -586,6 +590,9 @@ func terraformCmd(dir string, args ...string) *exec.Cmd {
 	)
 	if nodeAppPackageURL != "" {
 		cmd.Env = append(cmd.Env, "TF_VAR_node_app_package_url="+nodeAppPackageURL)
+	}
+	if zipAppPackagePath != "" {
+		cmd.Env = append(cmd.Env, "TF_VAR_zip_app_package_path="+zipAppPackagePath)
 	}
 	if v := os.Getenv("TF_LOG"); v != "" {
 		cmd.Env = append(cmd.Env, "TF_LOG="+v)

@@ -15,18 +15,20 @@ import (
 // dropped, drifting aws_iam_role every plan), plus UpdateRole and TagRole/
 // UntagRole (post-create attribute + tag changes were UnknownOperation).
 func TestIAM_RoleFidelitySDK(t *testing.T) {
+	roleName := uniqueName("fidelity-role")
+	boundaryName := uniqueName("fidelity-boundary")
 	c := iamClient()
 	assumeDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 
 	boundary, err := c.CreatePolicy(ctx, &iam.CreatePolicyInput{
-		PolicyName:     aws.String("fidelity-boundary"),
+		PolicyName:     aws.String(boundaryName),
 		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`),
 	})
 	require.NoError(t, err)
 	boundaryArn := aws.ToString(boundary.Policy.Arn)
 
 	_, err = c.CreateRole(ctx, &iam.CreateRoleInput{
-		RoleName:                 aws.String("fidelity-role"),
+		RoleName:                 aws.String(roleName),
 		AssumeRolePolicyDocument: aws.String(assumeDoc),
 		Description:              aws.String("controls the reconciler"),
 		MaxSessionDuration:       aws.Int32(7200),
@@ -35,7 +37,7 @@ func TestIAM_RoleFidelitySDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	got, err := c.GetRole(ctx, &iam.GetRoleInput{RoleName: aws.String("fidelity-role")})
+	got, err := c.GetRole(ctx, &iam.GetRoleInput{RoleName: aws.String(roleName)})
 	require.NoError(t, err)
 	role := got.Role
 	assert.Equal(t, "controls the reconciler", aws.ToString(role.Description), "description must round-trip")
@@ -47,21 +49,21 @@ func TestIAM_RoleFidelitySDK(t *testing.T) {
 
 	// UpdateRole changes description + max-session-duration in place.
 	_, err = c.UpdateRole(ctx, &iam.UpdateRoleInput{
-		RoleName: aws.String("fidelity-role"), Description: aws.String("updated desc"), MaxSessionDuration: aws.Int32(3600),
+		RoleName: aws.String(roleName), Description: aws.String("updated desc"), MaxSessionDuration: aws.Int32(3600),
 	})
 	require.NoError(t, err)
-	got2, err := c.GetRole(ctx, &iam.GetRoleInput{RoleName: aws.String("fidelity-role")})
+	got2, err := c.GetRole(ctx, &iam.GetRoleInput{RoleName: aws.String(roleName)})
 	require.NoError(t, err)
 	assert.Equal(t, "updated desc", aws.ToString(got2.Role.Description), "UpdateRole description must persist")
 	assert.Equal(t, int32(3600), aws.ToInt32(got2.Role.MaxSessionDuration), "UpdateRole max_session_duration must persist")
 
 	// TagRole adds a tag (upsert), UntagRole removes one.
 	_, err = c.TagRole(ctx, &iam.TagRoleInput{
-		RoleName: aws.String("fidelity-role"),
+		RoleName: aws.String(roleName),
 		Tags:     []iamtypes.Tag{{Key: aws.String("env"), Value: aws.String("ci")}, {Key: aws.String("team"), Value: aws.String("infra")}},
 	})
 	require.NoError(t, err)
-	got3, err := c.GetRole(ctx, &iam.GetRoleInput{RoleName: aws.String("fidelity-role")})
+	got3, err := c.GetRole(ctx, &iam.GetRoleInput{RoleName: aws.String(roleName)})
 	require.NoError(t, err)
 	tags := map[string]string{}
 	for _, tag := range got3.Role.Tags {
@@ -70,9 +72,9 @@ func TestIAM_RoleFidelitySDK(t *testing.T) {
 	assert.Equal(t, "ci", tags["env"], "TagRole adds new tag")
 	assert.Equal(t, "infra", tags["team"], "TagRole overwrites existing tag value")
 
-	_, err = c.UntagRole(ctx, &iam.UntagRoleInput{RoleName: aws.String("fidelity-role"), TagKeys: []string{"env"}})
+	_, err = c.UntagRole(ctx, &iam.UntagRoleInput{RoleName: aws.String(roleName), TagKeys: []string{"env"}})
 	require.NoError(t, err)
-	got4, err := c.GetRole(ctx, &iam.GetRoleInput{RoleName: aws.String("fidelity-role")})
+	got4, err := c.GetRole(ctx, &iam.GetRoleInput{RoleName: aws.String(roleName)})
 	require.NoError(t, err)
 	for _, tag := range got4.Role.Tags {
 		assert.NotEqual(t, "env", aws.ToString(tag.Key), "UntagRole removed the key")
@@ -85,7 +87,7 @@ func TestIAM_OIDCProviderTagsSDK(t *testing.T) {
 	c := iamClient()
 
 	created, err := c.CreateOpenIDConnectProvider(ctx, &iam.CreateOpenIDConnectProviderInput{
-		Url:            aws.String("https://oidc.fidelity.example.test"),
+		Url:            aws.String("https://" + uniqueName("oidc-fidelity") + ".example.test"),
 		ClientIDList:   []string{"sts.amazonaws.com"},
 		ThumbprintList: []string{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		Tags:           []iamtypes.Tag{{Key: aws.String("purpose"), Value: aws.String("github-actions")}},

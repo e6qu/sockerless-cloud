@@ -152,6 +152,7 @@ lives.
 | `azure-compute_vm_operations` | [`azure-compute_vm_operations`](SIM_SURFACE_TABLES/azure-compute_vm_operations.md) | [`azure-compute_vm_operations`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute_vm_patches` | [`azure-compute_vm_patches`](SIM_SURFACE_TABLES/azure-compute_vm_patches.md) | [`azure-compute_vm_patches`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-containerapps` | [`azure-containerapps`](SIM_SURFACE_TABLES/azure-containerapps.md) | [`azure-containerapps`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-containerapps_replicas` | [`azure-containerapps_replicas`](SIM_SURFACE_TABLES/azure-containerapps_replicas.md) | [`azure-containerapps_replicas`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-containerinstance` | [`azure-containerinstance`](SIM_SURFACE_TABLES/azure-containerinstance.md) | [`azure-containerinstance`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-cosmos` | [`azure-cosmos`](SIM_SURFACE_TABLES/azure-cosmos.md) | [`azure-cosmos`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-dns` | [`azure-dns`](SIM_SURFACE_TABLES/azure-dns.md) | [`azure-dns`](SIM_TEST_COVERAGE_MATRIX.md) |

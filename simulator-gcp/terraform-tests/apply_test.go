@@ -201,6 +201,13 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	gcfFunctionID := outputs.must(t, "cloudfunctions2_function_id")
 	require.Contains(t, gcfFunctionID, "projects/test-project/locations/us-central1/functions/tf-gcfv2-function",
 		"Cloud Functions v2 id must round-trip the full resource path; got %s", gcfFunctionID)
+	require.Equal(t, "https://us-central1-test-project.cloudfunctions.net/tf-gcfv2-function",
+		outputs.must(t, "cloudfunctions2_function_url"), "the function's url is its cloudfunctions.net URL")
+	require.Equal(t, "projects/test-project/locations/us-central1/services/tf-gcfv2-function",
+		outputs.must(t, "cloudfunctions2_function_service"), "service_config.service names the Cloud Run service that serves the function")
+	gcfServiceURI := outputs.must(t, "cloudfunctions2_function_service_uri")
+	require.True(t, strings.HasPrefix(gcfServiceURI, "https://tf-gcfv2-function-") && strings.HasSuffix(gcfServiceURI, "-us-central1.a.run.app"),
+		"service_config.uri is the run.app URL of the function's service; got %s", gcfServiceURI)
 
 	eventarcID := outputs.must(t, "eventarc_trigger_id")
 	require.Contains(t, eventarcID, "projects/test-project/locations/us-central1/triggers/tf-eventarc-trigger",

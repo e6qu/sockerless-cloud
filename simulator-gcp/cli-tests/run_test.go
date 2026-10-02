@@ -110,7 +110,7 @@ func TestCloudRun_CLI_RunJobAndCheckLogs(t *testing.T) {
 	// Poll Cloud Logging until the job's real output is ingested.
 	require.Eventually(t, func() bool {
 		out = runCLI(t, gcloudCLI("logging", "read",
-			`resource.type="cloud_run_job" AND resource.labels.job_name="cli-run-job"`,
+			`logName:"run.googleapis.com" AND resource.type="cloud_run_job" AND resource.labels.job_name="cli-run-job"`,
 			"--format", "json",
 		))
 		return strings.Contains(out, "hello-from-crj")

@@ -487,6 +487,7 @@ func hasNonStorageAzureSubdomain(hostname string) bool {
 		".redis.cache.",
 		".postgres.database.",
 		".azurewebsites.",
+		".scm.",
 		".azurecr.",
 		".azure-api.",
 		".azurecontainerapps.",

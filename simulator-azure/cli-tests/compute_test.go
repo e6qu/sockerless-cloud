@@ -124,6 +124,20 @@ func azLongRunning(t *testing.T, rest func(method, url, body string, extra ...st
 	}
 }
 
+// azLocationResult reads a long-running operation's Location the way the Azure
+// SDK's pollers do: a 202 means the operation is still running, so wait its
+// Retry-After and read again; any other answer carries the operation's result.
+func azLocationResult(t *testing.T, location string) string {
+	t.Helper()
+	for {
+		stdout, stderr := runCLIStreams(t, azRest("GET", location, "", "--debug"))
+		if azDebugResponseStatus(t, stderr) != "202" {
+			return stdout
+		}
+		azAwaitRetryAfter(t, stderr)
+	}
+}
+
 // azAwaitRetryAfter waits the interval a running operation's poll advertised.
 func azAwaitRetryAfter(t *testing.T, debugLog string) {
 	t.Helper()

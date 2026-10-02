@@ -3,9 +3,11 @@ package azure_sdk_test
 import (
 	"context"
 	"crypto/tls"
+	"strings"
 	"testing"
 	"time"
 
+	azlog "github.com/Azure/azure-sdk-for-go/sdk/azcore/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
@@ -77,6 +79,24 @@ func TestEventHubsSDK_StartPositions(t *testing.T) {
 	assert.Equal(t, "one", string(got.Body))
 	assert.Equal(t, int64(1), got.SequenceNumber)
 
+	// azeventhubs attaches a partition receiver lazily inside ReceiveEvents,
+	// and Latest means the end of the partition when that attach completes.
+	// The client reports the completed attach through its azcore log, so the
+	// event goes out only after the receiver is in place.
+	attached := make(chan struct{}, 1)
+	azlog.SetEvents(azeventhubs.EventConn)
+	azlog.SetListener(func(_ azlog.Event, message string) {
+		if strings.Contains(message, "created link for partition ID '0'") {
+			select {
+			case attached <- struct{}{}:
+			default:
+			}
+		}
+	})
+	t.Cleanup(func() {
+		azlog.SetListener(nil)
+		azlog.SetEvents()
+	})
 	latest, err := consumer.NewPartitionClient("0", &azeventhubs.PartitionClientOptions{
 		StartPosition: azeventhubs.StartPosition{Latest: to.Ptr(true)},
 	})
@@ -92,7 +112,11 @@ func TestEventHubsSDK_StartPositions(t *testing.T) {
 		}
 		close(received)
 	}()
-	time.Sleep(500 * time.Millisecond)
+	select {
+	case <-attached:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the Latest consumer never attached its receiver")
+	}
 	send("two")
 	event, ok := <-received
 	require.True(t, ok, "a consumer starting at the latest event receives the one published after it attached")

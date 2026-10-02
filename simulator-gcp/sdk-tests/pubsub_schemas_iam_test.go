@@ -19,12 +19,13 @@ func TestPubSub_SchemaLifecycle(t *testing.T) {
 	svc := pubsubService(t)
 	const project = "schema-project"
 	parent := "projects/" + project
-	schemaName := parent + "/schemas/avro-schema"
+	schemaID := uniqueName("avro-schema")
+	schemaName := parent + "/schemas/" + schemaID
 
 	created, err := svc.Projects.Schemas.Create(parent, &pubsub.Schema{
 		Type:       "AVRO",
 		Definition: avroDef,
-	}).SchemaId("avro-schema").Do()
+	}).SchemaId(schemaID).Do()
 	require.NoError(t, err)
 	assert.Equal(t, schemaName, created.Name)
 	assert.Equal(t, "AVRO", created.Type)
@@ -141,9 +142,10 @@ func TestPubSub_SchemaValidate(t *testing.T) {
 	require.NoError(t, err, "validateMessage accepts an ad-hoc schema + message")
 
 	// validateMessage against a named schema.
-	named := parent + "/schemas/named-for-validate"
+	namedID := uniqueName("named-for-validate")
+	named := parent + "/schemas/" + namedID
 	_, err = svc.Projects.Schemas.Create(parent, &pubsub.Schema{Type: "AVRO", Definition: avroDef}).
-		SchemaId("named-for-validate").Do()
+		SchemaId(namedID).Do()
 	require.NoError(t, err)
 	_, err = svc.Projects.Schemas.ValidateMessage(parent, &pubsub.ValidateMessageRequest{
 		Name:     named,
@@ -185,9 +187,10 @@ func TestPubSub_SchemaIAM(t *testing.T) {
 	svc := pubsubService(t)
 	const project = "schema-iam-project"
 	parent := "projects/" + project
-	name := parent + "/schemas/iam-schema"
+	schemaID := uniqueName("iam-schema")
+	name := parent + "/schemas/" + schemaID
 	_, err := svc.Projects.Schemas.Create(parent, &pubsub.Schema{Type: "AVRO", Definition: avroDef}).
-		SchemaId("iam-schema").Do()
+		SchemaId(schemaID).Do()
 	require.NoError(t, err)
 	assertIAMRoundTrip(t,
 		func() (*pubsub.Policy, error) { return svc.Projects.Schemas.GetIamPolicy(name).Do() },
@@ -207,9 +210,9 @@ func TestPubSub_ResourceIAM(t *testing.T) {
 	svc := pubsubService(t)
 	const project = "ps-iam-project"
 	parent := "projects/" + project
-	topic := parent + "/topics/iam-topic"
-	sub := parent + "/subscriptions/iam-sub"
-	snap := parent + "/snapshots/iam-snap"
+	topic := parent + "/topics/" + uniqueName("iam-topic")
+	sub := parent + "/subscriptions/" + uniqueName("iam-sub")
+	snap := parent + "/snapshots/" + uniqueName("iam-snap")
 
 	_, err := svc.Projects.Topics.Create(topic, &pubsub.Topic{}).Do()
 	require.NoError(t, err)
@@ -303,9 +306,9 @@ func TestPubSub_TopicSubCollections(t *testing.T) {
 	svc := pubsubService(t)
 	const project = "ps-subcoll-project"
 	parent := "projects/" + project
-	topic := parent + "/topics/subcoll-topic"
-	sub := parent + "/subscriptions/subcoll-sub"
-	snap := parent + "/snapshots/subcoll-snap"
+	topic := parent + "/topics/" + uniqueName("subcoll-topic")
+	sub := parent + "/subscriptions/" + uniqueName("subcoll-sub")
+	snap := parent + "/snapshots/" + uniqueName("subcoll-snap")
 
 	_, err := svc.Projects.Topics.Create(topic, &pubsub.Topic{}).Do()
 	require.NoError(t, err)
@@ -329,8 +332,8 @@ func TestPubSub_ModifyPushConfigAndDetach(t *testing.T) {
 	svc := pubsubService(t)
 	const project = "ps-detach-project"
 	parent := "projects/" + project
-	topic := parent + "/topics/detach-topic"
-	sub := parent + "/subscriptions/detach-sub"
+	topic := parent + "/topics/" + uniqueName("detach-topic")
+	sub := parent + "/subscriptions/" + uniqueName("detach-sub")
 
 	_, err := svc.Projects.Topics.Create(topic, &pubsub.Topic{}).Do()
 	require.NoError(t, err)
@@ -366,9 +369,9 @@ func TestPubSub_SnapshotPatch(t *testing.T) {
 	svc := pubsubService(t)
 	const project = "ps-snappatch-project"
 	parent := "projects/" + project
-	topic := parent + "/topics/snappatch-topic"
-	sub := parent + "/subscriptions/snappatch-sub"
-	snap := parent + "/snapshots/snappatch-snap"
+	topic := parent + "/topics/" + uniqueName("snappatch-topic")
+	sub := parent + "/subscriptions/" + uniqueName("snappatch-sub")
+	snap := parent + "/snapshots/" + uniqueName("snappatch-snap")
 
 	_, err := svc.Projects.Topics.Create(topic, &pubsub.Topic{}).Do()
 	require.NoError(t, err)

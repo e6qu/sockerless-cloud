@@ -148,7 +148,9 @@ SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON='{
   },
   "keyVault": "https://{vault}.vault.shim.azure.local/",
   "serviceBus": "https://{namespace}.servicebus.shim.azure.local/",
-  "eventGrid": "https://{topic}.eventgrid.shim.azure.local/api/events"
+  "eventGrid": "https://{topic}.eventgrid.shim.azure.local/api/events",
+  "acr": "https://{name}.azurecr.shim.azure.local/",
+  "appServiceScm": "https://{name}.scm.shim.azure.local/"
 }' ./simulator-azure
 ```
 
@@ -157,8 +159,14 @@ Supported template variables are `{name}`, `{account}`, `{vault}`,
 and `{port}`. Storage Account ARM responses fill `properties.primaryEndpoints`,
 Key Vault fills `properties.vaultUri`, Service Bus and Event Hubs fill
 `serviceBusEndpoint` plus listKeys connection strings, Event Grid fills topic
-and domain publish endpoints, and `/metadata/endpoints` emits matching storage
+and domain publish endpoints, Azure Container Registry fills `loginServer`, App
+Service web apps report the `appServiceScm` host as their SCM (Kudu) site — the
+Repository entry of `hostNameSslStates`, which `az webapp deploy`, `az webapp
+deployment source config-zip` and terraform-provider-azurerm's
+`zip_deploy_file` deploy to — and `/metadata/endpoints` emits matching storage
 and Key Vault suffixes for Azure clients that validate custom-cloud metadata.
+Without an `appServiceScm` template, a web app's SCM host is its subdomain of
+the ARM request host, such as `myapp.scm.localhost:4568`.
 
 ```bash
 # 2. Point Azure clients at it.
@@ -246,7 +254,7 @@ verifiers can validate requests signed with the simulator-emitted account key.
 |---|---|
 | **Log Analytics Workspaces** | CRUD, Shared keys |
 | **Log Ingestion** | POST entries via data collection rules |
-| **Log Query** | KQL query execution (simple `where`/`take` parsing) |
+| **Log Query** | KQL query execution: `where`, `take`/`limit`, `project`, `project-away`, `project-rename`, `extend`, `order by`/`sort by`, `top`, `count`, `summarize`, `distinct`; refused queries answer `BadArgumentError` |
 | **Application Insights** | Component CRUD, Billing features, Query |
 
 ### DNS
@@ -333,7 +341,7 @@ Active Azure simulator bugs live in [BUGS.md](../BUGS.md). On macOS the Terrafor
 
 ## What's out of scope
 
-- **Full KQL**: the query engine handles `where` with `==`, `>` and `>=` predicates (including `datetime()` bounds), `project`, `take` and `limit`; `order by` is accepted and ignored.
+- **Full KQL**: the query engine runs a single tabular expression over one table with the operators `where`, `take`/`limit`, `project`, `project-away`, `project-rename`, `extend`, `order by`/`sort by`, `top`, `count`, `summarize` (`count`, `countif`, `dcount`, `sum`, `avg`, `min`, `max`) and `distinct`, the comparison, string and set operators, and a core set of scalar functions. `let`, `join`, `union` and every other operator or function answer the service's `SyntaxError` or `SemanticError` rather than running.
 - **gRPC for Application Insights ingestion**: REST only.
 - **Multi-region replication / availability zones**.
 - **Cost / billing surfaces**.
@@ -428,7 +436,7 @@ az rest --method POST \
   --url "http://localhost:4568/dataCollectionRules/dcr-1/streams/Custom-Logs" \
   --body '[{"TimeGenerated":"2025-01-01T00:00:00Z","ContainerGroupName_s":"my-job","Log_s":"running","Stream_s":"stdout"}]'
 
-# KQL query (supports where, take/limit, datetime filters)
+# KQL query
 az rest --method POST --url "http://localhost:4568/v1/workspaces/default/query" \
   --body '{"query": "ContainerAppConsoleLogs_CL | where ContainerGroupName_s == \"my-job\" | take 100"}'
 ```

@@ -257,11 +257,18 @@ func sbEnqueue(namespace, path string, out sbOutgoing, now time.Time) (uint64, b
 	})
 	if !dup {
 		if out.delay > 0 {
-			bg.AfterFunc(out.delay, func() { sbNotifyReceivers(namespace, path) })
+			sbNotifyReceiversAt(namespace, path, stored.AvailableAt)
 		}
 		sbSignalEnqueue(namespace, path)
 	}
 	return stored.Seq, dup
+}
+
+// sbNotifyReceiversAt hands an entity's waiting receivers its messages at the
+// millisecond the queue stored as a message's next availability, which can
+// fall after the duration that set it.
+func sbNotifyReceiversAt(namespace, path string, availableAt int64) {
+	bg.AfterFunc(max(time.Until(time.UnixMilli(availableAt)), 0), func() { sbNotifyReceivers(namespace, path) })
 }
 
 // sbSchedule enqueues messages at their scheduled enqueue time and returns
@@ -351,7 +358,7 @@ func sbReceive(namespace, path, session string, max int, peekLock bool) ([]msgq.
 	})
 	if peekLock && len(got.Leased) > 0 {
 		// Hand the messages to waiting receivers again once their locks run out.
-		bg.AfterFunc(settings.lock, func() { sbNotifyReceivers(namespace, path) })
+		sbNotifyReceiversAt(namespace, path, got.Leased[0].AvailableAt)
 	}
 	sbDeadLetter(namespace, path, got.DeadLettered, "MaxDeliveryCountExceeded",
 		"Message could not be consumed after "+strconv.Itoa(settings.maxDelivery)+" delivery attempts.")
@@ -465,13 +472,14 @@ func sbRenewLock(namespace, path, lockToken string) (time.Time, error) {
 	settings := sbSettings(namespace, path)
 	now := time.Now()
 	var held bool
+	var locked msgq.Message[sbPayload]
 	sbQueueDurable.Update(sbQueueKey(namespace, path), func(rec *sbQueueRecord) {
-		_, _, held = rec.Queue.Extend(lockToken, settings.lock, settings.policy(), now)
+		locked, _, held = rec.Queue.Extend(lockToken, settings.lock, settings.policy(), now)
 	})
 	if !held {
 		return time.Time{}, errSBLockLost
 	}
-	bg.AfterFunc(settings.lock, func() { sbNotifyReceivers(namespace, path) })
+	sbNotifyReceiversAt(namespace, path, locked.AvailableAt)
 	return now.Add(settings.lock), nil
 }
 

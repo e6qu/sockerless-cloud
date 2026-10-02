@@ -22,12 +22,13 @@ import (
 // Scaling engine (AnyScaleFrontendService) reading CloudWatch Metrics and
 // driving ECS UpdateService — the runner-platform autoscaling flow end-to-end.
 func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
+	family := uniqueName("as-track-task")
 	ecsC := ecsClient()
 	cwC := cloudwatchClient()
 	asC := appAutoScalingClient()
 
-	cluster := "as-track-cluster"
-	svcName := "as-track-svc"
+	cluster := uniqueName("as-track-cluster")
+	svcName := uniqueName("as-track-svc")
 	resourceID := "service/" + cluster + "/" + svcName
 	const (
 		ns   = aastypes.ServiceNamespaceEcs
@@ -40,7 +41,7 @@ func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = ecsC.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String("as-track-task"),
+		Family: aws.String(family),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
@@ -51,7 +52,7 @@ func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
 	_, err = ecsC.CreateService(ctx, &ecs.CreateServiceInput{
 		Cluster:        aws.String(cluster),
 		ServiceName:    aws.String(svcName),
-		TaskDefinition: aws.String("as-track-task"),
+		TaskDefinition: aws.String(family),
 		DesiredCount:   aws.Int32(1),
 	})
 	require.NoError(t, err)

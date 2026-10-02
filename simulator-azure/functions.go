@@ -310,6 +310,7 @@ func registerAzureFunctions(srv *sim.Server) {
 		// the sim's TCP address but set Host = `<name>.azurewebsites.net`;
 		// the invoke handler matches that against DefaultHostName.
 		defaultHostName := name + ".azurewebsites.net"
+		scmHostName := azureAppServiceScmHost(r, name)
 
 		// Default the ARM-computed site properties the provider reads back
 		// when the request omits them, so a post-apply GET echoes the same
@@ -355,8 +356,8 @@ func registerAzureFunctions(srv *sim.Server) {
 				DefaultHostName:           defaultHostName,
 				HostNames:                 []string{defaultHostName},
 				Enabled:                   true,
-				EnabledHostNames:          []string{defaultHostName, name + ".scm.azurewebsites.net"},
-				HostNameSslStates:         siteHostNameSslStates(defaultHostName, name+".scm.azurewebsites.net"),
+				EnabledHostNames:          []string{defaultHostName, scmHostName},
+				HostNameSslStates:         siteHostNameSslStates(defaultHostName, scmHostName),
 				ServerFarmID:              req.Properties.ServerFarmID,
 				SKU:                       webPlanSKUFor(req.Properties.ServerFarmID),
 				Reserved:                  req.Properties.Reserved,
@@ -624,12 +625,7 @@ func registerAzureFunctions(srv *sim.Server) {
 					"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
 				return
 			}
-			sim.WriteJSON(w, http.StatusOK, map[string]any{
-				"id":         resourceID + "/basicPublishingCredentialsPolicies/" + policyName,
-				"name":       policyName,
-				"type":       "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
-				"properties": map[string]any{"allow": true},
-			})
+			sim.WriteJSON(w, http.StatusOK, basicPubCredsResource(resourceID, policyName))
 		}
 	}
 	srv.HandleFunc("GET "+armBase+"/sites/{siteName}/basicpublishingcredentialspolicies/ftp", basicPubCredsHandler("ftp"))
@@ -732,14 +728,15 @@ func registerAzureFunctions(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "siteName")
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
-		if _, ok := sites.Get(resourceID); !ok {
+		site, ok := sites.Get(resourceID)
+		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
-		user := "$" + name
+		user := webPublishingUserName(&site)
 		password := webPublishingPassword(resourceID)
-		scmURI := fmt.Sprintf("https://%s:%s@%s.scm.azurewebsites.net", user, password, name)
+		scmURI := webPublishingScmURI(&site, user, password)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"id":   resourceID + "/config/publishingcredentials",
 			"name": "publishingcredentials",
@@ -754,6 +751,7 @@ func registerAzureFunctions(srv *sim.Server) {
 
 	registerSiteConfigHandlers(srv, armBase, sites)
 	registerAppServiceFrontEnd(srv)
+	registerAppServiceKudu(srv)
 	registerSiteContainerHandlers(srv, armBase)
 	registerSiteVNetIntegration(srv)
 }

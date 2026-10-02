@@ -393,7 +393,7 @@ func TestRDS_ActivityStreams(t *testing.T) {
 // TestRDS_Backtrack covers Aurora backtrack record + describe.
 func TestRDS_Backtrack(t *testing.T) {
 	c := rdsClient()
-	clusterID := "rext-backtrack-cluster"
+	clusterID := uniqueName("rext-backtrack-cluster")
 	_, err := c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
 		DBClusterIdentifier: aws.String(clusterID),
 		Engine:              aws.String("aurora-mysql"),
@@ -427,7 +427,7 @@ func TestRDS_Backtrack(t *testing.T) {
 func TestRDS_ExportTasks(t *testing.T) {
 	c := rdsClient()
 	src := "arn:aws:rds:us-east-1:123456789012:snapshot:exp-snap"
-	taskID := "rext-export-task"
+	taskID := uniqueName("rext-export-task")
 	sOut, err := c.StartExportTask(ctx, &rds.StartExportTaskInput{
 		ExportTaskIdentifier: aws.String(taskID),
 		SourceArn:            aws.String(src),

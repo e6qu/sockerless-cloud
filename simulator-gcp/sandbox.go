@@ -19,7 +19,3 @@ var SandboxCloudRun = sim.SandboxProfile{
 	DenyDockerSocket: true,
 	DenyHostNetwork:  true,
 }
-
-// SandboxGCFGen2 mirrors SandboxCloudRun — Cloud Functions Gen2 runs
-// on Cloud Run Services underneath. Alias for clarity at call sites.
-var SandboxGCFGen2 = SandboxCloudRun

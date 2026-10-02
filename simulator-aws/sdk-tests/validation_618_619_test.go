@@ -71,7 +71,7 @@ func TestScheduler_ExpressionValidation(t *testing.T) {
 	}
 	assert.Equal(t, "ValidationException", errCode(t, mk("probe-badexpr", "not-a-valid-expression")))
 	// Valid forms are accepted.
-	for i, expr := range []string{"rate(5 minutes)", "cron(0 12 * * ? *)", "at(2030-01-01T00:00:00)"} {
-		require.NoError(t, mk("probe-ok-"+string(rune('a'+i)), expr), "expr %q should be valid", expr)
+	for _, expr := range []string{"rate(5 minutes)", "cron(0 12 * * ? *)", "at(2030-01-01T00:00:00)"} {
+		require.NoError(t, mk(uniqueName("probe-ok"), expr), "expr %q should be valid", expr)
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
@@ -38,7 +39,6 @@ type WebDeployment struct {
 // WebDeploymentProperties mirrors armappservice.DeploymentProperties. Field
 // names are the wire spelling (snake_case) the spec defines.
 type WebDeploymentProperties struct {
-	ID          string `json:"id,omitempty"`
 	Status      int    `json:"status,omitempty"`
 	Active      bool   `json:"active,omitempty"`
 	Author      string `json:"author,omitempty"`
@@ -141,6 +141,7 @@ func registerWebMore(srv *sim.Server) {
 	webSiteEvents = sim.MakeStore[WebSiteEvent](srv.DB(), "web_site_events")
 	webHostKeys = sim.MakeStore[WebHostKeysRow](srv.DB(), "web_host_keys")
 	webFunctionKeys = sim.MakeStore[WebFunctionKeysRow](srv.DB(), "web_function_keys")
+	webBasicPublishingPolicies = sim.MakeStore[WebBasicPublishingPolicy](srv.DB(), "web_basic_publishing_policies")
 	initWebDeployStores(srv)
 	initWebJobStores(srv)
 	initWebBackupStores(srv)
@@ -632,12 +633,15 @@ func registerWebLifecycle(both func(string, string, http.HandlerFunc)) {
 		if webMissing(w, r) {
 			return
 		}
-		name := sim.PathParam(r, "siteName")
-		host := name + ".azurewebsites.net"
+		site, _ := webResource(r)
+		scm := siteScmHost(&site)
+		if _, _, err := net.SplitHostPort(scm); err != nil {
+			scm += ":443"
+		}
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, `<publishData><publishProfile profileName="%s - Web Deploy" publishMethod="MSDeploy" publishUrl="%s:443" userName="$%s" destinationAppUrl="https://%s"></publishProfile></publishData>`,
-			name, name+".scm.azurewebsites.net", name, host)
+		_, _ = fmt.Fprintf(w, `<publishData><publishProfile profileName="%s - Web Deploy" publishMethod="MSDeploy" publishUrl="%s" userName="%s" destinationAppUrl="https://%s"></publishProfile></publishData>`,
+			strings.Replace(site.Name, "/", "-", 1), scm, webPublishingUserName(&site), site.Properties.DefaultHostName)
 	})
 }
 
@@ -700,6 +704,7 @@ func registerWebDeployments(both func(string, string, http.HandlerFunc)) {
 			return
 		}
 		webDeployments.Delete(deployID(r))
+		webKuduDeployments.Delete(deployID(r))
 		w.WriteHeader(http.StatusOK)
 	})
 	both("GET", "/deployments/{id}/log", func(w http.ResponseWriter, r *http.Request) {
@@ -918,12 +923,40 @@ func registerWebFunctionsRW(both, slot func(string, string, http.HandlerFunc)) {
 	})
 }
 
+// WebBasicPublishingPolicy is a site's or slot's basic publishing
+// credentials policy for one protocol (ftp, scm). A site with no row allows
+// basic auth, as a newly created site does.
+type WebBasicPublishingPolicy struct {
+	ID    string `json:"id"`
+	Allow bool   `json:"allow"`
+}
+
+var webBasicPublishingPolicies sim.Store[WebBasicPublishingPolicy]
+
+func webBasicPublishingPolicyID(resID, name string) string {
+	return resID + "/basicPublishingCredentialsPolicies/" + name
+}
+
+// webBasicPublishingAllowed reports whether the site's policy for the
+// protocol admits basic auth with publishing credentials.
+func webBasicPublishingAllowed(resID, name string) bool {
+	if webBasicPublishingPolicies == nil {
+		return true
+	}
+	p, ok := webBasicPublishingPolicies.Get(webBasicPublishingPolicyID(resID, name))
+	return !ok || p.Allow
+}
+
 func basicPubCredsResource(resID, name string) map[string]any {
+	typ := "Microsoft.Web/sites/basicPublishingCredentialsPolicies"
+	if strings.Contains(resID, "/slots/") {
+		typ = "Microsoft.Web/sites/slots/basicPublishingCredentialsPolicies"
+	}
 	return map[string]any{
-		"id":         resID + "/basicPublishingCredentialsPolicies/" + name,
+		"id":         webBasicPublishingPolicyID(resID, name),
 		"name":       name,
-		"type":       "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
-		"properties": map[string]any{"allow": true},
+		"type":       typ,
+		"properties": map[string]any{"allow": webBasicPublishingAllowed(resID, name)},
 	}
 }
 
@@ -946,10 +979,33 @@ func registerWebBasicPubCreds(both, slot func(string, string, http.HandlerFunc))
 			"value": []any{basicPubCredsResource(webResourceID(r), "ftp"), basicPubCredsResource(webResourceID(r), "scm")},
 		})
 	})
+	put := func(name string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if webMissing(w, r) {
+				return
+			}
+			var req struct {
+				Properties struct {
+					Allow *bool `json:"allow"`
+				} `json:"properties"`
+			}
+			if err := sim.ReadJSON(r, &req); err != nil {
+				AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+				return
+			}
+			if req.Properties.Allow == nil {
+				AzureError(w, "InvalidRequestContent", "The 'properties.allow' property is required.", http.StatusBadRequest)
+				return
+			}
+			id := webBasicPublishingPolicyID(webResourceID(r), name)
+			webBasicPublishingPolicies.Put(id, WebBasicPublishingPolicy{ID: id, Allow: *req.Properties.Allow})
+			sim.WriteJSON(w, http.StatusOK, basicPubCredsResource(webResourceID(r), name))
+		}
+	}
 	slot("GET", "/basicpublishingcredentialspolicies/ftp", policy("ftp"))
 	slot("GET", "/basicpublishingcredentialspolicies/scm", policy("scm"))
-	both("PUT", "/basicpublishingcredentialspolicies/ftp", policy("ftp"))
-	both("PUT", "/basicpublishingcredentialspolicies/scm", policy("scm"))
+	both("PUT", "/basicpublishingcredentialspolicies/ftp", put("ftp"))
+	both("PUT", "/basicpublishingcredentialspolicies/scm", put("scm"))
 }
 
 // patchWebSite merges a PATCH body's tags/properties into the stored row.

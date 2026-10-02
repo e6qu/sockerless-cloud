@@ -16,27 +16,28 @@ const ecrManifest = `{"schemaVersion":2,"mediaType":"application/vnd.docker.dist
 // (both were unregistered) and the BatchDeleteImage alias-delete fix (deleting
 // by tag must drop the image's digest alias too).
 func TestECR_ListAndDescribeAndDeleteImages(t *testing.T) {
+	repo := uniqueName("cov-images")
 	c := ecrClient()
-	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String("cov-images")})
+	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 	_, err = c.PutImage(ctx, &ecr.PutImageInput{
-		RepositoryName: aws.String("cov-images"), ImageTag: aws.String("v1"), ImageManifest: aws.String(ecrManifest),
+		RepositoryName: aws.String(repo), ImageTag: aws.String("v1"), ImageManifest: aws.String(ecrManifest),
 	})
 	require.NoError(t, err)
 
-	list, err := c.ListImages(ctx, &ecr.ListImagesInput{RepositoryName: aws.String("cov-images")})
+	list, err := c.ListImages(ctx, &ecr.ListImagesInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 	require.Len(t, list.ImageIds, 1)
 	assert.Equal(t, "v1", aws.ToString(list.ImageIds[0].ImageTag))
 	assert.NotEmpty(t, aws.ToString(list.ImageIds[0].ImageDigest))
 
-	desc, err := c.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String("cov-images")})
+	desc, err := c.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 	require.Len(t, desc.ImageDetails, 1)
 	assert.Contains(t, desc.ImageDetails[0].ImageTags, "v1")
 
 	del, err := c.BatchDeleteImage(ctx, &ecr.BatchDeleteImageInput{
-		RepositoryName: aws.String("cov-images"),
+		RepositoryName: aws.String(repo),
 		ImageIds:       []ecrtypes.ImageIdentifier{{ImageTag: aws.String("v1")}},
 	})
 	require.NoError(t, err)
@@ -49,10 +50,10 @@ func TestECR_ListAndDescribeAndDeleteImages(t *testing.T) {
 	assert.Empty(t, del.Failures)
 
 	// The image (and its digest alias) is gone from both reads.
-	descAfter, err := c.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String("cov-images")})
+	descAfter, err := c.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 	assert.Empty(t, descAfter.ImageDetails, "BatchDeleteImage removes every alias")
-	listAfter, err := c.ListImages(ctx, &ecr.ListImagesInput{RepositoryName: aws.String("cov-images")})
+	listAfter, err := c.ListImages(ctx, &ecr.ListImagesInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 	assert.Empty(t, listAfter.ImageIds)
 }
@@ -61,8 +62,9 @@ func TestECR_ListAndDescribeAndDeleteImages(t *testing.T) {
 // /nextToken support that ListImages/DescribeImages silently dropped (a TAGGED/
 // UNTAGGED filter previously returned every image).
 func TestECR_ListImagesFilterAndPagination(t *testing.T) {
+	repo := uniqueName("cov-filter")
 	c := ecrClient()
-	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String("cov-filter")})
+	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 	// Two distinct manifests (different config digests → different image
 	// digests) so each tag is a separate image and pagination has 2 entries.
@@ -72,33 +74,33 @@ func TestECR_ListImagesFilterAndPagination(t *testing.T) {
 	}
 	for _, m := range imgs {
 		_, err = c.PutImage(ctx, &ecr.PutImageInput{
-			RepositoryName: aws.String("cov-filter"), ImageTag: aws.String(m.tag), ImageManifest: aws.String(m.manifest),
+			RepositoryName: aws.String(repo), ImageTag: aws.String(m.tag), ImageManifest: aws.String(m.manifest),
 		})
 		require.NoError(t, err)
 	}
 
 	tagged, err := c.ListImages(ctx, &ecr.ListImagesInput{
-		RepositoryName: aws.String("cov-filter"),
+		RepositoryName: aws.String(repo),
 		Filter:         &ecrtypes.ListImagesFilter{TagStatus: ecrtypes.TagStatusTagged},
 	})
 	require.NoError(t, err)
 	assert.Len(t, tagged.ImageIds, 2, "TAGGED returns both tags")
 
 	untagged, err := c.ListImages(ctx, &ecr.ListImagesInput{
-		RepositoryName: aws.String("cov-filter"),
+		RepositoryName: aws.String(repo),
 		Filter:         &ecrtypes.ListImagesFilter{TagStatus: ecrtypes.TagStatusUntagged},
 	})
 	require.NoError(t, err)
 	assert.Empty(t, untagged.ImageIds, "UNTAGGED must exclude tagged images (filter was ignored before)")
 
 	page1, err := c.ListImages(ctx, &ecr.ListImagesInput{
-		RepositoryName: aws.String("cov-filter"), MaxResults: aws.Int32(1),
+		RepositoryName: aws.String(repo), MaxResults: aws.Int32(1),
 	})
 	require.NoError(t, err)
 	require.Len(t, page1.ImageIds, 1)
 	require.NotNil(t, page1.NextToken, "maxResults=1 truncates → NextToken")
 	page2, err := c.ListImages(ctx, &ecr.ListImagesInput{
-		RepositoryName: aws.String("cov-filter"), MaxResults: aws.Int32(1), NextToken: page1.NextToken,
+		RepositoryName: aws.String(repo), MaxResults: aws.Int32(1), NextToken: page1.NextToken,
 	})
 	require.NoError(t, err)
 	require.Len(t, page2.ImageIds, 1)
@@ -109,7 +111,7 @@ func TestECR_ListImagesFilterAndPagination(t *testing.T) {
 
 	// DescribeImages honors the same UNTAGGED filter.
 	descUntagged, err := c.DescribeImages(ctx, &ecr.DescribeImagesInput{
-		RepositoryName: aws.String("cov-filter"),
+		RepositoryName: aws.String(repo),
 		Filter:         &ecrtypes.DescribeImagesFilter{TagStatus: ecrtypes.TagStatusUntagged},
 	})
 	require.NoError(t, err)
@@ -118,20 +120,21 @@ func TestECR_ListImagesFilterAndPagination(t *testing.T) {
 
 // TestECR_LifecyclePolicyLifecycle covers Put/Get/DeleteLifecyclePolicy.
 func TestECR_LifecyclePolicyLifecycle(t *testing.T) {
+	repo := uniqueName("cov-lifecycle")
 	c := ecrClient()
-	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String("cov-lifecycle")})
+	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 	const policy = `{"rules":[{"rulePriority":1,"description":"expire untagged","selection":{"tagStatus":"untagged","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}`
-	_, err = c.PutLifecyclePolicy(ctx, &ecr.PutLifecyclePolicyInput{RepositoryName: aws.String("cov-lifecycle"), LifecyclePolicyText: aws.String(policy)})
+	_, err = c.PutLifecyclePolicy(ctx, &ecr.PutLifecyclePolicyInput{RepositoryName: aws.String(repo), LifecyclePolicyText: aws.String(policy)})
 	require.NoError(t, err)
 
-	got, err := c.GetLifecyclePolicy(ctx, &ecr.GetLifecyclePolicyInput{RepositoryName: aws.String("cov-lifecycle")})
+	got, err := c.GetLifecyclePolicy(ctx, &ecr.GetLifecyclePolicyInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 	assert.Equal(t, policy, aws.ToString(got.LifecyclePolicyText))
 
-	_, err = c.DeleteLifecyclePolicy(ctx, &ecr.DeleteLifecyclePolicyInput{RepositoryName: aws.String("cov-lifecycle")})
+	_, err = c.DeleteLifecyclePolicy(ctx, &ecr.DeleteLifecyclePolicyInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
-	_, err = c.GetLifecyclePolicy(ctx, &ecr.GetLifecyclePolicyInput{RepositoryName: aws.String("cov-lifecycle")})
+	_, err = c.GetLifecyclePolicy(ctx, &ecr.GetLifecyclePolicyInput{RepositoryName: aws.String(repo)})
 	assert.Error(t, err, "lifecycle policy gone after delete")
 }
 
@@ -139,7 +142,8 @@ func TestECR_LifecyclePolicyLifecycle(t *testing.T) {
 // are its own even when another repository's name begins with its name.
 func TestECR_DescribeImagesReportsLayerSizesPerRepository(t *testing.T) {
 	c := ecrClient()
-	for _, name := range []string{"cov-size", "cov-size-other"} {
+	repo, otherRepo := uniqueName("cov-size"), uniqueName("cov-size-other")
+	for _, name := range []string{repo, otherRepo} {
 		_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(name)})
 		require.NoError(t, err)
 	}
@@ -148,15 +152,15 @@ func TestECR_DescribeImagesReportsLayerSizesPerRepository(t *testing.T) {
 		`"layers":[{"mediaType":"application/vnd.docker.image.rootfs.diff.tar.gzip","size":1200,"digest":"sha256:covsizea"},` +
 		`{"mediaType":"application/vnd.docker.image.rootfs.diff.tar.gzip","size":34,"digest":"sha256:covsizeb"}]}`
 	_, err := c.PutImage(ctx, &ecr.PutImageInput{
-		RepositoryName: aws.String("cov-size"), ImageTag: aws.String("v1"), ImageManifest: aws.String(manifest),
+		RepositoryName: aws.String(repo), ImageTag: aws.String("v1"), ImageManifest: aws.String(manifest),
 	})
 	require.NoError(t, err)
 	_, err = c.PutImage(ctx, &ecr.PutImageInput{
-		RepositoryName: aws.String("cov-size-other"), ImageTag: aws.String("v1"), ImageManifest: aws.String(ecrManifest),
+		RepositoryName: aws.String(otherRepo), ImageTag: aws.String("v1"), ImageManifest: aws.String(ecrManifest),
 	})
 	require.NoError(t, err)
 
-	desc, err := c.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String("cov-size")})
+	desc, err := c.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 	require.Len(t, desc.ImageDetails, 1, "only cov-size's own image")
 	assert.Equal(t, int64(1234), aws.ToInt64(desc.ImageDetails[0].ImageSizeInBytes))

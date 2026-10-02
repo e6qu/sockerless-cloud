@@ -209,7 +209,7 @@ func TestSDK_CloudRun_RunJob_MultiContainerSharesLocalhost(t *testing.T) {
 		"the multi-container task must succeed, not merely stop running")
 
 	client := logadminClient(t)
-	it := client.Entries(ctx, logadmin.Filter(`resource.type="cloud_run_job" AND resource.labels.job_name="`+jobID+`"`))
+	it := client.Entries(ctx, logadmin.Filter(`logName:"run.googleapis.com" AND resource.type="cloud_run_job" AND resource.labels.job_name="`+jobID+`"`))
 	var logs []string
 	for {
 		entry, err := it.Next()

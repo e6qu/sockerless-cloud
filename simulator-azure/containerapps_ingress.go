@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -69,6 +70,10 @@ func acaAppByIngressFqdn(host string) (ContainerApp, bool) {
 	})
 }
 
+// acaIngressRequestTimeout is the documented limit Container Apps ingress puts
+// on an HTTP request: it cancels one not complete within 240 seconds.
+const acaIngressRequestTimeout = 240 * time.Second
+
 // proxyACAIngress forwards the request to the App's running replica container's
 // target port (8080), preserving method, path, query, headers and body, and
 // copies the response back — the App-ingress equivalent of Azure's managed
@@ -105,7 +110,7 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp) {
 		Address:  net.JoinHostPort(ip, strconv.Itoa(int(acaIngressTargetPort(app)))),
 		Path:     r.URL.EscapedPath(),
 		RawQuery: r.URL.RawQuery,
-		Timeout:  10 * time.Minute,
+		Timeout:  acaIngressRequestTimeout,
 	}
 	sim.DeclareWait(r.Context(), up.Timeout)
 
@@ -132,6 +137,11 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp) {
 	case err == nil:
 	case errors.Is(err, lbplane.ErrClientWentAway):
 		w.WriteHeader(lbplane.StatusClientClosedRequest)
+	case errors.Is(err, context.DeadlineExceeded) && errors.As(err, new(*lbplane.SendError)):
+		// The ingress's Envoy front end answers a route timeout with this local reply.
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusGatewayTimeout)
+		_, _ = io.WriteString(w, "upstream request timeout")
 	default:
 		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, err)
 	}

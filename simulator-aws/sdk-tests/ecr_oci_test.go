@@ -188,7 +188,7 @@ func TestECR_OCIDataPlane(t *testing.T) {
 // including this 404, also carries Docker-Distribution-Api-Version (real
 // registries set it on all responses, not just the base ping).
 func TestECR_OCIManifestHeadMissing(t *testing.T) {
-	repo := "shim/registry"
+	repo := uniqueName("shim/registry")
 	ecrCreateRepository(t, repo)
 	const apiVersionHeader = "Docker-Distribution-Api-Version"
 

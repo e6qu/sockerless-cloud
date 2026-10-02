@@ -15,8 +15,9 @@ import (
 // DeleteAccessKey, PutUserPolicy/GetUserPolicy/ListUserPolicies/DeleteUserPolicy,
 // and AttachUserPolicy/ListAttachedUserPolicies/DetachUserPolicy.
 func TestIAM_UserLifecycle(t *testing.T) {
+	managedPolicy := uniqueName("managed-lifecycle")
 	c := iamClient()
-	user := "lifecycle-user"
+	user := uniqueName("lifecycle-user")
 
 	created, err := c.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
@@ -55,7 +56,7 @@ func TestIAM_UserLifecycle(t *testing.T) {
 	assert.Contains(t, lp.PolicyNames, "inline1")
 
 	managed, err := c.CreatePolicy(ctx, &iam.CreatePolicyInput{
-		PolicyName:     aws.String("managed-lifecycle"),
+		PolicyName:     aws.String(managedPolicy),
 		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sqs:SendMessage","Resource":"*"}]}`),
 	})
 	require.NoError(t, err)

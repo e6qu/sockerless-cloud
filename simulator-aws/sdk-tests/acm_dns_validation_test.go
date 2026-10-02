@@ -23,11 +23,13 @@ func TestACMDNSCertWildcardAndIssuance(t *testing.T) {
 	r53C := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	appDomain := uniqueName("app") + ".example.test"
+	devbox := uniqueName("devbox") + ".example.test"
 
 	reqOut, err := acmC.RequestCertificate(ctx, &acm.RequestCertificateInput{
-		DomainName:              aws.String("app.example.test"),
+		DomainName:              aws.String(appDomain),
 		ValidationMethod:        acmtypes.ValidationMethodDns,
-		SubjectAlternativeNames: []string{"*.devbox.example.test"},
+		SubjectAlternativeNames: []string{"*." + devbox},
 	})
 	require.NoError(t, err)
 	arn := aws.ToString(reqOut.CertificateArn)
@@ -42,9 +44,9 @@ func TestACMDNSCertWildcardAndIssuance(t *testing.T) {
 		records[aws.ToString(dvo.DomainName)] = *dvo.ResourceRecord
 	}
 	// DomainName echoes the wildcard, but the record name is de-wildcarded.
-	require.Contains(t, records, "*.devbox.example.test")
-	wildName := aws.ToString(records["*.devbox.example.test"].Name)
-	require.Equal(t, "_acm-challenge.devbox.example.test.", wildName)
+	require.Contains(t, records, "*."+devbox)
+	wildName := aws.ToString(records["*."+devbox].Name)
+	require.Equal(t, "_acm-challenge."+devbox+".", wildName)
 	require.NotContains(t, wildName, "*")
 
 	// A second certificate for the same fully qualified domain name receives
@@ -52,7 +54,7 @@ func TestACMDNSCertWildcardAndIssuance(t *testing.T) {
 	// regional certificate and one us-east-1 CloudFront certificate and publish
 	// only one long-lived validation record.
 	secondOut, err := acmC.RequestCertificate(ctx, &acm.RequestCertificateInput{
-		DomainName:       aws.String("app.example.test"),
+		DomainName:       aws.String(appDomain),
 		ValidationMethod: acmtypes.ValidationMethodDns,
 	})
 	require.NoError(t, err)
@@ -63,7 +65,7 @@ func TestACMDNSCertWildcardAndIssuance(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, secondDesc.Certificate.DomainValidationOptions, 1)
 	require.Equal(t,
-		aws.ToString(records["app.example.test"].Value),
+		aws.ToString(records[appDomain].Value),
 		aws.ToString(secondDesc.Certificate.DomainValidationOptions[0].ResourceRecord.Value),
 	)
 

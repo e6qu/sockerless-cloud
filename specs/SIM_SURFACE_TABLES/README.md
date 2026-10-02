@@ -71,6 +71,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`azure-compute_vm_operations`](azure-compute_vm_operations.md)
 - [`azure-compute_vm_patches`](azure-compute_vm_patches.md)
 - [`azure-containerapps`](azure-containerapps.md)
+- [`azure-containerapps_replicas`](azure-containerapps_replicas.md)
 - [`azure-containerinstance`](azure-containerinstance.md)
 - [`azure-cosmos`](azure-cosmos.md)
 - [`azure-dns`](azure-dns.md)

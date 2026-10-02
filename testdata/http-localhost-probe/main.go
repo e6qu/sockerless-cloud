@@ -1,16 +1,18 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|echo-request|teapot [MESSAGE]")
+		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|echo-request|log-request|teapot [MESSAGE]")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -72,6 +74,46 @@ func main() {
 	case "echo-request":
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			_, _ = fmt.Fprintf(w, "%s %s", r.Method, r.URL.RequestURI())
+		})
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "log-request":
+		// Write each request line to stdout as well as answering with it, so
+		// the platform's log collection shows which requests reached it.
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			line := fmt.Sprintf("%s %s", r.Method, r.URL.RequestURI())
+			fmt.Println(line)
+			_, _ = io.WriteString(w, line)
+		})
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "log-cloudevent":
+		// Write each binary-mode CloudEvent it receives to stdout as one line,
+		// "CLOUDEVENT " and a JSON object of its ce-* attributes and data, so
+		// the platform's log collection shows which events reached it.
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			attributes := map[string]string{}
+			for name, values := range r.Header {
+				if strings.HasPrefix(strings.ToLower(name), "ce-") {
+					attributes[strings.ToLower(name)] = values[0]
+				}
+			}
+			attributes["content-type"] = r.Header.Get("Content-Type")
+			line, err := json.Marshal(map[string]any{"attributes": attributes, "data": string(body)})
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			fmt.Println("CLOUDEVENT " + string(line))
 		})
 		if err := http.ListenAndServe(":8080", nil); err != nil {
 			fmt.Fprintln(os.Stderr, err)

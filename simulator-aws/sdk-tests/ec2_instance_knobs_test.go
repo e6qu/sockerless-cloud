@@ -86,13 +86,14 @@ func TestEC2_InstanceKnobFidelitySDK(t *testing.T) {
 // (IAM profile, metadata options) is applied to the launched instance, not just
 // image/type.
 func TestEC2_RunInstancesAppliesLaunchTemplateSDK(t *testing.T) {
+	ltName := uniqueName("knob-lt")
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.131.0.0/16")})
 	require.NoError(t, err)
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.131.1.0/24")
 
 	lt, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
-		LaunchTemplateName: aws.String("knob-lt"),
+		LaunchTemplateName: aws.String(ltName),
 		LaunchTemplateData: &types.RequestLaunchTemplateData{
 			ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
 			EbsOptimized: aws.Bool(true),

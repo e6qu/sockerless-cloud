@@ -3,10 +3,13 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/dbengine"
 )
 
 const msRedisInstanceType = "type.googleapis.com/google.cloud.redis.v1.Instance"
@@ -20,9 +23,10 @@ type msRedisOperationError struct {
 func (e msRedisOperationError) Error() string { return e.err.Error() }
 
 const (
-	rpcInvalidArgument = 3
-	rpcNotFound        = 5
-	rpcInternal        = 13
+	rpcInvalidArgument    = 3
+	rpcNotFound           = 5
+	rpcFailedPrecondition = 9
+	rpcInternal           = 13
 )
 
 func msRedisOperationFailure(code int, format string, args ...any) error {
@@ -89,12 +93,13 @@ func handleMSRedisUpgrade(w http.ResponseWriter, r *http.Request, id string) {
 		i.State = "READY"
 	})
 	inst, _ := msRedisInstances.Get(key)
-	op := redisInstanceLRO(r, project, location, key, inst, msRedisInstanceType)
+	op := redisInstanceLRO(r, project, location, key, msRedisInstanceView(inst), msRedisInstanceType)
 	sim.WriteJSON(w, http.StatusOK, msRedisSettle(op, err))
 }
 
 // handleMSRedisFailover promotes a replica to primary. The primary endpoint
-// follows the new primary, and the old one becomes its replica.
+// follows the new primary, and the old one becomes its replica. A Basic Tier
+// instance has no replica to promote, so the service refuses the failover.
 func handleMSRedisFailover(w http.ResponseWriter, r *http.Request, id string) {
 	project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
 	key := msRedisInstanceName(project, location, id)
@@ -103,18 +108,43 @@ func handleMSRedisFailover(w http.ResponseWriter, r *http.Request, id string) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Memorystore instance %q not found", id)
 		return
 	}
+	var req struct {
+		DataProtectionMode string `json:"dataProtectionMode"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		return
+	}
+	switch req.DataProtectionMode {
+	case "", "DATA_PROTECTION_MODE_UNSPECIFIED", "LIMITED_DATA_LOSS", "FORCE_DATA_LOSS":
+	default:
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"dataProtectionMode %q is not one of LIMITED_DATA_LOSS or FORCE_DATA_LOSS", req.DataProtectionMode)
+		return
+	}
+	if inst.Tier != "STANDARD_HA" {
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+			"Failover is only supported for Standard Tier instances; instance %q is in the %s tier", id, inst.Tier)
+		return
+	}
 	var err error
-	if plane, running := msRedisLoadPlane(key); running && inst.ReplicaCount > 0 {
+	if plane, running := msRedisLoadPlane(key); running {
 		msRedisSetState(key, "FAILING_OVER")
 		plane.opMu.Lock()
-		next := (plane.Primary() + 1) % plane.topology.nodes()
+		next := plane.Primary()
+		for _, node := range plane.nodeOrder() {
+			if node != next {
+				next = node
+				break
+			}
+		}
 		if err = plane.Failover(next); err == nil {
-			msRedisPlaneRecords.Update(key, func(record *msRedisPlaneRecord) { record.Primary = next })
+			msRedisSaveRecord(key)
 		}
 		plane.opMu.Unlock()
 	}
 	inst = msRedisSetState(key, "READY")
-	op := redisInstanceLRO(r, project, location, key, inst, msRedisInstanceType)
+	op := redisInstanceLRO(r, project, location, key, msRedisInstanceView(inst), msRedisInstanceType)
 	sim.WriteJSON(w, http.StatusOK, msRedisSettle(op, err))
 }
 
@@ -195,7 +225,7 @@ func handleMSRedisTransfer(w http.ResponseWriter, r *http.Request, id, direction
 	}
 	plane.opMu.Unlock()
 	inst := msRedisSetState(key, "READY")
-	op := redisInstanceLRO(r, project, location, key, inst, msRedisInstanceType)
+	op := redisInstanceLRO(r, project, location, key, msRedisInstanceView(inst), msRedisInstanceType)
 	sim.WriteJSON(w, http.StatusOK, msRedisSettle(op, err))
 }
 
@@ -228,4 +258,119 @@ func msRedisImportInstance(plane *msRedisPlane, bucket, object string) error {
 		return msRedisOperationFailure(rpcInvalidArgument, "gs://%s/%s is not an RDB file", bucket, object)
 	}
 	return plane.Restart(data, "")
+}
+
+// msRedisImportSource is one RDB file a new cluster loads.
+type msRedisImportSource struct {
+	Name string
+	Data []byte
+}
+
+// msRedisClusterImportSources reads the RDB files a cluster create names in
+// gcsSource or managedBackupSource.
+func msRedisClusterImportSources(gcs *MSRedisGcsBackupSource, managed *MSRedisManagedBackupSource) ([]msRedisImportSource, error) {
+	switch {
+	case gcs != nil && managed != nil:
+		return nil, msRedisOperationFailure(rpcInvalidArgument, "a cluster imports from gcsSource or managedBackupSource, not both")
+	case gcs != nil:
+		if len(gcs.Uris) == 0 {
+			return nil, msRedisOperationFailure(rpcInvalidArgument, "gcsSource names no Cloud Storage object")
+		}
+		var sources []msRedisImportSource
+		for _, uri := range gcs.Uris {
+			bucket, object, ok := msRedisParseObjectURI(uri)
+			if !ok {
+				return nil, msRedisOperationFailure(rpcInvalidArgument, "%q is not a Cloud Storage URI", uri)
+			}
+			if _, ok := gcsBuckets.Get(bucket); !ok {
+				return nil, msRedisOperationFailure(rpcNotFound, "bucket %q not found", bucket)
+			}
+			data, err := GCSObjectBytes(bucket, object)
+			if err != nil {
+				return nil, msRedisOperationFailure(rpcNotFound, "%v", err)
+			}
+			if !msRedisIsRDB(data) {
+				return nil, msRedisOperationFailure(rpcInvalidArgument, "%s is not an RDB file", uri)
+			}
+			sources = append(sources, msRedisImportSource{Name: uri, Data: data})
+		}
+		return sources, nil
+	case managed != nil:
+		name := strings.TrimPrefix(managed.Backup, "//redis.googleapis.com/")
+		if _, ok := msRedisBackups.Get(name); !ok {
+			return nil, msRedisOperationFailure(rpcNotFound, "backup %q not found", managed.Backup)
+		}
+		content, ok := msRedisBackupContents.Get(name)
+		if !ok {
+			return nil, msRedisOperationFailure(rpcFailedPrecondition, "backup %s holds no files", name)
+		}
+		var sources []msRedisImportSource
+		for _, file := range content.Files {
+			data, err := msRedisBackupPayloads.Read(file.Ref)
+			if err != nil {
+				return nil, fmt.Errorf("read backup file %s: %w", file.FileName, err)
+			}
+			sources = append(sources, msRedisImportSource{Name: name + "/" + file.FileName, Data: data})
+		}
+		return sources, nil
+	}
+	return nil, nil
+}
+
+// msRedisImportDirectory holds an RDB file while a cluster imports it.
+const msRedisImportDirectory = msRedisDataPath + "/import"
+
+// msRedisImportPort is where the server that serves an imported RDB file
+// listens, inside the container of the node that runs the import.
+const msRedisImportPort = 6380
+
+// ImportRDB loads an RDB file's keys into a running cluster: a standalone
+// redis-server inside one node's container loads the file, and redis-cli's
+// cluster import migrates each key to the shard that owns its slot.
+func (p *msRedisPlane) ImportRDB(source msRedisImportSource) error {
+	via := p.nodeOrder()[0]
+	if err := p.writeFile(via, msRedisImportDirectory+"/source.rdb", source.Data); err != nil {
+		return err
+	}
+	ip, err := p.nodeIP(via)
+	if err != nil {
+		return err
+	}
+	password := p.currentPassword()
+	server := []string{"redis-server",
+		"--port", strconv.Itoa(msRedisImportPort), "--bind", "127.0.0.1",
+		"--dir", msRedisImportDirectory, "--dbfilename", "source.rdb",
+		"--save", "", "--appendonly", "no", "--daemonize", "yes",
+	}
+	importArgs := []string{"redis-cli", "--cluster", "import", net.JoinHostPort(ip, strconv.Itoa(msRedisPort)),
+		"--cluster-from", "127.0.0.1:" + strconv.Itoa(msRedisImportPort), "--cluster-copy", "--cluster-replace"}
+	var env []string
+	if password != "" {
+		server = append(server, "--requirepass", password)
+		importArgs = append(importArgs, "--cluster-from-pass", password)
+		env = append(env, "REDISCLI_AUTH="+password)
+	}
+	probe := "redis-cli -p " + strconv.Itoa(msRedisImportPort)
+	script := strings.Join([]string{
+		"set -e",
+		msRedisShellJoin(server),
+		"until " + probe + " ping 2>/dev/null | grep -q PONG; do sleep 0.1; done",
+		"status=0",
+		msRedisShellJoin(importArgs) + " || status=$?",
+		probe + " shutdown nosave >/dev/null 2>&1 || true",
+		"rm -rf " + msRedisImportDirectory,
+		"exit $status",
+	}, "\n")
+	if _, err := p.exec(via, []string{"/bin/sh", "-c", script}, env); err != nil {
+		return msRedisOperationFailure(rpcInvalidArgument, "import %s: %v", source.Name, err)
+	}
+	return nil
+}
+
+func msRedisShellJoin(args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = dbengine.ShellQuote(arg)
+	}
+	return strings.Join(quoted, " ")
 }

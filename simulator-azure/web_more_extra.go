@@ -134,10 +134,10 @@ func webPublishingCredentials(w http.ResponseWriter, r *http.Request) {
 	if webMissing(w, r) {
 		return
 	}
-	name := sim.PathParam(r, "siteName")
-	user := "$" + name
+	site, _ := webResource(r)
+	user := webPublishingUserName(&site)
 	password := webPublishingPassword(webResourceID(r))
-	scmURI := fmt.Sprintf("https://%s:%s@%s.scm.azurewebsites.net", user, password, name)
+	scmURI := webPublishingScmURI(&site, user, password)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"id":   webResourceID(r) + "/config/publishingcredentials",
 		"name": "publishingcredentials",
@@ -201,6 +201,7 @@ func registerWebSlotCRUD(srv *sim.Server) {
 			kind = parent.Kind
 		}
 		host := name + "-" + slot + ".azurewebsites.net"
+		scmHost := azureAppServiceScmHost(r, name+"-"+slot)
 		siteConfig := req.Properties.SiteConfig
 		if siteConfig == nil {
 			siteConfig = &SiteConfig{}
@@ -217,8 +218,8 @@ func registerWebSlotCRUD(srv *sim.Server) {
 				DefaultHostName:   host,
 				HostNames:         []string{host},
 				Enabled:           true,
-				EnabledHostNames:  []string{host, name + "-" + slot + ".scm.azurewebsites.net"},
-				HostNameSslStates: siteHostNameSslStates(host, name+"-"+slot+".scm.azurewebsites.net"),
+				EnabledHostNames:  []string{host, scmHost},
+				HostNameSslStates: siteHostNameSslStates(host, scmHost),
 				ServerFarmID:      req.Properties.ServerFarmID,
 				SKU:               webPlanSKUFor(req.Properties.ServerFarmID),
 				Reserved:          req.Properties.Reserved,

@@ -4,7 +4,6 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,15 +76,15 @@ func TestECS_CLI_ServiceFamily(t *testing.T) {
 	require.Len(t, running.TaskArns, 2, "service did not launch two real tasks")
 	stoppedArn := running.TaskArns[0]
 	runCLI(t, awsCLI("ecs", "stop-task", "--cluster", cluster, "--task", stoppedArn))
-	require.Eventually(t, func() bool {
-		out := runCLI(t, awsCLI("ecs", "list-tasks",
-			"--cluster", cluster, "--service-name", "cli-svc",
-			"--desired-status", "RUNNING", "--output", "json"))
-		parseJSON(t, out, &running)
-		return len(running.TaskArns) == 2 &&
-			running.TaskArns[0] != stoppedArn &&
-			running.TaskArns[1] != stoppedArn
-	}, 30*time.Second, 100*time.Millisecond, "service did not replace the stopped task")
+	// Once the stopped task has left RUNNING, the service is steady again only
+	// after its scheduler has launched a replacement.
+	runCLI(t, awsCLI("ecs", "wait", "tasks-stopped", "--cluster", cluster, "--tasks", stoppedArn))
+	runCLI(t, awsCLI("ecs", "wait", "services-stable", "--cluster", cluster, "--services", "cli-svc"))
+	parseJSON(t, runCLI(t, awsCLI("ecs", "list-tasks",
+		"--cluster", cluster, "--service-name", "cli-svc",
+		"--desired-status", "RUNNING", "--output", "json")), &running)
+	require.Len(t, running.TaskArns, 2, "service did not replace the stopped task")
+	require.NotContains(t, running.TaskArns, stoppedArn)
 
 	delOut := runCLI(t, awsCLI("ecs", "delete-service",
 		"--cluster", cluster, "--service", "cli-svc", "--force", "--output", "json"))

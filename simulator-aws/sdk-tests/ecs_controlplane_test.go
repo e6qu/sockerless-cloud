@@ -13,15 +13,18 @@ import (
 )
 
 func TestECS_ARecordServiceRegistryRejectsPort(t *testing.T) {
+	invalidService := uniqueName("invalid-a-record-registry")
+	validService := uniqueName("valid-a-record-registry")
+	family := uniqueName("a-record-registry-task")
 	ecsClient := ecsClient()
 	cloudMapClient := cmClient()
-	cluster := "a-record-registry-cluster"
+	cluster := uniqueName("a-record-registry-cluster")
 	_, err := ecsClient.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = ecsClient.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)}) })
 
 	_, err = ecsClient.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family:      aws.String("a-record-registry-task"),
+		Family:      aws.String(family),
 		NetworkMode: ecstypes.NetworkModeAwsvpc,
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
@@ -32,7 +35,7 @@ func TestECS_ARecordServiceRegistryRejectsPort(t *testing.T) {
 	require.NoError(t, err)
 
 	namespace, err := cloudMapClient.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
-		Name: aws.String("a-record-registry.local"),
+		Name: aws.String(uniqueName("a-record-registry") + ".local"),
 		Vpc:  aws.String("vpc-a-record-registry"),
 	})
 	require.NoError(t, err)
@@ -58,8 +61,8 @@ func TestECS_ARecordServiceRegistryRejectsPort(t *testing.T) {
 
 	_, err = ecsClient.CreateService(ctx, &ecs.CreateServiceInput{
 		Cluster:        aws.String(cluster),
-		ServiceName:    aws.String("invalid-a-record-registry"),
-		TaskDefinition: aws.String("a-record-registry-task"),
+		ServiceName:    aws.String(invalidService),
+		TaskDefinition: aws.String(family),
 		ServiceRegistries: []ecstypes.ServiceRegistry{{
 			RegistryArn:   registry.Service.Arn,
 			ContainerPort: aws.Int32(9000),
@@ -70,14 +73,14 @@ func TestECS_ARecordServiceRegistryRejectsPort(t *testing.T) {
 
 	created, err := ecsClient.CreateService(ctx, &ecs.CreateServiceInput{
 		Cluster:        aws.String(cluster),
-		ServiceName:    aws.String("valid-a-record-registry"),
-		TaskDefinition: aws.String("a-record-registry-task"),
+		ServiceName:    aws.String(validService),
+		TaskDefinition: aws.String(family),
 		ServiceRegistries: []ecstypes.ServiceRegistry{{
 			RegistryArn: registry.Service.Arn,
 		}},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "valid-a-record-registry", aws.ToString(created.Service.ServiceName))
+	assert.Equal(t, validService, aws.ToString(created.Service.ServiceName))
 }
 
 // TestECS_CapacityProviderLifecycle exercises CreateCapacityProvider,
@@ -127,14 +130,16 @@ func TestECS_CapacityProviderLifecycle(t *testing.T) {
 // UpdateTaskSet, UpdateServicePrimaryTaskSet and DeleteTaskSet — the
 // aws_ecs_task_set blue/green primitive on an EXTERNAL-controller service.
 func TestECS_TaskSetLifecycle(t *testing.T) {
+	family := uniqueName("ts-task")
+	serviceName := uniqueName("ts-svc")
 	c := ecsClient()
-	cluster := "ts-cluster"
+	cluster := uniqueName("ts-cluster")
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)}) })
 
 	_, err = c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String("ts-task"),
+		Family: aws.String(family),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
@@ -144,8 +149,8 @@ func TestECS_TaskSetLifecycle(t *testing.T) {
 
 	_, err = c.CreateService(ctx, &ecs.CreateServiceInput{
 		Cluster:              aws.String(cluster),
-		ServiceName:          aws.String("ts-svc"),
-		TaskDefinition:       aws.String("ts-task"),
+		ServiceName:          aws.String(serviceName),
+		TaskDefinition:       aws.String(family),
 		DesiredCount:         aws.Int32(1),
 		DeploymentController: &ecstypes.DeploymentController{Type: ecstypes.DeploymentControllerTypeExternal},
 	})
@@ -153,8 +158,8 @@ func TestECS_TaskSetLifecycle(t *testing.T) {
 
 	createOut, err := c.CreateTaskSet(ctx, &ecs.CreateTaskSetInput{
 		Cluster:        aws.String(cluster),
-		Service:        aws.String("ts-svc"),
-		TaskDefinition: aws.String("ts-task"),
+		Service:        aws.String(serviceName),
+		TaskDefinition: aws.String(family),
 		Scale:          &ecstypes.Scale{Value: 50, Unit: ecstypes.ScaleUnitPercent},
 	})
 	require.NoError(t, err)
@@ -163,26 +168,26 @@ func TestECS_TaskSetLifecycle(t *testing.T) {
 	require.NotEmpty(t, tsID)
 
 	descOut, err := c.DescribeTaskSets(ctx, &ecs.DescribeTaskSetsInput{
-		Cluster: aws.String(cluster), Service: aws.String("ts-svc"), TaskSets: []string{tsID},
+		Cluster: aws.String(cluster), Service: aws.String(serviceName), TaskSets: []string{tsID},
 	})
 	require.NoError(t, err)
 	require.Len(t, descOut.TaskSets, 1)
 	assert.Equal(t, tsID, aws.ToString(descOut.TaskSets[0].Id))
 
 	_, err = c.UpdateTaskSet(ctx, &ecs.UpdateTaskSetInput{
-		Cluster: aws.String(cluster), Service: aws.String("ts-svc"), TaskSet: aws.String(tsID),
+		Cluster: aws.String(cluster), Service: aws.String(serviceName), TaskSet: aws.String(tsID),
 		Scale: &ecstypes.Scale{Value: 100, Unit: ecstypes.ScaleUnitPercent},
 	})
 	require.NoError(t, err)
 
 	primOut, err := c.UpdateServicePrimaryTaskSet(ctx, &ecs.UpdateServicePrimaryTaskSetInput{
-		Cluster: aws.String(cluster), Service: aws.String("ts-svc"), PrimaryTaskSet: aws.String(tsID),
+		Cluster: aws.String(cluster), Service: aws.String(serviceName), PrimaryTaskSet: aws.String(tsID),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "PRIMARY", aws.ToString(primOut.TaskSet.Status))
 
 	_, err = c.DeleteTaskSet(ctx, &ecs.DeleteTaskSetInput{
-		Cluster: aws.String(cluster), Service: aws.String("ts-svc"), TaskSet: aws.String(tsID), Force: aws.Bool(true),
+		Cluster: aws.String(cluster), Service: aws.String(serviceName), TaskSet: aws.String(tsID), Force: aws.Bool(true),
 	})
 	require.NoError(t, err)
 }

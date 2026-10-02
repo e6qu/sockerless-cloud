@@ -50,9 +50,17 @@ type Upstream struct {
 	Header http.Header
 	// Body replaces the client's request body when set.
 	Body io.Reader
-	// Timeout bounds a request/response exchange. An upgraded connection is not
-	// one — a WebSocket is meant to last for hours — so it never applies there.
+	// Timeout bounds a request/response exchange from start to finish. An
+	// upgraded connection is not one — a WebSocket is meant to last for hours —
+	// so it never applies there.
 	Timeout time.Duration
+	// IdleTimeout bounds how long the forward may pass with no byte moving in
+	// either direction; every byte read from the client or the target restarts
+	// it, so it never cuts off an answer that keeps flowing. It covers an
+	// upgraded connection too.
+	IdleTimeout time.Duration
+	// Activity, when set, runs whenever bytes restart the IdleTimeout.
+	Activity func()
 	// SkipTargetVerification accepts any certificate an https target
 	// presents, as a load balancer that does not validate its targets does.
 	SkipTargetVerification bool
@@ -101,6 +109,9 @@ func Forward(w http.ResponseWriter, r *http.Request, up Upstream) error {
 		ctx, cancel = context.WithTimeout(ctx, up.Timeout)
 		defer cancel()
 	}
+	ctx, idle, cancelIdle := watchExchange(ctx, up.IdleTimeout, up.Activity)
+	defer cancelIdle(nil)
+	defer idle.stop()
 	target := up.Scheme + "://" + up.Address + up.Path
 	if up.RawQuery != "" {
 		target += "?" + up.RawQuery
@@ -115,6 +126,9 @@ func Forward(w http.ResponseWriter, r *http.Request, up Upstream) error {
 	}
 	if up.Body == nil {
 		req.ContentLength = r.ContentLength
+	}
+	if idle != nil && req.Body != nil && req.Body != http.NoBody {
+		req.Body = idleReadCloser{Reader: idle.reader(req.Body), Closer: req.Body}
 	}
 	header := up.Header
 	if header == nil {
@@ -145,11 +159,15 @@ func Forward(w http.ResponseWriter, r *http.Request, up Upstream) error {
 		if errors.Is(err, context.Canceled) && r.Context().Err() != nil {
 			return ErrClientWentAway
 		}
+		if errors.Is(context.Cause(ctx), ErrIdleTimeout) {
+			return &SendError{Address: up.Address, Err: ErrIdleTimeout}
+		}
 		return &SendError{Address: up.Address, Err: err}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusSwitchingProtocols {
-		return TunnelUpgradedResponse(w, resp)
+		idle.stop()
+		return tunnelUpgradedResponse(w, resp, up.IdleTimeout, up.Activity)
 	}
 	if up.Decline != nil && up.Decline(resp.StatusCode) {
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -166,7 +184,9 @@ func Forward(w http.ResponseWriter, r *http.Request, up Upstream) error {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	_, err = io.Copy(w, resp.Body)
+	if _, err = io.Copy(w, idle.reader(resp.Body)); err != nil && errors.Is(context.Cause(ctx), ErrIdleTimeout) {
+		return ErrIdleTimeout
+	}
 	return err
 }
 

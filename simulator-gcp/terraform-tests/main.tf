@@ -1129,6 +1129,18 @@ output "cloudfunctions2_function_id" {
   value = google_cloudfunctions2_function.tf_gcfv2_function.id
 }
 
+output "cloudfunctions2_function_url" {
+  value = google_cloudfunctions2_function.tf_gcfv2_function.url
+}
+
+output "cloudfunctions2_function_service_uri" {
+  value = google_cloudfunctions2_function.tf_gcfv2_function.service_config[0].uri
+}
+
+output "cloudfunctions2_function_service" {
+  value = google_cloudfunctions2_function.tf_gcfv2_function.service_config[0].service
+}
+
 output "eventarc_trigger_id" {
   value = google_eventarc_trigger.tf_eventarc_trigger.id
 }

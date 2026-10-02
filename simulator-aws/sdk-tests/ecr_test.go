@@ -22,29 +22,31 @@ func ecrClient() *ecr.Client {
 }
 
 func TestECR_CreateRepository(t *testing.T) {
+	repo := uniqueName("test-repo")
 	client := ecrClient()
 	out, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
-		RepositoryName: aws.String("test-repo"),
+		RepositoryName: aws.String(repo),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "test-repo", *out.Repository.RepositoryName)
-	assert.Contains(t, *out.Repository.RepositoryUri, "test-repo")
+	assert.Equal(t, repo, *out.Repository.RepositoryName)
+	assert.Contains(t, *out.Repository.RepositoryUri, repo)
 }
 
 func TestECR_DescribeRepositories(t *testing.T) {
+	repo := uniqueName("describe-repo")
 	client := ecrClient()
 
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
-		RepositoryName: aws.String("describe-repo"),
+		RepositoryName: aws.String(repo),
 	})
 	require.NoError(t, err)
 
 	out, err := client.DescribeRepositories(ctx, &ecr.DescribeRepositoriesInput{
-		RepositoryNames: []string{"describe-repo"},
+		RepositoryNames: []string{repo},
 	})
 	require.NoError(t, err)
 	require.Len(t, out.Repositories, 1)
-	assert.Equal(t, "describe-repo", *out.Repositories[0].RepositoryName)
+	assert.Equal(t, repo, *out.Repositories[0].RepositoryName)
 }
 
 func TestECR_GetAuthorizationToken(t *testing.T) {
@@ -81,9 +83,10 @@ func TestECR_GetAuthorizationToken(t *testing.T) {
 }
 
 func TestECR_PutImageDigestIsContentAddressed(t *testing.T) {
+	repo := uniqueName("content-digest-repo")
 	client := ecrClient()
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
-		RepositoryName: aws.String("content-digest-repo"),
+		RepositoryName: aws.String(repo),
 	})
 	require.NoError(t, err)
 
@@ -92,13 +95,13 @@ func TestECR_PutImageDigestIsContentAddressed(t *testing.T) {
 	wantDigest := "sha256:" + hex.EncodeToString(sum[:])
 
 	out1, err := client.PutImage(ctx, &ecr.PutImageInput{
-		RepositoryName: aws.String("content-digest-repo"),
+		RepositoryName: aws.String(repo),
 		ImageManifest:  aws.String(manifest),
 		ImageTag:       aws.String("v1"),
 	})
 	require.NoError(t, err)
 	out2, err := client.PutImage(ctx, &ecr.PutImageInput{
-		RepositoryName: aws.String("content-digest-repo"),
+		RepositoryName: aws.String(repo),
 		ImageManifest:  aws.String(manifest),
 		ImageTag:       aws.String("v2"),
 	})
@@ -113,30 +116,32 @@ func TestECR_PutImageDigestIsContentAddressed(t *testing.T) {
 // sockerless's image resolver and terraform's
 // aws_ecr_pull_through_cache_rule both take.
 func TestECR_PullThroughCacheCreate(t *testing.T) {
+	prefix := uniqueName("docker-hub")
 	client := ecrClient()
 	out, err := client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{
-		EcrRepositoryPrefix: aws.String("docker-hub"),
+		EcrRepositoryPrefix: aws.String(prefix),
 		UpstreamRegistryUrl: aws.String("registry-1.docker.io"),
 		UpstreamRegistry:    ecrtypes.UpstreamRegistryDockerHub,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "docker-hub", aws.ToString(out.EcrRepositoryPrefix))
+	assert.Equal(t, prefix, aws.ToString(out.EcrRepositoryPrefix))
 	assert.Equal(t, "registry-1.docker.io", aws.ToString(out.UpstreamRegistryUrl))
 }
 
 // TestECR_PullThroughCacheCreateAlreadyExists verifies the simulator
 // returns the same error shape AWS does when a prefix is reused.
 func TestECR_PullThroughCacheCreateAlreadyExists(t *testing.T) {
+	prefix := uniqueName("already-exists")
 	client := ecrClient()
 	_, err := client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{
-		EcrRepositoryPrefix: aws.String("already-exists"),
+		EcrRepositoryPrefix: aws.String(prefix),
 		UpstreamRegistryUrl: aws.String("registry-1.docker.io"),
 		UpstreamRegistry:    ecrtypes.UpstreamRegistryDockerHub,
 	})
 	require.NoError(t, err)
 
 	_, err = client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{
-		EcrRepositoryPrefix: aws.String("already-exists"),
+		EcrRepositoryPrefix: aws.String(prefix),
 		UpstreamRegistryUrl: aws.String("registry-1.docker.io"),
 		UpstreamRegistry:    ecrtypes.UpstreamRegistryDockerHub,
 	})
@@ -147,9 +152,10 @@ func TestECR_PullThroughCacheCreateAlreadyExists(t *testing.T) {
 // TestECR_PullThroughCacheDescribe verifies list-all and filtered list
 // paths both round-trip.
 func TestECR_PullThroughCacheDescribe(t *testing.T) {
+	prefix := uniqueName("describe-ptc")
 	client := ecrClient()
 	_, err := client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{
-		EcrRepositoryPrefix: aws.String("describe-prefix-a"),
+		EcrRepositoryPrefix: aws.String(prefix),
 		UpstreamRegistryUrl: aws.String("registry-1.docker.io"),
 		UpstreamRegistry:    ecrtypes.UpstreamRegistryDockerHub,
 	})
@@ -157,23 +163,23 @@ func TestECR_PullThroughCacheDescribe(t *testing.T) {
 
 	// Filtered
 	filtered, err := client.DescribePullThroughCacheRules(ctx, &ecr.DescribePullThroughCacheRulesInput{
-		EcrRepositoryPrefixes: []string{"describe-prefix-a"},
+		EcrRepositoryPrefixes: []string{prefix},
 	})
 	require.NoError(t, err)
 	require.Len(t, filtered.PullThroughCacheRules, 1)
-	assert.Equal(t, "describe-prefix-a", aws.ToString(filtered.PullThroughCacheRules[0].EcrRepositoryPrefix))
+	assert.Equal(t, prefix, aws.ToString(filtered.PullThroughCacheRules[0].EcrRepositoryPrefix))
 
 	// All (at least our entry must appear)
 	all, err := client.DescribePullThroughCacheRules(ctx, &ecr.DescribePullThroughCacheRulesInput{})
 	require.NoError(t, err)
 	var found bool
 	for _, r := range all.PullThroughCacheRules {
-		if aws.ToString(r.EcrRepositoryPrefix) == "describe-prefix-a" {
+		if aws.ToString(r.EcrRepositoryPrefix) == prefix {
 			found = true
 			break
 		}
 	}
-	assert.True(t, found, "listed rules should include describe-prefix-a")
+	assert.True(t, found, "listed rules should include the created rule")
 }
 
 // TestECR_PullThroughCacheDelete verifies delete removes the rule and
@@ -204,27 +210,28 @@ func TestECR_PullThroughCacheDelete(t *testing.T) {
 }
 
 func TestECR_LifecyclePolicy(t *testing.T) {
+	repo := uniqueName("lifecycle-repo")
 	client := ecrClient()
 
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
-		RepositoryName: aws.String("lifecycle-repo"),
+		RepositoryName: aws.String(repo),
 	})
 	require.NoError(t, err)
 
 	policy := `{"rules":[{"rulePriority":1,"selection":{"tagStatus":"untagged","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}`
 	_, err = client.PutLifecyclePolicy(ctx, &ecr.PutLifecyclePolicyInput{
-		RepositoryName:      aws.String("lifecycle-repo"),
+		RepositoryName:      aws.String(repo),
 		LifecyclePolicyText: aws.String(policy),
 	})
 	require.NoError(t, err)
 
 	getOut, err := client.GetLifecyclePolicy(ctx, &ecr.GetLifecyclePolicyInput{
-		RepositoryName: aws.String("lifecycle-repo"),
+		RepositoryName: aws.String(repo),
 	})
 	require.NoError(t, err)
 	assert.JSONEq(t, policy, aws.ToString(getOut.LifecyclePolicyText),
 		"the policy read back must be the one that was put")
-	assert.Equal(t, "lifecycle-repo", aws.ToString(getOut.RepositoryName))
+	assert.Equal(t, repo, aws.ToString(getOut.RepositoryName))
 }
 
 func TestECR_DescribeRepositories_Pagination(t *testing.T) {

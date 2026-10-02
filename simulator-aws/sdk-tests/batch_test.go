@@ -121,10 +121,11 @@ func TestBatch_JobQueue_SDK(t *testing.T) {
 }
 
 func TestBatch_JobDefinition_SDK(t *testing.T) {
+	jdName := uniqueName("batch-sdk-jd")
 	c := batchClient()
 
 	reg, err := c.RegisterJobDefinition(ctx, &batch.RegisterJobDefinitionInput{
-		JobDefinitionName: aws.String("batch-sdk-jd"),
+		JobDefinitionName: aws.String(jdName),
 		Type:              batchtypes.JobDefinitionTypeContainer,
 		ContainerProperties: &batchtypes.ContainerProperties{
 			Image:   aws.String(containerCommandImage),
@@ -144,12 +145,12 @@ func TestBatch_JobDefinition_SDK(t *testing.T) {
 	})
 
 	describe, err := c.DescribeJobDefinitions(ctx, &batch.DescribeJobDefinitionsInput{
-		JobDefinitionName: aws.String("batch-sdk-jd"),
+		JobDefinitionName: aws.String(jdName),
 		Status:            aws.String("ACTIVE"),
 	})
 	require.NoError(t, err)
 	require.Len(t, describe.JobDefinitions, 1)
-	assert.Equal(t, "batch-sdk-jd", aws.ToString(describe.JobDefinitions[0].JobDefinitionName))
+	assert.Equal(t, jdName, aws.ToString(describe.JobDefinitions[0].JobDefinitionName))
 	assert.Equal(t, "ACTIVE", aws.ToString(describe.JobDefinitions[0].Status))
 	assert.EqualValues(t, 1, aws.ToInt32(describe.JobDefinitions[0].Revision))
 }

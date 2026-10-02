@@ -226,3 +226,89 @@ func TestHostname(t *testing.T) {
 	require.Equal(t, "10.0.0.1", Hostname("10.0.0.1"))
 	require.Equal(t, "::1", Hostname("[::1]:80"))
 }
+
+func TestForwardIdleTimeoutAnswersNothingFromASilentTarget(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	silent := targetAddress(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	err := Forward(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil),
+		Upstream{Scheme: "http", Address: silent, Path: "/", IdleTimeout: 100 * time.Millisecond})
+	var sendErr *SendError
+	require.ErrorAs(t, err, &sendErr)
+	require.ErrorIs(t, err, ErrIdleTimeout)
+}
+
+// An idle timeout is not a deadline: an answer whose bytes keep arriving
+// outlasts it many times over.
+func TestForwardIdleTimeoutSparesAnAnswerThatKeepsFlowing(t *testing.T) {
+	const idle = 200 * time.Millisecond
+	address := targetAddress(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ticker := time.NewTicker(idle / 4)
+		defer ticker.Stop()
+		for range 12 {
+			_, _ = io.WriteString(w, ".")
+			w.(http.Flusher).Flush()
+			<-ticker.C
+		}
+	}))
+	var activity int
+	rr := httptest.NewRecorder()
+	err := Forward(rr, httptest.NewRequest(http.MethodGet, "/", nil),
+		Upstream{Scheme: "http", Address: address, Path: "/", IdleTimeout: idle, Activity: func() { activity++ }})
+	require.NoError(t, err)
+	require.Equal(t, strings.Repeat(".", 12), rr.Body.String())
+	require.Positive(t, activity)
+}
+
+func TestForwardIdleTimeoutCutsAnAnswerThatStalls(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	address := targetAddress(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "partial")
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	rr := httptest.NewRecorder()
+	err := Forward(rr, httptest.NewRequest(http.MethodGet, "/", nil),
+		Upstream{Scheme: "http", Address: address, Path: "/", IdleTimeout: 100 * time.Millisecond})
+	require.ErrorIs(t, err, ErrIdleTimeout)
+	var sendErr *SendError
+	require.False(t, errors.As(err, &sendErr), "the answer had begun, so this is no send error")
+	require.Equal(t, "partial", rr.Body.String())
+}
+
+func TestForwardIdleTimeoutClosesAQuietTunnel(t *testing.T) {
+	address := targetAddress(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, buf, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = buf.WriteString("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+		_ = buf.Flush()
+		_, _ = io.Copy(io.Discard, buf)
+	}))
+	lb := frontEnd(t, address, Upstream{IdleTimeout: 100 * time.Millisecond})
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(lb.URL, "http://"))
+	require.NoError(t, err)
+	defer conn.Close()
+	_, err = io.WriteString(conn, "GET /socket HTTP/1.1\r\nHost: lb.example\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+	require.NoError(t, err)
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, err = reader.ReadByte()
+	require.ErrorIs(t, err, io.EOF, "the load balancer closes a tunnel no byte crossed for the idle timeout")
+}

@@ -375,7 +375,12 @@ func TestEC2_AccountVpcEncryptionAndEndpointPayerRoundTrip(t *testing.T) {
 	initial, err := c.DescribeAccountVpcEncryptionControl(ctx, &ec2.DescribeAccountVpcEncryptionControlInput{})
 	require.NoError(t, err)
 	require.NotNil(t, initial.AccountVpcEncryptionControl)
-	assert.Equal(t, types.AccountVpcEncryptionControlStateDefaultState, initial.AccountVpcEncryptionControl.State)
+	// An account whose control was reset to unmanaged reports the transition
+	// that reset it rather than its default state.
+	assert.Contains(t, []types.AccountVpcEncryptionControlState{
+		types.AccountVpcEncryptionControlStateDefaultState,
+		types.AccountVpcEncryptionControlStateTransitionsSuccessful,
+	}, initial.AccountVpcEncryptionControl.State)
 	assert.Equal(t, types.AccountVpcEncryptionControlModeUnmanaged, initial.AccountVpcEncryptionControl.Mode)
 	assert.Equal(t, types.ManagedByAccount, initial.AccountVpcEncryptionControl.ManagedBy)
 
@@ -384,6 +389,13 @@ func TestEC2_AccountVpcEncryptionAndEndpointPayerRoundTrip(t *testing.T) {
 		NatGateway: types.VpcEncryptionControlExclusionStateInputEnable,
 	})
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := c.ModifyAccountVpcEncryptionControl(ctx, &ec2.ModifyAccountVpcEncryptionControlInput{
+			Mode:       types.AccountVpcEncryptionControlModeUnmanaged,
+			NatGateway: types.VpcEncryptionControlExclusionStateInputDisable,
+		})
+		assert.NoError(t, err, "reset the account's VPC encryption control")
+	})
 	require.NotNil(t, modified.AccountVpcEncryptionControl)
 	assert.Equal(t, types.AccountVpcEncryptionControlStateTransitionsSuccessful, modified.AccountVpcEncryptionControl.State)
 	assert.Equal(t, types.AccountVpcEncryptionControlModeAttemptMonitor, modified.AccountVpcEncryptionControl.Mode)

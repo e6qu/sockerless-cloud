@@ -1,12 +1,15 @@
 package rds_restore_test
 
 import (
+	"context"
 	"encoding/json"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/e6qu/sockerless-cloud/simulator-aws/terraform-tests/internal/tfsim"
 	"github.com/stretchr/testify/require"
 )
@@ -33,44 +36,49 @@ func TestRDSRestoreTerraform(t *testing.T) {
 
 func seedSnapshot(t *testing.T, env *tfsim.Env) {
 	t.Helper()
-	env.AWSQuery(t, "rds", url.Values{
-		"Action":               {"CreateDBInstance"},
-		"Version":              {"2014-10-31"},
-		"DBInstanceIdentifier": {"tf-rds-restore-source"},
-		"DBInstanceClass":      {"db.t3.micro"},
-		"Engine":               {"postgres"},
-		"EngineVersion":        {"17.5"},
-		"MasterUsername":       {"admin"},
-		"MasterUserPassword":   {"password123!"},
-		"AllocatedStorage":     {"20"},
-		"SkipFinalSnapshot":    {"true"},
-		"ApplyImmediately":     {"true"},
+	ctx := context.Background()
+	client := rds.New(rds.Options{
+		Region:       "us-east-1",
+		BaseEndpoint: aws.String(env.Endpoint),
+		Credentials:  credentials.NewStaticCredentialsProvider("test", "test", ""),
+		HTTPClient:   env.Client,
 	})
-	env.AWSQuery(t, "rds", url.Values{
-		"Action":               {"CreateDBSnapshot"},
-		"Version":              {"2014-10-31"},
-		"DBInstanceIdentifier": {"tf-rds-restore-source"},
-		"DBSnapshotIdentifier": {"tf-rds-snapshot-source"},
+	_, err := client.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String("tf-rds-restore-source"),
+		DBInstanceClass:      aws.String("db.t3.micro"),
+		Engine:               aws.String("postgres"),
+		EngineVersion:        aws.String("17.5"),
+		MasterUsername:       aws.String("admin"),
+		MasterUserPassword:   aws.String("password123!"),
+		AllocatedStorage:     aws.Int32(20),
 	})
-	// A snapshot is not restorable while it is still being taken, and Amazon
-	// RDS refuses a restore from one that is: "DBSnapshot ... is creating; it
-	// must be available to restore from". The Terraform provider waits for its
-	// own aws_db_snapshot resource to settle; this snapshot is seeded outside
-	// Terraform, so the seeding waits for it here. Without that the apply below
-	// races the snapshot and fails whenever it loses.
-	awaitSnapshotAvailable(t, env, "tf-rds-snapshot-source")
+	require.NoError(t, err)
+	_, err = client.CreateDBSnapshot(ctx, &rds.CreateDBSnapshotInput{
+		DBInstanceIdentifier: aws.String("tf-rds-restore-source"),
+		DBSnapshotIdentifier: aws.String("tf-rds-snapshot-source"),
+	})
+	require.NoError(t, err)
+	// Amazon RDS refuses a restore from a snapshot still being taken ("is
+	// creating; it must be available to restore from"). The provider waits for
+	// its own aws_db_snapshot; this one is seeded outside Terraform, so wait for
+	// it here with the SDK's DBSnapshotAvailable waiter.
+	err = rds.NewDBSnapshotAvailableWaiter(client, func(o *rds.DBSnapshotAvailableWaiterOptions) {
+		o.MinDelay = 250 * time.Millisecond
+		o.MaxDelay = 2 * time.Second
+	}).Wait(ctx, &rds.DescribeDBSnapshotsInput{
+		DBSnapshotIdentifier: aws.String("tf-rds-snapshot-source"),
+	}, 2*time.Minute)
+	require.NoError(t, err, "snapshot tf-rds-snapshot-source never became available to restore from")
 	t.Cleanup(func() {
-		env.AWSQuery(t, "rds", url.Values{
-			"Action":               {"DeleteDBSnapshot"},
-			"Version":              {"2014-10-31"},
-			"DBSnapshotIdentifier": {"tf-rds-snapshot-source"},
+		_, err := client.DeleteDBSnapshot(ctx, &rds.DeleteDBSnapshotInput{
+			DBSnapshotIdentifier: aws.String("tf-rds-snapshot-source"),
 		})
-		env.AWSQuery(t, "rds", url.Values{
-			"Action":               {"DeleteDBInstance"},
-			"Version":              {"2014-10-31"},
-			"DBInstanceIdentifier": {"tf-rds-restore-source"},
-			"SkipFinalSnapshot":    {"true"},
+		require.NoError(t, err)
+		_, err = client.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
+			DBInstanceIdentifier: aws.String("tf-rds-restore-source"),
+			SkipFinalSnapshot:    aws.Bool(true),
 		})
+		require.NoError(t, err)
 	})
 }
 
@@ -93,26 +101,4 @@ func readOutputs(t *testing.T, env *tfsim.Env) tfOutputs {
 	var outputs tfOutputs
 	require.NoError(t, json.Unmarshal(env.Terraform(t, "output", "-json"), &outputs))
 	return outputs
-}
-
-// awaitSnapshotAvailable blocks until the seeded snapshot is restorable.
-func awaitSnapshotAvailable(t *testing.T, env *tfsim.Env, snapshot string) {
-	t.Helper()
-	// A snapshot of an empty instance settles in well under a second; the
-	// budget is for a loaded host, not for a snapshot that is going to fail.
-	deadline := time.Now().Add(2 * time.Minute)
-	var last string
-	for time.Now().Before(deadline) {
-		last = env.AWSQueryBody(t, "rds", url.Values{
-			"Action":               {"DescribeDBSnapshots"},
-			"Version":              {"2014-10-31"},
-			"DBSnapshotIdentifier": {snapshot},
-		})
-		if strings.Contains(last, "<Status>available</Status>") {
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	t.Fatalf("snapshot %s never became available to restore from; last DescribeDBSnapshots answer:\n%s",
-		snapshot, last)
 }

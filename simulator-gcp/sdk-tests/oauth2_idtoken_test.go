@@ -27,12 +27,12 @@ import (
 // google.golang.org/api/idtoken service-account flow signs a JWT-bearer
 // assertion with the minted key, POSTs it to `token_uri`, and reads back the
 // `id_token`.
-func writeServiceAccountJSON(t *testing.T) string {
+func writeServiceAccountJSON(t *testing.T) (path, email string) {
 	t.Helper()
 	svc := iamService(t)
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/test-project",
 		&iam.CreateServiceAccountRequest{
-			AccountId:      "sockerless-runner",
+			AccountId:      uniqueName("sockerless-runner"),
 			ServiceAccount: &iam.ServiceAccount{DisplayName: "Sockerless runner"},
 		}).Do()
 	require.NoError(t, err)
@@ -53,39 +53,25 @@ func writeServiceAccountJSON(t *testing.T) string {
 	_, err = f.Write(body)
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
-	return f.Name()
+	return f.Name(), sa.Email
 }
 
-// TestOAuth2IDToken_InvokeBearerAccepted reproduces the Cloud Run / Cloud
-// Functions backend service-invoke path exactly: with a service-account
-// credential whose token_uri is the simulator, the backend's
-// gcpcommon.IDTokenAccess builds an idtoken client for the target service URL;
-// idtoken runs the service-account JWT-bearer flow, POSTs to the sim's /token
-// endpoint, and presents the returned id_token as its Authorization: Bearer
-// when invoking the service.
-//
-// The id_token the sim returns must be an RS256 token the data-plane bearer
-// middleware verifies — the regression this guards is the endpoint returning an
-// HS256 id_token, which the middleware rejected with 401 "token algorithm HS256
-// is not RS256".
+// TestOAuth2IDToken_InvokeBearerAccepted reproduces the minting half of the
+// Cloud Run backend's service-invoke path: with a service-account credential
+// whose token_uri is the simulator, google.golang.org/api/idtoken runs the
+// service-account JWT-bearer flow with a target_audience, and the token
+// endpoint answers with an RS256 id_token whose single `aud` is that audience —
+// the service URL the backend presents it to.
 func TestOAuth2IDToken_InvokeBearerAccepted(t *testing.T) {
-	saPath := writeServiceAccountJSON(t)
+	saPath, email := writeServiceAccountJSON(t)
+	const audience = "https://target-service-abcdefghij-us-central1.a.run.app"
 
-	// A gated Cloud Run data-plane URL stands in for the target service; the
-	// audience the backend requests is the service URL it will invoke.
-	audience := baseURL + "/v2/projects/test-project/locations/us-central1/services"
-
-	// The exact minting the invoke path performs: idtoken's service-account
-	// flow exchanges the SA assertion at the sim /token endpoint for the
-	// id_token it will bear.
 	ts, err := idtoken.NewTokenSource(ctx, audience, option.WithCredentialsFile(saPath))
 	require.NoError(t, err)
 	tok, err := ts.Token()
 	require.NoError(t, err)
 	require.NotEmpty(t, tok.AccessToken)
 
-	// The bearer must be RS256 — the header alg the data-plane middleware
-	// enforces.
 	parts := strings.Split(tok.AccessToken, ".")
 	require.Len(t, parts, 3, "id_token must be a 3-segment JWT")
 	header, err := base64.RawURLEncoding.DecodeString(parts[0])
@@ -96,14 +82,20 @@ func TestOAuth2IDToken_InvokeBearerAccepted(t *testing.T) {
 	require.NoError(t, json.Unmarshal(header, &hdr))
 	require.Equal(t, "RS256", hdr.Alg, "invoke bearer must be RS256, not HS256")
 
-	// Present that exact bearer to the gated data plane, the way the backend's
-	// idtoken client does when it invokes the service. A valid RS256 token the
-	// sim minted is accepted (200); the pre-fix HS256 token was rejected (401).
-	client, err := idtoken.NewClient(ctx, audience, option.WithCredentialsFile(saPath))
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	require.NoError(t, err)
-	resp, err := client.Get(audience)
+	var claims map[string]any
+	require.NoError(t, json.Unmarshal(payload, &claims))
+	assert.Equal(t, audience, claims["aud"], "the id_token's audience is the requested target_audience")
+	assert.Equal(t, email, claims["email"])
+
+	// An ID token is not an OAuth access token: a Google API refuses it.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		baseURL+"/v2/projects/test-project/locations/us-central1/services", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+	resp, err := rawClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode,
-		"data plane must accept the RS256 invoke bearer the idtoken service-account flow mints")
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }

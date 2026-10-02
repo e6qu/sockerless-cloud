@@ -19,7 +19,7 @@ import (
 // condition context.
 func TestIAM_ResourceTagCondition(t *testing.T) {
 	admin := iamClient()
-	user := "rt-cond-user"
+	user := uniqueName("rt-cond-user")
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer admin.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})
@@ -64,7 +64,7 @@ func TestIAM_ResourceTagCondition(t *testing.T) {
 // ecs:StopTask grant scoped to one cluster denies a call targeting another.
 func TestIAM_ECSClusterCondition(t *testing.T) {
 	admin := iamClient()
-	user := "ecs-cond-user"
+	user := uniqueName("ecs-cond-user")
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer admin.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})

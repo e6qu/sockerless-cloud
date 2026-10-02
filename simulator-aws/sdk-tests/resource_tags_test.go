@@ -17,9 +17,11 @@ import (
 // are returned by the per-service tag-list APIs for CloudWatch Logs, DynamoDB,
 // and ECR. Dropping create-time tags makes every terraform plan re-add them.
 func TestResourceTags_CreateTimeRoundTrip(t *testing.T) {
+	repoName := uniqueName("tags-repo")
+	tableName := uniqueName("tags-tbl")
 	t.Run("CloudWatchLogs", func(t *testing.T) {
 		c := cwLogsClient()
-		name := "/tags/cwlogs-app"
+		name := uniqueName("/tags/cwlogs-app")
 		_, err := c.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{
 			LogGroupName: aws.String(name),
 			Tags:         map[string]string{"Name": "test", "env": "ci"},
@@ -43,7 +45,7 @@ func TestResourceTags_CreateTimeRoundTrip(t *testing.T) {
 	t.Run("DynamoDB", func(t *testing.T) {
 		c := ddbClient()
 		_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
-			TableName:            aws.String("tags-tbl"),
+			TableName:            aws.String(tableName),
 			BillingMode:          ddbtypes.BillingModePayPerRequest,
 			AttributeDefinitions: []ddbtypes.AttributeDefinition{{AttributeName: aws.String("PK"), AttributeType: ddbtypes.ScalarAttributeTypeS}},
 			KeySchema:            []ddbtypes.KeySchemaElement{{AttributeName: aws.String("PK"), KeyType: ddbtypes.KeyTypeHash}},
@@ -51,7 +53,7 @@ func TestResourceTags_CreateTimeRoundTrip(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		desc, err := c.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String("tags-tbl")})
+		desc, err := c.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(tableName)})
 		require.NoError(t, err)
 		arn := aws.ToString(desc.Table.TableArn)
 
@@ -65,13 +67,13 @@ func TestResourceTags_CreateTimeRoundTrip(t *testing.T) {
 	t.Run("ECR", func(t *testing.T) {
 		c := ecrClient()
 		_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{
-			RepositoryName: aws.String("tags-repo"),
+			RepositoryName: aws.String(repoName),
 			Tags:           []ecrtypes.Tag{{Key: aws.String("Name"), Value: aws.String("test")}},
 		})
 		require.NoError(t, err)
 
 		desc, err := c.DescribeRepositories(ctx, &ecr.DescribeRepositoriesInput{
-			RepositoryNames: []string{"tags-repo"},
+			RepositoryNames: []string{repoName},
 		})
 		require.NoError(t, err)
 		arn := aws.ToString(desc.Repositories[0].RepositoryArn)

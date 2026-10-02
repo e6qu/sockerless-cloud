@@ -33,7 +33,7 @@ func lambdaCreateFn(t *testing.T, c *lambda.Client, name string) string {
 func TestLambda_PublishVersion(t *testing.T) {
 	c := lambdaClient()
 	ctx := context.Background()
-	name := "subres-publish"
+	name := uniqueName("subres-publish")
 	lambdaCreateFn(t, c, name)
 
 	for i := 1; i <= 3; i++ {
@@ -64,7 +64,7 @@ func TestLambda_PublishVersion(t *testing.T) {
 func TestLambda_ListFunctions_FunctionVersionAll(t *testing.T) {
 	c := lambdaClient()
 	ctx := context.Background()
-	name := "listfn-all-ver"
+	name := uniqueName("listfn-all-ver")
 	lambdaCreateFn(t, c, name)
 
 	_, err := c.PublishVersion(ctx, &lambda.PublishVersionInput{FunctionName: aws.String(name)})
@@ -104,7 +104,7 @@ func TestLambda_ListFunctions_FunctionVersionAll(t *testing.T) {
 func TestLambda_AliasCRUD(t *testing.T) {
 	c := lambdaClient()
 	ctx := context.Background()
-	name := "subres-alias"
+	name := uniqueName("subres-alias")
 	lambdaCreateFn(t, c, name)
 
 	_, err := c.PublishVersion(ctx, &lambda.PublishVersionInput{FunctionName: aws.String(name)})
@@ -158,7 +158,7 @@ func TestLambda_AliasCRUD(t *testing.T) {
 func TestLambda_AddRemovePermission(t *testing.T) {
 	c := lambdaClient()
 	ctx := context.Background()
-	name := "subres-perm"
+	name := uniqueName("subres-perm")
 	lambdaCreateFn(t, c, name)
 
 	_, err := c.AddPermission(ctx, &lambda.AddPermissionInput{
@@ -191,7 +191,7 @@ func TestLambda_AddRemovePermission(t *testing.T) {
 func TestLambda_FunctionUrlConfigCRUD(t *testing.T) {
 	c := lambdaClient()
 	ctx := context.Background()
-	name := "subres-url"
+	name := uniqueName("subres-url")
 	lambdaCreateFn(t, c, name)
 
 	created, err := c.CreateFunctionUrlConfig(ctx, &lambda.CreateFunctionUrlConfigInput{

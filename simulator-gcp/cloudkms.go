@@ -1861,7 +1861,7 @@ func kmsHandleTestIamPermissions(w http.ResponseWriter, r *http.Request, resourc
 			IAMBinding{Role: binding.Role, Members: binding.Members})
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"permissions": gcpAnswerTestIamPermissions(r, policy, req.Permissions)})
+		"permissions": gcpAnswerTestIamPermissions(r, policy, req.Permissions, gcpIAMResourceNamed(resource))})
 }
 
 // kmsHandleGenerateRandomBytes returns cryptographically-random bytes from

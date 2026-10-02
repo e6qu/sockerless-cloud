@@ -164,7 +164,7 @@ func persistGCSObjectBytes(bucketName, objectName string, data []byte, attrs GCS
 	if err != nil {
 		return GCSObject{}, fmt.Errorf("store %s/%s: %w", bucketName, objectName, err)
 	}
-	return persistGCSObject(gcsObjects, bucketName, objectName, ref, digests, attrs, pre)
+	return persistGCSObject(gcsObjects, bucketName, objectName, ref, digests, attrs, pre, gcsMirror)
 }
 
 // gcsReleaseBody releases a payload no row references any more. A failure
@@ -181,36 +181,105 @@ func gcsMirrorPath(bucket, name string) string {
 
 // gcsMirror copies the live generation of an object to its path in the
 // bucket's host directory, the directory a Cloud Run volume mounts as the
-// bucket. The copy is the mount's own, so a workload writing through the
-// mount never changes a generation Cloud Storage serves. Cloud Storage FUSE
-// shows a directory where a file and a directory share a name, and so does the
-// host directory; a name that would resolve outside the bucket has no path in
-// it at all.
+// bucket. The copy is the mount's own: a workload's write through the mount
+// reaches Cloud Storage only as the new generation the mount's watch writes.
+// Cloud Storage FUSE shows a directory where a file and
+// a directory share a name, and so does the host directory; a name that would
+// resolve outside the bucket has no path in it at all.
+//
+// The copy is staged outside every bucket's directory and renamed into place,
+// so a watch on a mounted bucket sees the finished file arrive and never a
+// write of the simulator's own.
 func gcsMirror(obj GCSObject) {
 	if !filepath.IsLocal(filepath.FromSlash(obj.Name)) {
 		return
 	}
 	path := gcsMirrorPath(obj.Bucket, obj.Name)
 	if strings.HasSuffix(obj.Name, "/") {
+		gcsMountMu.Lock()
+		defer gcsMountMu.Unlock()
 		if err := gcsMirrorDirectory(obj.Bucket, path); err != nil {
 			log.Printf("cloud storage: mirror %s/%s: %v", obj.Bucket, obj.Name, err)
+			return
 		}
+		gcsMountSetDirGenerationLocked(obj.Bucket, strings.TrimSuffix(obj.Name, "/"), gcsGenerationNumber(obj.Generation))
 		return
 	}
-	if err := gcsMirrorDirectory(obj.Bucket, filepath.Dir(path)); err != nil {
+	staged, err := gcsStageMirror(obj)
+	if err != nil {
 		log.Printf("cloud storage: mirror %s/%s: %v", obj.Bucket, obj.Name, err)
+		return
+	}
+	gcsMountMu.Lock()
+	defer gcsMountMu.Unlock()
+	discard := func(err error) {
+		_ = os.Remove(staged)
+		if err != nil {
+			log.Printf("cloud storage: mirror %s/%s: %v", obj.Bucket, obj.Name, err)
+		}
+	}
+	if err := gcsMirrorDirectory(obj.Bucket, filepath.Dir(path)); err != nil {
+		discard(err)
 		return
 	}
 	if info, err := os.Lstat(path); err == nil && info.IsDir() {
+		discard(nil)
 		return
 	}
-	if err := gcsBodies.Materialize(obj.Body, path); err != nil {
-		log.Printf("cloud storage: mirror %s/%s: %v", obj.Bucket, obj.Name, err)
+	if err := os.Rename(staged, path); err != nil {
+		discard(err)
+		return
 	}
+	gcsMountRecordFileLocked(obj.Bucket, obj.Name, gcsGenerationNumber(obj.Generation), path)
+}
+
+// gcsStageMirror writes obj's contents to a file of their own beside the
+// bucket directories, on the same file system, for gcsMirror to rename into
+// place.
+func gcsStageMirror(obj GCSObject) (string, error) {
+	staging := filepath.Join(gcsDataRoot(), gcsMirrorStagingDir)
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		return "", err
+	}
+	source, err := gcsBodies.Open(obj.Body)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = source.Close() }()
+	temp, err := os.CreateTemp(staging, "mirror-*")
+	if err != nil {
+		return "", err
+	}
+	fail := func(err error) (string, error) {
+		_ = temp.Close()
+		_ = os.Remove(temp.Name())
+		return "", err
+	}
+	if _, err := io.Copy(temp, source); err != nil {
+		return fail(err)
+	}
+	if err := temp.Chmod(0o644); err != nil {
+		return fail(err)
+	}
+	if err := temp.Close(); err != nil {
+		_ = os.Remove(temp.Name())
+		return "", err
+	}
+	return temp.Name(), nil
+}
+
+// gcsMirrorStagingDir names the staging directory under the data root. A
+// bucket name starts with a letter or digit, so no bucket directory takes it.
+const gcsMirrorStagingDir = ".mirror-staging"
+
+func gcsGenerationNumber(generation string) int64 {
+	n, _ := strconv.ParseInt(generation, 10, 64)
+	return n
 }
 
 // gcsMirrorDirectory makes dir a directory of the bucket's host directory,
-// taking the place of any object file on the way: the directory wins.
+// taking the place of any object file on the way: the directory wins. The
+// caller holds gcsMountMu.
 func gcsMirrorDirectory(bucket, dir string) error {
 	root := GCSBucketHostDir(bucket)
 	rel, err := filepath.Rel(root, dir)
@@ -218,24 +287,48 @@ func gcsMirrorDirectory(bucket, dir string) error {
 		return err
 	}
 	current := root
+	var made []string
 	for _, part := range strings.Split(rel, string(filepath.Separator)) {
 		if part == "." || part == "" {
 			continue
 		}
 		current = filepath.Join(current, part)
+		made = append(made, current)
 		if info, err := os.Lstat(current); err == nil && !info.IsDir() {
 			if err := os.Remove(current); err != nil {
 				return err
 			}
+			gcsMountForgetLocked(bucket, filepath.ToSlash(mustRel(root, current)))
 		}
 	}
-	return os.MkdirAll(dir, 0o755)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for _, path := range made {
+		gcsMountRecordDirLocked(bucket, filepath.ToSlash(mustRel(root, path)), path)
+	}
+	return nil
+}
+
+func mustRel(root, path string) string {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		panic(fmt.Sprintf("%s is not under %s: %v", path, root, err))
+	}
+	return rel
 }
 
 // gcsUnmirror removes an object's file from the bucket's host directory. A
-// directory at the path belongs to other objects and stays.
+// directory at the path belongs to other objects and stays; a deleted
+// directory placeholder leaves its directory implied by what is under it.
 func gcsUnmirror(bucket, name string) {
-	if !filepath.IsLocal(filepath.FromSlash(name)) || strings.HasSuffix(name, "/") {
+	if !filepath.IsLocal(filepath.FromSlash(name)) {
+		return
+	}
+	gcsMountMu.Lock()
+	defer gcsMountMu.Unlock()
+	if strings.HasSuffix(name, "/") {
+		gcsMountSetDirGenerationLocked(bucket, strings.TrimSuffix(name, "/"), 0)
 		return
 	}
 	path := gcsMirrorPath(bucket, name)
@@ -244,5 +337,7 @@ func gcsUnmirror(bucket, name string) {
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("cloud storage: unmirror %s/%s: %v", bucket, name, err)
+		return
 	}
+	gcsMountForgetLocked(bucket, name)
 }

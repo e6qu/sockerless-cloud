@@ -17,6 +17,10 @@ type azureAdvertisedEndpointConfig struct {
 	ServiceBus string            `json:"serviceBus,omitempty"`
 	EventGrid  string            `json:"eventGrid,omitempty"`
 	ACR        string            `json:"acr,omitempty"`
+	// AppServiceScm is the App Service SCM (Kudu) site of a web app; {name}
+	// is the label of the app's default hostname, so a slot's is
+	// "<site>-<slot>".
+	AppServiceScm string `json:"appServiceScm,omitempty"`
 }
 
 var (
@@ -178,6 +182,24 @@ func azureACRLoginServer(r *http.Request, name string) string {
 		return strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(applied, "https://"), "http://"), "/")
 	}
 	return azureEndpointHost(r, name, "azurecr")
+}
+
+// azureAppServiceScmHost returns the SCM hostname App Service advertises for
+// a web app in its Repository hostNameSslStates entry, which is the host the
+// Azure CLI and terraform-provider-azurerm send Kudu deployments to. Like the
+// other data planes it is derived from the request unless an external gateway
+// coordinate is configured, so a client reaches the simulator at it.
+func azureAppServiceScmHost(r *http.Request, label string) string {
+	if cfg, err := azureAdvertisedEndpointConfigFromEnv(); err != nil {
+		panic(err)
+	} else if tmpl := strings.TrimSpace(cfg.AppServiceScm); tmpl != "" {
+		applied := azureApplyEndpointTemplate(tmpl, azureEndpointTemplateVars(r, label, nil))
+		if u, err := url.Parse(applied); err == nil && u.Host != "" {
+			return u.Host
+		}
+		return strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(applied, "https://"), "http://"), "/")
+	}
+	return azureEndpointHost(r, label, "scm")
 }
 
 func azureServiceBusConnectionEndpoint(r *http.Request, namespace string) string {

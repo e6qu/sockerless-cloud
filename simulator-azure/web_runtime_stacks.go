@@ -122,7 +122,8 @@ func removeSiteHome(siteName string) {
 // and returns the binds for it. site/wwwroot holds what the site runs: the
 // package WEBSITE_RUN_FROM_PACKAGE names by URL, mounted read-only as the
 // platform mounts a run-from-package app, or else the content the site's
-// deployments wrote.
+// deployments wrote, read-only too when WEBSITE_RUN_FROM_PACKAGE=1 makes the
+// last deployed package the app.
 func prepareSiteHome(site *Site) ([]string, error) {
 	home := siteHomeDir(site.Name)
 	wwwroot := filepath.Join(home, "site", "wwwroot")
@@ -147,6 +148,9 @@ func prepareSiteHome(site *Site) ([]string, error) {
 	}
 	if err := writeDeployedContent(site.ID, wwwroot); err != nil {
 		return nil, err
+	}
+	if webSiteRunsFromDeployedPackage(site) {
+		return append(binds, wwwroot+":/home/site/wwwroot:ro"), nil
 	}
 	return binds, nil
 }

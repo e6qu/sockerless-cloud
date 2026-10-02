@@ -285,12 +285,8 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 	}
 	waitContainer := func(name string) {
 		t.Helper()
-		var inspect []byte
-		var inspectErr error
-		require.Eventually(t, func() bool {
-			inspect, inspectErr = exec.Command("docker", "inspect", name).CombinedOutput()
-			return inspectErr == nil
-		}, 45*time.Second, 500*time.Millisecond, "task container %s should exist before Cloud Map registration: err=%v output=%q", name, inspectErr, inspect)
+		inspect, inspectErr := exec.Command("docker", "inspect", name).CombinedOutput()
+		require.NoError(t, inspectErr, "a RUNNING task's container %s must exist: %s", name, inspect)
 	}
 
 	alphaTask := runTask(alphaCID)
@@ -343,16 +339,12 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 	// Register instances with the real task ENI addresses.
 	registerInstance := func(serviceID, instanceID, ip string) {
 		t.Helper()
-		var out []byte
-		var err error
-		require.Eventually(t, func() bool {
-			out, err = awsCLI("servicediscovery", "register-instance",
-				"--service-id", serviceID,
-				"--instance-id", instanceID,
-				"--attributes", "AWS_INSTANCE_IPV4="+ip,
-			).CombinedOutput()
-			return err == nil
-		}, 45*time.Second, 500*time.Millisecond, "register-instance should update task DNS state: %v %s", err, out)
+		operationID := strings.TrimSpace(runCLI(t, awsCLI("servicediscovery", "register-instance",
+			"--service-id", serviceID,
+			"--instance-id", instanceID,
+			"--attributes", "AWS_INSTANCE_IPV4="+ip,
+			"--query", "OperationId", "--output", "text")))
+		awaitCLICloudMapOperation(t, operationID)
 	}
 	registerInstance(alphaSvc, alphaCID[:12], alphaIP)
 	t.Cleanup(func() {
@@ -366,14 +358,9 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 	})
 
 	// Resolve beta from alpha through the task's normal libc resolver.
-	var getent []byte
-	var hosts []byte
-	require.Eventually(t, func() bool {
-		var err error
-		getent, err = exec.Command("docker", "exec", alphaName, "getent", "hosts", "beta").CombinedOutput()
-		hosts, _ = exec.Command("docker", "exec", alphaName, "cat", "/etc/hosts").CombinedOutput()
-		return err == nil && len(getent) > 0
-	}, 10*time.Second, 500*time.Millisecond, "alpha should resolve 'beta' via Cloud Map DNS; getent=%q hosts=%q", getent, hosts)
+	getent, getentErr := exec.Command("docker", "exec", alphaName, "getent", "hosts", "beta").CombinedOutput()
+	hosts, _ := exec.Command("docker", "exec", alphaName, "cat", "/etc/hosts").CombinedOutput()
+	require.NoError(t, getentErr, "alpha should resolve 'beta' via Cloud Map DNS; getent=%q hosts=%q", getent, hosts)
 	assert.Contains(t, string(getent), "beta", "getent output should mention beta: %s", getent)
 
 }
@@ -443,4 +430,19 @@ func TestCloudMap_DeregisterInstance(t *testing.T) {
 	// Cleanup
 	runCLI(t, awsCLI("servicediscovery", "delete-service", "--id", svcId))
 	runCLI(t, awsCLI("servicediscovery", "delete-namespace", "--id", nsId))
+}
+
+// awaitCLICloudMapOperation polls get-operation until the operation leaves
+// SUBMITTED and PENDING: Cloud Map reports an asynchronous operation's progress
+// only through that status, and the AWS CLI has no waiter for it.
+func awaitCLICloudMapOperation(t *testing.T, operationID string) {
+	t.Helper()
+	var status string
+	require.Eventually(t, func() bool {
+		out, err := awsCLI("servicediscovery", "get-operation", "--operation-id", operationID,
+			"--query", "Operation.Status", "--output", "text").Output()
+		status = strings.TrimSpace(string(out))
+		return err == nil && (status == "SUCCESS" || status == "FAIL")
+	}, 45*time.Second, 250*time.Millisecond, "operation %s never finished; last status %q", operationID, status)
+	require.Equal(t, "SUCCESS", status, "operation %s failed", operationID)
 }

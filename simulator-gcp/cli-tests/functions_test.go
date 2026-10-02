@@ -2,7 +2,9 @@ package gcp_cli_test
 
 import (
 	"fmt"
+	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,36 +109,66 @@ func TestFunctions_List(t *testing.T) {
 	httpDoJSON(t, "DELETE", functionsURL("list-test-func"), "")
 }
 
+// TestFunctions_CLI_InvokeAndCheckLogs deploys a container to the Cloud Run
+// service behind a function, requests the function at its serviceConfig.uri
+// and at its cloudfunctions.net url, and reads the container's request log
+// back with gcloud logging read.
 func TestFunctions_CLI_InvokeAndCheckLogs(t *testing.T) {
-	// Create a function
-	url := functionsBaseURL() + "?functionId=cli-invoke-fn"
-	httpDoJSON(t, "POST", url, `{
+	const functionID = "cli-invoke-fn"
+	httpDoJSON(t, "POST", functionsBaseURL()+"?functionId="+functionID, `{
 		"buildConfig": {"runtime": "go121", "entryPoint": "Handler"},
 		"serviceConfig": {}
 	}`)
+	t.Cleanup(func() {
+		resp, err := httpDo("DELETE", functionsURL(functionID), "")
+		if err == nil {
+			resp.Body.Close()
+		}
+	})
 
-	// Invoke the function
-	httpDoJSON(t, "POST", baseURL+"/v2-functions-invoke/cli-invoke-fn", "{}")
+	var fn struct {
+		URL           string `json:"url"`
+		ServiceConfig struct {
+			URI     string `json:"uri"`
+			Service string `json:"service"`
+		} `json:"serviceConfig"`
+	}
+	parseJSON(t, httpDoJSON(t, "GET", functionsURL(functionID), ""), &fn)
+	require.Equal(t, fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, functionID), fn.ServiceConfig.Service)
+	assert.Equal(t, fmt.Sprintf("https://%s-%s.cloudfunctions.net/%s", location, project, functionID), fn.URL)
 
-	// Query Cloud Logging for the function's log entries. Ingestion is
-	// asynchronous, so the read is polled rather than run once, and the
-	// assertion is on an entry whose textPayload is the invocation line.
+	httpDoJSON(t, "PATCH", baseURL+"/v2/"+fn.ServiceConfig.Service,
+		fmt.Sprintf(`{"template":{"containers":[{"image":%q,"args":["log-request"]}]}}`, httpProbeImageName))
+
+	require.True(t, strings.HasSuffix(fn.ServiceConfig.URI, ".a.run.app"), "the function is served on run.app: %s", fn.ServiceConfig.URI)
+	invoker := cliInvokerEmail(t)
+	status, body := requestService(t, fn.URL, "/"+functionID+"/refused", cliIDToken(t, invoker, fn.URL))
+	assert.Equal(t, http.StatusForbidden, status, "a principal without roles/run.invoker: body=%q", body)
+
+	// gcloud grants roles/run.invoker on the function's Cloud Run service.
+	runCLI(t, gcloudRegionalCLI("functions", "add-invoker-policy-binding", functionID,
+		"--region="+location, "--member=serviceAccount:"+invoker, "--format=json"))
+	status, body = requestService(t, fn.ServiceConfig.URI, "/run-app", cliIDToken(t, invoker, fn.ServiceConfig.URI))
+	require.Equal(t, http.StatusOK, status, "body=%q", body)
+	assert.Equal(t, "GET /run-app", body)
+	status, body = requestService(t, fn.URL, "/"+functionID+"/cloudfunctions-net", cliIDToken(t, invoker, fn.URL))
+	require.Equal(t, http.StatusOK, status, "body=%q", body)
+	assert.Equal(t, "GET /cloudfunctions-net", body)
+
+	// Cloud Logging ingests the container's stdout asynchronously, so the read
+	// is repeated until the request line the container wrote arrives.
 	var out string
 	var payloads []string
 	require.Eventually(t, func() bool {
 		out = runCLI(t, gcloudCLI("logging", "read",
-			`resource.type="cloud_run_revision" AND resource.labels.service_name="cli-invoke-fn"`,
+			`resource.type="cloud_run_revision" AND resource.labels.service_name="`+functionID+`"`,
 			"--format", "json",
 		))
 		payloads = logTextPayloads(out)
-		return slices.Contains(payloads, "Function invoked")
+		return slices.Contains(payloads, "GET /cloudfunctions-net")
 	}, 60*time.Second, 250*time.Millisecond,
 		"the invocation never produced a Cloud Logging entry")
-	assert.Contains(t, payloads, "Function invoked",
-		"expected an invocation log entry: %s", out)
-
-	// Cleanup
-	httpDoJSON(t, "DELETE", functionsURL("cli-invoke-fn"), "")
+	assert.Contains(t, payloads, "GET /run-app", "expected the run.app request's log entry: %s", out)
 }
 
 func TestFunctions_Delete(t *testing.T) {

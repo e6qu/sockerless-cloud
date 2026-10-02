@@ -258,7 +258,13 @@ func deleteCloudRunServiceProjections(project, location, serviceID string) {
 			}
 		}
 	}
+	name := fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID)
 	if crv2Services != nil {
-		crv2Services.Delete(fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID))
+		crv2Services.Delete(name)
+	}
+	// The service's IAM policy goes with it, so a service later created under
+	// the same name starts with an empty policy.
+	if store := gcpResourceIAMStore(); store != nil {
+		store.Delete(name)
 	}
 }

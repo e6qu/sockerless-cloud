@@ -21,7 +21,7 @@ import (
 func TestKMS_KeyPolicyDenyBlocksDecrypt(t *testing.T) {
 	adminIAM := iamClient()
 	adminKMS := kmsClient()
-	user := "kms-deny-user"
+	user := uniqueName("kms-deny-user")
 
 	_, err := adminIAM.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)

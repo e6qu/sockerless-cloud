@@ -15,6 +15,9 @@ import (
 // protocol_version, and ip_address_type round-trip that aws_lb_target_group
 // reads back.
 func TestELBv2_TargetGroupFidelitySDK(t *testing.T) {
+	tcpHTTPTGName := uniqueName("tg-tcp-hhc")
+	tcpTGName := uniqueName("tg-tcp-fid")
+	httpTGName := uniqueName("tg-http-fid")
 	c := elbv2Client()
 	vpc, err := ec2Client().CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.150.0.0/16")})
 	require.NoError(t, err)
@@ -22,7 +25,7 @@ func TestELBv2_TargetGroupFidelitySDK(t *testing.T) {
 
 	// HTTP target group with an explicit matcher range.
 	httpTG, err := c.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
-		Name: aws.String("tg-http-fidelity"), Protocol: elbv2types.ProtocolEnumHttp,
+		Name: aws.String(httpTGName), Protocol: elbv2types.ProtocolEnumHttp,
 		Port: aws.Int32(80), VpcId: aws.String(vpcID), TargetType: elbv2types.TargetTypeEnumIp,
 		Matcher: &elbv2types.Matcher{HttpCode: aws.String("200-299")},
 	})
@@ -38,7 +41,7 @@ func TestELBv2_TargetGroupFidelitySDK(t *testing.T) {
 	// returns NO Matcher and NO HealthCheckPath (both apply only to HTTP/HTTPS
 	// health checks). Emitting either breaks terraform-provider-aws idempotency.
 	tcpTG, err := c.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
-		Name: aws.String("tg-tcp-fidelity"), Protocol: elbv2types.ProtocolEnumTcp,
+		Name: aws.String(tcpTGName), Protocol: elbv2types.ProtocolEnumTcp,
 		Port: aws.Int32(443), VpcId: aws.String(vpcID), TargetType: elbv2types.TargetTypeEnumIp,
 	})
 	require.NoError(t, err)
@@ -52,7 +55,7 @@ func TestELBv2_TargetGroupFidelitySDK(t *testing.T) {
 	// A TCP target group with an explicit HTTP health check DOES carry a Matcher
 	// and the default HealthCheckPath.
 	tcpHTTPHC, err := c.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
-		Name: aws.String("tg-tcp-httphc-fidelity"), Protocol: elbv2types.ProtocolEnumTcp,
+		Name: aws.String(tcpHTTPTGName), Protocol: elbv2types.ProtocolEnumTcp,
 		Port: aws.Int32(443), VpcId: aws.String(vpcID), TargetType: elbv2types.TargetTypeEnumIp,
 		HealthCheckProtocol: elbv2types.ProtocolEnumHttp, HealthCheckPort: aws.String("8080"),
 	})
@@ -74,6 +77,7 @@ func TestELBv2_TargetGroupFidelitySDK(t *testing.T) {
 // TestELBv2_LoadBalancerFidelitySDK covers the NLB enforce-SG field and the
 // SetIpAddressType in-place update.
 func TestELBv2_LoadBalancerFidelitySDK(t *testing.T) {
+	lbName := uniqueName("nlb-fid")
 	c := elbv2Client()
 	ec2c := ec2Client()
 	vpc, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.151.0.0/16")})
@@ -83,7 +87,7 @@ func TestELBv2_LoadBalancerFidelitySDK(t *testing.T) {
 	subnetID := aws.ToString(sn.Subnet.SubnetId)
 
 	nlb, err := c.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String("nlb-fidelity"), Type: elbv2types.LoadBalancerTypeEnumNetwork,
+		Name: aws.String(lbName), Type: elbv2types.LoadBalancerTypeEnumNetwork,
 		Subnets: []string{subnetID},
 	})
 	require.NoError(t, err)

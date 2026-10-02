@@ -13,9 +13,9 @@ import (
 func TestPubSub_SnapshotLifecycle(t *testing.T) {
 	svc := pubsubService(t)
 	const project = "snap-project"
-	topic := "projects/" + project + "/topics/snap-topic"
-	subName := "projects/" + project + "/subscriptions/snap-sub"
-	snapName := "projects/" + project + "/snapshots/snap1"
+	topic := "projects/" + project + "/topics/" + uniqueName("snap-topic")
+	subName := "projects/" + project + "/subscriptions/" + uniqueName("snap-sub")
+	snapName := "projects/" + project + "/snapshots/" + uniqueName("snap1")
 
 	_, err := svc.Projects.Topics.Create(topic, &pubsub.Topic{}).Do()
 	require.NoError(t, err)

@@ -351,6 +351,27 @@ through hooks:
   metadata changes; Eventarc delivers Cloud Storage triggers from those
   notifications as binary-mode CloudEvents; Cloud Logging `entries:copy` copies
   the entries its sinks routed to the bucket.
+- **An audited call writes its Cloud Audit Logs entry.** One middleware around
+  the whole route table and one gRPC unary interceptor audit the calls of
+  Cloud Storage's JSON API and of the RPC-defined Cloud Run Admin v2, Pub/Sub,
+  Secret Manager, Artifact Registry and Cloud Functions v2 APIs. Cloud Storage
+  keeps its own method names (`storage.buckets.create`,
+  `storage.setIamPermissions`, `storage.objects.create`) in a route table; the
+  RPC-defined APIs resolve a REST call to its RPC through the
+  `google.api.http` bindings of their registered descriptors, so the entry
+  names the RPC's full name and the API's `google.api.default_host` and carries
+  the request and response messages in JSON with their `@type`. The caller is
+  the principal its access token names. A configuration change lands in the
+  project's `cloudaudit.googleapis.com%2Factivity` log; a configuration read or
+  a data read or write lands in `%2Fdata_access` only when the project's IAM
+  policy `auditConfigs` enable that log type for the service, and
+  `setIamPolicy` changes `auditConfigs` only when its `updateMask` names them.
+  `LogEntry` carries `protoPayload` and `receiveTimestamp` through REST and
+  gRPC. Eventarc `google.cloud.audit.log.v1.written` triggers receive the
+  entries of their project and location (a global trigger every location's)
+  whose `serviceName`, `methodName` and `resourceName` filters, the last
+  optionally a `match-path-pattern`, match, as CloudEvents whose data is the
+  `LogEntryData`.
 - **A subscription stays open for as long as the cloud holds it.** Amazon Kinesis
   Data Streams `SubscribeToShard` holds its event stream for the documented
   five minutes, declared with `sim.DeclareWait`. It sends the backlog from the
@@ -389,6 +410,39 @@ through hooks:
   the scheduled and locked messages it loads, so neither a REST waiter nor an
   AMQP receiver holding credit misses a message whose timer belonged to the
   old process.
+- **A Log Analytics query runs or is refused, never half-read.** The query
+  engine had split a query on every `|` and read each stage as
+  `where <field> <op> <value>`, `take`, `limit` or `project`, dropping anything
+  else, so `and`/`or` folded into a comparison's value and a pipe inside a
+  string literal split the query. It became a tokenizer that honours single,
+  double, verbatim and obfuscated string literals with their escapes, a typed
+  expression parser (`and`, `or`, `not()`, parentheses, the comparison, string,
+  `in`/`in~`, `has_any`, `between` and `matches regex` operators, arithmetic
+  over numbers, datetimes and timespans), and the tabular operators `where`,
+  `take`/`limit`, `project`, `project-away`, `project-rename`, `extend`,
+  `order by`/`sort by`, `top`, `count`, `summarize` and `distinct`, where each
+  `extend` item sees the columns the items before it define. Every
+  expression is typed against the schema before a row is read, so an unknown
+  table, column or function, a type mismatch, or an operator the engine does
+  not run answers HTTP 400 `BadArgumentError` with a nested `SyntaxError`
+  (`SYN0002`, with line, position and token) or `SemanticError`, as the
+  service does — alone and per member of a `$batch`. An unknown table had been
+  read with the Container Apps console schema; the Application Insights tables
+  got their own schemas instead. The request's `timespan` bounds
+  `TimeGenerated` before the query runs.
+- **A proxy's bound comes from the resource, and idle is not a deadline.**
+  The Application Load Balancer data plane had bounded every request at a
+  fixed 30 seconds and Container Apps ingress at ten minutes. `lbplane` keeps
+  two bounds apart: `Upstream.Timeout` ends an exchange at a fixed time, and
+  `Upstream.IdleTimeout` ends it only once no byte has moved either way for
+  that long, covering an upgraded connection too, with `Upstream.Activity`
+  letting the caller move its `sim.DeclareWait` out as bytes flow. The
+  Application Load Balancer reads `idle_timeout.timeout_seconds` (1 to 4000,
+  default 60, refused outside that range as `InvalidConfigurationRequest`)
+  for each request, so `ModifyLoadBalancerAttributes` governs the next one,
+  and answers its `504 Gateway Time-out` page when a target stays silent past
+  it. Container Apps ingress bounds a request at the service's documented 240
+  seconds and answers Envoy's `504 upstream request timeout`.
 - **A page token proves where it came from.** Every listing tags the tokens it
   issues and refuses one it never issued with the service's invalid-argument
   error, instead of listing an empty page.
@@ -463,11 +517,26 @@ method and path goes to the ingress container on `ports[0].containerPort`
 (8080 unset, passed as `PORT`), bounded by the revision template's `timeout`
 (300 seconds unset), and the container's status, headers and body come back
 untouched; the caller's bearer reaches the container with its JWT signature
-replaced by `SIGNATURE_REMOVED_BY_GOOGLE`. A service with `invokerIamDisabled`
-or an `allUsers` `roles/run.invoker` binding is public; any other needs a
-simulator-signed access token or an ID token for the service URL or a custom
-audience, so an Eventarc push carrying its OIDC token reaches it, and Pub/Sub
-delivers to a run.app endpoint the simulator serves through this front end.
+replaced by `SIGNATURE_REMOVED_BY_GOOGLE`. A service with `invokerIamDisabled`,
+or one whose policy grants `run.routes.invoke` to `allUsers`, is public. Any
+other request carries a Google-signed ID token — in `X-Serverless-Authorization`
+when the caller sends it, which leaves `Authorization` to the application, or in
+`Authorization` — whose audience is the service URL or a custom audience, and
+the principal the token names must hold `run.routes.invoke` on the service
+through the service's policy or one it inherits from its project, folders and
+organization, conditions included. An OAuth access token is not an ID token: it
+answers 401, as does an ID token for another audience, and a principal without
+the permission answers 403 with Google's front-end error page. The front end
+had admitted any simulator-signed access token, or any ID token for the
+service, whatever principal it named. The token endpoint's `id_token` for a
+JWT-bearer grant names the grant's `target_audience`, as Google's does, so the
+`google.golang.org/api/idtoken` service-account flow reaches the service it
+names; it had carried the simulator's API audience instead, and the Compute
+Engine metadata server's identity token had carried that audience beside the
+requested one, so a Google API accepted either as an access token. Both now
+name only the requested audience, and a Google API answers them 401. Pub/Sub push and
+Eventarc deliver to a run.app endpoint the simulator serves through this front
+end, under the same check on the identity their OIDC token names.
 The simulator had served services at `POST /v2-services-invoke/{project}/{location}/{service}`,
 answered 200 whatever the container said, and lifted a consumer's
 `X-Sockerless-Exit-Code` header into its own; the route and the header went,
@@ -484,9 +553,33 @@ rather than through the engine's published loopback port, whose userland proxy
 accepts a connection before the workload listens, so a bare TCP accept there
 proved nothing and reset the first request; a host that routes no container
 address reaches the workload only through that port. A probe that fails its threshold, or a container that
-exits first, fails the instance and answers 503. Cloud Functions runs its
-per-invocation container behind the same startup probe, read from the backing
-service's container, and `workload.FirstReachable` was removed.
+exits first, fails the instance and answers 503, and `workload.FirstReachable`
+was removed.
+
+A Cloud Run function is served by the Cloud Run service CreateFunction creates
+for it, as on Cloud Run functions. `serviceConfig.uri` reports that service's
+run.app URL and the function's `url` its
+`https://<region>-<project>.cloudfunctions.net/<function>` URL; the run.app
+front end serves the first and a cloudfunctions.net front end, dispatching on
+the Host header the same way, takes the function's name off the front of the
+path and hands the request to the same service, admitting an ID token for
+either URL. The service's IAM policy governs invocation on both URLs, as it
+does on Cloud Run functions: `gcloud functions add-invoker-policy-binding`
+and `--allow-unauthenticated` write roles/run.invoker into it through the
+Cloud Run Admin API, and deleting a service, directly or with its function,
+deletes its policy, so a service created again under the same name starts
+private. The container's answer passes through on both. The function's
+`timeoutSeconds`, environment variables and CPU become the service template's
+request timeout (60 seconds unset), container environment and CPU limit at
+CreateFunction, and an UpdateFunction that changes `serviceConfig` rolls the
+service to a new revision while the output-only `uri` and `service` survive it.
+DeleteFunction deletes the service, its revisions and its instance, so both URLs
+then answer 404. The simulator had served functions at
+`POST /v2-functions-invoke/{functionID}`, reported that URL as
+`serviceConfig.uri`, started a container per invocation, answered 500 for any
+error status the container returned, and logged a "Function invoked" line for a
+function with no image; the route, the per-invocation container path and the
+synthetic log line went.
 
 A Linux web app on a built-in runtime stack runs the platform's own image for
 that stack. `siteConfig.linuxFxVersion` `NODE|20-lts`, `NODE|22-lts` or
@@ -511,6 +604,42 @@ invoked" without running anything; a site the simulator has nothing to run for
 now answers 503 naming what it lacks — a function app without an image (the
 simulator runs no Azure Functions host), a stack it does not run, or no runtime
 at all — and the authLevel and invoke tests run against container sites.
+
+A web app's SCM site serves Kudu's deployment API. The Repository entry of
+`hostNameSslStates` — the host `az webapp deploy`, `az webapp deployment source
+config-zip` and terraform-provider-azurerm's `zip_deploy_file` read and send the
+artifact to — had named `<app>.scm.azurewebsites.net`, which resolves to no
+simulator, and nothing answered there. It became a coordinate like the other
+data planes: the app's subdomain of the ARM request host (`<app>.scm.<host>`),
+or the `appServiceScm` template of `SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON`,
+and a handler wrapper routes a request whose Host is an app's or slot's SCM
+hostname (or the platform's own `<app>.scm.azurewebsites.net`) to that site's
+Kudu through a generation index. Kudu admits the site's publishing credentials
+(`$<app>`, a slot's `$<app>__<slot>`) or the subscription's deployment user as
+basic auth while the site's scm basic publishing credentials policy allows it —
+the policy became stored state, where its PUT had been ignored and every read
+answered `allow: true` — and a Microsoft Entra token for Azure Resource
+Manager or App Service. `/api/zipdeploy` (KuduSync semantics: files the last
+zip deployment wrote that the new package lacks are deleted) and
+`/api/publish?type=zip|war|jar|ear|lib|static|startup` (OneDeploy's per-type
+targets, `path`, `clean` and `restart`) land the artifact through the one
+placement the Azure Resource Manager OneDeploy and MSDeploy operations share,
+synchronously (200) or with `isAsync`/`async` (202 and a `Location` on
+`/api/deployments/latest`), behind a per-site lock that answers a concurrent
+deployment 409. Each deployment is a Kudu record — `/api/deployments`, `/latest`,
+`/{id}`, `/{id}/log`, and the legacy `/deployments` the provider's warmup reads
+— that Azure Resource Manager's `/deployments` proxies, plus a deploymentStatus
+that goes `BuildInProgress`, `RuntimeStarting`, then `RuntimeSuccessful` once
+the restarted site answers the platform's warmup request, or `RuntimeFailed`
+naming why it did not start, which is what the Azure CLI polls after a Linux
+deployment. `WEBSITE_RUN_FROM_PACKAGE=1` makes each zip deployment the whole of
+wwwroot, mounted read-only. The CLI suite reaches the `.localhost` SCM host
+through an HTTPS proxy the test runs, the CLI analogue of the SDK suite's
+dialer: the commands and their requests are the ones a real deployment sends.
+Because the SCM site sits behind a handler wrapper, every store read a Kudu
+deployment reaches answers from a generation index — a site's Kudu
+deployments, webjobs and host-name bindings, and a webjob's runs — instead of
+a full-store scan.
 
 RunTask places a task only where it fits. The simulator runs real containers on
 one finite host, so rather than invent a capacity it commits each placed task's
@@ -589,25 +718,72 @@ most recent lines without a Marker, the lines after the marker (a byte offset,
 case.
 
 Memorystore for Redis instances and Memorystore for Redis Cluster clusters run
-a real Redis engine, one container per resource whose redis-server processes
-are its nodes, on the image the instance's `redisVersion` names (clusters run
-7.2). The create starts the engine and settles only once every node answers
-and, for a cluster, the slots are assigned and every replica has synchronised,
-so a resource reported ready is serving; the delete stops it and removes its
-volume. The `host`, `readEndpoint` and discovery endpoint the API reports are
-per-resource loopback listeners at port 6379 relaying to the engine, and each
-cluster node announces a loopback address at its own container port, because a
-replica replicates from the address its primary announces and that address
-has to reach the primary inside the container as well as from the host. AUTH
-is the engine's `requirepass`, whose value `getAuthString` returns; a failover
-promotes a replica and moves the primary endpoint to it. An export has the
-primary write its RDB with SAVE and stores that file in Cloud Storage; an
-import and an upgrade stage the snapshot as the primary's `dump.rdb` and
-restart the engine on it, removing the file once loaded so persistence stays
-off; a cluster backup keeps every shard's RDB, which `backups:export` writes to
-the bucket. A simulator started API-only (`SIM_RUNTIME=process`) runs no
-engine even when another server in the same process holds a container client,
-and its instances report no host.
+a real Redis engine on the image the instance's `redisVersion` names (clusters
+run 7.2): one container per node, each a redis-server on port 6379, on a Docker
+network every Memorystore engine of the simulator shares, with the node
+directories on one volume per resource. Volume, network and alias names hash
+the resource name with the simulator's workload scope (its state directory, or
+its run when it does not persist), so two simulators serving a resource of the
+same name never share them. The create starts the engine and settles only once
+every node answers and, for a cluster, the slots are assigned and every replica
+has synchronised, so a resource reported ready is serving; the delete stops it
+and removes its volume. The `host`, `readEndpoint` and discovery endpoint the
+API reports are per-resource loopback listeners relaying to the nodes; instance
+replicas follow their primary by its network alias, and cluster nodes meet over
+the network and announce their own loopback endpoint as their hostname
+(`cluster-preferred-endpoint-type hostname`), so a cluster client follows
+redirections to addresses it can reach. AUTH is the engine's `requirepass`,
+whose value `getAuthString` returns, and an `authEnabled` update changes it
+live; a failover promotes a replica and moves the primary endpoint to it, and a
+Basic Tier failover is refused with FAILED_PRECONDITION, since there is no
+replica to promote. A `replicaCount` update starts or stops replica containers
+while the primary serves, and a `readReplicasMode` update binds or closes the
+read endpoint. A cluster `shardCount` update meets new primaries and has
+redis-cli's cluster manager rebalance slots onto them, or drains the removed
+shards with `rebalance --cluster-weight <id>=0` and deletes their nodes with
+`del-node`; a `replicaCount` update adds replicas with `CLUSTER REPLICATE` or
+deletes them. A cluster created from `gcsSource` or `managedBackupSource`
+loads each RDB file into a standalone redis-server inside one node's container
+and moves the keys onto their shards with `redis-cli --cluster import`.
+
+`transitEncryptionMode` `SERVER_AUTHENTICATION` serves TLS from the relay, on
+port 6378 for an instance and 6379 for a cluster, with no plaintext listener.
+Each resource has a server CA of its own (a cluster with
+`SERVER_CA_MODE_GOOGLE_MANAGED_SHARED_CA` uses the region's, which
+`sharedRegionalCertificateAuthority` reports), kept in the simulator's state;
+an instance reports it in `serverCaCerts` and a cluster through
+`getCertificateAuthority`, and every endpoint presents a certificate that CA
+signs for the address the client dialed. A cluster with `AUTH_MODE_IAM_AUTH`
+runs its engine behind a credential only the simulator holds; the relay reads
+each AUTH, or HELLO with AUTH, and exchanges a password that is an access token
+the simulator issued to a principal holding `redis.clusters.connect` (granted by
+`roles/redis.dbConnectionUser`) for that credential, and forwards any other
+password unchanged, so the engine refuses it and replies keep their order. A
+cluster with `AUTH_MODE_TOKEN_AUTH` runs each token-auth user as an engine ACL
+user whose passwords are its active auth tokens, rewritten on every node when a
+user or token is added or deleted. A cluster with deletion protection refuses
+its delete.
+
+`persistenceConfig` is honoured: RDB snapshots are BGSAVEs the control plane
+takes on the reported schedule (`rdbSnapshotStartTime` plus whole
+`rdbSnapshotPeriod`s, which `rdbNextSnapshotTime` reports), not the engine's
+save points; a cluster's AOF mode runs `appendonly yes` with the configured
+`appendfsync`; an update applies live. A node keeps the files its persistence
+writes across a restart and loads its dataset from them, and a cluster node
+always keeps its `nodes.conf` identity. An export has the primary write its RDB
+with SAVE and stores that file in Cloud Storage; an import and an upgrade stage
+the snapshot as the primary's `dump.rdb` and restart the engine on it; a
+cluster backup keeps every shard's RDB, which `backups:export` writes to the
+bucket. A simulator started API-only (`SIM_RUNTIME=process`) runs no engine
+even when another server in the same process holds a container client, and its
+instances report no host.
+
+Every named volume a workload container mounts is created labelled with the
+simulator's run before the container starts, and the detached reaper and the
+shutdown cleanup of a simulator that does not persist remove the run's volumes
+with its containers and networks, so an engine volume of a resource that was
+never deleted does not outlive the simulator. `EnsureDockerNetwork` returns the
+network a concurrent caller created first instead of failing.
 
 Firecracker boots Compute Engine, Amazon EC2 and Azure virtual machines where
 the host kernel allows it, over its default virtio-MMIO transport: the opt-in
@@ -959,6 +1135,39 @@ table, as such a range, with no derived key index to invalidate at every write
 site. Amazon ECR's DescribeImages reads the `<repository>:` range, and Amazon
 ECS's task-definition listings read the family's range from a cached store,
 because a listing polled every few seconds must not decode the database.
+Deleting an Amazon ECR repository deletes the same ranges: its images and
+registry manifests under `<repository>:`, its blobs and layers under
+`<repository>@`, and its lifecycle and repository policies, so a repository
+created again under the same name starts empty.
+
+A Cloud Run workload's Cloud Storage volume was a one-way mirror: the bucket's
+host directory showed every live generation, and nothing the workload wrote
+there ever became an object. The mount now writes back the way Cloud Storage
+FUSE does, without a FUSE file system: while a workload mounts a bucket
+writable, one inotify instance watches every directory of it, and the events
+map onto Cloud Storage FUSE's object operations — a close after writing
+(`IN_CLOSE_WRITE` after `IN_MODIFY` or `IN_CREATE`) is a new generation, never
+each write; a `mkdir` is a placeholder object; an unlink, an `rmdir` or a
+rename out of the mount is a delete; a rename within it is a copy and a delete.
+Each write is conditioned on the generation the file held, as Cloud Storage
+FUSE conditions its flush, keeps the object's metadata, names a new file's
+content type from its extension and records `gcsfuse_mtime`. Telling the
+workload's changes from the simulator's own is done by state, not by event:
+the simulator keeps a view of what each path stands for (generation and inode),
+every change it makes to the directory and the record of it happen under one
+mutex, and its mirror of an API write is staged outside the bucket directories
+and renamed in, so a watch event only prompts a comparison of the path with the
+view. `IN_EXCL_UNLINK` drops the close of a file an API write has already
+replaced. Ingestion is asynchronous to the workload's close, so a barrier —
+closing a file of the simulator's own under the data root and waiting for that
+close to come through the same queue — makes every Cloud Storage JSON API
+request, and the end of a job task, wait for the events queued before it,
+which is the read-your-writes Cloud Storage FUSE gives by writing before
+`close` returns. A file is opened with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`,
+so a link a workload makes never reads a host file into a bucket. The `only-dir`
+mount option binds that directory of the bucket; the Knative v1 surface
+carries the options in the CSI `mountOptions` attribute; a volume of a bucket
+that does not exist fails the workload's start.
 
 ## Authorization and authentication
 
@@ -985,7 +1194,15 @@ declares no resource type authorizes `"*"` because that is what the reference
 says, and a test crosses every route against the reference.
 
 Google Cloud's `testIamPermissions` answers from the stored policy resolved
-through the vendored curated roles and the held custom roles. A caller
+through the vendored curated roles and the held custom roles. A conditional
+binding grants its role only while its condition holds: the simulator compiles
+the Common Expression Language expression with `cel-go` and evaluates it
+against `request.time` and the resource's `name`, `type` and `service`, and an
+expression that fails to compile or evaluate — an attribute the resource does
+not supply, a function IAM offers that the simulator does not — grants
+nothing. The Cloud Run front end's invoker check and `testIamPermissions` are
+one evaluation, so a binding that a test reads back as granting is the binding
+that admits a request. A caller
 presenting no simulator-issued token is the account's operator, as a
 credential no IAM user registered is on AWS. `generateAccessToken` honours the
 requested lifetime up to one hour, or twelve where the Organization Policy
@@ -1071,6 +1288,40 @@ for an alarm state with the AlarmExists waiter filtered by StateValue, for a
 target with TargetInService, and watch a queue that must stay empty with one
 long poll for the window instead of receives in a loop.
 
+The suites then waited on events where the clouds offered one. The AWS CLI
+suite waited with `aws cloudwatch wait alarm-exists --state-value` and, for a
+service replacing a stopped task, with `aws ecs wait tasks-stopped` followed
+by `services-stable`; the SDK suites did the same with TasksStopped and
+ServicesStable, waited for a task's managed Amazon EBS volume with
+VolumeDeleted, for an RDS instance with DBInstanceAvailable before connecting
+once, and for Cloud Map registrations on GetOperation instead of retrying
+RegisterInstance. The rds-restore Terraform fixture seeded its snapshot through
+the SDK and waited with DBSnapshotAvailable, which retired the fixture's
+hand-signed Query helpers. A restart test opened CloudWatch Logs Live Tail on
+the function's log group before the asynchronous invoke and restarted on the
+START line. An API destination's endpoint handed each call to the test over a
+channel. The Event Hubs Latest consumer sent its event once azeventhubs logged
+the completed receiver attach through azcore's log listener. Azure CLI Location
+polls answered 202 by waiting their Retry-After (`azLocationResult`).
+
+Container Apps gained its revisions, replicas and log streams. A container app
+reports `eventStreamEndpoint`; its one revision (`{app}--00001`) lists, reads
+and restarts through ContainerAppsRevisions, and its replicas — one per
+`minReplicas`, named `{revision}-{hash}-{suffix}` — list and read through
+ContainerAppsRevisionReplicas, each container advertising its
+`logStreamEndpoint`. The streams sit on the event stream host under
+`/subscriptions/…/containerApps/{app}/…`, outside the ARM path, take the token
+getAuthToken issued, and serve newline-delimited `{"TimeStamp","Log"}` lines
+(or text) with `tailLines` and `follow`: a console stream opens with the
+service's "Connecting to the container" lines, carries the container's output
+as it is written, and ends when the container exits; the app's `eventstream`
+carries its system events (AssigningReplica, ContainerCreated,
+ContainerStarted, ContainerTerminated). The simulator keeps the newest 10 MiB of
+a container's output, the kubelet's default containerLogMaxSize. Revision
+activation answers a declared 501, since the simulator keeps one always-active
+revision per app. The SDK and CLI suites read an app's console through the
+stream (`az containerapp logs show --follow`) instead of polling Log Analytics.
+
 Azure's asynchronous work answers the request and settles behind it, as the
 service does. An Event Grid webhook subscription stays Creating until its
 endpoint echoes the validation code or someone opens the validation URL, and
@@ -1093,8 +1344,14 @@ deletes cascade across both planes: a manifest DELETE over OCI removes its
 version, tags and image row, and a package or repository takes everything
 beneath it. The simulator's tokens carry Google's issuer, and its discovery
 document names that issuer with its own key and token URLs, so a relying party
-verifies them as it verifies Google's. The Google Cloud SDK tests name their
-resources per run, so a repeated run against one simulator passes.
+verifies them as it verifies Google's. The Google Cloud SDK tests, Cloud
+Pub/Sub's included, and the AWS SDK tests name their resources per run with
+`uniqueName`, so a repeated run against one simulator passes: a test that
+creates a resource under a fixed name, filters a listing by a fixed tag,
+aggregates a metric in a fixed namespace or reuses an idempotency token or
+client token collides with its own previous run. A test that changes an
+account-wide setting, such as the Amazon EC2 default credit specification or
+the account's Amazon VPC encryption control, restores it at cleanup.
 
 AWS work that the services finish later now finishes later in the simulator
 too, and is gated on the real inputs. An EC2 instance stays pending until its

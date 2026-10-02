@@ -78,10 +78,13 @@ func cmService(t *testing.T, client *servicediscovery.Client, nsID, name string)
 // backend's network-state recovery relies on, and MaxResults/NextToken paging.
 func TestCloudMap_ListNamespaces(t *testing.T) {
 	client := cmClient()
+	prefix := uniqueName("list-ns")
+	httpName := prefix + "-http"
+	nameA := prefix + "-a.local"
 
-	httpID := cmHTTPNamespace(t, client, "list-ns-http")
+	httpID := cmHTTPNamespace(t, client, httpName)
 	privOut, err := client.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
-		Name: aws.String("list-ns-a.local"),
+		Name: aws.String(nameA),
 		Vpc:  aws.String("vpc-list-ns"),
 	})
 	require.NoError(t, err)
@@ -90,7 +93,7 @@ func TestCloudMap_ListNamespaces(t *testing.T) {
 		_, _ = client.DeleteNamespace(ctx, &servicediscovery.DeleteNamespaceInput{Id: aws.String(privA)})
 	}()
 	privOut2, err := client.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
-		Name: aws.String("list-ns-b.local"),
+		Name: aws.String(prefix + "-b.local"),
 		Vpc:  aws.String("vpc-list-ns"),
 	})
 	require.NoError(t, err)
@@ -103,7 +106,7 @@ func TestCloudMap_ListNamespaces(t *testing.T) {
 	byName, err := client.ListNamespaces(ctx, &servicediscovery.ListNamespacesInput{
 		Filters: []sdtypes.NamespaceFilter{{
 			Name:      sdtypes.NamespaceFilterNameName,
-			Values:    []string{"list-ns-a.local"},
+			Values:    []string{nameA},
 			Condition: sdtypes.FilterConditionEq,
 		}},
 	})
@@ -124,7 +127,7 @@ func TestCloudMap_ListNamespaces(t *testing.T) {
 	byName, err = client.ListNamespaces(ctx, &servicediscovery.ListNamespacesInput{
 		Filters: []sdtypes.NamespaceFilter{{
 			Name:   sdtypes.NamespaceFilterNameName,
-			Values: []string{"list-ns-a.local"},
+			Values: []string{nameA},
 		}},
 	})
 	require.NoError(t, err)
@@ -153,7 +156,7 @@ func TestCloudMap_ListNamespaces(t *testing.T) {
 	byHTTPName, err := client.ListNamespaces(ctx, &servicediscovery.ListNamespacesInput{
 		Filters: []sdtypes.NamespaceFilter{{
 			Name:   sdtypes.NamespaceFilterNameHttpName,
-			Values: []string{"list-ns-http"},
+			Values: []string{httpName},
 		}},
 	})
 	require.NoError(t, err)
@@ -165,7 +168,7 @@ func TestCloudMap_ListNamespaces(t *testing.T) {
 		MaxResults: aws.Int32(1),
 		Filters: []sdtypes.NamespaceFilter{{
 			Name:      sdtypes.NamespaceFilterNameName,
-			Values:    []string{"list-ns-"},
+			Values:    []string{prefix + "-"},
 			Condition: sdtypes.FilterConditionBeginsWith,
 		}},
 	})
@@ -181,7 +184,7 @@ func TestCloudMap_ListNamespaces(t *testing.T) {
 			NextToken:  token,
 			Filters: []sdtypes.NamespaceFilter{{
 				Name:      sdtypes.NamespaceFilterNameName,
-				Values:    []string{"list-ns-"},
+				Values:    []string{prefix + "-"},
 				Condition: sdtypes.FilterConditionBeginsWith,
 			}},
 		})

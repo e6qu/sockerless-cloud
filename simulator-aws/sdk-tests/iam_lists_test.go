@@ -13,9 +13,10 @@ import (
 // TestIAM_ListRolesAndTags covers ListRoles + ListRoleTags: a role
 // created with tags is enumerable and its tags read back.
 func TestIAM_ListRolesAndTags(t *testing.T) {
+	roleName := uniqueName("eddsim-list-role")
 	c := iamClient()
 	_, err := c.CreateRole(ctx, &iam.CreateRoleInput{
-		RoleName:                 aws.String("eddsim-list-role"),
+		RoleName:                 aws.String(roleName),
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[]}`),
 		Tags:                     []iamtypes.Tag{{Key: aws.String("team"), Value: aws.String("platform")}},
 	})
@@ -25,13 +26,13 @@ func TestIAM_ListRolesAndTags(t *testing.T) {
 	require.NoError(t, err)
 	var found *iamtypes.Role
 	for i := range roles.Roles {
-		if aws.ToString(roles.Roles[i].RoleName) == "eddsim-list-role" {
+		if aws.ToString(roles.Roles[i].RoleName) == roleName {
 			found = &roles.Roles[i]
 		}
 	}
 	require.NotNil(t, found, "created role must appear in ListRoles")
 
-	tags, err := c.ListRoleTags(ctx, &iam.ListRoleTagsInput{RoleName: aws.String("eddsim-list-role")})
+	tags, err := c.ListRoleTags(ctx, &iam.ListRoleTagsInput{RoleName: aws.String(roleName)})
 	require.NoError(t, err)
 	require.Len(t, tags.Tags, 1)
 	assert.Equal(t, "team", aws.ToString(tags.Tags[0].Key))
@@ -41,9 +42,10 @@ func TestIAM_ListRolesAndTags(t *testing.T) {
 // TestIAM_ListPolicyVersionsAndTags covers ListPolicyVersions and
 // ListPolicyTags.
 func TestIAM_ListPolicyVersionsAndTags(t *testing.T) {
+	policyName := uniqueName("list-versions-policy")
 	c := iamClient()
 	created, err := c.CreatePolicy(ctx, &iam.CreatePolicyInput{
-		PolicyName:     aws.String("list-versions-policy"),
+		PolicyName:     aws.String(policyName),
 		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`),
 		Tags:           []iamtypes.Tag{{Key: aws.String("env"), Value: aws.String("ci")}},
 	})

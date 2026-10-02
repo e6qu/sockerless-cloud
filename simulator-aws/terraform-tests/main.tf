@@ -4,7 +4,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "6.66.0"
+      version = "6.67.0"
     }
   }
 }
@@ -187,6 +187,7 @@ resource "aws_lb" "tf_alb" {
   internal           = false
   security_groups    = [aws_security_group.tf_ec2_sg.id]
   subnets            = [aws_subnet.tf_ec2_subnet.id, aws_subnet.tf_elbv2_subnet.id]
+  idle_timeout       = 45
 
   tags = {
     env = "terraform"
@@ -1700,6 +1701,9 @@ output "elbv2_lb_arn" {
 }
 output "elbv2_lb_dns_name" {
   value = aws_lb.tf_alb.dns_name
+}
+output "elbv2_lb_idle_timeout" {
+  value = tostring(aws_lb.tf_alb.idle_timeout)
 }
 output "elbv2_target_group_arn" {
   value = aws_lb_target_group.tf_alb_tg.arn

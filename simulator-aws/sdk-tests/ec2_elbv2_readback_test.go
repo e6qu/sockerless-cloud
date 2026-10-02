@@ -18,9 +18,10 @@ import (
 // Instance object itself has no launch-template field). Their absence forces a
 // destroy+create every plan. The image/type are also inherited from the template.
 func TestEC2_LaunchTemplateProvenanceTags(t *testing.T) {
+	ltName := uniqueName("readback-lt")
 	c := ec2Client()
 	lt, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
-		LaunchTemplateName: aws.String("readback-lt"),
+		LaunchTemplateName: aws.String(ltName),
 		LaunchTemplateData: &ec2types.RequestLaunchTemplateData{
 			ImageId: aws.String("ami-0abc1234"), InstanceType: ec2types.InstanceTypeT4gNano,
 		},
@@ -127,6 +128,8 @@ func TestEC2_SecurityGroupEgressIpv6Ranges(t *testing.T) {
 // TestELBv2_ListenerSslPolicy verifies an HTTPS listener created with an
 // SslPolicy reports it on DescribeListeners (else aws_lb_listener drifts).
 func TestELBv2_ListenerSslPolicy(t *testing.T) {
+	tgName := uniqueName("sslpolicy-tg")
+	lbName := uniqueName("sslpolicy-lb")
 	ec2c := ec2Client()
 	vpc, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.43.0.0/16")})
 	require.NoError(t, err)
@@ -140,12 +143,12 @@ func TestELBv2_ListenerSslPolicy(t *testing.T) {
 
 	c := elbv2Client()
 	lb, err := c.CreateLoadBalancer(ctx, &elasticloadbalancingv2.CreateLoadBalancerInput{
-		Name: aws.String("sslpolicy-lb"), Type: elbv2types.LoadBalancerTypeEnumApplication, Subnets: []string{subA, subB},
+		Name: aws.String(lbName), Type: elbv2types.LoadBalancerTypeEnumApplication, Subnets: []string{subA, subB},
 	})
 	require.NoError(t, err)
 	lbArn := aws.ToString(lb.LoadBalancers[0].LoadBalancerArn)
 	tg, err := c.CreateTargetGroup(ctx, &elasticloadbalancingv2.CreateTargetGroupInput{
-		Name: aws.String("sslpolicy-tg"), Protocol: elbv2types.ProtocolEnumHttp, Port: aws.Int32(80), VpcId: aws.String(vpcID),
+		Name: aws.String(tgName), Protocol: elbv2types.ProtocolEnumHttp, Port: aws.Int32(80), VpcId: aws.String(vpcID),
 	})
 	require.NoError(t, err)
 	const policy = "ELBSecurityPolicy-TLS13-1-2-2021-06"

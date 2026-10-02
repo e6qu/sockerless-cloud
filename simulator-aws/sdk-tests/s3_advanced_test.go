@@ -131,7 +131,7 @@ func TestS3_BucketMetadataConfiguration(t *testing.T) {
 // (?abac) for a general purpose bucket.
 func TestS3_BucketAbac(t *testing.T) {
 	client := s3Client()
-	bucket := "abac-bucket"
+	bucket := uniqueName("abac-bucket")
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 

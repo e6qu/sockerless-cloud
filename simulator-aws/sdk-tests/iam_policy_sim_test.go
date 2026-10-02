@@ -88,7 +88,7 @@ func TestIAM_SimulateCustomPolicy(t *testing.T) {
 // the store and evaluating against it.
 func TestIAM_SimulatePrincipalPolicy(t *testing.T) {
 	client := iamClient()
-	roleName := "sim-princ-role"
+	roleName := uniqueName("sim-princ-role")
 	_, err := client.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(roleName),
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[]}`),

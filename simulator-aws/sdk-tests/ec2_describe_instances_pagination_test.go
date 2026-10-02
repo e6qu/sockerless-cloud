@@ -16,6 +16,7 @@ import (
 // others in the shared sim state.
 func TestEC2_DescribeInstancesPagination(t *testing.T) {
 	c := ec2Client()
+	tagValue := uniqueName("page-test")
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.42.0.0/16")})
 	require.NoError(t, err)
@@ -32,13 +33,13 @@ func TestEC2_DescribeInstancesPagination(t *testing.T) {
 		SubnetId:     subnet.Subnet.SubnetId,
 		TagSpecifications: []ec2types.TagSpecification{{
 			ResourceType: ec2types.ResourceTypeInstance,
-			Tags:         []ec2types.Tag{{Key: aws.String("page-test"), Value: aws.String("yes")}},
+			Tags:         []ec2types.Tag{{Key: aws.String("page-test"), Value: aws.String(tagValue)}},
 		}},
 	})
 	require.NoError(t, err)
 	terminateEC2InstancesOnCleanup(t, c, run)
 
-	filt := []ec2types.Filter{{Name: aws.String("tag:page-test"), Values: []string{"yes"}}}
+	filt := []ec2types.Filter{{Name: aws.String("tag:page-test"), Values: []string{tagValue}}}
 	count := func(o *ec2.DescribeInstancesOutput) int {
 		n := 0
 		for _, r := range o.Reservations {

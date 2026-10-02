@@ -13,10 +13,11 @@ import (
 // TestDynamoDB_SSEDescriptionRoundTrip verifies a table created with
 // server-side encryption reports the full SSEDescription on DescribeTable.
 func TestDynamoDB_SSEDescriptionRoundTrip(t *testing.T) {
+	table := uniqueName("sse-table")
 	c := ddbClient()
 	keyArn := "arn:aws:kms:us-east-1:123456789012:key/test-key"
 	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
-		TableName:            aws.String("sse-table"),
+		TableName:            aws.String(table),
 		AttributeDefinitions: []ddbtypes.AttributeDefinition{{AttributeName: aws.String("PK"), AttributeType: ddbtypes.ScalarAttributeTypeS}},
 		KeySchema:            []ddbtypes.KeySchemaElement{{AttributeName: aws.String("PK"), KeyType: ddbtypes.KeyTypeHash}},
 		BillingMode:          ddbtypes.BillingModePayPerRequest,
@@ -28,7 +29,7 @@ func TestDynamoDB_SSEDescriptionRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	desc, err := c.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String("sse-table")})
+	desc, err := c.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(table)})
 	require.NoError(t, err)
 	require.NotNil(t, desc.Table.SSEDescription, "SSEDescription must round-trip through DescribeTable")
 	assert.Equal(t, ddbtypes.SSEStatusEnabled, desc.Table.SSEDescription.Status)

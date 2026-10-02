@@ -17,6 +17,8 @@ import (
 // Certificates.member.N.CertificateArn parameter; reading it as a flat scalar
 // dropped it, so the standard "read cert off the listener" pattern got nothing.
 func TestELBv2_HTTPSListenerCertificateRoundTrip(t *testing.T) {
+	tgName := uniqueName("https-lis-tg")
+	lbName := uniqueName("https-lis-lb")
 	ec2c := ec2Client()
 	vpc, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.74.0.0/16")})
 	require.NoError(t, err)
@@ -31,7 +33,7 @@ func TestELBv2_HTTPSListenerCertificateRoundTrip(t *testing.T) {
 
 	c := elbv2Client()
 	lb, err := c.CreateLoadBalancer(ctx, &elasticloadbalancingv2.CreateLoadBalancerInput{
-		Name:    aws.String("https-listener-lb"),
+		Name:    aws.String(lbName),
 		Type:    elbv2types.LoadBalancerTypeEnumApplication,
 		Subnets: []string{aws.ToString(sub.Subnet.SubnetId)},
 	})
@@ -39,7 +41,7 @@ func TestELBv2_HTTPSListenerCertificateRoundTrip(t *testing.T) {
 	lbArn := aws.ToString(lb.LoadBalancers[0].LoadBalancerArn)
 
 	tg, err := c.CreateTargetGroup(ctx, &elasticloadbalancingv2.CreateTargetGroupInput{
-		Name: aws.String("https-listener-tg"), Protocol: elbv2types.ProtocolEnumHttp,
+		Name: aws.String(tgName), Protocol: elbv2types.ProtocolEnumHttp,
 		Port: aws.Int32(80), VpcId: aws.String(vpcID),
 	})
 	require.NoError(t, err)

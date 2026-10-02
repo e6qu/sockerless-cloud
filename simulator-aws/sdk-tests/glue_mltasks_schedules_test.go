@@ -89,7 +89,7 @@ func TestGlue_MLTaskRunLifecycle_SDK(t *testing.T) {
 func TestGlue_CrawlerScheduleLifecycle_SDK(t *testing.T) {
 	c := glueClient()
 
-	const crawler = "glue-sdk-sched-crawler"
+	crawler := uniqueName("glue-sdk-sched-crawler")
 	_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{
 		Name:     aws.String(crawler),
 		Role:     aws.String("arn:aws:iam::123456789012:role/glue-crawler-role"),
@@ -130,8 +130,8 @@ func TestGlue_CrawlerScheduleLifecycle_SDK(t *testing.T) {
 	assert.Empty(t, crawls.Crawls)
 
 	// Column-statistics schedule needs a real table to anchor to.
-	const db = "glue-sdk-sched-db"
-	const tbl = "glue-sdk-sched-tbl"
+	db := uniqueName("glue-sdk-sched-db")
+	tbl := uniqueName("glue-sdk-sched-tbl")
 	_, err = c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
 		DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(db)},
 	})
@@ -196,7 +196,7 @@ func TestGlue_CrawlerScheduleLifecycle_SDK(t *testing.T) {
 func TestGlue_WorkflowRunProperties_SDK(t *testing.T) {
 	c := glueClient()
 
-	const wf = "glue-sdk-wfrun"
+	wf := uniqueName("glue-sdk-wfrun")
 	_, err := c.CreateWorkflow(ctx, &glue.CreateWorkflowInput{Name: aws.String(wf)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -255,7 +255,7 @@ func TestGlue_WorkflowRunProperties_SDK(t *testing.T) {
 	assert.Equal(t, wf, aws.ToString(upd.Name))
 
 	// Triggers: ListTriggers + UpdateTrigger.
-	const trig = "glue-sdk-wfrun-trigger"
+	trig := uniqueName("glue-sdk-wfrun-trigger")
 	_, err = c.CreateTrigger(ctx, &glue.CreateTriggerInput{
 		Name:         aws.String(trig),
 		Type:         gluetypes.TriggerTypeScheduled,
@@ -285,7 +285,7 @@ func TestGlue_WorkflowRunProperties_SDK(t *testing.T) {
 	assert.Equal(t, "cron(0 0 * * ? *)", aws.ToString(updT.Trigger.Schedule))
 
 	// Job bookmarks.
-	const job = "glue-sdk-wfrun-job"
+	job := uniqueName("glue-sdk-wfrun-job")
 	_, err = c.CreateJob(ctx, &glue.CreateJobInput{
 		Name:    aws.String(job),
 		Role:    aws.String("arn:aws:iam::123456789012:role/GlueRole"),

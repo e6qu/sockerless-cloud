@@ -117,9 +117,11 @@ func TestSFN_LambdaTaskHistory_SDK(t *testing.T) {
 // machine and verifies both the parent result and the independently
 // discoverable child execution.
 func TestSFN_NestedWorkflowIntegration_SDK(t *testing.T) {
+	parentName := uniqueName("sfn-sdk-nested-parent")
+	childName := uniqueName("sfn-sdk-nested-child")
 	c := sfnClient()
 	child, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-		Name:       aws.String("sfn-sdk-nested-child"),
+		Name:       aws.String(childName),
 		Definition: aws.String(`{"StartAt":"Complete","States":{"Complete":{"Type":"Pass","Parameters":{"child.$":"$"},"End":true}}}`),
 		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
 	})
@@ -132,7 +134,7 @@ func TestSFN_NestedWorkflowIntegration_SDK(t *testing.T) {
 		aws.ToString(child.StateMachineArn),
 	)
 	parent, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-		Name:       aws.String("sfn-sdk-nested-parent"),
+		Name:       aws.String(parentName),
 		Definition: aws.String(parentDefinition),
 		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
 	})

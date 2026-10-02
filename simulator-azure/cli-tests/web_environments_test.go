@@ -2,9 +2,7 @@ package azure_cli_test
 
 import (
 	"fmt"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,13 +45,7 @@ func aseCLIOperationResult(t *testing.T, resource, body string) string {
 	location := azRestResponseHeader(t, azRest("POST", aseCLIURL(resource), body, "--debug"), "Location")
 	require.NotEmpty(t, location,
 		"a long-running operation whose final state comes via Location must send one")
-	var out string
-	require.Eventually(t, func() bool {
-		out = runCLI(t, azRest("GET", location, ""))
-		return strings.Contains(out, `"value"`)
-	}, 30*time.Second, 250*time.Millisecond,
-		"the Location poll never produced the operation's result")
-	return out
+	return azLocationResult(t, location)
 }
 
 // TestAppServiceEnvironmentCLI drives one App Service Environment through the

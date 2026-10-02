@@ -70,17 +70,21 @@ func TestStepFunctionsAmazonECSSynchronousTaskSurvivesSimulatorRestart_SDK(t *te
 		StateMachineArn: machine.StateMachineArn,
 	})
 	require.NoError(t, err)
+	// The execution launches its task behind StartExecution; ListTasks is the
+	// only place it appears, and Amazon ECS offers no waiter for a task to exist.
+	var launched []string
 	require.Eventually(t, func() bool {
 		tasks, listErr := ecsAPI.ListTasks(testCtx, &ecs.ListTasksInput{Cluster: aws.String(clusterName)})
-		if listErr != nil || len(tasks.TaskArns) != 1 {
+		if listErr != nil {
 			return false
 		}
-		described, describeErr := ecsAPI.DescribeTasks(testCtx, &ecs.DescribeTasksInput{
-			Cluster: aws.String(clusterName), Tasks: tasks.TaskArns,
-		})
-		return describeErr == nil && len(described.Tasks) == 1 &&
-			aws.ToString(described.Tasks[0].LastStatus) == "RUNNING"
-	}, 30*time.Second, 100*time.Millisecond)
+		launched = tasks.TaskArns
+		return len(launched) == 1
+	}, 30*time.Second, waiterMinDelay)
+	require.NoError(t, ecs.NewTasksRunningWaiter(ecsAPI, func(o *ecs.TasksRunningWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(testCtx, &ecs.DescribeTasksInput{Cluster: aws.String(clusterName), Tasks: launched}, 30*time.Second))
 
 	shutdownSimulator(cmd)
 	cmd = startPersistentSimulator(t, stateDir, tcpPort, udpPort, "docker")

@@ -12,12 +12,9 @@ import (
 // CloudWatch→SNS→SQS chain through the real AWS CLI against a fresh
 // simulator-aws subprocess in SIM_RUNTIME=process: create topic, queue,
 // subscription and an alarm with AlarmActions, publish a breaching metric,
-// wait for ALARM, and assert the SQS subscriber receives the canonical
-// CloudWatch alarm notification.
-//
-// The notification is collected by polling receive-message, which is how a
-// downstream consumer reads one: an empty receive before the alarm dispatches
-// must not swallow the message that arrives after it.
+// wait for ALARM with the CLI's alarm-exists waiter, and assert the SQS
+// subscriber receives the canonical CloudWatch alarm notification through one
+// long-poll receive-message.
 func TestCloudWatchCLI_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
 	url := startProcessModeSim(t)
 	cli := func(args ...string) *exec.Cmd {
@@ -89,18 +86,9 @@ func TestCloudWatchCLI_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
 		"--namespace", ns,
 		"--metric-data", `[{"MetricName":"CPUUtilization","Value":95,"Unit":"Percent"}]`))
 
-	// Poll until DescribeAlarms surfaces ALARM.
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		state := strings.TrimSpace(runCLI(t, cli("cloudwatch", "describe-alarms",
-			"--alarm-names", alarmName,
-			"--query", "MetricAlarms[0].StateValue",
-			"--output", "text")))
-		if state == "ALARM" {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	runCLI(t, cli("cloudwatch", "wait", "alarm-exists",
+		"--alarm-names", alarmName,
+		"--state-value", "ALARM"))
 
 	messageBody := awaitCLIQueueMessage(t, cli, queueURL)
 

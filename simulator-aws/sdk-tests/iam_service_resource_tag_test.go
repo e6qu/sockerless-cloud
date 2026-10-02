@@ -29,6 +29,7 @@ import (
 // returns an aws.Config bearing its access key.
 func restrictedConfig(t *testing.T, iamc *iam.Client, user, policyName, policyDoc string) aws.Config {
 	t.Helper()
+	user = uniqueName(user)
 	_, err := iamc.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	t.Cleanup(func() { iamc.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)}) })

@@ -432,12 +432,8 @@ func TestECS_CrossTaskDNS(t *testing.T) {
 	}
 	waitContainer := func(name string) {
 		t.Helper()
-		var inspect []byte
-		var inspectErr error
-		require.Eventually(t, func() bool {
-			inspect, inspectErr = exec.Command("docker", "inspect", name).CombinedOutput()
-			return inspectErr == nil
-		}, 45*time.Second, 500*time.Millisecond, "task container %s should exist before Cloud Map registration: err=%v output=%q", name, inspectErr, inspect)
+		inspect, inspectErr := exec.Command("docker", "inspect", name).CombinedOutput()
+		require.NoError(t, inspectErr, "a RUNNING task's container %s must exist: %s", name, inspect)
 	}
 
 	alphaTask := runTask(alphaCID)
@@ -457,30 +453,22 @@ func TestECS_CrossTaskDNS(t *testing.T) {
 	betaIP := ecsTaskPrivateIPv4(t, ecsCli, "xtask-dns", betaTask)
 	registerInstance := func(serviceID, instanceID, ip string) {
 		t.Helper()
-		var registerErr error
-		require.Eventually(t, func() bool {
-			_, registerErr = cm.RegisterInstance(ctx, &servicediscovery.RegisterInstanceInput{
-				ServiceId:  aws.String(serviceID),
-				InstanceId: aws.String(instanceID),
-				Attributes: map[string]string{"AWS_INSTANCE_IPV4": ip},
-			})
-			return registerErr == nil
-		}, 45*time.Second, 500*time.Millisecond, "RegisterInstance should update task DNS state: %v", registerErr)
+		registered, registerErr := cm.RegisterInstance(ctx, &servicediscovery.RegisterInstanceInput{
+			ServiceId:  aws.String(serviceID),
+			InstanceId: aws.String(instanceID),
+			Attributes: map[string]string{"AWS_INSTANCE_IPV4": ip},
+		})
+		require.NoError(t, registerErr)
+		awaitCloudMapOperation(t, cm, registered.OperationId)
 	}
 	registerInstance(aws.ToString(svcAlpha.Service.Id), alphaCID[:12], alphaIP)
 	registerInstance(aws.ToString(svcBeta.Service.Id), betaCID[:12], betaIP)
 
 	// Exec into alpha's container and resolve "beta" through the task's
 	// normal libc resolver.
-	var getent []byte
-	var execErr error
-	var hosts []byte
-	require.Eventually(t, func() bool {
-		cmd := exec.Command("docker", "exec", alphaContainer, "getent", "hosts", "beta")
-		getent, execErr = cmd.CombinedOutput()
-		hosts, _ = exec.Command("docker", "exec", alphaContainer, "cat", "/etc/hosts").CombinedOutput()
-		return execErr == nil && len(getent) > 0
-	}, 10*time.Second, 500*time.Millisecond, "alpha task should resolve 'beta' via Cloud Map DNS: getent=%q err=%v hosts=%q", getent, execErr, hosts)
+	getent, execErr := exec.Command("docker", "exec", alphaContainer, "getent", "hosts", "beta").CombinedOutput()
+	hosts, _ := exec.Command("docker", "exec", alphaContainer, "cat", "/etc/hosts").CombinedOutput()
+	require.NoError(t, execErr, "alpha task should resolve 'beta' via Cloud Map DNS: getent=%q hosts=%q", getent, hosts)
 
 	assert.Contains(t, string(getent), "beta", "getent output should mention beta hostname: %s", getent)
 
@@ -646,9 +634,8 @@ func TestECS_MultiServiceDNS(t *testing.T) {
 	}
 	waitContainer := func(name string) {
 		t.Helper()
-		require.Eventually(t, func() bool {
-			return exec.Command("docker", "inspect", name).Run() == nil
-		}, 45*time.Second, 500*time.Millisecond, "container %s should exist", name)
+		inspect, inspectErr := exec.Command("docker", "inspect", name).CombinedOutput()
+		require.NoError(t, inspectErr, "a RUNNING task's container %s must exist: %s", name, inspect)
 	}
 
 	// Start the server first and wait for RUNNING so it provisions the shared
@@ -668,14 +655,12 @@ func TestECS_MultiServiceDNS(t *testing.T) {
 
 	register := func(svcID, cid, ip string) {
 		t.Helper()
-		var rerr error
-		require.Eventually(t, func() bool {
-			_, rerr = cm.RegisterInstance(ctx, &servicediscovery.RegisterInstanceInput{
-				ServiceId: aws.String(svcID), InstanceId: aws.String(cid[:12]),
-				Attributes: map[string]string{"AWS_INSTANCE_IPV4": ip},
-			})
-			return rerr == nil
-		}, 45*time.Second, 500*time.Millisecond, "RegisterInstance: %v", rerr)
+		registered, rerr := cm.RegisterInstance(ctx, &servicediscovery.RegisterInstanceInput{
+			ServiceId: aws.String(svcID), InstanceId: aws.String(cid[:12]),
+			Attributes: map[string]string{"AWS_INSTANCE_IPV4": ip},
+		})
+		require.NoError(t, rerr)
+		awaitCloudMapOperation(t, cm, registered.OperationId)
 	}
 	// The server task backs BOTH services under the SAME instance ID — the
 	// multi-name registration that previously failed on the second connect.
@@ -685,12 +670,8 @@ func TestECS_MultiServiceDNS(t *testing.T) {
 
 	// From the client, BOTH of the server's names must resolve.
 	for _, name := range []string{"web", "webalias"} {
-		var getent []byte
-		var execErr error
-		require.Eventually(t, func() bool {
-			getent, execErr = exec.Command("docker", "exec", clientContainer, "getent", "hosts", name).CombinedOutput()
-			return execErr == nil && len(getent) > 0
-		}, 15*time.Second, 500*time.Millisecond, "client should resolve %q via Cloud Map: getent=%q err=%v", name, getent, execErr)
+		getent, execErr := exec.Command("docker", "exec", clientContainer, "getent", "hosts", name).CombinedOutput()
+		require.NoError(t, execErr, "client should resolve %q via Cloud Map: getent=%q", name, getent)
 		assert.Contains(t, string(getent), name, "getent for %s should resolve", name)
 	}
 }

@@ -260,8 +260,8 @@ func TestMain(m *testing.M) {
 
 	simCmd = exec.Command(binaryPath)
 	advertisedEndpoints := fmt.Sprintf(
-		`{"storage":{"blob":"http://{account}.blob.shim.localhost:%d/","file":"http://{account}.file.shim.localhost:%d/","queue":"http://{account}.queue.shim.localhost:%d/","table":"http://{account}.table.shim.localhost:%d/","web":"http://{account}.web.shim.localhost:%d/","dfs":"http://{account}.dfs.shim.localhost:%d/"},"keyVault":"https://{vault}.vault.shim.localhost:%d/","serviceBus":"https://{namespace}.servicebus.shim.localhost:%d/","acr":"http://{name}.azurecr.shim.localhost:%d/"}`,
-		port, port, port, port, port, port, port, port, port)
+		`{"storage":{"blob":"http://{account}.blob.shim.localhost:%d/","file":"http://{account}.file.shim.localhost:%d/","queue":"http://{account}.queue.shim.localhost:%d/","table":"http://{account}.table.shim.localhost:%d/","web":"http://{account}.web.shim.localhost:%d/","dfs":"http://{account}.dfs.shim.localhost:%d/"},"keyVault":"https://{vault}.vault.shim.localhost:%d/","serviceBus":"https://{namespace}.servicebus.shim.localhost:%d/","acr":"http://{name}.azurecr.shim.localhost:%d/","appServiceScm":"http://{name}.scm.shim.localhost:%d/"}`,
+		port, port, port, port, port, port, port, port, port, port)
 	azureFilesDataDir, err = os.MkdirTemp("", "sockerless-sim-azure-files-*")
 	if err != nil {
 		log.Fatalf("Failed to create Azure Files data dir: %v", err)
@@ -339,12 +339,12 @@ func installAzureSDKTestResolver(simPort int) {
 // data-plane hosts the simulator advertises through
 // SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON. Those hosts are the coordinates
 // a client dials — an Event Grid topic endpoint, a container registry's login
-// server — and only their resolution differs from the real cloud: `.localhost`
-// names do not resolve on every platform, so the test dialer sends them to the
-// loopback listener the simulator is on. The request itself, host header
-// included, is the one a client sends to the real service.
+// server, a web app's SCM site — and only their resolution differs from the
+// real cloud: `.localhost` names do not resolve on every platform, so the test
+// dialer sends them to the loopback listener the simulator is on. The request
+// itself, host header included, is the one a client sends to the real service.
 func simAdvertisedDataPlaneHost(host string) bool {
-	for _, suffix := range []string{"eventgrid.localhost", "azurecr.shim.localhost"} {
+	for _, suffix := range []string{"eventgrid.localhost", "azurecr.shim.localhost", "scm.shim.localhost"} {
 		if host == suffix || strings.HasSuffix(host, "."+suffix) {
 			return true
 		}

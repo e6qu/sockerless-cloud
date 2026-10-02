@@ -29,10 +29,11 @@ func ddbKey(v string) map[string]ddbtypes.AttributeValue {
 // modern client uses (the legacy AttributeUpdates path was the only one
 // implemented, so update-item with an UpdateExpression was a silent no-op).
 func TestDynamoDB_UpdateItemExpression(t *testing.T) {
+	table := uniqueName("cov-update-expr")
 	c := ddbClient()
-	ddbCoverageTable(t, c, "cov-update-expr")
+	ddbCoverageTable(t, c, table)
 	get := func() map[string]ddbtypes.AttributeValue {
-		out, err := c.GetItem(ctx, &dynamodb.GetItemInput{TableName: aws.String("cov-update-expr"), Key: ddbKey("a")})
+		out, err := c.GetItem(ctx, &dynamodb.GetItemInput{TableName: aws.String(table), Key: ddbKey("a")})
 		require.NoError(t, err)
 		return out.Item
 	}
@@ -44,7 +45,7 @@ func TestDynamoDB_UpdateItemExpression(t *testing.T) {
 
 	// SET assignment.
 	_, err := c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName:                 aws.String("cov-update-expr"),
+		TableName:                 aws.String(table),
 		Key:                       ddbKey("a"),
 		UpdateExpression:          aws.String("SET #c = :v, #s = :n"),
 		ExpressionAttributeNames:  map[string]string{"#c": "cnt", "#s": "label"},
@@ -57,7 +58,7 @@ func TestDynamoDB_UpdateItemExpression(t *testing.T) {
 
 	// SET arithmetic increment.
 	_, err = c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName: aws.String("cov-update-expr"), Key: ddbKey("a"),
+		TableName: aws.String(table), Key: ddbKey("a"),
 		UpdateExpression:          aws.String("SET #c = #c + :i"),
 		ExpressionAttributeNames:  map[string]string{"#c": "cnt"},
 		ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":i": &ddbtypes.AttributeValueMemberN{Value: "3"}},
@@ -67,7 +68,7 @@ func TestDynamoDB_UpdateItemExpression(t *testing.T) {
 
 	// ADD on a missing attribute starts from 0; if_not_exists keeps the existing value.
 	_, err = c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName: aws.String("cov-update-expr"), Key: ddbKey("a"),
+		TableName: aws.String(table), Key: ddbKey("a"),
 		UpdateExpression:          aws.String("ADD #v :d SET #c = if_not_exists(#c, :z)"),
 		ExpressionAttributeNames:  map[string]string{"#v": "views", "#c": "cnt"},
 		ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":d": &ddbtypes.AttributeValueMemberN{Value: "10"}, ":z": &ddbtypes.AttributeValueMemberN{Value: "99"}},
@@ -79,7 +80,7 @@ func TestDynamoDB_UpdateItemExpression(t *testing.T) {
 
 	// REMOVE drops the attribute.
 	_, err = c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName: aws.String("cov-update-expr"), Key: ddbKey("a"),
+		TableName: aws.String(table), Key: ddbKey("a"),
 		UpdateExpression:         aws.String("REMOVE #s"),
 		ExpressionAttributeNames: map[string]string{"#s": "label"},
 	})
@@ -89,27 +90,28 @@ func TestDynamoDB_UpdateItemExpression(t *testing.T) {
 }
 
 func TestDynamoDB_TimeToLiveAndContinuousBackups(t *testing.T) {
+	table := uniqueName("cov-ttl-pitr")
 	c := ddbClient()
-	ddbCoverageTable(t, c, "cov-ttl-pitr")
+	ddbCoverageTable(t, c, table)
 
 	_, err := c.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
-		TableName: aws.String("cov-ttl-pitr"),
+		TableName: aws.String(table),
 		TimeToLiveSpecification: &ddbtypes.TimeToLiveSpecification{
 			Enabled: aws.Bool(true), AttributeName: aws.String("ttl"),
 		},
 	})
 	require.NoError(t, err)
-	ttl, err := c.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{TableName: aws.String("cov-ttl-pitr")})
+	ttl, err := c.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{TableName: aws.String(table)})
 	require.NoError(t, err)
 	assert.Equal(t, ddbtypes.TimeToLiveStatusEnabled, ttl.TimeToLiveDescription.TimeToLiveStatus)
 	assert.Equal(t, "ttl", aws.ToString(ttl.TimeToLiveDescription.AttributeName))
 
 	_, err = c.UpdateContinuousBackups(ctx, &dynamodb.UpdateContinuousBackupsInput{
-		TableName:                        aws.String("cov-ttl-pitr"),
+		TableName:                        aws.String(table),
 		PointInTimeRecoverySpecification: &ddbtypes.PointInTimeRecoverySpecification{PointInTimeRecoveryEnabled: aws.Bool(true)},
 	})
 	require.NoError(t, err)
-	cb, err := c.DescribeContinuousBackups(ctx, &dynamodb.DescribeContinuousBackupsInput{TableName: aws.String("cov-ttl-pitr")})
+	cb, err := c.DescribeContinuousBackups(ctx, &dynamodb.DescribeContinuousBackupsInput{TableName: aws.String(table)})
 	require.NoError(t, err)
 	assert.Equal(t, ddbtypes.PointInTimeRecoveryStatusEnabled,
 		cb.ContinuousBackupsDescription.PointInTimeRecoveryDescription.PointInTimeRecoveryStatus)
@@ -120,8 +122,9 @@ func TestDynamoDB_TimeToLiveAndContinuousBackups(t *testing.T) {
 // the service. The unterminated-if_not_exists( forms previously panicked the
 // sim process with "slice bounds out of range".
 func TestDynamoDB_UpdateItemMalformedExpression(t *testing.T) {
+	table := uniqueName("cov-update-malformed")
 	c := ddbClient()
-	ddbCoverageTable(t, c, "cov-update-malformed")
+	ddbCoverageTable(t, c, table)
 
 	for _, expr := range []string{
 		"SET a = if_not_exists(",
@@ -129,7 +132,7 @@ func TestDynamoDB_UpdateItemMalformedExpression(t *testing.T) {
 		"SET a = if_not_exists(a",
 	} {
 		_, err := c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-			TableName:        aws.String("cov-update-malformed"),
+			TableName:        aws.String(table),
 			Key:              ddbKey("m"),
 			UpdateExpression: aws.String(expr),
 		})
@@ -141,7 +144,7 @@ func TestDynamoDB_UpdateItemMalformedExpression(t *testing.T) {
 	// It must no longer crash — whether it is accepted or rejected, the service
 	// must keep responding (verified by the well-formed call below).
 	_, _ = c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName:        aws.String("cov-update-malformed"),
+		TableName:        aws.String(table),
 		Key:              ddbKey("m"),
 		UpdateExpression: aws.String("\xcaREMOVE"),
 	})
@@ -149,7 +152,7 @@ func TestDynamoDB_UpdateItemMalformedExpression(t *testing.T) {
 	// The service is still alive after the malformed requests: a well-formed
 	// UpdateItem still succeeds.
 	_, err := c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName:                 aws.String("cov-update-malformed"),
+		TableName:                 aws.String(table),
 		Key:                       ddbKey("m"),
 		UpdateExpression:          aws.String("SET #s = :v"),
 		ExpressionAttributeNames:  map[string]string{"#s": "label"},

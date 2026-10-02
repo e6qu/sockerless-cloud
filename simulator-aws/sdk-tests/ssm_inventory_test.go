@@ -312,7 +312,7 @@ func TestSSM_InstanceInformation(t *testing.T) {
 // metadata ops layered over an existing document.
 func TestSSM_DocumentPermission(t *testing.T) {
 	c := ssmClient()
-	name := "sockerless-perm-doc-sdk"
+	name := uniqueName("sockerless-perm-doc-sdk")
 	content := `{"schemaVersion":"2.2","mainSteps":[{"action":"aws:runShellScript","name":"s","inputs":{"runCommand":["echo hi"]}}]}`
 
 	_, err := c.CreateDocument(ctx, &ssm.CreateDocumentInput{

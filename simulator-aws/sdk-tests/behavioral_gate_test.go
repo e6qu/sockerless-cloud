@@ -40,18 +40,20 @@ func route53Client() *route53.Client {
 // TestBehavioralGate_CloudWatchAlarmSNSActionToSQS asserts that a metric alarm
 // transition dispatches its AlarmActions through SNS to an SQS subscriber.
 func TestBehavioralGate_CloudWatchAlarmSNSActionToSQS(t *testing.T) {
+	queueName := uniqueName("behavioral-queue")
+	topicName := uniqueName("behavioral-topic")
 	cw := cloudwatchClient()
 	snsC := snsClient()
 	sqsC := sqsClient()
 
-	ns := "Custom/BehavioralGate"
-	alarmName := "behavioral-alarm-sns-sqs"
+	ns := uniqueName("Custom/BehavioralGate")
+	alarmName := uniqueName("behavioral-alarm-sns-sqs")
 
-	tpc, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String("behavioral-topic")})
+	tpc, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(topicName)})
 	require.NoError(t, err)
 	topicARN := aws.ToString(tpc.TopicArn)
 
-	q, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("behavioral-queue")})
+	q, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(queueName)})
 	require.NoError(t, err)
 	queueAttrs, err := sqsC.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
 		QueueUrl:       q.QueueUrl,
@@ -100,11 +102,7 @@ func TestBehavioralGate_CloudWatchAlarmSNSActionToSQS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM")
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "alarm should reach ALARM")
 
 	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "SQS subscriber must receive the alarm notification")
@@ -117,15 +115,17 @@ func TestBehavioralGate_CloudWatchAlarmSNSActionToSQS(t *testing.T) {
 // TestBehavioralGate_SQS_DLQ_Redrive asserts that a message exceeding
 // maxReceiveCount is moved from the source queue to the dead-letter queue.
 func TestBehavioralGate_SQS_DLQ_Redrive(t *testing.T) {
+	srcName := uniqueName("bg-src")
+	dlqName := uniqueName("bg-dlq")
 	client := sqsClient()
 
-	dlq, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("bg-dlq")})
+	dlq, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(dlqName)})
 	require.NoError(t, err)
 	dlqURL := aws.ToString(dlq.QueueUrl)
 	dlqARN := sqsQueueARNFor(t, client, dlqURL)
 
 	src, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{
-		QueueName: aws.String("bg-src"),
+		QueueName: aws.String(srcName),
 		Attributes: map[string]string{
 			"VisibilityTimeout": "0",
 			"RedrivePolicy":     sqsRedrivePolicyJSONCount(t, dlqARN, 2),
@@ -349,9 +349,9 @@ func TestBehavioralGate_CloudWatchLogs_MetricFilterPublishesMetric(t *testing.T)
 	logsC := cwLogsClient()
 	cwC := cloudwatchClient()
 
-	group := "bg-metric-filter-group"
+	group := uniqueName("bg-metric-filter-group")
 	stream := "bg-stream"
-	ns := "Custom/BehavioralGateLogs"
+	ns := uniqueName("Custom/BehavioralGateLogs")
 	metric := "ErrorCount"
 	ts := time.Now().UTC().Truncate(time.Minute)
 	tsMillis := ts.UnixMilli()
@@ -417,7 +417,7 @@ func TestBehavioralGate_CloudWatchLogs_MetricFilterPublishesMetric(t *testing.T)
 // whose TTL is in the future and one whose TTL attribute is not a Number.
 func TestBehavioralGate_DynamoDBTimeToLive_DeletesExpiredItems(t *testing.T) {
 	c := ddbClient()
-	const table = "behavioral-ttl"
+	table := uniqueName("behavioral-ttl")
 	ddbCoverageTable(t, c, table)
 	_, err := c.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
 		TableName: aws.String(table),

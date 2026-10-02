@@ -220,7 +220,7 @@ func TestSSMParameter_GetParametersAndRemoveTags(t *testing.T) {
 func TestSSMParameter_ListTagsForResource(t *testing.T) {
 	c := ssmClient()
 
-	paramName := "/tag-test/list-tags"
+	paramName := uniqueName("/tag-test/list-tags")
 	_, err := c.PutParameter(ctx, &ssm.PutParameterInput{
 		Name:  aws.String(paramName),
 		Type:  ssmtypes.ParameterTypeString,

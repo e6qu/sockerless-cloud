@@ -16,13 +16,15 @@ import (
 // terraform-provider-aws stores the resolved version in state and
 // drifts on the next plan if the sim echoes empty.
 func TestRDS_EngineVersionDefault(t *testing.T) {
+	explicitID := uniqueName("explicit-engine-pg")
+	defaultID := uniqueName("default-engine-pg")
 	c := rds.NewFromConfig(sdkConfig(), func(o *rds.Options) {
 		o.BaseEndpoint = aws.String(baseURL)
 	})
 	ctx := context.Background()
 
 	out, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
-		DBInstanceIdentifier: aws.String("default-engine-pg"),
+		DBInstanceIdentifier: aws.String(defaultID),
 		DBInstanceClass:      aws.String("db.t3.micro"),
 		Engine:               aws.String("postgres"),
 		AllocatedStorage:     aws.Int32(20),
@@ -36,7 +38,7 @@ func TestRDS_EngineVersionDefault(t *testing.T) {
 
 	// Explicit EngineVersion still wins.
 	out2, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
-		DBInstanceIdentifier: aws.String("explicit-engine-pg"),
+		DBInstanceIdentifier: aws.String(explicitID),
 		DBInstanceClass:      aws.String("db.t3.micro"),
 		Engine:               aws.String("postgres"),
 		AllocatedStorage:     aws.Int32(20),
@@ -51,13 +53,15 @@ func TestRDS_EngineVersionDefault(t *testing.T) {
 
 // TestElastiCache_EngineVersionDefault — same shape for redis cluster.
 func TestElastiCache_EngineVersionDefault(t *testing.T) {
+	explicitID := uniqueName("explicit-engine-redis")
+	defaultID := uniqueName("default-engine-redis")
 	c := elasticache.NewFromConfig(sdkConfig(), func(o *elasticache.Options) {
 		o.BaseEndpoint = aws.String(baseURL)
 	})
 	ctx := context.Background()
 
 	out, err := c.CreateCacheCluster(ctx, &elasticache.CreateCacheClusterInput{
-		CacheClusterId: aws.String("default-engine-redis"),
+		CacheClusterId: aws.String(defaultID),
 		Engine:         aws.String("redis"),
 		CacheNodeType:  aws.String("cache.t3.micro"),
 		NumCacheNodes:  aws.Int32(1),
@@ -68,7 +72,7 @@ func TestElastiCache_EngineVersionDefault(t *testing.T) {
 	assert.Equal(t, "7.1", got, "redis GA default must be the canonical sim value")
 
 	out2, err := c.CreateCacheCluster(ctx, &elasticache.CreateCacheClusterInput{
-		CacheClusterId: aws.String("explicit-engine-redis"),
+		CacheClusterId: aws.String(explicitID),
 		Engine:         aws.String("redis"),
 		EngineVersion:  aws.String("6.2"),
 		CacheNodeType:  aws.String("cache.t3.micro"),

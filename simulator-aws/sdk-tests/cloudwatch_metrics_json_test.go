@@ -16,6 +16,7 @@ import (
 // This is version-independent coverage: the CLI-driven test only exercises this
 // path when the installed CLI is new enough, so assert it at the wire level.
 func TestCloudWatch_AwsJsonMetrics(t *testing.T) {
+	namespace := uniqueName("MyApp/JSON")
 	cw := func(op string, body any) map[string]any {
 		t.Helper()
 		raw, err := json.Marshal(body)
@@ -35,7 +36,7 @@ func TestCloudWatch_AwsJsonMetrics(t *testing.T) {
 	}
 
 	cw("PutMetricData", map[string]any{
-		"Namespace": "MyApp/JSON",
+		"Namespace": namespace,
 		"MetricData": []map[string]any{{
 			"MetricName": "Requests", "Value": 42, "Unit": "Count",
 			"Dimensions": []map[string]any{{"Name": "svc", "Value": "api"}},
@@ -43,7 +44,7 @@ func TestCloudWatch_AwsJsonMetrics(t *testing.T) {
 	})
 
 	stats := cw("GetMetricStatistics", map[string]any{
-		"Namespace": "MyApp/JSON", "MetricName": "Requests",
+		"Namespace": namespace, "MetricName": "Requests",
 		"Dimensions": []map[string]any{{"Name": "svc", "Value": "api"}},
 		"StartTime":  0, "EndTime": 0, "Period": 60,
 		"Statistics": []string{"Sum", "Average"},
@@ -56,7 +57,7 @@ func TestCloudWatch_AwsJsonMetrics(t *testing.T) {
 	assert.Equal(t, float64(42), dp["Sum"])
 	assert.Equal(t, "Count", dp["Unit"])
 
-	list := cw("ListMetrics", map[string]any{"Namespace": "MyApp/JSON"})
+	list := cw("ListMetrics", map[string]any{"Namespace": namespace})
 	metrics, ok := list["Metrics"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, metrics)

@@ -1,20 +1,14 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
-	"strconv"
 	"strings"
-	"time"
 
+	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/workload"
-	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // Cloud Functions v2 types
@@ -30,6 +24,7 @@ type Function struct {
 	UpdateTime    string            `json:"updateTime"`
 	Labels        map[string]string `json:"labels,omitempty"`
 	Environment   enumString        `json:"environment,omitempty"`
+	URL           string            `json:"url,omitempty"`
 	// UpgradeInfo carries the 1st-Gen→2nd-Gen migration state. It is
 	// populated only for functions an upgrade-lifecycle verb has touched;
 	// the upgrade colon-verbs transition upgradeInfo.upgradeState.
@@ -114,8 +109,61 @@ func functionsLRO(r *http.Request, project, location, target string, resource an
 		gcpStandardOperationMetadata("type.googleapis.com/google.cloud.functions.v2.OperationMetadata", gcpOperationVerb(r), target))
 }
 
+var cloudFunctions sim.Store[storedFunction]
+
+// registerCloudFunctionsFrontEnd serves each function on its cloudfunctions.net
+// URL, https://<region>-<project>.cloudfunctions.net/<function>: the request,
+// with the function's name taken off the front of its path, goes to the Cloud
+// Run service that serves the function, as a request to its run.app URL does.
+func registerCloudFunctionsFrontEnd(srv *sim.Server) {
+	srv.WrapHandler(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hostname := lbplane.Hostname(r.Host)
+			if !strings.HasSuffix(hostname, ".cloudfunctions.net") {
+				next.ServeHTTP(w, r)
+				return
+			}
+			functionID, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
+			fn, ok := cloudFunctionByURL("https://" + hostname + "/" + functionID)
+			if !ok {
+				cloudRunFrontEndError(w, http.StatusNotFound, "The requested URL was not found on this server.")
+				return
+			}
+			svc, ok := cloudFunctionService(fn)
+			if !ok {
+				cloudRunFrontEndError(w, http.StatusNotFound, "The requested URL was not found on this server.")
+				return
+			}
+			forwarded := r.Clone(r.Context())
+			forwarded.URL.Path = "/" + strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/"+functionID), "/")
+			forwarded.URL.RawPath = ""
+			if r.URL.RawPath != "" {
+				forwarded.URL.RawPath = "/" + strings.TrimPrefix(strings.TrimPrefix(r.URL.RawPath, "/"+functionID), "/")
+			}
+			serveCloudRunService(w, forwarded, svc, fn.URL)
+		})
+	})
+}
+
+var cloudFunctionsByURL sim.GenerationIndex[storedFunction]
+
+// cloudFunctionByURL returns the function whose url is functionURL.
+func cloudFunctionByURL(functionURL string) (storedFunction, bool) {
+	if cloudFunctions == nil {
+		return storedFunction{}, false
+	}
+	return cloudFunctionsByURL.Lookup(cloudFunctions, functionURL, func(fn storedFunction) []string {
+		if fn.URL == "" {
+			return nil
+		}
+		return []string{fn.URL}
+	})
+}
+
 func registerCloudFunctions(srv *sim.Server) {
 	functions := sim.MakeStore[storedFunction](srv.DB(), "gcf_functions")
+	cloudFunctions = functions
+	registerCloudFunctionsFrontEnd(srv)
 
 	// Create function
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/functions", func(w http.ResponseWriter, r *http.Request) {
@@ -157,40 +205,30 @@ func registerCloudFunctions(srv *sim.Server) {
 		if fn.ServiceConfig.IngressSettings == "" {
 			fn.ServiceConfig.IngressSettings = "ALLOW_ALL"
 		}
-		// Use the simulator's own address as the function URL for invocations
-		fn.ServiceConfig.Uri = fmt.Sprintf("http://%s/v2-functions-invoke/%s", r.Host, functionID)
+		fn.URL = cloudFunctionURL(project, location, functionID)
 
-		// Cloud Functions Gen2 are backed by a Cloud Run service that
-		// real GCP creates server-side as part of CreateFunction. The
-		// gcf overlay-and-swap path relies on `fn.ServiceConfig.Service`
-		// being populated so it can call `Run.Services.GetService` /
-		// `UpdateService` to swap the throwaway Buildpacks image with
-		// the real overlay. Mirror that linkage here: stamp the
-		// service name onto the function, and seed a backing ServiceV2
-		// row so subsequent Get/PATCH on the service round-trip.
+		// Cloud Run functions creates the Cloud Run service that serves the
+		// function as part of CreateFunction, and that deploy is the one the
+		// regional CPU quota charges.
 		buildOutputImage := ""
 		if fn.BuildConfig != nil {
 			buildOutputImage = fn.BuildConfig.DockerRepository
 		}
-		// Compose the backing service spec first so we can charge its CPU
-		// load against the regional quota BEFORE persisting the function.
-		// gcf creates the function; the live cloud creates the underlying
-		// Cloud Run service server-side and that's the deploy that hits
-		// the regional cpu_allocation quota.
 		backingService := seedServiceV2Defaults(ServiceV2{
 			Template: &RevisionTemplate{
 				Containers: []Container{{
-					Name:      functionID,
-					Image:     buildOutputImage,
-					Resources: functionCPUResources(fn),
+					Name:  functionID,
+					Image: buildOutputImage,
 				}},
 			},
 		}, project, location, functionID)
+		applyFunctionServiceConfig(&backingService, fn)
 		if !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(backingService)) {
 			regionalCPUQuotaErrorJSON(w, backingService.Name)
 			return
 		}
 		fn.ServiceConfig.Service = backingService.Name
+		fn.ServiceConfig.Uri = backingService.URI
 		backingService.Etag = sim.NewUUID()
 		crv2Services.Put(backingService.Name, backingService)
 		projectCloudRunV2ToV1(backingService)
@@ -279,9 +317,17 @@ func registerCloudFunctions(srv *sim.Server) {
 			return
 		}
 		mask := r.URL.Query().Get("updateMask")
-		applyFunctionPatch(&fn, &patch, mask)
+		serviceConfigChanged := applyFunctionPatch(&fn, &patch, mask)
 		fn.Name = name
 		fn.UpdateTime = nowTimestamp()
+		if svc, ok := cloudFunctionService(fn); ok && serviceConfigChanged {
+			applyFunctionServiceConfig(&svc, fn)
+			if !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(svc)) {
+				regionalCPUQuotaErrorJSON(w, svc.Name)
+				return
+			}
+			rollOutServiceRevision(svc)
+		}
 		functions.Put(name, fn)
 
 		lro := functionsLRO(r, project, location, name, fn.wire(), "type.googleapis.com/google.cloud.functions.v2.Function")
@@ -318,47 +364,6 @@ func registerCloudFunctions(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// Invoke function (simulator-only endpoint)
-	srv.HandleFunc("POST /v2-functions-invoke/{functionID}", func(w http.ResponseWriter, r *http.Request) {
-		functionID := sim.PathParam(r, "functionID")
-
-		// Find the function by scanning for a matching functionID suffix
-		var fn *storedFunction
-		for _, f := range functions.List() {
-			if strings.HasSuffix(f.Name, "/functions/"+functionID) {
-				f := f // copy
-				fn = &f
-				break
-			}
-		}
-
-		responseBody := []byte("{}")
-		if fn != nil {
-			parts := strings.Split(fn.Name, "/") // projects/{project}/...
-			if len(parts) < 2 {
-				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
-					"function %q has a malformed resource name", fn.Name)
-				return
-			}
-			project := parts[1]
-
-			var exitCode int
-			sim.DeclareWait(r.Context(), cloudFunctionTimeout(fn))
-			responseBody, exitCode = invokeCloudFunctionProcess(fn, project, functionID)
-			if exitCode != 0 {
-				// Real Cloud Functions returns HTTP error when function crashes
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write(responseBody)
-				return
-			}
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(responseBody)
-	})
-
 	// Delete function
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/functions/{function}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
@@ -366,13 +371,16 @@ func registerCloudFunctions(srv *sim.Server) {
 		functionID := sim.PathParam(r, "function")
 		name := fmt.Sprintf("projects/%s/locations/%s/functions/%s", project, location, functionID)
 
-		_, ok := functions.Get(name)
+		fn, ok := functions.Get(name)
 		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "function %q not found", name)
 			return
 		}
 
 		functions.Delete(name)
+		if fn.ServiceConfig != nil && fn.ServiceConfig.Service != "" {
+			removeCloudRunServiceV2(project, location, fn.ServiceConfig.Service[strings.LastIndex(fn.ServiceConfig.Service, "/")+1:])
+		}
 
 		lro := functionsLRO(r, project, location, name, nil, "type.googleapis.com/google.protobuf.Empty")
 		sim.WriteJSON(w, http.StatusOK, lro)
@@ -525,6 +533,48 @@ var cloudFunctionRegions = []string{
 	"asia-east1", "asia-northeast1",
 }
 
+// cloudFunctionService returns the Cloud Run service that serves a function.
+func cloudFunctionService(fn storedFunction) (ServiceV2, bool) {
+	if fn.ServiceConfig == nil || fn.ServiceConfig.Service == "" {
+		return ServiceV2{}, false
+	}
+	return crv2Services.Get(fn.ServiceConfig.Service)
+}
+
+// cloudFunctionURL is the cloudfunctions.net URL Cloud Run functions reports
+// as a function's url and serves the function on.
+func cloudFunctionURL(project, location, functionID string) string {
+	return fmt.Sprintf("https://%s-%s.cloudfunctions.net/%s", location, project, functionID)
+}
+
+// applyFunctionServiceConfig carries a function's serviceConfig onto the
+// template of the Cloud Run service that serves it: its CPU, its environment
+// variables and its request timeout, which defaults to 60 seconds.
+func applyFunctionServiceConfig(svc *ServiceV2, fn storedFunction) {
+	if svc.Template == nil || len(svc.Template.Containers) == 0 {
+		return
+	}
+	container := &svc.Template.Containers[0]
+	container.Resources = functionCPUResources(fn)
+	timeout := 60
+	var env []EnvVar
+	if sc := fn.ServiceConfig; sc != nil {
+		if sc.TimeoutSeconds > 0 {
+			timeout = sc.TimeoutSeconds
+		}
+		names := make([]string, 0, len(sc.EnvironmentVariables))
+		for name := range sc.EnvironmentVariables {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			env = append(env, EnvVar{Name: name, Value: sc.EnvironmentVariables[name]})
+		}
+	}
+	container.Env = env
+	svc.Template.Timeout = fmt.Sprintf("%ds", timeout)
+}
+
 // cloudFunctionName builds the fully-qualified Cloud Functions v2 resource
 // name from its coordinates.
 func cloudFunctionName(project, location, functionID string) string {
@@ -571,72 +621,6 @@ func cloudFunctionRuntimes() []map[string]any {
 	return out
 }
 
-// invokeCloudFunctionProcess executes a Cloud Function invocation. Cloud
-// Functions Gen2 are backed by a Cloud Run service whose container image
-// is the sockerless overlay; the gcf backend's overlay-and-swap path lands
-// that image on the service via `Run.Services.UpdateService`. The sim
-// reads the image back from the backing service and HTTP-invokes the
-// overlay's bootstrap — start the container, POST the request envelope to
-// its bootstrap listener, read the response, stop the container — exactly
-// what real Cloud Run Functions Gen2 does on every invocation. An error
-// status from the container reads as a failed invocation.
-//
-// A function with no backing service image has been created but never
-// deployed with an overlay; there is nothing to execute, so the sim records
-// the invocation in Cloud Logging and returns an empty body.
-// cloudFunctionTimeout is the function's serviceConfig.timeoutSeconds, or the
-// 60-second default Cloud Run functions applies.
-func cloudFunctionTimeout(fn *storedFunction) time.Duration {
-	if fn.ServiceConfig != nil && fn.ServiceConfig.TimeoutSeconds > 0 {
-		return time.Duration(fn.ServiceConfig.TimeoutSeconds) * time.Second
-	}
-	return 60 * time.Second
-}
-
-func invokeCloudFunctionProcess(fn *storedFunction, project, functionID string) ([]byte, int) {
-	// Container image lives on the underlying Cloud Run service — read it
-	// back from there; the sim has no other source of truth for what to
-	// execute.
-	var container Container
-	if fn.ServiceConfig != nil && fn.ServiceConfig.Service != "" {
-		if svc, ok := crv2Services.Get(fn.ServiceConfig.Service); ok {
-			if svc.Template != nil && len(svc.Template.Containers) > 0 {
-				container = svc.Template.Containers[0]
-			}
-		}
-	}
-	image := container.Image
-	serviceEnv := containerEnvMap(container.Env)
-
-	sink := &cfLogSink{project: project, functionName: functionID}
-
-	if image == "" {
-		injectCloudFunctionLog(project, functionID, "Function invoked")
-		return []byte("{}"), 0
-	}
-
-	timeout := cloudFunctionTimeout(fn)
-
-	// Cloud-faithful: HTTP-invoke the overlay's bootstrap.
-	env := serviceEnv
-	if fn.ServiceConfig != nil {
-		env = workloadhost.MergeEnv(fn.ServiceConfig.EnvironmentVariables, serviceEnv)
-	}
-	body, exitCode, err := invokeOverlayContainerHTTP(project, container, functionID, timeout, sink, env)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[sim-gcf] invocation error fn=%s img=%s: %v\n", functionID, image, err)
-		injectCloudFunctionLog(project, functionID,
-			fmt.Sprintf("Function invocation error: %v", err))
-		return []byte(fmt.Sprintf(`{"error":%q}`, err.Error())), 1
-	}
-	if exitCode != 0 {
-		fmt.Fprintf(os.Stderr, "[sim-gcf] non-zero exit fn=%s img=%s exit=%d body=%q\n", functionID, image, exitCode, string(body))
-		injectCloudFunctionLog(project, functionID,
-			fmt.Sprintf("Function exited with code %d body=%q", exitCode, string(body)))
-	}
-	return body, exitCode
-}
-
 // cfLogSink implements sim.LogSink and writes log lines to Cloud Logging
 // for Cloud Function invocations.
 type cfLogSink struct {
@@ -653,7 +637,7 @@ func (s *cfLogSink) WriteLog(line sim.LogLine) {
 // buildConfig.*, serviceConfig.*); for the nested config objects a named
 // path replaces the whole sub-object when present, which matches how the
 // provider sends grouped service_config / build_config updates.
-func applyFunctionPatch(fn, patch *storedFunction, mask string) {
+func applyFunctionPatch(fn, patch *storedFunction, mask string) (serviceConfigChanged bool) {
 	fields := strings.Split(mask, ",")
 	if mask == "" {
 		fields = nil
@@ -677,8 +661,15 @@ func applyFunctionPatch(fn, patch *storedFunction, mask string) {
 		fn.BuildConfig = patch.BuildConfig
 	}
 	if (len(fields) == 0 || has("serviceConfig")) && patch.ServiceConfig != nil {
+		output := fn.ServiceConfig
 		fn.ServiceConfig = patch.ServiceConfig
+		if output != nil {
+			fn.ServiceConfig.Uri = output.Uri
+			fn.ServiceConfig.Service = output.Service
+		}
+		serviceConfigChanged = true
 	}
+	return serviceConfigChanged
 }
 
 // injectCloudFunctionLog writes a log entry to the Cloud Logging store for a
@@ -690,105 +681,4 @@ func injectCloudFunctionLog(project, functionName, text string) {
 		Type:   "cloud_run_revision",
 		Labels: map[string]string{"service_name": functionName},
 	}, nil, []LogEntry{{TextPayload: text}})
-}
-
-// invokeOverlayContainerHTTP runs the cloud-faithful invocation flow:
-// start the overlay container detached, wait for the bootstrap HTTP
-// server to be ready on its assigned host port, POST to it, read the
-// response, then stop and remove the container. An error status reads as
-// a failed invocation.
-//
-// This mirrors what real Cloud Run does for every Cloud Functions Gen2
-// invocation: wait for the container's startup probe, route the request to
-// the underlying container's HTTP listener and return the response.
-//
-// The container is short-lived per invocation (start → POST → stop).
-// That keeps the sim's container-state footprint bounded — at most one
-// in-flight invocation container per concurrent request — and matches
-// docker-run-style one-shot semantics. Real Cloud Run keeps containers
-// warm across invocations; the sim's per-invocation lifecycle is a
-// simplification that doesn't change the semantic contract (the same
-// command is run, the same output is returned).
-//
-// Errors are returned only for infrastructure failures (image pull,
-// container start, networking). Subprocess non-zero exit is NOT an
-// error — it surfaces via the `exitCode` return value.
-func invokeOverlayContainerHTTP(project string, container Container, functionID string, timeout time.Duration, sink sim.LogSink, env map[string]string) (responseBody []byte, exitCode int, err error) {
-	return invokeOverlayContainerHTTPWithBody(project, container, functionID, timeout, sink, env, nil, "application/json")
-}
-
-// invokeOverlayContainerHTTPWithBody is the body-aware variant. The
-// Cloud Run Services invoke handler uses it to forward the
-// envelope-style POST body the gcf backend sends to the overlay
-// bootstrap. Cloud Functions Gen2 invocations have no useful body so
-// invokeOverlayContainerHTTP delegates here with `body=nil`.
-func invokeOverlayContainerHTTPWithBody(project string, container Container, functionID string, timeout time.Duration, sink sim.LogSink, env map[string]string, body io.Reader, contentType string) (responseBody []byte, exitCode int, err error) {
-	cli := sim.DockerClient()
-	if cli == nil {
-		return nil, -1, fmt.Errorf("docker client not initialized")
-	}
-
-	localImage := sim.ResolveLocalImage(container.Image)
-	port := cloudRunContainerPort(container)
-
-	containerName := fmt.Sprintf("sockerless-sim-gcf-%s-%s", functionID, sim.RandomHex(8))
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	platform, err := workload.LocalImagePlatform(ctx, localImage, workloadRegistryAuth(project, localImage))
-	if err != nil {
-		return nil, -1, err
-	}
-	metadataEnv, err := hostMetadataEnv()
-	if err != nil {
-		return nil, -1, err
-	}
-	extraHosts, err := hostMetadataExtraHosts()
-	if err != nil {
-		return nil, -1, err
-	}
-	containerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{
-		Image:        localImage,
-		Architecture: platform,
-		Env:          workloadhost.MergeEnv(map[string]string{"PORT": strconv.Itoa(port)}, env, metadataEnv),
-		Name:         containerName,
-		Labels: map[string]string{
-			"sockerless-sim-function": functionID,
-		},
-		ExtraHosts: extraHosts,
-		Sandbox:    SandboxGCFGen2,
-	})
-	if err != nil {
-		return nil, -1, fmt.Errorf("start overlay container: %w", err)
-	}
-	defer sim.StopAndRemoveContainer(containerID, cloudRunStopGrace)
-
-	// Stream container logs to Cloud Logging in the background. Uses
-	// the same sink as the process path so test assertions on
-	// `gcpFunctionLogMessages` find the bootstrap's stdout/stderr (the
-	// user subprocess output is written to the bootstrap's own
-	// stdout/stderr via io.MultiWriter — see agent/cmd/sockerless-gcf-
-	// bootstrap/main.go::handleInvoke).
-	logStreamCtx, logStreamCancel := context.WithCancel(context.Background())
-	defer logStreamCancel()
-	go sim.StreamContainerLogs(logStreamCtx, containerID, sink)
-
-	// The function runs on a Cloud Run service, so its container takes
-	// requests once the service's startup probe succeeds.
-	exited, releaseWait := watchCloudRunContainerExit(containerID)
-	defer releaseWait()
-	route, err := cloudRunContainerRoute(ctx, containerID, port)
-	if err != nil {
-		return nil, -1, fmt.Errorf("reach overlay container: %w", err)
-	}
-	if err := runStartupProbe(ctx, cloudRunStartupProbe(container), route, port, port, exited); err != nil {
-		return nil, -1, fmt.Errorf("overlay container did not start: %w", err)
-	}
-	bootstrapURL := "http://" + route + "/"
-
-	// POST the invocation. Body is forwarded from the caller (the gcf
-	// backend's exec envelope) when present. Cloud Functions Gen2
-	// invocations pass nil here.
-	return workload.PostBootstrap(ctx, bootstrapURL, body, contentType, timeout)
 }

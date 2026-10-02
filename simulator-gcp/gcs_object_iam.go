@@ -77,7 +77,11 @@ func registerGCSObjectIAM(srv *sim.Server, buckets sim.Store[Bucket], objects si
 		if !ok {
 			return
 		}
-		gcsWriteTestPermissions(w, r, gcsObjectPolicies(bucket, object))
+		gcsWriteTestPermissions(w, r, gcsObjectPolicies(bucket, object), gcpIAMResource{
+			Name:    "projects/_/buckets/" + bucket + "/objects/" + object,
+			Type:    "storage.googleapis.com/Object",
+			Service: "storage.googleapis.com",
+		})
 	})
 }
 

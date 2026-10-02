@@ -237,8 +237,9 @@ func TestECS_TagsAndListOps(t *testing.T) {
 
 func TestECS_RegisterTaskDefinition(t *testing.T) {
 	client := ecsClient()
+	family := uniqueName("test-task")
 	out, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String("test-task"),
+		Family: aws.String(family),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
 				StopTimeout: aws.Int32(2),
@@ -248,7 +249,7 @@ func TestECS_RegisterTaskDefinition(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "test-task", *out.TaskDefinition.Family)
+	assert.Equal(t, family, *out.TaskDefinition.Family)
 	assert.Equal(t, int32(1), out.TaskDefinition.Revision)
 }
 
@@ -1237,6 +1238,7 @@ func TestECS_TaskFailsWhenAwslogsGroupIsMissing(t *testing.T) {
 }
 
 func TestECS_TaskLogsToCloudWatch(t *testing.T) {
+	logGroup := uniqueName("/ecs/exec-logs")
 	client, clusterName, taskArn := ecsRunTaskHelper(t, "exec-logs", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
@@ -1245,7 +1247,7 @@ func TestECS_TaskLogsToCloudWatch(t *testing.T) {
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
-				"awslogs-group":         "/ecs/exec-logs",
+				"awslogs-group":         logGroup,
 				"awslogs-create-group":  "true",
 				"awslogs-stream-prefix": "ecs",
 			},
@@ -1257,12 +1259,12 @@ func TestECS_TaskLogsToCloudWatch(t *testing.T) {
 	// The awslogs driver has delivered every line by the time the task stops.
 	waitTaskStopped(t, client, clusterName, taskArn)
 	streams, err := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
-		LogGroupName: aws.String("/ecs/exec-logs"),
+		LogGroupName: aws.String(logGroup),
 	})
 	require.NoError(t, err)
 	require.Len(t, streams.LogStreams, 1)
 	out, err := cw.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
-		LogGroupName:  aws.String("/ecs/exec-logs"),
+		LogGroupName:  aws.String(logGroup),
 		LogStreamName: streams.LogStreams[0].LogStreamName,
 	})
 	require.NoError(t, err)
@@ -1306,6 +1308,7 @@ func TestECS_TaskLogsToCloudWatch(t *testing.T) {
 // and the post-exit drain does not duplicate the lines the live stream
 // already delivered.
 func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
+	logGroup := uniqueName("/ecs/live-logs")
 	client, cluster, taskArn := ecsRunTaskHelper(t, "live-logs", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
@@ -1314,7 +1317,7 @@ func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
-				"awslogs-group":         "/ecs/live-logs",
+				"awslogs-group":         logGroup,
 				"awslogs-create-group":  "true",
 				"awslogs-stream-prefix": "ecs",
 			},
@@ -1324,7 +1327,7 @@ func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
 	cw := cwLogsClient()
 	countLiveLines := func() int {
 		streams, serr := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
-			LogGroupName: aws.String("/ecs/live-logs"),
+			LogGroupName: aws.String(logGroup),
 		})
 		if serr != nil {
 			return 0
@@ -1332,7 +1335,7 @@ func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
 		count := 0
 		for _, stream := range streams.LogStreams {
 			out, err := cw.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
-				LogGroupName:  aws.String("/ecs/live-logs"),
+				LogGroupName:  aws.String(logGroup),
 				LogStreamName: stream.LogStreamName,
 			})
 			if err != nil {
@@ -1349,7 +1352,7 @@ func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
 
 	// The application line must reach CloudWatch while the task runs.
 	waitForECSTasksRunning(t, client, cluster, 30*time.Second, taskArn)
-	awaitLogLine(t, cw, "/ecs/live-logs", "live-line-from-running-task", 30*time.Second)
+	awaitLogLine(t, cw, logGroup, "live-line-from-running-task", 30*time.Second)
 
 	// The task is still RUNNING at the moment the line is observable.
 	descOut, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
@@ -1502,8 +1505,9 @@ func TestECS_TagResource_RejectsStoppedTask(t *testing.T) {
 }
 
 func TestECS_ListTasks_Pagination(t *testing.T) {
+	family := uniqueName("pag-family")
 	client := ecsClient()
-	cluster := "pag-cluster"
+	cluster := uniqueName("pag-cluster")
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -1513,7 +1517,7 @@ func TestECS_ListTasks_Pagination(t *testing.T) {
 	// Bridge network mode (the default): the tasks share the container
 	// instance's networking, so no networkConfiguration is needed to run them.
 	td, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String("pag-family"),
+		Family: aws.String(family),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("alpine:latest")},
 		},
@@ -1570,8 +1574,9 @@ func TestECS_RunTask_ClusterNotFound_ErrorClassification(t *testing.T) {
 // and ServiceName filters narrow ListTasks to matching tasks, matching real
 // AWS which supports both filter dimensions.
 func TestECS_ListTasks_StartedByAndServiceFilters(t *testing.T) {
+	family := uniqueName("listtasks-filters-td")
 	client := ecsClient()
-	cluster := "listtasks-filters"
+	cluster := uniqueName("listtasks-filters")
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -1579,7 +1584,7 @@ func TestECS_ListTasks_StartedByAndServiceFilters(t *testing.T) {
 	})
 
 	td, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family:               aws.String("listtasks-filters-td"),
+		Family:               aws.String(family),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("alpine:latest")}},
 	})
 	require.NoError(t, err)
@@ -1629,8 +1634,13 @@ func TestECS_ListTasks_StartedByAndServiceFilters(t *testing.T) {
 // ListTagsForResource cannot see is the failure this is really guarding
 // against.
 func TestECS_EveryTaggableResourceTypeRoundTripsItsTags(t *testing.T) {
+	daemonName := uniqueName("taggable-types-daemon")
+	daemonFamily := uniqueName("taggable-types-daemon-task")
+	family := uniqueName("taggable-types-task")
+	serviceName := uniqueName("taggable-types-service")
+	providerName := uniqueName("taggable-types-provider")
 	c := ecsClient()
-	const cluster = "taggable-types-cluster"
+	cluster := uniqueName("taggable-types-cluster")
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -1645,7 +1655,7 @@ func TestECS_EveryTaggableResourceTypeRoundTripsItsTags(t *testing.T) {
 	arns["cluster"] = aws.ToString(describeCluster.Clusters[0].ClusterArn)
 
 	registered, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String("taggable-types-task"),
+		Family: aws.String(family),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
@@ -1656,7 +1666,7 @@ func TestECS_EveryTaggableResourceTypeRoundTripsItsTags(t *testing.T) {
 
 	service, err := c.CreateService(ctx, &ecs.CreateServiceInput{
 		Cluster:        aws.String(cluster),
-		ServiceName:    aws.String("taggable-types-service"),
+		ServiceName:    aws.String(serviceName),
 		TaskDefinition: registered.TaskDefinition.TaskDefinitionArn,
 		DesiredCount:   aws.Int32(0),
 	})
@@ -1669,7 +1679,7 @@ func TestECS_EveryTaggableResourceTypeRoundTripsItsTags(t *testing.T) {
 	})
 
 	capacityProvider, err := c.CreateCapacityProvider(ctx, &ecs.CreateCapacityProviderInput{
-		Name: aws.String("taggable-types-provider"),
+		Name: aws.String(providerName),
 		AutoScalingGroupProvider: &ecstypes.AutoScalingGroupProvider{
 			AutoScalingGroupArn: aws.String(
 				"arn:aws:autoscaling:us-east-1:123456789012:autoScalingGroup:1:autoScalingGroupName/taggable"),
@@ -1679,7 +1689,7 @@ func TestECS_EveryTaggableResourceTypeRoundTripsItsTags(t *testing.T) {
 	arns["capacity-provider"] = aws.ToString(capacityProvider.CapacityProvider.CapacityProviderArn)
 
 	daemonTaskDefinition, err := c.RegisterDaemonTaskDefinition(ctx, &ecs.RegisterDaemonTaskDefinitionInput{
-		Family: aws.String("taggable-types-daemon-task"),
+		Family: aws.String(daemonFamily),
 		ContainerDefinitions: []ecstypes.DaemonContainerDefinition{{
 			Name: aws.String("agent"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
 		}},
@@ -1689,7 +1699,7 @@ func TestECS_EveryTaggableResourceTypeRoundTripsItsTags(t *testing.T) {
 	arns["daemon-task-definition"] = aws.ToString(daemonTaskDefinition.DaemonTaskDefinitionArn)
 
 	daemon, err := c.CreateDaemon(ctx, &ecs.CreateDaemonInput{
-		DaemonName:              aws.String("taggable-types-daemon"),
+		DaemonName:              aws.String(daemonName),
 		ClusterArn:              aws.String(arns["cluster"]),
 		DaemonTaskDefinitionArn: daemonTaskDefinition.DaemonTaskDefinitionArn,
 		CapacityProviderArns:    []string{arns["capacity-provider"]},
@@ -2073,15 +2083,17 @@ func TestECS_DestructiveCallsRefuseWhatAWSRefuses(t *testing.T) {
 // reporting a gate it did not have, so this asserts the task count as well as
 // the deployment's own state.
 func TestECS_DeploymentLifecycleHookHoldsTheDeployment(t *testing.T) {
+	family := uniqueName("lifecycle-hook-task")
+	serviceName := uniqueName("lifecycle-hook-service")
 	c := ecsClient()
-	const cluster = "lifecycle-hook-cluster"
+	cluster := uniqueName("lifecycle-hook-cluster")
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
 	})
 	registered, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String("lifecycle-hook-task"),
+		Family: aws.String(family),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
@@ -2092,7 +2104,7 @@ func TestECS_DeploymentLifecycleHookHoldsTheDeployment(t *testing.T) {
 	// A PAUSE hook needs no target to invoke: it waits for the operator.
 	service, err := c.CreateService(ctx, &ecs.CreateServiceInput{
 		Cluster:        aws.String(cluster),
-		ServiceName:    aws.String("lifecycle-hook-service"),
+		ServiceName:    aws.String(serviceName),
 		TaskDefinition: registered.TaskDefinition.TaskDefinitionArn,
 		DesiredCount:   aws.Int32(1),
 		DeploymentConfiguration: &ecstypes.DeploymentConfiguration{
@@ -2145,7 +2157,7 @@ func TestECS_DeploymentLifecycleHookHoldsTheDeployment(t *testing.T) {
 
 	// The gate is real: nothing launched while the hook waits.
 	held, err := c.ListTasks(ctx, &ecs.ListTasksInput{
-		Cluster: aws.String(cluster), ServiceName: aws.String("lifecycle-hook-service"),
+		Cluster: aws.String(cluster), ServiceName: aws.String(serviceName),
 	})
 	require.NoError(t, err)
 	assert.Empty(t, held.TaskArns,
@@ -2185,7 +2197,7 @@ func TestECS_DeploymentLifecycleHookHoldsTheDeployment(t *testing.T) {
 
 	waitForECSServicesStable(t, c, cluster, 60*time.Second, aws.ToString(serviceArn))
 	running, err := c.ListTasks(ctx, &ecs.ListTasksInput{
-		Cluster: aws.String(cluster), ServiceName: aws.String("lifecycle-hook-service"),
+		Cluster: aws.String(cluster), ServiceName: aws.String(serviceName),
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, running.TaskArns, "once the hook is released the service must launch the tasks it was holding")

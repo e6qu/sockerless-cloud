@@ -96,10 +96,14 @@ func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 		Reason: aws.String("prove service replacement"),
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		after := runningTasks()
-		return len(after) == 2 && !containsString(after, beforeStop[0]) && serviceIsSteady(2)
-	}, 30*time.Second, 100*time.Millisecond, "service did not replace a stopped task")
+	// Once the stopped task has left RUNNING, the service is steady again only
+	// after its scheduler has launched a replacement.
+	waitTaskStopped(t, client, cluster, beforeStop[0])
+	waitForECSServicesStable(t, client, cluster, 30*time.Second, serviceName)
+	after := runningTasks()
+	require.Len(t, after, 2, "service did not replace a stopped task")
+	require.NotContains(t, after, beforeStop[0])
+	require.True(t, serviceIsSteady(2))
 
 	secondRevision := register("hold")
 	_, err = client.UpdateService(ctx, &ecs.UpdateServiceInput{
@@ -140,10 +144,11 @@ func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 // network interface address of a running task, replaced that registration when
 // the task was replaced, and deregistered it when the service was deleted.
 func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
+	family := uniqueName("discovery-scheduler-task")
 	client := ecsClient()
 	cloudMap := cmClient()
-	cluster := "discovery-scheduler-cluster"
-	const serviceName = "discovery-scheduler-service"
+	cluster := uniqueName("discovery-scheduler-cluster")
+	serviceName := uniqueName("discovery-scheduler-service")
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
@@ -156,7 +161,7 @@ func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
 
 	subnetID := createECSTestSubnet(t, "ecs-service-discovery")
 	registered, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family:                  aws.String("discovery-scheduler-task"),
+		Family:                  aws.String(family),
 		NetworkMode:             ecstypes.NetworkModeAwsvpc,
 		RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
 		Cpu:                     aws.String("256"),
@@ -172,7 +177,7 @@ func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
 	require.NoError(t, err)
 
 	namespaceOut, err := cloudMap.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
-		Name: aws.String("ecs-service-discovery.local"),
+		Name: aws.String(uniqueName("ecs-service-discovery") + ".local"),
 		Vpc:  aws.String("vpc-ecs-service-discovery"),
 	})
 	require.NoError(t, err)
@@ -240,7 +245,7 @@ func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
 	assert.Equal(t, firstIP, instance.Instance.Attributes["AWS_INSTANCE_IPV4"])
 	assert.Equal(t, serviceName, instance.Instance.Attributes["ECS_SERVICE_NAME"])
 	assert.Equal(t, cluster, instance.Instance.Attributes["ECS_CLUSTER_NAME"])
-	assert.Equal(t, "discovery-scheduler-task", instance.Instance.Attributes["ECS_TASK_DEFINITION_FAMILY"])
+	assert.Equal(t, family, instance.Instance.Attributes["ECS_TASK_DEFINITION_FAMILY"])
 	assert.Equal(t, "1", instance.Instance.Attributes["ECS_TASK_DEFINITION_REVISION"])
 
 	_, err = client.StopTask(ctx, &ecs.StopTaskInput{
@@ -268,15 +273,6 @@ func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
 	}, 10*time.Second, 100*time.Millisecond, "service deletion did not deregister Cloud Map instances")
 }
 
-func containsString(values []string, wanted string) bool {
-	for _, value := range values {
-		if value == wanted {
-			return true
-		}
-	}
-	return false
-}
-
 // TestECS_ServiceTaskStreamsLogsLive proves the awslogs contract for the tasks
 // an Amazon ECS service owns. A service task never exits, so its stdout is only
 // diagnosable if the log driver forwards each line while the task is RUNNING —
@@ -284,13 +280,12 @@ func containsString(values []string, wanted string) bool {
 // Regression: service tasks reached CloudWatch with nothing but the synthetic
 // "container started" event, which made every service in the simulator opaque.
 func TestECS_ServiceTaskStreamsLogsLive(t *testing.T) {
+	family := uniqueName("svc-live-logs-task")
 	client := ecsClient()
-	const (
-		cluster     = "svc-live-logs-cluster"
-		serviceName = "svc-live-logs-svc"
-		logGroup    = "/ecs/svc-live-logs"
-		marker      = "service-line-from-running-task"
-	)
+	cluster := uniqueName("svc-live-logs-cluster")
+	serviceName := uniqueName("svc-live-logs-svc")
+	logGroup := uniqueName("/ecs/svc-live-logs")
+	const marker = "service-line-from-running-task"
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -304,7 +299,7 @@ func TestECS_ServiceTaskStreamsLogsLive(t *testing.T) {
 	})
 
 	registered, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String("svc-live-logs-task"),
+		Family: aws.String(family),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("app"),

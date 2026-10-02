@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
@@ -75,7 +74,7 @@ func putEventBridgeEvent(t *testing.T, source, detail string) {
 // by events-rule/<rule>.
 func TestEventBridge_ECSTargetRunsTheTask_SDK(t *testing.T) {
 	ecsC := ecsClient()
-	const cluster, rule = "eb-target-cluster", "eb-ecs-target"
+	cluster, rule := uniqueName("eb-target-cluster"), uniqueName("eb-ecs-target")
 	created, err := ecsC.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	definition, err := ecsC.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
@@ -161,13 +160,11 @@ func TestEventBridge_BatchTargetSubmitsTheJob_SDK(t *testing.T) {
 func TestEventBridge_ApiDestinationTargetCallsTheEndpoint_SDK(t *testing.T) {
 	eb := eventbridgeClient()
 	const rule = "eb-api-target"
-	var mu sync.Mutex
-	var keys, bodies []string
+	type call struct{ key, body string }
+	calls := make(chan call, 4)
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		mu.Lock()
-		keys, bodies = append(keys, r.Header.Get("x-api-key")), append(bodies, string(body))
-		mu.Unlock()
+		calls <- call{key: r.Header.Get("x-api-key"), body: string(body)}
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	t.Cleanup(endpoint.Close)
@@ -193,16 +190,15 @@ func TestEventBridge_ApiDestinationTargetCallsTheEndpoint_SDK(t *testing.T) {
 	putEventBridgeTarget(t, rule, ebtypes.Target{Id: aws.String("api"), Arn: destination.ApiDestinationArn, RoleArn: aws.String(role)})
 	putEventBridgeEvent(t, rule, `{"id":3}`)
 
-	require.Eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return len(bodies) == 1
-	}, 15*time.Second, 200*time.Millisecond, "the rule must call the API destination")
-	mu.Lock()
-	defer mu.Unlock()
-	assert.Equal(t, "orders-key", keys[0])
+	var received call
+	select {
+	case received = <-calls:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the rule must call the API destination")
+	}
+	assert.Equal(t, "orders-key", received.key)
 	var event map[string]any
-	require.NoError(t, json.Unmarshal([]byte(bodies[0]), &event))
+	require.NoError(t, json.Unmarshal([]byte(received.body), &event))
 	assert.Equal(t, rule, event["source"])
 }
 

@@ -361,6 +361,8 @@ func TestSDK_WebMore_Slots(t *testing.T) {
 	creds, err := credPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, creds.Properties)
+	assert.Equal(t, "$"+name+"__"+slot, *creds.Properties.PublishingUserName,
+		"a slot publishes as $<app>__<slot>")
 
 	// Swap slot with production (LRO).
 	swapPoller, err := client.BeginSwapSlotWithProduction(ctx, rg, name, armappservice.CsmSlotEntity{

@@ -36,9 +36,9 @@ import (
 // assertion, and a tampered, revoked, or unknown key is rejected with the real
 // endpoint's `invalid_grant` error shape. Both the access token and the ID
 // token are RS256 JWTs the simulator signs with its own access-token key (see
-// signAccessToken / signInvokeIDToken); the data-plane bearer middleware
-// verifies against that same key, so a token minted here is accepted on
-// subsequent requests and an unverifiable one is rejected.
+// signAccessToken / signInvokeIDToken): the data-plane bearer middleware
+// accepts the access token, and the Cloud Run front end accepts the ID token
+// at the service URL its audience names.
 //
 // Test surfaces that only need an access token POST a bare grant_type with no
 // assertion, in which case the sim mints an access token for the default
@@ -73,7 +73,7 @@ func registerOAuth2(srv *sim.Server) {
 			"token_type":   "Bearer",
 		}
 		if targetAudience != "" {
-			resp["id_token"] = signInvokeIDToken(principal, now, expires)
+			resp["id_token"] = signInvokeIDToken(principal, targetAudience, now, expires)
 		}
 		sim.WriteJSON(w, http.StatusOK, resp)
 	}

@@ -53,6 +53,7 @@ type ContainerAppProps struct {
 	LatestRevisionName      string                `json:"latestRevisionName,omitempty"`
 	LatestReadyRevisionName string                `json:"latestReadyRevisionName,omitempty"`
 	LatestRevisionFqdn      string                `json:"latestRevisionFqdn,omitempty"`
+	EventStreamEndpoint     string                `json:"eventStreamEndpoint,omitempty"`
 }
 
 // ContainerAppConfig mirrors armappcontainers.Configuration.
@@ -268,6 +269,7 @@ func acaAsyncOpHeaders(w http.ResponseWriter, r *http.Request, sub, loc, opID st
 func registerContainerAppsApps(srv *sim.Server) {
 	apps := sim.MakeStore[ContainerApp](srv.DB(), "aca_apps")
 	acaApps = apps
+	registerContainerAppsReplicas(srv, apps)
 
 	const basePath = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App"
 
@@ -349,6 +351,8 @@ func registerContainerAppsApps(srv *sim.Server) {
 				LatestRevisionName:      revName,
 				LatestReadyRevisionName: revName,
 				LatestRevisionFqdn:      fqdn,
+				EventStreamEndpoint: fmt.Sprintf("%s://%s/subscriptions/%s/resourceGroups/%s/containerApps/%s/eventstream",
+					azureRequestScheme(r), r.Host, sub, rg, name),
 			},
 			SystemData: systemData,
 		}
@@ -457,6 +461,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 			// operation owns.
 			apps.Delete(resourceID)
 			stopACAAppReplicas(resourceID)
+			acaAppSystemLogs.Delete(resourceID)
 			return nil
 		})
 		acaAsyncOpHeaders(w, r, sub, app.Location, opID)
@@ -521,6 +526,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		app.Properties.LatestRevisionName = prior.Properties.LatestRevisionName
 		app.Properties.LatestReadyRevisionName = prior.Properties.LatestReadyRevisionName
 		app.Properties.LatestRevisionFqdn = prior.Properties.LatestRevisionFqdn
+		app.Properties.EventStreamEndpoint = prior.Properties.EventStreamEndpoint
 		stampContainerAppServerDefaults(&app, prior.Properties.LatestRevisionFqdn)
 		if app.SystemData != nil {
 			app.SystemData.LastModifiedAt = time.Now().UTC().Format(time.RFC3339Nano)
@@ -572,9 +578,9 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, app)
 	})
 
-	// POST /containerApps/{appName}/getAuthtoken — issue an EasyAuth
-	// token for the app. The SDK sends the mixed-case `getAuthtoken`
-	// segment verbatim (not in the lowercasing middleware map).
+	// POST /containerApps/{appName}/getAuthtoken — issue the token the
+	// app's log streams accept. The SDK spells the segment `getAuthtoken`
+	// and the Azure CLI `getAuthToken`; azureNormalizeRequestPath folds both.
 	srv.HandleFunc("POST "+basePath+"/containerApps/{appName}/getAuthtoken", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -586,6 +592,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
+		expires := time.Now().Add(8 * time.Hour).UTC()
 		token := ContainerAppAuthToken{
 			ID:       resourceID,
 			Name:     name,
@@ -593,9 +600,10 @@ func registerContainerAppsApps(srv *sim.Server) {
 			Location: app.Location,
 			Properties: ContainerAppAuthTokenProps{
 				Token:   sim.NewUUID(),
-				Expires: time.Now().Add(8 * time.Hour).UTC().Format(time.RFC3339),
+				Expires: expires.Format(time.RFC3339),
 			},
 		}
+		acaAppAuthTokens.Store(token.Properties.Token, acaIssuedToken{resourceID: resourceID, expires: expires})
 		sim.WriteJSON(w, http.StatusOK, token)
 	})
 
@@ -671,37 +679,55 @@ func startACAAppReplicas(ctx context.Context, resourceID string, app ContainerAp
 	}
 	handles := make([]*sim.ContainerHandle, 0, int(minReplicas)*len(app.Properties.Template.Containers))
 	containers := app.Properties.Template.Containers
-	sink := &acaAppLogSink{appName: app.Name}
-	for replica := int32(0); replica < minReplicas; replica++ {
-		main := acaAppContainer(resourceID, app, containers[0], replica, envID, metadataEnv)
+	names := make([]string, 0, len(containers))
+	for _, c := range containers {
+		names = append(names, c.Name)
+	}
+	revision := app.Properties.LatestRevisionName
+	replicas := make([]*acaReplica, 0, minReplicas)
+	cancelStarted := func() {
+		for _, h := range handles {
+			h.Cancel()
+		}
+	}
+	for replicaIndex := int32(0); replicaIndex < minReplicas; replicaIndex++ {
+		replica := newACAReplica(revision, names)
+		acaRecordSystemEvent(resourceID, app.Name, revision, replica.name, "AssigningReplica",
+			fmt.Sprintf("Replica '%s' has been scheduled to run on a node.", replica.name))
+		main := acaAppContainer(resourceID, app, containers[0], replicaIndex, envID, metadataEnv)
 		main.Config.Network = netName
 		main.Config.NetworkAliases = netAliases
 		main.Config.ExtraHosts = workloadhost.ExtraHosts()
-		sidecars := make([]workload.Container, 0, len(containers)-1)
-		for _, c := range containers[1:] {
-			sidecars = append(sidecars, acaAppContainer(resourceID, app, c, replica, envID, metadataEnv))
-		}
-		group, err := workload.StartGroup(ctx, main, sidecars, sink)
+		group, err := workload.StartGroup(ctx, main, nil, replica.containers[0].sink(app.Name))
 		if err != nil {
-			for _, h := range handles {
-				h.Cancel()
-			}
+			cancelStarted()
 			return err
 		}
 		handles = append(handles, group.Main)
-		handles = append(handles, group.Sidecars...)
-		if d := containerAppDaprSpec(app); d != nil {
-			handle, err := startACAAppDaprSidecar(ctx, resourceID, app, d, replica, group.Main.ContainerID)
+		replica.containers[0].track(group.Main, resourceID, app.Name, revision, replica.name)
+		for i, c := range containers[1:] {
+			sidecar := replica.containers[i+1]
+			started, err := workload.StartSidecars(ctx, group.Main.ContainerID,
+				[]workload.Container{acaAppContainer(resourceID, app, c, replicaIndex, envID, metadataEnv)}, sidecar.sink(app.Name))
 			if err != nil {
-				for _, h := range handles {
-					h.Cancel()
-				}
+				cancelStarted()
+				return err
+			}
+			handles = append(handles, started...)
+			sidecar.track(started[0], resourceID, app.Name, revision, replica.name)
+		}
+		if d := containerAppDaprSpec(app); d != nil {
+			handle, err := startACAAppDaprSidecar(ctx, resourceID, app, d, replicaIndex, group.Main.ContainerID)
+			if err != nil {
+				cancelStarted()
 				return err
 			}
 			handles = append(handles, handle)
 		}
+		replicas = append(replicas, replica)
 	}
 	if len(handles) > 0 {
+		acaAppReplicas.Store(resourceID, replicas)
 		replaceACAAppReplicas(resourceID, handles, acaAppStopGrace(app))
 		injectContainerAppReplicaLog(app.Name, "Container app replica started")
 	}
@@ -767,6 +793,7 @@ func acaAppContainer(resourceID string, app ContainerApp, c JobContainer, replic
 func stopACAAppReplicas(resourceID string) {
 	grace := acaAppRecordedStopGrace(resourceID)
 	acaAppStopGraces.Delete(resourceID)
+	acaAppReplicas.Delete(resourceID)
 	if v, ok := acaAppReplicaHandles.LoadAndDelete(resourceID); ok {
 		handles, _ := v.([]*sim.ContainerHandle)
 		for _, handle := range handles {

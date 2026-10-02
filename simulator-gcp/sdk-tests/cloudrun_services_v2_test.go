@@ -273,53 +273,34 @@ func TestSDK_CloudRunV2Services_CreateGetListDelete(t *testing.T) {
 func TestSDK_CloudRunV2Services_MultiContainerSharesLocalhost(t *testing.T) {
 	client := newServicesClient(t)
 
-	createOp, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
-		Parent:    "projects/test-project/locations/us-central1",
-		ServiceId: uniqueName("v2-svc-pod-localhost"),
-		Service: &runpb.Service{
-			Template: &runpb.RevisionTemplate{
-				Containers: []*runpb.Container{
-					{
-						// The containers start together, so main gives its
-						// sidecar time to listen before it answers.
-						Name:  "main",
-						Image: httpProbeImageName,
-						Args:  []string{"probe-retry", "cloudrun-sidecar-ok"},
-					},
-					{
-						Name:  "sidecar",
-						Image: httpProbeImageName,
-						Args:  []string{"server"},
-					},
+	svc := createInvokableService(t, client, "v2-svc-pod-localhost", &runpb.Service{
+		Template: &runpb.RevisionTemplate{
+			Containers: []*runpb.Container{
+				{
+					// The containers start together, so main gives its
+					// sidecar time to listen before it answers.
+					Name:  "main",
+					Image: httpProbeImageName,
+					Args:  []string{"probe-retry", "cloudrun-sidecar-ok"},
+				},
+				{
+					Name:  "sidecar",
+					Image: httpProbeImageName,
+					Args:  []string{"server"},
 				},
 			},
 		},
 	})
-	require.NoError(t, err)
-	svc, err := createOp.Wait(ctx)
-	require.NoError(t, err)
 	require.NotEmpty(t, svc.Uri)
-	cleanupService(t, client, svc.Name)
 
-	status, _, body := invokeService(t, http.DefaultClient, svc.Uri, http.MethodPost, "/", "{}")
+	status, _, body := invokeService(t, invokerIDToken(t, svc.Uri), svc.Uri, http.MethodPost, "/", "{}")
 	require.Equal(t, http.StatusOK, status, "body=%q", body)
 	assert.Equal(t, "cloudrun-sidecar-ok", body, "Cloud Run Service main must reach sidecar on localhost")
 }
 
 func TestSDK_CloudRunV2Services_ForwardsRequestPath(t *testing.T) {
 	client := newServicesClient(t)
-	createOp, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
-		Parent:    "projects/test-project/locations/us-central1",
-		ServiceId: uniqueName("v2-svc-forward-path"),
-		Service: &runpb.Service{Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{
-			Image: httpProbeImageName,
-			Args:  []string{"echo-request"},
-		}}}},
-	})
-	require.NoError(t, err)
-	svc, err := createOp.Wait(ctx)
-	require.NoError(t, err)
-	cleanupService(t, client, svc.Name)
+	svc := createInvokableService(t, client, "v2-svc-forward-path", echoService())
 
 	u, err := url.Parse(svc.Uri)
 	require.NoError(t, err)
@@ -327,15 +308,16 @@ func TestSDK_CloudRunV2Services_ForwardsRequestPath(t *testing.T) {
 	assert.True(t, strings.HasPrefix(u.Host, svc.Name[strings.LastIndex(svc.Name, "/")+1:]+"-"), "the run.app host starts with the service name: %s", u.Host)
 	assert.True(t, strings.HasSuffix(u.Host, "-us-central1.a.run.app"), "the service is served on run.app: %s", u.Host)
 
-	status, _, body := invokeService(t, http.DefaultClient, svc.Uri, http.MethodPut, "/items/7?source=sdk", "")
+	status, _, body := invokeService(t, invokerIDToken(t, svc.Uri), svc.Uri, http.MethodPut, "/items/7?source=sdk", "")
 	require.Equal(t, http.StatusOK, status, "body=%q", body)
 	assert.Equal(t, "PUT /items/7?source=sdk", body)
 }
 
-// invokeService sends a request to a Cloud Run service's URL. The request is
-// addressed to the service's run.app host; the simulator's endpoint is where
-// it connects, the coordinate a resolver gives a real client.
-func invokeService(t *testing.T, client *http.Client, uri, method, path, body string) (int, http.Header, string) {
+// invokeService sends a request to a Cloud Run service's URL, presenting
+// bearer — an ID token — when it is not empty. The request is addressed to
+// the service's run.app host; the simulator's endpoint is where that host
+// resolves to.
+func invokeService(t *testing.T, bearer, uri, method, path, body string) (int, http.Header, string) {
 	t.Helper()
 	u, err := url.Parse(uri)
 	require.NoError(t, err)
@@ -349,7 +331,10 @@ func invokeService(t *testing.T, client *http.Client, uri, method, path, body st
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := client.Do(req)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := rawClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
@@ -357,17 +342,12 @@ func invokeService(t *testing.T, client *http.Client, uri, method, path, body st
 	return resp.StatusCode, resp.Header, string(data)
 }
 
+// createInvokableService creates a service in test-project, deletes it when
+// the test ends, and grants the shared invoker roles/run.invoker on it.
 func createInvokableService(t *testing.T, client *run.ServicesClient, prefix string, service *runpb.Service) *runpb.Service {
 	t.Helper()
-	op, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
-		Parent:    "projects/test-project/locations/us-central1",
-		ServiceId: uniqueName(prefix),
-		Service:   service,
-	})
-	require.NoError(t, err)
-	svc, err := op.Wait(ctx)
-	require.NoError(t, err)
-	cleanupService(t, client, svc.Name)
+	svc := createInvokableServiceIn(t, client, "projects/test-project/locations/us-central1", prefix, service)
+	grantOnService(t, client, svc.Name, "roles/run.invoker", "serviceAccount:"+sdkInvokerEmail(t), nil)
 	return svc
 }
 
@@ -382,7 +362,7 @@ func TestSDK_CloudRunV2Services_PassesTheContainersAnswerThrough(t *testing.T) {
 		}}},
 	})
 
-	status, header, body := invokeService(t, http.DefaultClient, svc.Uri, http.MethodGet, "/", "")
+	status, header, body := invokeService(t, invokerIDToken(t, svc.Uri), svc.Uri, http.MethodGet, "/", "")
 	assert.Equal(t, http.StatusTeapot, status)
 	assert.Equal(t, "teapot", header.Get("X-Workload"))
 	assert.Equal(t, "short and stout", body)
@@ -408,7 +388,7 @@ func TestSDK_CloudRunV2Services_HTTPStartupProbeAdmitsTraffic(t *testing.T) {
 		}}},
 	})
 
-	status, _, body := invokeService(t, http.DefaultClient, svc.Uri, http.MethodGet, "/hello", "")
+	status, _, body := invokeService(t, invokerIDToken(t, svc.Uri), svc.Uri, http.MethodGet, "/hello", "")
 	require.Equal(t, http.StatusOK, status, "body=%q", body)
 	assert.Equal(t, "GET /hello", body)
 }
@@ -438,7 +418,7 @@ func TestSDK_CloudRunV2Services_FailingStartupProbeAnswers503(t *testing.T) {
 					StartupProbe: probe,
 				}}},
 			})
-			status, _, body := invokeService(t, http.DefaultClient, svc.Uri, http.MethodGet, "/", "")
+			status, _, body := invokeService(t, invokerIDToken(t, svc.Uri), svc.Uri, http.MethodGet, "/", "")
 			assert.Equal(t, http.StatusServiceUnavailable, status, "body=%q", body)
 			assert.NotContains(t, body, "short and stout", "the request must not reach a container whose startup probe failed")
 		})
@@ -449,14 +429,13 @@ func TestSDK_CloudRunV2Services_FailingStartupProbeAnswers503(t *testing.T) {
 // IAM check is disabled admits it.
 func TestSDK_CloudRunV2Services_InvokerAuthentication(t *testing.T) {
 	client := newServicesClient(t)
-	anonymous := &http.Client{}
 
 	private := createInvokableService(t, client, "v2-svc-private", &runpb.Service{
 		Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{
 			Image: httpProbeImageName, Args: []string{"echo-request"},
 		}}},
 	})
-	status, _, _ := invokeService(t, anonymous, private.Uri, http.MethodGet, "/", "")
+	status, _, _ := invokeService(t, "", private.Uri, http.MethodGet, "/", "")
 	assert.Equal(t, http.StatusForbidden, status)
 
 	public := createInvokableService(t, client, "v2-svc-public", &runpb.Service{
@@ -465,14 +444,14 @@ func TestSDK_CloudRunV2Services_InvokerAuthentication(t *testing.T) {
 			Image: httpProbeImageName, Args: []string{"echo-request"},
 		}}},
 	})
-	status, _, body := invokeService(t, anonymous, public.Uri, http.MethodGet, "/open", "")
+	status, _, body := invokeService(t, "", public.Uri, http.MethodGet, "/open", "")
 	assert.Equal(t, http.StatusOK, status, "body=%q", body)
 	assert.Equal(t, "GET /open", body)
 }
 
 // A run.app host that names no service is not found.
 func TestSDK_CloudRunV2Services_UnknownHostIsNotFound(t *testing.T) {
-	status, _, _ := invokeService(t, http.DefaultClient, "https://no-such-service-abcdefghij-us-central1.a.run.app", http.MethodGet, "/", "")
+	status, _, _ := invokeService(t, "", "https://no-such-service-abcdefghij-us-central1.a.run.app", http.MethodGet, "/", "")
 	assert.Equal(t, http.StatusNotFound, status)
 }
 

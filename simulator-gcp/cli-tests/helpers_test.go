@@ -104,8 +104,10 @@ func TestMain(m *testing.M) {
 	}
 
 	pullWorkloadImage(cliWorkloadImage)
-	// A Memorystore instance the suite creates runs a real Redis engine.
+	// Every Memorystore instance and cluster the suite creates runs a real
+	// Redis engine: REDIS_7_0 is the instance default and clusters run 7.2.
 	pullWorkloadImage("public.ecr.aws/docker/library/redis:7.0-alpine")
+	pullWorkloadImage("public.ecr.aws/docker/library/redis:7.2-alpine")
 
 	// Build simulator
 	// Each suite builds the simulator it runs into a path of its own. The
@@ -387,18 +389,6 @@ func httpDo(method, url string, body string) (*http.Response, error) {
 	// raw HTTP calls must present the same real, simulator-minted token the
 	// gcloud CLI carries via CLOUDSDK_AUTH_ACCESS_TOKEN — differing from a real
 	// Google request only in the endpoint coordinate and the token source.
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	return http.DefaultClient.Do(req)
-}
-
-// httpDoHost sends an authenticated request to the simulator addressed to
-// host, the way a resolver hands a client a data-plane host's address.
-func httpDoHost(method, url, host string) (*http.Response, error) {
-	req, err := http.NewRequest(method, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Host = host
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	return http.DefaultClient.Do(req)
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -152,10 +153,9 @@ func webDiscoverWebJobs(resID string) {
 		present[resID+"/"+kind+"webjobs/"+name] = true
 	}
 	jobPrefix := resID + "/"
-	for _, rec := range webWebJobs.Filter(func(rec WebJobRecord) bool {
-		return strings.HasPrefix(rec.ID, jobPrefix) && rec.SiteID == resID
-	}) {
-		if present[rec.ID] {
+	for _, rec := range slices.Clone(webWebJobsBySite.LookupAll(webWebJobs, resID,
+		func(rec WebJobRecord) []string { return []string{rec.SiteID} })) {
+		if present[rec.ID] || !strings.HasPrefix(rec.ID, jobPrefix) {
 			continue
 		}
 		webKillWebJobContainer(rec.ID)
@@ -457,7 +457,7 @@ func webJobSiteScopedName(resID, child string) string {
 // (url / history_url — external surfaces the sim does not serve) point.
 func webJobScmBase(rec WebJobRecord) string {
 	site, _ := webJobSite(rec.SiteID)
-	return "https://" + strings.Replace(site.Properties.DefaultHostName, ".azurewebsites.net", ".scm.azurewebsites.net", 1)
+	return "https://" + siteScmHost(&site)
 }
 
 func triggeredJobRunWire(run WebJobRunRecord) map[string]any {
@@ -571,10 +571,15 @@ func webLatestRun(jobID string) (WebJobRunRecord, bool) {
 	return runs[0], true
 }
 
+var (
+	webWebJobsBySite sim.GenerationIndex[WebJobRecord]
+	webJobRunsByJob  sim.GenerationIndex[WebJobRunRecord]
+)
+
 // webJobRunsFor lists a triggered job's runs, newest first.
 func webJobRunsFor(jobID string) []WebJobRunRecord {
-	prefix := jobID + "/history/"
-	runs := webJobRuns.Filter(func(run WebJobRunRecord) bool { return strings.HasPrefix(run.ID, prefix) })
+	runs := slices.Clone(webJobRunsByJob.LookupAll(webJobRuns, jobID,
+		func(run WebJobRunRecord) []string { return []string{webChildParent(run.ID, "/history/")} }))
 	sort.Slice(runs, func(i, j int) bool {
 		if runs[i].StartTime != runs[j].StartTime {
 			return runs[i].StartTime > runs[j].StartTime

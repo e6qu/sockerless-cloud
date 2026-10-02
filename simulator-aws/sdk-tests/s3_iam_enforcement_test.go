@@ -24,14 +24,14 @@ import (
 func TestS3_RESTEnforcement(t *testing.T) {
 	admin := s3Client()
 	iamc := iamClient()
-	bucket := "s3-enf-bucket"
+	bucket := uniqueName("s3-enf-bucket")
 
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	_, err = admin.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String("k"), Body: strings.NewReader("v")})
 	require.NoError(t, err)
 
-	user := "s3-reader"
+	user := uniqueName("s3-reader")
 	_, err = iamc.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer iamc.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})
@@ -66,14 +66,14 @@ func TestS3_RESTEnforcement(t *testing.T) {
 func TestS3_BucketPolicyDenyEnforced(t *testing.T) {
 	admin := s3Client()
 	iamc := iamClient()
-	bucket := "s3-bp-deny"
+	bucket := uniqueName("s3-bp-deny")
 
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	_, err = admin.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String("k"), Body: strings.NewReader("v")})
 	require.NoError(t, err)
 
-	user := "s3-bp-user"
+	user := uniqueName("s3-bp-user")
 	_, err = iamc.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer iamc.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})

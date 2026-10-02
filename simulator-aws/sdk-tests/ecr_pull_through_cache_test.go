@@ -24,8 +24,8 @@ import (
 // asserts the image that comes back is the upstream image's own content.
 func TestECR_PullThroughCacheHydratesFromTheUpstreamRegistry(t *testing.T) {
 	client := ecrClient()
-	const prefix = "ecr-public-cache"
-	const repo = prefix + "/docker/library/alpine"
+	prefix := uniqueName("ecr-pub-cache")
+	repo := prefix + "/docker/library/alpine"
 	const tag = "3.21"
 
 	_, err := client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{

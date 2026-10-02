@@ -407,8 +407,10 @@ func TestEC2_VpcEndpointConnectionNotificationsSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// DescribeVpcEndpointConnections is a faithful empty list (no connections).
-	conns, err := c.DescribeVpcEndpointConnections(ctx, &ec2.DescribeVpcEndpointConnectionsInput{})
+	// The service the notification watches has no endpoint connections.
+	conns, err := c.DescribeVpcEndpointConnections(ctx, &ec2.DescribeVpcEndpointConnectionsInput{
+		Filters: []types.Filter{{Name: aws.String("service-id"), Values: []string{"vpce-svc-0123456789abcdef0"}}},
+	})
 	require.NoError(t, err)
 	assert.Empty(t, conns.VpcEndpointConnections)
 

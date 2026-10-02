@@ -1310,7 +1310,7 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 				execShort = last
 			}
 		}
-		group, err := startCloudRunJobContainers(execName, execShort, taskTmpl, timeout, sink)
+		group, releaseMounts, err := startCloudRunJobContainers(execName, execShort, taskTmpl, timeout, sink)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: failed to start containers for execution: err=%v\n", err)
 			succeeded = false
@@ -1324,6 +1324,7 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 			for _, h := range group.Sidecars {
 				h.Cancel()
 			}
+			releaseMounts()
 			exitCode = int32(result.ExitCode)
 			succeeded = result.ExitCode == 0 && result.Error == nil
 		}
@@ -1482,9 +1483,12 @@ func stopCloudRunExecutionWorkload(group *workload.Group) {
 	}
 }
 
-func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate, timeout time.Duration, sink sim.LogSink) (*workload.Group, error) {
+// startCloudRunJobContainers starts the task's containers. The release it
+// returns ends the ingestion of writes through their Cloud Storage volumes,
+// once the containers have stopped.
+func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate, timeout time.Duration, sink sim.LogSink) (*workload.Group, func(), error) {
 	if taskTmpl == nil || len(taskTmpl.Containers) == 0 {
-		return nil, fmt.Errorf("execution has no containers")
+		return nil, nil, fmt.Errorf("execution has no containers")
 	}
 
 	volByName := make(map[string]Volume)
@@ -1494,25 +1498,23 @@ func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate
 	project := resourceProject(execID)
 	metadataEnv, err := hostMetadataEnv()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	extraHosts, err := hostMetadataExtraHosts()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	member := func(c Container, name string) workload.Container {
-		var binds []string
-		for _, mp := range c.VolumeMounts {
-			v, ok := volByName[mp.Name]
-			if !ok || v.Gcs == nil || v.Gcs.Bucket == "" {
-				continue
-			}
-			bind := GCSBucketHostDir(v.Gcs.Bucket) + ":" + mp.MountPath
-			if v.Gcs.ReadOnly {
-				bind += ":ro"
-			}
-			binds = append(binds, bind)
+	binds := make([][]string, len(taskTmpl.Containers))
+	var writable []string
+	for i, c := range taskTmpl.Containers {
+		containerBinds, containerWritable, err := cloudRunGCSBinds(volByName, c)
+		if err != nil {
+			return nil, nil, err
 		}
+		binds[i] = containerBinds
+		writable = append(writable, containerWritable...)
+	}
+	member := func(c Container, binds []string, name string) workload.Container {
 		cmdEnv := make(map[string]string, len(c.Env))
 		for _, ev := range c.Env {
 			cmdEnv[ev.Name] = ev.Value
@@ -1536,13 +1538,22 @@ func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate
 		}}
 	}
 
-	main := member(taskTmpl.Containers[0], fmt.Sprintf("sockerless-sim-gcp-job-%s", execShort))
+	main := member(taskTmpl.Containers[0], binds[0], fmt.Sprintf("sockerless-sim-gcp-job-%s", execShort))
 	main.Config.ExtraHosts = extraHosts
 	sidecars := make([]workload.Container, 0, len(taskTmpl.Containers)-1)
 	for i, c := range taskTmpl.Containers[1:] {
-		sidecars = append(sidecars, member(c, fmt.Sprintf("sockerless-sim-gcp-job-%s-sidecar-%d", execShort, i)))
+		sidecars = append(sidecars, member(c, binds[i+1], fmt.Sprintf("sockerless-sim-gcp-job-%s-sidecar-%d", execShort, i)))
 	}
-	return workload.StartGroup(context.Background(), main, sidecars, sink)
+	releaseMounts, err := gcsAcquireMounts(writable)
+	if err != nil {
+		return nil, nil, err
+	}
+	group, err := workload.StartGroup(context.Background(), main, sidecars, sink)
+	if err != nil {
+		releaseMounts()
+		return nil, nil, err
+	}
+	return group, releaseMounts, nil
 }
 
 // injectCloudRunJobLog writes a log entry to the Cloud Logging store for a
