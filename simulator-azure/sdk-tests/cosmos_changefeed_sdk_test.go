@@ -88,7 +88,7 @@ func cosmosSeedDoc(t *testing.T, account, coll, doc string) {
 // continuation, only a newly-created document comes back; and a read with the
 // current continuation when nothing changed is 304 Not Modified.
 func TestCosmosChangeFeed_Incremental(t *testing.T) {
-	account := "sdkcosmoschangefeed"
+	account := uniqueAlnumName("sdkcosmoschangefeed")
 	coll := "events"
 
 	cosmosSeedDoc(t, account, coll, `{"id":"e1","pk":"p","seq":1}`)
@@ -122,7 +122,7 @@ func TestCosmosChangeFeed_Incremental(t *testing.T) {
 // TestCosmosChangeFeed_Paginated proves max-item-count paging: the feed walks
 // every document one page at a time via the advancing continuation, in order.
 func TestCosmosChangeFeed_Paginated(t *testing.T) {
-	account := "sdkcosmoschangefeedpage"
+	account := uniqueAlnumName("sdkcosmoschangefeedpage")
 	coll := "log"
 
 	want := []string{"a", "b", "c", "d"}

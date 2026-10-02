@@ -41,8 +41,8 @@ import (
 //     hold answers a declared gap naming that input, and a name that is not a
 //     detector at all is a 404.
 func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
-	rg := "sdk-detector-rg"
-	site := "detector-app"
+	rg := uniqueName("sdk-detector-rg")
+	site := uniqueName("detector-app")
 	host := createSiteForContainers(t, rg, site)
 
 	client, err := armappservice.NewDiagnosticsClient(subscriptionID, &fakeCredential{}, clientOpts())

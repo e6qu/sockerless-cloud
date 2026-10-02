@@ -17,7 +17,7 @@ import (
 // connections / private link resources — through the official SDK clients.
 func TestAzurePGFlexibleServer_CompletionSurfaces(t *testing.T) {
 	rg := "pg-completion-rg"
-	server := "pg-completion-srv"
+	server := uniqueName("pg-completion-srv")
 	loc := "eastus"
 	createResourceGroup(t, rg)
 	pgCreateServer(t, rg, server)

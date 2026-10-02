@@ -43,16 +43,17 @@ func logsClientOpts() *azquery.LogsClientOptions {
 // TestLogAnalytics_QueryWorkspaceSDK runs a KQL query through the azquery Logs
 // client (POST /v1/workspaces/{workspaceId}/query).
 func TestLogAnalytics_QueryWorkspaceSDK(t *testing.T) {
+	azqueryjobName := uniqueName("azqueryjob")
 	ts := time.Now().UTC().Format(time.RFC3339)
 	ingestLogs(t, []map[string]any{
-		{"TimeGenerated": ts, "ContainerGroupName_s": "azqueryjob", "Log_s": "hello from azquery", "Stream_s": "stdout"},
+		{"TimeGenerated": ts, "ContainerGroupName_s": azqueryjobName, "Log_s": "hello from azquery", "Stream_s": "stdout"},
 	})
 
 	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
 	require.NoError(t, err)
 
 	resp, err := client.QueryWorkspace(ctx, "default", azquery.Body{
-		Query: to.Ptr(`ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "azqueryjob" | take 10`),
+		Query: to.Ptr(`ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "` + azqueryjobName + `" | take 10`),
 	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Tables)
@@ -63,16 +64,17 @@ func TestLogAnalytics_QueryWorkspaceSDK(t *testing.T) {
 // TestLogAnalytics_QueryBatchSDK runs a batch of queries through the azquery
 // Logs client (POST /v1/$batch).
 func TestLogAnalytics_QueryBatchSDK(t *testing.T) {
+	batchjobName := uniqueName("batchjob")
 	ts := time.Now().UTC().Format(time.RFC3339)
 	ingestLogs(t, []map[string]any{
-		{"TimeGenerated": ts, "ContainerGroupName_s": "batchjob", "Log_s": "batch line", "Stream_s": "stdout"},
+		{"TimeGenerated": ts, "ContainerGroupName_s": batchjobName, "Log_s": "batch line", "Stream_s": "stdout"},
 	})
 
 	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
 	require.NoError(t, err)
 
 	req := azquery.NewBatchQueryRequest("default",
-		`ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "batchjob" | take 10`,
+		`ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "`+batchjobName+`" | take 10`,
 		azquery.TimeInterval("PT1H"), "req-1", azquery.LogsQueryOptions{})
 	resp, err := client.QueryBatch(ctx, azquery.BatchRequest{Requests: []*azquery.BatchQueryRequest{&req}}, nil)
 	require.NoError(t, err)
@@ -85,7 +87,7 @@ func TestLogAnalytics_QueryBatchSDK(t *testing.T) {
 // TestLogAnalytics_QueryBooleanOperatorsSDK runs where clauses joined with and
 // and or, and a string literal holding a pipe, through the azquery Logs client.
 func TestLogAnalytics_QueryBooleanOperatorsSDK(t *testing.T) {
-	const role = "azquery-and-or-role"
+	role := uniqueName("azquery-and-or-role")
 	ts := time.Now().UTC().Format(time.RFC3339)
 	ingestLogs(t, []map[string]any{
 		{"TimeGenerated": ts, "Message": "alpha | beta", "AppRoleName": role},

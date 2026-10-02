@@ -552,7 +552,7 @@ func TestStorageSDK_BlobSoftDeleteAndUndelete(t *testing.T) {
 }
 
 func TestStorageSDK_ContainerSoftDeleteAndRestore(t *testing.T) {
-	const rg, account, containerName = "sdk-blob-restore-rg", "sdkctrrestoreacct", "restorable-container"
+	rg, account, containerName := "sdk-blob-restore-rg", uniqueAlnumName("sdkctrrestore"), "restorable-container"
 	ensureRG(t, rg)
 
 	// Container soft delete is an ARM setting on the account's blobServices

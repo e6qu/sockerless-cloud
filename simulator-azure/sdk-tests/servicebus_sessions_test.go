@@ -16,8 +16,8 @@ import (
 // CancelScheduledMessages removes them before it; a message scheduled a moment
 // out reaches a receiver once its time comes.
 func TestServiceBus_AMQPSDKScheduleAndCancel(t *testing.T) {
-	namespace := "sdk-amqp-schedule"
-	queue := "schedq"
+	namespace := uniqueName("sdk-amqp-schedule")
+	queue := uniqueName("schedq")
 	adminClient := sbAdminClient(t, namespace)
 	_, err := adminClient.CreateQueue(ctx, queue, nil)
 	require.NoError(t, err)
@@ -63,8 +63,8 @@ func TestServiceBus_AMQPSDKScheduleAndCancel(t *testing.T) {
 // accepted it, keeps the session's state, and refuses a second receiver the
 // lock of a session already accepted.
 func TestServiceBus_AMQPSDKSessions(t *testing.T) {
-	namespace := "sdk-amqp-sessions"
-	queue := "sessionq"
+	namespace := uniqueName("sdk-amqp-sessions")
+	queue := uniqueName("sessionq")
 	adminClient := sbAdminClient(t, namespace)
 	_, err := adminClient.CreateQueue(ctx, queue, &admin.CreateQueueOptions{
 		Properties: &admin.QueueProperties{RequiresSession: to.Ptr(true)},

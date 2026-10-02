@@ -158,7 +158,7 @@ func TestIdentity_CreateOrUpdateStatusCodes(t *testing.T) {
 	require.NoError(t, err)
 
 	url := baseURL + "/subscriptions/" + subscriptionID +
-		"/resourceGroups/id-status-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/status-identity?api-version=2023-01-31"
+		"/resourceGroups/id-status-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/" + uniqueName("status-identity") + "?api-version=2023-01-31"
 	put := func() int {
 		req, _ := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(`{"location":"eastus"}`))
 		req.Header.Set("Content-Type", "application/json")

@@ -15,7 +15,7 @@ import (
 // Deleting an Event Hubs namespace deletes the events its hubs held, so a
 // namespace created again under the same name serves empty partitions.
 func TestEventHubsSDK_NamespaceDeleteDropsItsEvents(t *testing.T) {
-	rg, ns, hub := "eh-nsdelete-rg", "sdk-eventhub-nsdelete", "dropped"
+	rg, ns, hub := "eh-nsdelete-rg", uniqueName("sdk-eventhub-nsdelete"), "dropped"
 	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	hubsClient, err := armeventhub.NewEventHubsClient(subscriptionID, &fakeCredential{}, clientOpts())

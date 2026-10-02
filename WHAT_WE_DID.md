@@ -1416,6 +1416,13 @@ aggregates a metric in a fixed namespace or reuses an idempotency token or
 client token collides with its own previous run. A test that changes an
 account-wide setting, such as the Amazon EC2 default credit specification or
 the account's Amazon VPC encryption control, restores it at cleanup.
+The Azure SDK tests name theirs the same way: `uniqueName` for namespaces,
+queues, resource groups, sites, zones and log tags, and `uniqueAlnumName` for
+the resources whose names admit no hyphen or stop at 24 characters (storage
+accounts, key vaults, managed HSM pools, container registries). A Cosmos DB
+test provisions an account of its own rather than sharing one, and a test that
+reads a subscription-wide listing, such as the deleted managed HSM pools, picks
+out its own row instead of counting the listing.
 
 AWS work that the services finish later now finishes later in the simulator
 too, and is gated on the real inputs. An EC2 instance stays pending until its

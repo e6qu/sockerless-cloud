@@ -15,7 +15,7 @@ import (
 
 func TestEventHubsSDK_ARMAndAMQPRoundTrip(t *testing.T) {
 	rg := "eh-sdk-rg"
-	ns := "sdk-eventhub-ns"
+	ns := uniqueName("sdk-eventhub-ns")
 	hub := "sdkhub"
 	group := "sdkcg"
 

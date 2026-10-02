@@ -52,13 +52,14 @@ var cosmosScriptDiffKnownDivergences = map[string]cosmosDiffDivergence{
 }
 
 func TestCosmosScripts_DifferentialVsEmulator(t *testing.T) {
+	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
 	emuEndpoint, stop := startCosmosEmulator(t)
 	defer stop()
 
 	for _, sc := range cosmosScriptDiffScenarios() {
 		t.Run(sc.name, func(t *testing.T) {
-			simRes := cosmosCapture(sc.run(t, cosmosSimCoordinate(t), "sim-"+sc.name))
-			oracleRes := cosmosCapture(sc.run(t, cosmosCoordinate{url: emuEndpoint, key: cosmosEmulatorKey}, "emu-"+sc.name))
+			simRes := cosmosCapture(sc.run(t, cosmosSimCoordinate(t, dataPlaneAccount), uniqueName("sim-"+sc.name)))
+			oracleRes := cosmosCapture(sc.run(t, cosmosCoordinate{url: emuEndpoint, key: cosmosEmulatorKey}, uniqueName("emu-"+sc.name)))
 			if div, ok := cosmosScriptDiffKnownDivergences[sc.name]; ok {
 				cosmosAssertEqual(t, "sim (documented divergence: "+div.reason+")", div.sim, simRes)
 				cosmosAssertEqual(t, "emulator (documented divergence: "+div.reason+")", div.oracle, oracleRes)
@@ -97,11 +98,11 @@ type cosmosCoordinate struct {
 // cosmosSimCoordinate addresses the simulator the way a client does: the
 // document endpoint Azure Resource Manager advertises for the account, signed
 // with the key listKeys serves for it.
-func cosmosSimCoordinate(t *testing.T) cosmosCoordinate {
+func cosmosSimCoordinate(t *testing.T, account string) cosmosCoordinate {
 	t.Helper()
 	return cosmosCoordinate{
-		url: cosmosDocumentEndpoint(t, cosmosDataPlaneAccount),
-		key: cosmosAccountKey(t, cosmosDataPlaneAccount),
+		url: cosmosDocumentEndpoint(t, account),
+		key: cosmosAccountKey(t, account),
 	}
 }
 

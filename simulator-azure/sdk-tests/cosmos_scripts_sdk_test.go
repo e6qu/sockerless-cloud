@@ -74,7 +74,7 @@ func cosmosScriptDecode(t *testing.T, resp *http.Response) map[string]any {
 // three child resources — references /dbs/{database}/colls/{container}/sprocs,
 // /udfs, and /triggers (the contract-hook route tokens).
 func TestCosmosScripts_CRUD(t *testing.T) {
-	account := "sdkcosmosscripts"
+	account := uniqueAlnumName("sdkcosmosscripts")
 	base := "/dbs/sdb/colls/people"
 
 	// Sproc create.
@@ -150,7 +150,7 @@ func TestCosmosScripts_CRUD(t *testing.T) {
 // POST /dbs/{database}/colls/{container}/sprocs/{script} indirectly via the
 // CRUD route token already covered.
 func TestCosmosSproc_ExecuteCreatesDocument(t *testing.T) {
-	account := "sdkcosmossprocexec"
+	account := uniqueAlnumName("sdkcosmossprocexec")
 	base := "/dbs/xdb/colls/items"
 
 	// Declare the collection with a partition key so the execution is partition-scoped.
@@ -183,7 +183,7 @@ func TestCosmosSproc_ExecuteCreatesDocument(t *testing.T) {
 // TestCosmosSproc_ExecuteCountAndBulkDelete proves a count sproc returns the
 // REAL partition document count and a bulk-delete sproc REALLY removes them.
 func TestCosmosSproc_ExecuteCountAndBulkDelete(t *testing.T) {
-	account := "sdkcosmossproccount"
+	account := uniqueAlnumName("sdkcosmossproccount")
 	base := "/dbs/cdb/colls/log"
 
 	resp := cosmosScript(t, "POST", account, "/dbs/cdb/colls",
@@ -230,7 +230,7 @@ func TestCosmosSproc_ExecuteCountAndBulkDelete(t *testing.T) {
 // outside the faithful subset returns a real Cosmos error — never a faked
 // success.
 func TestCosmosSproc_UninterpretableBodyFailsLoud(t *testing.T) {
-	account := "sdkcosmossprocfail"
+	account := uniqueAlnumName("sdkcosmossprocfail")
 	base := "/dbs/fdb/colls/c"
 
 	resp := cosmosScript(t, "POST", account, "/dbs/fdb/colls",
@@ -255,7 +255,7 @@ func TestCosmosSproc_UninterpretableBodyFailsLoud(t *testing.T) {
 // REALLY mutates the document during a sproc-driven create (the trigger sets a
 // literal field on the request body).
 func TestCosmosTrigger_PreTriggerMutatesDocument(t *testing.T) {
-	account := "sdkcosmostrigger"
+	account := uniqueAlnumName("sdkcosmostrigger")
 	base := "/dbs/tdb/colls/orders"
 
 	resp := cosmosScript(t, "POST", account, "/dbs/tdb/colls",

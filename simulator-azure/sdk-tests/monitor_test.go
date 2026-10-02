@@ -75,19 +75,20 @@ func requireColumnIndex(t *testing.T, table struct {
 }
 
 func TestMonitor_KQLContainerAppLogs(t *testing.T) {
+	myjobName := uniqueName("myjob")
 	now := time.Now().UTC()
 	ts1 := now.Add(-2 * time.Minute).Format(time.RFC3339)
 	ts2 := now.Add(-1 * time.Minute).Format(time.RFC3339)
 
 	// Ingest ContainerAppConsoleLogs_CL entries
 	ingestLogs(t, []map[string]any{
-		{"TimeGenerated": ts1, "ContainerGroupName_s": "myjob", "Log_s": "starting", "Stream_s": "stdout"},
-		{"TimeGenerated": ts2, "ContainerGroupName_s": "myjob", "Log_s": "running", "Stream_s": "stdout"},
+		{"TimeGenerated": ts1, "ContainerGroupName_s": myjobName, "Log_s": "starting", "Stream_s": "stdout"},
+		{"TimeGenerated": ts2, "ContainerGroupName_s": myjobName, "Log_s": "running", "Stream_s": "stdout"},
 		{"TimeGenerated": ts2, "ContainerGroupName_s": "otherjob", "Log_s": "other", "Stream_s": "stdout"},
 	})
 
 	// Query with the exact pattern the ACA backend sends
-	kql := `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "myjob" | take 100`
+	kql := `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "` + myjobName + `" | take 100`
 	result := queryWorkspace(t, "default", kql)
 
 	require.Len(t, result.Tables, 1)
@@ -100,25 +101,26 @@ func TestMonitor_KQLContainerAppLogs(t *testing.T) {
 	assert.Equal(t, "ContainerGroupName_s", table.Columns[1].Name)
 	logColumn := requireColumnIndex(t, table, "Log_s")
 
-	// Should only have the 2 "myjob" entries
+	// Only the two entries of this job match.
 	require.Len(t, table.Rows, 2)
 	assert.Equal(t, "starting", table.Rows[0][logColumn])
 	assert.Equal(t, "running", table.Rows[1][logColumn])
 }
 
 func TestMonitor_KQLWithDatetimeFilter(t *testing.T) {
+	dtjobName := uniqueName("dtjob")
 	now := time.Now().UTC()
 	tsOld := now.Add(-10 * time.Minute).Format(time.RFC3339)
 	tsNew := now.Add(-1 * time.Minute).Format(time.RFC3339)
 	tsMid := now.Add(-5 * time.Minute).Format(time.RFC3339)
 
 	ingestLogs(t, []map[string]any{
-		{"TimeGenerated": tsOld, "ContainerGroupName_s": "dtjob", "Log_s": "old entry"},
-		{"TimeGenerated": tsNew, "ContainerGroupName_s": "dtjob", "Log_s": "new entry"},
+		{"TimeGenerated": tsOld, "ContainerGroupName_s": dtjobName, "Log_s": "old entry"},
+		{"TimeGenerated": tsNew, "ContainerGroupName_s": dtjobName, "Log_s": "new entry"},
 	})
 
 	// Query with datetime filter — should only return the new entry
-	kql := `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "dtjob" | where TimeGenerated > datetime(` + tsMid + `)`
+	kql := `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "` + dtjobName + `" | where TimeGenerated > datetime(` + tsMid + `)`
 	result := queryWorkspace(t, "default", kql)
 
 	require.Len(t, result.Tables, 1)
@@ -128,14 +130,15 @@ func TestMonitor_KQLWithDatetimeFilter(t *testing.T) {
 }
 
 func TestMonitor_KQLAppTraces(t *testing.T) {
+	myFuncName := uniqueName("my-func")
 	// Ingest AppTraces entries
 	ingestLogs(t, []map[string]any{
-		{"TimeGenerated": time.Now().UTC().Format(time.RFC3339), "Message": "function started", "AppRoleName": "my-func"},
+		{"TimeGenerated": time.Now().UTC().Format(time.RFC3339), "Message": "function started", "AppRoleName": myFuncName},
 		{"TimeGenerated": time.Now().UTC().Format(time.RFC3339), "Message": "other trace", "AppRoleName": "other-func"},
 	})
 
 	// Query with the exact pattern the Azure Functions backend sends
-	kql := `AppTraces | where AppRoleName == "my-func" | take 50`
+	kql := `AppTraces | where AppRoleName == "` + myFuncName + `" | take 50`
 	result := queryWorkspace(t, "default", kql)
 
 	require.Len(t, result.Tables, 1)
@@ -147,21 +150,22 @@ func TestMonitor_KQLAppTraces(t *testing.T) {
 	assert.Equal(t, "Message", table.Columns[1].Name)
 	assert.Equal(t, "AppRoleName", table.Columns[2].Name)
 
-	// Should only have the "my-func" entry
+	// Only the trace of this role matches.
 	require.Len(t, table.Rows, 1)
 	assert.Equal(t, "function started", table.Rows[0][1])
-	assert.Equal(t, "my-func", table.Rows[0][2])
+	assert.Equal(t, myFuncName, table.Rows[0][2])
 }
 
 func TestMonitor_KQLTakeLimit(t *testing.T) {
+	limitjobName := uniqueName("limitjob")
 	// Ingest several entries
 	ingestLogs(t, []map[string]any{
-		{"TimeGenerated": time.Now().UTC().Format(time.RFC3339), "ContainerGroupName_s": "limitjob", "Log_s": "line1"},
-		{"TimeGenerated": time.Now().UTC().Format(time.RFC3339), "ContainerGroupName_s": "limitjob", "Log_s": "line2"},
-		{"TimeGenerated": time.Now().UTC().Format(time.RFC3339), "ContainerGroupName_s": "limitjob", "Log_s": "line3"},
+		{"TimeGenerated": time.Now().UTC().Format(time.RFC3339), "ContainerGroupName_s": limitjobName, "Log_s": "line1"},
+		{"TimeGenerated": time.Now().UTC().Format(time.RFC3339), "ContainerGroupName_s": limitjobName, "Log_s": "line2"},
+		{"TimeGenerated": time.Now().UTC().Format(time.RFC3339), "ContainerGroupName_s": limitjobName, "Log_s": "line3"},
 	})
 
-	kql := `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "limitjob" | take 2`
+	kql := `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "` + limitjobName + `" | take 2`
 	result := queryWorkspace(t, "default", kql)
 
 	require.Len(t, result.Tables, 1)

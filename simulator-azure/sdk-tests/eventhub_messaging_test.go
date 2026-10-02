@@ -16,7 +16,7 @@ import (
 // operations through the official armeventhub SDK.
 func TestEventHubsARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	rg := "eh-msg-rg"
-	ns := "sdk-eh-msg-ns"
+	ns := uniqueName("sdk-eh-msg-ns")
 
 	clientFactory, err := armeventhub.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

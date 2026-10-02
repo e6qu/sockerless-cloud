@@ -47,11 +47,11 @@ func moveResourceToGroup(t *testing.T, srcRG, dstRG, resourceID string) {
 // the move still sends and receives over AMQP afterwards, which is what a
 // hook that only re-homed the ARM records would break.
 func TestAzureResources_MoveEventHubNamespace(t *testing.T) {
-	srcRG, dstRG := "eh-move-src-rg", "eh-move-dst-rg"
+	srcRG, dstRG := uniqueName("eh-move-src-rg"), uniqueName("eh-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	const namespace = "sdk-eh-move-ns"
+	namespace := uniqueName("sdk-eh-move-ns")
 	const hub = "eh-move-hub"
 	const group = "$Default"
 
@@ -171,11 +171,11 @@ func eventHubMoveProducer(t *testing.T, connectionString string) *azeventhubs.Pr
 // keys — the password a Redis client authenticates with — read back identical
 // after the move, and the cache's children re-home with it.
 func TestAzureResources_MoveRedisCache(t *testing.T) {
-	srcRG, dstRG := "redis-move-src-rg", "redis-move-dst-rg"
+	srcRG, dstRG := uniqueName("redis-move-src-rg"), uniqueName("redis-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	const cache = "sdk-redis-move"
+	cache := uniqueName("sdk-redis-move")
 	client := newRedisCacheForTest(t, srcRG, cache)
 
 	firewall, err := armredis.NewFirewallRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -232,11 +232,11 @@ func TestAzureResources_MoveRedisCache(t *testing.T) {
 // derived from its resource ID, so the move pins them: listCredentials serves
 // the same username and passwords afterwards, and the child subtree re-homes.
 func TestAzureResources_MoveContainerRegistry(t *testing.T) {
-	srcRG, dstRG := "acr-move-src-rg", "acr-move-dst-rg"
+	srcRG, dstRG := uniqueName("acr-move-src-rg"), uniqueName("acr-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	const registry = "sdkacrmove"
+	registry := uniqueAlnumName("sdkacrmove")
 	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	createPoller, err := registries.BeginCreate(ctx, srcRG, registry, armcontainerregistry.Registry{
@@ -301,11 +301,11 @@ func TestAzureResources_MoveContainerRegistry(t *testing.T) {
 // the move still publishes afterwards, and the subscription answers under the
 // destination scope.
 func TestAzureResources_MoveEventGridTopic(t *testing.T) {
-	srcRG, dstRG := "eg-move-src-rg", "eg-move-dst-rg"
+	srcRG, dstRG := uniqueName("eg-move-src-rg"), uniqueName("eg-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	const topicName = "sdk-eg-move"
+	topicName := uniqueName("sdk-eg-move")
 	topics, err := armeventgrid.NewTopicsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	createPoller, err := topics.BeginCreateOrUpdate(ctx, srcRG, topicName, armeventgrid.Topic{

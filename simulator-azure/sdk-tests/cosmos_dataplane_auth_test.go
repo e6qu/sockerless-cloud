@@ -35,11 +35,6 @@ type cosmosKeys struct {
 	SecondaryReadonlyMasterKey string `json:"secondaryReadonlyMasterKey"`
 }
 
-// cosmosDataPlaneAccount is the Cosmos DB account the data-plane tests address.
-// Every one of them provisions it through Azure Resource Manager and signs with
-// the keys listKeys serves for it.
-const cosmosDataPlaneAccount = "sdkdataplane"
-
 var (
 	cosmosAccountsOnce  sync.Mutex
 	cosmosAccountsCache = map[string]cosmosKeys{}

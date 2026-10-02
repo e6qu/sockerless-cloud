@@ -13,7 +13,7 @@ import (
 
 func TestServiceBusARM_SDKNetworkRuleSetsAndAdjunctReads(t *testing.T) {
 	rg := "sb-sdk-rg"
-	ns := "sdk-servicebus-ns"
+	ns := uniqueName("sdk-servicebus-ns")
 
 	clientFactory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

@@ -21,7 +21,8 @@ import (
 // items through the azcosmos SDK: an expired item reads as 404 and leaves
 // queries, while an item whose own ttl is -1 never expires.
 func TestCosmos_TimeToLiveExpiresItems(t *testing.T) {
-	client := cosmosSimClient(t, cosmosDataPlaneAccount)
+	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "ttldb"}, nil)
 	require.NoError(t, err)
 	db, err := client.NewDatabase("ttldb")
@@ -72,7 +73,8 @@ func TestCosmos_TimeToLiveExpiresItems(t *testing.T) {
 // x-ms-retry-after-ms, and the SDK's retry of exactly that carries a burst
 // larger than the budget through.
 func TestCosmos_ProvisionedThroughputThrottles(t *testing.T) {
-	client := cosmosSimClient(t, cosmosDataPlaneAccount)
+	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "throttledb"}, nil)
 	require.NoError(t, err)
 	db, err := client.NewDatabase("throttledb")
@@ -97,7 +99,7 @@ func TestCosmos_ProvisionedThroughputThrottles(t *testing.T) {
 
 	var throttled *http.Response
 	for i := range 200 {
-		resp := cosmosScript(t, "POST", cosmosDataPlaneAccount, "/dbs/throttledb/colls/throttlec/docs",
+		resp := cosmosScript(t, "POST", dataPlaneAccount, "/dbs/throttledb/colls/throttlec/docs",
 			fmt.Sprintf(`{"id":"raw%d","pk":"p"}`, i), map[string]string{"x-ms-documentdb-partitionkey": `["p"]`})
 		if resp.StatusCode == http.StatusTooManyRequests {
 			throttled = resp
@@ -119,7 +121,7 @@ func TestCosmos_ProvisionedThroughputThrottles(t *testing.T) {
 // returns every create, replace and delete since the continuation, where the
 // latest-version feed shows only surviving items once.
 func TestCosmos_AllVersionsAndDeletesChangeFeed(t *testing.T) {
-	const account = "sdkcosmosavad"
+	account := uniqueAlnumName("sdkcosmosavad")
 	cosmosAccountKey(t, account)
 	status, body := cosmosARM(t, baseURL, http.MethodPut, cosmosAccountPath(account),
 		`{"location":"eastus","kind":"GlobalDocumentDB","properties":{"databaseAccountOfferType":"Standard","backupPolicy":{"type":"Continuous"}}}`)
@@ -202,7 +204,8 @@ func cosmosChangeFeedPageIn(t *testing.T, account, coll, continuation string) ([
 // GET, PUT, PATCH and DELETE /dbs/{database}/colls/{container}/docs/{doc} —
 // and holds replace to its ETag and to the item existing.
 func TestCosmos_ItemVerbsHonourETagsAndExistence(t *testing.T) {
-	client := cosmosSimClient(t, cosmosDataPlaneAccount)
+	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "verbdb"}, nil)
 	require.NoError(t, err)
 	db, err := client.NewDatabase("verbdb")

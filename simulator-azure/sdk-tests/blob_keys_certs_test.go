@@ -113,7 +113,7 @@ func TestBlobDataPlane_RoundTrip(t *testing.T) {
 }
 
 func TestBlobDataPlane_ListContainersProperties(t *testing.T) {
-	account := "listpropsacct"
+	account := uniqueAlnumName("listprops")
 	container := "probe"
 
 	resp := blobReq(t, "PUT", account, "/"+container+"?restype=container", nil, nil)
@@ -198,7 +198,7 @@ func kvReq(t *testing.T, method, vault, path string, body []byte) *http.Response
 // the secrets handler already covered.
 func TestKeyVault_KeysAndCertificates(t *testing.T) {
 	// Vault must exist in the ARM control plane first.
-	vault := "testvault"
+	vault := uniqueAlnumName("testvault")
 	armPath := "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg1/providers/Microsoft.KeyVault/vaults/" + vault
 	armReq, err := http.NewRequest("PUT", baseURL+armPath, strings.NewReader(`{"location":"eastus","properties":{"tenantId":"t","sku":{"name":"standard"}}}`))
 	require.NoError(t, err)

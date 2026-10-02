@@ -112,7 +112,7 @@ func TestSDK_Compute_UsageCountsWhatIsHeld(t *testing.T) {
 // An extension topic is derived from the scope it is asked about, and names the
 // system topic whose source is that resource.
 func TestSDK_EventGrid_ExtensionTopic(t *testing.T) {
-	const rg = "eventgrid-extension-rg"
+	rg := uniqueName("eventgrid-extension-rg")
 	ensureRG(t, rg)
 
 	client, err := armeventgrid.NewExtensionTopicsClient(&fakeCredential{}, clientOpts())

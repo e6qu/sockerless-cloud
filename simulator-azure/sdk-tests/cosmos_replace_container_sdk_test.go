@@ -16,7 +16,8 @@ import (
 // container's properties to /dbs/{db}/colls/{coll}): it turns a container's
 // time to live on and off after creation, and cannot change its partition key.
 func TestCosmos_ReplaceContainer(t *testing.T) {
-	client := cosmosSimClient(t, cosmosDataPlaneAccount)
+	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "replacedb"}, nil)
 	require.NoError(t, err)
 	db, err := client.NewDatabase("replacedb")

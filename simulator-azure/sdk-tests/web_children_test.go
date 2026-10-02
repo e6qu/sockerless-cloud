@@ -283,13 +283,14 @@ func TestSDK_WebChildren_PremierAddOns(t *testing.T) {
 }
 
 func TestSDK_WebChildren_PushSettings(t *testing.T) {
-	rg := "webchild-push-rg"
+	wcPushSiteName := uniqueName("wc-push-site")
+	rg := uniqueName("webchild-push-rg")
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wc-push-plan")
 
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	name, slot := "wc-push-site", "staging"
+	name, slot := wcPushSiteName, "staging"
 	webMoreCreateSite(t, client, rg, name, planID)
 	webChildrenCreateSlot(t, client, rg, name, slot, planID)
 
