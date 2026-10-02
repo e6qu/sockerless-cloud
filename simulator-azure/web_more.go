@@ -39,7 +39,6 @@ type WebDeployment struct {
 // WebDeploymentProperties mirrors armappservice.DeploymentProperties. Field
 // names are the wire spelling (snake_case) the spec defines.
 type WebDeploymentProperties struct {
-	ID          string `json:"id,omitempty"`
 	Status      int    `json:"status,omitempty"`
 	Active      bool   `json:"active,omitempty"`
 	Author      string `json:"author,omitempty"`

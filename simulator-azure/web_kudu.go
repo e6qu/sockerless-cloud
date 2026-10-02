@@ -140,7 +140,6 @@ func kuduSaveDeployment(rec WebKuduDeployment) {
 		Name: rec.DeploymentID,
 		Type: typ,
 		Properties: WebDeploymentProperties{
-			ID:          rec.DeploymentID,
 			Status:      rec.Status,
 			Active:      rec.Active,
 			Author:      rec.Author,

@@ -777,6 +777,9 @@ func armSpecValidator(srv *sim.Server) error {
 		if _, ok := appServiceSiteByHost(req.Host); ok {
 			return nil // an App Service site's answer is its workload's
 		}
+		if _, ok := appServiceSiteByScmHost(req.Host); ok {
+			return nil // the Kudu API on a site's SCM host has no vendored swagger
+		}
 		if cosmosIsDataPlaneRequest(req) {
 			// The Cosmos DB SQL data plane (incl. the account-discovery GET /)
 			// has no vendored Azure swagger; without this its account-properties
