@@ -26,7 +26,7 @@ import (
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/managedHSMs/{name}/privateLinkResources
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/managedHSMs/{name}/regions
 func TestManagedHSMs_SoftDeleteRecoverAndPurge(t *testing.T) {
-	const rg = "managedhsm-tail-rg"
+	rg, hsm := uniqueName("managedhsm-tail-rg"), uniqueAlnumName("tailhsm")
 	ensureKVResourceGroup(t, rg)
 
 	client, err := armkeyvault.NewManagedHsmsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -53,9 +53,9 @@ func TestManagedHSMs_SoftDeleteRecoverAndPurge(t *testing.T) {
 	}
 
 	// A name in use is unavailable; a name nothing holds is available.
-	create("tail-hsm", false)
+	create(hsm, false)
 	availability, err := client.CheckMhsmNameAvailability(ctx,
-		armkeyvault.CheckMhsmNameAvailabilityParameters{Name: to.Ptr("tail-hsm")}, nil)
+		armkeyvault.CheckMhsmNameAvailabilityParameters{Name: to.Ptr(hsm)}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, availability.NameAvailable)
 	assert.False(t, *availability.NameAvailable)
@@ -73,7 +73,7 @@ func TestManagedHSMs_SoftDeleteRecoverAndPurge(t *testing.T) {
 
 	// Deleting retires the pool: it leaves the live collection and appears in
 	// the deleted one with a scheduled purge date.
-	deletePoller, err := client.BeginDelete(ctx, rg, "tail-hsm", nil)
+	deletePoller, err := client.BeginDelete(ctx, rg, hsm, nil)
 	require.NoError(t, err)
 	_, err = deletePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
@@ -86,23 +86,33 @@ func TestManagedHSMs_SoftDeleteRecoverAndPurge(t *testing.T) {
 	require.NoError(t, err)
 	deleted, err := deletedClient.NewListDeletedPager(nil).NextPage(ctx)
 	require.NoError(t, err)
-	require.Len(t, deleted.Value, 1)
-	require.NotNil(t, deleted.Value[0].Properties)
-	assert.NotEmpty(t, *deleted.Value[0].Properties.ScheduledPurgeDate)
+	retired := deletedManagedHSMNamed(deleted.Value, hsm)
+	require.NotNil(t, retired, "the deleted collection lists %s", hsm)
+	require.NotNil(t, retired.Properties)
+	assert.NotEmpty(t, *retired.Properties.ScheduledPurgeDate)
 
-	got, err := deletedClient.GetDeleted(ctx, "tail-hsm", "eastus", nil)
+	got, err := deletedClient.GetDeleted(ctx, hsm, "eastus", nil)
 	require.NoError(t, err)
-	assert.Equal(t, "tail-hsm", *got.Name)
+	assert.Equal(t, hsm, *got.Name)
 
 	// Purging destroys the record.
-	purgePoller, err := deletedClient.BeginPurgeDeleted(ctx, "tail-hsm", "eastus", nil)
+	purgePoller, err := deletedClient.BeginPurgeDeleted(ctx, hsm, "eastus", nil)
 	require.NoError(t, err)
 	_, err = purgePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
 	deleted, err = deletedClient.NewListDeletedPager(nil).NextPage(ctx)
 	require.NoError(t, err)
-	assert.Empty(t, deleted.Value)
+	assert.Nil(t, deletedManagedHSMNamed(deleted.Value, hsm), "a purged pool leaves the deleted collection")
+}
+
+func deletedManagedHSMNamed(deleted []*armkeyvault.DeletedManagedHsm, name string) *armkeyvault.DeletedManagedHsm {
+	for _, d := range deleted {
+		if d.Name != nil && *d.Name == name {
+			return d
+		}
+	}
+	return nil
 }
 
 // Purge protection exists to refuse the purge, so it must.

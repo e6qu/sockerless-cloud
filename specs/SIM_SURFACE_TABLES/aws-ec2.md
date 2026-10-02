@@ -601,6 +601,9 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action DescribeClientVpnConnections` | ✓ `simulator-aws/ec2_vpn.go:212::handleDescribeClientVpnConnections` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action TerminateClientVpnConnections` | ✓ `simulator-aws/ec2_vpn.go:213::handleTerminateClientVpnConnections` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ApplySecurityGroupsToClientVpnTargetNetwork` | ✓ `simulator-aws/ec2_vpn.go:214::handleApplySecurityGroupsToClientVpnTargetNetwork` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetClientVpnEndpointAuthorizationPolicy` | ✓ `simulator-aws/ec2_vpn_authz_policy.go:26::handleGetClientVpnEndpointAuthorizationPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ModifyClientVpnEndpointAuthorizationPolicy` | ✓ `simulator-aws/ec2_vpn_authz_policy.go:27::handleModifyClientVpnEndpointAuthorizationPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DeleteClientVpnEndpointAuthorizationPolicy` | ✓ `simulator-aws/ec2_vpn_authz_policy.go:28::handleDeleteClientVpnEndpointAuthorizationPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

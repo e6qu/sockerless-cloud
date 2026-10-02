@@ -530,6 +530,34 @@ resource "azurerm_container_app" "az_ca" {
   }
 }
 
+# A multiple-revision Container App whose ingress sends all traffic to the
+# latest revision and which keeps up to five inactive revisions.
+resource "azurerm_container_app" "az_ca_multi" {
+  name                         = "tf-azrm-ca-multi"
+  container_app_environment_id = azurerm_container_app_environment.az_cae.id
+  resource_group_name          = azurerm_resource_group.az_rg.name
+  revision_mode                = "Multiple"
+  max_inactive_revisions       = 5
+
+  ingress {
+    target_port = 80
+    traffic_weight {
+      latest_revision = true
+      percentage      = 100
+    }
+  }
+
+  template {
+    container {
+      name    = "main"
+      image   = "public.ecr.aws/docker/library/alpine:latest"
+      cpu     = 0.25
+      memory  = "0.5Gi"
+      command = ["sh", "-c", "sleep infinity"]
+    }
+  }
+}
+
 # Container App Job — the ACA runner-job primitive. Sockerless dispatches
 # CI runner jobs as Container App Jobs.
 resource "azurerm_container_app_job" "az_caj" {
@@ -1510,6 +1538,18 @@ output "azrm_container_app_env_id" {
 
 output "azrm_container_app_id" {
   value = azurerm_container_app.az_ca.id
+}
+
+output "azrm_container_app_multi_latest_revision_name" {
+  value = azurerm_container_app.az_ca_multi.latest_revision_name
+}
+
+output "azrm_container_app_multi_latest_revision_fqdn" {
+  value = azurerm_container_app.az_ca_multi.latest_revision_fqdn
+}
+
+output "azrm_container_app_multi_ingress_fqdn" {
+  value = azurerm_container_app.az_ca_multi.ingress[0].fqdn
 }
 
 output "azrm_container_app_job_id" {

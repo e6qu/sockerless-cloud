@@ -16,7 +16,7 @@ import (
 func TestAzureServiceBus_ARMLifecycle(t *testing.T) {
 	sub := "00000000-0000-0000-0000-000000000000"
 	rg := "test-rg"
-	ns := "lifecycle-sb"
+	ns := uniqueName("lifecycle-sb")
 	nsPath := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ServiceBus/namespaces/%s", sub, rg, ns)
 
 	resp := armReq(t, "PUT", nsPath, `{"location":"eastus","sku":{"name":"Standard","tier":"Standard"}}`)
@@ -25,13 +25,13 @@ func TestAzureServiceBus_ARMLifecycle(t *testing.T) {
 	resp.Body.Close()
 	assert.Contains(t, string(body), `"provisioningState":"Succeeded"`)
 	port := strings.TrimPrefix(baseURL, "http://127.0.0.1:")
-	assert.Contains(t, string(body), "lifecycle-sb.servicebus.shim.localhost:"+port)
+	assert.Contains(t, string(body), ns+".servicebus.shim.localhost:"+port)
 
 	resp = armReq(t, "POST", nsPath+"/authorizationRules/RootManageSharedAccessKey/listKeys", "")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	keysBody, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	assert.Contains(t, string(keysBody), "Endpoint=sb://lifecycle-sb.servicebus.shim.localhost:"+port+"/")
+	assert.Contains(t, string(keysBody), "Endpoint=sb://"+ns+".servicebus.shim.localhost:"+port+"/")
 
 	// Create a queue.
 	qPath := nsPath + "/queues/myqueue"

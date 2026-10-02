@@ -253,10 +253,11 @@ func TestSDK_StaticSites_BuildsAndZipDeploy(t *testing.T) {
 }
 
 func TestSDK_StaticSites_CustomDomains(t *testing.T) {
-	rg := "swa-sdk-rg"
+	swaSdkRgName := uniqueName("swa-sdk-rg")
+	rg := swaSdkRgName
 	ensureRG(t, rg)
 	client := staticSitesClient(t)
-	name := "sdk-swa-domains"
+	name := uniqueName("sdk-swa-domains")
 	created := staticSitesCreate(t, client, rg, name)
 	defaultHostname := *created.Properties.DefaultHostname
 
@@ -264,7 +265,7 @@ func TestSDK_StaticSites_CustomDomains(t *testing.T) {
 	require.NoError(t, err)
 	recordsClient, err := armdns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	zone := "sdk-swa-example.com"
+	zone := uniqueName("sdk-swa-example") + ".com"
 	_, err = zonesClient.CreateOrUpdate(ctx, rg, zone, armdns.Zone{Location: to.Ptr("global")}, nil)
 	require.NoError(t, err)
 
@@ -355,10 +356,11 @@ func TestSDK_StaticSites_CustomDomains(t *testing.T) {
 }
 
 func TestSDK_StaticSites_UsersRolesBasicAuth(t *testing.T) {
-	rg := "swa-sdk-rg"
+	swaSdkRgName := uniqueName("swa-sdk-rg")
+	rg := swaSdkRgName
 	ensureRG(t, rg)
 	client := staticSitesClient(t)
-	name := "sdk-swa-users"
+	name := uniqueName("sdk-swa-users")
 	created := staticSitesCreate(t, client, rg, name)
 
 	// An invitation for a domain the site does not serve is rejected.

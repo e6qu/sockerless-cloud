@@ -45,16 +45,17 @@ type cosmosDiffDivergence struct {
 var cosmosDiffKnownDivergences = map[string]cosmosDiffDivergence{}
 
 func TestCosmos_DifferentialVsEmulator(t *testing.T) {
+	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
 	emuEndpoint, stop := startCosmosEmulator(t)
 	defer stop()
 
-	simC := cosmosSimClient(t, cosmosDataPlaneAccount)
+	simC := cosmosSimClient(t, dataPlaneAccount)
 	oracle := newCosmosSDKClient(t, emuEndpoint, cosmosEmulatorKey, "")
 
 	for _, sc := range cosmosDiffScenarios() {
 		t.Run(sc.name, func(t *testing.T) {
-			simRes := cosmosCapture(sc.run(t, simC, "sim-"+sc.name))
-			oracleRes := cosmosCapture(sc.run(t, oracle, "emu-"+sc.name))
+			simRes := cosmosCapture(sc.run(t, simC, uniqueName("sim-"+sc.name)))
+			oracleRes := cosmosCapture(sc.run(t, oracle, uniqueName("emu-"+sc.name)))
 			if div, ok := cosmosDiffKnownDivergences[sc.name]; ok {
 				cosmosAssertEqual(t, "sim (documented divergence: "+div.reason+")", div.sim, simRes)
 				cosmosAssertEqual(t, "emulator (documented divergence: "+div.reason+")", div.oracle, oracleRes)

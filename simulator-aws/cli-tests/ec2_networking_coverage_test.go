@@ -21,6 +21,9 @@ func TestEC2CLI_RouteTableAssociationLifecycle(t *testing.T) {
 		t.Fatalf("associate-route-table association = %q, want %q", got, assoc)
 	}
 
+	if out := runCLIExpectError(t, awsCLI("ec2", "delete-route-table", "--route-table-id", rt)); !strings.Contains(out, "DependencyViolation") {
+		t.Fatalf("delete-route-table on an associated table did not answer DependencyViolation: %s", out)
+	}
 	runCLI(t, awsCLI("ec2", "disassociate-route-table", "--association-id", assoc))
 	count := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-route-tables", "--route-table-ids", rt,
 		"--query", "length(RouteTables[0].Associations[?SubnetId=='"+sub+"'])", "--output", "text")))

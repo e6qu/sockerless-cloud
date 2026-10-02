@@ -16,7 +16,7 @@ import (
 // key surfaces through the official armservicebus SDK.
 func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	rg := "sb-msg-rg"
-	ns := "sdk-sb-msg-ns"
+	ns := uniqueName("sdk-sb-msg-ns")
 
 	clientFactory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -109,7 +109,7 @@ func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 
 	// Disaster recovery configuration lifecycle.
 	drClient := clientFactory.NewDisasterRecoveryConfigsClient()
-	partner := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.ServiceBus/namespaces/sdk-sb-msg-secondary"
+	partner := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.ServiceBus/namespaces/" + uniqueName("sdk-sb-msg-secondary")
 	dr, err := drClient.CreateOrUpdate(ctx, rg, ns, "sdkdr", armservicebus.ArmDisasterRecovery{
 		Properties: &armservicebus.ArmDisasterRecoveryProperties{
 			PartnerNamespace: to.Ptr(partner),

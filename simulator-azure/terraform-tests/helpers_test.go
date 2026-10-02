@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
 	"github.com/stretchr/testify/require"
@@ -147,25 +148,16 @@ func TestMain(m *testing.M) {
 		fmt.Sprintf("SOCKERLESS_AZURE_SIM_PORT=%d", simPort),
 	)
 	gatewayCmd.Stdout = os.Stdout
-	gatewayCmd.Stderr = os.Stderr
-	if err := gatewayCmd.Start(); err != nil {
+	if err := httpsgateway.Start(gatewayCmd, os.Stderr); err != nil {
+		if gatewayCmd.Process != nil {
+			gatewayCmd.Process.Kill()
+		}
 		simCmd.Process.Kill()
 		log.Fatalf("Failed to start HTTPS gateway: %v", err)
 	}
 
 	baseURL = fmt.Sprintf("https://azure.sockerless.localhost:%d", gatewayPort)
 	requireHTTPSURL(baseURL, "Azure Terraform endpoint")
-	if err := waitForFile(caCertFile, 10*time.Second); err != nil {
-		gatewayCmd.Process.Kill()
-		simCmd.Process.Kill()
-		log.Fatalf("HTTPS gateway did not publish its local CA: %v", err)
-	}
-
-	if err := waitForHealth(baseURL+"/health", caCertFile); err != nil {
-		gatewayCmd.Process.Kill()
-		simCmd.Process.Kill()
-		log.Fatalf("HTTPS gateway did not become healthy: %v", err)
-	}
 	if err := verifyGatewayMetadata(baseURL, caCertFile); err != nil {
 		gatewayCmd.Process.Kill()
 		simCmd.Process.Kill()
@@ -432,52 +424,20 @@ func verifyDirectMetadata(baseURL, host string) error {
 	return nil
 }
 
-func waitForFile(path string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if info, err := os.Stat(path); err == nil && info.Size() > 0 {
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for %s", path)
-}
-
-func waitForHealth(url, caCert string) error {
-	client, err := trustedHTTPClient(caCert)
-	if err != nil {
-		return err
-	}
-	for i := 0; i < 50; i++ {
-		resp, err := client.Get(url)
-		if err == nil && resp.StatusCode == 200 {
-			resp.Body.Close()
-			return nil
-		}
-		if resp != nil {
-			resp.Body.Close()
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for %s", url)
-}
-
 func verifyGatewayMetadata(baseURL, caCert string) error {
 	client, err := trustedHTTPClient(caCert)
 	if err != nil {
 		return err
 	}
-	var lastErr error
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if err := verifyGatewayMetadataOnce(client, baseURL); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-		time.Sleep(100 * time.Millisecond)
+	resp, err := client.Get(baseURL + "/health")
+	if err != nil {
+		return fmt.Errorf("GET %s/health: %w", baseURL, err)
 	}
-	return lastErr
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET %s/health: status %d", baseURL, resp.StatusCode)
+	}
+	return verifyGatewayMetadataOnce(client, baseURL)
 }
 
 func verifyGatewayMetadataOnce(client *http.Client, baseURL string) error {

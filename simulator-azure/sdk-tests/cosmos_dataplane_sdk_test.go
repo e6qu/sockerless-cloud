@@ -59,7 +59,8 @@ func newCosmosSDKClient(t *testing.T, endpoint, key, dial string) *azcosmos.Clie
 // CreateDatabase below drives the account-discovery route "GET /{$}" (azcosmos's
 // global-endpoint-manager reads the account root on its first request).
 func TestCosmos_RealSDKDataPlane(t *testing.T) {
-	client := cosmosSimClient(t, cosmosDataPlaneAccount)
+	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	client := cosmosSimClient(t, dataPlaneAccount)
 
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "sdkdb"}, nil)
 	require.NoError(t, err, "CreateDatabase (drives account discovery + POST /dbs)")
@@ -172,8 +173,9 @@ func TestCosmos_RealSDKDataPlane(t *testing.T) {
 // them. That second half is what lets the simulator hand a browser at the bare
 // origin to the console instead of a bare 404, without Cosmos losing the root.
 func TestCosmos_AccountRootServesOnlyCosmosClients(t *testing.T) {
+	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
 	// A real Cosmos client: CreateDatabase drives account discovery first.
-	client := cosmosSimClient(t, cosmosDataPlaneAccount)
+	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "rootdiscoverydb"}, nil)
 	require.NoError(t, err, "CreateDatabase must still drive account discovery on GET /{$}")
 

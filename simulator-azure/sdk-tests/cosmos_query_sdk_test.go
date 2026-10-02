@@ -70,7 +70,7 @@ func cosmosQuery(t *testing.T, account, coll, query string, params []map[string]
 // which previously fell through the equality-only matcher and returned the whole
 // collection.
 func TestCosmosQuery_RealGrammar(t *testing.T) {
-	account := "sdkcosmosquery"
+	account := uniqueAlnumName("sdkcosmosquery")
 	coll := "people"
 
 	seed := []string{
@@ -112,7 +112,7 @@ func TestCosmosQuery_RealGrammar(t *testing.T) {
 // of an existing id is a 409 Conflict; an upsert (x-ms-documentdb-is-upsert)
 // replaces it and returns 200.
 func TestCosmosUpsertAndConflict(t *testing.T) {
-	account := "sdkcosmosupsert"
+	account := uniqueAlnumName("sdkcosmosupsert")
 	docs := "/dbs/qdb/colls/items/docs"
 
 	resp := cosmosDoc(t, "POST", account, docs, `{"id":"dup","v":1}`, nil)
@@ -146,7 +146,7 @@ func TestCosmosUpsertAndConflict(t *testing.T) {
 // "PATCH /dbs/{database}/colls/{container}/docs/{doc}" applying an increment op
 // to a stored document (the azcosmos PatchOperations wire shape).
 func TestCosmosPatchIncrement(t *testing.T) {
-	account := "sdkcosmospatch"
+	account := uniqueAlnumName("sdkcosmospatch")
 	docs := "/dbs/qdb/colls/counters/docs"
 
 	resp := cosmosDoc(t, "POST", account, docs, `{"id":"ctr","count":10,"label":"keep"}`, nil)

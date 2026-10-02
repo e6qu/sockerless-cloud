@@ -32,6 +32,7 @@ func rdsResetAuroraStores(t *testing.T) {
 	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
 	rdsClusters = sim.MakeStore[RDSCluster](nil, "rds_clusters")
 	rdsClusterSnapshots = sim.MakeStore[RDSClusterSnapshot](nil, "rds_cluster_snapshots")
+	rdsEngineLogs = sim.MakeStore[RDSEngineLogHour](nil, "rds_engine_logs")
 	kmsKeyMaterial = sim.MakeStore[[]byte](nil, "kms_key_material")
 }
 

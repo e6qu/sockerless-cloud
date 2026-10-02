@@ -10,6 +10,7 @@ import (
 )
 
 func TestPublicDNS_CreateZoneAndRecordSet(t *testing.T) {
+	zone := uniqueName("sdk-public") + ".example.com"
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "dns-public-rg", armresources.ResourceGroup{
@@ -19,7 +20,7 @@ func TestPublicDNS_CreateZoneAndRecordSet(t *testing.T) {
 
 	zonesClient, err := armdns.NewZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	zoneResp, err := zonesClient.CreateOrUpdate(ctx, "dns-public-rg", "sdk-public.example.com", armdns.Zone{
+	zoneResp, err := zonesClient.CreateOrUpdate(ctx, "dns-public-rg", zone, armdns.Zone{
 		Location: ptrStr("global"),
 		Tags: map[string]*string{
 			"env": ptrStr("sdk"),
@@ -27,7 +28,7 @@ func TestPublicDNS_CreateZoneAndRecordSet(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, zoneResp.Name)
-	assert.Equal(t, "sdk-public.example.com", *zoneResp.Name)
+	assert.Equal(t, zone, *zoneResp.Name)
 	require.NotNil(t, zoneResp.Properties)
 	require.NotNil(t, zoneResp.Properties.ZoneType)
 	assert.Equal(t, armdns.ZoneTypePublic, *zoneResp.Properties.ZoneType)
@@ -37,7 +38,7 @@ func TestPublicDNS_CreateZoneAndRecordSet(t *testing.T) {
 
 	recordSetsClient, err := armdns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	recordResp, err := recordSetsClient.CreateOrUpdate(ctx, "dns-public-rg", "sdk-public.example.com", "api", armdns.RecordTypeA, armdns.RecordSet{
+	recordResp, err := recordSetsClient.CreateOrUpdate(ctx, "dns-public-rg", zone, "api", armdns.RecordTypeA, armdns.RecordSet{
 		Properties: &armdns.RecordSetProperties{
 			TTL: ptrInt64(180),
 			ARecords: []*armdns.ARecord{
@@ -57,14 +58,14 @@ func TestPublicDNS_CreateZoneAndRecordSet(t *testing.T) {
 	require.Len(t, recordResp.Properties.ARecords, 1)
 	assert.Equal(t, "198.51.100.25", *recordResp.Properties.ARecords[0].IPv4Address)
 	require.NotNil(t, recordResp.Properties.Fqdn)
-	assert.Equal(t, "api.sdk-public.example.com.", *recordResp.Properties.Fqdn)
+	assert.Equal(t, "api."+zone+".", *recordResp.Properties.Fqdn)
 
-	getResp, err := recordSetsClient.Get(ctx, "dns-public-rg", "sdk-public.example.com", "api", armdns.RecordTypeA, nil)
+	getResp, err := recordSetsClient.Get(ctx, "dns-public-rg", zone, "api", armdns.RecordTypeA, nil)
 	require.NoError(t, err)
 	require.NotNil(t, getResp.Properties)
 	require.Len(t, getResp.Properties.ARecords, 1)
 
-	pager := recordSetsClient.NewListByDNSZonePager("dns-public-rg", "sdk-public.example.com", nil)
+	pager := recordSetsClient.NewListByDNSZonePager("dns-public-rg", zone, nil)
 	require.True(t, pager.More())
 	page, err := pager.NextPage(ctx)
 	require.NoError(t, err)

@@ -149,13 +149,13 @@ func TestSDK_WebWorkflows_DeployAndEnvelopes(t *testing.T) {
 }
 
 func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
-	rg := "webwf-runtime-rg"
+	rg := uniqueName("webwf-runtime-rg")
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "webwf-rt-plan")
 
 	webApps, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	name := "webwf-rt-site"
+	name := uniqueName("webwf-rt-site")
 	webMoreCreateSite(t, webApps, rg, name, planID)
 	webWorkflowsDeploy(t, webApps, rg, name)
 

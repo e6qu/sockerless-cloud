@@ -25,3 +25,30 @@ func TestECRCLI_UntagResource(t *testing.T) {
 		t.Fatalf("kept tag 'keep' missing: %s", out)
 	}
 }
+
+// TestECRCLI_DeleteRepositoryRequiresForceWhileItHoldsImages runs aws ecr
+// delete-repository against a repository holding an image: the CLI reports
+// RepositoryNotEmptyException until the call passes --force.
+func TestECRCLI_DeleteRepositoryRequiresForceWhileItHoldsImages(t *testing.T) {
+	repo := "cli-not-empty-repo"
+	runCLI(t, awsCLI("ecr", "create-repository", "--repository-name", repo))
+	manifest := `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{"mediaType":"application/vnd.docker.container.image.v1+json","size":2,"digest":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},"layers":[]}`
+	runCLI(t, awsCLI("ecr", "put-image", "--repository-name", repo,
+		"--image-tag", "v1", "--image-manifest", manifest))
+
+	out := runCLIExpectError(t, awsCLI("ecr", "delete-repository", "--repository-name", repo))
+	if !strings.Contains(out, "RepositoryNotEmptyException") ||
+		!strings.Contains(out, "cannot be deleted because it still contains images") {
+		t.Fatalf("delete-repository without --force did not report RepositoryNotEmptyException: %s", out)
+	}
+	images := runCLI(t, awsCLI("ecr", "list-images", "--repository-name", repo,
+		"--query", "length(imageIds)", "--output", "text"))
+	if strings.TrimSpace(images) != "1" {
+		t.Fatalf("a refused delete must keep the repository's image, list-images counted %q", images)
+	}
+
+	runCLI(t, awsCLI("ecr", "delete-repository", "--repository-name", repo, "--force"))
+	if out := runCLIExpectError(t, awsCLI("ecr", "describe-repositories", "--repository-names", repo)); !strings.Contains(out, "RepositoryNotFoundException") {
+		t.Fatalf("a forced delete left the repository behind: %s", out)
+	}
+}

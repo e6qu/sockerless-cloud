@@ -673,3 +673,89 @@ func stopCLITasksInSubnet(t *testing.T, cluster, subnetID string) {
 	}
 	runCLI(t, awsCLI(append([]string{"ecs", "wait", "tasks-stopped", "--cluster", cluster, "--tasks"}, inSubnet...)...))
 }
+
+// startSourceProbeServer serves each request the address it arrived from, so a
+// task can report which source address its egress left the VPC with.
+func startSourceProbeServer(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp4", "0.0.0.0:0")
+	if err != nil {
+		t.Fatalf("listen for source probe: %v", err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, _ := net.SplitHostPort(r.RemoteAddr)
+		_, _ = w.Write([]byte("from=" + host + "\n"))
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() {
+		_ = srv.Close()
+		_ = ln.Close()
+	})
+	return "http://" + net.JoinHostPort(hostPrimaryIPv4(t), strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)) + "/source"
+}
+
+// TestECSVPCNetnsNATRouteFollowsRouteTableAssociations proves a NAT gateway
+// route translates the subnets its route table governs at the time traffic
+// flows, not at the time the route was created: a subnet associated after the
+// route, and a subnet the main route table governs implicitly, both leave the
+// VPC from the NAT gateway's Elastic IP address. Moving the explicit subnet to
+// a route table with no NAT route stops its translation.
+func TestECSVPCNetnsNATRouteFollowsRouteTableAssociations(t *testing.T) {
+	requireECSNetnsTier(t)
+	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
+	probeURL := startSourceProbeServer(t)
+
+	vpc := q("ec2", "create-vpc", "--cidr-block", "10.64.0.0/16", "--query", "Vpc.VpcId", "--output", "text")
+	mkSubnet := func(cidr string) string {
+		return q("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", cidr,
+			"--availability-zone", "us-east-1a", "--query", "Subnet.SubnetId", "--output", "text")
+	}
+	publicSubnet := mkSubnet("10.64.1.0/24")
+	privateSubnet := mkSubnet("10.64.2.0/24")
+	igw := q("ec2", "create-internet-gateway", "--query", "InternetGateway.InternetGatewayId", "--output", "text")
+	q("ec2", "attach-internet-gateway", "--internet-gateway-id", igw, "--vpc-id", vpc)
+	publicRT := q("ec2", "create-route-table", "--vpc-id", vpc, "--query", "RouteTable.RouteTableId", "--output", "text")
+	q("ec2", "create-route", "--route-table-id", publicRT, "--destination-cidr-block", "0.0.0.0/0", "--gateway-id", igw)
+	q("ec2", "associate-route-table", "--route-table-id", publicRT, "--subnet-id", publicSubnet)
+	eipAlloc := q("ec2", "allocate-address", "--domain", "vpc", "--query", "AllocationId", "--output", "text")
+	nat := q("ec2", "create-nat-gateway", "--subnet-id", publicSubnet, "--allocation-id", eipAlloc,
+		"--query", "NatGateway.NatGatewayId", "--output", "text")
+	q("ec2", "wait", "nat-gateway-available", "--nat-gateway-ids", nat)
+	natIP := q("ec2", "describe-nat-gateways", "--nat-gateway-ids", nat,
+		"--query", "NatGateways[0].NatGatewayAddresses[0].PublicIp", "--output", "text")
+
+	privateRT := q("ec2", "create-route-table", "--vpc-id", vpc, "--query", "RouteTable.RouteTableId", "--output", "text")
+	q("ec2", "create-route", "--route-table-id", privateRT, "--destination-cidr-block", "0.0.0.0/0", "--nat-gateway-id", nat)
+	privateAssoc := q("ec2", "associate-route-table", "--route-table-id", privateRT, "--subnet-id", privateSubnet,
+		"--query", "AssociationId", "--output", "text")
+
+	mainRT := q("ec2", "describe-route-tables", "--filters", "Name=vpc-id,Values="+vpc, "Name=association.main,Values=true",
+		"--query", "RouteTables[0].RouteTableId", "--output", "text")
+	q("ec2", "create-route", "--route-table-id", mainRT, "--destination-cidr-block", "0.0.0.0/0", "--nat-gateway-id", nat)
+	implicitSubnet := mkSubnet("10.64.3.0/24")
+
+	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
+	registerTaskDef(q, "nat-source-client", "trap 'exit 143' TERM; sleep 120 & wait")
+	privateTask := runTask(q, "nat-source-client", privateSubnet)
+	implicitTask := runTask(q, "nat-source-client", implicitSubnet)
+	t.Cleanup(func() {
+		for _, task := range []string{privateTask, implicitTask} {
+			runCLI(t, awsCLI("ecs", "stop-task", "--cluster", "default", "--task", task))
+		}
+	})
+	waitRunning(t, q, privateTask)
+	waitRunning(t, q, implicitTask)
+
+	for name, task := range map[string]string{"explicitly associated": privateTask, "implicitly main": implicitTask} {
+		code, out := taskWgetURL(t, task, probeURL)
+		if code != 0 || strings.TrimSpace(out) != "from="+natIP {
+			t.Fatalf("%s subnet task must leave the VPC from the NAT gateway's address %s: exit=%d out=%q", name, natIP, code, out)
+		}
+	}
+
+	isolatedRT := q("ec2", "create-route-table", "--vpc-id", vpc, "--query", "RouteTable.RouteTableId", "--output", "text")
+	q("ec2", "replace-route-table-association", "--association-id", privateAssoc, "--route-table-id", isolatedRT)
+	if code, out := taskWgetURL(t, privateTask, probeURL); code == 0 {
+		t.Fatalf("a subnet moved off the NAT route still reached the probe: out=%q", out)
+	}
+}

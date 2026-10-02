@@ -86,10 +86,7 @@ func TestAppInsights_InstrumentationKeyStableOnUpsert(t *testing.T) {
 // the SDK silently deserialized CurrentBillingFeatures/DataVolumeCap to nil
 // , which this test would have caught.
 func TestAppInsights_BillingFeatures(t *testing.T) {
-	const (
-		rgName        = "insights-billing-rg"
-		componentName = "billing-component"
-	)
+	rgName, componentName := "insights-billing-rg", uniqueName("billing-component")
 	ensureRG(t, rgName)
 
 	comps, err := armapplicationinsights.NewComponentsClient(subscriptionID, &fakeCredential{}, clientOpts())

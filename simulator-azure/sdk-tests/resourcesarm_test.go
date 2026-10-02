@@ -123,30 +123,31 @@ func TestAzureResources_ResourceGroupUpdateAndExport(t *testing.T) {
 }
 
 func TestAzureResources_MoveResources(t *testing.T) {
+	srcRG, dstRG := uniqueName("move-src-rg"), uniqueName("move-dst-rg")
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	_, err = rgClient.CreateOrUpdate(ctx, "move-src-rg", armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
+	_, err = rgClient.CreateOrUpdate(ctx, srcRG, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
-	_, err = rgClient.CreateOrUpdate(ctx, "move-dst-rg", armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
+	_, err = rgClient.CreateOrUpdate(ctx, dstRG, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 
 	// The move operates on the real stores, so the moved resource must
 	// exist: an App Service plan created under the source group.
-	planID := webMoreEnsurePlan(t, "move-src-rg", "move-plan")
+	planID := webMoreEnsurePlan(t, srcRG, "move-plan")
 
 	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	move := armresources.MoveInfo{
 		Resources:           []*string{to.Ptr(planID)},
-		TargetResourceGroup: to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/move-dst-rg"),
+		TargetResourceGroup: to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/" + dstRG),
 	}
 
-	valPoller, err := client.BeginValidateMoveResources(ctx, "move-src-rg", move, nil)
+	valPoller, err := client.BeginValidateMoveResources(ctx, srcRG, move, nil)
 	require.NoError(t, err)
 	_, err = valPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	movePoller, err := client.BeginMoveResources(ctx, "move-src-rg", move, nil)
+	movePoller, err := client.BeginMoveResources(ctx, srcRG, move, nil)
 	require.NoError(t, err)
 	_, err = movePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
@@ -155,20 +156,20 @@ func TestAzureResources_MoveResources(t *testing.T) {
 	// source group.
 	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	moved, err := plans.Get(ctx, "move-dst-rg", "move-plan", nil)
+	moved, err := plans.Get(ctx, dstRG, "move-plan", nil)
 	require.NoError(t, err)
-	assert.Contains(t, *moved.ID, "/resourceGroups/move-dst-rg/")
-	if stale, err := plans.Get(ctx, "move-src-rg", "move-plan", nil); err == nil {
+	assert.Contains(t, *moved.ID, "/resourceGroups/"+dstRG+"/")
+	if stale, err := plans.Get(ctx, srcRG, "move-plan", nil); err == nil {
 		t.Fatalf("plan still resolves under the source group after the move: %+v", stale)
 	}
 
 	// A resource that does not exist refuses to validate — the same
 	// pre-flight real Azure Resource Manager runs.
 	missing := armresources.MoveInfo{
-		Resources:           []*string{to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/move-src-rg/providers/Microsoft.Web/serverfarms/never-created")},
-		TargetResourceGroup: to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/move-dst-rg"),
+		Resources:           []*string{to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/" + srcRG + "/providers/Microsoft.Web/serverfarms/never-created")},
+		TargetResourceGroup: to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/" + dstRG),
 	}
-	_, err = client.BeginValidateMoveResources(ctx, "move-src-rg", missing, nil)
+	_, err = client.BeginValidateMoveResources(ctx, srcRG, missing, nil)
 	require.Error(t, err, "validating a move of an absent resource must fail")
 }
 
@@ -181,11 +182,11 @@ func TestAzureResources_MoveResources(t *testing.T) {
 // (an Azure Container Instances container group) still answers
 // ResourceMoveNotSupported.
 func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
-	srcRG, dstRG := "move-mixed-src-rg", "move-mixed-dst-rg"
+	srcRG, dstRG := uniqueName("move-mixed-src-rg"), uniqueName("move-mixed-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	account := "movemixedacct"
+	account := uniqueAlnumName("movemixed")
 	accounts := createStorageAccountForARM(t, srcRG, account)
 
 	// A container created through the Azure Resource Manager plane, with real

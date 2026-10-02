@@ -19,7 +19,7 @@ import (
 // items.
 func TestKeyVault_State_FullVersionChain(t *testing.T) {
 	rg := "kv-state-versions-rg"
-	vault := "kv-state-versions"
+	vault := uniqueAlnumName("kvversions")
 	createKVViaARM(t, rg, vault)
 
 	c, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},
@@ -84,7 +84,7 @@ func TestKeyVault_State_FullVersionChain(t *testing.T) {
 // oldest-first results.
 func TestKeyVault_State_VersionListOrder(t *testing.T) {
 	rg := "kv-state-order-rg"
-	vault := "kv-state-order"
+	vault := uniqueAlnumName("kvorder")
 	createKVViaARM(t, rg, vault)
 
 	c, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},
@@ -137,7 +137,7 @@ func TestKeyVault_State_VersionListOrder(t *testing.T) {
 // skill mandates.
 func TestKeyVault_State_SoftDeleteRoundTrip(t *testing.T) {
 	rg := "kv-state-softdel-rg"
-	vault := "kv-state-softdel"
+	vault := uniqueAlnumName("kvsoftdel")
 	createKVViaARM(t, rg, vault)
 
 	c, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},

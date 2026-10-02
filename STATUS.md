@@ -116,7 +116,9 @@ Current state of the sockerless-cloud repository.
 - **Managed databases run real engines** with volumes, credentials sealed
   under the simulator's own key service, readiness classified by SQLSTATE, and
   snapshots that capture the data copy-on-write where the volume store allows
-  it.
+  it. An Aurora cluster restores to any time since its engine first served,
+  replaying PostgreSQL's archived write-ahead log or MySQL's binary log onto a
+  base backup, and an Aurora cluster restores from an RDS DB snapshot ARN.
 - **The registries answer their own service**: Amazon ECR's empty ping with
   no content type, Artifact Registry's `text/html`, Azure Container Registry's
   `{}`; ECR hydrates a pull through a cache rule from the rule's upstream;
@@ -158,6 +160,13 @@ Current state of the sockerless-cloud repository.
   watch never ingests it. Every Cloud Storage JSON API request first waits
   for the events queued before it, and a task's execution completes only
   after its writes are objects. Linux only; the rest is BUGS.md 3084.
+- **Transitional states are served.** Amazon Kinesis Data Streams consumers
+  pass through CREATING and DELETING, Client VPN endpoint authorization
+  policies through creating, updating and deleting, and Amazon ECR refuses to
+  delete a repository holding images without `force`.
+- **A NAT gateway route translates the subnets its route table governs**,
+  explicitly associated or implicitly through the main route table, recomputed
+  on every association change.
 - **An Amazon ECR pull-through-cache reference runs its rule's upstream
   image**: the Lambda and ECS hosts resolve `<prefix>/<path>` through the
   registered rule, as ECR hydrates the cache from that upstream.
@@ -259,7 +268,10 @@ Every job holds a fifteen-minute ceiling. Base images are warmed from one
 cache entry per module, read out of the source by `scripts/base-images-for.sh`,
 and every suite takes a base image through `testutil/baseimage.Ensure`, which
 asks the host before a registry; `build-gates` runs the `testutil` tests, whose
-guard fails on a suite that pulls a base image itself.
+guard fails on a suite that pulls a base image itself. A harness that fronts a
+simulator with the Caddy HTTPS gateway starts it through
+`testutil/httpsgateway`, which returns once Caddy's log reports a cached
+certificate for every name the gateway manages.
 
 ## Releases
 

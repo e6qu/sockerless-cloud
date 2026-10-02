@@ -51,18 +51,25 @@ func rdsSettleClusterSnapshot(snapshotID, status, reason string) {
 	}
 }
 
-// rdsFinishClusterRestore seeds a restored cluster's volume from its source,
-// a cluster snapshot's volume or, for a point-in-time restore, the source
-// cluster's, and lands the cluster available. A creating cluster's endpoints
-// refuse clients, so its engine cannot start on a half-seeded volume. A seed
-// that fails lands the cluster incompatible-restore.
+// rdsFinishClusterRestore seeds a restored cluster's volume from its source —
+// a cluster snapshot's volume, a DB snapshot's volume, the source cluster's
+// volume for a restore to the latest restorable time, or the source cluster's
+// base backup for a restore to a time — and lands the cluster available. A
+// restore to a time also replays the source's log onto the base backup. A
+// creating cluster's endpoints refuse clients, so its engine cannot start on a
+// half-seeded volume. A seed that fails lands the cluster
+// incompatible-restore.
 func rdsFinishClusterRestore(clusterID string) {
 	cluster, ok := rdsClusters.Get(clusterID)
 	if !ok || cluster.Status != "creating" {
 		return
 	}
 	status := "available"
-	if err := sim.CaptureVolume(context.Background(), cluster.RestoreSourceVolume, rdsClusterVolume(clusterID), "rds"); err != nil {
+	err := sim.CaptureVolume(context.Background(), cluster.RestoreSourceVolume, rdsClusterVolume(clusterID), "rds")
+	if err == nil && cluster.RestoreToTime != "" {
+		err = rdsReplayLogToRestoreTime(cluster)
+	}
+	if err != nil {
 		log.Printf("Amazon RDS cluster %s: restore from volume %s: %v", clusterID, cluster.RestoreSourceVolume, err)
 		status = "incompatible-restore"
 	}
@@ -70,6 +77,8 @@ func rdsFinishClusterRestore(clusterID string) {
 		if stored.Status == "creating" {
 			stored.Status = status
 			stored.RestoreSourceVolume = ""
+			stored.RestoreLogVolume = ""
+			stored.RestoreToTime = ""
 		}
 	})
 }

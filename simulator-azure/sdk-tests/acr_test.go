@@ -307,10 +307,7 @@ func nopSeekCloser(r io.ReadSeeker) io.ReadSeekCloser { return nopSeekCloserT{r}
 // "available" for every name makes it worthless — the caller creates, and the
 // create is the thing that tells it the name was taken.
 func TestACR_NameAvailabilityAnswersFromTheRegistriesThatExist(t *testing.T) {
-	const (
-		rgName       = "acr-namecheck-rg"
-		registryName = "namecheckregistry"
-	)
+	rgName, registryName := "acr-namecheck-rg", uniqueAlnumName("namecheckregistry")
 	ensureRG(t, rgName)
 
 	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())

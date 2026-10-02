@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,6 +42,11 @@ func TestEC2_RouteTableAssociationLifecycle(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "association is reflected in DescribeRouteTables")
+
+	_, err = c.DeleteRouteTable(ctx, &ec2.DeleteRouteTableInput{RouteTableId: aws.String(rtID)})
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "DependencyViolation", apiErr.ErrorCode(), "EC2 refuses to delete a route table a subnet is associated with")
 
 	_, err = c.DisassociateRouteTable(ctx, &ec2.DisassociateRouteTableInput{AssociationId: aws.String(assocID)})
 	require.NoError(t, err)

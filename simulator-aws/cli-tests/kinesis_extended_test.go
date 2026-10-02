@@ -1,7 +1,9 @@
 package aws_cli_test
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,14 +38,17 @@ func TestKinesisCLI_Consumers(t *testing.T) {
 		"--consumer-name", "cli-consumer"))
 	var reg struct {
 		Consumer struct {
-			ConsumerName string `json:"ConsumerName"`
-			ConsumerARN  string `json:"ConsumerARN"`
+			ConsumerName   string `json:"ConsumerName"`
+			ConsumerARN    string `json:"ConsumerARN"`
+			ConsumerStatus string `json:"ConsumerStatus"`
 		} `json:"Consumer"`
 	}
 	parseJSON(t, regJSON, &reg)
 	assert.Equal(t, "cli-consumer", reg.Consumer.ConsumerName)
+	assert.Equal(t, "CREATING", reg.Consumer.ConsumerStatus, "register-stream-consumer answers with the consumer CREATING")
 	require.Contains(t, reg.Consumer.ConsumerARN, ":stream/"+stream+"/consumer/cli-consumer:")
 	consumerARN := reg.Consumer.ConsumerARN
+	waitForKinesisConsumerCLI(t, consumerARN, "ACTIVE")
 
 	descJSON := runCLI(t, awsCLI("kinesis", "describe-stream-consumer",
 		"--consumer-arn", consumerARN))
@@ -68,7 +73,61 @@ func TestKinesisCLI_Consumers(t *testing.T) {
 	assert.Equal(t, consumerARN, list.Consumers[0].ConsumerARN)
 
 	runCLI(t, awsCLI("kinesis", "deregister-stream-consumer", "--consumer-arn", consumerARN))
-	runCLIExpectError(t, awsCLI("kinesis", "describe-stream-consumer", "--consumer-arn", consumerARN))
+	waitForKinesisConsumerCLI(t, consumerARN, "")
+}
+
+// waitForKinesisConsumerCLI polls describe-stream-consumer until the consumer
+// reaches want, or with want empty until it is gone: the CLI has no waiter for
+// a consumer.
+func waitForKinesisConsumerCLI(t *testing.T, consumerARN, want string) {
+	t.Helper()
+	delay := 250 * time.Millisecond
+	deadline := time.Now().Add(time.Minute)
+	observed := ""
+	for time.Now().Before(deadline) {
+		cmd := awsCLI("kinesis", "describe-stream-consumer", "--consumer-arn", consumerARN,
+			"--query", "ConsumerDescription.ConsumerStatus", "--output", "text")
+		out, err := cmd.CombinedOutput()
+		observed = strings.TrimSpace(string(out))
+		switch {
+		case err != nil && want == "" && strings.Contains(observed, "ResourceNotFoundException"):
+			return
+		case err != nil:
+			t.Fatalf("describe-stream-consumer %s: %v\n%s", consumerARN, err, out)
+		case observed == want:
+			return
+		}
+		time.Sleep(delay)
+		delay = min(delay*2, 2*time.Second)
+	}
+	t.Fatalf("consumer %s reported %q, want %q", consumerARN, observed, want)
+}
+
+// TestKinesisCLI_DryRun passes --dry-run to the data-plane commands that take
+// it: each answers DryRunOperationException instead of acting.
+func TestKinesisCLI_DryRun(t *testing.T) {
+	stream := "cli-kinesis-dry-run"
+	kinesisStreamARNCLI(t, stream)
+	runCLI(t, awsCLI("kinesis", "wait", "stream-exists", "--stream-name", stream))
+
+	for _, args := range [][]string{
+		{"kinesis", "put-record", "--stream-name", stream, "--partition-key", "pk", "--data", "ZHJ5", "--dry-run"},
+		{"kinesis", "put-records", "--stream-name", stream, "--records", "Data=ZHJ5,PartitionKey=pk", "--dry-run"},
+		{"kinesis", "get-shard-iterator", "--stream-name", stream, "--shard-id", "shardId-000000000000",
+			"--shard-iterator-type", "TRIM_HORIZON", "--dry-run"},
+	} {
+		out := runCLIExpectError(t, awsCLI(args...))
+		assert.Contains(t, out, "DryRunOperationException", "%s --dry-run", args[1])
+	}
+	iterator := strings.TrimSpace(runCLI(t, awsCLI("kinesis", "get-shard-iterator", "--stream-name", stream,
+		"--shard-id", "shardId-000000000000", "--shard-iterator-type", "TRIM_HORIZON",
+		"--query", "ShardIterator", "--output", "text")))
+	out := runCLIExpectError(t, awsCLI("kinesis", "get-records", "--shard-iterator", iterator, "--dry-run"))
+	assert.Contains(t, out, "DryRunOperationException")
+
+	count := strings.TrimSpace(runCLI(t, awsCLI("kinesis", "get-records", "--shard-iterator", iterator,
+		"--query", "length(Records)", "--output", "text")))
+	assert.Equal(t, "0", count, "dry-run puts store no record")
 }
 
 // TestKinesisCLI_ResourcePolicy round-trips a stream resource policy.

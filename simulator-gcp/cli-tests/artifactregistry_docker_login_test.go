@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
 	"github.com/e6qu/sockerless-cloud/testutil/registrytrust"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -275,22 +276,24 @@ func startArtifactRegistryGateway(t *testing.T) *arRegistryGateway {
 		"SOCKERLESS_HTTPS_GATEWAY_DEFAULT_SIM_PORT="+simPort,
 	)
 	gatewayProcess.Stdout = os.Stdout
-	gatewayProcess.Stderr = os.Stderr
-	require.NoError(t, gatewayProcess.Start(), "start the HTTPS gateway")
-	t.Cleanup(func() {
-		_ = gatewayProcess.Process.Kill()
-		_ = gatewayProcess.Wait()
-	})
+	startErr := httpsgateway.Start(gatewayProcess, os.Stderr)
+	if gatewayProcess.Process != nil {
+		t.Cleanup(func() {
+			_ = gatewayProcess.Process.Kill()
+			_ = gatewayProcess.Wait()
+		})
+	}
+	require.NoError(t, startErr, "start the HTTPS gateway")
 
 	authorityFile := filepath.Join(gatewayDir, "data", "caddy", "pki", "authorities", "local", "root.crt")
-	authority, err := readWhenNonEmpty(authorityFile, 30*time.Second)
+	authority, err := os.ReadFile(authorityFile)
 	require.NoError(t, err, "the HTTPS gateway must publish the authority it issues from")
 
 	gateway := &arRegistryGateway{
 		coordinate: fmt.Sprintf("%s-docker.%s:%d", location, arRegistryEndpointDomain, gatewayPort),
 		authority:  authority,
 	}
-	gateway.waitForRegistryChallenge(t)
+	gateway.requireRegistryChallenge(t)
 	return gateway
 }
 
@@ -325,43 +328,27 @@ func (g *arRegistryGateway) do(t *testing.T, method, path, authorization string)
 	return resp, string(body)
 }
 
-// waitForRegistryChallenge waits until the gateway serves Artifact Registry's
-// own answer to an unauthenticated /v2/ probe under the Docker endpoint name —
-// the first request a container engine makes, so a gateway that satisfies it is
-// ready for the client in exactly the way the client needs. The shapes asserted
-// are the ones the live service sends a request that carries no credential at
-// all: the Bearer challenge naming the token service, and the shorter of the
-// two `not authenticated` messages, because this request addresses the registry
-// rather than a repository.
-func (g *arRegistryGateway) waitForRegistryChallenge(t *testing.T) {
+// requireRegistryChallenge requires Artifact Registry's own answer to an
+// unauthenticated /v2/ probe under the Docker endpoint name — the first request
+// a container engine makes. The shapes asserted are the ones the live service
+// sends a request that carries no credential at all: the Bearer challenge
+// naming the token service, and the shorter of the two `not authenticated`
+// messages, because this request addresses the registry rather than a
+// repository.
+func (g *arRegistryGateway) requireRegistryChallenge(t *testing.T) {
 	t.Helper()
-	client := g.client(t)
-	deadline := time.Now().Add(30 * time.Second)
-	var last string
-	for time.Now().Before(deadline) {
-		resp, err := client.Get("https://" + g.coordinate + "/v2/")
-		if err != nil {
-			last = err.Error()
-			time.Sleep(200 * time.Millisecond)
-			continue
-		}
-		challenge := resp.Header.Get("Www-Authenticate")
-		status := resp.StatusCode
-		body, readErr := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		if readErr == nil && status == http.StatusUnauthorized && strings.HasPrefix(challenge, "Bearer ") {
-			assert.Equal(t, `Bearer realm="https://`+g.coordinate+`/v2/token"`, challenge,
-				"the challenge realm must name the token service at the endpoint the client reached")
-			assert.Equal(t, "registry/2.0", resp.Header.Get("Docker-Distribution-Api-Version"))
-			code, message := arCLIRegistryError(t, string(body))
-			assert.Equal(t, "UNAUTHORIZED", code)
-			assert.Equal(t, "not authenticated: No credential was supplied.", message)
-			return
-		}
-		last = fmt.Sprintf("status %d, challenge %q", status, challenge)
-		time.Sleep(200 * time.Millisecond)
-	}
-	t.Fatalf("the HTTPS gateway did not serve the Artifact Registry challenge at %s: %s", g.coordinate, last)
+	resp, err := g.client(t).Get("https://" + g.coordinate + "/v2/")
+	require.NoError(t, err, "probe Artifact Registry through the HTTPS gateway")
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	require.NoError(t, err)
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Equal(t, `Bearer realm="https://`+g.coordinate+`/v2/token"`, resp.Header.Get("Www-Authenticate"),
+		"the challenge realm must name the token service at the endpoint the client reached")
+	assert.Equal(t, "registry/2.0", resp.Header.Get("Docker-Distribution-Api-Version"))
+	code, message := arCLIRegistryError(t, string(body))
+	assert.Equal(t, "UNAUTHORIZED", code)
+	assert.Equal(t, "not authenticated: No credential was supplied.", message)
 }
 
 // requireTokenServiceRefusal drives the Docker token service at the realm every
@@ -574,21 +561,6 @@ func requireEngineRefused(t *testing.T, registryStatus int, output string, err e
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, registryStatus,
 		"%s: the registry must have refused the request the engine makes here", what)
 	require.Error(t, err, "%s must be refused: %s", what, output)
-}
-
-// readWhenNonEmpty reads a file the moment it has content, which is how a
-// process that writes it asynchronously — the gateway publishing the authority
-// it just generated — is waited on without guessing how long it takes.
-func readWhenNonEmpty(path string, timeout time.Duration) ([]byte, error) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		content, err := os.ReadFile(path)
-		if err == nil && len(content) > 0 {
-			return content, nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return nil, fmt.Errorf("timeout waiting for %s", path)
 }
 
 // reserveGatewayPorts returns n distinct ports free for the wildcard bind the

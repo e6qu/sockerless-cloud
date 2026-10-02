@@ -62,7 +62,7 @@ func serviceBusHTTPStatus(t *testing.T, namespace, authorization string) (int, s
 // TestServiceBusHTTP_RefusesUnverifiableTokens drives the Service Bus HTTP
 // data plane with tokens that must not authenticate, and one that must.
 func TestServiceBusHTTP_RefusesUnverifiableTokens(t *testing.T) {
-	namespace := "sdk-sb-authns"
+	namespace := uniqueName("sdk-sb-authns")
 	realKey := serviceBusNamespaceKey(t, namespace)
 	audience := "https://" + namespace + ".servicebus.localhost/"
 
@@ -102,7 +102,7 @@ func TestServiceBusHTTP_RefusesUnverifiableTokens(t *testing.T) {
 	})
 
 	t.Run("token for another namespace", func(t *testing.T) {
-		otherKey := serviceBusNamespaceKey(t, "sdk-sb-authns-other")
+		otherKey := serviceBusNamespaceKey(t, uniqueName("sdk-sb-authns-other"))
 		token := sasTokenSignedWith(messagingRootRule, otherKey, audience, time.Now().Add(time.Hour))
 		status, body := serviceBusHTTPStatus(t, namespace, token)
 		assert.Equal(t, http.StatusUnauthorized, status,
@@ -125,7 +125,7 @@ func TestServiceBusHTTP_RefusesUnverifiableTokens(t *testing.T) {
 // keep accepting the old token forever.
 func TestServiceBusHTTP_RotatedKeyInvalidatesToken(t *testing.T) {
 	rg := "messaging-dataplane-rg"
-	namespace := "sdk-sb-rotateauth"
+	namespace := uniqueName("sdk-sb-rotateauth")
 	ensureRG(t, rg)
 
 	client, err := armservicebus.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -179,7 +179,7 @@ func TestServiceBusHTTP_RotatedKeyInvalidatesToken(t *testing.T) {
 // put-token handshake must refuse it, and the official client must surface the
 // failure rather than proceeding to send.
 func TestServiceBusAMQP_RefusesUnverifiableToken(t *testing.T) {
-	namespace := "sdk-sb-amqpauth"
+	namespace := uniqueName("sdk-sb-amqpauth")
 	// Provision the namespace so the only thing wrong is the key.
 	serviceBusNamespaceKey(t, namespace)
 

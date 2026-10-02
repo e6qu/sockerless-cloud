@@ -231,6 +231,7 @@ func sbSequenceNumber(t *testing.T, resp *http.Response) int64 {
 }
 
 func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
+	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
 	stateDir := t.TempDir()
 	port := freeAzureSimPort(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", port)
@@ -301,7 +302,7 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	resp.Body.Close()
 
 	// ---- (c) Cosmos: a document reachable by QUERY ----
-	cosmosClient := cosmosSimClientAt(t, endpoint, cosmosDataPlaneAccount)
+	cosmosClient := cosmosSimClientAt(t, endpoint, dataPlaneAccount)
 	_, err = cosmosClient.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "persistdb"}, nil)
 	require.NoError(t, err)
 	persistDB, err := cosmosClient.NewDatabase("persistdb")
@@ -436,7 +437,7 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 		"sequence numbers must stay monotonic across the restart — a rewound counter breaks consumer checkpoints")
 
 	// ---- (c) the Cosmos document is found by QUERY, not just point-read ----
-	cosmosClient = cosmosSimClientAt(t, endpoint, cosmosDataPlaneAccount)
+	cosmosClient = cosmosSimClientAt(t, endpoint, dataPlaneAccount)
 	cosmosContainer, err = cosmosClient.NewContainer("persistdb", "people")
 	require.NoError(t, err)
 	pager := cosmosContainer.NewQueryItemsPager("SELECT * FROM c WHERE c.id = 'survivor'", cosmosPK, nil)

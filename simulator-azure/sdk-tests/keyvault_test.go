@@ -169,7 +169,7 @@ func TestKeyVault_ARMPatchAccessPolicyAdvertisedEndpointAndDeletedVault(t *testi
 func TestKeyVault_DataPlane_SetGetDelete(t *testing.T) {
 	rg := "kv-data-rg"
 	ensureRG(t, rg)
-	vaultName := "data-vault"
+	vaultName := uniqueAlnumName("datavault")
 	defer func() {
 		req, _ := http.NewRequest("DELETE",
 			baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.KeyVault/vaults/"+vaultName+"?api-version=2024-04-01-preview",

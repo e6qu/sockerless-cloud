@@ -58,8 +58,7 @@ func insightsRead(t *testing.T, method, path string, body string) map[string]any
 // the query, the events and the metrics of the same data plane. All three move
 // when it writes, because all three read the one store.
 func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
-	const app = "insights-dataplane-app"
-	const role = "insights-dataplane-role"
+	app, role := uniqueName("insights-dataplane-app"), uniqueName("insights-dataplane-role")
 	stamp := time.Now().UTC().Format(time.RFC3339)
 	// The application's own telemetry, tagged with a role nothing else writes
 	// so the reads below can be held to exactly these rows.
@@ -71,7 +70,7 @@ func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
 	// The query runs the KQL it is given rather than answering a fixed shape —
 	// which is what it used to do, ignoring the query entirely.
 	queried := insightsRead(t, http.MethodPost, "/v1/apps/"+app+"/query",
-		`{"query":"AppTraces | where AppRoleName == \"insights-dataplane-role\" | take 10"}`)
+		`{"query":"AppTraces | where AppRoleName == \"`+role+`\" | take 10"}`)
 	tables, _ := queried["tables"].([]any)
 	require.NotEmpty(t, tables, "the query answers from the application's own telemetry")
 	first, _ := tables[0].(map[string]any)
@@ -250,7 +249,7 @@ func TestSDK_InstanceMetadata_AttestationAndIdentity(t *testing.T) {
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{resourceName}/getavailablebillingfeatures
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{resourceName}/quotastatus
 func TestSDK_ApplicationInsights_FeaturesAndPricing(t *testing.T) {
-	const rg, component = "insights-features-rg", "insights-features-component"
+	rg, component := "insights-features-rg", uniqueName("insights-features-component")
 	ensureRG(t, rg)
 
 	base := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +

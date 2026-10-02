@@ -260,3 +260,62 @@ func TestECR_DescribeRepositories_Pagination(t *testing.T) {
 		assert.True(t, seen[n], "repo %s should appear via pagination", n)
 	}
 }
+
+// TestECR_DeleteRepositoryRefusesANonEmptyRepositoryWithoutForce deletes a
+// repository holding an image: Amazon ECR refuses the delete unless the
+// request sets force, keeps the repository and its image, and deletes both once
+// force is set.
+func TestECR_DeleteRepositoryRefusesANonEmptyRepositoryWithoutForce(t *testing.T) {
+	repo := uniqueName("not-empty-repo")
+	client := ecrClient()
+	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
+	require.NoError(t, err)
+	manifest := `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{"mediaType":"application/vnd.docker.container.image.v1+json","size":2,"digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"layers":[]}`
+	_, err = client.PutImage(ctx, &ecr.PutImageInput{
+		RepositoryName: aws.String(repo),
+		ImageManifest:  aws.String(manifest),
+		ImageTag:       aws.String("v1"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteRepository(ctx, &ecr.DeleteRepositoryInput{RepositoryName: aws.String(repo)})
+	var notEmpty *ecrtypes.RepositoryNotEmptyException
+	require.ErrorAs(t, err, &notEmpty)
+	assert.Equal(t, "The repository with name '"+repo+"' in registry with id '"+ecrRegistryId(t)+
+		"' cannot be deleted because it still contains images", notEmpty.ErrorMessage())
+
+	images, err := client.ListImages(ctx, &ecr.ListImagesInput{RepositoryName: aws.String(repo)})
+	require.NoError(t, err, "a refused delete keeps the repository")
+	require.Len(t, images.ImageIds, 1, "a refused delete keeps the repository's images")
+
+	_, err = client.DeleteRepository(ctx, &ecr.DeleteRepositoryInput{RepositoryName: aws.String(repo), Force: true})
+	require.NoError(t, err)
+	_, err = client.DescribeRepositories(ctx, &ecr.DescribeRepositoriesInput{RepositoryNames: []string{repo}})
+	var missing *ecrtypes.RepositoryNotFoundException
+	require.ErrorAs(t, err, &missing)
+}
+
+// TestECR_DeleteRepositoryDeletesAnEmptyRepositoryWithoutForce deletes a
+// repository whose images were all removed: an empty repository needs no force.
+func TestECR_DeleteRepositoryDeletesAnEmptyRepositoryWithoutForce(t *testing.T) {
+	repo := uniqueName("emptied-repo")
+	client := ecrClient()
+	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
+	require.NoError(t, err)
+	manifest := `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{"mediaType":"application/vnd.docker.container.image.v1+json","size":2,"digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"layers":[]}`
+	_, err = client.PutImage(ctx, &ecr.PutImageInput{
+		RepositoryName: aws.String(repo),
+		ImageManifest:  aws.String(manifest),
+		ImageTag:       aws.String("v1"),
+	})
+	require.NoError(t, err)
+	deleted, err := client.BatchDeleteImage(ctx, &ecr.BatchDeleteImageInput{
+		RepositoryName: aws.String(repo),
+		ImageIds:       []ecrtypes.ImageIdentifier{{ImageTag: aws.String("v1")}},
+	})
+	require.NoError(t, err)
+	require.Empty(t, deleted.Failures)
+
+	_, err = client.DeleteRepository(ctx, &ecr.DeleteRepositoryInput{RepositoryName: aws.String(repo)})
+	require.NoError(t, err)
+}

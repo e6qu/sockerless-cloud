@@ -232,6 +232,30 @@ through hooks:
   then stops the containers as tracked background work, as the service does;
   answering after the container's stop timeout held the task's lifecycle lock
   for thirty seconds.
+- **A resource the service moves through transitional states moves through
+  them.** An Amazon Kinesis Data Streams consumer answers RegisterStreamConsumer
+  CREATING and DeregisterStreamConsumer DELETING and settles as tracked
+  background work, as a resharding stream passes through UPDATING; the
+  Terraform provider's consumer waiters poll those states, and
+  SubscribeToShard refuses a consumer that is not ACTIVE. A Client VPN
+  endpoint's Cedar authorization policy answers creating, updating and
+  deleting the same way. DryRun on GetRecords, GetShardIterator, PutRecord and
+  PutRecords validates the request and answers `DryRunOperationException`
+  instead of acting.
+- **A delete the service refuses is refused.** Amazon ECR DeleteRepository
+  answers `RepositoryNotEmptyException` for a repository holding images unless
+  the request sets `force`, which the Terraform provider sends from
+  `force_delete`; a test that deletes a repository holding images says so.
+- **A NAT gateway route translates the subnets its route table governs now.**
+  The translation's sources are recomputed on every association change —
+  AssociateRouteTable, DisassociateRouteTable, ReplaceRouteTableAssociation,
+  CreateSubnet and DeleteSubnet — and include the subnets the main route table
+  governs implicitly; a route table that governs no subnet translates nothing.
+  The probe that proves it reads the source address a task's request arrives
+  from, because egress through an untranslated route still reached the host.
+  DeleteSubnet ends the subnet's association, and DeleteRouteTable refuses the
+  main route table or one still associated with `DependencyViolation`, as EC2
+  does, and withdraws its NAT translations when it succeeds.
 - **A managed EBS volume is a block device, and the engine is asked for
   nothing it has to interpret.** A plain engine volume showed the workload the
   host's disk. The volume is an image file of the requested size and
@@ -877,6 +901,41 @@ before the snapshot and none after, a point-in-time restore holds every
 committed row, and a restore from the final snapshot holds the cluster as it
 was deleted.
 
+An Aurora cluster restores to any time in its restorable window, kept as a
+base backup and the engine's own log. When the engine first accepts clients,
+before the endpoint relays any client to it, `Ready` captures the cluster
+volume into `sockerless-rds-cluster-base_<cluster>` (Aurora MySQL flushes its
+binary log first, so a new file starts with the capture), and DescribeDBClusters
+then reports that time as `EarliestRestorableTime` and the present as
+`LatestRestorableTime`. Aurora PostgreSQL's engine runs with `archive_mode=on`
+and archives every completed write-ahead log segment into the cluster volume;
+Aurora MySQL's binary log is on by default. RestoreDBClusterToPointInTime with
+`RestoreToTime` refuses a time outside the window with `InvalidRestoreFault`,
+seeds the new cluster volume from the base backup, and replays the source's log
+read from its live cluster volume — every transaction that ended by the restore
+time is already in it, and a record still being written ends after it. For
+PostgreSQL a helper copies the archive and `pg_wal` into the new volume's
+archive, `pg_waldump` lists the commit and abort records, and the engine's
+first start runs archive recovery with `recovery_target_time`, or to the end of
+the log when no transaction ended after the time (archive recovery refuses a
+target the log never reaches), then promotes. It recovers with `hot_standby`
+off, so it refuses clients with 57P03 until it has promoted and the restored
+cluster turns available only once it accepts writes; with hot standby on, the
+readiness probe had admitted clients to the read-only replay. For MySQL, whose image ships no
+`mysqlbinlog`, the simulator reads the GTID events' microsecond immediate
+commit timestamps itself, cuts the binary log before the first transaction
+committed after the time, and a server started on the new volume applies it as
+its relay log with the replication SQL thread (`START REPLICA SQL_THREAD UNTIL`),
+writing no binary log, driven by a user only its init file creates, which then
+sets the cluster's master password and is dropped. RestoreDBClusterFromSnapshot
+also takes a DB snapshot ARN: an RDS for PostgreSQL or RDS for MySQL instance's
+data directory becomes the cluster volume of an Aurora PostgreSQL or Aurora
+MySQL cluster of the same image, under the instance's master credential and
+database, which DB snapshots now carry. The SDK, CLI and Terraform suites
+restore to a time the engine's clock has passed by a millisecond and prove the
+restored cluster holds the row committed before it and not the one after, and
+that a migrated cluster serves the instance's rows.
+
 Every volume capture holds one crash-consistent point in time, the property a
 block-level storage snapshot gives. `sim.SnapshotVolume` lists the running
 containers that mount the source volume writable, pauses each through the
@@ -1283,7 +1342,15 @@ Retry-After cadence; the CLI suites drive `az rest --debug` through
 by waiting its Retry-After. A delete, restore, MSDeploy publish, Redis or Event
 Hubs create, or ownership acceptance is read once after its operation ends,
 never polled for its effect. Every simulator a test starts in-process waits on the banner it
-prints after binding (`simready`), not on a health loop. The AWS suites wait
+prints after binding (`simready`), not on a health loop, and every harness
+that fronts one with the Caddy HTTPS gateway starts Caddy through
+`testutil/httpsgateway`, which reads Caddy's JSON log: the http app names the
+certificates it manages, and certmagic's `tls.cache` logger, which the
+gateway's Caddyfile routes to standard error at debug level, reports each one
+as it enters the cache handshakes read. The harness returns once every managed
+name is cached and then makes one health request, because certmagic logs
+`certificate obtained successfully` before it caches the certificate, so that
+line leaves a window in which a handshake still finds none. The AWS suites wait
 for an alarm state with the AlarmExists waiter filtered by StateValue, for a
 target with TargetInService, and watch a queue that must stay empty with one
 long poll for the window instead of receives in a loop.
@@ -1305,8 +1372,8 @@ the completed receiver attach through azcore's log listener. Azure CLI Location
 polls answered 202 by waiting their Retry-After (`azLocationResult`).
 
 Container Apps gained its revisions, replicas and log streams. A container app
-reports `eventStreamEndpoint`; its one revision (`{app}--00001`) lists, reads
-and restarts through ContainerAppsRevisions, and its replicas — one per
+reports `eventStreamEndpoint`; its revisions list, read and restart through
+ContainerAppsRevisions, and their replicas — one per
 `minReplicas`, named `{revision}-{hash}-{suffix}` — list and read through
 ContainerAppsRevisionReplicas, each container advertising its
 `logStreamEndpoint`. The streams sit on the event stream host under
@@ -1317,10 +1384,30 @@ service's "Connecting to the container" lines, carries the container's output
 as it is written, and ends when the container exits; the app's `eventstream`
 carries its system events (AssigningReplica, ContainerCreated,
 ContainerStarted, ContainerTerminated). The simulator keeps the newest 10 MiB of
-a container's output, the kubelet's default containerLogMaxSize. Revision
-activation answers a declared 501, since the simulator keeps one always-active
-revision per app. The SDK and CLI suites read an app's console through the
-stream (`az containerapp logs show --follow`) instead of polling Log Analytics.
+a container's output, the kubelet's default containerLogMaxSize. The SDK and
+CLI suites read an app's console through the stream (`az containerapp logs
+show --follow`) instead of polling Log Analytics.
+
+A container app keeps a revision history, as the service does. A change to
+`properties.template` creates a revision — `{app}--{random 7}` first,
+`{app}--0000001`, `--0000002` after it, or `{app}--{revisionSuffix}` when the
+template names one, refused when the app already has it — with the template
+it was created from, its own `createdTime` and its own replicas; a change to
+`properties.configuration` creates none and applies to the revisions the app
+has. A Single-mode app deactivates every revision but its latest, a Multiple
+mode app keeps them active, and inactive revisions report `lastActiveTime` and
+are removed oldest first beyond `maxInactiveRevisions` (stamped 100 when
+unset). `ingress.traffic` (stamped `latestRevision` 100 when unset; `az
+containerapp ingress traffic set` sends the weights as strings) must name
+revisions the app has and add up to 100, reports as each revision's
+`trafficWeight`, and splits the requests the app's ingress FQDN
+(`{app}.internal.{env}…`) receives; a revision answers on its own FQDN
+(`{revision}.internal.{env}…`, the app's `latestRevisionFqdn` for the latest).
+ActivateRevision and DeactivateRevision start and stop a revision's replicas.
+Restart, activate and deactivate answer 200 with the JSON string the service
+returns and the Azure CLI prints (`"Restart succeeded"`, `"Activate
+succeeded"`, `"Deactivate succeeded"`), captured from the Azure CLI's own
+recorded test of those commands.
 
 Azure's asynchronous work answers the request and settles behind it, as the
 service does. An Event Grid webhook subscription stays Creating until its
@@ -1352,6 +1439,13 @@ aggregates a metric in a fixed namespace or reuses an idempotency token or
 client token collides with its own previous run. A test that changes an
 account-wide setting, such as the Amazon EC2 default credit specification or
 the account's Amazon VPC encryption control, restores it at cleanup.
+The Azure SDK tests name theirs the same way: `uniqueName` for namespaces,
+queues, resource groups, sites, zones and log tags, and `uniqueAlnumName` for
+the resources whose names admit no hyphen or stop at 24 characters (storage
+accounts, key vaults, managed HSM pools, container registries). A Cosmos DB
+test provisions an account of its own rather than sharing one, and a test that
+reads a subscription-wide listing, such as the deleted managed HSM pools, picks
+out its own row instead of counting the listing.
 
 AWS work that the services finish later now finishes later in the simulator
 too, and is gated on the real inputs. An EC2 instance stays pending until its
@@ -1375,7 +1469,14 @@ which a publish, an acknowledgement, a negative acknowledgement or ack
 deadline change, a seek, and the subscription's update, detachment or deletion
 fire, and on a timer set to the moment the queue next changes by itself, a
 lapsed ack deadline or the end of a retry backoff. `StreamingPull` waits on the
-same two things instead of re-reading the queue every 50 ms. The REST pull
+same two things instead of re-reading the queue every 50 ms, and checks that
+its stream is still open before it leases: a negative acknowledgement and the
+client's cancellation that reach a waiting stream together left `select` free
+to pick the acknowledgement, and the closed stream then held the redelivered
+message for its whole ack deadline. Messages a failed send never delivered
+are released uncounted. The dead-letter test nacks on the stream that received
+each attempt, as a subscriber client does, because a nack sent beside a stream
+the client is closing can reach the service first. The REST pull
 declares its bound with `sim.DeclareWait`; the gRPC listener sits outside
 `sim.InFlightMiddleware`, so the declaration there is a no-op. Suites that
 check a subscription is drained pull with `returnImmediately`, as a client

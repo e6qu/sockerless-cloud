@@ -311,49 +311,52 @@ func TestSDK_WebCertificates_KeyVaultSourced(t *testing.T) {
 }
 
 func TestSDK_WebApps_HostnameTruth(t *testing.T) {
-	rg := "stage4-host-rg"
+	s4HostSiteName := uniqueName("s4-host-site")
+	s4HostOtherName := uniqueName("s4-host-other")
+	zone := uniqueName("stage4-zone") + ".test"
+	rg := uniqueName("stage4-host-rg")
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "s4-host-plan")
 
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	webMoreCreateSite(t, client, rg, "s4-host-site", planID)
-	webMoreCreateSite(t, client, rg, "s4-host-other", planID)
+	webMoreCreateSite(t, client, rg, s4HostSiteName, planID)
+	webMoreCreateSite(t, client, rg, s4HostOtherName, planID)
 
 	// Publish the ownership proof in the simulator's Azure DNS: a zone with
 	// a CNAME pointing the custom hostname at the site's default hostname.
 	zonesClient, err := armdns.NewZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	_, err = zonesClient.CreateOrUpdate(ctx, rg, "stage4-zone.test", armdns.Zone{Location: to.Ptr("global")}, nil)
+	_, err = zonesClient.CreateOrUpdate(ctx, rg, zone, armdns.Zone{Location: to.Ptr("global")}, nil)
 	require.NoError(t, err)
 	recordsClient, err := armdns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	_, err = recordsClient.CreateOrUpdate(ctx, rg, "stage4-zone.test", "app", armdns.RecordTypeCNAME, armdns.RecordSet{
+	_, err = recordsClient.CreateOrUpdate(ctx, rg, zone, "app", armdns.RecordTypeCNAME, armdns.RecordSet{
 		Properties: &armdns.RecordSetProperties{
 			TTL:         to.Ptr[int64](300),
-			CnameRecord: &armdns.CnameRecord{Cname: to.Ptr("s4-host-site.azurewebsites.net")},
+			CnameRecord: &armdns.CnameRecord{Cname: to.Ptr(s4HostSiteName + ".azurewebsites.net")},
 		},
 	}, nil)
 	require.NoError(t, err)
 
-	host := "app.stage4-zone.test"
+	host := "app." + zone
 
 	// The CNAME analysis reads the record set for real: target listed,
 	// verification test passed.
-	analysis, err := client.AnalyzeCustomHostname(ctx, rg, "s4-host-site",
+	analysis, err := client.AnalyzeCustomHostname(ctx, rg, s4HostSiteName,
 		&armappservice.WebAppsClientAnalyzeCustomHostnameOptions{HostName: to.Ptr(host)})
 	require.NoError(t, err)
 	require.NotNil(t, analysis.Properties)
 	require.Len(t, analysis.Properties.CNameRecords, 1)
-	assert.Equal(t, "s4-host-site.azurewebsites.net", *analysis.Properties.CNameRecords[0])
+	assert.Equal(t, s4HostSiteName+".azurewebsites.net", *analysis.Properties.CNameRecords[0])
 	require.NotNil(t, analysis.Properties.CustomDomainVerificationTest)
 	assert.Equal(t, armappservice.DNSVerificationTestResultPassed, *analysis.Properties.CustomDomainVerificationTest)
 	require.NotNil(t, analysis.Properties.IsHostnameAlreadyVerified)
 	assert.False(t, *analysis.Properties.IsHostnameAlreadyVerified)
 
 	// A hostname without any DNS record fails the verification test.
-	unproven, err := client.AnalyzeCustomHostname(ctx, rg, "s4-host-site",
-		&armappservice.WebAppsClientAnalyzeCustomHostnameOptions{HostName: to.Ptr("nowhere.stage4-zone.test")})
+	unproven, err := client.AnalyzeCustomHostname(ctx, rg, s4HostSiteName,
+		&armappservice.WebAppsClientAnalyzeCustomHostnameOptions{HostName: to.Ptr("nowhere." + zone)})
 	require.NoError(t, err)
 	require.NotNil(t, unproven.Properties.CustomDomainVerificationTest)
 	assert.Equal(t, armappservice.DNSVerificationTestResultFailed, *unproven.Properties.CustomDomainVerificationTest)
@@ -361,7 +364,7 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 
 	// Bind the hostname to the site, then re-analyze: the binding owner sees
 	// isHostnameAlreadyVerified, the other site sees the conflict.
-	_, err = client.CreateOrUpdateHostNameBinding(ctx, rg, "s4-host-site", host, armappservice.HostNameBinding{
+	_, err = client.CreateOrUpdateHostNameBinding(ctx, rg, s4HostSiteName, host, armappservice.HostNameBinding{
 		Properties: &armappservice.HostNameBindingProperties{
 			CustomHostNameDNSRecordType: to.Ptr(armappservice.CustomHostNameDNSRecordTypeCName),
 			HostNameType:                to.Ptr(armappservice.HostNameTypeVerified),
@@ -369,29 +372,29 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	bound, err := client.AnalyzeCustomHostname(ctx, rg, "s4-host-site",
+	bound, err := client.AnalyzeCustomHostname(ctx, rg, s4HostSiteName,
 		&armappservice.WebAppsClientAnalyzeCustomHostnameOptions{HostName: to.Ptr(host)})
 	require.NoError(t, err)
 	require.NotNil(t, bound.Properties.IsHostnameAlreadyVerified)
 	assert.True(t, *bound.Properties.IsHostnameAlreadyVerified)
 
-	conflicted, err := client.AnalyzeCustomHostname(ctx, rg, "s4-host-other",
+	conflicted, err := client.AnalyzeCustomHostname(ctx, rg, s4HostOtherName,
 		&armappservice.WebAppsClientAnalyzeCustomHostnameOptions{HostName: to.Ptr(host)})
 	require.NoError(t, err)
 	require.NotNil(t, conflicted.Properties.HasConflictOnScaleUnit)
 	assert.True(t, *conflicted.Properties.HasConflictOnScaleUnit)
 	require.NotNil(t, conflicted.Properties.ConflictingAppResourceID)
-	assert.Contains(t, *conflicted.Properties.ConflictingAppResourceID, "s4-host-site")
+	assert.Contains(t, *conflicted.Properties.ConflictingAppResourceID, s4HostSiteName)
 
 	// Slot spelling.
-	slotPoller, err := client.BeginCreateOrUpdateSlot(ctx, rg, "s4-host-site", "staging", armappservice.Site{
+	slotPoller, err := client.BeginCreateOrUpdateSlot(ctx, rg, s4HostSiteName, "staging", armappservice.Site{
 		Location:   to.Ptr("eastus"),
 		Properties: &armappservice.SiteProperties{ServerFarmID: to.Ptr(planID)},
 	}, nil)
 	require.NoError(t, err)
 	_, err = slotPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	slotAnalysis, err := client.AnalyzeCustomHostnameSlot(ctx, rg, "s4-host-site", "staging",
+	slotAnalysis, err := client.AnalyzeCustomHostnameSlot(ctx, rg, s4HostSiteName, "staging",
 		&armappservice.WebAppsClientAnalyzeCustomHostnameSlotOptions{HostName: to.Ptr(host)})
 	require.NoError(t, err)
 	require.NotNil(t, slotAnalysis.Properties)
@@ -412,7 +415,7 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 				foundHost = true
 				require.NotEmpty(t, row.Properties.SiteResourceIDs)
 				require.NotNil(t, row.Properties.SiteResourceIDs[0].ID)
-				assert.Contains(t, *row.Properties.SiteResourceIDs[0].ID, "s4-host-site")
+				assert.Contains(t, *row.Properties.SiteResourceIDs[0].ID, s4HostSiteName)
 			}
 		}
 	}
@@ -425,7 +428,7 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 		page, err := idPager.NextPage(ctx)
 		require.NoError(t, err)
 		for _, ident := range page.Value {
-			if ident.Name != nil && *ident.Name == "s4-host-site" {
+			if ident.Name != nil && *ident.Name == s4HostSiteName {
 				foundSite = true
 			}
 		}
@@ -510,8 +513,9 @@ func TestSDK_WebApps_ConfigSnapshotsAndRecover(t *testing.T) {
 }
 
 func TestSDK_WebApps_ContainerLogs(t *testing.T) {
-	rg := "stage4-logs-rg"
-	name := "s4-logs-site"
+	s4LogsQuietName := uniqueName("s4-logs-quiet")
+	rg := uniqueName("stage4-logs-rg")
+	name := uniqueName("s4-logs-site")
 	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 hello-from-stage4", nil)
 	t.Cleanup(func() { azureDeleteSite(rg, name) })
 
@@ -554,10 +558,10 @@ func TestSDK_WebApps_ContainerLogs(t *testing.T) {
 	assert.Equal(t, logText, zipped, "zip content is the same retained log text")
 
 	// A site whose container never ran has no log content: 204.
-	quietRG := "stage4-logs-quiet-rg"
-	azureCreateContainerSite(t, quietRG, "s4-logs-quiet", commandImageName, "serve 80 quiet", nil)
-	t.Cleanup(func() { azureDeleteSite(quietRG, "s4-logs-quiet") })
-	quiet, err := client.GetWebSiteContainerLogs(ctx, quietRG, "s4-logs-quiet", nil)
+	quietRG := uniqueName("stage4-logs-quiet-rg")
+	azureCreateContainerSite(t, quietRG, s4LogsQuietName, commandImageName, "serve 80 quiet", nil)
+	t.Cleanup(func() { azureDeleteSite(quietRG, s4LogsQuietName) })
+	quiet, err := client.GetWebSiteContainerLogs(ctx, quietRG, s4LogsQuietName, nil)
 	require.NoError(t, err)
 	quietBody, err := io.ReadAll(quiet.Body)
 	require.NoError(t, err)
@@ -685,15 +689,16 @@ func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
 }
 
 func TestSDK_Web_MoveResources(t *testing.T) {
-	srcRG, dstRG := "stage4-move-src-rg", "stage4-move-dst-rg"
+	s4MoveSiteName := uniqueName("s4-move-site")
+	srcRG, dstRG := uniqueName("stage4-move-src-rg"), uniqueName("stage4-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 	planID := webMoreEnsurePlan(t, srcRG, "s4-move-plan")
 
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	webMoreCreateSite(t, client, srcRG, "s4-move-site", planID)
-	siteID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + srcRG + "/providers/Microsoft.Web/sites/s4-move-site"
+	webMoreCreateSite(t, client, srcRG, s4MoveSiteName, planID)
+	siteID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + srcRG + "/providers/Microsoft.Web/sites/" + s4MoveSiteName
 
 	mgmt, err := armappservice.NewWebSiteManagementClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -705,16 +710,16 @@ func TestSDK_Web_MoveResources(t *testing.T) {
 	// ValidateMove runs the move's checks without moving anything.
 	_, err = mgmt.ValidateMove(ctx, srcRG, envelope, nil)
 	require.NoError(t, err)
-	_, err = client.Get(ctx, srcRG, "s4-move-site", nil)
+	_, err = client.Get(ctx, srcRG, s4MoveSiteName, nil)
 	require.NoError(t, err, "validate-move must not move the site")
 
 	// Move re-homes the site (and its plan) into the target resource group.
 	_, err = mgmt.Move(ctx, srcRG, envelope, nil)
 	require.NoError(t, err)
 
-	moved, err := client.Get(ctx, dstRG, "s4-move-site", nil)
+	moved, err := client.Get(ctx, dstRG, s4MoveSiteName, nil)
 	require.NoError(t, err, "moved site must appear under the target resource group")
-	_, err = client.Get(ctx, srcRG, "s4-move-site", nil)
+	_, err = client.Get(ctx, srcRG, s4MoveSiteName, nil)
 	require.Error(t, err, "moved site must no longer resolve under the source resource group")
 	require.NotNil(t, moved.Properties.ServerFarmID)
 	assert.Contains(t, *moved.Properties.ServerFarmID, "/resourceGroups/"+dstRG+"/",

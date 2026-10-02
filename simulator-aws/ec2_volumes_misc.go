@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -1116,6 +1117,11 @@ func handleReplaceRouteTableAssociation(w http.ResponseWriter, r *http.Request) 
 			Main:          main,
 		})
 	})
+	if rt, ok := ec2RouteTables.Get(newRT); ok {
+		if err := ec2ApplyRealRouteTableMembership(r.Context(), rt.VpcId); err != nil {
+			fmt.Fprintf(os.Stderr, "sim: real NAT and egress policy for %s unavailable after association replace: %v\n", rt.VpcId, err)
+		}
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ReplaceRouteTableAssociationResponse %s><requestId>%s</requestId><newAssociationId>%s</newAssociationId><associationState><state>associated</state></associationState></ReplaceRouteTableAssociationResponse>`,
 		ec2Xmlns(), sim.NewUUID(), newAssocID)

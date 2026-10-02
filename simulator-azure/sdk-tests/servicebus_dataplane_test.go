@@ -43,8 +43,8 @@ func sbReq(t *testing.T, method, namespace, path string, body []byte, headers ma
 // TestServiceBus_QueueRESTRoundTrip exercises the canonical
 // SendMessage → ReceiveAndDelete flow with real status codes.
 func TestServiceBus_QueueRESTRoundTrip(t *testing.T) {
-	ns := "ns1"
-	queue := "myqueue"
+	ns := uniqueName("ns1")
+	queue := uniqueName("myqueue")
 
 	// SendMessage must return 201, not 200.
 	resp := sbReq(t, "POST", ns, "/"+queue+"/messages", []byte("hello sb body"),
@@ -79,8 +79,8 @@ func TestServiceBus_QueueRESTRoundTrip(t *testing.T) {
 // (the read-with-lock-then-ack flow that gives at-least-once delivery
 // guarantees in real Service Bus).
 func TestServiceBus_PeekLockComplete(t *testing.T) {
-	ns := "ns2"
-	queue := "lockqueue"
+	ns := uniqueName("ns2")
+	queue := uniqueName("lockqueue")
 
 	// Send a message.
 	resp := sbReq(t, "POST", ns, "/"+queue+"/messages", []byte("locked body"), nil)
@@ -141,8 +141,8 @@ func TestServiceBus_PeekLockComplete(t *testing.T) {
 // subscription variant: POST /{topic}/messages then DELETE
 // /{topic}/subscriptions/{sub}/messages/head.
 func TestServiceBus_TopicSubscriptionRoundTrip(t *testing.T) {
-	ns := "ns3"
-	topic := "mytopic"
+	ns := uniqueName("ns3")
+	topic := uniqueName("mytopic")
 	sub := "mysub"
 
 	// Send to topic.
@@ -265,7 +265,7 @@ func sbRawAMQPClient(t *testing.T, namespace string) *azservicebus.Client {
 }
 
 func TestServiceBus_AMQPSDKQueueSendReceive(t *testing.T) {
-	client := sbAMQPClient(t, "sdk-amqp-data")
+	client := sbAMQPClient(t, uniqueName("sdk-amqp-data"))
 	t.Cleanup(func() { _ = client.Close(context.Background()) })
 
 	sender, err := client.NewSender("amqpqueue", nil)
@@ -295,8 +295,8 @@ func TestServiceBus_AMQPSDKQueueSendReceive(t *testing.T) {
 }
 
 func TestServiceBus_AMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
-	namespace := "sdk-amqp-topic"
-	topic := "amqptopic"
+	namespace := uniqueName("sdk-amqp-topic")
+	topic := uniqueName("amqptopic")
 	sub := "sub1"
 	adminClient := sbAdminClient(t, namespace)
 	_, err := adminClient.CreateTopic(ctx, topic, nil)
@@ -334,7 +334,7 @@ func TestServiceBus_AMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 }
 
 func TestServiceBus_RawAMQPSDKQueueSendReceive(t *testing.T) {
-	client := sbRawAMQPClient(t, "sdk-raw-amqp-data")
+	client := sbRawAMQPClient(t, uniqueName("sdk-raw-amqp-data"))
 	t.Cleanup(func() { _ = client.Close(context.Background()) })
 
 	sender, err := client.NewSender("rawamqpqueue", nil)
@@ -364,8 +364,8 @@ func TestServiceBus_RawAMQPSDKQueueSendReceive(t *testing.T) {
 }
 
 func TestServiceBus_RawAMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
-	namespace := "sdk-raw-amqp-topic"
-	topic := "rawamqptopic"
+	namespace := uniqueName("sdk-raw-amqp-topic")
+	topic := uniqueName("rawamqptopic")
 	sub := "sub1"
 	adminClient := sbAdminClient(t, namespace)
 	_, err := adminClient.CreateTopic(ctx, topic, nil)
@@ -407,8 +407,8 @@ func TestServiceBus_RawAMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 // messages reach the receiver, not the management link the SDK attaches
 // beside it.
 func TestServiceBus_AMQPSDKSubscriptionReceiverOnItsOwnClient(t *testing.T) {
-	namespace := "sdk-amqp-sub-own"
-	topic := "owntopic"
+	namespace := uniqueName("sdk-amqp-sub-own")
+	topic := uniqueName("owntopic")
 	sub := "sub1"
 	adminClient := sbAdminClient(t, namespace)
 	_, err := adminClient.CreateTopic(ctx, topic, nil)

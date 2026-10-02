@@ -23,6 +23,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -538,4 +539,20 @@ func testRunSelects(name string) bool {
 		log.Fatalf("Invalid -test.run expression %q: %v", pattern, err)
 	}
 	return selected
+}
+
+var uniqueNameSequence atomic.Int64
+
+// uniqueName suffixes prefix with a lowercase alphanumeric id unique to this
+// run, so a test run again against the same simulator names new resources.
+func uniqueName(prefix string) string {
+	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.FormatInt(uniqueNameSequence.Add(1), 36)
+}
+
+// uniqueAlnumName suffixes prefix with eight lowercase alphanumerics, for the
+// resources whose names admit no hyphen or run to only 24 characters: storage
+// accounts, key vaults, container registries.
+func uniqueAlnumName(prefix string) string {
+	id := strconv.FormatInt(time.Now().UnixNano()+uniqueNameSequence.Add(1), 36)
+	return prefix + id[len(id)-8:]
 }

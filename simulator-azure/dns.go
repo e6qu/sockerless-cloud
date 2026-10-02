@@ -640,19 +640,26 @@ func registerPrivateDNS(srv *sim.Server) {
 }
 
 // realizeCNAMEAsDockerAlias makes recordName resolve to the App targeted by a
-// CNAME (whose value is the App's LatestRevisionFqdn) by adding it as a
-// Docker embedded-DNS alias on the App's container — the same mechanism the
-// sim uses to make the App name and FQDN resolve. This is how the sim
-// realizes Private DNS records locally; it is not sockerless-specific (any
-// CNAME → an App FQDN resolves this way). No-op when no App matches (e.g. a
-// CNAME to an external target).
+// CNAME — whose value is the App's FQDN or one of its revisions' — by adding it
+// as a Docker embedded-DNS alias on the containers that answer that name: every
+// active revision's for the App's FQDN, one revision's for its own. This is the
+// mechanism the sim uses to make the App name and FQDN resolve, and how it
+// realizes Private DNS records locally; any CNAME → an App FQDN resolves this
+// way. No-op when no App matches (e.g. a CNAME to an external target).
 func realizeCNAMEAsDockerAlias(cname string) {
 	target := strings.TrimSuffix(cname, ".")
 	if target == "" {
 		return
 	}
 	for _, app := range acaApps.List() {
-		if strings.TrimSuffix(app.Properties.LatestRevisionFqdn, ".") != target {
+		appFqdn := strings.TrimSuffix(acaAppFqdn(app), ".")
+		var revisions []acaRevision
+		for _, rev := range acaAppRevisions(app.ID) {
+			if rev.Active && (target == appFqdn || target == strings.TrimSuffix(rev.Fqdn, ".")) {
+				revisions = append(revisions, rev)
+			}
+		}
+		if len(revisions) == 0 {
 			continue
 		}
 		envID := app.Properties.EnvironmentID
@@ -663,24 +670,19 @@ func realizeCNAMEAsDockerAlias(cname string) {
 		if !ok || env.DockerNetworkName == "" {
 			return
 		}
-		handlesV, ok := acaAppReplicaHandles.Load(app.ID)
-		if !ok {
-			return
-		}
 		// Docker can't add an alias to a live network endpoint, so re-attach
-		// the container with the full set: App name + FQDN + every CNAME that
-		// points at this App.
-		aliases := dedupeStrings(append([]string{
-			app.Name,
-			strings.TrimSuffix(app.Properties.LatestRevisionFqdn, "."),
-		}, cnameAliasesForTarget(target)...))
-		handles, _ := handlesV.([]*sim.ContainerHandle)
-		for _, h := range handles {
-			if h == nil || h.ContainerID == "" {
-				continue
+		// each container with the full set: App name + FQDNs + every CNAME
+		// that points at them.
+		for _, rev := range revisions {
+			aliases := dedupeStrings(append(append([]string{app.Name, appFqdn, strings.TrimSuffix(rev.Fqdn, ".")},
+				cnameAliasesForTarget(appFqdn)...), cnameAliasesForTarget(strings.TrimSuffix(rev.Fqdn, "."))...))
+			for _, h := range acaRevisionHandles(rev.ID) {
+				if h == nil || h.ContainerID == "" {
+					continue
+				}
+				_ = sim.DisconnectContainerFromNetwork(h.ContainerID, env.DockerNetworkName)
+				_ = sim.ConnectContainerToNetwork(h.ContainerID, env.DockerNetworkName, aliases)
 			}
-			_ = sim.DisconnectContainerFromNetwork(h.ContainerID, env.DockerNetworkName)
-			_ = sim.ConnectContainerToNetwork(h.ContainerID, env.DockerNetworkName, aliases)
 		}
 		return
 	}

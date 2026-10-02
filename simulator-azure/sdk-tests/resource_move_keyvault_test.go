@@ -34,11 +34,11 @@ import (
 // material from the resource ID: the ciphertext only decrypts if the stored
 // RSA key is literally the same key.
 func TestAzureResources_MoveKeyVault(t *testing.T) {
-	srcRG, dstRG := "kv-move-src-rg", "kv-move-dst-rg"
+	srcRG, dstRG := uniqueName("kv-move-src-rg"), uniqueName("kv-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	const vault = "kv-move-vault"
+	vault := uniqueAlnumName("kvmovevault")
 	createKVVault(t, srcRG, vault)
 
 	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())

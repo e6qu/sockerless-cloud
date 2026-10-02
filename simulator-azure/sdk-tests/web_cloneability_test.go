@@ -18,7 +18,9 @@ import (
 // the site is placed on decides whether a clone is possible at all, and the
 // deployment slots a clone would leave behind decide whether it is partial.
 func TestSDK_WebApps_IsCloneable(t *testing.T) {
-	rg := "sdk-cloneable-rg"
+	sdkCloneablePremiumName := uniqueName("sdk-cloneable-premium")
+	sdkCloneableBasicName := uniqueName("sdk-cloneable-basic")
+	rg := uniqueName("sdk-cloneable-rg")
 	ensureRG(t, rg)
 
 	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -51,9 +53,9 @@ func TestSDK_WebApps_IsCloneable(t *testing.T) {
 	// A site on a Basic plan cannot be cloned, and the refusal names the tier
 	// that blocks it.
 	basic := newPlan("sdk-cloneable-basic-plan", "B1", "Basic")
-	newSite("sdk-cloneable-basic", basic)
+	newSite(sdkCloneableBasicName, basic)
 
-	blocked, err := sites.IsCloneable(ctx, rg, "sdk-cloneable-basic", nil)
+	blocked, err := sites.IsCloneable(ctx, rg, sdkCloneableBasicName, nil)
 	require.NoError(t, err)
 	require.NotNil(t, blocked.Result)
 	assert.Equal(t, armappservice.CloneAbilityResultNotCloneable, *blocked.Result)
@@ -64,9 +66,9 @@ func TestSDK_WebApps_IsCloneable(t *testing.T) {
 	// the question, so scaling the plan up changes the answer without the site
 	// being touched.
 	premium := newPlan("sdk-cloneable-premium-plan", "P1v3", "PremiumV3")
-	newSite("sdk-cloneable-premium", premium)
+	newSite(sdkCloneablePremiumName, premium)
 
-	ok, err := sites.IsCloneable(ctx, rg, "sdk-cloneable-premium", nil)
+	ok, err := sites.IsCloneable(ctx, rg, sdkCloneablePremiumName, nil)
 	require.NoError(t, err)
 	require.NotNil(t, ok.Result)
 	assert.Equal(t, armappservice.CloneAbilityResultCloneable, *ok.Result)
@@ -75,13 +77,13 @@ func TestSDK_WebApps_IsCloneable(t *testing.T) {
 
 	// A deployment slot is not copied to the clone, so a site that has one can
 	// be cloned only in part, and the slot is named.
-	slotPoller, err := sites.BeginCreateOrUpdateSlot(ctx, rg, "sdk-cloneable-premium", "staging",
+	slotPoller, err := sites.BeginCreateOrUpdateSlot(ctx, rg, sdkCloneablePremiumName, "staging",
 		armappservice.Site{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 	_, err = slotPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	partial, err := sites.IsCloneable(ctx, rg, "sdk-cloneable-premium", nil)
+	partial, err := sites.IsCloneable(ctx, rg, sdkCloneablePremiumName, nil)
 	require.NoError(t, err)
 	require.NotNil(t, partial.Result)
 	assert.Equal(t, armappservice.CloneAbilityResultPartiallyCloneable, *partial.Result)
@@ -90,7 +92,7 @@ func TestSDK_WebApps_IsCloneable(t *testing.T) {
 
 	// The slot itself is inside a slot already, so it has none of its own and
 	// is fully cloneable.
-	slot, err := sites.IsCloneableSlot(ctx, rg, "sdk-cloneable-premium", "staging", nil)
+	slot, err := sites.IsCloneableSlot(ctx, rg, sdkCloneablePremiumName, "staging", nil)
 	require.NoError(t, err)
 	require.NotNil(t, slot.Result)
 	assert.Equal(t, armappservice.CloneAbilityResultCloneable, *slot.Result)

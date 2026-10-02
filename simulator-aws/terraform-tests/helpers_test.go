@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
 	"github.com/stretchr/testify/require"
@@ -131,22 +132,19 @@ func TestMain(m *testing.M) {
 			fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_DEFAULT_SIM_PORT=%d", simPort),
 		)
 		gatewayCmd.Stdout = os.Stdout
-		gatewayCmd.Stderr = os.Stderr
 		// Own process group, reaped the same way as the simulator.
 		gatewayCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		if err := gatewayCmd.Start(); err != nil {
+		if err := httpsgateway.Start(gatewayCmd, os.Stderr); err != nil {
+			if gatewayCmd.Process != nil {
+				gatewayCmd.Process.Kill()
+			}
 			simCmd.Process.Kill()
 			log.Fatalf("Failed to start HTTPS gateway: %v", err)
 		}
 
 		tfEndpoint = fmt.Sprintf("https://localhost:%d", gatewayPort)
 		requireHTTPSURL(tfEndpoint, "AWS Terraform HTTPS gateway endpoint")
-		if err := waitForFile(caCertFile, 10*time.Second); err != nil {
-			gatewayCmd.Process.Kill()
-			simCmd.Process.Kill()
-			log.Fatalf("HTTPS gateway did not publish its local CA: %v", err)
-		}
-		if err := waitForHTTPSHealth(tfEndpoint+"/health", caCertFile); err != nil {
+		if err := checkHTTPSHealth(tfEndpoint+"/health", caCertFile); err != nil {
 			gatewayCmd.Process.Kill()
 			simCmd.Process.Kill()
 			log.Fatalf("HTTPS gateway did not become healthy: %v", err)
@@ -439,35 +437,21 @@ func requireHTTPSURL(raw, purpose string) {
 	}
 }
 
-func waitForFile(path string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if info, err := os.Stat(path); err == nil && info.Size() > 0 {
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for %s", path)
-}
-
-func waitForHTTPSHealth(raw, caCert string) error {
+func checkHTTPSHealth(raw, caCert string) error {
 	client, err := trustedHTTPClient(caCert)
 	if err != nil {
 		return err
 	}
-	for i := 0; i < 50; i++ {
-		resp, err := client.Get(raw)
-		if err == nil && resp.StatusCode == 200 {
-			_, _ = io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
-			return nil
-		}
-		if resp != nil {
-			resp.Body.Close()
-		}
-		time.Sleep(100 * time.Millisecond)
+	resp, err := client.Get(raw)
+	if err != nil {
+		return fmt.Errorf("GET %s: %w", raw, err)
 	}
-	return fmt.Errorf("timeout waiting for %s", raw)
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET %s: status %d", raw, resp.StatusCode)
+	}
+	return nil
 }
 
 func trustedHTTPClient(caCert string) (*http.Client, error) {

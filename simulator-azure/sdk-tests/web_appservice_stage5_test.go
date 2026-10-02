@@ -673,22 +673,23 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 // and slot: absent reads as disabled with no Virtual Networks, and a PUT
 // round-trips exactly.
 func TestSDK_WebPrivateAccess_RoundTrip(t *testing.T) {
-	rg := "stage5-pa-rg"
+	s5PaAppName := uniqueName("s5-pa-app")
+	rg := uniqueName("stage5-pa-rg")
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-pa-plan", "S1", "Standard")
-	stage5CreateSite(t, rg, "s5-pa-app", planID, unstartedSiteImage, "", false)
+	stage5CreateSite(t, rg, s5PaAppName, planID, unstartedSiteImage, "", false)
 
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	initial, err := web.GetPrivateAccess(ctx, rg, "s5-pa-app", nil)
+	initial, err := web.GetPrivateAccess(ctx, rg, s5PaAppName, nil)
 	require.NoError(t, err)
 	require.NotNil(t, initial.Properties)
 	assert.False(t, *initial.Properties.Enabled)
 	assert.Empty(t, initial.Properties.VirtualNetworks)
 
 	vnetID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Network/virtualNetworks/s5-pa-vnet"
-	put, err := web.PutPrivateAccessVnet(ctx, rg, "s5-pa-app", armappservice.PrivateAccess{
+	put, err := web.PutPrivateAccessVnet(ctx, rg, s5PaAppName, armappservice.PrivateAccess{
 		Properties: &armappservice.PrivateAccessProperties{
 			Enabled: to.Ptr(true),
 			VirtualNetworks: []*armappservice.PrivateAccessVirtualNetwork{{
@@ -707,14 +708,14 @@ func TestSDK_WebPrivateAccess_RoundTrip(t *testing.T) {
 	require.Len(t, put.Properties.VirtualNetworks, 1)
 	assert.Equal(t, vnetID, *put.Properties.VirtualNetworks[0].ResourceID)
 
-	got, err := web.GetPrivateAccess(ctx, rg, "s5-pa-app", nil)
+	got, err := web.GetPrivateAccess(ctx, rg, s5PaAppName, nil)
 	require.NoError(t, err)
 	require.Len(t, got.Properties.VirtualNetworks, 1)
 	require.Len(t, got.Properties.VirtualNetworks[0].Subnets, 1)
 	assert.Equal(t, "appsvc", *got.Properties.VirtualNetworks[0].Subnets[0].Name)
 
 	// Slot spelling.
-	slotPoller, err := web.BeginCreateOrUpdateSlot(ctx, rg, "s5-pa-app", "stage", armappservice.Site{
+	slotPoller, err := web.BeginCreateOrUpdateSlot(ctx, rg, s5PaAppName, "stage", armappservice.Site{
 		Location:   to.Ptr("eastus"),
 		Kind:       to.Ptr("functionapp,linux,container"),
 		Properties: &armappservice.SiteProperties{ServerFarmID: to.Ptr(planID)},
@@ -722,10 +723,10 @@ func TestSDK_WebPrivateAccess_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	_, err = slotPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	slotInitial, err := web.GetPrivateAccessSlot(ctx, rg, "s5-pa-app", "stage", nil)
+	slotInitial, err := web.GetPrivateAccessSlot(ctx, rg, s5PaAppName, "stage", nil)
 	require.NoError(t, err)
 	assert.False(t, *slotInitial.Properties.Enabled)
-	_, err = web.PutPrivateAccessVnetSlot(ctx, rg, "s5-pa-app", "stage", armappservice.PrivateAccess{
+	_, err = web.PutPrivateAccessVnetSlot(ctx, rg, s5PaAppName, "stage", armappservice.PrivateAccess{
 		Properties: &armappservice.PrivateAccessProperties{Enabled: to.Ptr(true)},
 	}, nil)
 	require.NoError(t, err)

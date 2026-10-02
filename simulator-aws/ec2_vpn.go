@@ -212,6 +212,7 @@ func registerEC2VPN(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DescribeClientVpnConnections", handleDescribeClientVpnConnections)
 	r.Register("TerminateClientVpnConnections", handleTerminateClientVpnConnections)
 	r.Register("ApplySecurityGroupsToClientVpnTargetNetwork", handleApplySecurityGroupsToClientVpnTargetNetwork)
+	registerEC2ClientVpnAuthorizationPolicy(r, srv)
 }
 
 func handleCreateCustomerGateway(w http.ResponseWriter, r *http.Request) {
@@ -1110,6 +1111,7 @@ func handleDeleteClientVpnEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ec2ClientVpnEndpoint.Delete(id)
+	ec2ClientVpnAuthzPolicies.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteClientVpnEndpointResponse %s><requestId>%s</requestId><status><code>deleting</code></status></DeleteClientVpnEndpointResponse>`, ec2Xmlns(), sim.NewUUID())
 }

@@ -274,6 +274,11 @@ func handleRDSRestoreClusterFromSnapshot(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		snap, ok = findRDSClusterSnapshotByARN(snapID)
 		if !ok {
+			// A DB snapshot is named by its ARN alone.
+			if instanceSnapshot, found := findRDSSnapshotByARN(snapID); found && strings.HasPrefix(snapID, "arn:") {
+				rdsRestoreClusterFromDBSnapshot(w, r, newID, instanceSnapshot)
+				return
+			}
 			rdsErrorXML(w, "DBClusterSnapshotNotFoundFault",
 				fmt.Sprintf("DBClusterSnapshot %q not found", snapID),
 				http.StatusNotFound, sim.RequestID(r.Context()))
@@ -322,6 +327,56 @@ func handleRDSRestoreClusterFromSnapshot(w http.ResponseWriter, r *http.Request)
 	cl.MasterUserSecret = append([]byte(nil), snap.MasterUserSecret...)
 	cl.BackendMasterUserSecret = append([]byte(nil), snap.BackendMasterUserSecret...)
 	cl.RestoreSourceVolume = rdsClusterSnapshotVolume(snap.DBClusterSnapshotIdentifier)
+	rdsStartClusterRestore(w, r, cl, "RestoreDBClusterFromSnapshot")
+}
+
+// rdsAuroraMigrationEngine is the Aurora engine a DB snapshot of an RDS for
+// PostgreSQL or RDS for MySQL instance migrates to.
+func rdsAuroraMigrationEngine(engine string) string {
+	switch {
+	case strings.HasPrefix(strings.ToLower(engine), "postgres"):
+		return "aurora-postgresql"
+	case strings.EqualFold(engine, "mysql"):
+		return "aurora-mysql"
+	}
+	return ""
+}
+
+// rdsRestoreClusterFromDBSnapshot migrates a DB instance snapshot into a new
+// Aurora cluster: the cluster volume starts as the instance's data directory,
+// which the Aurora engine of the same family opens as it is, under the master
+// credential the data was written with.
+func rdsRestoreClusterFromDBSnapshot(w http.ResponseWriter, r *http.Request, newID string, snap RDSSnapshot) {
+	requestID := sim.RequestID(r.Context())
+	if _, exists := rdsClusters.Get(newID); exists {
+		rdsErrorXML(w, "DBClusterAlreadyExistsFault", fmt.Sprintf("DBCluster %q already exists", newID), http.StatusConflict, requestID)
+		return
+	}
+	if snap.Status != "available" {
+		rdsErrorXML(w, "InvalidDBSnapshotState",
+			fmt.Sprintf("DBSnapshot %q is %s; it must be available to restore from", snap.DBSnapshotIdentifier, snap.Status),
+			http.StatusBadRequest, requestID)
+		return
+	}
+	engine := r.FormValue("Engine")
+	if engine == "" || !strings.EqualFold(engine, rdsAuroraMigrationEngine(snap.Engine)) {
+		rdsErrorXML(w, "InvalidParameterCombination",
+			fmt.Sprintf("The engine %s is not compatible with the engine %s of DB snapshot %s.", engine, snap.Engine, snap.DBSnapshotIdentifier),
+			http.StatusBadRequest, requestID)
+		return
+	}
+	engine = rdsAuroraMigrationEngine(snap.Engine)
+	cl := rdsClusterFromSource(r, newID, engine, r.FormValue("EngineVersion"))
+	if cl.DatabaseName == "" {
+		cl.DatabaseName = snap.DBName
+	}
+	cl.MasterUsername = snap.MasterUsername
+	cl.AllocatedStorage = snap.AllocatedStorage
+	cl.DeletionProtection = strings.EqualFold(r.FormValue("DeletionProtection"), "true")
+	cl.EnableIAMDatabaseAuthentication = strings.EqualFold(r.FormValue("EnableIAMDatabaseAuthentication"), "true")
+	cl.MasterUserSecret = append([]byte(nil), snap.MasterUserSecret...)
+	cl.BackendMasterUserSecret = append([]byte(nil), snap.MasterUserSecret...)
+	cl.RestoreSourceVolume = rdsSnapshotVolume(snap.DBSnapshotIdentifier)
 	rdsStartClusterRestore(w, r, cl, "RestoreDBClusterFromSnapshot")
 }
 
@@ -387,16 +442,29 @@ func handleRDSRestoreClusterToPointInTime(w http.ResponseWriter, r *http.Request
 			"Cannot specify RestoreToTime with the copy-on-write RestoreType.",
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
-	case restoreToTime != "":
-		rdsErrorXML(w, "InvalidRestoreFault",
-			fmt.Sprintf("DB cluster %s keeps no continuous backup to restore to %s from; restore it with UseLatestRestorableTime.", srcID, restoreToTime),
-			http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	case !latest:
+	case !latest && restoreToTime == "":
 		rdsErrorXML(w, "InvalidParameterCombination",
 			"RestoreToTime must be specified unless UseLatestRestorableTime is enabled.",
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
+	}
+	var target time.Time
+	if restoreToTime != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, restoreToTime)
+		if err != nil {
+			rdsErrorXML(w, "InvalidParameterValue",
+				fmt.Sprintf("RestoreToTime %q is not a valid timestamp.", restoreToTime),
+				http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+		target = parsed.UTC()
+		earliest, newest, ok := rdsRestorableWindow(src)
+		if !ok || target.Before(earliest) || target.After(newest) {
+			rdsErrorXML(w, "InvalidRestoreFault",
+				fmt.Sprintf("The restore time %s is outside the restorable window of DB cluster %s.", restoreToTime, srcID),
+				http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
 	}
 	if !rdsClusterVolumeSettled(w, r, src) {
 		return
@@ -415,6 +483,15 @@ func handleRDSRestoreClusterToPointInTime(w http.ResponseWriter, r *http.Request
 	cl.MasterUserSecret = append([]byte(nil), src.MasterUserSecret...)
 	cl.BackendMasterUserSecret = append([]byte(nil), src.BackendMasterUserSecret...)
 	cl.RestoreSourceVolume = rdsClusterVolume(src.DBClusterIdentifier)
+	if !target.IsZero() {
+		cl.RestoreSourceVolume = rdsClusterBaseBackupVolume(src.DBClusterIdentifier)
+		cl.RestoreLogVolume = rdsClusterVolume(src.DBClusterIdentifier)
+		cl.RestoreToTime = target.Format(time.RFC3339Nano)
+		if strings.EqualFold(cl.Engine, "aurora-mysql") {
+			// The binary log replay installs the master password.
+			cl.BackendMasterUserSecret = append([]byte(nil), cl.MasterUserSecret...)
+		}
+	}
 	rdsStartClusterRestore(w, r, cl, "RestoreDBClusterToPointInTime")
 }
 
