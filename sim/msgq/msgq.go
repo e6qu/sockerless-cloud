@@ -142,6 +142,12 @@ type EnqueueOpts struct {
 
 func ms(t time.Time) int64 { return t.UnixMilli() }
 
+// deadline is the first whole millisecond at or after t plus d, so a stored
+// deadline never falls before the instant it stands for.
+func deadline(t time.Time, d time.Duration) int64 {
+	return (t.Add(d).UnixNano() + int64(time.Millisecond) - 1) / int64(time.Millisecond)
+}
+
 // Enqueue appends a message. When opts.DedupKey names a live deduplication
 // record it stores nothing and returns the original's identity with dup true.
 func (q *Queue[P]) Enqueue(payload P, opts EnqueueOpts, pol Policy, now time.Time) (Message[P], bool) {
@@ -155,7 +161,7 @@ func (q *Queue[P]) Enqueue(payload P, opts EnqueueOpts, pol Policy, now time.Tim
 		Seq:         q.NextSeq,
 		Payload:     payload,
 		EnqueuedAt:  n,
-		AvailableAt: n + opts.Delay.Milliseconds(),
+		AvailableAt: deadline(now, opts.Delay),
 		Group:       opts.Group,
 		DedupID:     opts.DedupID,
 	}
@@ -166,7 +172,7 @@ func (q *Queue[P]) Enqueue(payload P, opts EnqueueOpts, pol Policy, now time.Tim
 		m.DelayedUntil = m.AvailableAt
 	}
 	if opts.TTL > 0 {
-		m.ExpiresAt = n + opts.TTL.Milliseconds()
+		m.ExpiresAt = deadline(now, opts.TTL)
 	}
 	q.Messages = append(q.Messages, m)
 	if opts.DedupKey != "" && pol.DedupWindow > 0 {
@@ -263,7 +269,7 @@ func (q *Queue[P]) Receive(opts ReceiveOpts[P], pol Policy, now time.Time) Recei
 			continue
 		}
 		m.Leased = true
-		m.AvailableAt = n + opts.Lease.Milliseconds()
+		m.AvailableAt = deadline(now, opts.Lease)
 		if opts.Receipt != nil {
 			m.Receipt = opts.Receipt(m)
 		} else {
@@ -327,7 +333,7 @@ func (q *Queue[P]) Extend(receipt string, d time.Duration, pol Policy, now time.
 	}
 	held = q.Messages[i].Held(now)
 	if held {
-		q.Messages[i].AvailableAt = ms(now) + d.Milliseconds()
+		q.Messages[i].AvailableAt = deadline(now, d)
 	}
 	return q.Messages[i], true, held
 }
@@ -351,7 +357,7 @@ func (q *Queue[P]) Abandon(receipt string, pol Policy, now time.Time) (Message[P
 	m := &q.Messages[i]
 	m.Leased = false
 	m.Receipt = ""
-	m.AvailableAt = ms(now) + pol.backoff(m.Deliveries)
+	m.AvailableAt = deadline(now, time.Duration(pol.backoff(m.Deliveries))*time.Millisecond)
 	return *m, true
 }
 

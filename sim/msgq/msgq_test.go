@@ -255,3 +255,12 @@ func TestDedupOutsideAQueue(t *testing.T) {
 		t.Fatal("expired record survived")
 	}
 }
+
+func TestDelayEndsNoEarlierThanItsInstant(t *testing.T) {
+	var q Queue[string]
+	pol := Policy{}
+	sent := t0.Add(900 * time.Microsecond)
+	q.Enqueue("a", EnqueueOpts{Delay: time.Second}, pol, sent)
+	eq(t, ids(q.Receive(ReceiveOpts[string]{Max: 1}, pol, sent.Add(time.Second-time.Microsecond)).Leased), nil)
+	eq(t, ids(q.Receive(ReceiveOpts[string]{Max: 1}, pol, t0.Add(1001*time.Millisecond)).Leased), []string{"a"})
+}
