@@ -182,3 +182,79 @@ func TestFabricSNATOwnership(t *testing.T) {
 	}
 	realexec.ReleasePublicIPv4(reused)
 }
+
+// A further address of an interface comes from its subnet and follows the
+// interface onto whichever of its namespace or tap realizes it, and closing
+// the fabric removes every namespace it realized.
+func TestFabricNICAddressesAndClose(t *testing.T) {
+	requireHost(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	id := uniqueKey(t)
+	f := New[string](Options{
+		NetworkPrefix: "tfn",
+		SubnetPrefix:  "tfs",
+		Reserved:      realexec.HostReservation{First: 4, Last: 1},
+	})
+	netKey, subKey, nicKey := "vnet-"+id, "subnet-"+id, "nic-"+id
+	t.Cleanup(func() { _ = f.Close(context.Background()) })
+	if _, err := f.EnsureSubnet(ctx, netKey, subKey, "10.209.1.0/24", FirstHostGateway("10.209.1.0/24")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.AddNICAddress(ctx, nicKey, nil); err == nil {
+		t.Fatal("an address was added to an interface the fabric does not realize")
+	}
+	nic, err := f.AttachNamespaceNIC(ctx, subKey, nicKey, realexec.NamespaceNICSpec{
+		NamespaceName: LinuxName("ti", id),
+		HostVethName:  LinuxName("th", id),
+		GuestVethName: LinuxName("tg", id),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondary, err := f.AddNICAddress(ctx, nicKey, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nic.PrivateIP.String() != "10.209.1.4" || secondary.String() != "10.209.1.5" {
+		t.Fatalf("primary, secondary = %s, %s; want 10.209.1.4, 10.209.1.5", nic.PrivateIP, secondary)
+	}
+	if got := f.NICAddresses(nicKey); len(got) != 1 || !got[0].Equal(secondary) {
+		t.Fatalf("NICAddresses = %v, want [%s]", got, secondary)
+	}
+	if err := f.RemoveNICAddress(ctx, nicKey, secondary); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.NICAddresses(nicKey); len(got) != 0 {
+		t.Fatalf("NICAddresses after removal = %v", got)
+	}
+
+	if err := f.CloseNamespaceNIC(ctx, nicKey); err != nil {
+		t.Fatal(err)
+	}
+	tap, err := f.Subnet(subKey).AttachTapNIC(ctx, realexec.TapNICSpec{TapName: LinuxName("tt", id), PrivateIP: nic.PrivateIP})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.taps[nicKey] = member[string, *realexec.TapNIC]{network: netKey, value: tap}
+	f.mu.Unlock()
+	onTap, err := f.AddNICAddress(ctx, nicKey, secondary)
+	if err != nil {
+		t.Fatalf("lease %s to the interface's tap: %v", secondary, err)
+	}
+	if got := tap.Addresses(); len(got) != 1 || !got[0].Equal(onTap) {
+		t.Fatalf("tap addresses = %v, want [%s]", got, onTap)
+	}
+
+	network := f.Network(netKey)
+	if err := f.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if f.Network(netKey) != nil || f.Tap(nicKey) != nil {
+		t.Fatal("Close left realized members registered")
+	}
+	if namespaceExists(ctx, network.NamespaceName) {
+		t.Fatalf("namespace %s outlived Close", network.NamespaceName)
+	}
+}

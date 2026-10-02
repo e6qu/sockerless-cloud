@@ -63,6 +63,10 @@ type Fabric[K ~string] struct {
 	lockMu   sync.Mutex
 	netLocks map[K]*keyedLock
 	vmLocks  map[K]*keyedLock
+	// nicLocks serializes attaching one interface: attaching reclaims a
+	// namespace of the interface's name left by a dead process, so a second
+	// concurrent attach of the key would destroy the first's namespace.
+	nicLocks map[K]*keyedLock
 }
 
 // keyedLock is one key's lock, kept in its map only while a caller holds or
@@ -85,6 +89,7 @@ func New[K ~string](opts Options) *Fabric[K] {
 		ownedIPs: map[string]net.IP{},
 		netLocks: map[K]*keyedLock{},
 		vmLocks:  map[K]*keyedLock{},
+		nicLocks: map[K]*keyedLock{},
 	}
 }
 
@@ -234,6 +239,10 @@ func (f *Fabric[K]) AttachNamespaceNIC(ctx context.Context, subnetKey, key K, sp
 	if nic := f.NIC(key); nic != nil {
 		return nic, nil
 	}
+	defer f.acquireKeyed(f.nicLocks, key, false)()
+	if nic := f.NIC(key); nic != nil {
+		return nic, nil
+	}
 	s, err := f.subnetMember(subnetKey)
 	if err != nil {
 		return nil, err
@@ -245,13 +254,55 @@ func (f *Fabric[K]) AttachNamespaceNIC(ctx context.Context, subnetKey, key K, sp
 		return nil, err
 	}
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if existing := f.nics[key].value; existing != nil {
-		_ = nic.Close(context.Background())
-		return existing, nil
-	}
 	f.nics[key] = member[K, *realexec.NamespaceNIC]{network: s.network, value: nic}
+	f.mu.Unlock()
 	return nic, nil
+}
+
+// AddNICAddress gives interface key a further address of its subnet,
+// requested when it is set, on whichever of its namespace interface or tap
+// realizes it. An address the interface already holds is returned as is.
+func (f *Fabric[K]) AddNICAddress(ctx context.Context, key K, requested net.IP) (net.IP, error) {
+	defer f.acquireKeyed(f.nicLocks, key, false)()
+	f.mu.RLock()
+	nic, tap := f.nics[key], f.taps[key]
+	f.mu.RUnlock()
+	switch {
+	case nic.value != nil:
+		defer f.HoldNetwork(nic.network)()
+		return nic.value.AddAddress(ctx, requested)
+	case tap.value != nil:
+		return tap.value.AddAddress(requested)
+	}
+	return nil, fmt.Errorf("network interface %s is not realized", key)
+}
+
+// RemoveNICAddress takes a secondary address off interface key and returns it
+// to the subnet.
+func (f *Fabric[K]) RemoveNICAddress(ctx context.Context, key K, ip net.IP) error {
+	defer f.acquireKeyed(f.nicLocks, key, false)()
+	f.mu.RLock()
+	nic, tap := f.nics[key], f.taps[key]
+	f.mu.RUnlock()
+	switch {
+	case nic.value != nil:
+		defer f.HoldNetwork(nic.network)()
+		return nic.value.RemoveAddress(ctx, ip)
+	case tap.value != nil:
+		return tap.value.RemoveAddress(ip)
+	}
+	return fmt.Errorf("network interface %s is not realized", key)
+}
+
+// NICAddresses lists the secondary addresses interface key holds.
+func (f *Fabric[K]) NICAddresses(key K) []net.IP {
+	if nic := f.NIC(key); nic != nil {
+		return nic.Addresses()
+	}
+	if tap := f.Tap(key); tap != nil {
+		return tap.Addresses()
+	}
+	return nil
 }
 
 // CloseNamespaceNIC closes only the namespace interface of key, leaving a tap
@@ -498,6 +549,24 @@ func (f *Fabric[K]) TeardownNetwork(ctx context.Context, key K, extra func(conte
 		return nil
 	}
 	return network.Close(ctx)
+}
+
+// Close tears every realized network down, with everything realized in it,
+// so a process that exits leaves no namespace, interface or machine behind.
+func (f *Fabric[K]) Close(ctx context.Context) error {
+	f.mu.RLock()
+	keys := make([]K, 0, len(f.networks))
+	for key := range f.networks {
+		keys = append(keys, key)
+	}
+	f.mu.RUnlock()
+	var errs []error
+	for _, key := range keys {
+		if err := f.TeardownNetwork(ctx, key, nil); err != nil {
+			errs = append(errs, fmt.Errorf("tear down network %s: %w", key, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // ReservePublicIP returns the public address owner holds, reserving one from
