@@ -201,16 +201,19 @@ pg_waldump --path=. --rmgr=Transaction "$(echo "$segments" | head -n 1)" "$(echo
 
 // rdsConfigureRecoveryScript has the engine's next start run archive
 // recovery from the assembled archive, to RECOVERY_TARGET_TIME when one is
-// set and to the end of the log otherwise, and then promote.
+// set and to the end of the log otherwise, and then promote. hot_standby off
+// keeps the engine refusing clients with 57P03 until it has promoted, so the
+// restored cluster is available only once it accepts writes.
 const rdsConfigureRecoveryScript = `set -e
 cd "$DATA"
 owner=$(stat -c %u:%g PG_VERSION)
 touch postgresql.auto.conf
-grep -Ev '^[[:space:]]*(restore_command|recovery_target)' postgresql.auto.conf > /tmp/auto.conf || true
+grep -Ev '^[[:space:]]*(restore_command|recovery_target|hot_standby)' postgresql.auto.conf > /tmp/auto.conf || true
 {
 	cat /tmp/auto.conf
 	echo "restore_command = 'cp ` + rdsWALArchive + `/%f %p'"
 	echo "recovery_target_action = 'promote'"
+	echo "hot_standby = off"
 	if [ -n "$RECOVERY_TARGET_TIME" ]; then
 		echo "recovery_target_time = '$RECOVERY_TARGET_TIME'"
 	fi

@@ -918,7 +918,10 @@ PostgreSQL a helper copies the archive and `pg_wal` into the new volume's
 archive, `pg_waldump` lists the commit and abort records, and the engine's
 first start runs archive recovery with `recovery_target_time`, or to the end of
 the log when no transaction ended after the time (archive recovery refuses a
-target the log never reaches), then promotes. For MySQL, whose image ships no
+target the log never reaches), then promotes. It recovers with `hot_standby`
+off, so it refuses clients with 57P03 until it has promoted and the restored
+cluster turns available only once it accepts writes; with hot standby on, the
+readiness probe had admitted clients to the read-only replay. For MySQL, whose image ships no
 `mysqlbinlog`, the simulator reads the GTID events' microsecond immediate
 commit timestamps itself, cuts the binary log before the first transaction
 committed after the time, and a server started on the new volume applies it as
