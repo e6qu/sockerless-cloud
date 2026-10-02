@@ -237,7 +237,9 @@ through hooks:
   CREATING and DeregisterStreamConsumer DELETING and settles as tracked
   background work, as a resharding stream passes through UPDATING; the
   Terraform provider's consumer waiters poll those states, and
-  SubscribeToShard refuses a consumer that is not ACTIVE. DryRun on GetRecords, GetShardIterator, PutRecord and
+  SubscribeToShard refuses a consumer that is not ACTIVE. A Client VPN
+  endpoint's Cedar authorization policy answers creating, updating and
+  deleting the same way. DryRun on GetRecords, GetShardIterator, PutRecord and
   PutRecords validates the request and answers `DryRunOperationException`
   instead of acting.
 - **A delete the service refuses is refused.** Amazon ECR DeleteRepository
