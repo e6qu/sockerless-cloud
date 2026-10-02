@@ -1703,7 +1703,7 @@ output "elbv2_lb_dns_name" {
   value = aws_lb.tf_alb.dns_name
 }
 output "elbv2_lb_idle_timeout" {
-  value = aws_lb.tf_alb.idle_timeout
+  value = tostring(aws_lb.tf_alb.idle_timeout)
 }
 output "elbv2_target_group_arn" {
   value = aws_lb_target_group.tf_alb_tg.arn
