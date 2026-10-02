@@ -158,11 +158,11 @@ func newACAReplica(revision string, containerNames []string) *acaReplica {
 	return replica
 }
 
-// acaAppReplicas holds each app's current replicas, keyed by resource ID.
-var acaAppReplicas sync.Map // map[resourceID][]*acaReplica
+// acaAppReplicas holds each revision's current replicas, keyed by revision ID.
+var acaAppReplicas sync.Map // map[revisionID][]*acaReplica
 
-func acaCurrentReplicas(resourceID string) []*acaReplica {
-	if v, ok := acaAppReplicas.Load(resourceID); ok {
+func acaCurrentReplicas(revisionID string) []*acaReplica {
+	if v, ok := acaAppReplicas.Load(revisionID); ok {
 		replicas, _ := v.([]*acaReplica)
 		return replicas
 	}
@@ -222,6 +222,7 @@ type ContainerAppRevision struct {
 // ContainerAppRevisionProps mirrors armappcontainers.RevisionProperties.
 type ContainerAppRevisionProps struct {
 	CreatedTime       string                `json:"createdTime,omitempty"`
+	LastActiveTime    string                `json:"lastActiveTime,omitempty"`
 	Fqdn              string                `json:"fqdn,omitempty"`
 	Template          *ContainerAppTemplate `json:"template,omitempty"`
 	Active            bool                  `json:"active"`
@@ -260,8 +261,28 @@ type ContainerAppReplicaContainer struct {
 	LogStreamEndpoint   string `json:"logStreamEndpoint,omitempty"`
 }
 
-func acaRevisionView(app ContainerApp) ContainerAppRevision {
-	replicas := acaCurrentReplicas(app.ID)
+func acaRevisionView(rev acaRevision, weights map[string]int32) ContainerAppRevision {
+	view := ContainerAppRevision{
+		ID:   rev.ID,
+		Name: rev.Name,
+		Type: "Microsoft.App/containerApps/revisions",
+		Properties: ContainerAppRevisionProps{
+			CreatedTime:       rev.CreatedTime.Format(time.RFC3339),
+			Fqdn:              rev.Fqdn,
+			Template:          rev.Template,
+			Active:            rev.Active,
+			TrafficWeight:     weights[rev.Name],
+			HealthState:       "None",
+			ProvisioningState: "Deprovisioned",
+			RunningState:      "Stopped",
+		},
+	}
+	if !rev.Active {
+		view.Properties.TrafficWeight = 0
+		view.Properties.LastActiveTime = rev.LastActiveTime.Format(time.RFC3339)
+		return view
+	}
+	replicas := acaCurrentReplicas(rev.ID)
 	running := 0
 	for _, replica := range replicas {
 		if acaReplicaRunning(replica) {
@@ -269,8 +290,8 @@ func acaRevisionView(app ContainerApp) ContainerAppRevision {
 		}
 	}
 	minReplicas := int32(1)
-	if app.Properties.Template != nil && app.Properties.Template.Scale != nil && app.Properties.Template.Scale.MinReplicas != nil {
-		minReplicas = *app.Properties.Template.Scale.MinReplicas
+	if rev.Template != nil && rev.Template.Scale != nil && rev.Template.Scale.MinReplicas != nil {
+		minReplicas = *rev.Template.Scale.MinReplicas
 	}
 	runningState, healthState := "Running", "Healthy"
 	switch {
@@ -283,26 +304,11 @@ func acaRevisionView(app ContainerApp) ContainerAppRevision {
 	case running < len(replicas):
 		runningState, healthState = "Degraded", "Unhealthy"
 	}
-	created := ""
-	if app.SystemData != nil {
-		created = app.SystemData.CreatedAt
-	}
-	return ContainerAppRevision{
-		ID:   app.ID + "/revisions/" + app.Properties.LatestRevisionName,
-		Name: app.Properties.LatestRevisionName,
-		Type: "Microsoft.App/containerApps/revisions",
-		Properties: ContainerAppRevisionProps{
-			CreatedTime:       created,
-			Fqdn:              app.Properties.LatestRevisionFqdn,
-			Template:          app.Properties.Template,
-			Active:            true,
-			Replicas:          int32(len(replicas)),
-			TrafficWeight:     100,
-			HealthState:       healthState,
-			ProvisioningState: "Provisioned",
-			RunningState:      runningState,
-		},
-	}
+	view.Properties.Replicas = int32(len(replicas))
+	view.Properties.HealthState = healthState
+	view.Properties.ProvisioningState = "Provisioned"
+	view.Properties.RunningState = runningState
+	return view
 }
 
 func acaReplicaRunning(replica *acaReplica) bool {
@@ -392,31 +398,31 @@ func registerContainerAppsReplicas(srv *sim.Server, apps sim.Store[ContainerApp]
 		}
 		return app, ok
 	}
-	lookupRevision := func(w http.ResponseWriter, r *http.Request) (ContainerApp, bool) {
+	lookupRevision := func(w http.ResponseWriter, r *http.Request) (ContainerApp, acaRevision, bool) {
 		app, ok := lookupApp(w, r)
 		if !ok {
-			return app, false
+			return app, acaRevision{}, false
 		}
-		if revision := sim.PathParam(r, "revisionName"); revision != app.Properties.LatestRevisionName {
+		rev, ok := acaAppRevision(app.ID, sim.PathParam(r, "revisionName"))
+		if !ok {
 			AzureErrorf(w, "ContainerAppRevisionNotFound", http.StatusNotFound,
-				"Revision '%s' was not found in container app '%s'.", revision, app.Name)
-			return app, false
+				"Revision '%s' was not found in container app '%s'.", sim.PathParam(r, "revisionName"), app.Name)
 		}
-		return app, true
+		return app, rev, ok
 	}
 	lookupReplica := func(w http.ResponseWriter, r *http.Request) (ContainerApp, *acaReplica, bool) {
-		app, ok := lookupRevision(w, r)
+		app, rev, ok := lookupRevision(w, r)
 		if !ok {
 			return app, nil, false
 		}
 		name := sim.PathParam(r, "replicaName")
-		for _, replica := range acaCurrentReplicas(app.ID) {
+		for _, replica := range acaCurrentReplicas(rev.ID) {
 			if replica.name == name {
 				return app, replica, true
 			}
 		}
 		AzureErrorf(w, "ContainerAppReplicaNotFound", http.StatusNotFound,
-			"Replica '%s' was not found in revision '%s'.", name, app.Properties.LatestRevisionName)
+			"Replica '%s' was not found in revision '%s'.", name, rev.Name)
 		return app, nil, false
 	}
 
@@ -425,41 +431,74 @@ func registerContainerAppsReplicas(srv *sim.Server, apps sim.Store[ContainerApp]
 		if !ok {
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []ContainerAppRevision{acaRevisionView(app)}})
+		weights := acaTrafficWeights(app)
+		views := []ContainerAppRevision{}
+		for _, rev := range acaAppRevisions(app.ID) {
+			views = append(views, acaRevisionView(rev, weights))
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": views})
 	})
 	srv.HandleFunc("GET "+appPath+"/revisions/{revisionName}", func(w http.ResponseWriter, r *http.Request) {
-		app, ok := lookupRevision(w, r)
+		app, rev, ok := lookupRevision(w, r)
 		if !ok {
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, acaRevisionView(app))
+		sim.WriteJSON(w, http.StatusOK, acaRevisionView(rev, acaTrafficWeights(app)))
 	})
+	// Restart, activate and deactivate answer 200 with a JSON string naming
+	// what succeeded, which the Azure CLI prints.
 	srv.HandleFunc("POST "+appPath+"/revisions/{revisionName}/restart", func(w http.ResponseWriter, r *http.Request) {
-		app, ok := lookupRevision(w, r)
+		app, rev, ok := lookupRevision(w, r)
 		if !ok {
 			return
 		}
-		if err := startACAAppReplicas(r.Context(), app.ID, app); err != nil {
-			AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
-				"failed to restart revision %s: %v", app.Properties.LatestRevisionName, err)
+		if rev.Active {
+			if err := startACARevisionReplicas(r.Context(), app, rev); err != nil {
+				AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
+					"failed to restart revision %s: %v", rev.Name, err)
+				return
+			}
+		}
+		sim.WriteJSON(w, http.StatusOK, "Restart succeeded")
+	})
+	srv.HandleFunc("POST "+appPath+"/revisions/{revisionName}/activate", func(w http.ResponseWriter, r *http.Request) {
+		app, rev, ok := lookupRevision(w, r)
+		if !ok {
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
+		if !rev.Active {
+			if err := startACARevisionReplicas(r.Context(), app, rev); err != nil {
+				AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
+					"failed to activate revision %s: %v", rev.Name, err)
+				return
+			}
+			rev.Active = true
+			acaRevisions.Put(rev.ID, rev)
+			// A single-revision app deprovisions any revision but its latest
+			// again as soon as it is activated.
+			acaEnforceRevisionMode(app)
+		}
+		sim.WriteJSON(w, http.StatusOK, "Activate succeeded")
 	})
-	for _, action := range []string{"activate", "deactivate"} {
-		srv.HandleFunc("POST "+appPath+"/revisions/{revisionName}/"+action, func(w http.ResponseWriter, r *http.Request) {
-			AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
-				"The simulator keeps one revision per container app, always active with all of its traffic, so it cannot %s a revision.", action)
-		})
-	}
+	srv.HandleFunc("POST "+appPath+"/revisions/{revisionName}/deactivate", func(w http.ResponseWriter, r *http.Request) {
+		app, rev, ok := lookupRevision(w, r)
+		if !ok {
+			return
+		}
+		if rev.Active {
+			acaDeactivateRevision(rev)
+			acaPruneInactiveRevisions(app)
+		}
+		sim.WriteJSON(w, http.StatusOK, "Deactivate succeeded")
+	})
 
 	srv.HandleFunc("GET "+appPath+"/revisions/{revisionName}/replicas", func(w http.ResponseWriter, r *http.Request) {
-		app, ok := lookupRevision(w, r)
+		app, rev, ok := lookupRevision(w, r)
 		if !ok {
 			return
 		}
 		views := []ContainerAppReplica{}
-		for _, replica := range acaCurrentReplicas(app.ID) {
+		for _, replica := range acaCurrentReplicas(rev.ID) {
 			views = append(views, acaReplicaView(r, app, replica))
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": views})

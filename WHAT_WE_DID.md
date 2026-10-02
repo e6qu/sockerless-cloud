@@ -1369,8 +1369,8 @@ the completed receiver attach through azcore's log listener. Azure CLI Location
 polls answered 202 by waiting their Retry-After (`azLocationResult`).
 
 Container Apps gained its revisions, replicas and log streams. A container app
-reports `eventStreamEndpoint`; its one revision (`{app}--00001`) lists, reads
-and restarts through ContainerAppsRevisions, and its replicas — one per
+reports `eventStreamEndpoint`; its revisions list, read and restart through
+ContainerAppsRevisions, and their replicas — one per
 `minReplicas`, named `{revision}-{hash}-{suffix}` — list and read through
 ContainerAppsRevisionReplicas, each container advertising its
 `logStreamEndpoint`. The streams sit on the event stream host under
@@ -1381,10 +1381,30 @@ service's "Connecting to the container" lines, carries the container's output
 as it is written, and ends when the container exits; the app's `eventstream`
 carries its system events (AssigningReplica, ContainerCreated,
 ContainerStarted, ContainerTerminated). The simulator keeps the newest 10 MiB of
-a container's output, the kubelet's default containerLogMaxSize. Revision
-activation answers a declared 501, since the simulator keeps one always-active
-revision per app. The SDK and CLI suites read an app's console through the
-stream (`az containerapp logs show --follow`) instead of polling Log Analytics.
+a container's output, the kubelet's default containerLogMaxSize. The SDK and
+CLI suites read an app's console through the stream (`az containerapp logs
+show --follow`) instead of polling Log Analytics.
+
+A container app keeps a revision history, as the service does. A change to
+`properties.template` creates a revision — `{app}--{random 7}` first,
+`{app}--0000001`, `--0000002` after it, or `{app}--{revisionSuffix}` when the
+template names one, refused when the app already has it — with the template
+it was created from, its own `createdTime` and its own replicas; a change to
+`properties.configuration` creates none and applies to the revisions the app
+has. A Single-mode app deactivates every revision but its latest, a Multiple
+mode app keeps them active, and inactive revisions report `lastActiveTime` and
+are removed oldest first beyond `maxInactiveRevisions` (stamped 100 when
+unset). `ingress.traffic` (stamped `latestRevision` 100 when unset; `az
+containerapp ingress traffic set` sends the weights as strings) must name
+revisions the app has and add up to 100, reports as each revision's
+`trafficWeight`, and splits the requests the app's ingress FQDN
+(`{app}.internal.{env}…`) receives; a revision answers on its own FQDN
+(`{revision}.internal.{env}…`, the app's `latestRevisionFqdn` for the latest).
+ActivateRevision and DeactivateRevision start and stop a revision's replicas.
+Restart, activate and deactivate answer 200 with the JSON string the service
+returns and the Azure CLI prints (`"Restart succeeded"`, `"Activate
+succeeded"`, `"Deactivate succeeded"`), captured from the Azure CLI's own
+recorded test of those commands.
 
 Azure's asynchronous work answers the request and settles behind it, as the
 service does. An Event Grid webhook subscription stays Creating until its

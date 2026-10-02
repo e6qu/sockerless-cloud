@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -112,10 +116,54 @@ type ContainerAppService struct {
 // ContainerAppIngress mirrors armappcontainers.Ingress. The backend
 // sets External=false + TargetPort=8080 + Transport=auto.
 type ContainerAppIngress struct {
-	External   *bool  `json:"external,omitempty"`
-	TargetPort *int32 `json:"targetPort,omitempty"`
-	Transport  string `json:"transport,omitempty"`
-	Fqdn       string `json:"fqdn,omitempty"`
+	External   *bool                       `json:"external,omitempty"`
+	TargetPort *int32                      `json:"targetPort,omitempty"`
+	Transport  string                      `json:"transport,omitempty"`
+	Fqdn       string                      `json:"fqdn,omitempty"`
+	Traffic    []ContainerAppTrafficWeight `json:"traffic,omitempty"`
+}
+
+// ContainerAppTrafficWeight mirrors armappcontainers.TrafficWeight: a share of
+// the app's ingress traffic, sent to a named revision or to whichever revision
+// is latest.
+type ContainerAppTrafficWeight struct {
+	RevisionName   string `json:"revisionName,omitempty"`
+	Weight         *int32 `json:"weight,omitempty"`
+	LatestRevision *bool  `json:"latestRevision,omitempty"`
+	Label          string `json:"label,omitempty"`
+}
+
+// UnmarshalJSON accepts the weight as a JSON number or a numeric string: `az
+// containerapp ingress traffic set` sends it as a string.
+func (t *ContainerAppTrafficWeight) UnmarshalJSON(data []byte) error {
+	type plain ContainerAppTrafficWeight
+	var wire struct {
+		plain
+		Weight json.RawMessage `json:"weight,omitempty"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	*t = ContainerAppTrafficWeight(wire.plain)
+	t.Weight = nil
+	raw := bytes.TrimSpace(wire.Weight)
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	if raw[0] == '"' {
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
+			return err
+		}
+		raw = []byte(text)
+	}
+	weight, err := strconv.ParseInt(string(raw), 10, 32)
+	if err != nil {
+		return fmt.Errorf("traffic weight %s is not an integer", wire.Weight)
+	}
+	w := int32(weight)
+	t.Weight = &w
+	return nil
 }
 
 // ContainerAppRegistry mirrors armappcontainers.RegistryCredentials.
@@ -140,6 +188,9 @@ type ContainerAppSecret struct {
 
 // ContainerAppTemplate mirrors armappcontainers.Template.
 type ContainerAppTemplate struct {
+	// RevisionSuffix names the revision this template creates; empty lets the
+	// platform name it.
+	RevisionSuffix string             `json:"revisionSuffix,omitempty"`
 	Containers     []JobContainer     `json:"containers,omitempty"`
 	InitContainers []JobContainer     `json:"initContainers,omitempty"`
 	Volumes        []JobVolume        `json:"volumes,omitempty"`
@@ -164,13 +215,13 @@ func acaAppStopGrace(app ContainerApp) time.Duration {
 	return acaDefaultTerminationGrace
 }
 
-// acaAppStopGraces remembers each running app's grace beside its replica
-// handles, so a stop after a restart or a template change still uses the grace
-// the replicas were started under.
-var acaAppStopGraces sync.Map // map[resourceID]time.Duration
+// acaAppStopGraces remembers each running revision's grace beside its replica
+// handles, so a stop after a restart still uses the grace the replicas were
+// started under.
+var acaAppStopGraces sync.Map // map[revisionID]time.Duration
 
-func acaAppRecordedStopGrace(resourceID string) time.Duration {
-	if v, ok := acaAppStopGraces.Load(resourceID); ok {
+func acaAppRecordedStopGrace(revisionID string) time.Duration {
+	if v, ok := acaAppStopGraces.Load(revisionID); ok {
 		if grace, ok := v.(time.Duration); ok {
 			return grace
 		}
@@ -225,19 +276,32 @@ type CustomHostnameAnalysisResult struct {
 
 var acaApps sim.Store[ContainerApp]
 
-var acaAppReplicaHandles sync.Map // map[resourceID][]*sim.ContainerHandle
+var acaAppReplicaHandles sync.Map // map[revisionID][]*sim.ContainerHandle
 
 // stampContainerAppServerDefaults applies the defaults real ACA stamps
 // server-side on every write. terraform-provider-azurerm reads
 // properties.template.scale.cooldownPeriod (default 300) and pollingInterval
 // (default 30) and would otherwise drift to 0 on a post-apply plan; the
-// ingress FQDN and Single revisions mode are likewise server-populated.
+// ingress FQDN, the revisions mode, maxInactiveRevisions and the traffic split
+// that sends everything to the latest revision are likewise server-populated.
 func stampContainerAppServerDefaults(app *ContainerApp, fqdn string) {
-	if app.Properties.Configuration != nil && app.Properties.Configuration.ActiveRevisionsMode == "" {
-		app.Properties.Configuration.ActiveRevisionsMode = "Single"
-	}
-	if app.Properties.Configuration != nil && app.Properties.Configuration.Ingress != nil {
-		app.Properties.Configuration.Ingress.Fqdn = fqdn
+	if cfg := app.Properties.Configuration; cfg != nil {
+		if strings.EqualFold(cfg.ActiveRevisionsMode, "Multiple") {
+			cfg.ActiveRevisionsMode = "Multiple"
+		} else {
+			cfg.ActiveRevisionsMode = "Single"
+		}
+		if cfg.MaxInactiveRevisions == nil {
+			keep := int32(acaDefaultMaxInactiveRevisions)
+			cfg.MaxInactiveRevisions = &keep
+		}
+		if cfg.Ingress != nil {
+			cfg.Ingress.Fqdn = fqdn
+			if len(cfg.Ingress.Traffic) == 0 {
+				latest, all := true, int32(100)
+				cfg.Ingress.Traffic = []ContainerAppTrafficWeight{{Weight: &all, LatestRevision: &latest}}
+			}
+		}
 	}
 	if app.Properties.Template == nil {
 		app.Properties.Template = &ContainerAppTemplate{}
@@ -269,6 +333,7 @@ func acaAsyncOpHeaders(w http.ResponseWriter, r *http.Request, sub, loc, opID st
 func registerContainerAppsApps(srv *sim.Server) {
 	apps := sim.MakeStore[ContainerApp](srv.DB(), "aca_apps")
 	acaApps = apps
+	acaRevisions = sim.MakeStore[acaRevision](srv.DB(), "aca_app_revisions")
 	registerContainerAppsReplicas(srv, apps)
 
 	const basePath = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App"
@@ -310,10 +375,8 @@ func registerContainerAppsApps(srv *sim.Server) {
 		// still echoes Succeeded so SDK clients that bypass polling and
 		// read the body directly also see the right state.
 		// The internal FQDN format mirrors real ACA:
-		// <app>.internal.<env>.<domain>.
-		// Backend's cloudServiceRegisterCNAME reads LatestRevisionFqdn to
-		// seed the Private DNS A/CNAME record for peer discovery.
-		revName := fmt.Sprintf("%s--00001", name)
+		// <app>.internal.<env>.<domain>, and a revision's
+		// <app>--<suffix>.internal.<env>.<domain>.
 		envName := acaEnvironmentName(req.Properties.EnvironmentID)
 		if envName == "" {
 			envName = acaEnvironmentName(req.Properties.ManagedEnvironmentID)
@@ -321,7 +384,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		if envName == "" {
 			envName = "sim-env"
 		}
-		fqdn := azureEndpointHostname(r, name, "internal", envName)
+		appFqdn := azureEndpointHostname(r, name, "internal", envName)
 
 		// Real ARM stamps `createdAt` once on resource creation and only
 		// updates `lastModifiedAt` on subsequent PUT/PATCH writes — preserve
@@ -348,19 +411,18 @@ func registerContainerAppsApps(srv *sim.Server) {
 				WorkloadProfileName:     req.Properties.WorkloadProfileName,
 				Configuration:           req.Properties.Configuration,
 				Template:                req.Properties.Template,
-				LatestRevisionName:      revName,
-				LatestReadyRevisionName: revName,
-				LatestRevisionFqdn:      fqdn,
+				LatestRevisionName:      existing.Properties.LatestRevisionName,
+				LatestReadyRevisionName: existing.Properties.LatestReadyRevisionName,
+				LatestRevisionFqdn:      existing.Properties.LatestRevisionFqdn,
 				EventStreamEndpoint: fmt.Sprintf("%s://%s/subscriptions/%s/resourceGroups/%s/containerApps/%s/eventstream",
 					azureRequestScheme(r), r.Host, sub, rg, name),
 			},
 			SystemData: systemData,
 		}
-		stampContainerAppServerDefaults(&app, fqdn)
+		stampContainerAppServerDefaults(&app, appFqdn)
 
-		if err := startACAAppReplicas(r.Context(), resourceID, app); err != nil {
-			AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
-				"failed to start container app replica for %s: %v", name, err)
+		if err := acaReconcileRevisions(r.Context(), &app, appFqdn); err != nil {
+			writeACARevisionError(w, name, err)
 			return
 		}
 		apps.Put(resourceID, app)
@@ -460,7 +522,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 			// Deleting, so the record present here is still the one this
 			// operation owns.
 			apps.Delete(resourceID)
-			stopACAAppReplicas(resourceID)
+			deleteACAAppRevisions(resourceID)
 			acaAppSystemLogs.Delete(resourceID)
 			return nil
 		})
@@ -527,14 +589,14 @@ func registerContainerAppsApps(srv *sim.Server) {
 		app.Properties.LatestReadyRevisionName = prior.Properties.LatestReadyRevisionName
 		app.Properties.LatestRevisionFqdn = prior.Properties.LatestRevisionFqdn
 		app.Properties.EventStreamEndpoint = prior.Properties.EventStreamEndpoint
-		stampContainerAppServerDefaults(&app, prior.Properties.LatestRevisionFqdn)
+		appFqdn := acaAppFqdn(prior)
+		stampContainerAppServerDefaults(&app, appFqdn)
 		if app.SystemData != nil {
 			app.SystemData.LastModifiedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		}
 
-		if err := startACAAppReplicas(r.Context(), resourceID, app); err != nil {
-			AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
-				"failed to start container app replica for %s: %v", name, err)
+		if err := acaReconcileRevisions(r.Context(), &app, appFqdn); err != nil {
+			writeACARevisionError(w, name, err)
 			return
 		}
 		apps.Put(resourceID, app)
@@ -554,7 +616,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
-		if err := startACAAppReplicas(r.Context(), resourceID, app); err != nil {
+		if err := startACAAppRevisions(r.Context(), app); err != nil {
 			AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
 				"failed to start container app replica for %s: %v", name, err)
 			return
@@ -574,7 +636,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
-		stopACAAppReplicas(resourceID)
+		stopACAAppRevisions(resourceID)
 		sim.WriteJSON(w, http.StatusOK, app)
 	})
 
@@ -631,6 +693,18 @@ func registerContainerAppsApps(srv *sim.Server) {
 	})
 }
 
+// writeACARevisionError answers a create or update whose revisions could not
+// be brought in line with it.
+func writeACARevisionError(w http.ResponseWriter, app string, err error) {
+	var invalid *acaRevisionRequestError
+	if errors.As(err, &invalid) {
+		AzureError(w, "InvalidParameterValue", invalid.Error(), http.StatusBadRequest)
+		return
+	}
+	AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
+		"failed to start container app replica for %s: %v", app, err)
+}
+
 func acaEnvironmentName(id string) string {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -642,9 +716,13 @@ func acaEnvironmentName(id string) string {
 	return id
 }
 
-func startACAAppReplicas(ctx context.Context, resourceID string, app ContainerApp) error {
+// startACARevisionReplicas (re)starts a revision's replicas: the revision's
+// template run under the app's current configuration.
+func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevision) error {
+	resourceID := app.ID
+	app.Properties.Template = rev.Template
 	if app.Properties.Template == nil || len(app.Properties.Template.Containers) == 0 {
-		stopACAAppReplicas(resourceID)
+		stopACAAppReplicas(rev.ID)
 		return nil
 	}
 
@@ -653,7 +731,7 @@ func startACAAppReplicas(ctx context.Context, resourceID string, app ContainerAp
 		minReplicas = *app.Properties.Template.Scale.MinReplicas
 	}
 	if minReplicas <= 0 {
-		stopACAAppReplicas(resourceID)
+		stopACAAppReplicas(rev.ID)
 		return nil
 	}
 
@@ -667,8 +745,11 @@ func startACAAppReplicas(ctx context.Context, resourceID string, app ContainerAp
 		if env, ok := acaEnvironments.Get(envID); ok && env.DockerNetworkName != "" {
 			netName = env.DockerNetworkName
 			netAliases = []string{app.Name}
-			if app.Properties.LatestRevisionFqdn != "" {
-				netAliases = append(netAliases, app.Properties.LatestRevisionFqdn)
+			if appFqdn := acaAppFqdn(app); appFqdn != "" {
+				netAliases = append(netAliases, appFqdn)
+			}
+			if rev.Fqdn != "" {
+				netAliases = append(netAliases, rev.Fqdn)
 			}
 		}
 	}
@@ -683,7 +764,7 @@ func startACAAppReplicas(ctx context.Context, resourceID string, app ContainerAp
 	for _, c := range containers {
 		names = append(names, c.Name)
 	}
-	revision := app.Properties.LatestRevisionName
+	revision := rev.Name
 	replicas := make([]*acaReplica, 0, minReplicas)
 	cancelStarted := func() {
 		for _, h := range handles {
@@ -727,8 +808,8 @@ func startACAAppReplicas(ctx context.Context, resourceID string, app ContainerAp
 		replicas = append(replicas, replica)
 	}
 	if len(handles) > 0 {
-		acaAppReplicas.Store(resourceID, replicas)
-		replaceACAAppReplicas(resourceID, handles, acaAppStopGrace(app))
+		acaAppReplicas.Store(rev.ID, replicas)
+		replaceACAAppReplicas(rev.ID, handles, acaAppStopGrace(app))
 		injectContainerAppReplicaLog(app.Name, "Container app replica started")
 	}
 	return nil
@@ -790,11 +871,12 @@ func acaAppContainer(resourceID string, app ContainerApp, c JobContainer, replic
 	}}
 }
 
-func stopACAAppReplicas(resourceID string) {
-	grace := acaAppRecordedStopGrace(resourceID)
-	acaAppStopGraces.Delete(resourceID)
-	acaAppReplicas.Delete(resourceID)
-	if v, ok := acaAppReplicaHandles.LoadAndDelete(resourceID); ok {
+// stopACAAppReplicas stops the replicas of one revision.
+func stopACAAppReplicas(revisionID string) {
+	grace := acaAppRecordedStopGrace(revisionID)
+	acaAppStopGraces.Delete(revisionID)
+	acaAppReplicas.Delete(revisionID)
+	if v, ok := acaAppReplicaHandles.LoadAndDelete(revisionID); ok {
 		handles, _ := v.([]*sim.ContainerHandle)
 		for _, handle := range handles {
 			handle.Cancel()
@@ -805,10 +887,10 @@ func stopACAAppReplicas(resourceID string) {
 	}
 }
 
-func replaceACAAppReplicas(resourceID string, handles []*sim.ContainerHandle, grace time.Duration) {
-	previousGrace := acaAppRecordedStopGrace(resourceID)
-	acaAppStopGraces.Store(resourceID, grace)
-	if v, ok := acaAppReplicaHandles.Swap(resourceID, handles); ok {
+func replaceACAAppReplicas(revisionID string, handles []*sim.ContainerHandle, grace time.Duration) {
+	previousGrace := acaAppRecordedStopGrace(revisionID)
+	acaAppStopGraces.Store(revisionID, grace)
+	if v, ok := acaAppReplicaHandles.Swap(revisionID, handles); ok {
 		prev, _ := v.([]*sim.ContainerHandle)
 		for _, handle := range prev {
 			handle.Cancel()

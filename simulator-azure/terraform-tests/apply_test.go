@@ -269,6 +269,16 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, azrmCA, "/providers/Microsoft.App/containerApps/tf-azrm-ca",
 		"azurerm Container App id must include canonical ARM path; got %s", azrmCA)
 
+	multiRevision := outputs.must(t, "azrm_container_app_multi_latest_revision_name")
+	require.Regexp(t, `^tf-azrm-ca-multi--[a-z0-9]{7}$`, multiRevision,
+		"a container app's first revision is named after the app with a random suffix")
+	multiIngress := outputs.must(t, "azrm_container_app_multi_ingress_fqdn")
+	require.True(t, strings.HasPrefix(multiIngress, "tf-azrm-ca-multi."),
+		"a container app's ingress answers on the app's own FQDN; got %s", multiIngress)
+	require.Equal(t, multiRevision+strings.TrimPrefix(multiIngress, "tf-azrm-ca-multi"),
+		outputs.must(t, "azrm_container_app_multi_latest_revision_fqdn"),
+		"the latest revision answers on its own FQDN beside the app's")
+
 	azrmCAJ := outputs.must(t, "azrm_container_app_job_id")
 	require.Contains(t, azrmCAJ, "/providers/Microsoft.App/jobs/tf-azrm-caj",
 		"azurerm Container App Job id must include canonical ARM path; got %s", azrmCAJ)

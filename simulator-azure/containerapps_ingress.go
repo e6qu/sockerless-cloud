@@ -32,12 +32,22 @@ func registerContainerAppsIngress(srv *sim.Server) {
 			if i := strings.LastIndex(host, ":"); i >= 0 {
 				host = host[:i]
 			}
-			app, ok := acaAppByIngressFqdn(host)
-			if !ok {
-				next.ServeHTTP(w, r)
+			if app, ok := acaAppByIngressFqdn(host); ok {
+				rev, ok := acaPickRevision(app)
+				if !ok {
+					AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
+					return
+				}
+				proxyACAIngress(w, r, app, rev)
 				return
 			}
-			proxyACAIngress(w, r, app)
+			if rev, ok := acaRevisionByFqdn(host); ok && rev.Active {
+				if app, ok := acaApps.Get(rev.AppID); ok {
+					proxyACAIngress(w, r, app, rev)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
 		})
 	})
 }
@@ -66,7 +76,7 @@ func acaAppByIngressFqdn(host string) (ContainerApp, bool) {
 		return ContainerApp{}, false
 	}
 	return acaAppsByIngressFqdn.Lookup(acaApps, host, func(a ContainerApp) []string {
-		return []string{a.Properties.LatestRevisionFqdn}
+		return []string{acaAppFqdn(a)}
 	})
 }
 
@@ -74,17 +84,12 @@ func acaAppByIngressFqdn(host string) (ContainerApp, bool) {
 // on an HTTP request: it cancels one not complete within 240 seconds.
 const acaIngressRequestTimeout = 240 * time.Second
 
-// proxyACAIngress forwards the request to the App's running replica container's
-// target port (8080), preserving method, path, query, headers and body, and
-// copies the response back — the App-ingress equivalent of Azure's managed
-// front-end.
-func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp) {
-	v, ok := acaAppReplicaHandles.Load(app.ID)
-	if !ok {
-		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
-		return
-	}
-	handles, _ := v.([]*sim.ContainerHandle)
+// proxyACAIngress forwards the request to a running replica container of the
+// revision's target port (8080), preserving method, path, query, headers and
+// body, and copies the response back — the App-ingress equivalent of Azure's
+// managed front-end.
+func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, rev acaRevision) {
+	handles := acaRevisionHandles(rev.ID)
 	if len(handles) == 0 || handles[0] == nil {
 		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
 		return
