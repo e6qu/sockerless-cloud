@@ -175,6 +175,11 @@ const cloudRunGCSFuseCSIDriver = "gcsfuse.run.googleapis.com"
 // bucket of a Cloud Storage volume.
 const cloudRunGCSFuseBucketAttribute = "bucketName"
 
+// cloudRunGCSFuseMountOptionsAttribute is the CSI volume attribute carrying a
+// Cloud Storage volume's Cloud Storage FUSE options, comma separated, as
+// gcloud's --add-volume mount-options joins them.
+const cloudRunGCSFuseMountOptionsAttribute = "mountOptions"
+
 // cloudRunJobLabel is the label Cloud Run stamps on an execution to name the
 // job that owns it; cloudRunExecutionLabel does the same for a task's
 // execution. The Knative surface lists executions and tasks per namespace
@@ -240,9 +245,13 @@ func cloudRunV2VolumeToV1(volume Volume) CRVolume {
 	out := CRVolume{Name: volume.Name}
 	switch {
 	case volume.Gcs != nil:
+		attributes := map[string]string{cloudRunGCSFuseBucketAttribute: volume.Gcs.Bucket}
+		if len(volume.Gcs.MountOptions) > 0 {
+			attributes[cloudRunGCSFuseMountOptionsAttribute] = strings.Join(volume.Gcs.MountOptions, ",")
+		}
 		out.Csi = &CRCSIVolumeSource{
 			Driver:           cloudRunGCSFuseCSIDriver,
-			VolumeAttributes: map[string]string{cloudRunGCSFuseBucketAttribute: volume.Gcs.Bucket},
+			VolumeAttributes: attributes,
 			ReadOnly:         volume.Gcs.ReadOnly,
 		}
 	case volume.EmptyDir != nil:
@@ -271,6 +280,9 @@ func cloudRunV1VolumeToV2(volume CRVolume) Volume {
 		out.Gcs = &GcsVolumeSource{
 			Bucket:   volume.Csi.VolumeAttributes[cloudRunGCSFuseBucketAttribute],
 			ReadOnly: volume.Csi.ReadOnly,
+		}
+		if options := volume.Csi.VolumeAttributes[cloudRunGCSFuseMountOptionsAttribute]; options != "" {
+			out.Gcs.MountOptions = strings.Split(options, ",")
 		}
 	case volume.EmptyDir != nil:
 		out.EmptyDir = &EmptyDirVolumeSource{Medium: volume.EmptyDir.Medium, SizeLimit: volume.EmptyDir.SizeLimit}

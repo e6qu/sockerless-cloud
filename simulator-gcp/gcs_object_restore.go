@@ -291,7 +291,7 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 		// The destination must not exist when the move lands, which is the
 		// precondition the write states rather than a look taken beforehand.
 		absent := int64(0)
-		moved, err := persistGCSObject(objects, bucketName, destination, copied, digests, obj, gcsPreconditions{GenerationMatch: &absent})
+		moved, err := persistGCSObject(objects, bucketName, destination, copied, digests, obj, gcsPreconditions{GenerationMatch: &absent}, gcsMirror)
 		if err != nil {
 			writeGCSPersistError(w, "move object", err)
 			return

@@ -310,6 +310,9 @@ type cloudRunServiceInstance struct {
 	ready    chan struct{}
 	address  string
 	startErr error
+	// releaseMounts ends the ingestion of writes through the instance's
+	// Cloud Storage volumes once its containers have stopped.
+	releaseMounts func()
 }
 
 // awaitReady waits for the instance's startup probes and returns the address
@@ -370,6 +373,29 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	localImage := sim.ResolveLocalImage(main.Image)
 	env := containerEnvMap(main.Env)
 	bindsFor := serviceBindsFor(volumes)
+	mainBinds, writable, err := bindsFor(main)
+	if err != nil {
+		return nil, err
+	}
+	sidecarBinds := make([][]string, 0, len(containers)-1)
+	for _, sidecar := range containers[1:] {
+		binds, sidecarWritable, err := bindsFor(sidecar)
+		if err != nil {
+			return nil, err
+		}
+		sidecarBinds = append(sidecarBinds, binds)
+		writable = append(writable, sidecarWritable...)
+	}
+	releaseMounts, err := gcsAcquireMounts(writable)
+	if err != nil {
+		return nil, err
+	}
+	mountsHeld := true
+	defer func() {
+		if mountsHeld {
+			releaseMounts()
+		}
+	}()
 	platform, err := workload.LocalImagePlatform(ctx, localImage, workloadRegistryAuth(project, localImage))
 	if err != nil {
 		return nil, err
@@ -391,7 +417,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		Env:          workloadhost.MergeEnv(map[string]string{"PORT": strconv.Itoa(cloudRunContainerPort(main))}, env, metadataEnv),
 		Name:         fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-%s", serviceID, instanceID),
 		Labels:       map[string]string{"sockerless-sim-service": serviceID},
-		Binds:        bindsFor(main),
+		Binds:        mainBinds,
 		ExtraHosts:   extraHosts,
 		Sandbox:      SandboxCloudRun,
 	})
@@ -423,7 +449,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 				"sockerless-sim-service":           serviceID,
 				"sockerless-sim-service-container": sidecar.Name,
 			},
-			Binds:   bindsFor(sidecar),
+			Binds:   sidecarBinds[i],
 			Sandbox: SandboxCloudRun,
 		}})
 	}
@@ -434,12 +460,14 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	}
 
 	inst := &cloudRunServiceInstance{
-		containerID: containerID,
-		sidecars:    sidecars,
-		specSig:     specSig,
-		stop:        stop,
-		ready:       make(chan struct{}),
+		containerID:   containerID,
+		sidecars:      sidecars,
+		specSig:       specSig,
+		stop:          stop,
+		ready:         make(chan struct{}),
+		releaseMounts: releaseMounts,
 	}
+	mountsHeld = false
 	cloudRunServiceInstances.Lock()
 	if old := cloudRunServiceInstances.byName[name]; old != nil {
 		cloudRunServiceInstances.Unlock()
@@ -491,6 +519,9 @@ func stopCloudRunServiceInstance(inst *cloudRunServiceInstance) {
 		h.Cancel()
 	}
 	sim.StopAndRemoveContainer(inst.containerID, cloudRunStopGrace)
+	if inst.releaseMounts != nil {
+		inst.releaseMounts()
+	}
 }
 
 func envSignature(env map[string]string) string {
@@ -512,25 +543,13 @@ func envSignature(env map[string]string) string {
 	return b.String()
 }
 
-func serviceBindsFor(volumes []Volume) func(Container) []string {
+func serviceBindsFor(volumes []Volume) func(Container) ([]string, []string, error) {
 	volByName := make(map[string]Volume)
 	for _, v := range volumes {
 		volByName[v.Name] = v
 	}
-	return func(c Container) []string {
-		var binds []string
-		for _, mp := range c.VolumeMounts {
-			v, ok := volByName[mp.Name]
-			if !ok || v.Gcs == nil || v.Gcs.Bucket == "" {
-				continue
-			}
-			bind := GCSBucketHostDir(v.Gcs.Bucket) + ":" + mp.MountPath
-			if v.Gcs.ReadOnly {
-				bind += ":ro"
-			}
-			binds = append(binds, bind)
-		}
-		return binds
+	return func(c Container) ([]string, []string, error) {
+		return cloudRunGCSBinds(volByName, c)
 	}
 }
 
@@ -541,7 +560,7 @@ func volumesSignature(volumes []Volume) string {
 	var parts []string
 	for _, v := range volumes {
 		if v.Gcs != nil {
-			parts = append(parts, v.Name+"|gcs|"+v.Gcs.Bucket+"|"+strconv.FormatBool(v.Gcs.ReadOnly))
+			parts = append(parts, v.Name+"|gcs|"+v.Gcs.Bucket+"|"+strconv.FormatBool(v.Gcs.ReadOnly)+"|"+strings.Join(v.Gcs.MountOptions, ";"))
 		} else if v.Nfs != nil {
 			parts = append(parts, v.Name+"|nfs|"+v.Nfs.Server+"|"+v.Nfs.Path+"|"+strconv.FormatBool(v.Nfs.ReadOnly))
 		} else if v.Secret != nil {

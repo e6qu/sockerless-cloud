@@ -1072,6 +1072,35 @@ registry manifests under `<repository>:`, its blobs and layers under
 `<repository>@`, and its lifecycle and repository policies, so a repository
 created again under the same name starts empty.
 
+A Cloud Run workload's Cloud Storage volume was a one-way mirror: the bucket's
+host directory showed every live generation, and nothing the workload wrote
+there ever became an object. The mount now writes back the way Cloud Storage
+FUSE does, without a FUSE file system: while a workload mounts a bucket
+writable, one inotify instance watches every directory of it, and the events
+map onto Cloud Storage FUSE's object operations — a close after writing
+(`IN_CLOSE_WRITE` after `IN_MODIFY` or `IN_CREATE`) is a new generation, never
+each write; a `mkdir` is a placeholder object; an unlink, an `rmdir` or a
+rename out of the mount is a delete; a rename within it is a copy and a delete.
+Each write is conditioned on the generation the file held, as Cloud Storage
+FUSE conditions its flush, keeps the object's metadata, names a new file's
+content type from its extension and records `gcsfuse_mtime`. Telling the
+workload's changes from the simulator's own is done by state, not by event:
+the simulator keeps a view of what each path stands for (generation and inode),
+every change it makes to the directory and the record of it happen under one
+mutex, and its mirror of an API write is staged outside the bucket directories
+and renamed in, so a watch event only prompts a comparison of the path with the
+view. `IN_EXCL_UNLINK` drops the close of a file an API write has already
+replaced. Ingestion is asynchronous to the workload's close, so a barrier —
+closing a file of the simulator's own under the data root and waiting for that
+close to come through the same queue — makes every Cloud Storage JSON API
+request, and the end of a job task, wait for the events queued before it,
+which is the read-your-writes Cloud Storage FUSE gives by writing before
+`close` returns. A file is opened with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`,
+so a link a workload makes never reads a host file into a bucket. The `only-dir`
+mount option binds that directory of the bucket; the Knative v1 surface
+carries the options in the CSI `mountOptions` attribute; a volume of a bucket
+that does not exist fails the workload's start.
+
 ## Authorization and authentication
 
 Every credential is verified. AWS requests are SigV4-verified against the

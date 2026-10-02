@@ -147,6 +147,17 @@ Current state of the sockerless-cloud repository.
 - **A bucket carries Cloud Storage's default policy** from creation — the
   four legacy bindings for the project's owners, editors and viewers — so a
   client revoking what it granted sets the defaults back, never nothing.
+- **A Cloud Storage volume mount writes back as Cloud Storage FUSE does.**
+  A Cloud Run job task or service instance binds the bucket's host directory
+  (or its `only-dir` directory) into the container, read-only when the volume
+  is. While a workload mounts it writable, an inotify watch turns a close
+  after writing into a new generation conditioned on the generation the file
+  held, a `mkdir` into a placeholder object, an unlink or `rmdir` into a
+  delete and a rename into a copy and delete; the simulator's own mirror of
+  API writes is staged outside the bucket directories and renamed in, so the
+  watch never ingests it. Every Cloud Storage JSON API request first waits
+  for the events queued before it, and a task's execution completes only
+  after its writes are objects. Linux only; the rest is BUGS.md 3084.
 - **An Amazon ECR pull-through-cache reference runs its rule's upstream
   image**: the Lambda and ECS hosts resolve `<prefix>/<path>` through the
   registered rule, as ECR hydrates the cache from that upstream.

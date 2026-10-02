@@ -30,15 +30,39 @@ import (
 // Jobs/Services + Cloud Functions task runners when they honour
 // `Volume{Gcs{Bucket}}`.
 func GCSBucketHostDir(bucket string) string {
-	return filepath.Join(sim.ScopedDataDir("SIM_GCS_DATA_DIR", "gcs", "sockerless-sim-gcs"), bucket)
+	return filepath.Join(gcsDataRoot(), bucket)
 }
 
+// gcsResetBucketHostDir empties the bucket's host directory, keeping the
+// directory itself so a mount of it stays the bucket's.
 func gcsResetBucketHostDir(bucket string) error {
 	dir := GCSBucketHostDir(bucket)
-	if err := os.RemoveAll(dir); err != nil {
+	gcsMountMu.Lock()
+	defer gcsMountMu.Unlock()
+	if info, err := os.Lstat(dir); err == nil && !info.IsDir() {
+		if err := os.Remove(dir); err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return err
 	}
-	return os.MkdirAll(dir, 0o777)
+	children, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, child := range children {
+		if err := os.RemoveAll(filepath.Join(dir, child.Name())); err != nil {
+			return err
+		}
+	}
+	gcsMountResetLocked(bucket)
+	return nil
+}
+
+// gcsDataRoot is the directory holding every bucket's host directory.
+func gcsDataRoot() string {
+	return sim.ScopedDataDir("SIM_GCS_DATA_DIR", "gcs", "sockerless-sim-gcs")
 }
 
 // gcsListLimit is the most entries one page of objects.list holds, and the
@@ -303,8 +327,10 @@ func persistGCSObjectMetadata(objects sim.PrefixStore[GCSObject], key string, ob
 // preconditions and stores the generation as one step, under the object's
 // write lock, and gives it a generation no version of the object has had
 // before. The generation it replaces is retired as a delete would retire it.
-// A write that fails releases body.
-func persistGCSObject(objects sim.PrefixStore[GCSObject], bucketName, objectName string, body string, digests blobstore.Digests, attrs GCSObject, pre gcsPreconditions) (GCSObject, error) {
+// place puts the new generation in the bucket's host directory: gcsMirror for
+// a write through the API, and a record of the file already there for a write
+// that came in through a volume mount. A write that fails releases body.
+func persistGCSObject(objects sim.PrefixStore[GCSObject], bucketName, objectName string, body string, digests blobstore.Digests, attrs GCSObject, pre gcsPreconditions, place func(GCSObject)) (GCSObject, error) {
 	fail := func(err error) (GCSObject, error) {
 		return GCSObject{}, errors.Join(err, gcsBodies.Remove(body))
 	}
@@ -352,9 +378,18 @@ func persistGCSObject(objects sim.PrefixStore[GCSObject], bucketName, objectName
 	} else {
 		gcsSeedObjectACL(bucketName, objectName, obj.Generation)
 	}
-	gcsMirror(obj)
+	place(obj)
 	gcsNotifyWrite(obj, existing, existed)
 	return obj, nil
+}
+
+// gcsRetireDeletedObject retires obj, which a delete has just taken out of the
+// store. Under a soft-delete policy the object is retired rather than
+// destroyed, and its payload is retained for objects.restore to bring back.
+// Without one it is destroyed here, bytes included.
+func gcsRetireDeletedObject(bucket Bucket, obj GCSObject) {
+	gcsRetireObject(bucket, obj.Bucket, obj)
+	gcsNotify(gcsEventDelete, obj, nil)
 }
 
 func writeGCSPersistError(w http.ResponseWriter, action string, err error) {
@@ -520,7 +555,7 @@ func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID st
 		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "finalize resumable upload: %v", err)
 		return
 	}
-	obj, err := persistGCSObject(objects, sess.Bucket, sess.Object, staged, digests, sess.Attrs, sess.Preconditions)
+	obj, err := persistGCSObject(objects, sess.Bucket, sess.Object, staged, digests, sess.Attrs, sess.Preconditions, gcsMirror)
 	if err != nil {
 		gcsResumableSessions.Delete(uploadID)
 		writeGCSPersistError(w, "write resumable object", err)
@@ -675,6 +710,7 @@ func registerGCS(srv *sim.Server) {
 	gcsObjects = sim.MakeStore[GCSObject](srv.DB(), "gcs_objects")
 	gcsResumableSessions = sim.MakeStore[gcsResumableSession](srv.DB(), "gcs_resumable_sessions")
 	objects := gcsObjects
+	srv.WrapHandler(gcsMountSyncMiddleware)
 	// Cloud Storage's long-running methods record into the operation store
 	// every Google slice shares, whichever register function reaches it first.
 	if crOperations == nil {
@@ -1051,11 +1087,7 @@ func registerGCS(srv *sim.Server) {
 		}
 		objects.Delete(key)
 		gcsUnmirror(bucketName, objectName)
-		// Under a soft-delete policy the object is retired rather than
-		// destroyed, and its payload is retained for objects.restore to bring
-		// back. Without one it is destroyed here, bytes included.
-		gcsRetireObject(bucket, bucketName, obj)
-		gcsNotify(gcsEventDelete, obj, nil)
+		gcsRetireDeletedObject(bucket, obj)
 
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -1242,7 +1274,7 @@ func registerGCS(srv *sim.Server) {
 			objAttrs.ContentType = ct
 		}
 
-		obj, err := persistGCSObject(objects, bucketName, objectName, body, digests, objAttrs, pre)
+		obj, err := persistGCSObject(objects, bucketName, objectName, body, digests, objAttrs, pre, gcsMirror)
 		if err != nil {
 			writeGCSPersistError(w, "write object", err)
 			return
@@ -1352,7 +1384,7 @@ func registerGCS(srv *sim.Server) {
 			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
 			return
 		}
-		composedObj, err := persistGCSObject(objects, bucketName, destObject, composed, digests, objAttrs, pre)
+		composedObj, err := persistGCSObject(objects, bucketName, destObject, composed, digests, objAttrs, pre, gcsMirror)
 		if err != nil {
 			writeGCSPersistError(w, "write composed object", err)
 			return
@@ -1575,7 +1607,7 @@ func copyGCSObject(w http.ResponseWriter, r *http.Request, srcBucket, srcObject,
 		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
 		return GCSObject{}, false
 	}
-	dst, err := persistGCSObject(objects, dstBucket, dstObject, copied, digests, dstAttrs, pre)
+	dst, err := persistGCSObject(objects, dstBucket, dstObject, copied, digests, dstAttrs, pre, gcsMirror)
 	if err != nil {
 		writeGCSPersistError(w, "write copied object", err)
 		return GCSObject{}, false
@@ -2878,7 +2910,7 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 			return
 		}
-		obj, err := persistGCSObject(objects, bucket, name, "", blobstore.Digests{}, attrs, pre)
+		obj, err := persistGCSObject(objects, bucket, name, "", blobstore.Digests{}, attrs, pre, gcsMirror)
 		if err != nil {
 			writeGCSPersistError(w, "insert object", err)
 			return
