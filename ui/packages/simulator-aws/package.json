@@ -12,8 +12,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@cloudscape-design/components": "3.0.1390",
-    "@cloudscape-design/design-tokens": "^3.0.113",
+    "@cloudscape-design/components": "3.0.1391",
+    "@cloudscape-design/design-tokens": "^3.0.114",
     "@cloudscape-design/global-styles": "^1.0.71",
     "@sockerless/ui-core": "workspace:*",
     "@tanstack/react-query": "^5.104.0",
@@ -30,10 +30,10 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "jsdom": "^30.1.1",
-    "knip": "^6.38.0",
+    "knip": "^6.39.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.3"
   }
 }
