@@ -1466,7 +1466,14 @@ which a publish, an acknowledgement, a negative acknowledgement or ack
 deadline change, a seek, and the subscription's update, detachment or deletion
 fire, and on a timer set to the moment the queue next changes by itself, a
 lapsed ack deadline or the end of a retry backoff. `StreamingPull` waits on the
-same two things instead of re-reading the queue every 50 ms. The REST pull
+same two things instead of re-reading the queue every 50 ms, and checks that
+its stream is still open before it leases: a negative acknowledgement and the
+client's cancellation that reach a waiting stream together left `select` free
+to pick the acknowledgement, and the closed stream then held the redelivered
+message for its whole ack deadline. Messages a failed send never delivered
+are released uncounted. The dead-letter test nacks on the stream that received
+each attempt, as a subscriber client does, because a nack sent beside a stream
+the client is closing can reach the service first. The REST pull
 declares its bound with `sim.DeclareWait`; the gRPC listener sits outside
 `sim.InFlightMiddleware`, so the declaration there is a no-op. Suites that
 check a subscription is drained pull with `returnImmediately`, as a client

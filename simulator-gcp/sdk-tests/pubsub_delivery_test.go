@@ -1,6 +1,7 @@
 package gcp_sdk_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -33,15 +34,31 @@ func TestPubSub_GRPC_DeadLetterPolicy(t *testing.T) {
 		{Data: []byte("poison"), Attributes: map[string]string{"origin": "test"}},
 	}})
 	require.NoError(t, err)
+	// Nack on the stream that received the message, as a subscriber client
+	// does: a nack sent beside a stream the client is closing can reach the
+	// service first, which then redelivers into the closing stream.
+	streamCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	stream, err := sc.StreamingPull(streamCtx)
+	require.NoError(t, err, "StreamingPull")
+	require.NoError(t, stream.Send(&pubsubpb.StreamingPullRequest{
+		Subscription: sub, StreamAckDeadlineSeconds: 60, MaxOutstandingMessages: 1,
+	}))
 	for attempt := int32(1); attempt <= 5; attempt++ {
-		got := psPullAll(t, sc, sub, 1, 10*time.Second)
+		resp, err := stream.Recv()
+		require.NoError(t, err, "delivery attempt %d", attempt)
+		got := resp.GetReceivedMessages()
 		require.Len(t, got, 1, "delivery attempt %d", attempt)
 		require.Equal(t, attempt, got[0].GetDeliveryAttempt())
-		_, err := sc.ModifyAckDeadline(ctx, &pubsubpb.ModifyAckDeadlineRequest{
-			Subscription: sub, AckIds: []string{got[0].GetAckId()}, AckDeadlineSeconds: 0,
-		})
-		require.NoError(t, err)
+		require.NoError(t, stream.Send(&pubsubpb.StreamingPullRequest{
+			ModifyDeadlineAckIds: []string{got[0].GetAckId()}, ModifyDeadlineSeconds: []int32{0},
+		}))
 	}
+	// The service ends the stream once it has read every request, the fifth
+	// nack among them; a message received here would be a sixth attempt.
+	require.NoError(t, stream.CloseSend())
+	resp, err := stream.Recv()
+	require.Error(t, err, "the stream must end without a sixth delivery, got %v", resp.GetReceivedMessages())
 
 	dead := psPullAll(t, sc, deadSub, 1, 10*time.Second)
 	require.Len(t, dead, 1, "the exhausted message must reach the dead-letter topic")

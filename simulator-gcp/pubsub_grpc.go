@@ -728,6 +728,11 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 	})
 
 	for {
+		// A select that finds both the client's cancellation and an arrival
+		// ready picks either, so check the stream before leasing into it.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		arrival := psSubscriptionSignal(subName)
 		// Count messages currently inflight for this subscription so flow control
 		// is honoured — the client will not ack faster than its handlers run, so
@@ -745,6 +750,11 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 					rm = append(rm, psReceivedToProto(d))
 				}
 				if err := stream.Send(&pspb.StreamingPullResponse{ReceivedMessages: rm}); err != nil {
+					// The stream closed before the messages left: nothing
+					// received them, so they are not deliveries.
+					for _, d := range delivered {
+						psRelease(subName, d.AckID)
+					}
 					return err
 				}
 			}
