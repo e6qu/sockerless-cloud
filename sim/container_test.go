@@ -176,3 +176,19 @@ func TestSelinuxRelabelBindsStatesOneRelabelOption(t *testing.T) {
 		}
 	}
 }
+
+func TestNamedVolumeSource(t *testing.T) {
+	for source, want := range map[string]bool{
+		"sockerless-memorystore-0a1b": true,
+		"pgdata":                      true,
+		"/var/lib/data":               false,
+		"./relative":                  false,
+		"~/home":                      false,
+		`C:\data`:                     false,
+		"":                            false,
+	} {
+		if got := namedVolumeSource(source); got != want {
+			t.Errorf("namedVolumeSource(%q) = %v, want %v", source, got, want)
+		}
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -329,10 +330,8 @@ func ContainerPID(containerID string) (int, error) {
 // managedContainers tracks containers created by this simulator instance for cleanup.
 var managedContainers sync.Map // containerID -> true
 
-// CleanupContainers stops and removes all simulator-managed containers.
-// Also prunes any Docker networks labeled `sockerless-sim=true` that
-// aren't in use (typically namespace-backed networks that weren't
-// explicitly removed by a DeleteNamespace call).
+// CleanupContainers stops and removes all simulator-managed containers, then
+// the run's networks and volumes.
 // Called on simulator shutdown.
 func CleanupContainers() {
 	if dockerClient == nil {
@@ -352,13 +351,18 @@ func CleanupContainers() {
 		return true
 	})
 
-	nets, err := dockerClient.NetworkList(ctx, client.NetworkListOptions{
-		Filters: client.Filters{}.Add("label", "sockerless-sim-run="+simulatorRunID),
-	})
+	runFilter := client.Filters{}.Add("label", "sockerless-sim-run="+simulatorRunID)
+	nets, err := dockerClient.NetworkList(ctx, client.NetworkListOptions{Filters: runFilter})
 	if err == nil {
 		for _, n := range nets.Items {
 			_, _ = dockerClient.NetworkRemove(ctx, n.ID, client.NetworkRemoveOptions{})
 		}
+	}
+	if simulatorRunID == "" {
+		return
+	}
+	if err := removeRunVolumes(ctx, dockerClient, runFilter); err != nil {
+		fmt.Fprintf(os.Stderr, "remove the run's volumes: %v\n", err)
 	}
 }
 
@@ -623,6 +627,62 @@ func RemoveVolume(name string) error {
 	return err
 }
 
+// ensureBindVolumes creates each named volume a bind mounts that the engine
+// does not hold yet, carrying the run's labels, so the reaper that collects a
+// run's containers and networks collects its volumes too. An engine creates a
+// missing named volume itself at container create, unlabelled, and such a
+// volume outlives the simulator that made it.
+func ensureBindVolumes(ctx context.Context, cli *client.Client, binds []string) error {
+	for _, bind := range binds {
+		source, _, found := strings.Cut(bind, ":")
+		if !found || !namedVolumeSource(source) {
+			continue
+		}
+		if _, err := cli.VolumeInspect(ctx, source, client.VolumeInspectOptions{}); err == nil {
+			continue
+		} else if !cerrdefs.IsNotFound(err) {
+			return fmt.Errorf("inspect volume %s: %w", source, err)
+		}
+		if _, err := cli.VolumeCreate(ctx, client.VolumeCreateOptions{Name: source, Labels: simulatorLabels(nil)}); err != nil {
+			return fmt.Errorf("create volume %s: %w", source, err)
+		}
+	}
+	return nil
+}
+
+// namedVolumeSource reports whether a bind's source names a volume rather
+// than a host path.
+func namedVolumeSource(source string) bool {
+	return source != "" && !strings.ContainsAny(source, `/\`) && !strings.HasPrefix(source, ".") && !strings.HasPrefix(source, "~")
+}
+
+// removeRunVolumes removes every volume labelled with the run, once the
+// containers that mounted them are gone.
+func removeRunVolumes(ctx context.Context, cli *client.Client, filters client.Filters) error {
+	volumes, err := cli.VolumeList(ctx, client.VolumeListOptions{Filters: filters})
+	if err != nil {
+		return fmt.Errorf("list volumes: %w", err)
+	}
+	var errs []error
+	for _, workloadVolume := range volumes.Items {
+		if _, err := cli.VolumeRemove(ctx, workloadVolume.Name, client.VolumeRemoveOptions{Force: true}); err != nil && !cerrdefs.IsNotFound(err) {
+			errs = append(errs, fmt.Errorf("remove volume %s: %w", workloadVolume.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// WorkloadScope names the simulator that owns the workloads it starts: its
+// state directory when it persists, which a restarted simulator shares, and
+// its run otherwise. Names derived from it never collide with those of a
+// concurrent simulator.
+func WorkloadScope() string {
+	if simulatorStateID != "" {
+		return simulatorStateID
+	}
+	return simulatorRunID
+}
+
 // VolumeExists reports whether a named volume exists on the engine. Callers
 // on the modeled tier (no engine) get false, which is the truth there.
 func VolumeExists(name string) bool {
@@ -839,6 +899,9 @@ func StartHTTPContainer(ctx context.Context, cfg HTTPContainerConfig) (string, e
 		return "", fmt.Errorf("sandbox enforce: %w", err)
 	}
 
+	if err := ensureBindVolumes(ctx, cli, cfg.Binds); err != nil {
+		return "", err
+	}
 	platform, err := parsePlatform(cfg.Architecture)
 	if err != nil {
 		return "", err
@@ -1138,6 +1201,9 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		}
 	}
 
+	if err := ensureBindVolumes(ctx, cli, cfg.Binds); err != nil {
+		return "", err
+	}
 	platform, err := parsePlatform(cfg.Architecture)
 	if err != nil {
 		return "", err
@@ -1563,6 +1629,10 @@ func EnsureDockerNetwork(name string) (string, error) {
 		Labels: simulatorLabels(nil),
 	})
 	if err != nil {
+		// A concurrent caller created it first.
+		if existing, inspectErr := cli.NetworkInspect(ctx, name, client.NetworkInspectOptions{}); inspectErr == nil {
+			return existing.Network.ID, nil
+		}
 		return "", fmt.Errorf("network create %s: %w", name, err)
 	}
 	return resp.ID, nil

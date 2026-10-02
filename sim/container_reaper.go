@@ -217,5 +217,9 @@ func RunContainerReaper() bool {
 			os.Exit(1)
 		}
 	}
+	if err := removeRunVolumes(ctx, dockerClient, labelFilters); err != nil {
+		fmt.Fprintf(os.Stderr, "remove orphaned simulator volumes: %v\n", err)
+		os.Exit(1)
+	}
 	return true
 }

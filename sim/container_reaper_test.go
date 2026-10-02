@@ -29,6 +29,7 @@ type containerReaperTestResources struct {
 	RunID       string `json:"runId"`
 	ContainerID string `json:"containerId"`
 	NetworkID   string `json:"networkId"`
+	VolumeName  string `json:"volumeName"`
 }
 
 func TestContainerReaperAbnormalExit(t *testing.T) {
@@ -99,18 +100,22 @@ func TestContainerReaperAbnormalExit(t *testing.T) {
 		networks, networkErr := dockerClient.NetworkList(ctx, client.NetworkListOptions{
 			Filters: client.Filters{}.Add("label", "sockerless-sim-run="+resources.RunID),
 		})
+		volumes, volumeErr := dockerClient.VolumeList(ctx, client.VolumeListOptions{
+			Filters: client.Filters{}.Add("label", "sockerless-sim-run="+resources.RunID),
+		})
 		cancel()
-		lastErr = errors.Join(containerErr, networkErr)
-		if lastErr == nil && len(containers.Items) == 0 && len(networks.Items) == 0 {
+		lastErr = errors.Join(containerErr, networkErr, volumeErr)
+		if lastErr == nil && len(containers.Items) == 0 && len(networks.Items) == 0 && len(volumes.Items) == 0 {
 			return
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
 	if lastErr != nil {
-		t.Fatalf("could not confirm the detached reaper removed container %s and network %s: %v",
-			resources.ContainerID, resources.NetworkID, lastErr)
+		t.Fatalf("could not confirm the detached reaper removed container %s, network %s and volume %s: %v",
+			resources.ContainerID, resources.NetworkID, resources.VolumeName, lastErr)
 	}
-	t.Fatalf("detached reaper did not remove container %s and network %s after SIGKILL", resources.ContainerID, resources.NetworkID)
+	t.Fatalf("detached reaper did not remove container %s, network %s and volume %s after SIGKILL",
+		resources.ContainerID, resources.NetworkID, resources.VolumeName)
 }
 
 // The reaper test pulls a real image, so it depends on a registry being
@@ -159,13 +164,18 @@ func runContainerReaperTestChild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create reaper test network: %v", err)
 	}
+	volumeName := "sockerless-reaper-test-" + simulatorRunID
+	binds := []string{volumeName + ":/data"}
+	if err := ensureBindVolumes(ctx, dockerClient, binds); err != nil {
+		t.Fatalf("create reaper test volume: %v", err)
+	}
 	createdContainer, err := dockerClient.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image:  containerReaperTestImage,
 			Cmd:    []string{"sleep", "300"},
 			Labels: labels,
 		},
-		HostConfig: &container.HostConfig{NetworkMode: container.NetworkMode(createdNetwork.ID)},
+		HostConfig: &container.HostConfig{NetworkMode: container.NetworkMode(createdNetwork.ID), Binds: binds},
 		Name:       "sockerless-reaper-test-" + simulatorRunID,
 	})
 	if err != nil {
@@ -178,6 +188,7 @@ func runContainerReaperTestChild(t *testing.T) {
 		RunID:       simulatorRunID,
 		ContainerID: createdContainer.ID,
 		NetworkID:   createdNetwork.ID,
+		VolumeName:  volumeName,
 	}); err != nil {
 		t.Fatalf("report child resources: %v", err)
 	}
