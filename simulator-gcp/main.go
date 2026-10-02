@@ -194,6 +194,12 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	registerComputeMetadata(srv)
 	registerTokenDiscovery(srv)
 
+	// Audit the calls of every service above; mounted after them so it wraps
+	// their front ends too.
+	if err := registerAuditLogs(srv); err != nil {
+		return nil, err
+	}
+
 	// Embedded UI (no-op with -tags noui)
 	registerUI(srv)
 
@@ -244,7 +250,7 @@ func startGRPCServer(srv *sim.Server, port string) error {
 		return fmt.Errorf("gRPC: listen on :%s: %w", port, err)
 	}
 
-	gs := grpc.NewServer()
+	gs := grpc.NewServer(grpc.ChainUnaryInterceptor(auditUnaryInterceptor))
 	registerAllGRPCServices(gs)
 
 	fmt.Fprintf(os.Stderr, "  gRPC Cloud Logging, Bigtable Admin + Data, Firestore, Pub/Sub, Spanner, Cloud KMS, Secret Manager on :%s\n", port)

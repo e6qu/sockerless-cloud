@@ -186,6 +186,12 @@ Current state of the sockerless-cloud repository.
   the container's answer passed through and invocation on both governed by
   the service's IAM policy; DeleteFunction deletes the service and its
   policy.
+- **Audited calls write Cloud Audit Logs entries**: Cloud Storage's JSON
+  API and the Cloud Run Admin v2, Pub/Sub, Secret Manager, Artifact Registry
+  and Cloud Functions v2 APIs write Admin Activity entries, and Data Access
+  entries where the project's `auditConfigs` enable them, naming the caller
+  its token resolves to; Eventarc `google.cloud.audit.log.v1.written`
+  triggers deliver the matching entries as CloudEvents.
 - **Azure workload hosts pull with what the workload declared**: a
   Container App's or Job's `registries` entry — a managed identity, as an
   identity token the registry exchanges, or a username and password secret —

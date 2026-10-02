@@ -15,6 +15,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,11 +53,24 @@ type GCPCustomRole struct {
 }
 
 type IAMPolicy struct {
-	Kind       string       `json:"kind,omitempty"`
-	ResourceId string       `json:"resourceId,omitempty"`
-	Bindings   []IAMBinding `json:"bindings"`
-	Etag       string       `json:"etag"`
-	Version    int          `json:"version"`
+	Kind         string           `json:"kind,omitempty"`
+	ResourceId   string           `json:"resourceId,omitempty"`
+	Bindings     []IAMBinding     `json:"bindings"`
+	AuditConfigs []IAMAuditConfig `json:"auditConfigs,omitempty"`
+	Etag         string           `json:"etag"`
+	Version      int              `json:"version"`
+}
+
+// IAMAuditConfig names the Data Access audit log types a service writes for
+// the resource, and the members whose calls it leaves out of them.
+type IAMAuditConfig struct {
+	Service         string              `json:"service"`
+	AuditLogConfigs []IAMAuditLogConfig `json:"auditLogConfigs,omitempty"`
+}
+
+type IAMAuditLogConfig struct {
+	LogType         string   `json:"logType"`
+	ExemptedMembers []string `json:"exemptedMembers,omitempty"`
 }
 
 type IAMBinding struct {
@@ -2807,7 +2821,8 @@ func handleResourceIAM(w http.ResponseWriter, r *http.Request, store sim.Store[I
 		sim.WriteJSON(w, http.StatusOK, policy)
 	case "setIamPolicy":
 		var req struct {
-			Policy IAMPolicy `json:"policy"`
+			Policy     IAMPolicy `json:"policy"`
+			UpdateMask string    `json:"updateMask"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
@@ -2817,9 +2832,18 @@ func handleResourceIAM(w http.ResponseWriter, r *http.Request, store sim.Store[I
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 			return
 		}
+		if err := validateIAMAuditConfigs(req.Policy.AuditConfigs); err != nil {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+			return
+		}
 		current, present := store.Get(resource)
 		if gcpIAMETagConflict(w, req.Policy.Etag, current.Etag, present) {
 			return
+		}
+		// The default mask is "bindings,etag": a policy's auditConfigs change
+		// only when the mask names them.
+		if !slices.Contains(strings.Split(strings.ReplaceAll(req.UpdateMask, " ", ""), ","), "auditConfigs") {
+			req.Policy.AuditConfigs = current.AuditConfigs
 		}
 		req.Policy.Etag = gcpPolicyETag()
 		if req.Policy.Version == 0 {
@@ -2841,6 +2865,27 @@ func handleResourceIAM(w http.ResponseWriter, r *http.Request, store sim.Store[I
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// iamAuditLogTypes are the Data Access audit log types an auditLogConfig
+// enables.
+var iamAuditLogTypes = []string{"ADMIN_READ", "DATA_READ", "DATA_WRITE"}
+
+func validateIAMAuditConfigs(configs []IAMAuditConfig) error {
+	for i, config := range configs {
+		if config.Service == "" {
+			return fmt.Errorf("policy.auditConfigs[%d].service is required", i)
+		}
+		for j, logConfig := range config.AuditLogConfigs {
+			if !slices.Contains(iamAuditLogTypes, logConfig.LogType) {
+				return fmt.Errorf("policy.auditConfigs[%d].auditLogConfigs[%d].logType %q is not one of %v", i, j, logConfig.LogType, iamAuditLogTypes)
+			}
+			if err := validateIAMMembers([]IAMBinding{{Members: logConfig.ExemptedMembers}}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // gcpResourceIAMStore returns the package-level resource-IAM store

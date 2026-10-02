@@ -351,6 +351,27 @@ through hooks:
   metadata changes; Eventarc delivers Cloud Storage triggers from those
   notifications as binary-mode CloudEvents; Cloud Logging `entries:copy` copies
   the entries its sinks routed to the bucket.
+- **An audited call writes its Cloud Audit Logs entry.** One middleware around
+  the whole route table and one gRPC unary interceptor audit the calls of
+  Cloud Storage's JSON API and of the RPC-defined Cloud Run Admin v2, Pub/Sub,
+  Secret Manager, Artifact Registry and Cloud Functions v2 APIs. Cloud Storage
+  keeps its own method names (`storage.buckets.create`,
+  `storage.setIamPermissions`, `storage.objects.create`) in a route table; the
+  RPC-defined APIs resolve a REST call to its RPC through the
+  `google.api.http` bindings of their registered descriptors, so the entry
+  names the RPC's full name and the API's `google.api.default_host` and carries
+  the request and response messages in JSON with their `@type`. The caller is
+  the principal its access token names. A configuration change lands in the
+  project's `cloudaudit.googleapis.com%2Factivity` log; a configuration read or
+  a data read or write lands in `%2Fdata_access` only when the project's IAM
+  policy `auditConfigs` enable that log type for the service, and
+  `setIamPolicy` changes `auditConfigs` only when its `updateMask` names them.
+  `LogEntry` carries `protoPayload` and `receiveTimestamp` through REST and
+  gRPC. Eventarc `google.cloud.audit.log.v1.written` triggers receive the
+  entries of their project and location (a global trigger every location's)
+  whose `serviceName`, `methodName` and `resourceName` filters, the last
+  optionally a `match-path-pattern`, match, as CloudEvents whose data is the
+  `LogEntryData`.
 - **A subscription stays open for as long as the cloud holds it.** Amazon Kinesis
   Data Streams `SubscribeToShard` holds its event stream for the documented
   five minutes, declared with `sim.DeclareWait`. It sends the backlog from the

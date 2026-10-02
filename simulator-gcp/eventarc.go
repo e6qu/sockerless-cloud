@@ -183,24 +183,32 @@ func registerEventarc(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/operations/{operation}", handleEventarcDeleteOperation)
 }
 
+// isCloudBuildRequest resolves which of Cloud Build and Eventarc a request to
+// the triggers collection both publish addresses: by the Host a client names,
+// then by Eventarc's required triggerId on a create and by which service holds
+// the named trigger.
 func isCloudBuildRequest(r *http.Request) bool {
-	if strings.Contains(strings.ToLower(r.Host), "cloudbuild") {
+	switch gcpServiceFromHost(r) {
+	case "cloudbuild":
 		return true
+	case "eventarc":
+		return false
 	}
-	if r.Method == http.MethodPost && r.URL.Query().Get("triggerId") == "" {
-		return true
+	if r.Method == http.MethodPost {
+		return r.URL.Query().Get("triggerId") == ""
 	}
 	project := sim.PathParam(r, "project")
 	location := sim.PathParam(r, "location")
-	if location == "global" {
-		return true
-	}
 	trigger := sim.PathParam(r, "trigger")
-	if project == "" || location == "" || trigger == "" {
-		return false
+	if trigger != "" {
+		if _, ok := eventarcTriggers.Get(eventarcTriggerKey(project, location, trigger)); ok {
+			return false
+		}
+		if _, ok := cbTriggers.Get(buildTriggerKey(project, location, trigger)); ok {
+			return true
+		}
 	}
-	_, ok := cbTriggers.Get(buildTriggerKey(project, location, trigger))
-	return ok
+	return location == "global"
 }
 
 func handleGCPRegionalTriggerCreate(w http.ResponseWriter, r *http.Request) {
@@ -519,7 +527,39 @@ func handleEventarcGetProvider(w http.ResponseWriter, r *http.Request) {
 	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "provider %q not found", name)
 }
 
+// eventarcAuditLogProviders are the services whose Cloud Audit Logs entries
+// the simulator writes, by provider ID and display name.
+var eventarcAuditLogProviders = []struct{ id, displayName string }{
+	{"storage.googleapis.com", "Cloud Storage"},
+	{"run.googleapis.com", "Cloud Run Admin API"},
+	{"pubsub.googleapis.com", "Cloud Pub/Sub API"},
+	{"secretmanager.googleapis.com", "Secret Manager API"},
+	{"artifactregistry.googleapis.com", "Artifact Registry API"},
+	{"cloudfunctions.googleapis.com", "Cloud Functions API"},
+}
+
 func eventarcProviders(parent string) []EventarcProvider {
+	providers := eventarcDirectProviders(parent)
+	for _, p := range eventarcAuditLogProviders {
+		providers = append(providers, EventarcProvider{
+			Name:        parent + "/providers/" + p.id,
+			DisplayName: p.displayName,
+			EventTypes: []EventarcProviderEvent{{
+				Type:        eventarcAuditLogEventType,
+				Description: "An audit log is created that matches the trigger's filter criteria.",
+				FilteringAttributes: []EventarcFilteringAttribute{
+					{Attribute: "methodName", Required: true},
+					{Attribute: "resourceName"},
+					{Attribute: "serviceName", Required: true},
+					{Attribute: "type", Required: true},
+				},
+			}},
+		})
+	}
+	return providers
+}
+
+func eventarcDirectProviders(parent string) []EventarcProvider {
 	return []EventarcProvider{
 		{
 			Name:        parent + "/providers/cloud.pubsub",

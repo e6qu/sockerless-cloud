@@ -64,8 +64,10 @@ type jobLogEntry struct {
 	message      string
 }
 
+// jobLogFilter selects the job's own run.googleapis.com logs: its Cloud Audit
+// Logs entries name the same monitored resource.
 func jobLogFilter(jobName string) string {
-	return fmt.Sprintf(`resource.type="cloud_run_job" AND resource.labels.job_name=%q`, jobName)
+	return fmt.Sprintf(`logName:"run.googleapis.com" AND resource.type="cloud_run_job" AND resource.labels.job_name=%q`, jobName)
 }
 
 // readJobLogEntries returns the Cloud Logging entries a Cloud Run job has

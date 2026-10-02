@@ -4,11 +4,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 )
 
-const eventarcPubSubEventType = "google.cloud.pubsub.topic.v1.messagePublished"
+const (
+	eventarcPubSubEventType   = "google.cloud.pubsub.topic.v1.messagePublished"
+	eventarcAuditLogEventType = "google.cloud.audit.log.v1.written"
+	eventarcPathPatternOp     = "match-path-pattern"
+)
 
 // eventarcStorageEvents maps each Cloud Storage event type Eventarc routes
 // directly to the notification event type Cloud Storage publishes for it.
@@ -34,6 +39,12 @@ func eventarcFilterValue(t EventarcTrigger, attribute string) string {
 // carries.
 func eventarcIsPubSubTrigger(t EventarcTrigger) bool {
 	return eventarcFilterValue(t, "type") == eventarcPubSubEventType
+}
+
+// eventarcIsAuditLogTrigger reports whether the trigger routes Cloud Audit
+// Logs entries.
+func eventarcIsAuditLogTrigger(t EventarcTrigger) bool {
+	return eventarcFilterValue(t, "type") == eventarcAuditLogEventType
 }
 
 // eventarcStorageEvent is the Cloud Storage notification event type a trigger
@@ -68,6 +79,11 @@ func eventarcValidateTrigger(t EventarcTrigger, project, location string) error 
 			return fmt.Errorf("the request was invalid: destination Cloud Run service %s does not exist", service)
 		}
 	}
+	if eventarcIsAuditLogTrigger(t) {
+		if err := eventarcValidateAuditLogFilters(t); err != nil {
+			return err
+		}
+	}
 	if _, ok := eventarcStorageEvent(t); ok {
 		bucket := eventarcFilterValue(t, "bucket")
 		if bucket == "" {
@@ -75,6 +91,28 @@ func eventarcValidateTrigger(t EventarcTrigger, project, location string) error 
 		}
 		if _, exists := gcsBuckets.Get(bucket); !exists {
 			return fmt.Errorf("the request was invalid: bucket %q was not found", bucket)
+		}
+	}
+	return nil
+}
+
+// eventarcValidateAuditLogFilters checks a Cloud Audit Logs trigger's event
+// filters: it names the serviceName and methodName of the entries it routes,
+// may narrow them by resourceName, and only resourceName takes a path pattern.
+func eventarcValidateAuditLogFilters(t EventarcTrigger) error {
+	for _, f := range t.EventFilters {
+		switch f.Attribute {
+		case "type", "serviceName", "methodName", "resourceName":
+		default:
+			return fmt.Errorf("the request was invalid: event filter attribute %q is not one the event type %s defines", f.Attribute, eventarcAuditLogEventType)
+		}
+		if f.Operator != "" && (f.Operator != eventarcPathPatternOp || f.Attribute != "resourceName") {
+			return fmt.Errorf("the request was invalid: event filter attribute %q does not support the operator %q", f.Attribute, f.Operator)
+		}
+	}
+	for _, required := range []string{"serviceName", "methodName"} {
+		if eventarcFilterValue(t, required) == "" {
+			return fmt.Errorf("the request was invalid: a trigger for %s needs a %s event filter", eventarcAuditLogEventType, required)
 		}
 	}
 	return nil
@@ -103,13 +141,15 @@ func eventarcDestinationURL(t EventarcTrigger, project, location string) (string
 
 // eventarcProvisionTransport gives a trigger its transport the way Eventarc
 // does: a Pub/Sub trigger delivers from the named topic or one Eventarc
-// creates, and a Cloud Storage trigger from a topic Eventarc creates and the
-// bucket's notification configuration that publishes to it. Either way a push
-// subscription on the topic delivers to the destination. It records topic and
-// subscription in transport.pubsub.
+// creates, a Cloud Storage trigger from a topic Eventarc creates and the
+// bucket's notification configuration that publishes to it, and a Cloud Audit
+// Logs trigger from a topic Eventarc creates and publishes the matching
+// entries to. Each way a push subscription on the topic delivers to the
+// destination. It records topic and subscription in transport.pubsub.
 func eventarcProvisionTransport(t *EventarcTrigger, project, location, triggerID string) {
 	storageEvent, isStorage := eventarcStorageEvent(*t)
-	if !eventarcIsPubSubTrigger(*t) && !isStorage {
+	isAuditLog := eventarcIsAuditLogTrigger(*t)
+	if !eventarcIsPubSubTrigger(*t) && !isStorage && !isAuditLog {
 		return
 	}
 	endpoint, ok := eventarcDestinationURL(*t, project, location)
@@ -122,7 +162,7 @@ func eventarcProvisionTransport(t *EventarcTrigger, project, location, triggerID
 	}
 	topic, _ := pubsub["topic"].(string)
 	suffix := eventarcTransportSuffix(*t)
-	if topic == "" || isStorage {
+	if topic == "" || isStorage || isAuditLog {
 		topic = eventarcCreatedTopicName(*t)
 		psTopics.Put(topic, PSTopic{Name: topic})
 	}
@@ -230,14 +270,143 @@ func eventarcDeliveringThrough(subscription string) (EventarcTrigger, bool) {
 	return EventarcTrigger{}, false
 }
 
+// eventarcRouteAuditLog publishes a Cloud Audit Logs entry to the transport
+// topic of every trigger of the project that routes it.
+func eventarcRouteAuditLog(entry LogEntry, project, location string) {
+	if eventarcTriggers == nil {
+		return
+	}
+	var data string
+	for _, row := range eventarcTriggers.ListPrefix(project + "/") {
+		t := row.Item
+		if !eventarcIsAuditLogTrigger(t) || !eventarcAuditLogMatches(t, entry.ProtoPayload, project, location) {
+			continue
+		}
+		pubsub, _ := t.Transport["pubsub"].(map[string]any)
+		topic, _ := pubsub["topic"].(string)
+		if topic == "" {
+			continue
+		}
+		if data == "" {
+			body, err := json.Marshal(entry)
+			if err != nil {
+				log.Printf("eventarc: audit log entry %s: %v", entry.InsertID, err)
+				return
+			}
+			data = base64.StdEncoding.EncodeToString(body)
+		}
+		if _, err := psPublishMessages(topic, []PSMessage{{Data: data}}); err != nil {
+			log.Printf("eventarc: trigger %s: %v", t.Name, err)
+		}
+	}
+}
+
+// eventarcAuditLogMatches reports whether a trigger routes an audit entry: a
+// trigger receives the entries of its own project and location, a global
+// trigger those of every location, and each event filter matches the
+// AuditLog field it names.
+func eventarcAuditLogMatches(t EventarcTrigger, payload map[string]any, project, location string) bool {
+	parts := strings.Split(t.Name, "/")
+	if len(parts) != 6 || parts[1] != project {
+		return false
+	}
+	if parts[3] != "global" && !strings.EqualFold(parts[3], location) {
+		return false
+	}
+	for _, f := range t.EventFilters {
+		if f.Attribute == "type" {
+			continue
+		}
+		value, _ := payload[f.Attribute].(string)
+		if f.Operator == eventarcPathPatternOp {
+			if !eventarcPathPatternMatch(f.Value, value) {
+				return false
+			}
+		} else if value != f.Value {
+			return false
+		}
+	}
+	return true
+}
+
+// eventarcPathPatternMatch matches a resource name against an Eventarc path
+// pattern: "*" matches any run of characters within a segment and a "**"
+// segment matches any number of segments.
+func eventarcPathPatternMatch(pattern, name string) bool {
+	return eventarcSegmentsMatch(strings.Split(strings.TrimPrefix(pattern, "/"), "/"), strings.Split(strings.TrimPrefix(name, "/"), "/"))
+}
+
+func eventarcSegmentsMatch(pattern, segments []string) bool {
+	if len(pattern) == 0 {
+		return len(segments) == 0
+	}
+	if pattern[0] == "**" {
+		for i := 0; i <= len(segments); i++ {
+			if eventarcSegmentsMatch(pattern[1:], segments[i:]) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(segments) == 0 || !eventarcGlobMatch(pattern[0], segments[0]) {
+		return false
+	}
+	return eventarcSegmentsMatch(pattern[1:], segments[1:])
+}
+
+// eventarcGlobMatch matches one segment against a pattern whose only
+// wildcard is "*".
+func eventarcGlobMatch(pattern, segment string) bool {
+	parts := strings.Split(pattern, "*")
+	if len(parts) == 1 {
+		return pattern == segment
+	}
+	if !strings.HasPrefix(segment, parts[0]) {
+		return false
+	}
+	rest := segment[len(parts[0]):]
+	for _, part := range parts[1 : len(parts)-1] {
+		i := strings.Index(rest, part)
+		if i < 0 {
+			return false
+		}
+		rest = rest[i+len(part):]
+	}
+	return len(rest) >= len(parts[len(parts)-1]) && strings.HasSuffix(rest, parts[len(parts)-1])
+}
+
 // eventarcCloudEvent renders a message as the binary-mode CloudEvent Eventarc
 // delivers for the trigger: ce-* attributes in headers, and as data the push
-// envelope of a Pub/Sub message or the object resource of a Cloud Storage
-// notification.
+// envelope of a Pub/Sub message, the object resource of a Cloud Storage
+// notification, or the LogEntryData of a Cloud Audit Logs entry.
 func eventarcCloudEvent(t EventarcTrigger, sub PSSubscription, message PSMessage) (http.Header, []byte, error) {
 	header := http.Header{}
 	header.Set("ce-specversion", "1.0")
 	header.Set("ce-id", message.MessageId)
+	if eventarcIsAuditLogTrigger(t) {
+		body, err := base64.StdEncoding.DecodeString(message.Data)
+		if err != nil {
+			return nil, nil, err
+		}
+		var entry LogEntry
+		if err := json.Unmarshal(body, &entry); err != nil {
+			return nil, nil, err
+		}
+		project, logID, _ := strings.Cut(strings.TrimPrefix(entry.LogName, "projects/"), "/logs/cloudaudit.googleapis.com%2F")
+		serviceName, _ := entry.ProtoPayload["serviceName"].(string)
+		methodName, _ := entry.ProtoPayload["methodName"].(string)
+		resourceName, _ := entry.ProtoPayload["resourceName"].(string)
+		header.Set("Content-Type", "application/json; charset=utf-8")
+		header.Set("ce-type", eventarcAuditLogEventType)
+		header.Set("ce-source", "//cloudaudit.googleapis.com/projects/"+project+"/logs/"+logID)
+		header.Set("ce-subject", serviceName+"/"+resourceName)
+		header.Set("ce-time", entry.Timestamp)
+		header.Set("ce-servicename", serviceName)
+		header.Set("ce-methodname", methodName)
+		header.Set("ce-resourcename", resourceName)
+		header.Set("ce-recordedtime", entry.Timestamp)
+		return header, body, nil
+	}
 	if _, ok := eventarcStorageEvent(t); ok {
 		body, err := base64.StdEncoding.DecodeString(message.Data)
 		if err != nil {
