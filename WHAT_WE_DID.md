@@ -1474,7 +1474,13 @@ object ACLs while uniform bucket-level access is off. It refuses to delete a
 bucket that still holds live objects, and refuses a notification whose Pub/Sub
 topic is malformed, missing or closed to its service agent. Objects kept
 their custom contexts through every write, copy, rewrite and compose,
-`objects.list` filtered on them, and `objects.viewFullContext` read one back.
+`objects.list` filtered on them, and `objects.viewFullContext` read one back;
+the Go clients, gcloud (`--custom-contexts`, `--update-custom-contexts`,
+`--remove-custom-contexts`, `--metadata-filter`) and the Terraform provider's
+`google_storage_bucket_object.contexts` all drove them. gcloud's
+`objects update --clear-custom-contexts` sends an empty `custom` map, which a
+patch treats as no change (Google's Go client sends `contexts` as null to clear
+them), so the CLI test removes contexts by name.
 Artifact Registry
 deletes cascade across both planes: a manifest DELETE over OCI removes its
 version, tags and image row, and a package or repository takes everything

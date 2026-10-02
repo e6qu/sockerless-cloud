@@ -794,6 +794,25 @@ resource "google_storage_bucket_object" "tf_artifact" {
   content = "tf-test-payload"
 }
 
+# An object carrying custom object contexts, which the provider sends on the
+# upload and reads back with their server-set timestamps.
+resource "google_storage_bucket_object" "tf_context_object" {
+  name    = "tf-context-object.txt"
+  bucket  = google_storage_bucket.tf_bucket.name
+  content = "contexts"
+
+  contexts {
+    custom {
+      key   = "team"
+      value = "data"
+    }
+    custom {
+      key   = "tier"
+      value = "gold"
+    }
+  }
+}
+
 # ---------- Cloud Logging ----------
 
 resource "google_logging_project_sink" "tf_log_sink" {
@@ -1330,6 +1349,10 @@ output "bigtable_table_id" {
 
 output "project_id" {
   value = google_project.tf_project.project_id
+}
+
+output "gcs_object_contexts" {
+  value = google_storage_bucket_object.tf_context_object.contexts[0].custom
 }
 
 output "gcs_service_agent" {

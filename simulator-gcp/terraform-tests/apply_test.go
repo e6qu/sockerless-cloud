@@ -387,6 +387,21 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Regexp(t, `^[1-9][0-9]{11}$`, projectNumber,
 		"google_project.number must be the real 12-digit project number the v1 read returns; got %s", projectNumber)
 
+	contexts, ok := outputs.mustValue(t, "gcs_object_contexts").([]any)
+	require.True(t, ok, "gcs_object_contexts is a list")
+	got := map[string]string{}
+	for _, entry := range contexts {
+		context, ok := entry.(map[string]any)
+		require.True(t, ok, "a custom context is an object")
+		key, _ := context["key"].(string)
+		value, _ := context["value"].(string)
+		got[key] = value
+		require.NotEmpty(t, context["create_time"], "context %s reads back its create time", key)
+		require.NotEmpty(t, context["update_time"], "context %s reads back its update time", key)
+	}
+	require.Equal(t, map[string]string{"team": "data", "tier": "gold"}, got,
+		"google_storage_bucket_object round-trips its custom contexts")
+
 	require.Equal(t, "service-"+outputs.must(t, "test_project_number")+"@gs-project-accounts.iam.gserviceaccount.com",
 		outputs.must(t, "gcs_service_agent"),
 		"Cloud Storage's service agent carries the project's number")
