@@ -150,6 +150,26 @@ func (e *Env) armDeadlineReaper(t *testing.T) {
 
 func (e *Env) Terraform(t *testing.T, args ...string) []byte {
 	t.Helper()
+	out, err := e.run(t, args...)
+	if err != nil {
+		t.Fatalf("terraform %v failed: %v\n%s", args, err, out)
+	}
+	return out
+}
+
+// TerraformFails runs a terraform command the simulator must make fail, and
+// returns its combined output for the caller to check the service's error in.
+func (e *Env) TerraformFails(t *testing.T, args ...string) []byte {
+	t.Helper()
+	out, err := e.run(t, args...)
+	if err == nil {
+		t.Fatalf("terraform %v unexpectedly succeeded\n%s", args, out)
+	}
+	return out
+}
+
+func (e *Env) run(t *testing.T, args ...string) ([]byte, error) {
+	t.Helper()
 	if len(args) > 0 {
 		switch args[0] {
 		case "init":
@@ -217,16 +237,13 @@ func (e *Env) Terraform(t *testing.T, args ...string) []byte {
 	select {
 	case err := <-done:
 		t.Logf("terraform %v duration=%s", args, time.Since(start).Round(time.Millisecond))
-		if err != nil {
-			t.Fatalf("terraform %v failed: %v\n%s", args, err, buf.Bytes())
-		}
-		return buf.Bytes()
+		return buf.Bytes(), err
 	case <-watchdog:
 		killGroup()
 		<-done // reap the killed process so no zombie/orphan remains
 		t.Fatalf("terraform %v timed out near the test deadline (process group killed to avoid orphans)\n%s",
 			args, buf.Bytes())
-		return nil
+		return nil, nil
 	}
 }
 

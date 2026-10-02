@@ -232,6 +232,10 @@ through hooks:
   then stops the containers as tracked background work, as the service does;
   answering after the container's stop timeout held the task's lifecycle lock
   for thirty seconds.
+- **A delete the service refuses is refused.** Amazon ECR DeleteRepository
+  answers `RepositoryNotEmptyException` for a repository holding images unless
+  the request sets `force`, which the Terraform provider sends from
+  `force_delete`; a test that deletes a repository holding images says so.
 - **A managed EBS volume is a block device, and the engine is asked for
   nothing it has to interpret.** A plain engine volume showed the workload the
   host's disk. The volume is an image file of the requested size and

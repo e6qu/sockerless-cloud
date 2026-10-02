@@ -160,6 +160,8 @@ Current state of the sockerless-cloud repository.
   watch never ingests it. Every Cloud Storage JSON API request first waits
   for the events queued before it, and a task's execution completes only
   after its writes are objects. Linux only; the rest is BUGS.md 3084.
+- **Refused deletes are refused.** Amazon ECR refuses to delete a
+  repository holding images without `force`.
 - **An Amazon ECR pull-through-cache reference runs its rule's upstream
   image**: the Lambda and ECS hosts resolve `<prefix>/<path>` through the
   registered rule, as ECR hydrates the cache from that upstream.

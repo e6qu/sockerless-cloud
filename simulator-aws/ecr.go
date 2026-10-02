@@ -401,6 +401,13 @@ func handleECRDeleteRepository(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !req.Force && len(ecrImages.ListPrefix(req.RepositoryName+":")) > 0 {
+		AWSErrorf(w, "RepositoryNotEmptyException", http.StatusBadRequest,
+			"The repository with name '%s' in registry with id '%s' cannot be deleted because it still contains images",
+			req.RepositoryName, ecrRegistryId())
+		return
+	}
+
 	ecrRepositories.Delete(req.RepositoryName)
 	ecrDeleteRepositoryContents(req.RepositoryName)
 
