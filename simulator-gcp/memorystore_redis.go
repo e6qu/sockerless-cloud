@@ -561,15 +561,41 @@ func handleMSRedisClusterPatch(w http.ResponseWriter, r *http.Request) {
 }
 
 // msRedisUpdateMask reads a patch's updateMask; an empty mask names every
-// field the body carries.
+// field the body carries. A path may name its fields in the proto's
+// snake_case, as gcloud sends them, or in their JSON lowerCamelCase.
 func msRedisUpdateMask(r *http.Request) func(string) bool {
 	fields := map[string]bool{}
 	for _, f := range strings.Split(r.URL.Query().Get("updateMask"), ",") {
 		if f = strings.TrimSpace(f); f != "" {
-			fields[f] = true
+			fields[msRedisMaskPath(f)] = true
 		}
 	}
-	return func(name string) bool { return len(fields) == 0 || fields[name] }
+	return func(name string) bool {
+		if len(fields) == 0 || fields[name] {
+			return true
+		}
+		for f := range fields {
+			if strings.HasPrefix(f, name+".") {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// msRedisMaskPath spells an update mask path in lowerCamelCase.
+func msRedisMaskPath(path string) string {
+	segments := strings.Split(path, ".")
+	for i, seg := range segments {
+		words := strings.Split(seg, "_")
+		for j := 1; j < len(words); j++ {
+			if words[j] != "" {
+				words[j] = strings.ToUpper(words[j][:1]) + words[j][1:]
+			}
+		}
+		segments[i] = strings.Join(words, "")
+	}
+	return strings.Join(segments, ".")
 }
 
 func handleMSRedisClusterDelete(w http.ResponseWriter, r *http.Request) {
@@ -1086,14 +1112,7 @@ func handleMSRedisAclPolicyPatch(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
-	mask := r.URL.Query().Get("updateMask")
-	fields := map[string]bool{}
-	for _, f := range strings.Split(mask, ",") {
-		if f = strings.TrimSpace(f); f != "" {
-			fields[f] = true
-		}
-	}
-	wants := func(n string) bool { return len(fields) == 0 || fields[n] }
+	wants := msRedisUpdateMask(r)
 	msRedisAclPolicies.Update(name, func(p *MSRedisAclPolicy) {
 		if wants("rules") {
 			p.Rules = req.Rules

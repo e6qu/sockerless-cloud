@@ -57,7 +57,7 @@ func TestCloudRun_CLI_JobWritesThroughCloudStorageVolume(t *testing.T) {
 	})
 	runCLI(t, gcloudRegionalRunCLI("run", "jobs", "execute", job, "--region="+location, "--wait", "--quiet"))
 
-	listed := runCLI(t, gcloudCLI("storage", "objects", "list", "gs://"+bucket, "--format=value(name)"))
+	listed := runCLI(t, gcloudCLI("storage", "objects", "list", "gs://"+bucket+"/**", "--format=value(name)"))
 	names := strings.Fields(listed)
 	assert.ElementsMatch(t, []string{"made/", "made/inside.txt", "renamed.txt", "results/copy.txt", "seed.txt"}, names, listed)
 	assert.Equal(t, "seed\nappended\n", runCLI(t, gcloudCLI("storage", "cat", "gs://"+bucket+"/seed.txt")))

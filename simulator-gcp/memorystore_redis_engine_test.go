@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -377,5 +378,18 @@ func TestMSRedisBasicTierFailoverRefused(t *testing.T) {
 	code, body = gcpHostCall(t, srv, host, http.MethodPost, base+"?instanceId=extra", `{"tier":"BASIC","memorySizeGb":1,"replicaCount":1}`)
 	if code != http.StatusBadRequest || !strings.Contains(fmt.Sprint(body), "INVALID_ARGUMENT") {
 		t.Fatalf("a Basic Tier instance with a replica answered %d %v", code, body)
+	}
+}
+
+func TestMSRedisUpdateMaskReadsSnakeCaseAndNestedPaths(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPatch, "/x?updateMask=replica_count,persistence_config.rdb_config.rdb_snapshot_period", nil)
+	wants := msRedisUpdateMask(r)
+	for _, field := range []string{"replicaCount", "persistenceConfig"} {
+		if !wants(field) {
+			t.Errorf("the mask does not name %s", field)
+		}
+	}
+	if wants("shardCount") {
+		t.Error("the mask names shardCount")
 	}
 }
