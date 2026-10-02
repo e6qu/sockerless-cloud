@@ -14,7 +14,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
-	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	"google.golang.org/grpc/codes"
 )
 
@@ -718,6 +717,9 @@ func registerCloudRunJobs(srv *sim.Server) {
 			return
 		}
 
+		if !cloudRunJobTemplateValid(w, job.Template, false) {
+			return
+		}
 		name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
 		if _, exists := jobs.Get(name); exists {
 			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "job %q already exists", name)
@@ -844,21 +846,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 			return
 		}
 
-		jobs.Delete(name)
-
-		// Also delete associated executions
-		execs := executions.Filter(func(e Execution) bool {
-			return strings.HasPrefix(e.Name, name+"/executions/")
-		})
-		for _, e := range execs {
-			executions.Delete(e.Name)
-		}
-		// Also delete tasks belonging to those executions.
-		for _, t := range tasks.Filter(func(t Task) bool {
-			return strings.HasPrefix(t.Name, name+"/executions/")
-		}) {
-			tasks.Delete(t.Name)
-		}
+		deleteCloudRunJobCascade(name)
 
 		lro := cloudRunLRO(project, location, job, "type.googleapis.com/google.cloud.run.v2.Job")
 		sim.WriteJSON(w, http.StatusOK, lro)
@@ -1023,6 +1011,9 @@ func registerCloudRunJobs(srv *sim.Server) {
 		if !cloudRunJobEtagOK(w, existing, update.Etag) {
 			return
 		}
+		if !cloudRunJobTemplateValid(w, update.Template, false) {
+			return
+		}
 		// UpdateJob has no updateMask parameter — the full mutable resource is
 		// replaced. Preserve identity + server-owned fields.
 		update.Name = existing.Name
@@ -1074,11 +1065,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		if !cloudRunEtagOK(w, "execution", exec.Name, exec.Etag, r.URL.Query().Get("etag")) {
 			return
 		}
-		executions.Delete(name)
-		taskPrefix := name + "/tasks/"
-		for _, tk := range tasks.Filter(func(t Task) bool { return strings.HasPrefix(t.Name, taskPrefix) }) {
-			tasks.Delete(tk.Name)
-		}
+		deleteCloudRunExecutionCascade(name)
 		lro := cloudRunLRO(project, location, exec, "type.googleapis.com/google.cloud.run.v2.Execution")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
@@ -1299,6 +1286,7 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 
 	succeeded := true
 	var exitCode int32
+	attemptMessage := ""
 	if taskTmpl != nil && len(taskTmpl.Containers) > 0 {
 		sink := &crjLogSink{project: project, jobName: jobID}
 		execShort := execName
@@ -1310,13 +1298,21 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 				execShort = last
 			}
 		}
-		group, releaseMounts, err := startCloudRunJobContainers(execName, execShort, taskTmpl, timeout, sink)
+		startCtx, cancelStart := context.WithCancel(context.Background())
+		crjStartups.Store(execName, cancelStart)
+		if e, ok := crjExecutions.Get(execName); !ok || e.CancelledCount > 0 {
+			cancelStart()
+		}
+		group, releaseMounts, err := startCloudRunJobContainers(startCtx, execName, execShort, taskTmpl, timeout, sink)
+		crjStartups.Delete(execName)
+		cancelStart()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: failed to start containers for execution: err=%v\n", err)
 			succeeded = false
+			attemptMessage = err.Error()
 		} else {
 			crjProcessHandles.Store(execName, group)
-			if e, ok := crjExecutions.Get(execName); ok && e.CancelledCount > 0 {
+			if e, ok := crjExecutions.Get(execName); !ok || e.CancelledCount > 0 {
 				stopCloudRunExecutionWorkload(group)
 			}
 			result := group.Main.Wait()
@@ -1384,7 +1380,7 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 	case !succeeded:
 		taskState = "CONDITION_FAILED"
 		taskReason = "NonZeroExitCode"
-		attemptStatus = &RPCStatus{Code: int32(codes.Unknown)}
+		attemptStatus = &RPCStatus{Code: int32(codes.Unknown), Message: attemptMessage}
 	}
 	completionTime := nowTimestamp()
 	taskPrefix := execName + "/tasks/"
@@ -1434,7 +1430,12 @@ func cancelCloudRunExecution(project, location, jobID, execID string) (Execution
 	// Record the cancellation before stopping the workload: the execution's
 	// settle goroutine wakes the moment the container exits and must find the
 	// execution cancelled, not read the stop as the workload failing.
+	running := false
 	ok := crjExecutions.Update(name, func(e *Execution) {
+		if e.CompletionTime != "" {
+			return
+		}
+		running = true
 		now := nowTimestamp()
 		e.CompletionTime = now
 		e.CancelledCount = e.RunningCount
@@ -1454,11 +1455,11 @@ func cancelCloudRunExecution(project, location, jobID, execID string) (Execution
 	if !ok {
 		return Execution{}, false
 	}
-	if v, ok := crjProcessHandles.Load(name); ok {
-		if group, ok := v.(*workload.Group); ok {
-			stopCloudRunExecutionWorkload(group)
-		}
+	if !running {
+		exec, _ := crjExecutions.Get(name)
+		return exec, true
 	}
+	stopCloudRunExecutionRun(name)
 
 	jobName := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
 	crjJobs.Update(jobName, func(j *Job) {
@@ -1481,79 +1482,6 @@ func stopCloudRunExecutionWorkload(group *workload.Group) {
 	if group.Main != nil {
 		sim.StopContainer(group.Main.ContainerID, cloudRunStopGrace)
 	}
-}
-
-// startCloudRunJobContainers starts the task's containers. The release it
-// returns ends the ingestion of writes through their Cloud Storage volumes,
-// once the containers have stopped.
-func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate, timeout time.Duration, sink sim.LogSink) (*workload.Group, func(), error) {
-	if taskTmpl == nil || len(taskTmpl.Containers) == 0 {
-		return nil, nil, fmt.Errorf("execution has no containers")
-	}
-
-	volByName := make(map[string]Volume)
-	for _, v := range taskTmpl.Volumes {
-		volByName[v.Name] = v
-	}
-	project := resourceProject(execID)
-	metadataEnv, err := hostMetadataEnv()
-	if err != nil {
-		return nil, nil, err
-	}
-	extraHosts, err := hostMetadataExtraHosts()
-	if err != nil {
-		return nil, nil, err
-	}
-	binds := make([][]string, len(taskTmpl.Containers))
-	var writable []string
-	for i, c := range taskTmpl.Containers {
-		containerBinds, containerWritable, err := cloudRunGCSBinds(volByName, c)
-		if err != nil {
-			return nil, nil, err
-		}
-		binds[i] = containerBinds
-		writable = append(writable, containerWritable...)
-	}
-	member := func(c Container, binds []string, name string) workload.Container {
-		cmdEnv := make(map[string]string, len(c.Env))
-		for _, ev := range c.Env {
-			cmdEnv[ev.Name] = ev.Value
-		}
-		image := sim.ResolveLocalImage(c.Image)
-		return workload.Container{Name: c.Name, Config: sim.ContainerConfig{
-			CancelGracePeriod: cloudRunStopGrace,
-			Image:             image,
-			RegistryAuth:      workloadRegistryAuth(project, image),
-			Command:           c.Command,
-			Args:              c.Args,
-			Env:               workloadhost.MergeEnv(cmdEnv, metadataEnv),
-			Timeout:           timeout,
-			Name:              name,
-			Labels: map[string]string{
-				"sockerless-sim-execution":           execID,
-				"sockerless-sim-execution-container": c.Name,
-			},
-			Binds:   binds,
-			Sandbox: SandboxCloudRun,
-		}}
-	}
-
-	main := member(taskTmpl.Containers[0], binds[0], fmt.Sprintf("sockerless-sim-gcp-job-%s", execShort))
-	main.Config.ExtraHosts = extraHosts
-	sidecars := make([]workload.Container, 0, len(taskTmpl.Containers)-1)
-	for i, c := range taskTmpl.Containers[1:] {
-		sidecars = append(sidecars, member(c, binds[i+1], fmt.Sprintf("sockerless-sim-gcp-job-%s-sidecar-%d", execShort, i)))
-	}
-	releaseMounts, err := gcsAcquireMounts(writable)
-	if err != nil {
-		return nil, nil, err
-	}
-	group, err := workload.StartGroup(context.Background(), main, sidecars, sink)
-	if err != nil {
-		releaseMounts()
-		return nil, nil, err
-	}
-	return group, releaseMounts, nil
 }
 
 // injectCloudRunJobLog writes a log entry to the Cloud Logging store for a

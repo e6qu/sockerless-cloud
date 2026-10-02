@@ -70,6 +70,7 @@ func cloudRunV2ContainerToV1(container Container) CRContainer {
 	converted := CRContainer{
 		Name: container.Name, Image: container.Image, Command: container.Command,
 		Args: container.Args, Env: env, Ports: ports, WorkingDir: container.WorkingDir,
+		StartupProbe: container.StartupProbe,
 	}
 	if len(mounts) > 0 {
 		converted.VolumeMounts = mounts
@@ -87,6 +88,7 @@ func cloudRunV1ContainerToV2(container CRContainer) Container {
 	converted := Container{
 		Name: container.Name, Image: container.Image, Command: container.Command,
 		Args: container.Args, Env: env, Ports: ports, WorkingDir: container.WorkingDir,
+		StartupProbe: container.StartupProbe,
 	}
 	if len(mounts) > 0 {
 		converted.VolumeMounts = mounts

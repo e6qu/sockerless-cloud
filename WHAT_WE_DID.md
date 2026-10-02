@@ -1076,7 +1076,16 @@ response when every task succeeded, the failed `Completed` condition's message
 under FAILED_PRECONDITION when one failed, CANCELLED when it was cancelled, and
 NOT_FOUND when the execution was deleted while it ran. Cancelling the operation
 cancels the execution, and a restart completes the operations of executions
-that settled without them. `operations.wait` on REST and `WaitOperation` on
+that settled without them. A Cloud Run job task starts its containers in
+`dependsOn` order: the first to start owns the network namespace the others
+join, and a container starts once each container it depends on has started and
+passed its startup probe; a probe that fails fails the attempt with a status
+naming it. gcloud's `--depends-on` reaches the Knative surface as the
+`run.googleapis.com/container-dependencies` template annotation, which the
+simulator folds onto the containers' `dependsOn`. Deleting a job or an
+execution stops what it still runs, and cancelling an execution that has
+completed leaves it as it is, which is what gcloud's cancel reads as
+"completed successfully before it could be cancelled". `operations.wait` on REST and `WaitOperation` on
 gRPC block on a signal `gcpFinishOperation` raises, bounded by the request's
 `timeout` or else by the caller's connection. Cloud Build's `CreateBuild`, its
 regional twin, `RetryBuild`, `ApproveBuild`, `RunBuildTrigger`, the trigger

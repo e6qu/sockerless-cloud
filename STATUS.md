@@ -196,6 +196,10 @@ Current state of the sockerless-cloud repository.
   Google-signed ID token for the service whose principal holds
   `run.routes.invoke` through the service's policy or one it inherits,
   conditions evaluated with Common Expression Language.
+- **A Cloud Run job task starts its containers in `dependsOn` order**, each
+  after its dependencies passed their startup probes, and fails when a
+  configured startup probe fails; deleting a job or execution stops its
+  running containers, and cancelling a completed execution leaves it as it is.
 - **A Cloud Run function is served by its Cloud Run service**:
   `serviceConfig.uri` is the service's run.app URL and `url` the function's
   cloudfunctions.net URL, both served through the Cloud Run front end with
