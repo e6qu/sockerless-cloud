@@ -822,6 +822,24 @@ booting or running beside every later test's boot on the same runner.
 
 The fabric keeps a network's or machine's lock only while a caller holds or
 waits for it, so its lock maps shrink as networks and machines go away.
+A network interface's namespace and veth names derive from its ID, so a
+simulator killed before its cleanup ran leaves them for the next process to
+collide with: attaching an interface deletes a namespace of its name, and the
+veth it held, and retries once, as creating a network's namespace does, and
+the fabric serializes attaches of one interface so the reclaim never destroys
+a live namespace. The Azure simulator closes its fabric when SIGTERM stops it,
+and the Azure suites stop their simulators with SIGTERM.
+An Azure network interface realizes every IP configuration: the primary one
+(the one marked primary, else the first) attaches the interface, and each
+secondary leases its own address of the same subnet onto it — `ip addr add` in
+the interface's namespace, removed and released through its cleanup stack, or,
+while a virtual machine carries the interface as a tap, a lease the tap holds.
+A rewrite keeps the address each kept configuration held and releases the
+dropped ones first; configurations in two subnets are refused with
+`IpConfigurationsOnSameNicCannotUseDifferentSubnets`, and an address another
+interface holds with `PrivateIPAddressInUse`. The simulator does not configure
+the secondary addresses inside a guest, because Azure's DHCP hands a guest
+only its primary; the Instance Metadata Service lists them all, primary first.
 Creating an Azure file share or inserting a Cloud Storage bucket makes its
 empty host directory and fails the request when it cannot. The mount helpers
 only name the directory, and a bucket reuses no files that a deleted bucket

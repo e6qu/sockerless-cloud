@@ -216,6 +216,10 @@ Current state of the sockerless-cloud repository.
   so same-CIDR VPCs coexist; every simulator resource records its owning
   process, and a slice is reclaimed only from an owner this host can see to
   be gone.
+- **Azure network interfaces realize every IP configuration**: each secondary
+  holds its own address of the interface's subnet on the realized interface,
+  and the simulator tears its realized fabric down on SIGTERM; an interface
+  namespace a killed process left behind is reclaimed on the next attach.
 - **Declined surfaces are the ones whose required content is somebody else's
   data**: Cloud Spanner's Key Visualizer scans and wire-protocol adapter,
   Cloud KMS Key Access Justifications, Firestore's streaming REST spellings,

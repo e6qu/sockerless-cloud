@@ -230,8 +230,9 @@ func startAzTLSSimulator(t *testing.T, extraEnv ...string) azLoginEnv {
 		t.Fatalf("start the TLS simulator: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+		if err := simready.Stop(cmd, simShutdownGrace); err != nil {
+			t.Errorf("stop the TLS simulator: %v", err)
+		}
 	})
 
 	// The certificate names localhost, so address the simulator by that name —

@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -61,27 +60,10 @@ func startPersistentAzureSimulator(t *testing.T, stateDir string, port int) *exe
 	return cmd
 }
 
-// shutdownAzureSimulator sends SIGTERM — the orderly-shutdown signal the
-// simulator checkpoints its SQLite WAL on — and waits for a clean exit.
+// shutdownAzureSimulator sends SIGTERM, the orderly-shutdown signal the
+// simulator checkpoints its SQLite WAL on, and waits for a clean exit.
 func shutdownAzureSimulator(cmd *exec.Cmd) error {
-	if cmd == nil || cmd.Process == nil {
-		return nil
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("signal simulator shutdown: %w", err)
-	}
-	select {
-	case err := <-done:
-		if err != nil {
-			return fmt.Errorf("wait for simulator shutdown: %w", err)
-		}
-		return nil
-	case <-time.After(30 * time.Second):
-		_ = cmd.Process.Kill()
-		return fmt.Errorf("simulator did not exit within 30s of SIGTERM")
-	}
+	return simready.Stop(cmd, simShutdownGrace)
 }
 
 // fetchAccessTokenFrom performs the OAuth2 client_credentials grant against an

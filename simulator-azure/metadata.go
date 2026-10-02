@@ -119,6 +119,7 @@ func registerMetadata(srv *sim.Server) {
 		macAddress := "00155DEADBEE"
 		subnetAddress := "10.0.0.0"
 		subnetPrefix := "24"
+		var secondaryIPs []string
 		if ok {
 			computeName = vmMeta.VM.Name
 			resourceGroup = azureResourceGroupFromID(vmMeta.VM.ID, resourceGroup)
@@ -132,8 +133,15 @@ func registerMetadata(srv *sim.Server) {
 			if vmMeta.NIC.Properties.MacAddress != "" {
 				macAddress = strings.ReplaceAll(vmMeta.NIC.Properties.MacAddress, "-", "")
 			}
-			if len(vmMeta.NIC.Properties.IPConfigurations) > 0 {
-				privateIP = vmMeta.NIC.Properties.IPConfigurations[0].Properties.PrivateIPAddress
+			nic := vmMeta.NIC
+			if stored, found := azureNICs.Get(nic.ID); found {
+				nic = stored
+			}
+			if len(nic.Properties.IPConfigurations) > 0 {
+				privateIP = azurePrimaryIPConfig(nic).Properties.PrivateIPAddress
+				for _, secondary := range azureNICSecondaryAddresses(nic) {
+					secondaryIPs = append(secondaryIPs, secondary.String())
+				}
 			}
 			if subnet, ok := azureSubnets.Get(vmMeta.SubnetID); ok {
 				subnetAddress, subnetPrefix = azureCIDRAddressPrefix(subnet.Properties.AddressPrefix, subnetAddress, subnetPrefix)
@@ -165,10 +173,7 @@ func registerMetadata(srv *sim.Server) {
 			"network": map[string]any{
 				"interface": []map[string]any{{
 					"ipv4": map[string]any{
-						"ipAddress": []map[string]any{{
-							"privateIpAddress": privateIP,
-							"publicIpAddress":  "",
-						}},
+						"ipAddress": azureIMDSIPAddresses(privateIP, secondaryIPs),
 						"subnet": []map[string]any{{
 							"address": subnetAddress,
 							"prefix":  subnetPrefix,
@@ -344,4 +349,15 @@ func azureSignAttestedDocument(r *http.Request, nonce string) (string, error) {
 	// the statement being attested and the proof it was this deployment that
 	// made it.
 	return base64.StdEncoding.EncodeToString(append(append(document, '.'), signed...)), nil
+}
+
+// azureIMDSIPAddresses lists an interface's private addresses the way the
+// Instance Metadata Service does: the primary IP configuration's first, then
+// each secondary's.
+func azureIMDSIPAddresses(primary string, secondaries []string) []map[string]any {
+	out := []map[string]any{{"privateIpAddress": primary, "publicIpAddress": ""}}
+	for _, address := range secondaries {
+		out = append(out, map[string]any{"privateIpAddress": address, "publicIpAddress": ""})
+	}
+	return out
 }
