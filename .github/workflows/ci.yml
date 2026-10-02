@@ -1036,8 +1036,11 @@ jobs:
             timeout_minutes: 12
           - suite: aws Amazon RDS restore
             cloud: aws
-            tf_packages: "./rds-restore"
-            timeout_minutes: 12
+            tf_packages: "./rds-restore ./rds-cluster-restore"
+            # Each stack starts its own simulator on ports it reserves and
+            # spends most of its time in the provider's RDS status waits.
+            tf_parallelism: 2
+            timeout_minutes: 14
           - suite: aws Amazon RDS snapshot
             cloud: aws
             tf_packages: "./rds-snapshot ./rds-cluster-snapshot"

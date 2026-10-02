@@ -59,7 +59,7 @@ func rdsInstallAuroraDataPlane(cluster *RDSCluster, masterPassword string) error
 	if !rdsIsAurora(cluster.Engine) {
 		return nil
 	}
-	engine, _ := rdsEngine(cluster.Engine)
+	engine := rdsAuroraEngine(cluster.Engine)
 	if len(cluster.MasterUserSecret) == 0 {
 		if masterPassword == "" {
 			return fmt.Errorf("MasterUserPassword is required for the %s data plane", cluster.Engine)
@@ -118,7 +118,7 @@ func rdsInstallAuroraDataPlane(cluster *RDSCluster, masterPassword string) error
 		Sandbox:      SandboxFargate,
 		Platform:     dbengine.FixedPlatform("linux/amd64"),
 		Environment:  plane.environment,
-		Ready:        plane.applyPendingMasterPassword,
+		Ready:        plane.ready,
 		Certificate:  rdsServerCertificate,
 		Authenticate: plane.authenticate,
 		BackendLogin: plane.backendLogin,
@@ -356,7 +356,8 @@ func rdsCloseAuroraInstanceEndpoint(instanceID string) {
 }
 
 // rdsStopAuroraDataPlane closes an Aurora cluster's endpoints and stops its
-// engine and, when the cluster is being deleted, removes its cluster volume.
+// engine and, when the cluster is being deleted, removes its cluster volume
+// and base backup.
 func rdsStopAuroraDataPlane(clusterID string, deleteVolume bool) error {
 	release := rdsDataPlaneStops.Lock("cluster/" + clusterID)
 	defer release()
@@ -374,9 +375,14 @@ func rdsStopAuroraDataPlane(clusterID string, deleteVolume bool) error {
 	if deleteVolume {
 		rdsRemoveEngineContainers("Amazon Aurora "+clusterID, map[string]string{"sockerless-rds-cluster": clusterID})
 	}
-	if deleteVolume && sim.VolumeExists(rdsClusterVolume(clusterID)) {
-		if err := sim.RemoveVolume(rdsClusterVolume(clusterID)); err != nil {
-			log.Printf("Amazon Aurora %s: remove cluster volume: %v", clusterID, err)
+	if deleteVolume {
+		for _, volume := range []string{rdsClusterVolume(clusterID), rdsClusterBaseBackupVolume(clusterID)} {
+			if !sim.VolumeExists(volume) {
+				continue
+			}
+			if err := sim.RemoveVolume(volume); err != nil {
+				log.Printf("Amazon Aurora %s: remove volume %s: %v", clusterID, volume, err)
+			}
 		}
 	}
 	return stopErr

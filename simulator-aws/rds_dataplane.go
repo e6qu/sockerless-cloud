@@ -336,16 +336,21 @@ func rdsRotateEnginePassword(engine *dbengine.Instance, user, database, oldPassw
 			" WITH PASSWORD " + dbengine.QuoteLiteral(newPassword)
 		command = []string{engine.Engine.Client, "-v", "ON_ERROR_STOP=1", "-U", user, "-d", database, "-c", statement}
 	} else {
-		identified := " IDENTIFIED BY " + dbengine.QuoteMySQLLiteral(newPassword)
-		statement := "ALTER USER IF EXISTS " + dbengine.QuoteMySQLLiteral(user) + "@'%'" + identified +
-			"; ALTER USER IF EXISTS 'root'@'%'" + identified +
-			"; ALTER USER IF EXISTS 'root'@'localhost'" + identified
-		command = []string{engine.Engine.Client, "--user=root", "--password=" + oldPassword, "--execute=" + statement}
+		command = []string{engine.Engine.Client, "--user=root", "--password=" + oldPassword, "--execute=" + rdsMySQLSetMasterPasswordStatement(user, newPassword)}
 	}
 	if err := engine.Exec(command); err != nil {
 		return fmt.Errorf("rotate the master-user password in the engine: %w", err)
 	}
 	return nil
+}
+
+// rdsMySQLSetMasterPasswordStatement sets the master user's password and
+// root's, which the engine's image created with the same password.
+func rdsMySQLSetMasterPasswordStatement(user, password string) string {
+	identified := " IDENTIFIED BY " + dbengine.QuoteMySQLLiteral(password)
+	return "ALTER USER IF EXISTS " + dbengine.QuoteMySQLLiteral(user) + "@'%'" + identified +
+		"; ALTER USER IF EXISTS 'root'@'%'" + identified +
+		"; ALTER USER IF EXISTS 'root'@'localhost'" + identified
 }
 
 // rdsValidateIAMAuthToken accepts a token signed for one of endpoints that

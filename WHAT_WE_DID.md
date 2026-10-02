@@ -877,6 +877,38 @@ before the snapshot and none after, a point-in-time restore holds every
 committed row, and a restore from the final snapshot holds the cluster as it
 was deleted.
 
+An Aurora cluster restores to any time in its restorable window, kept as a
+base backup and the engine's own log. When the engine first accepts clients,
+before the endpoint relays any client to it, `Ready` captures the cluster
+volume into `sockerless-rds-cluster-base_<cluster>` (Aurora MySQL flushes its
+binary log first, so a new file starts with the capture), and DescribeDBClusters
+then reports that time as `EarliestRestorableTime` and the present as
+`LatestRestorableTime`. Aurora PostgreSQL's engine runs with `archive_mode=on`
+and archives every completed write-ahead log segment into the cluster volume;
+Aurora MySQL's binary log is on by default. RestoreDBClusterToPointInTime with
+`RestoreToTime` refuses a time outside the window with `InvalidRestoreFault`,
+seeds the new cluster volume from the base backup, and replays the source's log
+read from its live cluster volume — every transaction that ended by the restore
+time is already in it, and a record still being written ends after it. For
+PostgreSQL a helper copies the archive and `pg_wal` into the new volume's
+archive, `pg_waldump` lists the commit and abort records, and the engine's
+first start runs archive recovery with `recovery_target_time`, or to the end of
+the log when no transaction ended after the time (archive recovery refuses a
+target the log never reaches), then promotes. For MySQL, whose image ships no
+`mysqlbinlog`, the simulator reads the GTID events' microsecond immediate
+commit timestamps itself, cuts the binary log before the first transaction
+committed after the time, and a server started on the new volume applies it as
+its relay log with the replication SQL thread (`START REPLICA SQL_THREAD UNTIL`),
+writing no binary log, driven by a user only its init file creates, which then
+sets the cluster's master password and is dropped. RestoreDBClusterFromSnapshot
+also takes a DB snapshot ARN: an RDS for PostgreSQL or RDS for MySQL instance's
+data directory becomes the cluster volume of an Aurora PostgreSQL or Aurora
+MySQL cluster of the same image, under the instance's master credential and
+database, which DB snapshots now carry. The SDK, CLI and Terraform suites
+restore to a time the engine's clock has passed by a millisecond and prove the
+restored cluster holds the row committed before it and not the one after, and
+that a migrated cluster serves the instance's rows.
+
 Every volume capture holds one crash-consistent point in time, the property a
 block-level storage snapshot gives. `sim.SnapshotVolume` lists the running
 containers that mount the source volume writable, pauses each through the

@@ -86,6 +86,9 @@ type RDSSnapshot struct {
 	SnapshotType       string // manual | automated
 	Port               int
 	VpcId              string
+	// DBName is the database the instance was created with, which a restore
+	// from the snapshot keeps.
+	DBName string
 	// SourceDBSnapshotIdentifier is the ARN of the snapshot this one was
 	// copied from (CopyDBSnapshot); empty for snapshots created directly.
 	SourceDBSnapshotIdentifier string
@@ -141,6 +144,14 @@ type RDSCluster struct {
 	// RestoreSourceVolume is the volume a creating restored cluster seeds its
 	// cluster volume from.
 	RestoreSourceVolume string
+	// RestoreLogVolume and RestoreToTime name the source cluster volume whose
+	// write-ahead log a creating point-in-time restore replays, and the time
+	// it replays to.
+	RestoreLogVolume string
+	RestoreToTime    string
+	// BaseBackupTime is when the cluster's base backup was captured, the
+	// earliest time the cluster restores to.
+	BaseBackupTime string
 }
 
 // RDSSubnetGroup models a DB subnet group (a named set of VPC subnets
@@ -666,6 +677,7 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 			Status:               "creating",
 			AllocatedStorage:     inst.AllocatedStorage,
 			MasterUsername:       inst.MasterUsername,
+			DBName:               inst.DBName,
 			SnapshotCreateTime:   time.Now().UTC().Format(time.RFC3339),
 			SnapshotType:         "manual",
 			Port:                 inst.Port,
@@ -1083,6 +1095,7 @@ func handleRDSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		Status:             "creating",
 		AllocatedStorage:   inst.AllocatedStorage,
 		MasterUsername:     inst.MasterUsername,
+		DBName:             inst.DBName,
 		SnapshotCreateTime: time.Now().UTC().Format(time.RFC3339),
 		SnapshotType:       "manual",
 		Port:               inst.Port,
@@ -1211,6 +1224,7 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 		EngineVersion:        snap.EngineVersion,
 		DBInstanceStatus:     "available",
 		MasterUsername:       snap.MasterUsername,
+		DBName:               snap.DBName,
 		AllocatedStorage:     snap.AllocatedStorage,
 		AvailabilityZone:     awsRegion() + "a",
 		InstanceCreateTime:   time.Now().UTC().Format(time.RFC3339),
@@ -1322,6 +1336,7 @@ func renderRDSCluster(c RDSCluster) string {
 	fmt.Fprintf(&b, "<DeletionProtection>%t</DeletionProtection>", c.DeletionProtection)
 	fmt.Fprintf(&b, "<IAMDatabaseAuthenticationEnabled>%t</IAMDatabaseAuthenticationEnabled>", c.EnableIAMDatabaseAuthentication)
 	fmt.Fprintf(&b, "<ClusterCreateTime>%s</ClusterCreateTime>", xmlEscape(c.ClusterCreateTime))
+	b.WriteString(renderRDSRestorableWindow(c))
 	fmt.Fprintf(&b, "<PreferredBackupWindow>%s</PreferredBackupWindow>", xmlEscape(c.PreferredBackupWindow))
 	fmt.Fprintf(&b, "<PreferredMaintenanceWindow>%s</PreferredMaintenanceWindow>", xmlEscape(c.PreferredMaintenanceWindow))
 	b.WriteString("<AvailabilityZones>")
@@ -1949,6 +1964,7 @@ func handleRDSCopySnapshot(w http.ResponseWriter, r *http.Request) {
 		Status:             "creating",
 		AllocatedStorage:   src.AllocatedStorage,
 		MasterUsername:     src.MasterUsername,
+		DBName:             src.DBName,
 		SnapshotCreateTime: time.Now().UTC().Format(time.RFC3339),
 		SnapshotType:       "manual",
 		Port:               src.Port,
