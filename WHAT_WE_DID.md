@@ -1288,6 +1288,40 @@ for an alarm state with the AlarmExists waiter filtered by StateValue, for a
 target with TargetInService, and watch a queue that must stay empty with one
 long poll for the window instead of receives in a loop.
 
+The suites then waited on events where the clouds offered one. The AWS CLI
+suite waited with `aws cloudwatch wait alarm-exists --state-value` and, for a
+service replacing a stopped task, with `aws ecs wait tasks-stopped` followed
+by `services-stable`; the SDK suites did the same with TasksStopped and
+ServicesStable, waited for a task's managed Amazon EBS volume with
+VolumeDeleted, for an RDS instance with DBInstanceAvailable before connecting
+once, and for Cloud Map registrations on GetOperation instead of retrying
+RegisterInstance. The rds-restore Terraform fixture seeded its snapshot through
+the SDK and waited with DBSnapshotAvailable, which retired the fixture's
+hand-signed Query helpers. A restart test opened CloudWatch Logs Live Tail on
+the function's log group before the asynchronous invoke and restarted on the
+START line. An API destination's endpoint handed each call to the test over a
+channel. The Event Hubs Latest consumer sent its event once azeventhubs logged
+the completed receiver attach through azcore's log listener. Azure CLI Location
+polls answered 202 by waiting their Retry-After (`azLocationResult`).
+
+Container Apps gained its revisions, replicas and log streams. A container app
+reports `eventStreamEndpoint`; its one revision (`{app}--00001`) lists, reads
+and restarts through ContainerAppsRevisions, and its replicas — one per
+`minReplicas`, named `{revision}-{hash}-{suffix}` — list and read through
+ContainerAppsRevisionReplicas, each container advertising its
+`logStreamEndpoint`. The streams sit on the event stream host under
+`/subscriptions/…/containerApps/{app}/…`, outside the ARM path, take the token
+getAuthToken issued, and serve newline-delimited `{"TimeStamp","Log"}` lines
+(or text) with `tailLines` and `follow`: a console stream opens with the
+service's "Connecting to the container" lines, carries the container's output
+as it is written, and ends when the container exits; the app's `eventstream`
+carries its system events (AssigningReplica, ContainerCreated,
+ContainerStarted, ContainerTerminated). The simulator keeps the newest 10 MiB of
+a container's output, the kubelet's default containerLogMaxSize. Revision
+activation answers a declared 501, since the simulator keeps one always-active
+revision per app. The SDK and CLI suites read an app's console through the
+stream (`az containerapp logs show --follow`) instead of polling Log Analytics.
+
 Azure's asynchronous work answers the request and settles behind it, as the
 service does. An Event Grid webhook subscription stays Creating until its
 endpoint echoes the validation code or someone opens the validation URL, and

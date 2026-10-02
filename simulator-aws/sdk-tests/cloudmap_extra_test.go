@@ -2,6 +2,7 @@ package aws_sdk_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/servicediscovery"
@@ -20,6 +21,26 @@ func cmNamespaceIDFromOp(t *testing.T, client *servicediscovery.Client, opID *st
 	require.True(t, ok, "operation should carry a NAMESPACE target")
 	require.NotEmpty(t, id)
 	return id
+}
+
+// awaitCloudMapOperation polls GetOperation until the operation leaves
+// SUBMITTED and PENDING: Cloud Map reports an asynchronous operation's progress
+// only through that status and offers no waiter for it.
+func awaitCloudMapOperation(t *testing.T, client *servicediscovery.Client, opID *string) {
+	t.Helper()
+	var operation *sdtypes.Operation
+	var lastErr error
+	require.Eventually(t, func() bool {
+		out, err := client.GetOperation(ctx, &servicediscovery.GetOperationInput{OperationId: opID})
+		if err != nil {
+			lastErr = err
+			return false
+		}
+		operation = out.Operation
+		return operation.Status == sdtypes.OperationStatusSuccess || operation.Status == sdtypes.OperationStatusFail
+	}, 45*time.Second, waiterMinDelay, "operation %s never finished: %v", aws.ToString(opID), lastErr)
+	require.Equal(t, sdtypes.OperationStatusSuccess, operation.Status,
+		"operation %s failed: %s", aws.ToString(opID), aws.ToString(operation.ErrorMessage))
 }
 
 // TestCloudMap_HttpAndPublicNamespaceLifecycle exercises CreateHttpNamespace,

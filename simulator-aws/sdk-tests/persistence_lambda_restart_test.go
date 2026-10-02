@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	cwltypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -61,6 +64,29 @@ func TestAcceptedAWSLambdaAsynchronousInvocationSurvivesSimulatorRestart_SDK(t *
 		},
 	})
 	require.NoError(t, err)
+	// Watch the function's log group with Live Tail, so the restart happens
+	// once the asynchronous invocation has started and not before.
+	logsAPI := cloudwatchlogs.NewFromConfig(cfg, func(o *cloudwatchlogs.Options) {
+		o.BaseEndpoint = aws.String(fmt.Sprintf("http://logs.localhost:%d", tcpPort))
+	})
+	logGroup := "/aws/lambda/" + functionName
+	_, err = logsAPI.CreateLogGroup(testCtx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(logGroup)})
+	require.NoError(t, err)
+	groups, err := logsAPI.DescribeLogGroups(testCtx, &cloudwatchlogs.DescribeLogGroupsInput{
+		LogGroupNamePrefix: aws.String(logGroup),
+	})
+	require.NoError(t, err)
+	require.Len(t, groups.LogGroups, 1)
+	tail, err := logsAPI.StartLiveTail(testCtx, &cloudwatchlogs.StartLiveTailInput{
+		LogGroupIdentifiers: []string{aws.ToString(groups.LogGroups[0].Arn)},
+	})
+	require.NoError(t, err)
+	tailStream := tail.GetStream()
+	defer tailStream.Close() //nolint:errcheck
+	first, ok := <-tailStream.Events()
+	require.True(t, ok, "Live Tail closed before its sessionStart: %v", tailStream.Err())
+	require.IsType(t, &cwltypes.StartLiveTailResponseStreamMemberSessionStart{}, first)
+
 	invoked, err := lambdaAPI.Invoke(testCtx, &lambda.InvokeInput{
 		FunctionName:   aws.String(functionName),
 		InvocationType: lambdatypes.InvocationTypeEvent,
@@ -69,7 +95,7 @@ func TestAcceptedAWSLambdaAsynchronousInvocationSurvivesSimulatorRestart_SDK(t *
 	require.NoError(t, err)
 	require.EqualValues(t, 202, invoked.StatusCode)
 
-	time.Sleep(500 * time.Millisecond)
+	awaitLiveTailMessage(t, tailStream, "START RequestId:")
 	shutdownSimulator(cmd)
 	cmd = startPersistentSimulator(t, stateDir, tcpPort, udpPort, "docker")
 	sqsAPI = sqs.NewFromConfig(cfg, func(o *sqs.Options) { o.BaseEndpoint = aws.String(endpoint) })
@@ -83,4 +109,22 @@ func TestAcceptedAWSLambdaAsynchronousInvocationSurvivesSimulatorRestart_SDK(t *
 	require.Equal(t, "restart-test", destinationRecord.RequestPayload["source"])
 	require.Equal(t, "Success", destinationRecord.RequestContext["condition"])
 	require.GreaterOrEqual(t, destinationRecord.RequestContext["approximateInvokeCount"], float64(1))
+}
+
+// awaitLiveTailMessage reads Live Tail session updates until one carries a
+// log event whose message starts with prefix.
+func awaitLiveTailMessage(t *testing.T, stream *cloudwatchlogs.StartLiveTailEventStream, prefix string) {
+	t.Helper()
+	for event := range stream.Events() {
+		update, ok := event.(*cwltypes.StartLiveTailResponseStreamMemberSessionUpdate)
+		if !ok {
+			continue
+		}
+		for _, result := range update.Value.SessionResults {
+			if strings.HasPrefix(aws.ToString(result.Message), prefix) {
+				return
+			}
+		}
+	}
+	t.Fatalf("Live Tail closed before a %q line arrived: %v", prefix, stream.Err())
 }

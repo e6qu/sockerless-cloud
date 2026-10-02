@@ -129,7 +129,21 @@ func AzureARMAPIVersionMiddleware(next http.Handler) http.Handler {
 }
 
 func isAzureARMPath(path string) bool {
+	if isContainerAppsStreamPath(path) {
+		return false
+	}
 	return strings.HasPrefix(path, "/subscriptions/") || strings.HasPrefix(path, "/providers/")
+}
+
+// isContainerAppsStreamPath reports whether path addresses a container app's
+// log stream. Container Apps serves those on the app's eventStreamEndpoint
+// host, under /subscriptions/{sub}/resourceGroups/{rg}/containerApps/{app}/…
+// with no /providers/Microsoft.App segment and no api-version, and they accept
+// the token the app's getAuthToken issued rather than an ARM bearer.
+func isContainerAppsStreamPath(path string) bool {
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	return len(segments) > 5 && segments[0] == "subscriptions" && segments[2] == "resourceGroups" &&
+		segments[4] == "containerApps"
 }
 
 // AzureAuthMiddleware intercepts OAuth2 and OpenID discovery requests needed

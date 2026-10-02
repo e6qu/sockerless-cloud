@@ -36,7 +36,7 @@ func TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 		database   = "application"
 	)
 
-	created, err := c.CreateDBInstance(testContext, &rds.CreateDBInstanceInput{
+	_, err := c.CreateDBInstance(testContext, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instanceID),
 		DBInstanceClass:      aws.String("db.t3.micro"),
 		Engine:               aws.String("postgres"),
@@ -52,29 +52,26 @@ func TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 		})
 	})
 
-	connect := func(instance *rds.CreateDBInstanceOutput, restored *rds.RestoreDBInstanceFromDBSnapshotOutput) *pgx.Conn {
-		var address string
-		var port int32
-		if instance != nil {
-			address, port = aws.ToString(instance.DBInstance.Endpoint.Address), aws.ToInt32(instance.DBInstance.Endpoint.Port)
-		} else {
-			address, port = aws.ToString(restored.DBInstance.Endpoint.Address), aws.ToInt32(restored.DBInstance.Endpoint.Port)
-		}
+	connect := func(id string) *pgx.Conn {
+		t.Helper()
+		described, waitErr := rds.NewDBInstanceAvailableWaiter(c, func(o *rds.DBInstanceAvailableWaiterOptions) {
+			o.MinDelay = waiterMinDelay
+			o.MaxDelay = waiterMaxDelay
+		}).WaitForOutput(testContext, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(id)}, 3*time.Minute)
+		require.NoError(t, waitErr, "DB instance %s never became available", id)
+		endpoint := described.DBInstances[0].Endpoint
 		config, parseErr := pgx.ParseConfig(fmt.Sprintf(
-			"postgres://%s@%s:%d/%s?sslmode=require", username, address, port, database))
+			"postgres://%s@%s:%d/%s?sslmode=require", username,
+			aws.ToString(endpoint.Address), aws.ToInt32(endpoint.Port), database))
 		require.NoError(t, parseErr)
 		config.Password = password
 		config.TLSConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} // test-only CA coordinate
-		var conn *pgx.Conn
-		require.Eventually(t, func() bool {
-			var connectErr error
-			conn, connectErr = pgx.ConnectConfig(testContext, config)
-			return connectErr == nil
-		}, 2*time.Minute, 2*time.Second, "the data plane must accept the stock driver")
+		conn, connectErr := pgx.ConnectConfig(testContext, config)
+		require.NoError(t, connectErr, "an available instance's data plane must accept the stock driver")
 		return conn
 	}
 
-	source := connect(created, nil)
+	source := connect(instanceID)
 	_, err = source.Exec(testContext, `CREATE TABLE ledger (entry text)`)
 	require.NoError(t, err)
 	_, err = source.Exec(testContext, `INSERT INTO ledger VALUES ('before-snapshot')`)
@@ -103,7 +100,7 @@ func TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, source.Close(testContext))
 
-	restored, err := c.RestoreDBInstanceFromDBSnapshot(testContext, &rds.RestoreDBInstanceFromDBSnapshotInput{
+	_, err = c.RestoreDBInstanceFromDBSnapshot(testContext, &rds.RestoreDBInstanceFromDBSnapshotInput{
 		DBInstanceIdentifier: aws.String(restoredID),
 		DBSnapshotIdentifier: aws.String(snapshotID),
 		DBInstanceClass:      aws.String("db.t3.micro"),
@@ -115,7 +112,7 @@ func TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 		})
 	})
 
-	restoredConn := connect(nil, restored)
+	restoredConn := connect(restoredID)
 	defer func() { _ = restoredConn.Close(context.Background()) }()
 	rows, err := restoredConn.Query(testContext, `SELECT entry FROM ledger ORDER BY entry`)
 	require.NoError(t, err, "the restored engine must serve the captured schema")

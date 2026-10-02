@@ -1,6 +1,8 @@
 package azure_sdk_test
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -141,35 +143,136 @@ func TestSDK_ContainerAppsApps_StartsRealReplicaAndLogs(t *testing.T) {
 		}
 	}()
 
-	found := false
-	// Generous deadline so a slow real-replica start on a loaded CI runner doesn't
-	// expire before the arithmetic output is logged; the loop breaks on first match.
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
-		kql := `ContainerAppConsoleLogs_CL | where ContainerAppName_s == "sdk-exec-app"`
-		result := queryWorkspace(t, "default", kql)
-		require.Len(t, result.Tables, 1)
-		table := result.Tables[0]
-		logIdx := -1
-		for i, col := range table.Columns {
-			if col.Name == "Log_s" {
-				logIdx = i
-				break
-			}
+	app, err := client.Get(ctx, rg, "sdk-exec-app", nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, ptrVal(app.Properties.EventStreamEndpoint), "a container app advertises its event stream")
+	revisionName := ptrVal(app.Properties.LatestRevisionName)
+
+	revisions, err := armappcontainers.NewContainerAppsRevisionsClient(subscriptionID, cred, clientOpts())
+	require.NoError(t, err)
+	revision, err := revisions.GetRevision(ctx, rg, "sdk-exec-app", revisionName, nil)
+	require.NoError(t, err)
+	assert.True(t, ptrVal(revision.Properties.Active))
+	assert.EqualValues(t, 1, ptrVal(revision.Properties.Replicas))
+	listed := revisions.NewListRevisionsPager(rg, "sdk-exec-app", nil)
+	page, err := listed.NextPage(ctx)
+	require.NoError(t, err)
+	require.Len(t, page.Value, 1)
+	assert.Equal(t, revisionName, ptrVal(page.Value[0].Name))
+
+	lines := readContainerAppConsole(t, client, rg, "sdk-exec-app", revisionName, "main",
+		func(line string) bool { return line == "56" })
+	assert.Contains(t, lines, "56", "the replica runs the real container, which prints (8 * 7)")
+	assert.Equal(t, "Connecting to the container 'main'...", lines[0])
+
+	system := readContainerAppStream(t, ptrVal(app.Properties.EventStreamEndpoint), containerAppAuthToken(t, client, rg, "sdk-exec-app"), "false")
+	var reasons []string
+	for _, line := range system {
+		var event struct {
+			Reason           string `json:"Reason"`
+			ContainerAppName string `json:"ContainerAppName"`
 		}
-		require.GreaterOrEqual(t, logIdx, 0)
-		var logs []string
-		for _, row := range table.Rows {
-			if msg, ok := row[logIdx].(string); ok {
-				logs = append(logs, msg)
-			}
-		}
-		if strings.Contains(strings.Join(logs, "\n"), "56") {
-			found = true
-			break
-		}
-		time.Sleep(250 * time.Millisecond)
+		require.NoError(t, json.Unmarshal([]byte(line), &event), "a system log line is a JSON event: %s", line)
+		assert.Equal(t, "sdk-exec-app", event.ContainerAppName)
+		reasons = append(reasons, event.Reason)
 	}
-	require.True(t, found, "expected ACA App replica to execute the real container and emit arithmetic output")
+	assert.Contains(t, reasons, "AssigningReplica")
+	assert.Contains(t, reasons, "ContainerStarted")
+
+	replicas, err := armappcontainers.NewContainerAppsRevisionReplicasClient(subscriptionID, cred, clientOpts())
+	require.NoError(t, err)
+	before, err := replicas.ListReplicas(ctx, rg, "sdk-exec-app", revisionName, nil)
+	require.NoError(t, err)
+	require.Len(t, before.Value, 1)
+	_, err = revisions.RestartRevision(ctx, rg, "sdk-exec-app", revisionName, nil)
+	require.NoError(t, err)
+	after, err := replicas.ListReplicas(ctx, rg, "sdk-exec-app", revisionName, nil)
+	require.NoError(t, err)
+	require.Len(t, after.Value, 1)
+	assert.NotEqual(t, ptrVal(before.Value[0].Name), ptrVal(after.Value[0].Name),
+		"a restarted revision runs a new replica")
+}
+
+// readContainerAppConsole follows a container's console log stream, the one
+// `az containerapp logs show --follow` reads: it lists the revision's replicas,
+// takes the first one's container endpoint, and reads lines until one
+// satisfies done or the stream ends with the container.
+func readContainerAppConsole(t *testing.T, apps *armappcontainers.ContainerAppsClient, rg, app, revision, container string, done func(line string) bool) []string {
+	t.Helper()
+	replicas, err := armappcontainers.NewContainerAppsRevisionReplicasClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	listed, err := replicas.ListReplicas(ctx, rg, app, revision, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, listed.Value, "the revision runs a replica")
+	replica, err := replicas.GetReplica(ctx, rg, app, revision, ptrVal(listed.Value[0].Name), nil)
+	require.NoError(t, err)
+	endpoint := ""
+	for _, c := range replica.Properties.Containers {
+		if ptrVal(c.Name) == container {
+			endpoint = ptrVal(c.LogStreamEndpoint)
+		}
+	}
+	require.NotEmpty(t, endpoint, "replica container %s advertises a log stream", container)
+	token := containerAppAuthToken(t, apps, rg, app)
+
+	streamCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(streamCtx, http.MethodGet, endpoint+"?follow=true&output=json&tailLines=300", nil)
+	require.NoError(t, err)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	defer response.Body.Close() //nolint:errcheck
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("the log stream answered %d: %s", response.StatusCode, body)
+	}
+	var lines []string
+	scanner := bufio.NewScanner(response.Body)
+	for scanner.Scan() {
+		var entry struct {
+			TimeStamp string `json:"TimeStamp"`
+			Log       string `json:"Log"`
+		}
+		require.NoError(t, json.Unmarshal(scanner.Bytes(), &entry), "a console log line is JSON: %s", scanner.Text())
+		require.NotEmpty(t, entry.TimeStamp)
+		lines = append(lines, entry.Log)
+		if done(entry.Log) {
+			return lines
+		}
+	}
+	t.Fatalf("the log stream of %s ended before the line it waited for (%v); it carried %q", container, scanner.Err(), lines)
+	return nil
+}
+
+func containerAppAuthToken(t *testing.T, apps *armappcontainers.ContainerAppsClient, rg, app string) string {
+	t.Helper()
+	issued, err := apps.GetAuthToken(ctx, rg, app, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, ptrVal(issued.Properties.Token))
+	return ptrVal(issued.Properties.Token)
+}
+
+// readContainerAppStream reads a log stream without following it.
+func readContainerAppStream(t *testing.T, endpoint, token, follow string) []string {
+	t.Helper()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?follow="+follow, nil)
+	require.NoError(t, err)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	defer response.Body.Close() //nolint:errcheck
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("the event stream answered %d: %s", response.StatusCode, body)
+	}
+	var lines []string
+	scanner := bufio.NewScanner(response.Body)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	require.NoError(t, scanner.Err())
+	return lines
 }
 
 func TestSDK_ContainerAppsApps_MultiContainerSharesLocalhost(t *testing.T) {
@@ -218,20 +321,11 @@ func TestSDK_ContainerAppsApps_MultiContainerSharesLocalhost(t *testing.T) {
 		}
 	}()
 
-	require.Eventually(t, func() bool {
-		result := queryWorkspace(t, "default", `ContainerAppConsoleLogs_CL | where ContainerAppName_s == "`+appName+`"`)
-		if len(result.Tables) == 0 {
-			return false
-		}
-		for _, row := range result.Tables[0].Rows {
-			for _, cell := range row {
-				if s, ok := cell.(string); ok && strings.Contains(s, "aca-app-sidecar-ok") {
-					return true
-				}
-			}
-		}
-		return false
-	}, 20*time.Second, 500*time.Millisecond)
+	app, err := client.Get(ctx, rg, appName, nil)
+	require.NoError(t, err)
+	lines := readContainerAppConsole(t, client, rg, appName, ptrVal(app.Properties.LatestRevisionName), "main",
+		func(line string) bool { return line == "aca-app-sidecar-ok" })
+	assert.Contains(t, lines, "aca-app-sidecar-ok", "the main container reaches its sidecar over localhost")
 }
 
 // TestSDK_ContainerAppsApps_SystemDataPreservedAcrossUpdates pins ARM

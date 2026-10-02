@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/acm"
@@ -178,30 +177,24 @@ func TestACM_SearchCertificates(t *testing.T) {
 
 	requestUnknownPrivateCA(t, c, "search-private.example.com")
 
-	deadline := time.Now().Add(5 * time.Second)
-	var foundSynthetic bool
-	for time.Now().Before(deadline) {
-		out, err := c.SearchCertificates(ctx, &acm.SearchCertificatesInput{
-			FilterStatement: &acmtypes.CertificateFilterStatementMemberFilter{
-				Value: &acmtypes.CertificateFilterMemberAcmCertificateMetadataFilter{
-					Value: &acmtypes.AcmCertificateMetadataFilterMemberType{
-						Value: acmtypes.CertificateTypePrivate,
-					},
+	// The refusal is synchronous and starts no work behind it, so one search
+	// reads the final state.
+	out, err := c.SearchCertificates(ctx, &acm.SearchCertificatesInput{
+		FilterStatement: &acmtypes.CertificateFilterStatementMemberFilter{
+			Value: &acmtypes.CertificateFilterMemberAcmCertificateMetadataFilter{
+				Value: &acmtypes.AcmCertificateMetadataFilterMemberType{
+					Value: acmtypes.CertificateTypePrivate,
 				},
 			},
-		})
-		require.NoError(t, err)
-		for _, res := range out.Results {
-			meta, ok := res.CertificateMetadata.(*acmtypes.CertificateMetadataMemberAcmCertificateMetadata)
-			require.True(t, ok, "CertificateMetadata must carry AcmCertificateMetadata")
-			// Every returned cert must be PRIVATE per the filter.
-			assert.Equal(t, acmtypes.CertificateTypePrivate, meta.Value.Type)
-			foundSynthetic = true
-		}
-		if foundSynthetic {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
+		},
+	})
+	require.NoError(t, err)
+	var foundSynthetic bool
+	for _, res := range out.Results {
+		meta, ok := res.CertificateMetadata.(*acmtypes.CertificateMetadataMemberAcmCertificateMetadata)
+		require.True(t, ok, "CertificateMetadata must carry AcmCertificateMetadata")
+		assert.Equal(t, acmtypes.CertificateTypePrivate, meta.Value.Type)
+		foundSynthetic = true
 	}
 	assert.False(t, foundSynthetic, "a missing AWS Private CA must never create synthetic PRIVATE certificate state")
 }

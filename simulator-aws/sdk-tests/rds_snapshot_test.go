@@ -166,9 +166,14 @@ func TestRDS_RestoreFromSnapshot_PortFromEngine(t *testing.T) {
 		})
 	})
 	assert.Equal(t, "mysql", aws.ToString(restore.DBInstance.Engine))
-	require.NotNil(t, restore.DBInstance.Endpoint)
-	address := aws.ToString(restore.DBInstance.Endpoint.Address)
-	port := aws.ToInt32(restore.DBInstance.Endpoint.Port)
+	described, err := rds.NewDBInstanceAvailableWaiter(c, func(o *rds.DBInstanceAvailableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String("port-restored")}, 3*time.Minute)
+	require.NoError(t, err, "the restored instance never became available")
+	require.NotNil(t, described.DBInstances[0].Endpoint)
+	address := aws.ToString(described.DBInstances[0].Endpoint.Address)
+	port := aws.ToInt32(described.DBInstances[0].Endpoint.Port)
 	if strings.HasSuffix(address, ".rds.amazonaws.com") {
 		// Modeled tier: the endpoint is nominal, so the port must derive from
 		// the engine — 3306 for MySQL, never a hardcoded 5432.
@@ -179,15 +184,9 @@ func TestRDS_RestoreFromSnapshot_PortFromEngine(t *testing.T) {
 		// restored MySQL actually listens, so the honest assertion is that it
 		// accepts a connection, not that it equals a number.
 		require.NotZero(t, port)
-		require.Eventually(t, func() bool {
-			conn, dialErr := net.DialTimeout("tcp",
-				net.JoinHostPort(address, strconv.Itoa(int(port))), 5*time.Second)
-			if dialErr != nil {
-				return false
-			}
-			_ = conn.Close()
-			return true
-		}, 60*time.Second, time.Second, "restored MySQL endpoint %s:%d must accept a connection", address, port)
+		conn, dialErr := net.DialTimeout("tcp", net.JoinHostPort(address, strconv.Itoa(int(port))), 5*time.Second)
+		require.NoError(t, dialErr, "an available restored MySQL endpoint %s:%d must accept a connection", address, port)
+		_ = conn.Close()
 	}
 }
 

@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -157,12 +155,7 @@ func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 	var ddos struct {
 		Value []any `json:"value"`
 	}
-	require.Eventually(t, func() bool {
-		out = runCLI(t, azRest("GET", location, ""))
-		return strings.Contains(out, "\"value\"")
-	}, 30*time.Second, 250*time.Millisecond,
-		"the Location poll never produced the operation's result")
-	parseJSON(t, out, &ddos)
+	parseJSON(t, azLocationResult(t, location), &ddos)
 	assert.Empty(t, ddos.Value, "no public IP is attached to this network, so no address has a DDoS protection status")
 }
 

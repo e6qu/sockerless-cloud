@@ -102,11 +102,7 @@ func TestBehavioralGate_CloudWatchAlarmSNSActionToSQS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
-		require.NoError(t, err)
-		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM")
+	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "alarm should reach ALARM")
 
 	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "SQS subscriber must receive the alarm notification")

@@ -145,18 +145,31 @@ func TestECS_ManagedEBSRunTaskProcessMode(t *testing.T) {
 	taskArn := aws.ToString(runOut.Tasks[0].TaskArn)
 	require.NotEmpty(t, taskArn)
 
-	// The async transition runs the deleteOnTermination volume cleanup (the
-	// crash site). Poll the simulator for a few seconds: if it had panicked
-	// the connection would be refused. Surviving requests prove the fix.
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
-		_, derr := ecsc.DescribeTasks(ctx, &ecs.DescribeTasksInput{
-			Cluster: aws.String(clusterName),
-			Tasks:   []string{taskArn},
-		})
-		require.NoError(t, derr, "simulator must keep serving through the managed-EBS task transition (issue #569)")
-		time.Sleep(500 * time.Millisecond)
+	// The task's termination runs the deleteOnTermination volume cleanup (the
+	// crash site): wait for the task to stop and for its volume to be deleted,
+	// which a panicking simulator never reports.
+	stopped, err := ecs.NewTasksStoppedWaiter(ecsc, func(o *ecs.TasksStoppedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &ecs.DescribeTasksInput{Cluster: aws.String(clusterName), Tasks: []string{taskArn}}, time.Minute)
+	require.NoError(t, err, "simulator must keep serving through the managed-EBS task transition (issue #569)")
+	var volumeID string
+	for _, attachment := range stopped.Tasks[0].Attachments {
+		if aws.ToString(attachment.Type) != "AmazonElasticBlockStorage" {
+			continue
+		}
+		for _, detail := range attachment.Details {
+			if aws.ToString(detail.Name) == "volumeId" {
+				volumeID = aws.ToString(detail.Value)
+			}
+		}
 	}
+	require.NotEmpty(t, volumeID, "the stopped task must name its managed Amazon EBS volume")
+	require.NoError(t, ec2.NewVolumeDeletedWaiter(ec2c, func(o *ec2.VolumeDeletedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &ec2.DescribeVolumesInput{VolumeIds: []string{volumeID}}, time.Minute),
+		"deleteOnTermination must delete the task's managed Amazon EBS volume")
 
 	// Final liveness proof on an unrelated control-plane call.
 	_, err = ecsc.ListClusters(ctx, &ecs.ListClustersInput{})

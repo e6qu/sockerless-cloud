@@ -96,10 +96,14 @@ func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 		Reason: aws.String("prove service replacement"),
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		after := runningTasks()
-		return len(after) == 2 && !containsString(after, beforeStop[0]) && serviceIsSteady(2)
-	}, 30*time.Second, 100*time.Millisecond, "service did not replace a stopped task")
+	// Once the stopped task has left RUNNING, the service is steady again only
+	// after its scheduler has launched a replacement.
+	waitTaskStopped(t, client, cluster, beforeStop[0])
+	waitForECSServicesStable(t, client, cluster, 30*time.Second, serviceName)
+	after := runningTasks()
+	require.Len(t, after, 2, "service did not replace a stopped task")
+	require.NotContains(t, after, beforeStop[0])
+	require.True(t, serviceIsSteady(2))
 
 	secondRevision := register("hold")
 	_, err = client.UpdateService(ctx, &ecs.UpdateServiceInput{
@@ -267,15 +271,6 @@ func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
 		})
 		return listErr == nil && len(instances.Instances) == 0
 	}, 10*time.Second, 100*time.Millisecond, "service deletion did not deregister Cloud Map instances")
-}
-
-func containsString(values []string, wanted string) bool {
-	for _, value := range values {
-		if value == wanted {
-			return true
-		}
-	}
-	return false
 }
 
 // TestECS_ServiceTaskStreamsLogsLive proves the awslogs contract for the tasks

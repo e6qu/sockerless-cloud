@@ -43,6 +43,7 @@ func azureNormalizeRequestPath(r *http.Request) {
 		"/basicpublishingcredentialspolicies": "/basicpublishingcredentialspolicies",
 		"/deletedvaults":                      "/deletedVaults",
 		"/deletedworkspaces":                  "/deletedWorkspaces",
+		"/getauthtoken":                       "/getAuthtoken",
 	}
 	path := r.URL.Path
 	lower := strings.ToLower(path)

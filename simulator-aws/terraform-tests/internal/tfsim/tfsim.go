@@ -2,23 +2,17 @@ package tfsim
 
 import (
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -293,112 +287,6 @@ func installSignalReaper() {
 			_ = syscall.Kill(syscall.Getpid(), s)
 		}
 	}()
-}
-
-func (e *Env) AWSJSON(t *testing.T, service, target string, in, out any) {
-	t.Helper()
-	body, err := json.Marshal(in)
-	if err != nil {
-		t.Fatalf("marshal %s request: %v", target, err)
-	}
-	req, err := http.NewRequest(http.MethodPost, e.Endpoint+"/", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("build %s request: %v", target, err)
-	}
-	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
-	req.Header.Set("X-Amz-Target", target)
-	signSimSigV4(req, service, body)
-	resp, err := e.Client.Do(req)
-	if err != nil {
-		t.Fatalf("post %s: %v", target, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var b bytes.Buffer
-		_, _ = b.ReadFrom(resp.Body)
-		t.Fatalf("%s status=%d body=%s", target, resp.StatusCode, b.String())
-	}
-	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			t.Fatalf("decode %s response: %v", target, err)
-		}
-	}
-}
-
-func (e *Env) AWSQuery(t *testing.T, service string, values url.Values) {
-	t.Helper()
-	e.AWSQueryBody(t, service, values)
-}
-
-// AWSQueryBody is AWSQuery with the response returned, for the setup calls that
-// have to read what the service answered — waiting for a resource to reach the
-// state a later step requires means reading its state, not assuming it.
-func (e *Env) AWSQueryBody(t *testing.T, service string, values url.Values) string {
-	t.Helper()
-	body := []byte(values.Encode())
-	req, err := http.NewRequest(http.MethodPost, e.Endpoint+"/", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("build query action %s: %v", values.Get("Action"), err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	signSimSigV4(req, service, body)
-	resp, err := e.Client.Do(req)
-	if err != nil {
-		t.Fatalf("post query action %s: %v", values.Get("Action"), err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var b bytes.Buffer
-		_, _ = b.ReadFrom(resp.Body)
-		t.Fatalf("query action %s status=%d body=%s", values.Get("Action"), resp.StatusCode, b.String())
-	}
-	var answered bytes.Buffer
-	if _, err := answered.ReadFrom(resp.Body); err != nil {
-		t.Fatalf("read query action %s response: %v", values.Get("Action"), err)
-	}
-	return answered.String()
-}
-
-// signSimSigV4 signs a request to the simulator with Signature Version 4 using
-// the simulator's seeded bootstrap credential (test/test, us-east-1) — the same
-// coordinate the Terraform provider and the SDK/CLI test surfaces sign with.
-// The simulator verifies the signature exactly as real AWS does, so setup calls
-// that seed fixtures must be signed just like the provider's own requests.
-func signSimSigV4(req *http.Request, service string, payload []byte) {
-	const akid, secret, region = "test", "test", "us-east-1"
-	now := time.Now().UTC()
-	amzDate := now.Format("20060102T150405Z")
-	dateStamp := now.Format("20060102")
-	payloadHash := sha256Hex(payload)
-	host := req.URL.Host
-	req.Header.Set("Host", host)
-	req.Header.Set("X-Amz-Date", amzDate)
-	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
-
-	const signedHeaders = "content-type;host;x-amz-content-sha256;x-amz-date"
-	canonicalHeaders := fmt.Sprintf("content-type:%s\nhost:%s\nx-amz-content-sha256:%s\nx-amz-date:%s\n",
-		req.Header.Get("Content-Type"), host, payloadHash, amzDate)
-	canonicalRequest := strings.Join([]string{req.Method, req.URL.Path, "", canonicalHeaders, signedHeaders, payloadHash}, "\n")
-	scope := dateStamp + "/" + region + "/" + service + "/aws4_request"
-	stringToSign := strings.Join([]string{"AWS4-HMAC-SHA256", amzDate, scope, sha256Hex([]byte(canonicalRequest))}, "\n")
-	kDate := hmacSHA256([]byte("AWS4"+secret), dateStamp)
-	kRegion := hmacSHA256(kDate, region)
-	kService := hmacSHA256(kRegion, service)
-	kSigning := hmacSHA256(kService, "aws4_request")
-	signature := hex.EncodeToString(hmacSHA256(kSigning, stringToSign))
-	req.Header.Set("Authorization", fmt.Sprintf(
-		"AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s", akid, scope, signedHeaders, signature))
-}
-
-func hmacSHA256(key []byte, data string) []byte {
-	h := hmac.New(sha256.New, key)
-	h.Write([]byte(data))
-	return h.Sum(nil)
-}
-
-func sha256Hex(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
 }
 
 func startHTTPSGateway(t *testing.T, env *Env, stateDir, simDir string, simPort int) {
