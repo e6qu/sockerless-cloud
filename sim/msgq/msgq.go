@@ -143,8 +143,12 @@ type EnqueueOpts struct {
 func ms(t time.Time) int64 { return t.UnixMilli() }
 
 // deadline is the first whole millisecond at or after t plus d, so a stored
-// deadline never falls before the instant it stands for.
+// deadline never falls before the instant it stands for. A zero duration is
+// due at once, in t's own millisecond.
 func deadline(t time.Time, d time.Duration) int64 {
+	if d <= 0 {
+		return ms(t)
+	}
 	return (t.Add(d).UnixNano() + int64(time.Millisecond) - 1) / int64(time.Millisecond)
 }
 

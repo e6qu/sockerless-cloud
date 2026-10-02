@@ -136,11 +136,11 @@ func TestPubSubPushDeadLettersAfterMaxDeliveryAttempts(t *testing.T) {
 			t.Fatalf("attempt %d reported deliveryAttempt %v", attempt, pushed.body["deliveryAttempt"])
 		}
 	}
-	// Drain the fifth rejection's negative acknowledgement, then sweep at the
-	// instant the retry policy's maximum backoff has run out: the exhausted
-	// message is due for the dead-letter topic by then.
+	// Drain the fifth rejection's negative acknowledgement, then sweep in the
+	// millisecond after the retry policy's maximum backoff has run out: the
+	// exhausted message is due for the dead-letter topic by then.
 	bg.Await()
-	psSweepDeadLetters(time.Now().Add(200 * time.Millisecond))
+	psSweepDeadLetters(time.Now().Add(200*time.Millisecond + time.Millisecond))
 	dead := pullNow(t, "projects/p/subscriptions/jobs-dead-pull")
 	if n := count.Load(); n != 5 {
 		t.Fatalf("endpoint saw %d attempts, want maxDeliveryAttempts=5", n)

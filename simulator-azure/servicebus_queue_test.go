@@ -55,7 +55,7 @@ func TestServiceBusLockDurationAndDeliveryCount(t *testing.T) {
 	if lock != 5*time.Second || len(got) != 1 || got[0].Deliveries != 1 {
 		t.Fatalf("first receive = %+v lock %v", got, lock)
 	}
-	if until := time.UnixMilli(got[0].AvailableAt); time.Until(until) > 5*time.Second || time.Until(until) < 4*time.Second {
+	if until := time.UnixMilli(got[0].AvailableAt); time.Until(until) > 5*time.Second+time.Millisecond || time.Until(until) < 4*time.Second {
 		t.Fatalf("lock held until %v, want lockDuration from now", until)
 	}
 	if err := sbSettle("ns", "q", got[0].Receipt, sbSettlement{kind: sbAbandon}); err != nil {

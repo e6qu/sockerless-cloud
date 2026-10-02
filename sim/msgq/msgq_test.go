@@ -264,3 +264,11 @@ func TestDelayEndsNoEarlierThanItsInstant(t *testing.T) {
 	eq(t, ids(q.Receive(ReceiveOpts[string]{Max: 1}, pol, sent.Add(time.Second-time.Microsecond)).Leased), nil)
 	eq(t, ids(q.Receive(ReceiveOpts[string]{Max: 1}, pol, t0.Add(1001*time.Millisecond)).Leased), []string{"a"})
 }
+
+func TestUndelayedMessageIsReceivableAtOnce(t *testing.T) {
+	var q Queue[string]
+	pol := Policy{}
+	sent := t0.Add(900 * time.Microsecond)
+	q.Enqueue("a", EnqueueOpts{}, pol, sent)
+	eq(t, ids(q.Receive(ReceiveOpts[string]{Max: 1}, pol, sent).Leased), []string{"a"})
+}
