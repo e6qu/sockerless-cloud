@@ -51,9 +51,10 @@ func gcsNextNotificationID(bucket string) string {
 }
 
 // gcsNotificationTopicPattern is the topic a notification configuration names:
-// the full resource name of a Pub/Sub topic whose ID follows Pub/Sub's rules.
+// a Pub/Sub topic whose ID follows Pub/Sub's rules, as its full resource name
+// or as the relative name gcloud sends.
 var gcsNotificationTopicPattern = regexp.MustCompile(
-	`^//pubsub\.googleapis\.com/(projects/[a-z0-9.:-]+/topics/[A-Za-z][A-Za-z0-9._~+%-]{2,254})$`)
+	`^(?://pubsub\.googleapis\.com/)?(projects/[a-z0-9.:-]+/topics/[A-Za-z][A-Za-z0-9._~+%-]{2,254})$`)
 
 // gcsNotificationTopicName is the Pub/Sub topic name a notification's topic
 // field names, and whether the field is well formed.
@@ -65,8 +66,22 @@ func gcsNotificationTopicName(topic string) (string, bool) {
 	return m[1], true
 }
 
-func gcsServiceAgentEmail(project string) string {
-	return "service-" + project + "@gs-project-accounts.iam.gserviceaccount.com"
+// gcsServiceAgentEmail is Cloud Storage's service agent for the project with
+// the given number.
+func gcsServiceAgentEmail(projectNumber string) string {
+	return "service-" + projectNumber + "@gs-project-accounts.iam.gserviceaccount.com"
+}
+
+// gcsResolveProject resolves a project ID or number through Cloud Resource
+// Manager, answering Cloud Storage's refusal for a project that does not exist
+// or is not active.
+func gcsResolveProject(w http.ResponseWriter, ref string) (CRMProject, bool) {
+	p, ok := crmResolveProject(ref)
+	if !ok || p.State != "ACTIVE" {
+		writeGCSJSONError(w, http.StatusBadRequest, "invalid", "Unknown project id: "+ref)
+		return CRMProject{}, false
+	}
+	return p, true
 }
 
 // gcsAgentMayPublish reports whether the topic exists and Cloud Storage's

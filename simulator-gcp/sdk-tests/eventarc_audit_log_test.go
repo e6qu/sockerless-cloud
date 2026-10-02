@@ -187,6 +187,7 @@ func TestEventarc_AuditLogTriggerDeliversToCloudRun(t *testing.T) {
 	require.NotEmpty(t, trigger.GetTransport().GetPubsub().GetTopic(), "Eventarc provisions the topic an audit-log trigger delivers through")
 
 	storage := callerStorage(t, caller)
+	requireProject(t, project)
 	_, err = storage.Buckets.Insert(project, &storageapi.Bucket{Name: bucket, Location: "US-CENTRAL1"}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, storageService(t).Buckets.Delete(bucket).Do()) })

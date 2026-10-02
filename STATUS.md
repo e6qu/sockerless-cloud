@@ -149,6 +149,13 @@ Current state of the sockerless-cloud repository.
 - **A bucket carries Cloud Storage's default policy** from creation — the
   four legacy bindings for the project's owners, editors and viewers — so a
   client revoking what it granted sets the defaults back, never nothing.
+- **A bucket belongs to a project Cloud Resource Manager holds.**
+  `buckets.insert` resolves its project by ID or number, refuses an unknown one
+  with `400 Unknown project id`, and stamps the project's own number;
+  `projects.serviceAccount.get` names the agent
+  `service-{projectNumber}@gs-project-accounts.iam.gserviceaccount.com`, the
+  identity the notification check evaluates, so gcloud's and Terraform's
+  notification flows grant publish to the agent Cloud Storage checks.
 - **A Cloud Storage volume mount writes back as Cloud Storage FUSE does.**
   A Cloud Run job task or service instance binds the bucket's host directory
   (or its `only-dir` directory) into the container, read-only when the volume

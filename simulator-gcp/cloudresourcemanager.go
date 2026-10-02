@@ -36,9 +36,8 @@ const crmDefaultOrganization = "organizations/123456789012"
 
 // crmEnsureDefaultProject materializes the org's pre-provisioned projects the
 // way the AWS simulator materializes its management account: "sockerless" is
-// the default project every deployment coordinate assumes (console, backends;
-// its fixed project number matches the number the GCS slice stamps on bucket
-// metadata), and "test-project" is the project the SDK/CLI/terraform
+// the default project every deployment coordinate assumes (console, backends),
+// and "test-project" is the project the SDK/CLI/terraform
 // harnesses are configured with. Idempotent across restarts.
 func crmEnsureDefaultProject() {
 	for _, seed := range []struct{ id, number string }{

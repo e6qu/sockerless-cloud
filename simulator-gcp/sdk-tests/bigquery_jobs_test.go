@@ -74,6 +74,7 @@ func TestBigQuery_LoadCopyExtractThroughCloudStorage(t *testing.T) {
 
 	bucketName := uniqueName("bq-jobs")
 	bucket := gcs.Bucket(bucketName)
+	requireProject(t, project)
 	require.NoError(t, bucket.Create(ctx, project, nil))
 	for name, body := range map[string]string{
 		"people/part-1.csv": "name,age,joined\nada,36,2024-01-02 03:04:05 UTC\n",

@@ -245,7 +245,7 @@ func TestCustomMethodOperationsAreRecorded(t *testing.T) {
 	manifest := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"digest":"` + layerDigest + `","size":11},"layers":[]}`)
 	arRegistry.PutManifest("", "p/rec-repo/app", "v1", "application/vnd.oci.image.manifest.v1+json", manifest)
 	version := repo + "/packages/app/versions/" + digestBytes(manifest)
-	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=p", `{"name":"export-bucket"}`)
+	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"export-bucket"}`)
 
 	readBack := func(op map[string]any) map[string]any {
 		t.Helper()

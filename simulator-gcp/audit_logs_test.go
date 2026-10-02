@@ -48,6 +48,7 @@ func auditPayload(t *testing.T, entry map[string]any) map[string]any {
 // reaches a gRPC reader as a google.cloud.audit.AuditLog.
 func TestAuditLogs_BucketCreateWritesAdminActivity(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
+	createTestProject(t, srv, "audit-p")
 	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=audit-p",
 		`{"name":"audit-bucket","location":"us-east1"}`)
 	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPatch, "/storage/v1/b/audit-bucket",
@@ -332,6 +333,7 @@ func TestAuditLogs_EventarcDeliversAuditLogEvents(t *testing.T) {
 		t.Fatalf("a global Eventarc trigger reads back as %v", got)
 	}
 
+	createTestProject(t, srv, "audit-ev")
 	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=audit-ev", `{"name":"skipped-bucket"}`)
 	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=audit-ev", `{"name":"audit-ev-bucket"}`)
 

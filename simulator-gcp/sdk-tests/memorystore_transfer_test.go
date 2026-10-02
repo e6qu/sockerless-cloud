@@ -126,6 +126,7 @@ func TestMemorystore_ImportAndExportInstance(t *testing.T) {
 	const project, location = "redis-transfer", "us-central1"
 	parent := "projects/" + project + "/locations/" + location
 	bucket := uniqueName("redis-transfer")
+	requireProject(t, project)
 	require.NoError(t, gcs.Bucket(bucket).Create(ctx, project, nil))
 
 	source := createRedisInstance(t, svc, parent, "source", &redis.Instance{Tier: "BASIC", MemorySizeGb: 1, RedisVersion: "REDIS_7_2"})
@@ -263,6 +264,7 @@ func TestMemorystoreRedis_ClusterServesRedis(t *testing.T) {
 	assert.Positive(t, total)
 
 	bucket := uniqueName("cluster-backups")
+	requireProject(t, project)
 	require.NoError(t, gcs.Bucket(bucket).Create(ctx, project, nil))
 	op, err = svc.Projects.Locations.BackupCollections.Backups.Export(backupName, &redis.ExportBackupRequest{GcsBucket: bucket}).Do()
 	require.NoError(t, err)

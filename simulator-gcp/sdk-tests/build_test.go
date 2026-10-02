@@ -280,6 +280,7 @@ func makeTarGz(t *testing.T, files map[string]string) []byte {
 // which is how a flaky build test gets stressed.
 func createBucket(t *testing.T, project, name string) {
 	t.Helper()
+	requireProject(t, project)
 	url := fmt.Sprintf("%s/storage/v1/b?project=%s", baseURL, project)
 	req, err := http.NewRequest("POST", url, strings.NewReader(fmt.Sprintf(`{"name":%q}`, name)))
 	require.NoError(t, err)

@@ -1179,6 +1179,18 @@ service's single write path rather than at each handler, so a handler added
 later cannot skip it; a lock per object keeps unrelated writes concurrent.
 Cloud Storage generations are timestamps that never repeat.
 
+A Cloud Storage bucket belongs to a project that exists. The insert resolves
+its `project` through Cloud Resource Manager and stamps that project's number,
+and the service agent is named for the same number, because gcloud's
+`storage buckets notifications create` reads the bucket's `projectNumber`,
+asks for that number's agent and grants it publish on the topic before the
+insert that checks it. A fixed number on every bucket and an agent named for
+the project ID had each answer look right alone while the flow granted one
+identity and checked another. gcloud and Terraform name the topic by its
+relative name (`projects/{p}/topics/{t}`), so the insert accepts it and stores
+the full `//pubsub.googleapis.com/` name. Tests create their buckets in
+projects Cloud Resource Manager holds.
+
 An object store is read by key or key prefix. Reading one whole costs every
 byte every bucket holds, and the store-scan gate could not see it because it
 counts scans per request, not bytes per scan. So the three object stores are

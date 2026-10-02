@@ -387,6 +387,13 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Regexp(t, `^[1-9][0-9]{11}$`, projectNumber,
 		"google_project.number must be the real 12-digit project number the v1 read returns; got %s", projectNumber)
 
+	require.Equal(t, "service-"+outputs.must(t, "test_project_number")+"@gs-project-accounts.iam.gserviceaccount.com",
+		outputs.must(t, "gcs_service_agent"),
+		"Cloud Storage's service agent carries the project's number")
+	require.Equal(t, "//pubsub.googleapis.com/projects/test-project/topics/tf-gcs-notifications",
+		outputs.must(t, "gcs_notification_topic"),
+		"the notification accepted the topic its service agent may publish to")
+
 	folderName := outputs.must(t, "folder_name")
 	require.Regexp(t, `^folders/[1-9][0-9]{11}$`, folderName,
 		"google_folder.name must be the folder resource name the create operation settled on; got %s", folderName)
