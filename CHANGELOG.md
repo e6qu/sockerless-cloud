@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/e6qu/sockerless-cloud/compare/v1.0.0...v1.0.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* **scripts:** run the required-checks and single-open-PR gates on read access ([f9e0687](https://github.com/e6qu/sockerless-cloud/commit/f9e0687d44a80d5ab7b4489a3cfac811f89e2cc9))
+
 ## [1.0.0](https://github.com/e6qu/sockerless-cloud/compare/v0.33.8...v1.0.0) (2026-10-01)
 
 
