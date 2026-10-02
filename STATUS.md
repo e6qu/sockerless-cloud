@@ -149,6 +149,11 @@ Current state of the sockerless-cloud repository.
 - **A bucket carries Cloud Storage's default policy** from creation — the
   four legacy bindings for the project's owners, editors and viewers — so a
   client revoking what it granted sets the defaults back, never nothing.
+- **Uploads past 5 MiB take the resumable path from the vendor CLIs too**:
+  `gcloud storage cp`, `gcloud artifacts generic upload`,
+  `gcloud artifacts files upload` and `bq load` are tested over it. BigQuery
+  serves its Discovery document, which `bq` builds its client from, and
+  answers REST errors with BigQuery's `errors[]` reasons.
 - **A bucket belongs to a project Cloud Resource Manager holds.**
   `buckets.insert` resolves its project by ID or number, refuses an unknown one
   with `400 Unknown project id`, and stamps the project's own number;

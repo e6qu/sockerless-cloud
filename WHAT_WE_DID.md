@@ -1005,6 +1005,16 @@ share is owned by the first to push it and passes to another on deletion.
 follows the repository format as gcloud's `AddRegistryBaseToRepositoryInfo`
 spells it: `LOCATION-FORMAT.pkg.dev/PROJECT/REPOSITORY`.
 
+The vendor CLIs drive those paths past 5 MiB, where apitools and
+googleapiclient switch to the resumable protocol: `gcloud storage cp`,
+`gcloud artifacts generic upload`, `gcloud artifacts files upload` and
+`bq load` each have a CLI test with a 9 MiB payload generated in the test's
+temporary directory. `bq` builds its client from BigQuery's Discovery document
+whenever its API root is not Google's, so the simulator serves that document,
+byte-identical to the vendored one, at `/$discovery/rest?version=v2`; and
+BigQuery's REST errors carry the `errors[]` entry (`reason`, `domain`,
+`message`) whose `notFound` reason is how `bq mk` learns a dataset is absent.
+
 Every resumable path Discovery declares is served. The conformance loader and
 the response validator index `mediaUpload.protocols.resumable.path` beside the
 simple path, so the `/resumable/upload/...` routes are checked as Discovery

@@ -143,6 +143,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`gcp-compute_reservation_verbs`](gcp-compute_reservation_verbs.md)
 - [`gcp-compute_settings`](gcp-compute_settings.md)
 - [`gcp-dataflow`](gcp-dataflow.md)
+- [`gcp-discovery_service`](gcp-discovery_service.md)
 - [`gcp-dns`](gcp-dns.md)
 - [`gcp-eventarc`](gcp-eventarc.md)
 - [`gcp-firestore`](gcp-firestore.md)
