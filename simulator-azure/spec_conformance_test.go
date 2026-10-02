@@ -296,6 +296,15 @@ var allowedNonSpecAzureRoutes = map[string]string{
 	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ContainerInstance/containerGroups/{containerGroupName}/containers/{containerName}/execSessions/{sessionID}":   "sim-emitted exec WebSocket bridge (real API returns an opaque webSocketUri)",
 	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ContainerInstance/containerGroups/{containerGroupName}/containers/{containerName}/attachSessions/{sessionID}": "sim-emitted attach WebSocket bridge (real API returns an opaque webSocketUri)",
 	"POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App/jobs/{jobName}/executions/{execName}/exec":                                                               "sim-emitted exec WebSocket bridge (real API returns an opaque execEndpoint)",
+
+	// Container Apps log streams: the app's eventStreamEndpoint names a
+	// data-plane host serving these paths with a getAuthToken bearer; they
+	// are not ARM operations and no published swagger describes them.
+	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/containerApps/{appName}/eventstream":                                                                          "Container Apps system event stream under the app's eventStreamEndpoint (data plane, unswaggered)",
+	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/containerApps/{appName}/revisions/{revisionName}/replicas/{replicaName}/containers/{containerName}/logstream": "Container Apps console log stream under the app's eventStreamEndpoint (data plane, unswaggered)",
+	// az containerapp replica show/list sends the documented replica GET with a
+	// trailing slash.
+	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App/containerApps/{appName}/revisions/{revisionName}/replicas/{replicaName}/{$}": "the Azure CLI's trailing-slash spelling of the documented Replicas_GetReplica path",
 }
 
 // vendoredForRefClosure lists swagger files vendored only because a
