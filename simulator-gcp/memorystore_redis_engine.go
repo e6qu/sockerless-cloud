@@ -5,6 +5,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/moby/moby/api/pkg/stdcopy"
 	dockerclient "github.com/moby/moby/client"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -25,29 +29,27 @@ import (
 
 // The Memorystore for Redis data plane.
 //
-// An instance or cluster is a real Redis engine: one container whose
-// redis-server processes are the resource's nodes, each on a container port of
-// its own (7000, 7001, …) and published on a host loopback port. The endpoints
-// the API reports are listeners this process owns on loopback addresses of
-// their own, relaying bytes to the node behind them: an instance's host and
-// readEndpoint and a cluster's discovery endpoint at Redis's port 6379, and
-// each cluster node at the address and port it announces. A cluster node
-// announces its container port because a replica replicates from the address
-// its primary announces, which has to reach the primary inside the container
-// as well as from the host. Redis itself answers AUTH, replication and cluster
-// redirections; the relay never reads the stream.
+// An instance or cluster is a real Redis engine: one container per node, each
+// a redis-server listening on Redis's port 6379, on a Docker network every
+// Memorystore engine of this simulator shares, and published on a host
+// loopback port. The endpoints the API reports are listeners this process owns
+// on loopback addresses of their own, relaying bytes to the node behind them:
+// an instance's host and readEndpoint, a cluster's discovery endpoint, and each
+// cluster node at the address it announces as its hostname. Instance replicas
+// follow their primary by its network alias; cluster nodes meet over the
+// network and announce the relay's address to clients, so a cluster client
+// follows redirections to endpoints it can reach. Redis itself answers AUTH,
+// replication and cluster redirections; a relay terminates TLS when the
+// resource encrypts in transit, and on a cluster that authenticates with IAM it
+// exchanges a verified access token for the engine's own credential.
 //
 // The create starts the engine and settles once every node answers, so a
 // resource reported ready is serving; the delete stops it and removes its
-// volume. An engine that stopped since starts again at the next connection or
-// operation that needs it. Persistence is off (`save ""`): the dataset lives in memory, an RDB
-// exists only while an export, backup, import or upgrade moves it, and a fresh
-// engine starts empty unless one of those staged a snapshot for it to load.
+// volume. Adding a node starts another container while the rest keep serving.
 
 const (
 	msRedisPort            = 6379
-	msRedisFirstNodePort   = 7000
-	msRedisBusPortOffset   = 10000
+	msRedisTLSPort         = 6378
 	msRedisDataPath        = "/data"
 	msRedisReadyBudget     = 10 * time.Minute
 	msRedisLivenessEvery   = 2 * time.Second
@@ -55,6 +57,7 @@ const (
 	msRedisStopGrace       = 5 * time.Second
 	msRedisRemovalTimeout  = 30 * time.Second
 	msRedisCommandDeadline = 2 * time.Minute
+	msRedisReshardDeadline = 10 * time.Minute
 	msRedisClusterSlots    = 16384
 )
 
@@ -79,12 +82,12 @@ func msRedisEngineImage(redisVersion string) (string, bool) {
 	return "", false
 }
 
-// msRedisClusterEngineImage is the engine of Memorystore for Redis Cluster,
-// whose backups report engineVersion redis-7.2.
 // msRedisEnginePlatform is the platform the engine runs on whatever the host
 // is, as the Cloud SQL data plane's is.
 const msRedisEnginePlatform = "linux/amd64"
 
+// Memorystore for Redis Cluster runs Redis 7.2, the engineVersion its backups
+// report.
 const (
 	msRedisClusterEngineImage   = "public.ecr.aws/docker/library/redis:7.2-alpine"
 	msRedisClusterEngineVersion = "redis-7.2"
@@ -103,76 +106,94 @@ const (
 type msRedisEndpointRecord struct {
 	Role    msRedisEndpointRole `json:"role"`
 	Address string              `json:"address"`
+	Port    int                 `json:"port,omitempty"`
 	Node    int                 `json:"node,omitempty"`
 }
 
+func (e msRedisEndpointRecord) port() int {
+	if e.Port == 0 {
+		return msRedisPort
+	}
+	return e.Port
+}
+
+func (e msRedisEndpointRecord) key() string {
+	if e.Role == msRedisNodeEndpoint {
+		return "node-" + strconv.Itoa(e.Node)
+	}
+	return string(e.Role)
+}
+
 // msRedisPlaneRecord is what a control-plane restart needs to serve a
-// resource's endpoints again: the addresses it reported, the shape the engine
-// was started with, the node that is primary, and the AUTH string the engine
-// requires.
+// resource's endpoints again: the addresses it reported, the nodes the engine
+// runs, its shape, the node that is primary, the AUTH string an instance
+// requires, and the credential a cluster's engine requires of the clients the
+// service authenticated.
 type msRedisPlaneRecord struct {
 	Endpoints  []msRedisEndpointRecord `json:"endpoints,omitempty"`
+	Nodes      []int                   `json:"nodes,omitempty"`
 	Shards     int                     `json:"shards,omitempty"`
 	Replicas   int                     `json:"replicas,omitempty"`
 	Primary    int                     `json:"primary"`
 	AuthString string                  `json:"authString,omitempty"`
+	Secret     string                  `json:"secret,omitempty"`
 }
 
 var msRedisPlaneRecords sim.Store[msRedisPlaneRecord]
 
-// msRedisTopology is the shape of the engine: how many redis-server processes
-// run and how they relate.
-type msRedisTopology struct {
-	// Cluster runs every node cluster-enabled; shard s is primary node s and
-	// its replicas follow all primaries in shard order.
-	Cluster  bool
-	Shards   int
-	Replicas int
-	// Announce is the address each cluster node reports to clients.
-	Announce []string
+// msRedisPlaneSpec is how a resource's engine runs, which the resource's
+// configuration decides.
+type msRedisPlaneSpec struct {
+	Cluster     bool
+	Image       string
+	Configs     [][2]string
+	Persistence msRedisPersistence
+	// CA names the certificate authority whose certificates the endpoints
+	// present; empty serves plaintext.
+	CA string
+	// IAMAuth exchanges a verified access token for the engine's credential.
+	IAMAuth bool
+	// TokenAuth runs the cluster's token-auth users as engine users.
+	TokenAuth bool
 }
 
-func (t msRedisTopology) nodes() int {
-	if t.Cluster {
-		return t.Shards * (t.Replicas + 1)
-	}
-	return 1 + t.Replicas
-}
-
-// replicaOf is the shard primary a cluster replica node follows.
-func (t msRedisTopology) replicaOf(node int) int {
-	return (node - t.Shards) / t.Replicas
-}
-
-// slotRange is the hash-slot range shard s owns, the slots split evenly.
-func (t msRedisTopology) slotRange(shard int) (first, last int) {
-	first = shard * msRedisClusterSlots / t.Shards
-	last = (shard+1)*msRedisClusterSlots/t.Shards - 1
-	return first, last
+type msRedisNode struct {
+	index    int
+	announce string
+	handle   *sim.ContainerHandle
+	hostPort int
+	ip       string
 }
 
 type msRedisPlane struct {
-	name     string
-	volume   string
-	labels   map[string]string
-	topology msRedisTopology
-	password string
-	// configs are the engine directives every node starts with, as
-	// name/value pairs.
-	configs [][2]string
+	name    string
+	volume  string
+	cluster bool
+	labels  map[string]string
 
-	mu        sync.RWMutex
-	image     string
-	primary   int
-	listeners []net.Listener
-	hostPorts []int
-	handle    *sim.ContainerHandle
+	mu          sync.RWMutex
+	image       string
+	password    string
+	configs     [][2]string
+	persistence msRedisPersistence
+	primary     int
+	shards      int
+	replicas    int
+	nodes       map[int]*msRedisNode
+	endpoints   []msRedisEndpointRecord
+	listeners   map[string]net.Listener
+	tlsConfig   *tls.Config
+	iamAuth     bool
+	tokenAuth   bool
+	snapshots   *time.Timer
+	closed      bool
 
 	startMu   sync.Mutex
 	attempted bool
 	startErr  error
 
-	// opMu serialises the operations that move a snapshot in or out.
+	// opMu serialises the operations that move a snapshot in or out or change
+	// the topology.
 	opMu sync.Mutex
 
 	readCursor atomic.Uint64
@@ -189,15 +210,24 @@ func msRedisLoadPlane(name string) (*msRedisPlane, bool) {
 	return plane, ok
 }
 
-func msRedisVolume(name string) string {
-	return "sockerless-memorystore-" + strings.NewReplacer("/", "-").Replace(name)
+// msRedisScopedName names an engine object of a resource after the resource
+// and the simulator that owns it, so two simulators serving a resource of the
+// same name never share a volume or a network alias.
+func msRedisScopedName(name string) string {
+	digest := sha256.Sum256([]byte(sim.WorkloadScope() + "\x00" + name))
+	return "sockerless-memorystore-" + hex.EncodeToString(digest[:8])
+}
+
+// msRedisNetworkName is the network every Memorystore engine of this
+// simulator joins.
+func msRedisNetworkName() string {
+	digest := sha256.Sum256([]byte(sim.WorkloadScope()))
+	return "sockerless-memorystore-" + hex.EncodeToString(digest[:6])
 }
 
 func msRedisNodeDir(node int) string {
 	return fmt.Sprintf("%s/node-%d", msRedisDataPath, node)
 }
-
-func msRedisNodePort(node int) int { return msRedisFirstNodePort + node }
 
 // msRedisEngineDirectives translates Memorystore's redisConfigs into
 // redis-server directives. maxmemory-gb is Memorystore's own knob for
@@ -228,59 +258,152 @@ func msRedisEngineDirectives(memorySizeGb int, redisConfigs map[string]string) (
 	return directives, nil
 }
 
-// script is the container's command: every node but the primary runs in the
-// background and the primary replaces the shell, so the container lives
-// exactly as long as the primary does and a SIGTERM reaches it directly.
-func (p *msRedisPlane) script(primary int) string {
+// msRedisNewPlane builds the plane serving a resource from its record.
+func msRedisNewPlane(name string, spec msRedisPlaneSpec, record msRedisPlaneRecord) (*msRedisPlane, error) {
+	plane := &msRedisPlane{
+		name:        name,
+		volume:      msRedisScopedName(name),
+		cluster:     spec.Cluster,
+		labels:      map[string]string{"sockerless-memorystore": name},
+		image:       spec.Image,
+		configs:     spec.Configs,
+		persistence: spec.Persistence,
+		primary:     record.Primary,
+		shards:      record.Shards,
+		replicas:    record.Replicas,
+		nodes:       map[int]*msRedisNode{},
+		listeners:   map[string]net.Listener{},
+		iamAuth:     spec.IAMAuth,
+		tokenAuth:   spec.TokenAuth,
+	}
+	plane.password = record.AuthString
+	if spec.Cluster {
+		plane.password = record.Secret
+	}
+	announce := map[int]string{}
+	for _, endpoint := range record.Endpoints {
+		if endpoint.Role == msRedisNodeEndpoint {
+			announce[endpoint.Node] = endpoint.Address
+		}
+	}
+	for _, index := range record.Nodes {
+		plane.nodes[index] = &msRedisNode{index: index, announce: announce[index]}
+	}
+	plane.endpoints = append(plane.endpoints, record.Endpoints...)
+	if spec.CA != "" {
+		config, err := msRedisServerTLSConfig(spec.CA)
+		if err != nil {
+			return nil, err
+		}
+		plane.tlsConfig = config
+	}
+	msRedisPlanes.Store(name, plane)
+	plane.scheduleSnapshots()
+	return plane, nil
+}
+
+// record is the plane's part of the resource's record as it now stands.
+func (p *msRedisPlane) record(base msRedisPlaneRecord) msRedisPlaneRecord {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	base.Endpoints = append([]msRedisEndpointRecord(nil), p.endpoints...)
+	base.Nodes = p.nodeOrderLocked()
+	base.Primary = p.primary
+	base.Shards, base.Replicas = p.shards, p.replicas
+	return base
+}
+
+func (p *msRedisPlane) nodeOrderLocked() []int {
+	order := make([]int, 0, len(p.nodes))
+	for index := range p.nodes {
+		order = append(order, index)
+	}
+	sort.Ints(order)
+	return order
+}
+
+func (p *msRedisPlane) nodeOrder() []int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.nodeOrderLocked()
+}
+
+// nextNodeIndexLocked is the index a new node takes: one past every index in
+// use.
+func (p *msRedisPlane) nextNodeIndexLocked() int {
+	next := 0
+	for index := range p.nodes {
+		if index >= next {
+			next = index + 1
+		}
+	}
+	return next
+}
+
+func (p *msRedisPlane) alias(node int) string {
+	return p.volume + "-node-" + strconv.Itoa(node)
+}
+
+// script is a node container's command. A replica of an instance starts
+// empty, since it resynchronises from its primary; a cluster node keeps its
+// nodes.conf, which is its identity in the cluster, and keeps only the data
+// files the configured persistence writes.
+func (p *msRedisPlane) script(node int) string {
+	p.mu.RLock()
+	primary, persistence := p.primary, p.persistence
+	p.mu.RUnlock()
+	dir := msRedisNodeDir(node)
 	var b strings.Builder
 	b.WriteString("set -e\n")
-	for node := 0; node < p.topology.nodes(); node++ {
-		dir := msRedisNodeDir(node)
-		// A replica's directory holds nothing it needs: it resynchronises
-		// from its primary. The primary's may hold a snapshot staged for it.
-		if p.topology.Cluster || node != primary {
-			fmt.Fprintf(&b, "rm -rf %s\n", dbengine.ShellQuote(dir))
+	switch {
+	case !p.cluster && node != primary:
+		fmt.Fprintf(&b, "rm -rf %s\n", dbengine.ShellQuote(dir))
+	case p.cluster:
+		if persistence.Mode != msRedisPersistenceAOF {
+			fmt.Fprintf(&b, "rm -rf %s %s\n", dbengine.ShellQuote(dir+"/appendonlydir"), dbengine.ShellQuote(dir+"/appendonly.aof"))
 		}
-		fmt.Fprintf(&b, "mkdir -p %s\n", dbengine.ShellQuote(dir))
-	}
-	for node := 0; node < p.topology.nodes(); node++ {
-		if node == primary {
-			continue
+		if persistence.Mode == msRedisPersistenceDisabled {
+			fmt.Fprintf(&b, "rm -f %s\n", dbengine.ShellQuote(dir+"/dump.rdb"))
 		}
-		b.WriteString(p.serverCommand(node, primary))
-		b.WriteString(" &\n")
 	}
+	fmt.Fprintf(&b, "mkdir -p %s\n", dbengine.ShellQuote(dir))
 	b.WriteString("exec ")
-	b.WriteString(p.serverCommand(primary, primary))
+	b.WriteString(p.serverCommand(node))
 	b.WriteString("\n")
 	return b.String()
 }
 
-func (p *msRedisPlane) serverCommand(node, primary int) string {
+func (p *msRedisPlane) serverCommand(node int) string {
+	p.mu.RLock()
+	primary, password, configs, persistence := p.primary, p.password, p.configs, p.persistence
+	announce := ""
+	if n, ok := p.nodes[node]; ok {
+		announce = n.announce
+	}
+	p.mu.RUnlock()
 	args := []string{"redis-server",
-		"--port", strconv.Itoa(msRedisNodePort(node)),
+		"--port", strconv.Itoa(msRedisPort),
 		"--bind", "0.0.0.0",
 		"--protected-mode", "no",
 		"--dir", msRedisNodeDir(node),
 		"--save", "",
-		"--appendonly", "no",
 	}
-	if p.password != "" {
-		args = append(args, "--requirepass", p.password, "--masterauth", p.password)
+	args = append(args, persistence.engineArgs()...)
+	if password != "" {
+		args = append(args, "--requirepass", password, "--masterauth", password)
 	}
-	if p.topology.Cluster {
+	if p.cluster {
 		args = append(args,
 			"--cluster-enabled", "yes",
 			"--cluster-config-file", msRedisNodeDir(node)+"/nodes.conf",
-			"--cluster-announce-ip", p.topology.Announce[node],
-			"--cluster-announce-port", strconv.Itoa(msRedisNodePort(node)),
-			"--cluster-announce-bus-port", strconv.Itoa(msRedisNodePort(node)+msRedisBusPortOffset),
+			"--cluster-announce-hostname", announce,
+			"--cluster-preferred-endpoint-type", "hostname",
 		)
 	} else if node != primary {
 		// slaveof is the spelling every supported version accepts.
-		args = append(args, "--slaveof", "127.0.0.1", strconv.Itoa(msRedisNodePort(primary)))
+		args = append(args, "--slaveof", p.alias(primary), strconv.Itoa(msRedisPort))
 	}
-	for _, directive := range p.configs {
+	for _, directive := range configs {
 		args = append(args, "--"+directive[0], directive[1])
 	}
 	quoted := make([]string, len(args))
@@ -291,9 +414,9 @@ func (p *msRedisPlane) serverCommand(node, primary int) string {
 }
 
 // serve relays every connection listener accepts to the node target names.
-func (p *msRedisPlane) serve(listener net.Listener, target func() (int, bool)) {
+func (p *msRedisPlane) serve(key string, listener net.Listener, target func() (int, bool)) {
 	p.mu.Lock()
-	p.listeners = append(p.listeners, listener)
+	p.listeners[key] = listener
 	p.mu.Unlock()
 	go func() {
 		for {
@@ -306,7 +429,18 @@ func (p *msRedisPlane) serve(listener net.Listener, target func() (int, bool)) {
 	}()
 }
 
-// Primary is the node that takes writes.
+// stopServing closes the listener serving key.
+func (p *msRedisPlane) stopServing(key string) {
+	p.mu.Lock()
+	listener := p.listeners[key]
+	delete(p.listeners, key)
+	p.mu.Unlock()
+	if listener != nil {
+		_ = listener.Close()
+	}
+}
+
+// Primary is the node that takes an instance's writes.
 func (p *msRedisPlane) Primary() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -320,9 +454,10 @@ func (p *msRedisPlane) primaryTarget() (int, bool) { return p.Primary(), true }
 func (p *msRedisPlane) readTarget() (int, bool) {
 	p.mu.RLock()
 	primary := p.primary
+	order := p.nodeOrderLocked()
 	p.mu.RUnlock()
-	replicas := make([]int, 0, p.topology.nodes()-1)
-	for node := 0; node < p.topology.nodes(); node++ {
+	replicas := make([]int, 0, len(order))
+	for _, node := range order {
 		if node != primary {
 			replicas = append(replicas, node)
 		}
@@ -337,60 +472,34 @@ func fixedTarget(node int) func() (int, bool) {
 	return func() (int, bool) { return node, true }
 }
 
-func (p *msRedisPlane) relayConnection(client net.Conn, target func() (int, bool)) {
-	defer client.Close()
-	if err := p.Ensure(); err != nil {
-		log.Printf("Memorystore %s data plane: %v", p.name, err)
-		return
-	}
-	node, ok := target()
-	if !ok {
-		return
-	}
-	address, err := p.nodeAddress(node)
-	if err != nil {
-		log.Printf("Memorystore %s data plane: %v", p.name, err)
-		return
-	}
-	backend, err := net.DialTimeout("tcp", address, 5*time.Second)
-	if err != nil {
-		log.Printf("Memorystore %s data plane: dial node %d: %v", p.name, node, err)
-		return
-	}
-	defer backend.Close()
-	msRedisRelay(client, backend)
-}
-
-func msRedisRelay(left, right net.Conn) {
-	done := make(chan struct{}, 2)
-	copySide := func(dst, src net.Conn) {
-		_, _ = io.Copy(dst, src)
-		if tcp, ok := dst.(*net.TCPConn); ok {
-			_ = tcp.CloseWrite()
-		}
-		done <- struct{}{}
-	}
-	go copySide(left, right)
-	go copySide(right, left)
-	<-done
-}
-
 func (p *msRedisPlane) nodeAddress(node int) (string, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	if p.handle == nil || node >= len(p.hostPorts) {
-		return "", fmt.Errorf("the Redis engine is not running")
+	n, ok := p.nodes[node]
+	if !ok || n.handle == nil {
+		return "", fmt.Errorf("node %d of the Redis engine is not running", node)
 	}
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(p.hostPorts[node])), nil
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(n.hostPort)), nil
 }
 
-func (p *msRedisPlane) containerID() (string, error) {
+func (p *msRedisPlane) containerID(node int) (string, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	if p.handle == nil {
-		return "", fmt.Errorf("the Redis engine is not running")
+	n, ok := p.nodes[node]
+	if !ok || n.handle == nil {
+		return "", fmt.Errorf("node %d of the Redis engine is not running", node)
 	}
-	return p.handle.ContainerID, nil
+	return n.handle.ContainerID, nil
+}
+
+func (p *msRedisPlane) nodeIP(node int) (string, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	n, ok := p.nodes[node]
+	if !ok || n.ip == "" {
+		return "", fmt.Errorf("node %d of the Redis engine has no network address", node)
+	}
+	return n.ip, nil
 }
 
 // Ensure brings the engine up and returns once every node answers and the
@@ -405,16 +514,23 @@ func (p *msRedisPlane) Ensure() error {
 	return p.startErr
 }
 
+func (p *msRedisPlane) running() bool {
+	p.startMu.Lock()
+	defer p.startMu.Unlock()
+	return p.attempted && p.startErr == nil
+}
+
 func (p *msRedisPlane) bringUp() error {
-	p.mu.RLock()
-	running := p.handle != nil
-	p.mu.RUnlock()
-	if !running {
-		if err := p.start(); err != nil {
-			return err
+	var missing []int
+	for _, node := range p.nodeOrder() {
+		p.mu.RLock()
+		started := p.nodes[node].handle != nil
+		p.mu.RUnlock()
+		if !started {
+			missing = append(missing, node)
 		}
 	}
-	if err := p.awaitNodes(); err != nil {
+	if err := p.startNodes(missing); err != nil {
 		_ = p.stopEngine()
 		return err
 	}
@@ -425,85 +541,115 @@ func (p *msRedisPlane) bringUp() error {
 	return nil
 }
 
-func (p *msRedisPlane) start() error {
+// startNodes starts a container for each node and waits until every one
+// answers.
+func (p *msRedisPlane) startNodes(nodes []int) error {
+	if len(nodes) == 0 {
+		return nil
+	}
+	if _, err := sim.EnsureDockerNetwork(msRedisNetworkName()); err != nil {
+		return fmt.Errorf("start the Redis engine: %w", err)
+	}
+	errs := make([]error, len(nodes))
+	var wg sync.WaitGroup
+	for i, node := range nodes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if errs[i] = p.startNode(node); errs[i] == nil {
+				errs[i] = p.awaitNode(node)
+			}
+		}()
+	}
+	wg.Wait()
+	return errors.Join(errs...)
+}
+
+func (p *msRedisPlane) startNode(node int) error {
+	network := msRedisNetworkName()
 	p.mu.RLock()
-	image, primary := p.image, p.primary
+	image := p.image
 	p.mu.RUnlock()
-	nodes := p.topology.nodes()
-	publish := make([]int, nodes)
-	for node := range publish {
-		publish[node] = msRedisNodePort(node)
+	labels := map[string]string{"sockerless-memorystore-node": strconv.Itoa(node)}
+	for key, value := range p.labels {
+		labels[key] = value
 	}
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
 		CancelGracePeriod: msRedisStopGrace,
 		Image:             image,
 		Architecture:      msRedisEnginePlatform,
-		Command:           []string{"/bin/sh", "-c", p.script(primary)},
-		PublishPorts:      publish,
+		Command:           []string{"/bin/sh", "-c", p.script(node)},
+		PublishPorts:      []int{msRedisPort},
 		Binds:             []string{p.volume + ":" + msRedisDataPath},
-		Labels:            p.labels,
+		Labels:            labels,
+		Network:           network,
+		NetworkAliases:    []string{p.alias(node)},
 		Sandbox:           SandboxCloudRun,
 	}, sim.NoopSink{})
 	if err != nil {
-		return fmt.Errorf("start the Redis engine: %w", err)
+		return fmt.Errorf("start node %d of the Redis engine: %w", node, err)
 	}
-	hostPorts, err := msRedisPublishedPorts(handle, nodes)
-	if err != nil {
+	if err := p.attachNode(node, handle); err != nil {
 		handle.Cancel()
 		_ = handle.Wait()
-		return fmt.Errorf("start the Redis engine: %w", err)
+		return fmt.Errorf("start node %d of the Redis engine: %w", node, err)
 	}
-	p.mu.Lock()
-	p.handle, p.hostPorts = handle, hostPorts
-	p.mu.Unlock()
 	return nil
 }
 
-func msRedisPublishedPorts(handle *sim.ContainerHandle, nodes int) ([]int, error) {
-	hostPorts := make([]int, nodes)
-	for node := range hostPorts {
-		port, err := handle.PublishedPort(context.Background(), msRedisNodePort(node))
-		if err != nil {
-			return nil, fmt.Errorf("node %d: %w", node, err)
-		}
-		hostPorts[node] = port
+func (p *msRedisPlane) attachNode(node int, handle *sim.ContainerHandle) error {
+	hostPort, err := handle.PublishedPort(context.Background(), msRedisPort)
+	if err != nil {
+		return err
 	}
-	return hostPorts, nil
+	ip := sim.ContainerIPv4(handle.ContainerID)
+	if ip == "" {
+		return fmt.Errorf("container %s has no network address", handle.ContainerID)
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n, ok := p.nodes[node]
+	if !ok {
+		return fmt.Errorf("node %d is not part of the engine", node)
+	}
+	n.handle, n.hostPort, n.ip = handle, hostPort, ip
+	return nil
 }
 
-// awaitNodes waits until every node answers PING with its dataset loaded. A
-// node still loading a snapshot answers LOADING; one whose container stopped
-// never will, so the wait ends there instead of at the budget.
-func (p *msRedisPlane) awaitNodes() error {
-	containerID, err := p.containerID()
+// awaitNode waits until the node answers PING with its dataset loaded. A node
+// still loading a snapshot answers LOADING; one whose container stopped never
+// will, so the wait ends there instead of at the budget.
+func (p *msRedisPlane) awaitNode(node int) error {
+	containerID, err := p.containerID(node)
+	if err != nil {
+		return err
+	}
+	address, err := p.nodeAddress(node)
 	if err != nil {
 		return err
 	}
 	deadline := time.Now().Add(msRedisReadyBudget)
 	nextLiveness := time.Now().Add(msRedisLivenessEvery)
-	for node := 0; node < p.topology.nodes(); node++ {
-		for {
-			address, err := p.nodeAddress(node)
-			if err != nil {
-				return err
+	for !msRedisAnswers(address, p.currentPassword()) {
+		now := time.Now()
+		if !now.Before(nextLiveness) {
+			if !sim.ContainerRunning(containerID) {
+				return fmt.Errorf("node %d of the Redis engine stopped before accepting connections: container %s is not running", node, containerID)
 			}
-			if msRedisAnswers(address, p.password) {
-				break
-			}
-			now := time.Now()
-			if !now.Before(nextLiveness) {
-				if !sim.ContainerRunning(containerID) {
-					return fmt.Errorf("the Redis engine stopped before accepting connections: container %s is not running", containerID)
-				}
-				nextLiveness = now.Add(msRedisLivenessEvery)
-			}
-			if !now.Before(deadline) {
-				return fmt.Errorf("the Redis engine did not become ready within %s", msRedisReadyBudget)
-			}
-			time.Sleep(msRedisProbeInterval)
+			nextLiveness = now.Add(msRedisLivenessEvery)
 		}
+		if !now.Before(deadline) {
+			return fmt.Errorf("node %d of the Redis engine did not become ready within %s", node, msRedisReadyBudget)
+		}
+		time.Sleep(msRedisProbeInterval)
 	}
 	return nil
+}
+
+func (p *msRedisPlane) currentPassword() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.password
 }
 
 func msRedisAnswers(address, password string) bool {
@@ -517,40 +663,49 @@ func msRedisAnswers(address, password string) bool {
 }
 
 // settle puts the topology in place on a freshly started or adopted engine:
-// replication for an instance, slots and replicas for a cluster. It then
-// removes a snapshot staged for the primary to load, so a later restart does
-// not bring that dataset back.
+// replication for an instance, slots, replicas and users for a cluster. An
+// instance without persistence then removes a snapshot staged for its primary
+// to load, so a later restart does not bring that dataset back.
 func (p *msRedisPlane) settle() error {
-	if p.topology.Cluster {
+	if p.cluster {
 		if err := p.formCluster(); err != nil {
 			return fmt.Errorf("form the Redis cluster: %w", err)
 		}
-		return nil
+		return p.applyUsers(p.nodeOrder())
 	}
 	if err := p.awaitReplication(); err != nil {
 		return err
 	}
 	p.mu.RLock()
-	primary := p.primary
+	primary, persistence := p.primary, p.persistence
 	p.mu.RUnlock()
-	return p.exec([]string{"rm", "-f", msRedisNodeDir(primary) + "/dump.rdb"})
+	if persistence.Mode != msRedisPersistenceDisabled {
+		return nil
+	}
+	_, err := p.exec(primary, []string{"rm", "-f", msRedisNodeDir(primary) + "/dump.rdb"}, nil)
+	return err
 }
 
 // awaitReplication waits until every replica's link to the primary is up and
 // its initial synchronisation is over.
 func (p *msRedisPlane) awaitReplication() error {
-	p.mu.RLock()
-	primary := p.primary
-	p.mu.RUnlock()
-	for node := 0; node < p.topology.nodes(); node++ {
+	primary := p.Primary()
+	for _, node := range p.nodeOrder() {
 		if node == primary {
 			continue
 		}
-		if err := p.awaitInfo(node, "replication", func(info map[string]string) bool {
-			return info["master_link_status"] == "up" && info["master_sync_in_progress"] == "0"
-		}); err != nil {
-			return fmt.Errorf("replica %d did not synchronise: %w", node, err)
+		if err := p.awaitSynchronised(node); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+func (p *msRedisPlane) awaitSynchronised(node int) error {
+	if err := p.awaitInfo(node, "replication", func(info map[string]string) bool {
+		return info["master_link_status"] == "up" && info["master_sync_in_progress"] == "0"
+	}); err != nil {
+		return fmt.Errorf("replica %d did not synchronise: %w", node, err)
 	}
 	return nil
 }
@@ -585,80 +740,117 @@ func msRedisParseInfo(text string) map[string]string {
 }
 
 // formCluster joins the nodes, gives each shard primary its slot range and
-// attaches each replica to its primary. An adopted engine already formed
-// keeps what it has.
+// attaches each replica to its primary. Nodes that kept their identity across
+// a restart already hold their slots and roles; meeting each at its current
+// address is all they need.
 func (p *msRedisPlane) formCluster() error {
-	t := p.topology
-	reply, err := p.command(0, "CLUSTER", "INFO")
+	order := p.nodeOrder()
+	p.mu.RLock()
+	shards, replicas := p.shards, p.replicas
+	p.mu.RUnlock()
+	if len(order) != shards*(replicas+1) {
+		return fmt.Errorf("%d nodes cannot form %d shards of %d replicas", len(order), shards, replicas)
+	}
+	reply, err := p.command(order[0], "CLUSTER", "INFO")
 	if err != nil {
 		return err
 	}
-	info := msRedisParseInfo(fmt.Sprint(reply))
-	if info["cluster_slots_assigned"] == strconv.Itoa(msRedisClusterSlots) &&
-		info["cluster_known_nodes"] == strconv.Itoa(t.nodes()) {
-		return p.awaitClusterState()
+	formed := msRedisParseInfo(fmt.Sprint(reply))["cluster_slots_assigned"] == strconv.Itoa(msRedisClusterSlots)
+	for _, node := range order {
+		if err := p.meet(node, order); err != nil {
+			return err
+		}
 	}
-	ids := make([]string, t.nodes())
-	for node := range ids {
-		reply, err := p.command(node, "CLUSTER", "MYID")
+	if formed {
+		return p.awaitClusterState(shards, replicas)
+	}
+	ids := make(map[int]string, len(order))
+	for _, node := range order {
+		id, err := p.nodeID(node)
 		if err != nil {
 			return err
 		}
-		ids[node] = fmt.Sprint(reply)
+		ids[node] = id
 	}
-	for node := 1; node < t.nodes(); node++ {
-		if _, err := p.command(0, "CLUSTER", "MEET", t.Announce[node], strconv.Itoa(msRedisNodePort(node)),
-			strconv.Itoa(msRedisNodePort(node)+msRedisBusPortOffset)); err != nil {
+	primaries := order[:shards]
+	for shard, node := range primaries {
+		first, last := msRedisSlotRange(shard, shards)
+		if _, err := p.command(node, "CLUSTER", "ADDSLOTSRANGE", strconv.Itoa(first), strconv.Itoa(last)); err != nil {
 			return err
 		}
 	}
-	for shard := 0; shard < t.Shards; shard++ {
-		first, last := t.slotRange(shard)
-		if _, err := p.command(shard, "CLUSTER", "ADDSLOTSRANGE", strconv.Itoa(first), strconv.Itoa(last)); err != nil {
+	for i, node := range order[shards:] {
+		if err := p.follow(node, ids[primaries[i/max(replicas, 1)]]); err != nil {
 			return err
 		}
 	}
-	for node := t.Shards; node < t.nodes(); node++ {
-		primaryID := ids[t.replicaOf(node)]
-		// A node can follow only a primary it has learned of through the
-		// cluster bus.
-		if err := p.awaitClusterNodes(node, primaryID); err != nil {
-			return err
-		}
-		if _, err := p.command(node, "CLUSTER", "REPLICATE", primaryID); err != nil {
-			return err
-		}
-	}
-	return p.awaitClusterState()
+	return p.awaitClusterState(shards, replicas)
 }
 
-func (p *msRedisPlane) awaitClusterNodes(node int, id string) error {
-	deadline := time.Now().Add(msRedisCommandDeadline)
-	for {
-		reply, err := p.command(node, "CLUSTER", "NODES")
+// msRedisSlotRange is the hash-slot range shard s of n owns, the slots split
+// evenly.
+func msRedisSlotRange(shard, shards int) (first, last int) {
+	first = shard * msRedisClusterSlots / shards
+	last = (shard+1)*msRedisClusterSlots/shards - 1
+	return first, last
+}
+
+// meet introduces nodes to via at their current network addresses. Meeting
+// a node from every other one, rather than leaving gossip to spread it, has
+// every node know it at once.
+func (p *msRedisPlane) meet(via int, nodes []int) error {
+	for _, node := range nodes {
+		if node == via {
+			continue
+		}
+		ip, err := p.nodeIP(node)
 		if err != nil {
 			return err
 		}
-		for _, line := range strings.Split(fmt.Sprint(reply), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) > 2 && fields[0] == id && strings.Contains(fields[2], "master") {
-				return nil
-			}
+		if _, err := p.command(via, "CLUSTER", "MEET", ip, strconv.Itoa(msRedisPort)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *msRedisPlane) nodeID(node int) (string, error) {
+	reply, err := p.command(node, "CLUSTER", "MYID")
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprint(reply), nil
+}
+
+// follow makes node a replica of the primary with primaryID, once node has
+// learned of that primary through the cluster bus.
+func (p *msRedisPlane) follow(node int, primaryID string) error {
+	deadline := time.Now().Add(msRedisCommandDeadline)
+	for {
+		view, err := p.clusterView(node)
+		if err != nil {
+			return err
+		}
+		if known, ok := view.byID(primaryID); ok && known.primary() {
+			break
 		}
 		if !time.Now().Before(deadline) {
-			return fmt.Errorf("node %d did not learn of primary %s within %s", node, id, msRedisCommandDeadline)
+			return fmt.Errorf("node %d did not learn of primary %s within %s", node, primaryID, msRedisCommandDeadline)
 		}
 		time.Sleep(msRedisProbeInterval)
 	}
+	_, err := p.command(node, "CLUSTER", "REPLICATE", primaryID)
+	return err
 }
 
 // awaitClusterState waits until every node reports the cluster ok and sees
 // every primary and replica in its role, so the topology a client reads from
 // any node is the whole one, and every replica has synchronised.
-func (p *msRedisPlane) awaitClusterState() error {
-	t := p.topology
-	want := strconv.Itoa(t.nodes())
-	for node := 0; node < t.nodes(); node++ {
+func (p *msRedisPlane) awaitClusterState(shards, replicas int) error {
+	order := p.nodeOrder()
+	want := strconv.Itoa(len(order))
+	var followers []int
+	for _, node := range order {
 		deadline := time.Now().Add(msRedisCommandDeadline)
 		for {
 			reply, err := p.command(node, "CLUSTER", "INFO")
@@ -666,50 +858,176 @@ func (p *msRedisPlane) awaitClusterState() error {
 				return err
 			}
 			info := msRedisParseInfo(fmt.Sprint(reply))
-			reply, err = p.command(node, "CLUSTER", "NODES")
+			view, err := p.clusterView(node)
 			if err != nil {
 				return err
 			}
-			primaries, replicas := msRedisCountRoles(fmt.Sprint(reply))
+			primaries, replicaCount := view.countRoles()
 			if info["cluster_state"] == "ok" && info["cluster_known_nodes"] == want &&
-				primaries == t.Shards && replicas == t.Shards*t.Replicas {
+				primaries == shards && replicaCount == shards*replicas {
+				if self, ok := view.self(); ok && !self.primary() {
+					followers = append(followers, node)
+				}
 				break
 			}
 			if !time.Now().Before(deadline) {
 				return fmt.Errorf("node %d reported cluster_state %q with %s known nodes, %d primaries and %d replicas after %s",
-					node, info["cluster_state"], info["cluster_known_nodes"], primaries, replicas, msRedisCommandDeadline)
+					node, info["cluster_state"], info["cluster_known_nodes"], primaries, replicaCount, msRedisCommandDeadline)
 			}
 			time.Sleep(msRedisProbeInterval)
 		}
 	}
-	for node := t.Shards; node < t.nodes(); node++ {
-		if err := p.awaitInfo(node, "replication", func(info map[string]string) bool {
-			return info["master_link_status"] == "up" && info["master_sync_in_progress"] == "0"
-		}); err != nil {
-			return fmt.Errorf("replica %d did not synchronise: %w", node, err)
+	for _, node := range followers {
+		if err := p.awaitSynchronised(node); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// msRedisCountRoles counts the connected primaries and replicas a CLUSTER
-// NODES reply lists.
-func msRedisCountRoles(nodes string) (primaries, replicas int) {
-	for _, line := range strings.Split(nodes, "\n") {
+// msRedisClusterNode is one line of a CLUSTER NODES reply.
+type msRedisClusterNode struct {
+	ID        string
+	IP        string
+	Hostname  string
+	Flags     []string
+	PrimaryID string
+	Connected bool
+	Slots     []string
+}
+
+func (n msRedisClusterNode) has(flag string) bool {
+	for _, f := range n.Flags {
+		if f == flag {
+			return true
+		}
+	}
+	return false
+}
+
+func (n msRedisClusterNode) primary() bool { return n.has("master") }
+
+type msRedisClusterView []msRedisClusterNode
+
+func msRedisParseClusterNodes(text string) msRedisClusterView {
+	var view msRedisClusterView
+	for _, line := range strings.Split(text, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 8 || fields[7] != "connected" {
+		if len(fields) < 8 {
 			continue
 		}
-		for _, flag := range strings.Split(fields[2], ",") {
-			switch flag {
-			case "master":
-				primaries++
-			case "slave":
-				replicas++
-			}
+		address, _, _ := strings.Cut(fields[1], "@")
+		ip, _, _ := strings.Cut(address, ":")
+		hostname := ""
+		if _, aux, found := strings.Cut(fields[1], ","); found {
+			hostname, _, _ = strings.Cut(aux, ",")
+		}
+		node := msRedisClusterNode{
+			ID:        fields[0],
+			IP:        ip,
+			Hostname:  hostname,
+			Flags:     strings.Split(fields[2], ","),
+			Connected: fields[7] == "connected",
+			Slots:     fields[8:],
+		}
+		if fields[3] != "-" {
+			node.PrimaryID = fields[3]
+		}
+		view = append(view, node)
+	}
+	return view
+}
+
+func (v msRedisClusterView) byID(id string) (msRedisClusterNode, bool) {
+	for _, node := range v {
+		if node.ID == id {
+			return node, true
+		}
+	}
+	return msRedisClusterNode{}, false
+}
+
+func (v msRedisClusterView) self() (msRedisClusterNode, bool) {
+	for _, node := range v {
+		if node.has("myself") {
+			return node, true
+		}
+	}
+	return msRedisClusterNode{}, false
+}
+
+// countRoles counts the connected primaries and replicas.
+func (v msRedisClusterView) countRoles() (primaries, replicas int) {
+	for _, node := range v {
+		if !node.Connected || node.has("fail") || node.has("handshake") {
+			continue
+		}
+		switch {
+		case node.has("master"):
+			primaries++
+		case node.has("slave"):
+			replicas++
 		}
 	}
 	return primaries, replicas
+}
+
+func (p *msRedisPlane) clusterView(node int) (msRedisClusterView, error) {
+	reply, err := p.command(node, "CLUSTER", "NODES")
+	if err != nil {
+		return nil, err
+	}
+	return msRedisParseClusterNodes(fmt.Sprint(reply)), nil
+}
+
+// shardMap is the cluster's shards as node indices: each primary, ordered by
+// the first slot it owns, and the replicas following each.
+func (p *msRedisPlane) shardMap() (primaries []int, followers map[int][]int, err error) {
+	order := p.nodeOrder()
+	byID := map[string]int{}
+	for _, node := range order {
+		id, err := p.nodeID(node)
+		if err != nil {
+			return nil, nil, err
+		}
+		byID[id] = node
+	}
+	view, err := p.clusterView(order[0])
+	if err != nil {
+		return nil, nil, err
+	}
+	followers = map[int][]int{}
+	firstSlot := map[int]int{}
+	for _, entry := range view {
+		node, ours := byID[entry.ID]
+		if !ours || entry.has("fail") {
+			continue
+		}
+		if entry.primary() {
+			primaries = append(primaries, node)
+			firstSlot[node] = msRedisClusterSlots
+			for _, slots := range entry.Slots {
+				first, _, _ := strings.Cut(slots, "-")
+				if value, err := strconv.Atoi(first); err == nil && value < firstSlot[node] {
+					firstSlot[node] = value
+				}
+			}
+			continue
+		}
+		if primary, ok := byID[entry.PrimaryID]; ok {
+			followers[primary] = append(followers[primary], node)
+		}
+	}
+	sort.Slice(primaries, func(i, j int) bool {
+		if firstSlot[primaries[i]] != firstSlot[primaries[j]] {
+			return firstSlot[primaries[i]] < firstSlot[primaries[j]]
+		}
+		return primaries[i] < primaries[j]
+	})
+	for primary := range followers {
+		sort.Ints(followers[primary])
+	}
+	return primaries, followers, nil
 }
 
 // command runs one Redis command on a node through its published port.
@@ -718,7 +1036,7 @@ func (p *msRedisPlane) command(node int, args ...string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := msRedisDial(address, p.password, 5*time.Second)
+	conn, err := msRedisDial(address, p.currentPassword(), 5*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("connect to node %d: %w", node, err)
 	}
@@ -733,37 +1051,50 @@ func (p *msRedisPlane) command(node int, args ...string) (any, error) {
 	return reply, nil
 }
 
+// everyNode runs one command on every node.
+func (p *msRedisPlane) everyNode(args ...string) error {
+	for _, node := range p.nodeOrder() {
+		if _, err := p.command(node, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Snapshot has node write its dataset as an RDB file with SAVE and returns the
-// file's bytes; the file does not outlive the call.
+// file's bytes. Without RDB persistence the file does not outlive the call.
 func (p *msRedisPlane) Snapshot(node int) ([]byte, error) {
 	if _, err := p.command(node, "SAVE"); err != nil {
 		return nil, err
 	}
 	path := msRedisNodeDir(node) + "/dump.rdb"
-	data, err := p.readFile(path)
+	data, err := p.readFile(node, path)
 	if err != nil {
 		return nil, err
 	}
-	if err := p.exec([]string{"rm", "-f", path}); err != nil {
-		return nil, err
+	p.mu.RLock()
+	keep := p.persistence.Mode == msRedisPersistenceRDB
+	p.mu.RUnlock()
+	if !keep {
+		if _, err := p.exec(node, []string{"rm", "-f", path}, nil); err != nil {
+			return nil, err
+		}
 	}
 	return data, nil
 }
 
-// Restart replaces the running engine with a fresh one on the same volume.
-// With rdb, the primary loads it as its dataset; without, it saves its own
-// first, so the new engine — on image, when one is named — holds what the old
-// one held.
+// Restart replaces an instance's running engine with a fresh one on the same
+// volume. With rdb, the primary loads it as its dataset; without, it saves its
+// own first, so the new engine — on image, when one is named — holds what the
+// old one held.
 func (p *msRedisPlane) Restart(rdb []byte, image string) error {
 	if err := p.Ensure(); err != nil {
 		return err
 	}
-	p.mu.RLock()
-	primary := p.primary
-	p.mu.RUnlock()
+	primary := p.Primary()
 	path := msRedisNodeDir(primary) + "/dump.rdb"
 	if rdb != nil {
-		if err := p.writeFile(path, rdb); err != nil {
+		if err := p.writeFile(primary, path, rdb); err != nil {
 			return err
 		}
 	} else if _, err := p.command(primary, "SAVE"); err != nil {
@@ -780,8 +1111,8 @@ func (p *msRedisPlane) Restart(rdb []byte, image string) error {
 	return p.Ensure()
 }
 
-// Failover promotes node to primary: it stops replicating, and every other
-// node, the old primary included, replicates from it.
+// Failover promotes an instance's node to primary: it stops replicating, and
+// every other node, the old primary included, replicates from it.
 func (p *msRedisPlane) Failover(node int) error {
 	if err := p.Ensure(); err != nil {
 		return err
@@ -789,11 +1120,11 @@ func (p *msRedisPlane) Failover(node int) error {
 	if _, err := p.command(node, "SLAVEOF", "NO", "ONE"); err != nil {
 		return err
 	}
-	for other := 0; other < p.topology.nodes(); other++ {
+	for _, other := range p.nodeOrder() {
 		if other == node {
 			continue
 		}
-		if _, err := p.command(other, "SLAVEOF", "127.0.0.1", strconv.Itoa(msRedisNodePort(node))); err != nil {
+		if _, err := p.command(other, "SLAVEOF", p.alias(node), strconv.Itoa(msRedisPort)); err != nil {
 			return err
 		}
 	}
@@ -809,23 +1140,39 @@ func (p *msRedisPlane) Failover(node int) error {
 func (p *msRedisPlane) Configure(directives [][2]string) error {
 	p.mu.Lock()
 	p.configs = directives
-	running := p.handle != nil
 	p.mu.Unlock()
-	if !running {
+	if !p.running() {
 		return nil
 	}
-	for node := 0; node < p.topology.nodes(); node++ {
-		for _, directive := range directives {
-			if _, err := p.command(node, "CONFIG", "SET", directive[0], directive[1]); err != nil {
-				return err
-			}
+	for _, directive := range directives {
+		if err := p.everyNode("CONFIG", "SET", directive[0], directive[1]); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func (p *msRedisPlane) readFile(path string) ([]byte, error) {
-	containerID, err := p.containerID()
+// SetPassword changes the AUTH string every node requires and replicates
+// with.
+func (p *msRedisPlane) SetPassword(password string) error {
+	if p.running() {
+		for _, node := range p.nodeOrder() {
+			if _, err := p.command(node, "CONFIG", "SET", "masterauth", password); err != nil {
+				return err
+			}
+			if _, err := p.command(node, "CONFIG", "SET", "requirepass", password); err != nil {
+				return err
+			}
+		}
+	}
+	p.mu.Lock()
+	p.password = password
+	p.mu.Unlock()
+	return nil
+}
+
+func (p *msRedisPlane) readFile(node int, path string) ([]byte, error) {
+	containerID, err := p.containerID(node)
 	if err != nil {
 		return nil, err
 	}
@@ -848,12 +1195,15 @@ func (p *msRedisPlane) readFile(path string) ([]byte, error) {
 	}
 }
 
-func (p *msRedisPlane) writeFile(path string, data []byte) error {
-	containerID, err := p.containerID()
+func (p *msRedisPlane) writeFile(node int, path string, data []byte) error {
+	containerID, err := p.containerID(node)
 	if err != nil {
 		return err
 	}
 	dir, file := path[:strings.LastIndex(path, "/")], path[strings.LastIndex(path, "/")+1:]
+	if _, err := p.exec(node, []string{"mkdir", "-p", dir}, nil); err != nil {
+		return err
+	}
 	var archive bytes.Buffer
 	writer := tar.NewWriter(&archive)
 	if err := writer.WriteHeader(&tar.Header{Name: file, Mode: 0o644, Size: int64(len(data)), Typeflag: tar.TypeReg}); err != nil {
@@ -875,75 +1225,75 @@ func (p *msRedisPlane) writeFile(path string, data []byte) error {
 	return nil
 }
 
-func (p *msRedisPlane) exec(command []string) error {
-	containerID, err := p.containerID()
+// exec runs a command in a node's container and returns its output.
+func (p *msRedisPlane) exec(node int, command []string, env []string) (string, error) {
+	containerID, err := p.containerID(node)
 	if err != nil {
-		return err
+		return "", err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), msRedisCommandDeadline)
+	ctx, cancel := context.WithTimeout(context.Background(), msRedisReshardDeadline)
 	defer cancel()
 	docker := sim.DockerClient()
 	created, err := docker.ExecCreate(ctx, containerID, dockerclient.ExecCreateOptions{
-		Cmd: command, AttachStdout: true, AttachStderr: true,
+		Cmd: command, Env: env, AttachStdout: true, AttachStderr: true,
 	})
 	if err != nil {
-		return fmt.Errorf("create engine command: %w", err)
+		return "", fmt.Errorf("create engine command: %w", err)
 	}
 	attached, err := docker.ExecAttach(ctx, created.ID, dockerclient.ExecAttachOptions{})
 	if err != nil {
-		return fmt.Errorf("attach engine command: %w", err)
+		return "", fmt.Errorf("attach engine command: %w", err)
 	}
-	output, readErr := io.ReadAll(attached.Reader)
+	var output bytes.Buffer
+	_, readErr := stdcopy.StdCopy(&output, &output, attached.Reader)
 	attached.Close()
 	if readErr != nil {
-		return fmt.Errorf("read engine command output: %w", readErr)
+		return "", fmt.Errorf("read engine command output: %w", readErr)
 	}
 	inspected, err := docker.ExecInspect(ctx, created.ID, dockerclient.ExecInspectOptions{})
 	if err != nil {
-		return fmt.Errorf("inspect engine command: %w", err)
+		return "", fmt.Errorf("inspect engine command: %w", err)
 	}
 	if inspected.ExitCode != 0 {
-		return fmt.Errorf("%s exited %d: %s", strings.Join(command, " "), inspected.ExitCode, strings.TrimSpace(string(output)))
+		return output.String(), fmt.Errorf("%s exited %d: %s", command[0], inspected.ExitCode, strings.TrimSpace(output.String()))
 	}
-	return nil
+	return output.String(), nil
 }
 
-// Adopt picks up the engine container an earlier control-plane process left
-// for this resource, resuming it when it had stopped.
+// Adopt picks up the node containers an earlier control-plane process left
+// for this resource. A node whose container stopped starts afresh at the next
+// Ensure, from the configuration the resource has now.
 func (p *msRedisPlane) Adopt() error {
 	existing, err := sim.FindExistingContainers(p.labels)
 	if err != nil {
 		return err
 	}
-	if len(existing) == 0 {
-		return nil
-	}
-	if len(existing) != 1 {
-		return fmt.Errorf("found %d Redis engine containers", len(existing))
-	}
-	if !existing[0].Running {
-		if err := sim.StartExistingContainer(existing[0].ID); err != nil {
-			return fmt.Errorf("resume Redis engine container %s: %w", existing[0].ID, err)
+	for _, found := range existing {
+		node, err := strconv.Atoi(found.Labels["sockerless-memorystore-node"])
+		p.mu.RLock()
+		_, known := p.nodes[node]
+		p.mu.RUnlock()
+		if err != nil || !known || !found.Running {
+			if err := sim.RemoveExistingContainer(found.ID); err != nil {
+				return fmt.Errorf("remove Redis engine container %s: %w", found.ID, err)
+			}
+			continue
+		}
+		handle, err := sim.AdoptContainer(found.ID, sim.ContainerConfig{CancelGracePeriod: msRedisStopGrace}, sim.NoopSink{})
+		if err != nil {
+			return err
+		}
+		if err := p.attachNode(node, handle); err != nil {
+			handle.Cancel()
+			_ = handle.Wait()
+			return fmt.Errorf("adopt the Redis engine container %s: %w", found.ID, err)
 		}
 	}
-	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{CancelGracePeriod: msRedisStopGrace}, sim.NoopSink{})
-	if err != nil {
-		return err
-	}
-	hostPorts, err := msRedisPublishedPorts(handle, p.topology.nodes())
-	if err != nil {
-		handle.Cancel()
-		_ = handle.Wait()
-		return fmt.Errorf("adopt the Redis engine container %s: %w", existing[0].ID, err)
-	}
-	p.mu.Lock()
-	p.handle, p.hostPorts = handle, hostPorts
-	p.mu.Unlock()
 	return nil
 }
 
 // Stop stops the engine and forgets the last start's outcome, so the next
-// client starts a fresh engine on the same volume. It returns once the
+// client starts a fresh engine on the same volume. It returns once every
 // container is gone.
 func (p *msRedisPlane) Stop() error {
 	firstErr := p.stopEngine()
@@ -955,9 +1305,20 @@ func (p *msRedisPlane) Stop() error {
 }
 
 func (p *msRedisPlane) stopEngine() error {
+	var errs []error
+	for _, node := range p.nodeOrder() {
+		errs = append(errs, p.stopNode(node))
+	}
+	return errors.Join(errs...)
+}
+
+func (p *msRedisPlane) stopNode(node int) error {
 	p.mu.Lock()
-	handle := p.handle
-	p.handle, p.hostPorts = nil, nil
+	var handle *sim.ContainerHandle
+	if n, ok := p.nodes[node]; ok {
+		handle = n.handle
+		n.handle, n.hostPort, n.ip = nil, 0, ""
+	}
 	p.mu.Unlock()
 	if handle == nil {
 		return nil
@@ -967,11 +1328,16 @@ func (p *msRedisPlane) stopEngine() error {
 	return sim.WaitContainerRemoved(handle.ContainerID, msRedisRemovalTimeout)
 }
 
-// Close stops accepting clients and stops the engine; the volume stays.
+// Close stops accepting clients, stops snapshots and stops the engine; the
+// volume stays.
 func (p *msRedisPlane) Close() error {
 	p.mu.Lock()
 	listeners := p.listeners
-	p.listeners = nil
+	p.listeners = map[string]net.Listener{}
+	if p.snapshots != nil {
+		p.snapshots.Stop()
+	}
+	p.closed = true
 	p.mu.Unlock()
 	for _, listener := range listeners {
 		_ = listener.Close()
@@ -1045,15 +1411,19 @@ func msRedisDial(address, password string, timeout time.Duration) (*msRedisConn,
 // Do sends one command and reads its reply: a string for a status or bulk
 // reply, an int64 for an integer, a []any for an array and nil for a null.
 func (c *msRedisConn) Do(args ...string) (any, error) {
-	var b strings.Builder
+	if _, err := c.Write(msRedisEncodeCommand(args)); err != nil {
+		return nil, err
+	}
+	return msRedisReadReply(c.reader)
+}
+
+func msRedisEncodeCommand(args []string) []byte {
+	var b bytes.Buffer
 	fmt.Fprintf(&b, "*%d\r\n", len(args))
 	for _, arg := range args {
 		fmt.Fprintf(&b, "$%d\r\n%s\r\n", len(arg), arg)
 	}
-	if _, err := io.WriteString(c.Conn, b.String()); err != nil {
-		return nil, err
-	}
-	return msRedisReadReply(c.reader)
+	return b.Bytes()
 }
 
 func msRedisReadReply(reader *bufio.Reader) (any, error) {

@@ -104,8 +104,10 @@ func TestMain(m *testing.M) {
 	}
 
 	pullWorkloadImage(cliWorkloadImage)
-	// A Memorystore instance the suite creates runs a real Redis engine.
+	// Every Memorystore instance and cluster the suite creates runs a real
+	// Redis engine: REDIS_7_0 is the instance default and clusters run 7.2.
 	pullWorkloadImage("public.ecr.aws/docker/library/redis:7.0-alpine")
+	pullWorkloadImage("public.ecr.aws/docker/library/redis:7.2-alpine")
 
 	// Build simulator
 	// Each suite builds the simulator it runs into a path of its own. The

@@ -697,25 +697,72 @@ most recent lines without a Marker, the lines after the marker (a byte offset,
 case.
 
 Memorystore for Redis instances and Memorystore for Redis Cluster clusters run
-a real Redis engine, one container per resource whose redis-server processes
-are its nodes, on the image the instance's `redisVersion` names (clusters run
-7.2). The create starts the engine and settles only once every node answers
-and, for a cluster, the slots are assigned and every replica has synchronised,
-so a resource reported ready is serving; the delete stops it and removes its
-volume. The `host`, `readEndpoint` and discovery endpoint the API reports are
-per-resource loopback listeners at port 6379 relaying to the engine, and each
-cluster node announces a loopback address at its own container port, because a
-replica replicates from the address its primary announces and that address
-has to reach the primary inside the container as well as from the host. AUTH
-is the engine's `requirepass`, whose value `getAuthString` returns; a failover
-promotes a replica and moves the primary endpoint to it. An export has the
-primary write its RDB with SAVE and stores that file in Cloud Storage; an
-import and an upgrade stage the snapshot as the primary's `dump.rdb` and
-restart the engine on it, removing the file once loaded so persistence stays
-off; a cluster backup keeps every shard's RDB, which `backups:export` writes to
-the bucket. A simulator started API-only (`SIM_RUNTIME=process`) runs no
-engine even when another server in the same process holds a container client,
-and its instances report no host.
+a real Redis engine on the image the instance's `redisVersion` names (clusters
+run 7.2): one container per node, each a redis-server on port 6379, on a Docker
+network every Memorystore engine of the simulator shares, with the node
+directories on one volume per resource. Volume, network and alias names hash
+the resource name with the simulator's workload scope (its state directory, or
+its run when it does not persist), so two simulators serving a resource of the
+same name never share them. The create starts the engine and settles only once
+every node answers and, for a cluster, the slots are assigned and every replica
+has synchronised, so a resource reported ready is serving; the delete stops it
+and removes its volume. The `host`, `readEndpoint` and discovery endpoint the
+API reports are per-resource loopback listeners relaying to the nodes; instance
+replicas follow their primary by its network alias, and cluster nodes meet over
+the network and announce their own loopback endpoint as their hostname
+(`cluster-preferred-endpoint-type hostname`), so a cluster client follows
+redirections to addresses it can reach. AUTH is the engine's `requirepass`,
+whose value `getAuthString` returns, and an `authEnabled` update changes it
+live; a failover promotes a replica and moves the primary endpoint to it, and a
+Basic Tier failover is refused with FAILED_PRECONDITION, since there is no
+replica to promote. A `replicaCount` update starts or stops replica containers
+while the primary serves, and a `readReplicasMode` update binds or closes the
+read endpoint. A cluster `shardCount` update meets new primaries and has
+redis-cli's cluster manager rebalance slots onto them, or drains the removed
+shards with `rebalance --cluster-weight <id>=0` and deletes their nodes with
+`del-node`; a `replicaCount` update adds replicas with `CLUSTER REPLICATE` or
+deletes them. A cluster created from `gcsSource` or `managedBackupSource`
+loads each RDB file into a standalone redis-server inside one node's container
+and moves the keys onto their shards with `redis-cli --cluster import`.
+
+`transitEncryptionMode` `SERVER_AUTHENTICATION` serves TLS from the relay, on
+port 6378 for an instance and 6379 for a cluster, with no plaintext listener.
+Each resource has a server CA of its own (a cluster with
+`SERVER_CA_MODE_GOOGLE_MANAGED_SHARED_CA` uses the region's, which
+`sharedRegionalCertificateAuthority` reports), kept in the simulator's state;
+an instance reports it in `serverCaCerts` and a cluster through
+`getCertificateAuthority`, and every endpoint presents a certificate that CA
+signs for the address the client dialed. A cluster with `AUTH_MODE_IAM_AUTH`
+runs its engine behind a credential only the simulator holds; the relay reads
+each AUTH, or HELLO with AUTH, and exchanges a password that is an access token
+the simulator issued to a principal holding `redis.clusters.connect` (granted by
+`roles/redis.dbConnectionUser`) for that credential, and forwards any other
+password unchanged, so the engine refuses it and replies keep their order. A
+cluster with `AUTH_MODE_TOKEN_AUTH` runs each token-auth user as an engine ACL
+user whose passwords are its active auth tokens, rewritten on every node when a
+user or token is added or deleted. A cluster with deletion protection refuses
+its delete.
+
+`persistenceConfig` is honoured: RDB snapshots are BGSAVEs the control plane
+takes on the reported schedule (`rdbSnapshotStartTime` plus whole
+`rdbSnapshotPeriod`s, which `rdbNextSnapshotTime` reports), not the engine's
+save points; a cluster's AOF mode runs `appendonly yes` with the configured
+`appendfsync`; an update applies live. A node keeps the files its persistence
+writes across a restart and loads its dataset from them, and a cluster node
+always keeps its `nodes.conf` identity. An export has the primary write its RDB
+with SAVE and stores that file in Cloud Storage; an import and an upgrade stage
+the snapshot as the primary's `dump.rdb` and restart the engine on it; a
+cluster backup keeps every shard's RDB, which `backups:export` writes to the
+bucket. A simulator started API-only (`SIM_RUNTIME=process`) runs no engine
+even when another server in the same process holds a container client, and its
+instances report no host.
+
+Every named volume a workload container mounts is created labelled with the
+simulator's run before the container starts, and the detached reaper and the
+shutdown cleanup of a simulator that does not persist remove the run's volumes
+with its containers and networks, so an engine volume of a resource that was
+never deleted does not outlive the simulator. `EnsureDockerNetwork` returns the
+network a concurrent caller created first instead of failing.
 
 Firecracker boots Compute Engine, Amazon EC2 and Azure virtual machines where
 the host kernel allows it, over its default virtio-MMIO transport: the opt-in

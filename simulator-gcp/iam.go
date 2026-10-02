@@ -2918,6 +2918,14 @@ func gcpPredefinedRoles() []gcpPredefinedRole {
 			},
 		},
 		{
+			Name:        "roles/redis.dbConnectionUser",
+			Title:       "Cloud Memorystore Redis Db Connection User",
+			Description: "Connect to a Memorystore for Redis Cluster cluster that authenticates with IAM.",
+			IncludedPermissions: []string{
+				"redis.clusters.connect",
+			},
+		},
+		{
 			Name:        "roles/run.invoker",
 			Title:       "Cloud Run Invoker",
 			Description: "Invoke Cloud Run services and execute Cloud Run jobs.",

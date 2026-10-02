@@ -206,8 +206,11 @@ Current state of the sockerless-cloud repository.
   Cloud KMS Key Access Justifications, Firestore's streaming REST spellings,
   and Amazon SNS SMS and mobile push. Each answers by naming what is missing.
 - **Memorystore for Redis** instances and Memorystore for Redis Cluster
-  clusters run a real Redis engine at the endpoints the API reports; exports,
-  imports and backups move the engine's own RDB snapshots through Cloud
+  clusters run a real Redis engine, one container per node, at the endpoints
+  the API reports; replica-count and shard-count updates reshape the running
+  engine, TLS comes from the server CA the API reports, IAM and token auth are
+  enforced, persistence runs as configured, and exports, imports, backups and
+  cluster import sources move the engine's own RDB snapshots through Cloud
   Storage.
 
 ## Gates
