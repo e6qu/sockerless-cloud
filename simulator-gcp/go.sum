@@ -76,8 +76,8 @@ github.com/dustin/go-humanize v1.1.0 h1:dbKTrvD0klcbBV/h4AWJdMuZogJACoMlvWIWZ5b2
 github.com/dustin/go-humanize v1.1.0/go.mod h1:hc1CvRkJMsgxqjmjMQF3QNRAZBwY8AXBAzKYoSX9sFI=
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261002011044-4b2750566783 h1:qwHOodWj3krlfnkhr1a18kSOaEgE28tq/NfjUte7yMY=
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261002011044-4b2750566783/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
-github.com/e6qu/sockerless-cloud/sim v0.0.0-20261001190540-f881233b8f4e h1:5nfIQY1SKjetegyarQc6W2tkeh7Cl46mpPUU+qsp5Yk=
-github.com/e6qu/sockerless-cloud/sim v0.0.0-20261001190540-f881233b8f4e/go.mod h1:dbWPc7DIMq49VRGfGl5uk/9/w6NS1bgKBZ74HnbFOzw=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261002032748-dbc1d48c438e h1:4600Ih2hFSguaGjK3sjYlz0hGTXoNDvK9arKjcewGJ4=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261002032748-dbc1d48c438e/go.mod h1:dbWPc7DIMq49VRGfGl5uk/9/w6NS1bgKBZ74HnbFOzw=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff h1:QSRn3RZ/F1p1r2idkV3KH9E9k0fEagRtQyjjss2W2HA=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff/go.mod h1:7JfIZuzs3VNYJ0eUH8WdbduJN/Evw8W/kn3q+5Z+834=
 github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeORc=
