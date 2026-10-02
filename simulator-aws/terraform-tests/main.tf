@@ -1771,6 +1771,14 @@ output "cloudtrail_arn" {
 output "kinesis_stream_consumer_arn" {
   value = aws_kinesis_stream_consumer.tf_consumer.arn
 }
+# The provider waits for the consumer to leave CREATING before it reads it back.
+data "aws_kinesis_stream_consumer" "tf_consumer" {
+  arn        = aws_kinesis_stream_consumer.tf_consumer.arn
+  stream_arn = aws_kinesis_stream.tf_stream.arn
+}
+output "kinesis_stream_consumer_status" {
+  value = data.aws_kinesis_stream_consumer.tf_consumer.status
+}
 output "firehose_delivery_stream_arn" {
   value = aws_kinesis_firehose_delivery_stream.tf_firehose.arn
 }

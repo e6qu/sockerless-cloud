@@ -56,7 +56,9 @@ func (f kinesisSubscribeFixture) register(t *testing.T, name string, tags map[st
 		Tags:         tags,
 	})
 	require.NoError(t, err)
-	return aws.ToString(reg.Consumer.ConsumerARN)
+	consumerARN := aws.ToString(reg.Consumer.ConsumerARN)
+	waitForKinesisConsumerActive(t, f.client, consumerARN)
+	return consumerARN
 }
 
 func (f kinesisSubscribeFixture) put(t *testing.T, data string) string {

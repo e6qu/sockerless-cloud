@@ -641,9 +641,18 @@ func handleKinesisPutRecord(w http.ResponseWriter, r *http.Request) {
 		Data            []byte `json:"Data"`
 		PartitionKey    string `json:"PartitionKey"`
 		ExplicitHashKey string `json:"ExplicitHashKey"`
+		DryRun          bool   `json:"DryRun"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.DryRun {
+		if _, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN); !ok {
+			AWSError(w, "ResourceNotFoundException", "stream not found", http.StatusBadRequest)
+			return
+		}
+		kinesisDryRunSucceeded(w)
 		return
 	}
 	shardID, seq, err := kinesisAppendRecord(req.StreamName, req.StreamARN, req.Data, req.PartitionKey, req.ExplicitHashKey)
@@ -666,9 +675,18 @@ func handleKinesisPutRecords(w http.ResponseWriter, r *http.Request) {
 			PartitionKey    string `json:"PartitionKey"`
 			ExplicitHashKey string `json:"ExplicitHashKey"`
 		} `json:"Records"`
+		DryRun bool `json:"DryRun"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.DryRun {
+		if _, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN); !ok {
+			AWSError(w, "ResourceNotFoundException", "stream not found", http.StatusBadRequest)
+			return
+		}
+		kinesisDryRunSucceeded(w)
 		return
 	}
 	out := make([]map[string]any, 0, len(req.Records))
@@ -816,6 +834,7 @@ func handleKinesisGetShardIterator(w http.ResponseWriter, r *http.Request) {
 		ShardIteratorType      string  `json:"ShardIteratorType"`
 		StartingSequenceNumber string  `json:"StartingSequenceNumber"`
 		Timestamp              float64 `json:"Timestamp"`
+		DryRun                 bool    `json:"DryRun"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
@@ -833,6 +852,10 @@ func handleKinesisGetShardIterator(w http.ResponseWriter, r *http.Request) {
 	next, problem := kinesisStartPosition(stream, req.ShardId, req.ShardIteratorType, req.StartingSequenceNumber, req.Timestamp)
 	if problem != "" {
 		AWSError(w, "InvalidArgumentException", problem, http.StatusBadRequest)
+		return
+	}
+	if req.DryRun {
+		kinesisDryRunSucceeded(w)
 		return
 	}
 	token := sim.NewUUID()
@@ -879,6 +902,7 @@ func handleKinesisGetRecords(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ShardIterator string `json:"ShardIterator"`
 		Limit         int    `json:"Limit"`
+		DryRun        bool   `json:"DryRun"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
@@ -893,6 +917,10 @@ func handleKinesisGetRecords(w http.ResponseWriter, r *http.Request) {
 	if issued := time.UnixMilli(it.IssuedAt); now.Sub(issued) > kinesisIteratorLifetime {
 		kinesisIterators.Delete(req.ShardIterator)
 		AWSError(w, "ExpiredIteratorException", kinesisExpiredIteratorMessage(issued, now), http.StatusBadRequest)
+		return
+	}
+	if req.DryRun {
+		kinesisDryRunSucceeded(w)
 		return
 	}
 	limit := req.Limit
@@ -1316,6 +1344,8 @@ func handleKinesisRegisterStreamConsumer(w http.ResponseWriter, r *http.Request)
 		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
+	kinesisMu.Lock()
+	defer kinesisMu.Unlock()
 	if _, exists := kinesisConsumerByStreamAndName(req.StreamARN, req.ConsumerName); exists {
 		AWSError(w, "ResourceInUseException", "Consumer already exists", http.StatusBadRequest)
 		return
@@ -1325,12 +1355,13 @@ func handleKinesisRegisterStreamConsumer(w http.ResponseWriter, r *http.Request)
 	consumer := KinesisConsumer{
 		ConsumerName:              req.ConsumerName,
 		ConsumerARN:               consumerARN,
-		ConsumerStatus:            "ACTIVE",
+		ConsumerStatus:            "CREATING",
 		ConsumerCreationTimestamp: float64(ts),
 		StreamARN:                 stream.StreamARN,
 		Tags:                      req.Tags,
 	}
 	kinesisConsumers.Put(kinesisConsumerKey(consumerARN), consumer)
+	kinesisConsumerTransitionInBackground(consumerARN, "CREATING", "ACTIVE")
 	writeKinesisJSON(w, http.StatusOK, map[string]any{
 		"Consumer": map[string]any{
 			"ConsumerName":              consumer.ConsumerName,
@@ -1356,8 +1387,47 @@ func handleKinesisDeregisterStreamConsumer(w http.ResponseWriter, r *http.Reques
 		AWSError(w, "ResourceNotFoundException", "Consumer not found", http.StatusBadRequest)
 		return
 	}
-	kinesisDeleteConsumer(consumer)
+	kinesisMu.Lock()
+	defer kinesisMu.Unlock()
+	consumer, ok = kinesisConsumers.Get(kinesisConsumerKey(consumer.ConsumerARN))
+	if !ok {
+		AWSError(w, "ResourceNotFoundException", "Consumer not found", http.StatusBadRequest)
+		return
+	}
+	if consumer.ConsumerStatus != "DELETING" {
+		consumer.ConsumerStatus = "DELETING"
+		kinesisConsumers.Put(kinesisConsumerKey(consumer.ConsumerARN), consumer)
+		kinesisConsumerTransitionInBackground(consumer.ConsumerARN, "DELETING", "")
+	}
 	writeKinesisJSON(w, http.StatusOK, map[string]any{})
+}
+
+// kinesisConsumerTransitionInBackground completes a consumer's CREATING or
+// DELETING behind the request, as kinesisReshardInBackground completes a
+// stream's UPDATING: a consumer still in state from moves to state to, or is
+// removed when to is empty.
+func kinesisConsumerTransitionInBackground(consumerARN, from, to string) {
+	bg.Go(func() {
+		kinesisMu.Lock()
+		defer kinesisMu.Unlock()
+		consumer, ok := kinesisConsumers.Get(kinesisConsumerKey(consumerARN))
+		if !ok || consumer.ConsumerStatus != from {
+			return
+		}
+		if to == "" {
+			kinesisDeleteConsumer(consumer)
+			return
+		}
+		consumer.ConsumerStatus = to
+		kinesisConsumers.Put(kinesisConsumerKey(consumerARN), consumer)
+	})
+}
+
+// kinesisDryRunSucceeded answers a request whose DryRun is set once it has
+// passed every check the operation makes before acting.
+func kinesisDryRunSucceeded(w http.ResponseWriter) {
+	AWSError(w, "DryRunOperationException",
+		"The request would have succeeded, but the DryRun parameter was specified.", http.StatusBadRequest)
 }
 
 // kinesisDeleteConsumer deregisters a consumer and ends its subscriptions.

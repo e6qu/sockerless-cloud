@@ -194,6 +194,8 @@ func TestStackProductionShape(t *testing.T) {
 
 	require.Contains(t, outputs.must(t, "kinesis_stream_consumer_arn"), ":stream/tf-kinesis-stream/consumer/tf-kinesis-consumer:",
 		"the Amazon Kinesis Data Streams consumer ARN must name its stream and consumer")
+	require.Equal(t, "ACTIVE", outputs.must(t, "kinesis_stream_consumer_status"),
+		"aws_kinesis_stream_consumer waits through CREATING for an ACTIVE consumer")
 
 	firehoseARN := outputs.must(t, "firehose_delivery_stream_arn")
 	require.Contains(t, firehoseARN, ":firehose:us-east-1:",

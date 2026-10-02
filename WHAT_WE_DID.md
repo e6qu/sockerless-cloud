@@ -232,6 +232,14 @@ through hooks:
   then stops the containers as tracked background work, as the service does;
   answering after the container's stop timeout held the task's lifecycle lock
   for thirty seconds.
+- **A resource the service moves through transitional states moves through
+  them.** An Amazon Kinesis Data Streams consumer answers RegisterStreamConsumer
+  CREATING and DeregisterStreamConsumer DELETING and settles as tracked
+  background work, as a resharding stream passes through UPDATING; the
+  Terraform provider's consumer waiters poll those states, and
+  SubscribeToShard refuses a consumer that is not ACTIVE. DryRun on GetRecords, GetShardIterator, PutRecord and
+  PutRecords validates the request and answers `DryRunOperationException`
+  instead of acting.
 - **A delete the service refuses is refused.** Amazon ECR DeleteRepository
   answers `RepositoryNotEmptyException` for a repository holding images unless
   the request sets `force`, which the Terraform provider sends from

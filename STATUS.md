@@ -160,8 +160,9 @@ Current state of the sockerless-cloud repository.
   watch never ingests it. Every Cloud Storage JSON API request first waits
   for the events queued before it, and a task's execution completes only
   after its writes are objects. Linux only; the rest is BUGS.md 3084.
-- **Refused deletes are refused.** Amazon ECR refuses to delete a
-  repository holding images without `force`.
+- **Transitional states are served.** Amazon Kinesis Data Streams consumers
+  pass through CREATING and DELETING, and Amazon ECR refuses to
+  delete a repository holding images without `force`.
 - **A NAT gateway route translates the subnets its route table governs**,
   explicitly associated or implicitly through the main route table, recomputed
   on every association change.
