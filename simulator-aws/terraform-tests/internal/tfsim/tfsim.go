@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
@@ -320,57 +321,42 @@ func startHTTPSGateway(t *testing.T, env *Env, stateDir, simDir string, simPort 
 		fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_DEFAULT_SIM_PORT=%d", simPort),
 	)
 	env.gatewayCmd.Stdout = os.Stdout
-	env.gatewayCmd.Stderr = os.Stderr
 	// Own process group, reaped the same way as the simulator (see Start).
 	env.gatewayCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := env.gatewayCmd.Start(); err != nil {
-		t.Fatalf("start HTTPS gateway: %v", err)
+	startErr := httpsgateway.Start(env.gatewayCmd, os.Stderr)
+	if env.gatewayCmd.Process != nil {
+		trackForReaping(env.gatewayCmd)
+		t.Cleanup(func() {
+			reapProcessGroup(env.gatewayCmd)
+			untrackForReaping(env.gatewayCmd)
+		})
 	}
-	trackForReaping(env.gatewayCmd)
-	t.Cleanup(func() {
-		reapProcessGroup(env.gatewayCmd)
-		untrackForReaping(env.gatewayCmd)
-	})
+	if startErr != nil {
+		t.Fatalf("start HTTPS gateway: %v", startErr)
+	}
 
 	env.Endpoint = fmt.Sprintf("https://localhost:%d", gatewayPort)
-	if err := waitForFile(env.CACertFile, 10*time.Second); err != nil {
-		t.Fatalf("HTTPS gateway CA: %v", err)
-	}
 	client, err := trustedHTTPClient(env.CACertFile)
 	if err != nil {
 		t.Fatalf("HTTPS gateway trust: %v", err)
 	}
 	env.Client = client
-	if err := waitForHTTPSHealth(env.Endpoint+"/health", client); err != nil {
+	if err := checkHTTPSHealth(env.Endpoint+"/health", client); err != nil {
 		t.Fatalf("HTTPS gateway health: %v", err)
 	}
 }
 
-func waitForHTTPSHealth(raw string, client *http.Client) error {
-	for i := 0; i < 50; i++ {
-		resp, err := client.Get(raw)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			_, _ = io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
-			return nil
-		}
-		if resp != nil {
-			resp.Body.Close()
-		}
-		time.Sleep(100 * time.Millisecond)
+func checkHTTPSHealth(raw string, client *http.Client) error {
+	resp, err := client.Get(raw)
+	if err != nil {
+		return fmt.Errorf("GET %s: %w", raw, err)
 	}
-	return fmt.Errorf("timeout waiting for %s", raw)
-}
-
-func waitForFile(path string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if info, err := os.Stat(path); err == nil && info.Size() > 0 {
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET %s: status %d", raw, resp.StatusCode)
 	}
-	return fmt.Errorf("timeout waiting for %s", path)
+	return nil
 }
 
 func trustedHTTPClient(caCert string) (*http.Client, error) {

@@ -259,7 +259,10 @@ Every job holds a fifteen-minute ceiling. Base images are warmed from one
 cache entry per module, read out of the source by `scripts/base-images-for.sh`,
 and every suite takes a base image through `testutil/baseimage.Ensure`, which
 asks the host before a registry; `build-gates` runs the `testutil` tests, whose
-guard fails on a suite that pulls a base image itself.
+guard fails on a suite that pulls a base image itself. A harness that fronts a
+simulator with the Caddy HTTPS gateway starts it through
+`testutil/httpsgateway`, which returns once Caddy's log reports a cached
+certificate for every name the gateway manages.
 
 ## Releases
 

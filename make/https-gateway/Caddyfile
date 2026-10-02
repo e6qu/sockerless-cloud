@@ -2,6 +2,14 @@
 	admin localhost:{$SOCKERLESS_HTTPS_GATEWAY_ADMIN_PORT:28443}
 	auto_https disable_redirects
 	skip_install_trust
+	# Log each certificate entering the cache: the gateway serves a name only
+	# from then on, so a client waits on this entry before its first handshake.
+	log certificate_cache {
+		output stderr
+		format json
+		include tls.cache
+		level DEBUG
+	}
 }
 
 # The second name is the Amazon ECR private-registry login server,

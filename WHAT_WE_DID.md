@@ -1283,7 +1283,15 @@ Retry-After cadence; the CLI suites drive `az rest --debug` through
 by waiting its Retry-After. A delete, restore, MSDeploy publish, Redis or Event
 Hubs create, or ownership acceptance is read once after its operation ends,
 never polled for its effect. Every simulator a test starts in-process waits on the banner it
-prints after binding (`simready`), not on a health loop. The AWS suites wait
+prints after binding (`simready`), not on a health loop, and every harness
+that fronts one with the Caddy HTTPS gateway starts Caddy through
+`testutil/httpsgateway`, which reads Caddy's JSON log: the http app names the
+certificates it manages, and certmagic's `tls.cache` logger, which the
+gateway's Caddyfile routes to standard error at debug level, reports each one
+as it enters the cache handshakes read. The harness returns once every managed
+name is cached and then makes one health request, because certmagic logs
+`certificate obtained successfully` before it caches the certificate, so that
+line leaves a window in which a handshake still finds none. The AWS suites wait
 for an alarm state with the AlarmExists waiter filtered by StateValue, for a
 target with TargetInService, and watch a queue that must stay empty with one
 long poll for the window instead of receives in a loop.
