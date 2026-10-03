@@ -863,11 +863,15 @@ live; a failover promotes a replica and moves the primary endpoint to it, and a
 Basic Tier failover is refused with FAILED_PRECONDITION, since there is no
 replica to promote. A `replicaCount` update starts or stops replica containers
 while the primary serves, and a `readReplicasMode` update binds or closes the
-read endpoint. A cluster `shardCount` update meets new primaries and has
-redis-cli's cluster manager rebalance slots onto them, or drains the removed
-shards with `rebalance --cluster-weight <id>=0` and deletes their nodes with
-`del-node`; a `replicaCount` update adds replicas with `CLUSTER REPLICATE` or
-deletes them. A cluster created from `gcsSource` or `managedBackupSource`
+read endpoint. A cluster `shardCount` update meets new primaries and moves
+an equal share of the slots onto them, or moves the removed shards' slots onto
+the rest and deletes their nodes with `del-node`; a `replicaCount` update adds
+replicas with `CLUSTER REPLICATE` or deletes them. The control plane moves slots
+with Redis Cluster's own resharding commands — `CLUSTER SETSLOT IMPORTING` and
+`MIGRATING`, `MIGRATE` for each slot's keys, and `CLUSTER SETSLOT NODE` on every
+primary — pipelined 512 slots at a time. `redis-cli --cluster rebalance` once
+moved them, one slot per round trip, and spent 27 seconds moving 8,192 empty
+slots onto one new shard. A cluster created from `gcsSource` or `managedBackupSource`
 loads each RDB file into a standalone redis-server inside one node's container
 and moves the keys onto their shards with `redis-cli --cluster import`.
 
