@@ -435,6 +435,32 @@ through hooks:
   whose `serviceName`, `methodName` and `resourceName` filters, the last
   optionally a `match-path-pattern`, match, as CloudEvents whose data is the
   `LogEntryData`.
+  Compute Engine and Cloud DNS are defined by Discovery documents rather than
+  RPCs, so their calls resolve through the embedded Discovery document's
+  method paths: Compute Engine records `v1.` plus the method ID
+  (`v1.compute.networks.insert`), the resource from the operation's
+  `targetLink`, and the `compute#operation` as the response; Cloud DNS records
+  the method ID, the resource relative to the project (`managedZones/{zone}`)
+  and the request as its `cloud.dns.api` message. Cloud Resource Manager v1
+  records its project methods under their own names (`SetIamPolicy`,
+  `CreateProject`) and a `SetIamPolicy` entry carries the
+  `google.iam.v1.logging.AuditData` policy delta, read from the policy before
+  and after the call. An API records the methodName its service writes: the
+  RPC's full name by default, the simple name for Cloud KMS (`CreateKeyRing`,
+  `Decrypt`), and `google.iam.admin.v1.CreateServiceAccount` for IAM, which
+  also names a service account by its unique ID. The permission in
+  `authorizationInfo` comes from an explicit table where a method checks one
+  its name does not spell (`cloudkms.cryptoKeyVersions.useToEncrypt`), and
+  otherwise from IAM's `service.collection.verb` convention: the collection
+  the call addresses and the RPC's name without the resource types its proto
+  package defines. A call that starts a long-running operation writes an
+  entry marked `operation.first` and, when the operation ends, one marked
+  `operation.last`; an operation already done when the call answers gets one
+  entry marked both, as Cloud Audit Logs documents. When two APIs publish the
+  same path (Eventarc's and Cloud Build's regional triggers) the call's host
+  decides, and without one the simulator's own routing rule does. A log
+  filter that crosses a repeated field compares each element, so
+  `protoPayload.serviceData.policyDelta.bindingDeltas.action="ADD"` matches.
 - **A subscription stays open for as long as the cloud holds it.** Amazon Kinesis
   Data Streams `SubscribeToShard` holds its event stream for the documented
   five minutes, declared with `sim.DeclareWait`. It sends the backlog from the

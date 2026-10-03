@@ -231,7 +231,6 @@ func TestAuditLogs_BindingsMatchTheirTemplates(t *testing.T) {
 		{"POST", "/v1/projects/p/topics/t:publish"},
 		{"POST", "/v1/projects/p/subscriptions/s:pull"},
 		{"GET", "/v2/projects/p/locations/us-central1/services/svc:getSomething"},
-		{"POST", "/v1/projects/p/locations/us-central1/triggers"},
 	} {
 		if b, _, ok := auditMatchREST(tc.method, tc.path); ok {
 			t.Errorf("%s %s matched %s", tc.method, tc.path, b.rpc.method.FullName())
@@ -370,5 +369,194 @@ func TestAuditLogs_EventarcDeliversAuditLogEvents(t *testing.T) {
 	case extra := <-events:
 		t.Errorf("a second event arrived: %s", extra.header.Get("ce-subject"))
 	default:
+	}
+}
+
+// Every audited RPC records the permission IAM checks for it, spelled the way
+// IAM spells it, and the methodName its service writes.
+func TestAuditLogs_RPCPermissionsAndMethodNames(t *testing.T) {
+	if err := auditLoadRPCs(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		rpc, methodName, logType, permission string
+		request                              map[string]any
+	}{
+		{"google.cloud.run.v2.Services.CreateService", "google.cloud.run.v2.Services.CreateService", auditAdminWrite, "run.services.create",
+			map[string]any{"parent": "projects/p/locations/l", "serviceId": "s"}},
+		{"google.cloud.run.v2.Jobs.RunJob", "", auditAdminWrite, "run.jobs.run", map[string]any{"name": "projects/p/locations/l/jobs/j"}},
+		{"google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion", "", auditDataRead, "secretmanager.versions.access",
+			map[string]any{"name": "projects/p/secrets/s/versions/1"}},
+		{"google.cloud.secretmanager.v1.SecretManagerService.ListSecretVersions", "", auditAdminRead, "secretmanager.versions.list",
+			map[string]any{"parent": "projects/p/secrets/s"}},
+		{"google.pubsub.v1.Publisher.CreateTopic", "", auditAdminWrite, "pubsub.topics.create", map[string]any{"name": "projects/p/topics/t"}},
+		{"google.cloud.kms.v1.KeyManagementService.CreateKeyRing", "CreateKeyRing", auditAdminWrite, "cloudkms.keyRings.create",
+			map[string]any{"parent": "projects/p/locations/l", "keyRingId": "r"}},
+		{"google.cloud.kms.v1.KeyManagementService.Encrypt", "Encrypt", auditDataRead, "cloudkms.cryptoKeyVersions.useToEncrypt",
+			map[string]any{"name": "projects/p/locations/l/keyRings/r/cryptoKeys/k"}},
+		{"google.iam.admin.v1.IAM.CreateServiceAccount", "google.iam.admin.v1.CreateServiceAccount", auditAdminWrite, "iam.serviceAccounts.create",
+			map[string]any{"name": "projects/p"}},
+		{"google.iam.admin.v1.IAM.CreateServiceAccountKey", "google.iam.admin.v1.CreateServiceAccountKey", auditAdminWrite, "iam.serviceAccountKeys.create",
+			map[string]any{"name": "projects/p/serviceAccounts/a@p.iam.gserviceaccount.com"}},
+		{"google.iam.admin.v1.IAM.SetIamPolicy", "google.iam.admin.v1.SetIAMPolicy", auditAdminWrite, "iam.serviceAccounts.setIamPolicy",
+			map[string]any{"resource": "projects/p/serviceAccounts/a@p.iam.gserviceaccount.com"}},
+		{"google.iam.admin.v1.IAM.PatchServiceAccount", "google.iam.admin.v1.PatchServiceAccount", auditAdminWrite, "iam.serviceAccounts.update",
+			map[string]any{"serviceAccount": map[string]any{"name": "projects/p/serviceAccounts/a@p.iam.gserviceaccount.com"}}},
+		{"google.devtools.cloudbuild.v1.CloudBuild.CreateBuildTrigger", "", auditAdminWrite, "cloudbuild.builds.create",
+			map[string]any{"projectId": "p"}},
+		{"google.devtools.cloudbuild.v1.CloudBuild.ListBuildTriggers", "", auditAdminRead, "cloudbuild.builds.list",
+			map[string]any{"projectId": "p"}},
+		{"google.cloud.eventarc.v1.Eventarc.CreateTrigger", "", auditAdminWrite, "eventarc.triggers.create",
+			map[string]any{"parent": "projects/p/locations/l", "triggerId": "t"}},
+		{"google.cloud.redis.v1.CloudRedis.FailoverInstance", "", auditAdminWrite, "redis.instances.failover",
+			map[string]any{"name": "projects/p/locations/l/instances/i"}},
+		{"google.spanner.admin.database.v1.DatabaseAdmin.DropDatabase", "", auditAdminWrite, "spanner.databases.drop",
+			map[string]any{"database": "projects/p/instances/i/databases/d"}},
+		{"google.bigtable.admin.v2.BigtableInstanceAdmin.PartialUpdateInstance", "", auditAdminWrite, "bigtable.instances.update",
+			map[string]any{"instance": map[string]any{"name": "projects/p/instances/i"}}},
+		{"google.bigtable.admin.v2.BigtableTableAdmin.CheckConsistency", "", auditAdminRead, "bigtable.tables.checkConsistency",
+			map[string]any{"name": "projects/p/instances/i/tables/t"}},
+		{"google.firestore.admin.v1.FirestoreAdmin.CreateDatabase", "", auditAdminWrite, "datastore.databases.create",
+			map[string]any{"parent": "projects/p", "databaseId": "d"}},
+		{"google.devtools.artifactregistry.v1.ArtifactRegistry.GetDockerImage", "", auditAdminRead, "artifactregistry.dockerimages.get",
+			map[string]any{"name": "projects/p/locations/l/repositories/r/dockerImages/i"}},
+	} {
+		rpc, ok := auditRPCsByName[tc.rpc]
+		if !ok {
+			t.Errorf("%s is not audited", tc.rpc)
+			continue
+		}
+		want := tc.methodName
+		if want == "" {
+			want = tc.rpc
+		}
+		if rpc.methodName != want || rpc.logType != tc.logType {
+			t.Errorf("%s records methodName %q as %s, want %q as %s", tc.rpc, rpc.methodName, rpc.logType, want, tc.logType)
+		}
+		if got := rpc.permission(tc.request, rpc.resourceName(tc.request)); got != tc.permission {
+			t.Errorf("%s checks %q, want %q", tc.rpc, got, tc.permission)
+		}
+	}
+	for _, unlogged := range []string{"google.iam.admin.v1.IAM.TestIamPermissions", "google.bigtable.admin.v2.BigtableTableAdmin.TestIamPermissions"} {
+		if _, ok := auditRPCsByName[unlogged]; ok {
+			t.Errorf("%s is audited", unlogged)
+		}
+	}
+}
+
+// Eventarc and Cloud Build publish the same regional triggers collection; a
+// call that names no host reaches the one the simulator routes it to.
+func TestAuditLogs_SharedTriggersPathResolvesToItsService(t *testing.T) {
+	srv := buildOperationsTestSimulator(t)
+	gcpHostOK(t, srv, "localhost", http.MethodPost, "/v1/projects/audit-tr/locations/us-central1/triggers?triggerId=ea",
+		`{"eventFilters":[{"attribute":"type","value":"google.cloud.pubsub.topic.v1.messagePublished"}],
+		  "destination":{"httpEndpoint":{"uri":"http://127.0.0.1:1/"}}}`)
+	gcpHostOK(t, srv, "localhost", http.MethodPost, "/v1/projects/audit-tr/locations/us-central1/triggers",
+		`{"name":"cb","build":{"steps":[{"name":"ubuntu"}]},"pubsubConfig":{"topic":"projects/audit-tr/topics/x"}}`)
+	eventarc := auditEntries(t, srv, "audit-tr", auditLogActivity, `protoPayload.methodName="google.cloud.eventarc.v1.Eventarc.CreateTrigger"`)
+	build := auditEntries(t, srv, "audit-tr", auditLogActivity, `protoPayload.methodName="google.devtools.cloudbuild.v1.CloudBuild.CreateBuildTrigger"`)
+	if len(eventarc) != 1 || len(build) != 1 {
+		t.Fatalf("Eventarc entries %v, Cloud Build entries %v", eventarc, build)
+	}
+	payload := auditPayload(t, eventarc[0])
+	if payload["resourceName"] != "projects/audit-tr/locations/us-central1/triggers/ea" || payload["serviceName"] != "eventarc.googleapis.com" {
+		t.Errorf("CreateTrigger payload = %v", payload)
+	}
+	op := eventarc[0]["operation"].(map[string]any)
+	if op["first"] != true || op["last"] != true || op["producer"] != "eventarc.googleapis.com" || op["id"] == "" {
+		t.Errorf("an operation done when the call answers writes one entry marked first and last, got %v", op)
+	}
+	if got := auditPayload(t, build[0])["authorizationInfo"].([]any)[0].(map[string]any)["permission"]; got != "cloudbuild.builds.create" {
+		t.Errorf("CreateBuildTrigger checks %v", got)
+	}
+}
+
+// Compute Engine records a call under its version and Discovery method ID,
+// with the operation the call started; IAM names a service account by its
+// unique ID; Cloud DNS names a zone relative to the project; and Cloud
+// Resource Manager's SetIamPolicy carries the policy delta.
+func TestAuditLogs_DiscoveryAndIAMServices(t *testing.T) {
+	srv := buildOperationsTestSimulator(t)
+	createTestProject(t, srv, "audit-ds")
+
+	gcpHostOK(t, srv, "compute.googleapis.com", http.MethodPost, "/compute/v1/projects/audit-ds/global/networks",
+		`{"name":"audit-net","autoCreateSubnetworks":false}`)
+	network := auditEntries(t, srv, "audit-ds", auditLogActivity, `protoPayload.methodName="v1.compute.networks.insert"`)
+	if len(network) != 1 {
+		t.Fatalf("want one v1.compute.networks.insert entry, got %v", network)
+	}
+	payload := auditPayload(t, network[0])
+	if payload["serviceName"] != "compute.googleapis.com" || payload["resourceName"] != "projects/audit-ds/global/networks/audit-net" {
+		t.Errorf("networks.insert payload = %v", payload)
+	}
+	if got := payload["authorizationInfo"].([]any)[0].(map[string]any)["permission"]; got != "compute.networks.create" {
+		t.Errorf("networks.insert checks %v", got)
+	}
+	if got := payload["request"].(map[string]any)["@type"]; got != "type.googleapis.com/compute.networks.insert" {
+		t.Errorf("networks.insert request @type %v", got)
+	}
+	response := payload["response"].(map[string]any)
+	op := network[0]["operation"].(map[string]any)
+	if op["id"] != response["name"] || op["producer"] != "compute.googleapis.com" || op["first"] != true || op["last"] != true {
+		t.Errorf("networks.insert operation %v, response %v", op, response)
+	}
+	resource := network[0]["resource"].(map[string]any)
+	if resource["type"] != "gce_network" || resource["labels"].(map[string]any)["network_id"] != response["targetId"] {
+		t.Errorf("networks.insert resource %v", resource)
+	}
+
+	sa := gcpHostOK(t, srv, "iam.googleapis.com", http.MethodPost, "/v1/projects/audit-ds/serviceAccounts", `{"accountId":"audit-sa"}`)
+	email, uniqueID := sa["email"].(string), sa["uniqueId"].(string)
+	gcpHostOK(t, srv, "iam.googleapis.com", http.MethodDelete, "/v1/projects/audit-ds/serviceAccounts/"+email, "")
+	created := auditEntries(t, srv, "audit-ds", auditLogActivity, `protoPayload.methodName="google.iam.admin.v1.CreateServiceAccount"`)
+	deleted := auditEntries(t, srv, "audit-ds", auditLogActivity, `protoPayload.methodName="google.iam.admin.v1.DeleteServiceAccount"`)
+	if len(created) != 1 || len(deleted) != 1 {
+		t.Fatalf("IAM entries: created %v deleted %v", created, deleted)
+	}
+	if got := auditPayload(t, created[0])["resourceName"]; got != "projects/audit-ds" {
+		t.Errorf("CreateServiceAccount resourceName %v", got)
+	}
+	if got := auditPayload(t, deleted[0])["resourceName"]; got != "projects/-/serviceAccounts/"+uniqueID {
+		t.Errorf("DeleteServiceAccount resourceName %v", got)
+	}
+	for _, entry := range []map[string]any{created[0], deleted[0]} {
+		resource := entry["resource"].(map[string]any)
+		labels := resource["labels"].(map[string]any)
+		if resource["type"] != "service_account" || labels["email_id"] != email || labels["unique_id"] != uniqueID {
+			t.Errorf("IAM resource %v", resource)
+		}
+	}
+
+	gcpHostOK(t, srv, "dns.googleapis.com", http.MethodPost, "/dns/v1/projects/audit-ds/managedZones",
+		`{"name":"audit-zone","dnsName":"audit.example.com.","description":"audit"}`)
+	zone := auditEntries(t, srv, "audit-ds", auditLogActivity, `protoPayload.methodName="dns.managedZones.create"`)
+	if len(zone) != 1 {
+		t.Fatalf("want one dns.managedZones.create entry, got %v", zone)
+	}
+	payload = auditPayload(t, zone[0])
+	request := payload["request"].(map[string]any)
+	if payload["resourceName"] != "managedZones/audit-zone" || request["@type"] != "type.googleapis.com/cloud.dns.api.ManagedZonesCreateRequest" ||
+		request["project"] != "audit-ds" || request["managedZone"] == nil {
+		t.Errorf("managedZones.create payload = %v", payload)
+	}
+	if resource := zone[0]["resource"].(map[string]any); resource["type"] != "dns_managed_zone" {
+		t.Errorf("managedZones.create resource %v", resource)
+	}
+
+	policy := gcpHostOK(t, srv, "cloudresourcemanager.googleapis.com", http.MethodPost, "/v1/projects/audit-ds:getIamPolicy", `{}`)
+	gcpHostOK(t, srv, "cloudresourcemanager.googleapis.com", http.MethodPost, "/v1/projects/audit-ds:setIamPolicy",
+		`{"policy":{"etag":"`+policy["etag"].(string)+`","bindings":[{"role":"roles/viewer","members":["user:a@example.com"]}]}}`)
+	set := auditEntries(t, srv, "audit-ds", auditLogActivity, `protoPayload.methodName="SetIamPolicy"`)
+	if len(set) != 1 {
+		t.Fatalf("want one SetIamPolicy entry, got %v", set)
+	}
+	payload = auditPayload(t, set[0])
+	deltas := payload["serviceData"].(map[string]any)["policyDelta"].(map[string]any)["bindingDeltas"].([]any)
+	if payload["serviceName"] != "cloudresourcemanager.googleapis.com" || payload["resourceName"] != "projects/audit-ds" ||
+		len(deltas) != 1 || deltas[0].(map[string]any)["action"] != "ADD" || deltas[0].(map[string]any)["member"] != "user:a@example.com" {
+		t.Errorf("SetIamPolicy payload = %v", payload)
+	}
+	if got := auditEntries(t, srv, "audit-ds", auditLogActivity, `protoPayload.serviceData.policyDelta.bindingDeltas.action="ADD"`); len(got) != 1 {
+		t.Errorf("a filter on the binding delta finds %d entries", len(got))
 	}
 }

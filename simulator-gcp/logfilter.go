@@ -52,7 +52,50 @@ func logFilterLeaf(field, op, value string) (listq.Node, error) {
 	default:
 		return nil, fmt.Errorf("unsupported operator %q", op)
 	}
-	return listq.Cmp{Path: field, Sep: ".", Test: test}, nil
+	return logFieldCmp{path: strings.Split(field, "."), test: test}, nil
+}
+
+// logFieldCmp compares the field a path names. A path that crosses a repeated
+// field compares each of its elements, and holds when one of them does, as in
+// protoPayload.serviceData.policyDelta.bindingDeltas.action="ADD".
+type logFieldCmp struct {
+	path []string
+	test listq.Test
+}
+
+func (n logFieldCmp) Eval(d listq.Doc) bool {
+	values := logFieldValues(d, n.path)
+	if len(values) == 0 {
+		return n.test("", false)
+	}
+	for _, v := range values {
+		if n.test(listq.ScalarString(v), true) {
+			return true
+		}
+	}
+	return false
+}
+
+func logFieldValues(cur any, path []string) []any {
+	if list, ok := cur.([]any); ok && len(path) > 0 {
+		var out []any
+		for _, element := range list {
+			out = append(out, logFieldValues(element, path)...)
+		}
+		return out
+	}
+	if len(path) == 0 {
+		return []any{cur}
+	}
+	m, ok := cur.(map[string]any)
+	if !ok {
+		return nil
+	}
+	next, ok := m[path[0]]
+	if !ok {
+		return nil
+	}
+	return logFieldValues(next, path[1:])
 }
 
 func logOrdered(op string, c int) bool {
