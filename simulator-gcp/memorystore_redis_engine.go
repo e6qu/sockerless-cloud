@@ -574,7 +574,7 @@ func (p *msRedisPlane) startNode(node int) error {
 	for key, value := range p.labels {
 		labels[key] = value
 	}
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		CancelGracePeriod: msRedisStopGrace,
 		Image:             image,
 		Architecture:      msRedisEnginePlatform,

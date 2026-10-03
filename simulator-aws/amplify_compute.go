@@ -270,7 +270,7 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 	}
 	env["PORT"] = strconv.Itoa(amplifyComputePort)
 
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		Image:        image,
 		Architecture: "linux/" + runtime.GOARCH,
 		Command:      []string{"node", compute.Entrypoint},

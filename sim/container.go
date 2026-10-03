@@ -366,14 +366,6 @@ func CleanupContainers() {
 	}
 }
 
-// StartContainerSync starts a container without a caller's context.
-//
-// Deprecated: use StartContainerSyncContext, whose context bounds the image
-// pull and the create.
-func StartContainerSync(cfg ContainerConfig, sink LogSink) (*ContainerHandle, error) {
-	return StartContainerSyncContext(context.Background(), cfg, sink)
-}
-
 // StartContainerSyncContext pulls the image (if needed), creates and starts a
 // container, returning the handle with ContainerID populated.
 // Blocks until the container is created and started (but not until it exits).

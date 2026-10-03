@@ -275,7 +275,7 @@ func ebsRunHelper(ctx context.Context, cli *dockerclient.Client, step, holder, s
 		return "", err
 	}
 	var sink ebsHelperSink
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
 		Image:        ebsHelperImage,
 		Architecture: "linux/" + architecture,
 		Command:      []string{"sh", "-c", script},

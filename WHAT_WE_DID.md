@@ -340,7 +340,12 @@ through hooks:
   open across SIGTERM and stops in milliseconds. `StartContainerSyncContext`
   bounds the image pull and the create by its caller's context, removes a
   container whose start it abandoned under a context that outlives the
-  caller's, and leaves the started container's lifetime to its handle.
+  caller's, and leaves the started container's lifetime to its handle. It
+  replaced the context-less `StartContainerSync`, and every simulator call site
+  passes its own context; an AWS Lambda execution
+  environment starts under its worker's, so a shutdown stops an image download
+  instead of waiting it out. `TestSimulatorStopsWithLifecycleWorkInFlight_SDK`
+  keeps a Live Tail session open across SIGTERM and still exits within 5 s.
 - **An image pull says why it pulled.** `pullImage` writes a `[sim-pull]` line
   when the held-image check fails, with the inspect error or the held and
   wanted platforms, and one per throttled retry with the attempt, the error

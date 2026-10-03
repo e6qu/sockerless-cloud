@@ -2364,7 +2364,7 @@ func startECSPauseContainer(ctx context.Context, taskID string, dns []string, si
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return sim.StartContainerSync(sim.ContainerConfig{
+	return sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
 		Image:        img,
 		Architecture: platform,
 		Command:      []string{"sleep"},
@@ -2774,7 +2774,7 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		if err := ctx.Err(); err != nil {
 			return fail(err)
 		}
-		handle, err := sim.StartContainerSync(cfg, sink)
+		handle, err := sim.StartContainerSyncContext(ctx, cfg, sink)
 		if err != nil {
 			return fail(fmt.Errorf("start task container %q: %w", cd.Name, err))
 		}

@@ -52,10 +52,12 @@ func (l *shutdownLog) String() string {
 
 // A deployed simulator, which keeps its state and its workloads across a
 // restart, stops without waiting out the work its services have in flight: an
-// Amazon ECS task stop in its container's two-minute stopTimeout and an AWS
-// Lambda asynchronous invocation inside a 15-minute function timeout. Both
-// belong to the next process, which finishes the stop and retries the
-// invocation; the stopping one only has to let go of them.
+// Amazon ECS task stop in its container's two-minute stopTimeout, an AWS
+// Lambda asynchronous invocation inside a 15-minute function timeout, and an
+// open CloudWatch Logs Live Tail session, which lasts up to three hours. The
+// first two belong to the next process, which finishes the stop and retries
+// the invocation; the stopping one only has to let go of them. The Live Tail
+// session ends, and its client starts a new one against the next process.
 func TestSimulatorStopsWithLifecycleWorkInFlight_SDK(t *testing.T) {
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
@@ -161,9 +163,7 @@ func TestSimulatorStopsWithLifecycleWorkInFlight_SDK(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 202, invoked.StatusCode)
 	awaitLiveTailMessage(t, tailStream, "START RequestId:")
-	// The Live Tail session is a request the HTTP server's drain would wait on;
-	// this test measures the background workers, so it ends the session first.
-	require.NoError(t, tailStream.Close())
+	defer func() { _ = tailStream.Close() }()
 
 	signalled := time.Now()
 	require.NoError(t, cmd.Process.Signal(syscall.SIGTERM))
@@ -179,6 +179,7 @@ func TestSimulatorStopsWithLifecycleWorkInFlight_SDK(t *testing.T) {
 		t.Fatalf("the simulator exited without reporting an orderly shutdown:\n%s", output.String())
 	}
 	log := output.String()
+	require.Contains(t, log, "shutdown: HTTP server drained")
 	require.Contains(t, log, "shutdown: background workers returned")
 	require.NotContains(t, log, "still waiting for background workers",
 		"the shutdown waited on a background worker")

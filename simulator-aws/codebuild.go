@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -903,7 +904,7 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 		script.WriteString(command)
 		script.WriteByte('\n')
 	}
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		Image:        image,
 		Architecture: architecture,
 		Command:      []string{"/bin/sh"},

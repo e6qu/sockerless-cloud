@@ -336,7 +336,7 @@ func startLambdaVpcPauseContainer(invocationID string, sink sim.LogSink) (*sim.C
 	if err != nil {
 		return nil, fmt.Errorf("resolve AWS Lambda VPC pause image platform: %w", err)
 	}
-	return sim.StartContainerSync(sim.ContainerConfig{
+	return sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		Image:        img,
 		Architecture: platform,
 		Command:      []string{"sleep"},
@@ -704,7 +704,7 @@ func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload [
 		if err != nil {
 			return nil, err
 		}
-		return sim.StartContainerSync(sim.ContainerConfig{
+		return sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
 			Image:        ecrWorkloadImage(image),
 			RegistryAuth: registryAuth,
 			Architecture: platform,

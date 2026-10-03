@@ -151,7 +151,7 @@ func rdsRunVolumeHelper(engine dbengine.Engine, script string, env map[string]st
 		environment[name] = value
 	}
 	output := &rdsHelperOutput{}
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		Image:        engine.Image,
 		Architecture: "linux/amd64",
 		Command:      []string{"/bin/sh"},

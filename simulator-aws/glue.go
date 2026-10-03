@@ -1494,7 +1494,7 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 	}
 	// The job runs in its interpreter's container, taking the script and the
 	// job's arguments the way Glue hands them to a Python shell job.
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		Image:        image,
 		Architecture: platform,
 		Command:      []string{"python3"},
