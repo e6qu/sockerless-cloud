@@ -405,6 +405,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		instance.Etag = sim.NewUUID()
 		if !dryRun {
 			crv2Instances.Put(name, instance)
+			runCloudRunInstance(instance)
 		}
 		writeCloudRunV1Instance(w, instance)
 	})
@@ -487,6 +488,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		update.Etag = sim.NewUUID()
 		if !dryRun {
 			crv2Instances.Put(name, update)
+			runCloudRunInstance(update)
 		}
 		writeCloudRunV1Instance(w, update)
 	})
@@ -506,16 +508,13 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		}
 		if !dryRun {
 			crv2Instances.Delete(name)
+			stopCloudRunInstance(name)
 		}
 		knativeDeleteStatus(w)
 	})
 
-	// StartInstance / StopInstance arrive as POST .../instances/{id}:{verb}.
-	// They do exactly what the v2 collection's start/stop do — flip the
-	// instance's terminal condition — and touch no container: Cloud Run's
-	// instance lifecycle is not an execution surface on either API version,
-	// and inventing one here would make the two versions disagree about the
-	// same resource.
+	// StartInstance / StopInstance arrive as POST .../instances/{id}:{verb}
+	// and start or stop the same containers the v2 collection's verbs do.
 	srv.HandleFunc("POST /apis/run.googleapis.com/v1/namespaces/{namespace}/instances/{nameAction}", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
 		id, action, found := strings.Cut(sim.PathParam(r, "nameAction"), ":")
@@ -535,20 +534,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 				"instance %q not found in namespace %q", id, namespace)
 			return
 		}
-		now := nowTimestamp()
-		state := enumString("CONDITION_SUCCEEDED")
-		reason := ""
-		if action == "stop" {
-			state = "CONDITION_PENDING"
-			reason = "Stopped"
-		}
-		crv2Instances.Update(name, func(i *InstanceV2) {
-			i.UpdateTime = now
-			i.TerminalCondition = &Condition{Type: "Ready", State: state, LastTransitionTime: now, Reason: reason}
-			i.Etag = sim.NewUUID()
-		})
-		instance, _ := crv2Instances.Get(name)
-		writeCloudRunV1Instance(w, instance)
+		writeCloudRunV1Instance(w, setCloudRunInstanceRunning(name, action == "start"))
 	})
 
 	srv.HandleFunc("POST /apis/run.googleapis.com/v1/namespaces/{namespace}/workerpools", func(w http.ResponseWriter, r *http.Request) {
@@ -577,6 +563,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		if !dryRun {
 			crv2WorkerPools.Put(name, pool)
 			reconcileWorkerPoolRevision(crv2WorkerPoolRevisions, name, body.Metadata.Name+"-00001-abc", pool)
+			runCloudRunWorkerPool(pool)
 		}
 		writeCloudRunV1WorkerPool(w, pool)
 	})
@@ -664,6 +651,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		if !dryRun {
 			crv2WorkerPools.Put(name, update)
 			reconcileWorkerPoolRevision(crv2WorkerPoolRevisions, name, revName, update)
+			runCloudRunWorkerPool(update)
 		}
 		writeCloudRunV1WorkerPool(w, update)
 	})
@@ -683,6 +671,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		}
 		if !dryRun {
 			crv2WorkerPools.Delete(name)
+			stopCloudRunWorkerPool(name)
 			revPrefix := name + "/revisions/"
 			for _, rev := range crv2WorkerPoolRevisions.Filter(func(rv RevisionV2) bool {
 				return strings.HasPrefix(rv.Name, revPrefix)

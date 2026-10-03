@@ -57,6 +57,8 @@ sdk-test: build ## go test the SDK-driven sim tests
 cli-test: build ## go test the CLI-driven sim tests
 	cd cli-tests && $(GO_ENV) go test -v -count=1 -timeout 900s $(CLI_TEST_ARGS)
 
+TERRAFORM_TEST_TIMEOUT ?= 300s
+
 terraform-test: ## go test the terraform-driven sim tests
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
 	  $(MAKE) terraform-test-docker; \
@@ -65,14 +67,14 @@ terraform-test: ## go test the terraform-driven sim tests
 	fi
 
 terraform-test-native: build
-	cd terraform-tests && $(GO_ENV) go test -v -count=1 -timeout 300s ./...
+	cd terraform-tests && $(GO_ENV) go test -v -count=1 -timeout $(TERRAFORM_TEST_TIMEOUT) ./...
 
 terraform-https-test: ## go test terraform via the optional Caddy HTTPS gateway
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
 	  $(MAKE) terraform-https-test-docker; \
 	else \
 	  $(MAKE) build; \
-	  cd terraform-tests && SOCKERLESS_TF_HTTPS_GATEWAY=1 $(GO_ENV) go test -v -count=1 -timeout 300s ./...; \
+	  cd terraform-tests && SOCKERLESS_TF_HTTPS_GATEWAY=1 $(GO_ENV) go test -v -count=1 -timeout $(TERRAFORM_TEST_TIMEOUT) ./...; \
 	fi
 
 # Aggregate that runs every test category.
@@ -161,4 +163,4 @@ terraform-https-test-docker: docker-test-build ## run terraform HTTPS tests insi
 		-w /src/simulator-gcp/terraform-tests \
 		$(DOCKER_REALNET_TEST_ENV) \
 		-e SOCKERLESS_TF_HTTPS_GATEWAY=1 \
-		$(DOCKER_TEST_IMAGE) go test -v -count=1 -timeout 300s ./...
+		$(DOCKER_TEST_IMAGE) go test -v -count=1 -timeout $(TERRAFORM_TEST_TIMEOUT) ./...

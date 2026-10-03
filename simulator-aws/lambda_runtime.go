@@ -561,7 +561,13 @@ const lambdaUnzippedCodeLimit = 262144000
 // Returns: responseBody, unhandledError (true if /error was posted),
 // exitCode from the container. Unhandled errors come back as proper
 // Lambda error JSON even when the container itself exits 0.
-func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool, int) {
+//
+// Once ctx is done the invocation stops its execution environment and returns
+// at once, unhandled: a simulator shutting down does not wait out a function's
+// timeout, and the caller that owns ctx decides what an interrupted invocation
+// means — a retry the next process makes, or a message that becomes visible
+// again.
+func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload []byte) ([]byte, bool, int) {
 	var (
 		runtimeImage string
 		taskRoot     string
@@ -763,6 +769,12 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 		})
 	}
 	watchContainer(handle)
+	interrupted := func() ([]byte, bool, int) {
+		handle.Cancel()
+		<-waitForContainer
+		appendLambdaLog(logKey, time.Now().UnixMilli(), fmt.Sprintf("END RequestId: %s", requestID))
+		return lambdaErrorPayload("Invocation interrupted: the simulator is shutting down"), true, -1
+	}
 
 	// Init phase. Bootstrapping the runtime and running the function's static
 	// code happen here, outside the function timeout: Lambda bounds the Init
@@ -778,6 +790,8 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 initPhase:
 	for {
 		select {
+		case <-ctx.Done():
+			return interrupted()
 		case <-inv.initialized:
 			initDuration = time.Since(initStart)
 			break initPhase
@@ -860,6 +874,8 @@ initPhase:
 		defer timer.Stop()
 
 		select {
+		case <-ctx.Done():
+			return interrupted()
 		case <-inv.done:
 			// The Invoke phase ends when the runtime signals it is done, which
 			// is this reply — not when the container it runs in finally exits.

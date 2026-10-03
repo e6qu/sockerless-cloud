@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -1030,7 +1031,7 @@ func sfnInvokeLambda(name, payload string) (any, *sfnExecutionError) {
 	if !ok {
 		return nil, &sfnExecutionError{Name: "Lambda.ResourceNotFoundException", Cause: "Function not found: " + name}
 	}
-	response, unhandled, _ := invokeLambdaViaRuntimeAPI(fn, []byte(payload))
+	response, unhandled, _ := invokeLambdaViaRuntimeAPI(context.Background(), fn, []byte(payload))
 	if unhandled {
 		var detail map[string]any
 		_ = json.Unmarshal(response, &detail)

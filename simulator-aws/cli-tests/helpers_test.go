@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -17,6 +19,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -130,6 +134,7 @@ var (
 	tmpDir                 string
 	persistenceDir         string
 	simulatorPort          int
+	diagnosticsAddr        string
 	awsCLIVersion          string
 	provisionedToolDirs    []string
 )
@@ -284,6 +289,12 @@ func TestMain(m *testing.M) {
 	ln.Close()
 
 	simulatorPort = port
+	diagnosticsListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		log.Fatalf("Failed to find a free diagnostics port: %v", err)
+	}
+	diagnosticsAddr = diagnosticsListener.Addr().String()
+	diagnosticsListener.Close()
 	persistenceDir, err = os.MkdirTemp("", "sockerless-aws-cli-state-")
 	if err != nil {
 		log.Fatalf("Failed to create simulator persistence directory: %v", err)
@@ -319,6 +330,7 @@ func newCLISimulatorCommand() *exec.Cmd {
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", simulatorPort),
 		"SIM_DNS_PORT=0",
+		"SIM_DIAGNOSTICS_ADDR="+diagnosticsAddr,
 		"SIM_PERSIST=true",
 		"SIM_DATA_DIR="+persistenceDir,
 	)
@@ -396,38 +408,136 @@ func awsCLIHostPrefixed(args ...string) *exec.Cmd {
 // still reported when the command fails.
 func runCLI(t *testing.T, cmd *exec.Cmd) string {
 	t.Helper()
-	const perCmdTimeout = 60 * time.Second
-	var stdout, stderr bytes.Buffer
+	// The CLI writes its --debug log to stderr, so a call that never returns
+	// still says which request it sent and what it last read.
+	cmd.Args = append(cmd.Args, "--debug")
+	var stdout, stderr lockedBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	switch err := runCLIBounded(t, cmd, cliBound(t)); {
+	case errors.Is(err, errCLIBoundExceeded):
+		t.Fatalf("CLI command did not finish within its bound\nCommand: %s\nSimulator in-flight requests:\n%s\nSimulator goroutines:\n%s\nCLI --debug output (last %d bytes):\n%s",
+			strings.Join(cmd.Args, " "), simulatorDiagnostics("/debug/inflight"),
+			simulatorDiagnostics("/debug/pprof/goroutine?debug=1"), cliDebugTail, tail(stderr.String(), cliDebugTail))
+	case err != nil:
+		t.Fatalf("CLI command failed: %v\nCommand: %s\nStdout: %s\nStderr (last %d bytes):\n%s",
+			err, strings.Join(cmd.Args, " "), stdout.String(), cliDebugTail, tail(stderr.String(), cliDebugTail))
+	}
+	return stdout.String()
+}
+
+// cliCommandBound caps one CLI call. A call bounded only by the test binary's
+// -timeout panics with every goroutine's stack and nothing from the CLI or the
+// simulator, so the bound fires early enough to collect both.
+const cliCommandBound = 60 * time.Second
+
+// cliDiagnosticsMargin is the time a call's bound leaves before the test's
+// deadline to collect diagnostics and fail.
+const cliDiagnosticsMargin = 30 * time.Second
+
+// cliDebugTail is how much of the CLI's --debug log a failure carries: the end
+// of the log holds the request in flight and the error.
+const cliDebugTail = 16 << 10
+
+var errCLIBoundExceeded = errors.New("CLI command exceeded its bound")
+
+// cmdWaitDelay is how long Wait keeps reading a killed CLI's output pipes.
+const cmdWaitDelay = 5 * time.Second
+
+// cliBound is cliCommandBound or the test's deadline less
+// cliDiagnosticsMargin, whichever comes first.
+func cliBound(t *testing.T) time.Duration {
+	bound := cliCommandBound
+	if deadline, ok := t.Deadline(); ok {
+		if remaining := time.Until(deadline) - cliDiagnosticsMargin; remaining < bound {
+			bound = max(remaining, time.Second)
+		}
+	}
+	return bound
+}
+
+// runCLIBounded runs cmd in a process group of its own and waits for it for at
+// most bound. Past the bound it logs the simulator's diagnostics while they
+// still describe the stalled call, kills the group and reports
+// errCLIBoundExceeded.
+func runCLIBounded(t *testing.T, cmd *exec.Cmd, bound time.Duration) error {
+	t.Helper()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// A descendant that inherited the output pipes keeps Wait reading them
+	// after the CLI itself is gone; WaitDelay ends that wait.
+	cmd.WaitDelay = cmdWaitDelay
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("CLI command failed to start: %v\nCommand: %s", err, strings.Join(cmd.Args, " "))
 	}
-	// Kill a hung CLI call so it can't consume the whole suite timeout and mask
-	// the real failure in the error message.
-	timer := time.AfterFunc(perCmdTimeout, func() { _ = cmd.Process.Kill() })
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	timer := time.NewTimer(bound)
 	defer timer.Stop()
-	if err := cmd.Wait(); err != nil {
-		t.Fatalf("CLI command failed: %v\nCommand: %s\nStdout: %s\nStderr: %s",
-			err, strings.Join(cmd.Args, " "), stdout.String(), stderr.String())
+	select {
+	case err := <-exited:
+		return err
+	case <-timer.C:
 	}
-	return stdout.String()
+	inflight := simulatorDiagnostics("/debug/inflight")
+	goroutines := simulatorDiagnostics("/debug/pprof/goroutine?debug=1")
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	<-exited
+	t.Logf("CLI command exceeded %s; simulator in-flight requests at that moment:\n%s\nSimulator goroutines:\n%s", bound, inflight, goroutines)
+	return errCLIBoundExceeded
+}
+
+// simulatorDiagnostics reads one of the simulator's diagnostics endpoints.
+func simulatorDiagnostics(path string) string {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://" + diagnosticsAddr + path)
+	if err != nil {
+		return fmt.Sprintf("(read %s: %v)", path, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Sprintf("(read %s: %v)", path, err)
+	}
+	return string(body)
+}
+
+func tail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[len(s)-n:]
+}
+
+// lockedBuffer is a bytes.Buffer the command's copy goroutines and a test that
+// gives up on the command can share.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // runCLIExpectError runs a command that must fail and returns both streams: the
 // CLI reports the service's error on stderr, and that is what its callers check.
 func runCLIExpectError(t *testing.T, cmd *exec.Cmd) string {
 	t.Helper()
-	const perCmdTimeout = 60 * time.Second
-	var combined bytes.Buffer
+	var combined lockedBuffer
 	cmd.Stdout = &combined
 	cmd.Stderr = &combined
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("CLI command failed to start: %v\nCommand: %s", err, strings.Join(cmd.Args, " "))
-	}
-	timer := time.AfterFunc(perCmdTimeout, func() { _ = cmd.Process.Kill() })
-	defer timer.Stop()
-	if err := cmd.Wait(); err == nil {
+	switch err := runCLIBounded(t, cmd, cliBound(t)); {
+	case errors.Is(err, errCLIBoundExceeded):
+		t.Fatalf("CLI command did not finish within its bound\nCommand: %s\nOutput: %s", strings.Join(cmd.Args, " "), combined.String())
+	case err == nil:
 		t.Fatalf("CLI command unexpectedly succeeded\nCommand: %s\nOutput: %s", strings.Join(cmd.Args, " "), combined.String())
 	}
 	return combined.String()

@@ -25,7 +25,7 @@ type InstanceV2 struct {
 	Description                   string               `json:"description,omitempty"`
 	CreateTime                    string               `json:"createTime,omitempty"`
 	UpdateTime                    string               `json:"updateTime,omitempty"`
-	LaunchStage                   enumString           `json:"launchStage,omitempty"`
+	LaunchStage                   launchStageString    `json:"launchStage,omitempty"`
 	Ingress                       ingressString        `json:"ingress,omitempty"`
 	DefaultUriDisabled            bool                 `json:"defaultUriDisabled,omitempty"`
 	Containers                    []Container          `json:"containers,omitempty"`
@@ -96,6 +96,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		inst = seedInstanceV2Defaults(inst, project, location, instanceID)
 		inst.Etag = sim.NewUUID()
 		instances.Put(name, inst)
+		runCloudRunInstance(inst)
 		lro := cloudRunLRO(project, location, inst, instType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
@@ -195,6 +196,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		}
 		update.Etag = sim.NewUUID()
 		instances.Put(name, update)
+		runCloudRunInstance(update)
 		lro := cloudRunLRO(project, location, update, instType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
@@ -214,6 +216,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			return
 		}
 		instances.Delete(name)
+		stopCloudRunInstance(name)
 		lro := cloudRunLRO(project, location, inst, instType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
@@ -257,25 +260,36 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 				sim.WriteJSON(w, http.StatusOK, lro)
 				return
 			}
-			now := nowTimestamp()
-			state := enumString("CONDITION_SUCCEEDED")
-			reason := ""
-			if action == "stop" {
-				state = "CONDITION_PENDING"
-				reason = "Stopped"
-			}
-			instances.Update(name, func(i *InstanceV2) {
-				i.UpdateTime = now
-				i.TerminalCondition = &Condition{Type: "Ready", State: state, LastTransitionTime: now, Reason: reason}
-				i.Etag = sim.NewUUID()
-			})
-			inst, _ := instances.Get(name)
-			lro := cloudRunLRO(project, location, inst, instType)
+			lro := cloudRunLRO(project, location, setCloudRunInstanceRunning(name, action == "start"), instType)
 			sim.WriteJSON(w, http.StatusOK, lro)
 		default:
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on instance %q", action, id)
 		}
 	})
+}
+
+// setCloudRunInstanceRunning starts or stops an instance's containers and
+// records the transition on its terminal condition.
+func setCloudRunInstanceRunning(name string, running bool) InstanceV2 {
+	now := nowTimestamp()
+	state := enumString("CONDITION_SUCCEEDED")
+	reason := ""
+	if !running {
+		state = "CONDITION_PENDING"
+		reason = "Stopped"
+	}
+	crv2Instances.Update(name, func(i *InstanceV2) {
+		i.UpdateTime = now
+		i.TerminalCondition = &Condition{Type: "Ready", State: state, LastTransitionTime: now, Reason: reason}
+		i.Etag = sim.NewUUID()
+	})
+	inst, _ := crv2Instances.Get(name)
+	if running {
+		runCloudRunInstance(inst)
+	} else {
+		stopCloudRunInstance(name)
+	}
+	return inst
 }
 
 // cloudRunAdminV1InstanceIAM serves the Cloud Run Admin v1 instances IAM

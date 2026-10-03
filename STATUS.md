@@ -108,7 +108,9 @@ Current state of the sockerless-cloud repository.
   without it, the detached reaper and the startup sweep collect a run's
   containers, scoped to the state directory so a concurrent suite is never
   touched. A simulator exits when the process in `SOCKERLESS_PARENT_PID` is
-  gone.
+  gone. A stopping simulator does not wait out a container's stop timeout or a
+  function's timeout: interrupted Amazon ECS and AWS Lambda work resumes in the
+  next process.
 - **Every credential is verified**: SigV4 against the principal's stored
   secret, from the header and from a presigned URL alike; Google Cloud and
   Microsoft Entra bearers against the simulator's signing keys; the Azure
@@ -187,7 +189,8 @@ Current state of the sockerless-cloud repository.
   --depends-on`), and a create or update whose `dependsOn` names no container
   or forms a cycle answers INVALID_ARGUMENT.
 - **A Cloud Storage volume mount writes back as Cloud Storage FUSE does.**
-  A Cloud Run job task or service instance binds the bucket's host directory
+  A Cloud Run job task, service instance, worker pool instance or instance
+  binds the bucket's host directory
   (or its `only-dir` directory) into the container, read-only when the volume
   is. While a workload mounts it writable, an inotify watch turns a close
   after writing into a new generation conditioned on the generation the file
@@ -239,6 +242,17 @@ Current state of the sockerless-cloud repository.
   after its dependencies passed their startup probes, and fails when a
   configured startup probe fails; deleting a job or execution stops its
   running containers, and cancelling a completed execution leaves it as it is.
+  A job's `startExecutionToken` or `runExecutionToken` starts the execution
+  `<job>-<token>` and holds the job's create or update operation and its
+  `Ready` condition until that execution has started or completed.
+- **Cloud Run worker pools and instances run their containers.** A worker
+  pool runs its manual instance count of container groups through the job
+  task's start path (`dependsOn` order, startup probes, Cloud Storage volumes
+  with write ingestion); scaling changes start or stop the difference, and an
+  update or delete answers once the retired instances have stopped. A Cloud Run
+  instance runs through the service-instance path from creation or
+  `instances.start` until `instances.stop` or deletion. Their output reaches
+  Cloud Logging under `cloud_run_worker_pool` and `cloud_run_instance`.
 - **A Cloud Run function is served by its Cloud Run service**:
   `serviceConfig.uri` is the service's run.app URL and `url` the function's
   cloudfunctions.net URL, both served through the Cloud Run front end with
@@ -318,7 +332,9 @@ the AWS SDK suite in four shards and CLI suite in sixteen; Terraform in fifteen
 shards; console vitest, typecheck, build and Playwright; the race jobs per
 simulator and for `sim`; the quality gates; the one-open-pull-request and
 rebased-on-main checks; the nightly fuzz workflow across the four Go modules.
-Every job holds a fifteen-minute ceiling. Base images are warmed from one
+Every job holds a fifteen-minute ceiling, and an AWS CLI call that stalls
+fails at its own bound with the simulator's in-flight requests, its goroutine
+profile and the CLI's `--debug` log. Base images are warmed from one
 cache entry per module, read out of the source by `scripts/base-images-for.sh`,
 and every suite takes a base image through `testutil/baseimage.Ensure`, which
 asks the host before a registry; `build-gates` runs the `testutil` tests, whose

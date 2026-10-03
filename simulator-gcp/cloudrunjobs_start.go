@@ -100,28 +100,67 @@ func stopCloudRunExecutionRun(execName string) {
 	}
 }
 
-// startCloudRunJobContainers starts the task's containers in their dependsOn
-// order: a container starts once every container it depends on has started
-// and passed its startup probe, and every container that configures a startup
-// probe must pass it before the task runs on. The containers share the network
-// namespace of the first to start. The release it returns ends the ingestion
-// of writes through their Cloud Storage volumes, once the containers have
-// stopped.
+// startCloudRunJobContainers starts a job task's containers as one Cloud Run
+// container group, under names and labels that tie them to the execution.
 func startCloudRunJobContainers(ctx context.Context, execID, execShort string, taskTmpl *TaskTemplate, timeout time.Duration, sink sim.LogSink) (*workload.Group, func(), error) {
 	if taskTmpl == nil || len(taskTmpl.Containers) == 0 {
 		return nil, nil, fmt.Errorf("execution has no containers")
 	}
-	containers := taskTmpl.Containers
+	return startCloudRunContainerGroup(ctx, cloudRunContainerGroup{
+		project:    resourceProject(execID),
+		containers: taskTmpl.Containers,
+		volumes:    taskTmpl.Volumes,
+		timeout:    timeout,
+		name: func(i int) string {
+			if i > 0 {
+				return fmt.Sprintf("sockerless-sim-gcp-job-%s-sidecar-%d", execShort, i-1)
+			}
+			return fmt.Sprintf("sockerless-sim-gcp-job-%s", execShort)
+		},
+		labels: func(c Container) map[string]string {
+			return map[string]string{
+				"sockerless-sim-execution":           execID,
+				"sockerless-sim-execution-container": c.Name,
+			}
+		},
+	}, sink)
+}
+
+// cloudRunContainerGroup is one Cloud Run instance's containers that serve no
+// requests: a job task, or a worker pool instance.
+type cloudRunContainerGroup struct {
+	project    string
+	containers []Container
+	volumes    []Volume
+	// timeout bounds the containers' run; zero leaves them running until
+	// stopped.
+	timeout time.Duration
+	name    func(i int) string
+	labels  func(c Container) map[string]string
+}
+
+// startCloudRunContainerGroup starts the group's containers in their dependsOn
+// order: a container starts once every container it depends on has started
+// and passed its startup probe, and every container that configures a startup
+// probe must pass it before the group runs on. The containers share the
+// network namespace of the first to start. The release it returns ends the
+// ingestion of writes through their Cloud Storage volumes, once the containers
+// have stopped.
+func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, sink sim.LogSink) (*workload.Group, func(), error) {
+	if len(g.containers) == 0 {
+		return nil, nil, fmt.Errorf("the instance has no containers")
+	}
+	containers := g.containers
 	order, err := cloudRunContainerStartOrder(containers)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	volByName := make(map[string]Volume)
-	for _, v := range taskTmpl.Volumes {
+	for _, v := range g.volumes {
 		volByName[v.Name] = v
 	}
-	project := resourceProject(execID)
+	project := g.project
 	metadataEnv, err := hostMetadataEnv()
 	if err != nil {
 		return nil, nil, err
@@ -147,10 +186,6 @@ func startCloudRunJobContainers(ctx context.Context, execID, execShort string, t
 		for _, ev := range c.Env {
 			cmdEnv[ev.Name] = ev.Value
 		}
-		name := fmt.Sprintf("sockerless-sim-gcp-job-%s", execShort)
-		if i > 0 {
-			name = fmt.Sprintf("sockerless-sim-gcp-job-%s-sidecar-%d", execShort, i-1)
-		}
 		members[i] = workload.Container{Name: c.Name, Config: sim.ContainerConfig{
 			CancelGracePeriod: cloudRunStopGrace,
 			Image:             image,
@@ -158,14 +193,11 @@ func startCloudRunJobContainers(ctx context.Context, execID, execShort string, t
 			Command:           c.Command,
 			Args:              c.Args,
 			Env:               workloadhost.MergeEnv(cmdEnv, metadataEnv),
-			Timeout:           timeout,
-			Name:              name,
-			Labels: map[string]string{
-				"sockerless-sim-execution":           execID,
-				"sockerless-sim-execution-container": c.Name,
-			},
-			Binds:   binds,
-			Sandbox: SandboxCloudRun,
+			Timeout:           g.timeout,
+			Name:              g.name(i),
+			Labels:            g.labels(c),
+			Binds:             binds,
+			Sandbox:           SandboxCloudRun,
 		}}
 	}
 	releaseMounts, err := gcsAcquireMounts(writable)
@@ -270,7 +302,7 @@ func startCloudRunJobContainers(ctx context.Context, execID, execShort string, t
 	default:
 	}
 	if ctx.Err() != nil {
-		return fail(fmt.Errorf("the execution stopped while its containers started: %w", ctx.Err()))
+		return fail(fmt.Errorf("the instance stopped while its containers started: %w", ctx.Err()))
 	}
 	return &workload.Group{Main: handles[0], Sidecars: handles[1:]}, releaseMounts, nil
 }

@@ -311,6 +311,26 @@ through hooks:
   database and took the simulator down thirteen times in thirteen minutes. A
   busy or locked database ends the sweep, which resumes next pass; a corrupt
   row still panics; `StartBackground` contains a panic in any worker.
+- **A stalled CLI call fails with the evidence.** One `aws` call in the CLI
+  suite hung until the test binary's timeout and left nothing but Go stacks.
+  `runCLI` now runs every call with `--debug` in a process group of its own,
+  bounded by 60 s or the test's deadline less 30 s; past the bound it reads the
+  simulator's `/debug/inflight` and goroutine profile on the suite's own
+  diagnostics port, kills the group, and fails with both and the tail of the
+  CLI's debug log. It never retries the call.
+- **A stopping simulator lets go of work in flight.** A deployed simulator
+  waited out systemd's 90-second stop timeout because its Amazon ECS lifecycle
+  steps, AWS Lambda event source mapping batches and asynchronous invocation
+  attempts ignored the context `StartBackground` hands them. Each now returns
+  once that context is done and leaves its work where the next process picks
+  it up: an Amazon ECS stop stays stopping and recovery finishes it, an
+  interrupted start leaves the task PENDING with its partial containers removed
+  so the resumed start can reuse their names, an asynchronous invocation's
+  attempt is rolled back and retried, and an event source mapping's messages
+  become visible again after their visibility timeout. The task lifecycle lock
+  is a channel so a step can stop waiting for it. A persistent simulator stopped
+  with a task inside a two-minute `stopTimeout` and a function inside a
+  15-minute timeout proves the stop takes under a second.
 - **A test drives the production write path.** The stopped-task sweep deleted
   by ARN while RunTask stores tasks by ID, and its test stored tasks by ARN and
   passed; retention tests now store through the key RunTask uses. A listing
@@ -1167,7 +1187,14 @@ naming it. gcloud's `--depends-on` reaches the Knative surface as the
 simulator folds onto the containers' `dependsOn`. Deleting a job or an
 execution stops what it still runs, and cancelling an execution that has
 completed leaves it as it is, which is what gcloud's cancel reads as
-"completed successfully before it could be cancelled". `operations.wait` on REST and `WaitOperation` on
+"completed successfully before it could be cancelled". A job that names
+`startExecutionToken` or `runExecutionToken` (v2, or the Knative `spec` that
+`gcloud run jobs replace` sends) starts the execution `<job>-<token>` unless it
+exists, and stays reconciling, with its create or update operation running,
+until that execution has started or completed; a failed execution fails both
+the job's `Ready` condition and the operation, and the Knative condition
+carries the message gcloud prints. A job name and token of 63 characters or
+more, or both tokens at once, are refused. `operations.wait` on REST and `WaitOperation` on
 gRPC block on a signal `gcpFinishOperation` raises, bounded by the request's
 `timeout` or else by the caller's connection. Cloud Build's `CreateBuild`, its
 regional twin, `RetryBuild`, `ApproveBuild`, `RunBuildTrigger`, the trigger
@@ -1292,7 +1319,29 @@ request that started the instance waits for every probe. Starting the ingress
 first and every sidecar at once let an ingress that needs its sidecar at start
 up exit before the sidecar listened. The Knative service surface folds
 `dependsOn` into the revision template's container-dependencies annotation and
-back, as the job surface does. Worker pools still run nothing (row 3311).
+back, as the job surface does.
+
+A Cloud Run worker pool runs as many instances as its manual instance count
+(the minimum in automatic scaling), and each instance is a container group
+started by the same code a job task uses (`startCloudRunContainerGroup`):
+`dependsOn` order, startup probes, Cloud Storage volume binds and write
+ingestion, and the stop signal with Cloud Run's ten-second grace. A changed
+template replaces every instance, a changed count starts or stops the
+difference, and the update or delete that retires an instance answers only once
+its containers have stopped and the writes they made through the volume are
+objects, so a client reads the effect of the stop the moment the call returns.
+A Cloud Run instance runs through the service-instance path
+(`ensureCloudRunServiceInstance`): its ingress container publishes its port
+behind Cloud Run's default TCP startup probe. Creation, `instances.start` and an
+update run it, and `instances.stop` and deletion stop it, on both API versions.
+Worker pools log under the `cloud_run_worker_pool` monitored resource and
+instances under `cloud_run_instance`, the resource types `gcloud run
+worker-pools logs read` and `gcloud alpha run instances logs read` filter by.
+gcloud's worker-pool `deploy`, `update` and `delete` speak Cloud Run v2 over
+gRPC, which the simulator does not serve, so the CLI suite deploys over REST
+and reads the pool through `logs read` and `gcloud storage`. The Go REST
+client sends a worker pool's `instanceSplitStatuses[].type` as the enum's
+number, which the simulator maps to its name.
 
 A project has one number, the one Cloud Resource Manager assigned. Cloud DNS,
 Cloud Build, Cloud Run's service agent, Compute Engine, BigQuery and Cloud

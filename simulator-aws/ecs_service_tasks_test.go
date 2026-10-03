@@ -21,6 +21,7 @@ func TestECSStopServiceTasks_DrainsNonStopped(t *testing.T) {
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
 	bg.Await()
+	ecsBackgroundServer = nil
 	ecsClusters = sim.MakeStore[ECSCluster](nil, "ecs_clusters")
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")

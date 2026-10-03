@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"encoding/xml"
@@ -307,7 +308,7 @@ func s3RunBatchLambdaInvoke(job S3BatchJob, entry s3BatchManifestEntry) error {
 	if err != nil {
 		return fmt.Errorf("build the task event: %w", err)
 	}
-	out, handled, status := invokeLambdaViaRuntimeAPI(fn, payload)
+	out, handled, status := invokeLambdaViaRuntimeAPI(context.Background(), fn, payload)
 	if !handled || status >= 300 {
 		return fmt.Errorf("s3://%s/%s: the function failed: %s",
 			entry.Bucket, entry.Key, strings.TrimSpace(string(out)))

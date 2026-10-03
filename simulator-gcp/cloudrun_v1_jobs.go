@@ -198,7 +198,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		}
 		now := nowTimestamp()
 		job := cloudRunV1JobToV2(body)
-		if !cloudRunJobTemplateValid(w, job.Template, true) {
+		if !cloudRunJobTemplateValid(w, job.Template, true) || !cloudRunJobExecutionTokenValid(w, body.Metadata.Name, job) {
 			return
 		}
 		job.Name = name
@@ -221,8 +221,10 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 			}
 		}
 		job.Etag = sim.NewUUID()
+		holdCloudRunJobForExecutionToken(&job, now)
 		if !dryRun {
 			crjJobs.Put(name, job)
+			job = startCloudRunJobTokenExecution(namespace, cloudRunDefaultLocation, body.Metadata.Name, job)
 		}
 		writeCloudRunV1Job(w, job)
 	})
@@ -288,7 +290,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		// ReplaceJob replaces the whole mutable resource; identity, launch
 		// stage and the execution history carry over from the stored record.
 		update := cloudRunV1JobToV2(body)
-		if !cloudRunJobTemplateValid(w, update.Template, true) {
+		if !cloudRunJobTemplateValid(w, update.Template, true) || !cloudRunJobExecutionTokenValid(w, id, update) {
 			return
 		}
 		update.Name = existing.Name
@@ -315,8 +317,10 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 			}
 		}
 		update.Etag = sim.NewUUID()
+		holdCloudRunJobForExecutionToken(&update, update.UpdateTime)
 		if !dryRun {
 			crjJobs.Put(name, update)
+			update = startCloudRunJobTokenExecution(namespace, cloudRunDefaultLocation, id, update)
 		}
 		writeCloudRunV1Job(w, update)
 	})
@@ -362,7 +366,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 			return
 		}
 		execution := runCloudRunJob(namespace, cloudRunDefaultLocation, id, job,
-			cloudRunV1OverridesToV2(request.Overrides))
+			cloudRunV1OverridesToV2(request.Overrides), sim.NewUUID())
 		projected, ok := cloudRunV2ExecutionToV1(execution)
 		if !ok {
 			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",

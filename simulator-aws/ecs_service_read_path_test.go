@@ -38,6 +38,10 @@ func ecsSchedulerTestStores() {
 	// Reconciliations requested by whatever ran before this must finish before
 	// the stores they read are replaced.
 	bg.Await()
+	// The stores stand in for a simulator nobody serves, so no server owns the
+	// lifecycle steps either: an earlier test's server has stopped and would
+	// hand its steps a cancelled context.
+	ecsBackgroundServer = nil
 	ecsClusters = sim.MakeStore[ECSCluster](nil, "ecs_clusters")
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")

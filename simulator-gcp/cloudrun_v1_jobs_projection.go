@@ -226,6 +226,7 @@ func cloudRunV2ConditionToV1(condition Condition) CRCondition {
 		Type:               condition.Type,
 		Status:             status,
 		Reason:             condition.Reason,
+		Message:            condition.Message,
 		LastTransitionTime: condition.LastTransitionTime,
 	}
 }
@@ -494,7 +495,9 @@ type CRJob struct {
 
 // CRJobSpec mirrors the Discovery JobSpec schema.
 type CRJobSpec struct {
-	Template *CRExecutionTemplateSpec `json:"template,omitempty"`
+	RunExecutionToken   string                   `json:"runExecutionToken,omitempty"`
+	StartExecutionToken string                   `json:"startExecutionToken,omitempty"`
+	Template            *CRExecutionTemplateSpec `json:"template,omitempty"`
 }
 
 // CRExecutionTemplateSpec mirrors the Discovery ExecutionTemplateSpec schema.
@@ -594,7 +597,11 @@ func cloudRunV2JobToV1(job Job) (CRJob, bool) {
 			Annotations:       job.Annotations,
 			CreationTimestamp: job.CreateTime,
 		},
-		Spec:   &CRJobSpec{Template: template},
+		Spec: &CRJobSpec{
+			RunExecutionToken:   job.RunExecutionToken,
+			StartExecutionToken: job.StartExecutionToken,
+			Template:            template,
+		},
 		Status: status,
 	}, true
 }
@@ -607,7 +614,12 @@ func cloudRunV1JobToV2(job CRJob) Job {
 		Labels:      job.Metadata.Labels,
 		Annotations: job.Metadata.Annotations,
 	}
-	if job.Spec == nil || job.Spec.Template == nil {
+	if job.Spec == nil {
+		return converted
+	}
+	converted.RunExecutionToken = job.Spec.RunExecutionToken
+	converted.StartExecutionToken = job.Spec.StartExecutionToken
+	if job.Spec.Template == nil {
 		return converted
 	}
 	template := &ExecutionTemplate{}
