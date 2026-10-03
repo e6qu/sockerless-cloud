@@ -61,7 +61,7 @@ func TestRDSClusterS3ImportTerraform(t *testing.T) {
 	env := tfsim.Start(t, ".")
 	credentialsProvider := credentials.NewStaticCredentialsProvider("test", "test", "")
 	rdsClient := rds.New(rds.Options{Region: "us-east-1", BaseEndpoint: aws.String(env.Endpoint), Credentials: credentialsProvider, HTTPClient: env.Client})
-	s3Client := s3.New(s3.Options{Region: "us-east-1", BaseEndpoint: aws.String(env.Endpoint), Credentials: credentialsProvider, HTTPClient: env.Client})
+	s3Client := s3.New(s3.Options{Region: "us-east-1", BaseEndpoint: aws.String(env.Endpoint), Credentials: credentialsProvider, HTTPClient: env.Client, UsePathStyle: true})
 	iamClient := iam.New(iam.Options{Region: "us-east-1", BaseEndpoint: aws.String(env.Endpoint), Credentials: credentialsProvider, HTTPClient: env.Client})
 
 	backup := takeXtraBackup(t, "tf-xtrabackup-source",
