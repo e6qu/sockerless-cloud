@@ -168,7 +168,7 @@ func rdsFinishClusterStart(clusterID string) {
 func rdsRecoverClusterTransitions() {
 	capturing := map[string]bool{}
 	for _, snapshot := range rdsClusterSnapshots.List() {
-		if snapshot.Status == "creating" {
+		if snapshot.Status == "creating" && snapshot.SnapshotType != "automated" {
 			capturing[snapshot.DbClusterResourceId] = true
 		}
 	}
@@ -186,6 +186,11 @@ func rdsRecoverClusterTransitions() {
 		case "starting":
 			bg.Go(func() { rdsFinishClusterStart(id) })
 		case "creating":
+			if cluster.ImportS3Bucket != "" {
+				resourceID, bucket, prefix, role := cluster.DbClusterResourceId, cluster.ImportS3Bucket, cluster.ImportS3Prefix, cluster.ImportS3Role
+				bg.Go(func() { rdsFinishS3Import(id, resourceID, bucket, prefix, role) })
+				continue
+			}
 			bg.Go(func() { rdsFinishClusterRestore(id) })
 		}
 	}

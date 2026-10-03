@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -145,13 +146,21 @@ type RDSCluster struct {
 	// cluster volume from.
 	RestoreSourceVolume string
 	// RestoreLogVolume and RestoreToTime name the source cluster volume whose
-	// write-ahead log a creating point-in-time restore replays, and the time
-	// it replays to.
-	RestoreLogVolume string
-	RestoreToTime    string
-	// BaseBackupTime is when the cluster's base backup was captured, the
-	// earliest time the cluster restores to.
-	BaseBackupTime string
+	// log a creating point-in-time restore replays, and the time it replays
+	// to; an Aurora MySQL replay starts at RestoreBinlogFile and
+	// RestoreBinlogOffset.
+	RestoreLogVolume    string
+	RestoreToTime       string
+	RestoreBinlogFile   string `json:",omitempty"`
+	RestoreBinlogOffset int    `json:",omitempty"`
+	// BaseBackups are the captures, oldest first, a restore to a time starts
+	// from.
+	BaseBackups []RDSClusterBaseBackup `json:",omitempty"`
+	// ImportS3Bucket, ImportS3Prefix and ImportS3Role name the Percona
+	// XtraBackup a creating RestoreDBClusterFromS3 cluster imports.
+	ImportS3Bucket string `json:",omitempty"`
+	ImportS3Prefix string `json:",omitempty"`
+	ImportS3Role   string `json:",omitempty"`
 }
 
 // RDSSubnetGroup models a DB subnet group (a named set of VPC subnets
@@ -1400,12 +1409,17 @@ func handleRDSCreateCluster(w http.ResponseWriter, r *http.Request) {
 		DeletionProtection:         r.FormValue("DeletionProtection") == "true",
 		ClusterCreateTime:          time.Now().UTC().Format(time.RFC3339),
 		AvailabilityZones:          []string{awsRegion() + "a", awsRegion() + "b", awsRegion() + "c"},
-		PreferredBackupWindow:      "07:00-09:00",
+		PreferredBackupWindow:      rdsClusterBackupWindow(r),
 		PreferredMaintenanceWindow: "mon:00:00-mon:03:00",
 		ARN:                        rdsClusterARN(id),
 		Tags:                       parseAWSQueryTagMap(r, "Tags.Tag"),
 
 		EnableIAMDatabaseAuthentication: strings.EqualFold(r.FormValue("EnableIAMDatabaseAuthentication"), "true"),
+	}
+	if _, err := rdsNextBackupTime(cl.PreferredBackupWindow, time.Now()); err != nil {
+		rdsErrorXML(w, "InvalidParameterValue", "The backup window must be in the format hh24:mi-hh24:mi.",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
 	}
 	if rdsIsAurora(engine) && r.FormValue("MasterUserPassword") == "" {
 		rdsErrorXML(w, "InvalidParameterValue",
@@ -1479,11 +1493,18 @@ func handleRDSModifyCluster(w http.ResponseWriter, r *http.Request) {
 	if v := r.FormValue("EngineVersion"); v != "" {
 		cluster.EngineVersion = v
 	}
+	backupsChanged := false
 	if v := r.FormValue("BackupRetentionPeriod"); v != "" {
 		cluster.BackupRetentionPeriod = atoiOrZero(v)
+		backupsChanged = true
 	}
 	if v := r.FormValue("PreferredBackupWindow"); v != "" {
+		if _, err := rdsNextBackupTime(v, time.Now()); err != nil {
+			rdsErrorXML(w, "InvalidParameterValue", "The backup window must be in the format hh24:mi-hh24:mi.", http.StatusBadRequest, requestID)
+			return
+		}
 		cluster.PreferredBackupWindow = v
+		backupsChanged = true
 	}
 	if v := r.FormValue("PreferredMaintenanceWindow"); v != "" {
 		cluster.PreferredMaintenanceWindow = v
@@ -1510,8 +1531,30 @@ func handleRDSModifyCluster(w http.ResponseWriter, r *http.Request) {
 			cluster.Port = port
 		}
 	}
-	rdsClusters.Put(id, cluster)
+	rdsClusters.Update(id, func(stored *RDSCluster) {
+		bases := stored.BaseBackups
+		*stored = cluster
+		stored.BaseBackups = bases
+	})
+	if plane, ok := rdsLoadAuroraDataPlane(id); ok && backupsChanged {
+		plane.scheduleAutomatedBackups()
+		bg.Go(func() {
+			if err := plane.expireAutomatedBackups(time.Now()); err != nil {
+				log.Printf("Amazon Aurora %s: expire automated backups: %v", id, err)
+			}
+		})
+	}
+	cluster, _ = rdsClusters.Get(id)
 	rdsXMLResponse(w, "ModifyDBCluster", renderRDSCluster(cluster), requestID)
+}
+
+// rdsClusterBackupWindow is a new cluster's PreferredBackupWindow: the one
+// the request names, or the simulator's default.
+func rdsClusterBackupWindow(r *http.Request) string {
+	if window := r.FormValue("PreferredBackupWindow"); window != "" {
+		return window
+	}
+	return "07:00-09:00"
 }
 
 // rdsValidMasterPassword applies the constraints the RDS API reference states
@@ -2106,6 +2149,7 @@ func rdsNewClusterSnapshot(cluster RDSCluster, snapID string) RDSClusterSnapshot
 func handleRDSDescribeClusterSnapshots(w http.ResponseWriter, r *http.Request) {
 	filterID := r.FormValue("DBClusterSnapshotIdentifier")
 	filterCluster := r.FormValue("DBClusterIdentifier")
+	filterType := r.FormValue("SnapshotType")
 	matched := false
 	var b strings.Builder
 	b.WriteString("<DBClusterSnapshots>")
@@ -2114,6 +2158,9 @@ func handleRDSDescribeClusterSnapshots(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if filterCluster != "" && s.DBClusterIdentifier != filterCluster {
+			continue
+		}
+		if filterType != "" && s.SnapshotType != filterType {
 			continue
 		}
 		matched = true
@@ -2145,6 +2192,11 @@ func handleRDSDeleteClusterSnapshot(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "InvalidDBClusterSnapshotStateFault",
 			fmt.Sprintf("Cannot delete the snapshot because it is not in available state, current state: %s", snap.Status),
 			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if snap.SnapshotType == "automated" {
+		rdsErrorXML(w, "InvalidDBClusterSnapshotStateFault",
+			"Only manual snapshots may be deleted.", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	rdsClusterSnapshots.Delete(snap.DBClusterSnapshotIdentifier)

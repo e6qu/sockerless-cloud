@@ -36,6 +36,12 @@ type rdsAuroraDataPlane struct {
 	replicaAddress string
 	writer         net.Listener
 	reader         net.Listener
+
+	// captureMu serialises taking and expiring automated backups.
+	captureMu      sync.Mutex
+	backupMu       sync.Mutex
+	backupTimer    *time.Timer
+	backupsStopped bool
 }
 
 var (
@@ -124,6 +130,7 @@ func rdsInstallAuroraDataPlane(cluster *RDSCluster, masterPassword string) error
 		BackendLogin: plane.backendLogin,
 	}
 	rdsAuroraDataPlanes.Store(id, plane)
+	plane.scheduleAutomatedBackups()
 	plane.engine.Serve(engineListener)
 	plane.engine.ServeReadOnly(replicaListener)
 	rdsServeRelay(writer, plane.writerTarget)
@@ -355,15 +362,16 @@ func rdsCloseAuroraInstanceEndpoint(instanceID string) {
 	}
 }
 
-// rdsStopAuroraDataPlane closes an Aurora cluster's endpoints and stops its
-// engine and, when the cluster is being deleted, removes its cluster volume
-// and base backup.
+// rdsStopAuroraDataPlane closes an Aurora cluster's endpoints, stops its
+// engine and its automated backups, and, when the cluster is being deleted,
+// removes its cluster volume.
 func rdsStopAuroraDataPlane(clusterID string, deleteVolume bool) error {
 	release := rdsDataPlaneStops.Lock("cluster/" + clusterID)
 	defer release()
 	var stopErr error
 	if value, ok := rdsAuroraDataPlanes.LoadAndDelete(clusterID); ok {
 		if plane, ok := value.(*rdsAuroraDataPlane); ok {
+			plane.stopAutomatedBackups()
 			_ = plane.writer.Close()
 			_ = plane.reader.Close()
 			if err := plane.engine.Close(); err != nil {
@@ -375,14 +383,9 @@ func rdsStopAuroraDataPlane(clusterID string, deleteVolume bool) error {
 	if deleteVolume {
 		rdsRemoveEngineContainers("Amazon Aurora "+clusterID, map[string]string{"sockerless-rds-cluster": clusterID})
 	}
-	if deleteVolume {
-		for _, volume := range []string{rdsClusterVolume(clusterID), rdsClusterBaseBackupVolume(clusterID)} {
-			if !sim.VolumeExists(volume) {
-				continue
-			}
-			if err := sim.RemoveVolume(volume); err != nil {
-				log.Printf("Amazon Aurora %s: remove volume %s: %v", clusterID, volume, err)
-			}
+	if volume := rdsClusterVolume(clusterID); deleteVolume && sim.VolumeExists(volume) {
+		if err := sim.RemoveVolume(volume); err != nil {
+			log.Printf("Amazon Aurora %s: remove volume %s: %v", clusterID, volume, err)
 		}
 	}
 	return stopErr
@@ -404,6 +407,9 @@ func rdsFinishClusterDeletion(id, resourceID string) {
 	}
 	// The cluster goes either way; rdsStopAuroraDataPlane logs a failed stop.
 	_ = rdsStopAuroraDataPlane(id, true)
+	if cluster, ok := rdsClusters.Get(id); ok {
+		rdsRemoveAutomatedBackups(cluster)
+	}
 	if rdsDeletingCluster(id, resourceID) {
 		rdsClusters.Delete(id)
 	}

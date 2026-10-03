@@ -1044,17 +1044,35 @@ before the snapshot and none after, a point-in-time restore holds every
 committed row, and a restore from the final snapshot holds the cluster as it
 was deleted.
 
-An Aurora cluster restores to any time in its restorable window, kept as a
-base backup and the engine's own log. When the engine first accepts clients,
-before the endpoint relays any client to it, `Ready` captures the cluster
-volume into `sockerless-rds-cluster-base_<cluster>` (Aurora MySQL flushes its
-binary log first, so a new file starts with the capture), and DescribeDBClusters
-then reports that time as `EarliestRestorableTime` and the present as
-`LatestRestorableTime`. Aurora PostgreSQL's engine runs with `archive_mode=on`
+An Aurora cluster restores to any time in its restorable window, kept as base
+backups and the engine's own log. Each base backup is an automated DB cluster
+snapshot named `rds:<cluster>-<yyyy-mm-dd-hh-mm>`: `Ready` takes the first when
+the engine first accepts clients, before the endpoint relays any client to it,
+and a timer takes another at the start of every `PreferredBackupWindow`
+(honoured on CreateDBCluster and ModifyDBCluster, which refuse a window not
+spelled hh24:mi-hh24:mi) while the cluster is available and its engine runs.
+DescribeDBClusterSnapshots lists them under `SnapshotType` `automated`, and
+DeleteDBClusterSnapshot refuses one, as it does for every automated snapshot.
+DescribeDBClusters reports `EarliestRestorableTime` as the later of the oldest
+base backup and the start of the `BackupRetentionPeriod`, and the present as
+`LatestRestorableTime`. Each backup run also expires what the period no longer
+covers: automated snapshots older than the period go, a base backup's volume
+stays until a newer one was taken by the start of the period (and while a
+creating restore seeds from it), and the log before the oldest remaining base
+backup goes — `PURGE BINARY LOGS TO` its binary log file for MySQL, whose engine
+runs with `binlog_expire_logs_seconds=0` so its own 30-day expiry never purges
+a file a restore needs, and for PostgreSQL every archived segment before the
+REDO WAL file `pg_controldata` reports for that base backup. A capture freezes
+the engine, so it holds what a crash would leave; for MySQL the simulator reads
+the capture's newest binary log file and records the offset of the first
+transaction it does not hold whole (crash recovery commits exactly the
+transactions the binary log holds whole), where the replay onto that base
+backup starts. Aurora PostgreSQL's engine runs with `archive_mode=on`
 and archives every completed write-ahead log segment into the cluster volume;
 Aurora MySQL's binary log is on by default. RestoreDBClusterToPointInTime with
 `RestoreToTime` refuses a time outside the window with `InvalidRestoreFault`,
-seeds the new cluster volume from the base backup, and replays the source's log
+seeds the new cluster volume from the newest base backup taken by then, and
+replays the source's log
 read from its live cluster volume — every transaction that ended by the restore
 time is already in it, and a record still being written ends after it. For
 PostgreSQL a helper copies the archive and `pg_wal` into the new volume's
@@ -1068,7 +1086,8 @@ readiness probe had admitted clients to the read-only replay. For MySQL, whose i
 `mysqlbinlog`, the simulator reads the GTID events' microsecond immediate
 commit timestamps itself, cuts the binary log before the first transaction
 committed after the time, and a server started on the new volume applies it as
-its relay log with the replication SQL thread (`START REPLICA SQL_THREAD UNTIL`),
+its relay log from the base backup's recorded offset with the replication SQL
+thread (`START REPLICA SQL_THREAD UNTIL`),
 writing no binary log, driven by a user only its init file creates, which then
 sets the cluster's master password and is dropped. RestoreDBClusterFromSnapshot
 also takes a DB snapshot ARN: an RDS for PostgreSQL or RDS for MySQL instance's
@@ -1077,7 +1096,28 @@ MySQL cluster of the same image, under the instance's master credential and
 database, which DB snapshots now carry. The SDK, CLI and Terraform suites
 restore to a time the engine's clock has passed by a millisecond and prove the
 restored cluster holds the row committed before it and not the one after, and
-that a migrated cluster serves the instance's rows.
+that a migrated cluster serves the instance's rows; the SDK suite also moves
+a cluster's backup window to the next minute, keeps committing rows while the
+window's automated snapshot is taken, and restores to a time after it with
+every committed row present exactly once.
+
+RestoreDBClusterFromS3 creates an Aurora MySQL cluster from a Percona
+XtraBackup of a MySQL 8.0 server. The request needs the bucket to exist and
+the `S3IngestionRoleArn` role to trust `rds.amazonaws.com` and allow
+`s3:ListBucket` on the bucket and `s3:GetObject` on every object under
+`S3Prefix`, or it is refused with `InvalidS3BucketFault`; a 5.7 source is
+refused with `InvalidParameterCombination`. The cluster is `creating` while a
+background import copies the objects to a staging directory as that role, and
+a `docker.io/percona/percona-xtrabackup:8.0` helper unpacks them (xbstream,
+tar or gzip-compressed tar archives, whole or split into numbered parts, or the
+backup directory's own files), runs `xtrabackup --prepare` and copies the
+backup back into the cluster volume; a MySQL helper started on the volume with
+no network listener then creates or resets the master user with every
+privilege under the request's password, gives root the same password, and
+creates the cluster's database. The cluster lands `available`, or
+`migration-failed` when the import fails. The SDK, CLI and Terraform
+(`s3_import`) suites take a real backup of a MySQL 8.0 container and read its
+rows through the restored cluster.
 
 Every volume capture holds one crash-consistent point in time, the property a
 block-level storage snapshot gives. `sim.SnapshotVolume` lists the running

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
@@ -12,7 +13,9 @@ import (
 // snapshot captures that volume and a cluster restore seeds the new cluster's
 // volume from it before the engine first starts.
 func rdsClusterSnapshotVolume(snapshotID string) string {
-	return rdsVolume("cluster-snapshot", snapshotID)
+	// An automated snapshot's identifier starts rds:, and a volume name
+	// cannot hold a colon; no manual identifier holds a dot.
+	return rdsVolume("cluster-snapshot", strings.ReplaceAll(snapshotID, ":", "."))
 }
 
 // rdsCaptureClusterSnapshotData captures the cluster volume into the
@@ -79,6 +82,7 @@ func rdsFinishClusterRestore(clusterID string) {
 			stored.RestoreSourceVolume = ""
 			stored.RestoreLogVolume = ""
 			stored.RestoreToTime = ""
+			stored.RestoreBinlogFile, stored.RestoreBinlogOffset = "", 0
 		}
 	})
 }
@@ -90,6 +94,13 @@ func rdsRecoverClusterSnapshots() {
 		id := snapshot.DBClusterSnapshotIdentifier
 		switch snapshot.Status {
 		case "creating":
+			if snapshot.SnapshotType == "automated" {
+				// The next backup window takes the cluster's next automated
+				// backup; a capture cut short holds none.
+				rdsClusterSnapshots.Delete(id)
+				sim.RemoveVolumeSettled(rdsClusterSnapshotVolume(id), "rds")
+				continue
+			}
 			if rdsClusterSnapshotSourceGone(snapshot) {
 				// rdsMoveVolumesToKindNames moved the cluster's data into the
 				// snapshot's volume.

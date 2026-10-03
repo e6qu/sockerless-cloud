@@ -66,9 +66,8 @@ func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 	runCLI(t, awsCLI("rds", "wait", "db-cluster-available",
 		"--db-cluster-identifier", pit))
 
-	s3cluster := "cli-rext-cluster-s3"
-	runCLI(t, awsCLI("rds", "restore-db-cluster-from-s3",
-		"--db-cluster-identifier", s3cluster,
+	refused := runCLIExpectError(t, awsCLI("rds", "restore-db-cluster-from-s3",
+		"--db-cluster-identifier", "cli-rext-cluster-s3",
 		"--engine", "aurora-mysql",
 		"--master-username", "admin",
 		"--master-user-password", "password123!",
@@ -76,10 +75,7 @@ func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 		"--source-engine-version", "8.0",
 		"--s3-bucket-name", "my-backup-bucket",
 		"--s3-ingestion-role-arn", "arn:aws:iam::123456789012:role/rds-s3"))
-	t.Cleanup(func() {
-		_ = awsCLI("rds", "delete-db-cluster",
-			"--db-cluster-identifier", s3cluster, "--skip-final-snapshot").Run()
-	})
+	assert.Contains(t, refused, "InvalidS3BucketFault", "the backup bucket does not exist")
 
 	srcInst := "cli-rext-src-instance"
 	runCLI(t, awsCLI("rds", "create-db-instance",

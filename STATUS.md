@@ -122,9 +122,12 @@ Current state of the sockerless-cloud repository.
 - **Managed databases run real engines** with volumes, credentials sealed
   under the simulator's own key service, readiness classified by SQLSTATE, and
   snapshots that capture the data copy-on-write where the volume store allows
-  it. An Aurora cluster restores to any time since its engine first served,
-  replaying PostgreSQL's archived write-ahead log or MySQL's binary log onto a
-  base backup, and an Aurora cluster restores from an RDS DB snapshot ARN.
+  it. An Aurora cluster restores to any time in its backup retention period
+  since its engine first served, replaying PostgreSQL's archived write-ahead
+  log or MySQL's binary log onto the daily automated DB cluster snapshot taken
+  in its backup window, and expires the snapshots and log the period no longer
+  covers; an Aurora cluster restores from an RDS DB snapshot ARN, and an
+  Aurora MySQL cluster from a Percona XtraBackup in Amazon S3.
 - **The registries answer their own service**: Amazon ECR's empty ping with
   no content type, Artifact Registry's `text/html`, Azure Container Registry's
   `{}`; ECR hydrates a pull through a cache rule from the rule's upstream;
