@@ -214,7 +214,8 @@ Current state of the sockerless-cloud repository.
   hostname it reports: zip deploy and OneDeploy, authenticated with the
   publishing credentials or a Microsoft Entra token, land the artifact
   through the placement the Azure Resource Manager deployments use, restart
-  the site and track its start in deploymentStatus.
+  the site and track its start in deploymentStatus, as the Azure Resource
+  Manager MSDeploy and OneDeploy operations do.
 - **A Cloud Run service is served at its run.app URL**: a request whose Host
   is the service's `uri` host reaches the ingress container once its startup
   probes (the configured `startupProbe`, or Cloud Run's default TCP probe)

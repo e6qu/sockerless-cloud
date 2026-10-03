@@ -632,9 +632,19 @@ func kuduRunDeployment(recID, statusID, resID string, src kuduArtifactSource, ar
 		rec.logf(kuduLogMessage, "Deployed %d file(s) of the %s artifact to %s.", written, artifact.Type, artifact.Target)
 		rec.logf(kuduLogMessage, "Deployment successful.")
 	})
-	webDeploymentStatuses.Update(statusID, func(row *WebDeploymentStatusRecord) { row.Status = "RuntimeStarting" })
-	go kuduTrackRuntime(statusID, resID)
+	webStartDeploymentRuntime(statusID, resID)
 	return nil
+}
+
+// webStartDeploymentRuntime moves a deployment whose artifact landed to
+// RuntimeStarting and tracks the site's restart. The operation that built it
+// is over, so a poll of the status follows its Location from here on.
+func webStartDeploymentRuntime(statusID, resID string) {
+	webDeploymentStatuses.Update(statusID, func(row *WebDeploymentStatusRecord) {
+		row.Status = "RuntimeStarting"
+		row.OpID = ""
+	})
+	go kuduTrackRuntime(statusID, resID)
 }
 
 // kuduTrackRuntime settles a deployment's runtime status on the site's start.

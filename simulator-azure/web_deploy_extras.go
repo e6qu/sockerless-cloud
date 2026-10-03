@@ -749,10 +749,11 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 						row.Entries = append(row.Entries, WebMSDeployEntry{Time: end, Type: "Error", Message: err.Error()})
 					})
 					webDeploymentStatuses.Update(statusRecID, func(row *WebDeploymentStatusRecord) {
-						row.Status = "RuntimeFailed"
+						row.Status = "BuildFailed"
 						row.InProgress = 0
 						row.Failed = 1
 						row.Errors = append(row.Errors, err.Error())
+						row.OpID = ""
 					})
 					return &AsyncOperationError{Code: "DeploymentFailed", Message: err.Error()}
 				}
@@ -765,14 +766,14 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 						Message: fmt.Sprintf("Deployment succeeded: %d file(s) deployed.", written),
 					})
 				})
-				webDeploymentStatuses.Update(statusRecID, func(row *WebDeploymentStatusRecord) {
-					row.Status = "RuntimeSuccessful"
-					row.InProgress = 0
-					row.Successful = 1
-				})
+				webStartDeploymentRuntime(statusRecID, resID)
 				return nil
 			})
-			webDeploymentStatuses.Update(statusRecID, func(row *WebDeploymentStatusRecord) { row.OpID = opID })
+			webDeploymentStatuses.Update(statusRecID, func(row *WebDeploymentStatusRecord) {
+				if !webDeploymentStatusTerminal(row.Status) && row.Status != "RuntimeStarting" {
+					row.OpID = opID
+				}
+			})
 
 			opURL := azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"),
 				"Microsoft.Web", webSiteOperationLocation(resID), "operationStatuses", opID, r.URL.Query().Get("api-version"))
@@ -855,7 +856,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 			rec.Status = 3
 			rec.StatusText = "Failed"
 			rec.Message = err.Error()
-			status.Status = "RuntimeFailed"
+			status.Status = "BuildFailed"
 			status.Failed = 1
 			status.Errors = []string{err.Error()}
 			webOneDeployOps.Put(recID, rec)
@@ -866,10 +867,10 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 		rec.Status = 4
 		rec.StatusText = "Success"
 		rec.Message = fmt.Sprintf("OneDeploy succeeded: %d file(s) deployed.", written)
-		status.Status = "RuntimeSuccessful"
-		status.Successful = 1
+		status.InProgress = 1
 		webOneDeployOps.Put(recID, rec)
 		webDeploymentStatuses.Put(statusRecID, status)
+		webStartDeploymentRuntime(statusRecID, resID)
 		sim.WriteJSON(w, http.StatusOK, oneDeployWire(rec))
 	})
 

@@ -656,7 +656,16 @@ deployment 409. Each deployment is a Kudu record — `/api/deployments`, `/lates
 that goes `BuildInProgress`, `RuntimeStarting`, then `RuntimeSuccessful` once
 the restarted site answers the platform's warmup request, or `RuntimeFailed`
 naming why it did not start, which is what the Azure CLI polls after a Linux
-deployment. `WEBSITE_RUN_FROM_PACKAGE=1` makes each zip deployment the whole of
+deployment. The Azure Resource Manager MSDeploy and OneDeploy operations
+settle their deploymentStatus the same way: they had reported
+`RuntimeSuccessful` the moment the package unpacked, so a function app with no
+image reported a runtime that never started; they now hand the restart to the
+same tracker (and a package that fails to land reports `BuildFailed`), and the
+tests asserting `RuntimeSuccessful` deploy to sites that run — a built-in-stack
+web app, or a container site whose command answers HTTP. Once the build phase
+ends the status stops naming the operation's Azure-AsyncOperation URL, so a
+poller follows the status itself to the runtime outcome rather than the
+finished build. `WEBSITE_RUN_FROM_PACKAGE=1` makes each zip deployment the whole of
 wwwroot, mounted read-only. The CLI suite reaches the `.localhost` SCM host
 through an HTTPS proxy the test runs, the CLI analogue of the SDK suite's
 dialer: the commands and their requests are the ones a real deployment sends.

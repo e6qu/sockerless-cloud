@@ -314,7 +314,10 @@ func TestSDK_WebApps_InvokeAuthLevelContract(t *testing.T) {
 func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
 	pullImageWithRetry(t, stage3AlpineImage)
 	rg, name := "sdk-webjobs-rg", "sdk-webjobs-app"
-	azureCreateContainerSite(t, rg, name, stage3AlpineImage, "", nil)
+	// The site's own container answers HTTP on port 80, so the deployment's
+	// restart reaches RuntimeSuccessful.
+	azureCreateContainerSite(t, rg, name, stage3AlpineImage,
+		`sh -c "while true; do printf 'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n' | nc -l -p 80; done"`, nil)
 	defer azureDeleteSite(rg, name)
 
 	cred := &fakeCredential{}
@@ -435,11 +438,7 @@ func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
 		statuses = append(statuses, page.Value...)
 	}
 	require.NotEmpty(t, statuses)
-	assert.Equal(t, armappservice.DeploymentBuildStatusRuntimeSuccessful, *statuses[0].Properties.Status)
-	getPoller, err := client.BeginGetProductionSiteDeploymentStatus(ctx, rg, name, *statuses[0].Properties.DeploymentID, nil)
-	require.NoError(t, err)
-	finalStatus, err := getPoller.PollUntilDone(ctx, nil)
-	require.NoError(t, err)
+	finalStatus := awaitDeploymentRuntime(t, client, rg, name, *statuses[0].Properties.DeploymentID)
 	assert.Equal(t, armappservice.DeploymentBuildStatusRuntimeSuccessful, *finalStatus.Properties.Status)
 }
 
@@ -494,14 +493,10 @@ func stage3AwaitContinuousStatus(t *testing.T, client *armappservice.WebAppsClie
 
 func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 	rg, name := "sdk-deploy-extra-rg", "sdk-deploy-extra-app"
-	azureCreateSite(t, rg, name)
-	defer azureDeleteSite(rg, name)
-
+	client := createStackWebApp(t, rg, name, "NODE|20-lts", nil)
 	cred := &fakeCredential{}
-	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
-	require.NoError(t, err)
 
-	pkg := makeJobsZip(t, map[string]string{"index.html": "<h1>stage3</h1>"})
+	pkg := makeJobsZip(t, map[string]string{"server.js": kuduFileServer, "index.html": "<h1>stage3</h1>"})
 	pkgURL := servePackage(t, pkg)
 
 	// OneDeploy. The swagger models no request body for
@@ -536,7 +531,12 @@ func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 		statuses = append(statuses, page.Value...)
 	}
 	require.Len(t, statuses, 1)
-	assert.Equal(t, armappservice.DeploymentBuildStatusRuntimeSuccessful, *statuses[0].Properties.Status)
+	runtime := awaitDeploymentRuntime(t, client, rg, name, *statuses[0].Properties.DeploymentID)
+	assert.Equal(t, armappservice.DeploymentBuildStatusRuntimeSuccessful, *runtime.Properties.Status,
+		"the OneDeploy restart reaches a site that answers")
+	status, served := azureSiteRequest(t, name, http.MethodGet, "/index.html", "")
+	require.Equal(t, http.StatusOK, status, "%s", served)
+	assert.Equal(t, "<h1>stage3</h1>", string(served))
 
 	// Instance-scoped MSDeploy (the sim's one instance).
 	instPoller, err := client.BeginCreateInstanceMSDeployOperation(ctx, rg, name, "0", armappservice.MSDeploy{
@@ -640,7 +640,9 @@ func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 	require.NoError(t, err)
 	slotFinal, err := slotGet.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	assert.Equal(t, armappservice.DeploymentBuildStatusRuntimeSuccessful, *slotFinal.Properties.Status)
+	assert.Equal(t, armappservice.DeploymentBuildStatusRuntimeFailed, *slotFinal.Properties.Status,
+		"the simulator runs no slot instance for the restart to reach")
+	require.NotEmpty(t, slotFinal.Properties.Errors)
 	_, err = client.GenerateNewSitePublishingPasswordSlot(ctx, rg, name, "staging", nil)
 	require.NoError(t, err)
 	_, err = client.SyncRepositorySlot(ctx, rg, name, "staging", nil)
