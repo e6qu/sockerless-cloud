@@ -71,6 +71,9 @@ type WebJobRunRecord struct {
 	StartTime string `json:"startTime"`
 	EndTime   string `json:"endTime,omitempty"`
 	Duration  string `json:"duration,omitempty"`
+	// Trigger names what started the run, as Kudu records it: "External - "
+	// and the caller's user agent for a run requested over the SCM site.
+	Trigger string `json:"trigger,omitempty"`
 }
 
 var webJobRuns sim.Store[WebJobRunRecord]
@@ -303,6 +306,10 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 	if strings.HasSuffix(rec.RunCommand, ".sh") {
 		runInvocation = "sh ./" + rec.RunCommand
 	}
+	// Kudu appends a run's arguments to the run file's command line.
+	if args := extraEnv["WEBJOBS_COMMAND_ARGUMENTS"]; args != "" {
+		runInvocation += " " + args
+	}
 	metadataEnv, err := hostMetadataEnv()
 	if err != nil {
 		return nil, err
@@ -334,7 +341,7 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 // webRunTriggeredWebJob starts one real run of a triggered webjob and records
 // it in the job's history: Running at container start, then the terminal
 // status the container's exit code dictates, with the actual timings.
-func webRunTriggeredWebJob(site *Site, rec WebJobRecord) {
+func webRunTriggeredWebJob(site *Site, rec WebJobRecord, trigger, arguments string) string {
 	runID := sim.NewUUID()
 	runRecID := rec.ID + "/history/" + runID
 	now := time.Now().UTC()
@@ -346,9 +353,14 @@ func webRunTriggeredWebJob(site *Site, rec WebJobRecord) {
 		JobName:   rec.Name,
 		Status:    "Running",
 		StartTime: now.Format(time.RFC3339),
+		Trigger:   trigger,
 	}
 	webJobRuns.Put(runRecID, run)
-	handle, err := startWebJobProcess(site, rec, map[string]string{"WEBJOBS_RUN_ID": runID})
+	env := map[string]string{"WEBJOBS_RUN_ID": runID}
+	if arguments != "" {
+		env["WEBJOBS_COMMAND_ARGUMENTS"] = arguments
+	}
+	handle, err := startWebJobProcess(site, rec, env)
 	if err != nil {
 		webJobRuns.Update(runRecID, func(row *WebJobRunRecord) {
 			row.Status = "Error"
@@ -356,7 +368,7 @@ func webRunTriggeredWebJob(site *Site, rec WebJobRecord) {
 			row.Duration = time.Since(now).String()
 		})
 		webWebJobs.Update(rec.ID, func(row *WebJobRecord) { row.Error = err.Error() })
-		return
+		return runID
 	}
 	webJobContainers.Lock()
 	webJobContainers.m[runRecID] = handle
@@ -389,6 +401,7 @@ func webRunTriggeredWebJob(site *Site, rec WebJobRecord) {
 			row.Duration = end.Sub(start).String()
 		})
 	})
+	return runID
 }
 
 // webStartContinuousWebJob starts a continuous webjob's real container,
@@ -453,11 +466,20 @@ func webJobSiteScopedName(resID, child string) string {
 	return name + "/" + child
 }
 
-// webJobScmBase is the site's Kudu host, where the platform's own webjob URLs
-// (url / history_url — external surfaces the sim does not serve) point.
-func webJobScmBase(rec WebJobRecord) string {
+// webJobRunTrigger is what started a run; a run recorded without one was
+// requested through Azure Resource Manager.
+func webJobRunTrigger(run WebJobRunRecord) string {
+	if run.Trigger == "" {
+		return "External - ARM"
+	}
+	return run.Trigger
+}
+
+// webJobScmBase is the site's Kudu host, whose webjobs API the url and
+// history_url members name.
+func webJobScmBase(r *http.Request, rec WebJobRecord) string {
 	site, _ := webJobSite(rec.SiteID)
-	return "https://" + siteScmHost(&site)
+	return azureRequestScheme(r) + "://" + siteScmHost(&site)
 }
 
 func triggeredJobRunWire(run WebJobRunRecord) map[string]any {
@@ -467,7 +489,7 @@ func triggeredJobRunWire(run WebJobRunRecord) map[string]any {
 		"job_name":     run.JobName,
 		"status":       run.Status,
 		"start_time":   run.StartTime,
-		"trigger":      "External - ARM",
+		"trigger":      webJobRunTrigger(run),
 	}
 	if run.EndTime != "" {
 		out["end_time"] = run.EndTime
@@ -499,15 +521,13 @@ func webJobWire(rec WebJobRecord) map[string]any {
 	}
 }
 
-func triggeredWebJobWire(rec WebJobRecord) map[string]any {
+func triggeredWebJobWire(r *http.Request, rec WebJobRecord) map[string]any {
 	props := map[string]any{
 		"run_command":  rec.RunCommand,
 		"web_job_type": "Triggered",
 		"using_sdk":    false,
-		// External Kudu URLs on the deployed site, emitted for shape
-		// fidelity; the sim does not serve the SCM surface.
-		"url":         webJobScmBase(rec) + "/api/triggeredwebjobs/" + rec.Name,
-		"history_url": webJobScmBase(rec) + "/api/triggeredwebjobs/" + rec.Name + "/history",
+		"url":          webJobScmBase(r, rec) + "/api/triggeredwebjobs/" + rec.Name,
+		"history_url":  webJobScmBase(r, rec) + "/api/triggeredwebjobs/" + rec.Name + "/history",
 	}
 	if rec.Error != "" {
 		props["error"] = rec.Error
@@ -523,7 +543,7 @@ func triggeredWebJobWire(rec WebJobRecord) map[string]any {
 	}
 }
 
-func continuousWebJobWire(rec WebJobRecord) map[string]any {
+func continuousWebJobWire(r *http.Request, rec WebJobRecord) map[string]any {
 	status := rec.Status
 	if status == "" {
 		status = "Stopped"
@@ -533,7 +553,7 @@ func continuousWebJobWire(rec WebJobRecord) map[string]any {
 		"web_job_type": "Continuous",
 		"using_sdk":    false,
 		"status":       status,
-		"url":          webJobScmBase(rec) + "/api/continuouswebjobs/" + rec.Name,
+		"url":          webJobScmBase(r, rec) + "/api/continuouswebjobs/" + rec.Name,
 	}
 	if rec.DetailedStatus != "" {
 		props["detailed_status"] = rec.DetailedStatus
@@ -648,7 +668,7 @@ func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 		}
 		out := make([]any, 0)
 		for _, rec := range listJobs(r, "triggered") {
-			out = append(out, triggeredWebJobWire(rec))
+			out = append(out, triggeredWebJobWire(r, rec))
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
@@ -657,7 +677,7 @@ func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 		if !ok {
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, triggeredWebJobWire(rec))
+		sim.WriteJSON(w, http.StatusOK, triggeredWebJobWire(r, rec))
 	})
 	both("DELETE", "/triggeredwebjobs/{webJobName}", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
@@ -681,7 +701,7 @@ func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 			return
 		}
 		site, _ := webResource(r)
-		webRunTriggeredWebJob(&site, rec)
+		webRunTriggeredWebJob(&site, rec, "External - ARM", "")
 		w.WriteHeader(http.StatusOK)
 	})
 	both("GET", "/triggeredwebjobs/{webJobName}/history", func(w http.ResponseWriter, r *http.Request) {
@@ -719,7 +739,7 @@ func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 		}
 		out := make([]any, 0)
 		for _, rec := range listJobs(r, "continuous") {
-			out = append(out, continuousWebJobWire(rec))
+			out = append(out, continuousWebJobWire(r, rec))
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
@@ -728,7 +748,7 @@ func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 		if !ok {
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, continuousWebJobWire(rec))
+		sim.WriteJSON(w, http.StatusOK, continuousWebJobWire(r, rec))
 	})
 	both("DELETE", "/continuouswebjobs/{webJobName}", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {

@@ -210,12 +210,14 @@ Current state of the sockerless-cloud repository.
   On, with every request on the site's hostname forwarded to it; the host
   reads no consumer-named setting and nothing from an image reference's
   spelling.
-- **A web app's SCM site serves Kudu's deployment API** at the Repository
+- **A web app's SCM site serves Kudu's deployment and WebJobs APIs** at the Repository
   hostname it reports: zip deploy and OneDeploy, authenticated with the
   publishing credentials or a Microsoft Entra token, land the artifact
   through the placement the Azure Resource Manager deployments use, restart
   the site and track its start in deploymentStatus, as the Azure Resource
-  Manager MSDeploy and OneDeploy operations do.
+  Manager MSDeploy and OneDeploy operations do; its WebJobs API lists,
+  places, runs, starts, stops and deletes the jobs the Microsoft.Web webjob
+  resources read.
 - **A Cloud Run service is served at its run.app URL**: a request whose Host
   is the service's `uri` host reaches the ingress container once its startup
   probes (the configured `startupProbe`, or Cloud Run's default TCP probe)

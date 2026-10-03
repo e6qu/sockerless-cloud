@@ -23,7 +23,7 @@ import (
 // the Repository hostname the site reports in hostNameSslStates: zip deploy
 // (/api/zipdeploy), OneDeploy (/api/publish) and the deployment records both
 // write (/api/deployments, and the legacy /deployments the warmup probe
-// reads). Requests authenticate with the site's publishing credentials (or
+// reads). web_kudu_webjobs.go serves its WebJobs API. Requests authenticate with the site's publishing credentials (or
 // the subscription's deployment user) as HTTP basic auth while the scm basic
 // publishing credentials policy allows it, or with a Microsoft Entra bearer
 // token. A deployment lands its artifact through the same placement the Azure
@@ -257,6 +257,9 @@ func serveKudu(w http.ResponseWriter, r *http.Request, site *Site) {
 	if !kuduAuthorize(w, r, site) {
 		return
 	}
+	if serveKuduWebJobs(w, r, site) {
+		return
+	}
 	p := strings.TrimSuffix(strings.ToLower(r.URL.Path), "/")
 	if rest, ok := strings.CutPrefix(p, "/api"); ok && strings.HasPrefix(rest, "/deployments") {
 		p = rest
@@ -284,7 +287,7 @@ func serveKudu(w http.ResponseWriter, r *http.Request, site *Site) {
 		kuduOneDeploy(w, r, site)
 	default:
 		kuduError(w, http.StatusNotImplemented,
-			"App Service SCM site: %s %s is not implemented by the simulator, which serves the Kudu deployment API (/api/zipdeploy, /api/publish, /api/deployments)",
+			"App Service SCM site: %s %s is not implemented by the simulator, which serves the Kudu deployment API (/api/zipdeploy, /api/publish, /api/deployments) and the WebJobs API (/api/webjobs, /api/triggeredwebjobs, /api/continuouswebjobs)",
 			r.Method, r.URL.Path)
 	}
 }

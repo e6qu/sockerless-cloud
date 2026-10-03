@@ -669,7 +669,20 @@ finished build. `WEBSITE_RUN_FROM_PACKAGE=1` makes each zip deployment the whole
 wwwroot, mounted read-only. The CLI suite reaches the `.localhost` SCM host
 through an HTTPS proxy the test runs, the CLI analogue of the SDK suite's
 dialer: the commands and their requests are the ones a real deployment sends.
-Because the SCM site sits behind a handler wrapper, every store read a Kudu
+The SCM site also serves Kudu's WebJobs API over the webjob records the
+Microsoft.Web webjob resources read, where it had answered the `url` and
+`history_url` those resources advertise with 501: `/api/webjobs`,
+`/api/triggeredwebjobs` and `/api/continuouswebjobs` list and get jobs in
+Kudu's own spelling (`run_command`, `type`, `latest_run`, `settings`); a PUT
+places a job — a zip, or one run file named by `Content-Disposition` — under
+`App_Data/jobs` and rediscovers the site's jobs, a DELETE removes its files
+and with them the job; a triggered run answers 202 with its history entry as
+`Location`, passes `arguments` to the run file's command line and as
+`WEBJOBS_COMMAND_ARGUMENTS`, records `External - <user agent>` as its trigger,
+and answers 409 while the job already runs or `WEBJOBS_STOPPED` is set;
+`settings` reads and writes the job's `settings.job`; start and stop drive the
+continuous job's container. The advertised URLs carry the scheme the request
+came in on, so they resolve. Because the SCM site sits behind a handler wrapper, every store read a Kudu
 deployment reaches answers from a generation index — a site's Kudu
 deployments, webjobs and host-name bindings, and a webjob's runs — instead of
 a full-store scan.
