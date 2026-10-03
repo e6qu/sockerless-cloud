@@ -63,7 +63,9 @@ func appServiceSiteByHost(host string) (Site, bool) {
 }
 
 func serveSiteRequest(w http.ResponseWriter, r *http.Request, site *Site) {
-	if r.URL.Path == "/api/function" && !azureFunctionInvokeAuthorized(site, r) {
+	// The Functions host enforces its functions' authLevel itself.
+	_, hostRun := siteFunctionsHostStack(site)
+	if r.URL.Path == "/api/function" && !hostRun && !azureFunctionInvokeAuthorized(site, r) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}

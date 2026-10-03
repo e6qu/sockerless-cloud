@@ -100,9 +100,9 @@ func TestSDK_WebApps_PythonStackRunsFromPackage(t *testing.T) {
 	assert.Equal(t, "python 3.12 /run-from-package", string(body))
 }
 
-// A site the simulator has nothing to run for — a function app with no
-// container image, here — answers 503 naming what it lacks, never a made-up
-// success.
+// A site the simulator has nothing to run for — a function app that names
+// neither a built-in stack nor a container image, here — answers 503 naming
+// what it lacks, never a made-up success.
 func TestSDK_WebApps_SiteWithNothingToRunAnswersServiceUnavailable(t *testing.T) {
 	rg, name := "func-nothing-rg", "nothing-func-app"
 	azureCreateSite(t, rg, name)
@@ -110,6 +110,6 @@ func TestSDK_WebApps_SiteWithNothingToRunAnswersServiceUnavailable(t *testing.T)
 
 	status, body := azureInvokeFunctionResponse(t, name)
 	assert.Equal(t, http.StatusServiceUnavailable, status, "body: %s", body)
-	assert.Contains(t, string(body), "does not run the Azure Functions host")
+	assert.Contains(t, string(body), "names no runtime")
 	assert.NotContains(t, siteContainerLog(t, rg, name), "Function invoked")
 }

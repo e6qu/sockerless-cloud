@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,6 +70,14 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	dir := tfStackWorkspace(t)
 	nodeAppPackageURL = serveZipPackage(t, map[string]string{
 		"server.js": `require("http").createServer((req, res) => res.end("node " + process.version + " " + req.url)).listen(process.env.PORT)`,
+	})
+	nodeFunctionPackageURL = serveZipPackage(t, map[string]string{
+		"host.json": `{"version":"2.0"}`,
+		"hello/function.json": `{"bindings":[` +
+			`{"type":"httpTrigger","direction":"in","name":"req","authLevel":"function","methods":["get"]},` +
+			`{"type":"http","direction":"out","name":"res"}]}`,
+		"hello/index.js": `module.exports = async function (context, req) {` +
+			` context.res = { body: "hello from " + process.env.WEBSITE_SITE_NAME + " on node " + process.version }; };`,
 	})
 	zipAppPackagePath = writeZipPackage(t, map[string]string{
 		"server.js": `require("http").createServer((req, res) => res.end("zip deployed on node " + process.version + " " + req.url)).listen(process.env.PORT)`,
@@ -483,6 +492,9 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		outputs.must(t, "azrm_node_web_app_hostname"),
 		outputs.must(t, "azrm_python_web_app_hostname"))
 	assertZipDeployedWebAppServes(t, outputs.must(t, "azrm_zip_web_app_hostname"))
+	assertNodeFunctionAppServes(t,
+		outputs.must(t, "azrm_node_function_app_hostname"),
+		outputs.must(t, "azrm_node_function_app_default_key"))
 
 	out, err = runTimed(t, "terraform destroy", terraformCmd(dir, "destroy", "-auto-approve"))
 	require.NoError(t, err, "terraform destroy failed:\n%s", out)
@@ -547,6 +559,35 @@ func assertZipDeployedWebAppServes(t *testing.T, host string) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 	require.Regexp(t, `^zip deployed on node v20\.\d+\.\d+ /from-zip-deploy$`, string(body))
+}
+
+// nodeFunctionPackageURL is the package the Node function app's
+// WEBSITE_RUN_FROM_PACKAGE names; terraformCmd passes it as the
+// node_function_package_url variable.
+var nodeFunctionPackageURL string
+
+// assertNodeFunctionAppServes requests the Node function app's function: the
+// Azure Functions host refuses it without a key and runs it, on Node 22, with
+// the default host key the provider's data source read.
+func assertNodeFunctionAppServes(t *testing.T, host, defaultKey string) {
+	t.Helper()
+	require.Equal(t, "tf-azrm-node-fa.azurewebsites.net", host)
+	get := func(path string) (int, string) {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", simPort, path), nil)
+		require.NoError(t, err)
+		req.Host = host
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		return resp.StatusCode, string(body)
+	}
+	status, body := get("/api/hello")
+	require.Equal(t, http.StatusUnauthorized, status, "body: %s", body)
+	status, body = get("/api/hello?code=" + url.QueryEscape(defaultKey))
+	require.Equal(t, http.StatusOK, status, "body: %s", body)
+	require.Regexp(t, `^hello from tf-azrm-node-fa on node v22\.\d+\.\d+$`, body)
 }
 
 // nodeAppPackageURL is the package the Node web app's WEBSITE_RUN_FROM_PACKAGE

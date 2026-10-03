@@ -889,6 +889,9 @@ func registerWebFunctionsRW(both, slot func(string, string, http.HandlerFunc)) {
 		azfFunctionConfigs.Put(req.ID, req)
 		// Real Azure provisions a "default" function key with the function.
 		ensureWebFunctionKeys(req.ID)
+		if !functionsHostSecretsOut(w, r) {
+			return
+		}
 		sim.WriteJSON(w, http.StatusCreated, req)
 	})
 	both("DELETE", "/functions/{functionName}", func(w http.ResponseWriter, r *http.Request) {
@@ -897,6 +900,12 @@ func registerWebFunctionsRW(both, slot func(string, string, http.HandlerFunc)) {
 		}
 		azfFunctionConfigs.Delete(funcID(r))
 		webFunctionKeys.Delete(funcID(r))
+		if site, ok := hostRunFunctionApp(webResourceID(r)); ok {
+			if err := removeFunctionSecretsFile(site, sim.PathParam(r, "functionName")); err != nil {
+				AzureErrorf(w, "InternalServerError", http.StatusInternalServerError, "%v", err)
+				return
+			}
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 

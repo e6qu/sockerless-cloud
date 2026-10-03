@@ -232,6 +232,9 @@ func TestMain(m *testing.M) {
 	if testRunSelects("TestSDK_WebApps_PythonStackRunsFromPackage") {
 		pullImageBeforeRun("mcr.microsoft.com/appsvc/python:3.12_20260910.5.tuxprod")
 	}
+	if testRunSelects("TestSDK_FunctionApps_NodeHostRunsTheDeployedFunctions") {
+		pullImageBeforeRun(functionsHostNodeImage)
+	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

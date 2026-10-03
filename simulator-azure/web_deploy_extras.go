@@ -434,7 +434,7 @@ func webDeployArtifact(resID string, data []byte, a webArtifact) (int, error) {
 	webCaptureAppSnapshot(resID)
 	if a.Restart {
 		if site, ok := azfSites.Get(resID); ok {
-			if _, runsStack := siteBuiltInStack(&site); runsStack {
+			if _, runsStack := sitePlatformImage(&site); runsStack {
 				restartAzureFunctionInstance(site)
 			}
 		}

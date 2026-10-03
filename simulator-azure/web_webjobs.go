@@ -282,8 +282,8 @@ func materializeWebJobDir(resID, kind, name string) (string, error) {
 // execution model App Service gives a webjob — and returns the live handle.
 func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string) (*sim.ContainerHandle, error) {
 	image := siteContainerImage(site)
-	if stack, ok := siteBuiltInStack(site); ok {
-		image = stack.Image
+	if platformImage, ok := sitePlatformImage(site); ok {
+		image = platformImage
 	}
 	if image == "" {
 		return nil, fmt.Errorf("webjob %q: %w", rec.Name, siteImageMissing(site))

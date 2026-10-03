@@ -172,6 +172,8 @@ func TestMain(m *testing.M) {
 		"public.ecr.aws/docker/library/alpine:3.20",
 		// The App Service platform image the Node web app test runs.
 		"mcr.microsoft.com/appsvc/node:20-lts_20260904.5.tuxprod",
+		// The Azure Functions host image the Node function app test runs.
+		"mcr.microsoft.com/azure-functions/node:4.1054.250-4-node22-appservice",
 	} {
 		pullWorkloadImage(image)
 	}

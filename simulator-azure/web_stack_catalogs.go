@@ -8,11 +8,10 @@ import (
 )
 
 // App Service's runtime-stack catalogs list the built-in runtime stacks the
-// App Service runs, read from the same table (appServiceLinuxStacks) the site
-// path starts a stack's platform image from, so the two cannot disagree. Every
-// stack here is a Linux stack; a Windows selection lists none. The function
-// app catalog lists none: this App Service does not run the Azure Functions
-// host, which is what a function app on a built-in stack is refused with.
+// App Service runs, read from the same tables (appServiceLinuxStacks and
+// functionsHostStacks) the site path starts a stack's image from, so the two
+// cannot disagree. Every stack here is a Linux stack; a Windows selection
+// lists none.
 
 // registerWebStackCatalogs mounts the six spellings of the four catalog reads.
 func registerWebStackCatalogs(srv *sim.Server) {
@@ -32,17 +31,25 @@ func registerWebStackCatalogs(srv *sim.Server) {
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
 	}
-	noFunctionStacks := func(w http.ResponseWriter, _ *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
+	functionAppStacks := func(location string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			value := []any{}
+			if sel := r.URL.Query().Get("stackOsType"); sel == "" || strings.EqualFold(sel, "Linux") || strings.EqualFold(sel, "All") {
+				value = functionAppStackEntries(location)
+			}
+			sim.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
+		}
 	}
 
 	srv.HandleFunc("GET /providers/Microsoft.Web/availableStacks", availableStacks)
 	srv.HandleFunc("GET /providers/Microsoft.Web/webAppStacks", webAppStacks(""))
-	srv.HandleFunc("GET /providers/Microsoft.Web/functionAppStacks", noFunctionStacks)
+	srv.HandleFunc("GET /providers/Microsoft.Web/functionAppStacks", functionAppStacks(""))
 	srv.HandleFunc("GET /providers/Microsoft.Web/locations/{location}/webAppStacks", func(w http.ResponseWriter, r *http.Request) {
 		webAppStacks(sim.PathParam(r, "location"))(w, r)
 	})
-	srv.HandleFunc("GET /providers/Microsoft.Web/locations/{location}/functionAppStacks", noFunctionStacks)
+	srv.HandleFunc("GET /providers/Microsoft.Web/locations/{location}/functionAppStacks", func(w http.ResponseWriter, r *http.Request) {
+		functionAppStacks(sim.PathParam(r, "location"))(w, r)
+	})
 	srv.HandleFunc("GET "+webSubscriptionProvider+"/availableStacks", availableStacks)
 }
 
@@ -157,6 +164,72 @@ func availableStackEntries() []any {
 				"frameworks":    []any{},
 			},
 		})
+	}
+	return out
+}
+
+// functionAppStackEntries renders the Functions host stacks as FunctionAppStack
+// resources: one per runtime, one major version per runtime version, each
+// carrying the app settings and site configuration a function app on it is
+// created with.
+func functionAppStackEntries(location string) []any {
+	var order []string
+	majors := map[string][]any{}
+	display := map[string]string{}
+	for _, s := range functionsHostStacks {
+		if _, seen := majors[s.Runtime]; !seen {
+			order = append(order, s.Runtime)
+			display[s.Runtime] = s.RuntimeDisplay
+		}
+		versionDisplay := s.RuntimeDisplay + " " + s.Version
+		majors[s.Runtime] = append(majors[s.Runtime], map[string]any{
+			"displayText": versionDisplay,
+			"value":       s.Version,
+			"minorVersions": []any{map[string]any{
+				"displayText": versionDisplay,
+				"value":       s.Version,
+				"stackSettings": map[string]any{
+					"linuxRuntimeSettings": map[string]any{
+						"runtimeVersion":           s.LinuxFx,
+						"isPreview":                false,
+						"isDeprecated":             false,
+						"isHidden":                 false,
+						"remoteDebuggingSupported": false,
+						"appInsightsSettings":      map[string]any{"isSupported": false},
+						"gitHubActionSettings":     map[string]any{"isSupported": false},
+						"appSettingsDictionary":    map[string]any{"FUNCTIONS_WORKER_RUNTIME": s.Runtime},
+						"siteConfigPropertiesDictionary": map[string]any{
+							"use32BitWorkerProcess": false,
+							"linuxFxVersion":        s.LinuxFx,
+						},
+						"supportedFunctionsExtensionVersions": []any{"~4"},
+						"endOfLifeDate":                       s.EndOfLife,
+					},
+				},
+			}},
+		})
+	}
+	out := make([]any, 0, len(order))
+	for _, runtime := range order {
+		id := "/providers/Microsoft.Web/functionAppStacks/" + runtime
+		if location != "" {
+			id = "/providers/Microsoft.Web/locations/" + location + "/functionAppStacks/" + runtime
+		}
+		entry := map[string]any{
+			"id":   id,
+			"name": runtime,
+			"type": "Microsoft.Web/functionAppStacks",
+			"properties": map[string]any{
+				"displayText":   display[runtime],
+				"value":         runtime,
+				"preferredOs":   "Linux",
+				"majorVersions": majors[runtime],
+			},
+		}
+		if location != "" {
+			entry["location"] = location
+		}
+		out = append(out, entry)
 	}
 	return out
 }

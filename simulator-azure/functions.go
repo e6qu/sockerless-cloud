@@ -291,6 +291,12 @@ func registerAzureFunctions(srv *sim.Server) {
 
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
 
+		// The resource provider takes a plan in the site's own resource group
+		// by name, as az functionapp create names it, and records its ID.
+		if plan := req.Properties.ServerFarmID; plan != "" && !strings.Contains(plan, "/") {
+			req.Properties.ServerFarmID = fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/%s", sub, rg, plan)
+		}
+
 		// A site placed in an App Service Environment is placed in one that
 		// exists; the resource provider refuses an unresolvable reference.
 		hostingEnvironment, err := webResolveHostingEnvironmentProfile(req.Properties.HostingEnvironmentProfile)
@@ -494,19 +500,15 @@ func registerAzureFunctions(srv *sim.Server) {
 
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
 
-		// Verify site exists
-		if _, ok := sites.Get(resourceID); !ok {
+		site, ok := sites.Get(resourceID)
+		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
 
-		filtered := functionConfigs.Filter(func(f FunctionEnvelope) bool {
-			return strings.HasPrefix(f.ID, resourceID+"/functions/")
-		})
-
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"value": filtered,
+			"value": siteFunctions(&site),
 		})
 	})
 
@@ -520,7 +522,11 @@ func registerAzureFunctions(srv *sim.Server) {
 		funcID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/functions/%s",
 			sub, rg, siteName, funcName)
 
+		siteID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, siteName)
 		fn, ok := functionConfigs.Get(funcID)
+		if site, isSite := sites.Get(siteID); isSite && !ok {
+			fn, ok = siteFunction(&site, funcName)
+		}
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The function '%s' in site '%s' was not found.", funcName, siteName)
@@ -1150,12 +1156,12 @@ func azfInstanceFor(siteName string) *azureFunctionInstance {
 
 // siteRunsContainer reports whether App Service runs the site as a container
 // this simulator can start: a sitecontainers site, a linuxFxVersion naming an
-// image, or a web app on a built-in stack this App Service runs.
+// image, or a site on a built-in stack this App Service runs.
 func siteRunsContainer(site *Site) bool {
 	if mainSiteContainer(site.ID) != nil || siteContainerImage(site) != "" {
 		return true
 	}
-	_, ok := siteBuiltInStack(site)
+	_, ok := sitePlatformImage(site)
 	return ok
 }
 
@@ -1233,14 +1239,14 @@ func siteImageMissing(site *Site) error {
 	switch {
 	case siteIsFunctionApp(site) && stack != "":
 		return fmt.Errorf(
-			"function app %q is configured with the built-in runtime stack %q, and this simulator "+
-				"does not run the Azure Functions host: configure the app with a container image "+
-				"(linuxFxVersion \"DOCKER|<image>\")", site.Name, stack)
+			"function app %q is configured with the built-in runtime stack %q, which this simulator "+
+				"does not run the Azure Functions host for; the stacks it runs are %s, or configure a "+
+				"container image (linuxFxVersion \"DOCKER|<image>\")",
+			site.Name, stack, strings.Join(functionsHostStackNames(), ", "))
 	case siteIsFunctionApp(site):
 		return fmt.Errorf(
-			"function app %q names no container image, and this simulator does not run the Azure "+
-				"Functions host: configure the app with a container image (linuxFxVersion \"DOCKER|<image>\")",
-			site.Name)
+			"function app %q names no runtime: configure a built-in stack (%s) or a container image "+
+				"(linuxFxVersion \"DOCKER|<image>\")", site.Name, strings.Join(functionsHostStackNames(), ", "))
 	case stack != "":
 		return fmt.Errorf(
 			"site %q is configured with the built-in runtime stack %q, which this simulator does not "+
@@ -1291,6 +1297,18 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 			return err
 		}
 		binds = append(home, siteAzureStorageBinds(site)...)
+	} else if stack, ok := siteFunctionsHostStack(site); ok {
+		// The host image's entrypoint starts the Functions host on PORT; App
+		// Service runs it without a startup command.
+		image = stack.Image
+		home, err := prepareSiteHome(site)
+		if err != nil {
+			return err
+		}
+		if err := syncFunctionsHostSecrets(site); err != nil {
+			return err
+		}
+		binds = append(home, siteAzureStorageBinds(site)...)
 	} else {
 		image = siteContainerImage(site)
 		if site.Properties.SiteConfig != nil {
@@ -1321,7 +1339,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	if err != nil {
 		return err
 	}
-	env := workloadhost.MergeEnv(siteAppSettings(site), map[string]string{"PORT": strconv.Itoa(port)}, metadataEnv, containerEnv)
+	env := workloadhost.MergeEnv(siteAppSettings(site), appServicePlatformEnv(site), map[string]string{"PORT": strconv.Itoa(port)}, metadataEnv, containerEnv)
 	sink := newFuncLogSink(site)
 
 	containerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{

@@ -13,9 +13,9 @@ import (
 // spellings of App Service's runtime-stack catalogs.
 //
 // The catalogs report the built-in runtime stacks the App Service runs: the
-// Linux Node and Python stacks whose platform images a site on them starts.
-// A Windows selection lists none, and the function app catalog lists none,
-// because this App Service does not run the Azure Functions host.
+// Linux Node and Python stacks whose platform images a web app on them
+// starts, and the Node stack a function app runs the Azure Functions host
+// on. A Windows selection lists none.
 //
 // Each subtest drives one spelling:
 //
@@ -35,6 +35,23 @@ func TestSDK_Web_RuntimeStackCatalogsListTheStacksSitesRun(t *testing.T) {
 		for _, s := range stacks {
 			for _, mv := range s.Properties.MajorVersions {
 				out = append(out, *mv.RuntimeVersion)
+			}
+		}
+		return out
+	}
+	// functionAppRuntimes reads each stack's runtime version and checks the
+	// settings a function app on it is created with.
+	functionAppRuntimes := func(stacks []*armappservice.FunctionAppStack) []string {
+		var out []string
+		for _, s := range stacks {
+			for _, mv := range s.Properties.MajorVersions {
+				for _, minor := range mv.MinorVersions {
+					linux := minor.StackSettings.LinuxRuntimeSettings
+					out = append(out, *linux.RuntimeVersion)
+					assert.Equal(t, *s.Properties.Value, *linux.AppSettingsDictionary["FUNCTIONS_WORKER_RUNTIME"])
+					assert.Equal(t, *linux.RuntimeVersion, *linux.SiteConfigPropertiesDictionary.LinuxFxVersion)
+					assert.Equal(t, []*string{to.Ptr("~4")}, linux.SupportedFunctionsExtensionVersions)
+				}
 			}
 		}
 		return out
@@ -100,11 +117,25 @@ func TestSDK_Web_RuntimeStackCatalogsListTheStacksSitesRun(t *testing.T) {
 	})
 
 	t.Run("GetFunctionAppStacks", func(t *testing.T) {
-		pager := provider.NewGetFunctionAppStacksPager(nil)
+		// GET /providers/Microsoft.Web/functionAppStacks?stackOsType=Linux
+		var got []*armappservice.FunctionAppStack
+		pager := provider.NewGetFunctionAppStacksPager(&armappservice.ProviderClientGetFunctionAppStacksOptions{
+			StackOsType: to.Ptr(armappservice.ProviderStackOsTypeLinux),
+		})
 		for pager.More() {
 			page, err := pager.NextPage(ctx)
 			require.NoError(t, err)
-			assert.Empty(t, page.Value, "this App Service runs no Functions host")
+			got = append(got, page.Value...)
+		}
+		assert.Equal(t, []string{"Node|22"}, functionAppRuntimes(got))
+
+		windows := provider.NewGetFunctionAppStacksPager(&armappservice.ProviderClientGetFunctionAppStacksOptions{
+			StackOsType: to.Ptr(armappservice.ProviderStackOsTypeWindows),
+		})
+		for windows.More() {
+			page, err := windows.NextPage(ctx)
+			require.NoError(t, err)
+			assert.Empty(t, page.Value, "every stack here is a Linux stack")
 		}
 	})
 
@@ -124,11 +155,18 @@ func TestSDK_Web_RuntimeStackCatalogsListTheStacksSitesRun(t *testing.T) {
 	})
 
 	t.Run("GetFunctionAppStacksForLocation", func(t *testing.T) {
+		// GET /providers/Microsoft.Web/locations/{location}/functionAppStacks
+		var got []*armappservice.FunctionAppStack
 		pager := provider.NewGetFunctionAppStacksForLocationPager("eastus", nil)
 		for pager.More() {
 			page, err := pager.NextPage(ctx)
 			require.NoError(t, err)
-			assert.Empty(t, page.Value, "this App Service runs no Functions host")
+			got = append(got, page.Value...)
+		}
+		assert.Equal(t, []string{"Node|22"}, functionAppRuntimes(got))
+		for _, s := range got {
+			require.NotNil(t, s.Location)
+			assert.Equal(t, "eastus", *s.Location)
 		}
 	})
 }

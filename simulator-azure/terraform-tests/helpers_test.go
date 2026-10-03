@@ -101,10 +101,12 @@ func TestMain(m *testing.M) {
 	if err := baseimage.Ensure(pullImage); err != nil {
 		log.Fatalf("Failed to pre-pull alpine image: %v", err)
 	}
-	// The App Service platform images the stack's Linux web apps run.
+	// The App Service platform images the stack's Linux web apps run, and
+	// the Azure Functions host image its Node function app runs.
 	for _, image := range []string{
 		"mcr.microsoft.com/appsvc/node:20-lts_20260904.5.tuxprod",
 		"mcr.microsoft.com/appsvc/python:3.12_20260910.5.tuxprod",
+		"mcr.microsoft.com/azure-functions/node:4.1054.250-4-node22-appservice",
 	} {
 		if err := baseimage.Ensure(image); err != nil {
 			log.Fatalf("Failed to pre-pull %s: %v", image, err)
@@ -558,6 +560,9 @@ func terraformCmd(dir string, args ...string) *exec.Cmd {
 	}
 	if zipAppPackagePath != "" {
 		cmd.Env = append(cmd.Env, "TF_VAR_zip_app_package_path="+zipAppPackagePath)
+	}
+	if nodeFunctionPackageURL != "" {
+		cmd.Env = append(cmd.Env, "TF_VAR_node_function_package_url="+nodeFunctionPackageURL)
 	}
 	if v := os.Getenv("TF_LOG"); v != "" {
 		cmd.Env = append(cmd.Env, "TF_LOG="+v)

@@ -972,6 +972,36 @@ resource "azurerm_linux_web_app" "az_python_app" {
   }
 }
 
+# A Linux Function App on the built-in Node 22 stack: application_stack becomes
+# linuxFxVersion "Node|22", and the platform runs the Azure Functions host
+# image on the package WEBSITE_RUN_FROM_PACKAGE names. With
+# AzureWebJobsSecretStorageType "files" the host keeps its keys in its file
+# secret store, which holds the keys the host key data source reads.
+resource "azurerm_linux_function_app" "az_node_fa" {
+  name                       = "tf-azrm-node-fa"
+  resource_group_name        = azurerm_resource_group.az_rg.name
+  location                   = azurerm_resource_group.az_rg.location
+  service_plan_id            = azurerm_service_plan.az_web_sp.id
+  storage_account_name       = azurerm_storage_account.az_st.name
+  storage_account_access_key = azurerm_storage_account.az_st.primary_access_key
+
+  app_settings = {
+    WEBSITE_RUN_FROM_PACKAGE      = var.node_function_package_url
+    AzureWebJobsSecretStorageType = "files"
+  }
+
+  site_config {
+    application_stack {
+      node_version = "22"
+    }
+  }
+}
+
+data "azurerm_function_app_host_keys" "az_node_fa" {
+  name                = azurerm_linux_function_app.az_node_fa.name
+  resource_group_name = azurerm_resource_group.az_rg.name
+}
+
 # App Service public certificate — the Microsoft.Web/sites/publicCertificates
 # child resource. The provider PUTs the DER blob and reads the resource back
 # on every plan, so the sim must derive and round-trip the certificate's
@@ -1707,6 +1737,15 @@ output "azrm_node_web_app_hostname" {
 
 output "azrm_zip_web_app_hostname" {
   value = azurerm_linux_web_app.az_zip_app.default_hostname
+}
+
+output "azrm_node_function_app_hostname" {
+  value = azurerm_linux_function_app.az_node_fa.default_hostname
+}
+
+output "azrm_node_function_app_default_key" {
+  value     = data.azurerm_function_app_host_keys.az_node_fa.default_function_key
+  sensitive = true
 }
 
 output "azrm_python_web_app_hostname" {

@@ -224,6 +224,13 @@ Current state of the sockerless-cloud repository.
   On, with every request on the site's hostname forwarded to it; the host
   reads no consumer-named setting and nothing from an image reference's
   spelling.
+- **A Linux function app on `Node|22` runs the Azure Functions host** image
+  on its deployed content, with the App Service platform environment every
+  site container gets; with `AzureWebJobsSecretStorageType=files` the ARM key
+  operations read and write the host's own encrypted file secret store, so
+  the keys they list are the keys the host accepts, and `functionAppStacks`
+  lists the stack. Other function stacks, the blob secret store and
+  code-defined functions stay open as BUG-3237.
 - **Azure Monitor logs land where something names the workspace.** A
   Container Apps environment's `appLogsConfiguration`, a site's Application
   Insights connection, and a data collection rule's Log Analytics destination

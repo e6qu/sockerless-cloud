@@ -421,6 +421,19 @@ az rest --method PUT \
 az rest --method PUT \
   --url "http://localhost:4568/subscriptions/.../resourceGroups/my-rg/providers/Microsoft.Web/sites/my-node-app/extensions/MSDeploy?api-version=2022-09-01" \
   --body '{"properties": {"packageUri": "https://example.com/app.zip"}}'
+
+# Create a Linux function app on the built-in Node|22 stack: the site runs the
+# Azure Functions host image (mcr.microsoft.com/azure-functions/node, the
+# 4-node22-appservice build) on its deployed content. With
+# AzureWebJobsSecretStorageType=files the host reads its keys from
+# /home/data/Functions/secrets, which holds the keys the ARM key operations
+# list and change
+az functionapp create -g my-rg -p my-plan -n my-node-func -s mystorage \
+  --runtime node --runtime-version 22 --functions-version 4 --os-type Linux
+az functionapp config appsettings set -g my-rg -n my-node-func \
+  --settings AzureWebJobsSecretStorageType=files
+az functionapp deploy -g my-rg -n my-node-func --src-url https://example.com/func.zip --type zip
+az functionapp function keys list -g my-rg -n my-node-func --function-name hello
 ```
 
 ### Log Analytics
