@@ -226,7 +226,10 @@ func registerCloudBuild(srv *sim.Server) {
 
 	srv.HandleFunc("POST /v1/projects/{project}/builds", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
-
+		if _, ok := crmProjectNumber(project); !ok {
+			crmProjectPermissionDenied(w)
+			return
+		}
 		var build Build
 		if err := sim.ReadJSON(r, &build); err != nil {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid build body: %v", err)
@@ -347,9 +350,14 @@ func registerCloudBuild(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/defaultServiceAccount", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
+		number, ok := crmProjectNumber(project)
+		if !ok {
+			crmProjectPermissionDenied(w)
+			return
+		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"name":                fmt.Sprintf("projects/%s/locations/%s/defaultServiceAccount", project, location),
-			"serviceAccountEmail": fmt.Sprintf("projects/%s/serviceAccounts/%s@cloudbuild.gserviceaccount.com", project, projectNumber(project)),
+			"serviceAccountEmail": fmt.Sprintf("projects/%s/serviceAccounts/%s@cloudbuild.gserviceaccount.com", project, number),
 		})
 	})
 

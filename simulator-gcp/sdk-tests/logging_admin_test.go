@@ -104,6 +104,8 @@ func TestLogging_SinkCRUD_OrganizationScope(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "org-sink", created.Name)
 	assert.Equal(t, resourceName, created.ResourceName)
+	assert.Equal(t, "serviceAccount:service-org-987654321@gcp-sa-logging.iam.gserviceaccount.com", created.WriterIdentity,
+		"an organization's sink writes as the organization's Cloud Logging service agent")
 
 	got, err := svc.Organizations.Sinks.Get(resourceName).Do()
 	require.NoError(t, err)
@@ -264,6 +266,37 @@ func TestLogging_LinkCreateAndList_ProjectScope(t *testing.T) {
 // sink, copies the bucket's error entries into a Cloud Storage bucket, and
 // reads back what the copy wrote: the count the operation reports, and the
 // entries themselves in the exported object.
+// A project's Cloud Logging service agent is named for the number Cloud
+// Resource Manager holds: sinks with a unique writer identity write as it, and
+// the settings and CMEK settings name it.
+func TestLogging_ServiceAgentNamedForProjectNumber(t *testing.T) {
+	svc := loggingRESTService(t)
+	const project = "logging-agent-project"
+	number := requireProject(t, project)
+	agent := "service-" + number + "@gcp-sa-logging.iam.gserviceaccount.com"
+
+	sink, err := svc.Projects.Sinks.Create("projects/"+project, &loggingrpc.LogSink{
+		Name:        "agent-sink",
+		Destination: "storage.googleapis.com/agent-sink-bucket",
+	}).UniqueWriterIdentity(true).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "serviceAccount:"+agent, sink.WriterIdentity)
+
+	settings, err := svc.Projects.GetSettings("projects/" + project).Do()
+	require.NoError(t, err)
+	assert.Equal(t, agent, settings.LoggingServiceAccountId)
+	assert.Equal(t, agent, settings.KmsServiceAccountId)
+
+	cmek, err := svc.Projects.GetCmekSettings("projects/" + project).Do()
+	require.NoError(t, err)
+	assert.Equal(t, agent, cmek.ServiceAccountId)
+
+	_, err = svc.Projects.GetSettings("projects/logging-agent-absent").Do()
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.Code)
+}
+
 func TestLogging_EntriesCopy(t *testing.T) {
 	svc := loggingRESTService(t)
 	const project = "copy-test-project"

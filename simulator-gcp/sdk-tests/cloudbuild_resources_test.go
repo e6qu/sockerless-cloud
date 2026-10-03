@@ -290,12 +290,19 @@ func TestCloudBuild_RegionalBuildsReadback(t *testing.T) {
 }
 
 // TestCloudBuild_DefaultServiceAccount reads the per-location default
-// service account used for builds.
+// service account used for builds, named for the project number Cloud
+// Resource Manager holds, and is refused for a project that does not exist.
 func TestCloudBuild_DefaultServiceAccount(t *testing.T) {
 	svc := cloudbuildService(t)
+	number := requireProject(t, "cb-dsa-project")
 	name := "projects/cb-dsa-project/locations/us-central1/defaultServiceAccount"
 	got, err := svc.Projects.Locations.GetDefaultServiceAccount(name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, name, got.Name)
-	assert.NotEmpty(t, got.ServiceAccountEmail)
+	assert.Equal(t, "projects/cb-dsa-project/serviceAccounts/"+number+"@cloudbuild.gserviceaccount.com", got.ServiceAccountEmail)
+
+	_, err = svc.Projects.Locations.GetDefaultServiceAccount("projects/cb-dsa-absent/locations/us-central1/defaultServiceAccount").Do()
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.Code)
 }

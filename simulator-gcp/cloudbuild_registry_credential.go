@@ -13,16 +13,21 @@ import (
 
 // cloudBuildServiceAccount is the identity a build runs as: the service
 // account the build names, otherwise the project's Cloud Build service
-// account, PROJECT_NUMBER@cloudbuild.gserviceaccount.com.
-func cloudBuildServiceAccount(b Build) string {
+// account, PROJECT_NUMBER@cloudbuild.gserviceaccount.com, named for the
+// number Cloud Resource Manager holds.
+func cloudBuildServiceAccount(b Build) (string, error) {
 	if sa := b.ServiceAccount; sa != "" {
 		// A build names it as projects/{project}/serviceAccounts/{email}.
 		if i := strings.LastIndex(sa, "/serviceAccounts/"); i >= 0 {
-			return sa[i+len("/serviceAccounts/"):]
+			return sa[i+len("/serviceAccounts/"):], nil
 		}
-		return sa
+		return sa, nil
 	}
-	return projectNumber(b.ProjectID) + "@cloudbuild.gserviceaccount.com"
+	number, ok := crmProjectNumber(b.ProjectID)
+	if !ok {
+		return "", fmt.Errorf("project %s is not an active project", b.ProjectID)
+	}
+	return number + "@cloudbuild.gserviceaccount.com", nil
 }
 
 // cloudBuildDockerConfig writes the Docker client configuration a build's
@@ -36,8 +41,12 @@ func cloudBuildServiceAccount(b Build) string {
 // helper. The directory is DOCKER_CONFIG for the steps; the caller removes
 // it after the build.
 func cloudBuildDockerConfig(b Build, workDir string) (string, error) {
+	account, err := cloudBuildServiceAccount(b)
+	if err != nil {
+		return "", err
+	}
 	now := time.Now()
-	token := signAccessToken(cloudBuildServiceAccount(b), now, now.Add(time.Hour))
+	token := signAccessToken(account, now, now.Add(time.Hour))
 	// The registry hosts imageOnGoogleRegistry names.
 	patterns := []string{"*-docker.pkg.dev", "gcr.io", "*.gcr.io"}
 	if port, err := workloadhost.ListenPort(simListenAddr); err == nil {

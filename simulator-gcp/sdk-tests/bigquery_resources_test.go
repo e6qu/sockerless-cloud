@@ -199,11 +199,12 @@ func TestBigQueryProjectsAndServiceAccount(t *testing.T) {
 	}
 	require.True(t, found, "expected %s in projects.list", project)
 
-	// projects.getServiceAccount returns the project's BigQuery service account.
+	// projects.getServiceAccount returns the project's BigQuery encryption
+	// service account, named for the number Cloud Resource Manager holds.
+	number := requireProject(t, project)
 	sa, err := svc.Projects.GetServiceAccount(project).Do()
 	require.NoError(t, err)
-	require.NotEmpty(t, sa.Email)
-	require.Contains(t, sa.Email, "gserviceaccount.com")
+	require.Equal(t, "bq-"+number+"@bigquery-encryption.iam.gserviceaccount.com", sa.Email)
 }
 
 func TestBigQueryModels(t *testing.T) {

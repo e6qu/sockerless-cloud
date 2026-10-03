@@ -29,6 +29,7 @@ func buildFromOperation(t *testing.T, op *cloudbuild.Operation) cloudbuild.Build
 
 func TestCloudBuild_RegionalBuildCreateAndRetry(t *testing.T) {
 	svc := cloudbuildService(t)
+	requireProject(t, "cb-regional")
 	parent := "projects/cb-regional/locations/us-central1"
 
 	op, err := svc.Projects.Locations.Builds.Create(parent, &cloudbuild.Build{
@@ -59,6 +60,7 @@ func TestCloudBuild_RegionalBuildCreateAndRetry(t *testing.T) {
 // A build that was never pending approval has no decision to record.
 func TestCloudBuild_ApproveRejectsABuildThatIsNotPending(t *testing.T) {
 	svc := cloudbuildService(t)
+	requireProject(t, "cb-approve")
 	parent := "projects/cb-approve/locations/us-central1"
 
 	op, err := svc.Projects.Locations.Builds.Create(parent, &cloudbuild.Build{

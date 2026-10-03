@@ -970,9 +970,14 @@ func handleBQListProjects(w http.ResponseWriter, r *http.Request) {
 
 func handleBQGetServiceAccount(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
+	number, ok := crmProjectNumber(project)
+	if !ok {
+		bqErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Project %s", project)
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"kind":  "bigquery#getServiceAccountResponse",
-		"email": fmt.Sprintf("bq-%s@bigquery-encryption.iam.gserviceaccount.com", project),
+		"email": "bq-" + number + "@bigquery-encryption.iam.gserviceaccount.com",
 	})
 }
 

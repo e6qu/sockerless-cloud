@@ -12,9 +12,14 @@ import (
 // cloudRunServiceAgent is the Google-managed identity Cloud Run pulls
 // container images with — `service-PROJECT_NUMBER@serverless-robot-prod.iam.
 // gserviceaccount.com` — for Cloud Run jobs and services and for Cloud
-// Functions (2nd gen), which Cloud Run serves.
-func cloudRunServiceAgent(project string) string {
-	return fmt.Sprintf("service-%s@serverless-robot-prod.iam.gserviceaccount.com", projectNumber(project))
+// Functions (2nd gen), which Cloud Run serves, named for the number Cloud
+// Resource Manager holds.
+func cloudRunServiceAgent(project string) (string, error) {
+	number, ok := crmProjectNumber(project)
+	if !ok {
+		return "", fmt.Errorf("project %s is not an active project, so it has no Cloud Run service agent", project)
+	}
+	return "service-" + number + "@serverless-robot-prod.iam.gserviceaccount.com", nil
 }
 
 // workloadRegistryAuth is the credential a Google Cloud workload host presents
@@ -22,12 +27,16 @@ func cloudRunServiceAgent(project string) string {
 // Cloud Run service agent, as the `oauth2accesstoken` password of a Basic
 // credential, for an image on Artifact Registry or Container Registry — and
 // nothing for any other registry, which the host reaches anonymously.
-func workloadRegistryAuth(project, image string) string {
+func workloadRegistryAuth(project, image string) (string, error) {
 	if !imageOnGoogleRegistry(image) {
-		return ""
+		return "", nil
+	}
+	agent, err := cloudRunServiceAgent(project)
+	if err != nil {
+		return "", err
 	}
 	now := time.Now()
-	return sim.RegistryCredential(arUserAccessToken, signAccessToken(cloudRunServiceAgent(project), now, now.Add(time.Hour)))
+	return sim.RegistryCredential(arUserAccessToken, signAccessToken(agent, now, now.Add(time.Hour))), nil
 }
 
 // imageOnGoogleRegistry reports whether an image reference names Artifact

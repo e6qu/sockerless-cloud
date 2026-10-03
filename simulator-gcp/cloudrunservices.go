@@ -396,7 +396,19 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 			releaseMounts()
 		}
 	}()
-	platform, err := workload.LocalImagePlatform(ctx, localImage, workloadRegistryAuth(project, localImage))
+	mainAuth, err := workloadRegistryAuth(project, localImage)
+	if err != nil {
+		return nil, err
+	}
+	sidecarAuths := make([]string, 0, len(containers)-1)
+	for _, sidecar := range containers[1:] {
+		auth, err := workloadRegistryAuth(project, sim.ResolveLocalImage(sidecar.Image))
+		if err != nil {
+			return nil, err
+		}
+		sidecarAuths = append(sidecarAuths, auth)
+	}
+	platform, err := workload.LocalImagePlatform(ctx, localImage, mainAuth)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +452,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		members = append(members, workload.Container{Name: sidecar.Name, Config: sim.ContainerConfig{
 			CancelGracePeriod: cloudRunStopGrace,
 			Image:             sidecarImage,
-			RegistryAuth:      workloadRegistryAuth(project, sidecarImage),
+			RegistryAuth:      sidecarAuths[i],
 			Command:           sidecar.Command,
 			Args:              sidecar.Args,
 			Env:               workloadhost.MergeEnv(containerEnvMap(sidecar.Env), metadataEnv),

@@ -11,9 +11,9 @@ import (
 
 // The Compute Engine project resource and the verbs that write it.
 //
-// A project is not created through Compute Engine — it exists because the
-// caller addressed it — so a read answers for any project, with the defaults
-// Compute applies until something is set. The verbs beside it each write one
+// A project is not created through Compute Engine: it is the Cloud Resource
+// Manager project the caller addresses, by ID or number, and a read answers
+// with the defaults Compute applies until something is set. The verbs beside it each write one
 // part of it: the common instance metadata every VM inherits, where usage
 // reports are delivered, the network tier new resources default to, and the
 // Cloud Armor tier the project is on.
@@ -27,12 +27,19 @@ func registerComputeProject(srv *sim.Server) {
 	// The service projects attached to each host, keyed by host project.
 	xpnResources := sim.MakeStore[map[string]any](srv.DB(), "compute_xpn_resources")
 
-	load := func(project string) map[string]any {
+	// load reads the project's Compute Engine resource; a project Cloud
+	// Resource Manager no longer holds has none.
+	load := func(project string) (map[string]any, bool) {
+		number, known := crmProjectNumber(project)
+		if !known {
+			return nil, false
+		}
 		held, ok := projects.Get(project)
 		if !ok {
 			held = map[string]any{}
 		}
 		held["kind"] = "compute#project"
+		held["id"] = number
 		held["name"] = project
 		held["selfLink"] = computeSelfLink("projects/" + project)
 		if _, set := held["defaultNetworkTier"]; !set {
@@ -42,23 +49,39 @@ func registerComputeProject(srv *sim.Server) {
 			held["cloudArmorTier"] = "CA_STANDARD"
 		}
 		if _, set := held["defaultServiceAccount"]; !set {
-			held["defaultServiceAccount"] = project + "-compute@developer.gserviceaccount.com"
+			held["defaultServiceAccount"] = number + "-compute@developer.gserviceaccount.com"
 		}
-		return held
+		return held, true
 	}
 	write := func(project string, apply func(map[string]any)) {
-		held := load(project)
+		held, _ := load(project)
 		apply(held)
 		projects.Put(project, held)
+	}
+	// inProject resolves the {project} a request addresses through Cloud
+	// Resource Manager and hands the handler its project ID, answering
+	// Compute Engine's not-found for a project that does not exist.
+	inProject := func(h http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			ref := sim.PathParam(r, "project")
+			p, ok := crmResolveProject(ref)
+			if !ok || p.State != "ACTIVE" {
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The resource 'projects/%s' was not found", ref)
+				return
+			}
+			r.SetPathValue("project", p.ProjectId)
+			h(w, r)
+		}
 	}
 	operation := func(r *http.Request, verb string) map[string]any {
 		project := sim.PathParam(r, "project")
 		return newComputeOpWithType(project, "global", "projects/"+project, verb)
 	}
 
-	srv.HandleFunc("GET /compute/v1/projects/{project}", func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, load(sim.PathParam(r, "project")))
-	})
+	srv.HandleFunc("GET /compute/v1/projects/{project}", inProject(func(w http.ResponseWriter, r *http.Request) {
+		held, _ := load(sim.PathParam(r, "project"))
+		sim.WriteJSON(w, http.StatusOK, held)
+	}))
 
 	// Each verb reads one member from its request body and writes it onto the
 	// project, which is what the read beside it then reports. Mounted at
@@ -81,14 +104,14 @@ func registerComputeProject(srv *sim.Server) {
 		}
 	}
 	srv.HandleFunc("POST /compute/v1/projects/{project}/setDefaultNetworkTier",
-		setMember("setDefaultNetworkTier", "networkTier", "defaultNetworkTier"))
+		inProject(setMember("setDefaultNetworkTier", "networkTier", "defaultNetworkTier")))
 	srv.HandleFunc("POST /compute/v1/projects/{project}/setCloudArmorTier",
-		setMember("setCloudArmorTier", "cloudArmorTier", "cloudArmorTier"))
+		inProject(setMember("setCloudArmorTier", "cloudArmorTier", "cloudArmorTier")))
 
 	// The metadata every instance in the project inherits. It carries a
 	// fingerprint for optimistic concurrency, the way an instance's own
 	// metadata does.
-	srv.HandleFunc("POST /compute/v1/projects/{project}/setCommonInstanceMetadata", func(w http.ResponseWriter, r *http.Request) {
+	srv.HandleFunc("POST /compute/v1/projects/{project}/setCommonInstanceMetadata", inProject(func(w http.ResponseWriter, r *http.Request) {
 		var metadata map[string]any
 		if err := sim.ReadJSON(r, &metadata); err != nil {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
@@ -98,11 +121,11 @@ func registerComputeProject(srv *sim.Server) {
 		metadata["fingerprint"] = computeFingerprint()
 		write(sim.PathParam(r, "project"), func(m map[string]any) { m["commonInstanceMetadata"] = metadata })
 		sim.WriteJSON(w, http.StatusOK, operation(r, "setCommonInstanceMetadata"))
-	})
+	}))
 
 	// Where Compute Engine delivers the project's usage reports. An empty
 	// body turns reporting off, which is how the API expresses it.
-	srv.HandleFunc("POST /compute/v1/projects/{project}/setUsageExportBucket", func(w http.ResponseWriter, r *http.Request) {
+	srv.HandleFunc("POST /compute/v1/projects/{project}/setUsageExportBucket", inProject(func(w http.ResponseWriter, r *http.Request) {
 		var location map[string]any
 		if err := sim.ReadJSON(r, &location); err != nil {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
@@ -116,13 +139,13 @@ func registerComputeProject(srv *sim.Server) {
 			m["usageExportLocation"] = location
 		})
 		sim.WriteJSON(w, http.StatusOK, operation(r, "setUsageExportBucket"))
-	})
+	}))
 
 	// ── Shared VPC ──────────────────────────────────────────────────────
 
 	// A project's own host status, and the host it is attached to.
 	xpnStatus := func(project string) (isHost bool, host string) {
-		held := load(project)
+		held, _ := load(project)
 		status, _ := held["xpnProjectStatus"].(string)
 		for _, entry := range xpnResources.List() {
 			hostProject, _ := entry["host"].(string)
@@ -135,29 +158,35 @@ func registerComputeProject(srv *sim.Server) {
 		return status == "HOST", ""
 	}
 
-	srv.HandleFunc("POST /compute/v1/projects/{project}/enableXpnHost", func(w http.ResponseWriter, r *http.Request) {
+	srv.HandleFunc("POST /compute/v1/projects/{project}/enableXpnHost", inProject(func(w http.ResponseWriter, r *http.Request) {
 		write(sim.PathParam(r, "project"), func(m map[string]any) { m["xpnProjectStatus"] = "HOST" })
 		sim.WriteJSON(w, http.StatusOK, operation(r, "enableXpnHost"))
-	})
-	srv.HandleFunc("POST /compute/v1/projects/{project}/disableXpnHost", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	srv.HandleFunc("POST /compute/v1/projects/{project}/disableXpnHost", inProject(func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		write(project, func(m map[string]any) { m["xpnProjectStatus"] = "UNSPECIFIED_XPN_PROJECT_STATUS" })
 		// A host that is no longer a host lends its network to nobody.
 		xpnResources.Delete(project)
 		sim.WriteJSON(w, http.StatusOK, operation(r, "disableXpnHost"))
-	})
+	}))
 
 	// getXpnHost answers with the host project a service project is attached
 	// to — the whole Project resource, as the method's response declares.
-	srv.HandleFunc("GET /compute/v1/projects/{project}/getXpnHost", func(w http.ResponseWriter, r *http.Request) {
+	srv.HandleFunc("GET /compute/v1/projects/{project}/getXpnHost", inProject(func(w http.ResponseWriter, r *http.Request) {
 		_, host := xpnStatus(sim.PathParam(r, "project"))
 		if host == "" {
 			// Not attached to one: the response carries no project.
 			sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "compute#project"})
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, load(host))
-	})
+		held, ok := load(host)
+		if !ok {
+			// A host project that was deleted lends its network to nobody.
+			sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "compute#project"})
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, held)
+	}))
 
 	attach := func(w http.ResponseWriter, r *http.Request, joining bool) {
 		host := sim.PathParam(r, "project")
@@ -208,14 +237,14 @@ func registerComputeProject(srv *sim.Server) {
 		}
 		sim.WriteJSON(w, http.StatusOK, operation(r, verb))
 	}
-	srv.HandleFunc("POST /compute/v1/projects/{project}/enableXpnResource", func(w http.ResponseWriter, r *http.Request) {
+	srv.HandleFunc("POST /compute/v1/projects/{project}/enableXpnResource", inProject(func(w http.ResponseWriter, r *http.Request) {
 		attach(w, r, true)
-	})
-	srv.HandleFunc("POST /compute/v1/projects/{project}/disableXpnResource", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	srv.HandleFunc("POST /compute/v1/projects/{project}/disableXpnResource", inProject(func(w http.ResponseWriter, r *http.Request) {
 		attach(w, r, false)
-	})
+	}))
 
-	srv.HandleFunc("GET /compute/v1/projects/{project}/getXpnResources", func(w http.ResponseWriter, r *http.Request) {
+	srv.HandleFunc("GET /compute/v1/projects/{project}/getXpnResources", inProject(func(w http.ResponseWriter, r *http.Request) {
 		entry, ok := xpnResources.Get(sim.PathParam(r, "project"))
 		resources := []any{}
 		if ok {
@@ -226,11 +255,11 @@ func registerComputeProject(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"kind": "compute#projectsGetXpnResources", "resources": resources,
 		})
-	})
+	}))
 
 	// The hosts an organization has. Every project recorded as a host is one,
 	// which is the same set enableXpnHost writes.
-	srv.HandleFunc("POST /compute/v1/projects/{project}/listXpnHosts", func(w http.ResponseWriter, r *http.Request) {
+	srv.HandleFunc("POST /compute/v1/projects/{project}/listXpnHosts", inProject(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Organization string `json:"organization"`
 		}
@@ -244,7 +273,9 @@ func registerComputeProject(srv *sim.Server) {
 				continue
 			}
 			name, _ := held["name"].(string)
-			hosts = append(hosts, load(name))
+			if host, ok := load(name); ok {
+				hosts = append(hosts, host)
+			}
 		}
 		sort.Slice(hosts, func(i, j int) bool {
 			a, _ := hosts[i].(map[string]any)["name"].(string)
@@ -252,7 +283,7 @@ func registerComputeProject(srv *sim.Server) {
 			return a < b
 		})
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "compute#xpnHostList", "items": hosts})
-	})
+	}))
 
 	// ── Moving a resource between zones ─────────────────────────────────
 

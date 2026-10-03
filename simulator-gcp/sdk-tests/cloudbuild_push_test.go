@@ -72,7 +72,10 @@ func TestCloudBuild_FaithfulBuildPush(t *testing.T) {
 	tagOnly := imageName[strings.LastIndex(imageName, ":")+1:]
 	manifestURL := fmt.Sprintf("http://127.0.0.1:%s/v2/sockerless-overlay/cloudrun/manifests/%s", regPort, tagOnly)
 	mreq, _ := http.NewRequest(http.MethodGet, manifestURL, nil)
-	mreq.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json")
+	// A BuildKit build pushes an OCI image index (the image and its provenance
+	// attestation), so the read accepts the index types a pull accepts.
+	mreq.Header.Set("Accept", "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, "+
+		"application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json")
 	mresp, err := http.DefaultClient.Do(mreq)
 	require.NoError(t, err)
 	defer mresp.Body.Close()

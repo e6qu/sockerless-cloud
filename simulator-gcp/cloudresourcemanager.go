@@ -76,6 +76,17 @@ func crmResolveProject(ref string) (CRMProject, bool) {
 
 var crmProjectsByName sim.GenerationIndex[CRMProject]
 
+// crmProjectNumber resolves a project ID or number to the number Cloud
+// Resource Manager assigned the project, for an active project only: every
+// other service refuses a project that does not exist or is pending deletion.
+func crmProjectNumber(ref string) (string, bool) {
+	p, ok := crmResolveProject(ref)
+	if !ok || p.State != "ACTIVE" {
+		return "", false
+	}
+	return strings.TrimPrefix(p.Name, "projects/"), true
+}
+
 // crmProjectPermissionDenied writes the real Cloud Resource Manager response
 // for a project the caller cannot see: 403 PERMISSION_DENIED, never 404 —
 // the API does not disclose whether an inaccessible project exists.

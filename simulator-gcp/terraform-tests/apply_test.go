@@ -405,6 +405,15 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Equal(t, "service-"+outputs.must(t, "test_project_number")+"@gs-project-accounts.iam.gserviceaccount.com",
 		outputs.must(t, "gcs_service_agent"),
 		"Cloud Storage's service agent carries the project's number")
+	testProjectNumber := outputs.must(t, "test_project_number")
+	require.Equal(t, "bq-"+testProjectNumber+"@bigquery-encryption.iam.gserviceaccount.com",
+		outputs.must(t, "bigquery_service_agent"),
+		"BigQuery's encryption service account carries the project's number")
+	loggingAgent := "service-" + testProjectNumber + "@gcp-sa-logging.iam.gserviceaccount.com"
+	require.Equal(t, loggingAgent, outputs.must(t, "logging_service_agent"),
+		"Cloud Logging's service agent carries the project's number")
+	require.Equal(t, "serviceAccount:"+loggingAgent, outputs.must(t, "logging_sink_writer_identity"),
+		"a sink with a unique writer identity writes as the project's Cloud Logging service agent")
 	// The provider keeps the topic as the google_pubsub_topic id it was given,
 	// trimming the "//pubsub.googleapis.com/" the JSON API answers with.
 	require.Equal(t, "projects/test-project/topics/tf-gcs-notifications",

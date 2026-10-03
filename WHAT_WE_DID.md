@@ -1210,6 +1210,20 @@ relative name (`projects/{p}/topics/{t}`), so the insert accepts it and stores
 the full `//pubsub.googleapis.com/` name. Tests create their buckets in
 projects Cloud Resource Manager holds.
 
+A project has one number, the one Cloud Resource Manager assigned. Cloud DNS,
+Cloud Build, Cloud Run's service agent, Compute Engine, BigQuery and Cloud
+Logging each resolve the project through `crmProjectNumber` and name their
+identities for that number; a number hashed from the project ID gave each
+service a plausible answer of its own, so a client that read the number from
+Resource Manager and the agent from another service named an identity nobody
+recognised. A project that does not exist (or is pending deletion) is refused
+with each service's own error: 403 `PERMISSION_DENIED` for Cloud DNS, Cloud
+Build and Cloud Logging, 404 for Compute Engine and BigQuery. Compute Engine
+addresses the project by ID or number and keys its record by the ID. Tests
+create their projects in Cloud Resource Manager before using them. The Cloud
+Build push test reads the pushed manifest accepting the OCI image index a
+BuildKit build pushes, which the registry otherwise answers 404.
+
 An object store is read by key or key prefix. Reading one whole costs every
 byte every bucket holds, and the store-scan gate could not see it because it
 counts scans per request, not bytes per scan. So the three object stores are

@@ -918,6 +918,7 @@ func TestConformance_CloudBuildListBuilds(t *testing.T) {
 	require.NoError(t, err)
 
 	const project = "conf-cb-list-project"
+	requireProject(t, project)
 	// CreateBuild persists the build even when execution fails (no source),
 	// which is all ListBuilds needs to surface it.
 	op, err := svc.Projects.Builds.Create(project, &cloudbuild.Build{

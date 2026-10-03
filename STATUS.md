@@ -161,6 +161,16 @@ Current state of the sockerless-cloud repository.
   `service-{projectNumber}@gs-project-accounts.iam.gserviceaccount.com`, the
   identity the notification check evaluates, so gcloud's and Terraform's
   notification flows grant publish to the agent Cloud Storage checks.
+- **Every identity a service names for a project carries the number Cloud
+  Resource Manager holds.** Cloud DNS `projects.get`, Cloud Build's default
+  service account (`{number}@cloudbuild.gserviceaccount.com`, also the
+  identity a build's docker steps pull and push as), the Cloud Run service
+  agent (`service-{number}@serverless-robot-prod…`), Compute Engine's
+  `projects.get` (`id` and `{number}-compute@developer.gserviceaccount.com`),
+  BigQuery's `bq-{number}@bigquery-encryption…` and Cloud Logging's
+  `service-{number}@gcp-sa-logging…` (settings, CMEK settings and unique writer
+  identities) resolve the project by ID or number and refuse one that does not
+  exist with the service's own error; build creation refuses it too.
 - **A Cloud Storage volume mount writes back as Cloud Storage FUSE does.**
   A Cloud Run job task or service instance binds the bucket's host directory
   (or its `only-dir` directory) into the container, read-only when the volume
