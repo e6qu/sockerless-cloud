@@ -669,27 +669,11 @@ const cloudRunContainerDependenciesAnnotation = "run.googleapis.com/container-de
 // the Knative surface renders them, with the containers' dependsOn folded into
 // the container-dependencies annotation.
 func cloudRunV1ContainerDependencies(template *ExecutionTemplate) map[string]string {
-	dependencies := map[string][]string{}
+	var containers []Container
 	if template.Template != nil {
-		for _, c := range template.Template.Containers {
-			if len(c.DependsOn) > 0 {
-				dependencies[c.Name] = c.DependsOn
-			}
-		}
+		containers = template.Template.Containers
 	}
-	if len(dependencies) == 0 {
-		return template.Annotations
-	}
-	annotations := make(map[string]string, len(template.Annotations)+1)
-	for k, v := range template.Annotations {
-		annotations[k] = v
-	}
-	encoded, err := json.Marshal(dependencies)
-	if err != nil {
-		panic(err)
-	}
-	annotations[cloudRunContainerDependenciesAnnotation] = string(encoded)
-	return annotations
+	return cloudRunFoldContainerDependencies(template.Annotations, containers)
 }
 
 // cloudRunV2ContainerDependencies moves a Knative execution template's
@@ -699,38 +683,74 @@ func cloudRunV2ContainerDependencies(template *ExecutionTemplate) error {
 	if template == nil {
 		return nil
 	}
-	raw, ok := template.Annotations[cloudRunContainerDependenciesAnnotation]
+	var containers []Container
+	if template.Template != nil {
+		containers = template.Template.Containers
+	}
+	annotations, err := cloudRunUnfoldContainerDependencies(template.Annotations, containers)
+	if err != nil {
+		return err
+	}
+	template.Annotations = annotations
+	return nil
+}
+
+// cloudRunFoldContainerDependencies is a template's annotations with its
+// containers' dependsOn folded into the container-dependencies annotation.
+func cloudRunFoldContainerDependencies(annotations map[string]string, containers []Container) map[string]string {
+	dependencies := map[string][]string{}
+	for _, c := range containers {
+		if len(c.DependsOn) > 0 {
+			dependencies[c.Name] = c.DependsOn
+		}
+	}
+	if len(dependencies) == 0 {
+		return annotations
+	}
+	folded := make(map[string]string, len(annotations)+1)
+	for k, v := range annotations {
+		folded[k] = v
+	}
+	encoded, err := json.Marshal(dependencies)
+	if err != nil {
+		panic(err)
+	}
+	folded[cloudRunContainerDependenciesAnnotation] = string(encoded)
+	return folded
+}
+
+// cloudRunUnfoldContainerDependencies sets each container's dependsOn from the
+// container-dependencies annotation and returns the annotations without it.
+func cloudRunUnfoldContainerDependencies(annotations map[string]string, containers []Container) (map[string]string, error) {
+	raw, ok := annotations[cloudRunContainerDependenciesAnnotation]
 	if !ok {
-		return nil
+		return annotations, nil
 	}
 	var dependencies map[string][]string
 	if err := json.Unmarshal([]byte(raw), &dependencies); err != nil {
-		return fmt.Errorf("annotation %s is not a JSON object of container names to lists of names: %w", cloudRunContainerDependenciesAnnotation, err)
+		return nil, fmt.Errorf("annotation %s is not a JSON object of container names to lists of names: %w", cloudRunContainerDependenciesAnnotation, err)
 	}
-	annotations := make(map[string]string, len(template.Annotations)-1)
-	for k, v := range template.Annotations {
-		if k != cloudRunContainerDependenciesAnnotation {
-			annotations[k] = v
-		}
-	}
-	if len(annotations) == 0 {
-		annotations = nil
-	}
-	template.Annotations = annotations
 	named := map[string]bool{}
-	if template.Template != nil {
-		for i := range template.Template.Containers {
-			c := &template.Template.Containers[i]
-			if deps, ok := dependencies[c.Name]; ok && c.Name != "" {
-				c.DependsOn = deps
-				named[c.Name] = true
-			}
+	for i := range containers {
+		c := &containers[i]
+		if deps, ok := dependencies[c.Name]; ok && c.Name != "" {
+			c.DependsOn = deps
+			named[c.Name] = true
 		}
 	}
 	for name := range dependencies {
 		if !named[name] {
-			return fmt.Errorf("annotation %s names container %q, which the template does not define", cloudRunContainerDependenciesAnnotation, name)
+			return nil, fmt.Errorf("annotation %s names container %q, which the template does not define", cloudRunContainerDependenciesAnnotation, name)
 		}
 	}
-	return nil
+	rest := make(map[string]string, len(annotations)-1)
+	for k, v := range annotations {
+		if k != cloudRunContainerDependenciesAnnotation {
+			rest[k] = v
+		}
+	}
+	if len(rest) == 0 {
+		rest = nil
+	}
+	return rest, nil
 }

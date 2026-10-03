@@ -171,6 +171,14 @@ Current state of the sockerless-cloud repository.
   `service-{number}@gcp-sa-logging…` (settings, CMEK settings and unique writer
   identities) resolve the project by ID or number and refuse one that does not
   exist with the service's own error; build creation refuses it too.
+- **A Cloud Run service instance starts its containers in `dependsOn`
+  order**, as a job task does: the first to start owns the network namespace
+  and publishes the ingress port, and each other container starts once those
+  it depends on have started and passed their startup probes. The Knative
+  surface carries the dependencies in the revision template's
+  `run.googleapis.com/container-dependencies` annotation (`gcloud run deploy
+  --depends-on`), and a create or update whose `dependsOn` names no container
+  or forms a cycle answers INVALID_ARGUMENT.
 - **A Cloud Storage volume mount writes back as Cloud Storage FUSE does.**
   A Cloud Run job task or service instance binds the bucket's host directory
   (or its `only-dir` directory) into the container, read-only when the volume

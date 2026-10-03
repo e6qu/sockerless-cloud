@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -12,7 +13,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|echo-request|log-request|teapot [MESSAGE]")
+		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|after-sidecar|echo-request|log-request|teapot [MESSAGE]")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -126,6 +127,28 @@ func main() {
 			w.Header().Set("X-Workload", "teapot")
 			w.WriteHeader(http.StatusTeapot)
 			_, _ = io.WriteString(w, "short and stout")
+		})
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "after-sidecar":
+		// Checks once, as it starts, that the sidecar on localhost:9090 is
+		// listening, and exits if it is not; otherwise answers every request
+		// with MESSAGE on :8080. It serves only when it starts after the
+		// sidecar is up.
+		message := "sidecar-started-first"
+		if len(os.Args) >= 3 {
+			message = os.Args[2]
+		}
+		conn, err := net.DialTimeout("tcp", "127.0.0.1:9090", 500*time.Millisecond)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "sidecar-missing:", err)
+			os.Exit(1)
+		}
+		_ = conn.Close()
+		http.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, message)
 		})
 		if err := http.ListenAndServe(":8080", nil); err != nil {
 			fmt.Fprintln(os.Stderr, err)

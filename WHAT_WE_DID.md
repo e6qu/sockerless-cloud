@@ -1210,6 +1210,18 @@ relative name (`projects/{p}/topics/{t}`), so the insert accepts it and stores
 the full `//pubsub.googleapis.com/` name. Tests create their buckets in
 projects Cloud Resource Manager holds.
 
+A Cloud Run service instance starts its containers through the job path's
+ordering (`cloudRunContainerStartOrder`): the first container in that order
+owns the network namespace and publishes the ingress port, whichever container
+it is, and the others start in the background, each once its dependencies have
+started and passed their startup probes. The ingress container always runs a
+startup probe (Cloud Run's default TCP probe when it configures none), and the
+request that started the instance waits for every probe. Starting the ingress
+first and every sidecar at once let an ingress that needs its sidecar at start
+up exit before the sidecar listened. The Knative service surface folds
+`dependsOn` into the revision template's container-dependencies annotation and
+back, as the job surface does. Worker pools still run nothing (row 3311).
+
 A project has one number, the one Cloud Resource Manager assigned. Cloud DNS,
 Cloud Build, Cloud Run's service agent, Compute Engine, BigQuery and Cloud
 Logging each resolve the project through `crmProjectNumber` and name their

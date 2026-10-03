@@ -31,3 +31,30 @@ func TestCloudRunContainerStartOrder(t *testing.T) {
 		}
 	}
 }
+
+// A service's Knative projection carries its containers' dependsOn in the
+// revision template's container-dependencies annotation, and reading the
+// projection back restores them onto the containers.
+func TestCloudRunServiceProjectionCarriesContainerDependencies(t *testing.T) {
+	service := ServiceV2{
+		Name: "projects/p/locations/us-central1/services/ordered",
+		Template: &RevisionTemplate{
+			Annotations: map[string]string{"keep": "me"},
+			Containers: []Container{
+				{Name: "ingress", Image: "a", DependsOn: []string{"sidecar"}},
+				{Name: "sidecar", Image: "b"},
+			},
+		},
+	}
+	v1 := cloudRunV2ToV1(service, "p", "ordered")
+	if got := v1.Spec.Template.Metadata.Annotations[cloudRunContainerDependenciesAnnotation]; got != `{"ingress":["sidecar"]}` {
+		t.Fatalf("container-dependencies annotation = %q", got)
+	}
+	back := cloudRunV1ToV2(v1, "p", "us-central1")
+	if deps := back.Template.Containers[0].DependsOn; !slices.Equal(deps, []string{"sidecar"}) {
+		t.Fatalf("restored dependsOn = %v", deps)
+	}
+	if _, kept := back.Template.Annotations[cloudRunContainerDependenciesAnnotation]; kept || back.Template.Annotations["keep"] != "me" {
+		t.Fatalf("restored annotations = %v", back.Template.Annotations)
+	}
+}

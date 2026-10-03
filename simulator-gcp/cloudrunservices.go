@@ -300,19 +300,26 @@ func containerEnvMap(envVars []EnvVar) map[string]string {
 }
 
 type cloudRunServiceInstance struct {
-	containerID string
-	sidecars    []*sim.ContainerHandle
-	specSig     string
-	// stop ends the instance's log stream, startup probe and exit watch.
+	// ownerID is the container that owns the instance's network namespace,
+	// the first to start, and publishes the ingress port.
+	ownerID string
+	specSig string
+	// stop ends the instance's log stream, container start and startup probes.
 	stop context.CancelFunc
-	// ready closes once the startup probes settle; address and startErr are
-	// written before it closes and read only after.
+	// ready closes once every container has started and passed its startup
+	// probe, or one failed; address and startErr are written before it closes
+	// and read only after.
 	ready    chan struct{}
 	address  string
 	startErr error
 	// releaseMounts ends the ingestion of writes through the instance's
 	// Cloud Storage volumes once its containers have stopped.
 	releaseMounts func()
+
+	mu        sync.Mutex
+	stopped   bool
+	ingressID string
+	handles   []*sim.ContainerHandle
 }
 
 // awaitReady waits for the instance's startup probes and returns the address
@@ -326,25 +333,109 @@ func (inst *cloudRunServiceInstance) awaitReady(ctx context.Context) (string, er
 	}
 }
 
-// awaitStartup runs the startup probe of the ingress container and then of
-// each sidecar that configures one, against the address the ingress port is
-// reached at; the containers share one network namespace.
-func (inst *cloudRunServiceInstance) awaitStartup(ctx context.Context, containers []Container, exited <-chan struct{}) {
+// ingressRunning reports whether the ingress container is still running.
+func (inst *cloudRunServiceInstance) ingressRunning() bool {
+	inst.mu.Lock()
+	id := inst.ingressID
+	inst.mu.Unlock()
+	return id != "" && sim.ContainerRunning(id)
+}
+
+// adopt records a container the instance started, or cancels it when the
+// instance stopped while it started.
+func (inst *cloudRunServiceInstance) adopt(h *sim.ContainerHandle) bool {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	if inst.stopped {
+		h.Cancel()
+		return false
+	}
+	inst.handles = append(inst.handles, h)
+	return true
+}
+
+// startContainers starts the containers other than the namespace owner in
+// their dependsOn order, as a job task does: each once every container it
+// depends on has started and passed its startup probe. The ingress container
+// always runs its startup probe (Cloud Run's default TCP probe when it
+// configures none), a sidecar only the one it configures; every probe reaches
+// the namespace through the address the ingress port is published at.
+func (inst *cloudRunServiceInstance) startContainers(ctx context.Context, containers []Container, order []int, members []workload.Container, sink sim.LogSink) {
 	defer close(inst.ready)
-	port := cloudRunContainerPort(containers[0])
-	route, err := cloudRunContainerRoute(ctx, inst.containerID, port)
-	if err == nil {
-		err = runStartupProbe(ctx, cloudRunStartupProbe(containers[0]), route, port, port, exited)
+	owner := order[0]
+	ingressPort := cloudRunContainerPort(containers[0])
+	route, err := cloudRunContainerRoute(ctx, inst.ownerID, ingressPort)
+	if err != nil {
+		inst.startErr = err
+		return
 	}
-	for _, sidecar := range containers[1:] {
-		if err != nil {
-			break
-		}
-		if sidecar.StartupProbe != nil {
-			err = runStartupProbe(ctx, cloudRunStartupProbe(sidecar), route, port, cloudRunContainerPort(sidecar), exited)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	index := make(map[string]int, len(containers))
+	for i, c := range containers {
+		index[c.Name] = i
+	}
+	ready := make([]chan struct{}, len(containers))
+	for i := range ready {
+		ready[i] = make(chan struct{})
+	}
+	errs := make(chan error, len(containers))
+	fail := func(err error) {
+		errs <- err
+		cancel()
+	}
+	var wg sync.WaitGroup
+	for _, i := range order {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, dep := range containers[i].DependsOn {
+				select {
+				case <-ready[index[dep]]:
+				case <-ctx.Done():
+					return
+				}
+			}
+			id := inst.ownerID
+			if i != owner {
+				started, err := workload.StartSidecars(ctx, inst.ownerID, []workload.Container{members[i]}, sink)
+				if err != nil {
+					fail(err)
+					return
+				}
+				if !inst.adopt(started[0]) {
+					cancel()
+					return
+				}
+				id = started[0].ContainerID
+			}
+			if i == 0 {
+				inst.mu.Lock()
+				inst.ingressID = id
+				inst.mu.Unlock()
+			}
+			if i == 0 || containers[i].StartupProbe != nil {
+				exited, releaseWait := watchCloudRunContainerExit(id)
+				err := runStartupProbe(ctx, cloudRunStartupProbe(containers[i]), route, ingressPort, cloudRunContainerPort(containers[i]), exited)
+				releaseWait()
+				if err != nil {
+					fail(fmt.Errorf("container %q failed its startup probe: %w", containers[i].Name, err))
+					return
+				}
+			}
+			close(ready[i])
+		}()
+	}
+	wg.Wait()
+	select {
+	case err := <-errs:
+		inst.startErr = err
+	default:
+		if err := ctx.Err(); err != nil {
+			inst.startErr = fmt.Errorf("the instance stopped while its containers started: %w", err)
 		}
 	}
-	inst.address, inst.startErr = route, err
+	inst.address = route
 }
 
 var cloudRunServiceInstances = struct {
@@ -353,8 +444,9 @@ var cloudRunServiceInstances = struct {
 }{byName: map[string]*cloudRunServiceInstance{}}
 
 // ensureCloudRunServiceInstance returns the service's running instance, or
-// starts one whose startup probes run in the background; awaitReady waits for
-// them.
+// starts one: the container that owns its network namespace at once, and the
+// others and the startup probes in the background, in dependsOn order;
+// awaitReady waits for them.
 func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, containers []Container, volumes []Volume, sink sim.LogSink) (*cloudRunServiceInstance, error) {
 	specSig := serviceContainersSignature(containers, volumes)
 
@@ -368,23 +460,25 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	cloudRunServiceInstances.Unlock()
 	stopCloudRunServiceInstance(old)
 
-	project := resourceProject(name)
-	main := containers[0]
-	localImage := sim.ResolveLocalImage(main.Image)
-	env := containerEnvMap(main.Env)
-	bindsFor := serviceBindsFor(volumes)
-	mainBinds, writable, err := bindsFor(main)
+	order, err := cloudRunContainerStartOrder(containers)
 	if err != nil {
 		return nil, err
 	}
-	sidecarBinds := make([][]string, 0, len(containers)-1)
-	for _, sidecar := range containers[1:] {
-		binds, sidecarWritable, err := bindsFor(sidecar)
+	project := resourceProject(name)
+	bindsFor := serviceBindsFor(volumes)
+	binds := make([][]string, len(containers))
+	auths := make([]string, len(containers))
+	var writable []string
+	for i, c := range containers {
+		containerBinds, containerWritable, err := bindsFor(c)
 		if err != nil {
 			return nil, err
 		}
-		sidecarBinds = append(sidecarBinds, binds)
-		writable = append(writable, sidecarWritable...)
+		binds[i] = containerBinds
+		writable = append(writable, containerWritable...)
+		if auths[i], err = workloadRegistryAuth(project, sim.ResolveLocalImage(c.Image)); err != nil {
+			return nil, err
+		}
 	}
 	releaseMounts, err := gcsAcquireMounts(writable)
 	if err != nil {
@@ -396,22 +490,6 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 			releaseMounts()
 		}
 	}()
-	mainAuth, err := workloadRegistryAuth(project, localImage)
-	if err != nil {
-		return nil, err
-	}
-	sidecarAuths := make([]string, 0, len(containers)-1)
-	for _, sidecar := range containers[1:] {
-		auth, err := workloadRegistryAuth(project, sim.ResolveLocalImage(sidecar.Image))
-		if err != nil {
-			return nil, err
-		}
-		sidecarAuths = append(sidecarAuths, auth)
-	}
-	platform, err := workload.LocalImagePlatform(ctx, localImage, mainAuth)
-	if err != nil {
-		return nil, err
-	}
 	instanceID := sim.RandomHex(8)
 	metadataEnv, err := hostMetadataEnv()
 	if err != nil {
@@ -421,59 +499,59 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	if err != nil {
 		return nil, err
 	}
-	containerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{
-		Image:        localImage,
+	members := make([]workload.Container, len(containers))
+	for i, c := range containers {
+		env := workloadhost.MergeEnv(containerEnvMap(c.Env), metadataEnv)
+		containerName := fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-%s", serviceID, instanceID)
+		labels := map[string]string{"sockerless-sim-service": serviceID}
+		if i == 0 {
+			env = workloadhost.MergeEnv(map[string]string{"PORT": strconv.Itoa(cloudRunContainerPort(c))}, containerEnvMap(c.Env), metadataEnv)
+		} else {
+			containerName = fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-sidecar-%d-%s", serviceID, i-1, instanceID)
+			labels["sockerless-sim-service-container"] = c.Name
+		}
+		members[i] = workload.Container{Name: c.Name, Config: sim.ContainerConfig{
+			CancelGracePeriod: cloudRunStopGrace,
+			Image:             sim.ResolveLocalImage(c.Image),
+			RegistryAuth:      auths[i],
+			Command:           c.Command,
+			Args:              c.Args,
+			Env:               env,
+			Name:              containerName,
+			Labels:            labels,
+			Binds:             binds[i],
+			Sandbox:           SandboxCloudRun,
+		}}
+	}
+
+	// The first container to start owns the network namespace the others
+	// join, and with it the published ingress port and the hosts file the
+	// metadata server's name resolves in.
+	owner := members[order[0]].Config
+	platform, err := workload.LocalImagePlatform(ctx, owner.Image, owner.RegistryAuth)
+	if err != nil {
+		return nil, err
+	}
+	ownerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{
+		Image:        owner.Image,
 		Architecture: platform,
-		Command:      main.Command,
-		Args:         main.Args,
-		Env:          workloadhost.MergeEnv(map[string]string{"PORT": strconv.Itoa(cloudRunContainerPort(main))}, env, metadataEnv),
-		Name:         fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-%s", serviceID, instanceID),
-		Labels:       map[string]string{"sockerless-sim-service": serviceID},
-		Binds:        mainBinds,
+		Command:      owner.Command,
+		Args:         owner.Args,
+		Env:          owner.Env,
+		Name:         owner.Name,
+		Labels:       owner.Labels,
+		Binds:        owner.Binds,
 		ExtraHosts:   extraHosts,
 		Sandbox:      SandboxCloudRun,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("start service container: %w", err)
+		return nil, fmt.Errorf("start service container %q: %w", containers[order[0]].Name, err)
 	}
 
 	lifeCtx, stop := context.WithCancel(context.Background())
-	instanceStored := false
-	defer func() {
-		if !instanceStored {
-			stop()
-		}
-	}()
-	go sim.StreamContainerLogs(lifeCtx, containerID, sink)
-
-	members := make([]workload.Container, 0, len(containers)-1)
-	for i, sidecar := range containers[1:] {
-		sidecarImage := sim.ResolveLocalImage(sidecar.Image)
-		members = append(members, workload.Container{Name: sidecar.Name, Config: sim.ContainerConfig{
-			CancelGracePeriod: cloudRunStopGrace,
-			Image:             sidecarImage,
-			RegistryAuth:      sidecarAuths[i],
-			Command:           sidecar.Command,
-			Args:              sidecar.Args,
-			Env:               workloadhost.MergeEnv(containerEnvMap(sidecar.Env), metadataEnv),
-			Name:              fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-sidecar-%d-%s", serviceID, i, instanceID),
-			Labels: map[string]string{
-				"sockerless-sim-service":           serviceID,
-				"sockerless-sim-service-container": sidecar.Name,
-			},
-			Binds:   sidecarBinds[i],
-			Sandbox: SandboxCloudRun,
-		}})
-	}
-	sidecars, err := workload.StartSidecars(ctx, containerID, members, sink)
-	if err != nil {
-		sim.StopAndRemoveContainer(containerID, cloudRunStopGrace)
-		return nil, err
-	}
-
+	go sim.StreamContainerLogs(lifeCtx, ownerID, sink)
 	inst := &cloudRunServiceInstance{
-		containerID:   containerID,
-		sidecars:      sidecars,
+		ownerID:       ownerID,
 		specSig:       specSig,
 		stop:          stop,
 		ready:         make(chan struct{}),
@@ -487,15 +565,9 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		return nil, fmt.Errorf("service %q instance replaced while starting", name)
 	}
 	cloudRunServiceInstances.byName[name] = inst
-	instanceStored = true
 	cloudRunServiceInstances.Unlock()
 
-	exited, releaseWait := watchCloudRunContainerExit(containerID)
-	go func() {
-		<-lifeCtx.Done()
-		releaseWait()
-	}()
-	go inst.awaitStartup(lifeCtx, containers, exited)
+	go inst.startContainers(lifeCtx, containers, order, members, sink)
 	return inst, nil
 }
 
@@ -527,10 +599,15 @@ func stopCloudRunServiceInstance(inst *cloudRunServiceInstance) {
 	if inst.stop != nil {
 		inst.stop()
 	}
-	for _, h := range inst.sidecars {
+	inst.mu.Lock()
+	inst.stopped = true
+	handles := inst.handles
+	inst.handles = nil
+	inst.mu.Unlock()
+	for _, h := range handles {
 		h.Cancel()
 	}
-	sim.StopAndRemoveContainer(inst.containerID, cloudRunStopGrace)
+	sim.StopAndRemoveContainer(inst.ownerID, cloudRunStopGrace)
 	if inst.releaseMounts != nil {
 		inst.releaseMounts()
 	}
@@ -601,7 +678,12 @@ func serviceContainersSignature(containers []Container, volumes []Volume) string
 	var parts []string
 	for _, c := range containers {
 		env := containerEnvMap(c.Env)
-		parts = append(parts, c.Name+"|"+sim.ResolveLocalImage(c.Image)+"|"+strings.Join(c.Command, "\x00")+"|"+strings.Join(c.Args, "\x00")+"|"+envSignature(env)+"|"+volumeMountsSignature(c.VolumeMounts))
+		probe, err := json.Marshal(c.StartupProbe)
+		if err != nil {
+			panic(err)
+		}
+		parts = append(parts, c.Name+"|"+sim.ResolveLocalImage(c.Image)+"|"+strings.Join(c.Command, "\x00")+"|"+strings.Join(c.Args, "\x00")+"|"+envSignature(env)+"|"+volumeMountsSignature(c.VolumeMounts)+
+			"|"+strconv.Itoa(cloudRunContainerPort(c))+"|"+strings.Join(c.DependsOn, "\x00")+"|"+string(probe))
 	}
 	return strings.Join(parts, "\x01") + "\x02" + volumesSignature(volumes)
 }
@@ -735,6 +817,9 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		var svc ServiceV2
 		if err := sim.ReadJSON(r, &svc); err != nil {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		if !cloudRunServiceTemplateValid(w, svc.Template) {
 			return
 		}
 
@@ -882,6 +967,9 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 				return
 			}
 			update = merged
+		}
+		if !cloudRunServiceTemplateValid(w, update.Template) {
+			return
 		}
 
 		// Cloud Run revisions are immutable, so each PATCH spawns a new

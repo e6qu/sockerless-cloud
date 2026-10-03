@@ -447,6 +447,9 @@ func registerCloudRun(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
 			return
 		}
+		if !cloudRunKnativeServiceValid(w, svc) {
+			return
+		}
 		if svc.Metadata.Name == "" {
 			GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
 			return
@@ -531,6 +534,9 @@ func registerCloudRun(srv *sim.Server) {
 		var update CRService
 		if err := sim.ReadJSON(r, &update); err != nil {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
+			return
+		}
+		if !cloudRunKnativeServiceValid(w, update) {
 			return
 		}
 		if !knativeReplaceAllowed(w, "service", name, namespace,
@@ -789,6 +795,9 @@ func registerCloudRun(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
 			return
 		}
+		if !cloudRunKnativeServiceValid(w, svc) {
+			return
+		}
 		if svc.Metadata.Name == "" {
 			GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
 			return
@@ -862,6 +871,9 @@ func registerCloudRun(srv *sim.Server) {
 		var update CRService
 		if err := sim.ReadJSON(r, &update); err != nil {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
+			return
+		}
+		if !cloudRunKnativeServiceValid(w, update) {
 			return
 		}
 		if !knativeReplaceAllowed(w, "service", name, namespace,
