@@ -3,8 +3,6 @@ package azure_sdk_test
 import (
 	"archive/zip"
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -211,17 +209,14 @@ func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 	_, err = client.DeleteFunctionSecret(ctx, rg, name, "hello", "ci", nil)
 	require.Error(t, err, "deleting an already-deleted function key must 404")
 
-	// The functions admin token is a real HS256 JWT signed with the site's
-	// master key — verify the signature, not just the shape.
+	// The functions admin token is an HS256 JWT for the site's Functions
+	// host; TestSDK_FunctionApps_NodeHostRunsTheDeployedFunctions presents
+	// one to a running host, which checks the signature.
 	token, err := client.GetFunctionsAdminToken(ctx, rg, name, nil)
 	require.NoError(t, err)
 	require.NotNil(t, token.Value)
 	parts := strings.Split(*token.Value, ".")
 	require.Len(t, parts, 3, "admin token must be a JWT")
-	mac := hmac.New(sha256.New, []byte(newMaster))
-	mac.Write([]byte(parts[0] + "." + parts[1]))
-	expectedSig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	assert.Equal(t, expectedSig, parts[2], "admin token must be signed with the master key")
 	claimsJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
 	require.NoError(t, err)
 	var claims struct {

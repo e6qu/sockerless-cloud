@@ -536,6 +536,17 @@ var eventarcAuditLogProviders = []struct{ id, displayName string }{
 	{"secretmanager.googleapis.com", "Secret Manager API"},
 	{"artifactregistry.googleapis.com", "Artifact Registry API"},
 	{"cloudfunctions.googleapis.com", "Cloud Functions API"},
+	{"compute.googleapis.com", "Compute Engine API"},
+	{"iam.googleapis.com", "Identity and Access Management (IAM) API"},
+	{"cloudresourcemanager.googleapis.com", "Cloud Resource Manager API"},
+	{"cloudkms.googleapis.com", "Cloud Key Management Service (KMS) API"},
+	{"cloudbuild.googleapis.com", "Cloud Build API"},
+	{"eventarc.googleapis.com", "Eventarc API"},
+	{"dns.googleapis.com", "Cloud DNS API"},
+	{"redis.googleapis.com", "Google Cloud Memorystore for Redis API"},
+	{"spanner.googleapis.com", "Cloud Spanner API"},
+	{"bigtableadmin.googleapis.com", "Cloud Bigtable Admin API"},
+	{"firestore.googleapis.com", "Cloud Firestore API"},
 }
 
 func eventarcProviders(parent string) []EventarcProvider {

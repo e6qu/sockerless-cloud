@@ -65,7 +65,10 @@ func queueExpiration(m msgq.Message[queuePayload]) string {
 	if m.ExpiresAt == 0 {
 		return queueNeverExpires.Format(http.TimeFormat)
 	}
-	return queueTime(m.ExpiresAt)
+	// A time to live is whole seconds, and the stored deadline rounds up to the
+	// next millisecond, so report insertion plus the whole seconds: an
+	// insertion at .999 would otherwise show a second more than the TTL.
+	return queueTime(m.EnqueuedAt + (m.ExpiresAt-m.EnqueuedAt)/1000*1000)
 }
 
 // queueSecondsParam reads an integer query parameter within [min, max],

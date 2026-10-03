@@ -435,6 +435,32 @@ through hooks:
   whose `serviceName`, `methodName` and `resourceName` filters, the last
   optionally a `match-path-pattern`, match, as CloudEvents whose data is the
   `LogEntryData`.
+  Compute Engine and Cloud DNS are defined by Discovery documents rather than
+  RPCs, so their calls resolve through the embedded Discovery document's
+  method paths: Compute Engine records `v1.` plus the method ID
+  (`v1.compute.networks.insert`), the resource from the operation's
+  `targetLink`, and the `compute#operation` as the response; Cloud DNS records
+  the method ID, the resource relative to the project (`managedZones/{zone}`)
+  and the request as its `cloud.dns.api` message. Cloud Resource Manager v1
+  records its project methods under their own names (`SetIamPolicy`,
+  `CreateProject`) and a `SetIamPolicy` entry carries the
+  `google.iam.v1.logging.AuditData` policy delta, read from the policy before
+  and after the call. An API records the methodName its service writes: the
+  RPC's full name by default, the simple name for Cloud KMS (`CreateKeyRing`,
+  `Decrypt`), and `google.iam.admin.v1.CreateServiceAccount` for IAM, which
+  also names a service account by its unique ID. The permission in
+  `authorizationInfo` comes from an explicit table where a method checks one
+  its name does not spell (`cloudkms.cryptoKeyVersions.useToEncrypt`), and
+  otherwise from IAM's `service.collection.verb` convention: the collection
+  the call addresses and the RPC's name without the resource types its proto
+  package defines. A call that starts a long-running operation writes an
+  entry marked `operation.first` and, when the operation ends, one marked
+  `operation.last`; an operation already done when the call answers gets one
+  entry marked both, as Cloud Audit Logs documents. When two APIs publish the
+  same path (Eventarc's and Cloud Build's regional triggers) the call's host
+  decides, and without one the simulator's own routing rule does. A log
+  filter that crosses a repeated field compares each element, so
+  `protoPayload.serviceData.policyDelta.bindingDeltas.action="ADD"` matches.
 - **A subscription stays open for as long as the cloud holds it.** Amazon Kinesis
   Data Streams `SubscribeToShard` holds its event stream for the documented
   five minutes, declared with `sim.DeclareWait`. It sends the backlog from the
@@ -707,6 +733,42 @@ invoked" without running anything; a site the simulator has nothing to run for
 now answers 503 naming what it lacks — a function app without an image (the
 simulator runs no Azure Functions host), a stack it does not run, or no runtime
 at all — and the authLevel and invoke tests run against container sites.
+
+A Linux function app on a built-in stack runs the Azure Functions host.
+`linuxFxVersion` `Node|22` on a `functionapp` site selects
+`mcr.microsoft.com/azure-functions/node:4.1054.250-4-node22-appservice`, the
+build the platform's floating `4-node22-appservice` tag named, with the same
+`/home` layout as a web stack: the host loads the function app from
+`site/wwwroot` and answers 401 for a function-level function without a key and
+404 for a route no function declares. Every site's container gets the
+platform's own environment beside its app settings — `WEBSITE_SITE_NAME`,
+`WEBSITE_HOSTNAME`, `WEBSITE_RESOURCE_GROUP`, a fresh `WEBSITE_INSTANCE_ID` per
+start, and a per-site `WEBSITE_AUTH_ENCRYPTION_KEY` kept with the site's host
+keys — and the host needs them: without `WEBSITE_INSTANCE_ID` it does not run
+in App Service mode and keeps its keys under its own install directory, and
+without an encryption key it cannot write a key at all. With
+`AzureWebJobsSecretStorageType=files` the host reads its keys from
+`/home/data/Functions/secrets`, and the ARM key operations read that store
+before they answer and write it after they change a key, so a key set or
+deleted through ARM opens or closes the running function and a key the host
+generated lists through ARM. The store's values are encrypted the way the host
+encrypts them, measured against the host itself: an ASP.NET Core Data
+Protection payload under the purpose `function-secrets` and the empty key id,
+AES-256-CBC with HMAC-SHA256 keyed through SP800-108 over HMAC-SHA512, with the
+key the host resolves first — the `AzureWebEncryptionKey` app setting, then the
+`MACHINEKEY_DecryptionKey` `az functionapp create` sets, then
+`WEBSITE_AUTH_ENCRYPTION_KEY`. Keys are the identifiable secrets the host
+generates (33 random bytes, the `AzFu` signature and a Marvin checksum under
+the key family's seed) instead of digests of the resource ID, and
+`functions/admin/token` is signed with `WEBSITE_AUTH_ENCRYPTION_KEY`, the key
+the host validates platform tokens with, rather than the master key, which the
+host rejects as a token key. The ARM functions list of such an app includes
+each `<function>/function.json` its content holds, as Kudu lists them, with
+the HTTP trigger's invoke URL. `functionAppStacks` lists the stack from the
+same table, so `az functionapp list-runtimes` and `az functionapp create
+--runtime node --runtime-version 22` see what the site path runs, and a site
+PUT naming its plan by bare name, as `az functionapp create` does, records the
+plan's resource ID, so the site reports its plan's SKU.
 
 A web app's SCM site serves Kudu's deployment API. The Repository entry of
 `hostNameSslStates` — the host `az webapp deploy`, `az webapp deployment source

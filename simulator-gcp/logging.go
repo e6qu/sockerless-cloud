@@ -43,10 +43,20 @@ type LogEntry struct {
 	JsonPayload map[string]any     `json:"jsonPayload,omitempty"`
 	// ProtoPayload is the JSON form of a google.protobuf.Any: its "@type"
 	// names the message, such as google.cloud.audit.AuditLog.
-	ProtoPayload     map[string]any    `json:"protoPayload,omitempty"`
-	InsertID         string            `json:"insertId,omitempty"`
-	Labels           map[string]string `json:"labels,omitempty"`
-	ReceiveTimestamp string            `json:"receiveTimestamp,omitempty"`
+	ProtoPayload     map[string]any     `json:"protoPayload,omitempty"`
+	InsertID         string             `json:"insertId,omitempty"`
+	Labels           map[string]string  `json:"labels,omitempty"`
+	Operation        *LogEntryOperation `json:"operation,omitempty"`
+	ReceiveTimestamp string             `json:"receiveTimestamp,omitempty"`
+}
+
+// LogEntryOperation ties together the entries of one long-running operation:
+// the entry that starts it has first set and the entry that ends it last.
+type LogEntryOperation struct {
+	ID       string `json:"id,omitempty"`
+	Producer string `json:"producer,omitempty"`
+	First    bool   `json:"first,omitempty"`
+	Last     bool   `json:"last,omitempty"`
 }
 
 // MonitoredResource represents the monitored resource that produced a log entry.
@@ -978,6 +988,9 @@ func protoToLogEntry(pe *loggingpb.LogEntry) (LogEntry, error) {
 	if pe.Severity != 0 {
 		entry.Severity = pe.Severity.String()
 	}
+	if op := pe.GetOperation(); op != nil {
+		entry.Operation = &LogEntryOperation{ID: op.GetId(), Producer: op.GetProducer(), First: op.GetFirst(), Last: op.GetLast()}
+	}
 
 	switch p := pe.Payload.(type) {
 	case *loggingpb.LogEntry_TextPayload:
@@ -1043,6 +1056,9 @@ func logEntryToProto(e LogEntry) (*loggingpb.LogEntry, error) {
 		if level, ok := ltype.LogSeverity_value[e.Severity]; ok {
 			pe.Severity = ltype.LogSeverity(level)
 		}
+	}
+	if op := e.Operation; op != nil {
+		pe.Operation = &loggingpb.LogEntryOperation{Id: op.ID, Producer: op.Producer, First: op.First, Last: op.Last}
 	}
 
 	switch {

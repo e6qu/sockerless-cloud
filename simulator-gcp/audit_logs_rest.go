@@ -47,6 +47,12 @@ func auditLogMiddleware(next http.Handler) http.Handler {
 		}
 		pending, ok := auditResolveGCS(r)
 		if !ok {
+			pending, ok = auditResolveCRM(r)
+		}
+		if !ok {
+			pending, ok = auditResolveDiscovery(r)
+		}
+		if !ok {
 			pending, ok = auditResolveOnePlatform(r)
 		}
 		if !ok {
@@ -81,7 +87,7 @@ func auditLogMiddleware(next http.Handler) http.Handler {
 		}
 		rec.at = at
 		rec.caller = auditCallerFromCredential(r.Header.Get("Authorization"), r.RemoteAddr, r.UserAgent())
-		emitAuditLog(rec)
+		emitAuditCall(rec)
 	})
 }
 
@@ -184,13 +190,22 @@ func auditRESTStatus(status int, body []byte) map[string]any {
 // auditResolveOnePlatform resolves a REST call to an audited RPC through the
 // RPC's google.api.http binding.
 func auditResolveOnePlatform(r *http.Request) (*auditPending, bool) {
-	binding, vars, ok := auditMatchREST(r.Method, r.URL.EscapedPath())
+	candidates := auditMatchRESTCandidates(r.Method, r.URL.EscapedPath())
+	if len(candidates) == 0 {
+		return nil, false
+	}
+	chosen, ok := auditChooseCandidate(r, candidates)
 	if !ok {
 		return nil, false
 	}
+	binding, vars := chosen.binding, chosen.vars
 	rpc := binding.rpc
 	query := r.URL.Query()
 	label, _, _ := strings.Cut(rpc.serviceName, ".")
+	var finish func(*auditRecord, map[string]any)
+	if prepare := auditPrepareHooks[rpc.serviceName]; prepare != nil {
+		finish = prepare(vars)
+	}
 	return &auditPending{
 		serviceLabel:    label,
 		captureRequest:  binding.body != "",
@@ -229,7 +244,11 @@ func auditResolveOnePlatform(r *http.Request) (*auditPending, bool) {
 			if status < 300 && len(responseBody) > 0 {
 				_ = json.Unmarshal(responseBody, &response)
 			}
-			return auditOnePlatformRecord(rpc, request, response, auditRESTStatus(status, responseBody), auditCaller{}), true
+			rec := auditOnePlatformRecord(rpc, request, response, auditRESTStatus(status, responseBody), auditCaller{})
+			if finish != nil {
+				finish(&rec, response)
+			}
+			return rec, true
 		},
 	}, true
 }

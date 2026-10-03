@@ -3,9 +3,12 @@ package main
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 
+	_ "cloud.google.com/go/firestore/apiv1/admin/adminpb"
+	_ "cloud.google.com/go/iam/admin/apiv1/adminpb"
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -18,51 +21,101 @@ import (
 // google.api.default_host, and a REST call reaches its RPC through the
 // google.api.http binding the definition declares.
 
-// auditOnePlatformServices are the RPC services whose calls the simulator
-// audits.
-var auditOnePlatformServices = []protoreflect.FullName{
-	"google.cloud.run.v2.Builds",
-	"google.cloud.run.v2.Executions",
-	"google.cloud.run.v2.Instances",
-	"google.cloud.run.v2.Jobs",
-	"google.cloud.run.v2.Revisions",
-	"google.cloud.run.v2.Services",
-	"google.cloud.run.v2.Tasks",
-	"google.cloud.run.v2.WorkerPools",
-	"google.pubsub.v1.Publisher",
-	"google.pubsub.v1.Subscriber",
-	"google.pubsub.v1.SchemaService",
-	"google.cloud.secretmanager.v1.SecretManagerService",
-	"google.devtools.artifactregistry.v1.ArtifactRegistry",
-	"google.cloud.functions.v2.FunctionService",
+// auditAPI is an RPC service whose calls the simulator audits.
+type auditAPI struct {
+	service protoreflect.FullName
+	// restPrefix is the path the simulator serves the API's REST bindings
+	// under, "" for the bindings' own paths.
+	restPrefix string
+	// methodName is the methodName the service records for an RPC; nil for
+	// the RPC's full name.
+	methodName func(protoreflect.MethodDescriptor) string
 }
 
-// auditDataPlaneLogTypes are the data-plane RPCs and the Data Access log type
-// each writes.
-var auditDataPlaneLogTypes = map[protoreflect.FullName]string{
+// auditOnePlatformServices are the RPC services whose calls the simulator
+// audits.
+var auditOnePlatformServices = []auditAPI{
+	{service: "google.cloud.run.v2.Builds"},
+	{service: "google.cloud.run.v2.Executions"},
+	{service: "google.cloud.run.v2.Instances"},
+	{service: "google.cloud.run.v2.Jobs"},
+	{service: "google.cloud.run.v2.Revisions"},
+	{service: "google.cloud.run.v2.Services"},
+	{service: "google.cloud.run.v2.Tasks"},
+	{service: "google.cloud.run.v2.WorkerPools"},
+	{service: "google.pubsub.v1.Publisher"},
+	{service: "google.pubsub.v1.Subscriber"},
+	{service: "google.pubsub.v1.SchemaService"},
+	{service: "google.cloud.secretmanager.v1.SecretManagerService"},
+	{service: "google.devtools.artifactregistry.v1.ArtifactRegistry"},
+	{service: "google.cloud.functions.v2.FunctionService"},
+	{service: "google.cloud.kms.v1.KeyManagementService", methodName: auditSimpleMethodName},
+	{service: "google.devtools.cloudbuild.v1.CloudBuild"},
+	{service: "google.cloud.eventarc.v1.Eventarc"},
+	{service: "google.cloud.redis.v1.CloudRedis"},
+	{service: "google.spanner.admin.instance.v1.InstanceAdmin", restPrefix: "/spanner"},
+	{service: "google.spanner.admin.database.v1.DatabaseAdmin", restPrefix: "/spanner"},
+	{service: "google.bigtable.admin.v2.BigtableInstanceAdmin"},
+	{service: "google.bigtable.admin.v2.BigtableTableAdmin"},
+	{service: "google.firestore.admin.v1.FirestoreAdmin"},
+	{service: "google.iam.admin.v1.IAM", methodName: auditIAMAdminMethodName},
+}
+
+// auditSimpleMethodName is the RPC's simple name, which Cloud KMS records:
+// "CreateKeyRing", "Decrypt".
+func auditSimpleMethodName(m protoreflect.MethodDescriptor) string {
+	return string(m.Name())
+}
+
+// auditIAMAdminMethodName is the methodName IAM records: the RPC's name in
+// its proto package, with IAM capitalised in the policy methods, as in
+// google.iam.admin.v1.CreateServiceAccount and google.iam.admin.v1.SetIAMPolicy.
+func auditIAMAdminMethodName(m protoreflect.MethodDescriptor) string {
+	return string(m.ParentFile().Package()) + "." + strings.Replace(string(m.Name()), "IamPolicy", "IAMPolicy", 1)
+}
+
+// auditRPCLogTypes are the RPCs whose audit log type their name does not
+// tell: the data-plane calls and the reads that are not named Get or List.
+var auditRPCLogTypes = map[protoreflect.FullName]string{
 	"google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion": auditDataRead,
+	"google.cloud.kms.v1.KeyManagementService.Encrypt":                       auditDataRead,
+	"google.cloud.kms.v1.KeyManagementService.Decrypt":                       auditDataRead,
+	"google.cloud.kms.v1.KeyManagementService.RawEncrypt":                    auditDataRead,
+	"google.cloud.kms.v1.KeyManagementService.RawDecrypt":                    auditDataRead,
+	"google.cloud.kms.v1.KeyManagementService.AsymmetricSign":                auditDataRead,
+	"google.cloud.kms.v1.KeyManagementService.AsymmetricDecrypt":             auditDataRead,
+	"google.cloud.kms.v1.KeyManagementService.MacSign":                       auditDataRead,
+	"google.cloud.kms.v1.KeyManagementService.MacVerify":                     auditDataRead,
+	"google.cloud.kms.v1.KeyManagementService.GenerateRandomBytes":           auditDataRead,
+	"google.cloud.kms.v1.KeyManagementService.Decapsulate":                   auditDataRead,
+	"google.bigtable.admin.v2.BigtableTableAdmin.CheckConsistency":           auditAdminRead,
+	"google.bigtable.admin.v2.BigtableTableAdmin.GenerateConsistencyToken":   auditAdminRead,
 }
 
 // auditUnloggedRPCs are the RPCs of the audited services the simulator writes
-// no audit entry for.
+// no audit entry for. No service audits TestIamPermissions.
 var auditUnloggedRPCs = map[protoreflect.FullName]bool{
-	"google.pubsub.v1.Publisher.Publish":                 true,
-	"google.pubsub.v1.Subscriber.Pull":                   true,
-	"google.pubsub.v1.Subscriber.StreamingPull":          true,
-	"google.pubsub.v1.Subscriber.Acknowledge":            true,
-	"google.pubsub.v1.Subscriber.ModifyAckDeadline":      true,
-	"google.pubsub.v1.Subscriber.Seek":                   true,
-	"google.cloud.run.v2.Services.TestIamPermissions":    true,
-	"google.cloud.run.v2.Jobs.TestIamPermissions":        true,
-	"google.cloud.run.v2.WorkerPools.TestIamPermissions": true,
-	"google.pubsub.v1.SchemaService.ValidateSchema":      true,
-	"google.pubsub.v1.SchemaService.ValidateMessage":     true,
+	"google.pubsub.v1.Publisher.Publish":               true,
+	"google.pubsub.v1.Subscriber.Pull":                 true,
+	"google.pubsub.v1.Subscriber.StreamingPull":        true,
+	"google.pubsub.v1.Subscriber.Acknowledge":          true,
+	"google.pubsub.v1.Subscriber.ModifyAckDeadline":    true,
+	"google.pubsub.v1.Subscriber.Seek":                 true,
+	"google.pubsub.v1.SchemaService.ValidateSchema":    true,
+	"google.pubsub.v1.SchemaService.ValidateMessage":   true,
+	"google.iam.admin.v1.IAM.QueryGrantableRoles":      true,
+	"google.iam.admin.v1.IAM.QueryTestablePermissions": true,
+	"google.iam.admin.v1.IAM.QueryAuditableServices":   true,
+	"google.iam.admin.v1.IAM.LintPolicy":               true,
+	"google.iam.admin.v1.IAM.SignBlob":                 true,
+	"google.iam.admin.v1.IAM.SignJwt":                  true,
 }
 
 // auditRPC is one audited RPC.
 type auditRPC struct {
 	method      protoreflect.MethodDescriptor
 	serviceName string
+	methodName  string
 	logType     string
 	bindings    []*auditHTTPBinding
 }
@@ -107,7 +160,8 @@ var (
 func auditLoadRPCs() error {
 	auditRPCsOnce.Do(func() {
 		auditRPCsByName = map[string]*auditRPC{}
-		for _, name := range auditOnePlatformServices {
+		for _, api := range auditOnePlatformServices {
+			name := api.service
 			desc, err := protoregistry.GlobalFiles.FindDescriptorByName(name)
 			if err != nil {
 				auditRPCsErr = fmt.Errorf("audit logs: service %s: %w", name, err)
@@ -130,11 +184,14 @@ func auditLoadRPCs() error {
 				if !audited {
 					continue
 				}
-				rpc := &auditRPC{method: m, serviceName: host, logType: logType}
+				rpc := &auditRPC{method: m, serviceName: host, methodName: string(m.FullName()), logType: logType}
+				if api.methodName != nil {
+					rpc.methodName = api.methodName(m)
+				}
 				rule, _ := proto.GetExtension(m.Options(), annotations.E_Http).(*annotations.HttpRule)
 				if rule != nil {
 					for _, r := range append([]*annotations.HttpRule{rule}, rule.GetAdditionalBindings()...) {
-						binding, err := auditCompileBinding(rpc, r)
+						binding, err := auditCompileBinding(rpc, r, api.restPrefix)
 						if err != nil {
 							auditRPCsErr = fmt.Errorf("audit logs: %s: %w", m.FullName(), err)
 							return
@@ -153,10 +210,10 @@ func auditLoadRPCs() error {
 // auditRPCLogType is the audit log type an RPC writes: a configuration read
 // is ADMIN_READ, a data-plane call its own type, any other call ADMIN_WRITE.
 func auditRPCLogType(m protoreflect.MethodDescriptor) (string, bool) {
-	if auditUnloggedRPCs[m.FullName()] || m.IsStreamingClient() || m.IsStreamingServer() {
+	if auditUnloggedRPCs[m.FullName()] || m.Name() == "TestIamPermissions" || m.IsStreamingClient() || m.IsStreamingServer() {
 		return "", false
 	}
-	if logType, ok := auditDataPlaneLogTypes[m.FullName()]; ok {
+	if logType, ok := auditRPCLogTypes[m.FullName()]; ok {
 		return logType, true
 	}
 	name := string(m.Name())
@@ -166,7 +223,7 @@ func auditRPCLogType(m protoreflect.MethodDescriptor) (string, bool) {
 	return auditAdminWrite, true
 }
 
-func auditCompileBinding(rpc *auditRPC, rule *annotations.HttpRule) (*auditHTTPBinding, error) {
+func auditCompileBinding(rpc *auditRPC, rule *annotations.HttpRule, prefix string) (*auditHTTPBinding, error) {
 	b := &auditHTTPBinding{rpc: rpc, body: rule.GetBody()}
 	var template string
 	switch p := rule.GetPattern().(type) {
@@ -188,7 +245,7 @@ func auditCompileBinding(rpc *auditRPC, rule *annotations.HttpRule) (*auditHTTPB
 	if !strings.HasPrefix(template, "/") {
 		return nil, fmt.Errorf("path template %q does not start with /", template)
 	}
-	template = template[1:]
+	template = strings.TrimPrefix(prefix+template, "/")
 	depth, colon := 0, -1
 	for i, c := range template {
 		switch c {
@@ -319,10 +376,27 @@ func auditCustomMethodSuffix(segment string) bool {
 }
 
 // auditMatchREST is the audited RPC a REST call reaches and the variables its
-// path binds.
+// path binds, when exactly one API publishes the path.
 func auditMatchREST(method, escapedPath string) (*auditHTTPBinding, map[string]string, bool) {
-	if err := auditLoadRPCs(); err != nil {
+	candidates := auditMatchRESTCandidates(method, escapedPath)
+	if len(candidates) == 0 {
 		return nil, nil, false
+	}
+	return candidates[0].binding, candidates[0].vars, true
+}
+
+// auditRESTCandidate is a binding a REST call's path matches.
+type auditRESTCandidate struct {
+	binding *auditHTTPBinding
+	vars    map[string]string
+}
+
+// auditMatchRESTCandidates are the bindings that match a REST call most
+// specifically, one per API: two APIs can publish the same path, which their
+// hosts tell apart on Google Cloud.
+func auditMatchRESTCandidates(method, escapedPath string) []auditRESTCandidate {
+	if err := auditLoadRPCs(); err != nil {
+		return nil
 	}
 	parts := strings.Split(strings.TrimPrefix(escapedPath, "/"), "/")
 	custom := ""
@@ -331,18 +405,20 @@ func auditMatchREST(method, escapedPath string) (*auditHTTPBinding, map[string]s
 		custom = last[i+1:]
 		parts = append(parts[:len(parts)-1:len(parts)-1], last[:i])
 	}
-	var best *auditHTTPBinding
-	var bestVars map[string]string
+	var best []auditRESTCandidate
 	for _, b := range auditBindings {
 		vars, ok := b.match(method, parts, custom)
 		if !ok {
 			continue
 		}
-		if best == nil || b.literals > best.literals {
-			best, bestVars = b, vars
+		switch {
+		case len(best) == 0 || b.literals > best[0].binding.literals:
+			best = []auditRESTCandidate{{b, vars}}
+		case b.literals == best[0].binding.literals && b.rpc.serviceName != best[0].binding.rpc.serviceName:
+			best = append(best, auditRESTCandidate{b, vars})
 		}
 	}
-	return best, bestVars, best != nil
+	return best
 }
 
 // auditJSONPath is a dotted proto field path of the message spelled in the
@@ -390,14 +466,37 @@ func auditGetPath(doc map[string]any, path []string) string {
 	return value
 }
 
+// auditBindingFor is the binding a request's fields fill: the first whose
+// path variables the request sets.
+func (rpc *auditRPC) auditBindingFor(request map[string]any) *auditHTTPBinding {
+	input := rpc.method.Input()
+	for _, b := range rpc.bindings {
+		filled := true
+		for _, v := range b.vars {
+			if auditGetPath(request, auditJSONPath(input, v.field)) == "" {
+				filled = false
+				break
+			}
+		}
+		if filled {
+			return b
+		}
+	}
+	if len(rpc.bindings) > 0 {
+		return rpc.bindings[0]
+	}
+	return nil
+}
+
 // resourceName is the resource a call names: the resource its name variable
-// binds, or for a create the parent, collection and requested ID.
+// binds, for a create the parent, collection and requested ID, and for a
+// binding without either the path its variables fill.
 func (rpc *auditRPC) resourceName(request map[string]any) string {
-	if len(rpc.bindings) == 0 {
+	binding := rpc.auditBindingFor(request)
+	if binding == nil {
 		return ""
 	}
 	input := rpc.method.Input()
-	binding := rpc.bindings[0]
 	for _, v := range binding.vars {
 		if v.field == "name" || strings.HasSuffix(v.field, ".name") || v.field == "resource" {
 			return auditGetPath(request, auditJSONPath(input, v.field))
@@ -423,10 +522,256 @@ func (rpc *auditRPC) resourceName(request map[string]any) string {
 		}
 		return parent
 	}
-	if len(binding.vars) > 0 {
-		return auditGetPath(request, auditJSONPath(input, binding.vars[0].field))
+	for _, v := range binding.vars {
+		if v.last > v.first {
+			return auditGetPath(request, auditJSONPath(input, v.field))
+		}
 	}
-	return ""
+	var parts []string
+	for i, segment := range binding.segments {
+		switch {
+		case segment.varIdx >= 0:
+			if binding.vars[segment.varIdx].first == i {
+				parts = append(parts, auditGetPath(request, auditJSONPath(input, binding.vars[segment.varIdx].field)))
+			}
+		case len(parts) > 0 || segment.literal == "projects":
+			parts = append(parts, segment.literal)
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
+// auditVersionSegment reports whether a path segment is an API version, v1
+// or v2beta1.
+func auditVersionSegment(segment string) bool {
+	return len(segment) > 1 && segment[0] == 'v' && segment[1] >= '0' && segment[1] <= '9'
+}
+
+// auditPermissionPrefixes are the IAM permission prefixes of the APIs whose
+// permissions do not start with the label of their host.
+var auditPermissionPrefixes = map[string]string{
+	"bigtableadmin.googleapis.com": "bigtable",
+	"firestore.googleapis.com":     "datastore",
+}
+
+// auditPermissionCollections renames the collections whose permissions name
+// another resource type: a service account key's are iam.serviceAccountKeys.*,
+// a Cloud Build trigger's cloudbuild.builds.*, and Artifact Registry spells
+// its format-specific collections in lower case.
+var auditPermissionCollections = map[string]map[string]string{
+	"iam.googleapis.com":        {"keys": "serviceAccountKeys"},
+	"cloudbuild.googleapis.com": {"triggers": "builds"},
+	"artifactregistry.googleapis.com": {
+		"dockerImages":   "dockerimages",
+		"mavenArtifacts": "mavenartifacts",
+		"npmPackages":    "npmpackages",
+		"pythonPackages": "pythonpackages",
+	},
+}
+
+// auditPermissionVerbs are the method verbs whose permission verb differs.
+var auditPermissionVerbs = map[string]string{"patch": "update", "partialUpdate": "update", "batchDelete": "delete"}
+
+// auditRPCPermissions are the permissions of the RPCs that check one their
+// name and resource do not spell.
+var auditRPCPermissions = map[protoreflect.FullName]string{
+	"google.cloud.kms.v1.KeyManagementService.Encrypt":                       "cloudkms.cryptoKeyVersions.useToEncrypt",
+	"google.cloud.kms.v1.KeyManagementService.RawEncrypt":                    "cloudkms.cryptoKeyVersions.useToEncrypt",
+	"google.cloud.kms.v1.KeyManagementService.Decrypt":                       "cloudkms.cryptoKeyVersions.useToDecrypt",
+	"google.cloud.kms.v1.KeyManagementService.RawDecrypt":                    "cloudkms.cryptoKeyVersions.useToDecrypt",
+	"google.cloud.kms.v1.KeyManagementService.AsymmetricDecrypt":             "cloudkms.cryptoKeyVersions.useToDecrypt",
+	"google.cloud.kms.v1.KeyManagementService.AsymmetricSign":                "cloudkms.cryptoKeyVersions.useToSign",
+	"google.cloud.kms.v1.KeyManagementService.MacSign":                       "cloudkms.cryptoKeyVersions.useToSign",
+	"google.cloud.kms.v1.KeyManagementService.MacVerify":                     "cloudkms.cryptoKeyVersions.useToVerify",
+	"google.cloud.kms.v1.KeyManagementService.Decapsulate":                   "cloudkms.cryptoKeyVersions.useToDecapsulate",
+	"google.cloud.kms.v1.KeyManagementService.GetPublicKey":                  "cloudkms.cryptoKeyVersions.viewPublicKey",
+	"google.cloud.kms.v1.KeyManagementService.GenerateRandomBytes":           "cloudkms.locations.generateRandomBytes",
+	"google.cloud.kms.v1.KeyManagementService.ImportCryptoKeyVersion":        "cloudkms.cryptoKeyVersions.create",
+	"google.cloud.kms.v1.KeyManagementService.UpdateCryptoKeyPrimaryVersion": "cloudkms.cryptoKeys.update",
+	"google.cloud.secretmanager.v1.SecretManagerService.AddSecretVersion":    "secretmanager.versions.add",
+	"google.pubsub.v1.Publisher.DetachSubscription":                          "pubsub.topics.detachSubscription",
+	"google.pubsub.v1.Publisher.ListTopicSubscriptions":                      "pubsub.topics.get",
+	"google.pubsub.v1.Publisher.ListTopicSnapshots":                          "pubsub.topics.get",
+	"google.cloud.run.v2.Builds.SubmitBuild":                                 "run.builds.create",
+	"google.cloud.functions.v2.FunctionService.GenerateUploadUrl":            "cloudfunctions.functions.sourceCodeSet",
+	"google.cloud.functions.v2.FunctionService.GenerateDownloadUrl":          "cloudfunctions.functions.sourceCodeGet",
+	"google.devtools.cloudbuild.v1.CloudBuild.RunBuildTrigger":               "cloudbuild.builds.create",
+	"google.devtools.cloudbuild.v1.CloudBuild.RetryBuild":                    "cloudbuild.builds.create",
+	"google.devtools.cloudbuild.v1.CloudBuild.CancelBuild":                   "cloudbuild.builds.update",
+	"google.spanner.admin.database.v1.DatabaseAdmin.UpdateDatabaseDdl":       "spanner.databases.updateDdl",
+	"google.spanner.admin.database.v1.DatabaseAdmin.GetDatabaseDdl":          "spanner.databases.getDdl",
+	"google.spanner.admin.database.v1.DatabaseAdmin.RestoreDatabase":         "spanner.backups.restoreDatabase",
+	"google.bigtable.admin.v2.BigtableTableAdmin.ModifyColumnFamilies":       "bigtable.tables.update",
+	"google.bigtable.admin.v2.BigtableTableAdmin.DropRowRange":               "bigtable.tables.mutateRows",
+	"google.firestore.admin.v1.FirestoreAdmin.ExportDocuments":               "datastore.databases.export",
+	"google.firestore.admin.v1.FirestoreAdmin.ImportDocuments":               "datastore.databases.import",
+	"google.firestore.admin.v1.FirestoreAdmin.RestoreDatabase":               "datastore.backups.restoreDatabase",
+	"google.iam.admin.v1.IAM.UploadServiceAccountKey":                        "iam.serviceAccountKeys.create",
+	"google.cloud.redis.v1.CloudRedis.GetInstanceAuthString":                 "redis.instances.getAuthString",
+	"google.bigtable.admin.v2.BigtableTableAdmin.CreateTableFromSnapshot":    "bigtable.tables.create",
+}
+
+// permission is the IAM permission the call checks, spelled the way IAM
+// spells it: the service, the collection of the resource the call addresses
+// and the method's verb, as in run.services.create or
+// secretmanager.versions.access.
+func (rpc *auditRPC) permission(request map[string]any, resourceName string) string {
+	if permission, ok := auditRPCPermissions[rpc.method.FullName()]; ok {
+		return permission
+	}
+	binding := rpc.auditBindingFor(request)
+	if binding == nil {
+		return ""
+	}
+	collection := ""
+	resourceVar := func(v auditTemplateVar) bool {
+		return v.field == "name" || strings.HasSuffix(v.field, ".name") || v.field == "resource" || v.field == "parent" || v.last > v.first
+	}
+	for _, v := range binding.vars {
+		if !resourceVar(v) {
+			continue
+		}
+		if v.next != "" {
+			collection = v.next
+		} else {
+			collection = auditCollectionOf(auditGetPath(request, auditJSONPath(rpc.method.Input(), v.field)))
+		}
+		break
+	}
+	if collection == "" {
+		for _, segment := range binding.segments {
+			if segment.varIdx < 0 && !auditVersionSegment(segment.literal) {
+				collection = segment.literal
+			}
+		}
+	}
+	if collection == "" {
+		collection = auditCollectionOf(resourceName)
+	}
+	if collection == "" {
+		return ""
+	}
+	nouns := []string{collection}
+	if renamed, ok := auditPermissionCollections[rpc.serviceName][collection]; ok {
+		collection = renamed
+		nouns = append(nouns, renamed)
+	}
+	if rpc.serviceName == "artifactregistry.googleapis.com" {
+		collection = strings.ToLower(collection)
+	}
+	verb := rpc.permissionVerb(nouns)
+	prefix, ok := auditPermissionPrefixes[rpc.serviceName]
+	if !ok {
+		prefix, _, _ = strings.Cut(rpc.serviceName, ".")
+	}
+	return prefix + "." + collection + "." + verb
+}
+
+// permissionVerb is the RPC's name without the resource type it acts on, in
+// lower camel case: "create" for CreateService, "access" for
+// AccessSecretVersion, "list" for ListSecretVersions and "checkConsistency"
+// for CheckConsistency.
+func (rpc *auditRPC) permissionVerb(collections []string) string {
+	name := string(rpc.method.Name())
+	nouns := auditResourceTypeNames(rpc.method.ParentFile())
+	for _, collection := range collections {
+		nouns = append(nouns, collection, auditSingular(collection))
+	}
+	words := auditCamelWords(name)
+	verbWords := words
+	for i := 1; i < len(words); i++ {
+		suffix := strings.Join(words[i:], "")
+		if slices.ContainsFunc(nouns, func(noun string) bool { return strings.EqualFold(suffix, noun) }) {
+			verbWords = words[:i]
+			break
+		}
+	}
+	verb := strings.ToLower(verbWords[0]) + strings.Join(verbWords[1:], "")
+	if mapped, ok := auditPermissionVerbs[verb]; ok {
+		return mapped
+	}
+	return verb
+}
+
+// auditResourceTypeNames are the resource types a proto file defines, in
+// the singular and the plural: SecretVersion and SecretVersions.
+func auditResourceTypeNames(file protoreflect.FileDescriptor) []string {
+	var names []string
+	add := func(typ string) {
+		if _, short, ok := strings.Cut(typ, "/"); ok {
+			names = append(names, short, short+"s", short+"es", strings.TrimSuffix(short, "y")+"ies")
+		}
+	}
+	addDefinitions := func(f protoreflect.FileDescriptor) {
+		definitions, _ := proto.GetExtension(f.Options(), annotations.E_ResourceDefinition).([]*annotations.ResourceDescriptor)
+		for _, d := range definitions {
+			add(d.GetType())
+		}
+	}
+	addDefinitions(file)
+	var walk func(protoreflect.MessageDescriptors)
+	walk = func(messages protoreflect.MessageDescriptors) {
+		for i := range messages.Len() {
+			m := messages.Get(i)
+			if d, _ := proto.GetExtension(m.Options(), annotations.E_Resource).(*annotations.ResourceDescriptor); d != nil {
+				add(d.GetType())
+			}
+			walk(m.Messages())
+		}
+	}
+	walk(file.Messages())
+	imports := file.Imports()
+	for i := range imports.Len() {
+		if imported := imports.Get(i); imported.Package() == file.Package() {
+			walk(imported.Messages())
+			addDefinitions(imported)
+		}
+	}
+	return names
+}
+
+// auditCamelWords splits a CamelCase name at its words, keeping an acronym
+// whole: Get, VPCSC, Config for GetVPCSCConfig.
+func auditCamelWords(name string) []string {
+	var words []string
+	start := 0
+	for i := 1; i < len(name); i++ {
+		upper := name[i] >= 'A' && name[i] <= 'Z'
+		prevLower := name[i-1] >= 'a' && name[i-1] <= 'z'
+		nextLower := i+1 < len(name) && name[i+1] >= 'a' && name[i+1] <= 'z'
+		prevUpper := name[i-1] >= 'A' && name[i-1] <= 'Z'
+		if upper && (prevLower || (prevUpper && nextLower)) {
+			words = append(words, name[start:i])
+			start = i
+		}
+	}
+	return append(words, name[start:])
+}
+
+// auditSingular is the singular of a collection name.
+func auditSingular(plural string) string {
+	switch {
+	case strings.HasSuffix(plural, "ies"):
+		return strings.TrimSuffix(plural, "ies") + "y"
+	case strings.HasSuffix(plural, "sses"), strings.HasSuffix(plural, "xes"), strings.HasSuffix(plural, "uses"):
+		return strings.TrimSuffix(plural, "es")
+	default:
+		return strings.TrimSuffix(plural, "s")
+	}
+}
+
+// auditCollectionOf is the collection a resource name's resource is in:
+// "secrets" for projects/p/secrets/s, and a singleton's own name, as
+// "googleChannelConfig" for projects/p/locations/l/googleChannelConfig.
+func auditCollectionOf(name string) string {
+	segments := strings.Split(name, "/")
+	if len(segments) < 2 {
+		return ""
+	}
+	if len(segments)%2 == 1 {
+		return segments[len(segments)-1]
+	}
+	return segments[len(segments)-2]
 }
 
 // auditOnePlatformResource is the monitored resource an API's audit entries
@@ -458,6 +803,30 @@ func auditOnePlatformResource(rpc *auditRPC, project, resourceName string) *Moni
 		if subscription := auditPathSegmentAfter(resourceName, "subscriptions"); subscription != "" {
 			return &MonitoredResource{Type: "pubsub_subscription", Labels: map[string]string{"project_id": project, "subscription_id": subscription}}
 		}
+	case "cloudkms.googleapis.com":
+		keyRing := auditPathSegmentAfter(resourceName, "keyRings")
+		cryptoKey := auditPathSegmentAfter(resourceName, "cryptoKeys")
+		labels := map[string]string{"project_id": project, "location": location, "key_ring_id": keyRing}
+		switch {
+		case cryptoKey != "" && auditPathSegmentAfter(resourceName, "cryptoKeyVersions") != "":
+			labels["crypto_key_id"] = cryptoKey
+			labels["crypto_key_version_id"] = auditPathSegmentAfter(resourceName, "cryptoKeyVersions")
+			return &MonitoredResource{Type: "cloudkms_cryptokeyversion", Labels: labels}
+		case cryptoKey != "":
+			labels["crypto_key_id"] = cryptoKey
+			return &MonitoredResource{Type: "cloudkms_cryptokey", Labels: labels}
+		case keyRing != "":
+			return &MonitoredResource{Type: "cloudkms_keyring", Labels: labels}
+		}
+	case "spanner.googleapis.com":
+		if instance := auditPathSegmentAfter(resourceName, "instances"); instance != "" {
+			return &MonitoredResource{Type: "spanner_instance", Labels: map[string]string{
+				"project_id":      project,
+				"instance_id":     instance,
+				"instance_config": "",
+				"location":        "",
+			}}
+		}
 	case "cloudfunctions.googleapis.com":
 		if function := auditPathSegmentAfter(resourceName, "functions"); function != "" {
 			return &MonitoredResource{Type: "cloud_function", Labels: map[string]string{
@@ -470,7 +839,7 @@ func auditOnePlatformResource(rpc *auditRPC, project, resourceName string) *Moni
 	return &MonitoredResource{Type: "audited_resource", Labels: map[string]string{
 		"project_id": project,
 		"service":    rpc.serviceName,
-		"method":     string(rpc.method.FullName()),
+		"method":     rpc.methodName,
 	}}
 }
 
@@ -479,21 +848,26 @@ func auditOnePlatformResource(rpc *auditRPC, project, resourceName string) *Moni
 func auditOnePlatformRecord(rpc *auditRPC, request, response map[string]any, status map[string]any, caller auditCaller) auditRecord {
 	resourceName := rpc.resourceName(request)
 	project := resourceProject(resourceName)
+	permission := rpc.permission(request, resourceName)
 	request["@type"] = "type.googleapis.com/" + string(rpc.method.Input().FullName())
 	rec := auditRecord{
 		project:      project,
 		serviceName:  rpc.serviceName,
-		methodName:   string(rpc.method.FullName()),
+		methodName:   rpc.methodName,
 		resourceName: resourceName,
 		logType:      rpc.logType,
 		resource:     auditOnePlatformResource(rpc, project, resourceName),
 		location:     auditLocation(resourceName),
+		permission:   permission,
 		request:      request,
 		status:       status,
 		caller:       caller,
 	}
 	output := rpc.method.Output().FullName()
 	if response != nil && rpc.logType == auditAdminWrite && output != "google.protobuf.Empty" {
+		if output == "google.longrunning.Operation" {
+			rec.longRunning = auditLongRunningOperation(response)
+		}
 		response["@type"] = "type.googleapis.com/" + string(output)
 		rec.response = response
 	}

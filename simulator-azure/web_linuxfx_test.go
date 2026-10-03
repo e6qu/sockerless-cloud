@@ -46,9 +46,9 @@ func TestSiteContainerImageDistinguishesAStackFromAnImage(t *testing.T) {
 }
 
 // TestSiteBuiltInStackRunsOnlyWebAppsOnCataloguedStacks pins which sites run a
-// stack's platform image: a web app whose linuxFxVersion names a catalogued
-// stack, in any letter case. A function app runs on the Functions host, which
-// this simulator does not run, and an uncatalogued stack has no image here.
+// web stack's platform image: a web app whose linuxFxVersion names a
+// catalogued stack, in any letter case. A function app runs on the Functions
+// host instead, and an uncatalogued stack has no image here.
 func TestSiteBuiltInStackRunsOnlyWebAppsOnCataloguedStacks(t *testing.T) {
 	site := func(kind, fx string) *Site {
 		return &Site{Kind: kind, Properties: SiteProperties{SiteConfig: &SiteConfig{LinuxFxVersion: fx}}}
@@ -69,6 +69,32 @@ func TestSiteBuiltInStackRunsOnlyWebAppsOnCataloguedStacks(t *testing.T) {
 		stack, ok := siteBuiltInStack(s)
 		if got := stack.Image; got != tc.image || ok != (tc.image != "") {
 			t.Errorf("siteBuiltInStack(%s, %q) = %q, %v; want %q", tc.kind, tc.fx, got, ok, tc.image)
+		}
+	}
+}
+
+// TestSitePlatformImageRunsFunctionAppsOnTheFunctionsHost pins which image a
+// site on a built-in stack runs: a web app runs its stack's platform image,
+// and a function app runs the Azure Functions host image of its runtime.
+func TestSitePlatformImageRunsFunctionAppsOnTheFunctionsHost(t *testing.T) {
+	site := func(kind, fx string) *Site {
+		return &Site{Kind: kind, Properties: SiteProperties{SiteConfig: &SiteConfig{LinuxFxVersion: fx}}}
+	}
+	for _, tc := range []struct {
+		kind, fx string
+		image    string
+	}{
+		{kind: "functionapp,linux", fx: "Node|22", image: "mcr.microsoft.com/azure-functions/node:4.1054.250-4-node22-appservice"},
+		{kind: "functionapp,linux", fx: "NODE|22", image: "mcr.microsoft.com/azure-functions/node:4.1054.250-4-node22-appservice"},
+		{kind: "app,linux", fx: "NODE|20-lts", image: "mcr.microsoft.com/appsvc/node:20-lts_20260904.5.tuxprod"},
+		{kind: "app,linux", fx: "Node|22"},
+		{kind: "functionapp,linux", fx: "NODE|20-lts"},
+		{kind: "functionapp,linux", fx: "Python|3.12"},
+		{kind: "functionapp,linux", fx: ""},
+	} {
+		image, ok := sitePlatformImage(site(tc.kind, tc.fx))
+		if image != tc.image || ok != (tc.image != "") {
+			t.Errorf("sitePlatformImage(%s, %q) = %q, %v; want %q", tc.kind, tc.fx, image, ok, tc.image)
 		}
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"net"
 	"slices"
 	"strings"
@@ -49,9 +50,16 @@ type auditRecord struct {
 	permission       string
 	request          map[string]any
 	response         map[string]any
-	status           map[string]any
-	caller           auditCaller
-	at               time.Time
+	// serviceData is the service's own google.protobuf.Any, such as the
+	// policy delta of a SetIamPolicy call.
+	serviceData map[string]any
+	status      map[string]any
+	// operation names the long-running operation the entry starts or ends.
+	operation *LogEntryOperation
+	// longRunning is the long-running operation the call started.
+	longRunning *auditOperation
+	caller      auditCaller
+	at          time.Time
 }
 
 // auditCaller is who made the call and from where.
@@ -183,6 +191,9 @@ func emitAuditLog(rec auditRecord) {
 	if rec.response != nil {
 		payload["response"] = rec.response
 	}
+	if rec.serviceData != nil {
+		payload["serviceData"] = rec.serviceData
+	}
 	severity := "NOTICE"
 	if logID == auditLogDataAccess {
 		severity = "INFO"
@@ -198,6 +209,7 @@ func emitAuditLog(rec auditRecord) {
 		Severity:         severity,
 		InsertID:         auditInsertID(),
 		ProtoPayload:     payload,
+		Operation:        rec.operation,
 	}
 	writeLogEntries(entry.LogName, entry.Resource, nil, []LogEntry{entry})
 	eventarcRouteAuditLog(entry, rec.project, rec.location)
@@ -221,4 +233,76 @@ func auditLocation(resourceName string) string {
 		return location
 	}
 	return "global"
+}
+
+// auditOperation is the long-running operation a call started.
+type auditOperation struct {
+	id   string
+	done bool
+	// settled reads the operation's outcome: the response and status its last
+	// entry records, and whether it is done.
+	settled func() (response, status map[string]any, done bool)
+}
+
+// emitAuditCall writes the entries of an audited call. A call that started a
+// long-running operation writes one entry marked first and, when the
+// operation ends, one marked last; one entry carries both when the operation
+// was done by the time the call answered.
+func emitAuditCall(rec auditRecord) {
+	op := rec.longRunning
+	if op == nil || op.id == "" {
+		emitAuditLog(rec)
+		return
+	}
+	rec.operation = &LogEntryOperation{ID: op.id, Producer: rec.serviceName, First: true, Last: op.done}
+	emitAuditLog(rec)
+	if op.done || op.settled == nil || len(rec.status) > 0 {
+		return
+	}
+	last := func() {
+		response, status, done := op.settled()
+		if !done {
+			return
+		}
+		end := rec
+		end.request = nil
+		end.response = response
+		end.status = status
+		end.at = time.Now()
+		end.operation = &LogEntryOperation{ID: op.id, Producer: rec.serviceName, Last: true}
+		emitAuditLog(end)
+	}
+	signal := gcpOperationDoneSignal(op.id)
+	if _, _, done := op.settled(); done {
+		gcpOperationSignalDone(op.id)
+		last()
+		return
+	}
+	go func() {
+		<-signal
+		last()
+	}()
+}
+
+// auditLongRunningOperation is the google.longrunning.Operation a call
+// answered, read back from the store that records it until it is done.
+func auditLongRunningOperation(response map[string]any) *auditOperation {
+	id, _ := response["name"].(string)
+	done, _ := response["done"].(bool)
+	return &auditOperation{id: id, done: done, settled: func() (map[string]any, map[string]any, bool) {
+		op, ok := gcpLookupOperation(id)
+		if !ok || !op.Done {
+			return nil, nil, false
+		}
+		var result map[string]any
+		if op.Response != nil {
+			if raw, err := json.Marshal(op.Response); err == nil {
+				_ = json.Unmarshal(raw, &result)
+			}
+		}
+		if op.Error != nil {
+			return result, auditStatus(op.Error.Code, op.Error.Message), true
+		}
+		return result, auditStatus(0, ""), true
+	}}
 }

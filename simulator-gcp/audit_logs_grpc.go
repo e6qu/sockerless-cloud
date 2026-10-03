@@ -42,7 +42,7 @@ func auditUnaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerI
 	rec := auditOnePlatformRecord(rpc, request, response, callStatus, auditCaller{})
 	rec.at = at
 	rec.caller = auditGRPCCaller(ctx)
-	emitAuditLog(rec)
+	emitAuditCall(rec)
 	return resp, err
 }
 
