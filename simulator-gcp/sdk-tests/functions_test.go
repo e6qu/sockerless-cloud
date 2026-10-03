@@ -218,12 +218,19 @@ func TestCloudFunctions_UpdateRedeploysTheService(t *testing.T) {
 }
 
 // waitForFunctionLogMessage follows a function's Cloud Logging entries until
-// one carries message. It opens a TailLogEntries stream first and then lists
-// what the function already logged, so an entry written between the two
-// reads arrives on one of them.
+// one carries message.
 func waitForFunctionLogMessage(t *testing.T, functionID, message string) {
 	t.Helper()
-	filter := `resource.type="cloud_run_revision" AND resource.labels.service_name="` + functionID + `"`
+	followLogMessages(t, `resource.type="cloud_run_revision" AND resource.labels.service_name="`+functionID+`"`,
+		func(messages []string) bool { return slices.Contains(messages, message) })
+}
+
+// followLogMessages follows the text payloads of the Cloud Logging entries
+// filter matches until done accepts them, and returns them. It opens a
+// TailLogEntries stream first and then lists what was already logged, so an
+// entry written between the two reads arrives on one of them.
+func followLogMessages(t *testing.T, filter string, done func(messages []string) bool) []string {
+	t.Helper()
 	tailCtx, cancel := context.WithTimeout(ctx, jobLogWaitTimeout)
 	defer cancel()
 	stream, err := newLoggingV2Client(t).TailLogEntries(tailCtx)
@@ -246,11 +253,12 @@ func waitForFunctionLogMessage(t *testing.T, functionID, message string) {
 			messages = append(messages, text)
 		}
 	}
-	for !slices.Contains(messages, message) {
+	for !done(messages) {
 		resp, err := stream.Recv()
-		require.NoError(t, err, "function %q never logged %q: %q", functionID, message, messages)
+		require.NoError(t, err, "the entries %s matches never satisfied the wait: %q", filter, messages)
 		for _, entry := range resp.GetEntries() {
 			messages = append(messages, entry.GetTextPayload())
 		}
 	}
+	return messages
 }

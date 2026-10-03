@@ -187,7 +187,8 @@ Current state of the sockerless-cloud repository.
   --depends-on`), and a create or update whose `dependsOn` names no container
   or forms a cycle answers INVALID_ARGUMENT.
 - **A Cloud Storage volume mount writes back as Cloud Storage FUSE does.**
-  A Cloud Run job task or service instance binds the bucket's host directory
+  A Cloud Run job task, service instance, worker pool instance or instance
+  binds the bucket's host directory
   (or its `only-dir` directory) into the container, read-only when the volume
   is. While a workload mounts it writable, an inotify watch turns a close
   after writing into a new generation conditioned on the generation the file
@@ -239,6 +240,14 @@ Current state of the sockerless-cloud repository.
   after its dependencies passed their startup probes, and fails when a
   configured startup probe fails; deleting a job or execution stops its
   running containers, and cancelling a completed execution leaves it as it is.
+- **Cloud Run worker pools and instances run their containers.** A worker
+  pool runs its manual instance count of container groups through the job
+  task's start path (`dependsOn` order, startup probes, Cloud Storage volumes
+  with write ingestion); scaling changes start or stop the difference, and an
+  update or delete answers once the retired instances have stopped. A Cloud Run
+  instance runs through the service-instance path from creation or
+  `instances.start` until `instances.stop` or deletion. Their output reaches
+  Cloud Logging under `cloud_run_worker_pool` and `cloud_run_instance`.
 - **A Cloud Run function is served by its Cloud Run service**:
   `serviceConfig.uri` is the service's run.app URL and `url` the function's
   cloudfunctions.net URL, both served through the Cloud Run front end with

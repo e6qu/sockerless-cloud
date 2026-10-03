@@ -22,16 +22,16 @@ import (
 //     `/v1/projects/{p}/locations/{l}/workerpools/{id}:{verb}` on the global
 //     endpoint, which addresses the same worker pool the v2 collection does.
 //     Those are driven here as real gcloud invocations.
-//   - `deploy`, `describe`, `delete`, `update`, `update-instance-split`,
-//     `replace` and `list --region` resolve the *regional* Cloud Run host
-//     (`{region}-run.googleapis.com`) and speak the Knative surface at
-//     `/apis/run.googleapis.com/v1/namespaces/{ns}/workerpools`. gcloud builds
-//     that host by prefixing the configured endpoint with `{region}-`, which
-//     no endpoint coordinate can point at a loopback simulator, and the
-//     simulator does not serve the Knative worker-pool collection. Those
-//     commands therefore have no CLI coverage; the v2 collection they would
-//     otherwise reach is covered by the SDK tests and the wire round-trips
-//     below.
+//   - `deploy`, `delete`, `update` and `update-instance-split` call Cloud Run
+//     v2 through gcloud's gRPC client on the regional Cloud Run host
+//     (`{region}-run.googleapis.com`), and the simulator serves Cloud Run v2
+//     over REST only, so those commands have no CLI coverage; the v2
+//     collection they would otherwise reach is covered by the SDK tests and
+//     the wire round-trips below. `describe`, `list --region` and `replace`
+//     speak the Knative surface on the same regional host instead.
+//   - `logs read` reads the pool's Cloud Logging entries and reaches the
+//     simulator; run_workerpools_run_test.go drives it against running
+//     instances.
 //   - Cloud Run *Instances* have a `gcloud alpha run instances` group whose
 //     IAM commands reach the simulator; they are driven in
 //     run_instances_iam_test.go. Its lifecycle commands resolve the regional

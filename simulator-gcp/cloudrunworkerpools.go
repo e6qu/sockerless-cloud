@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -98,9 +99,40 @@ type WorkerPoolScaling struct {
 // identical InstanceSplitStatus). Worker pools split instances across
 // revisions much as a Service splits request traffic.
 type InstanceSplit struct {
-	Type     string `json:"type,omitempty"`
-	Revision string `json:"revision,omitempty"`
-	Percent  int32  `json:"percent,omitempty"`
+	Type     instanceSplitTypeString `json:"type,omitempty"`
+	Revision string                  `json:"revision,omitempty"`
+	Percent  int32                   `json:"percent,omitempty"`
+}
+
+// instanceSplitTypeString is the InstanceSplitAllocationType enum. The Go REST
+// client sends a worker pool back with the numeric form, and a read answers
+// with the name.
+type instanceSplitTypeString string
+
+func (e *instanceSplitTypeString) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*e = ""
+		return nil
+	}
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		*e = instanceSplitTypeString(s)
+		return nil
+	}
+	switch strings.TrimSpace(string(data)) {
+	case "0":
+		*e = "INSTANCE_SPLIT_ALLOCATION_TYPE_UNSPECIFIED"
+	case "1":
+		*e = "INSTANCE_SPLIT_ALLOCATION_TYPE_LATEST"
+	case "2":
+		*e = "INSTANCE_SPLIT_ALLOCATION_TYPE_REVISION"
+	default:
+		return fmt.Errorf("unknown instance split allocation type enum %s", data)
+	}
+	return nil
 }
 
 // crv2WorkerPools and crv2WorkerPoolRevisions are the Cloud Run worker-pool
@@ -146,6 +178,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		pool.Etag = sim.NewUUID()
 		pools.Put(name, pool)
 		reconcileWorkerPoolRevision(revisions, name, poolID+"-00001-abc", pool)
+		runCloudRunWorkerPool(pool)
 		lro := cloudRunLRO(project, location, pool, wpType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
@@ -244,6 +277,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		update.Etag = sim.NewUUID()
 		pools.Put(name, update)
 		reconcileWorkerPoolRevision(revisions, name, revName, update)
+		runCloudRunWorkerPool(update)
 		lro := cloudRunLRO(project, location, update, wpType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
@@ -263,6 +297,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 			return
 		}
 		pools.Delete(name)
+		stopCloudRunWorkerPool(name)
 		revPrefix := name + "/revisions/"
 		for _, rev := range revisions.Filter(func(rv RevisionV2) bool { return strings.HasPrefix(rv.Name, revPrefix) }) {
 			revisions.Delete(rev.Name)

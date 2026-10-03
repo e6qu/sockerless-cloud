@@ -1292,7 +1292,29 @@ request that started the instance waits for every probe. Starting the ingress
 first and every sidecar at once let an ingress that needs its sidecar at start
 up exit before the sidecar listened. The Knative service surface folds
 `dependsOn` into the revision template's container-dependencies annotation and
-back, as the job surface does. Worker pools still run nothing (row 3311).
+back, as the job surface does.
+
+A Cloud Run worker pool runs as many instances as its manual instance count
+(the minimum in automatic scaling), and each instance is a container group
+started by the same code a job task uses (`startCloudRunContainerGroup`):
+`dependsOn` order, startup probes, Cloud Storage volume binds and write
+ingestion, and the stop signal with Cloud Run's ten-second grace. A changed
+template replaces every instance, a changed count starts or stops the
+difference, and the update or delete that retires an instance answers only once
+its containers have stopped and the writes they made through the volume are
+objects, so a client reads the effect of the stop the moment the call returns.
+A Cloud Run instance runs through the service-instance path
+(`ensureCloudRunServiceInstance`): its ingress container publishes its port
+behind Cloud Run's default TCP startup probe. Creation, `instances.start` and an
+update run it, and `instances.stop` and deletion stop it, on both API versions.
+Worker pools log under the `cloud_run_worker_pool` monitored resource and
+instances under `cloud_run_instance`, the resource types `gcloud run
+worker-pools logs read` and `gcloud alpha run instances logs read` filter by.
+gcloud's worker-pool `deploy`, `update` and `delete` speak Cloud Run v2 over
+gRPC, which the simulator does not serve, so the CLI suite deploys over REST
+and reads the pool through `logs read` and `gcloud storage`. The Go REST
+client sends a worker pool's `instanceSplitStatuses[].type` as the enum's
+number, which the simulator maps to its name.
 
 A project has one number, the one Cloud Resource Manager assigned. Cloud DNS,
 Cloud Build, Cloud Run's service agent, Compute Engine, BigQuery and Cloud
