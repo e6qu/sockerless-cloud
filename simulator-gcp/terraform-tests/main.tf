@@ -755,6 +755,33 @@ resource "google_storage_object_access_control" "tf_object_reader" {
   entity = "allUsers"
 }
 
+# Cloud Storage publishes a bucket's object changes as its project's service
+# agent, so the topic grants that agent publish before the configuration names
+# the topic.
+data "google_storage_project_service_account" "gcs_agent" {}
+
+data "google_project" "test_project" {
+  project_id = "test-project"
+}
+
+resource "google_pubsub_topic" "tf_gcs_notifications" {
+  name = "tf-gcs-notifications"
+}
+
+resource "google_pubsub_topic_iam_member" "tf_gcs_agent_publisher" {
+  topic  = google_pubsub_topic.tf_gcs_notifications.id
+  role   = "roles/pubsub.publisher"
+  member = data.google_storage_project_service_account.gcs_agent.member
+}
+
+resource "google_storage_notification" "tf_notification" {
+  bucket         = google_storage_bucket.tf_bucket.name
+  payload_format = "JSON_API_V1"
+  topic          = google_pubsub_topic.tf_gcs_notifications.id
+  event_types    = ["OBJECT_FINALIZE"]
+  depends_on     = [google_pubsub_topic_iam_member.tf_gcs_agent_publisher]
+}
+
 resource "random_id" "bucket_suffix" {
   byte_length = 4
 }
@@ -765,6 +792,25 @@ resource "google_storage_bucket_object" "tf_artifact" {
   name    = "tf-test-artifact.txt"
   bucket  = google_storage_bucket.tf_bucket.name
   content = "tf-test-payload"
+}
+
+# An object carrying custom object contexts, which the provider sends on the
+# upload and reads back with their server-set timestamps.
+resource "google_storage_bucket_object" "tf_context_object" {
+  name    = "tf-context-object.txt"
+  bucket  = google_storage_bucket.tf_bucket.name
+  content = "contexts"
+
+  contexts {
+    custom {
+      key   = "team"
+      value = "data"
+    }
+    custom {
+      key   = "tier"
+      value = "gold"
+    }
+  }
 }
 
 # ---------- Cloud Logging ----------
@@ -1303,6 +1349,22 @@ output "bigtable_table_id" {
 
 output "project_id" {
   value = google_project.tf_project.project_id
+}
+
+output "gcs_object_contexts" {
+  value = google_storage_bucket_object.tf_context_object.contexts[0].custom
+}
+
+output "gcs_service_agent" {
+  value = data.google_storage_project_service_account.gcs_agent.email_address
+}
+
+output "test_project_number" {
+  value = data.google_project.test_project.number
+}
+
+output "gcs_notification_topic" {
+  value = google_storage_notification.tf_notification.topic
 }
 
 output "project_number" {

@@ -156,10 +156,10 @@ func TestGCSNotificationsPublishObjectChanges(t *testing.T) {
 	for _, topic := range []string{"gcs-events", "other"} {
 		gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/p/topics/"+topic, `{}`)
 		gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPost, "/v1/projects/p/topics/"+topic+":setIamPolicy",
-			`{"policy":{"bindings":[{"role":"roles/pubsub.publisher","members":["serviceAccount:service-p@gs-project-accounts.iam.gserviceaccount.com"]}]}}`)
+			`{"policy":{"bindings":[{"role":"roles/pubsub.publisher","members":["serviceAccount:service-735298346210@gs-project-accounts.iam.gserviceaccount.com"]}]}}`)
 	}
 	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/p/subscriptions/gcs-events", `{"topic":"projects/p/topics/gcs-events"}`)
-	gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b?project=p", `{"name":"watched"}`)
+	gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"watched"}`)
 	first := gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b/watched/notificationConfigs",
 		`{"topic":"//pubsub.googleapis.com/projects/p/topics/gcs-events","payload_format":"JSON_API_V1","event_types":["OBJECT_FINALIZE","OBJECT_DELETE"],"object_name_prefix":"in/","custom_attributes":{"team":"data"}}`)
 	second := gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b/watched/notificationConfigs",
@@ -227,7 +227,7 @@ func TestEventarcStorageTriggerDeliversCloudEvents(t *testing.T) {
 		t.Fatalf("a trigger naming a missing bucket answered %d %v", code, out)
 	}
 
-	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=p", `{"name":"uploads"}`)
+	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"uploads"}`)
 	gcpHostOK(t, srv, host, http.MethodPost, "/v1/projects/p/locations/us-central1/triggers?triggerId=on-upload", `{
 		"eventFilters":[{"attribute":"type","value":"google.cloud.storage.object.v1.finalized"},{"attribute":"bucket","value":"uploads"}],
 		"destination":{"cloudRun":{"service":"handler","region":"us-central1","path":"/storage"}},
@@ -276,7 +276,7 @@ func TestLoggingEntriesCopy(t *testing.T) {
 	gcpHostOK(t, srv, host, http.MethodPost, "/v2/projects/p/sinks", `{"name":"to-archive",
 		"destination":"logging.googleapis.com/`+bucket+`","filter":"logName=\"projects/p/logs/app\"",
 		"exclusions":[{"name":"noise","filter":"textPayload:\"noise\""}]}`)
-	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=p", `{"name":"copies"}`)
+	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"copies"}`)
 	gcpHostOK(t, srv, host, http.MethodPost, "/v2/entries:write", `{"entries":[
 		{"logName":"projects/p/logs/app","timestamp":"2026-09-01T10:15:00Z","severity":"ERROR","textPayload":"disk full"},
 		{"logName":"projects/p/logs/app","timestamp":"2026-09-01T11:05:00Z","severity":"INFO","textPayload":"started"},

@@ -405,6 +405,7 @@ func TestMemorystoreRedis_ClusterImportSources(t *testing.T) {
 	requireKeys(t, clusterClient(t, fromBackup, goredis.ClusterOptions{}), "imported", 100)
 
 	bucket := uniqueName("redis-import")
+	requireProject(t, project)
 	require.NoError(t, gcs.Bucket(bucket).Create(ctx, project, nil))
 	op, err = svc.Projects.Locations.BackupCollections.Backups.Export(backupName, &redis.ExportBackupRequest{GcsBucket: bucket}).Do()
 	require.NoError(t, err)

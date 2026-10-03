@@ -16,12 +16,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// gcsRESTProject is the project the advanced tests list and create buckets in.
+const gcsRESTProject = "gcs-rest-project"
+
 // gcsRESTCreate creates a bucket via raw REST (used by the advanced
 // tests that need to drive multipart / resumable / compose directly).
 func gcsRESTCreate(t *testing.T, bucket string) {
 	t.Helper()
+	requireProject(t, gcsRESTProject)
 	body := strings.NewReader(`{"name":"` + bucket + `"}`)
-	req, _ := http.NewRequest("POST", baseURL+"/storage/v1/b?project=p", body)
+	req, _ := http.NewRequest("POST", baseURL+"/storage/v1/b?project="+gcsRESTProject, body)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -618,7 +622,7 @@ func TestGCS_ListBuckets_Pagination(t *testing.T) {
 		t.Cleanup(func() { gcsRESTDelete(t, "/storage/v1/b/"+n) })
 	}
 
-	listURL := baseURL + "/storage/v1/b?project=p"
+	listURL := baseURL + "/storage/v1/b?project=" + gcsRESTProject
 
 	// An unpaginated list is the ground truth: it must return every bucket and
 	// no token at all.

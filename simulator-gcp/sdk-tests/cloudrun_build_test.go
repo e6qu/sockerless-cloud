@@ -41,6 +41,7 @@ func TestCloudRun_SubmitBuild(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 
 	storage := storageService(t)
+	requireProject(t, project)
 	_, err = storage.Buckets.Insert(project, &storageapi.Bucket{Name: bucket}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, storage.Buckets.Delete(bucket).Do()) })

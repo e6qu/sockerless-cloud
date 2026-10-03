@@ -21,6 +21,7 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	crm "google.golang.org/api/cloudresourcemanager/v3"
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/option"
 	spanneradmin "google.golang.org/api/spanner/v1"
@@ -127,6 +128,10 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 		objectName    = "survivor.txt"
 		objectContent = "gcs bytes survived restart"
 	)
+	resourceManager, err := crm.NewService(ctx, option.WithEndpoint(endpoint), option.WithHTTPClient(persistentAuthHTTPClient(endpoint)))
+	require.NoError(t, err)
+	_, err = resourceManager.Projects.Create(&crm.Project{ProjectId: project, Parent: "organizations/123456789012"}).Do()
+	require.NoError(t, err)
 	gcsClient, err := storage.NewClient(ctx, option.WithHTTPClient(persistentAuthHTTPClient(endpoint)))
 	require.NoError(t, err)
 	require.NoError(t, gcsClient.Bucket(bucketName).Create(ctx, project, nil))

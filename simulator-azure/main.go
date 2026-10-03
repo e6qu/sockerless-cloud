@@ -80,8 +80,14 @@ func main() {
 		log.Printf("Service Bus raw AMQP/TLS listening on %s", ln.Addr())
 	}
 
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatal(err)
+	serveErr := srv.ListenAndServe()
+	// The namespaces, interfaces and machines behind virtual networks are
+	// host-global and outlive the process, so a shutdown tears them down.
+	if err := azureFabric.Close(context.Background()); err != nil {
+		log.Printf("tear down the realized network fabric: %v", err)
+	}
+	if serveErr != nil {
+		log.Fatal(serveErr)
 	}
 }
 

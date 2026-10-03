@@ -630,6 +630,12 @@ type NamespaceNIC struct {
 	Gateway       net.IP
 	cleanup       *CleanupStack
 	network       *Network
+	subnet        *Subnet
+	// inNamespace runs a command inside the interface's network namespace,
+	// which a namespace this package created names and a process's does not.
+	inNamespace func(ctx context.Context, args ...string) error
+	addrMu      sync.Mutex
+	secondary   []net.IP
 }
 
 // ExternalNamespaceNICSpec attaches a NIC into an ALREADY-EXISTING network
@@ -660,6 +666,8 @@ type TapNIC struct {
 	cleanup    *CleanupStack
 	subnet     *Subnet
 	network    *Network
+	addrMu     sync.Mutex
+	secondary  []net.IP
 }
 
 type PacketRule struct {
@@ -822,8 +830,18 @@ func (s *Subnet) AttachNamespaceNIC(ctx context.Context, spec NamespaceNICSpec) 
 	})
 
 	if err := s.network.runner.Run(ctx, "ip", "netns", "add", spec.NamespaceName); err != nil {
-		_ = rollback.Close(context.Background())
-		return nil, err
+		// The namespace name derives from the interface it serves, so a
+		// process killed before its cleanup ran leaves one a restarted process
+		// collides with. Callers gate on their own owner map before attaching,
+		// so the namespace belongs to no live interface: delete it, and the
+		// veth whose guest end it held, and retry once.
+		_ = s.network.runner.Run(ctx, "ip", "netns", "del", spec.NamespaceName)
+		removeStaleVethPair(ctx, s.network.runner, s.network.NamespaceName, spec.HostVethName)
+		removeStaleVethPair(ctx, s.network.runner, "", spec.GuestVethName)
+		if err := s.network.runner.Run(ctx, "ip", "netns", "add", spec.NamespaceName); err != nil {
+			_ = rollback.Close(context.Background())
+			return nil, err
+		}
 	}
 	rollback.Add(func(cleanupCtx context.Context) error {
 		return s.network.runner.Run(cleanupCtx, "ip", "netns", "del", spec.NamespaceName)
@@ -881,6 +899,7 @@ func (s *Subnet) AttachNamespaceNIC(ctx context.Context, spec NamespaceNICSpec) 
 		return nil, err
 	}
 
+	namespace := spec.NamespaceName
 	nic := &NamespaceNIC{
 		NamespaceName: spec.NamespaceName,
 		HostVethName:  spec.HostVethName,
@@ -889,6 +908,10 @@ func (s *Subnet) AttachNamespaceNIC(ctx context.Context, spec NamespaceNICSpec) 
 		Gateway:       append(net.IP(nil), s.Gateway...),
 		cleanup:       rollback,
 		network:       s.network,
+		subnet:        s,
+		inNamespace: func(ctx context.Context, args ...string) error {
+			return s.network.runner.Run(ctx, "ip", append([]string{"netns", "exec", namespace}, args...)...)
+		},
 	}
 	return nic, nil
 }
@@ -1008,6 +1031,10 @@ func (s *Subnet) AttachExternalNamespaceNIC(ctx context.Context, spec ExternalNa
 		Gateway:       append(net.IP(nil), s.Gateway...),
 		cleanup:       rollback,
 		network:       s.network,
+		subnet:        s,
+		inNamespace: func(ctx context.Context, args ...string) error {
+			return s.network.runner.Run(ctx, "nsenter", append([]string{"-t", pid, "-n", "--"}, args...)...)
+		},
 	}, nil
 }
 

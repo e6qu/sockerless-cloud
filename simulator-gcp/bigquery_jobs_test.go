@@ -92,7 +92,7 @@ func bqTestSchema(table map[string]any) string {
 func TestBQJobsMoveDataThroughCloudStorage(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
 	gcpHostOK(t, srv, bqTestHost, http.MethodPost, "/bigquery/v2/projects/p/datasets", `{"datasetReference":{"datasetId":"loads"}}`)
-	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=p", `{"name":"data"}`)
+	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"data"}`)
 
 	var zipped bytes.Buffer
 	zw := gzip.NewWriter(&zipped)

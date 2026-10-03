@@ -52,6 +52,10 @@ var (
 	simTenantID = "11111111-1111-1111-1111-111111111111"
 )
 
+// simShutdownGrace bounds the orderly shutdown SIGTERM starts, in which the
+// simulator tears down every network namespace and interface it realized.
+const simShutdownGrace = 60 * time.Second
+
 func TestMain(m *testing.M) {
 	// A simulator this process starts must not outlive it. The cleanup
 	// below stops each one, and a killed `go test` never reaches it — so
@@ -174,8 +178,9 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	simCmd.Process.Kill()
-	simCmd.Wait()
+	if err := simready.Stop(simCmd, simShutdownGrace); err != nil {
+		log.Printf("stop the simulator: %v", err)
+	}
 	os.RemoveAll(tmpDir)
 	os.RemoveAll(azureFilesDataDir)
 	os.Exit(code)

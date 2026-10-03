@@ -10,6 +10,10 @@ import (
 
 var ErrNoAvailableIP = errors.New("no available IP address in subnet")
 
+// ErrAddressInUse is the error a request for an address leased to another
+// owner wraps.
+var ErrAddressInUse = errors.New("IP address already leased")
+
 // IPAM tracks explicit leases for a subnet. Allocation is based on the CIDR
 // address space and current leases, never on store length or creation order.
 type IPAM struct {
@@ -77,7 +81,7 @@ func (i *IPAM) Reserve(owner string, requested net.IP) (net.IP, error) {
 		}
 		key := ip.String()
 		if current, ok := i.reserved[key]; ok {
-			return nil, fmt.Errorf("IP %s already leased to %s", ip, current)
+			return nil, fmt.Errorf("%w: %s is leased to %s", ErrAddressInUse, ip, current)
 		}
 		i.reserved[key] = owner
 		return append(net.IP(nil), ip...), nil

@@ -576,7 +576,7 @@ func TestARGoModuleAndKfpUploads(t *testing.T) {
 func TestARImportReadsCloudStorage(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
 	repo := arTestRepository(t, srv, "import-repo", "APT")
-	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=p", `{"name":"debs"}`)
+	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"debs"}`)
 	deb := arTestDeb(t, arTestControl, ".zst")
 	if _, err := persistGCSObjectBytes("debs", "pool/hello.deb", deb, GCSObject{ContentType: "application/vnd.debian.binary-package"}, gcsPreconditions{}); err != nil {
 		t.Fatal(err)
@@ -615,7 +615,7 @@ func TestARExportWritesTheVersionsFiles(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
 	const host = "artifactregistry.googleapis.com"
 	dockerRepo := arTestRepository(t, srv, "exp-docker", "DOCKER")
-	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=p", `{"name":"exports"}`)
+	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"exports"}`)
 
 	config := []byte(`{"architecture":"amd64","os":"linux"}`)
 	layer := []byte("layer bytes")

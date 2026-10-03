@@ -198,6 +198,9 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		}
 		now := nowTimestamp()
 		job := cloudRunV1JobToV2(body)
+		if !cloudRunJobTemplateValid(w, job.Template, true) {
+			return
+		}
 		job.Name = name
 		job.UID = sim.NewUUID()
 		job.Generation = 1
@@ -285,6 +288,9 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		// ReplaceJob replaces the whole mutable resource; identity, launch
 		// stage and the execution history carry over from the stored record.
 		update := cloudRunV1JobToV2(body)
+		if !cloudRunJobTemplateValid(w, update.Template, true) {
+			return
+		}
 		update.Name = existing.Name
 		update.UID = existing.UID
 		update.CreateTime = existing.CreateTime
@@ -541,7 +547,8 @@ func writeCloudRunV1Job(w http.ResponseWriter, job Job) {
 }
 
 // deleteCloudRunJobCascade removes a job together with the executions and
-// tasks it owns, which is what deleting a job does on either API version.
+// tasks it owns and stops the executions still running, which is what deleting
+// a job does on either API version.
 func deleteCloudRunJobCascade(name string) {
 	crjJobs.Delete(name)
 	prefix := name + "/executions/"
@@ -549,15 +556,18 @@ func deleteCloudRunJobCascade(name string) {
 		return strings.HasPrefix(e.Name, prefix)
 	}) {
 		crjExecutions.Delete(execution.Name)
+		stopCloudRunExecutionRun(execution.Name)
 	}
 	for _, task := range crjTasks.Filter(func(t Task) bool { return strings.HasPrefix(t.Name, prefix) }) {
 		crjTasks.Delete(task.Name)
 	}
 }
 
-// deleteCloudRunExecutionCascade removes an execution together with its tasks.
+// deleteCloudRunExecutionCascade removes an execution together with its tasks
+// and stops it if it still runs.
 func deleteCloudRunExecutionCascade(name string) {
 	crjExecutions.Delete(name)
+	stopCloudRunExecutionRun(name)
 	taskPrefix := name + "/tasks/"
 	for _, task := range crjTasks.Filter(func(t Task) bool { return strings.HasPrefix(t.Name, taskPrefix) }) {
 		crjTasks.Delete(task.Name)

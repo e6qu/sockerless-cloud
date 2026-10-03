@@ -149,6 +149,18 @@ Current state of the sockerless-cloud repository.
 - **A bucket carries Cloud Storage's default policy** from creation — the
   four legacy bindings for the project's owners, editors and viewers — so a
   client revoking what it granted sets the defaults back, never nothing.
+- **Uploads past 5 MiB take the resumable path from the vendor CLIs too**:
+  `gcloud storage cp`, `gcloud artifacts generic upload`,
+  `gcloud artifacts files upload` and `bq load` are tested over it. BigQuery
+  serves its Discovery document, which `bq` builds its client from, and
+  answers REST errors with BigQuery's `errors[]` reasons.
+- **A bucket belongs to a project Cloud Resource Manager holds.**
+  `buckets.insert` resolves its project by ID or number, refuses an unknown one
+  with `400 Unknown project id`, and stamps the project's own number;
+  `projects.serviceAccount.get` names the agent
+  `service-{projectNumber}@gs-project-accounts.iam.gserviceaccount.com`, the
+  identity the notification check evaluates, so gcloud's and Terraform's
+  notification flows grant publish to the agent Cloud Storage checks.
 - **A Cloud Storage volume mount writes back as Cloud Storage FUSE does.**
   A Cloud Run job task or service instance binds the bucket's host directory
   (or its `only-dir` directory) into the container, read-only when the volume
@@ -189,6 +201,10 @@ Current state of the sockerless-cloud repository.
   Google-signed ID token for the service whose principal holds
   `run.routes.invoke` through the service's policy or one it inherits,
   conditions evaluated with Common Expression Language.
+- **A Cloud Run job task starts its containers in `dependsOn` order**, each
+  after its dependencies passed their startup probes, and fails when a
+  configured startup probe fails; deleting a job or execution stops its
+  running containers, and cancelling a completed execution leaves it as it is.
 - **A Cloud Run function is served by its Cloud Run service**:
   `serviceConfig.uri` is the service's run.app URL and `url` the function's
   cloudfunctions.net URL, both served through the Cloud Run front end with
@@ -216,6 +232,10 @@ Current state of the sockerless-cloud repository.
   so same-CIDR VPCs coexist; every simulator resource records its owning
   process, and a slice is reclaimed only from an owner this host can see to
   be gone.
+- **Azure network interfaces realize every IP configuration**: each secondary
+  holds its own address of the interface's subnet on the realized interface,
+  and the simulator tears its realized fabric down on SIGTERM; an interface
+  namespace a killed process left behind is reclaimed on the next attach.
 - **Declined surfaces are the ones whose required content is somebody else's
   data**: Cloud Spanner's Key Visualizer scans and wire-protocol adapter,
   Cloud KMS Key Access Justifications, Firestore's streaming REST spellings,

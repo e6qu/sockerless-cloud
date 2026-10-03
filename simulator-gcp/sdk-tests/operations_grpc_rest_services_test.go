@@ -82,6 +82,7 @@ func TestOperations_RESTServiceOperationsReadOverGRPC(t *testing.T) {
 	gcs := storageClient(t)
 	t.Cleanup(func() { gcs.Close() })
 	exportBucket := uniqueName("grpc-backup-export")
+	requireProject(t, "ops-grpc-project")
 	require.NoError(t, gcs.Bucket(exportBucket).Create(ctx, "ops-grpc-project", nil))
 	op, err = redisSvc.Projects.Locations.BackupCollections.Backups.Export(
 		parent+"/backupCollections/grpc-cluster/backups/grpc-backup",

@@ -758,6 +758,7 @@ func TestConformance_GCSBucketUpdateVersioning(t *testing.T) {
 	defer client.Close()
 
 	bkt := client.Bucket("conf-bucket-update")
+	requireProject(t, "conformance-project")
 	require.NoError(t, bkt.Create(ctx, "conformance-project", nil))
 
 	updated, err := bkt.Update(ctx, storage.BucketAttrsToUpdate{
@@ -776,6 +777,7 @@ func TestConformance_GCSBucketUpdateLabels(t *testing.T) {
 	defer client.Close()
 
 	bkt := client.Bucket("conf-bucket-labels")
+	requireProject(t, "conformance-project")
 	require.NoError(t, bkt.Create(ctx, "conformance-project", &storage.BucketAttrs{
 		Labels: map[string]string{"keep": "yes", "drop": "soon"},
 	}))
@@ -797,6 +799,7 @@ func TestConformance_GCSObjectUpdateMetadata(t *testing.T) {
 	defer client.Close()
 
 	bkt := client.Bucket("conf-object-update")
+	requireProject(t, "conformance-project")
 	require.NoError(t, bkt.Create(ctx, "conformance-project", nil))
 
 	obj := bkt.Object("meta.txt")

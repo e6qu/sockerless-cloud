@@ -114,7 +114,7 @@ func TestGCS_RestorePreconditionOnTheLiveObject(t *testing.T) {
 func TestGCS_SoftDeleteDisabledDestroysTheObject(t *testing.T) {
 	bucketHardDeleteBucket := uniqueName("hard-delete-bucket")
 	svc := storageService(t)
-	_, err := svc.Buckets.Insert(bucketHardDeleteBucket, &storageapi.Bucket{
+	_, err := svc.Buckets.Insert("test-project", &storageapi.Bucket{
 		Name: bucketHardDeleteBucket,
 		SoftDeletePolicy: &storageapi.BucketSoftDeletePolicy{
 			RetentionDurationSeconds: 0,
@@ -215,7 +215,7 @@ func TestGCS_ObjectMoveRequiresHierarchicalNamespace(t *testing.T) {
 func TestGCS_ObjectMove(t *testing.T) {
 	bucketHnsBucket := uniqueName("hns-bucket")
 	svc := storageService(t)
-	_, err := svc.Buckets.Insert(bucketHnsBucket, &storageapi.Bucket{
+	_, err := svc.Buckets.Insert("test-project", &storageapi.Bucket{
 		Name:                  bucketHnsBucket,
 		HierarchicalNamespace: &storageapi.BucketHierarchicalNamespace{Enabled: true},
 	}).Do()
@@ -327,7 +327,7 @@ func TestGCS_ObjectACLSeededFromTheBucketDefault(t *testing.T) {
 func TestGCS_ObjectACLRejectedUnderUniformBucketLevelAccess(t *testing.T) {
 	bucketUblaBucket := uniqueName("ubla-bucket")
 	svc := storageService(t)
-	_, err := svc.Buckets.Insert(bucketUblaBucket, &storageapi.Bucket{
+	_, err := svc.Buckets.Insert("test-project", &storageapi.Bucket{
 		Name: bucketUblaBucket,
 		IamConfiguration: &storageapi.BucketIamConfiguration{
 			UniformBucketLevelAccess: &storageapi.BucketIamConfigurationUniformBucketLevelAccess{

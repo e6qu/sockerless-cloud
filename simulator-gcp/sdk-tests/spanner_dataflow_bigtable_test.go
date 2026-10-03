@@ -384,6 +384,7 @@ func TestDataflow_TemplatesSDK(t *testing.T) {
 	// staged at is not a template — answering one for whatever path was asked
 	// about described a template nobody had.
 	storage := storageService(t)
+	requireProject(t, "tmpl-project")
 	_, err = storage.Buckets.Insert("tmpl-project", &storageapi.Bucket{Name: "staged-templates"}).Do()
 	require.NoError(t, err)
 

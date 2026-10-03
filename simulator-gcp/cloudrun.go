@@ -85,6 +85,9 @@ type CRContainer struct {
 	Resources    *CRResourceRequirements `json:"resources,omitempty"`
 	VolumeMounts []CRVolumeMount         `json:"volumeMounts,omitempty"`
 	WorkingDir   string                  `json:"workingDir,omitempty"`
+	// StartupProbe carries the Knative Probe, whose members Cloud Run models
+	// with the same names and types as google.cloud.run.v2.Probe.
+	StartupProbe *Probe `json:"startupProbe,omitempty"`
 }
 
 type CREnvVar struct {

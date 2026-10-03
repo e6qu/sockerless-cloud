@@ -439,6 +439,13 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		outputs.mustList(t, "azrm_application_gateway_listener_ids"),
 		"the gateway must report its declared listener, addressed under itself")
 
+	multiIPPrimary := outputs.must(t, "azrm_multi_ip_nic_primary_private_ip_address")
+	multiIPAddresses := outputs.mustList(t, "azrm_multi_ip_nic_private_ip_addresses")
+	require.Len(t, multiIPAddresses, 2, "the interface reports an address per IP configuration")
+	require.Contains(t, multiIPAddresses, multiIPPrimary)
+	require.Contains(t, multiIPAddresses, "10.0.1.40", "the static secondary holds the address it asked for")
+	require.NotEqual(t, multiIPAddresses[0], multiIPAddresses[1], "each IP configuration holds an address of its own")
+
 	azrmNetworkWatcher := outputs.must(t, "azrm_network_watcher_id")
 	require.Contains(t, azrmNetworkWatcher, "/providers/Microsoft.Network/networkWatchers/tf-azrm-network-watcher",
 		"network watcher id must include canonical ARM path; got %s", azrmNetworkWatcher)

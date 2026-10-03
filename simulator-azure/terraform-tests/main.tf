@@ -2,7 +2,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "5.7.0"
+      version = "5.8.0"
     }
   }
 }
@@ -261,6 +261,36 @@ resource "azurerm_network_interface" "az_vm_nic" {
     private_ip_address_allocation = "Dynamic"
     primary                       = true
   }
+}
+
+# A network interface with a secondary IP configuration: each configuration
+# holds an address of its own on the realized interface.
+resource "azurerm_network_interface" "az_multi_ip_nic" {
+  name                = "tf-azrm-multi-ip-nic"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  location            = azurerm_resource_group.az_rg.location
+
+  ip_configuration {
+    name                          = "primary"
+    subnet_id                     = azurerm_subnet.main.id
+    private_ip_address_allocation = "Dynamic"
+    primary                       = true
+  }
+
+  ip_configuration {
+    name                          = "secondary"
+    subnet_id                     = azurerm_subnet.main.id
+    private_ip_address_allocation = "Static"
+    private_ip_address            = "10.0.1.40"
+  }
+}
+
+output "azrm_multi_ip_nic_private_ip_addresses" {
+  value = azurerm_network_interface.az_multi_ip_nic.private_ip_addresses
+}
+
+output "azrm_multi_ip_nic_primary_private_ip_address" {
+  value = azurerm_network_interface.az_multi_ip_nic.private_ip_address
 }
 
 resource "azurerm_linux_virtual_machine" "az_vm" {

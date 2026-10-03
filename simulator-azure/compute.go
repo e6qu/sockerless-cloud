@@ -1078,6 +1078,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 		}
 		nic.Properties.ProvisioningState = "Succeeded"
 		nic.Properties.MacAddress = formatAzureMAC(azureNICMAC(id))
+		primary := azurePrimaryIPConfigIndex(nic)
 		for i := range nic.Properties.IPConfigurations {
 			ipcfg := &nic.Properties.IPConfigurations[i]
 			if ipcfg.Name == "" {
@@ -1092,23 +1093,42 @@ func registerNetworkInterfaces(srv *sim.Server) {
 			if ipcfg.Properties.PrivateIPAddressVersion == "" {
 				ipcfg.Properties.PrivateIPAddressVersion = "IPv4"
 			}
-			if i == 0 {
-				ipcfg.Properties.Primary = true
-			}
+			ipcfg.Properties.Primary = i == primary
 			if ipcfg.Properties.Subnet == nil {
 				AzureError(w, "InvalidRequestFormat", "network interface IP configuration requires a subnet reference.", http.StatusBadRequest)
 				return
 			}
+		}
+		// Every IP configuration of an interface shares the interface's one
+		// subnet.
+		for _, ipcfg := range nic.Properties.IPConfigurations {
+			first := nic.Properties.IPConfigurations[primary]
+			if !strings.EqualFold(ipcfg.Properties.Subnet.ID, first.Properties.Subnet.ID) {
+				AzureErrorf(w, "IpConfigurationsOnSameNicCannotUseDifferentSubnets", http.StatusBadRequest,
+					"IP configurations on same NIC %s and %s cannot use different subnets.", first.ID, ipcfg.ID)
+				return
+			}
+		}
+		if len(nic.Properties.IPConfigurations) > 0 {
 			if !azureRequireNetworkHost(w) {
 				return
 			}
-			privateIP, mac, err := azureCreateRealNIC(r.Context(), id, ipcfg.Properties.Subnet.ID, ipcfg.Properties.PrivateIPAddress, azureNICMAC(id))
-			if err != nil {
+			var prev *NetworkInterface
+			if stored, ok := azureNICs.Get(id); ok {
+				prev = &stored
+			}
+			if err := azureRealizeNICAddresses(r.Context(), &nic, primary, prev); err != nil {
+				if prev == nil {
+					err = errors.Join(err, azureDeleteRealNIC(r.Context(), id))
+				}
+				if errors.Is(err, realexec.ErrAddressInUse) {
+					AzureErrorf(w, "PrivateIPAddressInUse", http.StatusBadRequest,
+						"An IP configuration of network interface %s requests a private IP address that is already allocated to another resource: %v", id, err)
+					return
+				}
 				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to create real network interface fabric: %v", err)
 				return
 			}
-			ipcfg.Properties.PrivateIPAddress = privateIP
-			nic.Properties.MacAddress = mac
 		}
 		azureNICs.Put(id, nic)
 		if err := azureApplyRealNSGsToNIC(r.Context(), nic); err != nil {

@@ -3,6 +3,8 @@ package main
 import (
 	"net/http"
 	"testing"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Resource Manager v3 operations carry the fields their metadata
@@ -32,4 +34,12 @@ func TestCRMv3OperationMetadataFields(t *testing.T) {
 	if meta["displayName"] != "meta-folder" || meta["sourceParent"] != "organizations/123456789012" || meta["destinationParent"] != "folders/42" {
 		t.Fatalf("MoveFolderMetadata = %v", meta)
 	}
+}
+
+// createTestProject creates a project through Cloud Resource Manager, the way
+// a project exists before any other service accepts resources in it.
+func createTestProject(t *testing.T, srv *sim.Server, id string) {
+	t.Helper()
+	gcpHostOK(t, srv, "cloudresourcemanager.googleapis.com", http.MethodPost, "/v3/projects",
+		`{"projectId":"`+id+`","parent":"organizations/123456789012"}`)
 }

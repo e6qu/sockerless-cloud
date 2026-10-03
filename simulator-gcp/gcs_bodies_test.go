@@ -60,7 +60,7 @@ func (c *gcsTestClient) createBucket(name string, retentionSeconds string) {
 		spec["softDeletePolicy"] = map[string]any{"retentionDurationSeconds": retentionSeconds}
 	}
 	body, _ := json.Marshal(spec)
-	if resp, out := c.do(http.MethodPost, "/storage/v1/b?project=p", map[string]string{"Content-Type": "application/json"}, body); resp.StatusCode != http.StatusOK {
+	if resp, out := c.do(http.MethodPost, "/storage/v1/b?project=test-project", map[string]string{"Content-Type": "application/json"}, body); resp.StatusCode != http.StatusOK {
 		c.t.Fatalf("create bucket: %d %s", resp.StatusCode, out)
 	}
 }
@@ -314,7 +314,7 @@ func TestGCSInsertBucketResetsItsHostDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("SIM_GCS_DATA_DIR", filepath.Join(c.root, "blocked"))
-	resp, out := c.do(http.MethodPost, "/storage/v1/b?project=p", map[string]string{"Content-Type": "application/json"}, []byte(`{"name":"unmakeable"}`))
+	resp, out := c.do(http.MethodPost, "/storage/v1/b?project=test-project", map[string]string{"Content-Type": "application/json"}, []byte(`{"name":"unmakeable"}`))
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("insert with an unusable data directory = %d %s, want 500", resp.StatusCode, out)
 	}

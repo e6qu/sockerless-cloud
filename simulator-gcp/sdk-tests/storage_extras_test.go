@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -157,10 +158,11 @@ func TestGCS_DefaultObjectACL_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "storage#objectAccessControls", list.Kind)
 	require.Len(t, list.Items, 4)
+	number := requireProject(t, "test-project")
 	assert.Subset(t, defaultACLEntities(list.Items), []string{
-		"project-owners-123456789012",
-		"project-editors-123456789012",
-		"project-viewers-123456789012",
+		"project-owners-" + number,
+		"project-editors-" + number,
+		"project-viewers-" + number,
 	})
 
 	require.NoError(t, svc.DefaultObjectAccessControls.Delete(bucketDefaclBucket, entity).Do())
@@ -208,6 +210,7 @@ func TestGCS_Notifications_RoundTrip(t *testing.T) {
 
 	agent, err := svc.Projects.ServiceAccount.Get("test-project").Do()
 	require.NoError(t, err)
+	assert.Equal(t, "service-"+requireProject(t, "test-project")+"@gs-project-accounts.iam.gserviceaccount.com", agent.EmailAddress)
 	_, err = pubsubSvc.Projects.Topics.SetIamPolicy(topicName, &pubsubapi.SetIamPolicyRequest{
 		Policy: &pubsubapi.Policy{Bindings: []*pubsubapi.Binding{{
 			Role: "roles/pubsub.publisher", Members: []string{"serviceAccount:" + agent.EmailAddress},
@@ -215,9 +218,9 @@ func TestGCS_Notifications_RoundTrip(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
-	_, err = svc.Notifications.Insert(bucket, &storageapi.Notification{Topic: "projects/test-project/topics/x"}).Do()
+	_, err = svc.Notifications.Insert(bucket, &storageapi.Notification{Topic: "topics/x"}).Do()
 	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, http.StatusBadRequest, apiErr.Code, "a topic that is not a full Pub/Sub resource name is invalid")
+	assert.Equal(t, http.StatusBadRequest, apiErr.Code, "a topic that is not a Pub/Sub topic resource name is invalid")
 
 	created, err := svc.Notifications.Insert(bucket, notification).Do()
 	require.NoError(t, err)
@@ -274,12 +277,31 @@ func TestGCS_HmacKeys_RoundTrip(t *testing.T) {
 	assert.Empty(t, list.Items)
 }
 
+// Cloud Storage's service agent carries the project's number, whether the
+// caller names the project by ID or by number, and a bucket in the project
+// carries the same number.
 func TestGCS_ServiceAccount(t *testing.T) {
 	svc := storageService(t)
-	sa, err := svc.Projects.ServiceAccount.Get("test-project").Do()
+	number := requireProject(t, "test-project")
+	want := "service-" + number + "@gs-project-accounts.iam.gserviceaccount.com"
+	for _, ref := range []string{"test-project", number} {
+		sa, err := svc.Projects.ServiceAccount.Get(ref).Do()
+		require.NoError(t, err)
+		assert.Equal(t, "storage#serviceAccount", sa.Kind)
+		assert.Equal(t, want, sa.EmailAddress)
+	}
+
+	bucket := uniqueName("numbered-bucket")
+	mustCreateBucket(t, svc, bucket)
+	got, err := svc.Buckets.Get(bucket).Do()
 	require.NoError(t, err)
-	assert.Equal(t, "storage#serviceAccount", sa.Kind)
-	assert.NotEmpty(t, sa.EmailAddress)
+	assert.Equal(t, number, strconv.FormatUint(got.ProjectNumber, 10))
+
+	_, err = svc.Buckets.Insert("no-such-project", &storageapi.Bucket{Name: uniqueName("orphan-bucket")}).Do()
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Code)
+	assert.Equal(t, "Unknown project id: no-such-project", apiErr.Message)
 }
 
 func TestGCS_Folders_RoundTrip(t *testing.T) {

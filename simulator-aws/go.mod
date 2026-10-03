@@ -8,7 +8,7 @@ require (
 	github.com/beevik/etree v1.8.1
 	github.com/containerd/errdefs v1.0.0
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261002123607-e9105c8194bd
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261002221748-5f0049b4ad61
 	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261002123607-e9105c8194bd
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/fxamacker/cbor/v2 v2.9.4

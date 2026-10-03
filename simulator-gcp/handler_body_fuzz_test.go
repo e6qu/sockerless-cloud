@@ -22,7 +22,7 @@ var fuzzTargets = []struct {
 	method string
 	path   string
 }{
-	{"POST", "/storage/v1/b?project=p"},                                        // bucket insert
+	{"POST", "/storage/v1/b?project=test-project"},                             // bucket insert
 	{"PATCH", "/storage/v1/b/mybucket"},                                        // bucket patch
 	{"POST", "/upload/storage/v1/b/mybucket/o?uploadType=multipart&name=x"},    // object upload
 	{"POST", "/bigquery/v2/projects/p/queries"},                                // query

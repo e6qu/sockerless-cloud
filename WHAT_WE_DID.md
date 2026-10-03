@@ -822,6 +822,24 @@ booting or running beside every later test's boot on the same runner.
 
 The fabric keeps a network's or machine's lock only while a caller holds or
 waits for it, so its lock maps shrink as networks and machines go away.
+A network interface's namespace and veth names derive from its ID, so a
+simulator killed before its cleanup ran leaves them for the next process to
+collide with: attaching an interface deletes a namespace of its name, and the
+veth it held, and retries once, as creating a network's namespace does, and
+the fabric serializes attaches of one interface so the reclaim never destroys
+a live namespace. The Azure simulator closes its fabric when SIGTERM stops it,
+and the Azure suites stop their simulators with SIGTERM.
+An Azure network interface realizes every IP configuration: the primary one
+(the one marked primary, else the first) attaches the interface, and each
+secondary leases its own address of the same subnet onto it — `ip addr add` in
+the interface's namespace, removed and released through its cleanup stack, or,
+while a virtual machine carries the interface as a tap, a lease the tap holds.
+A rewrite keeps the address each kept configuration held and releases the
+dropped ones first; configurations in two subnets are refused with
+`IpConfigurationsOnSameNicCannotUseDifferentSubnets`, and an address another
+interface holds with `PrivateIPAddressInUse`. The simulator does not configure
+the secondary addresses inside a guest, because Azure's DHCP hands a guest
+only its primary; the Instance Metadata Service lists them all, primary first.
 Creating an Azure file share or inserting a Cloud Storage bucket makes its
 empty host directory and fails the request when it cannot. The mount helpers
 only name the directory, and a bucket reuses no files that a deleted bucket
@@ -987,6 +1005,16 @@ share is owned by the first to push it and passes to another on deletion.
 follows the repository format as gcloud's `AddRegistryBaseToRepositoryInfo`
 spells it: `LOCATION-FORMAT.pkg.dev/PROJECT/REPOSITORY`.
 
+The vendor CLIs drive those paths past 5 MiB, where apitools and
+googleapiclient switch to the resumable protocol: `gcloud storage cp`,
+`gcloud artifacts generic upload`, `gcloud artifacts files upload` and
+`bq load` each have a CLI test with a 9 MiB payload generated in the test's
+temporary directory. `bq` builds its client from BigQuery's Discovery document
+whenever its API root is not Google's, so the simulator serves that document,
+byte-identical to the vendored one, at `/$discovery/rest?version=v2`; and
+BigQuery's REST errors carry the `errors[]` entry (`reason`, `domain`,
+`message`) whose `notFound` reason is how `bq mk` learns a dataset is absent.
+
 Every resumable path Discovery declares is served. The conformance loader and
 the response validator index `mediaUpload.protocols.resumable.path` beside the
 simple path, so the `/resumable/upload/...` routes are checked as Discovery
@@ -1058,7 +1086,16 @@ response when every task succeeded, the failed `Completed` condition's message
 under FAILED_PRECONDITION when one failed, CANCELLED when it was cancelled, and
 NOT_FOUND when the execution was deleted while it ran. Cancelling the operation
 cancels the execution, and a restart completes the operations of executions
-that settled without them. `operations.wait` on REST and `WaitOperation` on
+that settled without them. A Cloud Run job task starts its containers in
+`dependsOn` order: the first to start owns the network namespace the others
+join, and a container starts once each container it depends on has started and
+passed its startup probe; a probe that fails fails the attempt with a status
+naming it. gcloud's `--depends-on` reaches the Knative surface as the
+`run.googleapis.com/container-dependencies` template annotation, which the
+simulator folds onto the containers' `dependsOn`. Deleting a job or an
+execution stops what it still runs, and cancelling an execution that has
+completed leaves it as it is, which is what gcloud's cancel reads as
+"completed successfully before it could be cancelled". `operations.wait` on REST and `WaitOperation` on
 gRPC block on a signal `gcpFinishOperation` raises, bounded by the request's
 `timeout` or else by the caller's connection. Cloud Build's `CreateBuild`, its
 regional twin, `RetryBuild`, `ApproveBuild`, `RunBuildTrigger`, the trigger
@@ -1160,6 +1197,18 @@ one per-object lock (`sim.KeyedLocks`, shared by all three slices) at each
 service's single write path rather than at each handler, so a handler added
 later cannot skip it; a lock per object keeps unrelated writes concurrent.
 Cloud Storage generations are timestamps that never repeat.
+
+A Cloud Storage bucket belongs to a project that exists. The insert resolves
+its `project` through Cloud Resource Manager and stamps that project's number,
+and the service agent is named for the same number, because gcloud's
+`storage buckets notifications create` reads the bucket's `projectNumber`,
+asks for that number's agent and grants it publish on the topic before the
+insert that checks it. A fixed number on every bucket and an agent named for
+the project ID had each answer look right alone while the flow granted one
+identity and checked another. gcloud and Terraform name the topic by its
+relative name (`projects/{p}/topics/{t}`), so the insert accepts it and stores
+the full `//pubsub.googleapis.com/` name. Tests create their buckets in
+projects Cloud Resource Manager holds.
 
 An object store is read by key or key prefix. Reading one whole costs every
 byte every bucket holds, and the store-scan gate could not see it because it
@@ -1425,7 +1474,13 @@ object ACLs while uniform bucket-level access is off. It refuses to delete a
 bucket that still holds live objects, and refuses a notification whose Pub/Sub
 topic is malformed, missing or closed to its service agent. Objects kept
 their custom contexts through every write, copy, rewrite and compose,
-`objects.list` filtered on them, and `objects.viewFullContext` read one back.
+`objects.list` filtered on them, and `objects.viewFullContext` read one back;
+the Go clients, gcloud (`--custom-contexts`, `--update-custom-contexts`,
+`--remove-custom-contexts`, `--metadata-filter`) and the Terraform provider's
+`google_storage_bucket_object.contexts` all drove them. gcloud's
+`objects update --clear-custom-contexts` sends an empty `custom` map, which a
+patch treats as no change (Google's Go client sends `contexts` as null to clear
+them), so the CLI test removes contexts by name.
 Artifact Registry
 deletes cascade across both planes: a manifest DELETE over OCI removes its
 version, tags and image row, and a package or repository takes everything

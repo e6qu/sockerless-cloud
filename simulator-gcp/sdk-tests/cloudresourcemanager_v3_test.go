@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	crm "google.golang.org/api/cloudresourcemanager/v3"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iam/v1"
 	iamcredentials "google.golang.org/api/iamcredentials/v1"
 	"google.golang.org/api/option"
@@ -31,6 +33,23 @@ func crmOpResourceName(t *testing.T, op *crm.Operation) string {
 	require.NoError(t, json.Unmarshal(op.Response, &m))
 	name, _ := m["name"].(string)
 	return name
+}
+
+// requireProject makes sure Cloud Resource Manager holds the project, as a
+// project must exist before Cloud Storage accepts a bucket in it, and returns
+// its project number. An ALREADY_EXISTS answer satisfies the caller, so the
+// test re-runs in one process.
+func requireProject(t *testing.T, projectID string) string {
+	t.Helper()
+	svc := crmV3Service(t)
+	_, err := svc.Projects.Create(&crm.Project{ProjectId: projectID, Parent: "organizations/123456789012"}).Do()
+	var apiErr *googleapi.Error
+	if err != nil && (!errors.As(err, &apiErr) || apiErr.Code != http.StatusConflict) {
+		require.NoError(t, err)
+	}
+	project, err := svc.Projects.Get("projects/" + projectID).Do()
+	require.NoError(t, err)
+	return strings.TrimPrefix(project.Name, "projects/")
 }
 
 func crmV3Service(t *testing.T) *crm.Service {

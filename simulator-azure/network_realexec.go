@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -118,6 +119,109 @@ func azureCreateRealNIC(ctx context.Context, nicID, subnetID, requestedIP, mac s
 	return nic.PrivateIP.String(), formatAzureMAC(mac), nil
 }
 
+// azurePrimaryIPConfigIndex is the IP configuration Azure treats as the
+// interface's primary: the one marked primary, or the first when none is.
+func azurePrimaryIPConfigIndex(nic NetworkInterface) int {
+	for i, ipcfg := range nic.Properties.IPConfigurations {
+		if ipcfg.Properties.Primary {
+			return i
+		}
+	}
+	return 0
+}
+
+func azurePrimaryIPConfig(nic NetworkInterface) NetworkInterfaceIPConfiguration {
+	return nic.Properties.IPConfigurations[azurePrimaryIPConfigIndex(nic)]
+}
+
+// azureNICSecondaryAddresses lists the private addresses of the interface's
+// secondary IP configurations.
+func azureNICSecondaryAddresses(nic NetworkInterface) []net.IP {
+	primary := azurePrimaryIPConfigIndex(nic)
+	var out []net.IP
+	for i, ipcfg := range nic.Properties.IPConfigurations {
+		if i == primary {
+			continue
+		}
+		if ip := net.ParseIP(ipcfg.Properties.PrivateIPAddress); ip != nil {
+			out = append(out, ip)
+		}
+	}
+	return out
+}
+
+// azureRealizeNICAddresses realizes the interface with its primary IP
+// configuration's address and gives each secondary configuration its own.
+func azureRealizeNICAddresses(ctx context.Context, nic *NetworkInterface, primary int, prev *NetworkInterface) error {
+	ipcfg := &nic.Properties.IPConfigurations[primary]
+	privateIP, mac, err := azureCreateRealNIC(ctx, nic.ID, ipcfg.Properties.Subnet.ID, ipcfg.Properties.PrivateIPAddress, azureNICMAC(nic.ID))
+	if err != nil {
+		return err
+	}
+	ipcfg.Properties.PrivateIPAddress = privateIP
+	nic.Properties.MacAddress = mac
+	return azureRealizeNICSecondaries(ctx, nic, prev)
+}
+
+// azureRealizeNICSecondaries gives every secondary IP configuration of nic an
+// address of its own on the realized interface and writes it into the
+// configuration. A configuration keeps the address it held in prev, the
+// interface as stored before this write, unless it asks for another static
+// one; the addresses of configurations nic no longer has go back to the
+// subnet.
+func azureRealizeNICSecondaries(ctx context.Context, nic *NetworkInterface, prev *NetworkInterface) error {
+	held := map[string]string{}
+	if prev != nil {
+		primary := azurePrimaryIPConfigIndex(*prev)
+		for i, ipcfg := range prev.Properties.IPConfigurations {
+			if i != primary && ipcfg.Properties.PrivateIPAddress != "" {
+				held[strings.ToLower(ipcfg.Name)] = ipcfg.Properties.PrivateIPAddress
+			}
+		}
+	}
+	primary := azurePrimaryIPConfigIndex(*nic)
+	wanted := map[string]string{}
+	for i, ipcfg := range nic.Properties.IPConfigurations {
+		if i == primary {
+			continue
+		}
+		name := strings.ToLower(ipcfg.Name)
+		if strings.EqualFold(ipcfg.Properties.PrivateIPAllocationMethod, "Static") {
+			wanted[name] = ipcfg.Properties.PrivateIPAddress
+		} else {
+			wanted[name] = held[name]
+		}
+	}
+	realized := azureFabric.NICAddresses(nic.ID)
+	for name, address := range held {
+		ip := net.ParseIP(address)
+		if wanted[name] == address || ip == nil || !slices.ContainsFunc(realized, ip.Equal) {
+			continue
+		}
+		if err := azureFabric.RemoveNICAddress(ctx, nic.ID, ip); err != nil {
+			return fmt.Errorf("release address %s of IP configuration %s: %w", address, name, err)
+		}
+	}
+	for i := range nic.Properties.IPConfigurations {
+		if i == primary {
+			continue
+		}
+		ipcfg := &nic.Properties.IPConfigurations[i]
+		var requested net.IP
+		if address := wanted[strings.ToLower(ipcfg.Name)]; address != "" {
+			if requested = net.ParseIP(address); requested == nil {
+				return fmt.Errorf("IP configuration %s requests the invalid address %q", ipcfg.Name, address)
+			}
+		}
+		ip, err := azureFabric.AddNICAddress(ctx, nic.ID, requested)
+		if err != nil {
+			return fmt.Errorf("lease an address for IP configuration %s: %w", ipcfg.Name, err)
+		}
+		ipcfg.Properties.PrivateIPAddress = ip.String()
+	}
+	return nil
+}
+
 func azureDeleteRealNIC(ctx context.Context, nicID string) error {
 	var errs []error
 	for _, vm := range azureVMs.List() {
@@ -190,7 +294,7 @@ func azureValidateVMNetworkProfile(vm VirtualMachine) *azureVMRequestFault {
 			message: fmt.Sprintf("The Resource %q referenced by properties.networkProfile.networkInterfaces was not found.", nics[0].ID),
 		}
 	}
-	if len(armNIC.Properties.IPConfigurations) == 0 || armNIC.Properties.IPConfigurations[0].Properties.Subnet == nil {
+	if len(armNIC.Properties.IPConfigurations) == 0 || azurePrimaryIPConfig(armNIC).Properties.Subnet == nil {
 		return &azureVMRequestFault{
 			code:   "InvalidParameter",
 			status: http.StatusBadRequest,
@@ -224,7 +328,8 @@ func azureStartRealVM(ctx context.Context, vm VirtualMachine) error {
 	}
 	nicID := vm.Properties.NetworkProfile.NetworkInterfaces[0].ID
 	armNIC, _ := azureNICs.Get(nicID)
-	ipconf := armNIC.Properties.IPConfigurations[0]
+	primary := azurePrimaryIPConfigIndex(armNIC)
+	ipconf := armNIC.Properties.IPConfigurations[primary]
 	subnetID := ipconf.Properties.Subnet.ID
 	var requestedIP net.IP
 	if ipconf.Properties.PrivateIPAddress != "" {
@@ -267,7 +372,12 @@ func azureStartRealVM(ctx context.Context, vm VirtualMachine) error {
 			MemoryMiB: memMiB,
 		},
 		BeforeBoot: func(tap *realexec.TapNIC, _ *realexec.FirecrackerVMConfig) error {
-			armNIC.Properties.IPConfigurations[0].Properties.PrivateIPAddress = tap.PrivateIP.String()
+			armNIC.Properties.IPConfigurations[primary].Properties.PrivateIPAddress = tap.PrivateIP.String()
+			for _, address := range azureNICSecondaryAddresses(armNIC) {
+				if _, err := tap.AddAddress(address); err != nil {
+					return fmt.Errorf("lease secondary address %s to %s: %w", address, nicID, err)
+				}
+			}
 			armNIC.Properties.MacAddress = formatAzureMAC(azureNICMAC(nicID))
 			azureNICs.Put(nicID, armNIC)
 			azureMetadataVMsByIP.Store(tap.PrivateIP.String(), azureMetadataVM{
@@ -307,11 +417,18 @@ func azureDeleteRealVM(ctx context.Context, vm VirtualMachine) error {
 		address := tap.PrivateIP.String()
 		errs = append(errs, azureFabric.DeleteNIC(ctx, ref.ID))
 		armNIC, ok := azureNICs.Get(ref.ID)
-		if !ok || len(armNIC.Properties.IPConfigurations) == 0 || armNIC.Properties.IPConfigurations[0].Properties.Subnet == nil {
+		if !ok || len(armNIC.Properties.IPConfigurations) == 0 || azurePrimaryIPConfig(armNIC).Properties.Subnet == nil {
 			continue
 		}
-		_, _, err := azureCreateRealNIC(ctx, ref.ID, armNIC.Properties.IPConfigurations[0].Properties.Subnet.ID, address, azureNICMAC(ref.ID))
-		errs = append(errs, err)
+		if _, _, err := azureCreateRealNIC(ctx, ref.ID, azurePrimaryIPConfig(armNIC).Properties.Subnet.ID, address, azureNICMAC(ref.ID)); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		for _, secondary := range azureNICSecondaryAddresses(armNIC) {
+			if _, err := azureFabric.AddNICAddress(ctx, ref.ID, secondary); err != nil {
+				errs = append(errs, fmt.Errorf("restore secondary address %s of %s: %w", secondary, ref.ID, err))
+			}
+		}
 	}
 	return errors.Join(errs...)
 }

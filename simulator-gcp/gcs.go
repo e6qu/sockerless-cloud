@@ -735,6 +735,10 @@ func registerGCS(srv *sim.Server) {
 			GCPError(w, http.StatusBadRequest, "Required parameter: project", "INVALID_ARGUMENT")
 			return
 		}
+		owner, ok := gcsResolveProject(w, project)
+		if !ok {
+			return
+		}
 
 		if _, exists := buckets.Get(name); exists {
 			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "bucket %q already exists", name)
@@ -745,7 +749,7 @@ func registerGCS(srv *sim.Server) {
 		data["id"] = name
 		data["kind"] = "storage#bucket"
 		data["selfLink"] = gcpSelfLink(r, fmt.Sprintf("/storage/v1/b/%s", name))
-		data["projectNumber"] = "123456789012"
+		data["projectNumber"] = strings.TrimPrefix(owner.Name, "projects/")
 		data["metageneration"] = "1"
 		data["etag"] = "CAE="
 		data["timeCreated"] = now
@@ -768,7 +772,7 @@ func registerGCS(srv *sim.Server) {
 			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "bucket %q storage: %v", name, err)
 			return
 		}
-		bucket := Bucket{Data: data, Project: project}
+		bucket := Bucket{Data: data, Project: owner.ProjectId}
 		buckets.Put(name, bucket)
 		gcsSeedDefaultObjectACL(name, bucket)
 		gcsSeedDefaultBucketPolicy(name)
@@ -2319,8 +2323,10 @@ func registerGCSNotifications(srv *sim.Server, buckets sim.Store[Bucket], bucket
 				"Invalid Google Cloud Pub/Sub topic. It should look like '//pubsub.googleapis.com/projects/*/topics/*'.")
 			return
 		}
+		in.Topic = "//pubsub.googleapis.com/" + topicName
 		owner, _ := buckets.Get(bucket)
-		if agent := gcsServiceAgentEmail(owner.Project); !gcsAgentMayPublish(agent, topicName) {
+		number, _ := owner.Data["projectNumber"].(string)
+		if agent := gcsServiceAgentEmail(number); !gcsAgentMayPublish(agent, topicName) {
 			writeGCSJSONError(w, http.StatusForbidden, "forbidden", fmt.Sprintf(
 				"The service account '%s' does not have permission to publish messages to to the Cloud Pub/Sub topic '%s', or that topic does not exist.",
 				agent, in.Topic))
@@ -2349,10 +2355,13 @@ func registerGCSNotifications(srv *sim.Server, buckets sim.Store[Bucket], bucket
 
 func registerGCSHmacKeys(srv *sim.Server) {
 	srv.HandleFunc("GET /storage/v1/projects/{projectId}/serviceAccount", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "projectId")
+		project, ok := gcsResolveProject(w, sim.PathParam(r, "projectId"))
+		if !ok {
+			return
+		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"kind":          "storage#serviceAccount",
-			"email_address": gcsServiceAgentEmail(project),
+			"email_address": gcsServiceAgentEmail(strings.TrimPrefix(project.Name, "projects/")),
 		})
 	})
 

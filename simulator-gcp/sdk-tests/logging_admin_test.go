@@ -282,6 +282,7 @@ func TestLogging_EntriesCopy(t *testing.T) {
 
 	gcs := storageClient(t)
 	dest := gcs.Bucket("copy-dest-bucket")
+	requireProject(t, project)
 	require.NoError(t, dest.Create(ctx, project, nil))
 
 	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))

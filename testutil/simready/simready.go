@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -59,5 +60,32 @@ func Start(cmd *exec.Cmd, out io.Writer) error {
 		return errors.New("the simulator exited before it was listening")
 	case <-time.After(startupBound):
 		return fmt.Errorf("the simulator did not start listening within %s", startupBound)
+	}
+}
+
+// Stop sends the simulator SIGTERM, on which it shuts down in order and
+// releases what it realized on the host, and waits up to grace for it to
+// exit. A simulator still running after grace is killed and reported.
+func Stop(cmd *exec.Cmd, grace time.Duration) error {
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		_ = cmd.Process.Kill()
+		<-done
+		return fmt.Errorf("signal the simulator to shut down: %w", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("the simulator shut down with %w", err)
+		}
+		return nil
+	case <-time.After(grace):
+		_ = cmd.Process.Kill()
+		<-done
+		return fmt.Errorf("the simulator did not exit within %s of SIGTERM", grace)
 	}
 }
