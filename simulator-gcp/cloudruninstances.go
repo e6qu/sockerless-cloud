@@ -72,7 +72,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
 	}
 
-	const instType = "type.googleapis.com/google.cloud.run.v2.Instance"
+	const instType = cloudRunInstanceType
 
 	// CreateInstance: POST .../instances?instanceId=<id>
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/instances", func(w http.ResponseWriter, r *http.Request) {
@@ -96,9 +96,9 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		inst = seedInstanceV2Defaults(inst, project, location, instanceID)
 		inst.Etag = sim.NewUUID()
 		instances.Put(name, inst)
+		op := startCloudRunReconcileOperation(project, location, inst, instType)
 		runCloudRunInstance(inst)
-		lro := cloudRunLRO(project, location, inst, instType)
-		sim.WriteJSON(w, http.StatusOK, lro)
+		sim.WriteJSON(w, http.StatusOK, currentCloudRunOperation(op))
 	})
 
 	// GetInstance (the {instance} wildcard also carries the GET-side
@@ -181,24 +181,17 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		update.CreateTime = existing.CreateTime
 		update.URLs = existing.URLs
 		update.Generation = existing.Generation + 1
-		update.ObservedGeneration = update.Generation
+		update.ObservedGeneration = existing.ObservedGeneration
 		update.UpdateTime = nowTimestamp()
 		if update.LaunchStage == "" {
 			update.LaunchStage = existing.LaunchStage
 		}
-		update.TerminalCondition = &Condition{
-			Type:               "Ready",
-			State:              "CONDITION_SUCCEEDED",
-			LastTransitionTime: update.UpdateTime,
-		}
-		update.Conditions = []Condition{
-			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime},
-		}
+		beginCloudRunInstanceReconcile(&update)
 		update.Etag = sim.NewUUID()
 		instances.Put(name, update)
+		op := startCloudRunReconcileOperation(project, location, update, instType)
 		runCloudRunInstance(update)
-		lro := cloudRunLRO(project, location, update, instType)
-		sim.WriteJSON(w, http.StatusOK, lro)
+		sim.WriteJSON(w, http.StatusOK, currentCloudRunOperation(op))
 	})
 
 	// DeleteInstance
@@ -217,6 +210,8 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		}
 		instances.Delete(name)
 		stopCloudRunInstance(name)
+		finishCloudRunReconcileOperations(name, instType, nil, cloudRunReconcileAbortedCode,
+			fmt.Sprintf("instance %q was deleted before it finished reconciling", name))
 		lro := cloudRunLRO(project, location, inst, instType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
@@ -260,27 +255,33 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 				sim.WriteJSON(w, http.StatusOK, lro)
 				return
 			}
-			lro := cloudRunLRO(project, location, setCloudRunInstanceRunning(name, action == "start"), instType)
-			sim.WriteJSON(w, http.StatusOK, lro)
+			if action == "stop" {
+				sim.WriteJSON(w, http.StatusOK, cloudRunLRO(project, location, setCloudRunInstanceRunning(name, false), instType))
+				return
+			}
+			sim.WriteJSON(w, http.StatusOK, startCloudRunInstanceOperation(project, location, name))
 		default:
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on instance %q", action, id)
 		}
 	})
 }
 
-// setCloudRunInstanceRunning starts or stops an instance's containers and
-// records the transition on its terminal condition.
+// setCloudRunInstanceRunning starts or stops an instance's containers. A stop
+// returns once they have stopped and records the transition on the
+// instance's terminal condition; a start marks the instance reconciling until
+// they have started.
 func setCloudRunInstanceRunning(name string, running bool) InstanceV2 {
 	now := nowTimestamp()
-	state := enumString("CONDITION_SUCCEEDED")
-	reason := ""
-	if !running {
-		state = "CONDITION_PENDING"
-		reason = "Stopped"
-	}
 	crv2Instances.Update(name, func(i *InstanceV2) {
 		i.UpdateTime = now
-		i.TerminalCondition = &Condition{Type: "Ready", State: state, LastTransitionTime: now, Reason: reason}
+		if running {
+			beginCloudRunInstanceReconcile(i)
+		} else {
+			stopped := Condition{Type: "Ready", State: "CONDITION_PENDING", LastTransitionTime: now, Reason: "Stopped"}
+			i.Reconciling = false
+			i.TerminalCondition = &stopped
+			i.Conditions = []Condition{stopped}
+		}
 		i.Etag = sim.NewUUID()
 	})
 	inst, _ := crv2Instances.Get(name)
@@ -288,8 +289,25 @@ func setCloudRunInstanceRunning(name string, running bool) InstanceV2 {
 		runCloudRunInstance(inst)
 	} else {
 		stopCloudRunInstance(name)
+		finishCloudRunReconcileOperations(name, cloudRunInstanceType, inst, cloudRunReconcileAbortedCode,
+			fmt.Sprintf("instance %q was stopped before it finished starting", name))
 	}
 	return inst
+}
+
+// startCloudRunInstanceOperation starts an instance's containers and returns
+// the operation that completes once they have started.
+func startCloudRunInstanceOperation(project, location, name string) Operation {
+	now := nowTimestamp()
+	crv2Instances.Update(name, func(i *InstanceV2) {
+		i.UpdateTime = now
+		beginCloudRunInstanceReconcile(i)
+		i.Etag = sim.NewUUID()
+	})
+	inst, _ := crv2Instances.Get(name)
+	op := startCloudRunReconcileOperation(project, location, inst, cloudRunInstanceType)
+	runCloudRunInstance(inst)
+	return currentCloudRunOperation(op)
 }
 
 // cloudRunAdminV1InstanceIAM serves the Cloud Run Admin v1 instances IAM
@@ -328,20 +346,13 @@ func seedInstanceV2Defaults(inst InstanceV2, project, location, instanceID strin
 	inst.Name = fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, instanceID)
 	inst.UID = sim.NewUUID()
 	inst.Generation = 1
-	inst.ObservedGeneration = 1
+	inst.ObservedGeneration = 0
 	inst.CreateTime = now
 	inst.UpdateTime = now
 	if inst.LaunchStage == "" {
 		inst.LaunchStage = "GA"
 	}
-	inst.TerminalCondition = &Condition{
-		Type:               "Ready",
-		State:              "CONDITION_SUCCEEDED",
-		LastTransitionTime: now,
-	}
-	inst.Conditions = []Condition{
-		{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
-	}
+	beginCloudRunInstanceReconcile(&inst)
 	if !inst.DefaultUriDisabled {
 		inst.URLs = []string{cloudRunServiceURI(project, location, instanceID)}
 	}

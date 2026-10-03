@@ -852,7 +852,7 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 				cfg.Args = command[1:]
 			}
 		}
-		handle, err := sim.StartContainerSync(cfg, sink)
+		handle, err := sim.StartContainerSyncContext(context.Background(), cfg, sink)
 		if err != nil {
 			return err
 		}

@@ -1080,7 +1080,7 @@ func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 			stdout.WriteString(line.Text + "\n")
 		}
 	})
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		Image:        image,
 		Architecture: platform,
 		Command:      []string{"/bin/sh"},

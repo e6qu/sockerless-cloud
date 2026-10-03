@@ -64,12 +64,14 @@ func gcpLookupOperation(name string) (Operation, bool) {
 //
 // An operation that is done takes the late cancel the method's own description
 // contemplates — "the operation completed despite cancellation" — and keeps
-// its recorded result. The one operation these stores hold unfinished is Cloud
-// Run's RunJob, whose cancel cancels the execution it runs; the operation then
-// completes with CANCELLED once the execution's workload has stopped.
-// TestGCPOperationsAreRecordedComplete pins that every other service records
-// its operations complete, so a store that starts holding other unfinished
-// work fails there rather than silently getting a no-op cancel here.
+// its recorded result. These stores hold two kinds of unfinished operation:
+// Cloud Run's RunJob, whose cancel cancels the execution it runs, the
+// operation completing with CANCELLED once the execution's workload has
+// stopped; and a Cloud Run worker pool's or instance's deploy, whose cancel
+// stops the instances it was starting. TestGCPOperationsAreRecordedComplete
+// pins that every other service records its operations complete, so a store
+// that starts holding other unfinished work fails there rather than silently
+// getting a no-op cancel here.
 func handleGCPCancelOperation(w http.ResponseWriter, name string) {
 	op, ok := gcpLookupOperation(name)
 	if !ok {
@@ -82,7 +84,17 @@ func handleGCPCancelOperation(w http.ResponseWriter, name string) {
 
 // gcpCancelOperationWork stops the work an unfinished operation stands for.
 func gcpCancelOperationWork(op Operation) {
-	if op.Done || op.Metadata["@type"] != cloudRunExecutionType {
+	if op.Done {
+		return
+	}
+	typeName, _ := op.Metadata["@type"].(string)
+	switch typeName {
+	case cloudRunWorkerPoolType, cloudRunInstanceType:
+		name, _ := op.Metadata["name"].(string)
+		cancelCloudRunReconcile(name, typeName)
+		return
+	case cloudRunExecutionType:
+	default:
 		return
 	}
 	execName, _ := op.Metadata["name"].(string)

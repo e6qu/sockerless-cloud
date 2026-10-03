@@ -13,3 +13,8 @@ variable "secret_label_env" {
   type        = string
   default     = "dev"
 }
+
+variable "worker_image" {
+  description = "Image the Cloud Run worker pool's containers run: an HTTP server on 9090 (`server`) and on 8080 (`probe`), so its instances start and pass their startup probe."
+  type        = string
+}

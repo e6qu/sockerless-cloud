@@ -4541,7 +4541,7 @@ func ebsRemoveDockerVolume(name string) {
 // short-lived Alpine container. The destination volume is auto-created by Docker if
 // it does not yet exist.
 func ebsCopyDockerVolumes(ctx context.Context, srcVolume, dstVolume string) error {
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
 		Image:        "alpine:latest",
 		Architecture: "linux/" + runtime.GOARCH,
 		Command:      []string{"sh", "-c", "cp -a /src/. /dst/"},

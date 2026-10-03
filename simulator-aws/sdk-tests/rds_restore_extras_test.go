@@ -78,10 +78,9 @@ func TestRDS_RestoreFamily(t *testing.T) {
 	})
 	waitForRDSClusterAvailable(t, c, ctx, pit)
 
-	// RestoreDBClusterFromS3
-	s3cluster := "rext-cluster-from-s3"
-	s3Out, err := c.RestoreDBClusterFromS3(ctx, &rds.RestoreDBClusterFromS3Input{
-		DBClusterIdentifier: aws.String(s3cluster),
+	// RestoreDBClusterFromS3 reads the backup from the bucket it names.
+	_, err = c.RestoreDBClusterFromS3(ctx, &rds.RestoreDBClusterFromS3Input{
+		DBClusterIdentifier: aws.String("rext-cluster-from-s3"),
 		Engine:              aws.String("aurora-mysql"),
 		MasterUsername:      aws.String("admin"),
 		MasterUserPassword:  aws.String("password123!"),
@@ -90,13 +89,7 @@ func TestRDS_RestoreFamily(t *testing.T) {
 		S3BucketName:        aws.String("my-backup-bucket"),
 		S3IngestionRoleArn:  aws.String("arn:aws:iam::123456789012:role/rds-s3"),
 	})
-	require.NoError(t, err)
-	require.NotNil(t, s3Out.DBCluster)
-	assert.Equal(t, s3cluster, aws.ToString(s3Out.DBCluster.DBClusterIdentifier))
-	t.Cleanup(func() {
-		_, _ = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
-			DBClusterIdentifier: aws.String(s3cluster), SkipFinalSnapshot: aws.Bool(true)})
-	})
+	assertAWSAPIErrorCode(t, err, "InvalidS3BucketFault")
 
 	// Instance restores
 	srcInst := "rext-src-instance"

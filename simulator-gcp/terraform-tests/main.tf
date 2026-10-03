@@ -389,10 +389,10 @@ resource "google_cloud_run_v2_worker_pool" "tf_crv2_worker_pool" {
 
     containers {
       name        = "worker"
-      image       = "us-central1-docker.pkg.dev/test-project/tf-ar-docker/worker:latest"
-      command     = ["/worker"]
-      args        = ["--mode", "pull"]
-      working_dir = "/srv"
+      image       = var.worker_image
+      command     = ["/usr/local/bin/http-localhost-probe"]
+      args        = ["server"]
+      working_dir = "/"
 
       env {
         name  = "TF_TEST"
@@ -453,7 +453,8 @@ resource "google_cloud_run_v2_worker_pool" "tf_crv2_worker_pool" {
 
     containers {
       name       = "sidecar"
-      image      = "us-central1-docker.pkg.dev/test-project/tf-ar-docker/sidecar:latest"
+      image      = var.worker_image
+      args       = ["probe"]
       depends_on = ["worker"]
     }
 

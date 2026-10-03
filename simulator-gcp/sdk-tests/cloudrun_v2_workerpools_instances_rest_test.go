@@ -99,7 +99,7 @@ func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
 		Labels:      map[string]string{"suite": "rest"},
 		Scaling:     &runv2.GoogleCloudRunV2WorkerPoolScaling{ManualInstanceCount: 2},
 		Template: &runv2.GoogleCloudRunV2WorkerPoolRevisionTemplate{
-			Containers: []*runv2.GoogleCloudRunV2Container{{Image: "gcr.io/" + crV2Project + "/" + id}},
+			Containers: []*runv2.GoogleCloudRunV2Container{holdingContainerREST()},
 		},
 	}).WorkerPoolId(id).Do()
 	require.NoError(t, err)
@@ -143,9 +143,11 @@ func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
 	assert.True(t, found, "ListWorkerPools must include the created pool")
 
 	// Patch with an updateMask — the masked field changes, the rest survives.
+	revised := holdingContainerREST()
+	revised.Env = []*runv2.GoogleCloudRunV2EnvVar{{Name: "REVISION", Value: "2"}}
 	patchOp, err := svc.Projects.Locations.WorkerPools.Patch(name, &runv2.GoogleCloudRunV2WorkerPool{
 		Template: &runv2.GoogleCloudRunV2WorkerPoolRevisionTemplate{
-			Containers: []*runv2.GoogleCloudRunV2Container{{Image: "gcr.io/" + crV2Project + "/" + id + ":v2"}},
+			Containers: []*runv2.GoogleCloudRunV2Container{revised},
 		},
 	}).UpdateMask("template").Do()
 	require.NoError(t, err)
@@ -154,9 +156,12 @@ func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
 	patched, err := svc.Projects.Locations.WorkerPools.Get(name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), patched.Generation)
+	assert.Equal(t, int64(2), patched.ObservedGeneration, "a settled update observed its generation")
+	assert.Equal(t, name+"/revisions/"+id+"-00002-abc", patched.LatestReadyRevision)
 	require.NotNil(t, patched.Template)
 	require.Len(t, patched.Template.Containers, 1)
-	assert.Equal(t, "gcr.io/"+crV2Project+"/"+id+":v2", patched.Template.Containers[0].Image)
+	require.Len(t, patched.Template.Containers[0].Env, 1)
+	assert.Equal(t, "2", patched.Template.Containers[0].Env[0].Value)
 	assert.Equal(t, "rest", patched.Labels["suite"], "an unmasked field must survive the patch")
 	require.NotNil(t, patched.Scaling)
 	assert.Equal(t, int64(2), patched.Scaling.ManualInstanceCount, "an unmasked field must survive the patch")
@@ -286,7 +291,7 @@ func TestSDK_RunV2REST_Instances_FullSurface(t *testing.T) {
 	op, err := svc.Projects.Locations.Instances.Create(crV2Parent, &runv2.GoogleCloudRunV2Instance{
 		Description: "instance under REST-client test",
 		Labels:      map[string]string{"suite": "rest"},
-		Containers:  []*runv2.GoogleCloudRunV2Container{{Image: "gcr.io/" + crV2Project + "/" + id}},
+		Containers:  []*runv2.GoogleCloudRunV2Container{servingContainerREST()},
 	}).InstanceId(id).Do()
 	require.NoError(t, err)
 	done := awaitRunV2Operation(t, svc, op)
@@ -322,8 +327,10 @@ func TestSDK_RunV2REST_Instances_FullSurface(t *testing.T) {
 	assert.True(t, found, "ListInstances must include the created instance")
 
 	// Patch with an updateMask.
+	revised := servingContainerREST()
+	revised.Env = []*runv2.GoogleCloudRunV2EnvVar{{Name: "REVISION", Value: "2"}}
 	patchOp, err := svc.Projects.Locations.Instances.Patch(name, &runv2.GoogleCloudRunV2Instance{
-		Containers: []*runv2.GoogleCloudRunV2Container{{Image: "gcr.io/" + crV2Project + "/" + id + ":v2"}},
+		Containers: []*runv2.GoogleCloudRunV2Container{revised},
 	}).UpdateMask("containers").Do()
 	require.NoError(t, err)
 	awaitRunV2Operation(t, svc, patchOp)
@@ -332,7 +339,8 @@ func TestSDK_RunV2REST_Instances_FullSurface(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), patched.Generation)
 	require.Len(t, patched.Containers, 1)
-	assert.Equal(t, "gcr.io/"+crV2Project+"/"+id+":v2", patched.Containers[0].Image)
+	require.Len(t, patched.Containers[0].Env, 1)
+	assert.Equal(t, "2", patched.Containers[0].Env[0].Value)
 	assert.Equal(t, "rest", patched.Labels["suite"], "an unmasked field must survive the patch")
 	assert.Equal(t, got.Urls, patched.Urls, "the instance keeps its URL across a patch")
 
@@ -361,7 +369,7 @@ func TestSDK_RunV2REST_Instances_IAMVerbs(t *testing.T) {
 	name := crV2Parent + "/instances/" + id
 
 	op, err := svc.Projects.Locations.Instances.Create(crV2Parent, &runv2.GoogleCloudRunV2Instance{
-		Containers: []*runv2.GoogleCloudRunV2Container{{Image: "gcr.io/" + crV2Project + "/" + id}},
+		Containers: []*runv2.GoogleCloudRunV2Container{servingContainerREST()},
 	}).InstanceId(id).Do()
 	require.NoError(t, err)
 	awaitRunV2Operation(t, svc, op)
@@ -483,7 +491,11 @@ func TestSDK_RunV2REST_WorkerPool_FullBodyRoundTrip(t *testing.T) {
 
 	op, err := svc.Projects.Locations.WorkerPools.Create(crV2Parent, want).WorkerPoolId(id).Do()
 	require.NoError(t, err)
-	awaitRunV2Operation(t, svc, op)
+	// The images name nothing a registry holds, so the deploy fails to
+	// start them while the resource keeps every field it was sent.
+	failed := waitRunV2Operation(t, svc, op)
+	require.NotNil(t, failed.Error, "a deploy whose image does not exist fails")
+	assert.Contains(t, failed.Error.Message, "gcr.io/test-project/"+id)
 	t.Cleanup(func() {
 		delOp, err := svc.Projects.Locations.WorkerPools.Delete(name).Do()
 		if err == nil {
@@ -593,7 +605,11 @@ func TestSDK_RunV2REST_Instance_FullBodyRoundTrip(t *testing.T) {
 
 	op, err := svc.Projects.Locations.Instances.Create(crV2Parent, want).InstanceId(id).Do()
 	require.NoError(t, err)
-	awaitRunV2Operation(t, svc, op)
+	// The images name nothing a registry holds, so the deploy fails to
+	// start them while the resource keeps every field it was sent.
+	failed := waitRunV2Operation(t, svc, op)
+	require.NotNil(t, failed.Error, "a deploy whose image does not exist fails")
+	assert.Contains(t, failed.Error.Message, "gcr.io/test-project/"+id)
 	t.Cleanup(func() {
 		delOp, err := svc.Projects.Locations.Instances.Delete(name).Do()
 		if err == nil {

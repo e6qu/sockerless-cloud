@@ -1026,8 +1026,8 @@ func cloudBuildOperationError(b Build) *BuildError {
 // executeBuild runs the build steps against the source context and
 // returns the final build record with status + finishTime populated.
 // Matches the real Cloud Build behavior: downloads source from GCS,
-// extracts it, executes each step (currently only gcr.io/cloud-builders/docker),
-// expands secretEnv via AvailableSecrets → Secret Manager.
+// extracts it, executes each step, expands secretEnv via AvailableSecrets →
+// Secret Manager.
 func executeBuild(ctx context.Context, b Build) Build {
 	b.StartTime = time.Now().UTC().Format(time.RFC3339)
 	b.Status = "WORKING"
@@ -1066,7 +1066,7 @@ func executeBuild(ctx context.Context, b Build) Build {
 	}
 	defer os.RemoveAll(workDir)
 
-	if err := archive.ExtractTar(bytes.NewReader(data), workDir, cloudBuildWorkerDiskBytes); err != nil {
+	if err := extractCloudBuildSource(data, workDir); err != nil {
 		return fail(fmt.Sprintf("extract source: %v", err))
 	}
 	dockerConfigDir, err := cloudBuildDockerConfig(b, workDir)
@@ -1088,9 +1088,6 @@ func executeBuild(ctx context.Context, b Build) Build {
 		}
 	}
 
-	// Execute each build step. Only gcr.io/cloud-builders/docker is
-	// implemented.
-	//
 	// A step's status and timing are recorded on the stored build as it runs,
 	// because the build's own status is WORKING from before the source is
 	// fetched until the last step finishes — the step is where a client sees
@@ -1117,13 +1114,12 @@ func executeBuild(ctx context.Context, b Build) Build {
 		if step == nil {
 			continue
 		}
-		if !strings.HasPrefix(step.Name, "gcr.io/cloud-builders/docker") {
-			markStep(i, "FAILURE", false, true)
-			return fail(fmt.Sprintf("step %d: builder %q not supported by this simulator (only gcr.io/cloud-builders/docker)",
-				i, step.Name))
-		}
 		markStep(i, "WORKING", true, false)
-		if err := runDockerStep(ctx, workDir, step, secretValues, dockerEnv); err != nil {
+		run := runContainerStep
+		if strings.HasPrefix(step.Name, "gcr.io/cloud-builders/docker") {
+			run = runDockerStep
+		}
+		if err := run(ctx, b, workDir, step, secretValues, dockerEnv); err != nil {
 			markStep(i, "FAILURE", false, true)
 			return fail(fmt.Sprintf("step %d (%s %v): %v", i, step.Name, step.Args, err))
 		}
@@ -1148,7 +1144,7 @@ func executeBuild(ctx context.Context, b Build) Build {
 // then drops the local copy, so the workload pulls from the registry — not a
 // local-daemon shortcut. The ref's host routes to the registry's /v2/ (the
 // configured AR endpoint / the harness's published sim registry).
-func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretValues map[string]string, dockerEnv []string) error {
+func runDockerStep(ctx context.Context, _ Build, workDir string, step *BuildStep, secretValues map[string]string, dockerEnv []string) error {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return fmt.Errorf("docker CLI not available: %w", err)
 	}
@@ -1222,4 +1218,119 @@ func cloudBuildStepDir(workDir, dir string) (string, error) {
 		return "", fmt.Errorf("step dir %q leaves %s", dir, cloudBuildWorkspace)
 	}
 	return filepath.Join(workDir, filepath.FromSlash(rel)), nil
+}
+
+// extractCloudBuildSource unpacks a Cloud Storage source into workDir. Cloud
+// Build takes "a zipped (.zip) or gzipped archive file (.tar.gz)"; a zip is
+// recognised by its local-file-header signature.
+func extractCloudBuildSource(data []byte, workDir string) error {
+	if bytes.HasPrefix(data, []byte("PK\x03\x04")) {
+		return archive.ExtractZip(data, workDir, cloudBuildWorkerDiskBytes)
+	}
+	return archive.ExtractTar(bytes.NewReader(data), workDir, cloudBuildWorkerDiskBytes)
+}
+
+// runContainerStep runs a build step the way Cloud Build runs every step: as
+// a container of the step's builder image with the build's workspace mounted
+// at /workspace, in the step's dir, under its entrypoint, args and
+// environment. A builder on Artifact Registry or Container Registry is pulled
+// with an access token of the build's service account; the step fails with
+// the container's exit code and the end of its output.
+func runContainerStep(ctx context.Context, b Build, workDir string, step *BuildStep, secretValues map[string]string, _ []string) error {
+	if _, err := cloudBuildStepDir(workDir, step.Dir); err != nil {
+		return err
+	}
+	env := map[string]string{}
+	for _, e := range step.Env {
+		name, value, _ := strings.Cut(e, "=")
+		env[name] = value
+	}
+	for _, name := range step.SecretEnv {
+		if v, ok := secretValues[name]; ok {
+			env[name] = v
+		}
+	}
+	registryAuth := ""
+	if imageOnGoogleRegistry(step.Name) {
+		account, err := cloudBuildServiceAccount(b)
+		if err != nil {
+			return err
+		}
+		now := time.Now()
+		registryAuth = sim.RegistryCredential(arUserAccessToken, signAccessToken(account, now, now.Add(time.Hour)))
+	}
+	var entrypoint []string
+	if step.Entrypoint != "" {
+		entrypoint = []string{step.Entrypoint}
+	}
+	platform, err := workload.LocalImagePlatform(ctx, step.Name, registryAuth)
+	if err != nil {
+		return err
+	}
+	output := &cloudBuildStepOutput{}
+	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
+		Image:        step.Name,
+		Architecture: platform,
+		RegistryAuth: registryAuth,
+		Command:      entrypoint,
+		Args:         step.Args,
+		Env:          env,
+		Binds:        []string{workDir + ":" + cloudBuildWorkspace},
+		WorkingDir:   cloudBuildStepContainerDir(step.Dir),
+		Labels:       map[string]string{"sockerless-sim-build": b.ID},
+		Sandbox:      SandboxCloudBuild,
+	}, output)
+	if err != nil {
+		return err
+	}
+	exited := make(chan sim.ProcessResult, 1)
+	go func() { exited <- handle.Wait() }()
+	var result sim.ProcessResult
+	select {
+	case result = <-exited:
+	case <-ctx.Done():
+		handle.Cancel()
+		<-exited
+		return ctx.Err()
+	}
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("exit status %d: %s", result.ExitCode, output.tail())
+	}
+	return nil
+}
+
+// cloudBuildStepContainerDir is the directory a step runs in inside its
+// container: dir itself when absolute, otherwise dir under /workspace.
+func cloudBuildStepContainerDir(dir string) string {
+	if path.IsAbs(dir) {
+		return path.Clean(dir)
+	}
+	return path.Join(cloudBuildWorkspace, dir)
+}
+
+// cloudBuildStepOutput keeps the last lines a step's container wrote, which
+// a failed step reports.
+type cloudBuildStepOutput struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+const cloudBuildStepOutputLines = 20
+
+func (o *cloudBuildStepOutput) WriteLog(line sim.LogLine) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.lines = append(o.lines, line.Text)
+	if len(o.lines) > cloudBuildStepOutputLines {
+		o.lines = o.lines[len(o.lines)-cloudBuildStepOutputLines:]
+	}
+}
+
+func (o *cloudBuildStepOutput) tail() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return strings.TrimSpace(strings.Join(o.lines, "\n"))
 }

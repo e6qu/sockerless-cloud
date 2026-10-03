@@ -92,6 +92,7 @@ func main() {
 	spannerBackupScheduleTicker().Start(srv, "Cloud Spanner backup schedules", 30*time.Second)
 	srv.StartBackground("Pub/Sub dead-letter sweeper", pubsubDeadLetterSweeper)
 	startPubSubPush(srv)
+	resumeCloudRunWorkloads()
 
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)

@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -428,7 +429,7 @@ func amplifyRunRealBuild(appID, branch, jobID, urlBase, repo, specText string, e
 		}
 	}
 	projectRelative, _ := filepath.Rel(workDir, projectDir)
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		Image:        amplifyBuildImage(),
 		Architecture: "linux/amd64",
 		Command:      []string{"/bin/sh", "-c", script.String()},

@@ -13,106 +13,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/dbengine"
 )
 
-// Amazon Aurora backs every cluster volume up continuously, so
-// RestoreDBClusterToPointInTime returns to any time between the cluster's
-// EarliestRestorableTime and its LatestRestorableTime.
-//
-// The simulator keeps that backup as a base backup and the engine's own log.
-// The base backup captures the cluster volume once, when the engine first
-// accepts clients and before the endpoint relays any client to it, so it holds
-// what the volume held at every time between the cluster's creation and the
-// capture. After it, Aurora PostgreSQL's engine archives every completed
-// write-ahead log segment into the cluster volume, and Aurora MySQL's engine
-// writes its binary log there, starting a new binary log file for the capture.
-// A restore to a time seeds the new cluster volume from the source's base
-// backup and replays the source's log onto it up to RestoreToTime:
-// PostgreSQL's archive recovery replays the write-ahead log when the new
-// engine first starts, and MySQL's replication applier replays the binary log
-// before the cluster becomes available.
-
-const rdsWALArchive = "sockerless_wal_archive"
-
-func rdsClusterBaseBackupVolume(clusterID string) string {
-	return rdsVolume("cluster-base", clusterID)
-}
-
 // rdsRestorableTimeLayout renders restorable times to the millisecond, the
 // precision the RDS API reports them in.
 const rdsRestorableTimeLayout = "2006-01-02T15:04:05.000Z"
-
-// rdsAuroraEngine is the engine an Aurora cluster runs. PostgreSQL archives
-// each completed write-ahead log segment into the cluster volume; the archive
-// command runs in the data directory, and refuses to overwrite a segment it
-// archived already.
-func rdsAuroraEngine(engineName string) dbengine.Engine {
-	engine, _ := rdsEngine(engineName)
-	if engine.Family == dbengine.Postgres {
-		engine.Args = append(append([]string(nil), engine.Args...),
-			"-c", "archive_mode=on",
-			"-c", "archive_command=mkdir -p "+rdsWALArchive+" && test ! -f "+rdsWALArchive+"/%f && cp %p "+rdsWALArchive+"/%f")
-	}
-	return engine
-}
-
-// ready reconciles the master password and takes the cluster's base backup on
-// the engine's first start.
-func (plane *rdsAuroraDataPlane) ready() error {
-	if err := plane.applyPendingMasterPassword(); err != nil {
-		return err
-	}
-	return plane.captureBaseBackup()
-}
-
-func (plane *rdsAuroraDataPlane) captureBaseBackup() error {
-	cluster, err := plane.cluster()
-	if err != nil {
-		return err
-	}
-	if cluster.BaseBackupTime != "" {
-		return nil
-	}
-	if plane.engine.Engine.Family == dbengine.MySQL {
-		password, err := rdsAuroraBackendPassword(cluster)
-		if err != nil {
-			return err
-		}
-		if err := plane.engine.Exec([]string{plane.engine.Engine.Client, "--user=root", "--password=" + password, "--execute=FLUSH BINARY LOGS"}); err != nil {
-			return fmt.Errorf("start the binary log file that follows the base backup: %w", err)
-		}
-	}
-	capturedAt := time.Now().UTC().Truncate(time.Millisecond)
-	if err := sim.CaptureVolume(context.Background(), rdsClusterVolume(plane.clusterID), rdsClusterBaseBackupVolume(plane.clusterID), "rds"); err != nil {
-		return fmt.Errorf("capture the base backup of the cluster volume: %w", err)
-	}
-	rdsClusters.Update(plane.clusterID, func(stored *RDSCluster) {
-		if stored.DbClusterResourceId == cluster.DbClusterResourceId {
-			stored.BaseBackupTime = capturedAt.Format(rdsRestorableTimeLayout)
-		}
-	})
-	return nil
-}
-
-// rdsRestorableWindow is the window a cluster restores to a time in, from its
-// base backup to now; ok is false until the base backup exists.
-func rdsRestorableWindow(cluster RDSCluster) (earliest, latest time.Time, ok bool) {
-	if cluster.BaseBackupTime == "" {
-		return time.Time{}, time.Time{}, false
-	}
-	earliest, err := time.Parse(rdsRestorableTimeLayout, cluster.BaseBackupTime)
-	if err != nil {
-		return time.Time{}, time.Time{}, false
-	}
-	return earliest, time.Now().UTC(), true
-}
-
-func renderRDSRestorableWindow(cluster RDSCluster) string {
-	earliest, latest, ok := rdsRestorableWindow(cluster)
-	if !ok {
-		return ""
-	}
-	return fmt.Sprintf("<EarliestRestorableTime>%s</EarliestRestorableTime><LatestRestorableTime>%s</LatestRestorableTime>",
-		earliest.Format(rdsRestorableTimeLayout), latest.Format(rdsRestorableTimeLayout))
-}
 
 // rdsHelperSandbox confines the one-shot containers that assemble a restore's
 // log: they copy files as root and keep their owners.
@@ -151,7 +54,7 @@ func rdsRunVolumeHelper(engine dbengine.Engine, script string, env map[string]st
 		environment[name] = value
 	}
 	output := &rdsHelperOutput{}
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		Image:        engine.Image,
 		Architecture: "linux/amd64",
 		Command:      []string{"/bin/sh"},

@@ -366,36 +366,39 @@ func CleanupContainers() {
 	}
 }
 
-// StartContainerSync pulls the image (if needed), creates and starts a
+// StartContainerSyncContext pulls the image (if needed), creates and starts a
 // container, returning the handle with ContainerID populated.
 // Blocks until the container is created and started (but not until it exits).
 // Stdout/stderr are streamed to the LogSink; call handle.Wait() to block until exit.
-func StartContainerSync(cfg ContainerConfig, sink LogSink) (*ContainerHandle, error) {
+//
+// ctx bounds the start alone: once it is done the pull and the create stop and
+// the call fails, while a container that already started runs until it exits
+// or handle.Cancel stops it.
+func StartContainerSyncContext(ctx context.Context, cfg ContainerConfig, sink LogSink) (*ContainerHandle, error) {
 	cli := DockerClient()
 	if err := RequireContainerRuntime("starting a container"); err != nil {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	resultCh := make(chan ProcessResult, 1)
-
 	containerID, err := createAndStartContainer(ctx, cli, cfg)
 	if err != nil {
-		cancel()
 		return nil, err
 	}
+
+	lifetime, cancel := context.WithCancel(context.Background())
+	resultCh := make(chan ProcessResult, 1)
 
 	managedContainers.Store(containerID, true)
 
 	var memory *memoryPeakObserver
 	if cfg.TrackMemoryPeak {
 		memory = newMemoryPeakObserver()
-		go memory.observe(ctx, cli, containerID)
+		go memory.observe(lifetime, cli, containerID)
 	}
 
 	// Stream logs and wait for exit in background
 	go func() {
-		result := waitAndCaptureLogs(ctx, cli, containerID, cfg, sink)
+		result := waitAndCaptureLogs(lifetime, cli, containerID, cfg, sink)
 		// The observation ends with the container, before it is removed: the
 		// engine accounts for a container only while it runs.
 		if memory != nil {
@@ -751,12 +754,17 @@ func pullImage(ctx context.Context, cli *client.Client, imageName, platform, reg
 	// assumed: the simulator's own architecture is routinely not the
 	// workload's, and starting an amd64 image where arm64 was asked for would
 	// be a worse answer than fetching.
-	if held, err := cli.ImageInspect(ctx, imageName); err == nil {
-		if wanted == nil ||
-			((wanted.Architecture == "" || wanted.Architecture == held.Architecture) &&
-				(wanted.OS == "" || wanted.OS == held.Os)) {
-			return nil
-		}
+	held, err := cli.ImageInspect(ctx, imageName)
+	switch {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "[sim-pull] image pull %s: not held: %v\n", imageName, err)
+	case wanted == nil ||
+		((wanted.Architecture == "" || wanted.Architecture == held.Architecture) &&
+			(wanted.OS == "" || wanted.OS == held.Os)):
+		return nil
+	default:
+		fmt.Fprintf(os.Stderr, "[sim-pull] image pull %s: held for %s/%s, wanted %s\n",
+			imageName, held.Os, held.Architecture, platform)
 	}
 	backoff := 2 * time.Second
 	const maxAttempts = 5
@@ -775,6 +783,8 @@ func pullImage(ctx context.Context, cli *client.Client, imageName, platform, reg
 		if attempt >= maxAttempts || !isTransientRegistryErr(pullErr) {
 			return pullErr
 		}
+		fmt.Fprintf(os.Stderr, "[sim-pull] image pull %s: attempt %d/%d failed: %v; retrying in %s\n",
+			imageName, attempt, maxAttempts, pullErr, backoff)
 		select {
 		case <-ctx.Done():
 			return pullErr
@@ -1220,8 +1230,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	}
 
 	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
-		// Cleanup on start failure
-		_, _ = cli.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
+		removeCreated(ctx, cli, resp.ID)
 		if hint := MissingNetfilterTableHint(err); hint != "" {
 			return "", fmt.Errorf("container start: %w (%s)", err, hint)
 		}
@@ -1229,7 +1238,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	}
 
 	if eniAddress.IsValid() {
-		if err := attachENIAddress(resp.ID, eniAddress, cfg.Architecture); err != nil {
+		if err := attachENIAddress(ctx, resp.ID, eniAddress, cfg.Architecture); err != nil {
 			// A workload that already ran to completion has no network
 			// namespace left to plumb — and no longer needs one: real Amazon
 			// ECS detaches the ENI when the task stops, so a short-lived task
@@ -1240,12 +1249,20 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 				inspected.Container.State != nil && !inspected.Container.State.Running {
 				return resp.ID, nil
 			}
-			_, _ = cli.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
+			removeCreated(ctx, cli, resp.ID)
 			return "", fmt.Errorf("attach vpc eni address %s: %w", eniAddress, err)
 		}
 	}
 
 	return resp.ID, nil
+}
+
+// removeCreated removes a container whose start failed. It outlives ctx: a
+// start abandoned because ctx ended still must not leave its container behind.
+func removeCreated(ctx context.Context, cli *client.Client, containerID string) {
+	removeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	_, _ = cli.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true})
 }
 
 // vpcENISetupImage runs the ephemeral network-setup container that plumbs a
@@ -1260,7 +1277,7 @@ const vpcENISetupImage = "public.ecr.aws/docker/library/busybox:latest"
 // its cloud-faithful, capability-free sandbox. The kernel derives the VPC's
 // connected route from the address's prefix, so no separate route needs to be
 // installed for same-VPC reachability.
-func attachENIAddress(containerID string, address netip.Prefix, architecture string) error {
+func attachENIAddress(ctx context.Context, containerID string, address netip.Prefix, architecture string) error {
 	var outputMu sync.Mutex
 	var output []string
 	sink := FuncSink(func(line LogLine) {
@@ -1268,7 +1285,7 @@ func attachENIAddress(containerID string, address netip.Prefix, architecture str
 		output = append(output, line.Text)
 		outputMu.Unlock()
 	})
-	handle, err := StartContainerSync(ContainerConfig{
+	handle, err := StartContainerSyncContext(ctx, ContainerConfig{
 		Image:        vpcENISetupImage,
 		Architecture: architecture,
 		Command:      []string{"ip"},

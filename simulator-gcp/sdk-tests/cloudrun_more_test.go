@@ -189,7 +189,7 @@ func TestSDK_CloudRunV2_Instances_RoundTrip(t *testing.T) {
 		Parent:     parent,
 		InstanceId: id,
 		Instance: &runpb.Instance{
-			Containers: []*runpb.Container{{Image: "gcr.io/test-project/" + id}},
+			Containers: []*runpb.Container{servingContainer()},
 		},
 	})
 	require.NoError(t, err)
@@ -245,7 +245,7 @@ func TestSDK_CloudRunV2_Instances_IAM(t *testing.T) {
 		Parent:     parent,
 		InstanceId: id,
 		Instance: &runpb.Instance{
-			Containers: []*runpb.Container{{Image: "gcr.io/test-project/" + id}},
+			Containers: []*runpb.Container{servingContainer()},
 		},
 	})
 	require.NoError(t, err)

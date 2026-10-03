@@ -60,15 +60,44 @@ func resourceLocation(name string) string {
 }
 
 // cloudRunRun is one background run: a worker pool instance for as long as it
-// runs, or the start of a Cloud Run instance's containers.
+// runs, or a Cloud Run instance's containers across their restarts. ready
+// closes once the run's containers have started and passed their startup
+// probes, or failed to; startErr is written before it closes.
 type cloudRunRun struct {
-	stop context.CancelFunc
-	done chan struct{}
+	stop     context.CancelFunc
+	done     chan struct{}
+	ready    chan struct{}
+	startErr error
+}
+
+func newCloudRunRun() (*cloudRunRun, context.Context) {
+	ctx, stop := context.WithCancel(context.Background())
+	return &cloudRunRun{stop: stop, done: make(chan struct{}), ready: make(chan struct{})}, ctx
 }
 
 func (r *cloudRunRun) end() {
 	r.stop()
 	<-r.done
+}
+
+// started records the outcome of the run's start; only the first call counts.
+func (r *cloudRunRun) started(err error) {
+	select {
+	case <-r.ready:
+	default:
+		r.startErr = err
+		close(r.ready)
+	}
+}
+
+// exited reports whether the run has ended.
+func (r *cloudRunRun) exited() bool {
+	select {
+	case <-r.done:
+		return true
+	default:
+		return false
+	}
 }
 
 type cloudRunWorkerPoolRun struct {
@@ -94,9 +123,11 @@ func cloudRunWorkerPoolInstanceCount(pool WorkerPoolV2) int {
 }
 
 // runCloudRunWorkerPool brings the pool's running instances in line with its
-// template and scaling: a changed template replaces every instance, and a
-// changed instance count starts or stops the difference. It returns once the
-// instances it retires have stopped.
+// template and scaling: a changed template replaces every instance, a changed
+// instance count starts or stops the difference, and an instance that has
+// ended is replaced. It returns once the instances it retires have stopped,
+// and settles the pool's reconciliation once every instance it runs has
+// started — at once when it runs none.
 func runCloudRunWorkerPool(pool WorkerPoolV2) {
 	var containers []Container
 	var volumes []Volume
@@ -107,7 +138,7 @@ func runCloudRunWorkerPool(pool WorkerPoolV2) {
 	if len(containers) == 0 {
 		want = 0
 	}
-	revision := pool.LatestReadyRevision[strings.LastIndex(pool.LatestReadyRevision, "/")+1:]
+	revision := pool.LatestCreatedRevision[strings.LastIndex(pool.LatestCreatedRevision, "/")+1:]
 	specSig := serviceContainersSignature(containers, volumes)
 
 	cloudRunWorkerPoolRuns.Lock()
@@ -119,6 +150,15 @@ func runCloudRunWorkerPool(pool WorkerPoolV2) {
 	if run == nil {
 		run = &cloudRunWorkerPoolRun{specSig: specSig}
 	}
+	live := run.instances[:0]
+	for _, inst := range run.instances {
+		if inst.exited() {
+			retire = append(retire, inst)
+			continue
+		}
+		live = append(live, inst)
+	}
+	run.instances = live
 	for len(run.instances) > want {
 		last := len(run.instances) - 1
 		retire = append(retire, run.instances[last])
@@ -127,6 +167,7 @@ func runCloudRunWorkerPool(pool WorkerPoolV2) {
 	for len(run.instances) < want {
 		run.instances = append(run.instances, startCloudRunWorkerPoolInstance(pool.Name, revision, containers, volumes))
 	}
+	running := append([]*cloudRunRun(nil), run.instances...)
 	if want == 0 {
 		delete(cloudRunWorkerPoolRuns.byName, pool.Name)
 	} else {
@@ -136,6 +177,22 @@ func runCloudRunWorkerPool(pool WorkerPoolV2) {
 	for _, inst := range retire {
 		inst.end()
 	}
+
+	settle := func() {
+		var startErr error
+		for _, inst := range running {
+			<-inst.ready
+			if inst.startErr != nil && startErr == nil {
+				startErr = inst.startErr
+			}
+		}
+		settleCloudRunWorkerPool(pool.Name, pool.Generation, startErr)
+	}
+	if len(running) == 0 {
+		settle()
+		return
+	}
+	bg.Go(settle)
 }
 
 // stopCloudRunWorkerPool stops every instance of the pool and returns once
@@ -158,8 +215,7 @@ func stopCloudRunWorkerPool(name string) {
 // exits or the instance is retired, which sends the containers the stop
 // signal with Cloud Run's grace.
 func startCloudRunWorkerPoolInstance(poolName, revision string, containers []Container, volumes []Volume) *cloudRunRun {
-	ctx, stop := context.WithCancel(context.Background())
-	run := &cloudRunRun{stop: stop, done: make(chan struct{})}
+	run, ctx := newCloudRunRun()
 	poolID := poolName[strings.LastIndex(poolName, "/")+1:]
 	instanceID := sim.RandomHex(8)
 	sink := cloudRunWorkerPoolLogSink(poolName, revision)
@@ -186,8 +242,10 @@ func startCloudRunWorkerPoolInstance(poolName, revision string, containers []Con
 			if ctx.Err() == nil {
 				sink.WriteLog(sim.LogLine{Stream: "stderr", Text: fmt.Sprintf("The instance failed to start: %v", err)})
 			}
+			run.started(err)
 			return
 		}
+		run.started(nil)
 		exited := make(chan sim.ProcessResult, 1)
 		go func() { exited <- group.Main.Wait() }()
 		select {
@@ -212,13 +270,21 @@ var cloudRunInstanceRuns = struct {
 	byName map[string]*cloudRunRun
 }{byName: map[string]*cloudRunRun{}}
 
+// cloudRunInstanceRestartLimit is how many times in a row Cloud Run restarts
+// an instance whose restart policy restarts it: "Cloud Run attempts to restart
+// a failing instance up to 3 times sequentially. If the instance continues to
+// fail, it transitions to the FAILED status."
+const cloudRunInstanceRestartLimit = 3
+
 // runCloudRunInstance starts a Cloud Run instance's containers, keeping those
 // it already runs when its containers and volumes are unchanged. Its ingress
 // container answers on its port as a service instance's does, and every
-// container starts in dependsOn order behind its startup probe.
+// container starts in dependsOn order behind its startup probe. Once they have
+// all started, or one failed to, the instance's reconciliation settles; after
+// that, a container that exits restarts the instance as its restart policy
+// says.
 func runCloudRunInstance(inst InstanceV2) {
-	ctx, stop := context.WithCancel(context.Background())
-	run := &cloudRunRun{stop: stop, done: make(chan struct{})}
+	run, ctx := newCloudRunRun()
 	cloudRunInstanceRuns.Lock()
 	previous := cloudRunInstanceRuns.byName[inst.Name]
 	cloudRunInstanceRuns.byName[inst.Name] = run
@@ -229,26 +295,84 @@ func runCloudRunInstance(inst InstanceV2) {
 	if len(inst.Containers) == 0 {
 		close(run.done)
 		deleteCloudRunServiceInstance(inst.Name)
+		run.started(nil)
+		settleCloudRunInstance(inst.Name, run, nil)
 		return
 	}
 	instanceID := inst.Name[strings.LastIndex(inst.Name, "/")+1:]
 	sink := cloudRunInstanceLogSink(inst.Name)
 	bg.Go(func() {
 		defer close(run.done)
-		running, err := ensureCloudRunServiceInstance(ctx, inst.Name, instanceID, inst.Containers, inst.Volumes, sink)
-		if err != nil {
-			if ctx.Err() == nil {
-				sink.WriteLog(sim.LogLine{Stream: "stderr", Text: fmt.Sprintf("The instance failed to start: %v", err)})
+		restarts := 0
+		for {
+			running, err := ensureCloudRunServiceInstance(ctx, inst.Name, instanceID, inst.Containers, inst.Volumes, sink)
+			if err == nil {
+				_, err = running.awaitReady(ctx)
+				if err != nil {
+					deleteCloudRunServiceInstanceIf(inst.Name, running)
+				}
 			}
-			return
-		}
-		if _, err := running.awaitReady(ctx); err != nil {
-			deleteCloudRunServiceInstanceIf(inst.Name, running)
-			if ctx.Err() == nil {
-				sink.WriteLog(sim.LogLine{Stream: "stderr", Text: fmt.Sprintf("The instance failed to start: %v", err)})
+			if ctx.Err() != nil {
+				return
 			}
+			var exitCode int64
+			if err != nil {
+				sink.WriteLog(sim.LogLine{Stream: "stderr", Text: fmt.Sprintf("The instance failed to start: %v", err)})
+				if restarts == 0 {
+					run.started(err)
+					settleCloudRunInstance(inst.Name, run, err)
+					return
+				}
+				exitCode = -1
+			} else {
+				if restarts == 0 {
+					run.started(nil)
+					settleCloudRunInstance(inst.Name, run, nil)
+				}
+				exitCode = running.awaitExit(ctx)
+				if ctx.Err() != nil {
+					return
+				}
+				deleteCloudRunServiceInstanceIf(inst.Name, running)
+			}
+			// The instance's record settles before its exit is logged, so a
+			// reader of the log finds the outcome already recorded.
+			logExit := func() {
+				if exitCode >= 0 {
+					sink.WriteLog(sim.LogLine{Stream: "stderr", Text: fmt.Sprintf("Container called exit(%d).", exitCode)})
+				}
+			}
+			switch {
+			case !cloudRunInstanceRestarts(inst, exitCode):
+				endCloudRunInstance(inst.Name, run, exitCode, "")
+				logExit()
+				return
+			case restarts == cloudRunInstanceRestartLimit:
+				endCloudRunInstance(inst.Name, run, exitCode,
+					fmt.Sprintf("The instance failed after Cloud Run restarted it %d times.", restarts))
+				logExit()
+				return
+			}
+			logExit()
+			restarts++
 		}
 	})
+}
+
+// cloudRunInstanceRestarts reports whether the instance's restart policy
+// restarts it after a container exited with exitCode, -1 standing for a
+// restart that failed to start. ON_FAILURE is the default; under ALWAYS an
+// instance of several containers stops rather than restarts when one exits
+// cleanly.
+func cloudRunInstanceRestarts(inst InstanceV2, exitCode int64) bool {
+	switch inst.RestartPolicy {
+	case "NEVER":
+		return false
+	case "ALWAYS":
+		return exitCode != 0 || len(inst.Containers) == 1
+	default:
+		return exitCode != 0
+	}
 }
 
 // stopCloudRunInstance stops a Cloud Run instance's containers and returns

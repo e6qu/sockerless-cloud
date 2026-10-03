@@ -32,26 +32,24 @@ const (
 )
 
 // rdsListBinaryLogScript prints, base64-encoded, every binary log file of the
-// source from the file the base backup started onward.
+// source from START_FILE, where the base backup's replay starts, onward.
 const rdsListBinaryLogScript = `set -e
-start=$(tail -n 1 "$DATA/binlog.index")
-start=${start##*/}
-if ! grep -qx "./$start" /source/binlog.index; then
-	echo "the source no longer holds binary log file $start"
+if ! grep -qx "./$START_FILE" /source/binlog.index; then
+	echo "the source no longer holds binary log file $START_FILE"
 	exit 1
 fi
 for f in $(sed 's|^\./||' /source/binlog.index); do
-	[ "$f" \< "$start" ] && continue
+	[ "$f" \< "$START_FILE" ] && continue
 	echo "binlog $f"
 	base64 -w 76 "/source/$f"
 done
 `
 
 // rdsReplayBinaryLogScript copies RELAY_FILES into the data directory as a
-// relay log, cutting the last at LAST_SIZE, and applies it with a server that
-// writes no binary log and accepts no network client. A user only the init
-// file creates drives the applier, runs SET_MASTER_PASSWORD, and goes before
-// the server stops.
+// relay log, cutting the last at LAST_SIZE, and applies it from START_OFFSET
+// of the first with a server that writes no binary log and accepts no network
+// client. A user only the init file creates drives the applier, runs
+// SET_MASTER_PASSWORD, and goes before the server stops.
 const rdsReplayBinaryLogScript = `set -e
 cd "$DATA"
 n=0
@@ -78,7 +76,7 @@ until client --execute='SELECT 1' >/dev/null; do
 	kill -0 "$server"
 	sleep 0.1
 done
-client --execute="CHANGE REPLICATION SOURCE TO RELAY_LOG_FILE='sockerless-replay.000001', RELAY_LOG_POS=4, SOURCE_HOST='sockerless-replay'; START REPLICA SQL_THREAD UNTIL RELAY_LOG_FILE='$relay', RELAY_LOG_POS=$LAST_SIZE"
+client --execute="CHANGE REPLICATION SOURCE TO RELAY_LOG_FILE='sockerless-replay.000001', RELAY_LOG_POS=$START_OFFSET, SOURCE_HOST='sockerless-replay'; START REPLICA SQL_THREAD UNTIL RELAY_LOG_FILE='$relay', RELAY_LOG_POS=$LAST_SIZE"
 while client --execute='SHOW REPLICA STATUS\G' | grep -q 'Replica_SQL_Running: Yes'; do
 	sleep 0.1
 done
@@ -147,19 +145,26 @@ func rdsReadBinaryLogListing(lines []string) ([]rdsBinlogFile, error) {
 	return files, nil
 }
 
-// rdsBinaryLogReplayRange names the files to replay and the size the last is
-// cut to: just before the first transaction whose immediate commit timestamp
-// is after target, or the end of the last complete event.
-func rdsBinaryLogReplayRange(files []rdsBinlogFile, target time.Time) ([]string, int, error) {
+// rdsBinaryLogReplayRange names the files to replay, from startOffset of the
+// first, and the size the last is cut to: just before the first transaction
+// whose immediate commit timestamp is after target, or the end of the last
+// complete event.
+func rdsBinaryLogReplayRange(files []rdsBinlogFile, startOffset int, target time.Time) ([]string, int, error) {
 	targetMicros := target.UnixMicro()
 	var names []string
 	end := 0
-	for _, file := range files {
+	for i, file := range files {
 		if !strings.HasPrefix(string(file.data), rdsBinlogMagic) {
 			return nil, 0, fmt.Errorf("binary log file %s does not start with the binary log magic number", file.name)
 		}
 		names = append(names, file.name)
 		offset := len(rdsBinlogMagic)
+		if i == 0 {
+			if startOffset < offset || startOffset > len(file.data) {
+				return nil, 0, fmt.Errorf("binary log file %s holds no offset %d", file.name, startOffset)
+			}
+			offset = startOffset
+		}
 		for offset+rdsBinlogEventHeaderLength <= len(file.data) {
 			size := int(binary.LittleEndian.Uint32(file.data[offset+9:]))
 			if size < rdsBinlogEventHeaderLength || offset+size > len(file.data) {
@@ -194,8 +199,8 @@ func rdsReplayBinaryLog(engine dbengine.Engine, cluster RDSCluster, sourceVolume
 	if !ok {
 		return fmt.Errorf("decrypt the Amazon Aurora master-user credential")
 	}
-	listing, err := rdsRunVolumeHelper(engine, rdsListBinaryLogScript, nil, rdsHelperSandbox,
-		[]string{sourceVolume + ":/source:ro", clusterVolume + ":" + engine.DataPath + ":ro"}, clusterID)
+	listing, err := rdsRunVolumeHelper(engine, rdsListBinaryLogScript, map[string]string{"START_FILE": cluster.RestoreBinlogFile}, rdsHelperSandbox,
+		[]string{sourceVolume + ":/source:ro"}, clusterID)
 	if err != nil {
 		return err
 	}
@@ -203,13 +208,14 @@ func rdsReplayBinaryLog(engine dbengine.Engine, cluster RDSCluster, sourceVolume
 	if err != nil {
 		return err
 	}
-	names, lastSize, err := rdsBinaryLogReplayRange(files, target)
+	names, lastSize, err := rdsBinaryLogReplayRange(files, cluster.RestoreBinlogOffset, target)
 	if err != nil {
 		return err
 	}
 	_, err = rdsRunVolumeHelper(engine, rdsReplayBinaryLogScript,
 		map[string]string{
 			"RELAY_FILES":         strings.Join(names, " "),
+			"START_OFFSET":        strconv.Itoa(cluster.RestoreBinlogOffset),
 			"LAST_SIZE":           strconv.Itoa(lastSize),
 			"SET_MASTER_PASSWORD": rdsMySQLSetMasterPasswordStatement(cluster.MasterUsername, string(password)),
 		},

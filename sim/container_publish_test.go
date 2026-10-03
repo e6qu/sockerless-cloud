@@ -50,7 +50,7 @@ func TestPublishedPortReadsTheEngineAllocatedPort(t *testing.T) {
 		t.Fatal(err)
 	}
 	const containerPort = 8080
-	handle, err := StartContainerSync(ContainerConfig{
+	handle, err := StartContainerSyncContext(t.Context(), ContainerConfig{
 		Image:        publishTestImage,
 		Architecture: "linux/" + runtime.GOARCH,
 		Command:      []string{"nc"},

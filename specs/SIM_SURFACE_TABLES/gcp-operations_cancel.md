@@ -17,7 +17,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v1/operations/{opAction...}` | ✓ `simulator-gcp/operations_cancel.go:108::func` | ✓ (direct; see coverage matrix) | ✗ (coverage matrix row missing) | n/a | |
+| `POST /v1/operations/{opAction...}` | ✓ `simulator-gcp/operations_cancel.go:120::func` | ✓ (direct; see coverage matrix) | ✗ (coverage matrix row missing) | n/a | |
 
 ## Coverage status
 

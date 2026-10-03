@@ -36,7 +36,7 @@ func runInstancesBaseURL() string {
 // act on is created through the same v2 API the Cloud Run backend uses.
 func createRunInstanceForCLI(t *testing.T, id string) {
 	t.Helper()
-	body := `{"containers": [{"image": "gcr.io/test-project/` + id + `"}]}`
+	body := `{"containers": [{"image": "` + httpProbeImageName + `", "args": ["echo-request"]}]}`
 	httpDoJSON(t, "POST", runInstancesBaseURL()+"?instanceId="+id, body)
 	t.Cleanup(func() {
 		resp, err := httpDo("DELETE", runInstancesBaseURL()+"/"+id, "")

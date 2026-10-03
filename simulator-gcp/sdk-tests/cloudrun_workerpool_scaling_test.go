@@ -94,7 +94,7 @@ func TestSDK_RunV2_WorkerPoolAutomaticScaling(t *testing.T) {
 	op, err := svc.Projects.Locations.WorkerPools.Create(crV2Parent, &runv2.GoogleCloudRunV2WorkerPool{
 		Scaling: &runv2.GoogleCloudRunV2WorkerPoolScaling{ManualInstanceCount: 4},
 		Template: &runv2.GoogleCloudRunV2WorkerPoolRevisionTemplate{
-			Containers: []*runv2.GoogleCloudRunV2Container{{Image: "gcr.io/" + crV2Project + "/" + manualID}},
+			Containers: []*runv2.GoogleCloudRunV2Container{holdingContainerREST()},
 		},
 	}).WorkerPoolId(manualID).Do()
 	require.NoError(t, err)

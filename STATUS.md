@@ -110,7 +110,8 @@ Current state of the sockerless-cloud repository.
   touched. A simulator exits when the process in `SOCKERLESS_PARENT_PID` is
   gone. A stopping simulator does not wait out a container's stop timeout or a
   function's timeout: interrupted Amazon ECS and AWS Lambda work resumes in the
-  next process.
+  next process, and an open long poll or Live Tail session ends with the
+  server.
 - **Every credential is verified**: SigV4 against the principal's stored
   secret, from the header and from a presigned URL alike; Google Cloud and
   Microsoft Entra bearers against the simulator's signing keys; the Azure
@@ -121,9 +122,12 @@ Current state of the sockerless-cloud repository.
 - **Managed databases run real engines** with volumes, credentials sealed
   under the simulator's own key service, readiness classified by SQLSTATE, and
   snapshots that capture the data copy-on-write where the volume store allows
-  it. An Aurora cluster restores to any time since its engine first served,
-  replaying PostgreSQL's archived write-ahead log or MySQL's binary log onto a
-  base backup, and an Aurora cluster restores from an RDS DB snapshot ARN.
+  it. An Aurora cluster restores to any time in its backup retention period
+  since its engine first served, replaying PostgreSQL's archived write-ahead
+  log or MySQL's binary log onto the daily automated DB cluster snapshot taken
+  in its backup window, and expires the snapshots and log the period no longer
+  covers; an Aurora cluster restores from an RDS DB snapshot ARN, and an
+  Aurora MySQL cluster from a Percona XtraBackup in Amazon S3.
 - **The registries answer their own service**: Amazon ECR's empty ping with
   no content type, Artifact Registry's `text/html`, Azure Container Registry's
   `{}`; ECR hydrates a pull through a cache rule from the rule's upstream;
@@ -137,6 +141,10 @@ Current state of the sockerless-cloud repository.
   service account's token, an Azure Container Registry with an identity
   token of the ACR Tasks run — names them outright for the legacy builder,
   and hands other registries to the host's helper.
+- **A Cloud Build step of any builder image runs as a container** over the
+  build's `/workspace` (its `dir`, `entrypoint`, `args`, `env`, `secretEnv`),
+  sharing the workspace with the docker builder's steps; a source on Cloud
+  Storage may be a zip archive or a gzipped tarball.
 - **Future-dated Capacity Reservations are scheduled, committed and
   postponed by quote.** A reservation requested for a future start is
   `scheduled` with no instances and a commitment until its start date, derived
@@ -252,7 +260,12 @@ Current state of the sockerless-cloud repository.
   update or delete answers once the retired instances have stopped. A Cloud Run
   instance runs through the service-instance path from creation or
   `instances.start` until `instances.stop` or deletion. Their output reaches
-  Cloud Logging under `cloud_run_worker_pool` and `cloud_run_instance`.
+  Cloud Logging under `cloud_run_worker_pool` and `cloud_run_instance`. A
+  create, update or start holds its operation and the `Ready` condition until
+  the instances have passed their startup probes, and fails both with the
+  start error; an instance's exits restart it per its `restartPolicy`, up to
+  three times in a row; a simulator restart starts the stored pools' and
+  instances' containers again.
 - **A Cloud Run function is served by its Cloud Run service**:
   `serviceConfig.uri` is the service's run.app URL and `url` the function's
   cloudfunctions.net URL, both served through the Cloud Run front end with
@@ -291,8 +304,10 @@ Current state of the sockerless-cloud repository.
 - **Memorystore for Redis** instances and Memorystore for Redis Cluster
   clusters run a real Redis engine, one container per node, at the endpoints
   the API reports; replica-count and shard-count updates reshape the running
-  engine, TLS comes from the server CA the API reports, IAM and token auth are
-  enforced, persistence runs as configured, and exports, imports, backups and
+  engine, TLS comes from the server CA the API reports, IAM and token auth and
+  a cluster's ACL policy are enforced by the engine, a `LIMITED_DATA_LOSS`
+  failover refuses a replica more than 30 MB behind, persistence runs as
+  configured, and exports, imports, backups and
   cluster import sources move the engine's own RDB snapshots through Cloud
   Storage.
 

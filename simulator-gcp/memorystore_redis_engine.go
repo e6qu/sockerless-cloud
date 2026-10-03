@@ -155,6 +155,9 @@ type msRedisPlaneSpec struct {
 	IAMAuth bool
 	// TokenAuth runs the cluster's token-auth users as engine users.
 	TokenAuth bool
+	// AclPolicy names the ACL policy whose rules define the cluster's other
+	// engine users.
+	AclPolicy string
 }
 
 type msRedisNode struct {
@@ -185,6 +188,10 @@ type msRedisPlane struct {
 	tlsConfig   *tls.Config
 	iamAuth     bool
 	tokenAuth   bool
+	aclPolicy   string
+	// policyUsers are the engine users the applied ACL policy defines, keyed
+	// by lowercased username, which an IAM principal of that email becomes.
+	policyUsers map[string]string
 	snapshots   *time.Timer
 	closed      bool
 
@@ -275,6 +282,7 @@ func msRedisNewPlane(name string, spec msRedisPlaneSpec, record msRedisPlaneReco
 		listeners:   map[string]net.Listener{},
 		iamAuth:     spec.IAMAuth,
 		tokenAuth:   spec.TokenAuth,
+		aclPolicy:   spec.AclPolicy,
 	}
 	plane.password = record.AuthString
 	if spec.Cluster {
@@ -574,7 +582,7 @@ func (p *msRedisPlane) startNode(node int) error {
 	for key, value := range p.labels {
 		labels[key] = value
 	}
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		CancelGracePeriod: msRedisStopGrace,
 		Image:             image,
 		Architecture:      msRedisEnginePlatform,
@@ -864,7 +872,7 @@ func (p *msRedisPlane) awaitClusterState(shards, replicas int) error {
 			}
 			primaries, replicaCount := view.countRoles()
 			if info["cluster_state"] == "ok" && info["cluster_known_nodes"] == want &&
-				primaries == shards && replicaCount == shards*replicas {
+				primaries == shards && replicaCount == shards*replicas && view.hostnamesKnown() {
 				if self, ok := view.self(); ok && !self.primary() {
 					followers = append(followers, node)
 				}
@@ -954,6 +962,18 @@ func (v msRedisClusterView) self() (msRedisClusterNode, bool) {
 		}
 	}
 	return msRedisClusterNode{}, false
+}
+
+// hostnamesKnown reports whether the node has learned every node's announced
+// hostname. Until gossip carries it, the node answers CLUSTER SLOTS and
+// CLUSTER SHARDS with "?" as that node's endpoint, which no client can dial.
+func (v msRedisClusterView) hostnamesKnown() bool {
+	for _, node := range v {
+		if node.Hostname == "" {
+			return false
+		}
+	}
+	return true
 }
 
 // countRoles counts the connected primaries and replicas.

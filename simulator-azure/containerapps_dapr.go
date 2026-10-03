@@ -79,7 +79,7 @@ func startACAAppDaprSidecar(ctx context.Context, resourceID string, app Containe
 	if len(shortName) > 24 {
 		shortName = shortName[:24]
 	}
-	return sim.StartContainerSync(sim.ContainerConfig{
+	return sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
 		CancelGracePeriod: acaAppStopGrace(app),
 		Image:             daprdSidecarImage,
 		Architecture:      platform,

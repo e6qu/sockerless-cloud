@@ -83,7 +83,7 @@ func TestAPIOnlyModeStartsWithoutAContainerEngine(t *testing.T) {
 				t.Fatalf("refusal does not mention %q: %v", want, refusal)
 			}
 		}
-		if _, err := StartContainerSync(ContainerConfig{Image: "alpine"}, nil); err == nil ||
+		if _, err := StartContainerSyncContext(t.Context(), ContainerConfig{Image: "alpine"}, nil); err == nil ||
 			!strings.Contains(err.Error(), "API-only") {
 			t.Fatalf("StartContainerSync error = %v, want one naming the API-only mode", err)
 		}

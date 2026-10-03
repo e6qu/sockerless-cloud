@@ -37,16 +37,16 @@ func TestRDSBinaryLogReplayRangeStopsBeforeTheFirstLaterCommit(t *testing.T) {
 	second = append(second, rdsTestBinlogEvent(xid, time.Time{})...)
 	files := []rdsBinlogFile{{name: "binlog.000003", data: first}, {name: "binlog.000004", data: second}}
 
-	names, size, err := rdsBinaryLogReplayRange(files, restoreTo)
+	names, size, err := rdsBinaryLogReplayRange(files, len(rdsBinlogMagic), restoreTo)
 	if err != nil || len(names) != 2 || size != cut {
 		t.Fatalf("replay range = %v up to %d (%v), want both files up to %d", names, size, err, cut)
 	}
-	names, size, err = rdsBinaryLogReplayRange(files, restoreTo.Add(time.Second))
+	names, size, err = rdsBinaryLogReplayRange(files, len(rdsBinlogMagic), restoreTo.Add(time.Second))
 	if err != nil || len(names) != 2 || size != len(second) {
 		t.Fatalf("replay range = %v up to %d (%v), want both files whole", names, size, err)
 	}
 	torn := append(append([]byte(nil), first...), rdsTestBinlogEvent(xid, time.Time{})[:10]...)
-	names, size, err = rdsBinaryLogReplayRange([]rdsBinlogFile{{name: "binlog.000003", data: torn}}, restoreTo)
+	names, size, err = rdsBinaryLogReplayRange([]rdsBinlogFile{{name: "binlog.000003", data: torn}}, len(rdsBinlogMagic), restoreTo)
 	if err != nil || len(names) != 1 || size != len(first) {
 		t.Fatalf("replay range = %v up to %d (%v), want the file up to its last complete event %d", names, size, err, len(first))
 	}

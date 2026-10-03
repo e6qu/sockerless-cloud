@@ -331,6 +331,25 @@ through hooks:
   is a channel so a step can stop waiting for it. A persistent simulator stopped
   with a task inside a two-minute `stopTimeout` and a function inside a
   15-minute timeout proves the stop takes under a second.
+- **A request ends with the server.** `ListenAndServe` drained the HTTP server
+  for up to 10 s because no request's context was cancelled at shutdown, so an
+  open CloudWatch Logs Live Tail session or a long poll held the drain to its
+  bound. The `http.Server`'s `BaseContext` returns the background context the
+  signal handler cancels before `Shutdown`, so every long-poll handler, which
+  selects on its request's context, returns at once; a `sim` test holds a poll
+  open across SIGTERM and stops in milliseconds. `StartContainerSyncContext`
+  bounds the image pull and the create by its caller's context, removes a
+  container whose start it abandoned under a context that outlives the
+  caller's, and leaves the started container's lifetime to its handle. It
+  replaced the context-less `StartContainerSync`, and every simulator call site
+  passes its own context; an AWS Lambda execution
+  environment starts under its worker's, so a shutdown stops an image download
+  instead of waiting it out. `TestSimulatorStopsWithLifecycleWorkInFlight_SDK`
+  keeps a Live Tail session open across SIGTERM and still exits within 5 s.
+- **An image pull says why it pulled.** `pullImage` writes a `[sim-pull]` line
+  when the held-image check fails, with the inspect error or the held and
+  wanted platforms, and one per throttled retry with the attempt, the error
+  and the backoff, so a start that took the retry's 30 s says so in the log.
 - **A test drives the production write path.** The stopped-task sweep deleted
   by ARN while RunTask stores tasks by ID, and its test stored tasks by ARN and
   passed; retention tests now store through the key RunTask uses. A listing
@@ -842,13 +861,23 @@ redirections to addresses it can reach. AUTH is the engine's `requirepass`,
 whose value `getAuthString` returns, and an `authEnabled` update changes it
 live; a failover promotes a replica and moves the primary endpoint to it, and a
 Basic Tier failover is refused with FAILED_PRECONDITION, since there is no
-replica to promote. A `replicaCount` update starts or stops replica containers
+replica to promote. A failover in `LIMITED_DATA_LOSS` mode, the default, first
+reads the primary's `INFO replication` and fails the operation with
+FAILED_PRECONDITION when the replica's acknowledged offset trails
+`master_repl_offset` by 30 MB or more, or the replica is not replicating;
+`FORCE_DATA_LOSS` promotes it regardless. The Go REST client sends
+`dataProtectionMode` as the enum's number, which the simulator accepts beside
+its name. A `replicaCount` update starts or stops replica containers
 while the primary serves, and a `readReplicasMode` update binds or closes the
-read endpoint. A cluster `shardCount` update meets new primaries and has
-redis-cli's cluster manager rebalance slots onto them, or drains the removed
-shards with `rebalance --cluster-weight <id>=0` and deletes their nodes with
-`del-node`; a `replicaCount` update adds replicas with `CLUSTER REPLICATE` or
-deletes them. A cluster created from `gcsSource` or `managedBackupSource`
+read endpoint. A cluster `shardCount` update meets new primaries and moves
+an equal share of the slots onto them, or moves the removed shards' slots onto
+the rest and deletes their nodes with `del-node`; a `replicaCount` update adds
+replicas with `CLUSTER REPLICATE` or deletes them. The control plane moves slots
+with Redis Cluster's own resharding commands — `CLUSTER SETSLOT IMPORTING` and
+`MIGRATING`, `MIGRATE` for each slot's keys, and `CLUSTER SETSLOT NODE` on every
+primary — pipelined 512 slots at a time. `redis-cli --cluster rebalance` once
+moved them, one slot per round trip, and spent 27 seconds moving 8,192 empty
+slots onto one new shard. A cluster created from `gcsSource` or `managedBackupSource`
 loads each RDB file into a standalone redis-server inside one node's container
 and moves the keys onto their shards with `redis-cli --cluster import`.
 
@@ -867,7 +896,21 @@ the simulator issued to a principal holding `redis.clusters.connect` (granted by
 password unchanged, so the engine refuses it and replies keep their order. A
 cluster with `AUTH_MODE_TOKEN_AUTH` runs each token-auth user as an engine ACL
 user whose passwords are its active auth tokens, rewritten on every node when a
-user or token is added or deleted. A cluster with deletion protection refuses
+user or token is added or deleted. A cluster's `aclPolicy` runs each of the
+policy's rules as `ACL SETUSER <username> reset <rule>` on every node, a
+selector in parentheses being one argument, and removes every other engine
+user but `default`; it applies at create, when an update attaches, swaps or
+detaches the policy, when an `aclPolicies.patch` revises the rules of an
+attached policy, and on nodes a reshape adds. The cluster reports the
+revision it runs in `aclPolicyInfo`, the policy its clusters in
+`clusterAclPolicyAttachments`, and a revision the clusters running it in
+`attachedClusters`; a policy refuses deletion while a cluster runs it, and a
+rule for the `default` user, a duplicate username, or an unbalanced selector
+is refused with INVALID_ARGUMENT. On a cluster that authenticates with IAM, a
+principal whose email is a rule's username connects as that policy user: the
+relay authenticates it as the user with the engine credential, which the
+simulator adds to the user's passwords ahead of the rule, and any other
+principal connects as `default`. A cluster with deletion protection refuses
 its delete.
 
 `persistenceConfig` is honoured: RDB snapshots are BGSAVEs the control plane
@@ -1001,17 +1044,35 @@ before the snapshot and none after, a point-in-time restore holds every
 committed row, and a restore from the final snapshot holds the cluster as it
 was deleted.
 
-An Aurora cluster restores to any time in its restorable window, kept as a
-base backup and the engine's own log. When the engine first accepts clients,
-before the endpoint relays any client to it, `Ready` captures the cluster
-volume into `sockerless-rds-cluster-base_<cluster>` (Aurora MySQL flushes its
-binary log first, so a new file starts with the capture), and DescribeDBClusters
-then reports that time as `EarliestRestorableTime` and the present as
-`LatestRestorableTime`. Aurora PostgreSQL's engine runs with `archive_mode=on`
+An Aurora cluster restores to any time in its restorable window, kept as base
+backups and the engine's own log. Each base backup is an automated DB cluster
+snapshot named `rds:<cluster>-<yyyy-mm-dd-hh-mm>`: `Ready` takes the first when
+the engine first accepts clients, before the endpoint relays any client to it,
+and a timer takes another at the start of every `PreferredBackupWindow`
+(honoured on CreateDBCluster and ModifyDBCluster, which refuse a window not
+spelled hh24:mi-hh24:mi) while the cluster is available and its engine runs.
+DescribeDBClusterSnapshots lists them under `SnapshotType` `automated`, and
+DeleteDBClusterSnapshot refuses one, as it does for every automated snapshot.
+DescribeDBClusters reports `EarliestRestorableTime` as the later of the oldest
+base backup and the start of the `BackupRetentionPeriod`, and the present as
+`LatestRestorableTime`. Each backup run also expires what the period no longer
+covers: automated snapshots older than the period go, a base backup's volume
+stays until a newer one was taken by the start of the period (and while a
+creating restore seeds from it), and the log before the oldest remaining base
+backup goes — `PURGE BINARY LOGS TO` its binary log file for MySQL, whose engine
+runs with `binlog_expire_logs_seconds=0` so its own 30-day expiry never purges
+a file a restore needs, and for PostgreSQL every archived segment before the
+REDO WAL file `pg_controldata` reports for that base backup. A capture freezes
+the engine, so it holds what a crash would leave; for MySQL the simulator reads
+the capture's newest binary log file and records the offset of the first
+transaction it does not hold whole (crash recovery commits exactly the
+transactions the binary log holds whole), where the replay onto that base
+backup starts. Aurora PostgreSQL's engine runs with `archive_mode=on`
 and archives every completed write-ahead log segment into the cluster volume;
 Aurora MySQL's binary log is on by default. RestoreDBClusterToPointInTime with
 `RestoreToTime` refuses a time outside the window with `InvalidRestoreFault`,
-seeds the new cluster volume from the base backup, and replays the source's log
+seeds the new cluster volume from the newest base backup taken by then, and
+replays the source's log
 read from its live cluster volume — every transaction that ended by the restore
 time is already in it, and a record still being written ends after it. For
 PostgreSQL a helper copies the archive and `pg_wal` into the new volume's
@@ -1025,7 +1086,8 @@ readiness probe had admitted clients to the read-only replay. For MySQL, whose i
 `mysqlbinlog`, the simulator reads the GTID events' microsecond immediate
 commit timestamps itself, cuts the binary log before the first transaction
 committed after the time, and a server started on the new volume applies it as
-its relay log with the replication SQL thread (`START REPLICA SQL_THREAD UNTIL`),
+its relay log from the base backup's recorded offset with the replication SQL
+thread (`START REPLICA SQL_THREAD UNTIL`),
 writing no binary log, driven by a user only its init file creates, which then
 sets the cluster's master password and is dropped. RestoreDBClusterFromSnapshot
 also takes a DB snapshot ARN: an RDS for PostgreSQL or RDS for MySQL instance's
@@ -1034,7 +1096,28 @@ MySQL cluster of the same image, under the instance's master credential and
 database, which DB snapshots now carry. The SDK, CLI and Terraform suites
 restore to a time the engine's clock has passed by a millisecond and prove the
 restored cluster holds the row committed before it and not the one after, and
-that a migrated cluster serves the instance's rows.
+that a migrated cluster serves the instance's rows; the SDK suite also moves
+a cluster's backup window to the next minute, keeps committing rows while the
+window's automated snapshot is taken, and restores to a time after it with
+every committed row present exactly once.
+
+RestoreDBClusterFromS3 creates an Aurora MySQL cluster from a Percona
+XtraBackup of a MySQL 8.0 server. The request needs the bucket to exist and
+the `S3IngestionRoleArn` role to trust `rds.amazonaws.com` and allow
+`s3:ListBucket` on the bucket and `s3:GetObject` on every object under
+`S3Prefix`, or it is refused with `InvalidS3BucketFault`; a 5.7 source is
+refused with `InvalidParameterCombination`. The cluster is `creating` while a
+background import copies the objects to a staging directory as that role, and
+a `docker.io/percona/percona-xtrabackup:8.0` helper unpacks them (xbstream,
+tar or gzip-compressed tar archives, whole or split into numbered parts, or the
+backup directory's own files), runs `xtrabackup --prepare` and copies the
+backup back into the cluster volume; a MySQL helper started on the volume with
+no network listener then creates or resets the master user with every
+privilege under the request's password, gives root the same password, and
+creates the cluster's database. The cluster lands `available`, or
+`migration-failed` when the import fails. The SDK, CLI and Terraform
+(`s3_import`) suites take a real backup of a MySQL 8.0 container and read its
+rows through the restored cluster.
 
 Every volume capture holds one crash-consistent point in time, the property a
 block-level storage snapshot gives. `sim.SnapshotVolume` lists the running
@@ -1236,6 +1319,20 @@ CLI never tells buildkit to stop and can leave a child holding the output pipe.
 A privileged CodeBuild environment gets the simulator's own engine, and its
 output streams to CloudWatch Logs as the service does by default.
 
+A Cloud Build step whose builder is not `gcr.io/cloud-builders/docker` runs as
+Cloud Build runs every step: a container of the builder image with the build's
+workspace mounted at `/workspace`, in the step's `dir`, under its
+`entrypoint`, `args`, `env` and resolved `secretEnv`, pulled as the build's
+service account from Artifact Registry or Container Registry. A step that exits
+non-zero fails the build with its exit status and the last twenty lines it
+printed. The docker builder still runs on the host's engine over the same
+directory, so a file a container step writes is in the next `docker build`'s
+context. Refusing every other builder had made the simulator unable to run any
+build but a Dockerfile one — the runtime buildpacks a Cloud Run functions
+deploy runs among them. A Cloud Storage source may be a zip archive as well as
+a gzipped tarball, as the service documents; `gcloud builds submit` of a
+`gs://…/source.zip` runs.
+
 Azure Container Registry Tasks' `scheduleRun` records the Run Queued and
 answers 200 with it at once — the Azure CLI's own registry-tasks client accepts
 nothing else, and the Go SDK's poller completes on a 200 that names no
@@ -1342,6 +1439,38 @@ gRPC, which the simulator does not serve, so the CLI suite deploys over REST
 and reads the pool through `logs read` and `gcloud storage`. The Go REST
 client sends a worker pool's `instanceSplitStatuses[].type` as the enum's
 number, which the simulator maps to its name.
+
+A worker pool's or instance's create, update and `instances.start` answer with
+an operation that is not done, and the resource reports `reconciling` and a
+`CONDITION_RECONCILING` `Ready` condition until every instance has started and
+passed its startup probes. Then the operation completes with the resource, the
+pool's created revision becomes its ready revision and its observed generation
+catches up; an instance that cannot start — an image that does not pull, a
+failed startup probe — fails the operation with INTERNAL and the start error
+and the `Ready` condition with the same message, and the pool keeps its last
+ready revision. Answering at once had reported a pool whose image did not exist
+as ready. A pool whose scaling runs no instance settles before the call
+answers. Cancelling the operation stops the instances it was starting and fails
+`Ready` with the reason `Cancelled`; deleting the resource aborts it. The
+existing tests had deployed images that did not exist, so they deploy runnable
+ones, and the round-trip tests whose images do not exist assert the failed
+deploy.
+
+A Cloud Run instance whose container exits is restarted as its
+`restartPolicy` says: ON_FAILURE (the default) after a non-zero exit, ALWAYS
+after any exit except a clean one of an instance of several containers, NEVER
+not at all. Cloud Run documents restarting a failing instance "up to 3 times
+sequentially" before it is FAILED and publishes no delay between attempts, so
+the simulator restarts at once and fails the fourth exit; a clean exit that is
+not restarted leaves the instance stopped. The instance's record settles before
+its exit is logged, so a reader that waits on the log line finds the outcome
+recorded.
+
+A simulator restarted on its state directory starts the instances of every
+stored worker pool and of every stored instance not stopped or failed, from the
+serving process only; the start-up sweep has already removed the containers
+the previous process left, so the instances start anew, and a reconciliation
+the restart interrupted settles as they start.
 
 A project has one number, the one Cloud Resource Manager assigned. Cloud DNS,
 Cloud Build, Cloud Run's service agent, Compute Engine, BigQuery and Cloud

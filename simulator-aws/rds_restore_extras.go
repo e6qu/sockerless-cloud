@@ -254,7 +254,7 @@ func rdsClusterFromSource(r *http.Request, newID, engine, engineVersion string) 
 		BackupRetentionPeriod:      1,
 		ClusterCreateTime:          time.Now().UTC().Format(time.RFC3339),
 		AvailabilityZones:          []string{awsRegion() + "a", awsRegion() + "b", awsRegion() + "c"},
-		PreferredBackupWindow:      "07:00-09:00",
+		PreferredBackupWindow:      rdsClusterBackupWindow(r),
 		PreferredMaintenanceWindow: "mon:00:00-mon:03:00",
 		ARN:                        rdsClusterARN(newID),
 		Tags:                       parseAWSQueryTagMap(r, "Tags.Tag"),
@@ -484,38 +484,23 @@ func handleRDSRestoreClusterToPointInTime(w http.ResponseWriter, r *http.Request
 	cl.BackendMasterUserSecret = append([]byte(nil), src.BackendMasterUserSecret...)
 	cl.RestoreSourceVolume = rdsClusterVolume(src.DBClusterIdentifier)
 	if !target.IsZero() {
-		cl.RestoreSourceVolume = rdsClusterBaseBackupVolume(src.DBClusterIdentifier)
+		base, ok := rdsBaseBackupFor(src, target)
+		if !ok {
+			rdsErrorXML(w, "InvalidRestoreFault",
+				fmt.Sprintf("The restore time %s is outside the restorable window of DB cluster %s.", restoreToTime, srcID),
+				http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+		cl.RestoreSourceVolume = base.volume()
 		cl.RestoreLogVolume = rdsClusterVolume(src.DBClusterIdentifier)
 		cl.RestoreToTime = target.Format(time.RFC3339Nano)
+		cl.RestoreBinlogFile, cl.RestoreBinlogOffset = base.BinlogFile, base.BinlogOffset
 		if strings.EqualFold(cl.Engine, "aurora-mysql") {
 			// The binary log replay installs the master password.
 			cl.BackendMasterUserSecret = append([]byte(nil), cl.MasterUserSecret...)
 		}
 	}
 	rdsStartClusterRestore(w, r, cl, "RestoreDBClusterToPointInTime")
-}
-
-func handleRDSRestoreClusterFromS3(w http.ResponseWriter, r *http.Request) {
-	newID := r.FormValue("DBClusterIdentifier")
-	if newID == "" {
-		rdsErrorXML(w, "MissingParameter", "DBClusterIdentifier is required",
-			http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	if _, exists := rdsClusters.Get(newID); exists {
-		rdsErrorXML(w, "DBClusterAlreadyExistsFault",
-			fmt.Sprintf("DBCluster %q already exists", newID),
-			http.StatusConflict, sim.RequestID(r.Context()))
-		return
-	}
-	engine := r.FormValue("Engine")
-	if engine == "" {
-		engine = "aurora-mysql"
-	}
-	cl := rdsClusterFromSource(r, newID, engine, r.FormValue("EngineVersion"))
-	cl.AllocatedStorage = atoiOrZero(r.FormValue("AllocatedStorage"))
-	rdsClusters.Put(newID, cl)
-	rdsXMLResponse(w, "RestoreDBClusterFromS3", renderRDSCluster(cl), sim.RequestID(r.Context()))
 }
 
 // rdsInstanceFromSource builds a new RDSInstance row for the

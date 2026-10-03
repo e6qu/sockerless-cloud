@@ -558,3 +558,201 @@ func TestMemorystoreRedis_ClusterTokenAuth(t *testing.T) {
 	require.Error(t, err, "a deleted token no longer authenticates")
 	assert.Contains(t, err.Error(), "WRONGPASS")
 }
+
+// A LIMITED_DATA_LOSS failover refuses to promote a replica that trails the
+// primary by more than 30 MB of replication, and promotes it once it has
+// caught up. A script spinning on the replica keeps it from applying the
+// replication stream while the primary takes a 40 MB write.
+func TestMemorystoreRedis_LimitedDataLossFailover(t *testing.T) {
+	svc := redisService(t)
+	parent := "projects/redis-failover/locations/us-central1"
+	inst := createRedisInstance(t, svc, parent, "lagging", &redis.Instance{
+		Tier: "STANDARD_HA", MemorySizeGb: 1, RedisVersion: "REDIS_7_2",
+		ReadReplicasMode: "READ_REPLICAS_ENABLED", ReplicaCount: 1,
+	})
+	primary := goredis.NewClient(&goredis.Options{Addr: redisEndpoint(inst.Host, inst.Port)})
+	t.Cleanup(func() { primary.Close() })
+	replica := func() *goredis.Client {
+		client := goredis.NewClient(&goredis.Options{Addr: redisEndpoint(inst.ReadEndpoint, inst.ReadEndpointPort), ReadTimeout: -1, MaxRetries: -1})
+		t.Cleanup(func() { client.Close() })
+		return client
+	}
+
+	spinning := make(chan error, 1)
+	go func() { spinning <- replica().Eval(ctx, "while true do end", nil).Err() }()
+	pinger := replica()
+	for {
+		err := pinger.Ping(ctx).Err()
+		if err != nil && strings.HasPrefix(err.Error(), "BUSY") {
+			break
+		}
+		require.NoError(t, err)
+	}
+	bulk := strings.Repeat("x", 40<<20)
+	require.NoError(t, primary.Set(ctx, "bulk", bulk, 0).Err())
+
+	client := redisInstancesClient(t)
+	op, err := client.FailoverInstance(ctx, &redispb.FailoverInstanceRequest{
+		Name: inst.Name, DataProtectionMode: redispb.FailoverInstanceRequest_LIMITED_DATA_LOSS,
+	})
+	require.NoError(t, err)
+	_, err = op.Wait(ctx)
+	require.Error(t, err, "the replica trails by more than the limit")
+	assert.Contains(t, err.Error(), "LIMITED_DATA_LOSS")
+	got, err := svc.Projects.Locations.Instances.Get(inst.Name).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "READY", got.State)
+	role, err := primary.Do(ctx, "ROLE").Slice()
+	require.NoError(t, err)
+	assert.Equal(t, "master", role[0], "the primary endpoint still reaches the old primary")
+
+	require.NoError(t, pinger.ScriptKill(ctx).Err())
+	require.Error(t, <-spinning, "the spinning script ends killed")
+	acknowledged, err := primary.Wait(ctx, 1, 0).Result()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), acknowledged, "the replica caught up")
+
+	op, err = client.FailoverInstance(ctx, &redispb.FailoverInstanceRequest{Name: inst.Name})
+	require.NoError(t, err)
+	_, err = op.Wait(ctx)
+	require.NoError(t, err, "an unspecified mode is LIMITED_DATA_LOSS, which a caught-up replica passes")
+	promoted := goredis.NewClient(&goredis.Options{Addr: redisEndpoint(inst.Host, inst.Port)})
+	t.Cleanup(func() { promoted.Close() })
+	length, err := promoted.StrLen(ctx, "bulk").Result()
+	require.NoError(t, err)
+	assert.Equal(t, int64(len(bulk)), length, "the promoted replica holds the write")
+}
+
+// A cluster's ACL policy defines engine users on every node: a client that
+// authenticates as a policy user gets what its rule grants, a revision of the
+// policy reaches the attached cluster, and detaching the policy removes its
+// users. A policy attached to a cluster cannot be deleted.
+func TestMemorystoreRedis_ClusterAclPolicy(t *testing.T) {
+	svc := redisService(t)
+	parent := "projects/redis-acl/locations/us-central1"
+	policy, err := svc.Projects.Locations.AclPolicies.Create(parent, &redis.AclPolicy{
+		Rules: []*redis.AclRule{{Username: "writer", Rule: "on >writer-secret ~app-* +@all"}},
+	}).AclPolicyId("engine-users").Do()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if op, err := svc.Projects.Locations.AclPolicies.Delete(policy.Name).Do(); err == nil {
+			awaitRedisLRO(t, svc, op)
+		}
+	})
+	cluster := createRedisCluster(t, svc, parent, "acl", &redis.Cluster{ShardCount: 2, ReplicaCount: 0, AclPolicy: policy.Name})
+	require.NotNil(t, cluster.AclPolicyInfo)
+	assert.Equal(t, policy.Name, cluster.AclPolicyInfo.AppliedAclPolicy)
+	assert.Equal(t, int64(1), cluster.AclPolicyInfo.AppliedAclPolicyRevisionNumber)
+	require.Len(t, cluster.AclPolicyInfo.AclPolicyRevisionStatuses, 1)
+	assert.Equal(t, "APPLIED", cluster.AclPolicyInfo.AclPolicyRevisionStatuses[0].State)
+
+	writer := clusterClient(t, cluster, goredis.ClusterOptions{Username: "writer", Password: "writer-secret"})
+	writeKeys(t, writer, "app", 30)
+	requireKeys(t, writer, "app", 30)
+	err = writer.Set(ctx, "other", "value", 0).Err()
+	require.Error(t, err, "the rule grants only keys matching app-*")
+	assert.Contains(t, err.Error(), "NOPERM")
+	wrong := clusterClient(t, cluster, goredis.ClusterOptions{Username: "writer", Password: "guessed", MaxRetries: -1})
+	err = wrong.Ping(ctx).Err()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "WRONGPASS")
+
+	_, err = svc.Projects.Locations.AclPolicies.Delete(policy.Name).Do()
+	require.Error(t, err, "an attached policy cannot be deleted")
+	var apiErr *googleapi.Error
+	require.True(t, errors.As(err, &apiErr))
+	assert.Equal(t, 400, apiErr.Code)
+	assert.Contains(t, apiErr.Body, "FAILED_PRECONDITION")
+
+	op, err := svc.Projects.Locations.AclPolicies.Patch(policy.Name, &redis.AclPolicy{
+		Rules: []*redis.AclRule{{Username: "writer", Rule: "on >writer-secret ~app-* +@read +@connection +cluster"}},
+	}).UpdateMask("rules").Do()
+	require.NoError(t, err)
+	awaitRedisLRO(t, svc, op)
+	revised := clusterClient(t, cluster, goredis.ClusterOptions{Username: "writer", Password: "writer-secret"})
+	requireKeys(t, revised, "app", 30)
+	err = revised.Set(ctx, "app-0", "changed", 0).Err()
+	require.Error(t, err, "the second revision grants reads only")
+	assert.Contains(t, err.Error(), "NOPERM")
+	got, err := svc.Projects.Locations.Clusters.Get(cluster.Name).Do()
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), got.AclPolicyInfo.AppliedAclPolicyRevisionNumber)
+	revision, err := svc.Projects.Locations.AclPolicies.Revisions.Get(policy.Name + "/revisions/2").Do()
+	require.NoError(t, err)
+	assert.Equal(t, []string{cluster.Name}, revision.AttachedClusters)
+	described, err := svc.Projects.Locations.AclPolicies.Get(policy.Name).Do()
+	require.NoError(t, err)
+	require.Len(t, described.ClusterAclPolicyAttachments, 1)
+	assert.Equal(t, cluster.Name, described.ClusterAclPolicyAttachments[0].Cluster)
+
+	detached := patchRedisCluster(t, svc, cluster.Name, "acl_policy", &redis.Cluster{ForceSendFields: []string{"AclPolicy"}})
+	assert.Empty(t, detached.AclPolicy)
+	assert.Nil(t, detached.AclPolicyInfo)
+	removed := clusterClient(t, cluster, goredis.ClusterOptions{Username: "writer", Password: "writer-secret", MaxRetries: -1})
+	err = removed.Ping(ctx).Err()
+	require.Error(t, err, "a detached policy's users are gone")
+	assert.Contains(t, err.Error(), "WRONGPASS")
+	requireKeys(t, clusterClient(t, cluster, goredis.ClusterOptions{}), "app", 30)
+}
+
+// On a cluster that authenticates with IAM, a principal whose email an ACL
+// policy rule names connects as that policy user, and any other principal
+// connects as the default user.
+func TestMemorystoreRedis_ClusterAclPolicyMapsIAMPrincipals(t *testing.T) {
+	svc := redisService(t)
+	const project = "test-project"
+	parent := "projects/" + project + "/locations/us-central1"
+	_, _, keyFile := mintServiceAccountKeyFile(t, "redis-acl-reader")
+	email := fmt.Sprint(keyFile["client_email"])
+	member := "serviceAccount:" + email
+	editProjectPolicy(t, project, func(policy *cloudresourcemanager.Policy) {
+		policy.Bindings = append(policy.Bindings, &cloudresourcemanager.Binding{Role: "roles/redis.dbConnectionUser", Members: []string{member}})
+	})
+	t.Cleanup(func() {
+		editProjectPolicy(t, project, func(policy *cloudresourcemanager.Policy) {
+			for _, binding := range policy.Bindings {
+				if binding.Role != "roles/redis.dbConnectionUser" {
+					continue
+				}
+				var kept []string
+				for _, m := range binding.Members {
+					if m != member {
+						kept = append(kept, m)
+					}
+				}
+				binding.Members = kept
+			}
+		})
+	})
+	policy, err := svc.Projects.Locations.AclPolicies.Create(parent, &redis.AclPolicy{
+		Rules: []*redis.AclRule{{Username: email, Rule: "on ~shared-* +@read +@connection +cluster +acl|whoami"}},
+	}).AclPolicyId("iam-readers").Do()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if op, err := svc.Projects.Locations.AclPolicies.Delete(policy.Name).Do(); err == nil {
+			awaitRedisLRO(t, svc, op)
+		}
+	})
+	cluster := createRedisCluster(t, svc, parent, "iam-acl", &redis.Cluster{
+		ShardCount: 1, ReplicaCount: 0, AuthorizationMode: "AUTH_MODE_IAM_AUTH", AclPolicy: policy.Name,
+	})
+
+	owner, err := simTokenSource().Token()
+	require.NoError(t, err)
+	admin := clusterClient(t, cluster, goredis.ClusterOptions{Password: owner.AccessToken})
+	writeKeys(t, admin, "shared", 10)
+
+	accountToken, err := tokenSourceFromKeyFile(t, keyFile).TokenSource.Token()
+	require.NoError(t, err)
+	reader := clusterClient(t, cluster, goredis.ClusterOptions{Password: accountToken.AccessToken})
+	requireKeys(t, reader, "shared", 10)
+	whoami, err := reader.Do(ctx, "ACL", "WHOAMI").Text()
+	require.NoError(t, err)
+	assert.Equal(t, email, whoami, "the principal connects as its policy user")
+	whoami, err = admin.Do(ctx, "ACL", "WHOAMI").Text()
+	require.NoError(t, err)
+	assert.Equal(t, "default", whoami, "a principal the policy does not name connects as the default user")
+	err = reader.Set(ctx, "shared-0", "changed", 0).Err()
+	require.Error(t, err, "the policy user reads only")
+	assert.Contains(t, err.Error(), "NOPERM")
+}

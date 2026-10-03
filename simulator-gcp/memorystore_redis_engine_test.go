@@ -280,13 +280,23 @@ func TestMSRedisPersistence(t *testing.T) {
 }
 
 func TestMSRedisExchangeCredential(t *testing.T) {
-	valid := func(token string) bool { return token == "access-token" }
+	valid := func(token string) (string, bool) {
+		switch token {
+		case "access-token":
+			return "default", true
+		case "policy-token":
+			return "app@example.iam.gserviceaccount.com", true
+		}
+		return "", false
+	}
 	for _, tc := range []struct {
 		args []string
 		want []string
 	}{
 		{[]string{"AUTH", "access-token"}, []string{"AUTH", "default", "engine"}},
 		{[]string{"auth", "someone", "access-token"}, []string{"auth", "default", "engine"}},
+		{[]string{"AUTH", "policy-token"}, []string{"AUTH", "app@example.iam.gserviceaccount.com", "engine"}},
+		{[]string{"HELLO", "3", "AUTH", "default", "policy-token"}, []string{"HELLO", "3", "AUTH", "app@example.iam.gserviceaccount.com", "engine"}},
 		{[]string{"HELLO", "3", "AUTH", "default", "access-token", "SETNAME", "app"}, []string{"HELLO", "3", "AUTH", "default", "engine", "SETNAME", "app"}},
 		{[]string{"AUTH", "forged"}, nil},
 		{[]string{"HELLO", "3", "AUTH", "default", "forged"}, nil},
@@ -296,6 +306,35 @@ func TestMSRedisExchangeCredential(t *testing.T) {
 		got, ok := msRedisExchangeCredential(tc.args, "engine", valid)
 		if ok != (tc.want != nil) || strings.Join(got, " ") != strings.Join(tc.want, " ") {
 			t.Errorf("%v became %v (%v), want %v", tc.args, got, ok, tc.want)
+		}
+	}
+}
+
+func TestMSRedisSplitAclRule(t *testing.T) {
+	args, err := msRedisSplitAclRule("on  >secret ~app:* (~log:* +get) +@read")
+	if err != nil || strings.Join(args, "|") != "on|>secret|~app:*|(~log:* +get)|+@read" {
+		t.Fatalf("split = %q, %v", args, err)
+	}
+	for _, rule := range []string{"on (~a +get", "on ~a) +get"} {
+		if _, err := msRedisSplitAclRule(rule); err == nil {
+			t.Errorf("rule %q with unbalanced selectors was split", rule)
+		}
+	}
+}
+
+func TestMSRedisValidateAclRules(t *testing.T) {
+	if err := msRedisValidateAclRules([]MSRedisAclRule{{Username: "app", Rule: "on >pw ~* +@all"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rules := range [][]MSRedisAclRule{
+		nil,
+		{{Username: "default", Rule: "on nopass"}},
+		{{Username: "app", Rule: ""}},
+		{{Username: "App", Rule: "on"}, {Username: "app", Rule: "off"}},
+		{{Username: "two words", Rule: "on"}},
+	} {
+		if err := msRedisValidateAclRules(rules); err == nil {
+			t.Errorf("rules %+v were accepted", rules)
 		}
 	}
 }

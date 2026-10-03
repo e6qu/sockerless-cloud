@@ -277,7 +277,7 @@ func (i *Instance) start() (string, *sim.ContainerHandle, error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve database engine platform: %w", err)
 	}
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		CancelGracePeriod: stopGrace,
 		Image:             i.Engine.Image,
 		Architecture:      platform,

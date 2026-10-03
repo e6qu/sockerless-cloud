@@ -45,15 +45,24 @@ func freePersistentSimPorts(t *testing.T) (int, int) {
 	return httpPort, grpcPort
 }
 
-// startPersistentSimulator launches its own simulator process with SQLite
-// persistence on stateDir, waiting for both the HTTP and gRPC listeners.
+// startPersistentSimulator launches its own API-only simulator process with
+// SQLite persistence on stateDir, waiting for both the HTTP and gRPC
+// listeners.
 func startPersistentSimulator(t *testing.T, stateDir string, httpPort, grpcPort int) *exec.Cmd {
+	t.Helper()
+	return startPersistentSimulatorOn(t, "process", stateDir, httpPort, grpcPort)
+}
+
+// startPersistentSimulatorOn launches a persistent simulator process whose
+// workloads run on runtime: "process" serves the APIs alone, "docker" runs
+// workloads on the container engine.
+func startPersistentSimulatorOn(t *testing.T, runtime, stateDir string, httpPort, grpcPort int) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command(binaryPath)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", httpPort),
 		fmt.Sprintf("SIM_GCP_GRPC_PORT=%d", grpcPort),
-		"SIM_RUNTIME=process",
+		"SIM_RUNTIME="+runtime,
 		"SIM_PERSIST=true",
 		"SIM_DATA_DIR="+stateDir,
 		"SIM_LOG_LEVEL=warn",

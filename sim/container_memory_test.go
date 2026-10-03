@@ -16,7 +16,7 @@ const memoryPeakTestImage = "public.ecr.aws/docker/library/alpine:3.22"
 func startMemoryPeakTestContainer(t *testing.T, name, script string) uint64 {
 	t.Helper()
 	InitDocker("aws", true, t.TempDir())
-	handle, err := StartContainerSync(ContainerConfig{
+	handle, err := StartContainerSyncContext(t.Context(), ContainerConfig{
 		Image:        memoryPeakTestImage,
 		Architecture: "linux/" + runtime.GOARCH,
 		Command:      []string{"sh"},
@@ -68,7 +68,7 @@ func TestContainerMemoryPeakMeasuresTheContainer(t *testing.T) {
 // cannot mistake an unmeasured container for one that used nothing.
 func TestContainerMemoryPeakIsZeroWithoutObservation(t *testing.T) {
 	InitDocker("aws", true, t.TempDir())
-	handle, err := StartContainerSync(ContainerConfig{
+	handle, err := StartContainerSyncContext(t.Context(), ContainerConfig{
 		Image:        memoryPeakTestImage,
 		Architecture: "linux/" + runtime.GOARCH,
 		Command:      []string{"sh"},

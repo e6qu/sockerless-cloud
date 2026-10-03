@@ -102,10 +102,13 @@ func TestCloudRunV1_InstancesLifecycle(t *testing.T) {
 	assert.Equal(t, "Unknown", stopped.Status.Conditions[0].Status)
 	assert.Equal(t, "Stopped", stopped.Status.Conditions[0].Reason)
 
+	// A start answers while the instance's containers start: Ready is
+	// Unknown until they have, and no reason says it is stopped.
 	started, err := svc.Namespaces.Instances.Start(parent+"/instances/"+id, &run.StartInstanceRequest{}).Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, started.Status.Conditions)
-	assert.Equal(t, "True", started.Status.Conditions[0].Status)
+	assert.Equal(t, "Unknown", started.Status.Conditions[0].Status)
+	assert.Empty(t, started.Status.Conditions[0].Reason)
 
 	status, err := svc.Namespaces.Instances.Delete(parent + "/instances/" + id).Do()
 	require.NoError(t, err)

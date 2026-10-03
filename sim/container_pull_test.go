@@ -1,9 +1,15 @@
 package sim
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/moby/moby/client"
 )
 
 func TestDrainImagePullSurfacesStreamErrors(t *testing.T) {
@@ -60,5 +66,26 @@ func TestIsTransientRegistryErr(t *testing.T) {
 		if isTransientRegistryErr(errors.New(msg)) {
 			t.Errorf("%q should NOT classify transient", msg)
 		}
+	}
+}
+
+// A start whose context has ended neither pulls nor creates: the call fails
+// with the context's error and leaves no container behind.
+func TestStartContainerSyncContextHonoursItsContext(t *testing.T) {
+	InitDocker("aws", true, t.TempDir())
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	name := fmt.Sprintf("sockerless-sim-cancelled-start-%d", time.Now().UnixNano())
+	_, err := StartContainerSyncContext(ctx, ContainerConfig{
+		Image:        "public.ecr.aws/docker/library/alpine:3.22",
+		Architecture: "linux/" + runtime.GOARCH,
+		Command:      []string{"true"},
+		Name:         name,
+	}, FuncSink(func(LogLine) {}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("start under a cancelled context: err = %v, want context.Canceled", err)
+	}
+	if _, inspectErr := DockerClient().ContainerInspect(t.Context(), name, client.ContainerInspectOptions{}); !containerNotFoundError(inspectErr) {
+		t.Fatalf("container %s exists after a cancelled start: %v", name, inspectErr)
 	}
 }

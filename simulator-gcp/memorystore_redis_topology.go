@@ -12,9 +12,8 @@ import (
 
 // Topology changes on a running engine. An instance gains or loses replicas
 // while its primary keeps serving; a cluster gains shards by meeting new
-// primaries and rebalancing slots onto them, and loses shards by draining
-// their slots onto the rest and deleting their nodes, with redis-cli's own
-// cluster manager moving the keys.
+// primaries and moving an equal share of the slots onto them, and loses
+// shards by moving their slots onto the rest and deleting their nodes.
 
 // ResizeInstance runs replicas replica nodes behind the instance's primary.
 func (p *msRedisPlane) ResizeInstance(replicas int) error {
@@ -211,13 +210,17 @@ func (p *msRedisPlane) ResizeCluster(shards, replicas int) error {
 		for _, node := range primaries {
 			kept[node] = true
 		}
-		args := []string{"--cluster-weight"}
 		for _, node := range removed {
 			delete(kept, node)
-			args = append(args, ids[node]+"=0")
+		}
+		var keep []int
+		for _, node := range primaries {
+			if kept[node] {
+				keep = append(keep, node)
+			}
 		}
 		via := byIndex[len(byIndex)-1]
-		if err := p.clusterManager(via, "rebalance", args...); err != nil {
+		if err := p.balanceSlots(keep, removed, ids); err != nil {
 			return err
 		}
 		if err := p.awaitDrained(via, removed, ids); err != nil {
@@ -264,15 +267,14 @@ func (p *msRedisPlane) ResizeCluster(shards, replicas int) error {
 		if err != nil {
 			return err
 		}
-		if err := p.clusterManager(primaries[0], "rebalance", "--cluster-use-empty-masters"); err != nil {
-			return err
-		}
 		for _, node := range added {
-			id, err := p.nodeID(node)
-			if err != nil {
+			if ids[node], err = p.nodeID(node); err != nil {
 				return err
 			}
-			want[id] = replicas
+			want[ids[node]] = replicas
+		}
+		if err := p.balanceSlots(append(append([]int(nil), primaries...), added...), nil, ids); err != nil {
+			return err
 		}
 	}
 	if err := p.addReplicas(want); err != nil {

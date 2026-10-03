@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -762,7 +763,7 @@ func batchLaunchAttempt(jobID string, number int) {
 		return
 	}
 
-	handle, err := sim.StartContainerSync(cfg, sink)
+	handle, err := sim.StartContainerSyncContext(context.Background(), cfg, sink)
 	if err != nil {
 		batchAttemptEnded(jobID, number, sim.ProcessResult{}, err)
 		return

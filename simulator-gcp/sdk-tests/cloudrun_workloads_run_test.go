@@ -9,6 +9,7 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	runv2 "google.golang.org/api/run/v2"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
@@ -206,4 +207,20 @@ func TestSDK_CloudRun_InstanceRunsItsContainers(t *testing.T) {
 	require.NoError(t, err)
 	deleted = true
 	assert.Len(t, objectsWithPrefix(t, bucket, "stopped-"), 2, "deleting the instance stopped its container")
+}
+
+// servingContainer runs an HTTP server on 8080, the default $PORT, so an
+// instance passes Cloud Run's default TCP startup probe.
+func servingContainer() *runpb.Container {
+	return &runpb.Container{Image: httpProbeImageName, Args: []string{"echo-request"}}
+}
+
+func servingContainerREST() *runv2.GoogleCloudRunV2Container {
+	return &runv2.GoogleCloudRunV2Container{Image: httpProbeImageName, Args: []string{"echo-request"}}
+}
+
+// holdingContainerREST runs until it is stopped, as a worker pool instance's
+// container does.
+func holdingContainerREST() *runv2.GoogleCloudRunV2Container {
+	return &runv2.GoogleCloudRunV2Container{Image: commandImageName, Args: []string{"hold"}}
 }
