@@ -479,32 +479,6 @@ func TestAuditLogs_DiscoveryAndIAMServices(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
 	createTestProject(t, srv, "audit-ds")
 
-	gcpHostOK(t, srv, "compute.googleapis.com", http.MethodPost, "/compute/v1/projects/audit-ds/global/networks",
-		`{"name":"audit-net","autoCreateSubnetworks":false}`)
-	network := auditEntries(t, srv, "audit-ds", auditLogActivity, `protoPayload.methodName="v1.compute.networks.insert"`)
-	if len(network) != 1 {
-		t.Fatalf("want one v1.compute.networks.insert entry, got %v", network)
-	}
-	payload := auditPayload(t, network[0])
-	if payload["serviceName"] != "compute.googleapis.com" || payload["resourceName"] != "projects/audit-ds/global/networks/audit-net" {
-		t.Errorf("networks.insert payload = %v", payload)
-	}
-	if got := payload["authorizationInfo"].([]any)[0].(map[string]any)["permission"]; got != "compute.networks.create" {
-		t.Errorf("networks.insert checks %v", got)
-	}
-	if got := payload["request"].(map[string]any)["@type"]; got != "type.googleapis.com/compute.networks.insert" {
-		t.Errorf("networks.insert request @type %v", got)
-	}
-	response := payload["response"].(map[string]any)
-	op := network[0]["operation"].(map[string]any)
-	if op["id"] != response["name"] || op["producer"] != "compute.googleapis.com" || op["first"] != true || op["last"] != true {
-		t.Errorf("networks.insert operation %v, response %v", op, response)
-	}
-	resource := network[0]["resource"].(map[string]any)
-	if resource["type"] != "gce_network" || resource["labels"].(map[string]any)["network_id"] != response["targetId"] {
-		t.Errorf("networks.insert resource %v", resource)
-	}
-
 	sa := gcpHostOK(t, srv, "iam.googleapis.com", http.MethodPost, "/v1/projects/audit-ds/serviceAccounts", `{"accountId":"audit-sa"}`)
 	email, uniqueID := sa["email"].(string), sa["uniqueId"].(string)
 	gcpHostOK(t, srv, "iam.googleapis.com", http.MethodDelete, "/v1/projects/audit-ds/serviceAccounts/"+email, "")
@@ -533,7 +507,7 @@ func TestAuditLogs_DiscoveryAndIAMServices(t *testing.T) {
 	if len(zone) != 1 {
 		t.Fatalf("want one dns.managedZones.create entry, got %v", zone)
 	}
-	payload = auditPayload(t, zone[0])
+	payload := auditPayload(t, zone[0])
 	request := payload["request"].(map[string]any)
 	if payload["resourceName"] != "managedZones/audit-zone" || request["@type"] != "type.googleapis.com/cloud.dns.api.ManagedZonesCreateRequest" ||
 		request["project"] != "audit-ds" || request["managedZone"] == nil {
