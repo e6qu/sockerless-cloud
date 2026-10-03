@@ -359,8 +359,15 @@ func registerIAM(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/serviceAccounts/{email}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		email := sim.PathParam(r, "email")
+		if project == "-" {
+			project = gcpProjectFromEmail(email)
+		}
 		name := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 
+		if _, ok := serviceAccounts.Get(name); !ok {
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
+			return
+		}
 		serviceAccounts.Delete(name)
 		iamSASystemKeys.Delete(name)
 		keyPrefix := name + "/keys/"

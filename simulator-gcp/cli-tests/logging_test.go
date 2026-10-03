@@ -113,8 +113,8 @@ func TestLogging_ReadWithFilter(t *testing.T) {
 	listURL := fmt.Sprintf("%s/v2/entries:list", baseURL)
 	out := httpDoJSON(t, "POST", listURL, fmt.Sprintf(`{
 		"resourceNames": ["projects/%s"],
-		"filter": "ERROR"
-	}`, project))
+		"filter": "logName=\"projects/%s/logs/filter-test-log\" AND ERROR"
+	}`, project, project))
 
 	var result struct {
 		Entries []struct {
