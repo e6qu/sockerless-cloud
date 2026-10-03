@@ -323,3 +323,19 @@ func TestRDSAuroraRequestsFollowTheCluster(t *testing.T) {
 		t.Fatal("the refused cluster was recorded")
 	}
 }
+
+// An Aurora MySQL endpoint keeps IAM database authentication for a password
+// shaped as a presigned rds-db:connect request and relays every other one to
+// the engine.
+func TestRDSIsIAMAuthToken(t *testing.T) {
+	for password, want := range map[string]bool{
+		"db.example:3306/?Action=connect&DBUser=app&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=abc": true,
+		"db.example:3306/?Action=connect&DBUser=app":                                                      false,
+		"Plain-Password-1": false,
+		"pass?word=1&x=2":  false,
+	} {
+		if got := rdsIsIAMAuthToken(password); got != want {
+			t.Errorf("rdsIsIAMAuthToken(%q) = %t, want %t", password, got, want)
+		}
+	}
+}

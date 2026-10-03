@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
@@ -224,27 +223,6 @@ func (plane *rdsAuroraDataPlane) applyPendingMasterPassword() error {
 		stored.BackendMasterUserSecret = append([]byte(nil), cluster.MasterUserSecret...)
 	})
 	return nil
-}
-
-func (plane *rdsAuroraDataPlane) authenticate(user, password string, secure bool) bool {
-	cluster, masterPassword, err := plane.masterPassword()
-	if err != nil {
-		return false
-	}
-	if user == cluster.MasterUsername && subtle.ConstantTimeCompare([]byte(password), []byte(masterPassword)) == 1 {
-		return true
-	}
-	return secure && cluster.EnableIAMDatabaseAuthentication &&
-		rdsValidateIAMAuthToken(rdsAuroraEndpoints(cluster), cluster.DbClusterResourceId, user, password)
-}
-
-func (plane *rdsAuroraDataPlane) backendLogin(string, string) (string, string, error) {
-	cluster, err := plane.cluster()
-	if err != nil {
-		return "", "", err
-	}
-	password, err := rdsAuroraBackendPassword(cluster)
-	return cluster.MasterUsername, password, err
 }
 
 // rdsAuroraEndpoints lists every endpoint an IAM authentication token for the

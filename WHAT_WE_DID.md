@@ -1181,6 +1181,28 @@ creates the cluster's database. The cluster lands `available`, or
 (`s3_import`) suites take a real backup of a MySQL 8.0 container and read its
 rows through the restored cluster.
 
+An Aurora cluster's endpoints own two logins: the master user's, under the
+password the control plane records, and IAM database authentication. Every
+other login reaches the engine, which checks it against its own users
+(`rds_aurora_users.go`). Aurora MySQL's relay logs in to the engine with the
+client's own user and password, so the engine's refusal reaches the client
+verbatim and a session holds only its user's privileges. Aurora PostgreSQL's
+engine trusts the relay, so the endpoint has the engine check the password: a
+`DO` block run as the master user reads the role's `pg_authid` verifier and
+compares the MD5 digest, or recomputes the SCRAM-SHA-256 StoredKey through
+PBKDF2-HMAC-SHA-256 with the builtin `sha256`, the presented user and password
+reaching it as session settings rather than spliced into the SQL. A role
+granted `rds_iam`, directly or through another role, signs in only with an IAM
+authentication token; the check walks `pg_auth_members`, since `pg_has_role`
+counts every role as granted to a superuser. On every engine start Aurora
+PostgreSQL gets the `rds_iam` role, and Aurora MySQL's master user gets the
+global privileges Aurora MySQL version 3 grants it, `CREATE USER` among them,
+while the image's remote `root` account goes. The SDK suite signs in a user the
+master user created on each engine and proves its wrong password, an unknown
+user and `root` are refused, that its session holds only its own grants, and
+that a PostgreSQL role granted `rds_iam` signs in with a token and not with its
+password; it also signs in a user the restored XtraBackup held.
+
 Every volume capture holds one crash-consistent point in time, the property a
 block-level storage snapshot gives. `sim.SnapshotVolume` lists the running
 containers that mount the source volume writable, pauses each through the

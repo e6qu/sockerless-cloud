@@ -3,6 +3,7 @@ package aws_sdk_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"os/exec"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,7 +63,9 @@ func TestRDS_AuroraClusterRestoresFromS3XtraBackup(t *testing.T) {
 	backup := takeXtraBackup(t, "sdk-xtrabackup-source",
 		"CREATE DATABASE shop",
 		"CREATE TABLE shop.orders (id INT PRIMARY KEY, item VARCHAR(32) NOT NULL)",
-		"INSERT INTO shop.orders VALUES (1, 'kettle'), (2, 'teapot')")
+		"INSERT INTO shop.orders VALUES (1, 'kettle'), (2, 'teapot')",
+		"CREATE USER 'shopper'@'%' IDENTIFIED WITH mysql_native_password BY 'Shopper-Password-1'",
+		"GRANT SELECT ON shop.* TO 'shopper'@'%'")
 
 	bucket := "sdk-aurora-s3-import"
 	s3c := s3Client()
@@ -133,4 +137,16 @@ func TestRDS_AuroraClusterRestoresFromS3XtraBackup(t *testing.T) {
 	require.NoError(t, rows.Err())
 	assert.Equal(t, []string{"kettle", "teapot"}, items, "the cluster serves the backup's data")
 	database.exec(t, `INSERT INTO shop.orders VALUES (3, 'cosy')`)
+
+	shopperConfig := mysql.Config{
+		User: "shopper", Passwd: "Shopper-Password-1", Net: "tcp", Addr: f.describe(clusterID).endpoint, DBName: "shop",
+		TLSConfig: "skip-verify", AllowCleartextPasswords: true,
+	}
+	shopper, err := sql.Open("mysql", shopperConfig.FormatDSN())
+	require.NoError(t, err)
+	defer shopper.Close()
+	var count int
+	require.NoError(t, shopper.QueryRowContext(ctx, `SELECT COUNT(*) FROM orders`).Scan(&count),
+		"a user the backup holds signs in under its own password")
+	assert.Equal(t, 3, count)
 }

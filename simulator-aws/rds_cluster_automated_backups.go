@@ -80,11 +80,14 @@ func rdsAutomatedSnapshotID(clusterID string, at time.Time) string {
 	return "rds:" + clusterID + "-" + at.UTC().Format("2006-01-02-15-04")
 }
 
-// ready reconciles the master password and takes the cluster's first
-// automated backup on the engine's first start.
+// ready reconciles the master password and the engine's accounts, and takes
+// the cluster's first automated backup on the engine's first start.
 func (plane *rdsAuroraDataPlane) ready() error {
 	if err := plane.applyPendingMasterPassword(); err != nil {
 		return err
+	}
+	if err := plane.prepareEngineAccounts(); err != nil {
+		return fmt.Errorf("prepare the Amazon Aurora engine accounts: %w", err)
 	}
 	cluster, err := plane.cluster()
 	if err != nil {
