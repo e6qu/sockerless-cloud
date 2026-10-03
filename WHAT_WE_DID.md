@@ -1167,7 +1167,14 @@ naming it. gcloud's `--depends-on` reaches the Knative surface as the
 simulator folds onto the containers' `dependsOn`. Deleting a job or an
 execution stops what it still runs, and cancelling an execution that has
 completed leaves it as it is, which is what gcloud's cancel reads as
-"completed successfully before it could be cancelled". `operations.wait` on REST and `WaitOperation` on
+"completed successfully before it could be cancelled". A job that names
+`startExecutionToken` or `runExecutionToken` (v2, or the Knative `spec` that
+`gcloud run jobs replace` sends) starts the execution `<job>-<token>` unless it
+exists, and stays reconciling, with its create or update operation running,
+until that execution has started or completed; a failed execution fails both
+the job's `Ready` condition and the operation, and the Knative condition
+carries the message gcloud prints. A job name and token of 63 characters or
+more, or both tokens at once, are refused. `operations.wait` on REST and `WaitOperation` on
 gRPC block on a signal `gcpFinishOperation` raises, bounded by the request's
 `timeout` or else by the caller's connection. Cloud Build's `CreateBuild`, its
 regional twin, `RetryBuild`, `ApproveBuild`, `RunBuildTrigger`, the trigger

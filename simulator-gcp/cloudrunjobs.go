@@ -34,6 +34,8 @@ type Job struct {
 	Conditions             []Condition         `json:"conditions,omitempty"`
 	LatestCreatedExecution *ExecutionReference `json:"latestCreatedExecution,omitempty"`
 	ExecutionCount         int32               `json:"executionCount"`
+	StartExecutionToken    string              `json:"startExecutionToken,omitempty"`
+	RunExecutionToken      string              `json:"runExecutionToken,omitempty"`
 	Etag                   string              `json:"etag,omitempty"`
 	Reconciling            bool                `json:"reconciling"`
 }
@@ -700,6 +702,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 	}
 	recoverCloudRunJobExecutions(jobs, executions, tasks)
 	recoverCloudRunJobRunOperations()
+	recoverCloudRunJobExecutionTokens()
 
 	// Create job
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/jobs", func(w http.ResponseWriter, r *http.Request) {
@@ -717,7 +720,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 			return
 		}
 
-		if !cloudRunJobTemplateValid(w, job.Template, false) {
+		if !cloudRunJobTemplateValid(w, job.Template, false) || !cloudRunJobExecutionTokenValid(w, jobID, job) {
 			return
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
@@ -735,13 +738,8 @@ func registerCloudRunJobs(srv *sim.Server) {
 		if job.LaunchStage == "" {
 			job.LaunchStage = "GA"
 		}
-		// The sim has no real reconciliation to do (no image pull, no
-		// IAM check, no infra plumbing) — so the resource settles to
-		// CONDITION_SUCCEEDED the moment it is stored. Real Cloud Run
-		// transitions through CONDITION_RECONCILING only because actual
-		// work takes time; injecting a synthetic delay just to mimic the
-		// shape would be exactly the kind of fake behaviour this audit
-		// is about removing.
+		// A job has nothing to reconcile but the execution an execution
+		// token names, so any other job is ready the moment it is stored.
 		job.TerminalCondition = &Condition{
 			Type:               "Ready",
 			State:              "CONDITION_SUCCEEDED",
@@ -765,11 +763,11 @@ func registerCloudRunJobs(srv *sim.Server) {
 		// The etag is the fingerprint of this version of the resource, so a
 		// fresh one is minted for every version the store holds.
 		job.Etag = sim.NewUUID()
+		holdCloudRunJobForExecutionToken(&job, now)
 
 		jobs.Put(name, job)
 
-		lro := cloudRunLRO(project, location, job, "type.googleapis.com/google.cloud.run.v2.Job")
-		sim.WriteJSON(w, http.StatusOK, lro)
+		sim.WriteJSON(w, http.StatusOK, cloudRunJobWriteOperation(project, location, jobID, job))
 	})
 
 	// Get job
@@ -898,7 +896,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 			return
 		}
 
-		exec := runCloudRunJob(project, location, jobID, job, request.Overrides)
+		exec := runCloudRunJob(project, location, jobID, job, request.Overrides, sim.NewUUID())
 		sim.WriteJSON(w, http.StatusOK, startCloudRunJobRunOperation(project, location, exec))
 	})
 
@@ -1011,7 +1009,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		if !cloudRunJobEtagOK(w, existing, update.Etag) {
 			return
 		}
-		if !cloudRunJobTemplateValid(w, update.Template, false) {
+		if !cloudRunJobTemplateValid(w, update.Template, false) || !cloudRunJobExecutionTokenValid(w, jobID, update) {
 			return
 		}
 		// UpdateJob has no updateMask parameter — the full mutable resource is
@@ -1045,9 +1043,9 @@ func registerCloudRunJobs(srv *sim.Server) {
 		}
 		update.Reconciling = false
 		update.Etag = sim.NewUUID()
+		holdCloudRunJobForExecutionToken(&update, update.UpdateTime)
 		jobs.Put(name, update)
-		lro := cloudRunLRO(project, location, update, "type.googleapis.com/google.cloud.run.v2.Job")
-		sim.WriteJSON(w, http.StatusOK, lro)
+		sim.WriteJSON(w, http.StatusOK, cloudRunJobWriteOperation(project, location, jobID, update))
 	})
 
 	// DeleteExecution: DELETE /v2/.../jobs/{job}/executions/{execution}
@@ -1120,10 +1118,10 @@ func registerCloudRunJobs(srv *sim.Server) {
 // The Execution and Task records it writes are the ones every reader sees:
 // the v2 collection reads them directly and the v1 Knative surface projects
 // them, so there is exactly one execution lifecycle behind both spellings.
-func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrides) Execution {
+func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrides, execID string) Execution {
 	name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
 	now := nowTimestamp()
-	execName := fmt.Sprintf("%s/executions/%s", name, sim.NewUUID())
+	execName := fmt.Sprintf("%s/executions/%s", name, execID)
 
 	var taskCount int32 = 1
 	var parallelism int32 = 1
@@ -1315,6 +1313,7 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 			if e, ok := crjExecutions.Get(execName); !ok || e.CancelledCount > 0 {
 				stopCloudRunExecutionWorkload(group)
 			}
+			settleCloudRunJobExecutionToken(execName)
 			result := group.Main.Wait()
 			crjProcessHandles.Delete(execName)
 			for _, h := range group.Sidecars {
@@ -1362,6 +1361,7 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 	// writes — tasks, job reference, log lines — is in place, so a client the
 	// operation wakes reads the settled state.
 	defer finishCloudRunJobRunOperations(execName)
+	defer settleCloudRunJobExecutionToken(execName)
 	if !completed && !cancelled {
 		return
 	}

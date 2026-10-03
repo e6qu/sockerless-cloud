@@ -240,6 +240,9 @@ Current state of the sockerless-cloud repository.
   after its dependencies passed their startup probes, and fails when a
   configured startup probe fails; deleting a job or execution stops its
   running containers, and cancelling a completed execution leaves it as it is.
+  A job's `startExecutionToken` or `runExecutionToken` starts the execution
+  `<job>-<token>` and holds the job's create or update operation and its
+  `Ready` condition until that execution has started or completed.
 - **Cloud Run worker pools and instances run their containers.** A worker
   pool runs its manual instance count of container groups through the job
   task's start path (`dependsOn` order, startup probes, Cloud Storage volumes
