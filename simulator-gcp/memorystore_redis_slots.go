@@ -160,7 +160,7 @@ func (p *msRedisPlane) migrateSlots(from, to int, slots, everyPrimary []int, ids
 	if _, err := target.Pipeline(assign); err != nil {
 		return fmt.Errorf("assign slots to node %d: %w", to, err)
 	}
-	if _, err := source.Pipeline(assign); err != nil {
+	if _, err := source.Pipeline(assign, msRedisSetslotOnReplica); err != nil {
 		return fmt.Errorf("release slots on node %d: %w", from, err)
 	}
 	for _, node := range everyPrimary {
@@ -171,7 +171,7 @@ func (p *msRedisPlane) migrateSlots(from, to int, slots, everyPrimary []int, ids
 		if err != nil {
 			return err
 		}
-		_, err = conn.Pipeline(assign)
+		_, err = conn.Pipeline(assign, msRedisSetslotOnReplica)
 		_ = conn.Close()
 		if err != nil {
 			return fmt.Errorf("announce slot owner to node %d: %w", node, err)
@@ -250,10 +250,17 @@ func msRedisSlotList(fields []string) ([]int, error) {
 	return slots, nil
 }
 
+// msRedisSetslotOnReplica is the refusal of CLUSTER SETSLOT by a node that is
+// no longer a primary. A primary that gives up its last slot becomes a replica
+// of the slot's new owner (cluster-allow-replica-migration), so telling it the
+// owner afterwards has nothing left to do; redis-cli's resharding ignores the
+// refusal for the same reason.
+const msRedisSetslotOnReplica = "ERR Please use SETSLOT only with masters"
+
 // Pipeline sends every command before reading any reply and returns the
 // replies in order. An error reply fails the call once every reply is read,
-// so the connection stays in step.
-func (c *msRedisConn) Pipeline(commands [][]string) ([]any, error) {
+// so the connection stays in step, unless it starts with one of tolerated.
+func (c *msRedisConn) Pipeline(commands [][]string, tolerated ...string) ([]any, error) {
 	var b bytes.Buffer
 	for _, args := range commands {
 		b.Write(msRedisEncodeCommand(args))
@@ -268,7 +275,7 @@ func (c *msRedisConn) Pipeline(commands [][]string) ([]any, error) {
 		var refused msRedisError
 		switch {
 		case errors.As(err, &refused):
-			if failed == nil {
+			if failed == nil && !msRedisToleratedRefusal(refused, tolerated) {
 				failed = fmt.Errorf("%s: %w", strings.Join(args, " "), err)
 			}
 		case err != nil:
@@ -278,4 +285,13 @@ func (c *msRedisConn) Pipeline(commands [][]string) ([]any, error) {
 		}
 	}
 	return replies, failed
+}
+
+func msRedisToleratedRefusal(refused msRedisError, tolerated []string) bool {
+	for _, prefix := range tolerated {
+		if strings.HasPrefix(string(refused), prefix) {
+			return true
+		}
+	}
+	return false
 }
