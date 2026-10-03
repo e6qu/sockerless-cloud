@@ -44,8 +44,8 @@ func registerLambdaAsyncInvocations(srv *sim.Server) {
 				Backoff:     delivery.Steps(time.Minute, 2*time.Minute),
 			}
 		},
-		Attempt: func(_ context.Context, item *delivery.Item[LambdaAsyncInvocation]) delivery.Outcome {
-			response, unhandled, _ := invokeLambdaViaRuntimeAPI(item.Payload.Function, item.Payload.Payload)
+		Attempt: func(ctx context.Context, item *delivery.Item[LambdaAsyncInvocation]) delivery.Outcome {
+			response, unhandled, _ := invokeLambdaViaRuntimeAPI(ctx, item.Payload.Function, item.Payload.Payload)
 			item.Payload.Response = append([]byte(nil), response...)
 			item.Payload.Unhandled = unhandled
 			if unhandled {
@@ -199,7 +199,7 @@ func lambdaDeliverAsyncDestination(destinationARN string, body []byte) {
 		}}})
 	case strings.HasPrefix(destinationARN, "arn:aws:lambda:"):
 		if target, _, ok := lambdaResolveInvocationTarget(destinationARN, ""); ok {
-			_, _, _ = invokeLambdaViaRuntimeAPI(target, body)
+			_, _, _ = invokeLambdaViaRuntimeAPI(context.Background(), target, body)
 		}
 	}
 }

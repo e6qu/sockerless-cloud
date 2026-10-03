@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -1137,7 +1138,7 @@ func handleLambdaInvoke(w http.ResponseWriter, r *http.Request) {
 			responseBody, unhandled = lambdaWaitForDurableExecution(r.Context(), durableARN)
 		} else {
 			sim.DeclareWait(r.Context(), lambdaInvokeWaitLimit(fn))
-			responseBody, unhandled, _ = invokeLambdaViaRuntimeAPI(fn, payload)
+			responseBody, unhandled, _ = invokeLambdaViaRuntimeAPI(context.Background(), fn, payload)
 		}
 		if unhandled {
 			w.Header().Set("X-Amz-Function-Error", "Unhandled")

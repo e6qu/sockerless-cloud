@@ -214,6 +214,7 @@ func TestServiceSchedulerDoesNotStopAnotherTaskForAStopInProgress(t *testing.T) 
 // though its workload had vanished.
 func TestRecoverECSTasksFinishesAStopThatWasInProgress(t *testing.T) {
 	bg.Await()
+	ecsBackgroundServer = nil
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")
 	ecsContainerInstances = sim.MakeStore[ECSContainerInstance](nil, "ecs_container_instances")

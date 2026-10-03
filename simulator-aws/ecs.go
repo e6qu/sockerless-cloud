@@ -419,7 +419,7 @@ var (
 	// and service-scheduler stop requests. Stop must not return while an
 	// in-flight startup can still attach networking or publish RUNNING after
 	// the task was stopped.
-	ecsTaskLifecycleLocks sync.Map // map[taskID]*sync.Mutex
+	ecsTaskLifecycleLocks sync.Map // map[taskID]ecsLifecycleLock
 	// ecsBackgroundServer owns the task-container-start goroutines launched by
 	// runECSTasks. Orderly shutdown drains them before SQLite is closed, so an
 	// in-flight container start cannot read a durable store after the database
@@ -483,16 +483,34 @@ func (p *ecsTaskProcesses) handleFor(containerName string) *sim.ContainerHandle 
 	return p.firstHandle()
 }
 
-func ecsTaskLifecycleLock(taskID string) *sync.Mutex {
-	lock, _ := ecsTaskLifecycleLocks.LoadOrStore(taskID, &sync.Mutex{})
-	mutex, ok := lock.(*sync.Mutex)
+// ecsLifecycleLock is a task's lifecycle mutex that a lifecycle step can stop
+// waiting for when the simulator shuts down.
+type ecsLifecycleLock chan struct{}
+
+func (l ecsLifecycleLock) Lock() { l <- struct{}{} }
+
+func (l ecsLifecycleLock) Unlock() { <-l }
+
+// LockContext takes the lock, or reports false once ctx is done first.
+func (l ecsLifecycleLock) LockContext(ctx context.Context) bool {
+	select {
+	case l <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func ecsTaskLifecycleLock(taskID string) ecsLifecycleLock {
+	lock, _ := ecsTaskLifecycleLocks.LoadOrStore(taskID, make(ecsLifecycleLock, 1))
+	mutex, ok := lock.(ecsLifecycleLock)
 	if !ok {
-		panic("Amazon ECS task lifecycle lock contained a non-mutex value")
+		panic("Amazon ECS task lifecycle lock contained a non-lock value")
 	}
 	return mutex
 }
 
-func stopECSTaskProcesses(p *ecsTaskProcesses) {
+func stopECSTaskProcesses(ctx context.Context, p *ecsTaskProcesses) {
 	if p == nil {
 		return
 	}
@@ -508,20 +526,63 @@ func stopECSTaskProcesses(p *ecsTaskProcesses) {
 		stopping.Add(1)
 		go func(containerID string, grace time.Duration) {
 			defer stopping.Done()
-			sim.StopContainer(containerID, grace)
+			ecsStopContainer(ctx, containerID, grace)
 		}(h.ContainerID, p.StopGrace[name])
 	}
 	stopping.Wait()
+	if ctx.Err() != nil {
+		return
+	}
 	if pause := p.Handles["__pause__"]; pause != nil {
-		sim.StopContainer(pause.ContainerID, 0)
+		ecsStopContainer(ctx, pause.ContainerID, 0)
 	}
 }
 
-func cleanupECSTaskProcesses(taskID string, p *ecsTaskProcesses) {
+// ecsStopContainer sends a container SIGTERM and SIGKILL once grace has
+// elapsed. A cancelled ctx stops the wait, not the stop: the engine has the
+// signal and kills the container on its own schedule.
+func ecsStopContainer(ctx context.Context, containerID string, grace time.Duration) {
+	cli := sim.DockerClient()
+	if cli == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second+grace)
+	defer cancel()
+	timeout := int(grace / time.Second)
+	_, _ = cli.ContainerStop(ctx, containerID, dockerclient.ContainerStopOptions{Timeout: &timeout})
+}
+
+// ecsAbandonTaskStart removes the containers of a start the simulator's
+// shutdown interrupted. The task stays PENDING, and the next process resumes
+// it under the same container names, so none of them may outlive this one.
+func ecsAbandonTaskStart(taskID string, p *ecsTaskProcesses) {
+	cli := sim.DockerClient()
+	if cli != nil && p != nil {
+		for _, handle := range p.Handles {
+			if handle == nil || handle.ContainerID == "" {
+				continue
+			}
+			removeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if _, err := cli.ContainerRemove(removeCtx, handle.ContainerID, dockerclient.ContainerRemoveOptions{Force: true}); err != nil {
+				fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: remove container of the interrupted start: %v\n", taskID, err)
+			}
+			cancel()
+		}
+	}
+	ec2DetachRealECSTaskNIC(context.Background(), taskID)
+}
+
+// cleanupECSTaskProcesses stops a task's containers and waits for the engine
+// to remove them. Once ctx is done it stops waiting and leaves the rest to the
+// next process's recovery of the stopping task.
+func cleanupECSTaskProcesses(ctx context.Context, taskID string, p *ecsTaskProcesses) {
 	if p == nil {
 		return
 	}
-	stopECSTaskProcesses(p)
+	stopECSTaskProcesses(ctx, p)
+	if ctx.Err() != nil {
+		return
+	}
 	handles := make([]*sim.ContainerHandle, 0, len(p.Handles))
 	for name, handle := range p.Handles {
 		if name != p.MainContainerName && name != "__pause__" {
@@ -1747,9 +1808,11 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 		// The goroutine reads durable stores (task, ELB, CloudWatch) while it
 		// provisions real containers, so it runs under the server lifecycle and
 		// is drained before SQLite closes (the BUG-2827 class).
-		start := func(id string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, launchType, containerInstanceKey string) {
+		start := func(ctx context.Context, id string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, launchType, containerInstanceKey string) {
 			lifecycleLock := ecsTaskLifecycleLock(id)
-			lifecycleLock.Lock()
+			if !lifecycleLock.LockContext(ctx) {
+				return
+			}
 			defer lifecycleLock.Unlock()
 			current, exists := ecsTasks.Get(id)
 			if !exists || current.DesiredStatus == ECSTaskStatusStopped {
@@ -1776,7 +1839,11 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			// with TaskFailedToStart and a ResourceInitializationError reason the
 			// caller can read from DescribeTasks.
 			if len(pendingRestores) > 0 {
-				if err := ecsRunPendingEBSRestores(context.Background(), id, pendingRestores); err != nil {
+				if err := ecsRunPendingEBSRestores(ctx, id, pendingRestores); err != nil {
+					if ctx.Err() != nil {
+						ecsLogInterruptedStart(id)
+						return
+					}
 					fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: managed EBS volume preparation failed: %v\n", id, err)
 					stoppedAt := ecsEpochSeconds()
 					var doomedVolumes []string
@@ -1810,7 +1877,11 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			// Start containers. This is the real work that RUNNING must wait for.
 			var processes *ecsTaskProcesses
 			if err == nil {
-				processes, err = startECSTaskContainers(id, td, taskTags, overrides, taskVolumeHosts, sink, launchType, phases)
+				processes, err = startECSTaskContainers(ctx, id, td, taskTags, overrides, taskVolumeHosts, sink, launchType, phases)
+			}
+			if errors.Is(err, errECSTaskStartInterrupted) {
+				ecsLogInterruptedStart(id)
+				return
 			}
 			if err != nil {
 				// Surface the start failure: it's otherwise only recorded in
@@ -1892,12 +1963,12 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 // server's was counted only once it ran; both let a drain return while a start
 // was about to read the control-plane stores the next test rebuilt.
 func ecsScheduleTaskStart(
-	start func(string, ECSTaskDefinition, []ECSTag, *ECSTaskOverride, map[string]string, string, string),
+	start func(context.Context, string, ECSTaskDefinition, []ECSTag, *ECSTaskOverride, map[string]string, string, string),
 	id string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride,
 	taskVolumeHosts map[string]string, launchType, containerInstanceKey string,
 ) {
-	ecsHandOffTaskLifecycle(func() {
-		start(id, td, taskTags, overrides, taskVolumeHosts, launchType, containerInstanceKey)
+	ecsHandOffTaskLifecycle(func(ctx context.Context) {
+		start(ctx, id, td, taskTags, overrides, taskVolumeHosts, launchType, containerInstanceKey)
 	}, nil)
 }
 
@@ -1905,8 +1976,15 @@ func ecsScheduleTaskStart(
 // path, the way ecsScheduleTaskStart describes, and then calls after whether
 // the step ran, was refused, or was dropped by a test drain. after must not
 // read the control-plane stores: it can run once a drain has returned.
-func ecsHandOffTaskLifecycle(work, after func()) {
-	run, ok := bg.Handoff(work)
+//
+// work receives the server's background context and must return promptly once
+// it is done, because a stopping simulator waits for every step. A step the
+// shutdown interrupts leaves the task where the next process's recovery picks
+// it up.
+func ecsHandOffTaskLifecycle(work func(context.Context), after func()) {
+	server := ecsBackgroundServer
+	var workerCtx context.Context
+	run, ok := bg.Handoff(func() { work(workerCtx) })
 	if !ok {
 		if after != nil {
 			after()
@@ -1920,11 +1998,23 @@ func ecsHandOffTaskLifecycle(work, after func()) {
 			handedOff()
 		}
 	}
-	if ecsBackgroundServer == nil {
+	if server == nil {
+		workerCtx = context.Background()
 		go run()
 		return
 	}
-	ecsBackgroundServer.StartBackground("ECS task lifecycle step", func(context.Context) { run() })
+	server.StartBackground("ECS task lifecycle step", func(ctx context.Context) {
+		workerCtx = ctx
+		run()
+	})
+}
+
+// errECSTaskStartInterrupted is a task start the simulator's shutdown cut
+// short. It is not a task failure: the task stays PENDING for the next process.
+var errECSTaskStartInterrupted = errors.New("task start interrupted by simulator shutdown")
+
+func ecsLogInterruptedStart(taskID string) {
+	fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: start interrupted by shutdown; the task stays PENDING for the next process to resume\n", taskID)
 }
 
 func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTaskProcesses) {
@@ -1942,7 +2032,7 @@ func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTa
 			if !ok {
 				panic("Amazon ECS task process registry contained a non-process value")
 			}
-			cleanupECSTaskProcesses(taskID, ownedProcesses)
+			cleanupECSTaskProcesses(context.Background(), taskID, ownedProcesses)
 			stoppedAt := ecsEpochSeconds()
 			transitioned := false
 			var doomedVolumes []string
@@ -1999,7 +2089,7 @@ func recoverECSTasksWithContainerFinder(
 			if !ok {
 				return fmt.Errorf("task %s references missing task definition %s", task.TaskArn, task.TaskDefinitionArn)
 			}
-			ecsHandOffTaskLifecycle(func() { ecsResumePendingTask(task, definition) }, nil)
+			ecsHandOffTaskLifecycle(func(ctx context.Context) { ecsResumePendingTask(ctx, task, definition) }, nil)
 		case ECSTaskStatusRunning:
 			definition, ok := ecsTaskDefinitionForARN(task.TaskDefinitionArn)
 			if !ok {
@@ -2021,7 +2111,7 @@ func ecsTaskDefinitionForARN(arn string) (ECSTaskDefinition, bool) {
 	return ecsTaskDefinitions.Get(key)
 }
 
-func ecsResumePendingTask(task ECSTask, definition ECSTaskDefinition) {
+func ecsResumePendingTask(ctx context.Context, task ECSTask, definition ECSTaskDefinition) {
 	taskID := task.TaskID()
 	ecsTasks.Update(taskID, func(current *ECSTask) {
 		current.LastStatus = ECSTaskStatusPending
@@ -2035,6 +2125,7 @@ func ecsResumePendingTask(task ECSTask, definition ECSTaskDefinition) {
 	var processes *ecsTaskProcesses
 	if err == nil {
 		processes, err = startECSTaskContainers(
+			ctx,
 			taskID,
 			definition,
 			task.Tags,
@@ -2044,6 +2135,10 @@ func ecsResumePendingTask(task ECSTask, definition ECSTaskDefinition) {
 			task.LaunchType,
 			phases,
 		)
+	}
+	if errors.Is(err, errECSTaskStartInterrupted) {
+		ecsLogInterruptedStart(taskID)
+		return
 	}
 	containerInstanceKey := ecsContainerInstanceKeyFromARN(task.ContainerInstanceArn)
 	if err != nil {
@@ -2255,17 +2350,20 @@ func ecsPauseImage() string {
 // — "conflicting options: dns and the network mode" — and rightly so: the
 // resolver is a property of the namespace, and every task container inherits
 // this one along with the interface.
-func startECSPauseContainer(taskID string, td ECSTaskDefinition, dns []string, sink sim.LogSink, mark func(step string)) (*sim.ContainerHandle, error) {
+func startECSPauseContainer(ctx context.Context, taskID string, dns []string, sink sim.LogSink, mark func(step string)) (*sim.ContainerHandle, error) {
 	img := sim.ResolveLocalImage(ecsPauseImage())
 	registryAuth, err := ecrWorkloadRegistryAuth(img)
 	if err != nil {
 		return nil, err
 	}
-	platform, err := workload.LocalImagePlatform(context.Background(), img, registryAuth)
+	platform, err := workload.LocalImagePlatform(ctx, img, registryAuth)
 	if err != nil {
 		return nil, fmt.Errorf("resolve pause image platform: %w", err)
 	}
 	mark("pause-image")
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return sim.StartContainerSync(sim.ContainerConfig{
 		Image:        img,
 		Architecture: platform,
@@ -2393,7 +2491,7 @@ func ecsEFSVolumeHost(cfg *ECSEfsVolumeConfig) (string, error) {
 	return host, nil
 }
 
-func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, sink sim.LogSink, launchType string, phases *ecsPhaseTimer) (*ecsTaskProcesses, error) {
+func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, sink sim.LogSink, launchType string, phases *ecsPhaseTimer) (*ecsTaskProcesses, error) {
 	if len(td.ContainerDefinitions) == 0 {
 		return nil, nil
 	}
@@ -2435,6 +2533,17 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 		Handles:           make(map[string]*sim.ContainerHandle, len(td.ContainerDefinitions)),
 		StopGrace:         ecsTaskStopGrace(td),
 	}
+	// fail releases what the start created. A start the shutdown interrupted
+	// is not a failed task, so its containers are removed at once rather than
+	// given their stop timeout, and the caller leaves the task PENDING.
+	fail := func(err error) (*ecsTaskProcesses, error) {
+		if ctx.Err() != nil {
+			ecsAbandonTaskStart(taskID, processes)
+			return nil, fmt.Errorf("%w: %w", errECSTaskStartInterrupted, err)
+		}
+		cleanupECSTaskProcesses(context.Background(), taskID, processes)
+		return nil, err
+	}
 	// The task definition's networkMode decides the fabric every container in
 	// the task lands on: awsvpc gets the task its own elastic network interface
 	// in the VPC, host shares the container instance's network stack, none has
@@ -2472,26 +2581,23 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 	// so the next slow start is attributable from the simulator's log.
 	phases.Mark("volumes")
 	if netnsTier {
-		pause, perr := startECSPauseContainer(taskID, td, taskDNS, sink, phases.Mark)
+		pause, perr := startECSPauseContainer(ctx, taskID, taskDNS, sink, phases.Mark)
 		if perr != nil {
-			return nil, perr
+			return fail(perr)
 		}
 		processes.Handles["__pause__"] = pause
 		phases.Mark("pause-start")
 		if derr := sim.DisconnectContainerNetworks(pause.ContainerID); derr != nil {
-			cleanupECSTaskProcesses(taskID, processes)
-			return nil, fmt.Errorf("disconnect task netns pause from Docker networks: %w", derr)
+			return fail(fmt.Errorf("disconnect task netns pause from Docker networks: %w", derr))
 		}
 		pid, perr := sim.ContainerPID(pause.ContainerID)
 		if perr != nil {
-			cleanupECSTaskProcesses(taskID, processes)
-			return nil, fmt.Errorf("task netns pause pid: %w", perr)
+			return fail(fmt.Errorf("task netns pause pid: %w", perr))
 		}
 		phases.Mark("pause-netns")
-		if aerr := ec2AttachRealECSTaskNIC(context.Background(), taskID, subnetID, pid, eniIP,
+		if aerr := ec2AttachRealECSTaskNIC(ctx, taskID, subnetID, pid, eniIP,
 			ecsTaskSecurityGroupIDs(taskID), phases.Mark); aerr != nil {
-			cleanupECSTaskProcesses(taskID, processes)
-			return nil, fmt.Errorf("attach task to VPC netns: %w", aerr)
+			return fail(fmt.Errorf("attach task to VPC netns: %w", aerr))
 		}
 	}
 	if sharedNetMode == "" && netnsTier {
@@ -2501,8 +2607,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 	}
 	metadataEnv, err := hostMetadataEnv(taskID)
 	if err != nil {
-		cleanupECSTaskProcesses(taskID, processes)
-		return nil, fmt.Errorf("resolve Amazon ECS metadata callback: %w", err)
+		return fail(fmt.Errorf("resolve Amazon ECS metadata callback: %w", err))
 	}
 	if netnsTier {
 		metadataEnv = hostMetadataLinkLocalEnv(taskID)
@@ -2526,18 +2631,15 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 		localImage := ecrWorkloadImage(cd.Image)
 		registryAuth, err := ecrWorkloadRegistryAuth(localImage)
 		if err != nil {
-			cleanupECSTaskProcesses(taskID, processes)
-			return nil, fmt.Errorf("task container %q: %w", cd.Name, err)
+			return fail(fmt.Errorf("task container %q: %w", cd.Name, err))
 		}
-		platform, err := workload.LocalImagePlatform(context.Background(), localImage, registryAuth)
+		platform, err := workload.LocalImagePlatform(ctx, localImage, registryAuth)
 		if err != nil {
-			cleanupECSTaskProcesses(taskID, processes)
-			return nil, fmt.Errorf("resolve task container %q image platform: %w", cd.Name, err)
+			return fail(fmt.Errorf("resolve task container %q image platform: %w", cd.Name, err))
 		}
-		digest, err := localImageDigest(context.Background(), cd.Image, localImage)
+		digest, err := localImageDigest(ctx, cd.Image, localImage)
 		if err != nil {
-			cleanupECSTaskProcesses(taskID, processes)
-			return nil, fmt.Errorf("resolve task container %q image digest: %w", cd.Name, err)
+			return fail(fmt.Errorf("resolve task container %q image digest: %w", cd.Name, err))
 		}
 		images[cd.Name] = ecsResolvedImage{Image: localImage, Platform: platform, Digest: digest, RegistryAuth: registryAuth}
 	}
@@ -2574,8 +2676,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 		if netnsTier {
 			simulatorPort, portErr := workloadhost.ListenPort(simListenAddr)
 			if portErr != nil {
-				cleanupECSTaskProcesses(taskID, processes)
-				return nil, fmt.Errorf("resolve simulator endpoint for task VPC: %w", portErr)
+				return fail(fmt.Errorf("resolve simulator endpoint for task VPC: %w", portErr))
 			}
 			cmdEnv = rewriteSimulatorEndpointForRealVPC(cmdEnv, simulatorPort)
 		}
@@ -2660,8 +2761,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
 			netName, eniAddress, nerr := ecsTaskVPCNetwork(taskID)
 			if nerr != nil {
-				cleanupECSTaskProcesses(taskID, processes)
-				return nil, nerr
+				return fail(nerr)
 			}
 			cfg.Network = netName
 			cfg.ENIAddress = eniAddress
@@ -2671,10 +2771,12 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
 		}
 
+		if err := ctx.Err(); err != nil {
+			return fail(err)
+		}
 		handle, err := sim.StartContainerSync(cfg, sink)
 		if err != nil {
-			cleanupECSTaskProcesses(taskID, processes)
-			return nil, fmt.Errorf("start task container %q: %w", cd.Name, err)
+			return fail(fmt.Errorf("start task container %q: %w", cd.Name, err))
 		}
 		if i == 0 {
 			mainDockerID = handle.ContainerID
@@ -3066,16 +3168,21 @@ func stopECSTask(taskID, reason, code string) (ECSTask, bool) {
 	// The service scheduler stops counting the task and takes it out of its
 	// load balancers and service registries now, while its containers stop.
 	ecsRequestServiceReconcileForTask(task)
-	ecsHandOffTaskLifecycle(func() { ecsFinishTaskStop(taskID) }, finished)
+	ecsHandOffTaskLifecycle(func(ctx context.Context) { ecsFinishTaskStop(ctx, taskID) }, finished)
 	return task, true
 }
 
 // ecsFinishTaskStop stops a stopping task's containers and records it STOPPED.
 // It holds the task's lifecycle lock, so a start still in progress finishes
 // first and its containers are then stopped rather than left running.
-func ecsFinishTaskStop(taskID string) {
+//
+// A shutdown that interrupts the step leaves the task stopping: the next
+// process's recovery finishes the stop.
+func ecsFinishTaskStop(ctx context.Context, taskID string) {
 	lifecycleLock := ecsTaskLifecycleLock(taskID)
-	lifecycleLock.Lock()
+	if !lifecycleLock.LockContext(ctx) {
+		return
+	}
 	defer lifecycleLock.Unlock()
 
 	existing, ok := ecsTasks.Get(taskID)
@@ -3084,8 +3191,12 @@ func ecsFinishTaskStop(taskID string) {
 	}
 	if v, ok := ecsProcessHandles.LoadAndDelete(taskID); ok {
 		if procs, ok := v.(*ecsTaskProcesses); ok {
-			cleanupECSTaskProcesses(taskID, procs)
+			cleanupECSTaskProcesses(ctx, taskID, procs)
 		}
+	}
+	if ctx.Err() != nil {
+		fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: stop interrupted by shutdown; the next process finishes it\n", taskID)
+		return
 	}
 
 	now := ecsEpochSeconds()

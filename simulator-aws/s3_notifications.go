@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -189,7 +190,7 @@ func s3InvokeLambda(functionARN string, payload []byte) {
 	if !ok {
 		return
 	}
-	go func() { _, _, _ = invokeLambdaViaRuntimeAPI(fn, payload) }()
+	go func() { _, _, _ = invokeLambdaViaRuntimeAPI(context.Background(), fn, payload) }()
 }
 
 type s3DestinationRejection struct {

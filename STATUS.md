@@ -108,7 +108,9 @@ Current state of the sockerless-cloud repository.
   without it, the detached reaper and the startup sweep collect a run's
   containers, scoped to the state directory so a concurrent suite is never
   touched. A simulator exits when the process in `SOCKERLESS_PARENT_PID` is
-  gone.
+  gone. A stopping simulator does not wait out a container's stop timeout or a
+  function's timeout: interrupted Amazon ECS and AWS Lambda work resumes in the
+  next process.
 - **Every credential is verified**: SigV4 against the principal's stored
   secret, from the header and from a presigned URL alike; Google Cloud and
   Microsoft Entra bearers against the simulator's signing keys; the Azure

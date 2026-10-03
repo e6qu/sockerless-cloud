@@ -134,7 +134,7 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 		lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: failed to serialize Amazon SQS event")
 		return
 	}
-	response, unhandled, _ := invokeLambdaViaRuntimeAPI(function, payload)
+	response, unhandled, _ := invokeLambdaViaRuntimeAPI(ctx, function, payload)
 	if ctx.Err() != nil {
 		return
 	}

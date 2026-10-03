@@ -311,6 +311,19 @@ through hooks:
   database and took the simulator down thirteen times in thirteen minutes. A
   busy or locked database ends the sweep, which resumes next pass; a corrupt
   row still panics; `StartBackground` contains a panic in any worker.
+- **A stopping simulator lets go of work in flight.** A deployed simulator
+  waited out systemd's 90-second stop timeout because its Amazon ECS lifecycle
+  steps, AWS Lambda event source mapping batches and asynchronous invocation
+  attempts ignored the context `StartBackground` hands them. Each now returns
+  once that context is done and leaves its work where the next process picks
+  it up: an Amazon ECS stop stays stopping and recovery finishes it, an
+  interrupted start leaves the task PENDING with its partial containers removed
+  so the resumed start can reuse their names, an asynchronous invocation's
+  attempt is rolled back and retried, and an event source mapping's messages
+  become visible again after their visibility timeout. The task lifecycle lock
+  is a channel so a step can stop waiting for it. A persistent simulator stopped
+  with a task inside a two-minute `stopTimeout` and a function inside a
+  15-minute timeout proves the stop takes under a second.
 - **A test drives the production write path.** The stopped-task sweep deleted
   by ARN while RunTask stores tasks by ID, and its test stored tasks by ARN and
   passed; retention tests now store through the key RunTask uses. A listing
