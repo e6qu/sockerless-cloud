@@ -100,6 +100,7 @@ func msRedisClusterSpec(cluster MSRedisCluster) (msRedisPlaneSpec, error) {
 		Persistence: msRedisPersistenceOfCluster(cluster.PersistenceConfig),
 		IAMAuth:     cluster.AuthorizationMode == "AUTH_MODE_IAM_AUTH",
 		TokenAuth:   cluster.AuthorizationMode == "AUTH_MODE_TOKEN_AUTH",
+		AclPolicy:   cluster.AclPolicy,
 	}
 	if msRedisClusterTLS(cluster) {
 		spec.CA = msRedisClusterCA(cluster)

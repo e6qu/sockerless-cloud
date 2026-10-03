@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -99,7 +100,10 @@ func handleMSRedisUpgrade(w http.ResponseWriter, r *http.Request, id string) {
 
 // handleMSRedisFailover promotes a replica to primary. The primary endpoint
 // follows the new primary, and the old one becomes its replica. A Basic Tier
-// instance has no replica to promote, so the service refuses the failover.
+// instance has no replica to promote, so the service refuses the failover. A
+// failover in LIMITED_DATA_LOSS mode, the default, promotes the replica only
+// while its replication offset trails the primary's by less than
+// msRedisLimitedDataLossBytes.
 func handleMSRedisFailover(w http.ResponseWriter, r *http.Request, id string) {
 	project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
 	key := msRedisInstanceName(project, location, id)
@@ -109,17 +113,25 @@ func handleMSRedisFailover(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	var req struct {
-		DataProtectionMode string `json:"dataProtectionMode"`
+		DataProtectionMode json.RawMessage `json:"dataProtectionMode"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
-	switch req.DataProtectionMode {
+	// The Go REST client sends the enum's number, and other clients its name.
+	mode, err := fsDecodeEnum(req.DataProtectionMode, map[int]string{
+		0: "DATA_PROTECTION_MODE_UNSPECIFIED", 1: "LIMITED_DATA_LOSS", 2: "FORCE_DATA_LOSS",
+	})
+	if err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid dataProtectionMode: %v", err)
+		return
+	}
+	switch mode {
 	case "", "DATA_PROTECTION_MODE_UNSPECIFIED", "LIMITED_DATA_LOSS", "FORCE_DATA_LOSS":
 	default:
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
-			"dataProtectionMode %q is not one of LIMITED_DATA_LOSS or FORCE_DATA_LOSS", req.DataProtectionMode)
+			"dataProtectionMode %q is not one of LIMITED_DATA_LOSS or FORCE_DATA_LOSS", mode)
 		return
 	}
 	if inst.Tier != "STANDARD_HA" {
@@ -127,7 +139,6 @@ func handleMSRedisFailover(w http.ResponseWriter, r *http.Request, id string) {
 			"Failover is only supported for Standard Tier instances; instance %q is in the %s tier", id, inst.Tier)
 		return
 	}
-	var err error
 	if plane, running := msRedisLoadPlane(key); running {
 		msRedisSetState(key, "FAILING_OVER")
 		plane.opMu.Lock()
@@ -138,14 +149,74 @@ func handleMSRedisFailover(w http.ResponseWriter, r *http.Request, id string) {
 				break
 			}
 		}
-		if err = plane.Failover(next); err == nil {
-			msRedisSaveRecord(key)
+		if mode != "FORCE_DATA_LOSS" {
+			err = plane.checkReplicationGap(next)
+		}
+		if err == nil {
+			if err = plane.Failover(next); err == nil {
+				msRedisSaveRecord(key)
+			}
 		}
 		plane.opMu.Unlock()
 	}
 	inst = msRedisSetState(key, "READY")
 	op := redisInstanceLRO(r, project, location, key, msRedisInstanceView(inst), msRedisInstanceType)
 	sim.WriteJSON(w, http.StatusOK, msRedisSettle(op, err))
+}
+
+// msRedisLimitedDataLossBytes is the replication offset gap Memorystore for
+// Redis tolerates in a LIMITED_DATA_LOSS failover: 30 MB.
+const msRedisLimitedDataLossBytes = 30 << 20
+
+// checkReplicationGap fails unless replica has acknowledged the primary's
+// replication stream to within msRedisLimitedDataLossBytes. The primary's own
+// account of the offset each replica acknowledged is what it compares, so a
+// replica that has stopped acknowledging counts as trailing by everything
+// written since.
+func (p *msRedisPlane) checkReplicationGap(replica int) error {
+	if err := p.Ensure(); err != nil {
+		return err
+	}
+	ip, err := p.nodeIP(replica)
+	if err != nil {
+		return err
+	}
+	reply, err := p.command(p.Primary(), "INFO", "replication")
+	if err != nil {
+		return err
+	}
+	text, _ := reply.(string)
+	info := msRedisParseInfo(text)
+	primaryOffset, err := strconv.ParseInt(info["master_repl_offset"], 10, 64)
+	if err != nil {
+		return fmt.Errorf("the primary reports no replication offset: %w", err)
+	}
+	for name, value := range info {
+		if !strings.HasPrefix(name, "slave") {
+			continue
+		}
+		fields := map[string]string{}
+		for _, field := range strings.Split(value, ",") {
+			if k, v, ok := strings.Cut(field, "="); ok {
+				fields[k] = v
+			}
+		}
+		if fields["ip"] != ip {
+			continue
+		}
+		replicaOffset, err := strconv.ParseInt(fields["offset"], 10, 64)
+		if err != nil {
+			return fmt.Errorf("the primary reports no replication offset for the replica: %w", err)
+		}
+		if gap := primaryOffset - replicaOffset; gap >= msRedisLimitedDataLossBytes {
+			return msRedisOperationFailure(rpcFailedPrecondition,
+				"the replica trails the primary by %d bytes of replication, more than the %d LIMITED_DATA_LOSS allows; retry once it catches up, or fail over with FORCE_DATA_LOSS",
+				gap, msRedisLimitedDataLossBytes)
+		}
+		return nil
+	}
+	return msRedisOperationFailure(rpcFailedPrecondition,
+		"the replica is not replicating from the primary, so a LIMITED_DATA_LOSS failover cannot bound the data it loses")
 }
 
 // msRedisParseObjectURI splits gs://bucket/object.

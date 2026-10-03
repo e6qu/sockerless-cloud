@@ -301,8 +301,10 @@ Current state of the sockerless-cloud repository.
 - **Memorystore for Redis** instances and Memorystore for Redis Cluster
   clusters run a real Redis engine, one container per node, at the endpoints
   the API reports; replica-count and shard-count updates reshape the running
-  engine, TLS comes from the server CA the API reports, IAM and token auth are
-  enforced, persistence runs as configured, and exports, imports, backups and
+  engine, TLS comes from the server CA the API reports, IAM and token auth and
+  a cluster's ACL policy are enforced by the engine, a `LIMITED_DATA_LOSS`
+  failover refuses a replica more than 30 MB behind, persistence runs as
+  configured, and exports, imports, backups and
   cluster import sources move the engine's own RDB snapshots through Cloud
   Storage.
 

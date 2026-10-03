@@ -109,7 +109,8 @@ func TestMemorystoreRedisCLI_InstanceTLSPersistenceAndFailover(t *testing.T) {
 	require.Equal(t, 2, inst.ReplicaCount)
 	assert.Contains(t, redisCommand(t, conn, "INFO", "replication"), "connected_slaves:2")
 
-	runCLI(t, gcloudCLI("redis", "instances", "failover", name, "--region", location, "--quiet", "--format=json"))
+	runCLI(t, gcloudCLI("redis", "instances", "failover", name, "--region", location,
+		"--data-protection-mode", "limited-data-loss", "--quiet", "--format=json"))
 	promoted, err := tls.Dial("tcp", net.JoinHostPort(inst.Host, strconv.Itoa(inst.Port)), &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12})
 	require.NoError(t, err)
 	t.Cleanup(func() { promoted.Close() })
@@ -175,4 +176,65 @@ func TestMemorystoreRedisCLI_ClusterReshard(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { resharded.Close() })
 	assert.Contains(t, redisCommand(t, resharded, "CLUSTER", "INFO"), "cluster_size:2", "both shards serve slots")
+}
+
+// A cluster created with an ACL policy runs the policy's users on its engine,
+// and an update of the policy's rules reaches the running cluster.
+func TestMemorystoreRedisCLI_ClusterAclPolicy(t *testing.T) {
+	policy := "cli-acl"
+	policyName := "projects/" + project + "/locations/" + location + "/aclPolicies/" + policy
+	runCLI(t, gcloudCLI("redis", "acl-policies", "create", policy, "--region", location,
+		`--rules=[{"username":"app","rule":"on >cli-secret ~app-* +@all"}]`, "--quiet", "--format=json"))
+	t.Cleanup(func() {
+		_ = gcloudCLI("redis", "acl-policies", "delete", policy, "--region", location, "--quiet", "--format=json").Run()
+	})
+	name := "cli-redis-acl"
+	runCLI(t, gcloudCLI("redis", "clusters", "create", name,
+		"--region", location,
+		"--network", "projects/test-project/global/networks/default",
+		"--shard-count", "1",
+		"--replica-count", "0",
+		"--acl-policy", policyName,
+		"--quiet",
+		"--format=json",
+	))
+	t.Cleanup(func() {
+		_ = gcloudCLI("redis", "clusters", "delete", name, "--region", location, "--quiet", "--format=json").Run()
+	})
+	var cluster struct {
+		AclPolicy     string `json:"aclPolicy"`
+		AclPolicyInfo struct {
+			AppliedAclPolicyRevisionNumber string `json:"appliedAclPolicyRevisionNumber"`
+		} `json:"aclPolicyInfo"`
+		DiscoveryEndpoints []struct {
+			Address string `json:"address"`
+			Port    int    `json:"port"`
+		} `json:"discoveryEndpoints"`
+	}
+	parseJSON(t, runCLI(t, gcloudCLI("redis", "clusters", "describe", name, "--region", location, "--format=json")), &cluster)
+	assert.Equal(t, policyName, cluster.AclPolicy)
+	assert.Equal(t, "1", cluster.AclPolicyInfo.AppliedAclPolicyRevisionNumber)
+	require.Len(t, cluster.DiscoveryEndpoints, 1)
+	discovery := net.JoinHostPort(cluster.DiscoveryEndpoints[0].Address, strconv.Itoa(cluster.DiscoveryEndpoints[0].Port))
+	conn, err := net.Dial("tcp", discovery)
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	assert.Equal(t, "+OK", redisCommand(t, conn, "AUTH", "app", "cli-secret"))
+	assert.Equal(t, "+OK", redisCommand(t, conn, "SET", "app-1", "one"))
+	assert.Contains(t, redisCommand(t, conn, "SET", "other", "one"), "NOPERM")
+
+	out, err := gcloudCLI("redis", "acl-policies", "delete", policy, "--region", location, "--quiet", "--format=json").CombinedOutput()
+	require.Error(t, err, "an attached policy cannot be deleted: %s", out)
+	assert.Contains(t, string(out), "FAILED_PRECONDITION")
+
+	runCLI(t, gcloudCLI("redis", "acl-policies", "update", policy, "--region", location,
+		`--rules=[{"username":"app","rule":"on >cli-secret ~app-* +@read +@connection"}]`, "--quiet", "--format=json"))
+	parseJSON(t, runCLI(t, gcloudCLI("redis", "clusters", "describe", name, "--region", location, "--format=json")), &cluster)
+	assert.Equal(t, "2", cluster.AclPolicyInfo.AppliedAclPolicyRevisionNumber)
+	revised, err := net.Dial("tcp", discovery)
+	require.NoError(t, err)
+	t.Cleanup(func() { revised.Close() })
+	assert.Equal(t, "+OK", redisCommand(t, revised, "AUTH", "app", "cli-secret"))
+	assert.Equal(t, "one", redisCommand(t, revised, "GET", "app-1"))
+	assert.Contains(t, redisCommand(t, revised, "SET", "app-1", "two"), "NOPERM", "the revised rule grants reads only")
 }

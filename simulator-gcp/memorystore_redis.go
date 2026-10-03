@@ -106,6 +106,7 @@ type MSRedisCluster struct {
 	Labels                    map[string]string                `json:"labels,omitempty"`
 	BackupCollection          string                           `json:"backupCollection,omitempty"`
 	AclPolicy                 string                           `json:"aclPolicy,omitempty"`
+	AclPolicyInfo             *MSRedisAclPolicyInfo            `json:"aclPolicyInfo,omitempty"`
 	ServerCaMode              string                           `json:"serverCaMode,omitempty"`
 	PscConfigs                []map[string]any                 `json:"pscConfigs,omitempty"`
 	PersistenceConfig         *MSRedisClusterPersistenceConfig `json:"persistenceConfig,omitempty"`
@@ -175,13 +176,38 @@ type MSRedisBackupFile struct {
 
 // MSRedisAclPolicy mirrors google.cloud.redis.cluster.v1.AclPolicy.
 type MSRedisAclPolicy struct {
-	Name       string           `json:"name"`
-	Rules      []MSRedisAclRule `json:"rules,omitempty"`
-	State      string           `json:"state,omitempty"`
-	Version    string           `json:"version,omitempty"`
-	Etag       string           `json:"etag,omitempty"`
-	CreateTime string           `json:"createTime,omitempty"`
-	UpdateTime string           `json:"updateTime,omitempty"`
+	Name                        string                              `json:"name"`
+	Rules                       []MSRedisAclRule                    `json:"rules,omitempty"`
+	State                       string                              `json:"state,omitempty"`
+	Version                     string                              `json:"version,omitempty"`
+	Etag                        string                              `json:"etag,omitempty"`
+	CreateTime                  string                              `json:"createTime,omitempty"`
+	UpdateTime                  string                              `json:"updateTime,omitempty"`
+	ClusterAclPolicyAttachments []MSRedisClusterAclPolicyAttachment `json:"clusterAclPolicyAttachments,omitempty"`
+}
+
+// MSRedisAclPolicyInfo mirrors google.cloud.redis.cluster.v1.AclPolicyInfo.
+type MSRedisAclPolicyInfo struct {
+	AppliedAclPolicy               string                           `json:"appliedAclPolicy,omitempty"`
+	AppliedAclPolicyRevision       string                           `json:"appliedAclPolicyRevision,omitempty"`
+	AppliedAclPolicyRevisionNumber string                           `json:"appliedAclPolicyRevisionNumber,omitempty"`
+	AclPolicyRevisionStatuses      []MSRedisAclPolicyRevisionStatus `json:"aclPolicyRevisionStatuses,omitempty"`
+}
+
+// MSRedisAclPolicyRevisionStatus mirrors
+// google.cloud.redis.cluster.v1.AclPolicyRevisionStatus.
+type MSRedisAclPolicyRevisionStatus struct {
+	AclPolicyRevision       string `json:"aclPolicyRevision,omitempty"`
+	AclPolicyRevisionNumber string `json:"aclPolicyRevisionNumber,omitempty"`
+	State                   string `json:"state,omitempty"`
+	ErrorMessage            string `json:"errorMessage,omitempty"`
+}
+
+// MSRedisClusterAclPolicyAttachment mirrors
+// google.cloud.redis.cluster.v1.ClusterAclPolicyAttachment.
+type MSRedisClusterAclPolicyAttachment struct {
+	Cluster                   string                           `json:"cluster,omitempty"`
+	AclPolicyRevisionStatuses []MSRedisAclPolicyRevisionStatus `json:"aclPolicyRevisionStatuses,omitempty"`
 }
 
 type MSRedisAclPolicyRevision struct {
@@ -373,6 +399,14 @@ func handleMSRedisClusterCreate(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return
 	}
+	var aclPolicy MSRedisAclPolicy
+	if cluster.AclPolicy != "" {
+		var found bool
+		if aclPolicy, found = msRedisAclPolicies.Get(cluster.AclPolicy); !found {
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy not found: %s", cluster.AclPolicy)
+			return
+		}
+	}
 	if _, exists := msRedisClusters.Get(name); exists {
 		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "cluster %s already exists", name)
 		return
@@ -424,6 +458,9 @@ func handleMSRedisClusterCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		record = plane.record(record)
+	}
+	if cluster.AclPolicy != "" {
+		cluster.AclPolicyInfo = msRedisAclPolicyOutcome(nil, aclPolicy, nil)
 	}
 	msRedisPlaneRecords.Put(name, record)
 	msRedisClusters.Put(name, cluster)
@@ -515,6 +552,19 @@ func handleMSRedisClusterPatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	aclPolicyName := current.AclPolicy
+	if wants("aclPolicy") {
+		aclPolicyName = req.AclPolicy
+	}
+	var aclPolicy MSRedisAclPolicy
+	if aclPolicyName != "" {
+		var found bool
+		if aclPolicy, found = msRedisAclPolicies.Get(aclPolicyName); !found {
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy not found: %s", aclPolicyName)
+			return
+		}
+	}
+	reattach := aclPolicyName != current.AclPolicy
 	reshape := shards != current.ShardCount || replicas != current.ReplicaCount
 	if reshape {
 		msRedisClusters.Update(name, func(c *MSRedisCluster) { c.State = "UPDATING" })
@@ -530,6 +580,9 @@ func handleMSRedisClusterPatch(w http.ResponseWriter, r *http.Request) {
 		}
 		if err == nil && wants("persistenceConfig") {
 			err = plane.SetPersistence(persistence)
+		}
+		if err == nil && reattach {
+			err = plane.SetAclPolicy(aclPolicyName)
 		}
 		plane.opMu.Unlock()
 	}
@@ -552,6 +605,12 @@ func handleMSRedisClusterPatch(w http.ResponseWriter, r *http.Request) {
 		}
 		if wants("nodeType") && req.NodeType != "" {
 			c.NodeType = req.NodeType
+		}
+		if reattach {
+			c.AclPolicy, c.AclPolicyInfo = aclPolicyName, nil
+			if aclPolicyName != "" {
+				c.AclPolicyInfo = msRedisAclPolicyOutcome(nil, aclPolicy, nil)
+			}
 		}
 		msRedisClusterSize(c)
 	})
@@ -1059,7 +1118,15 @@ func handleMSRedisAclPolicyCreate(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
+	if err := msRedisValidateAclRules(req.Rules); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		return
+	}
 	name := fmt.Sprintf("projects/%s/locations/%s/aclPolicies/%s", project, location, id)
+	if _, exists := msRedisAclPolicies.Get(name); exists {
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "aclPolicy %s already exists", name)
+		return
+	}
 	policy := MSRedisAclPolicy{
 		Name:  name,
 		Rules: req.Rules,
@@ -1074,7 +1141,7 @@ func handleMSRedisAclPolicyCreate(w http.ResponseWriter, r *http.Request) {
 	msRedisAclPolicies.Put(name, policy)
 	msRedisPutAclRevision(policy, "1")
 	// aclPolicies.create returns the AclPolicy resource directly (not an LRO).
-	sim.WriteJSON(w, http.StatusOK, policy)
+	sim.WriteJSON(w, http.StatusOK, msRedisAclPolicyView(policy))
 }
 
 func handleMSRedisAclPolicyGet(w http.ResponseWriter, r *http.Request) {
@@ -1085,7 +1152,7 @@ func handleMSRedisAclPolicyGet(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy not found: %s", name)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, p)
+	sim.WriteJSON(w, http.StatusOK, msRedisAclPolicyView(p))
 }
 
 func handleMSRedisAclPolicyList(w http.ResponseWriter, r *http.Request) {
@@ -1093,7 +1160,7 @@ func handleMSRedisAclPolicyList(w http.ResponseWriter, r *http.Request) {
 	out := []MSRedisAclPolicy{}
 	for _, p := range msRedisAclPolicies.List() {
 		if strings.HasPrefix(p.Name, prefix) {
-			out = append(out, p)
+			out = append(out, msRedisAclPolicyView(p))
 		}
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"aclPolicies": out})
@@ -1113,6 +1180,12 @@ func handleMSRedisAclPolicyPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wants := msRedisUpdateMask(r)
+	if wants("rules") {
+		if err := msRedisValidateAclRules(req.Rules); err != nil {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+			return
+		}
+	}
 	msRedisAclPolicies.Update(name, func(p *MSRedisAclPolicy) {
 		if wants("rules") {
 			p.Rules = req.Rules
@@ -1128,7 +1201,8 @@ func handleMSRedisAclPolicyPatch(w http.ResponseWriter, r *http.Request) {
 	updated.Version = revision
 	msRedisAclPolicies.Put(name, updated)
 	msRedisPutAclRevision(updated, revision)
-	op := redisClusterLRO(r, project, location, name, updated, "type.googleapis.com/google.cloud.redis.cluster.v1.AclPolicy")
+	msRedisApplyAclPolicyRevision(updated)
+	op := redisClusterLRO(r, project, location, name, msRedisAclPolicyView(updated), "type.googleapis.com/google.cloud.redis.cluster.v1.AclPolicy")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1136,6 +1210,13 @@ func handleMSRedisAclPolicyDelete(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	location := sim.PathParam(r, "location")
 	name := fmt.Sprintf("projects/%s/locations/%s/aclPolicies/%s", project, location, sim.PathParam(r, "id"))
+	for _, cluster := range msRedisClusters.List() {
+		if cluster.AclPolicy == name {
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+				"aclPolicy %s is attached to cluster %s; detach it before deleting the policy", name, cluster.Name)
+			return
+		}
+	}
 	if !msRedisAclPolicies.Delete(name) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy not found: %s", name)
 		return
@@ -1152,6 +1233,7 @@ func handleMSRedisAclPolicyDelete(w http.ResponseWriter, r *http.Request) {
 func msRedisPutAclRevision(policy MSRedisAclPolicy, revisionNumber string) {
 	snapshot := policy
 	snapshot.Rules = append([]MSRedisAclRule(nil), policy.Rules...)
+	snapshot.ClusterAclPolicyAttachments = nil
 	name := policy.Name + "/revisions/" + revisionNumber
 	msRedisAclRevisions.Put(name, MSRedisAclPolicyRevision{
 		Name:           name,
@@ -1181,7 +1263,7 @@ func handleMSRedisAclPolicyRevisionList(w http.ResponseWriter, r *http.Request) 
 	var revisions []MSRedisAclPolicyRevision
 	for _, revision := range msRedisAclRevisions.List() {
 		if strings.HasPrefix(revision.Name, policyName+"/revisions/") {
-			revisions = append(revisions, revision)
+			revisions = append(revisions, msRedisAclRevisionView(revision))
 		}
 	}
 	sort.Slice(revisions, func(i, j int) bool {
@@ -1209,7 +1291,7 @@ func handleMSRedisAclPolicyRevisionGet(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy revision not found: %s", name)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, revision)
+	sim.WriteJSON(w, http.StatusOK, msRedisAclRevisionView(revision))
 }
 
 func handleMSRedisAction(w http.ResponseWriter, r *http.Request) {

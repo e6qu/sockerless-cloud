@@ -155,6 +155,9 @@ type msRedisPlaneSpec struct {
 	IAMAuth bool
 	// TokenAuth runs the cluster's token-auth users as engine users.
 	TokenAuth bool
+	// AclPolicy names the ACL policy whose rules define the cluster's other
+	// engine users.
+	AclPolicy string
 }
 
 type msRedisNode struct {
@@ -185,6 +188,10 @@ type msRedisPlane struct {
 	tlsConfig   *tls.Config
 	iamAuth     bool
 	tokenAuth   bool
+	aclPolicy   string
+	// policyUsers are the engine users the applied ACL policy defines, keyed
+	// by lowercased username, which an IAM principal of that email becomes.
+	policyUsers map[string]string
 	snapshots   *time.Timer
 	closed      bool
 
@@ -275,6 +282,7 @@ func msRedisNewPlane(name string, spec msRedisPlaneSpec, record msRedisPlaneReco
 		listeners:   map[string]net.Listener{},
 		iamAuth:     spec.IAMAuth,
 		tokenAuth:   spec.TokenAuth,
+		aclPolicy:   spec.AclPolicy,
 	}
 	plane.password = record.AuthString
 	if spec.Cluster {

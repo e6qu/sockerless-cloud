@@ -861,7 +861,13 @@ redirections to addresses it can reach. AUTH is the engine's `requirepass`,
 whose value `getAuthString` returns, and an `authEnabled` update changes it
 live; a failover promotes a replica and moves the primary endpoint to it, and a
 Basic Tier failover is refused with FAILED_PRECONDITION, since there is no
-replica to promote. A `replicaCount` update starts or stops replica containers
+replica to promote. A failover in `LIMITED_DATA_LOSS` mode, the default, first
+reads the primary's `INFO replication` and fails the operation with
+FAILED_PRECONDITION when the replica's acknowledged offset trails
+`master_repl_offset` by 30 MB or more, or the replica is not replicating;
+`FORCE_DATA_LOSS` promotes it regardless. The Go REST client sends
+`dataProtectionMode` as the enum's number, which the simulator accepts beside
+its name. A `replicaCount` update starts or stops replica containers
 while the primary serves, and a `readReplicasMode` update binds or closes the
 read endpoint. A cluster `shardCount` update meets new primaries and moves
 an equal share of the slots onto them, or moves the removed shards' slots onto
@@ -890,7 +896,21 @@ the simulator issued to a principal holding `redis.clusters.connect` (granted by
 password unchanged, so the engine refuses it and replies keep their order. A
 cluster with `AUTH_MODE_TOKEN_AUTH` runs each token-auth user as an engine ACL
 user whose passwords are its active auth tokens, rewritten on every node when a
-user or token is added or deleted. A cluster with deletion protection refuses
+user or token is added or deleted. A cluster's `aclPolicy` runs each of the
+policy's rules as `ACL SETUSER <username> reset <rule>` on every node, a
+selector in parentheses being one argument, and removes every other engine
+user but `default`; it applies at create, when an update attaches, swaps or
+detaches the policy, when an `aclPolicies.patch` revises the rules of an
+attached policy, and on nodes a reshape adds. The cluster reports the
+revision it runs in `aclPolicyInfo`, the policy its clusters in
+`clusterAclPolicyAttachments`, and a revision the clusters running it in
+`attachedClusters`; a policy refuses deletion while a cluster runs it, and a
+rule for the `default` user, a duplicate username, or an unbalanced selector
+is refused with INVALID_ARGUMENT. On a cluster that authenticates with IAM, a
+principal whose email is a rule's username connects as that policy user: the
+relay authenticates it as the user with the engine credential, which the
+simulator adds to the user's passwords ahead of the rule, and any other
+principal connects as `default`. A cluster with deletion protection refuses
 its delete.
 
 `persistenceConfig` is honoured: RDB snapshots are BGSAVEs the control plane
