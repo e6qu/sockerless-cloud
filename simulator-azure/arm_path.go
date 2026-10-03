@@ -53,5 +53,11 @@ func azureNormalizeRequestPath(r *http.Request) {
 			lower = strings.ToLower(path)
 		}
 	}
+	// A site's host and function key listings register lowercase, as the
+	// Azure CLI sends them; terraform-provider-azurerm sends `listKeys`. The
+	// other `listKeys` actions register mixed case, so only a site's fold.
+	if strings.Contains(lower, "/providers/microsoft.web/sites/") && strings.HasSuffix(lower, "/listkeys") {
+		path = path[:len(path)-len("/listkeys")] + "/listkeys"
+	}
 	r.URL.Path = path
 }
