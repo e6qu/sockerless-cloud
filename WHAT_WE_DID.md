@@ -111,7 +111,13 @@ through hooks:
   follows a target's redirect and grades a probe by the cloud's own matcher.
 - `dbengine` with `pgwire` and `mysqlwire`: the managed relational database
   data plane Amazon RDS, Cloud SQL and Azure Database for PostgreSQL each
-  carried, including the fixes one copy had and the others lacked.
+  carried, including the fixes one copy had and the others lacked. The MySQL
+  relay logs into the engine the way a client does: it answers an auth switch
+  to `mysql_native_password`, `caching_sha2_password` or `sha256_password`,
+  and, since its link to the engine has no TLS, completes a full
+  authentication by requesting the engine's RSA public key and sending the
+  password under RSA-OAEP, so a user the engine has not cached signs in and a
+  refused login reaches the client as the engine's own 1045.
 
 ## Fidelity rules that came from bugs
 
