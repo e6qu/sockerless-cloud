@@ -99,10 +99,11 @@ func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 		_ = awsCLI("rds", "delete-db-instance",
 			"--db-instance-identifier", instPIT, "--skip-final-snapshot").Run()
 	})
+	runCLI(t, awsCLI("rds", "wait", "db-instance-available",
+		"--db-instance-identifier", instPIT))
 
-	instS3 := "cli-rext-instance-s3"
-	runCLI(t, awsCLI("rds", "restore-db-instance-from-s3",
-		"--db-instance-identifier", instS3,
+	refusedInstance := runCLIExpectError(t, awsCLI("rds", "restore-db-instance-from-s3",
+		"--db-instance-identifier", "cli-rext-instance-s3",
 		"--db-instance-class", "db.t3.micro",
 		"--engine", "mysql",
 		"--master-username", "admin",
@@ -112,10 +113,7 @@ func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 		"--source-engine-version", "8.0",
 		"--s3-bucket-name", "my-backup-bucket",
 		"--s3-ingestion-role-arn", "arn:aws:iam::123456789012:role/rds-s3"))
-	t.Cleanup(func() {
-		_ = awsCLI("rds", "delete-db-instance",
-			"--db-instance-identifier", instS3, "--skip-final-snapshot").Run()
-	})
+	assert.Contains(t, refusedInstance, "InvalidS3BucketFault")
 
 	offerOut := runCLI(t, awsCLI("rds", "describe-reserved-db-instances-offerings"))
 	var offerings struct {

@@ -49,6 +49,31 @@ resource "aws_rds_cluster" "imported" {
   }
 }
 
+resource "aws_db_instance" "imported" {
+  identifier          = "tf-rds-s3-import"
+  engine              = "mysql"
+  instance_class      = "db.t3.micro"
+  allocated_storage   = 20
+  username            = "dbadmin"
+  password            = "MasterPassword-123!"
+  db_name             = "application"
+  skip_final_snapshot = true
+
+  s3_import {
+    source_engine         = "mysql"
+    source_engine_version = "8.0.40"
+    bucket_name           = var.bucket
+    bucket_prefix         = "backups"
+    ingestion_role        = var.ingestion_role
+  }
+}
+
+output "imported_instance_address" {
+  value = aws_db_instance.imported.address
+}
+output "imported_instance_port" {
+  value = tostring(aws_db_instance.imported.port)
+}
 output "imported_arn" {
   value = aws_rds_cluster.imported.arn
 }

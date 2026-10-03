@@ -29,6 +29,7 @@ var rdsServerCertificate = dbengine.SelfSignedCertificate("Amazon RDS simulator"
 // instance record its authentication and engine start read.
 type rdsDataPlane struct {
 	engine   *dbengine.Instance
+	backups  *rdsAutomatedBackups
 	mu       sync.RWMutex
 	instance RDSInstance
 }
@@ -71,6 +72,11 @@ func rdsRecoverDataPlanes() error {
 				}
 				rdsInstances.Put(instance.DBInstanceIdentifier, instance)
 			}
+			continue
+		}
+		if instance.DBInstanceStatus == "creating" && (instance.RestoreSourceVolume != "" || instance.ImportS3Bucket != "") {
+			id := instance.DBInstanceIdentifier
+			bg.Go(func() { rdsFinishInstanceRestore(id) })
 			continue
 		}
 		stopping := instance.DBInstanceStatus == "stopping"
@@ -136,7 +142,7 @@ func rdsSealMasterPassword(password string) ([]byte, error) {
 }
 
 func rdsInstallDataPlane(instance *RDSInstance, masterPassword string) error {
-	engine, ok := rdsEngine(instance.Engine)
+	engine, ok := rdsLoggingEngine(instance.Engine)
 	if !ok {
 		return nil
 	}
@@ -174,13 +180,19 @@ func rdsInstallDataPlane(instance *RDSInstance, masterPassword string) error {
 		Sandbox:      SandboxFargate,
 		Platform:     dbengine.FixedPlatform("linux/amd64"),
 		Environment:  plane.environment,
-		Ready:        plane.applyPendingMasterPassword,
+		Ready:        plane.ready,
 		Certificate:  rdsServerCertificate,
 		Authenticate: plane.authenticate,
 		BackendLogin: plane.backendLogin,
 		Log:          newRDSEngineLogSink(instance.DbiResourceId),
 	}
+	plane.backups = &rdsAutomatedBackups{
+		owner:  rdsInstanceBackups{instanceID: instance.DBInstanceIdentifier},
+		engine: plane.engine,
+		volume: rdsInstanceVolume(instance.DBInstanceIdentifier),
+	}
 	rdsDataPlanes.Store(instance.DBInstanceIdentifier, plane)
+	plane.backups.schedule()
 	plane.engine.Serve(listener)
 	return nil
 }
@@ -244,6 +256,15 @@ func rdsEngineEnvironment(engine dbengine.Engine, user, password, database strin
 	default:
 		return dbengine.PostgresEnvironment(user, password, database)
 	}
+}
+
+// ready reconciles the master password and takes the instance's first
+// automated backup on the engine's first start.
+func (plane *rdsDataPlane) ready() error {
+	if err := plane.applyPendingMasterPassword(); err != nil {
+		return err
+	}
+	return plane.backups.takeFirst()
 }
 
 // applyPendingMasterPassword installs the master-user password the control
@@ -433,6 +454,7 @@ func rdsStopDataPlane(instanceID string, deleteVolume bool) error {
 	var stopErr error
 	if value, ok := rdsDataPlanes.LoadAndDelete(instanceID); ok {
 		if plane, ok := value.(*rdsDataPlane); ok {
+			plane.backups.stop()
 			if err := plane.engine.Close(); err != nil {
 				stopErr = fmt.Errorf("stop database engine: %w", err)
 				log.Printf("Amazon RDS %s: %v", instanceID, stopErr)
@@ -486,6 +508,9 @@ func rdsFinishInstanceDeletion(id, resourceID string) {
 	// The instance goes either way; rdsStopDataPlane logs a failed stop.
 	_ = rdsStopDataPlane(id, true)
 	rdsDeleteEngineLogs(resourceID)
+	if instance, ok := rdsInstances.Get(id); ok && !rdsIsAurora(instance.Engine) {
+		rdsRemoveInstanceAutomatedBackups(instance)
+	}
 	if rdsDeletingInstance(id, resourceID) {
 		rdsInstances.Delete(id)
 	}
@@ -501,6 +526,13 @@ func rdsRecoverInstanceSnapshots() {
 			continue
 		}
 		id := snapshot.DBSnapshotIdentifier
+		if snapshot.SnapshotType == "automated" {
+			// The next backup window takes the instance's next automated
+			// backup; a capture cut short holds none.
+			rdsSnapshots.Delete(id)
+			sim.RemoveVolumeSettled(rdsSnapshotVolume(id), "rds")
+			continue
+		}
 		if snapshot.SourceDBSnapshotIdentifier != "" {
 			source, ok := findRDSSnapshotByARN(snapshot.SourceDBSnapshotIdentifier)
 			if !ok {

@@ -35,12 +35,7 @@ type rdsAuroraDataPlane struct {
 	replicaAddress string
 	writer         net.Listener
 	reader         net.Listener
-
-	// captureMu serialises taking and expiring automated backups.
-	captureMu      sync.Mutex
-	backupMu       sync.Mutex
-	backupTimer    *time.Timer
-	backupsStopped bool
+	backups        *rdsAutomatedBackups
 }
 
 var (
@@ -64,7 +59,7 @@ func rdsInstallAuroraDataPlane(cluster *RDSCluster, masterPassword string) error
 	if !rdsIsAurora(cluster.Engine) {
 		return nil
 	}
-	engine := rdsAuroraEngine(cluster.Engine)
+	engine, _ := rdsLoggingEngine(cluster.Engine)
 	if len(cluster.MasterUserSecret) == 0 {
 		if masterPassword == "" {
 			return fmt.Errorf("MasterUserPassword is required for the %s data plane", cluster.Engine)
@@ -128,8 +123,9 @@ func rdsInstallAuroraDataPlane(cluster *RDSCluster, masterPassword string) error
 		Authenticate: plane.authenticate,
 		BackendLogin: plane.backendLogin,
 	}
+	plane.backups = &rdsAutomatedBackups{owner: rdsClusterBackups{clusterID: id}, engine: plane.engine, volume: rdsClusterVolume(id)}
 	rdsAuroraDataPlanes.Store(id, plane)
-	plane.scheduleAutomatedBackups()
+	plane.backups.schedule()
 	plane.engine.Serve(engineListener)
 	plane.engine.ServeReadOnly(replicaListener)
 	rdsServeRelay(writer, plane.writerTarget)
@@ -349,7 +345,7 @@ func rdsStopAuroraDataPlane(clusterID string, deleteVolume bool) error {
 	var stopErr error
 	if value, ok := rdsAuroraDataPlanes.LoadAndDelete(clusterID); ok {
 		if plane, ok := value.(*rdsAuroraDataPlane); ok {
-			plane.stopAutomatedBackups()
+			plane.backups.stop()
 			_ = plane.writer.Close()
 			_ = plane.reader.Close()
 			if err := plane.engine.Close(); err != nil {

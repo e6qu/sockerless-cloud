@@ -56,7 +56,25 @@ type RDSInstance struct {
 	EnableIAMDatabaseAuthentication bool
 	DeletionProtection              bool
 	// DBClusterIdentifier names the DB cluster the instance is a member of.
-	DBClusterIdentifier string
+	DBClusterIdentifier   string
+	BackupRetentionPeriod int
+	PreferredBackupWindow string
+	// BaseBackups are the captures, oldest first, a restore to a time starts
+	// from.
+	BaseBackups []RDSBaseBackup `json:",omitempty"`
+	// While a restore seeds the creating instance's volume: the volume it
+	// seeds from and, for a restore to a time, the source volume whose log it
+	// replays, the time, and the binary log position the replay starts at.
+	RestoreSourceVolume string `json:",omitempty"`
+	RestoreLogVolume    string `json:",omitempty"`
+	RestoreToTime       string `json:",omitempty"`
+	RestoreBinlogFile   string `json:",omitempty"`
+	RestoreBinlogOffset int    `json:",omitempty"`
+	// The Amazon S3 backup a RestoreDBInstanceFromS3 imports while the
+	// instance is creating.
+	ImportS3Bucket string `json:",omitempty"`
+	ImportS3Prefix string `json:",omitempty"`
+	ImportS3Role   string `json:",omitempty"`
 }
 
 // RDSSnapshot models the canonical RDS DB snapshot state machine:
@@ -155,7 +173,7 @@ type RDSCluster struct {
 	RestoreBinlogOffset int    `json:",omitempty"`
 	// BaseBackups are the captures, oldest first, a restore to a time starts
 	// from.
-	BaseBackups []RDSClusterBaseBackup `json:",omitempty"`
+	BaseBackups []RDSBaseBackup `json:",omitempty"`
 	// ImportS3Bucket, ImportS3Prefix and ImportS3Role name the Percona
 	// XtraBackup a creating RestoreDBClusterFromS3 cluster imports.
 	ImportS3Bucket string `json:",omitempty"`
@@ -464,6 +482,7 @@ func renderRDSInstance(i RDSInstance) string {
 	fmt.Fprintf(&b, "<Endpoint><Address>%s</Address><Port>%d</Port></Endpoint>", xmlEscape(i.Endpoint), i.Port)
 	fmt.Fprintf(&b, "<IAMDatabaseAuthenticationEnabled>%t</IAMDatabaseAuthenticationEnabled>", i.EnableIAMDatabaseAuthentication)
 	fmt.Fprintf(&b, "<DeletionProtection>%t</DeletionProtection>", i.DeletionProtection)
+	b.WriteString(renderRDSInstanceBackups(i))
 	if i.ReadReplicaSource != "" {
 		fmt.Fprintf(&b, "<ReadReplicaSourceDBInstanceIdentifier>%s</ReadReplicaSourceDBInstanceIdentifier>", xmlEscape(i.ReadReplicaSource))
 	}
@@ -546,7 +565,14 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		rdsXMLResponse(w, "CreateDBInstance", renderRDSInstance(inst), sim.RequestID(r.Context()))
 		return
 	}
+	retention, window, problem := rdsInstanceBackupSettings(r, 1, rdsDefaultBackupWindow)
+	if problem != "" {
+		rdsErrorXML(w, "InvalidParameterValue", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	inst := RDSInstance{
+		BackupRetentionPeriod:           retention,
+		PreferredBackupWindow:           window,
 		DBInstanceIdentifier:            id,
 		DbiResourceId:                   rdsResourceID(),
 		DBInstanceClass:                 r.FormValue("DBInstanceClass"),
@@ -625,6 +651,15 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 	if value := r.FormValue("DeletionProtection"); value != "" {
 		instance.DeletionProtection = strings.EqualFold(value, "true")
 	}
+	backupsChanged := r.FormValue("BackupRetentionPeriod") != "" || r.FormValue("PreferredBackupWindow") != ""
+	if backupsChanged {
+		retention, window, problem := rdsInstanceBackupSettings(r, instance.BackupRetentionPeriod, instance.PreferredBackupWindow)
+		if problem != "" {
+			rdsErrorXML(w, "InvalidParameterValue", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+		instance.BackupRetentionPeriod, instance.PreferredBackupWindow = retention, window
+	}
 	var newPassword *string
 	if value := r.FormValue("MasterUserPassword"); value != "" {
 		newPassword = &value
@@ -633,7 +668,20 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 		return
 	}
-	rdsInstances.Put(id, instance)
+	rdsInstances.Update(id, func(stored *RDSInstance) {
+		bases := stored.BaseBackups
+		*stored = instance
+		stored.BaseBackups = bases
+	})
+	if plane, ok := rdsLoadDataPlane(id); ok && backupsChanged {
+		plane.backups.schedule()
+		bg.Go(func() {
+			if err := plane.backups.expire(time.Now()); err != nil {
+				log.Printf("Amazon RDS %s: expire automated backups: %v", id, err)
+			}
+		})
+	}
+	instance, _ = rdsInstances.Get(id)
 	rdsXMLResponse(w, "ModifyDBInstance", renderRDSInstance(instance), sim.RequestID(r.Context()))
 }
 
@@ -670,6 +718,12 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	if finalSnapID != "" && inst.DBInstanceStatus == "creating" {
+		rdsErrorXML(w, "InvalidDBInstanceState",
+			fmt.Sprintf("Instance %s is currently creating - a final snapshot cannot be taken.", id),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	if finalSnapID != "" {
 		if _, exists := rdsSnapshots.Get(finalSnapID); exists {
 			rdsErrorXML(w, "DBSnapshotAlreadyExists",
@@ -694,10 +748,18 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 			MasterUserSecret:     append([]byte(nil), inst.MasterUserSecret...),
 		})
 	}
-	inst.DBInstanceStatus = "deleting"
-	rdsInstances.Put(id, inst)
+	seeding := false
+	rdsInstances.Update(id, func(stored *RDSInstance) {
+		seeding = stored.DBInstanceStatus == "creating" && (stored.RestoreSourceVolume != "" || stored.ImportS3Bucket != "")
+		stored.DBInstanceStatus = "deleting"
+		inst = *stored
+	})
 	resourceID := inst.DbiResourceId
-	if finalSnapID != "" {
+	switch {
+	case seeding:
+		// rdsFinishInstanceRestore tears the instance down once its seed lets
+		// go of the volume.
+	case finalSnapID != "":
 		// The final snapshot captures the instance's volume before the data
 		// plane and the volume go away, and the deleting instance holds its
 		// identifier until then.
@@ -706,7 +768,7 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 			rdsCaptureSnapshotData(snapID, id)
 			rdsFinishInstanceDeletion(id, resourceID)
 		})
-	} else {
+	default:
 		rdsFinishInstanceDeletion(id, resourceID)
 	}
 	rdsXMLResponse(w, "DeleteDBInstance", renderRDSInstance(inst), sim.RequestID(r.Context()))
@@ -1123,6 +1185,8 @@ func handleRDSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 func handleRDSDescribeSnapshots(w http.ResponseWriter, r *http.Request) {
 	filterID := r.FormValue("DBSnapshotIdentifier")
 	filterInst := r.FormValue("DBInstanceIdentifier")
+	filterType := r.FormValue("SnapshotType")
+	filterResource := r.FormValue("DbiResourceId")
 	matched := false
 	var b strings.Builder
 	b.WriteString("<DBSnapshots>")
@@ -1131,6 +1195,12 @@ func handleRDSDescribeSnapshots(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if filterInst != "" && s.DBInstanceIdentifier != filterInst {
+			continue
+		}
+		if filterType != "" && s.SnapshotType != filterType {
+			continue
+		}
+		if filterResource != "" && s.DbiResourceId != filterResource {
 			continue
 		}
 		matched = true
@@ -1179,6 +1249,10 @@ func handleRDSDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if snap.SnapshotType == "automated" {
+		rdsErrorXML(w, "InvalidDBSnapshotState", "Only manual snapshots may be deleted.", http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	rdsSnapshots.Delete(snap.DBSnapshotIdentifier)
 	// The captured data goes with the record: keeping the volume would leak
 	// storage the API says no longer exists. On the modeled tier no volume
@@ -1225,20 +1299,27 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	retention, window, problem := rdsInstanceBackupSettings(r, 1, rdsDefaultBackupWindow)
+	if problem != "" {
+		rdsErrorXML(w, "InvalidParameterValue", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	inst := RDSInstance{
-		DBInstanceIdentifier: newInstID,
-		DbiResourceId:        rdsResourceID(),
-		DBInstanceClass:      r.FormValue("DBInstanceClass"),
-		Engine:               snap.Engine,
-		EngineVersion:        snap.EngineVersion,
-		DBInstanceStatus:     "available",
-		MasterUsername:       snap.MasterUsername,
-		DBName:               snap.DBName,
-		AllocatedStorage:     snap.AllocatedStorage,
-		AvailabilityZone:     awsRegion() + "a",
-		InstanceCreateTime:   time.Now().UTC().Format(time.RFC3339),
-		ARN:                  rdsInstanceARN(newInstID),
-		Tags:                 parseAWSQueryTagMap(r, "Tags.Tag"),
+		BackupRetentionPeriod: retention,
+		PreferredBackupWindow: window,
+		DBInstanceIdentifier:  newInstID,
+		DbiResourceId:         rdsResourceID(),
+		DBInstanceClass:       r.FormValue("DBInstanceClass"),
+		Engine:                snap.Engine,
+		EngineVersion:         snap.EngineVersion,
+		DBInstanceStatus:      "available",
+		MasterUsername:        snap.MasterUsername,
+		DBName:                snap.DBName,
+		AllocatedStorage:      snap.AllocatedStorage,
+		AvailabilityZone:      awsRegion() + "a",
+		InstanceCreateTime:    time.Now().UTC().Format(time.RFC3339),
+		ARN:                   rdsInstanceARN(newInstID),
+		Tags:                  parseAWSQueryTagMap(r, "Tags.Tag"),
 		// The engine starts with the credentials the captured data was
 		// written under, exactly as a restored RDS instance does.
 		MasterUserSecret: append([]byte(nil), snap.MasterUserSecret...),
@@ -1537,9 +1618,9 @@ func handleRDSModifyCluster(w http.ResponseWriter, r *http.Request) {
 		stored.BaseBackups = bases
 	})
 	if plane, ok := rdsLoadAuroraDataPlane(id); ok && backupsChanged {
-		plane.scheduleAutomatedBackups()
+		plane.backups.schedule()
 		bg.Go(func() {
-			if err := plane.expireAutomatedBackups(time.Now()); err != nil {
+			if err := plane.backups.expire(time.Now()); err != nil {
 				log.Printf("Amazon Aurora %s: expire automated backups: %v", id, err)
 			}
 		})
@@ -1554,8 +1635,10 @@ func rdsClusterBackupWindow(r *http.Request) string {
 	if window := r.FormValue("PreferredBackupWindow"); window != "" {
 		return window
 	}
-	return "07:00-09:00"
+	return rdsDefaultBackupWindow
 }
+
+const rdsDefaultBackupWindow = "07:00-09:00"
 
 // rdsValidMasterPassword applies the constraints the RDS API reference states
 // for MasterUserPassword: 8 to 41 printable ASCII characters other than '/',
@@ -1933,22 +2016,23 @@ func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 		az = v
 	}
 	replica := RDSInstance{
-		DBInstanceIdentifier: id,
-		DbiResourceId:        rdsResourceID(),
-		DBInstanceClass:      class,
-		Engine:               src.Engine,
-		EngineVersion:        src.EngineVersion,
-		DBInstanceStatus:     "available",
-		MasterUsername:       src.MasterUsername,
-		DBName:               src.DBName,
-		AllocatedStorage:     src.AllocatedStorage,
-		Endpoint:             fmt.Sprintf("%s.%s.rds.amazonaws.com", id, awsRegion()),
-		Port:                 src.Port,
-		AvailabilityZone:     az,
-		InstanceCreateTime:   time.Now().UTC().Format(time.RFC3339),
-		ARN:                  rdsInstanceARN(id),
-		ReadReplicaSource:    src.DBInstanceIdentifier,
-		Tags:                 parseAWSQueryTagMap(r, "Tags.Tag"),
+		PreferredBackupWindow: rdsDefaultBackupWindow,
+		DBInstanceIdentifier:  id,
+		DbiResourceId:         rdsResourceID(),
+		DBInstanceClass:       class,
+		Engine:                src.Engine,
+		EngineVersion:         src.EngineVersion,
+		DBInstanceStatus:      "available",
+		MasterUsername:        src.MasterUsername,
+		DBName:                src.DBName,
+		AllocatedStorage:      src.AllocatedStorage,
+		Endpoint:              fmt.Sprintf("%s.%s.rds.amazonaws.com", id, awsRegion()),
+		Port:                  src.Port,
+		AvailabilityZone:      az,
+		InstanceCreateTime:    time.Now().UTC().Format(time.RFC3339),
+		ARN:                   rdsInstanceARN(id),
+		ReadReplicaSource:     src.DBInstanceIdentifier,
+		Tags:                  parseAWSQueryTagMap(r, "Tags.Tag"),
 	}
 	rdsInstances.Put(id, replica)
 	// Link the replica back onto the source.

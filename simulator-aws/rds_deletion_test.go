@@ -80,7 +80,7 @@ func TestRDSDeleteDBInstanceHoldsTheIdentifierUntilItsTeardown(t *testing.T) {
 	}
 	engine := &dbengine.Instance{Name: "Amazon RDS " + id, Engine: dbengine.Postgres16}
 	engine.Serve(listener)
-	rdsDataPlanes.Store(id, &rdsDataPlane{engine: engine})
+	rdsDataPlanes.Store(id, &rdsDataPlane{engine: engine, backups: &rdsAutomatedBackups{owner: rdsInstanceBackups{instanceID: id}, engine: engine, volume: rdsInstanceVolume(id)}})
 	rdsInstances.Put(id, RDSInstance{DBInstanceIdentifier: id, DbiResourceId: "db-HELD", Engine: "postgres", DBInstanceStatus: "available"})
 	t.Cleanup(func() { rdsDataPlanes.Delete(id) })
 
@@ -136,7 +136,7 @@ func TestRDSTeardownSparesAnotherGenerationOfTheIdentifier(t *testing.T) {
 	}
 	engine := &dbengine.Instance{Name: "Amazon RDS " + id, Engine: dbengine.Postgres16}
 	engine.Serve(listener)
-	rdsDataPlanes.Store(id, &rdsDataPlane{engine: engine})
+	rdsDataPlanes.Store(id, &rdsDataPlane{engine: engine, backups: &rdsAutomatedBackups{owner: rdsInstanceBackups{instanceID: id}, engine: engine, volume: rdsInstanceVolume(id)}})
 	t.Cleanup(func() { _ = rdsStopDataPlane(id, false) })
 
 	for _, status := range []string{"available", "deleting"} {

@@ -14,8 +14,8 @@ import (
 // TestRDS_RestoreFamily exercises the cluster/instance restore
 // operations: a stored cluster snapshot restores into a new cluster, a
 // point-in-time restore clones an existing cluster, an S3 restore
-// creates a fresh cluster, and the instance point-in-time / S3 restores
-// create new instances.
+// creates a fresh cluster, an instance point-in-time restore creates a new
+// instance, and both S3 restores refuse a bucket that does not exist.
 func TestRDS_RestoreFamily(t *testing.T) {
 	c := rdsClient()
 
@@ -122,11 +122,14 @@ func TestRDS_RestoreFamily(t *testing.T) {
 		_, _ = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
 			DBInstanceIdentifier: aws.String(instPIT), SkipFinalSnapshot: aws.Bool(true)})
 	})
+	require.NoError(t, rds.NewDBInstanceAvailableWaiter(c, func(o *rds.DBInstanceAvailableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(instPIT)}, 3*time.Minute))
 
-	// RestoreDBInstanceFromS3
-	instS3 := "rext-instance-from-s3"
-	isOut, err := c.RestoreDBInstanceFromS3(ctx, &rds.RestoreDBInstanceFromS3Input{
-		DBInstanceIdentifier: aws.String(instS3),
+	// RestoreDBInstanceFromS3 reads the backup from the bucket it names.
+	_, err = c.RestoreDBInstanceFromS3(ctx, &rds.RestoreDBInstanceFromS3Input{
+		DBInstanceIdentifier: aws.String("rext-instance-from-s3"),
 		DBInstanceClass:      aws.String("db.t3.micro"),
 		Engine:               aws.String("mysql"),
 		MasterUsername:       aws.String("admin"),
@@ -137,13 +140,7 @@ func TestRDS_RestoreFamily(t *testing.T) {
 		S3BucketName:         aws.String("my-backup-bucket"),
 		S3IngestionRoleArn:   aws.String("arn:aws:iam::123456789012:role/rds-s3"),
 	})
-	require.NoError(t, err)
-	require.NotNil(t, isOut.DBInstance)
-	assert.Equal(t, instS3, aws.ToString(isOut.DBInstance.DBInstanceIdentifier))
-	t.Cleanup(func() {
-		_, _ = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
-			DBInstanceIdentifier: aws.String(instS3), SkipFinalSnapshot: aws.Bool(true)})
-	})
+	assertAWSAPIErrorCode(t, err, "InvalidS3BucketFault")
 }
 
 // TestRDS_ReservedInstances covers the reserved-instance catalog and

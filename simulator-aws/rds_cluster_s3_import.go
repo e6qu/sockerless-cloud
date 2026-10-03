@@ -201,8 +201,16 @@ func rdsS3BackupKeys(bucket, prefix string) []string {
 // lands it available, or migration-failed when the import fails. An import a
 // previous process left part-way starts again on an empty volume.
 func rdsFinishS3Import(clusterID, resourceID, bucket, prefix, role string) {
-	sim.RemoveVolumeSettled(rdsClusterVolume(clusterID), "rds")
-	err := rdsImportXtraBackup(clusterID, bucket, prefix, role)
+	volume := rdsClusterVolume(clusterID)
+	sim.RemoveVolumeSettled(volume, "rds")
+	err := fmt.Errorf("the cluster no longer exists")
+	if cluster, ok := rdsClusters.Get(clusterID); ok {
+		engine, _ := rdsLoggingEngine(cluster.Engine)
+		err = rdsImportXtraBackup(rdsImportTarget{
+			engine: engine, volume: volume, label: clusterID, masterUsername: cluster.MasterUsername,
+			masterUserSecret: cluster.MasterUserSecret, database: rdsAuroraDatabaseName(cluster),
+		}, bucket, prefix, role)
+	}
 	status := "available"
 	if err != nil {
 		log.Printf("Amazon Aurora %s: restore from s3://%s/%s: %v", clusterID, bucket, prefix, err)
@@ -216,11 +224,18 @@ func rdsFinishS3Import(clusterID, resourceID, bucket, prefix, role string) {
 	})
 }
 
-func rdsImportXtraBackup(clusterID, bucket, prefix, role string) error {
-	cluster, ok := rdsClusters.Get(clusterID)
-	if !ok {
-		return fmt.Errorf("the cluster no longer exists")
-	}
+// rdsImportTarget is the volume an XtraBackup import fills and the master
+// user and database it installs there.
+type rdsImportTarget struct {
+	engine           dbengine.Engine
+	volume           string
+	label            string
+	masterUsername   string
+	masterUserSecret []byte
+	database         string
+}
+
+func rdsImportXtraBackup(target rdsImportTarget, bucket, prefix, role string) error {
 	staging, err := os.MkdirTemp("", "sockerless-rds-s3-import-*")
 	if err != nil {
 		return err
@@ -233,25 +248,24 @@ func rdsImportXtraBackup(clusterID, bucket, prefix, role string) error {
 	if err := rdsStageS3Backup(staging, bucket, prefix, role); err != nil {
 		return err
 	}
-	engine := rdsAuroraEngine(cluster.Engine)
-	volume := rdsClusterVolume(clusterID)
+	engine, volume := target.engine, target.volume
 	if _, err := rdsRunVolumeHelper(engine, rdsOpenDataDirectoryScript, nil, rdsXtraBackupSandbox,
-		[]string{volume + ":" + engine.DataPath}, clusterID); err != nil {
-		return fmt.Errorf("open the cluster volume to the import: %w", err)
+		[]string{volume + ":" + engine.DataPath}, target.label); err != nil {
+		return fmt.Errorf("open the volume to the import: %w", err)
 	}
 	prepare := engine
 	prepare.Image = rdsXtraBackupImage
 	if _, err := rdsRunVolumeHelper(prepare, rdsPrepareXtraBackupScript, nil, rdsXtraBackupSandbox,
-		[]string{staging + ":/backup:ro", volume + ":" + engine.DataPath}, clusterID); err != nil {
+		[]string{staging + ":/backup:ro", volume + ":" + engine.DataPath}, target.label); err != nil {
 		return fmt.Errorf("prepare the Percona XtraBackup: %w", err)
 	}
-	_, password, ok := kmsDecryptBytes(cluster.MasterUserSecret)
+	_, password, ok := kmsDecryptBytes(target.masterUserSecret)
 	if !ok {
-		return fmt.Errorf("decrypt the Amazon Aurora master-user credential")
+		return fmt.Errorf("decrypt the master-user credential")
 	}
-	install := rdsMySQLInstallMasterUserStatements(cluster.MasterUsername, string(password), rdsAuroraDatabaseName(cluster))
+	install := rdsMySQLInstallMasterUserStatements(target.masterUsername, string(password), target.database)
 	if _, err := rdsRunVolumeHelper(engine, rdsImportMasterUserScript, map[string]string{"INSTALL_MASTER_USER": install},
-		rdsXtraBackupSandbox, []string{volume + ":" + engine.DataPath}, clusterID); err != nil {
+		rdsXtraBackupSandbox, []string{volume + ":" + engine.DataPath}, target.label); err != nil {
 		return fmt.Errorf("install the master user: %w", err)
 	}
 	return nil

@@ -30,6 +30,10 @@ func TestRDSRestoreTerraform(t *testing.T) {
 		"Restored RDS engine must round-trip through terraform-provider-aws refresh")
 	require.Equal(t, "terraform", outputs.must(t, "rds_restored_instance_tags_env"),
 		"Restored RDS tags must round-trip through ListTagsForResource")
+	require.Equal(t, "postgres", outputs.must(t, "rds_point_in_time_engine"),
+		"An instance restored to a point in time runs its source's engine")
+	require.Equal(t, "1", outputs.must(t, "rds_point_in_time_backup_retention_period"),
+		"An instance restored to a point in time keeps its source's backup retention period")
 
 	env.Terraform(t, "destroy", "-auto-approve")
 }

@@ -458,7 +458,7 @@ func handleRDSRestoreClusterToPointInTime(w http.ResponseWriter, r *http.Request
 			return
 		}
 		target = parsed.UTC()
-		earliest, newest, ok := rdsRestorableWindow(src)
+		earliest, newest, ok := rdsClusterRestorableWindow(src)
 		if !ok || target.Before(earliest) || target.After(newest) {
 			rdsErrorXML(w, "InvalidRestoreFault",
 				fmt.Sprintf("The restore time %s is outside the restorable window of DB cluster %s.", restoreToTime, srcID),
@@ -484,14 +484,14 @@ func handleRDSRestoreClusterToPointInTime(w http.ResponseWriter, r *http.Request
 	cl.BackendMasterUserSecret = append([]byte(nil), src.BackendMasterUserSecret...)
 	cl.RestoreSourceVolume = rdsClusterVolume(src.DBClusterIdentifier)
 	if !target.IsZero() {
-		base, ok := rdsBaseBackupFor(src, target)
+		base, ok := rdsBaseBackupFor(src.BaseBackups, target)
 		if !ok {
 			rdsErrorXML(w, "InvalidRestoreFault",
 				fmt.Sprintf("The restore time %s is outside the restorable window of DB cluster %s.", restoreToTime, srcID),
 				http.StatusBadRequest, sim.RequestID(r.Context()))
 			return
 		}
-		cl.RestoreSourceVolume = base.volume()
+		cl.RestoreSourceVolume = rdsClusterSnapshotVolume(base.SnapshotID)
 		cl.RestoreLogVolume = rdsClusterVolume(src.DBClusterIdentifier)
 		cl.RestoreToTime = target.Format(time.RFC3339Nano)
 		cl.RestoreBinlogFile, cl.RestoreBinlogOffset = base.BinlogFile, base.BinlogOffset
@@ -542,55 +542,6 @@ func rdsInstanceFromSource(r *http.Request, newID string, src RDSInstance, engin
 		ARN:                  rdsInstanceARN(newID),
 		Tags:                 parseAWSQueryTagMap(r, "Tags.Tag"),
 	}
-}
-
-func handleRDSRestoreInstanceToPointInTime(w http.ResponseWriter, r *http.Request) {
-	newID := r.FormValue("TargetDBInstanceIdentifier")
-	srcID := r.FormValue("SourceDBInstanceIdentifier")
-	if newID == "" {
-		rdsErrorXML(w, "MissingParameter", "TargetDBInstanceIdentifier is required",
-			http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	var src RDSInstance
-	if srcID != "" {
-		s, ok := rdsInstances.Get(srcID)
-		if !ok {
-			rdsErrorXML(w, "DBInstanceNotFound",
-				fmt.Sprintf("DBInstance %q not found", srcID),
-				http.StatusNotFound, sim.RequestID(r.Context()))
-			return
-		}
-		src = s
-	}
-	if _, exists := rdsInstances.Get(newID); exists {
-		rdsErrorXML(w, "DBInstanceAlreadyExists",
-			fmt.Sprintf("DBInstance %q already exists", newID),
-			http.StatusConflict, sim.RequestID(r.Context()))
-		return
-	}
-	inst := rdsInstanceFromSource(r, newID, src, r.FormValue("Engine"))
-	rdsInstances.Put(newID, inst)
-	rdsXMLResponse(w, "RestoreDBInstanceToPointInTime", renderRDSInstance(inst), sim.RequestID(r.Context()))
-}
-
-func handleRDSRestoreInstanceFromS3(w http.ResponseWriter, r *http.Request) {
-	newID := r.FormValue("DBInstanceIdentifier")
-	if newID == "" {
-		rdsErrorXML(w, "MissingParameter", "DBInstanceIdentifier is required",
-			http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	if _, exists := rdsInstances.Get(newID); exists {
-		rdsErrorXML(w, "DBInstanceAlreadyExists",
-			fmt.Sprintf("DBInstance %q already exists", newID),
-			http.StatusConflict, sim.RequestID(r.Context()))
-		return
-	}
-	inst := rdsInstanceFromSource(r, newID, RDSInstance{}, r.FormValue("Engine"))
-	inst.MasterUsername = r.FormValue("MasterUsername")
-	rdsInstances.Put(newID, inst)
-	rdsXMLResponse(w, "RestoreDBInstanceFromS3", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
 
 // Reserved instances

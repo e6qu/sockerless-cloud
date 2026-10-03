@@ -1181,6 +1181,42 @@ creates the cluster's database. The cluster lands `available`, or
 (`s3_import`) suites take a real backup of a MySQL 8.0 container and read its
 rows through the restored cluster.
 
+An RDS for PostgreSQL or RDS for MySQL DB instance keeps automated backups the
+way an Aurora cluster does, through one machinery (`rds_backups.go`) that an
+Aurora cluster and a DB instance each drive as the owner of their backups. The
+instance takes `BackupRetentionPeriod` (0 to 35, default 1) and
+`PreferredBackupWindow` from CreateDBInstance, ModifyDBInstance and the
+restores, and reports them with `LatestRestorableTime` once its first base
+backup exists. Its engine archives PostgreSQL's write-ahead log or keeps
+MySQL's binary log in the instance volume; it takes an automated DB snapshot
+named `rds:<instance>-<yyyy-mm-dd-hh-mm>` when it first serves and at the start
+of each backup window, and expires the snapshots and log the retention period
+no longer covers. DescribeDBSnapshots filters on `SnapshotType` and
+`DbiResourceId`, and DeleteDBSnapshot refuses an automated snapshot with
+`InvalidDBSnapshotState`. An automated snapshot's volume name carries a dot
+where its identifier carries the colon a volume name cannot hold.
+
+RestoreDBInstanceToPointInTime records the new instance `creating` and seeds
+its volume in the background: for `UseLatestRestorableTime` from the source
+instance's volume, for a `RestoreTime` from the newest base backup taken by
+then, replaying the source's log onto it — PostgreSQL's archive recovery when
+the engine first starts, MySQL's replication applier before the instance
+becomes available. A time outside the window is `InvalidRestoreFault`, a
+source without backup retention `PointInTimeRestoreNotEnabled`, and an Aurora
+member is sent to RestoreDBClusterToPointInTime. RestoreDBInstanceFromS3
+imports a Percona XtraBackup of MySQL 8.0 into an RDS for MySQL instance's
+volume through the same import RestoreDBClusterFromS3 runs, refusing a bucket
+the ingestion role cannot read with `InvalidS3BucketFault`. A restore that
+fails lands the instance `incompatible-restore`, an import `failed`; a seed a
+previous process left part-way starts again. DeleteDBInstance of a seeding
+instance with `SkipFinalSnapshot` marks it `deleting` and tears it down once
+the seed ends, and refuses a final snapshot with `InvalidDBInstanceState`. An
+Aurora DB instance reports its cluster's backup settings. The SDK and CLI
+suites restore an instance to a millisecond between two commits and to the
+latest restorable time, and import a real XtraBackup into an instance; the
+Terraform suites restore an `aws_db_instance` with `restore_to_point_in_time`
+and import one with `s3_import`.
+
 An Aurora cluster's endpoints own two logins: the master user's, under the
 password the control plane records, and IAM database authentication. Every
 other login reaches the engine, which checks it against its own users

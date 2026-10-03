@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -37,7 +38,13 @@ import (
 func rdsVolume(kind, identifier string) string { return "sockerless-rds-" + kind + "_" + identifier }
 
 func rdsInstanceVolume(instanceID string) string { return rdsVolume("instance", instanceID) }
-func rdsSnapshotVolume(snapshotID string) string { return rdsVolume("snapshot", snapshotID) }
+
+// rdsSnapshotVolume names a DB snapshot's volume. An automated snapshot's
+// identifier starts rds:, and a volume name cannot hold a colon; no manual
+// identifier holds a dot.
+func rdsSnapshotVolume(snapshotID string) string {
+	return rdsVolume("snapshot", strings.ReplaceAll(snapshotID, ":", "."))
+}
 
 // rdsCaptureSnapshotData captures the instance's volume into the snapshot's
 // volume and settles the snapshot's status: available when the data is

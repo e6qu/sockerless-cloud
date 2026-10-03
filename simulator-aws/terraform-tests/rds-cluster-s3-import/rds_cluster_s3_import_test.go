@@ -109,14 +109,31 @@ func TestRDSClusterS3ImportTerraform(t *testing.T) {
 	described, err := rdsClient.DescribeDBClusters(ctx, &rds.DescribeDBClustersInput{DBClusterIdentifier: aws.String("tf-aurora-s3-import")})
 	require.NoError(t, err)
 	cluster := described.DBClusters[0]
+	require.Equal(t, []string{"kettle", "teapot"},
+		readImportedOrders(t, ctx, fmt.Sprintf("%s:%d", aws.ToString(cluster.Endpoint), aws.ToInt32(cluster.Port))),
+		"the cluster serves the backup's data")
+	require.Equal(t, []string{"kettle", "teapot"},
+		readImportedOrders(t, ctx, outputs["imported_instance_address"].Value+":"+outputs["imported_instance_port"].Value),
+		"the RDS for MySQL instance serves the backup's data")
+
+	_, err = rdsClient.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{DBInstanceIdentifier: aws.String(instanceID), SkipFinalSnapshot: aws.Bool(true)})
+	require.NoError(t, err)
+	require.NoError(t, rds.NewDBInstanceDeletedWaiter(rdsClient, func(o *rds.DBInstanceDeletedWaiterOptions) {
+		o.MinDelay = 250 * time.Millisecond
+		o.MaxDelay = 2 * time.Second
+	}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(instanceID)}, 3*time.Minute))
+	env.Terraform(t, append([]string{"destroy", "-auto-approve"}, vars...)...)
+}
+
+func readImportedOrders(t *testing.T, ctx context.Context, address string) []string {
+	t.Helper()
 	config := mysql.Config{
 		User: "dbadmin", Passwd: "MasterPassword-123!", Net: "tcp", DBName: "application",
-		Addr:      fmt.Sprintf("%s:%d", aws.ToString(cluster.Endpoint), aws.ToInt32(cluster.Port)),
-		TLSConfig: "skip-verify", AllowCleartextPasswords: true,
+		Addr: address, TLSConfig: "skip-verify", AllowCleartextPasswords: true,
 	}
 	db, err := sql.Open("mysql", config.FormatDSN())
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	defer db.Close()
 	var items []string
 	rows, err := db.QueryContext(ctx, `SELECT item FROM shop.orders ORDER BY id`)
 	require.NoError(t, err)
@@ -127,13 +144,5 @@ func TestRDSClusterS3ImportTerraform(t *testing.T) {
 	}
 	require.NoError(t, rows.Err())
 	require.NoError(t, rows.Close())
-	require.Equal(t, []string{"kettle", "teapot"}, items, "the cluster serves the backup's data")
-
-	_, err = rdsClient.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{DBInstanceIdentifier: aws.String(instanceID), SkipFinalSnapshot: aws.Bool(true)})
-	require.NoError(t, err)
-	require.NoError(t, rds.NewDBInstanceDeletedWaiter(rdsClient, func(o *rds.DBInstanceDeletedWaiterOptions) {
-		o.MinDelay = 250 * time.Millisecond
-		o.MaxDelay = 2 * time.Second
-	}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(instanceID)}, 3*time.Minute))
-	env.Terraform(t, append([]string{"destroy", "-auto-approve"}, vars...)...)
+	return items
 }

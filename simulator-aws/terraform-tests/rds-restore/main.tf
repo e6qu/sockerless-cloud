@@ -35,6 +35,23 @@ resource "aws_db_instance" "tf_rds_restored" {
   }
 }
 
+resource "aws_db_instance" "tf_rds_point_in_time" {
+  identifier          = "tf-rds-point-in-time"
+  instance_class      = "db.t3.micro"
+  skip_final_snapshot = true
+
+  restore_to_point_in_time {
+    source_db_instance_identifier = "tf-rds-restore-source"
+    use_latest_restorable_time    = true
+  }
+}
+
+output "rds_point_in_time_engine" {
+  value = aws_db_instance.tf_rds_point_in_time.engine
+}
+output "rds_point_in_time_backup_retention_period" {
+  value = tostring(aws_db_instance.tf_rds_point_in_time.backup_retention_period)
+}
 output "rds_restored_instance_arn" {
   value = aws_db_instance.tf_rds_restored.arn
 }
