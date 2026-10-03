@@ -36,9 +36,10 @@ resource "aws_db_instance" "tf_rds_restored" {
 }
 
 resource "aws_db_instance" "tf_rds_point_in_time" {
-  identifier          = "tf-rds-point-in-time"
-  instance_class      = "db.t3.micro"
-  skip_final_snapshot = true
+  identifier               = "tf-rds-point-in-time"
+  instance_class           = "db.t3.micro"
+  skip_final_snapshot      = true
+  delete_automated_backups = false
 
   restore_to_point_in_time {
     source_db_instance_identifier = "tf-rds-restore-source"
@@ -46,6 +47,9 @@ resource "aws_db_instance" "tf_rds_point_in_time" {
   }
 }
 
+output "rds_point_in_time_resource_id" {
+  value = aws_db_instance.tf_rds_point_in_time.resource_id
+}
 output "rds_point_in_time_engine" {
   value = aws_db_instance.tf_rds_point_in_time.engine
 }

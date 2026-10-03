@@ -230,3 +230,170 @@ func TestRDS_InstanceRestoresFromS3XtraBackup(t *testing.T) {
 	assert.Equal(t, []string{"kettle", "teapot"}, items, "the instance serves the backup's data")
 	database.exec(t, `INSERT INTO shop.orders VALUES (3, 'cosy')`)
 }
+
+// DeleteDBInstance and DeleteDBCluster with DeleteAutomatedBackups=false keep
+// the resource's automated backup as retained, with a restore window that
+// ends at the deletion. RestoreDBInstanceToPointInTime restores the deleted
+// instance through SourceDbiResourceId or SourceDBInstanceAutomatedBackupsArn,
+// and RestoreDBClusterToPointInTime the deleted cluster through
+// SourceDbClusterResourceId, each holding the rows committed by the restore
+// time. A deleted retained backup no longer restores.
+func TestRDS_RetainedAutomatedBackupsRestoreDeletedResources(t *testing.T) {
+	t.Run("db-instance", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		f := rdsInstanceFixture{t: t, ctx: ctx, client: rdsClient(), family: "postgres"}
+		sourceID := "sdk-retained-instance"
+		created, err := f.client.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
+			DBInstanceIdentifier:  aws.String(sourceID),
+			DBInstanceClass:       aws.String("db.t3.micro"),
+			Engine:                aws.String("postgres"),
+			AllocatedStorage:      aws.Int32(20),
+			MasterUsername:        aws.String(restoreSourceUsername),
+			MasterUserPassword:    aws.String(restoreSourcePassword),
+			DBName:                aws.String(restoreSourceDatabase),
+			BackupRetentionPeriod: aws.Int32(1),
+		})
+		require.NoError(t, err)
+		f.cleanup(sourceID)
+		resourceID := created.DBInstance.DbiResourceId
+		t.Cleanup(func() {
+			_, _ = f.client.DeleteDBInstanceAutomatedBackup(context.Background(), &rds.DeleteDBInstanceAutomatedBackupInput{DbiResourceId: resourceID})
+		})
+		source := f.connect(sourceID)
+		source.exec(t, `CREATE TABLE ledger (entry varchar(64) NOT NULL)`)
+		source.exec(t, `INSERT INTO ledger VALUES ('before-restore-time')`)
+		restoreTo := nextMillisecondThenWait(t, ctx, source)
+		source.exec(t, `INSERT INTO ledger VALUES ('after-restore-time')`)
+
+		_, err = f.client.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
+			DBInstanceIdentifier:   aws.String(sourceID),
+			SkipFinalSnapshot:      aws.Bool(true),
+			DeleteAutomatedBackups: aws.Bool(false),
+		})
+		require.NoError(t, err)
+		require.NoError(t, rds.NewDBInstanceDeletedWaiter(f.client, func(o *rds.DBInstanceDeletedWaiterOptions) {
+			o.MinDelay = waiterMinDelay
+			o.MaxDelay = waiterMaxDelay
+		}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(sourceID)}, 3*time.Minute))
+
+		listed, err := f.client.DescribeDBInstanceAutomatedBackups(ctx, &rds.DescribeDBInstanceAutomatedBackupsInput{
+			Filters: []types.Filter{{Name: aws.String("status"), Values: []string{"retained"}}, {Name: aws.String("dbi-resource-id"), Values: []string{aws.ToString(resourceID)}}},
+		})
+		require.NoError(t, err)
+		require.Len(t, listed.DBInstanceAutomatedBackups, 1)
+		retained := listed.DBInstanceAutomatedBackups[0]
+		assert.Equal(t, sourceID, aws.ToString(retained.DBInstanceIdentifier))
+		require.NotNil(t, retained.RestoreWindow)
+		assert.False(t, restoreTo.Before(*retained.RestoreWindow.EarliestTime), "the restore time lies in the retained window")
+		assert.False(t, restoreTo.After(*retained.RestoreWindow.LatestTime), "the retained window ends at the deletion")
+
+		atTimeID := "sdk-retained-instance-at-time"
+		_, err = f.client.RestoreDBInstanceToPointInTime(ctx, &rds.RestoreDBInstanceToPointInTimeInput{
+			SourceDbiResourceId:        resourceID,
+			TargetDBInstanceIdentifier: aws.String(atTimeID),
+			RestoreTime:                aws.Time(restoreTo),
+		})
+		require.NoError(t, err)
+		f.cleanup(atTimeID)
+		assert.Equal(t, []string{"before-restore-time"}, f.connect(atTimeID).entries(t),
+			"the instance restored from the retained backup holds the rows committed by RestoreTime")
+
+		latestID := "sdk-retained-instance-latest"
+		_, err = f.client.RestoreDBInstanceToPointInTime(ctx, &rds.RestoreDBInstanceToPointInTimeInput{
+			SourceDBInstanceAutomatedBackupsArn: retained.DBInstanceAutomatedBackupsArn,
+			TargetDBInstanceIdentifier:          aws.String(latestID),
+			UseLatestRestorableTime:             aws.Bool(true),
+		})
+		require.NoError(t, err)
+		f.cleanup(latestID)
+		assert.Equal(t, []string{"after-restore-time", "before-restore-time"}, f.connect(latestID).entries(t),
+			"a restore to the latest restorable time holds every row committed before the deletion")
+
+		_, err = f.client.DeleteDBInstanceAutomatedBackup(ctx, &rds.DeleteDBInstanceAutomatedBackupInput{DbiResourceId: resourceID})
+		require.NoError(t, err)
+		_, err = f.client.RestoreDBInstanceToPointInTime(ctx, &rds.RestoreDBInstanceToPointInTimeInput{
+			SourceDbiResourceId:        resourceID,
+			TargetDBInstanceIdentifier: aws.String("sdk-retained-instance-gone"),
+			UseLatestRestorableTime:    aws.Bool(true),
+		})
+		assertAWSAPIErrorCode(t, err, "DBInstanceAutomatedBackupNotFound")
+	})
+
+	t.Run("aurora-mysql", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		f := auroraClusterFixture{t: t, ctx: ctx, client: rdsClient(), engine: "aurora-mysql", family: "mysql"}
+		sourceID := "sdk-retained-cluster"
+		created, err := f.client.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
+			DBClusterIdentifier: aws.String(sourceID),
+			Engine:              aws.String(f.engine),
+			MasterUsername:      aws.String(restoreSourceUsername),
+			MasterUserPassword:  aws.String(restoreSourcePassword),
+			DatabaseName:        aws.String(restoreSourceDatabase),
+		})
+		require.NoError(t, err)
+		f.cleanupCluster(sourceID)
+		resourceID := created.DBCluster.DbClusterResourceId
+		t.Cleanup(func() {
+			_, _ = f.client.DeleteDBClusterAutomatedBackup(context.Background(), &rds.DeleteDBClusterAutomatedBackupInput{DbClusterResourceId: resourceID})
+		})
+		f.addWriter(sourceID)
+		source := f.connect(sourceID)
+		source.exec(t, `CREATE TABLE ledger (entry varchar(64) NOT NULL)`)
+		source.exec(t, `INSERT INTO ledger VALUES ('before-restore-time')`)
+		restoreTo := nextMillisecondThenWait(t, ctx, source)
+		source.exec(t, `INSERT INTO ledger VALUES ('after-restore-time')`)
+
+		_, err = f.client.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
+			DBInstanceIdentifier: aws.String(sourceID + "-1"), SkipFinalSnapshot: aws.Bool(true),
+		})
+		require.NoError(t, err)
+		require.NoError(t, rds.NewDBInstanceDeletedWaiter(f.client, func(o *rds.DBInstanceDeletedWaiterOptions) {
+			o.MinDelay = waiterMinDelay
+			o.MaxDelay = waiterMaxDelay
+		}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(sourceID + "-1")}, 3*time.Minute))
+		_, err = f.client.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
+			DBClusterIdentifier:    aws.String(sourceID),
+			SkipFinalSnapshot:      aws.Bool(true),
+			DeleteAutomatedBackups: aws.Bool(false),
+		})
+		require.NoError(t, err)
+		require.NoError(t, rds.NewDBClusterDeletedWaiter(f.client, func(o *rds.DBClusterDeletedWaiterOptions) {
+			o.MinDelay = waiterMinDelay
+			o.MaxDelay = waiterMaxDelay
+		}).Wait(ctx, &rds.DescribeDBClustersInput{DBClusterIdentifier: aws.String(sourceID)}, 3*time.Minute))
+
+		listed, err := f.client.DescribeDBClusterAutomatedBackups(ctx, &rds.DescribeDBClusterAutomatedBackupsInput{
+			DbClusterResourceId: resourceID,
+		})
+		require.NoError(t, err)
+		require.Len(t, listed.DBClusterAutomatedBackups, 1)
+		retained := listed.DBClusterAutomatedBackups[0]
+		assert.Equal(t, "retained", aws.ToString(retained.Status))
+		require.NotNil(t, retained.RestoreWindow)
+		assert.False(t, restoreTo.After(*retained.RestoreWindow.LatestTime), "the retained window ends at the deletion")
+
+		restoredID := "sdk-retained-cluster-restored"
+		_, err = f.client.RestoreDBClusterToPointInTime(ctx, &rds.RestoreDBClusterToPointInTimeInput{
+			DBClusterIdentifier:       aws.String(restoredID),
+			SourceDbClusterResourceId: resourceID,
+			RestoreToTime:             aws.Time(restoreTo),
+		})
+		require.NoError(t, err)
+		f.cleanupCluster(restoredID)
+		waitForRDSClusterAvailable(t, f.client, ctx, restoredID)
+		f.addWriter(restoredID)
+		assert.Equal(t, []string{"before-restore-time"}, f.connect(restoredID).entries(t),
+			"the cluster restored from the retained backup holds the rows committed by RestoreToTime")
+
+		_, err = f.client.DeleteDBClusterAutomatedBackup(ctx, &rds.DeleteDBClusterAutomatedBackupInput{DbClusterResourceId: resourceID})
+		require.NoError(t, err)
+		_, err = f.client.RestoreDBClusterToPointInTime(ctx, &rds.RestoreDBClusterToPointInTimeInput{
+			DBClusterIdentifier:       aws.String("sdk-retained-cluster-gone"),
+			SourceDbClusterResourceId: resourceID,
+			UseLatestRestorableTime:   aws.Bool(true),
+		})
+		assertAWSAPIErrorCode(t, err, "DBClusterAutomatedBackupNotFoundFault")
+	})
+}

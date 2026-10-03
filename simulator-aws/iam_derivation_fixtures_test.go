@@ -179,15 +179,19 @@ func iamSeedDerivationFixtures(t *testing.T,
 		}, `(AttachInstancesResponse)`)
 	out["autoscaling:SetInstanceHealth:InstanceId"] = instance
 
-	// A database cluster, whose automated backup Amazon RDS keeps under the
-	// cluster's own resource id — which is all the delete carries.
+	// A deleted database cluster, whose automated backup Amazon RDS keeps
+	// under the cluster's own resource id — which is all the delete carries.
 	cluster := iamFixtureQuery(t, queryRouter, "2014-10-31", "CreateDBCluster",
 		map[string]string{
 			"DBClusterIdentifier": "probe-cluster", "Engine": "aurora-postgresql",
 			"MasterUsername": "probe", "MasterUserPassword": "probe-password",
 		}, `<DbClusterResourceId>([^<]+)</DbClusterResourceId>`)
-	// The backup row is materialised when the backups are described, which is
-	// what a client does before deleting one.
+	// Deleting the cluster with DeleteAutomatedBackups=false retains its
+	// automated backup, the only kind a client deletes.
+	iamFixtureQuery(t, queryRouter, "2014-10-31", "DeleteDBCluster",
+		map[string]string{
+			"DBClusterIdentifier": "probe-cluster", "SkipFinalSnapshot": "true", "DeleteAutomatedBackups": "false",
+		}, `(DeleteDBClusterResponse)`)
 	iamFixtureQuery(t, queryRouter, "2014-10-31", "DescribeDBClusterAutomatedBackups",
 		map[string]string{}, `<DbClusterResourceId>([^<]+)</DbClusterResourceId>`)
 	out["rds:DeleteDBClusterAutomatedBackup:DbClusterResourceId"] = cluster

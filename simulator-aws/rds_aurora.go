@@ -380,10 +380,11 @@ func rdsFinishClusterDeletion(id, resourceID string) {
 		return
 	}
 	// The cluster goes either way; rdsStopAuroraDataPlane logs a failed stop.
-	_ = rdsStopAuroraDataPlane(id, true)
+	_ = rdsStopAuroraDataPlane(id, false)
 	if cluster, ok := rdsClusters.Get(id); ok {
-		rdsRemoveAutomatedBackups(cluster)
+		rdsKeepOrRemoveClusterBackups(cluster)
 	}
+	_ = rdsStopAuroraDataPlane(id, true)
 	if rdsDeletingCluster(id, resourceID) {
 		rdsClusters.Delete(id)
 	}

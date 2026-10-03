@@ -97,6 +97,33 @@ func TestRDSCLI_InstanceRestoresToAPointInTime(t *testing.T) {
 	target := cliAvailableDBInstance(t, restoredID)
 	assert.Equal(t, []string{"before-restore-time"}, cliLedger(t, ctx, cliConnectPostgres(t, ctx, target.Endpoint.Address, target.Endpoint.Port)),
 		"the restored instance holds the rows committed by the restore time and none after it")
+
+	// Deleting the source with --no-delete-automated-backups retains its
+	// automated backup, which restores the deleted instance by its resource ID.
+	var sources struct {
+		DBInstances []struct {
+			DbiResourceId string `json:"DbiResourceId"`
+		} `json:"DBInstances"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-instances", "--db-instance-identifier", sourceID)), &sources)
+	require.Len(t, sources.DBInstances, 1)
+	resourceID := sources.DBInstances[0].DbiResourceId
+	runCLI(t, awsCLI("rds", "delete-db-instance", "--db-instance-identifier", sourceID,
+		"--skip-final-snapshot", "--no-delete-automated-backups"))
+	runCLI(t, awsCLI("rds", "wait", "db-instance-deleted", "--db-instance-identifier", sourceID))
+	t.Cleanup(func() {
+		_ = awsCLI("rds", "delete-db-instance-automated-backup", "--dbi-resource-id", resourceID).Run()
+	})
+	retainedID := "cli-instance-pitr-retained"
+	runCLI(t, awsCLI("rds", "restore-db-instance-to-point-in-time",
+		"--source-dbi-resource-id", resourceID,
+		"--target-db-instance-identifier", retainedID,
+		"--use-latest-restorable-time"))
+	cliCleanupDBInstance(t, retainedID)
+	fromRetained := cliAvailableDBInstance(t, retainedID)
+	assert.Equal(t, []string{"after-restore-time", "before-restore-time"},
+		cliLedger(t, ctx, cliConnectPostgres(t, ctx, fromRetained.Endpoint.Address, fromRetained.Endpoint.Port)),
+		"the retained automated backup holds every row committed before the deletion")
 }
 
 // aws rds restore-db-instance-from-s3 imports a Percona XtraBackup from an

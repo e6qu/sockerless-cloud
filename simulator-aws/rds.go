@@ -75,6 +75,8 @@ type RDSInstance struct {
 	ImportS3Bucket string `json:",omitempty"`
 	ImportS3Prefix string `json:",omitempty"`
 	ImportS3Role   string `json:",omitempty"`
+	// RetainAutomatedBackups records a deletion's DeleteAutomatedBackups=false.
+	RetainAutomatedBackups bool `json:",omitempty"`
 }
 
 // RDSSnapshot models the canonical RDS DB snapshot state machine:
@@ -179,6 +181,8 @@ type RDSCluster struct {
 	ImportS3Bucket string `json:",omitempty"`
 	ImportS3Prefix string `json:",omitempty"`
 	ImportS3Role   string `json:",omitempty"`
+	// RetainAutomatedBackups records a deletion's DeleteAutomatedBackups=false.
+	RetainAutomatedBackups bool `json:",omitempty"`
 }
 
 // RDSSubnetGroup models a DB subnet group (a named set of VPC subnets
@@ -436,6 +440,7 @@ func registerRDS(r *AWSQueryRouter, srv *sim.Server) {
 	}
 	rdsRecoverClusterTransitions()
 	rdsRecoverInstanceSnapshots()
+	rdsRecoverRetainedBackups()
 }
 
 func rdsInstanceARN(id string) string {
@@ -752,6 +757,7 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 	rdsInstances.Update(id, func(stored *RDSInstance) {
 		seeding = stored.DBInstanceStatus == "creating" && (stored.RestoreSourceVolume != "" || stored.ImportS3Bucket != "")
 		stored.DBInstanceStatus = "deleting"
+		stored.RetainAutomatedBackups = strings.EqualFold(r.FormValue("DeleteAutomatedBackups"), "false")
 		inst = *stored
 	})
 	resourceID := inst.DbiResourceId
@@ -1751,6 +1757,7 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 		rdsClusterSnapshots.Put(finalSnapID, rdsNewClusterSnapshot(cl, finalSnapID))
 	}
 	cl.Status = "deleting"
+	cl.RetainAutomatedBackups = strings.EqualFold(r.FormValue("DeleteAutomatedBackups"), "false")
 	rdsClusters.Put(id, cl)
 	body := renderRDSCluster(cl)
 	for _, member := range members {

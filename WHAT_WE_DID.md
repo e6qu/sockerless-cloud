@@ -1217,6 +1217,33 @@ latest restorable time, and import a real XtraBackup into an instance; the
 Terraform suites restore an `aws_db_instance` with `restore_to_point_in_time`
 and import one with `s3_import`.
 
+DescribeDBInstanceAutomatedBackups reads a live DB instance's automated backup
+from the instance itself (`rds_automated_backups.go`): `creating` until its
+first automated snapshot, then `active` with the restore window the instance's
+base backups and retention period give, for an instance outside a cluster with
+a backup retention period on an engine that keeps its log. DeleteDBInstance
+and DeleteDBCluster honour `DeleteAutomatedBackups=false`: once the engine has
+stopped, the deletion copies the volume into a `sockerless-rds-auto-backup_<resource-id>`
+volume and keeps a `retained` row with the base backups, the automated
+snapshots and the properties a restore reads, its window ending at the
+deletion. DescribeDBClusterAutomatedBackups lists the retained rows, the only
+status its shape names. RestoreDBInstanceToPointInTime restores a retained
+backup through `SourceDbiResourceId` or `SourceDBInstanceAutomatedBackupsArn`
+and RestoreDBClusterToPointInTime through `SourceDbClusterResourceId`, seeding
+from its base backups and replaying the kept log. DeleteDBInstanceAutomatedBackup
+and DeleteDBClusterAutomatedBackup delete only a retained backup, refusing a
+live resource's with `InvalidDBInstanceAutomatedBackupState` or
+`InvalidDBClusterAutomatedBackupStateFault`. A retained backup expires once its
+retention period has passed since the deletion, on a timer the next process
+re-arms, and one a creating restore still reads goes when that restore ends.
+The listings filter on `status`, the identifier and the resource ID. The SDK
+suite restores a deleted RDS for PostgreSQL instance and a deleted Aurora MySQL
+cluster from their retained backups to a millisecond between two commits; the
+CLI suite lists an instance's backup `creating`, then `active`, then
+`retained`, and restores a deleted instance with `--source-dbi-resource-id`;
+the Terraform suite destroys an instance with `delete_automated_backups =
+false` and finds its retained backup.
+
 An Aurora cluster's endpoints own two logins: the master user's, under the
 password the control plane records, and IAM database authentication. Every
 other login reaches the engine, which checks it against its own users

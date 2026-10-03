@@ -164,16 +164,11 @@ func handleRDSRestoreInstanceToPointInTime(w http.ResponseWriter, r *http.Reques
 		rdsErrorXML(w, "MissingParameter", "The parameter TargetDBInstanceIdentifier must be provided.", http.StatusBadRequest, requestID)
 		return
 	}
-	srcID := r.FormValue("SourceDBInstanceIdentifier")
-	if srcID == "" {
-		rdsErrorXML(w, "MissingParameter", "The parameter SourceDBInstanceIdentifier must be provided.", http.StatusBadRequest, requestID)
-		return
-	}
-	src, ok := rdsInstances.Get(srcID)
+	src, retained, ok := rdsInstancePointInTimeSource(w, r)
 	if !ok {
-		rdsErrorXML(w, "DBInstanceNotFound", fmt.Sprintf("DBInstance %s not found.", srcID), http.StatusNotFound, requestID)
 		return
 	}
+	srcID := src.DBInstanceIdentifier
 	if _, exists := rdsInstances.Get(newID); exists {
 		rdsErrorXML(w, "DBInstanceAlreadyExists", fmt.Sprintf("DBInstance %s already exists.", newID), http.StatusConflict, requestID)
 		return
@@ -202,18 +197,29 @@ func handleRDSRestoreInstanceToPointInTime(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	inst.Engine = src.Engine
-	inst.RestoreSourceVolume = rdsInstanceVolume(src.DBInstanceIdentifier)
+	// A live source restores from its own volume, a retained automated backup
+	// from the volume its instance left at its deletion.
+	logVolume, latest := rdsInstanceVolume(srcID), time.Now().UTC()
+	if retained != nil {
+		logVolume, latest = rdsRetainedBackupVolume(retained.DbiResourceId), rdsRetainedLatest(retained.LatestTime)
+	}
+	inst.RestoreSourceVolume = logVolume
+	earliest, windowOpen := rdsRestorableWindow(src.BaseBackups, src.BackupRetentionPeriod, time.Now().UTC())
+	if retained != nil && (!windowOpen || earliest.After(latest)) {
+		rdsErrorXML(w, "InvalidRestoreFault",
+			fmt.Sprintf("The automated backup of DB instance %s holds no restorable time.", srcID), http.StatusBadRequest, requestID)
+		return
+	}
 	if !target.IsZero() {
-		earliest, windowOpen := rdsRestorableWindow(src.BaseBackups, src.BackupRetentionPeriod, time.Now().UTC())
 		base, found := rdsBaseBackupFor(src.BaseBackups, target)
-		if !windowOpen || !found || target.Before(earliest) || target.After(time.Now()) {
+		if !windowOpen || !found || target.Before(earliest) || target.After(latest) {
 			rdsErrorXML(w, "InvalidRestoreFault",
 				fmt.Sprintf("The restore time %s is outside the restorable window of DB instance %s.", r.FormValue("RestoreTime"), srcID),
 				http.StatusBadRequest, requestID)
 			return
 		}
 		inst.RestoreSourceVolume = rdsSnapshotVolume(base.SnapshotID)
-		inst.RestoreLogVolume = rdsInstanceVolume(src.DBInstanceIdentifier)
+		inst.RestoreLogVolume = logVolume
 		inst.RestoreToTime = target.Format(time.RFC3339Nano)
 		inst.RestoreBinlogFile, inst.RestoreBinlogOffset = base.BinlogFile, base.BinlogOffset
 	}
@@ -224,6 +230,41 @@ func handleRDSRestoreInstanceToPointInTime(w http.ResponseWriter, r *http.Reques
 		inst.BackendMasterUserSecret = append([]byte(nil), inst.MasterUserSecret...)
 	}
 	rdsStartInstanceRestore(w, r, inst, src, "RestoreDBInstanceToPointInTime")
+}
+
+// rdsInstancePointInTimeSource resolves the source of a restore to a time:
+// a live instance by SourceDBInstanceIdentifier or SourceDbiResourceId, or a
+// deleted instance's retained automated backup by SourceDbiResourceId or
+// SourceDBInstanceAutomatedBackupsArn, which retained returns.
+func rdsInstancePointInTimeSource(w http.ResponseWriter, r *http.Request) (src RDSInstance, retained *RDSInstanceAutomatedBackup, ok bool) {
+	requestID := sim.RequestID(r.Context())
+	if srcID := r.FormValue("SourceDBInstanceIdentifier"); srcID != "" {
+		src, ok = rdsInstances.Get(srcID)
+		if !ok {
+			rdsErrorXML(w, "DBInstanceNotFound", fmt.Sprintf("DBInstance %s not found.", srcID), http.StatusNotFound, requestID)
+		}
+		return src, nil, ok
+	}
+	resourceID, arn := r.FormValue("SourceDbiResourceId"), r.FormValue("SourceDBInstanceAutomatedBackupsArn")
+	if resourceID == "" && arn == "" {
+		rdsErrorXML(w, "MissingParameter",
+			"One of SourceDBInstanceIdentifier, SourceDbiResourceId or SourceDBInstanceAutomatedBackupsArn must be provided.",
+			http.StatusBadRequest, requestID)
+		return RDSInstance{}, nil, false
+	}
+	for _, instance := range rdsInstances.List() {
+		if (resourceID != "" && instance.DbiResourceId == resourceID) || (arn != "" && rdsInstanceAutoBackupARN(instance.DbiResourceId) == arn) {
+			return instance, nil, true
+		}
+	}
+	for _, backup := range rdsInstanceAutomatedBackups.List() {
+		if (resourceID != "" && backup.DbiResourceId == resourceID) || (arn != "" && backup.DBInstanceAutomatedBackupsArn == arn) {
+			return rdsRetainedInstanceSource(backup), &backup, true
+		}
+	}
+	rdsErrorXML(w, "DBInstanceAutomatedBackupNotFound",
+		fmt.Sprintf("No automated backup of DB instance %s%s was found.", resourceID, arn), http.StatusNotFound, requestID)
+	return RDSInstance{}, nil, false
 }
 
 // rdsInstanceRestoreTime reads RestoreTime or UseLatestRestorableTime: a zero
@@ -393,4 +434,5 @@ func rdsFinishInstanceRestore(id string) {
 		stored.ImportS3Bucket, stored.ImportS3Prefix, stored.ImportS3Role = "", "", ""
 	})
 	rdsFinishInstanceDeletion(id, resourceID)
+	rdsExpireRetainedBackups()
 }

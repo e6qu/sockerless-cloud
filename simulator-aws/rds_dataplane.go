@@ -506,11 +506,12 @@ func rdsFinishInstanceDeletion(id, resourceID string) {
 		return
 	}
 	// The instance goes either way; rdsStopDataPlane logs a failed stop.
+	_ = rdsStopDataPlane(id, false)
+	if instance, ok := rdsInstances.Get(id); ok && !rdsIsAurora(instance.Engine) {
+		rdsKeepOrRemoveInstanceBackups(instance)
+	}
 	_ = rdsStopDataPlane(id, true)
 	rdsDeleteEngineLogs(resourceID)
-	if instance, ok := rdsInstances.Get(id); ok && !rdsIsAurora(instance.Engine) {
-		rdsRemoveInstanceAutomatedBackups(instance)
-	}
 	if rdsDeletingInstance(id, resourceID) {
 		rdsInstances.Delete(id)
 	}

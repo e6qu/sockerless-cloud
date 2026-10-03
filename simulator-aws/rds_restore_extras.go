@@ -406,22 +406,27 @@ func rdsStartClusterRestore(w http.ResponseWriter, r *http.Request, cluster RDSC
 
 func handleRDSRestoreClusterToPointInTime(w http.ResponseWriter, r *http.Request) {
 	newID := r.FormValue("DBClusterIdentifier")
-	srcID := r.FormValue("SourceDBClusterIdentifier")
-	if newID == "" || srcID == "" {
-		rdsErrorXML(w, "MissingParameter",
-			"DBClusterIdentifier and SourceDBClusterIdentifier are required",
-			http.StatusBadRequest, sim.RequestID(r.Context()))
+	if newID == "" {
+		rdsErrorXML(w, "MissingParameter", "DBClusterIdentifier is required", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	src, ok := rdsClusters.Get(srcID)
+	src, retained, ok := rdsClusterPointInTimeSource(w, r)
 	if !ok {
-		src, ok = findRDSClusterByARN(srcID)
-		if !ok {
-			rdsErrorXML(w, "DBClusterNotFoundFault",
-				fmt.Sprintf("DBCluster %q not found", srcID),
-				http.StatusNotFound, sim.RequestID(r.Context()))
-			return
-		}
+		return
+	}
+	srcID := src.DBClusterIdentifier
+	// A live source restores from its own cluster volume, a retained automated
+	// backup from the volume its cluster left at its deletion.
+	logVolume, newest := rdsClusterVolume(srcID), time.Now().UTC()
+	if retained != nil {
+		logVolume, newest = rdsRetainedBackupVolume(retained.DbClusterResourceId), rdsRetainedLatest(retained.LatestTime)
+	}
+	earliest, windowOpen := rdsRestorableWindow(src.BaseBackups, src.BackupRetentionPeriod, time.Now().UTC())
+	if retained != nil && (!windowOpen || earliest.After(newest)) {
+		rdsErrorXML(w, "InvalidRestoreFault",
+			fmt.Sprintf("The automated backup of DB cluster %s holds no restorable time.", srcID),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
 	}
 	if _, exists := rdsClusters.Get(newID); exists {
 		rdsErrorXML(w, "DBClusterAlreadyExistsFault",
@@ -458,8 +463,7 @@ func handleRDSRestoreClusterToPointInTime(w http.ResponseWriter, r *http.Request
 			return
 		}
 		target = parsed.UTC()
-		earliest, newest, ok := rdsClusterRestorableWindow(src)
-		if !ok || target.Before(earliest) || target.After(newest) {
+		if !windowOpen || target.Before(earliest) || target.After(newest) {
 			rdsErrorXML(w, "InvalidRestoreFault",
 				fmt.Sprintf("The restore time %s is outside the restorable window of DB cluster %s.", restoreToTime, srcID),
 				http.StatusBadRequest, sim.RequestID(r.Context()))
@@ -482,7 +486,7 @@ func handleRDSRestoreClusterToPointInTime(w http.ResponseWriter, r *http.Request
 	cl.EnableIAMDatabaseAuthentication = strings.EqualFold(r.FormValue("EnableIAMDatabaseAuthentication"), "true")
 	cl.MasterUserSecret = append([]byte(nil), src.MasterUserSecret...)
 	cl.BackendMasterUserSecret = append([]byte(nil), src.BackendMasterUserSecret...)
-	cl.RestoreSourceVolume = rdsClusterVolume(src.DBClusterIdentifier)
+	cl.RestoreSourceVolume = logVolume
 	if !target.IsZero() {
 		base, ok := rdsBaseBackupFor(src.BaseBackups, target)
 		if !ok {
@@ -492,7 +496,7 @@ func handleRDSRestoreClusterToPointInTime(w http.ResponseWriter, r *http.Request
 			return
 		}
 		cl.RestoreSourceVolume = rdsClusterSnapshotVolume(base.SnapshotID)
-		cl.RestoreLogVolume = rdsClusterVolume(src.DBClusterIdentifier)
+		cl.RestoreLogVolume = logVolume
 		cl.RestoreToTime = target.Format(time.RFC3339Nano)
 		cl.RestoreBinlogFile, cl.RestoreBinlogOffset = base.BinlogFile, base.BinlogOffset
 		if strings.EqualFold(cl.Engine, "aurora-mysql") {
@@ -501,6 +505,40 @@ func handleRDSRestoreClusterToPointInTime(w http.ResponseWriter, r *http.Request
 		}
 	}
 	rdsStartClusterRestore(w, r, cl, "RestoreDBClusterToPointInTime")
+}
+
+// rdsClusterPointInTimeSource resolves the source of a restore to a time: a
+// live cluster by SourceDBClusterIdentifier or SourceDbClusterResourceId, or a
+// deleted cluster's retained automated backup by SourceDbClusterResourceId,
+// which retained returns.
+func rdsClusterPointInTimeSource(w http.ResponseWriter, r *http.Request) (src RDSCluster, retained *RDSClusterAutomatedBackup, ok bool) {
+	requestID := sim.RequestID(r.Context())
+	if srcID := r.FormValue("SourceDBClusterIdentifier"); srcID != "" {
+		if src, ok = rdsClusters.Get(srcID); !ok {
+			src, ok = findRDSClusterByARN(srcID)
+		}
+		if !ok {
+			rdsErrorXML(w, "DBClusterNotFoundFault", fmt.Sprintf("DBCluster %q not found", srcID), http.StatusNotFound, requestID)
+		}
+		return src, nil, ok
+	}
+	resourceID := r.FormValue("SourceDbClusterResourceId")
+	if resourceID == "" {
+		rdsErrorXML(w, "MissingParameter", "One of SourceDBClusterIdentifier or SourceDbClusterResourceId must be provided.",
+			http.StatusBadRequest, requestID)
+		return RDSCluster{}, nil, false
+	}
+	for _, cluster := range rdsClusters.List() {
+		if cluster.DbClusterResourceId == resourceID {
+			return cluster, nil, true
+		}
+	}
+	if backup, found := rdsClusterAutomatedBackups.Get(resourceID); found {
+		return rdsRetainedClusterSource(backup), &backup, true
+	}
+	rdsErrorXML(w, "DBClusterAutomatedBackupNotFoundFault",
+		fmt.Sprintf("No automated backup of DB cluster %s was found.", resourceID), http.StatusNotFound, requestID)
+	return RDSCluster{}, nil, false
 }
 
 // rdsInstanceFromSource builds a new RDSInstance row for the
