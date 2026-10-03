@@ -138,6 +138,10 @@ Current state of the sockerless-cloud repository.
   service account's token, an Azure Container Registry with an identity
   token of the ACR Tasks run — names them outright for the legacy builder,
   and hands other registries to the host's helper.
+- **A Cloud Build step of any builder image runs as a container** over the
+  build's `/workspace` (its `dir`, `entrypoint`, `args`, `env`, `secretEnv`),
+  sharing the workspace with the docker builder's steps; a source on Cloud
+  Storage may be a zip archive or a gzipped tarball.
 - **Future-dated Capacity Reservations are scheduled, committed and
   postponed by quote.** A reservation requested for a future start is
   `scheduled` with no instances and a commitment until its start date, derived

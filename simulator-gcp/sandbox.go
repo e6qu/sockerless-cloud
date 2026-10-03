@@ -19,3 +19,10 @@ var SandboxCloudRun = sim.SandboxProfile{
 	DenyDockerSocket: true,
 	DenyHostNetwork:  true,
 }
+
+// SandboxCloudBuild matches a Cloud Build step: an ordinary container on the
+// build's worker, running as its image's user with the engine's default
+// capabilities, and never on the worker's host network.
+var SandboxCloudBuild = sim.SandboxProfile{
+	DenyHostNetwork: true,
+}

@@ -1255,6 +1255,20 @@ CLI never tells buildkit to stop and can leave a child holding the output pipe.
 A privileged CodeBuild environment gets the simulator's own engine, and its
 output streams to CloudWatch Logs as the service does by default.
 
+A Cloud Build step whose builder is not `gcr.io/cloud-builders/docker` runs as
+Cloud Build runs every step: a container of the builder image with the build's
+workspace mounted at `/workspace`, in the step's `dir`, under its
+`entrypoint`, `args`, `env` and resolved `secretEnv`, pulled as the build's
+service account from Artifact Registry or Container Registry. A step that exits
+non-zero fails the build with its exit status and the last twenty lines it
+printed. The docker builder still runs on the host's engine over the same
+directory, so a file a container step writes is in the next `docker build`'s
+context. Refusing every other builder had made the simulator unable to run any
+build but a Dockerfile one — the runtime buildpacks a Cloud Run functions
+deploy runs among them. A Cloud Storage source may be a zip archive as well as
+a gzipped tarball, as the service documents; `gcloud builds submit` of a
+`gs://…/source.zip` runs.
+
 Azure Container Registry Tasks' `scheduleRun` records the Run Queued and
 answers 200 with it at once — the Azure CLI's own registry-tasks client accepts
 nothing else, and the Go SDK's poller completes on a 200 that names no

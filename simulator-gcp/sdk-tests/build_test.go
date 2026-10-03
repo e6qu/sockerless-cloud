@@ -193,9 +193,8 @@ func TestCloudBuild_SecretEnvWithoutMatchingAvailableSecret(t *testing.T) {
 // these builds.
 const cbBaseImage = simWorkloadImage
 
-// cbDockerStep builds one gcr.io/cloud-builders/docker build step, the only
-// builder the simulator executes, optionally naming the secretEnv variables the
-// step wants in its environment.
+// cbDockerStep builds one gcr.io/cloud-builders/docker build step, optionally
+// naming the secretEnv variables the step wants in its environment.
 func cbDockerStep(args []string, secretEnv ...string) map[string]any {
 	step := map[string]any{"name": "gcr.io/cloud-builders/docker", "args": args}
 	if len(secretEnv) > 0 {
