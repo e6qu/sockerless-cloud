@@ -168,7 +168,7 @@ jobs:
             # Ride the open pull request: the refresh was made on its head, so
             # it adds one commit on top. A push refused because the author
             # pushed meanwhile is left for the next run, never forced over.
-            git add specs/cloud-api
+            git add specs/cloud-api simulator-gcp/discovery
             git commit -m 'chore(specs): refresh the vendored specifications behind upstream' \
               -m "$(git diff --cached --name-only | sed 's/^/- /')"
             if ! git push origin "$target"; then
@@ -182,7 +182,7 @@ jobs:
           # no trail of stale ones.
           branch=spec-freshness-bump
           git checkout -b "$branch"
-          git add specs/cloud-api
+          git add specs/cloud-api simulator-gcp/discovery
           git commit -m 'chore(specs): refresh the vendored specifications behind upstream' \
             -m "$(git diff --cached --name-only | sed 's/^/- /')"
           git push --force origin "$branch"
