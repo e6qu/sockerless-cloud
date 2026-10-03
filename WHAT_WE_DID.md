@@ -1015,6 +1015,16 @@ byte-identical to the vendored one, at `/$discovery/rest?version=v2`; and
 BigQuery's REST errors carry the `errors[]` entry (`reason`, `domain`,
 `message`) whose `notFound` reason is how `bq mk` learns a dataset is absent.
 
+Every API the simulator implements serves its own Discovery document, the way
+Google's APIs do: `GET /$discovery/rest?version=…` under the API's host. The
+simulator embeds each vendored document (`simulator-gcp/discovery/`, copied by
+`scripts/fetch-gcp-discovery.sh` and held byte-identical by a test) and indexes
+them by the service label of each document's `rootUrl` and its version, so the
+regional and mTLS hosts reach the same document through `gcpServiceFromHost`.
+A bare address:port names no API, so it serves a version only one implemented
+API publishes, and `v2` stays BigQuery's for `bq`; `v1`, which most publish,
+answers 404 rather than a guess.
+
 Every resumable path Discovery declares is served. The conformance loader and
 the response validator index `mediaUpload.protocols.resumable.path` beside the
 simple path, so the `/resumable/upload/...` routes are checked as Discovery
