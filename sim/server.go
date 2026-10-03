@@ -440,13 +440,23 @@ func (s *Server) ListenAndServe() error {
 		// loaded CI runner.
 		ReadHeaderTimeout: 30 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		// Every request's context descends from the background context, so
+		// the cancellation that stops the workers also ends an open long poll
+		// or Live Tail session: Shutdown waits for in-flight requests, and a
+		// request blocked on its own context would otherwise hold the drain
+		// to its bound.
+		BaseContext: func(net.Listener) context.Context { return s.backgroundCtx },
 	}
 
-	// Graceful shutdown
+	// Register before serving, so a signal that arrives as soon as the port
+	// answers is a shutdown rather than the default action of killing the
+	// process.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(sigCh)
+
 	done := make(chan error, 1)
 	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 		sig := <-sigCh
 		s.logger.Info().Str("signal", sig.String()).Msg("shutting down")
 		s.backgroundCancel()

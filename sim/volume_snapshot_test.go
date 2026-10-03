@@ -78,7 +78,7 @@ func TestSnapshotVolumeCapturesOnePointInTimeOfARunningWriter(t *testing.T) {
 	})
 
 	sink := &roundSink{signal: make(chan struct{}, 1)}
-	writer, err := StartContainerSync(ContainerConfig{
+	writer, err := StartContainerSyncContext(t.Context(), ContainerConfig{
 		Image:        volumeSnapshotTestImage,
 		Architecture: "linux/" + runtime.GOARCH,
 		Command:      []string{"sh"},
@@ -142,7 +142,7 @@ done`, volumeSnapshotTestFiles)},
 func readVolumeSnapshotTestFiles(t *testing.T, volume string) []int {
 	t.Helper()
 	var output volumeSnapshotSink
-	reader, err := StartContainerSync(ContainerConfig{
+	reader, err := StartContainerSyncContext(t.Context(), ContainerConfig{
 		Image:        volumeSnapshotTestImage,
 		Architecture: "linux/" + runtime.GOARCH,
 		Command:      []string{"sh"},
@@ -179,7 +179,7 @@ func TestHoldThawedWaitsOutAFreeze(t *testing.T) {
 	InitDocker("aws", true, t.TempDir())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	engine, err := StartContainerSync(ContainerConfig{
+	engine, err := StartContainerSyncContext(t.Context(), ContainerConfig{
 		Image:             volumeSnapshotTestImage,
 		Architecture:      "linux/" + runtime.GOARCH,
 		Command:           []string{"sleep"},

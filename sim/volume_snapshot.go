@@ -74,7 +74,7 @@ func SnapshotVolume(ctx context.Context, src, dst string) (filesystem string, er
 stat -f -c %T /snapshot-src
 cp -a --reflink=auto /snapshot-src/. /snapshot-dst/`
 	var sink volumeSnapshotSink
-	handle, err := StartContainerSync(ContainerConfig{
+	handle, err := StartContainerSyncContext(ctx, ContainerConfig{
 		Image:        volumeSnapshotImage,
 		Architecture: "linux/amd64",
 		Command:      []string{"/bin/sh"},

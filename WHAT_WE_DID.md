@@ -331,6 +331,20 @@ through hooks:
   is a channel so a step can stop waiting for it. A persistent simulator stopped
   with a task inside a two-minute `stopTimeout` and a function inside a
   15-minute timeout proves the stop takes under a second.
+- **A request ends with the server.** `ListenAndServe` drained the HTTP server
+  for up to 10 s because no request's context was cancelled at shutdown, so an
+  open CloudWatch Logs Live Tail session or a long poll held the drain to its
+  bound. The `http.Server`'s `BaseContext` returns the background context the
+  signal handler cancels before `Shutdown`, so every long-poll handler, which
+  selects on its request's context, returns at once; a `sim` test holds a poll
+  open across SIGTERM and stops in milliseconds. `StartContainerSyncContext`
+  bounds the image pull and the create by its caller's context, removes a
+  container whose start it abandoned under a context that outlives the
+  caller's, and leaves the started container's lifetime to its handle.
+- **An image pull says why it pulled.** `pullImage` writes a `[sim-pull]` line
+  when the held-image check fails, with the inspect error or the held and
+  wanted platforms, and one per throttled retry with the attempt, the error
+  and the backoff, so a start that took the retry's 30 s says so in the log.
 - **A test drives the production write path.** The stopped-task sweep deleted
   by ARN while RunTask stores tasks by ID, and its test stored tasks by ARN and
   passed; retention tests now store through the key RunTask uses. A listing

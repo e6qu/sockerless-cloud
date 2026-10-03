@@ -110,7 +110,8 @@ Current state of the sockerless-cloud repository.
   touched. A simulator exits when the process in `SOCKERLESS_PARENT_PID` is
   gone. A stopping simulator does not wait out a container's stop timeout or a
   function's timeout: interrupted Amazon ECS and AWS Lambda work resumes in the
-  next process.
+  next process, and an open long poll or Live Tail session ends with the
+  server.
 - **Every credential is verified**: SigV4 against the principal's stored
   secret, from the header and from a presigned URL alike; Google Cloud and
   Microsoft Entra bearers against the simulator's signing keys; the Azure

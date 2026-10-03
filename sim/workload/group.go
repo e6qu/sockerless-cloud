@@ -71,7 +71,7 @@ func start(ctx context.Context, role string, c Container, sink sim.LogSink) (*si
 		return nil, fmt.Errorf("resolve %s container %q image platform: %w", role, c.Name, err)
 	}
 	c.Config.Architecture = platform
-	handle, err := sim.StartContainerSync(c.Config, sink)
+	handle, err := sim.StartContainerSyncContext(ctx, c.Config, sink)
 	if err != nil {
 		return nil, fmt.Errorf("start %s container %q: %w", role, c.Name, err)
 	}
