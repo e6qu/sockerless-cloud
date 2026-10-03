@@ -243,6 +243,10 @@ var gcpMountPrefixes = map[string]string{
 // document, plus the simulator's own control surface. Each entry MUST be
 // justified — never a place to hide an invented Google path.
 var allowedNonSpecGCPRoutes = map[string]string{
+	// The Discovery service's own document endpoint. The bq tool builds its
+	// client from it whenever its API root is not Google's, and no API's
+	// Discovery document describes the service that serves those documents.
+	"GET /$discovery/rest": "Discovery service document endpoint bq reads its BigQuery client from",
 	// Cloud Run's uploadSource has a media-upload spelling on its own absolute
 	// path, which the document declares as "/upload/v2/{+parent}:uploadSource".
 	// The colon sits on the parent's last segment, so the route that receives
