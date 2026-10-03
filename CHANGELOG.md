@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.2](https://github.com/e6qu/sockerless-cloud/compare/v2.0.1...v2.0.2) (2026-10-03)
+
+
+### Bug Fixes
+
+* eleventh bug sweep across the simulators ([ee6f080](https://github.com/e6qu/sockerless-cloud/commit/ee6f080a2fc60176b359cc0844546f5dfbde6db1))
+* twelfth bug sweep across the simulators ([26ea72f](https://github.com/e6qu/sockerless-cloud/commit/26ea72f479a28740aca94d27a4e947575e293206))
+
 ## [2.0.1](https://github.com/e6qu/sockerless-cloud/compare/v2.0.0...v2.0.1) (2026-10-03)
 
 
