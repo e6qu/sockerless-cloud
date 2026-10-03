@@ -1188,7 +1188,7 @@ jobs:
           else
             sudo env "PATH=$PATH" "HOME=$HOME" \
               SOCKERLESS_SPEC_VALIDATE="$SOCKERLESS_SPEC_VALIDATE" SOCKERLESS_SPEC_DIR="$SOCKERLESS_SPEC_DIR" \
-              make terraform-https-test
+              make terraform-https-test TERRAFORM_TEST_TIMEOUT=600s
           fi
         # Must exceed the inner go-test deadline (TERRAFORM_TEST_TIMEOUT)
         # plus docker startup so the step never beats the test's own
