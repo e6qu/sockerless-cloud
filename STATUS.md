@@ -253,7 +253,12 @@ Current state of the sockerless-cloud repository.
   update or delete answers once the retired instances have stopped. A Cloud Run
   instance runs through the service-instance path from creation or
   `instances.start` until `instances.stop` or deletion. Their output reaches
-  Cloud Logging under `cloud_run_worker_pool` and `cloud_run_instance`.
+  Cloud Logging under `cloud_run_worker_pool` and `cloud_run_instance`. A
+  create, update or start holds its operation and the `Ready` condition until
+  the instances have passed their startup probes, and fails both with the
+  start error; an instance's exits restart it per its `restartPolicy`, up to
+  three times in a row; a simulator restart starts the stored pools' and
+  instances' containers again.
 - **A Cloud Run function is served by its Cloud Run service**:
   `serviceConfig.uri` is the service's run.app URL and `url` the function's
   cloudfunctions.net URL, both served through the Cloud Run front end with

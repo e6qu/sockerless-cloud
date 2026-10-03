@@ -62,6 +62,24 @@ func instanceURL(name string) string {
 	return fmt.Sprintf("%s/v2/projects/%s/locations/%s/instances/%s", baseURL, project, location, name)
 }
 
+// awaitRunOperation waits on a Cloud Run operation through
+// projects.locations.operations.wait until it is done and returns it. The
+// method may answer before the operation is done, so a not-done answer is
+// waited on again.
+func awaitRunOperation(t *testing.T, operationJSON string) string {
+	t.Helper()
+	var op struct {
+		Name string `json:"name"`
+		Done bool   `json:"done"`
+	}
+	parseJSON(t, operationJSON, &op)
+	for !op.Done {
+		operationJSON = httpDoJSON(t, "POST", baseURL+"/v2/"+op.Name+":wait", `{"timeout": "120s"}`)
+		parseJSON(t, operationJSON, &op)
+	}
+	return operationJSON
+}
+
 // createWorkerPoolForCLI deploys a worker pool over the v2 collection and
 // registers its teardown. gcloud's own deploy command cannot reach the
 // simulator (see the file comment), so the resource the CLI commands act on is
@@ -182,10 +200,10 @@ func TestCloudRunWorkerPools_CLI_IAMPolicyOnMissingPool(t *testing.T) {
 
 func TestCloudRunV2WorkerPools_Wire_CreateGetListPatchDelete(t *testing.T) {
 	createBody := `{
-		"template": {"containers": [{"image": "gcr.io/test-project/wp-cli"}]},
+		"template": {"containers": [{"image": "` + commandImageName + `", "args": ["hold"]}]},
 		"scaling": {"manualInstanceCount": 3}
 	}`
-	createOut := httpDoJSON(t, "POST", workerPoolsBaseURL()+"?workerPoolId=cli-wp-roundtrip", createBody)
+	createOut := awaitRunOperation(t, httpDoJSON(t, "POST", workerPoolsBaseURL()+"?workerPoolId=cli-wp-roundtrip", createBody))
 	var lro struct {
 		Done     bool `json:"done"`
 		Response struct {
@@ -201,7 +219,7 @@ func TestCloudRunV2WorkerPools_Wire_CreateGetListPatchDelete(t *testing.T) {
 		} `json:"response"`
 	}
 	parseJSON(t, createOut, &lro)
-	require.True(t, lro.Done, "CreateWorkerPool LRO should be done immediately in the sim")
+	require.True(t, lro.Done)
 	assert.Contains(t, lro.Response.Name, "cli-wp-roundtrip")
 	assert.NotEmpty(t, lro.Response.UID)
 	assert.Equal(t, "1", lro.Response.Generation)
@@ -230,8 +248,8 @@ func TestCloudRunV2WorkerPools_Wire_CreateGetListPatchDelete(t *testing.T) {
 	}
 	assert.True(t, found, "ListWorkerPools must include the created pool")
 
-	patchOut := httpDoJSON(t, "PATCH", workerPoolURL("cli-wp-roundtrip")+"?updateMask=scaling",
-		`{"scaling": {"manualInstanceCount": 5}}`)
+	patchOut := awaitRunOperation(t, httpDoJSON(t, "PATCH", workerPoolURL("cli-wp-roundtrip")+"?updateMask=scaling",
+		`{"scaling": {"manualInstanceCount": 5}}`))
 	var patched struct {
 		Response struct {
 			Generation string `json:"generation"`
@@ -249,7 +267,7 @@ func TestCloudRunV2WorkerPools_Wire_CreateGetListPatchDelete(t *testing.T) {
 	assert.Equal(t, "2", patched.Response.Generation)
 	assert.Equal(t, 5, patched.Response.Scaling.ManualInstanceCount)
 	require.Len(t, patched.Response.Template.Containers, 1, "an unmasked field survives the patch")
-	assert.Equal(t, "gcr.io/test-project/wp-cli", patched.Response.Template.Containers[0].Image)
+	assert.Equal(t, commandImageName, patched.Response.Template.Containers[0].Image)
 
 	revsOut := httpDoJSON(t, "GET", workerPoolURL("cli-wp-roundtrip")+"/revisions", "")
 	var revs struct {
@@ -274,7 +292,7 @@ func TestCloudRunV2WorkerPools_Wire_CreateGetListPatchDelete(t *testing.T) {
 func TestCloudRunV2WorkerPools_Wire_AutomaticScaling(t *testing.T) {
 	const id = "cli-wp-autoscaling"
 	createBody := `{
-		"template": {"containers": [{"image": "gcr.io/test-project/wp-autoscaling"}]},
+		"template": {"containers": [{"image": "` + commandImageName + `", "args": ["hold"]}]},
 		"scaling": {"scalingMode": "AUTOMATIC", "minInstanceCount": 2, "maxInstanceCount": 9}
 	}`
 	httpDoJSON(t, "POST", workerPoolsBaseURL()+"?workerPoolId="+id, createBody)
@@ -301,8 +319,8 @@ func TestCloudRunV2WorkerPools_Wire_AutomaticScaling(t *testing.T) {
 	assert.Zero(t, got.Scaling.ManualInstanceCount,
 		"manualInstanceCount is unset under automatic scaling and must not be invented")
 
-	patchOut := httpDoJSON(t, "PATCH", workerPoolURL(id)+"?updateMask=scaling",
-		`{"scaling": {"scalingMode": "MANUAL", "manualInstanceCount": 4}}`)
+	patchOut := awaitRunOperation(t, httpDoJSON(t, "PATCH", workerPoolURL(id)+"?updateMask=scaling",
+		`{"scaling": {"scalingMode": "MANUAL", "manualInstanceCount": 4}}`))
 	var patched struct {
 		Response struct {
 			Scaling scaling `json:"scaling"`
@@ -424,8 +442,8 @@ func TestCloudRunV2WorkerPools_Wire_ProbesAndEnvValueSource(t *testing.T) {
 }
 
 func TestCloudRunV2Instances_Wire_CreatePatchStartStopDelete(t *testing.T) {
-	createBody := `{"containers": [{"image": "gcr.io/test-project/inst-cli"}], "labels": {"team": "cli"}}`
-	createOut := httpDoJSON(t, "POST", instancesBaseURL()+"?instanceId=cli-inst-roundtrip", createBody)
+	createBody := `{"containers": [{"image": "` + httpProbeImageName + `", "args": ["echo-request"]}], "labels": {"team": "cli"}}`
+	createOut := awaitRunOperation(t, httpDoJSON(t, "POST", instancesBaseURL()+"?instanceId=cli-inst-roundtrip", createBody))
 	var lro struct {
 		Done     bool `json:"done"`
 		Response struct {
@@ -451,8 +469,8 @@ func TestCloudRunV2Instances_Wire_CreatePatchStartStopDelete(t *testing.T) {
 	}
 	assert.True(t, found, "ListInstances must include the created instance")
 
-	patchOut := httpDoJSON(t, "PATCH", instanceURL("cli-inst-roundtrip")+"?updateMask=containers",
-		`{"containers": [{"image": "gcr.io/test-project/inst-cli:v2"}]}`)
+	patchOut := awaitRunOperation(t, httpDoJSON(t, "PATCH", instanceURL("cli-inst-roundtrip")+"?updateMask=containers",
+		`{"containers": [{"image": "`+httpProbeImageName+`", "args": ["echo-request"], "env": [{"name": "REVISION", "value": "2"}]}]}`))
 	var patched struct {
 		Response struct {
 			Generation string            `json:"generation"`
@@ -465,7 +483,7 @@ func TestCloudRunV2Instances_Wire_CreatePatchStartStopDelete(t *testing.T) {
 	parseJSON(t, patchOut, &patched)
 	assert.Equal(t, "2", patched.Response.Generation)
 	require.Len(t, patched.Response.Containers, 1)
-	assert.Equal(t, "gcr.io/test-project/inst-cli:v2", patched.Response.Containers[0].Image)
+	assert.Equal(t, httpProbeImageName, patched.Response.Containers[0].Image)
 	assert.Equal(t, "cli", patched.Response.Labels["team"], "an unmasked field survives the patch")
 
 	stopOut := httpDoJSON(t, "POST", instanceURL("cli-inst-roundtrip")+":stop", "{}")
@@ -481,7 +499,7 @@ func TestCloudRunV2Instances_Wire_CreatePatchStartStopDelete(t *testing.T) {
 	assert.Equal(t, "CONDITION_PENDING", stopLRO.Response.TerminalCondition.State)
 	assert.Equal(t, "Stopped", stopLRO.Response.TerminalCondition.Reason)
 
-	startOut := httpDoJSON(t, "POST", instanceURL("cli-inst-roundtrip")+":start", "{}")
+	startOut := awaitRunOperation(t, httpDoJSON(t, "POST", instanceURL("cli-inst-roundtrip")+":start", "{}"))
 	var startLRO struct {
 		Response struct {
 			TerminalCondition struct {

@@ -57,7 +57,7 @@ func createRunV2Instance(t *testing.T, id string) string {
 	svc := newRunV2RESTService(t)
 	name := crV2Parent + "/instances/" + id
 	op, err := svc.Projects.Locations.Instances.Create(crV2Parent, &runv2.GoogleCloudRunV2Instance{
-		Containers: []*runv2.GoogleCloudRunV2Container{{Image: "gcr.io/" + crV2Project + "/" + id}},
+		Containers: []*runv2.GoogleCloudRunV2Container{servingContainerREST()},
 	}).InstanceId(id).Do()
 	require.NoError(t, err)
 	awaitRunV2Operation(t, svc, op)

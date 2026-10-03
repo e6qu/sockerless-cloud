@@ -62,6 +62,9 @@ import (
 func TestTerraformApplyDestroy(t *testing.T) {
 	requireTerraformNetworkHost(t)
 	cleanTerraformWorkspace(t)
+	// The worker pool's instances run this image; its startup probe has to
+	// pass before the pool deploys.
+	t.Setenv("TF_VAR_worker_image", buildProbeImage(t))
 	out, err := runTimed(t, "terraform init", terraformCmd("init"))
 	require.NoError(t, err, "terraform init failed:\n%s", out)
 

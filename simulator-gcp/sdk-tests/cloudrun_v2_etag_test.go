@@ -171,7 +171,9 @@ func TestSDK_RunV2REST_Instance_EtagOptimisticConcurrency(t *testing.T) {
 		}
 	}
 
-	op, err := svc.Projects.Locations.Instances.Create(crV2Parent, body("alpine:latest")).InstanceId(id).Do()
+	op, err := svc.Projects.Locations.Instances.Create(crV2Parent, &runv2.GoogleCloudRunV2Instance{
+		Containers: []*runv2.GoogleCloudRunV2Container{servingContainerREST()},
+	}).InstanceId(id).Do()
 	require.NoError(t, err)
 	awaitRunV2Operation(t, svc, op)
 

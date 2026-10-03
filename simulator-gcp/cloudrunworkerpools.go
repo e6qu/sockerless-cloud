@@ -153,7 +153,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
 	}
 
-	const wpType = "type.googleapis.com/google.cloud.run.v2.WorkerPool"
+	const wpType = cloudRunWorkerPoolType
 
 	// CreateWorkerPool: POST .../workerPools?workerPoolId=<id>
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/workerPools", func(w http.ResponseWriter, r *http.Request) {
@@ -178,9 +178,9 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		pool.Etag = sim.NewUUID()
 		pools.Put(name, pool)
 		reconcileWorkerPoolRevision(revisions, name, poolID+"-00001-abc", pool)
+		op := startCloudRunReconcileOperation(project, location, pool, cloudRunWorkerPoolType)
 		runCloudRunWorkerPool(pool)
-		lro := cloudRunLRO(project, location, pool, wpType)
-		sim.WriteJSON(w, http.StatusOK, lro)
+		sim.WriteJSON(w, http.StatusOK, currentCloudRunOperation(op))
 	})
 
 	// GetWorkerPool (the {workerPool} wildcard also carries the GET-side
@@ -266,20 +266,16 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		if update.LaunchStage == "" {
 			update.LaunchStage = existing.LaunchStage
 		}
-		update.TerminalCondition = &Condition{
-			Type:               "Ready",
-			State:              "CONDITION_SUCCEEDED",
-			LastTransitionTime: update.UpdateTime,
-		}
 		revName := fmt.Sprintf("%s-%05d-abc", poolID, update.Generation)
+		carryCloudRunWorkerPoolStatus(&update, existing)
 		update.LatestCreatedRevision = fmt.Sprintf("%s/revisions/%s", name, revName)
-		update.LatestReadyRevision = update.LatestCreatedRevision
+		beginCloudRunWorkerPoolReconcile(&update)
 		update.Etag = sim.NewUUID()
 		pools.Put(name, update)
 		reconcileWorkerPoolRevision(revisions, name, revName, update)
+		op := startCloudRunReconcileOperation(project, location, update, cloudRunWorkerPoolType)
 		runCloudRunWorkerPool(update)
-		lro := cloudRunLRO(project, location, update, wpType)
-		sim.WriteJSON(w, http.StatusOK, lro)
+		sim.WriteJSON(w, http.StatusOK, currentCloudRunOperation(op))
 	})
 
 	// DeleteWorkerPool
@@ -298,6 +294,8 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		}
 		pools.Delete(name)
 		stopCloudRunWorkerPool(name)
+		finishCloudRunReconcileOperations(name, cloudRunWorkerPoolType, nil, cloudRunReconcileAbortedCode,
+			fmt.Sprintf("worker pool %q was deleted before it finished reconciling", name))
 		revPrefix := name + "/revisions/"
 		for _, rev := range revisions.Filter(func(rv RevisionV2) bool { return strings.HasPrefix(rv.Name, revPrefix) }) {
 			revisions.Delete(rev.Name)
@@ -431,27 +429,26 @@ func seedWorkerPoolV2Defaults(pool WorkerPoolV2, project, location, poolID strin
 	pool.Name = fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", project, location, poolID)
 	pool.UID = sim.NewUUID()
 	pool.Generation = 1
-	pool.ObservedGeneration = 1
 	pool.CreateTime = now
 	pool.UpdateTime = now
 	if pool.LaunchStage == "" {
 		pool.LaunchStage = "GA"
 	}
-	pool.TerminalCondition = &Condition{
-		Type:               "Ready",
-		State:              "CONDITION_SUCCEEDED",
-		LastTransitionTime: now,
-	}
-	pool.Conditions = []Condition{
-		{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
-	}
-	revName := fmt.Sprintf("%s-00001-abc", poolID)
-	pool.LatestReadyRevision = fmt.Sprintf("%s/revisions/%s", pool.Name, revName)
-	pool.LatestCreatedRevision = pool.LatestReadyRevision
-	pool.InstanceSplitStatuses = []InstanceSplit{
-		{Type: "INSTANCE_SPLIT_ALLOCATION_TYPE_LATEST", Percent: 100, Revision: revName},
-	}
+	pool.ObservedGeneration = 0
+	pool.LatestReadyRevision = ""
+	pool.InstanceSplitStatuses = nil
+	pool.LatestCreatedRevision = fmt.Sprintf("%s/revisions/%s-00001-abc", pool.Name, poolID)
+	beginCloudRunWorkerPoolReconcile(&pool)
 	return pool
+}
+
+// carryCloudRunWorkerPoolStatus keeps the status an update does not change
+// until its reconciliation settles: the last ready revision, the instance
+// split it serves and the generation it observed.
+func carryCloudRunWorkerPoolStatus(update *WorkerPoolV2, existing WorkerPoolV2) {
+	update.LatestReadyRevision = existing.LatestReadyRevision
+	update.InstanceSplitStatuses = existing.InstanceSplitStatuses
+	update.ObservedGeneration = existing.ObservedGeneration
 }
 
 // reconcileWorkerPoolRevision materializes the immutable Revision a worker
@@ -466,10 +463,8 @@ func reconcileWorkerPoolRevision(store sim.Store[RevisionV2], poolName, revName 
 		CreateTime:  now,
 		UpdateTime:  now,
 		LaunchStage: pool.LaunchStage,
-		Conditions: []Condition{
-			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
-		},
-		Etag: sim.NewUUID(),
+		Conditions:  []Condition{reconcilingCondition(now)},
+		Etag:        sim.NewUUID(),
 	}
 	if pool.Template != nil {
 		rev.Labels = pool.Template.Labels

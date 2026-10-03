@@ -295,3 +295,40 @@ func watchCloudRunContainerExit(containerID string) (<-chan struct{}, context.Ca
 	}()
 	return exited, cancel
 }
+
+// awaitExit waits for the first of the instance's containers to stop and
+// returns its exit code, or -1 when the engine reports none.
+func (inst *cloudRunServiceInstance) awaitExit(ctx context.Context) int64 {
+	inst.mu.Lock()
+	ids := []string{inst.ownerID}
+	for _, h := range inst.handles {
+		ids = append(ids, h.ContainerID)
+	}
+	inst.mu.Unlock()
+	cli := sim.DockerClient()
+	if cli == nil {
+		return -1
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	codes := make(chan int64, len(ids))
+	for _, id := range ids {
+		wait := cli.ContainerWait(ctx, id, dockerclient.ContainerWaitOptions{Condition: "not-running"})
+		go func() {
+			select {
+			case result := <-wait.Result:
+				codes <- result.StatusCode
+			case err := <-wait.Error:
+				if ctx.Err() == nil && err != nil {
+					codes <- -1
+				}
+			}
+		}()
+	}
+	select {
+	case code := <-codes:
+		return code
+	case <-ctx.Done():
+		return -1
+	}
+}

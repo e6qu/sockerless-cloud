@@ -10,13 +10,17 @@ import (
 
 	functions "cloud.google.com/go/functions/apiv2"
 	"cloud.google.com/go/functions/apiv2/functionspb"
+	vkit "cloud.google.com/go/logging/apiv2"
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"cloud.google.com/go/logging/logadmin"
 	"cloud.google.com/go/run/apiv2/runpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
@@ -231,9 +235,25 @@ func waitForFunctionLogMessage(t *testing.T, functionID, message string) {
 // entry written between the two reads arrives on one of them.
 func followLogMessages(t *testing.T, filter string, done func(messages []string) bool) []string {
 	t.Helper()
+	return followLogMessagesAt(t, grpcAddr, filter, done)
+}
+
+// followLogMessagesAt follows log entries as followLogMessages does, from the
+// simulator whose gRPC endpoint is at address.
+func followLogMessagesAt(t *testing.T, address, filter string, done func(messages []string) bool) []string {
+	t.Helper()
 	tailCtx, cancel := context.WithTimeout(ctx, jobLogWaitTimeout)
 	defer cancel()
-	stream, err := newLoggingV2Client(t).TailLogEntries(tailCtx)
+	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+	tailClient, err := vkit.NewClient(ctx, option.WithGRPCConn(conn))
+	require.NoError(t, err)
+	defer tailClient.Close()
+	listClient, err := logadmin.NewClient(ctx, "test-project", option.WithGRPCConn(conn))
+	require.NoError(t, err)
+	defer listClient.Close()
+	stream, err := tailClient.TailLogEntries(tailCtx)
 	require.NoError(t, err)
 	require.NoError(t, stream.Send(&loggingpb.TailLogEntriesRequest{
 		ResourceNames: []string{"projects/test-project"},
@@ -242,7 +262,7 @@ func followLogMessages(t *testing.T, filter string, done func(messages []string)
 	}))
 
 	var messages []string
-	it := logadminClient(t).Entries(ctx, logadmin.Filter(filter))
+	it := listClient.Entries(ctx, logadmin.Filter(filter))
 	for {
 		entry, err := it.Next()
 		if err == iterator.Done {

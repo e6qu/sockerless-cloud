@@ -1362,6 +1362,38 @@ and reads the pool through `logs read` and `gcloud storage`. The Go REST
 client sends a worker pool's `instanceSplitStatuses[].type` as the enum's
 number, which the simulator maps to its name.
 
+A worker pool's or instance's create, update and `instances.start` answer with
+an operation that is not done, and the resource reports `reconciling` and a
+`CONDITION_RECONCILING` `Ready` condition until every instance has started and
+passed its startup probes. Then the operation completes with the resource, the
+pool's created revision becomes its ready revision and its observed generation
+catches up; an instance that cannot start — an image that does not pull, a
+failed startup probe — fails the operation with INTERNAL and the start error
+and the `Ready` condition with the same message, and the pool keeps its last
+ready revision. Answering at once had reported a pool whose image did not exist
+as ready. A pool whose scaling runs no instance settles before the call
+answers. Cancelling the operation stops the instances it was starting and fails
+`Ready` with the reason `Cancelled`; deleting the resource aborts it. The
+existing tests had deployed images that did not exist, so they deploy runnable
+ones, and the round-trip tests whose images do not exist assert the failed
+deploy.
+
+A Cloud Run instance whose container exits is restarted as its
+`restartPolicy` says: ON_FAILURE (the default) after a non-zero exit, ALWAYS
+after any exit except a clean one of an instance of several containers, NEVER
+not at all. Cloud Run documents restarting a failing instance "up to 3 times
+sequentially" before it is FAILED and publishes no delay between attempts, so
+the simulator restarts at once and fails the fourth exit; a clean exit that is
+not restarted leaves the instance stopped. The instance's record settles before
+its exit is logged, so a reader that waits on the log line finds the outcome
+recorded.
+
+A simulator restarted on its state directory starts the instances of every
+stored worker pool and of every stored instance not stopped or failed, from the
+serving process only; the start-up sweep has already removed the containers
+the previous process left, so the instances start anew, and a reconciliation
+the restart interrupted settles as they start.
+
 A project has one number, the one Cloud Resource Manager assigned. Cloud DNS,
 Cloud Build, Cloud Run's service agent, Compute Engine, BigQuery and Cloud
 Logging each resolve the project through `crmProjectNumber` and name their

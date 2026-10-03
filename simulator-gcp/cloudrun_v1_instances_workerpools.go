@@ -406,6 +406,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		if !dryRun {
 			crv2Instances.Put(name, instance)
 			runCloudRunInstance(instance)
+			instance = storedCloudRunInstance(instance)
 		}
 		writeCloudRunV1Instance(w, instance)
 	})
@@ -477,18 +478,14 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		update.URLs = existing.URLs
 		update.LaunchStage = existing.LaunchStage
 		update.Generation = existing.Generation + 1
-		update.ObservedGeneration = update.Generation
+		update.ObservedGeneration = existing.ObservedGeneration
 		update.UpdateTime = nowTimestamp()
-		update.TerminalCondition = &Condition{
-			Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime,
-		}
-		update.Conditions = []Condition{
-			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime},
-		}
+		beginCloudRunInstanceReconcile(&update)
 		update.Etag = sim.NewUUID()
 		if !dryRun {
 			crv2Instances.Put(name, update)
 			runCloudRunInstance(update)
+			update = storedCloudRunInstance(update)
 		}
 		writeCloudRunV1Instance(w, update)
 	})
@@ -509,6 +506,8 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		if !dryRun {
 			crv2Instances.Delete(name)
 			stopCloudRunInstance(name)
+			finishCloudRunReconcileOperations(name, cloudRunInstanceType, nil, cloudRunReconcileAbortedCode,
+				fmt.Sprintf("instance %q was deleted before it finished reconciling", name))
 		}
 		knativeDeleteStatus(w)
 	})
@@ -564,6 +563,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 			crv2WorkerPools.Put(name, pool)
 			reconcileWorkerPoolRevision(crv2WorkerPoolRevisions, name, body.Metadata.Name+"-00001-abc", pool)
 			runCloudRunWorkerPool(pool)
+			pool = storedCloudRunWorkerPool(pool)
 		}
 		writeCloudRunV1WorkerPool(w, pool)
 	})
@@ -633,25 +633,17 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		update.LaunchStage = existing.LaunchStage
 		update.Scaling = existing.Scaling
 		update.Generation = existing.Generation + 1
-		update.ObservedGeneration = update.Generation
 		update.UpdateTime = nowTimestamp()
-		update.TerminalCondition = &Condition{
-			Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime,
-		}
-		update.Conditions = []Condition{
-			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime},
-		}
 		revName := fmt.Sprintf("%s-%05d-abc", id, update.Generation)
+		carryCloudRunWorkerPoolStatus(&update, existing)
 		update.LatestCreatedRevision = fmt.Sprintf("%s/revisions/%s", name, revName)
-		update.LatestReadyRevision = update.LatestCreatedRevision
-		update.InstanceSplitStatuses = []InstanceSplit{
-			{Type: "INSTANCE_SPLIT_ALLOCATION_TYPE_LATEST", Percent: 100, Revision: revName},
-		}
+		beginCloudRunWorkerPoolReconcile(&update)
 		update.Etag = sim.NewUUID()
 		if !dryRun {
 			crv2WorkerPools.Put(name, update)
 			reconcileWorkerPoolRevision(crv2WorkerPoolRevisions, name, revName, update)
 			runCloudRunWorkerPool(update)
+			update = storedCloudRunWorkerPool(update)
 		}
 		writeCloudRunV1WorkerPool(w, update)
 	})
@@ -672,6 +664,8 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		if !dryRun {
 			crv2WorkerPools.Delete(name)
 			stopCloudRunWorkerPool(name)
+			finishCloudRunReconcileOperations(name, cloudRunWorkerPoolType, nil, cloudRunReconcileAbortedCode,
+				fmt.Sprintf("worker pool %q was deleted before it finished reconciling", name))
 			revPrefix := name + "/revisions/"
 			for _, rev := range crv2WorkerPoolRevisions.Filter(func(rv RevisionV2) bool {
 				return strings.HasPrefix(rv.Name, revPrefix)
@@ -681,6 +675,24 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		}
 		knativeDeleteStatus(w)
 	})
+}
+
+// storedCloudRunInstance reads inst back from the store, where a
+// reconciliation that settled at once has already recorded its outcome.
+func storedCloudRunInstance(inst InstanceV2) InstanceV2 {
+	if current, ok := crv2Instances.Get(inst.Name); ok {
+		return current
+	}
+	return inst
+}
+
+// storedCloudRunWorkerPool reads pool back from the store, where a
+// reconciliation that settled at once has already recorded its outcome.
+func storedCloudRunWorkerPool(pool WorkerPoolV2) WorkerPoolV2 {
+	if current, ok := crv2WorkerPools.Get(pool.Name); ok {
+		return current
+	}
+	return pool
 }
 
 func writeCloudRunV1Instance(w http.ResponseWriter, instance InstanceV2) {

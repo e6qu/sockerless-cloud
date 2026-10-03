@@ -227,7 +227,9 @@ func TestSDK_RunV2REST_Instance_ProbesAndEnvValueSource(t *testing.T) {
 		Containers: []*runv2.GoogleCloudRunV2Container{probedContainer("gcr.io/" + crV2Project + "/" + id)},
 	}).InstanceId(id).Do()
 	require.NoError(t, err)
-	awaitRunV2Operation(t, svc, op)
+	// The image names nothing a registry holds, so the instance fails to
+	// start while it keeps the containers it was sent.
+	require.NotNil(t, waitRunV2Operation(t, svc, op).Error, "an instance whose image does not exist fails to start")
 	t.Cleanup(func() {
 		if delOp, err := svc.Projects.Locations.Instances.Delete(name).Do(); err == nil {
 			awaitRunV2Operation(t, svc, delOp)
@@ -244,7 +246,7 @@ func TestSDK_RunV2REST_Instance_ProbesAndEnvValueSource(t *testing.T) {
 		Containers: []*runv2.GoogleCloudRunV2Container{probedContainer("gcr.io/" + crV2Project + "/" + id + ":v2")},
 	}).UpdateMask("containers").Do()
 	require.NoError(t, err)
-	awaitRunV2Operation(t, svc, patchOp)
+	require.NotNil(t, waitRunV2Operation(t, svc, patchOp).Error, "an instance whose image does not exist fails to start")
 
 	patched, err := svc.Projects.Locations.Instances.Get(name).Do()
 	require.NoError(t, err)

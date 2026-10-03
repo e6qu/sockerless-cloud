@@ -141,3 +141,60 @@ func TestCloudRunInstances_CLI_LogsAndVolumeOfRunningInstance(t *testing.T) {
 	httpDoJSON(t, "POST", instanceURL(instance)+":stop", "{}")
 	assert.Len(t, bucketObjectsWithPrefix(t, bucket, "stopped-"), 1, "stopping the instance stopped its container")
 }
+
+// A worker pool whose instance cannot start does not deploy: the operation
+// fails with the start error, and `gcloud run worker-pools describe` reports
+// the pool's Ready condition False with that error, where a pool whose
+// instances started reports it True.
+func TestCloudRunWorkerPools_CLI_DescribeReportsTheDeployOutcome(t *testing.T) {
+	const failing = "cli-wp-missing-image"
+	failedOp := awaitRunOperation(t, httpDoJSON(t, "POST", workerPoolsBaseURL()+"?workerPoolId="+failing, `{
+		"scaling": {"manualInstanceCount": 1},
+		"template": {"containers": [{"image": "gcr.io/test-project/`+failing+`"}]}
+	}`))
+	t.Cleanup(func() {
+		if resp, err := httpDo("DELETE", workerPoolURL(failing), ""); err == nil {
+			resp.Body.Close()
+		}
+	})
+	var op struct {
+		Error struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	parseJSON(t, failedOp, &op)
+	assert.Equal(t, 13, op.Error.Code)
+	assert.Contains(t, op.Error.Message, "gcr.io/test-project/"+failing)
+
+	type described struct {
+		Status struct {
+			Conditions []struct {
+				Type    string `json:"type"`
+				Status  string `json:"status"`
+				Message string `json:"message"`
+			} `json:"conditions"`
+		} `json:"status"`
+	}
+	var pool described
+	parseJSON(t, runCLI(t, gcloudRegionalRunCLI("run", "worker-pools", "describe", failing, "--region="+location, "--format=json")), &pool)
+	require.NotEmpty(t, pool.Status.Conditions)
+	assert.Equal(t, "Ready", pool.Status.Conditions[0].Type)
+	assert.Equal(t, "False", pool.Status.Conditions[0].Status)
+	assert.Contains(t, pool.Status.Conditions[0].Message, "gcr.io/test-project/"+failing)
+
+	const ready = "cli-wp-started"
+	awaitRunOperation(t, httpDoJSON(t, "POST", workerPoolsBaseURL()+"?workerPoolId="+ready, `{
+		"scaling": {"manualInstanceCount": 1},
+		"template": {"containers": [{"image": "`+commandImageName+`", "args": ["hold"]}]}
+	}`))
+	t.Cleanup(func() {
+		if resp, err := httpDo("DELETE", workerPoolURL(ready), ""); err == nil {
+			resp.Body.Close()
+		}
+	})
+	pool = described{}
+	parseJSON(t, runCLI(t, gcloudRegionalRunCLI("run", "worker-pools", "describe", ready, "--region="+location, "--format=json")), &pool)
+	require.NotEmpty(t, pool.Status.Conditions)
+	assert.Equal(t, "True", pool.Status.Conditions[0].Status)
+}
