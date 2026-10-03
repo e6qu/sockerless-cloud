@@ -311,6 +311,23 @@ through hooks:
   would have to model first, and a classified key that becomes resolvable fails
   its own row. Hand-written counts had been read as authoritative; this one is
   measured on every run.
+- **A key is proven per action, by the request a client sends.**
+  `TestIAMConditionKeyCoveragePerAction` renders every served operation from
+  its vendored Smithy model in the operation's own protocol with every member
+  filled, classifies it with the gate's own classifiers, builds the gate's
+  context for each action it is authorized as, and checks every key that
+  action declares. Resources whose state some keys report — a tagged bucket,
+  object and access point, a key behind an alias, a bounded role, a sized task
+  definition — are created through each service's own API first. The pairs it
+  does not build are listed one by one in `testdata/iam_condition_key_gaps.tsv`
+  with a reason from a closed table, so a new gap and a fixed one both fail.
+  Measuring this way found keys a name-only check had credited: untagging
+  requests carried no `aws:TagKeys`, AWS Lambda and the Amazon S3 control plane
+  reached the gate with their tags unread, Amazon ECS resources had no
+  `aws:ResourceTag/<k>`, and a role's or user's existing permissions boundary
+  never reached `iam:PermissionsBoundary`. It also found PutObject dropping its
+  `x-amz-tagging`, CreateUser its `PermissionsBoundary` and CreateAccessPoint
+  its `Tags`.
 - **Maintenance may not end the service.** Failing loudly on a persistence
   fault is right in a handler, where net/http turns the panic into a 500. On a
   background goroutine it was a restart loop: the retention sweeper met a busy

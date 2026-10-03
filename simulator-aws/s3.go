@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -1069,6 +1070,14 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	condition := s3WriteCondition(r.Header)
+	// x-amz-tagging carries the new object's tag set as a URL-encoded query
+	// string.
+	tags, err := s3RequestObjectTagging(r.Header.Get("x-amz-tagging"))
+	if err != nil {
+		S3ErrorXML(w, "InvalidArgument", "The header 'x-amz-tagging' shall be encoded as UTF-8 then URLEncoded URL query parameters without tag name duplicates.",
+			key, sim.RequestID(r.Context()), http.StatusBadRequest)
+		return
+	}
 
 	defer r.Body.Close()
 	// AWS SDKs switch to aws-chunked encoding when the request body
@@ -1108,8 +1117,36 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The tags belong to the object this write made, so an overwrite that
+	// carries none leaves the new object untagged.
+	if len(tags) > 0 {
+		s3ObjectTags.Put(bucket+"/"+key, tags)
+	} else {
+		s3ObjectTags.Delete(bucket + "/" + key)
+	}
+
 	w.Header().Set("ETag", obj.ETag)
 	w.WriteHeader(http.StatusOK)
+}
+
+// s3RequestObjectTagging parses the x-amz-tagging header: URL-encoded
+// key=value pairs, each key at most once.
+func s3RequestObjectTagging(header string) (map[string]string, error) {
+	if header == "" {
+		return nil, nil
+	}
+	values, err := url.ParseQuery(header)
+	if err != nil {
+		return nil, err
+	}
+	tags := make(map[string]string, len(values))
+	for key, list := range values {
+		if key == "" || len(list) != 1 {
+			return nil, fmt.Errorf("tag %q is empty or repeated", key)
+		}
+		tags[key] = list[0]
+	}
+	return tags, nil
 }
 
 func handleS3GetObject(w http.ResponseWriter, r *http.Request) {

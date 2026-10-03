@@ -41,6 +41,13 @@ func iamPopulateRDSRequestConditionKeys(r *http.Request, operation string, _ []b
 		if len(parseIndexedTags(r, "Tags.Tag")) > 0 {
 			ctx["rds:TagsFromRequest"] = []string{"true"}
 		}
+	case "CreateDBClusterEndpoint":
+		ecSetString(ctx, "rds:EndpointType", r.FormValue("EndpointType"))
+	case "CreateBlueGreenDeployment":
+		// The green environment's shape is the request's Target* members.
+		ecSetString(ctx, "rds:DatabaseClass", r.FormValue("TargetDBInstanceClass"))
+		ecSetInteger(ctx, "rds:Piops", r.FormValue("TargetIops"))
+		ecSetInteger(ctx, "rds:StorageSize", r.FormValue("TargetAllocatedStorage"))
 	}
 
 	switch operation {

@@ -201,6 +201,10 @@ func handleS3CreateAccessPoint(w http.ResponseWriter, r *http.Request) {
 		VpcConfiguration *struct {
 			VpcID string `xml:"VpcId"`
 		} `xml:"VpcConfiguration"`
+		Tags []struct {
+			Key   string `xml:"Key"`
+			Value string `xml:"Value"`
+		} `xml:"Tags>Tag"`
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil || len(body) == 0 {
@@ -235,6 +239,13 @@ func handleS3CreateAccessPoint(w http.ResponseWriter, r *http.Request) {
 		ap.VPCID = req.VpcConfiguration.VpcID
 	}
 	s3AccessPoints.Put(s3AccessPointKey(account, name), ap)
+	if len(req.Tags) > 0 {
+		tags := make(map[string]string, len(req.Tags))
+		for _, tag := range req.Tags {
+			tags[tag.Key] = tag.Value
+		}
+		s3ControlResourceTags.Put(s3AccessPointARN(account, name), tags)
+	}
 	WriteXML(w, http.StatusOK, struct {
 		XMLName        xml.Name `xml:"CreateAccessPointResult"`
 		AccessPointArn string   `xml:"AccessPointArn"`
@@ -281,6 +292,7 @@ func handleS3DeleteAccessPoint(w http.ResponseWriter, r *http.Request) {
 		s3ControlError(w, "NoSuchAccessPoint", "The specified accesspoint does not exist", http.StatusNotFound)
 		return
 	}
+	s3ControlResourceTags.Delete(s3AccessPointARN(account, name))
 	w.WriteHeader(http.StatusOK)
 }
 

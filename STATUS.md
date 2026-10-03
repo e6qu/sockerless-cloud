@@ -48,9 +48,11 @@ Current state of the sockerless-cloud repository.
   no resource, and `"*"` is the honest answer. Condition keys are ratcheted too:
   every key the vendored Service References declare -- 653 over 1,917 actions --
   is either named by the gate or classified as unmodelled with the reason, and a
-  classified key the gate later resolves fails its own row. What that does not
-  yet prove is per-action: that a key some code names is built for every
-  action declaring it (open as BUG-2965). The Amazon S3 control plane is
+  classified key the gate later resolves fails its own row, and every key is
+  also measured per action: of 4,301 (action, key) pairs on served operations
+  the gate builds 3,392, and each of the other 909 is listed with its reason in
+  `testdata/iam_condition_key_gaps.tsv` (BUG-2965 holds the unseeded and
+  unbuilt ones). The Amazon S3 control plane is
   authorized route by route, each in the namespace AWS publishes its action under — s3, s3express,
   s3-outposts or s3-object-lambda. One route is tested as ungated and says why:
   no vendored document declares an action for the control plane's
