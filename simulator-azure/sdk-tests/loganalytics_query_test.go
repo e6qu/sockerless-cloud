@@ -43,17 +43,16 @@ func logsClientOpts() *azquery.LogsClientOptions {
 // TestLogAnalytics_QueryWorkspaceSDK runs a KQL query through the azquery Logs
 // client (POST /v1/workspaces/{workspaceId}/query).
 func TestLogAnalytics_QueryWorkspaceSDK(t *testing.T) {
+	p := newLogsPipeline(t, "la-azquery-rg", "SimJobs_CL", "Job", "Log")
 	azqueryjobName := uniqueName("azqueryjob")
 	ts := time.Now().UTC().Format(time.RFC3339)
-	ingestLogs(t, []map[string]any{
-		{"TimeGenerated": ts, "ContainerGroupName_s": azqueryjobName, "Log_s": "hello from azquery", "Stream_s": "stdout"},
-	})
+	p.upload(t, []map[string]any{{"TimeGenerated": ts, "Job": azqueryjobName, "Log": "hello from azquery"}})
 
 	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
 	require.NoError(t, err)
 
-	resp, err := client.QueryWorkspace(ctx, "default", azquery.Body{
-		Query: to.Ptr(`ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "` + azqueryjobName + `" | take 10`),
+	resp, err := client.QueryWorkspace(ctx, p.ws.customerID, azquery.Body{
+		Query: to.Ptr(`SimJobs_CL | where Job == "` + azqueryjobName + `" | take 10`),
 	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Tables)
@@ -64,17 +63,16 @@ func TestLogAnalytics_QueryWorkspaceSDK(t *testing.T) {
 // TestLogAnalytics_QueryBatchSDK runs a batch of queries through the azquery
 // Logs client (POST /v1/$batch).
 func TestLogAnalytics_QueryBatchSDK(t *testing.T) {
+	p := newLogsPipeline(t, "la-batch-rg", "SimJobs_CL", "Job", "Log")
 	batchjobName := uniqueName("batchjob")
 	ts := time.Now().UTC().Format(time.RFC3339)
-	ingestLogs(t, []map[string]any{
-		{"TimeGenerated": ts, "ContainerGroupName_s": batchjobName, "Log_s": "batch line", "Stream_s": "stdout"},
-	})
+	p.upload(t, []map[string]any{{"TimeGenerated": ts, "Job": batchjobName, "Log": "batch line"}})
 
 	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
 	require.NoError(t, err)
 
-	req := azquery.NewBatchQueryRequest("default",
-		`ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "`+batchjobName+`" | take 10`,
+	req := azquery.NewBatchQueryRequest(p.ws.customerID,
+		`SimJobs_CL | where Job == "`+batchjobName+`" | take 10`,
 		azquery.TimeInterval("PT1H"), "req-1", azquery.LogsQueryOptions{})
 	resp, err := client.QueryBatch(ctx, azquery.BatchRequest{Requests: []*azquery.BatchQueryRequest{&req}}, nil)
 	require.NoError(t, err)
@@ -82,14 +80,23 @@ func TestLogAnalytics_QueryBatchSDK(t *testing.T) {
 	assert.Equal(t, "req-1", *resp.Responses[0].CorrelationID)
 	require.NotNil(t, resp.Responses[0].Body)
 	require.NotEmpty(t, resp.Responses[0].Body.Tables)
+	assert.Len(t, resp.Responses[0].Body.Tables[0].Rows, 1)
+
+	// A batch member naming a workspace no one was issued answers 404.
+	missing := azquery.NewBatchQueryRequest("00000000-0000-0000-0000-000000000000", `SimJobs_CL | take 1`,
+		azquery.TimeInterval("PT1H"), "req-2", azquery.LogsQueryOptions{})
+	resp, err = client.QueryBatch(ctx, azquery.BatchRequest{Requests: []*azquery.BatchQueryRequest{&missing}}, nil)
+	require.NoError(t, err)
+	assert.EqualValues(t, http.StatusNotFound, *resp.Responses[0].Status)
 }
 
 // TestLogAnalytics_QueryBooleanOperatorsSDK runs where clauses joined with and
 // and or, and a string literal holding a pipe, through the azquery Logs client.
 func TestLogAnalytics_QueryBooleanOperatorsSDK(t *testing.T) {
+	p := newLogsPipeline(t, "la-and-or-rg", "SimTraces_CL", "AppRoleName", "Message")
 	role := uniqueName("azquery-and-or-role")
 	ts := time.Now().UTC().Format(time.RFC3339)
-	ingestLogs(t, []map[string]any{
+	p.upload(t, []map[string]any{
 		{"TimeGenerated": ts, "Message": "alpha | beta", "AppRoleName": role},
 		{"TimeGenerated": ts, "Message": "gamma", "AppRoleName": role},
 		{"TimeGenerated": ts, "Message": "alpha | beta", "AppRoleName": "azquery-other-role"},
@@ -98,8 +105,8 @@ func TestLogAnalytics_QueryBooleanOperatorsSDK(t *testing.T) {
 	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
 	require.NoError(t, err)
 
-	resp, err := client.QueryWorkspace(ctx, "default", azquery.Body{
-		Query: to.Ptr(`AppTraces | where AppRoleName == "` + role + `" and Message == "alpha | beta" | project Message`),
+	resp, err := client.QueryWorkspace(ctx, p.ws.customerID, azquery.Body{
+		Query: to.Ptr(`SimTraces_CL | where AppRoleName == "` + role + `" and Message == "alpha | beta" | project Message`),
 	}, nil)
 	require.NoError(t, err)
 	require.Len(t, resp.Tables, 1)
@@ -108,8 +115,8 @@ func TestLogAnalytics_QueryBooleanOperatorsSDK(t *testing.T) {
 	require.Len(t, resp.Tables[0].Rows, 1, "and keeps only the row both comparisons match")
 	assert.Equal(t, "alpha | beta", resp.Tables[0].Rows[0][0])
 
-	resp, err = client.QueryWorkspace(ctx, "default", azquery.Body{
-		Query: to.Ptr(`AppTraces | where AppRoleName == "` + role + `" and (Message == "gamma" or Message has "beta") | summarize n = count() by AppRoleName`),
+	resp, err = client.QueryWorkspace(ctx, p.ws.customerID, azquery.Body{
+		Query: to.Ptr(`SimTraces_CL | where AppRoleName == "` + role + `" and (Message == "gamma" or Message has "beta") | summarize n = count() by AppRoleName`),
 	}, nil)
 	require.NoError(t, err)
 	require.Len(t, resp.Tables[0].Rows, 1)
@@ -121,11 +128,12 @@ func TestLogAnalytics_QueryBooleanOperatorsSDK(t *testing.T) {
 // TestLogAnalytics_QuerySyntaxErrorSDK sends a query that does not parse and
 // reads back the service's BadArgumentError, alone and inside a batch.
 func TestLogAnalytics_QuerySyntaxErrorSDK(t *testing.T) {
+	ws := createLogWorkspace(t, "la-syntax-rg", "la-syntax-ws")
 	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
 	require.NoError(t, err)
 
 	const broken = `AppTraces | where AppRoleName == "x" and`
-	_, err = client.QueryWorkspace(ctx, "default", azquery.Body{Query: to.Ptr(broken)}, nil)
+	_, err = client.QueryWorkspace(ctx, ws.customerID, azquery.Body{Query: to.Ptr(broken)}, nil)
 	require.Error(t, err)
 	var respErr *azcore.ResponseError
 	require.True(t, errors.As(err, &respErr), "a refused query is a response error: %v", err)
@@ -133,15 +141,15 @@ func TestLogAnalytics_QuerySyntaxErrorSDK(t *testing.T) {
 	assert.Equal(t, "BadArgumentError", respErr.ErrorCode)
 	assert.Contains(t, respErr.Error(), "SyntaxError")
 
-	_, err = client.QueryWorkspace(ctx, "default", azquery.Body{
+	_, err = client.QueryWorkspace(ctx, ws.customerID, azquery.Body{
 		Query: to.Ptr(`AppTraces | where NoSuchColumn == "x"`),
 	}, nil)
 	require.True(t, errors.As(err, &respErr), "an unresolved column is refused: %v", err)
 	assert.Equal(t, "BadArgumentError", respErr.ErrorCode)
 	assert.Contains(t, respErr.Error(), "SemanticError")
 
-	good := azquery.NewBatchQueryRequest("default", `AppTraces | take 1`, azquery.TimeInterval("PT1H"), "ok", azquery.LogsQueryOptions{})
-	bad := azquery.NewBatchQueryRequest("default", broken, azquery.TimeInterval("PT1H"), "bad", azquery.LogsQueryOptions{})
+	good := azquery.NewBatchQueryRequest(ws.customerID, `AppTraces | take 1`, azquery.TimeInterval("PT1H"), "ok", azquery.LogsQueryOptions{})
+	bad := azquery.NewBatchQueryRequest(ws.customerID, broken, azquery.TimeInterval("PT1H"), "bad", azquery.LogsQueryOptions{})
 	batch, err := client.QueryBatch(ctx, azquery.BatchRequest{Requests: []*azquery.BatchQueryRequest{&good, &bad}}, nil)
 	require.NoError(t, err)
 	require.Len(t, batch.Responses, 2)
@@ -156,14 +164,13 @@ func TestLogAnalytics_QuerySyntaxErrorSDK(t *testing.T) {
 // the workspace metadata endpoints, which the official azquery SDK does not
 // wrap but which `az monitor log-analytics` and the data-plane REST API call.
 func TestLogAnalytics_GetQueryAndMetadataREST(t *testing.T) {
+	p := newLogsPipeline(t, "la-get-rg", "SimJobs_CL", "Job", "Log")
 	ts := time.Now().UTC().Format(time.RFC3339)
-	ingestLogs(t, []map[string]any{
-		{"TimeGenerated": ts, "ContainerGroupName_s": "getjob", "Log_s": "get line", "Stream_s": "stdout"},
-	})
+	p.upload(t, []map[string]any{{"TimeGenerated": ts, "Job": "getjob", "Log": "get line"}})
 
 	// GET /v1/workspaces/{workspaceId}/query
-	getResp := loganalyticsGET(t, "/v1/workspaces/default/query?query="+
-		"ContainerAppConsoleLogs_CL%20%7C%20where%20ContainerGroupName_s%20%3D%3D%20%22getjob%22")
+	getResp := loganalyticsGET(t, "/v1/workspaces/"+p.ws.customerID+"/query?query="+
+		"SimJobs_CL%20%7C%20where%20Job%20%3D%3D%20%22getjob%22")
 	var qr struct {
 		Tables []struct {
 			Rows [][]any `json:"rows"`
@@ -174,7 +181,7 @@ func TestLogAnalytics_GetQueryAndMetadataREST(t *testing.T) {
 	require.NotEmpty(t, qr.Tables[0].Rows)
 
 	// GET /v1/workspaces/{workspaceId}/metadata
-	metaResp := loganalyticsGET(t, "/v1/workspaces/default/metadata")
+	metaResp := loganalyticsGET(t, "/v1/workspaces/"+p.ws.customerID+"/metadata")
 	var meta struct {
 		Tables []struct {
 			Name    string `json:"name"`
@@ -185,11 +192,15 @@ func TestLogAnalytics_GetQueryAndMetadataREST(t *testing.T) {
 		} `json:"tables"`
 	}
 	require.NoError(t, json.Unmarshal(metaResp, &meta))
-	require.NotEmpty(t, meta.Tables)
-	require.NotEmpty(t, meta.Tables[0].Columns)
+	tables := map[string]int{}
+	for _, tbl := range meta.Tables {
+		tables[tbl.Name] = len(tbl.Columns)
+	}
+	assert.Equal(t, 3, tables["SimJobs_CL"], "the workspace's custom table is described with its columns")
+	assert.Positive(t, tables["AppTraces"])
 
 	// POST /v1/workspaces/{workspaceId}/metadata returns the same shape.
-	postReq, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/v1/workspaces/default/metadata", nil)
+	postReq, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/v1/workspaces/"+p.ws.customerID+"/metadata", nil)
 	postResp, err := http.DefaultClient.Do(postReq)
 	require.NoError(t, err)
 	defer postResp.Body.Close()

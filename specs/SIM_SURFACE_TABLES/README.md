@@ -88,6 +88,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`azure-kv-data-plane`](azure-kv-data-plane.md)
 - [`azure-logicapps`](azure-logicapps.md)
 - [`azure-monitor`](azure-monitor.md)
+- [`azure-monitor_dcr`](azure-monitor_dcr.md)
 - [`azure-network`](azure-network.md)
 - [`azure-postgresql-flexible-server`](azure-postgresql-flexible-server.md)
 - [`azure-private-dns`](azure-private-dns.md)

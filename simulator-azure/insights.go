@@ -30,6 +30,9 @@ type AppInsightsComponent struct {
 // App Insights uses PascalCase for some property names (InstrumentationKey, ConnectionString)
 // unlike most ARM APIs which use camelCase — the SDK serde reflects this.
 type AppInsightsComponentProperties struct {
+	// AppID is the unique id the data plane addresses the component by;
+	// ApplicationID mirrors the component's name.
+	AppID                           string  `json:"AppId,omitempty"`
 	ApplicationID                   string  `json:"ApplicationId,omitempty"`
 	ApplicationType                 string  `json:"Application_Type,omitempty"`
 	InstrumentationKey              string  `json:"InstrumentationKey,omitempty"`
@@ -64,15 +67,33 @@ type AppInsightsDataVolumeCap struct {
 var azureAppInsightsComponents sim.Store[AppInsightsComponent]
 
 // A component is stored under its ARM id while the query data plane addresses
-// it by the application id it was issued, so the one reaches the other through
-// an index rather than a walk of every component.
+// it by the app id it was issued, so the one reaches the other through an
+// index rather than a walk of every component.
 var azureInsightsByApplicationID sim.GenerationIndex[AppInsightsComponent]
 
 func azureInsightsApplicationIDKeys(c AppInsightsComponent) []string {
-	if c.Properties.ApplicationID == "" {
+	if c.Properties.AppID == "" {
 		return nil
 	}
-	return []string{strings.ToLower(c.Properties.ApplicationID)}
+	return []string{strings.ToLower(c.Properties.AppID)}
+}
+
+// Telemetry names its component by instrumentation key, and a
+// resource-centric query by ARM id, whatever its casing.
+var (
+	azureInsightsByInstrumentationKey sim.GenerationIndex[AppInsightsComponent]
+	azureInsightsByResourceID         sim.GenerationIndex[AppInsightsComponent]
+)
+
+func appInsightsInstrumentationKeyKeys(c AppInsightsComponent) []string {
+	if c.Properties.InstrumentationKey == "" {
+		return nil
+	}
+	return []string{strings.ToLower(c.Properties.InstrumentationKey)}
+}
+
+func appInsightsResourceIDKeys(c AppInsightsComponent) []string {
+	return []string{strings.ToLower(c.ID)}
 }
 
 func registerApplicationInsights(srv *sim.Server) {
@@ -109,7 +130,7 @@ func registerApplicationInsights(srv *sim.Server) {
 		appID := sim.NewUUID()
 		instrumentationKey := sim.NewUUID()
 		if existing, exists := components.Get(resourceID); exists {
-			appID = existing.Properties.ApplicationID
+			appID = existing.Properties.AppID
 			instrumentationKey = existing.Properties.InstrumentationKey
 		}
 
@@ -151,7 +172,8 @@ func registerApplicationInsights(srv *sim.Server) {
 			Kind:     kind,
 			Tags:     tags,
 			Properties: AppInsightsComponentProperties{
-				ApplicationID:      appID,
+				AppID:              appID,
+				ApplicationID:      name,
 				ApplicationType:    appType,
 				InstrumentationKey: instrumentationKey,
 				ConnectionString: fmt.Sprintf(

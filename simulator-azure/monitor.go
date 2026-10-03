@@ -3,10 +3,8 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -88,21 +86,13 @@ type Column struct {
 	Type string `json:"type"`
 }
 
-// LogEntry represents a stored log entry for the simulator (used for ingestion API).
-type LogEntry struct {
-	TimeGenerated      string `json:"TimeGenerated"`
-	ContainerGroupName string `json:"ContainerGroupName_s,omitempty"`
-	ContainerAppName   string `json:"ContainerAppName_s,omitempty"`
-	Log                string `json:"Log_s,omitempty"`
-	Stream             string `json:"Stream_s,omitempty"`
-	// AppTraces fields
-	Message     string `json:"Message,omitempty"`
-	AppRoleName string `json:"AppRoleName,omitempty"`
-}
-
-// monitorLogs stores rows keyed by "workspaceID:tableName".
-// Package-level so other handlers (e.g., Container Apps) can inject log entries.
+// monitorLogs stores a table's rows under logRowsKey (a workspace's) or
+// appLogRowsKey (a classic Application Insights component's).
 var monitorLogs sim.Store[[]monitorLogRow]
+
+// webSiteDockerLogs holds each site's retained container output, the docker
+// log App Service keeps for the site whatever its monitoring settings.
+var webSiteDockerLogs sim.Store[[]monitorLogRow]
 
 // monitorMaxRetainedRows bounds the rows retained per table/log. Log Analytics
 // ages out rows past the workspace retention policy; the sim caps the in-memory
@@ -115,57 +105,37 @@ const monitorMaxRetainedRows = 50000
 // appendLogRow safely appends a log row to the given store key,
 // protecting the read-modify-write cycle with logMu.
 func appendLogRow(storeKey string, row monitorLogRow) {
+	appendRetainedRow(monitorLogs, storeKey, row)
+}
+
+func appendRetainedRow(store sim.Store[[]monitorLogRow], key string, row monitorLogRow) {
 	logMu.Lock()
 	defer logMu.Unlock()
-	existing, _ := monitorLogs.Get(storeKey)
+	existing, _ := store.Get(key)
 	existing = append(existing, row)
 	if over := len(existing) - monitorMaxRetainedRows; over > 0 {
 		existing = existing[over:]
 	}
-	monitorLogs.Put(storeKey, existing)
+	store.Put(key, existing)
 }
 
-// injectContainerAppLog writes a log entry to the ContainerAppConsoleLogs_CL table.
-func injectContainerAppLog(jobName, message string) {
-	row := monitorLogRow{
-		"TimeGenerated":        time.Now().UTC().Format(time.RFC3339),
-		"ContainerGroupName_s": jobName,
-		"Log_s":                message,
-		"Stream_s":             "stdout",
-	}
-	appendLogRow("default:ContainerAppConsoleLogs_CL", row)
-}
-
-// injectContainerAppReplicaLog writes an ACA Apps log entry. Real ACA
-// app logs use ContainerAppName_s, while jobs use ContainerGroupName_s.
-func injectContainerAppReplicaLog(appName, message string) {
-	row := monitorLogRow{
-		"TimeGenerated":      time.Now().UTC().Format(time.RFC3339),
-		"ContainerAppName_s": appName,
-		"Log_s":              message,
-		"Stream_s":           "stdout",
-	}
-	appendLogRow("default:ContainerAppConsoleLogs_CL", row)
-}
-
-// injectAppTrace writes a log entry to the AppTraces table.
-func injectAppTrace(appRoleName, message string) {
-	row := monitorLogRow{
-		"TimeGenerated": time.Now().UTC().Format(time.RFC3339),
-		"AppRoleName":   appRoleName,
-		"Message":       message,
-	}
-	appendLogRow("default:AppTraces", row)
+// appendSiteDockerLog keeps one line of a site's container output.
+func appendSiteDockerLog(siteID, at, message string) {
+	appendRetainedRow(webSiteDockerLogs, strings.ToLower(siteID), monitorLogRow{"TimeGenerated": at, "Message": message})
 }
 
 func registerAzureMonitor(srv *sim.Server) {
 	monitorLogs = sim.MakeStore[[]monitorLogRow](srv.DB(), "monitor_logs")
+	webSiteDockerLogs = sim.MakeStore[[]monitorLogRow](srv.DB(), "web_site_docker_logs")
 	workspaces := sim.MakeStore[Workspace](srv.DB(), "monitor_workspaces")
 	monitorWorkspaces = workspaces
 	azureMonitorWorkspaces = workspaces
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.OperationalInsights"
 	registerMonitorSharedKeys(srv, armBase)
+	registerLogAnalyticsTables(srv, armBase)
+	registerDataCollectionEndpoints(srv)
+	registerDataCollectionRules(srv)
 
 	// Subscription-scoped list of soft-deleted workspaces. Real Azure
 	// keeps deleted workspaces recoverable for 14 days; terraform-
@@ -333,6 +303,9 @@ func registerAzureMonitor(srv *sim.Server) {
 
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", sub, rg, name)
 
+		if ws, ok := workspaces.Get(resourceID); ok {
+			dropWorkspaceLogs(ws)
+		}
 		if workspaces.Delete(resourceID) {
 			w.WriteHeader(http.StatusOK)
 		} else {
@@ -369,7 +342,10 @@ func registerAzureMonitor(srv *sim.Server) {
 	// POST carries the query in the body; GET carries it as the `query` query
 	// parameter. Both return the QueryResults tabular shape.
 	postQueryHandler := func(w http.ResponseWriter, r *http.Request) {
-		workspaceID := sim.PathParam(r, "workspaceId")
+		scope, ok := queryLogScope(w, r)
+		if !ok {
+			return
+		}
 		var req QueryRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
 			AzureError(w, "BadArgumentError", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
@@ -379,16 +355,19 @@ func registerAzureMonitor(srv *sim.Server) {
 			AzureError(w, "BadArgumentError", "The 'query' property is required.", http.StatusBadRequest)
 			return
 		}
-		writeKQLResult(w, workspaceID, req.Query, req.Timespan)
+		writeKQLResult(w, scope, req.Query, req.Timespan)
 	}
 	getQueryHandler := func(w http.ResponseWriter, r *http.Request) {
-		workspaceID := sim.PathParam(r, "workspaceId")
+		scope, ok := queryLogScope(w, r)
+		if !ok {
+			return
+		}
 		query := r.URL.Query().Get("query")
 		if query == "" {
 			AzureError(w, "BadArgumentError", "The 'query' parameter is required.", http.StatusBadRequest)
 			return
 		}
-		writeKQLResult(w, workspaceID, query, r.URL.Query().Get("timespan"))
+		writeKQLResult(w, scope, query, r.URL.Query().Get("timespan"))
 	}
 	srv.HandleFunc("POST /v1/workspaces/{workspaceId}/query", postQueryHandler)
 	srv.HandleFunc("GET /v1/workspaces/{workspaceId}/query", getQueryHandler)
@@ -406,9 +385,7 @@ func registerAzureMonitor(srv *sim.Server) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			// The engine is asked about the address queried, which for a
-			// resource-scoped query is the resource itself.
-			r.SetPathValue("workspaceId", resourceID)
+			r.SetPathValue("resourceId", resourceID)
 			switch r.Method {
 			case http.MethodPost:
 				postQueryHandler(w, r)
@@ -423,7 +400,12 @@ func registerAzureMonitor(srv *sim.Server) {
 	// Workspace schema metadata (tables and their columns) — the data-plane
 	// metadata API. GET and POST return the same MetadataResults shape.
 	metadataHandler := func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, logAnalyticsMetadata(sim.PathParam(r, "workspaceId")))
+		ws, ok := logWorkspaceByCustomerID(sim.PathParam(r, "workspaceId"))
+		if !ok {
+			writeWorkspaceNotFound(w)
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, logAnalyticsMetadata(ws))
 	}
 	srv.HandleFunc("GET /v1/workspaces/{workspaceId}/metadata", metadataHandler)
 	srv.HandleFunc("POST /v1/workspaces/{workspaceId}/metadata", metadataHandler)
@@ -444,7 +426,14 @@ func registerAzureMonitor(srv *sim.Server) {
 		}
 		responses := make([]map[string]any, 0, len(batch.Requests))
 		for _, req := range batch.Requests {
-			result, qerr := runKQLQuery(req.Workspace, req.Body.Query, req.Body.Timespan)
+			scope, found := workspaceLogScope(req.Workspace)
+			if !found {
+				responses = append(responses, map[string]any{
+					"id": req.ID, "status": http.StatusNotFound, "body": workspaceNotFoundBody(),
+				})
+				continue
+			}
+			result, qerr := runKQLQuery(scope, req.Body.Query, req.Body.Timespan)
 			if qerr != nil {
 				responses = append(responses, map[string]any{
 					"id": req.ID, "status": http.StatusBadRequest, "body": qerr.body(),
@@ -457,92 +446,62 @@ func registerAzureMonitor(srv *sim.Server) {
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"responses": responses})
 	})
-
-	// POST - Log ingestion endpoint (simplified)
-	srv.HandleFunc("POST /dataCollectionRules/{dcrId}/streams/{streamName}", func(w http.ResponseWriter, r *http.Request) {
-		var entries []LogEntry
-		if err := sim.ReadJSON(r, &entries); err != nil {
-			AzureError(w, "BadArgumentError", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		now := time.Now().UTC().Format(time.RFC3339)
-		for _, e := range entries {
-			if e.TimeGenerated == "" {
-				e.TimeGenerated = now
-			}
-			row := monitorLogRow{"TimeGenerated": e.TimeGenerated}
-			// Detect table by which fields are populated
-			tableName := "ContainerAppConsoleLogs_CL"
-			if e.ContainerGroupName != "" {
-				row["ContainerGroupName_s"] = e.ContainerGroupName
-			}
-			if e.ContainerAppName != "" {
-				row["ContainerAppName_s"] = e.ContainerAppName
-			}
-			if e.Log != "" {
-				row["Log_s"] = e.Log
-			}
-			if e.Stream != "" {
-				row["Stream_s"] = e.Stream
-			}
-			if e.Message != "" || e.AppRoleName != "" {
-				tableName = "AppTraces"
-				row["Message"] = e.Message
-				row["AppRoleName"] = e.AppRoleName
-			}
-
-			appendLogRow("default:"+tableName, row)
-		}
-
-		w.WriteHeader(http.StatusNoContent)
-	})
 }
 
 // logAnalyticsMetadata builds the MetadataResults schema document for a
-// workspace from the tables the simulator's KQL engine actually serves
-// (kqlTableSchemas) — the data-plane metadata API's tables/columns view.
-func logAnalyticsMetadata(workspaceID string) map[string]any {
-	names := make([]string, 0, len(kqlTableSchemas))
-	for name := range kqlTableSchemas {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	tables := make([]map[string]any, 0, len(names))
-	for _, name := range names {
-		cols := make([]map[string]any, 0, len(kqlTableSchemas[name]))
-		for _, c := range kqlTableSchemas[name] {
+// workspace from the tables it holds — the data-plane metadata API's
+// tables/columns view.
+func logAnalyticsMetadata(ws Workspace) map[string]any {
+	held := logAnalyticsWorkspaceTables(ws)
+	tables := make([]map[string]any, 0, len(held))
+	for _, t := range held {
+		schema := logAnalyticsTableSchema(t)
+		cols := make([]map[string]any, 0, len(schema))
+		for _, c := range schema {
 			cols = append(cols, map[string]any{"name": c.Name, "type": c.Type})
 		}
 		tables = append(tables, map[string]any{
-			"id":             name,
-			"name":           name,
+			"id":             t.Name,
+			"name":           t.Name,
 			"timespanColumn": "TimeGenerated",
 			"columns":        cols,
 		})
 	}
-	// The workspace this metadata is about. Its ARM resource id and its region
-	// are both required members of the entry, and both are the workspace's
-	// own: it is addressed here by the customer id it was issued, which the
-	// ARM resource records.
-	entry := map[string]any{
-		"id":         workspaceID,
-		"name":       workspaceID,
-		"region":     "",
-		"resourceId": "",
-	}
-	if azureMonitorWorkspaces != nil {
-		if ws, ok := azureWorkspacesByCustomerID.Lookup(
-			azureMonitorWorkspaces, strings.ToLower(workspaceID), azureWorkspaceCustomerIDKeys); ok {
-			entry["name"] = ws.Name
-			entry["region"] = ws.Location
-			entry["resourceId"] = ws.ID
-		}
-	}
 	return map[string]any{
-		"tables":     tables,
-		"workspaces": []map[string]any{entry},
+		"tables": tables,
+		"workspaces": []map[string]any{{
+			"id":         ws.Properties.CustomerID,
+			"name":       ws.Name,
+			"region":     ws.Location,
+			"resourceId": ws.ID,
+		}},
 	}
+}
+
+// queryLogScope resolves what a query request addresses: a workspace by its
+// customer id, or a resource by its ARM id.
+func queryLogScope(w http.ResponseWriter, r *http.Request) (logScope, bool) {
+	if resourceID := r.PathValue("resourceId"); resourceID != "" {
+		return resourceLogScope(resourceID), true
+	}
+	scope, ok := workspaceLogScope(sim.PathParam(r, "workspaceId"))
+	if !ok {
+		writeWorkspaceNotFound(w)
+	}
+	return scope, ok
+}
+
+func workspaceNotFoundBody() map[string]any {
+	return map[string]any{"error": map[string]any{
+		"code":    "WorkspaceNotFoundError",
+		"message": "The workspace could not be found",
+	}}
+}
+
+// writeWorkspaceNotFound answers a query addressed to a workspace id no
+// workspace was issued.
+func writeWorkspaceNotFound(w http.ResponseWriter) {
+	sim.WriteJSON(w, http.StatusNotFound, workspaceNotFoundBody())
 }
 
 // logAnalyticsResourceQueryPath reports whether a request addresses the

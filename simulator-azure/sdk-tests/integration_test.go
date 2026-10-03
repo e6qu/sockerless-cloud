@@ -37,9 +37,10 @@ func TestIntegration_ACAJobLifecycle(t *testing.T) {
 	execProps := exec["properties"].(map[string]any)
 	assert.Equal(t, "Running", execProps["status"])
 
-	// 5. Query ContainerAppConsoleLogs_CL for start entry
-	kql := `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "` + jobName + `"`
-	result := queryWorkspace(t, "default", kql)
+	// 5. The platform's start event is in the environment workspace's
+	// ContainerAppSystemLogs_CL.
+	kql := `ContainerAppSystemLogs_CL | where JobName_s == "` + jobName + `" and Log_s == "Container started"`
+	result := queryWorkspace(t, acaLogsCustomerID(t), kql)
 	require.Len(t, result.Tables, 1)
 	require.GreaterOrEqual(t, len(result.Tables[0].Rows), 1, "should have start log entry")
 
@@ -144,17 +145,13 @@ func TestIntegration_AzureFunctionsLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, invokeResp.StatusCode)
 	require.Equal(t, "integration-invoked", string(invokeBody))
 
-	// 5. The container's access-log line for the request reaches AppTraces.
-	// The engine's log stream delivers it after the response and App Service
-	// offers no event for its arrival, so read the log until it does.
+	// 5. The container's access-log line for the request reaches the site's
+	// container log. The engine's log stream delivers it after the response
+	// and App Service offers no event for its arrival, so read the log until
+	// it does.
 	require.Eventually(t, func() bool {
-		for _, msg := range appTraceMessages(t, siteName) {
-			if msg == "POST /api/function" {
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 200*time.Millisecond, "the container's access-log line should reach AppTraces")
+		return strings.Contains(siteContainerLog(t, rg, siteName), "POST /api/function")
+	}, 30*time.Second, 200*time.Millisecond, "the container's access-log line should reach the site's log")
 
 	// 6. Delete function app
 	delReq, _ := http.NewRequestWithContext(ctx, "DELETE",

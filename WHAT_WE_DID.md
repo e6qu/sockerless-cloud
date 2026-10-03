@@ -453,7 +453,47 @@ through hooks:
   service does — alone and per member of a `$batch`. An unknown table had been
   read with the Container Apps console schema; the Application Insights tables
   got their own schemas instead. The request's `timespan` bounds
-  `TimeGenerated` before the query runs.
+  `TimeGenerated` before the query runs. The engine also reads `dynamic`
+  values — `parse_json`/`todynamic`, property and element access
+  (`d.name`, `d["name"]`, `d[i]`), `array_length`, and `tostring` back to
+  JSON text — and `bool` and `dynamic` columns.
+- **A workspace reads only its own rows, and rows arrive only where something
+  names the workspace.** Every Container Apps line, App Service trace and
+  Logs Ingestion upload had landed under one `default` key that a query of
+  any workspace id read through, and the upload chose its table by which
+  fields a row populated. A workspace keeps its rows under its customer id,
+  and a query names a workspace that exists (404 `WorkspaceNotFoundError`
+  otherwise) and resolves its table against that workspace's tables. Rows
+  arrive by three routes. A Container Apps environment whose
+  `appLogsConfiguration` names a workspace has its containers' output written
+  to that workspace's `ContainerAppConsoleLogs_CL` and the platform's events —
+  the app's replica events, a job's execution start, completion, failure and
+  stop — to `ContainerAppSystemLogs_CL`, the two classic custom log tables the
+  link creates; the console holds nothing the platform said. A site connected
+  to an Application Insights component by `APPLICATIONINSIGHTS_CONNECTION_STRING`
+  or `APPINSIGHTS_INSTRUMENTATIONKEY` has its container output written to the
+  component's `AppTraces`: in the workspace a workspace-based component names,
+  or in a classic component's own store; the site's docker log, which
+  `containerlogs` serves, keeps every line whatever the site is connected to.
+  A Logs Ingestion upload names a data collection rule by its immutable id
+  and a stream the rule declares; each data flow carrying the stream runs its
+  `transformKql` through the query engine and writes the result to its
+  `outputStream` table in each Log Analytics destination. The rules and
+  endpoints are served as `Microsoft.Insights/dataCollectionRules` and
+  `dataCollectionEndpoints`, and a rule is refused (`InvalidPayload`) when a
+  destination workspace, its output table or its endpoint does not exist,
+  the output table is still classic, or the transform does not bind or writes
+  a column the table lacks. A workspace's tables are served as
+  `Microsoft.OperationalInsights/workspaces/tables`: the Azure tables every
+  workspace holds, custom log tables a customer creates (`_CL`, with a
+  `TimeGenerated` datetime column), retention and plan, and `migrate` of a
+  classic table onto data collection rules. A resource-centric query reads a
+  workspace, a component's telemetry, or the rows of every workspace whose
+  `_ResourceId` lies at or under the queried scope; an Application Insights
+  app-id query reads its component's rows. A component's `AppId` is the
+  unique id the data plane addresses it by, and `ApplicationId` mirrors its
+  name, as the specification says; the simulator had put the id in
+  `ApplicationId`.
 - **A proxy's bound comes from the resource, and idle is not a deadline.**
   The Application Load Balancer data plane had bounded every request at a
   fixed 30 seconds and Container Apps ingress at ten minutes. `lbplane` keeps

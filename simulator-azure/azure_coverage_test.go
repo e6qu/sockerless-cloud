@@ -126,6 +126,8 @@ var azureDeclaredOperationTotals = map[string]int{
 	"network-arm-virtualnetworktap-2025-03-01":                        6,
 	"operationalinsights-arm-sharedkeys-2020-08-01":                   2,
 	"operationalinsights-arm-workspaces-2020-08-01":                   8,
+	"operationalinsights-arm-tables-2022-10-01":                       7,
+	"monitor-arm-datacollection-2024-03-11":                           18,
 	"postgresql-arm-openapi-2025-08-01":                               66,
 	"privatedns-arm-privatedns-2024-06-01":                            17,
 	"redis-arm-redis-2024-11-01":                                      41,
@@ -331,9 +333,15 @@ var azureMethodFloor = map[string]int{
 	// Raised from 1 by SharedKeys_Regenerate, completing the document.
 	"operationalinsights-arm-sharedkeys-2020-08-01": 2,
 	"operationalinsights-arm-workspaces-2020-08-01": 8,
-	"postgresql-arm-openapi-2025-08-01":             66,
-	"privatedns-arm-privatedns-2024-06-01":          17,
-	"redis-arm-redis-2024-11-01":                    41,
+	// A workspace's tables and their migration; a search job's cancellation
+	// is a declared 501, as the simulator runs no search jobs.
+	"operationalinsights-arm-tables-2022-10-01": 6,
+	// Data collection endpoints and rules; the six association operations are
+	// a declared 501, as the simulator runs no Azure Monitor Agent.
+	"monitor-arm-datacollection-2024-03-11": 12,
+	"postgresql-arm-openapi-2025-08-01":     66,
+	"privatedns-arm-privatedns-2024-06-01":  17,
+	"redis-arm-redis-2024-11-01":            41,
 	// Lowered from 36. The generic-resource operations — the five methods on
 	// "/{resourceId}" and the five on ".../providers/{ns}/{parentResourcePath}/
 	// {type}/{name}" — all mux-miss. Their templates are almost pure parameters,

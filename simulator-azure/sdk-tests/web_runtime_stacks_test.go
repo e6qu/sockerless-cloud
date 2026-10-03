@@ -111,5 +111,5 @@ func TestSDK_WebApps_SiteWithNothingToRunAnswersServiceUnavailable(t *testing.T)
 	status, body := azureInvokeFunctionResponse(t, name)
 	assert.Equal(t, http.StatusServiceUnavailable, status, "body: %s", body)
 	assert.Contains(t, string(body), "does not run the Azure Functions host")
-	assert.NotContains(t, appTraceMessages(t, name), "Function invoked")
+	assert.NotContains(t, siteContainerLog(t, rg, name), "Function invoked")
 }

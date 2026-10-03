@@ -14,10 +14,11 @@ import (
 func TestContainerApps_CLI_ArithmeticEval(t *testing.T) {
 	jobName := "cli-arith-aca-job"
 	jobURL := acaURL("jobs/" + jobName)
+	envID, _ := cliLogsEnvironment(t)
 	jobBody := fmt.Sprintf(`{
 		"location": "eastus",
 		"properties": {
-			"environmentId": "",
+			"environmentId": %q,
 			"configuration": {
 				"replicaTimeout": 30,
 				"triggerType": "Manual",
@@ -31,7 +32,7 @@ func TestContainerApps_CLI_ArithmeticEval(t *testing.T) {
 				}]
 			}
 		}
-	}`, evalImageName)
+	}`, envID, evalImageName)
 	runCLI(t, azRest("PUT", jobURL, jobBody))
 
 	// Start execution
@@ -101,9 +102,8 @@ func waitForContainerAppLogLine(t *testing.T, column, name, want string, budget 
 // rather than as a silently-empty result.
 func containerAppLogLines(t *testing.T, filterColumn, name string) []string {
 	t.Helper()
-	queryURL := baseURL + "/v1/workspaces/default/query"
-	kqlBody := `{"query": "ContainerAppConsoleLogs_CL | where ` + filterColumn + ` == \"` + name + `\""}`
-	out := runCLI(t, azRest("POST", queryURL, kqlBody))
+	_, customerID := cliLogsEnvironment(t)
+	out := cliQueryWorkspace(t, customerID, `ContainerAppConsoleLogs_CL | where `+filterColumn+` == "`+name+`"`)
 
 	var response struct {
 		Tables []struct {
@@ -141,10 +141,11 @@ func containerAppLogLines(t *testing.T, filterColumn, name string) []string {
 func TestContainerApps_CLI_ArithmeticInvalid(t *testing.T) {
 	jobName := "cli-arith-aca-fail"
 	jobURL := acaURL("jobs/" + jobName)
+	envID, _ := cliLogsEnvironment(t)
 	jobBody := fmt.Sprintf(`{
 		"location": "eastus",
 		"properties": {
-			"environmentId": "",
+			"environmentId": %q,
 			"configuration": {
 				"replicaTimeout": 30,
 				"triggerType": "Manual",
@@ -158,7 +159,7 @@ func TestContainerApps_CLI_ArithmeticInvalid(t *testing.T) {
 				}]
 			}
 		}
-	}`, evalImageName)
+	}`, envID, evalImageName)
 	runCLI(t, azRest("PUT", jobURL, jobBody))
 
 	// Start execution

@@ -268,6 +268,9 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 			DockerNetworkName: dockerNetName,
 		}
 		environments.Put(resourceID, env)
+		// Linking the workspace creates the custom log tables the
+		// environment writes to.
+		acaLogWorkspace(resourceID)
 
 		// go-azure-sdk expects 200 for sync creates
 		sim.WriteJSON(w, http.StatusOK, env.wire())

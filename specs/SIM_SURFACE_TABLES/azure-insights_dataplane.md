@@ -17,16 +17,16 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
+| `GET /v1/apps/{appId}/metrics/{metricId...}` | ✓ `simulator-azure/insights_dataplane.go:102::insightsGetMetric` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/apps/{appId}/metrics` | ✓ `simulator-azure/insights_dataplane.go:103::insightsGetMetrics` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `POST /v1/apps/{appId}/query` | ✓ `simulator-azure/insights_dataplane.go:46::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1/apps/{appId}/query` | ✓ `simulator-azure/insights_dataplane.go:59::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1/apps/{appId}/metadata` | ○ `simulator-azure/insights_dataplane.go:73::metadata` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/apps/{appId}/metadata` | ○ `simulator-azure/insights_dataplane.go:74::metadata` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1/apps/{appId}/events/$metadata` | ○ `simulator-azure/insights_dataplane.go:79::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1/apps/{appId}/events/{eventType}` | ✓ `simulator-azure/insights_dataplane.go:86::insightsGetEventsByType` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1/apps/{appId}/events/{eventType}/{eventId}` | ✓ `simulator-azure/insights_dataplane.go:87::insightsGetEvent` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1/apps/{appId}/metrics/metadata` | ○ `simulator-azure/insights_dataplane.go:90::insightsGetMetricsMetadata` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1/apps/{appId}/metrics/{metricId...}` | ✓ `simulator-azure/insights_dataplane.go:94::insightsGetMetric` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/apps/{appId}/metrics` | ✓ `simulator-azure/insights_dataplane.go:95::insightsGetMetrics` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v1/apps/{appId}/query` | ✓ `simulator-azure/insights_dataplane.go:63::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v1/apps/{appId}/metadata` | ○ `simulator-azure/insights_dataplane.go:81::metadata` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/apps/{appId}/metadata` | ○ `simulator-azure/insights_dataplane.go:82::metadata` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v1/apps/{appId}/events/$metadata` | ○ `simulator-azure/insights_dataplane.go:87::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v1/apps/{appId}/events/{eventType}` | ✓ `simulator-azure/insights_dataplane.go:94::insightsGetEventsByType` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v1/apps/{appId}/events/{eventType}/{eventId}` | ✓ `simulator-azure/insights_dataplane.go:95::insightsGetEvent` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v1/apps/{appId}/metrics/metadata` | ○ `simulator-azure/insights_dataplane.go:98::insightsGetMetricsMetadata` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

@@ -60,8 +60,11 @@ Current state of the sockerless-cloud repository.
   declared 501; the gRPC surfaces serve 213 of 216 methods, the three unserved
   each needing state the simulator does not hold.
   Every gRPC service is crossed against its REST door.
-- **Azure**: 2,628 of 2,628 Swagger operations across 120 documents, App
-  Service's 692 included.
+- **Azure**: 2,653 of 2,660 Swagger operations across 122 documents, App
+  Service's 692 included. The seven others answer a declared 501: the six
+  data collection rule association operations, as the simulator runs no
+  Azure Monitor Agent, and a table's search-job cancellation, as it runs no
+  search jobs.
 - **Both ratchets refuse phantom coverage**: a served method must be answered
   by a route naming its literal path segments, and the routes that legitimately
   dispatch inside a handler are listed with the reason each one does. Every
@@ -210,6 +213,12 @@ Current state of the sockerless-cloud repository.
   On, with every request on the site's hostname forwarded to it; the host
   reads no consumer-named setting and nothing from an image reference's
   spelling.
+- **Azure Monitor logs land where something names the workspace.** A
+  Container Apps environment's `appLogsConfiguration`, a site's Application
+  Insights connection, and a data collection rule's Log Analytics destination
+  (through the Logs Ingestion API and the rule's `transformKql`) route rows to
+  one workspace, whose queries read only its own rows; workspace tables, data
+  collection rules and endpoints are served.
 - **A web app's SCM site serves Kudu's deployment and WebJobs APIs** at the Repository
   hostname it reports: zip deploy and OneDeploy, authenticated with the
   publishing credentials or a Microsoft Entra token, land the artifact

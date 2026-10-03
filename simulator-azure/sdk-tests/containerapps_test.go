@@ -82,6 +82,7 @@ func TestContainerApps_StartJobInjectsLogs(t *testing.T) {
 	job := map[string]any{
 		"location": "eastus",
 		"properties": map[string]any{
+			"environmentId": acaLogsEnvironmentID(t),
 			"configuration": map[string]any{
 				"triggerType":    "Manual",
 				"replicaTimeout": 1,
@@ -116,10 +117,10 @@ func TestContainerApps_StartJobInjectsLogs(t *testing.T) {
 
 	// Poll until both the start + completion log entries are ingested (async
 	// in the sim) — a fixed sleep races a loaded runner.
-	kql := `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "log-test-job"`
+	kql := `ContainerAppSystemLogs_CL | where JobName_s == "log-test-job"`
 	var result queryResponse
 	require.Eventually(t, func() bool {
-		result = queryWorkspace(t, "default", kql)
+		result = queryWorkspace(t, acaLogsCustomerID(t), kql)
 		return len(result.Tables) == 1 && len(result.Tables[0].Rows) >= 2
 	}, 60*time.Second, 200*time.Millisecond)
 
@@ -157,6 +158,7 @@ func TestContainerApps_MultiContainerJobSharesLocalhost(t *testing.T) {
 	job := map[string]any{
 		"location": "eastus",
 		"properties": map[string]any{
+			"environmentId": acaLogsEnvironmentID(t),
 			"configuration": map[string]any{
 				"triggerType":    "Manual",
 				"replicaTimeout": 30,
@@ -198,7 +200,7 @@ func TestContainerApps_MultiContainerJobSharesLocalhost(t *testing.T) {
 	require.Less(t, startResp.StatusCode, 400)
 
 	require.Eventually(t, func() bool {
-		result := queryWorkspace(t, "default", `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "`+jobName+`"`)
+		result := queryWorkspace(t, acaLogsCustomerID(t), `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "`+jobName+`"`)
 		if len(result.Tables) == 0 {
 			return false
 		}
@@ -231,6 +233,7 @@ func acaCreateJob(t *testing.T, rg, jobName string) {
 	job := map[string]any{
 		"location": "eastus",
 		"properties": map[string]any{
+			"environmentId": acaLogsEnvironmentID(t),
 			"configuration": map[string]any{
 				"triggerType":    "Manual",
 				"replicaTimeout": 1,
@@ -403,6 +406,7 @@ func acaCreateJobWithImageAndCommand(t *testing.T, rg, jobName, image string, cm
 	job := map[string]any{
 		"location": "eastus",
 		"properties": map[string]any{
+			"environmentId": acaLogsEnvironmentID(t),
 			"configuration": map[string]any{
 				"triggerType":    "Manual",
 				"replicaTimeout": 5,
@@ -453,7 +457,7 @@ func TestContainerApps_ExecutionLogsRealOutput(t *testing.T) {
 	kql := `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "exec-log-job"`
 	var result queryResponse
 	require.Eventually(t, func() bool {
-		result = queryWorkspace(t, "default", kql)
+		result = queryWorkspace(t, acaLogsCustomerID(t), kql)
 		if len(result.Tables) != 1 {
 			return false
 		}

@@ -5,28 +5,24 @@ import (
 	"bytes"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
 // web_containerlogs.go implements WebApps_GetWebSiteContainerLogs[Slot] and
 // WebApps_GetContainerLogsZip[Slot]. The log text is the site container's
 // real output: every line a site container writes flows through funcLogSink
-// into the AppTraces rows of the Azure Monitor store (bounded at
-// monitorMaxRetainedRows), and these endpoints render exactly those retained
-// rows — timestamped, in arrival order — as the docker log file real App
-// Service serves.
+// into the site's docker log (bounded at monitorMaxRetainedRows), and these
+// endpoints render exactly those retained lines — timestamped, in arrival
+// order — as the docker log file real App Service serves.
 
-// webSiteContainerLogText assembles the retained container log lines for a
-// site (AppRoleName is the site name funcLogSink stamps on every row).
-func webSiteContainerLogText(siteName string) []byte {
+// webSiteContainerLogText assembles a site's retained container log lines.
+func webSiteContainerLogText(siteID string) []byte {
 	logMu.RLock()
-	rows, _ := monitorLogs.Get("default:AppTraces")
+	rows, _ := webSiteDockerLogs.Get(strings.ToLower(siteID))
 	logMu.RUnlock()
 	var buf bytes.Buffer
 	for _, row := range rows {
-		if row["AppRoleName"] != siteName {
-			continue
-		}
 		fmt.Fprintf(&buf, "%s %s\n", row["TimeGenerated"], row["Message"])
 	}
 	return buf.Bytes()
@@ -40,7 +36,7 @@ func registerWebContainerLogs(both func(string, string, http.HandlerFunc)) {
 			return
 		}
 		site, _ := webResource(r)
-		logs := webSiteContainerLogText(site.Name)
+		logs := webSiteContainerLogText(site.ID)
 		if len(logs) == 0 {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -57,7 +53,7 @@ func registerWebContainerLogs(both func(string, string, http.HandlerFunc)) {
 			return
 		}
 		site, _ := webResource(r)
-		logs := webSiteContainerLogText(site.Name)
+		logs := webSiteContainerLogText(site.ID)
 		if len(logs) == 0 {
 			w.WriteHeader(http.StatusNoContent)
 			return
