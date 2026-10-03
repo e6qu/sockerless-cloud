@@ -311,6 +311,13 @@ through hooks:
   database and took the simulator down thirteen times in thirteen minutes. A
   busy or locked database ends the sweep, which resumes next pass; a corrupt
   row still panics; `StartBackground` contains a panic in any worker.
+- **A stalled CLI call fails with the evidence.** One `aws` call in the CLI
+  suite hung until the test binary's timeout and left nothing but Go stacks.
+  `runCLI` now runs every call with `--debug` in a process group of its own,
+  bounded by 60 s or the test's deadline less 30 s; past the bound it reads the
+  simulator's `/debug/inflight` and goroutine profile on the suite's own
+  diagnostics port, kills the group, and fails with both and the tail of the
+  CLI's debug log. It never retries the call.
 - **A stopping simulator lets go of work in flight.** A deployed simulator
   waited out systemd's 90-second stop timeout because its Amazon ECS lifecycle
   steps, AWS Lambda event source mapping batches and asynchronous invocation
