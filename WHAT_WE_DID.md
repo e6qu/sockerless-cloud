@@ -369,6 +369,16 @@ through hooks:
   environment starts under its worker's, so a shutdown stops an image download
   instead of waiting it out. `TestSimulatorStopsWithLifecycleWorkInFlight_SDK`
   keeps a Live Tail session open across SIGTERM and still exits within 5 s.
+- **Work a request starts can outlive its caller but not the server.**
+  `sim.LifetimeContext` returns, from any request's context, the server's
+  background context, which only shutdown cancels; the server's outermost
+  handler stores it on every request it serves, through `ListenAndServe` and
+  `ServeHTTP` alike, and `Server.RequestContext` gives the same to a request a
+  service builds to call a handler in-process. It panics for a context no
+  server serves rather than answer with a context that either never ends or
+  ends with the caller. It
+  serves work like a synchronous AWS Lambda invocation, which real Lambda keeps
+  running after its caller hangs up.
 - **An image pull says why it pulled.** `pullImage` writes a `[sim-pull]` line
   when the held-image check fails, with the inspect error or the held and
   wanted platforms, and one per throttled retry with the attempt, the error
