@@ -30,7 +30,7 @@ type WorkerPoolV2 struct {
 	Description           string                      `json:"description,omitempty"`
 	CreateTime            string                      `json:"createTime,omitempty"`
 	UpdateTime            string                      `json:"updateTime,omitempty"`
-	LaunchStage           enumString                  `json:"launchStage,omitempty"`
+	LaunchStage           launchStageString           `json:"launchStage,omitempty"`
 	Client                string                      `json:"client,omitempty"`
 	ClientVersion         string                      `json:"clientVersion,omitempty"`
 	CustomAudiences       []string                    `json:"customAudiences,omitempty"`

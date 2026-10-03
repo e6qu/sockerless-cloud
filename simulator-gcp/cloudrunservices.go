@@ -13,6 +13,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
+	apipb "google.golang.org/genproto/googleapis/api"
 )
 
 // enumString accepts both proto-JSON enum encodings: the canonical
@@ -43,6 +44,44 @@ func (e *enumString) UnmarshalJSON(data []byte) error {
 }
 
 func (e enumString) MarshalJSON() ([]byte, error) {
+	if e == "" {
+		return []byte("null"), nil
+	}
+	return json.Marshal(string(e))
+}
+
+// launchStageString is a resource's launch stage. The REST transport of the
+// Go clients sends enums as their proto numbers, and a read has to answer
+// with the name the API declares, so a number maps through google.api's own
+// LaunchStage table.
+type launchStageString string
+
+func (e *launchStageString) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*e = ""
+		return nil
+	}
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		*e = launchStageString(s)
+		return nil
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 32)
+	if err != nil {
+		return fmt.Errorf("launch stage %s: %w", data, err)
+	}
+	name, ok := apipb.LaunchStage_name[int32(n)]
+	if !ok {
+		return fmt.Errorf("unknown launch stage enum %s", data)
+	}
+	*e = launchStageString(name)
+	return nil
+}
+
+func (e launchStageString) MarshalJSON() ([]byte, error) {
 	if e == "" {
 		return []byte("null"), nil
 	}
@@ -151,7 +190,7 @@ type ServiceV2 struct {
 	Description           string               `json:"description,omitempty"`
 	CreateTime            string               `json:"createTime,omitempty"`
 	UpdateTime            string               `json:"updateTime,omitempty"`
-	LaunchStage           enumString           `json:"launchStage,omitempty"`
+	LaunchStage           launchStageString    `json:"launchStage,omitempty"`
 	Client                string               `json:"client,omitempty"`
 	ClientVersion         string               `json:"clientVersion,omitempty"`
 	Ingress               ingressString        `json:"ingress,omitempty"`
@@ -276,7 +315,7 @@ type RevisionV2 struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 	CreateTime  string            `json:"createTime,omitempty"`
 	UpdateTime  string            `json:"updateTime,omitempty"`
-	LaunchStage enumString        `json:"launchStage,omitempty"`
+	LaunchStage launchStageString `json:"launchStage,omitempty"`
 	Service     string            `json:"service,omitempty"`
 	Scaling     *RevisionScaling  `json:"scaling,omitempty"`
 	VpcAccess   *VpcAccess        `json:"vpcAccess,omitempty"`

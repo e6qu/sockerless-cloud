@@ -25,7 +25,7 @@ type InstanceV2 struct {
 	Description                   string               `json:"description,omitempty"`
 	CreateTime                    string               `json:"createTime,omitempty"`
 	UpdateTime                    string               `json:"updateTime,omitempty"`
-	LaunchStage                   enumString           `json:"launchStage,omitempty"`
+	LaunchStage                   launchStageString    `json:"launchStage,omitempty"`
 	Ingress                       ingressString        `json:"ingress,omitempty"`
 	DefaultUriDisabled            bool                 `json:"defaultUriDisabled,omitempty"`
 	Containers                    []Container          `json:"containers,omitempty"`
