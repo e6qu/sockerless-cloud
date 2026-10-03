@@ -80,8 +80,8 @@ func (e *kqlError) body() map[string]any {
 }
 
 // writeKQLResult answers a query request with its tables or its error.
-func writeKQLResult(w http.ResponseWriter, workspaceID, query, timespan string) {
-	result, err := runKQLQuery(workspaceID, query, timespan)
+func writeKQLResult(w http.ResponseWriter, scope logScope, query, timespan string) {
+	result, err := runKQLQuery(scope, query, timespan)
 	if err != nil {
 		sim.WriteJSON(w, http.StatusBadRequest, err.body())
 		return
@@ -89,12 +89,12 @@ func writeKQLResult(w http.ResponseWriter, workspaceID, query, timespan string) 
 	sim.WriteJSON(w, http.StatusOK, result)
 }
 
-// runKQLQuery executes a KQL query against the workspace's stored log rows and
-// returns the QueryResults tabular shape. Both the POST and GET Log Analytics
+// runKQLQuery executes a KQL query against the rows in scope and returns the
+// QueryResults tabular shape. Both the POST and GET Log Analytics
 // query endpoints and each member of a $batch run through here. timespan is
 // the request's ISO 8601 interval, which bounds TimeGenerated before the query
 // runs.
-func runKQLQuery(workspaceID, query, timespan string) (QueryResponse, *kqlError) {
+func runKQLQuery(scope logScope, query, timespan string) (QueryResponse, *kqlError) {
 	now := time.Now().UTC()
 	var window *[2]time.Time
 	if timespan != "" {
@@ -109,7 +109,7 @@ func runKQLQuery(workspaceID, query, timespan string) (QueryResponse, *kqlError)
 	if err != nil {
 		return QueryResponse{}, err
 	}
-	columns, ok := kqlTableSchemas[parsed.table]
+	columns, ok := scope.tableSchema(parsed.table)
 	if !ok {
 		message := fmt.Sprintf("Failed to resolve table or column expression named '%s'", parsed.table)
 		if len(parsed.ops) > 0 {
@@ -118,10 +118,7 @@ func runKQLQuery(workspaceID, query, timespan string) (QueryResponse, *kqlError)
 		return QueryResponse{}, kqlSemanticError("SEM0100", message)
 	}
 
-	entries, _ := monitorLogs.Get(workspaceID + ":" + parsed.table)
-	if len(entries) == 0 {
-		entries, _ = monitorLogs.Get("default:" + parsed.table)
-	}
+	entries := scope.rows(parsed.table)
 	timeColumn := -1
 	for i, c := range columns {
 		if c.Name == "TimeGenerated" {
@@ -204,14 +201,9 @@ func parseQueryTimespan(s string, now time.Time) (time.Time, time.Time, bool) {
 	return time.Time{}, time.Time{}, false
 }
 
+// kqlTableSchemas are the Azure tables every workspace holds, with the
+// columns the simulator records.
 var kqlTableSchemas = map[string][]Column{
-	"ContainerAppConsoleLogs_CL": {
-		{Name: "TimeGenerated", Type: "datetime"},
-		{Name: "ContainerGroupName_s", Type: "string"},
-		{Name: "ContainerAppName_s", Type: "string"},
-		{Name: "Log_s", Type: "string"},
-		{Name: "Stream_s", Type: "string"},
-	},
 	"AppTraces": {
 		{Name: "TimeGenerated", Type: "datetime"},
 		{Name: "Message", Type: "string"},
@@ -262,6 +254,14 @@ func (row monitorLogRow) typedRow(columns []Column) []any {
 		case "long", "int":
 			if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
 				result[i] = n
+			}
+		case "bool":
+			if b, err := strconv.ParseBool(raw); err == nil {
+				result[i] = b
+			}
+		case "dynamic":
+			if raw != "" {
+				result[i] = kqlParseDynamic(raw)
 			}
 		}
 	}

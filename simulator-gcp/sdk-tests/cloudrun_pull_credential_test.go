@@ -25,6 +25,9 @@ func TestCloudRun_JobPullsItsImageFromArtifactRegistryAsTheServiceAgent(t *testi
 		project  = "ar-pull-project"
 		location = "us-central1"
 	)
+	// The service agent is named for the number Cloud Resource Manager holds
+	// for the project.
+	requireProject(t, project)
 	arCreateDockerHubRemoteRepository(t, project, location, "docker-hub")
 
 	// The registry serves the docker-hub remote repository's content from

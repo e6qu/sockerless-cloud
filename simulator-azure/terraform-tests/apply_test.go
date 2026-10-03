@@ -257,6 +257,14 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, azrmLAW, "/providers/Microsoft.OperationalInsights/workspaces/tf-azrm-law",
 		"azurerm Log Analytics workspace id must include canonical ARM path; got %s", azrmLAW)
 
+	azrmTable := outputs.must(t, "azrm_law_table_id")
+	require.Contains(t, azrmTable, "/workspaces/tf-azrm-law/tables/TfEvents_CL",
+		"azurerm custom log table id must name its workspace; got %s", azrmTable)
+	require.NotEmpty(t, outputs.must(t, "azrm_dce_logs_ingestion_endpoint"),
+		"a data collection endpoint reports its logs ingestion endpoint")
+	require.Regexp(t, `^dcr-[0-9a-f]{32}$`, outputs.must(t, "azrm_dcr_immutable_id"),
+		"a data collection rule reports the immutable id uploads name it by")
+
 	azrmAI := outputs.must(t, "azrm_appins_id")
 	require.Contains(t, azrmAI, "/providers/Microsoft.Insights/components/tf-azrm-ai",
 		"azurerm Application Insights id must include canonical ARM path; got %s", azrmAI)

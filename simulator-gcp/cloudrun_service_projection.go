@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -127,7 +128,7 @@ func cloudRunV2ToV1(service ServiceV2, project, serviceID string) CRService {
 			Metadata: &CRServiceMetadata{
 				Namespace:   project,
 				Labels:      service.Template.Labels,
-				Annotations: service.Template.Annotations,
+				Annotations: cloudRunFoldContainerDependencies(service.Template.Annotations, service.Template.Containers),
 			},
 			Spec: &CRTemplateSpec{Containers: containers, TimeoutSeconds: timeout},
 		}
@@ -194,7 +195,12 @@ func cloudRunV1ToV2(service CRService, project, location string) ServiceV2 {
 		template = &RevisionTemplate{Containers: containers, Timeout: timeout}
 		if service.Spec.Template.Metadata != nil {
 			template.Labels = service.Spec.Template.Metadata.Labels
-			template.Annotations = service.Spec.Template.Metadata.Annotations
+			annotations, err := cloudRunUnfoldContainerDependencies(service.Spec.Template.Metadata.Annotations, template.Containers)
+			if err != nil {
+				// cloudRunKnativeServiceValid refuses the service before it is stored.
+				panic(err)
+			}
+			template.Annotations = annotations
 		}
 	}
 	traffic := make([]TrafficTarget, 0, len(service.Spec.Traffic))
@@ -269,4 +275,34 @@ func deleteCloudRunServiceProjections(project, location, serviceID string) {
 	if store := gcpResourceIAMStore(); store != nil {
 		store.Delete(name)
 	}
+}
+
+// cloudRunKnativeServiceValid answers INVALID_ARGUMENT for a Knative service
+// whose container-dependencies annotation is malformed, names a container the
+// template does not define, or forms a cycle.
+func cloudRunKnativeServiceValid(w http.ResponseWriter, service CRService) bool {
+	template := service.Spec.Template
+	if template == nil || template.Spec == nil || template.Metadata == nil {
+		return true
+	}
+	containers := convertEach(template.Spec.Containers, cloudRunV1ContainerToV2)
+	if _, err := cloudRunUnfoldContainerDependencies(template.Metadata.Annotations, containers); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		return false
+	}
+	return cloudRunServiceTemplateValid(w, &RevisionTemplate{Containers: containers})
+}
+
+// cloudRunServiceTemplateValid answers INVALID_ARGUMENT for a revision
+// template whose containers' dependsOn name no container of the template or
+// form a cycle.
+func cloudRunServiceTemplateValid(w http.ResponseWriter, template *RevisionTemplate) bool {
+	if template == nil {
+		return true
+	}
+	if _, err := cloudRunContainerStartOrder(template.Containers); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		return false
+	}
+	return true
 }

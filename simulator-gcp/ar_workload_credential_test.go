@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
@@ -45,10 +44,16 @@ func TestWorkloadRegistryAuthIsTheServiceAgentsAccessToken(t *testing.T) {
 	t.Cleanup(func() { simListenAddr = previous })
 	arTestServer(t)
 
-	if got := workloadRegistryAuth("p", "alpine:3.20"); got != "" {
-		t.Errorf("a Docker Hub image is pulled anonymously, got %q", got)
+	if got, err := workloadRegistryAuth("p", "alpine:3.20"); err != nil || got != "" {
+		t.Errorf("a Docker Hub image is pulled anonymously, got %q, %v", got, err)
 	}
-	credential := workloadRegistryAuth("my-project", "us-central1-docker.pkg.dev/my-project/repo/app:1")
+	if _, err := workloadRegistryAuth("no-such-project", "us-central1-docker.pkg.dev/no-such-project/repo/app:1"); err == nil {
+		t.Error("a project Cloud Resource Manager does not hold has a Cloud Run service agent")
+	}
+	credential, err := workloadRegistryAuth("test-project", "us-central1-docker.pkg.dev/test-project/repo/app:1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	raw, err := base64.URLEncoding.DecodeString(credential)
 	if err != nil {
 		t.Fatalf("credential is not the engine's base64: %v", err)
@@ -67,12 +72,9 @@ func TestWorkloadRegistryAuthIsTheServiceAgentsAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the registry does not accept the token: %v", err)
 	}
-	want := "service-" + projectNumber("my-project") + "@serverless-robot-prod.iam.gserviceaccount.com"
+	const want = "service-735298346210@serverless-robot-prod.iam.gserviceaccount.com"
 	if principal.subject != want {
 		t.Errorf("token subject = %q, want the Cloud Run service agent %q", principal.subject, want)
-	}
-	if !strings.HasSuffix(cloudRunServiceAgent("my-project"), "@serverless-robot-prod.iam.gserviceaccount.com") {
-		t.Errorf("service agent = %q", cloudRunServiceAgent("my-project"))
 	}
 }
 

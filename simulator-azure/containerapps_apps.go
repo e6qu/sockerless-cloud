@@ -773,29 +773,29 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 	}
 	for replicaIndex := int32(0); replicaIndex < minReplicas; replicaIndex++ {
 		replica := newACAReplica(revision, names)
-		acaRecordSystemEvent(resourceID, app.Name, revision, replica.name, "AssigningReplica",
+		acaRecordSystemEvent(resourceID, envID, app.Name, revision, replica.name, "AssigningReplica",
 			fmt.Sprintf("Replica '%s' has been scheduled to run on a node.", replica.name))
 		main := acaAppContainer(resourceID, app, containers[0], replicaIndex, envID, metadataEnv)
 		main.Config.Network = netName
 		main.Config.NetworkAliases = netAliases
 		main.Config.ExtraHosts = workloadhost.ExtraHosts()
-		group, err := workload.StartGroup(ctx, main, nil, replica.containers[0].sink(app.Name))
+		group, err := workload.StartGroup(ctx, main, nil, replica.containers[0].sink(app, revision))
 		if err != nil {
 			cancelStarted()
 			return err
 		}
 		handles = append(handles, group.Main)
-		replica.containers[0].track(group.Main, resourceID, app.Name, revision, replica.name)
+		replica.containers[0].track(group.Main, resourceID, envID, app.Name, revision, replica.name)
 		for i, c := range containers[1:] {
 			sidecar := replica.containers[i+1]
 			started, err := workload.StartSidecars(ctx, group.Main.ContainerID,
-				[]workload.Container{acaAppContainer(resourceID, app, c, replicaIndex, envID, metadataEnv)}, sidecar.sink(app.Name))
+				[]workload.Container{acaAppContainer(resourceID, app, c, replicaIndex, envID, metadataEnv)}, sidecar.sink(app, revision))
 			if err != nil {
 				cancelStarted()
 				return err
 			}
 			handles = append(handles, started...)
-			sidecar.track(started[0], resourceID, app.Name, revision, replica.name)
+			sidecar.track(started[0], resourceID, envID, app.Name, revision, replica.name)
 		}
 		if d := containerAppDaprSpec(app); d != nil {
 			handle, err := startACAAppDaprSidecar(ctx, resourceID, app, d, replicaIndex, group.Main.ContainerID)
@@ -810,7 +810,6 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 	if len(handles) > 0 {
 		acaAppReplicas.Store(rev.ID, replicas)
 		replaceACAAppReplicas(rev.ID, handles, acaAppStopGrace(app))
-		injectContainerAppReplicaLog(app.Name, "Container app replica started")
 	}
 	return nil
 }
@@ -901,10 +900,16 @@ func replaceACAAppReplicas(revisionID string, handles []*sim.ContainerHandle, gr
 	}
 }
 
+// acaAppLogSink writes an app container's output to the
+// ContainerAppConsoleLogs_CL of the workspace the app's environment names.
 type acaAppLogSink struct {
-	appName string
+	app       ContainerApp
+	container string
 }
 
 func (s *acaAppLogSink) WriteLog(line sim.LogLine) {
-	injectContainerAppReplicaLog(s.appName, line.Text)
+	acaConsoleLog(acaAppEnvironmentID(s.app), s.app.ID, line, monitorLogRow{
+		"ContainerAppName_s": s.app.Name,
+		"ContainerName_s":    s.container,
+	})
 }

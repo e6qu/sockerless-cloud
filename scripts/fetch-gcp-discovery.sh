@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Vendor (or refresh) one Google API Discovery document into specs/cloud-api/gcp/.
+# Vendor (or refresh) one Google API Discovery document into specs/cloud-api/gcp/
+# and the copy simulator-gcp/discovery/ embeds.
 #
 # Discovery documents are the machine-readable source google.golang.org/api
 # clients are generated from. They are served live (not versioned in git), and
@@ -150,6 +151,10 @@ if [ -f "$DEST" ]; then
 fi
 
 gzip -9 -n -c "$best" > "$DEST"
+# The simulator embeds every vendored document it serves at
+# /$discovery/rest, and its test requires the copy to be byte-identical.
+mkdir -p "$ROOT/simulator-gcp/discovery"
+cp "$DEST" "$ROOT/simulator-gcp/discovery/"
 
 bash "$ROOT/scripts/spec-sources-row.sh" "$SOURCES" "gcp" \
   "${NAME}-${VERSION}.discovery.json.gz" "$UPSTREAM_HOST" "$UPSTREAM_PATH" \

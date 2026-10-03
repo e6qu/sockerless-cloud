@@ -95,5 +95,5 @@ func startACAAppDaprSidecar(ctx context.Context, resourceID string, app Containe
 		},
 		NetworkMode: "container:" + mainContainerID,
 		Sandbox:     SandboxACA,
-	}, &acaAppLogSink{appName: app.Name})
+	}, &acaAppLogSink{app: app, container: "daprd"})
 }

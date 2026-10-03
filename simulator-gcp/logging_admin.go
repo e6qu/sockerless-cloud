@@ -294,15 +294,27 @@ func handleLoggingScopeCreateSink(w http.ResponseWriter, r *http.Request) {
 		short = sim.NewUUID()
 	}
 	sink.Name = parent + "/sinks/" + short
-	if sink.WriterIdentity == "" {
-		if loggingUniqueWriter(r, sink) {
-			sink.WriterIdentity = fmt.Sprintf("serviceAccount:service-%s@gcp-sa-logging.iam.gserviceaccount.com", short)
-		} else {
-			sink.WriterIdentity = "serviceAccount:cloud-logs@gcp-sa-logging.iam.gserviceaccount.com"
-		}
+	if !loggingScopeWriterIdentity(w, parent, &sink) {
+		return
 	}
 	logSinks.Put(sink.Name, sink)
 	sim.WriteJSON(w, http.StatusOK, loggingScopeSinkResponse(parent, sink))
+}
+
+// loggingScopeWriterIdentity sets the writer identity of a sink a folder,
+// organization or billing account owns: the container's Cloud Logging service
+// agent, which every sink of a non-project parent writes as.
+func loggingScopeWriterIdentity(w http.ResponseWriter, parent string, sink *LoggingSink) bool {
+	if sink.WriterIdentity != "" {
+		return true
+	}
+	agent, ok := loggingServiceAgent(parent)
+	if !ok {
+		crmProjectPermissionDenied(w)
+		return false
+	}
+	sink.WriterIdentity = "serviceAccount:" + agent
+	return true
 }
 
 func handleLoggingScopeListSinks(w http.ResponseWriter, r *http.Request) {
@@ -344,12 +356,8 @@ func handleLoggingScopeUpdateSink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sink.Name = key
-	if sink.WriterIdentity == "" {
-		if loggingUniqueWriter(r, sink) {
-			sink.WriterIdentity = fmt.Sprintf("serviceAccount:service-%s@gcp-sa-logging.iam.gserviceaccount.com", sim.PathParam(r, "sink"))
-		} else {
-			sink.WriterIdentity = "serviceAccount:cloud-logs@gcp-sa-logging.iam.gserviceaccount.com"
-		}
+	if !loggingScopeWriterIdentity(w, parent, &sink) {
+		return
 	}
 	logSinks.Put(key, sink)
 	sim.WriteJSON(w, http.StatusOK, loggingScopeSinkResponse(parent, sink))
@@ -463,51 +471,66 @@ func handleLoggingDeleteLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingGetSettings(w http.ResponseWriter, r *http.Request) {
-	name := loggingScopeParent(r) + "/settings"
-	s, ok := logSettings.Get(name)
+	parent := loggingScopeParent(r)
+	agent, ok := loggingServiceAgent(parent)
 	if !ok {
-		s = LoggingSettings{
-			Name:                    name,
-			LoggingServiceAccountId: "serviceAccount:logging@gcp-sa-logging.iam.gserviceaccount.com",
-		}
+		crmProjectPermissionDenied(w)
+		return
 	}
+	name := parent + "/settings"
+	s, _ := logSettings.Get(name)
 	s.Name = name
+	s.LoggingServiceAccountId, s.KmsServiceAccountId = agent, agent
 	sim.WriteJSON(w, http.StatusOK, s)
 }
 
 func handleLoggingUpdateSettings(w http.ResponseWriter, r *http.Request) {
-	name := loggingScopeParent(r) + "/settings"
+	parent := loggingScopeParent(r)
+	agent, ok := loggingServiceAgent(parent)
+	if !ok {
+		crmProjectPermissionDenied(w)
+		return
+	}
+	name := parent + "/settings"
 	var s LoggingSettings
 	if err := sim.ReadJSON(r, &s); err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid settings: %v", err)
 		return
 	}
 	s.Name = name
-	if s.LoggingServiceAccountId == "" {
-		s.LoggingServiceAccountId = "serviceAccount:logging@gcp-sa-logging.iam.gserviceaccount.com"
-	}
+	s.LoggingServiceAccountId, s.KmsServiceAccountId = agent, agent
 	logSettings.Put(name, s)
 	sim.WriteJSON(w, http.StatusOK, s)
 }
 
 func handleLoggingGetCmekSettings(w http.ResponseWriter, r *http.Request) {
-	name := loggingScopeParent(r) + "/cmekSettings"
+	parent := loggingScopeParent(r)
+	agent, ok := loggingServiceAgent(parent)
+	if !ok {
+		crmProjectPermissionDenied(w)
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"name":             name,
-		"serviceAccountId": "serviceAccount:cmek@gcp-sa-logging.iam.gserviceaccount.com",
+		"name":             parent + "/cmekSettings",
+		"serviceAccountId": agent,
 	})
 }
 
 func handleLoggingUpdateCmekSettings(w http.ResponseWriter, r *http.Request) {
-	name := loggingScopeParent(r) + "/cmekSettings"
+	parent := loggingScopeParent(r)
+	agent, ok := loggingServiceAgent(parent)
+	if !ok {
+		crmProjectPermissionDenied(w)
+		return
+	}
 	var body map[string]any
 	if err := sim.ReadJSON(r, &body); err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid cmekSettings: %v", err)
 		return
 	}
 	resp := map[string]any{
-		"name":             name,
-		"serviceAccountId": "serviceAccount:cmek@gcp-sa-logging.iam.gserviceaccount.com",
+		"name":             parent + "/cmekSettings",
+		"serviceAccountId": agent,
 	}
 	if v, ok := body["kmsKeyName"].(string); ok && v != "" {
 		resp["kmsKeyName"] = v

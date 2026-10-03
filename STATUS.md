@@ -60,8 +60,11 @@ Current state of the sockerless-cloud repository.
   declared 501; the gRPC surfaces serve 213 of 216 methods, the three unserved
   each needing state the simulator does not hold.
   Every gRPC service is crossed against its REST door.
-- **Azure**: 2,628 of 2,628 Swagger operations across 120 documents, App
-  Service's 692 included.
+- **Azure**: 2,653 of 2,660 Swagger operations across 122 documents, App
+  Service's 692 included. The seven others answer a declared 501: the six
+  data collection rule association operations, as the simulator runs no
+  Azure Monitor Agent, and a table's search-job cancellation, as it runs no
+  search jobs.
 - **Both ratchets refuse phantom coverage**: a served method must be answered
   by a route naming its literal path segments, and the routes that legitimately
   dispatch inside a handler are listed with the reason each one does. Every
@@ -152,8 +155,12 @@ Current state of the sockerless-cloud repository.
 - **Uploads past 5 MiB take the resumable path from the vendor CLIs too**:
   `gcloud storage cp`, `gcloud artifacts generic upload`,
   `gcloud artifacts files upload` and `bq load` are tested over it. BigQuery
-  serves its Discovery document, which `bq` builds its client from, and
   answers REST errors with BigQuery's `errors[]` reasons.
+- **Every implemented API serves its Discovery document** at
+  `GET /$discovery/rest?version=…` under its own host (regional and mTLS hosts
+  too), byte-identical to the vendored one. A bare address:port answers a
+  version one implemented API publishes and `v2` with BigQuery's, which `bq`
+  builds its client from.
 - **A bucket belongs to a project Cloud Resource Manager holds.**
   `buckets.insert` resolves its project by ID or number, refuses an unknown one
   with `400 Unknown project id`, and stamps the project's own number;
@@ -161,6 +168,24 @@ Current state of the sockerless-cloud repository.
   `service-{projectNumber}@gs-project-accounts.iam.gserviceaccount.com`, the
   identity the notification check evaluates, so gcloud's and Terraform's
   notification flows grant publish to the agent Cloud Storage checks.
+- **Every identity a service names for a project carries the number Cloud
+  Resource Manager holds.** Cloud DNS `projects.get`, Cloud Build's default
+  service account (`{number}@cloudbuild.gserviceaccount.com`, also the
+  identity a build's docker steps pull and push as), the Cloud Run service
+  agent (`service-{number}@serverless-robot-prod…`), Compute Engine's
+  `projects.get` (`id` and `{number}-compute@developer.gserviceaccount.com`),
+  BigQuery's `bq-{number}@bigquery-encryption…` and Cloud Logging's
+  `service-{number}@gcp-sa-logging…` (settings, CMEK settings and unique writer
+  identities) resolve the project by ID or number and refuse one that does not
+  exist with the service's own error; build creation refuses it too.
+- **A Cloud Run service instance starts its containers in `dependsOn`
+  order**, as a job task does: the first to start owns the network namespace
+  and publishes the ingress port, and each other container starts once those
+  it depends on have started and passed their startup probes. The Knative
+  surface carries the dependencies in the revision template's
+  `run.googleapis.com/container-dependencies` annotation (`gcloud run deploy
+  --depends-on`), and a create or update whose `dependsOn` names no container
+  or forms a cycle answers INVALID_ARGUMENT.
 - **A Cloud Storage volume mount writes back as Cloud Storage FUSE does.**
   A Cloud Run job task or service instance binds the bucket's host directory
   (or its `only-dir` directory) into the container, read-only when the volume
@@ -188,11 +213,20 @@ Current state of the sockerless-cloud repository.
   On, with every request on the site's hostname forwarded to it; the host
   reads no consumer-named setting and nothing from an image reference's
   spelling.
-- **A web app's SCM site serves Kudu's deployment API** at the Repository
+- **Azure Monitor logs land where something names the workspace.** A
+  Container Apps environment's `appLogsConfiguration`, a site's Application
+  Insights connection, and a data collection rule's Log Analytics destination
+  (through the Logs Ingestion API and the rule's `transformKql`) route rows to
+  one workspace, whose queries read only its own rows; workspace tables, data
+  collection rules and endpoints are served.
+- **A web app's SCM site serves Kudu's deployment and WebJobs APIs** at the Repository
   hostname it reports: zip deploy and OneDeploy, authenticated with the
   publishing credentials or a Microsoft Entra token, land the artifact
   through the placement the Azure Resource Manager deployments use, restart
-  the site and track its start in deploymentStatus.
+  the site and track its start in deploymentStatus, as the Azure Resource
+  Manager MSDeploy and OneDeploy operations do; its WebJobs API lists,
+  places, runs, starts, stops and deletes the jobs the Microsoft.Web webjob
+  resources read.
 - **A Cloud Run service is served at its run.app URL**: a request whose Host
   is the service's `uri` host reaches the ingress container once its startup
   probes (the configured `startupProbe`, or Cloud Run's default TCP probe)

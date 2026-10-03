@@ -522,6 +522,61 @@ resource "azurerm_log_analytics_workspace" "az_law" {
   retention_in_days   = 30
 }
 
+# A custom log table in the workspace, which the data collection rule below
+# writes through the Logs Ingestion API.
+resource "azurerm_log_analytics_workspace_table_custom_log" "az_law_table" {
+  name         = "TfEvents_CL"
+  workspace_id = azurerm_log_analytics_workspace.az_law.id
+
+  column {
+    name = "TimeGenerated"
+    type = "dateTime"
+  }
+  column {
+    name = "Message"
+    type = "string"
+  }
+}
+
+resource "azurerm_monitor_data_collection_endpoint" "az_dce" {
+  name                = "tf-azrm-dce"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  location            = azurerm_resource_group.az_rg.location
+}
+
+resource "azurerm_monitor_data_collection_rule" "az_dcr" {
+  name                        = "tf-azrm-dcr"
+  resource_group_name         = azurerm_resource_group.az_rg.name
+  location                    = azurerm_resource_group.az_rg.location
+  data_collection_endpoint_id = azurerm_monitor_data_collection_endpoint.az_dce.id
+
+  destinations {
+    log_analytics {
+      name                  = "law"
+      workspace_resource_id = azurerm_log_analytics_workspace.az_law.id
+    }
+  }
+
+  data_flow {
+    streams       = ["Custom-TfEventsRaw"]
+    destinations  = ["law"]
+    transform_kql = "source | extend TimeGenerated = todatetime(Time) | project TimeGenerated, Message"
+    output_stream = "Custom-${azurerm_log_analytics_workspace_table_custom_log.az_law_table.name}"
+  }
+
+  stream_declaration {
+    stream_name = "Custom-TfEventsRaw"
+    column {
+      name = "Time"
+      type = "string"
+    }
+    column {
+      name = "Message"
+      type = "string"
+    }
+  }
+}
+
 # Application Insights — observability companion to Container Apps.
 resource "azurerm_application_insights" "az_appins" {
   name                = "tf-azrm-ai"
@@ -1556,6 +1611,18 @@ output "azrm_cosmosdb_table_id" {
 
 output "azrm_law_id" {
   value = azurerm_log_analytics_workspace.az_law.id
+}
+
+output "azrm_law_table_id" {
+  value = azurerm_log_analytics_workspace_table_custom_log.az_law_table.id
+}
+
+output "azrm_dce_logs_ingestion_endpoint" {
+  value = azurerm_monitor_data_collection_endpoint.az_dce.logs_ingestion_endpoint
+}
+
+output "azrm_dcr_immutable_id" {
+  value = azurerm_monitor_data_collection_rule.az_dcr.immutable_id
 }
 
 output "azrm_appins_id" {

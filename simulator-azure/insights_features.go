@@ -114,7 +114,8 @@ func registerInsightsFeatures(srv *sim.Server, armBase string,
 	srv.HandleFunc("GET "+armBase+"/components/{componentName}/quotastatus",
 		func(w http.ResponseWriter, r *http.Request) {
 			held := features(r)
-			appID := sim.PathParam(r, "componentName")
+			component, _ := azureAppInsightsComponents.Get(billingKey(r))
+			appID := component.Properties.AppID
 			throttled := insightsIngestedGB(appID) > held.DataVolumeCap.Cap
 			status := map[string]any{
 				"AppId":             appID,

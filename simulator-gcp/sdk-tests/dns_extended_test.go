@@ -1,11 +1,14 @@
 package gcp_sdk_test
 
 import (
+	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/dns/v1"
+	"google.golang.org/api/googleapi"
 )
 
 // TestDNS_PolicyCRUD round-trips a Cloud DNS server Policy (create/get/list/
@@ -261,13 +264,22 @@ func TestDNS_ManagedZonePatchAndOperations(t *testing.T) {
 	assert.Equal(t, "ops-zone", gotOp.ZoneContext.NewValue.Name)
 }
 
-// TestDNS_GetProject reads the Cloud DNS Project resource (quota/number).
+// TestDNS_GetProject reads the Cloud DNS Project resource: the project's ID
+// and the number Cloud Resource Manager holds, by either, with its quotas.
 func TestDNS_GetProject(t *testing.T) {
 	svc := dnsService(t)
-	proj, err := svc.Projects.Get("test-project").Do()
-	require.NoError(t, err)
-	assert.Equal(t, "test-project", proj.Id)
-	assert.NotEmpty(t, proj.Number)
-	require.NotNil(t, proj.Quota)
-	assert.Greater(t, proj.Quota.ManagedZones, int64(0))
+	number := requireProject(t, "test-project")
+	for _, ref := range []string{"test-project", number} {
+		proj, err := svc.Projects.Get(ref).Do()
+		require.NoError(t, err)
+		assert.Equal(t, "test-project", proj.Id)
+		assert.Equal(t, number, strconv.FormatUint(proj.Number, 10))
+		require.NotNil(t, proj.Quota)
+		assert.Greater(t, proj.Quota.ManagedZones, int64(0))
+	}
+
+	_, err := svc.Projects.Get("dns-project-absent").Do()
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.Code)
 }

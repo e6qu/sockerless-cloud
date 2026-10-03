@@ -101,7 +101,11 @@ func (e kuduCLIEnv) command(args ...string) *exec.Cmd {
 	return cmd
 }
 
-func TestWebAppKudu_NativeAzDeployAndConfigZip(t *testing.T) {
+// kuduCLIWebApp starts a TLS simulator, logs the CLI in to it through the
+// loopback proxy, and creates a NODE:20-lts web app, returning the CLI and
+// the SCM host the app reports.
+func kuduCLIWebApp(t *testing.T, rg, plan, app string) (kuduCLIEnv, string) {
+	t.Helper()
 	env := startAzTLSSimulator(t)
 	port := env.baseURL[strings.LastIndex(env.baseURL, ":")+1:]
 	az := kuduCLIEnv{azLoginEnv: env, proxy: startLoopbackProxy(t, port)}
@@ -115,15 +119,14 @@ func TestWebAppKudu_NativeAzDeployAndConfigZip(t *testing.T) {
 	runCLI(t, az.command("login", "--service-principal",
 		"-u", "test-client-id", "-p", "test-client-secret",
 		"--tenant", azLoginTenantID, "--allow-no-subscriptions"))
-	defer runCLI(t, az.command("logout"))
+	t.Cleanup(func() { runCLI(t, az.command("logout")) })
 
-	rg, plan, app := "kudu-cli-rg", "kudu-cli-plan", "kudu-cli-app"
 	runCLI(t, az.command("group", "create", "-n", rg, "-l", "eastus", "-o", "json"))
 	runCLI(t, az.command("appservice", "plan", "create", "-g", rg, "-n", plan,
 		"--is-linux", "--sku", "B1", "-o", "json"))
 	runCLI(t, az.command("webapp", "create", "-g", rg, "-p", plan, "-n", app,
 		"--runtime", "NODE:20-lts", "-o", "json"))
-	defer runCLI(t, az.command("webapp", "delete", "-g", rg, "-n", app))
+	t.Cleanup(func() { runCLI(t, az.command("webapp", "delete", "-g", rg, "-n", app)) })
 
 	// az webapp show prints the site's properties flattened.
 	var site struct {
@@ -140,6 +143,13 @@ func TestWebAppKudu_NativeAzDeployAndConfigZip(t *testing.T) {
 		}
 	}
 	assert.Equal(t, app+".scm.localhost:"+port, scmHost, "the SCM site is advertised at the simulator's coordinate")
+	return az, scmHost
+}
+
+func TestWebAppKudu_NativeAzDeployAndConfigZip(t *testing.T) {
+	rg, app := "kudu-cli-rg", "kudu-cli-app"
+	az, _ := kuduCLIWebApp(t, rg, "kudu-cli-plan", app)
+	env := az.azLoginEnv
 
 	dir := t.TempDir()
 	writeZip := func(name string, files map[string]string) string {

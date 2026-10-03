@@ -23,7 +23,7 @@ func TestContainerApps_JobArithmetic(t *testing.T) {
 	kql := `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "arith-aca-job"`
 	var result queryResponse
 	require.Eventually(t, func() bool {
-		result = queryWorkspace(t, "default", kql)
+		result = queryWorkspace(t, acaLogsCustomerID(t), kql)
 		if len(result.Tables) != 1 {
 			return false
 		}
@@ -82,7 +82,7 @@ func TestContainerApps_JobArithmeticLogs(t *testing.T) {
 
 	var allLogs string
 	require.Eventually(t, func() bool {
-		result := queryWorkspace(t, "default", kql)
+		result := queryWorkspace(t, acaLogsCustomerID(t), kql)
 		if len(result.Tables) != 1 {
 			return false
 		}

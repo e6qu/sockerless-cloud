@@ -163,7 +163,7 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 	case errors.Is(err, context.DeadlineExceeded):
 		cloudRunFrontEndError(w, http.StatusGatewayTimeout, "upstream request timeout")
 	default:
-		if !sim.ContainerRunning(inst.containerID) {
+		if !inst.ingressRunning() {
 			deleteCloudRunServiceInstanceIf(svc.Name, inst)
 		}
 		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance did not answer: %v", err)))

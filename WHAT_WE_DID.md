@@ -453,7 +453,47 @@ through hooks:
   service does — alone and per member of a `$batch`. An unknown table had been
   read with the Container Apps console schema; the Application Insights tables
   got their own schemas instead. The request's `timespan` bounds
-  `TimeGenerated` before the query runs.
+  `TimeGenerated` before the query runs. The engine also reads `dynamic`
+  values — `parse_json`/`todynamic`, property and element access
+  (`d.name`, `d["name"]`, `d[i]`), `array_length`, and `tostring` back to
+  JSON text — and `bool` and `dynamic` columns.
+- **A workspace reads only its own rows, and rows arrive only where something
+  names the workspace.** Every Container Apps line, App Service trace and
+  Logs Ingestion upload had landed under one `default` key that a query of
+  any workspace id read through, and the upload chose its table by which
+  fields a row populated. A workspace keeps its rows under its customer id,
+  and a query names a workspace that exists (404 `WorkspaceNotFoundError`
+  otherwise) and resolves its table against that workspace's tables. Rows
+  arrive by three routes. A Container Apps environment whose
+  `appLogsConfiguration` names a workspace has its containers' output written
+  to that workspace's `ContainerAppConsoleLogs_CL` and the platform's events —
+  the app's replica events, a job's execution start, completion, failure and
+  stop — to `ContainerAppSystemLogs_CL`, the two classic custom log tables the
+  link creates; the console holds nothing the platform said. A site connected
+  to an Application Insights component by `APPLICATIONINSIGHTS_CONNECTION_STRING`
+  or `APPINSIGHTS_INSTRUMENTATIONKEY` has its container output written to the
+  component's `AppTraces`: in the workspace a workspace-based component names,
+  or in a classic component's own store; the site's docker log, which
+  `containerlogs` serves, keeps every line whatever the site is connected to.
+  A Logs Ingestion upload names a data collection rule by its immutable id
+  and a stream the rule declares; each data flow carrying the stream runs its
+  `transformKql` through the query engine and writes the result to its
+  `outputStream` table in each Log Analytics destination. The rules and
+  endpoints are served as `Microsoft.Insights/dataCollectionRules` and
+  `dataCollectionEndpoints`, and a rule is refused (`InvalidPayload`) when a
+  destination workspace, its output table or its endpoint does not exist,
+  the output table is still classic, or the transform does not bind or writes
+  a column the table lacks. A workspace's tables are served as
+  `Microsoft.OperationalInsights/workspaces/tables`: the Azure tables every
+  workspace holds, custom log tables a customer creates (`_CL`, with a
+  `TimeGenerated` datetime column), retention and plan, and `migrate` of a
+  classic table onto data collection rules. A resource-centric query reads a
+  workspace, a component's telemetry, or the rows of every workspace whose
+  `_ResourceId` lies at or under the queried scope; an Application Insights
+  app-id query reads its component's rows. A component's `AppId` is the
+  unique id the data plane addresses it by, and `ApplicationId` mirrors its
+  name, as the specification says; the simulator had put the id in
+  `ApplicationId`.
 - **A proxy's bound comes from the resource, and idle is not a deadline.**
   The Application Load Balancer data plane had bounded every request at a
   fixed 30 seconds and Container Apps ingress at ten minutes. `lbplane` keeps
@@ -656,11 +696,33 @@ deployment 409. Each deployment is a Kudu record — `/api/deployments`, `/lates
 that goes `BuildInProgress`, `RuntimeStarting`, then `RuntimeSuccessful` once
 the restarted site answers the platform's warmup request, or `RuntimeFailed`
 naming why it did not start, which is what the Azure CLI polls after a Linux
-deployment. `WEBSITE_RUN_FROM_PACKAGE=1` makes each zip deployment the whole of
+deployment. The Azure Resource Manager MSDeploy and OneDeploy operations
+settle their deploymentStatus the same way: they had reported
+`RuntimeSuccessful` the moment the package unpacked, so a function app with no
+image reported a runtime that never started; they now hand the restart to the
+same tracker (and a package that fails to land reports `BuildFailed`), and the
+tests asserting `RuntimeSuccessful` deploy to sites that run — a built-in-stack
+web app, or a container site whose command answers HTTP. Once the build phase
+ends the status stops naming the operation's Azure-AsyncOperation URL, so a
+poller follows the status itself to the runtime outcome rather than the
+finished build. `WEBSITE_RUN_FROM_PACKAGE=1` makes each zip deployment the whole of
 wwwroot, mounted read-only. The CLI suite reaches the `.localhost` SCM host
 through an HTTPS proxy the test runs, the CLI analogue of the SDK suite's
 dialer: the commands and their requests are the ones a real deployment sends.
-Because the SCM site sits behind a handler wrapper, every store read a Kudu
+The SCM site also serves Kudu's WebJobs API over the webjob records the
+Microsoft.Web webjob resources read, where it had answered the `url` and
+`history_url` those resources advertise with 501: `/api/webjobs`,
+`/api/triggeredwebjobs` and `/api/continuouswebjobs` list and get jobs in
+Kudu's own spelling (`run_command`, `type`, `latest_run`, `settings`); a PUT
+places a job — a zip, or one run file named by `Content-Disposition` — under
+`App_Data/jobs` and rediscovers the site's jobs, a DELETE removes its files
+and with them the job; a triggered run answers 202 with its history entry as
+`Location`, passes `arguments` to the run file's command line and as
+`WEBJOBS_COMMAND_ARGUMENTS`, records `External - <user agent>` as its trigger,
+and answers 409 while the job already runs or `WEBJOBS_STOPPED` is set;
+`settings` reads and writes the job's `settings.job`; start and stop drive the
+continuous job's container. The advertised URLs carry the scheme the request
+came in on, so they resolve. Because the SCM site sits behind a handler wrapper, every store read a Kudu
 deployment reaches answers from a generation index — a site's Kudu
 deployments, webjobs and host-name bindings, and a webjob's runs — instead of
 a full-store scan.
@@ -1015,6 +1077,16 @@ byte-identical to the vendored one, at `/$discovery/rest?version=v2`; and
 BigQuery's REST errors carry the `errors[]` entry (`reason`, `domain`,
 `message`) whose `notFound` reason is how `bq mk` learns a dataset is absent.
 
+Every API the simulator implements serves its own Discovery document, the way
+Google's APIs do: `GET /$discovery/rest?version=…` under the API's host. The
+simulator embeds each vendored document (`simulator-gcp/discovery/`, copied by
+`scripts/fetch-gcp-discovery.sh` and held byte-identical by a test) and indexes
+them by the service label of each document's `rootUrl` and its version, so the
+regional and mTLS hosts reach the same document through `gcpServiceFromHost`.
+A bare address:port names no API, so it serves a version only one implemented
+API publishes, and `v2` stays BigQuery's for `bq`; `v1`, which most publish,
+answers 404 rather than a guess.
+
 Every resumable path Discovery declares is served. The conformance loader and
 the response validator index `mediaUpload.protocols.resumable.path` beside the
 simple path, so the `/resumable/upload/...` routes are checked as Discovery
@@ -1209,6 +1281,32 @@ identity and checked another. gcloud and Terraform name the topic by its
 relative name (`projects/{p}/topics/{t}`), so the insert accepts it and stores
 the full `//pubsub.googleapis.com/` name. Tests create their buckets in
 projects Cloud Resource Manager holds.
+
+A Cloud Run service instance starts its containers through the job path's
+ordering (`cloudRunContainerStartOrder`): the first container in that order
+owns the network namespace and publishes the ingress port, whichever container
+it is, and the others start in the background, each once its dependencies have
+started and passed their startup probes. The ingress container always runs a
+startup probe (Cloud Run's default TCP probe when it configures none), and the
+request that started the instance waits for every probe. Starting the ingress
+first and every sidecar at once let an ingress that needs its sidecar at start
+up exit before the sidecar listened. The Knative service surface folds
+`dependsOn` into the revision template's container-dependencies annotation and
+back, as the job surface does. Worker pools still run nothing (row 3311).
+
+A project has one number, the one Cloud Resource Manager assigned. Cloud DNS,
+Cloud Build, Cloud Run's service agent, Compute Engine, BigQuery and Cloud
+Logging each resolve the project through `crmProjectNumber` and name their
+identities for that number; a number hashed from the project ID gave each
+service a plausible answer of its own, so a client that read the number from
+Resource Manager and the agent from another service named an identity nobody
+recognised. A project that does not exist (or is pending deletion) is refused
+with each service's own error: 403 `PERMISSION_DENIED` for Cloud DNS, Cloud
+Build and Cloud Logging, 404 for Compute Engine and BigQuery. Compute Engine
+addresses the project by ID or number and keys its record by the ID. Tests
+create their projects in Cloud Resource Manager before using them. The Cloud
+Build push test reads the pushed manifest accepting the OCI image index a
+BuildKit build pushes, which the registry otherwise answers 404.
 
 An object store is read by key or key prefix. Reading one whole costs every
 byte every bucket holds, and the store-scan gate could not see it because it

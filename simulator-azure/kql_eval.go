@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"regexp"
@@ -95,6 +96,26 @@ func (b *kqlBinder) compile(e kqlExpr) (kqlCompiled, *kqlError) {
 		return b.compileBetween(e)
 	case kqlCall:
 		return b.compileCall(e)
+	case kqlMember:
+		x, err := b.compile(e.x)
+		if err != nil {
+			return kqlCompiled{}, err
+		}
+		if x.typ != "dynamic" {
+			return kqlCompiled{}, kqlSemanticError("", fmt.Sprintf(
+				"'%s' operator: a property or element is read only from a dynamic value, got %s", b.op, x.typ))
+		}
+		key, err := b.compile(e.key)
+		if err != nil {
+			return kqlCompiled{}, err
+		}
+		if key.typ != "string" && key.typ != "int" && key.typ != "long" {
+			return kqlCompiled{}, kqlSemanticError("", fmt.Sprintf(
+				"'%s' operator: a dynamic value is indexed by a string or an integer, got %s", b.op, key.typ))
+		}
+		return kqlCompiled{typ: "dynamic", eval: func(row []any) any {
+			return kqlDynamicMember(x.eval(row), key.eval(row))
+		}}, nil
 	}
 	return kqlCompiled{}, kqlSyntaxError(b.src, e.position(), "")
 }
@@ -561,6 +582,33 @@ func (b *kqlBinder) compileCall(e kqlCall) (kqlCompiled, *kqlError) {
 		})
 	case "tostring":
 		return unary("string", func(v any) any { return kqlToString(v) })
+	case "parse_json", "todynamic":
+		if err := arity(1, 1); err != nil {
+			return kqlCompiled{}, err
+		}
+		if err := wantType(0, "string", "dynamic"); err != nil {
+			return kqlCompiled{}, err
+		}
+		return unary("dynamic", func(v any) any {
+			s, ok := v.(string)
+			if !ok {
+				return v
+			}
+			return kqlParseDynamic(s)
+		})
+	case "array_length":
+		if err := arity(1, 1); err != nil {
+			return kqlCompiled{}, err
+		}
+		if err := wantType(0, "dynamic"); err != nil {
+			return kqlCompiled{}, err
+		}
+		return unary("long", func(v any) any {
+			if a, ok := v.([]any); ok {
+				return int64(len(a))
+			}
+			return nil
+		})
 	case "toint", "tolong":
 		typ := "long"
 		if e.name == "toint" {
@@ -852,8 +900,79 @@ func kqlToString(v any) string {
 		return v.UTC().Format(time.RFC3339Nano)
 	case time.Duration:
 		return kqlFormatTimespan(v)
+	case map[string]any, []any:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		return string(b)
 	}
 	return fmt.Sprint(v)
+}
+
+// kqlParseDynamic reads JSON text as a dynamic value. Text that is not JSON
+// stays the string it is, as parse_json leaves it.
+func kqlParseDynamic(s string) any {
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil || dec.More() {
+		return s
+	}
+	return kqlDynamicFromJSON(v)
+}
+
+// kqlDynamicFromJSON turns decoded JSON into the engine's dynamic value:
+// integers are longs and other numbers reals.
+func kqlDynamicFromJSON(v any) any {
+	switch v := v.(type) {
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			return n
+		}
+		if f, err := v.Float64(); err == nil {
+			return f
+		}
+		return v.String()
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for k, e := range v {
+			out[k] = kqlDynamicFromJSON(e)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, e := range v {
+			out[i] = kqlDynamicFromJSON(e)
+		}
+		return out
+	case float64:
+		if v == float64(int64(v)) {
+			return int64(v)
+		}
+	}
+	return v
+}
+
+// kqlDynamicMember reads a property of a dynamic bag or an element of a
+// dynamic array; a negative index counts from the end. Anything else is null.
+func kqlDynamicMember(v, key any) any {
+	switch v := v.(type) {
+	case map[string]any:
+		if k, ok := key.(string); ok {
+			return v[k]
+		}
+	case []any:
+		if i, ok := key.(int64); ok {
+			if i < 0 {
+				i += int64(len(v))
+			}
+			if i >= 0 && i < int64(len(v)) {
+				return v[i]
+			}
+		}
+	}
+	return nil
 }
 
 // kqlFormatTimespan writes a timespan the way Kusto does: [-][d.]hh:mm:ss[.fffffff].
@@ -886,7 +1005,7 @@ func kqlFormatTimespan(d time.Duration) string {
 // for a cell of the given column type.
 func kqlRenderValue(v any) any {
 	switch v := v.(type) {
-	case time.Time, time.Duration:
+	case time.Time, time.Duration, map[string]any, []any:
 		return kqlToString(v)
 	case float64:
 		if math.IsNaN(v) || math.IsInf(v, 0) {

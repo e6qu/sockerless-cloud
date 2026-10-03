@@ -228,7 +228,7 @@ func startSidecarContainers(ctx context.Context, site *Site, mainContainerID str
 	}
 	handles, err := workload.StartSidecars(ctx, mainContainerID, members, sink)
 	if err != nil {
-		injectAppTrace(site.Name, fmt.Sprintf("sitecontainers: %v", err))
+		injectSiteTrace(site, fmt.Sprintf("sitecontainers: %v", err))
 		return nil, err
 	}
 	return handles, nil

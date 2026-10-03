@@ -44,6 +44,10 @@ func registerInsightsDataPlane(srv *sim.Server) {
 	// Query_Execute and Query_Get — the same engine Log Analytics queries with,
 	// addressed by app id instead of workspace id.
 	srv.HandleFunc("POST /v1/apps/{appId}/query", func(w http.ResponseWriter, r *http.Request) {
+		scope, ok := insightsAppScope(w, r)
+		if !ok {
+			return
+		}
 		var req QueryRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
 			AzureError(w, "BadArgumentError",
@@ -54,15 +58,19 @@ func registerInsightsDataPlane(srv *sim.Server) {
 			AzureError(w, "BadArgumentError", "The 'query' property is required.", http.StatusBadRequest)
 			return
 		}
-		writeKQLResult(w, sim.PathParam(r, "appId"), req.Query, req.Timespan)
+		writeKQLResult(w, scope, req.Query, req.Timespan)
 	})
 	srv.HandleFunc("GET /v1/apps/{appId}/query", func(w http.ResponseWriter, r *http.Request) {
+		scope, ok := insightsAppScope(w, r)
+		if !ok {
+			return
+		}
 		query := r.URL.Query().Get("query")
 		if query == "" {
 			AzureError(w, "BadArgumentError", "The 'query' parameter is required.", http.StatusBadRequest)
 			return
 		}
-		writeKQLResult(w, sim.PathParam(r, "appId"), query, r.URL.Query().Get("timespan"))
+		writeKQLResult(w, scope, query, r.URL.Query().Get("timespan"))
 	})
 
 	// Metadata_Get and Metadata_Post — the schema the application's telemetry
@@ -95,6 +103,18 @@ func registerInsightsDataPlane(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/apps/{appId}/metrics", insightsGetMetrics)
 }
 
+// insightsAppScope resolves the component a request addresses by app id.
+func insightsAppScope(w http.ResponseWriter, r *http.Request) (logScope, bool) {
+	scope, ok := appLogScope(sim.PathParam(r, "appId"))
+	if !ok {
+		sim.WriteJSON(w, http.StatusNotFound, map[string]any{"error": map[string]any{
+			"code":    "PathNotFoundError",
+			"message": "The requested path does not exist",
+		}})
+	}
+	return scope, ok
+}
+
 // insightsEventRows reads the telemetry rows behind one event type. `$all`
 // spans every type, which is what makes it the one type with no table of its
 // own.
@@ -116,7 +136,11 @@ func insightsEventRows(appID, eventType string) ([]map[string]any, bool) {
 	if !ok {
 		return nil, false
 	}
-	result, err := runKQLQuery(appID, table, "")
+	scope, found := appLogScope(appID)
+	if !found {
+		return nil, true
+	}
+	result, err := runKQLQuery(scope, table, "")
 	if err != nil {
 		return nil, false
 	}

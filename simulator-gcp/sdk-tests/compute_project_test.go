@@ -1,11 +1,14 @@
 package gcp_sdk_test
 
 import (
+	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	compute "google.golang.org/api/compute/v1"
+	"google.golang.org/api/googleapi"
 )
 
 // The Compute Engine project resource, the verbs that write it, and Shared VPC.
@@ -13,12 +16,24 @@ import (
 func TestCompute_ProjectDefaultsAndSetVerbs(t *testing.T) {
 	svc := computeService(t)
 	const project = "project-verbs"
+	number := requireProject(t, project)
 
-	// A project is not created through Compute Engine, so a read before any
-	// write is the defaults rather than a 404.
+	// A project is not created through Compute Engine: a read of a project
+	// Cloud Resource Manager holds before any write is the defaults, named
+	// for the project's number, whichever of its ID or number it addresses.
 	got, err := svc.Projects.Get(project).Do()
 	require.NoError(t, err)
 	assert.Equal(t, project, got.Name)
+	assert.Equal(t, number, strconv.FormatUint(got.Id, 10))
+	assert.Equal(t, number+"-compute@developer.gserviceaccount.com", got.DefaultServiceAccount)
+	byNumber, err := svc.Projects.Get(number).Do()
+	require.NoError(t, err)
+	assert.Equal(t, project, byNumber.Name)
+
+	_, err = svc.Projects.Get("project-verbs-absent").Do()
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Code)
 	assert.Equal(t, "PREMIUM", got.DefaultNetworkTier)
 	assert.Equal(t, "CA_STANDARD", got.CloudArmorTier)
 
@@ -45,6 +60,7 @@ func TestCompute_ProjectDefaultsAndSetVerbs(t *testing.T) {
 func TestCompute_ProjectCommonMetadataAndUsageExport(t *testing.T) {
 	svc := computeService(t)
 	const project = "project-metadata"
+	requireProject(t, project)
 
 	_, err := svc.Projects.SetCommonInstanceMetadata(project, &compute.Metadata{
 		Items: []*compute.MetadataItems{{Key: "ssh-keys", Value: stringPtr("ops:ssh-rsa AAAA")}},
@@ -79,6 +95,8 @@ func TestCompute_ProjectCommonMetadataAndUsageExport(t *testing.T) {
 func TestCompute_SharedVPCHostAndServiceProjects(t *testing.T) {
 	svc := computeService(t)
 	const host, service = "xpn-host", "xpn-service"
+	requireProject(t, host)
+	requireProject(t, service)
 
 	// Attaching a service project to a project that is not a host is refused.
 	_, err := svc.Projects.EnableXpnResource(host, &compute.ProjectsEnableXpnResourceRequest{
@@ -207,3 +225,53 @@ func TestCompute_MoveInstanceBetweenZones(t *testing.T) {
 }
 
 func stringPtr(s string) *string { return &s }
+
+// Every Compute Engine project verb addresses a Cloud Resource Manager
+// project, by ID or by number, and answers not-found for a project that does
+// not exist.
+func TestCompute_ProjectVerbsResolveThroughResourceManager(t *testing.T) {
+	svc := computeService(t)
+	const host, service, absent = "xpn-by-number-host", "xpn-by-number-service", "xpn-project-absent"
+	hostNumber := requireProject(t, host)
+	requireProject(t, service)
+
+	_, err := svc.Projects.EnableXpnHost(hostNumber).Do()
+	require.NoError(t, err)
+	_, err = svc.Projects.EnableXpnResource(hostNumber, &compute.ProjectsEnableXpnResourceRequest{
+		XpnResource: &compute.XpnResourceId{Id: service, Type: "PROJECT"},
+	}).Do()
+	require.NoError(t, err)
+	borrowed, err := svc.Projects.GetXpnHost(service).Do()
+	require.NoError(t, err)
+	assert.Equal(t, host, borrowed.Name, "the host is recorded under its project ID whichever way it was addressed")
+	hosts, err := svc.Projects.ListXpnHosts(service, &compute.ProjectsListXpnHostsRequest{}).Do()
+	require.NoError(t, err)
+	var names []string
+	for _, h := range hosts.Items {
+		names = append(names, h.Name)
+	}
+	assert.Contains(t, names, host)
+	_, err = svc.Projects.DisableXpnResource(host, &compute.ProjectsDisableXpnResourceRequest{
+		XpnResource: &compute.XpnResourceId{Id: service, Type: "PROJECT"},
+	}).Do()
+	require.NoError(t, err)
+	_, err = svc.Projects.DisableXpnHost(hostNumber).Do()
+	require.NoError(t, err)
+
+	notFound := func(call string, err error) {
+		t.Helper()
+		var apiErr *googleapi.Error
+		require.ErrorAsf(t, err, &apiErr, "%s on a project that does not exist", call)
+		assert.Equalf(t, http.StatusNotFound, apiErr.Code, "%s on a project that does not exist", call)
+	}
+	_, err = svc.Projects.SetCommonInstanceMetadata(absent, &compute.Metadata{}).Do()
+	notFound("SetCommonInstanceMetadata", err)
+	_, err = svc.Projects.SetUsageExportBucket(absent, &compute.UsageExportLocation{}).Do()
+	notFound("SetUsageExportBucket", err)
+	_, err = svc.Projects.EnableXpnHost(absent).Do()
+	notFound("EnableXpnHost", err)
+	_, err = svc.Projects.GetXpnHost(absent).Do()
+	notFound("GetXpnHost", err)
+	_, err = svc.Projects.GetXpnResources(absent).Do()
+	notFound("GetXpnResources", err)
+}

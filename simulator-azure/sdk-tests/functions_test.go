@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/applicationinsights/armapplicationinsights"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -122,26 +123,36 @@ func azureSiteRequest(t *testing.T, siteName, method, path, body string) (int, [
 	return resp.StatusCode, respBody
 }
 
-// appTraceMessages returns the Message column of a site's AppTraces rows.
-func appTraceMessages(t *testing.T, siteName string) []string {
+// siteContainerLog reads the site's retained container output through
+// WebApps_GetWebSiteContainerLogs.
+func siteContainerLog(t *testing.T, rg, name string) string {
 	t.Helper()
-	result := queryWorkspace(t, "default", `AppTraces | where AppRoleName == "`+siteName+`"`)
-	require.Len(t, result.Tables, 1)
-	table := result.Tables[0]
-	msgIdx := -1
-	for i, col := range table.Columns {
-		if col.Name == "Message" {
-			msgIdx = i
-		}
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	resp, err := client.GetWebSiteContainerLogs(ctx, rg, name, nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	text, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return string(text)
+}
+
+// createAppInsightsComponent creates an Application Insights component,
+// workspace-based when workspaceID names a workspace.
+func createAppInsightsComponent(t *testing.T, rg, name, workspaceID string) armapplicationinsights.Component {
+	t.Helper()
+	ensureRG(t, rg)
+	client, err := armapplicationinsights.NewComponentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	props := &armapplicationinsights.ComponentProperties{ApplicationType: to.Ptr(armapplicationinsights.ApplicationTypeWeb)}
+	if workspaceID != "" {
+		props.WorkspaceResourceID = to.Ptr(workspaceID)
 	}
-	require.GreaterOrEqual(t, msgIdx, 0, "Message column not found")
-	var out []string
-	for _, row := range table.Rows {
-		if msg, ok := row[msgIdx].(string); ok {
-			out = append(out, msg)
-		}
-	}
-	return out
+	resp, err := client.CreateOrUpdate(ctx, rg, name, armapplicationinsights.Component{
+		Location: to.Ptr("eastus"), Kind: to.Ptr("web"), Properties: props,
+	}, nil)
+	require.NoError(t, err)
+	return resp.Component
 }
 
 // The startup command (siteConfig.appCommandLine) is the container's command,
@@ -208,27 +219,40 @@ func TestAzureFunctions_ContainerThatExitsFailsTheSiteStart(t *testing.T) {
 	status, body := azureInvokeFunctionResponse(t, name)
 	assert.Equal(t, http.StatusServiceUnavailable, status, "body: %s", body)
 	assert.Contains(t, string(body), "exited before it answered on port 80")
-	assert.Contains(t, appTraceMessages(t, name), "site-start-output")
+	assert.Contains(t, siteContainerLog(t, rg, name), "site-start-output")
 }
 
-// What the site's container writes to stdout reaches the site's AppTraces.
-func TestAzureFunctions_ContainerOutputReachesAppTraces(t *testing.T) {
+// What the site's container writes to stdout reaches the AppTraces of the
+// Application Insights component its connection string names, in the
+// workspace that component names, and no other workspace.
+func TestAzureFunctions_ContainerOutputReachesTheConnectedComponent(t *testing.T) {
 	rg, name := "func-out-rg", "out-func-app"
-	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 real-azure-output", nil)
+	ws := createLogWorkspace(t, rg, "func-out-ws")
+	other := createLogWorkspace(t, rg, "func-out-other-ws")
+	component := createAppInsightsComponent(t, rg, "func-out-insights", ws.id)
+	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 real-azure-output", map[string]string{
+		"APPLICATIONINSIGHTS_CONNECTION_STRING": *component.Properties.ConnectionString,
+	})
 	defer azureDeleteSite(rg, name)
 
 	azureInvokeFunction(t, name)
 
 	// The engine's log stream delivers the line after the response; App
-	// Service offers no event for its arrival, so read the log until it does.
+	// Service offers no event for its arrival, so read the table until it does.
+	query := `AppTraces | where AppRoleName == "` + name + `" and Message == "POST /api/function" | project Message`
 	require.Eventually(t, func() bool {
-		for _, msg := range appTraceMessages(t, name) {
-			if msg == "POST /api/function" {
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 200*time.Millisecond, "the container's access-log line should reach AppTraces")
+		return len(queryWorkspace(t, ws.customerID, query).Tables[0].Rows) > 0
+	}, 30*time.Second, 200*time.Millisecond, "the container's access-log line should reach the component's workspace")
+
+	assert.Empty(t, queryWorkspace(t, other.customerID, query).Tables[0].Rows,
+		"a workspace nothing names holds none of the site's traces")
+	byApp := insightsRead(t, http.MethodPost, "/v1/apps/"+*component.Properties.AppID+"/query",
+		`{"query":"AppTraces | where AppRoleName == \"`+name+`\" | project Message"}`)
+	tables, _ := byApp["tables"].([]any)
+	require.NotEmpty(t, tables)
+	rows, _ := tables[0].(map[string]any)["rows"].([]any)
+	assert.NotEmpty(t, rows, "the component's app id reads its traces from its workspace")
+	assert.Contains(t, siteContainerLog(t, rg, name), "POST /api/function", "the site's own log keeps the line too")
 }
 
 func TestAzureFunctions_DefaultHostNameReachability(t *testing.T) {

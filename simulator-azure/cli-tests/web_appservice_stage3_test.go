@@ -350,7 +350,17 @@ func TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth(t *testing.T) {
 	}
 	parseJSON(t, runCLI(t, azRest("GET", sub("deploymentStatus"), "")), &statuses)
 	require.Len(t, statuses.Value, 1)
-	assert.Equal(t, "RuntimeSuccessful", statuses.Value[0].Properties.Status)
+	// The status follows the site's restart: RuntimeStarting until the
+	// app's container answers the platform's warmup request.
+	stage3AwaitCLI(t, func() (string, bool) {
+		var one struct {
+			Properties struct {
+				Status string `json:"status"`
+			} `json:"properties"`
+		}
+		parseJSON(t, runCLI(t, azRest("GET", sub("deploymentStatus/"+statuses.Value[0].Properties.DeploymentID), "")), &one)
+		return one.Properties.Status, one.Properties.Status != "RuntimeStarting"
+	}, "OneDeploy runtime status")
 	oneStatus := runCLI(t, azRest("GET", sub("deploymentStatus/"+statuses.Value[0].Properties.DeploymentID), ""))
 	assert.Contains(t, oneStatus, "RuntimeSuccessful")
 

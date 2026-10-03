@@ -497,7 +497,12 @@ func loggingMetricRequestKey(project, metric string) string {
 	return loggingMetricKey(project, metric)
 }
 
-func normalizeLoggingSink(project string, sink LoggingSink, uniqueWriter bool) LoggingSink {
+// normalizeLoggingSink names the sink under its project and sets its writer
+// identity: the project's Cloud Logging service agent for a unique writer
+// identity, otherwise the identity Cloud Logging wrote with before writer
+// identities existed. It reports false for a project Cloud Resource Manager
+// does not hold.
+func normalizeLoggingSink(project string, sink LoggingSink, uniqueWriter bool) (LoggingSink, bool) {
 	short := strings.TrimPrefix(sink.Name, fmt.Sprintf("projects/%s/sinks/", project))
 	if short == "" {
 		short = sim.NewUUID()
@@ -505,15 +510,42 @@ func normalizeLoggingSink(project string, sink LoggingSink, uniqueWriter bool) L
 	sink.Name = loggingSinkKey(project, short)
 	if sink.WriterIdentity == "" {
 		if uniqueWriter {
-			// uniqueWriterIdentity=true: real Cloud Logging mints a dedicated
-			// per-sink service account so two sinks never share a writer
-			// identity (terraform-provider-google's unique_writer_identity).
-			sink.WriterIdentity = fmt.Sprintf("serviceAccount:service-%s@gcp-sa-logging.iam.gserviceaccount.com", short)
+			agent, ok := loggingServiceAgent("projects/" + project)
+			if !ok {
+				return sink, false
+			}
+			sink.WriterIdentity = "serviceAccount:" + agent
 		} else {
 			sink.WriterIdentity = fmt.Sprintf("serviceAccount:cloud-logs@%s.iam.gserviceaccount.com", project)
 		}
 	}
-	return sink
+	return sink, true
+}
+
+// loggingServiceAgent is the Cloud Logging service agent of a resource
+// container, the identity its sinks with a unique writer identity write as:
+// service-PROJECT_NUMBER@gcp-sa-logging.iam.gserviceaccount.com for a
+// project, named for the number Cloud Resource Manager holds, and the
+// service-org-, service-folder- and service-billing- agents of the other
+// containers. It reports false for a project that does not exist.
+func loggingServiceAgent(parent string) (string, bool) {
+	collection, id, _ := strings.Cut(parent, "/")
+	const domain = "@gcp-sa-logging.iam.gserviceaccount.com"
+	switch collection {
+	case "projects":
+		number, ok := crmProjectNumber(id)
+		if !ok {
+			return "", false
+		}
+		return "service-" + number + domain, true
+	case "organizations":
+		return "service-org-" + id + domain, true
+	case "folders":
+		return "service-folder-" + id + domain, true
+	case "billingAccounts":
+		return "service-billing-" + id + domain, true
+	}
+	return "", false
 }
 
 // loggingUniqueWriter reads the uniqueWriterIdentity request flag, which real
@@ -555,7 +587,11 @@ func handleCreateLoggingSink(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid sink body: %v", err)
 		return
 	}
-	sink = normalizeLoggingSink(project, sink, loggingUniqueWriter(r, sink))
+	sink, ok := normalizeLoggingSink(project, sink, loggingUniqueWriter(r, sink))
+	if !ok {
+		crmProjectPermissionDenied(w)
+		return
+	}
 	logSinks.Put(sink.Name, sink)
 	sim.WriteJSON(w, http.StatusOK, loggingSinkResponse(project, sink))
 }
@@ -600,7 +636,11 @@ func handleUpdateLoggingSink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sink.Name = key
-	sink = normalizeLoggingSink(project, sink, loggingUniqueWriter(r, sink))
+	sink, ok := normalizeLoggingSink(project, sink, loggingUniqueWriter(r, sink))
+	if !ok {
+		crmProjectPermissionDenied(w)
+		return
+	}
 	logSinks.Put(key, sink)
 	sim.WriteJSON(w, http.StatusOK, loggingSinkResponse(project, sink))
 }

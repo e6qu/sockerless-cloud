@@ -17,8 +17,14 @@ func withKQLRows(t *testing.T, table string, rows ...monitorLogRow) {
 	saved := monitorLogs
 	monitorLogs = sim.MakeStore[[]monitorLogRow](nil, "kql_test_logs")
 	t.Cleanup(func() { monitorLogs = saved })
-	monitorLogs.Put("default:"+table, rows)
+	monitorLogs.Put(appLogRowsKey(kqlTestApp, table), rows)
 }
+
+// kqlTestApp is the classic Application Insights component the engine tests
+// read: its store holds exactly the rows withKQLRows installs.
+const kqlTestApp = "kql-test-app"
+
+var kqlTestScope = logScope{appID: kqlTestApp}
 
 func kqlTraces(t *testing.T) {
 	withKQLRows(t, "AppTraces",
@@ -31,7 +37,7 @@ func kqlTraces(t *testing.T) {
 
 func mustQuery(t *testing.T, query string) Table {
 	t.Helper()
-	result, err := runKQLQuery("default", query, "")
+	result, err := runKQLQuery(kqlTestScope, query, "")
 	if err != nil {
 		t.Fatalf("query %q failed: %v", query, err.body())
 	}
@@ -150,13 +156,13 @@ func TestKQL_TabularOperators(t *testing.T) {
 
 func TestKQL_TimespanBoundsTheRows(t *testing.T) {
 	kqlTraces(t)
-	result, err := runKQLQuery("default", "AppTraces | project Message", "2026-01-01T00:05:00Z/PT1H")
+	result, err := runKQLQuery(kqlTestScope, "AppTraces | project Message", "2026-01-01T00:05:00Z/PT1H")
 	if err != nil {
 		t.Fatal(err.body())
 	}
 	assertValues(t, columnValues(t, result.Tables[0], "Message"), "an error: disk full", "Errors counted")
 
-	if _, err := runKQLQuery("default", "AppTraces", "yesterday"); err == nil || err.kind != "" {
+	if _, err := runKQLQuery(kqlTestScope, "AppTraces", "yesterday"); err == nil || err.kind != "" {
 		t.Fatalf("an unreadable timespan must be refused as a bad argument, got %v", err)
 	}
 }
@@ -182,7 +188,7 @@ func TestKQL_RefusesWhatItCannotRun(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.query, func(t *testing.T) {
-			_, err := runKQLQuery("default", tc.query, "")
+			_, err := runKQLQuery(kqlTestScope, tc.query, "")
 			if err == nil {
 				t.Fatalf("query was answered, want a %s", tc.kind)
 			}
@@ -196,7 +202,7 @@ func TestKQL_RefusesWhatItCannotRun(t *testing.T) {
 func TestKQL_SyntaxErrorResponseShape(t *testing.T) {
 	kqlTraces(t)
 	recorder := httptest.NewRecorder()
-	writeKQLResult(recorder, "default", "AppTraces\n| where Message == \"x\" or", "")
+	writeKQLResult(recorder, kqlTestScope, "AppTraces\n| where Message == \"x\" or", "")
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d", recorder.Code)
 	}
@@ -267,5 +273,29 @@ func TestKQL_HasHonoursNonASCIITerms(t *testing.T) {
 	assertValues(t, columnValues(t, mustQuery(t, `AppTraces | where Message has "café"`), "Message"), "Ärger über café")
 	if rows := mustQuery(t, `AppTraces | where Message has "rger"`).Rows; len(rows) != 0 {
 		t.Fatalf("has matched inside a term: %v", rows)
+	}
+}
+
+// A dynamic value is read by property and element, measured, and written back
+// as JSON text.
+func TestKQL_DynamicValues(t *testing.T) {
+	withKQLRows(t, "AppTraces",
+		monitorLogRow{"TimeGenerated": "2026-01-01T00:00:00Z", "AppRoleName": "json", "Message": `{"kind":"build","steps":[1,2,3]}`},
+		monitorLogRow{"TimeGenerated": "2026-01-01T00:01:00Z", "AppRoleName": "json", "Message": "not json"},
+	)
+	table := mustQuery(t, `AppTraces
+| extend D = parse_json(Message)
+| project Kind = tostring(D.kind), Steps = array_length(D.steps), Last = tolong(D.steps[-1]), Second = tolong(D["steps"][1]), Raw = tostring(D)`)
+	assertValues(t, columnValues(t, table, "Kind"), "build", "")
+	assertValues(t, columnValues(t, table, "Steps"), int64(3), nil)
+	assertValues(t, columnValues(t, table, "Last"), int64(3), nil)
+	assertValues(t, columnValues(t, table, "Second"), int64(2), nil)
+	assertValues(t, columnValues(t, table, "Raw"), `{"kind":"build","steps":[1,2,3]}`, "not json")
+
+	table = mustQuery(t, `AppTraces | extend D = todynamic(Message) | where tostring(D.kind) == "build" | project D`)
+	assertValues(t, columnValues(t, table, "D"), `{"kind":"build","steps":[1,2,3]}`)
+
+	if _, err := runKQLQuery(kqlTestScope, `AppTraces | extend K = Message.kind`, ""); err == nil || err.kind != "SemanticError" {
+		t.Fatalf("a property of a string must be refused, got %v", err)
 	}
 }

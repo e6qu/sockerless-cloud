@@ -112,10 +112,11 @@ func TestContainerAppsApps_CLI_PatchMergeSemantics(t *testing.T) {
 func TestContainerAppsApps_CLI_StartsRealReplicaAndLogs(t *testing.T) {
 	appName := "cli-exec-app"
 	appURL := acaURL("containerApps/" + appName)
+	envID, customerID := cliLogsEnvironment(t)
 	body := fmt.Sprintf(`{
 		"location": "eastus",
 		"properties": {
-			"environmentId": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/sim-env",
+			"environmentId": %q,
 			"template": {
 				"containers": [{
 					"name": "main",
@@ -125,7 +126,7 @@ func TestContainerAppsApps_CLI_StartsRealReplicaAndLogs(t *testing.T) {
 				"scale": { "minReplicas": 1, "maxReplicas": 1 }
 			}
 		}
-	}`, evalImageName)
+	}`, envID, evalImageName)
 	runCLI(t, azRest("PUT", appURL, body))
 	defer runCLI(t, azRest("DELETE", appURL, ""))
 
@@ -140,6 +141,13 @@ func TestContainerAppsApps_CLI_StartsRealReplicaAndLogs(t *testing.T) {
 	lines := waitForContainerAppLogLine(t, "ContainerAppName_s", appName, "54", 60*time.Second)
 	assert.Contains(t, lines, "54",
 		"the replica evaluates 9 * 6 and prints the result; its console lines were %q", lines)
+
+	// The platform's own events about the replica are system logs, apart
+	// from what the container printed.
+	system := cliQueryWorkspace(t, customerID,
+		`ContainerAppSystemLogs_CL | where ContainerAppName_s == "`+appName+`" and Reason_s == "ContainerStarted" | project Log_s`)
+	assert.Contains(t, system, "Started container 'main'")
+	assert.NotContains(t, lines, "Container app replica started", "the console holds only what the containers printed")
 }
 
 // TestContainerAppsApps_CLI_ConfigurationRoundTrip drives every

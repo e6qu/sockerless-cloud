@@ -63,17 +63,33 @@ func TestFunctionApp_CreateAndShow(t *testing.T) {
 
 // TestFunctionApp_CLI_InvokeReachesTheContainer invokes a function app that
 // runs a container image through its hostname: the container answers, and its
-// access-log line for the request reaches the app's AppTraces.
+// access-log line for the request reaches the AppTraces of the Application
+// Insights component its connection string names, in that component's
+// workspace.
 func TestFunctionApp_CLI_InvokeReachesTheContainer(t *testing.T) {
+	wsID, customerID := cliLogWorkspace(t, "cli-invoke-ws")
+	var component struct {
+		Properties struct {
+			ConnectionString string `json:"ConnectionString"`
+		} `json:"properties"`
+	}
+	parseJSON(t, runCLI(t, azRest("PUT", insightsURL("components/cli-invoke-insights"), fmt.Sprintf(
+		`{"location":"eastus","kind":"web","properties":{"Application_Type":"web","WorkspaceResourceId":%q}}`, wsID))), &component)
+	require.NotEmpty(t, component.Properties.ConnectionString)
+
 	url := funcURL("sites/cli-invoke-funcapp")
 	body := fmt.Sprintf(`{
 		"location": "eastus",
 		"kind": "functionapp,linux,container",
 		"properties": {
 			"serverFarmId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/cli-test-rg/providers/Microsoft.Web/serverfarms/invoke-plan",
-			"siteConfig": {"linuxFxVersion": "DOCKER|%s", "appCommandLine": "serve 80 cli-invoked"}
+			"siteConfig": {
+				"linuxFxVersion": "DOCKER|%s",
+				"appCommandLine": "serve 80 cli-invoked",
+				"appSettings": [{"name": "APPLICATIONINSIGHTS_CONNECTION_STRING", "value": %q}]
+			}
 		}
-	}`, commandImageName)
+	}`, commandImageName, component.Properties.ConnectionString)
 	runCLI(t, azRest("PUT", url, body))
 	defer runCLI(t, azRest("DELETE", url, ""))
 
@@ -86,11 +102,9 @@ func TestFunctionApp_CLI_InvokeReachesTheContainer(t *testing.T) {
 
 	// The engine's log stream delivers the container's line after the
 	// response, and App Service offers no event for its arrival, so read the
-	// log until it does.
-	queryURL := baseURL + "/v1/workspaces/default/query"
-	kqlBody := `{"query": "AppTraces | where AppRoleName == \"cli-invoke-funcapp\""}`
+	// table until it does.
 	deadline := time.Now().Add(30 * time.Second)
-	for !strings.Contains(runCLI(t, azRest("POST", queryURL, kqlBody)), "POST /api/function") {
+	for !strings.Contains(cliQueryWorkspace(t, customerID, `AppTraces | where AppRoleName == "cli-invoke-funcapp"`), "POST /api/function") {
 		require.True(t, time.Now().Before(deadline), "the container's access-log line should reach AppTraces")
 		time.Sleep(200 * time.Millisecond)
 	}

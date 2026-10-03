@@ -58,19 +58,31 @@ func insightsRead(t *testing.T, method, path string, body string) map[string]any
 // the query, the events and the metrics of the same data plane. All three move
 // when it writes, because all three read the one store.
 func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
-	app, role := uniqueName("insights-dataplane-app"), uniqueName("insights-dataplane-role")
-	stamp := time.Now().UTC().Format(time.RFC3339)
-	// The application's own telemetry, tagged with a role nothing else writes
-	// so the reads below can be held to exactly these rows.
-	ingestLogs(t, []map[string]any{
-		{"TimeGenerated": stamp, "Message": "first trace", "AppRoleName": role},
-		{"TimeGenerated": stamp, "Message": "second trace", "AppRoleName": role},
+	rg, site := "insights-dataplane-rg", "insights-dataplane-site"
+	// A classic component keeps the telemetry of the site connected to it.
+	component := createAppInsightsComponent(t, rg, "insights-dataplane-app", "")
+	app, role := *component.Properties.AppID, site
+	azureCreateContainerSite(t, rg, site, commandImageName, "serve 80 traced", map[string]string{
+		"APPLICATIONINSIGHTS_CONNECTION_STRING": *component.Properties.ConnectionString,
 	})
+	defer azureDeleteSite(rg, site)
+	azureInvokeFunction(t, site)
+	azureInvokeFunction(t, site)
+	// The engine's log stream delivers each access-log line after its
+	// response, and Application Insights offers no event for its arrival.
+	require.Eventually(t, func() bool {
+		queried := insightsRead(t, http.MethodPost, "/v1/apps/"+app+"/query",
+			`{"query":"AppTraces | where AppRoleName == \"`+role+`\" and Message == \"POST /api/function\""}`)
+		tables, _ := queried["tables"].([]any)
+		first, _ := tables[0].(map[string]any)
+		rows, _ := first["rows"].([]any)
+		return len(rows) == 2
+	}, 30*time.Second, 200*time.Millisecond, "both requests' traces reach the component")
 
 	// The query runs the KQL it is given rather than answering a fixed shape —
 	// which is what it used to do, ignoring the query entirely.
 	queried := insightsRead(t, http.MethodPost, "/v1/apps/"+app+"/query",
-		`{"query":"AppTraces | where AppRoleName == \"`+role+`\" | take 10"}`)
+		`{"query":"AppTraces | where AppRoleName == \"`+role+`\" and Message == \"POST /api/function\" | take 10"}`)
 	tables, _ := queried["tables"].([]any)
 	require.NotEmpty(t, tables, "the query answers from the application's own telemetry")
 	first, _ := tables[0].(map[string]any)
@@ -175,24 +187,35 @@ func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
 }
 
 // The same query, addressed by the Azure resource whose logs are being read
-// rather than by the workspace they land in.
+// rather than by the workspace they land in: a workspace-based component's
+// traces carry its resource id.
 func TestSDK_LogAnalytics_QueryByResourceID(t *testing.T) {
-	resourceID := "/subscriptions/" + subscriptionID +
-		"/resourceGroups/query-by-resource-rg/providers/Microsoft.Web/sites/queried-site"
-	stamp := time.Now().UTC().Format(time.RFC3339)
-	ingestLogs(t, []map[string]any{
-		{"TimeGenerated": stamp, "Message": "resource-scoped line", "AppRoleName": "resource-scoped"},
+	rg, site := "query-by-resource-rg", "query-by-resource-site"
+	ws := createLogWorkspace(t, rg, "query-by-resource-ws")
+	component := createAppInsightsComponent(t, rg, "query-by-resource-app", ws.id)
+	azureCreateContainerSite(t, rg, site, commandImageName, "serve 80 resource-scoped", map[string]string{
+		"APPINSIGHTS_INSTRUMENTATIONKEY": *component.Properties.InstrumentationKey,
 	})
+	defer azureDeleteSite(rg, site)
+	azureInvokeFunction(t, site)
 
 	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
 	require.NoError(t, err)
-	resp, err := client.QueryResource(ctx, resourceID, azquery.Body{
-		Query: to.Ptr(`AppTraces | where AppRoleName == "resource-scoped" | take 10`),
-	}, nil)
+	query := azquery.Body{Query: to.Ptr(`AppTraces | where AppRoleName == "` + site + `" | take 10`)}
+	// The engine's log stream delivers the line after the response, and
+	// Log Analytics offers no event for its arrival.
+	require.Eventually(t, func() bool {
+		resp, err := client.QueryResource(ctx, *component.ID, query, nil)
+		require.NoError(t, err)
+		return len(resp.Tables[0].Rows) > 0
+	}, 30*time.Second, 200*time.Millisecond, "the component's traces come back when it is queried by resource id")
+
+	byGroup, err := client.QueryResource(ctx, "/subscriptions/"+subscriptionID+"/resourceGroups/"+rg, query, nil)
 	require.NoError(t, err)
-	require.NotEmpty(t, resp.Tables)
-	require.NotEmpty(t, resp.Tables[0].Rows,
-		"the resource's own logs come back when it is queried by resource id")
+	assert.NotEmpty(t, byGroup.Tables[0].Rows, "a resource group's query reads the rows of the resources in it")
+	elsewhere, err := client.QueryResource(ctx, "/subscriptions/"+subscriptionID+"/resourceGroups/query-by-resource-other-rg", query, nil)
+	require.NoError(t, err)
+	assert.Empty(t, elsewhere.Tables[0].Rows, "another resource group's query reads none of them")
 }
 
 // The instance metadata service attests the instance it is asked on, and names
@@ -250,7 +273,7 @@ func TestSDK_InstanceMetadata_AttestationAndIdentity(t *testing.T) {
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{resourceName}/quotastatus
 func TestSDK_ApplicationInsights_FeaturesAndPricing(t *testing.T) {
 	rg, component := "insights-features-rg", uniqueName("insights-features-component")
-	ensureRG(t, rg)
+	createAppInsightsComponent(t, rg, component, "")
 
 	base := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +
 		"/providers/Microsoft.Insights/components/" + component
@@ -292,7 +315,11 @@ func TestSDK_ApplicationInsights_FeaturesAndPricing(t *testing.T) {
 
 	// A component under its cap is not throttled.
 	status := insightsRead(t, http.MethodGet, base+"/quotastatus?api-version=2015-05-01", "")
-	assert.Equal(t, component, status["AppId"])
+	created := insightsRead(t, http.MethodGet, base+"?api-version=2020-02-02", "")
+	props, _ := created["properties"].(map[string]any)
+	require.NotEmpty(t, props["AppId"])
+	assert.Equal(t, props["AppId"], status["AppId"], "the quota status names the component by its app id")
+	assert.Equal(t, component, props["ApplicationId"], "ApplicationId mirrors the component's name")
 	assert.Equal(t, false, status["ShouldBeThrottled"])
 	assert.NotContains(t, status, "ExpirationTime",
 		"a component that is not throttled has no throttle to expire")

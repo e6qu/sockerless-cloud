@@ -133,6 +133,11 @@ func startCloudRunJobContainers(ctx context.Context, execID, execShort string, t
 	members := make([]workload.Container, len(containers))
 	var writable []string
 	for i, c := range containers {
+		image := sim.ResolveLocalImage(c.Image)
+		registryAuth, err := workloadRegistryAuth(project, image)
+		if err != nil {
+			return nil, nil, err
+		}
 		binds, containerWritable, err := cloudRunGCSBinds(volByName, c)
 		if err != nil {
 			return nil, nil, err
@@ -146,11 +151,10 @@ func startCloudRunJobContainers(ctx context.Context, execID, execShort string, t
 		if i > 0 {
 			name = fmt.Sprintf("sockerless-sim-gcp-job-%s-sidecar-%d", execShort, i-1)
 		}
-		image := sim.ResolveLocalImage(c.Image)
 		members[i] = workload.Container{Name: c.Name, Config: sim.ContainerConfig{
 			CancelGracePeriod: cloudRunStopGrace,
 			Image:             image,
-			RegistryAuth:      workloadRegistryAuth(project, image),
+			RegistryAuth:      registryAuth,
 			Command:           c.Command,
 			Args:              c.Args,
 			Env:               workloadhost.MergeEnv(cmdEnv, metadataEnv),

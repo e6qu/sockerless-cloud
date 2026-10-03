@@ -49,6 +49,14 @@ type kqlCall struct {
 	args []kqlExpr
 }
 
+// kqlMember is a dynamic value's property or element: x.name, x["name"] or
+// x[index].
+type kqlMember struct {
+	pos int
+	x   kqlExpr
+	key kqlExpr
+}
+
 func (e kqlLiteral) position() int    { return e.pos }
 func (e kqlColumnRef) position() int  { return e.pos }
 func (e kqlBinary) position() int     { return e.pos }
@@ -56,6 +64,7 @@ func (e kqlUnaryMinus) position() int { return e.pos }
 func (e kqlInList) position() int     { return e.pos }
 func (e kqlBetween) position() int    { return e.pos }
 func (e kqlCall) position() int       { return e.pos }
+func (e kqlMember) position() int     { return e.pos }
 
 // kqlAssignment is one `Name = expr` (or bare `expr`) item of project, extend,
 // summarize or distinct.
@@ -588,6 +597,37 @@ func (p *kqlParser) parseUnary() (kqlExpr, *kqlError) {
 }
 
 func (p *kqlParser) parsePrimary() (kqlExpr, *kqlError) {
+	x, err := p.parseAtom()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		switch {
+		case p.isPunct("."):
+			dot := p.next()
+			name := p.peek()
+			if name.kind != kqlIdent {
+				return nil, p.fail(name)
+			}
+			p.next()
+			x = kqlMember{pos: dot.pos, x: x, key: kqlLiteral{pos: name.pos, typ: "string", val: name.text}}
+		case p.isPunct("["):
+			open := p.next()
+			key, err := p.parseExpr()
+			if err != nil {
+				return nil, err
+			}
+			if err := p.expectPunct("]"); err != nil {
+				return nil, err
+			}
+			x = kqlMember{pos: open.pos, x: x, key: key}
+		default:
+			return x, nil
+		}
+	}
+}
+
+func (p *kqlParser) parseAtom() (kqlExpr, *kqlError) {
 	t := p.peek()
 	switch t.kind {
 	case kqlString:

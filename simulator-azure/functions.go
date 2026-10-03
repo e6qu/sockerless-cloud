@@ -1322,7 +1322,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		return err
 	}
 	env := workloadhost.MergeEnv(siteAppSettings(site), map[string]string{"PORT": strconv.Itoa(port)}, metadataEnv, containerEnv)
-	sink := &funcLogSink{appName: site.Name}
+	sink := newFuncLogSink(site)
 
 	containerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{
 		Image:        localImage,
@@ -1485,7 +1485,7 @@ func startAlwaysOnSite(site Site) {
 			return
 		}
 		if err := inst.ensureStarted(&current); err != nil {
-			injectAppTrace(current.Name, fmt.Sprintf("Site start failed: %v", err))
+			injectSiteTrace(&current, fmt.Sprintf("Site start failed: %v", err))
 		}
 	}()
 }
@@ -1560,14 +1560,4 @@ func siteAppSettings(site *Site) map[string]string {
 		out[s.Name] = s.Value
 	}
 	return out
-}
-
-// funcLogSink implements sim.LogSink and writes log lines to AppTraces
-// for Azure Function invocations.
-type funcLogSink struct {
-	appName string
-}
-
-func (s *funcLogSink) WriteLog(line sim.LogLine) {
-	injectAppTrace(s.appName, line.Text)
 }

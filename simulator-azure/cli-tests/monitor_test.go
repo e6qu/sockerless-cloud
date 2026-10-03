@@ -2,6 +2,8 @@ package azure_cli_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -124,12 +126,93 @@ func TestAppInsights_InstrumentationKeyInConnectionString(t *testing.T) {
 	runCLI(t, azRest("DELETE", url, ""))
 }
 
+// cliLogWorkspace creates a Log Analytics workspace through az rest and
+// returns its ARM id and customer id.
+func cliLogWorkspace(t *testing.T, name string) (id, customerID string) {
+	t.Helper()
+	var ws struct {
+		ID         string `json:"id"`
+		Properties struct {
+			CustomerID string `json:"customerId"`
+		} `json:"properties"`
+	}
+	parseJSON(t, runCLI(t, azRest("PUT", monitorURL("workspaces/"+name), `{"location":"eastus"}`)), &ws)
+	return ws.ID, ws.Properties.CustomerID
+}
+
+// cliLogs is the Container Apps environment the suite's jobs and apps run
+// in, linked to a workspace, so their logs land where the tests query them.
+var cliLogs struct {
+	sync.Mutex
+	envID, customerID string
+}
+
+// cliLogsEnvironment creates, once per run, the environment the suite's
+// Container Apps run in and the workspace its appLogsConfiguration names.
+func cliLogsEnvironment(t *testing.T) (envID, customerID string) {
+	t.Helper()
+	cliLogs.Lock()
+	defer cliLogs.Unlock()
+	if cliLogs.envID != "" {
+		return cliLogs.envID, cliLogs.customerID
+	}
+	_, customer := cliLogWorkspace(t, "cli-aca-logs-ws")
+	var keys struct {
+		PrimarySharedKey string `json:"primarySharedKey"`
+	}
+	parseJSON(t, runCLI(t, azRest("POST", monitorURL("workspaces/cli-aca-logs-ws/sharedKeys"), "")), &keys)
+	var env struct {
+		ID string `json:"id"`
+	}
+	parseJSON(t, runCLI(t, azRest("PUT", acaURL("managedEnvironments/cli-aca-logs-env"), fmt.Sprintf(
+		`{"location":"eastus","properties":{"appLogsConfiguration":{"destination":"log-analytics","logAnalyticsConfiguration":{"customerId":%q,"sharedKey":%q}}}}`,
+		customer, keys.PrimarySharedKey))), &env)
+	cliLogs.envID, cliLogs.customerID = env.ID, customer
+	return cliLogs.envID, cliLogs.customerID
+}
+
+// cliQueryWorkspace runs a KQL query against a workspace through az rest.
+func cliQueryWorkspace(t *testing.T, customerID, kql string) string {
+	t.Helper()
+	body, err := json.Marshal(map[string]string{"query": kql})
+	require.NoError(t, err)
+	return runCLI(t, azRest("POST", baseURL+"/v1/workspaces/"+customerID+"/query", string(body)))
+}
+
 // TestLogAnalytics_QueryBooleanOperatorsCLI drives the Log Analytics query
 // endpoint through `az rest` with where clauses joined by and/or and a string
 // literal holding a pipe, and reads back the BadArgumentError a query that does
-// not parse is refused with.
+// not parse is refused with. The rows arrive through the Logs Ingestion API,
+// by way of a data collection rule writing a custom table.
 func TestLogAnalytics_QueryBooleanOperatorsCLI(t *testing.T) {
 	const role = "cli-and-or-role"
+	wsID, customerID := cliLogWorkspace(t, "cli-and-or-ws")
+	runCLI(t, azRest("PUT", monitorURL("workspaces/cli-and-or-ws/tables/SimTraces_CL"),
+		`{"properties":{"schema":{"name":"SimTraces_CL","columns":[{"name":"TimeGenerated","type":"dateTime"},{"name":"AppRoleName","type":"string"},{"name":"Message","type":"string"}]}}}`))
+	var rule struct {
+		Properties struct {
+			ImmutableID string `json:"immutableId"`
+			Endpoints   struct {
+				LogsIngestion string `json:"logsIngestion"`
+			} `json:"endpoints"`
+		} `json:"properties"`
+	}
+	parseJSON(t, runCLI(t, azRest("PUT", armURL("Microsoft.Insights", "dataCollectionRules/cli-and-or-dcr", "2023-03-11"), fmt.Sprintf(`{
+		"location": "eastus",
+		"kind": "Direct",
+		"properties": {
+			"streamDeclarations": {"Custom-SimTraces_CL": {"columns": [
+				{"name": "TimeGenerated", "type": "datetime"},
+				{"name": "AppRoleName", "type": "string"},
+				{"name": "Message", "type": "string"}
+			]}},
+			"destinations": {"logAnalytics": [{"name": "ws", "workspaceResourceId": %q}]},
+			"dataFlows": [{"streams": ["Custom-SimTraces_CL"], "destinations": ["ws"]}]
+		}
+	}`, wsID))), &rule)
+	require.NotEmpty(t, rule.Properties.ImmutableID)
+	require.NotEmpty(t, rule.Properties.Endpoints.LogsIngestion)
+
 	ts := time.Now().UTC().Format(time.RFC3339)
 	rows, err := json.Marshal([]map[string]string{
 		{"TimeGenerated": ts, "Message": "alpha | beta", "AppRoleName": role},
@@ -137,14 +220,9 @@ func TestLogAnalytics_QueryBooleanOperatorsCLI(t *testing.T) {
 		{"TimeGenerated": ts, "Message": "alpha | beta", "AppRoleName": "cli-other-role"},
 	})
 	require.NoError(t, err)
-	runCLI(t, azRest("POST", baseURL+"/dataCollectionRules/dcr-1/streams/Custom-Logs", string(rows)))
+	runCLI(t, azRest("POST", rule.Properties.Endpoints.LogsIngestion+"/dataCollectionRules/"+
+		rule.Properties.ImmutableID+"/streams/Custom-SimTraces_CL?api-version=2023-01-01", string(rows)))
 
-	queryURL := baseURL + "/v1/workspaces/default/query"
-	query := func(kql string) string {
-		body, err := json.Marshal(map[string]string{"query": kql})
-		require.NoError(t, err)
-		return string(body)
-	}
 	var result struct {
 		Tables []struct {
 			Columns []struct {
@@ -155,22 +233,23 @@ func TestLogAnalytics_QueryBooleanOperatorsCLI(t *testing.T) {
 		} `json:"tables"`
 	}
 
-	out := runCLI(t, azRest("POST", queryURL,
-		query(`AppTraces | where AppRoleName == "`+role+`" and Message == "alpha | beta" | project Message`)))
+	out := cliQueryWorkspace(t, customerID,
+		`SimTraces_CL | where AppRoleName == "`+role+`" and Message == "alpha | beta" | project Message`)
 	parseJSON(t, out, &result)
 	require.Len(t, result.Tables, 1)
 	require.Len(t, result.Tables[0].Rows, 1, "and keeps only the row both comparisons match: %s", out)
 	assert.Equal(t, "alpha | beta", result.Tables[0].Rows[0][0])
 
-	out = runCLI(t, azRest("POST", queryURL,
-		query(`AppTraces | where AppRoleName == "`+role+`" and (Message == "gamma" or Message has "beta") | count`)))
+	out = cliQueryWorkspace(t, customerID,
+		`SimTraces_CL | where AppRoleName == "`+role+`" and (Message == "gamma" or Message has "beta") | count`)
 	parseJSON(t, out, &result)
 	require.Len(t, result.Tables[0].Rows, 1)
 	assert.Equal(t, "Count", result.Tables[0].Columns[0].Name)
 	assert.EqualValues(t, 2, result.Tables[0].Rows[0][0], "or matches both of the role's rows: %s", out)
 
-	failure := runCLIExpectFailure(t, azRest("POST", queryURL,
-		query(`AppTraces | where AppRoleName == "x" and`)))
+	body, err := json.Marshal(map[string]string{"query": `SimTraces_CL | where AppRoleName == "x" and`})
+	require.NoError(t, err)
+	failure := runCLIExpectFailure(t, azRest("POST", baseURL+"/v1/workspaces/"+customerID+"/query", string(body)))
 	assert.Contains(t, failure, "BadArgumentError")
 	assert.Contains(t, failure, "SyntaxError")
 }

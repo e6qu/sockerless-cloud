@@ -245,6 +245,10 @@ func registerCloudBuildRegional(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/builds", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
+		if _, ok := crmProjectNumber(project); !ok {
+			crmProjectPermissionDenied(w)
+			return
+		}
 		var build Build
 		if err := sim.ReadJSON(r, &build); err != nil {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid build body: %v", err)

@@ -1,6 +1,7 @@
 package azure_cli_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -18,10 +19,11 @@ func acaURL(path string) string {
 func TestContainerApps_CLI_StartAndCheckLogs(t *testing.T) {
 	// Create a Container Apps Job with echo command
 	jobURL := acaURL("jobs/cli-aca-job")
-	jobBody := `{
+	envID, customerID := cliLogsEnvironment(t)
+	jobBody := fmt.Sprintf(`{
 		"location": "eastus",
 		"properties": {
-			"environmentId": "",
+			"environmentId": %q,
 			"configuration": {
 				"replicaTimeout": 30,
 				"triggerType": "Manual",
@@ -35,7 +37,7 @@ func TestContainerApps_CLI_StartAndCheckLogs(t *testing.T) {
 				}]
 			}
 		}
-	}`
+	}`, envID)
 	runCLI(t, azRest("PUT", jobURL, jobBody))
 
 	// Start execution
@@ -66,10 +68,8 @@ func TestContainerApps_CLI_StartAndCheckLogs(t *testing.T) {
 	assert.Equal(t, "Succeeded", execResult.Properties.Status)
 
 	// Poll Log Analytics until the real process output is ingested.
-	queryURL := baseURL + "/v1/workspaces/default/query"
-	kqlBody := `{"query": "ContainerAppConsoleLogs_CL | where ContainerGroupName_s == \"cli-aca-job\""}`
 	require.Eventually(t, func() bool {
-		out = runCLI(t, azRest("POST", queryURL, kqlBody))
+		out = cliQueryWorkspace(t, customerID, `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "cli-aca-job"`)
 		return strings.Contains(out, "hello-from-aca")
 	}, 60*time.Second, 300*time.Millisecond)
 	assert.Contains(t, out, "hello-from-aca", "expected real process output in Log Analytics")
@@ -80,10 +80,11 @@ func TestContainerApps_CLI_StartAndCheckLogs(t *testing.T) {
 
 func TestContainerApps_CLI_StartFailure(t *testing.T) {
 	jobURL := acaURL("jobs/cli-aca-fail-job")
-	jobBody := `{
+	envID, _ := cliLogsEnvironment(t)
+	jobBody := fmt.Sprintf(`{
 		"location": "eastus",
 		"properties": {
-			"environmentId": "",
+			"environmentId": %q,
 			"configuration": {
 				"replicaTimeout": 30,
 				"triggerType": "Manual",
@@ -97,7 +98,7 @@ func TestContainerApps_CLI_StartFailure(t *testing.T) {
 				}]
 			}
 		}
-	}`
+	}`, envID)
 	runCLI(t, azRest("PUT", jobURL, jobBody))
 
 	// Start execution

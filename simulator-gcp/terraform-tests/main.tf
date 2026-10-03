@@ -764,6 +764,14 @@ data "google_project" "test_project" {
   project_id = "test-project"
 }
 
+# The service agents other services name for the project carry the number
+# Cloud Resource Manager holds.
+data "google_bigquery_default_service_account" "bq_agent" {}
+
+data "google_logging_project_settings" "logging_settings" {
+  project = "test-project"
+}
+
 resource "google_pubsub_topic" "tf_gcs_notifications" {
   name = "tf-gcs-notifications"
 }
@@ -1361,6 +1369,18 @@ output "gcs_service_agent" {
 
 output "test_project_number" {
   value = data.google_project.test_project.number
+}
+
+output "bigquery_service_agent" {
+  value = data.google_bigquery_default_service_account.bq_agent.email
+}
+
+output "logging_service_agent" {
+  value = data.google_logging_project_settings.logging_settings.logging_service_account_id
+}
+
+output "logging_sink_writer_identity" {
+  value = google_logging_project_sink.tf_log_sink.writer_identity
 }
 
 output "gcs_notification_topic" {

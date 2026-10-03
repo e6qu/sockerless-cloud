@@ -25,7 +25,7 @@ The extractor reads the route out of a single string literal, so a registration 
 | `PUT /bigquery/v2/projects/{project}/datasets/{dataset}` | ✓ `simulator-gcp/bigquery.go:231::handleBQPatchDataset` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `DELETE /bigquery/v2/projects/{project}/datasets/{dataset}` | ✓ `simulator-gcp/bigquery.go:232::handleBQDeleteDataset` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /bigquery/v2/projects/{project}/datasets/{datasetVerb}` | ✓ `simulator-gcp/bigquery.go:235::handleBQDatasetVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /bigquery/v2/projects/{project}/serviceAccount` | ○ `simulator-gcp/bigquery.go:237::handleBQGetServiceAccount` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /bigquery/v2/projects/{project}/serviceAccount` | ✓ `simulator-gcp/bigquery.go:237::handleBQGetServiceAccount` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /bigquery/v2/projects/{project}/datasets/{dataset}/tables` | ✓ `simulator-gcp/bigquery.go:239::handleBQInsertTable` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /bigquery/v2/projects/{project}/datasets/{dataset}/tables` | ✓ `simulator-gcp/bigquery.go:240::handleBQListTables` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /bigquery/v2/projects/{project}/datasets/{dataset}/tables/{table}` | ✓ `simulator-gcp/bigquery.go:241::handleBQGetTable` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

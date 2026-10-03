@@ -485,7 +485,8 @@ func registerContainerApps(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "jobName")
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, name)
-		if _, ok := jobs.Get(resourceID); !ok {
+		job, ok := jobs.Get(resourceID)
+		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/jobs/%s' under resource group '%s' was not found.", name, rg)
 			return
@@ -508,8 +509,8 @@ func registerContainerApps(srv *sim.Server) {
 			if updated, ok := executions.Get(e.ID); ok {
 				stopped = append(stopped, updated)
 			}
+			acaJobSystemLog(job, e.Name, "Normal", "Execution stopped")
 		}
-		injectContainerAppLog(name, "Executions stopped")
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": stopped})
 	})
 
@@ -579,7 +580,9 @@ func registerContainerApps(srv *sim.Server) {
 			e.Properties.EndTime = time.Now().UTC().Format(time.RFC3339)
 		})
 		if ok {
-			injectContainerAppLog(jobName, "Execution stopped")
+			if job, found := jobs.Get(fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, jobName)); found {
+				acaJobSystemLog(job, execName, "Normal", "Execution stopped")
+			}
 		}
 
 		if !ok {
@@ -623,8 +626,7 @@ func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJo
 
 	executions.Put(execID, exec)
 
-	// Inject log entry for execution start
-	injectContainerAppLog(name, "Container started")
+	acaJobSystemLog(job, execName, "Normal", "Container started")
 
 	// Auto-stop execution after replica timeout or process exit
 	replicaTimeout := 0
@@ -659,7 +661,7 @@ func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJo
 				}
 			}
 
-			sink := &acaLogSink{jobName: jobShortName}
+			sink := &acaLogSink{job: job}
 			group, err := startACAJobContainers(context.Background(), id, shortExecID, tmpl, acaJobWorkloadRegistries(job.Properties.Configuration), envID, timeout, netName, netAliases, sink)
 			if err != nil {
 				succeeded = false
@@ -691,16 +693,10 @@ func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJo
 			e.Properties.EndTime = time.Now().UTC().Format(time.RFC3339)
 		})
 		if completed {
-			// Match the actual outcome (the previous behaviour
-			// always injected "Execution completed successfully"
-			// regardless of `succeeded`, masking failed jobs as
-			// fake-success in the log stream and breaking tests
-			// like TestACAArithmeticInvalid that assert on the
-			// failure marker).
 			if succeeded {
-				injectContainerAppLog(jobShortName, "Execution completed successfully")
+				acaJobSystemLog(job, execName, "Normal", "Execution completed successfully")
 			} else {
-				injectContainerAppLog(jobShortName, "Execution failed")
+				acaJobSystemLog(job, execName, "Warning", "Execution failed")
 			}
 		}
 	})
@@ -897,11 +893,12 @@ func randomSuffix(n int) string {
 	return string(b)
 }
 
-// acaLogSink implements sim.LogSink and writes log lines to Log Analytics.
+// acaLogSink writes a job container's output to the job environment's
+// ContainerAppConsoleLogs_CL.
 type acaLogSink struct {
-	jobName string
+	job ContainerAppJob
 }
 
 func (s *acaLogSink) WriteLog(line sim.LogLine) {
-	injectContainerAppLog(s.jobName, line.Text)
+	acaConsoleLog(s.job.Properties.EnvironmentID, s.job.ID, line, monitorLogRow{"ContainerGroupName_s": s.job.Name})
 }

@@ -102,15 +102,16 @@ type acaReplicaContainer struct {
 	exitCode    int
 }
 
-// sink feeds the container's output to its log stream and to the workspace's
-// ContainerAppConsoleLogs table.
-func (c *acaReplicaContainer) sink(appName string) sim.LogSink {
-	return acaReplicaContainerSink{container: c, appName: appName}
+// sink feeds the container's output to its log stream and to the
+// ContainerAppConsoleLogs_CL of the workspace the app's environment names.
+func (c *acaReplicaContainer) sink(app ContainerApp, revision string) sim.LogSink {
+	return acaReplicaContainerSink{container: c, app: app, revision: revision}
 }
 
 type acaReplicaContainerSink struct {
 	container *acaReplicaContainer
-	appName   string
+	app       ContainerApp
+	revision  string
 }
 
 func (s acaReplicaContainerSink) WriteLog(line sim.LogLine) {
@@ -119,17 +120,21 @@ func (s acaReplicaContainerSink) WriteLog(line sim.LogLine) {
 		at = time.Now()
 	}
 	s.container.log.append(acaLogEntry{at: at.UTC(), text: line.Text})
-	injectContainerAppReplicaLog(s.appName, line.Text)
+	acaConsoleLog(acaAppEnvironmentID(s.app), s.app.ID, line, monitorLogRow{
+		"ContainerAppName_s": s.app.Name,
+		"RevisionName_s":     s.revision,
+		"ContainerName_s":    s.container.name,
+	})
 }
 
 // track records the started container and, once it exits, its exit code; the
 // container's log ends with it.
-func (c *acaReplicaContainer) track(handle *sim.ContainerHandle, resourceID, appName, revision, replica string) {
+func (c *acaReplicaContainer) track(handle *sim.ContainerHandle, resourceID, envID, appName, revision, replica string) {
 	c.mu.Lock()
 	c.containerID = handle.ContainerID
 	c.mu.Unlock()
-	acaRecordSystemEvent(resourceID, appName, revision, replica, "ContainerCreated", fmt.Sprintf("Created container '%s'", c.name))
-	acaRecordSystemEvent(resourceID, appName, revision, replica, "ContainerStarted", fmt.Sprintf("Started container '%s'", c.name))
+	acaRecordSystemEvent(resourceID, envID, appName, revision, replica, "ContainerCreated", fmt.Sprintf("Created container '%s'", c.name))
+	acaRecordSystemEvent(resourceID, envID, appName, revision, replica, "ContainerStarted", fmt.Sprintf("Started container '%s'", c.name))
 	go func() {
 		result := handle.Wait()
 		c.mu.Lock()
@@ -141,7 +146,7 @@ func (c *acaReplicaContainer) track(handle *sim.ContainerHandle, resourceID, app
 		if result.ExitCode != 0 {
 			reason = "Error"
 		}
-		acaRecordSystemEvent(resourceID, appName, revision, replica, "ContainerTerminated",
+		acaRecordSystemEvent(resourceID, envID, appName, revision, replica, "ContainerTerminated",
 			fmt.Sprintf("Container '%s' was terminated with exit code '%d' and reason '%s'", c.name, result.ExitCode, reason))
 	}()
 }
@@ -192,7 +197,7 @@ type acaSystemEvent struct {
 	Count            int    `json:"Count"`
 }
 
-func acaRecordSystemEvent(resourceID, appName, revision, replica, reason, message string) {
+func acaRecordSystemEvent(resourceID, envID, appName, revision, replica, reason, message string) {
 	now := time.Now().UTC()
 	line, err := json.Marshal(acaSystemEvent{
 		TimeStamp:        now.Format(time.RFC3339Nano),
@@ -209,6 +214,16 @@ func acaRecordSystemEvent(resourceID, appName, revision, replica, reason, messag
 		return
 	}
 	acaSystemLog(resourceID).append(acaLogEntry{at: now, text: string(line)})
+	acaWorkspaceLog(envID, resourceID, "ContainerAppSystemLogs_CL", monitorLogRow{
+		"TimeGenerated":      now.Format(time.RFC3339Nano),
+		"ContainerAppName_s": appName,
+		"RevisionName_s":     revision,
+		"ReplicaName_s":      replica,
+		"Log_s":              message,
+		"Reason_s":           reason,
+		"Type_s":             "Normal",
+		"EventSource_s":      "ContainerAppController",
+	})
 }
 
 // ContainerAppRevision mirrors armappcontainers.Revision.

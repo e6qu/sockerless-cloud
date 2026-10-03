@@ -780,8 +780,12 @@ func registerCloudDNS(srv *sim.Server) {
 
 	// Get project DNS info (quota/number).
 	srv.HandleFunc("GET /dns/v1/projects/{project}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		sim.WriteJSON(w, http.StatusOK, dnsProjectResource(project))
+		p, ok := crmResolveProject(sim.PathParam(r, "project"))
+		if !ok || p.State != "ACTIVE" {
+			crmProjectPermissionDenied(w)
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, dnsProjectResource(p))
 	})
 
 	registerCloudDNSPolicies(srv, policies)
@@ -1380,14 +1384,14 @@ func dnsApplyRuleUpdate(cur, body DNSResponsePolicyRule, replace bool) DNSRespon
 	return out
 }
 
-// dnsProjectResource returns the Cloud DNS Project resource (quota + numeric
-// id). The quota values mirror the documented Cloud DNS default per-project
-// limits.
-func dnsProjectResource(project string) map[string]any {
+// dnsProjectResource returns the Cloud DNS Project resource: the project's ID
+// and the number Cloud Resource Manager holds, with the documented Cloud DNS
+// default per-project quotas.
+func dnsProjectResource(p CRMProject) map[string]any {
 	return map[string]any{
 		"kind":   "dns#project",
-		"id":     project,
-		"number": projectNumber(project),
+		"id":     p.ProjectId,
+		"number": strings.TrimPrefix(p.Name, "projects/"),
 		"quota": map[string]any{
 			"kind":                                 "dns#quota",
 			"managedZones":                         10000,
@@ -1415,15 +1419,6 @@ func dnsProjectResource(project string) map[string]any {
 			"itemsPerRoutingPolicy":                500,
 		},
 	}
-}
-
-// projectNumber derives a stable numeric project number from the project id,
-// the server-assigned number Cloud DNS surfaces and service-agent identities
-// carry.
-func projectNumber(project string) string {
-	h := sha256.Sum256([]byte("dns-project-number:" + project))
-	n := binary.BigEndian.Uint64(h[:8]) >> 1
-	return strconv.FormatUint(n, 10)
 }
 
 // DNSKey mirrors the Cloud DNS DnsKey resource (a DNSSEC key pair). All
