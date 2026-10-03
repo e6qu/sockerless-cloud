@@ -1268,7 +1268,7 @@ func runContainerStep(ctx context.Context, b Build, workDir string, step *BuildS
 		return err
 	}
 	output := &cloudBuildStepOutput{}
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
 		Image:        step.Name,
 		Architecture: platform,
 		RegistryAuth: registryAuth,
