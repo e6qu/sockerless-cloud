@@ -180,7 +180,7 @@ func handleRDSStopAutomatedBackupsReplication(w http.ResponseWriter, r *http.Req
 	replica, ok := rdsSourceReplicationIn(source, destination)
 	if !ok {
 		rdsErrorXML(w, "InvalidDBInstanceState",
-			fmt.Sprintf("DB instance %s does not replicate its automated backups to %s.", source.DBInstanceIdentifier, destination),
+			fmt.Sprintf("DB instance %s is not replicating to the current region %s.", source.DBInstanceIdentifier, destination),
 			http.StatusBadRequest, requestID)
 		return
 	}
