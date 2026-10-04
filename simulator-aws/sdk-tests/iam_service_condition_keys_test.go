@@ -251,7 +251,8 @@ func TestRDS_RequestTagConditionKeyScopesTheGrant(t *testing.T) {
 	untaggedGroup := uniqueName("cond-untagged-group")
 	taggedGroup := uniqueName("cond-tagged-group")
 	akid, secret := restrictedCredential(t, "rds-must-tag-env",
-		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"rds:CreateDBParameterGroup",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",
+		  "Action":["rds:CreateDBParameterGroup","rds:AddTagsToResource"],
 		  "Resource":"*","Condition":{"StringEquals":{"rds:req-tag/env":"dev"}}}]}`)
 	restricted := rds.NewFromConfig(aws.Config{Region: "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},

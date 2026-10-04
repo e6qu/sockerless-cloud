@@ -72,9 +72,6 @@ var iamConditionKeyGapReasons = map[string]string{
 		"(GetDataAccess). The probe signs as an IAM user, whose request rightly lacks it.",
 	"access-point-addressed": "Present only on a request addressed through an access point. The probe addresses " +
 		"the bucket.",
-	"access-grants-unseeded": "The Access Grants instance, location or grant the request names. The measure " +
-		"seeds none, and the tags an Access Grants create carries live in the grant's own record, which the gate " +
-		"does not read (BUGS.md, Access Grants tags).",
 	"object-lambda-multi-region-access-point": "AWS documents the access-point keys for a data request made " +
 		"through an access point, and documents no value for a control-plane request about an Object Lambda or " +
 		"Multi-Region access point.",
@@ -274,16 +271,22 @@ func iamServedKeyProbes(t *testing.T, srv *sim.Server,
 		}
 		m := model(idx)
 		operation := match[2]
-		if !referenced[m.service] || m.inputs[operation] == "" {
+		if m.service != "cloudwatch" || !referenced[m.service] || m.inputs[operation] == "" {
 			continue
 		}
 		f := fill(m, operation)
 		probes = append(probes, iamKeyProbe{
 			label: "rpcv2Cbor " + m.service + " " + operation,
 			build: f.cborRequest,
-			// The RPC v2 CBOR route authorizes the operation its path names;
+			// Amazon CloudWatch is the one service served over RPC v2 CBOR;
 			// see cloudWatchCBORAuthorized.
-			actions: func(*http.Request) []string { return []string{m.service + ":" + operation} },
+			actions: func(r *http.Request) []string {
+				var out []string
+				for _, target := range cloudWatchCBORTargets(r, operation) {
+					out = append(out, target.action)
+				}
+				return out
+			},
 		})
 	}
 
@@ -344,7 +347,13 @@ func iamServedKeyProbes(t *testing.T, srv *sim.Server,
 					return out
 				}
 			case m.service == "lambda":
-				actions = func(*http.Request) []string { return []string{lambdaIAMAction(operation)} }
+				actions = func(r *http.Request) []string {
+					var out []string
+					for _, target := range lambdaAuthorizationTargets(r, operation, "*") {
+						out = append(out, target.action)
+					}
+					return out
+				}
 			default:
 				continue
 			}
@@ -681,6 +690,27 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 		"AssumeRolePolicyDocument": {`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
 			`"Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`},
 		"PermissionsBoundary": {boundary}, "Tags.member.1.Key": {"owner"}, "Tags.member.1.Value": {"platform"}})
+
+	// Amazon S3 Access Grants: a tagged instance, a tagged location behind the
+	// seeded role, and a tagged grant in it.
+	const s3Control = `xmlns="http://awss3control.amazonaws.com/doc/2018-08-20/"`
+	const s3ControlTags = `<Tags><Tag><Key>owner</Key><Value>platform</Value></Tag></Tags>`
+	accountHeader := map[string]string{"x-amz-account-id": iamProbeAccount}
+	call(http.MethodPost, "/v20180820/accessgrantsinstance", "application/xml",
+		`<CreateAccessGrantsInstanceRequest `+s3Control+`>`+s3ControlTags+`</CreateAccessGrantsInstanceRequest>`,
+		accountHeader)
+	location := field(call(http.MethodPost, "/v20180820/accessgrantsinstance/location", "application/xml",
+		`<CreateAccessGrantsLocationRequest `+s3Control+`><LocationScope>s3://probe/*</LocationScope>`+
+			`<IAMRoleArn>arn:aws:iam::`+iamProbeAccount+`:role/probe</IAMRoleArn>`+s3ControlTags+
+			`</CreateAccessGrantsLocationRequest>`, accountHeader),
+		`<AccessGrantsLocationId>([^<]+)</AccessGrantsLocationId>`)
+	accessGrant := field(call(http.MethodPost, "/v20180820/accessgrantsinstance/grant", "application/xml",
+		`<CreateAccessGrantRequest `+s3Control+`><AccessGrantsLocationId>`+location+`</AccessGrantsLocationId>`+
+			`<Grantee><GranteeType>IAM</GranteeType><GranteeIdentifier>arn:aws:iam::`+iamProbeAccount+
+			`:role/probe</GranteeIdentifier></Grantee><Permission>READ</Permission>`+s3ControlTags+
+			`</CreateAccessGrantRequest>`, accountHeader),
+		`<AccessGrantId>([^<]+)</AccessGrantId>`)
+	fixtures["s3"] = map[string]string{"accessgrantslocationid": location, "accessgrantid": accessGrant}
 
 	// AWS Lambda: a tagged function in the seeded subnet, its URL, a
 	// permission, and an event-source mapping from the seeded queue.

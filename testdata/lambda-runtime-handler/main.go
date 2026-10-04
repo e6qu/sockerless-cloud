@@ -98,6 +98,8 @@ func main() {
 		postResponse(base, requestID, responsePayload)
 	case strings.Contains(payloadStr, `"getObjectContext"`):
 		handleObjectLambda(base, requestID, payload)
+	case strings.Contains(payloadStr, `"invocationSchemaVersion"`):
+		handleBatchOperationsTask(base, requestID, payload)
 	case strings.Contains(payloadStr, `"cause":"error"`):
 		errPayload := []byte(`{"errorMessage":"test error from handler","errorType":"HandlerError"}`)
 		postError(base, requestID, errPayload)
@@ -226,4 +228,60 @@ func writeGetObjectResponse(route, token string, body []byte) error {
 func postObjectLambdaHandlerError(base, requestID, message string) {
 	body, _ := json.Marshal(map[string]string{"errorMessage": message, "errorType": "HandlerError"})
 	postError(base, requestID, body)
+}
+
+// handleBatchOperationsTask answers an Amazon S3 Batch Operations task event
+// in either invocation schema: a key naming "permanent" fails permanently, one
+// naming "temporary" asks to be redriven, and any other succeeds with a result
+// string naming the object and the job's "label" user argument.
+func handleBatchOperationsTask(base, requestID string, payload []byte) {
+	var event struct {
+		InvocationSchemaVersion string `json:"invocationSchemaVersion"`
+		InvocationID            string `json:"invocationId"`
+		Job                     struct {
+			UserArguments map[string]string `json:"userArguments"`
+		} `json:"job"`
+		Tasks []struct {
+			TaskID      string `json:"taskId"`
+			S3Key       string `json:"s3Key"`
+			S3Bucket    string `json:"s3Bucket"`
+			S3BucketArn string `json:"s3BucketArn"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil {
+		postError(base, requestID, []byte(`{"errorMessage":"malformed Batch Operations event","errorType":"HandlerError"}`))
+		return
+	}
+	type result struct {
+		TaskID       string `json:"taskId"`
+		ResultCode   string `json:"resultCode"`
+		ResultString string `json:"resultString"`
+	}
+	var results []result
+	for _, task := range event.Tasks {
+		bucket := task.S3Bucket
+		if bucket == "" {
+			bucket = strings.TrimPrefix(task.S3BucketArn, "arn:aws:s3:::")
+		}
+		object := bucket + "/" + task.S3Key
+		switch {
+		case strings.Contains(task.S3Key, "permanent"):
+			results = append(results, result{task.TaskID, "PermanentFailure", "refused " + object})
+		case strings.Contains(task.S3Key, "temporary"):
+			results = append(results, result{task.TaskID, "TemporaryFailure", "retry " + object})
+		default:
+			message := "processed " + object
+			if label := event.Job.UserArguments["label"]; label != "" {
+				message += " for " + label
+			}
+			results = append(results, result{task.TaskID, "Succeeded", message})
+		}
+	}
+	response, _ := json.Marshal(map[string]any{
+		"invocationSchemaVersion": event.InvocationSchemaVersion,
+		"treatMissingKeysAs":      "PermanentFailure",
+		"invocationId":            event.InvocationID,
+		"results":                 results,
+	})
+	postResponse(base, requestID, response)
 }

@@ -233,6 +233,14 @@ func s3BucketIsDirectory(bucket S3Bucket) bool {
 // trio rather than through its own operation, keyed by the resource's ARN.
 var s3ControlResourceTags sim.Store[map[string]string]
 
+// s3ControlPutCreateTags records the tags a create carries as the resource's
+// tag set, which TagResource, ListTagsForResource and the IAM gate read.
+func s3ControlPutCreateTags(arn string, tags map[string]string) {
+	if len(tags) > 0 {
+		s3ControlResourceTags.Put(arn, tags)
+	}
+}
+
 func registerS3ControlTagging(srv *sim.Server) {
 	s3ControlResourceTags = sim.MakeStore[map[string]string](srv.DB(), "s3_control_resource_tags")
 
@@ -273,7 +281,13 @@ func s3ControlTaggedResourceExists(account, arn string) bool {
 	case strings.Contains(arn, ":job/"):
 		_, ok := s3BatchJobs.Get(s3AccessPointKey(account, arn[strings.LastIndex(arn, "/")+1:]))
 		return ok
-	case strings.Contains(arn, ":access-grants/"):
+	case strings.Contains(arn, ":access-grants/default/location/"):
+		_, ok := s3AccessGrantsLocations.Get(s3AccessPointKey(account, arn[strings.LastIndex(arn, "/")+1:]))
+		return ok
+	case strings.Contains(arn, ":access-grants/default/grant/"):
+		_, ok := s3AccessGrants.Get(s3AccessPointKey(account, arn[strings.LastIndex(arn, "/")+1:]))
+		return ok
+	case strings.HasSuffix(arn, ":access-grants/default"):
 		_, ok := s3AccessGrantsInstances.Get(account)
 		return ok
 	}

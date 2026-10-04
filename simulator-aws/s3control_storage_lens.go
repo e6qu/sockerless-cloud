@@ -27,11 +27,10 @@ type S3StorageLensConfiguration struct {
 
 // S3StorageLensGroup is one custom segment of an account's storage.
 type S3StorageLensGroup struct {
-	AccountID  string            `json:"accountId"`
-	Name       string            `json:"name"`
-	HomeRegion string            `json:"homeRegion"`
-	Group      s3ControlXMLNode  `json:"group"`
-	Tags       map[string]string `json:"tags,omitempty"`
+	AccountID  string           `json:"accountId"`
+	Name       string           `json:"name"`
+	HomeRegion string           `json:"homeRegion"`
+	Group      s3ControlXMLNode `json:"group"`
 }
 
 var (
@@ -227,8 +226,8 @@ func handleS3CreateStorageLensGroup(w http.ResponseWriter, r *http.Request) {
 	group.SetChild("StorageLensGroupArn", s3StorageLensGroupARN(account, name))
 	s3StorageLensGroups.Put(s3AccessPointKey(account, name), S3StorageLensGroup{
 		AccountID: account, Name: name, HomeRegion: awsRegion(), Group: group,
-		Tags: s3ControlTagsFrom(body, "Tags", "Tag"),
 	})
+	s3ControlPutCreateTags(s3StorageLensGroupARN(account, name), s3ControlTagsFrom(body, "Tags", "Tag"))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -272,6 +271,7 @@ func handleS3DeleteStorageLensGroup(w http.ResponseWriter, r *http.Request) {
 			"The specified Storage Lens group does not exist", http.StatusNotFound)
 		return
 	}
+	s3ControlResourceTags.Delete(s3StorageLensGroupARN(account, name))
 	w.WriteHeader(http.StatusNoContent)
 }
 

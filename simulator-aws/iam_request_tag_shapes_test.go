@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/fxamacker/cbor/v2"
 )
 
 // aws:RequestTag/${TagKey} and aws:TagKeys are the facts a policy tests to
@@ -349,5 +353,42 @@ func TestIAMRequestTagsDoNotCrossWireShapes(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			assertExactConditionContext(t, requestTagContext(c.request, c.service), map[string][]string{})
 		})
+	}
+}
+
+// The Go SDK sends Amazon CloudWatch its tags over Smithy RPC v2 CBOR.
+func TestIAMRequestTagsReadRPCv2CBOR(t *testing.T) {
+	cborRequest := func(operation string, document map[string]any) *http.Request {
+		payload, err := cbor.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest(http.MethodPost,
+			"/service/GraniteServiceVersion20100801/operation/"+operation, bytes.NewReader(payload))
+		r.Header.Set("Content-Type", "application/cbor")
+		r.Header.Set("Smithy-Protocol", "rpc-v2-cbor")
+		return r
+	}
+
+	put := cborRequest("PutMetricAlarm", map[string]any{
+		"AlarmName": "a",
+		"Tags":      []any{map[string]any{"Key": "team", "Value": "blue"}},
+	})
+	if got := iamRequestTags(put, "cloudwatch"); len(got) != 1 || got[0] != (EC2Tag{Key: "team", Value: "blue"}) {
+		t.Fatalf("tags = %v, want team=blue", got)
+	}
+	targets := targetStrings(cloudWatchCBORTargets(put, "PutMetricAlarm"))
+	if want := []string{"cloudwatch:PutMetricAlarm *", "cloudwatch:TagResource *"}; !slices.Equal(targets, want) {
+		t.Fatalf("targets = %v, want %v", targets, want)
+	}
+
+	untagged := cborRequest("PutMetricAlarm", map[string]any{"AlarmName": "a"})
+	if targets := targetStrings(cloudWatchCBORTargets(untagged, "PutMetricAlarm")); !slices.Equal(targets, []string{"cloudwatch:PutMetricAlarm *"}) {
+		t.Fatalf("an untagged alarm authorizes %v", targets)
+	}
+
+	untag := cborRequest("UntagResource", map[string]any{"ResourceARN": "arn", "TagKeys": []any{"team"}})
+	if got := iamRequestTagKeys(untag, "cloudwatch"); !slices.Equal(got, []string{"team"}) {
+		t.Fatalf("tag keys = %v, want [team]", got)
 	}
 }

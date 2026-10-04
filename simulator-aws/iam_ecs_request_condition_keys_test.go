@@ -1,6 +1,9 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -132,4 +135,35 @@ func TestECSCreateActionAbsentWithoutATagOnCreate(t *testing.T) {
 		jsonConditionRequest(ecsConditionTarget+"RunTask"), "ecs", "TagResource",
 		`{"cluster": "c", "taskDefinition": "td"}`),
 		"ecs:CreateAction")
+}
+
+// The cluster a tagged CreateService names has tags of its own, and the
+// service the tagging check is about has none yet, so that check reports none.
+func TestTagOnCreateCheckReportsNoResourceTags(t *testing.T) {
+	const cluster = "tag-on-create-cluster"
+	previous := ecsClusters
+	t.Cleanup(func() { ecsClusters = previous })
+	bg.Await()
+	ecsClusters = sim.MakeStore[ECSCluster](nil, "ecs_clusters")
+	ecsClusters.Put(cluster, ECSCluster{ClusterName: cluster, ClusterArn: ecsArn("cluster", cluster), Status: "ACTIVE",
+		Tags: []ECSTag{{Key: "env", Value: "prod"}}})
+	request := func(operation string) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(
+			`{"serviceName":"s","cluster":"`+cluster+`","tags":[{"key":"team","value":"blue"}]}`))
+		r.Header.Set("X-Amz-Target", "AmazonEC2ContainerServiceV20141113."+operation)
+		return r
+	}
+
+	tagging := map[string][]string{}
+	iamPopulateResourceConditionKeys(request("CreateService"), "ecs:TagResource", tagging)
+	assertPopulatedConditionValues(t, tagging, map[string][]string{"aws:RequestTag/team": {"blue"}})
+	assertConditionKeysAbsent(t, tagging, "aws:ResourceTag/env", "ecs:ResourceTag/env")
+
+	// The same cluster's tags do reach a plain TagResource naming it.
+	retag := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(
+		`{"resourceArn":"`+ecsArn("cluster", cluster)+`","tags":[{"key":"team","value":"blue"}]}`))
+	retag.Header.Set("X-Amz-Target", "AmazonEC2ContainerServiceV20141113.TagResource")
+	plain := map[string][]string{}
+	iamPopulateResourceConditionKeys(retag, "ecs:TagResource", plain)
+	assertPopulatedConditionValues(t, plain, map[string][]string{"aws:ResourceTag/env": {"prod"}})
 }

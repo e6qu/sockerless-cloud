@@ -54,7 +54,6 @@ ecs:RunTask	aws:ResourceTag/${TagKey}	resource-unseeded
 ecs:StartTask	aws:ResourceTag/${TagKey}	resource-unseeded
 ecs:StopTask	aws:ResourceTag/${TagKey}	resource-unseeded
 ecs:TagResource	aws:ResourceTag/${TagKey}	resource-unseeded
-ecs:TagResource	ecs:CreateAction	tag-on-create-authorization
 ecs:UntagResource	aws:ResourceTag/${TagKey}	resource-unseeded
 ecs:UpdateCapacityProvider	aws:ResourceTag/${TagKey}	resource-unseeded
 ecs:UpdateContainerAgent	aws:ResourceTag/${TagKey}	resource-unseeded
@@ -127,7 +126,6 @@ elasticache:TestMigration	aws:ResourceTag/${TagKey}	resource-unseeded
 elasticloadbalancing:AddListenerCertificates	aws:ResourceTag/${TagKey}	resource-unseeded
 elasticloadbalancing:AddListenerCertificates	elasticloadbalancing:ResourceTag/${TagKey}	resource-unseeded
 elasticloadbalancing:AddTags	aws:ResourceTag/${TagKey}	resource-unseeded
-elasticloadbalancing:AddTags	elasticloadbalancing:CreateAction	tag-on-create-authorization
 elasticloadbalancing:AddTags	elasticloadbalancing:ResourceTag/${TagKey}	resource-unseeded
 elasticloadbalancing:AddTrustStoreRevocations	aws:ResourceTag/${TagKey}	resource-unseeded
 elasticloadbalancing:AddTrustStoreRevocations	elasticloadbalancing:ResourceTag/${TagKey}	resource-unseeded
@@ -665,7 +663,6 @@ organizations:ListPolicies	organizations:PolicyType	resource-unseeded
 organizations:ListPoliciesForTarget	organizations:PolicyType	resource-unseeded
 organizations:ListTagsForResource	organizations:PolicyType	resource-unseeded
 organizations:ListTargetsForPolicy	organizations:PolicyType	resource-unseeded
-organizations:TagResource	organizations:PolicyType	resource-unseeded
 organizations:TerminateResponsibilityTransfer	organizations:TransferDirection	undocumented-value
 organizations:TerminateResponsibilityTransfer	organizations:TransferType	resource-unseeded
 organizations:UntagResource	organizations:PolicyType	resource-unseeded
@@ -691,7 +688,6 @@ rds:RestoreDBClusterFromSnapshot	rds:StorageSize	source-resource-not-read
 rds:RestoreDBClusterToPointInTime	rds:StorageSize	source-resource-not-read
 rds:SwitchoverBlueGreenDeployment	aws:ResourceTag/${TagKey}	resource-unseeded
 s3:AbortMultipartUpload	s3:AccessGrantsInstanceArn	access-grants-credential
-s3:AssociateAccessGrantsIdentityCenter	aws:ResourceTag/${TagKey}	access-grants-unseeded
 s3:BypassGovernanceRetention	s3:RequestObjectTag/<key>	bypass-governance-headers
 s3:BypassGovernanceRetention	s3:RequestObjectTagKeys	bypass-governance-headers
 s3:BypassGovernanceRetention	s3:x-amz-acl	bypass-governance-headers
@@ -707,10 +703,8 @@ s3:BypassGovernanceRetention	s3:x-amz-server-side-encryption-aws-kms-key-id	bypa
 s3:BypassGovernanceRetention	s3:x-amz-server-side-encryption-customer-algorithm	bypass-governance-headers
 s3:BypassGovernanceRetention	s3:x-amz-storage-class	bypass-governance-headers
 s3:BypassGovernanceRetention	s3:x-amz-website-redirect-location	bypass-governance-headers
-s3:CreateAccessGrant	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:CreateAccessGrant	s3:AccessGrantScope	access-grants-unseeded
-s3:CreateAccessGrantsInstance	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:CreateAccessGrantsLocation	aws:ResourceTag/${TagKey}	access-grants-unseeded
+s3:CreateAccessGrant	aws:ResourceTag/${TagKey}	create-names-no-resource
+s3:CreateAccessGrantsLocation	aws:ResourceTag/${TagKey}	create-names-no-resource
 s3:CreateAccessPoint	s3:locationconstraint	no-request-member
 s3:CreateAccessPoint	s3:x-amz-acl	no-request-member
 s3:CreateAccessPointForObjectLambda	s3:AccessPointNetworkOrigin	object-lambda-multi-region-access-point
@@ -720,12 +714,6 @@ s3:CreateJob	s3:RequestJobOperation	job-operation-shape
 s3:CreateMultiRegionAccessPoint	s3:AccessPointNetworkOrigin	object-lambda-multi-region-access-point
 s3:CreateMultiRegionAccessPoint	s3:DataAccessPointAccount	object-lambda-multi-region-access-point
 s3:CreateMultiRegionAccessPoint	s3:DataAccessPointArn	object-lambda-multi-region-access-point
-s3:DeleteAccessGrant	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:DeleteAccessGrant	s3:AccessGrantScope	access-grants-unseeded
-s3:DeleteAccessGrantsInstance	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:DeleteAccessGrantsInstanceResourcePolicy	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:DeleteAccessGrantsLocation	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:DeleteAccessGrantsLocation	s3:AccessGrantsLocationScope	access-grants-unseeded
 s3:DeleteAccessPointForObjectLambda	s3:AccessPointNetworkOrigin	object-lambda-multi-region-access-point
 s3:DeleteAccessPointForObjectLambda	s3:DataAccessPointAccount	object-lambda-multi-region-access-point
 s3:DeleteAccessPointForObjectLambda	s3:DataAccessPointArn	object-lambda-multi-region-access-point
@@ -740,14 +728,6 @@ s3:DeleteMultiRegionAccessPoint	s3:DataAccessPointArn	object-lambda-multi-region
 s3:DeleteObject	s3:AccessGrantsInstanceArn	access-grants-credential
 s3:DeleteObjectVersion	s3:AccessGrantsInstanceArn	access-grants-credential
 s3:DeleteObjectVersion	s3:versionid	delete-objects-versions
-s3:DissociateAccessGrantsIdentityCenter	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:GetAccessGrant	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:GetAccessGrant	s3:AccessGrantScope	access-grants-unseeded
-s3:GetAccessGrantsInstance	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:GetAccessGrantsInstanceForPrefix	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:GetAccessGrantsInstanceResourcePolicy	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:GetAccessGrantsLocation	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:GetAccessGrantsLocation	s3:AccessGrantsLocationScope	access-grants-unseeded
 s3:GetAccessPoint	aws:ResourceTag/${TagKey}	get-access-point-resource
 s3:GetAccessPointConfigurationForObjectLambda	s3:AccessPointNetworkOrigin	object-lambda-multi-region-access-point
 s3:GetAccessPointConfigurationForObjectLambda	s3:DataAccessPointAccount	object-lambda-multi-region-access-point
@@ -761,7 +741,6 @@ s3:GetAccessPointPolicyForObjectLambda	s3:DataAccessPointArn	object-lambda-multi
 s3:GetAccessPointPolicyStatusForObjectLambda	s3:AccessPointNetworkOrigin	object-lambda-multi-region-access-point
 s3:GetAccessPointPolicyStatusForObjectLambda	s3:DataAccessPointAccount	object-lambda-multi-region-access-point
 s3:GetAccessPointPolicyStatusForObjectLambda	s3:DataAccessPointArn	object-lambda-multi-region-access-point
-s3:GetDataAccess	aws:ResourceTag/${TagKey}	access-grants-unseeded
 s3:GetMultiRegionAccessPoint	s3:AccessPointNetworkOrigin	object-lambda-multi-region-access-point
 s3:GetMultiRegionAccessPoint	s3:DataAccessPointAccount	object-lambda-multi-region-access-point
 s3:GetMultiRegionAccessPoint	s3:DataAccessPointArn	object-lambda-multi-region-access-point
@@ -776,8 +755,6 @@ s3:GetMultiRegionAccessPointRoutes	s3:DataAccessPointAccount	object-lambda-multi
 s3:GetMultiRegionAccessPointRoutes	s3:DataAccessPointArn	object-lambda-multi-region-access-point
 s3:GetObject	s3:AccessGrantsInstanceArn	access-grants-credential
 s3:GetObjectAcl	s3:AccessGrantsInstanceArn	access-grants-credential
-s3:ListAccessGrants	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:ListAccessGrantsLocations	aws:ResourceTag/${TagKey}	access-grants-unseeded
 s3:ListBucket	s3:AccessGrantsInstanceArn	access-grants-credential
 s3:ListBucketMultipartUploads	s3:AccessGrantsInstanceArn	access-grants-credential
 s3:ListBucketMultipartUploads	s3:AccessPointNetworkOrigin	access-point-addressed
@@ -785,9 +762,7 @@ s3:ListBucketMultipartUploads	s3:AccessPointTag/${TagKey}	access-point-addressed
 s3:ListBucketMultipartUploads	s3:DataAccessPointAccount	access-point-addressed
 s3:ListBucketMultipartUploads	s3:DataAccessPointArn	access-point-addressed
 s3:ListBucketVersions	s3:AccessGrantsInstanceArn	access-grants-credential
-s3:ListCallerAccessGrants	aws:ResourceTag/${TagKey}	access-grants-unseeded
 s3:ListMultipartUploadParts	s3:AccessGrantsInstanceArn	access-grants-credential
-s3:PutAccessGrantsInstanceResourcePolicy	aws:ResourceTag/${TagKey}	access-grants-unseeded
 s3:PutAccessPointConfigurationForObjectLambda	s3:AccessPointNetworkOrigin	object-lambda-multi-region-access-point
 s3:PutAccessPointConfigurationForObjectLambda	s3:DataAccessPointAccount	object-lambda-multi-region-access-point
 s3:PutAccessPointConfigurationForObjectLambda	s3:DataAccessPointArn	object-lambda-multi-region-access-point
@@ -807,8 +782,6 @@ s3:PutReplicationConfiguration	s3:isReplicationPauseRequest	unmodelled
 s3:SubmitMultiRegionAccessPointRoutes	s3:AccessPointNetworkOrigin	object-lambda-multi-region-access-point
 s3:SubmitMultiRegionAccessPointRoutes	s3:DataAccessPointAccount	object-lambda-multi-region-access-point
 s3:SubmitMultiRegionAccessPointRoutes	s3:DataAccessPointArn	object-lambda-multi-region-access-point
-s3:UpdateAccessGrantsLocation	aws:ResourceTag/${TagKey}	access-grants-unseeded
-s3:UpdateAccessGrantsLocation	s3:AccessGrantsLocationScope	access-grants-unseeded
 s3:UpdateJobPriority	s3:ExistingJobOperation	resource-unseeded
 s3:UpdateJobPriority	s3:ExistingJobPriority	resource-unseeded
 s3:UpdateJobStatus	s3:ExistingJobOperation	resource-unseeded
@@ -900,6 +873,7 @@ sts:AssumeRole	saml:sub	federated-session-claims
 sts:AssumeRole	saml:sub_type	federated-session-claims
 sts:AssumeRole	www.amazon.com:app_id	federated-session-claims
 sts:AssumeRole	www.amazon.com:user_id	federated-session-claims
+sts:TagSession	saml:aud	federated-session-claims
 wafv2:GetIPSet	aws:ResourceTag/${TagKey}	resource-unseeded
 wafv2:GetLoggingConfiguration	aws:ResourceTag/${TagKey}	resource-unseeded
 wafv2:GetRateBasedStatementManagedKeys	aws:ResourceTag/${TagKey}	resource-unseeded

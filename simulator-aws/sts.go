@@ -336,6 +336,13 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
 				http.StatusForbidden)
 			return
 		}
+		// Session tags need the trust policy to allow sts:TagSession as well.
+		if len(iamRequestTags(r, "sts")) > 0 && !stsTrustAllows(role, "sts:TagSession", callerArn, ctx) {
+			stsErrorXML(w, "AccessDenied",
+				fmt.Sprintf("User: %s is not authorized to perform: sts:TagSession on resource: %s", callerArn, roleArn),
+				http.StatusForbidden)
+			return
+		}
 	}
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
 	akid, secret, token := stsMintTempCred(exp)

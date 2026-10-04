@@ -31,6 +31,8 @@ func TestS3ControlTerraform(t *testing.T) {
 	assert.Contains(t, outputs.must(t, "access_grants_instance_arn"), "access-grants/default")
 	assert.Equal(t, "s3://tf-s3control-source/data/*", outputs.must(t, "access_grant_scope"),
 		"a grant with no sub-prefix covers its location's whole scope")
+	assert.Equal(t, "analytics", outputs.must(t, "access_grant_team"),
+		"the provider reads the grant's create-time tags back through ListTagsForResource")
 
 	env.Terraform(t, "destroy", "-auto-approve")
 }

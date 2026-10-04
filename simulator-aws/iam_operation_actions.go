@@ -13,7 +13,9 @@ import (
 // iamOperationTargets turns the operation a request makes into what AWS
 // authorizes it as. An operation whose name is an IAM action is that action on
 // resources; the rest are the action or actions the Service Reference maps
-// them to, some resolved from what the request asks for.
+// them to, some resolved from what the request asks for. A create that carries
+// tags is also authorized as its service's tagging action; see
+// iamTagOnCreateTargets.
 func iamOperationTargets(r *http.Request, service, operation string, resources []string) []iamAuthorizationTarget {
 	on := func(action string, arns ...string) []iamAuthorizationTarget {
 		targets := make([]iamAuthorizationTarget, 0, len(arns))
@@ -33,23 +35,15 @@ func iamOperationTargets(r *http.Request, service, operation string, resources [
 		return iamDynamoDBTransactWriteTargets(r)
 	case "dynamodb:ExecuteStatement", "dynamodb:BatchExecuteStatement", "dynamodb:ExecuteTransaction":
 		return iamDynamoDBPartiQLTargets(r)
-	case "budgets:CreateBudget":
-		targets := on("ModifyBudget", resources...)
-		var request struct {
-			ResourceTags []json.RawMessage `json:"ResourceTags"`
-		}
-		if json.Unmarshal(iamRequestBody(r), &request) == nil && len(request.ResourceTags) > 0 {
-			targets = append(targets, on("TagResource", resources...)...)
-		}
-		return targets
 	}
 	if service == "s3" {
 		return s3AuthorizationTargets(r, operation, resources)
 	}
-	if action, ok := iamOperationActions[service+":"+operation]; ok {
-		return on(action, resources...)
+	action := operation
+	if mapped, ok := iamOperationActions[service+":"+operation]; ok {
+		action = mapped
 	}
-	return on(operation, resources...)
+	return append(on(action, resources...), iamTagOnCreateTargets(r, service, operation, resources)...)
 }
 
 // iamDynamoDBTransactWriteTargets authorizes each item of a transaction as the

@@ -95,16 +95,22 @@ func iamSessionMFA(akid string) (present bool, ageSeconds int64) {
 // service-specific condition keys implied by the request.
 func iamPopulateResourceConditionKeys(r *http.Request, action string, ctx map[string][]string) {
 	service := strings.SplitN(action, ":", 2)[0]
-	switch service {
-	case "ec2":
-		iamPopulateEC2ResourceTags(r, ctx)
-	case "ecs":
+	if service == "ecs" {
 		iamPopulateECSCluster(r, ctx)
-		iamPopulateECSResourceTags(r, action, ctx)
-	default:
-		// Every other tag-storing sim service resolves the request's target
-		// resource into aws:ResourceTag/<k> + <service>:ResourceTag/<k>.
-		iamPopulateServiceResourceTags(r, service, ctx)
+	}
+	// The tagging a create carries tags a resource that does not exist yet, so
+	// it has no tags of its own to report.
+	if !iamIsTagOnCreateCheck(r, action) {
+		switch service {
+		case "ec2":
+			iamPopulateEC2ResourceTags(r, ctx)
+		case "ecs":
+			iamPopulateECSResourceTags(r, action, ctx)
+		default:
+			// Every other tag-storing sim service resolves the request's target
+			// resource into aws:ResourceTag/<k> + <service>:ResourceTag/<k>.
+			iamPopulateServiceResourceTags(r, service, ctx)
+		}
 	}
 	iamPopulateRequestTags(r, service, ctx)
 }

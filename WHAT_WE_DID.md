@@ -401,6 +401,23 @@ through hooks:
   and a StartSyncExecution on a Lambda task in flight across SIGTERM and still
   stops within 5 s, and `TestS3Control_BatchJobLambdaInvoke` runs a
   LambdaInvoke job to `Complete`.
+- **An Amazon S3 Batch Operations job runs after CreateJob answers.** CreateJob
+  stores the job `New` and hands it to the server's background workers, which
+  move it through `Preparing` (reading the manifest into one task per row),
+  `Suspended` when the job requires confirmation or `Ready`, `Active`, and
+  `Completing`, `Failing` or `Cancelling` into its final status, writing the
+  completion report on the way. UpdateJobStatus confirms only a `Suspended`
+  job and cancels a running one between tasks. Each task's outcome is
+  recorded as it lands, so a stopping simulator leaves the job where it was
+  and `s3RecoverBatchJobs` resumes it after the last recorded task. A
+  LambdaInvoke task sends the event of the invocation schema the operation
+  names, 1.0 or 2.0 with its user arguments, and takes its outcome from the
+  `results[]` entry for its task — `Succeeded`, `PermanentFailure`, or
+  `TemporaryFailure`, which redrives the task after every other has run — with
+  `treatMissingKeysAs` for a missing entry. The completion report is the
+  service's: `manifest.json` and one results CSV per task status under
+  `<prefix>/job-<id>/`. Tests wait on DescribeJob's status, never on
+  CreateJob's answer.
 - **An image pull says why it pulled.** `pullImage` writes a `[sim-pull]` line
   when the held-image check fails, with the inspect error or the held and
   wanted platforms, and one per throttled retry with the attempt, the error
@@ -1778,6 +1795,32 @@ account's IAM, which is what the default AWS KMS key policy means. The Amazon
 S3 control plane runs the same gate route by route; a route whose action
 declares no resource type authorizes `"*"` because that is what the reference
 says, and a test crosses every route against the reference.
+
+A create that carries tags is authorized twice, as AWS does: as itself and as
+its service's tagging action, with `<service>:CreateAction` naming the create
+on the second check. Which tagging action a create adds is generated, not
+listed: `iamTagOnCreateActions` holds, for every operation whose Service
+Reference entry authorizes an action annotated `IsTaggingOnly` beside one that
+is not, those tagging actions — 297 operations across 31 services, Amazon S3
+excepted because it reads its tagging from headers and control-plane
+documents. Whether a request carries tags is read in the shape its protocol
+sends them, Smithy RPC v2 CBOR included, so the check reaches the awsJson and
+awsQuery gate, the AWS Lambda REST gate, the Amazon CloudWatch CBOR routes
+and EventBridge Scheduler's universal targets alike. The tagging check
+authorizes against the resource being created — for Amazon EC2 the wildcard
+of each tag specification's resource type — and reports no `aws:ResourceTag`,
+because that resource has none yet. Session tags on an `AssumeRole` need the
+role's trust policy to allow `sts:TagSession` too.
+
+An Amazon S3 control-plane resource has one tag set, held in
+`s3ControlResourceTags` under the resource's ARN. The creates that take tags —
+CreateAccessGrantsInstance, CreateAccessGrantsLocation, CreateAccessGrant,
+CreateStorageLensGroup and CreateAccessPoint — write theirs there, the deletes
+remove it, and TagResource, ListTagsForResource and the IAM gate's
+`aws:ResourceTag/<k>` read nothing else, so a tag given at create time and one
+added later are indistinguishable to every reader. TagResource on an Access
+Grants location or grant ARN requires that location or grant to exist, not
+merely the instance.
 
 Google Cloud's `testIamPermissions` answers from the stored policy resolved
 through the vendored curated roles and the held custom roles. A conditional
