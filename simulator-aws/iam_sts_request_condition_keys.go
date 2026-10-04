@@ -23,6 +23,8 @@ func iamPopulateSTSRequestConditionKeys(r *http.Request, operation string, body 
 		set("sts:ExternalId", "ExternalId")
 		set("sts:SourceIdentity", "SourceIdentity")
 		list("sts:TransitiveTagKeys", "TransitiveTagKeys")
+	case "TagSession":
+		list("sts:TransitiveTagKeys", "TransitiveTagKeys")
 	case "AssumeRoleWithWebIdentity":
 		set("sts:RoleSessionName", "RoleSessionName")
 	case "GetWebIdentityToken":

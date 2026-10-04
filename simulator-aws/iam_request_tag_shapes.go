@@ -70,6 +70,10 @@ type iamRequestTagShape struct {
 	// keyURL is the URL query parameter a REST untagging operation repeats
 	// once per key.
 	keyURL string
+	// cborList and keyCBOR are jsonList and keyJSON for a request the service
+	// receives over Smithy RPC v2 CBOR.
+	cborList []iamJSONTagList
+	keyCBOR  []string
 }
 
 // iamKeyValueTagList is the tag structure spelling most JSON services declare.
@@ -138,7 +142,12 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// and cloudwatch_misc_ops.go parse exactly that — and the TagList member in
 	// cloudwatch.smithy.json.gz (PutMetricAlarmInput$Tags, TagResourceInput$Tags)
 	// carries no xmlName, so the default `member` is right.
-	"cloudwatch": {query: []string{"Tags.member"}, keyQuery: []string{"TagKeys.member"}},
+	// The Go SDK speaks Smithy RPC v2 CBOR to Amazon CloudWatch, carrying the
+	// same Tags list of `Key`/`Value` and UntagResource's TagKeys.
+	"cloudwatch": {
+		query: []string{"Tags.member"}, keyQuery: []string{"TagKeys.member"},
+		cborList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyCBOR: []string{"TagKeys"},
+	},
 
 	// Amazon ECS (awsJson1_1). ecs.smithy.json.gz declares `tags` on
 	// CreateCluster, CreateService, RunTask, RegisterTaskDefinition and 8 more,
@@ -293,7 +302,40 @@ func iamRequestTags(r *http.Request, service string) []EC2Tag {
 	if len(shape.jsonList) > 0 || len(shape.jsonMap) > 0 {
 		tags = append(tags, iamJSONRequestTags(iamRequestBody(r), shape)...)
 	}
+	if len(shape.cborList) > 0 {
+		if document := iamCBORRequestDocument(r); document != nil {
+			for _, list := range shape.cborList {
+				entries, _ := document[list.member].([]any)
+				for _, entry := range entries {
+					fields, _ := entry.(map[string]any)
+					key, _ := fields[list.key].(string)
+					if key == "" {
+						continue
+					}
+					value, _ := fields[list.value].(string)
+					tags = append(tags, EC2Tag{Key: key, Value: value})
+				}
+			}
+		}
+	}
 	return tags
+}
+
+// iamCBORRequestDocument decodes the body of a Smithy RPC v2 CBOR request, which
+// names its protocol in the Smithy-Protocol header, or is nil for any other.
+func iamCBORRequestDocument(r *http.Request) map[string]any {
+	if r.Header.Get("Smithy-Protocol") != "rpc-v2-cbor" {
+		return nil
+	}
+	body := iamRequestBody(r)
+	if len(body) == 0 {
+		return nil
+	}
+	var document map[string]any
+	if cwCBORDecMode.Unmarshal(body, &document) != nil {
+		return nil
+	}
+	return document
 }
 
 // iamRequestTagKeys returns the tag keys an untagging request names, in the
@@ -315,6 +357,18 @@ func iamRequestTagKeys(r *http.Request, service string) []string {
 	}
 	if shape.keyURL != "" {
 		keys = append(keys, r.URL.Query()[shape.keyURL]...)
+	}
+	if len(shape.keyCBOR) > 0 {
+		if document := iamCBORRequestDocument(r); document != nil {
+			for _, member := range shape.keyCBOR {
+				listed, _ := document[member].([]any)
+				for _, key := range listed {
+					if key, ok := key.(string); ok && key != "" {
+						keys = append(keys, key)
+					}
+				}
+			}
+		}
 	}
 	if len(shape.keyJSON) > 0 {
 		var document map[string]json.RawMessage

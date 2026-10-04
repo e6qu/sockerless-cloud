@@ -68,18 +68,27 @@ func lambdaEnforcedDynamic(opFn func(*http.Request) string, resource func(*http.
 			lambdaWriteMissingAuth(w)
 			return
 		}
-		action := lambdaIAMAction(opFn(r))
 		resARN := "*"
 		if resource != nil {
 			if v := resource(r); v != "" {
 				resARN = v
 			}
 		}
-		if !iamEnforceREST(w, r, action, resARN, lambdaWriteIAMDeny) {
-			return
+		for _, target := range lambdaAuthorizationTargets(r, opFn(r), resARN) {
+			if !iamEnforceREST(w, r, target.action, target.resource, lambdaWriteIAMDeny) {
+				return
+			}
 		}
 		h(w, r)
 	}
+}
+
+// lambdaAuthorizationTargets is what AWS Lambda authorizes an operation as: its
+// action on the resource, and lambda:TagResource as well when a create carries
+// tags.
+func lambdaAuthorizationTargets(r *http.Request, op, resource string) []iamAuthorizationTarget {
+	return append([]iamAuthorizationTarget{{action: lambdaIAMAction(op), resource: resource}},
+		iamTagOnCreateTargets(r, "lambda", op, []string{resource})...)
 }
 
 // lambdaIAMAction maps a Lambda REST API operation name to its documented IAM

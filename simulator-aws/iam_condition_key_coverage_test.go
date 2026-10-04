@@ -274,16 +274,22 @@ func iamServedKeyProbes(t *testing.T, srv *sim.Server,
 		}
 		m := model(idx)
 		operation := match[2]
-		if !referenced[m.service] || m.inputs[operation] == "" {
+		if m.service != "cloudwatch" || !referenced[m.service] || m.inputs[operation] == "" {
 			continue
 		}
 		f := fill(m, operation)
 		probes = append(probes, iamKeyProbe{
 			label: "rpcv2Cbor " + m.service + " " + operation,
 			build: f.cborRequest,
-			// The RPC v2 CBOR route authorizes the operation its path names;
+			// Amazon CloudWatch is the one service served over RPC v2 CBOR;
 			// see cloudWatchCBORAuthorized.
-			actions: func(*http.Request) []string { return []string{m.service + ":" + operation} },
+			actions: func(r *http.Request) []string {
+				var out []string
+				for _, target := range cloudWatchCBORTargets(r, operation) {
+					out = append(out, target.action)
+				}
+				return out
+			},
 		})
 	}
 
@@ -344,7 +350,13 @@ func iamServedKeyProbes(t *testing.T, srv *sim.Server,
 					return out
 				}
 			case m.service == "lambda":
-				actions = func(*http.Request) []string { return []string{lambdaIAMAction(operation)} }
+				actions = func(r *http.Request) []string {
+					var out []string
+					for _, target := range lambdaAuthorizationTargets(r, operation, "*") {
+						out = append(out, target.action)
+					}
+					return out
+				}
 			default:
 				continue
 			}

@@ -124,9 +124,11 @@ EOF
 // iamOperationActions maps an API operation whose name is not itself an IAM
 // action to the one action AWS authorizes it as, per the Service Reference's
 // operation table: Amazon S3's ListObjectVersions is s3:ListBucketVersions,
-// Amazon SQS's SendMessageBatch is sqs:SendMessage. Operations the reference
-// authorizes as several actions are resolved from the request in
-// iam_operation_actions.go.
+// Amazon SQS's SendMessageBatch is sqs:SendMessage. A tagging action the
+// operation adds only when its request carries tags does not count, so AWS
+// Budgets' CreateBudget is budgets:ModifyBudget; see iamTagOnCreateActions.
+// Operations the reference authorizes as several actions are resolved from
+// the request in iam_operation_actions.go.
 var iamOperationActions = map[string]string{
 EOF
 
@@ -134,12 +136,46 @@ EOF
     gzip -dc "$f" | jq -r '
       .Name as $svc
       | [.Actions[].Name] as $declared
+      | [.Actions[] | select(.Annotations.Properties.IsTaggingOnly) | .Name] as $tagging
       | .Operations[]?
       | . as $op
       | select(($declared | index($op.Name)) | not)
-      | [(.AuthorizedActions // [])[] | select(.Service == $svc) | .Name] | unique
+      | ([(.AuthorizedActions // [])[] | select(.Service == $svc) | .Name] | unique) as $all
+      | ([$all[] | select(. as $n | $tagging | index($n) | not)]) as $own
+      | (if ($all | length) == 1 then $all elif ($own | length) == 1 then $own else [] end)
       | select(length == 1)
       | "\t\"" + $svc + ":" + $op.Name + "\": \"" + .[0] + "\","
+    ' | sort
+  done
+
+  echo "}"
+
+  cat <<'EOF'
+
+// iamTagOnCreateActions maps an operation to the tagging actions AWS
+// additionally authorizes when its request carries tags: the actions the
+// Service Reference lists among the operation's authorized actions and
+// annotates IsTaggingOnly, beside at least one it does not. An operation whose
+// only action is a tagging one is authorized as that action and is not listed.
+// Amazon S3 reads its tagging from request headers and control-plane
+// documents instead; see s3AuthorizationTargets and s3ControlTaggingTargets.
+var iamTagOnCreateActions = map[string][]string{
+EOF
+
+  for f in "$SRC_DIR"/*.servicereference.json.gz; do
+    gzip -dc "$f" | jq -r '
+      .Name as $svc
+      | select($svc != "s3")
+      | [.Actions[] | select(.Annotations.Properties.IsTaggingOnly) | .Name] as $tagging
+      | .Operations[]?
+      | . as $op
+      | select($tagging | index($op.Name) | not)
+      | ([(.AuthorizedActions // [])[] | select(.Service == $svc) | .Name] | unique) as $all
+      | ([$all[] | select(. as $n | $tagging | index($n))]) as $tags
+      | select(($tags | length) > 0 and ($tags | length) < ($all | length))
+      | "\t\"" + $svc + ":" + $op.Name + "\": {"
+        + ($tags | map("\"" + . + "\"") | join(", "))
+        + "},"
     ' | sort
   done
 

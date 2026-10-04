@@ -427,16 +427,26 @@ func cloudWatchCBORAuthorized(op string, h http.HandlerFunc) http.HandlerFunc {
 				cwWriteCBORError(w, jsonCode, serr.message, http.StatusForbidden)
 				return
 			}
-			allowed, principalARN, registered := iamAuthorize(r, "cloudwatch:"+op, "*")
-			if registered && !allowed {
-				cwWriteCBORError(w, "AccessDenied",
-					fmt.Sprintf("User: %s is not authorized to perform: cloudwatch:%s", principalARN, op),
-					http.StatusForbidden)
-				return
+			for _, target := range cloudWatchCBORTargets(r, op) {
+				allowed, principalARN, registered := iamAuthorize(r, target.action, target.resource)
+				if registered && !allowed {
+					cwWriteCBORError(w, "AccessDenied",
+						fmt.Sprintf("User: %s is not authorized to perform: %s", principalARN, target.action),
+						http.StatusForbidden)
+					return
+				}
 			}
 		}
 		h(w, r)
 	}
+}
+
+// cloudWatchCBORTargets is what an RPC v2 CBOR request is authorized as: the
+// operation its path names, and cloudwatch:TagResource as well when a create
+// carries tags.
+func cloudWatchCBORTargets(r *http.Request, op string) []iamAuthorizationTarget {
+	return append([]iamAuthorizationTarget{{action: "cloudwatch:" + op, resource: "*"}},
+		iamTagOnCreateTargets(r, "cloudwatch", op, []string{"*"})...)
 }
 
 // cwReadCBOR reads and CBOR-decodes a request body into v, writing the protocol

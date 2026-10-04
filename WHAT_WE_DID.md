@@ -1779,6 +1779,22 @@ S3 control plane runs the same gate route by route; a route whose action
 declares no resource type authorizes `"*"` because that is what the reference
 says, and a test crosses every route against the reference.
 
+A create that carries tags is authorized twice, as AWS does: as itself and as
+its service's tagging action, with `<service>:CreateAction` naming the create
+on the second check. Which tagging action a create adds is generated, not
+listed: `iamTagOnCreateActions` holds, for every operation whose Service
+Reference entry authorizes an action annotated `IsTaggingOnly` beside one that
+is not, those tagging actions — 297 operations across 31 services, Amazon S3
+excepted because it reads its tagging from headers and control-plane
+documents. Whether a request carries tags is read in the shape its protocol
+sends them, Smithy RPC v2 CBOR included, so the check reaches the awsJson and
+awsQuery gate, the AWS Lambda REST gate, the Amazon CloudWatch CBOR routes
+and EventBridge Scheduler's universal targets alike. The tagging check
+authorizes against the resource being created — for Amazon EC2 the wildcard
+of each tag specification's resource type — and reports no `aws:ResourceTag`,
+because that resource has none yet. Session tags on an `AssumeRole` need the
+role's trust policy to allow `sts:TagSession` too.
+
 Google Cloud's `testIamPermissions` answers from the stored policy resolved
 through the vendored curated roles and the held custom roles. A conditional
 binding grants its role only while its condition holds: the simulator compiles

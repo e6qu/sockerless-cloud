@@ -292,9 +292,10 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 			}
 		}
 		rdocs := iamResourcePolicyDocsForARN(policyARN)
-		// A role's trust policy is the resource policy of assuming it: naming
-		// the caller there grants the assumption without an identity policy.
-		if action == "sts:AssumeRole" {
+		// A role's trust policy is the resource policy of assuming it, and of
+		// tagging the session the assumption opens: naming the caller there
+		// grants either without an identity policy.
+		if action == "sts:AssumeRole" || action == "sts:TagSession" {
 			rdocs = append(rdocs, iamRoleTrustDocs(resource)...)
 		}
 		if len(rdocs) > 0 {
