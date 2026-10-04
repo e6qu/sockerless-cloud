@@ -114,7 +114,7 @@ func handleS3CreateJob(w http.ResponseWriter, r *http.Request) {
 		s3BatchJobs.Put(s3AccessPointKey(account, job.JobID), job)
 	} else {
 		s3BatchJobs.Put(s3AccessPointKey(account, job.JobID), job)
-		s3RunBatchJob(account, job.JobID)
+		s3RunBatchJob(sim.LifetimeContext(r.Context()), account, job.JobID)
 	}
 	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"CreateJobResult"`
@@ -128,7 +128,7 @@ func s3BatchJobID() string { return sim.NewUUID() }
 
 // s3RunBatchJob reads the job's manifest and applies its operation to every
 // entry, recording what succeeded and what did not.
-func s3RunBatchJob(account, jobID string) {
+func s3RunBatchJob(ctx context.Context, account, jobID string) {
 	job, ok := s3BatchJobs.Get(s3AccessPointKey(account, jobID))
 	if !ok {
 		return
@@ -145,7 +145,7 @@ func s3RunBatchJob(account, jobID string) {
 	succeeded, failed := 0, 0
 	var reasons []string
 	for _, entry := range entries {
-		if err := s3RunBatchTask(job, entry); err != nil {
+		if err := s3RunBatchTask(ctx, job, entry); err != nil {
 			failed++
 			if len(reasons) < 5 {
 				reasons = append(reasons, err.Error())
@@ -232,14 +232,14 @@ func s3BucketKeyFromARN(arn string) (string, string, bool) {
 }
 
 // s3RunBatchTask applies the job's operation to one object.
-func s3RunBatchTask(job S3BatchJob, entry s3BatchManifestEntry) error {
+func s3RunBatchTask(ctx context.Context, job S3BatchJob, entry s3BatchManifestEntry) error {
 	object, ok := s3Objects.Get(s3ObjectKey(entry.Bucket, entry.Key))
 	if !ok {
 		return fmt.Errorf("s3://%s/%s does not exist", entry.Bucket, entry.Key)
 	}
 	switch {
 	case hasChild(job.Operation, "LambdaInvoke"):
-		return s3RunBatchLambdaInvoke(job, entry)
+		return s3RunBatchLambdaInvoke(ctx, job, entry)
 	case hasChild(job.Operation, "S3PutObjectTagging"):
 		operation, _ := job.Operation.Child("S3PutObjectTagging")
 		s3ObjectTags.Put(entry.Bucket+"/"+entry.Key, s3ControlTagsFrom(operation, "TagSet", "member"))
@@ -288,7 +288,7 @@ func hasChild(node s3ControlXMLNode, name string) bool {
 
 // s3RunBatchLambdaInvoke invokes the job's function once per object, with the
 // task event Batch Operations sends.
-func s3RunBatchLambdaInvoke(job S3BatchJob, entry s3BatchManifestEntry) error {
+func s3RunBatchLambdaInvoke(ctx context.Context, job S3BatchJob, entry s3BatchManifestEntry) error {
 	operation, _ := job.Operation.Child("LambdaInvoke")
 	arn := operation.ChildText("FunctionArn")
 	fn, ok := lambdaFunctions.Get(ebLambdaNameFromARN(arn))
@@ -308,8 +308,8 @@ func s3RunBatchLambdaInvoke(job S3BatchJob, entry s3BatchManifestEntry) error {
 	if err != nil {
 		return fmt.Errorf("build the task event: %w", err)
 	}
-	out, handled, status := invokeLambdaViaRuntimeAPI(context.Background(), fn, payload)
-	if !handled || status >= 300 {
+	out, unhandled, _ := invokeLambdaViaRuntimeAPI(ctx, fn, payload)
+	if unhandled {
 		return fmt.Errorf("s3://%s/%s: the function failed: %s",
 			entry.Bucket, entry.Key, strings.TrimSpace(string(out)))
 	}
@@ -455,7 +455,7 @@ func handleS3UpdateJobStatus(w http.ResponseWriter, r *http.Request) {
 	})
 	// Confirming a suspended job is what starts it, so the run happens here.
 	if requested == "Ready" {
-		s3RunBatchJob(account, jobID)
+		s3RunBatchJob(sim.LifetimeContext(r.Context()), account, jobID)
 	}
 	updated, _ := s3BatchJobs.Get(s3AccessPointKey(account, jobID))
 	WriteXML(w, http.StatusOK, struct {

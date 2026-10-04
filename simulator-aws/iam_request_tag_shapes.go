@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 // Where each service carries the tags a request supplies — the fact behind
@@ -33,12 +35,14 @@ import (
 // protocol default `member` and serializes as `Tags.member.N`. Amazon EC2 uses
 // ec2Query, which flattens every list and prefers `aws.protocols#ec2QueryName`.
 //
-// REST services (AWS Lambda, Amazon EFS, Amazon API Gateway, Amazon S3) are
-// absent on purpose: iamActionForRequest classifies only requests that carry an
-// awsJson `X-Amz-Target` or an awsQuery `Version`, so a REST request never
-// reaches this gate and a row for it would be unreachable code. AWS Lambda's
-// shape, for the record, is restJson1 `"Tags": {"k": "v"}`
-// (lambda.smithy.json.gz, CreateFunctionRequest$Tags → Tags map).
+// A request that removes tags names only their keys, and AWS reports those
+// keys as aws:TagKeys: that is how a policy stops a caller removing one tag
+// while letting it remove the rest. Each row also records where its service's
+// untagging operation carries that key list.
+//
+// AWS Lambda (restJson1) and the Amazon S3 control plane (restXml) reach the
+// gate through iamEnforceREST, so their rows read the REST body and the
+// tagKeys query parameter their models bind.
 
 // iamJSONTagList is a JSON body member holding a list of tag structures,
 // together with the key and value member names that service's tag structure
@@ -59,6 +63,13 @@ type iamRequestTagShape struct {
 	jsonList []iamJSONTagList
 	// jsonMap are JSON body members holding a map of tag key to tag value.
 	jsonMap []string
+	// keyQuery are awsQuery list paths holding tag keys, read as <path>.N.
+	keyQuery []string
+	// keyJSON are JSON body members holding a list of tag keys.
+	keyJSON []string
+	// keyURL is the URL query parameter a REST untagging operation repeats
+	// once per key.
+	keyURL string
 }
 
 // iamKeyValueTagList is the tag structure spelling most JSON services declare.
@@ -83,27 +94,27 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// `Tags.Tag.N.Key`. RDS also declares a newer TagSpecifications member
 	// (`TagSpecifications.item.N`), which this simulator's RDS handlers do not
 	// read either; it is not listed because nothing here accepts it.
-	"rds": {query: []string{"Tags.Tag"}},
+	"rds": {query: []string{"Tags.Tag"}, keyQuery: []string{"TagKeys.member"}},
 
 	// Amazon ElastiCache (awsQuery). Identical to RDS: TagList's member carries
 	// `"smithy.api#xmlName": "Tag"` (elasticache.smithy.json.gz,
 	// CreateCacheClusterMessage$Tags / AddTagsToResourceMessage$Tags), so the
 	// wire form is `Tags.Tag.N.Key` — which elasticache.go already parses that
 	// way when it stores them.
-	"elasticache": {query: []string{"Tags.Tag"}},
+	"elasticache": {query: []string{"Tags.Tag"}, keyQuery: []string{"TagKeys.member"}},
 
 	// Elastic Load Balancing v2 (awsQuery). TagList's member carries no
 	// xmlName (elastic-load-balancing-v2.smithy.json.gz,
 	// CreateLoadBalancerInput$Tags / AddTagsInput$Tags), so the awsQuery
 	// default list member name applies: `Tags.member.N.Key`, the same path
 	// parseELBv2Tags reads.
-	"elasticloadbalancing": {query: []string{"Tags.member"}},
+	"elasticloadbalancing": {query: []string{"Tags.member"}, keyQuery: []string{"TagKeys.member"}},
 
 	// AWS Identity and Access Management (awsQuery). tagListType's member
 	// carries no xmlName (iam.smithy.json.gz, CreateRoleRequest$Tags,
 	// TagRoleRequest$Tags and 35 more), so `Tags.member.N.Key` — the path
 	// iam_lists.go parses.
-	"iam": {query: []string{"Tags.member"}},
+	"iam": {query: []string{"Tags.member"}, keyQuery: []string{"TagKeys.member"}},
 
 	// AWS Security Token Service (awsQuery). AssumeRoleRequest$Tags is the
 	// session tags a role assumption carries, and tagListType's member carries
@@ -113,7 +124,7 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// Amazon SNS (awsQuery). TagList's member carries no xmlName
 	// (sns.smithy.json.gz, CreateTopicInput$Tags / TagResourceRequest$Tags):
 	// `Tags.member.N.Key`, the path sns.go parses.
-	"sns": {query: []string{"Tags.member"}},
+	"sns": {query: []string{"Tags.member"}, keyQuery: []string{"TagKeys.member"}},
 
 	// Amazon EC2 Auto Scaling (awsQuery). The Tags list's member carries no
 	// xmlName (auto-scaling.smithy.json.gz, CreateAutoScalingGroupType$Tags /
@@ -127,38 +138,38 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// and cloudwatch_misc_ops.go parse exactly that — and the TagList member in
 	// cloudwatch.smithy.json.gz (PutMetricAlarmInput$Tags, TagResourceInput$Tags)
 	// carries no xmlName, so the default `member` is right.
-	"cloudwatch": {query: []string{"Tags.member"}},
+	"cloudwatch": {query: []string{"Tags.member"}, keyQuery: []string{"TagKeys.member"}},
 
 	// Amazon ECS (awsJson1_1). ecs.smithy.json.gz declares `tags` on
 	// CreateCluster, CreateService, RunTask, RegisterTaskDefinition and 8 more,
 	// as a list whose Tag structure spells its members `key` and `value` in
 	// lower case — the spelling ECSTag mirrors.
-	"ecs": {jsonList: []iamJSONTagList{{member: "tags", key: "key", value: "value"}}},
+	"ecs": {jsonList: []iamJSONTagList{{member: "tags", key: "key", value: "value"}}, keyJSON: []string{"tagKeys"}},
 
 	// Amazon ECR (awsJson1_1). ecr.smithy.json.gz: CreateRepositoryRequest$tags
 	// and TagResourceRequest$tags, a list of `Key`/`Value` structures — the
 	// member name is lower case, the structure's members are not.
-	"ecr": {jsonList: []iamJSONTagList{{member: "tags", key: "Key", value: "Value"}}},
+	"ecr": {jsonList: []iamJSONTagList{{member: "tags", key: "Key", value: "Value"}}, keyJSON: []string{"tagKeys"}},
 
 	// Amazon DynamoDB (awsJson1_0). dynamodb.smithy.json.gz:
 	// CreateTableInput$Tags and TagResourceInput$Tags, a list of `Key`/`Value`.
-	"dynamodb": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}},
+	"dynamodb": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}},
 
 	// AWS KMS (awsJson1_1). kms.smithy.json.gz: CreateKeyRequest$Tags,
 	// ReplicateKeyRequest$Tags and TagResourceRequest$Tags, a list whose Tag
 	// structure spells its members `TagKey` and `TagValue` — KMS is the one
 	// service here that does not use Key/Value, and KMSTag records that.
-	"kms": {jsonList: []iamJSONTagList{{member: "Tags", key: "TagKey", value: "TagValue"}}},
+	"kms": {jsonList: []iamJSONTagList{{member: "Tags", key: "TagKey", value: "TagValue"}}, keyJSON: []string{"TagKeys"}},
 
 	// Amazon SQS (awsJson1_0). sqs.smithy.json.gz carries tags as a map, not a
 	// list, and names the member differently per operation:
 	// CreateQueueRequest$tags and TagQueueRequest$Tags.
-	"sqs": {jsonMap: []string{"tags", "Tags"}},
+	"sqs": {jsonMap: []string{"tags", "Tags"}, keyJSON: []string{"TagKeys"}},
 
 	// AWS Step Functions (awsJson1_0). sfn.smithy.json.gz:
 	// CreateStateMachineInput$tags, CreateActivityInput$tags,
 	// TagResourceInput$tags — a list of `key`/`value`.
-	"states": {jsonList: []iamJSONTagList{{member: "tags", key: "key", value: "value"}}},
+	"states": {jsonList: []iamJSONTagList{{member: "tags", key: "key", value: "value"}}, keyJSON: []string{"tagKeys"}},
 
 	// AWS CodeBuild (awsJson1_1). codebuild.smithy.json.gz:
 	// CreateProjectInput$tags, CreateFleetInput$tags, CreateReportGroupInput$tags
@@ -168,7 +179,7 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// Amazon CloudWatch Logs (awsJson1_1). cloudwatch-logs.smithy.json.gz
 	// carries tags as a map: CreateLogGroupRequest$tags,
 	// TagResourceRequest$tags and 8 more.
-	"logs": {jsonMap: []string{"tags"}},
+	"logs": {jsonMap: []string{"tags"}, keyJSON: []string{"tagKeys", "tags"}},
 
 	// AWS Glue (awsJson1_1). glue.smithy.json.gz carries `Tags` as a map on 28
 	// inputs (CreateDatabaseRequest, CreateJobRequest, CreateCrawlerRequest …)
@@ -179,41 +190,42 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	"glue": {
 		jsonMap:  []string{"Tags", "TagsToAdd"},
 		jsonList: []iamJSONTagList{{member: "Tags", key: "key", value: "value"}},
+		keyJSON:  []string{"TagsToRemove"},
 	},
 
 	// Amazon EventBridge (awsJson1_1). eventbridge.smithy.json.gz:
 	// CreateEventBusRequest$Tags, PutRuleRequest$Tags, TagResourceRequest$Tags
 	// — a list of `Key`/`Value`.
-	"events": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}},
+	"events": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}},
 
 	// AWS Systems Manager (awsJson1_1). ssm.smithy.json.gz:
 	// CreateActivationRequest$Tags, AddTagsToResourceRequest$Tags and 11 more
 	// — a list of `Key`/`Value`.
-	"ssm": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}},
+	"ssm": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}},
 
 	// AWS Secrets Manager (awsJson1_1). secrets-manager.smithy.json.gz:
 	// CreateSecretRequest$Tags, TagResourceRequest$Tags — a list of
 	// `Key`/`Value`, the shape SMTag mirrors.
-	"secretsmanager": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}},
+	"secretsmanager": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}},
 
 	// AWS Organizations (awsJson1_1). organizations.smithy.json.gz:
 	// CreateAccountRequest$Tags, CreateOrganizationalUnitRequest$Tags,
 	// CreatePolicyRequest$Tags and 5 more — a list of `Key`/`Value`.
-	"organizations": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}},
+	"organizations": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}},
 
 	// AWS Cloud Map (awsJson1_1). servicediscovery.smithy.json.gz:
 	// CreateServiceRequest$Tags, the three CreateNamespace inputs and
 	// TagResourceRequest$Tags — a list of `Key`/`Value`.
-	"servicediscovery": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}},
+	"servicediscovery": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}},
 
 	// AWS WAFv2 (awsJson1_1). wafv2.smithy.json.gz: CreateWebACLRequest$Tags,
 	// CreateIPSetRequest$Tags and 3 more — a list of `Key`/`Value`.
-	"wafv2": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}},
+	"wafv2": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}},
 
 	// AWS Certificate Manager (awsJson1_1). acm.smithy.json.gz:
 	// RequestCertificateRequest$Tags, AddTagsToCertificateRequest$Tags — a list
 	// of `Key`/`Value`.
-	"acm": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}},
+	"acm": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}},
 
 	// AWS Private CA (awsJson1_1). acm-pca.smithy.json.gz:
 	// CreateCertificateAuthorityRequest$Tags, TagCertificateAuthorityRequest$Tags
@@ -223,11 +235,11 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// Amazon Data Firehose (awsJson1_1). firehose.smithy.json.gz:
 	// CreateDeliveryStreamInput$Tags, TagDeliveryStreamInput$Tags — a list of
 	// `Key`/`Value`.
-	"firehose": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}},
+	"firehose": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}},
 
 	// Amazon Kinesis (awsJson1_1). kinesis.smithy.json.gz carries tags as a
 	// map: CreateStreamInput$Tags, AddTagsToStreamInput$Tags and 3 more.
-	"kinesis": {jsonMap: []string{"Tags"}},
+	"kinesis": {jsonMap: []string{"Tags"}, keyJSON: []string{"TagKeys"}},
 
 	// AWS CloudTrail (awsJson1_1). cloudtrail.smithy.json.gz spells the member
 	// `TagsList` on AddTagsRequest, CreateTrailRequest,
@@ -238,12 +250,27 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// AWS Budgets (awsJson1_1). budgets.smithy.json.gz spells the member
 	// `ResourceTags` on CreateBudgetRequest, CreateBudgetActionRequest and
 	// TagResourceRequest — a list of `Key`/`Value`.
-	"budgets": {jsonList: []iamJSONTagList{iamKeyValueTagList("ResourceTags")}},
+	"budgets": {jsonList: []iamJSONTagList{iamKeyValueTagList("ResourceTags")}, keyJSON: []string{"ResourceTagKeys"}},
 
 	// Application Auto Scaling (awsJson1_1). application-auto-scaling.smithy.json.gz
 	// carries tags as a map: RegisterScalableTargetRequest$Tags,
 	// TagResourceRequest$Tags.
-	"application-autoscaling": {jsonMap: []string{"Tags"}},
+	"application-autoscaling": {jsonMap: []string{"Tags"}, keyJSON: []string{"TagKeys"}},
+
+	// AWS Lambda (restJson1). lambda.smithy.json.gz carries tags as a `Tags`
+	// map in the body of CreateFunction, CreateEventSourceMapping,
+	// CreateCodeSigningConfig, CreateCapacityProvider and TagResource, and
+	// UntagResource binds its key list to the repeated `tagKeys` query
+	// parameter.
+	"lambda": {jsonMap: []string{"Tags"}, keyURL: "tagKeys"},
+
+	// Amazon S3 (restXml). s3.smithy.json.gz carries CreateBucket's tags as
+	// CreateBucketConfiguration$Tags, a list of `Tag`. s3-control.smithy.json.gz
+	// carries a `Tags` list on CreateAccessPoint, CreateJob, the Access Grants
+	// creates, CreateStorageLensGroup, PutJobTagging, the Storage Lens
+	// configuration writes and TagResource; UntagResource binds its key list
+	// to `tagKeys`.
+	"s3": {queryTags: s3RequestTags, keyURL: "tagKeys"},
 }
 
 // iamRequestTags returns the tags a request carries, read in the shape the
@@ -265,6 +292,67 @@ func iamRequestTags(r *http.Request, service string) []EC2Tag {
 	}
 	if len(shape.jsonList) > 0 || len(shape.jsonMap) > 0 {
 		tags = append(tags, iamJSONRequestTags(iamRequestBody(r), shape)...)
+	}
+	return tags
+}
+
+// iamRequestTagKeys returns the tag keys an untagging request names, in the
+// list its service's model declares for them.
+func iamRequestTagKeys(r *http.Request, service string) []string {
+	shape, ok := iamRequestTagShapes[service]
+	if !ok {
+		return nil
+	}
+	var keys []string
+	for _, path := range shape.keyQuery {
+		for i := 1; ; i++ {
+			key := r.FormValue(path + "." + strconv.Itoa(i))
+			if key == "" {
+				break
+			}
+			keys = append(keys, key)
+		}
+	}
+	if shape.keyURL != "" {
+		keys = append(keys, r.URL.Query()[shape.keyURL]...)
+	}
+	if len(shape.keyJSON) > 0 {
+		var document map[string]json.RawMessage
+		if body := iamRequestBody(r); len(body) > 0 && json.Unmarshal(body, &document) == nil {
+			for _, member := range shape.keyJSON {
+				var listed []string
+				if raw, present := document[member]; present && json.Unmarshal(raw, &listed) == nil {
+					keys = append(keys, listed...)
+				}
+			}
+		}
+	}
+	return keys
+}
+
+// s3RequestTags reads the tags an Amazon S3 request carries: a CreateBucket's
+// CreateBucketConfiguration, or a control-plane request's `Tags` list under
+// its root element, whose entries the model names `Tag`, or the protocol
+// default `member` where it names none (CreateJob, PutJobTagging).
+func s3RequestTags(r *http.Request) []EC2Tag {
+	controlPlane := strings.HasPrefix(r.URL.Path, "/v20180820/")
+	createBucket := r.Method == http.MethodPut && r.URL.RawQuery == "" &&
+		r.PathValue("bucket") != "" && r.PathValue("key") == ""
+	if !controlPlane && !createBucket {
+		return nil
+	}
+	list, ok := s3ControlGateBody(r).Child("Tags")
+	if !ok {
+		return nil
+	}
+	var tags []EC2Tag
+	for _, child := range list.Children {
+		if child.Name != "Tag" && child.Name != "member" {
+			continue
+		}
+		if key := child.ChildText("Key"); key != "" {
+			tags = append(tags, EC2Tag{Key: key, Value: child.ChildText("Value")})
+		}
 	}
 	return tags
 }

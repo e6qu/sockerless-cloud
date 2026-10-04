@@ -16,11 +16,19 @@ type cloudWatchConditionRequest struct {
 	AlarmActions   []string                      `json:"AlarmActions" cbor:"AlarmActions"`
 	RuleDefinition string                        `json:"RuleDefinition" cbor:"RuleDefinition"`
 	ResourceARN    string                        `json:"ResourceARN" cbor:"ResourceARN"`
+	ResourceArn    string                        `json:"ResourceArn" cbor:"ResourceArn"`
 	ManagedRules   []cloudWatchManagedRuleTarget `json:"ManagedRules" cbor:"ManagedRules"`
+	Tags           []cloudWatchConditionTag      `json:"Tags" cbor:"Tags"`
 }
 
 type cloudWatchManagedRuleTarget struct {
-	ResourceARN string `json:"ResourceARN" cbor:"ResourceARN"`
+	ResourceARN string                   `json:"ResourceARN" cbor:"ResourceARN"`
+	Tags        []cloudWatchConditionTag `json:"Tags" cbor:"Tags"`
+}
+
+type cloudWatchConditionTag struct {
+	Key   string `json:"Key" cbor:"Key"`
+	Value string `json:"Value" cbor:"Value"`
 }
 
 // iamPopulateCloudWatchRequestConditionKeys adds the Amazon CloudWatch keys
@@ -28,7 +36,9 @@ type cloudWatchManagedRuleTarget struct {
 func iamPopulateCloudWatchRequestConditionKeys(r *http.Request, operation string, body []byte, ctx map[string][]string) {
 	switch operation {
 	case "PutMetricAlarm", "PutCompositeAlarm", "PutLogAlarm",
-		"PutInsightRule", "PutManagedInsightRules", "ListManagedInsightRules":
+		"PutInsightRule", "PutManagedInsightRules", "ListManagedInsightRules",
+		"CreateResourceMetricsConfiguration", "DeleteResourceMetricsConfiguration",
+		"GetResourceMetricsConfiguration", "UpdateResourceMetricsConfiguration":
 	default:
 		return
 	}
@@ -36,6 +46,21 @@ func iamPopulateCloudWatchRequestConditionKeys(r *http.Request, operation string
 	if !ok {
 		return
 	}
+	// The tags a JSON or CBOR request carries, and those a managed rule
+	// carries inside its entry: the query-protocol top-level list reaches
+	// aws:RequestTag through iamRequestTagShapes.
+	tags := request.Tags
+	for _, rule := range request.ManagedRules {
+		tags = append(tags, rule.Tags...)
+	}
+	var keys []string
+	for _, tag := range tags {
+		if tag.Key != "" {
+			iamSetConditionValues(ctx, "aws:RequestTag/"+tag.Key, tag.Value)
+			keys = append(keys, tag.Key)
+		}
+	}
+	iamSetConditionValues(ctx, "aws:TagKeys", keys...)
 	switch operation {
 	case "PutMetricAlarm", "PutCompositeAlarm", "PutLogAlarm":
 		iamSetConditionValues(ctx, "cloudwatch:AlarmActions", request.AlarmActions...)
@@ -50,6 +75,9 @@ func iamPopulateCloudWatchRequestConditionKeys(r *http.Request, operation string
 		iamSetConditionValues(ctx, "cloudwatch:requestManagedResourceARNs", arns...)
 	case "ListManagedInsightRules":
 		iamSetConditionValues(ctx, "cloudwatch:requestManagedResourceARNs", request.ResourceARN)
+	case "CreateResourceMetricsConfiguration", "DeleteResourceMetricsConfiguration",
+		"GetResourceMetricsConfiguration", "UpdateResourceMetricsConfiguration":
+		iamSetConditionValues(ctx, "cloudwatch:ResourceArn", request.ResourceArn)
 	}
 }
 
@@ -62,12 +90,17 @@ func cloudWatchDecodeConditionRequest(r *http.Request, body []byte) (cloudWatchC
 		request.AlarmActions = iamQueryList(r, "AlarmActions")
 		request.RuleDefinition = r.FormValue("RuleDefinition")
 		request.ResourceARN = r.FormValue("ResourceARN")
+		request.ResourceArn = r.FormValue("ResourceArn")
 		for i := 1; ; i++ {
 			arn := r.FormValue(fmt.Sprintf("ManagedRules.member.%d.ResourceARN", i))
 			if arn == "" {
 				break
 			}
-			request.ManagedRules = append(request.ManagedRules, cloudWatchManagedRuleTarget{ResourceARN: arn})
+			rule := cloudWatchManagedRuleTarget{ResourceARN: arn}
+			for _, tag := range parseIndexedTags(r, fmt.Sprintf("ManagedRules.member.%d.Tags.member", i)) {
+				rule.Tags = append(rule.Tags, cloudWatchConditionTag(tag))
+			}
+			request.ManagedRules = append(request.ManagedRules, rule)
 		}
 		return request, true
 	}

@@ -59,6 +59,9 @@ func iamPopulateServiceResourceTags(r *http.Request, service string, ctx map[str
 	case "iam":
 		iamPopulateIAMResourceTags(r, ctx)
 		return true
+	case "sts":
+		iamPopulateSTSRoleTags(r, ctx)
+		return true
 	}
 
 	var (
@@ -441,6 +444,9 @@ func iamBatchResourceTags(r *http.Request) (map[string]string, bool) {
 // targets — object tags from s3ObjectTags, bucket tags from the stored
 // `?tagging` subresource XML.
 func iamS3ResourceTags(r *http.Request) (map[string]string, bool) {
+	if strings.HasPrefix(r.URL.Path, "/v20180820/") {
+		return iamS3ControlResourceTags(r)
+	}
 	bucket := sim.PathParam(r, "bucket")
 	if bucket == "" {
 		return nil, false
@@ -701,5 +707,43 @@ func iamPopulateIAMResourceTags(r *http.Request, ctx map[string][]string) {
 			}
 		}
 		return
+	}
+}
+
+// iamS3ControlResourceTags resolves the tags of the resource an Amazon S3
+// control-plane request names: the ARN its route authorizes against, whose
+// tags TagResource and the creates that take tags record.
+func iamS3ControlResourceTags(r *http.Request) (map[string]string, bool) {
+	for _, route := range s3ControlGatedRoutes() {
+		if route.pattern != r.Pattern || route.resource == nil {
+			continue
+		}
+		arn := route.resource(r)
+		if arn == "" {
+			return nil, false
+		}
+		tags, ok := s3ControlResourceTags.Get(arn)
+		return tags, ok && len(tags) > 0
+	}
+	return nil, false
+}
+
+// iamPopulateSTSRoleTags exposes the tags of the role an AWS STS request
+// assumes, which AWS reports under the IAM spelling iam:ResourceTag/<k> as well
+// as aws:ResourceTag/<k>: the role is an IAM resource.
+func iamPopulateSTSRoleTags(r *http.Request, ctx map[string][]string) {
+	arn := r.FormValue("RoleArn")
+	i := strings.Index(arn, ":role/")
+	if i < 0 {
+		return
+	}
+	path := arn[i+len(":role/"):]
+	role, ok := iamRoles.Get(path[strings.LastIndex(path, "/")+1:])
+	if !ok {
+		return
+	}
+	for _, t := range role.Tags {
+		ctx["aws:ResourceTag/"+t.Key] = []string{t.Value}
+		ctx["iam:ResourceTag/"+t.Key] = []string{t.Value}
 	}
 }

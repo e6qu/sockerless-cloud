@@ -46,7 +46,7 @@ func FuzzSFNExecute(f *testing.F) {
 		cancel := make(chan struct{})
 		timer := time.AfterFunc(sfnFuzzExecutionBudget, func() { close(cancel) })
 		defer timer.Stop()
-		_, _, _ = sfnExecute(def, input, cancel)
+		_, _, _ = sfnExecute(t.Context(), def, input, cancel)
 	})
 }
 

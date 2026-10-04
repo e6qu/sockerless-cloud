@@ -59,19 +59,86 @@ func iamPopulateDynamoDBConditionKeys(r *http.Request, action string, body []byt
 	}
 
 	// An operation that carries other operations names itself as the enclosing
-	// one for the requests inside it.
-	switch operation {
+	// one for the requests inside it. A transaction is authorized as the item
+	// actions it carries, so the operation on the wire, not the action, is the
+	// enclosing one.
+	switch wire := iamRequestWireOperation(r); wire {
 	case "BatchGetItem", "BatchWriteItem", "TransactGetItems", "TransactWriteItems":
-		ctx["dynamodb:EnclosingOperation"] = []string{operation}
+		ctx["dynamodb:EnclosingOperation"] = []string{wire}
 	}
 
+	var leading, attributes []string
+	for _, item := range ddbRequestItems(request) {
+		leading = append(leading, ddbRequestLeadingKeys(item.table, item.request)...)
+		attributes = append(attributes, ddbRequestAttributes(item.request)...)
+	}
+	iamSetConditionValues(ctx, "dynamodb:LeadingKeys", ddbSortedDistinct(leading)...)
+	iamSetConditionValues(ctx, "dynamodb:Attributes", ddbSortedDistinct(attributes)...)
+}
+
+// ddbRequestItem is one item-level request inside a request: the request
+// itself for a single-item call, and each entry of a batch or transaction.
+type ddbRequestItem struct {
+	table   string
+	request map[string]any
+}
+
+// ddbRequestItems lists the item-level requests a request makes. A batch keys
+// its entries by table name; a transaction names the table inside each entry.
+func ddbRequestItems(request map[string]any) []ddbRequestItem {
 	table, _ := request["TableName"].(string)
-	if leading := ddbRequestLeadingKeys(table, request); len(leading) > 0 {
-		ctx["dynamodb:LeadingKeys"] = leading
+	items := []ddbRequestItem{{table: table, request: request}}
+	if batches, ok := request["RequestItems"].(map[string]any); ok {
+		for name, batch := range batches {
+			switch entries := batch.(type) {
+			case map[string]any: // BatchGetItem: Keys plus the projection
+				keys, _ := entries["Keys"].([]any)
+				for _, key := range keys {
+					entry := map[string]any{"Key": key}
+					for _, member := range []string{"AttributesToGet", "ProjectionExpression", "ExpressionAttributeNames"} {
+						if value, present := entries[member]; present {
+							entry[member] = value
+						}
+					}
+					items = append(items, ddbRequestItem{table: name, request: entry})
+				}
+			case []any: // BatchWriteItem: PutRequest / DeleteRequest
+				for _, write := range entries {
+					writes, _ := write.(map[string]any)
+					for _, member := range []string{"PutRequest", "DeleteRequest"} {
+						if entry, ok := writes[member].(map[string]any); ok {
+							items = append(items, ddbRequestItem{table: name, request: entry})
+						}
+					}
+				}
+			}
+		}
 	}
-	if attributes := ddbRequestAttributes(request); len(attributes) > 0 {
-		ctx["dynamodb:Attributes"] = attributes
+	if transaction, ok := request["TransactItems"].([]any); ok {
+		for _, wrapped := range transaction {
+			kinds, _ := wrapped.(map[string]any)
+			for _, member := range []string{"Get", "Put", "Update", "Delete", "ConditionCheck"} {
+				if entry, ok := kinds[member].(map[string]any); ok {
+					name, _ := entry["TableName"].(string)
+					items = append(items, ddbRequestItem{table: name, request: entry})
+				}
+			}
+		}
 	}
+	return items
+}
+
+func ddbSortedDistinct(values []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		if !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ddbRequestFullTableScan reports whether the PartiQL statements a request

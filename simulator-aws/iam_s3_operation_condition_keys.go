@@ -4,7 +4,10 @@ import (
 	"encoding/xml"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func init() {
@@ -106,6 +109,22 @@ func iamPopulateS3OperationConditionKeys(r *http.Request, operation string, body
 			return
 		}
 		iamSetConditionValues(ctx, "s3:InventoryAccessibleOptionalFields", configuration.Fields...)
+	case "UpdateObjectEncryption":
+		// The body names the encryption the object is moved to, which a
+		// PutObject states in its x-amz-server-side-encryption headers.
+		var encryption struct {
+			SSEKMS *struct {
+				KMSKeyArn string `xml:"KMSKeyArn"`
+			} `xml:"SSE-KMS"`
+		}
+		if len(body) == 0 || xml.Unmarshal(body, &encryption) != nil || encryption.SSEKMS == nil {
+			return
+		}
+		iamSetConditionValues(ctx, "s3:x-amz-server-side-encryption", "aws:kms")
+		iamSetConditionValues(ctx, "s3:x-amz-server-side-encryption-aws-kms-key-id", encryption.SSEKMS.KMSKeyArn)
+	case "CreateAccessPoint", "GetAccessPoint", "DeleteAccessPoint", "PutAccessPointPolicy",
+		"GetAccessPointPolicy", "DeleteAccessPointPolicy", "GetAccessPointPolicyStatus":
+		iamPopulateS3ControlAccessPointKeys(r, operation, body, ctx)
 	case "ListBucketMultipartUploads":
 		ap, addressed := s3RequestAccessPoint(r)
 		if !addressed {
@@ -153,4 +172,45 @@ func iamSetS3RemainingRetentionDays(ctx map[string][]string, retainUntil string)
 		days++
 	}
 	iamSetConditionInt(ctx, "s3:object-lock-remaining-retention-days", &days)
+}
+
+// iamPopulateS3ControlAccessPointKeys adds the access-point keys for a
+// control-plane request that names an access point: its ARN and account, which
+// the path and the x-amz-account-id header state, and its network origin and
+// tags, which a create states in its body and every other operation reads off
+// the access point it names.
+func iamPopulateS3ControlAccessPointKeys(r *http.Request, operation string, body []byte, ctx map[string][]string) {
+	name := sim.PathParam(r, "name")
+	if name == "" || !strings.HasPrefix(r.URL.Path, "/v20180820/accesspoint/") {
+		return
+	}
+	account := s3ControlAccountID(r)
+	arn := s3AccessPointARN(account, name)
+	iamSetConditionValues(ctx, "s3:DataAccessPointArn", arn)
+	iamSetConditionValues(ctx, "s3:DataAccessPointAccount", account)
+	if operation == "CreateAccessPoint" {
+		var request struct {
+			VpcConfiguration *struct {
+				VpcID string `xml:"VpcId"`
+			} `xml:"VpcConfiguration"`
+		}
+		if len(body) > 0 && xml.Unmarshal(body, &request) == nil {
+			origin := "Internet"
+			if request.VpcConfiguration != nil && request.VpcConfiguration.VpcID != "" {
+				origin = "VPC"
+			}
+			iamSetConditionValues(ctx, "s3:AccessPointNetworkOrigin", origin)
+		}
+		for _, tag := range s3RequestTags(r) {
+			iamSetConditionValues(ctx, "s3:AccessPointTag/"+tag.Key, tag.Value)
+		}
+		return
+	}
+	if ap, ok := s3AccessPoints.Get(s3AccessPointKey(account, name)); ok {
+		iamSetConditionValues(ctx, "s3:AccessPointNetworkOrigin", s3AccessPointNetworkOrigin(ap))
+	}
+	tags, _ := s3ControlResourceTags.Get(arn)
+	for key, value := range tags {
+		iamSetConditionValues(ctx, "s3:AccessPointTag/"+key, value)
+	}
 }

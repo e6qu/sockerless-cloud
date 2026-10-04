@@ -100,6 +100,7 @@ func iamPopulateResourceConditionKeys(r *http.Request, action string, ctx map[st
 		iamPopulateEC2ResourceTags(r, ctx)
 	case "ecs":
 		iamPopulateECSCluster(r, ctx)
+		iamPopulateECSResourceTags(r, action, ctx)
 	default:
 		// Every other tag-storing sim service resolves the request's target
 		// resource into aws:ResourceTag/<k> + <service>:ResourceTag/<k>.
@@ -181,15 +182,37 @@ func iamPopulateECSCluster(r *http.Request, ctx map[string][]string) {
 	ctx["ecs:cluster"] = []string{arn}
 }
 
+// iamPopulateECSResourceTags resolves the tags of the Amazon ECS resource the
+// request targets — the one the gate authorizes it against — and exposes them
+// as aws:ResourceTag/<k> and ecs:ResourceTag/<k>.
+func iamPopulateECSResourceTags(r *http.Request, action string, ctx map[string][]string) {
+	for _, arn := range iamResourceARNsForRequest(r, action) {
+		if arn == "*" {
+			continue
+		}
+		resource, fault := ecsResolveTaggable(arn)
+		if fault != nil {
+			continue
+		}
+		for _, tag := range resource.tags {
+			ctx["aws:ResourceTag/"+tag.Key] = []string{tag.Value}
+			ctx["ecs:ResourceTag/"+tag.Key] = []string{tag.Value}
+		}
+		return
+	}
+}
+
 // iamPopulateRequestTags exposes aws:RequestTag/<k> + aws:TagKeys from the tags
 // supplied on a tag-on-create / tagging request, read in the wire shape the
 // addressed service actually sends — see iamRequestTagShapes, which records one
-// row per service and cites the vendored Smithy model it came from. A request
-// carrying no tags in a shape this simulator can read leaves both keys unset,
-// the way AWS leaves out a condition key that does not apply.
+// row per service and cites the vendored Smithy model it came from. An
+// untagging request carries keys alone, and they become aws:TagKeys. A request
+// carrying neither leaves both keys unset, the way AWS leaves out a condition
+// key that does not apply.
 func iamPopulateRequestTags(r *http.Request, service string, ctx map[string][]string) {
 	tags := iamRequestTags(r, service)
 	if len(tags) == 0 {
+		iamSetConditionValues(ctx, "aws:TagKeys", iamRequestTagKeys(r, service)...)
 		return
 	}
 	var keys []string
@@ -350,11 +373,21 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 	}
 
 	// lambda:FunctionUrlAuthType is the authentication a function URL is
-	// configured with, which a policy pins so no URL is ever left open.
+	// configured with, which a policy pins so no URL is ever left open. A URL
+	// config write states it as AuthType, AddPermission as
+	// FunctionUrlAuthType, and a read or delete of the URL config is about the
+	// one the function already has.
 	if service == "lambda" {
-		if authType := iamRequestParameter(r, body, "AuthType"); authType != "" {
-			ctx["lambda:FunctionUrlAuthType"] = []string{authType}
+		authType := iamRequestParameter(r, body, "AuthType")
+		if authType == "" {
+			authType = iamRequestParameter(r, body, "FunctionUrlAuthType")
 		}
+		if authType == "" && (name == "GetFunctionUrlConfig" || name == "DeleteFunctionUrlConfig") {
+			if config, ok := lambdaURLConfigs.Get(sim.PathParam(r, "name")); ok {
+				authType = config.AuthType
+			}
+		}
+		iamSetConditionValues(ctx, "lambda:FunctionUrlAuthType", authType)
 	}
 
 	// lambda:FunctionArn is the function an event-source mapping or a function
@@ -402,9 +435,17 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		if direction := iamRequestParameter(r, body, "TransferDirection"); direction != "" {
 			ctx["organizations:TransferDirection"] = []string{direction}
 		}
-		if kind := iamRequestParameter(r, body, "TransferType"); kind != "" {
-			ctx["organizations:TransferType"] = []string{kind}
+		kind := iamRequestParameter(r, body, "TransferType")
+		// The responsibility-transfer invitation and listings state the type
+		// as their Type member.
+		switch name {
+		case "InviteOrganizationToTransferResponsibility", "ListInboundResponsibilityTransfers",
+			"ListOutboundResponsibilityTransfers":
+			if kind == "" {
+				kind = iamRequestParameter(r, body, "Type")
+			}
 		}
+		iamSetConditionValues(ctx, "organizations:TransferType", kind)
 	}
 
 	// ssm:DocumentType is the kind of document the request is about, read from
@@ -423,11 +464,23 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 	// serves, so that is the answer for a rule that exists, and there is none
 	// for a rule that does not.
 	if service == "events" {
-		if name := iamRequestParameter(r, body, "Name"); name != "" {
-			// A rule is stored under its bus and its name, and a request that
-			// names no bus is about the default one.
-			key := ebRuleKey(iamRequestParameter(r, body, "EventBusName"), name)
-			if _, ok := ebRules.Get(key); ok {
+		// A rule is stored under its bus and its name, and a request that
+		// names no bus is about the default one. The rule operations name it
+		// as Name, the target operations as Rule, and the tagging operations
+		// by its ARN, rule/[bus/]name.
+		bus, name := iamRequestParameter(r, body, "EventBusName"), iamRequestParameter(r, body, "Name")
+		if name == "" {
+			name = iamRequestParameter(r, body, "Rule")
+		}
+		if arn := iamRequestParameter(r, body, "ResourceARN"); name == "" && strings.Contains(arn, ":rule/") {
+			path := arn[strings.Index(arn, ":rule/")+len(":rule/"):]
+			bus, name = "", path
+			if i := strings.LastIndex(path, "/"); i >= 0 {
+				bus, name = path[:i], path[i+1:]
+			}
+		}
+		if name != "" {
+			if _, ok := ebRules.Get(ebRuleKey(bus, name)); ok {
 				ctx["events:creatorAccount"] = []string{awsAccountID()}
 			}
 		}
@@ -462,11 +515,20 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 
 	// iam:PermissionsBoundary is the boundary policy the request asks to
 	// attach, which is how an administrator delegates user creation while
-	// requiring every created principal to carry a boundary.
+	// requiring every created principal to carry a boundary. A request that
+	// attaches none is about the boundary the user or role it names already
+	// carries, which is how the same administrator is kept from editing or
+	// deleting a principal that carries it.
 	if service == "iam" {
-		if boundary := iamRequestParameter(r, body, "PermissionsBoundary"); boundary != "" {
-			ctx["iam:PermissionsBoundary"] = []string{boundary}
+		boundary := iamRequestParameter(r, body, "PermissionsBoundary")
+		if boundary == "" {
+			if role, ok := iamRoles.Get(r.FormValue("RoleName")); ok {
+				boundary = role.PermissionsBoundaryARN
+			} else if user, ok := iamUserBoundaries.Get(r.FormValue("UserName")); ok {
+				boundary = user.PolicyArn
+			}
 		}
+		iamSetConditionValues(ctx, "iam:PermissionsBoundary", boundary)
 	}
 
 	// The Amazon RDS request tags, in the spelling RDS declares for them.
@@ -711,8 +773,22 @@ func iamPopulateKMSEncryptionContext(body []byte, ctx map[string][]string) {
 // name — `…:stateMachine:name:2` for a version, `…:stateMachine:name:live` for
 // an alias — and an unqualified ARN carries none.
 func sfnRequestQualifier(r *http.Request, body []byte) string {
-	for _, member := range []string{"stateMachineArn", "stateMachineAliasArn", "resourceArn"} {
-		arn := iamRequestParameter(r, body, member)
+	arns := make([]string, 0, 4)
+	for _, member := range []string{"stateMachineArn", "stateMachineAliasArn", "stateMachineVersionArn", "resourceArn"} {
+		arns = append(arns, iamRequestParameter(r, body, member))
+	}
+	// An alias's routing names the versions it sends traffic to.
+	var request struct {
+		RoutingConfiguration []struct {
+			StateMachineVersionArn string `json:"stateMachineVersionArn"`
+		} `json:"routingConfiguration"`
+	}
+	if iamDecodeJSONRequest(body, &request) {
+		for _, route := range request.RoutingConfiguration {
+			arns = append(arns, route.StateMachineVersionArn)
+		}
+	}
+	for _, arn := range arns {
 		if arn == "" {
 			continue
 		}

@@ -17,7 +17,7 @@ func TestWaitStateHonoursCancellationPromptly(t *testing.T) {
 	cancel := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		_, _, _ = sfnExecute(def, `{}`, cancel)
+		_, _, _ = sfnExecute(t.Context(), def, `{}`, cancel)
 		close(done)
 	}()
 

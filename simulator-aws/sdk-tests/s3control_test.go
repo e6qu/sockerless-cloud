@@ -7,6 +7,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3control"
 	s3ctypes "github.com/aws/aws-sdk-go-v2/service/s3control/types"
@@ -651,4 +653,73 @@ func TestS3Control_ResourceTagging(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "NotFoundException")
+}
+
+// TestS3Control_BatchJobLambdaInvoke runs a LambdaInvoke job: Batch Operations
+// invokes the function once per manifest entry, and every invocation the
+// function answers without an error counts as a succeeded task.
+func TestS3Control_BatchJobLambdaInvoke(t *testing.T) {
+	sc := s3ControlClient()
+	s3c := s3Client()
+	lc := lambdaClient()
+	bucket := "batch-lambda-job-bucket"
+	roleArn := s3ControlRole(t, "s3-batch-lambda-role")
+
+	function, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
+		FunctionName:  aws.String("s3-batch-lambda-task"),
+		Role:          aws.String("arn:aws:iam::123456789012:role/s3-batch-lambda-task"),
+		PackageType:   lambdatypes.PackageTypeImage,
+		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
+		Architectures: nativeLambdaArchitectures(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = lc.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: function.FunctionName})
+	})
+
+	_, err = s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	for _, key := range []string{"one.txt", "two.txt"} {
+		_, err = s3c.PutObject(ctx, &s3.PutObjectInput{
+			Bucket: aws.String(bucket), Key: aws.String(key), Body: strings.NewReader(key)})
+		require.NoError(t, err)
+	}
+	manifestKey := "manifest.csv"
+	manifest, err := s3c.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String(manifestKey),
+		Body: strings.NewReader(fmt.Sprintf("%s,one.txt\n%s,two.txt\n", bucket, bucket))})
+	require.NoError(t, err)
+
+	created, err := sc.CreateJob(ctx, &s3control.CreateJobInput{
+		AccountId:          aws.String(s3ObjectLambdaAccount),
+		ClientRequestToken: aws.String("batch-lambda-token"),
+		Priority:           aws.Int32(10),
+		RoleArn:            aws.String(roleArn),
+		Operation: &s3ctypes.JobOperation{
+			LambdaInvoke: &s3ctypes.LambdaInvokeOperation{FunctionArn: function.FunctionArn},
+		},
+		Report: &s3ctypes.JobReport{Enabled: false},
+		Manifest: &s3ctypes.JobManifest{
+			Spec: &s3ctypes.JobManifestSpec{
+				Format: s3ctypes.JobManifestFormatS3BatchOperationsCsv20180820,
+				Fields: []s3ctypes.JobManifestFieldName{
+					s3ctypes.JobManifestFieldNameBucket, s3ctypes.JobManifestFieldNameKey,
+				},
+			},
+			Location: &s3ctypes.JobManifestLocation{
+				ObjectArn: aws.String(fmt.Sprintf("arn:aws:s3:::%s/%s", bucket, manifestKey)),
+				ETag:      manifest.ETag,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	described, err := sc.DescribeJob(ctx, &s3control.DescribeJobInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), JobId: created.JobId})
+	require.NoError(t, err)
+	require.NotNil(t, described.Job)
+	assert.Equal(t, s3ctypes.JobStatusComplete, described.Job.Status, "failure reasons: %v", described.Job.FailureReasons)
+	require.NotNil(t, described.Job.ProgressSummary)
+	assert.Equal(t, int64(2), aws.ToInt64(described.Job.ProgressSummary.NumberOfTasksSucceeded))
+	assert.Equal(t, int64(0), aws.ToInt64(described.Job.ProgressSummary.NumberOfTasksFailed))
 }

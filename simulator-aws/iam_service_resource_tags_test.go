@@ -230,8 +230,8 @@ func TestIAMServiceResourceTags(t *testing.T) {
 	// ── a non-tag-storing service is reported as not-handled ──
 
 	t.Run("unhandled_service", func(t *testing.T) {
-		if iamPopulateServiceResourceTags(jsonRequest(""), "sts", map[string][]string{}) {
-			t.Fatal("sts must not be handled by the service tag dispatcher")
+		if iamPopulateServiceResourceTags(jsonRequest(""), "budgets", map[string][]string{}) {
+			t.Fatal("budgets must not be handled by the service tag dispatcher")
 		}
 	})
 }
