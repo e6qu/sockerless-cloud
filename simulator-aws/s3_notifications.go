@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -182,15 +181,15 @@ func s3PublishToTopic(topicARN, message string) {
 	snsFanout(topicARN, msgID, "Amazon S3 Notification", message, nil)
 }
 
-// s3InvokeLambda performs a real in-process async Lambda invoke with the S3
-// event payload. The caller has already authorized lambda:InvokeFunction
-// against the function policy.
+// s3InvokeLambda invokes the function asynchronously with the S3 event, as
+// Amazon S3 does, so the function's retries and destinations apply. The caller
+// has already authorized lambda:InvokeFunction against the function policy.
 func s3InvokeLambda(functionARN string, payload []byte) {
-	fn, ok := lambdaFunctions.Get(s3LambdaFunctionName(functionARN))
+	fn, qualifier, ok := lambdaResolveInvocationTarget(functionARN, "")
 	if !ok {
 		return
 	}
-	go func() { _, _, _ = invokeLambdaViaRuntimeAPI(context.Background(), fn, payload) }()
+	lambdaInvokeAsynchronously(fn, payload, qualifier)
 }
 
 type s3DestinationRejection struct {

@@ -298,9 +298,39 @@ func (s *Server) finalHandler() http.Handler {
 		h := s.routed
 		h = LoggingMiddleware(s.logger, s.config.Provider)(h)
 		h = RequestIDMiddleware(s.config.Provider)(h)
-		s.handler = otelhttp.NewHandler(h, "sockerless-sim-"+s.config.Provider)
+		h = otelhttp.NewHandler(h, "sockerless-sim-"+s.config.Provider)
+		s.handler = s.lifetimeMiddleware(h)
 	}
 	return s.handler
+}
+
+type lifetimeKey struct{}
+
+func (s *Server) lifetimeMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(s.RequestContext(r.Context())))
+	})
+}
+
+// RequestContext returns parent carrying what the server gives every request
+// it serves. Build the request for a handler called in-process from it, so the
+// handler finds what it finds when the server routes the request.
+func (s *Server) RequestContext(parent context.Context) context.Context {
+	return context.WithValue(parent, lifetimeKey{}, s.backgroundCtx)
+}
+
+// LifetimeContext returns the context of the server serving the request ctx
+// belongs to, which only that server's shutdown cancels. Run work the request
+// starts but its caller does not own under it: AWS Lambda keeps running an
+// invocation whose caller hung up, yet a stopping simulator must not wait for
+// one. It panics when ctx does not descend from a request the server serves or
+// from RequestContext, because no other context answers that question.
+func LifetimeContext(ctx context.Context) context.Context {
+	lifetime, ok := ctx.Value(lifetimeKey{}).(context.Context)
+	if !ok {
+		panic("sim.LifetimeContext: the context does not descend from a request a sim.Server is serving")
+	}
+	return lifetime
 }
 
 // ServeHTTP serves through the same final handler chain as ListenAndServe.

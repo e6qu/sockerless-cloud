@@ -151,6 +151,9 @@ func handleIAMCreateUser(w http.ResponseWriter, r *http.Request) {
 		Tags:       iamParseTags(r),
 	}
 	iamUsers.Put(name, user)
+	if boundary := r.FormValue("PermissionsBoundary"); boundary != "" {
+		iamUserBoundaries.Put(name, IAMUserBoundary{UserName: name, PolicyArn: boundary})
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateUserResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><CreateUserResult>%s</CreateUserResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></CreateUserResponse>`,
 		iamUserXML(user), sim.NewUUID())

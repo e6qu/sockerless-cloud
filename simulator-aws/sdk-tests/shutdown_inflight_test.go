@@ -20,6 +20,8 @@ import (
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/aws/aws-sdk-go-v2/service/sfn"
+	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 	"github.com/stretchr/testify/require"
 )
@@ -53,11 +55,14 @@ func (l *shutdownLog) String() string {
 // A deployed simulator, which keeps its state and its workloads across a
 // restart, stops without waiting out the work its services have in flight: an
 // Amazon ECS task stop in its container's two-minute stopTimeout, an AWS
-// Lambda asynchronous invocation inside a 15-minute function timeout, and an
-// open CloudWatch Logs Live Tail session, which lasts up to three hours. The
-// first two belong to the next process, which finishes the stop and retries
-// the invocation; the stopping one only has to let go of them. The Live Tail
-// session ends, and its client starts a new one against the next process.
+// Lambda asynchronous invocation, a synchronous Invoke and a Step Functions
+// StartSyncExecution running a Lambda task, each inside a 15-minute function
+// timeout, and an open CloudWatch Logs Live Tail session, which lasts up to
+// three hours. The task stop and the asynchronous invocation belong to the
+// next process, which finishes the stop and retries the invocation; the
+// stopping one only has to let go of them. The synchronous calls end with the
+// process that serves them, and the Live Tail session ends, so their clients
+// call the next process again.
 func TestSimulatorStopsWithLifecycleWorkInFlight_SDK(t *testing.T) {
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
@@ -89,6 +94,9 @@ func TestSimulatorStopsWithLifecycleWorkInFlight_SDK(t *testing.T) {
 	lambdaAPI := lambda.NewFromConfig(cfg, func(o *lambda.Options) { o.BaseEndpoint = aws.String(endpoint) })
 	logsAPI := cloudwatchlogs.NewFromConfig(cfg, func(o *cloudwatchlogs.Options) {
 		o.BaseEndpoint = aws.String(fmt.Sprintf("http://logs.localhost:%d", tcpPort))
+	})
+	sfnAPI := sfn.NewFromConfig(cfg, func(o *sfn.Options) {
+		o.BaseEndpoint = aws.String(fmt.Sprintf("http://states.localhost:%d", tcpPort))
 	})
 	testCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -162,7 +170,34 @@ func TestSimulatorStopsWithLifecycleWorkInFlight_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 202, invoked.StatusCode)
-	awaitLiveTailMessage(t, tailStream, "START RequestId:")
+
+	function, err := lambdaAPI.GetFunction(testCtx, &lambda.GetFunctionInput{FunctionName: aws.String(functionName)})
+	require.NoError(t, err)
+	machine, err := sfnAPI.CreateStateMachine(testCtx, &sfn.CreateStateMachineInput{
+		Name: aws.String("shutdown-in-flight"),
+		Definition: aws.String(`{"StartAt":"Hold","States":{"Hold":{"Type":"Task","Resource":"` +
+			aws.ToString(function.Configuration.FunctionArn) + `","End":true}}}`),
+		RoleArn: aws.String("arn:aws:iam::123456789012:role/shutdown-in-flight"),
+		Type:    sfntypes.StateMachineTypeExpress,
+	})
+	require.NoError(t, err)
+
+	synchronousCalls := make(chan error, 2)
+	go func() {
+		_, err := lambdaAPI.Invoke(testCtx, &lambda.InvokeInput{
+			FunctionName: aws.String(functionName),
+			Payload:      []byte(`{"source":"shutdown-test-synchronous"}`),
+		})
+		synchronousCalls <- err
+	}()
+	go func() {
+		_, err := sfnAPI.StartSyncExecution(testCtx, &sfn.StartSyncExecutionInput{
+			StateMachineArn: machine.StateMachineArn,
+			Input:           aws.String(`{"source":"shutdown-test-execution"}`),
+		})
+		synchronousCalls <- err
+	}()
+	awaitLiveTailStarts(t, tailStream, 3)
 	defer func() { _ = tailStream.Close() }()
 
 	signalled := time.Now()
@@ -184,6 +219,35 @@ func TestSimulatorStopsWithLifecycleWorkInFlight_SDK(t *testing.T) {
 	require.NotContains(t, log, "still waiting for background workers",
 		"the shutdown waited on a background worker")
 	require.Less(t, took, 5*time.Second, "SIGTERM to exit took %s", took)
+	for range 2 {
+		select {
+		case <-synchronousCalls:
+		case <-time.After(10 * time.Second):
+			t.Fatal("a synchronous call to the stopped simulator never returned")
+		}
+	}
+}
+
+// awaitLiveTailStarts returns once Live Tail has delivered the START line of
+// count invocations.
+func awaitLiveTailStarts(t *testing.T, stream *cloudwatchlogs.StartLiveTailEventStream, count int) {
+	t.Helper()
+	started := 0
+	for event := range stream.Events() {
+		update, ok := event.(*cwltypes.StartLiveTailResponseStreamMemberSessionUpdate)
+		if !ok {
+			continue
+		}
+		for _, result := range update.Value.SessionResults {
+			if strings.HasPrefix(aws.ToString(result.Message), "START RequestId:") {
+				started++
+			}
+		}
+		if started >= count {
+			return
+		}
+	}
+	t.Fatalf("Live Tail closed after %d of %d START lines: %v", started, count, stream.Err())
 }
 
 // removeContainersLabelled force-removes the containers carrying label, the

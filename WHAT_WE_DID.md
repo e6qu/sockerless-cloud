@@ -311,6 +311,23 @@ through hooks:
   would have to model first, and a classified key that becomes resolvable fails
   its own row. Hand-written counts had been read as authoritative; this one is
   measured on every run.
+- **A key is proven per action, by the request a client sends.**
+  `TestIAMConditionKeyCoveragePerAction` renders every served operation from
+  its vendored Smithy model in the operation's own protocol with every member
+  filled, classifies it with the gate's own classifiers, builds the gate's
+  context for each action it is authorized as, and checks every key that
+  action declares. Resources whose state some keys report — a tagged bucket,
+  object and access point, a key behind an alias, a bounded role, a sized task
+  definition — are created through each service's own API first. The pairs it
+  does not build are listed one by one in `testdata/iam_condition_key_gaps.tsv`
+  with a reason from a closed table, so a new gap and a fixed one both fail.
+  Measuring this way found keys a name-only check had credited: untagging
+  requests carried no `aws:TagKeys`, AWS Lambda and the Amazon S3 control plane
+  reached the gate with their tags unread, Amazon ECS resources had no
+  `aws:ResourceTag/<k>`, and a role's or user's existing permissions boundary
+  never reached `iam:PermissionsBoundary`. It also found PutObject dropping its
+  `x-amz-tagging`, CreateUser its `PermissionsBoundary` and CreateAccessPoint
+  its `Tags`.
 - **Maintenance may not end the service.** Failing loudly on a persistence
   fault is right in a handler, where net/http turns the panic into a 500. On a
   background goroutine it was a restart loop: the retention sweeper met a busy
@@ -352,6 +369,38 @@ through hooks:
   environment starts under its worker's, so a shutdown stops an image download
   instead of waiting it out. `TestSimulatorStopsWithLifecycleWorkInFlight_SDK`
   keeps a Live Tail session open across SIGTERM and still exits within 5 s.
+- **Work a request starts can outlive its caller but not the server.**
+  `sim.LifetimeContext` returns, from any request's context, the server's
+  background context, which only shutdown cancels; the server's outermost
+  handler stores it on every request it serves, through `ListenAndServe` and
+  `ServeHTTP` alike, and `Server.RequestContext` gives the same to a request a
+  service builds to call a handler in-process. It panics for a context no
+  server serves rather than answer with a context that either never ends or
+  ends with the caller. It
+  serves work like a synchronous AWS Lambda invocation, which real Lambda keeps
+  running after its caller hangs up.
+- **A synchronous call ends with the simulator, not with its caller.** A
+  synchronous AWS Lambda Invoke, InvokeWithResponseStream, an Amazon S3 Object
+  Lambda transformation, an Amazon S3 Batch Operations LambdaInvoke task, and a
+  Step Functions StartSyncExecution or TestState ran their functions under
+  `context.Background()`, so one in flight held the HTTP drain to its 10 s
+  bound. They run under `sim.LifetimeContext`, and the Step Functions
+  interpreter takes that context down to its Lambda tasks and aborts a
+  synchronous execution when it ends. Step Functions calls an awsJson or
+  awsQuery handler in-process with a request from `Server.RequestContext`, so
+  an AWS SDK integration such as `sfn:startSyncExecution` finds the same
+  lifetime. A recorded execution keeps `context.Background()` for its tasks,
+  because a task cancelled at shutdown would fail an execution the next
+  process resumes. Amazon S3 event notifications and AWS Lambda function
+  destinations invoke their function asynchronously, through the same
+  persisted dispatcher as an `Event` Invoke, as AWS does. A Batch Operations
+  LambdaInvoke task had read the invocation's unhandled flag inverted and
+  counted every succeeded task as failed, and S3 Object Lambda named a failed
+  function's response as a missing WriteGetObjectResponse.
+  `TestSimulatorStopsWithLifecycleWorkInFlight_SDK` keeps a synchronous Invoke
+  and a StartSyncExecution on a Lambda task in flight across SIGTERM and still
+  stops within 5 s, and `TestS3Control_BatchJobLambdaInvoke` runs a
+  LambdaInvoke job to `Complete`.
 - **An image pull says why it pulled.** `pullImage` writes a `[sim-pull]` line
   when the held-image check fails, with the inspect error or the held and
   wanted platforms, and one per throttled retry with the attempt, the error

@@ -43,7 +43,7 @@ func TestSFN_MapCompletesWhileABackgroundDrainIsInProgress(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		out, status, err := sfnExecute(definition, `{"items":[1,2,3,4]}`, make(chan struct{}))
+		out, status, err := sfnExecute(t.Context(), definition, `{"items":[1,2,3,4]}`, make(chan struct{}))
 		done <- result{out, status, err}
 	}()
 

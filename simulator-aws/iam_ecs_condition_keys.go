@@ -24,11 +24,26 @@ func iamPopulateECSConditionKeys(r *http.Request, body []byte, ctx map[string][]
 		return
 	}
 	var request struct {
-		TaskDefinition           string `json:"taskDefinition"`
-		ServiceName              string `json:"serviceName"`
-		Name                     string `json:"name"`
-		EnableECSManagedTags     *bool  `json:"enableECSManagedTags"`
-		EnableExecuteCommand     *bool  `json:"enableExecuteCommand"`
+		TaskDefinition          string   `json:"taskDefinition"`
+		TaskDefinitionArn       string   `json:"taskDefinitionArn"`
+		DaemonTaskDefinitionArn string   `json:"daemonTaskDefinitionArn"`
+		ServiceName             string   `json:"serviceName"`
+		Service                 string   `json:"service"`
+		Task                    string   `json:"task"`
+		Namespace               string   `json:"namespace"`
+		Name                    string   `json:"name"`
+		Cpu                     string   `json:"cpu"`
+		Memory                  string   `json:"memory"`
+		CapacityProviders       []string `json:"capacityProviders"`
+		CapacityProviderArns    []string `json:"capacityProviderArns"`
+		DefaultCapacityProvider []struct {
+			CapacityProvider string `json:"capacityProvider"`
+		} `json:"defaultCapacityProviderStrategy"`
+		ManagedInstancesProvider struct {
+			PropagateTags string `json:"propagateTags"`
+		} `json:"managedInstancesProvider"`
+		EnableECSManagedTags     *bool `json:"enableECSManagedTags"`
+		EnableExecuteCommand     *bool `json:"enableExecuteCommand"`
 		CapacityProviderStrategy []struct {
 			CapacityProvider string `json:"capacityProvider"`
 		} `json:"capacityProviderStrategy"`
@@ -36,6 +51,8 @@ func iamPopulateECSConditionKeys(r *http.Request, body []byte, ctx map[string][]
 			AwsvpcConfiguration struct {
 				Subnets []string `json:"subnets"`
 			} `json:"awsvpcConfiguration"`
+			// An Express Mode service names its subnets directly.
+			Subnets []string `json:"subnets"`
 		} `json:"networkConfiguration"`
 		ServiceConnectConfiguration struct {
 			Namespace string `json:"namespace"`
@@ -52,9 +69,12 @@ func iamPopulateECSConditionKeys(r *http.Request, body []byte, ctx map[string][]
 		return
 	}
 
-	if request.ServiceName != "" {
-		ctx["ecs:service"] = []string{request.ServiceName}
-	}
+	// A task set, and a service's updates, name the service under `service`;
+	// a create names the one it makes under `serviceName`.
+	iamSetConditionValues(ctx, "ecs:service", request.ServiceName, request.Service)
+	iamSetConditionValues(ctx, "ecs:task", request.Task)
+	iamSetConditionValues(ctx, "ecs:daemon-task-definition", request.DaemonTaskDefinitionArn)
+	iamSetConditionValues(ctx, "ecs:propagate-tags", request.ManagedInstancesProvider.PropagateTags)
 	if request.EnableECSManagedTags != nil {
 		ctx["ecs:enable-ecs-managed-tags"] = []string{strconv.FormatBool(*request.EnableECSManagedTags)}
 	}
@@ -64,32 +84,38 @@ func iamPopulateECSConditionKeys(r *http.Request, body []byte, ctx map[string][]
 	if len(request.VolumeConfigurations) > 0 {
 		ctx["ecs:enable-ebs-volumes"] = []string{"true"}
 	}
-	if request.ServiceConnectConfiguration.Namespace != "" {
-		ctx["ecs:namespace"] = []string{request.ServiceConnectConfiguration.Namespace}
+	// ListServicesByNamespace names the namespace it lists at the top level.
+	iamSetConditionValues(ctx, "ecs:namespace", request.ServiceConnectConfiguration.Namespace, request.Namespace)
+	// The capacity providers the request places on: a placement strategy's,
+	// the providers a cluster is given, and a cluster's default strategy.
+	providers := append([]string{}, request.CapacityProviders...)
+	providers = append(providers, request.CapacityProviderArns...)
+	for _, item := range append(request.CapacityProviderStrategy, request.DefaultCapacityProvider...) {
+		providers = append(providers, item.CapacityProvider)
 	}
-	if providers := request.CapacityProviderStrategy; len(providers) > 0 {
-		names := make([]string, 0, len(providers))
-		for _, item := range providers {
-			if item.CapacityProvider != "" {
-				names = append(names, item.CapacityProvider)
-			}
-		}
-		if len(names) > 0 {
-			ctx["ecs:capacity-provider"] = names
-		}
-	}
-	if subnets := request.NetworkConfiguration.AwsvpcConfiguration.Subnets; len(subnets) > 0 {
-		ctx["ecs:subnet"] = subnets
-	}
+	iamSetConditionValues(ctx, "ecs:capacity-provider", providers...)
+	iamSetConditionValues(ctx, "ecs:subnet", append(request.NetworkConfiguration.AwsvpcConfiguration.Subnets,
+		request.NetworkConfiguration.Subnets...)...)
 
-	if request.TaskDefinition == "" {
-		return
-	}
-	ctx["ecs:task-definition"] = []string{request.TaskDefinition}
-	// The size is the task definition's, unless the request overrides it —
+	// The size a request states for itself wins: a task definition's
+	// registration, or an Express Mode service's own cpu and memory. Otherwise
+	// it is the named task definition's, unless the request overrides it —
 	// which is the order Amazon ECS resolves it in.
-	cpu, memory := request.Overrides.Cpu, request.Overrides.Memory
-	if definition, ok := ecsServiceTaskDefinition(request.TaskDefinition); ok {
+	definitionName := request.TaskDefinition
+	if definitionName == "" {
+		definitionName = request.TaskDefinitionArn
+	}
+	cpu, memory := request.Cpu, request.Memory
+	if cpu == "" {
+		cpu = request.Overrides.Cpu
+	}
+	if memory == "" {
+		memory = request.Overrides.Memory
+	}
+	if definitionName != "" {
+		ctx["ecs:task-definition"] = []string{definitionName}
+	}
+	if definition, ok := ecsServiceTaskDefinition(definitionName); ok && definitionName != "" {
 		if cpu == "" {
 			cpu = definition.Cpu
 		}

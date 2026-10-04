@@ -198,8 +198,8 @@ func lambdaDeliverAsyncDestination(destinationARN string, body []byte) {
 			"EventBusName": destinationARN,
 		}}})
 	case strings.HasPrefix(destinationARN, "arn:aws:lambda:"):
-		if target, _, ok := lambdaResolveInvocationTarget(destinationARN, ""); ok {
-			_, _, _ = invokeLambdaViaRuntimeAPI(context.Background(), target, body)
+		if target, qualifier, ok := lambdaResolveInvocationTarget(destinationARN, ""); ok {
+			lambdaInvokeAsynchronously(target, body, qualifier)
 		}
 	}
 }

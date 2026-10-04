@@ -71,6 +71,7 @@ func sfnErrorMatches(names []string, actual string) bool {
 }
 
 func sfnRunTaskWithRetry(
+	ctx context.Context,
 	state sfnState,
 	input, context any,
 	cancel <-chan struct{},
@@ -79,7 +80,7 @@ func sfnRunTaskWithRetry(
 	attempts := make([]int, len(state.Retry))
 	for {
 		sfnAppendTaskScheduledHistory(executionARN, state, input, context)
-		result, taskErr := sfnRunTaskValue(state, input, context, cancel)
+		result, taskErr := sfnRunTaskValue(ctx, state, input, context, cancel)
 		sfnAppendTaskCompletedHistory(executionARN, state, result, taskErr)
 		if taskErr == nil {
 			return result, nil
@@ -251,7 +252,7 @@ func sfnServiceIntegrationParts(resource string) (resourceType, action string) {
 	return resourceType, action
 }
 
-func sfnRunTaskValue(state sfnState, input, context any, cancel <-chan struct{}) (any, *sfnExecutionError) {
+func sfnRunTaskValue(ctx context.Context, state sfnState, input, context any, cancel <-chan struct{}) (any, *sfnExecutionError) {
 	inputJSON, err := sfnEncodeJSON(input)
 	if err != nil {
 		return nil, &sfnExecutionError{Name: "States.Runtime", Cause: err.Error()}
@@ -264,7 +265,7 @@ func sfnRunTaskValue(state sfnState, input, context any, cancel <-chan struct{})
 	done := make(chan taskResult, 1)
 	bg.JoinedGo(func() {
 		value, taskErr := sfnInvokeTaskResource(
-			state.Resource, input, inputJSON, context, cancel, sfnTaskHeartbeat(state, input, context),
+			ctx, state.Resource, input, inputJSON, context, cancel, sfnTaskHeartbeat(state, input, context),
 		)
 		done <- taskResult{value: value, err: taskErr}
 	})
@@ -316,7 +317,7 @@ func sfnTaskTimeout(state sfnState, input, context any) time.Duration {
 	return 0
 }
 
-func sfnInvokeTaskResource(resource string, input any, inputJSON string, context any, cancel <-chan struct{}, heartbeat time.Duration) (any, *sfnExecutionError) {
+func sfnInvokeTaskResource(ctx context.Context, resource string, input any, inputJSON string, context any, cancel <-chan struct{}, heartbeat time.Duration) (any, *sfnExecutionError) {
 	if strings.Contains(resource, ":activity:") {
 		return sfnInvokeActivity(resource, inputJSON, cancel, heartbeat)
 	}
@@ -337,7 +338,7 @@ func sfnInvokeTaskResource(resource string, input any, inputJSON string, context
 		if err != nil {
 			return nil, &sfnExecutionError{Name: "States.Runtime", Cause: err.Error()}
 		}
-		value, invokeErr := sfnInvokeLambda(functionName, payloadJSON)
+		value, invokeErr := sfnInvokeLambda(ctx, functionName, payloadJSON)
 		if invokeErr != nil {
 			return nil, invokeErr
 		}
@@ -358,7 +359,7 @@ func sfnInvokeTaskResource(resource string, input any, inputJSON string, context
 		}, nil
 	}
 	if name, ok := sfnLambdaNameFromResource(resource); ok {
-		return sfnInvokeLambda(name, inputJSON)
+		return sfnInvokeLambda(ctx, name, inputJSON)
 	}
 	if strings.HasPrefix(resource, "arn:aws:states:::states:startExecution") ||
 		resource == "arn:aws:states:::aws-sdk:sfn:startExecution" {
@@ -830,7 +831,8 @@ func sfnInvokeJSONTarget(handler http.HandlerFunc, target string, input any, aut
 	if err != nil {
 		return nil, &sfnExecutionError{Name: "States.Runtime", Cause: err.Error()}
 	}
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(sfnAWSServer.RequestContext(context.Background()),
+		http.MethodPost, "/", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
 	if target != "" {
 		req.Header.Set("X-Amz-Target", target)
@@ -1020,7 +1022,7 @@ func sfnStartNestedExecution(stateMachineARN, name, input string) (SFNExecution,
 	return execution, nil
 }
 
-func sfnInvokeLambda(name, payload string) (any, *sfnExecutionError) {
+func sfnInvokeLambda(ctx context.Context, name, payload string) (any, *sfnExecutionError) {
 	if i := strings.Index(name, ":function:"); i >= 0 {
 		name = name[i+len(":function:"):]
 	}
@@ -1031,7 +1033,7 @@ func sfnInvokeLambda(name, payload string) (any, *sfnExecutionError) {
 	if !ok {
 		return nil, &sfnExecutionError{Name: "Lambda.ResourceNotFoundException", Cause: "Function not found: " + name}
 	}
-	response, unhandled, _ := invokeLambdaViaRuntimeAPI(context.Background(), fn, []byte(payload))
+	response, unhandled, _ := invokeLambdaViaRuntimeAPI(ctx, fn, []byte(payload))
 	if unhandled {
 		var detail map[string]any
 		_ = json.Unmarshal(response, &detail)
@@ -1117,7 +1119,7 @@ func sfnInvokeActivity(activityARN, input string, cancel <-chan struct{}, heartb
 	return sfnWaitForTaskToken(task, cancel, heartbeat)
 }
 
-func sfnRunParallel(state sfnState, input any, cancel <-chan struct{}, depth int, variables map[string]any, executionARN string) (any, *sfnExecutionError) {
+func sfnRunParallel(ctx context.Context, state sfnState, input any, cancel <-chan struct{}, depth int, variables map[string]any, executionARN string) (any, *sfnExecutionError) {
 	inputJSON, err := sfnEncodeJSON(input)
 	if err != nil {
 		return nil, &sfnExecutionError{Name: "States.Runtime", Cause: err.Error()}
@@ -1132,7 +1134,7 @@ func sfnRunParallel(state sfnState, input any, cancel <-chan struct{}, depth int
 	resultCh := make(chan branchResult, len(state.Branches))
 	for i, branch := range state.Branches {
 		go func(index int, definition sfnDefinition) {
-			output, status, runErr := sfnRunDefDepthRuntime(definition, inputJSON, cancel, depth+1, variables, executionARN)
+			output, status, runErr := sfnRunDefDepthRuntime(ctx, definition, inputJSON, cancel, depth+1, variables, executionARN)
 			if status == "ABORTED" {
 				resultCh <- branchResult{index: index, abort: true}
 				return
@@ -1162,7 +1164,7 @@ func sfnRunParallel(state sfnState, input any, cancel <-chan struct{}, depth int
 	return results, nil
 }
 
-func sfnRunMap(state sfnState, stateName string, input, context any, cancel <-chan struct{}, depth int, variables map[string]any, executionARN string) (output any, executionErr *sfnExecutionError) {
+func sfnRunMap(ctx context.Context, state sfnState, stateName string, input, context any, cancel <-chan struct{}, depth int, variables map[string]any, executionARN string) (output any, executionErr *sfnExecutionError) {
 	processor := state.ItemProcessor
 	if processor == nil {
 		processor = state.Iterator
@@ -1317,7 +1319,7 @@ func sfnRunMap(state sfnState, stateName string, input, context any, cancel <-ch
 						})
 					}
 				}
-				output, status, runErr := sfnRunDefDepthRuntime(*processor, itemJSON, cancel, depth+1, variables, itemExecutionARN)
+				output, status, runErr := sfnRunDefDepthRuntime(ctx, *processor, itemJSON, cancel, depth+1, variables, itemExecutionARN)
 				if mapRun != nil {
 					sfnCompleteExecution(itemExecutionARN, status, output, runErr)
 				}

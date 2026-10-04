@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -223,7 +224,8 @@ func sfnInvokeQueryService(service, action string, input any, authorize awsSDKRe
 	for _, key := range keys {
 		sfnEncodeQueryValue(form, key, inputValues[key], config.EC2Syntax)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
+	request := httptest.NewRequestWithContext(sfnAWSServer.RequestContext(context.Background()),
+		http.MethodPost, "/", strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if authorize != nil {
 		if denied := authorize(request); denied != nil {
