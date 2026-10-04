@@ -1795,6 +1795,16 @@ of each tag specification's resource type — and reports no `aws:ResourceTag`,
 because that resource has none yet. Session tags on an `AssumeRole` need the
 role's trust policy to allow `sts:TagSession` too.
 
+An Amazon S3 control-plane resource has one tag set, held in
+`s3ControlResourceTags` under the resource's ARN. The creates that take tags —
+CreateAccessGrantsInstance, CreateAccessGrantsLocation, CreateAccessGrant,
+CreateStorageLensGroup and CreateAccessPoint — write theirs there, the deletes
+remove it, and TagResource, ListTagsForResource and the IAM gate's
+`aws:ResourceTag/<k>` read nothing else, so a tag given at create time and one
+added later are indistinguishable to every reader. TagResource on an Access
+Grants location or grant ARN requires that location or grant to exist, not
+merely the instance.
+
 Google Cloud's `testIamPermissions` answers from the stored policy resolved
 through the vendored curated roles and the held custom roles. A conditional
 binding grants its role only while its condition holds: the simulator compiles

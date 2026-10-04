@@ -121,6 +121,10 @@ resource "aws_s3control_access_grant" "analyst" {
     grantee_type       = "IAM"
     grantee_identifier = aws_iam_role.grants_location.arn
   }
+
+  tags = {
+    team = "analytics"
+  }
 }
 
 output "access_point_arn" {
@@ -137,6 +141,10 @@ output "storage_lens_arn" {
 
 output "access_grants_instance_arn" {
   value = aws_s3control_access_grants_instance.grants.access_grants_instance_arn
+}
+
+output "access_grant_team" {
+  value = aws_s3control_access_grant.analyst.tags_all["team"]
 }
 
 output "access_grant_scope" {

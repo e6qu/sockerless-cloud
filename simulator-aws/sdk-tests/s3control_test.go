@@ -120,6 +120,7 @@ func TestS3Control_StorageLensGroup(t *testing.T) {
 				MatchAnyPrefix: []string{"logs/"},
 			},
 		},
+		Tags: []s3ctypes.Tag{{Key: aws.String("team"), Value: aws.String("logs")}},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -134,6 +135,12 @@ func TestS3Control_StorageLensGroup(t *testing.T) {
 	require.NotNil(t, got.StorageLensGroup.Filter)
 	assert.Equal(t, []string{"logs/"}, got.StorageLensGroup.Filter.MatchAnyPrefix)
 	assert.Contains(t, aws.ToString(got.StorageLensGroup.StorageLensGroupArn), "storage-lens-group/"+name)
+
+	tags, err := sc.ListTagsForResource(ctx, &s3control.ListTagsForResourceInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ResourceArn: got.StorageLensGroup.StorageLensGroupArn})
+	require.NoError(t, err)
+	require.Len(t, tags.Tags, 1, "the group carries the tags it was created with")
+	assert.Equal(t, "logs", aws.ToString(tags.Tags[0].Value))
 
 	_, err = sc.UpdateStorageLensGroup(ctx, &s3control.UpdateStorageLensGroupInput{
 		AccountId: aws.String(s3ObjectLambdaAccount), Name: aws.String(name),

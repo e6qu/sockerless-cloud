@@ -129,3 +129,88 @@ func TestS3_AccessGrantsInstanceArnConditionKeyScopesTheGrant(t *testing.T) {
 	require.Error(t, err, "the same role reaching the object without Access Grants is not covered")
 	assert.Equal(t, "AccessDenied", errCodeOf(err))
 }
+
+// TestS3_AccessGrantTagsAreTheGrantsResourceTags covers the tags an Access
+// Grants create carries: ListTagsForResource reads them back under the
+// resource's ARN, and a policy conditioned on aws:ResourceTag/<k> admits a
+// request about the tagged grant and refuses the same request when the value
+// differs.
+func TestS3_AccessGrantTagsAreTheGrantsResourceTags(t *testing.T) {
+	control := s3ControlClient()
+	iamc := iamClient()
+	account := aws.String(s3ObjectLambdaAccount)
+
+	roleName := uniqueName("s3-grants-tags-role")
+	role, err := iamc.CreateRole(ctx, &iam.CreateRoleInput{
+		RoleName: aws.String(roleName),
+		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+			`"Principal":{"Service":"access-grants.s3.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = iamc.DeleteRole(ctx, &iam.DeleteRoleInput{RoleName: aws.String(roleName)}) })
+
+	tag := func(key, value string) []s3ctypes.Tag {
+		return []s3ctypes.Tag{{Key: aws.String(key), Value: aws.String(value)}}
+	}
+	instance, err := control.CreateAccessGrantsInstance(ctx, &s3control.CreateAccessGrantsInstanceInput{
+		AccountId: account, Tags: tag("tier", "instance")})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = control.DeleteAccessGrantsInstance(ctx, &s3control.DeleteAccessGrantsInstanceInput{AccountId: account})
+	})
+	location, err := control.CreateAccessGrantsLocation(ctx, &s3control.CreateAccessGrantsLocationInput{
+		AccountId: account, LocationScope: aws.String("s3://" + uniqueName("grants-tags") + "/*"),
+		IAMRoleArn: role.Role.Arn, Tags: tag("tier", "location")})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = control.DeleteAccessGrantsLocation(ctx, &s3control.DeleteAccessGrantsLocationInput{
+			AccountId: account, AccessGrantsLocationId: location.AccessGrantsLocationId})
+	})
+	grant, err := control.CreateAccessGrant(ctx, &s3control.CreateAccessGrantInput{
+		AccountId: account, AccessGrantsLocationId: location.AccessGrantsLocationId,
+		Permission: s3ctypes.PermissionRead,
+		Grantee: &s3ctypes.Grantee{GranteeType: s3ctypes.GranteeTypeIam,
+			GranteeIdentifier: aws.String(s3ControlCallerARN(t))},
+		Tags: tag("team", "ledger"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = control.DeleteAccessGrant(ctx, &s3control.DeleteAccessGrantInput{
+			AccountId: account, AccessGrantId: grant.AccessGrantId})
+	})
+
+	for arn, want := range map[string]string{
+		aws.ToString(instance.AccessGrantsInstanceArn): "instance",
+		aws.ToString(location.AccessGrantsLocationArn): "location",
+	} {
+		listed, err := control.ListTagsForResource(ctx, &s3control.ListTagsForResourceInput{
+			AccountId: account, ResourceArn: aws.String(arn)})
+		require.NoError(t, err, arn)
+		require.Len(t, listed.Tags, 1, arn)
+		assert.Equal(t, "tier", aws.ToString(listed.Tags[0].Key), arn)
+		assert.Equal(t, want, aws.ToString(listed.Tags[0].Value), arn)
+	}
+	listed, err := control.ListTagsForResource(ctx, &s3control.ListTagsForResourceInput{
+		AccountId: account, ResourceArn: grant.AccessGrantArn})
+	require.NoError(t, err)
+	require.Len(t, listed.Tags, 1)
+	assert.Equal(t, "team", aws.ToString(listed.Tags[0].Key))
+	assert.Equal(t, "ledger", aws.ToString(listed.Tags[0].Value))
+
+	policy := func(team string) string {
+		return `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetAccessGrant",` +
+			`"Resource":"` + aws.ToString(grant.AccessGrantArn) + `",` +
+			`"Condition":{"StringEquals":{"aws:ResourceTag/team":"` + team + `"}}}]}`
+	}
+	ledger := s3ControlClientWithCreds(restrictedCredential(t, "s3-grants-ledger", policy("ledger")))
+	read, err := ledger.GetAccessGrant(ctx, &s3control.GetAccessGrantInput{
+		AccountId: account, AccessGrantId: grant.AccessGrantId})
+	require.NoError(t, err, "the grant carries team=ledger from its create")
+	assert.Equal(t, aws.ToString(grant.AccessGrantArn), aws.ToString(read.AccessGrantArn))
+
+	payments := s3ControlClientWithCreds(restrictedCredential(t, "s3-grants-payments", policy("payments")))
+	_, err = payments.GetAccessGrant(ctx, &s3control.GetAccessGrantInput{
+		AccountId: account, AccessGrantId: grant.AccessGrantId})
+	require.Error(t, err, "the grant's team tag is not payments")
+	assert.Equal(t, "AccessDenied", errCodeOf(err))
+}

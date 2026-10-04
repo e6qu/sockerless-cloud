@@ -50,7 +50,7 @@ Current state of the sockerless-cloud repository.
   is either named by the gate or classified as unmodelled with the reason, and a
   classified key the gate later resolves fails its own row, and every key is
   also measured per action: of 4,307 (action, key) pairs on served operations
-  the gate builds 3,400, and each of the other 907 is listed with its reason in
+  the gate builds 3,424, and each of the other 883 is listed with its reason in
   `testdata/iam_condition_key_gaps.tsv` (BUG-2965 holds the unseeded and
   unbuilt ones). A create carrying tags is also authorized as its service's
   tagging action with `<service>:CreateAction` naming it, for the 297

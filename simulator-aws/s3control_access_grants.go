@@ -21,42 +21,39 @@ import (
 
 // S3AccessGrantsInstance is one account's Access Grants instance.
 type S3AccessGrantsInstance struct {
-	AccountID                    string            `json:"accountId"`
-	InstanceID                   string            `json:"instanceId"`
-	CreatedAt                    string            `json:"createdAt"`
-	IdentityCenterArn            string            `json:"identityCenterArn,omitempty"`
-	IdentityCenterApplicationArn string            `json:"identityCenterApplicationArn,omitempty"`
-	Tags                         map[string]string `json:"tags,omitempty"`
-	Policy                       string            `json:"policy,omitempty"`
-	PolicyOrganization           string            `json:"policyOrganization,omitempty"`
-	PolicyCreatedAt              string            `json:"policyCreatedAt,omitempty"`
+	AccountID                    string `json:"accountId"`
+	InstanceID                   string `json:"instanceId"`
+	CreatedAt                    string `json:"createdAt"`
+	IdentityCenterArn            string `json:"identityCenterArn,omitempty"`
+	IdentityCenterApplicationArn string `json:"identityCenterApplicationArn,omitempty"`
+	Policy                       string `json:"policy,omitempty"`
+	PolicyOrganization           string `json:"policyOrganization,omitempty"`
+	PolicyCreatedAt              string `json:"policyCreatedAt,omitempty"`
 }
 
 // S3AccessGrantsLocation is a prefix the instance manages, and the role it
 // reaches that prefix with.
 type S3AccessGrantsLocation struct {
-	AccountID     string            `json:"accountId"`
-	LocationID    string            `json:"locationId"`
-	LocationScope string            `json:"locationScope"`
-	IAMRoleArn    string            `json:"iamRoleArn"`
-	CreatedAt     string            `json:"createdAt"`
-	Tags          map[string]string `json:"tags,omitempty"`
+	AccountID     string `json:"accountId"`
+	LocationID    string `json:"locationId"`
+	LocationScope string `json:"locationScope"`
+	IAMRoleArn    string `json:"iamRoleArn"`
+	CreatedAt     string `json:"createdAt"`
 }
 
 // S3AccessGrant hands one grantee a permission inside one location.
 type S3AccessGrant struct {
-	AccountID         string            `json:"accountId"`
-	GrantID           string            `json:"grantId"`
-	CreatedAt         string            `json:"createdAt"`
-	LocationID        string            `json:"locationId"`
-	S3SubPrefix       string            `json:"s3SubPrefix,omitempty"`
-	GranteeType       string            `json:"granteeType"`
-	GranteeIdentifier string            `json:"granteeIdentifier"`
-	Permission        string            `json:"permission"`
-	ApplicationArn    string            `json:"applicationArn,omitempty"`
-	S3PrefixType      string            `json:"s3PrefixType,omitempty"`
-	GrantScope        string            `json:"grantScope"`
-	Tags              map[string]string `json:"tags,omitempty"`
+	AccountID         string `json:"accountId"`
+	GrantID           string `json:"grantId"`
+	CreatedAt         string `json:"createdAt"`
+	LocationID        string `json:"locationId"`
+	S3SubPrefix       string `json:"s3SubPrefix,omitempty"`
+	GranteeType       string `json:"granteeType"`
+	GranteeIdentifier string `json:"granteeIdentifier"`
+	Permission        string `json:"permission"`
+	ApplicationArn    string `json:"applicationArn,omitempty"`
+	S3PrefixType      string `json:"s3PrefixType,omitempty"`
+	GrantScope        string `json:"grantScope"`
 }
 
 var (
@@ -169,12 +166,12 @@ func handleS3CreateAccessGrantsInstance(w http.ResponseWriter, r *http.Request) 
 		AccountID: account, InstanceID: "default",
 		CreatedAt:         time.Now().UTC().Format(time.RFC3339),
 		IdentityCenterArn: body.ChildText("IdentityCenterArn"),
-		Tags:              s3ControlTagsFrom(body, "Tags", "Tag"),
 	}
 	if instance.IdentityCenterArn != "" {
 		instance.IdentityCenterApplicationArn = s3AccessGrantsApplicationARN(account)
 	}
 	s3AccessGrantsInstances.Put(account, instance)
+	s3ControlPutCreateTags(s3AccessGrantsInstanceARN(account), s3ControlTagsFrom(body, "Tags", "Tag"))
 	s3WriteAccessGrantsInstance(w, "CreateAccessGrantsInstanceResult", instance)
 }
 
@@ -237,6 +234,7 @@ func handleS3DeleteAccessGrantsInstance(w http.ResponseWriter, r *http.Request) 
 		s3AccessGrantsNoInstance(w)
 		return
 	}
+	s3ControlResourceTags.Delete(s3AccessGrantsInstanceARN(account))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -446,9 +444,9 @@ func handleS3CreateAccessGrantsLocation(w http.ResponseWriter, r *http.Request) 
 	location := S3AccessGrantsLocation{
 		AccountID: account, LocationID: locationID, LocationScope: scope, IAMRoleArn: roleArn,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		Tags:      s3ControlTagsFrom(body, "Tags", "Tag"),
 	}
 	s3AccessGrantsLocations.Put(s3AccessPointKey(account, locationID), location)
+	s3ControlPutCreateTags(s3AccessGrantsLocationARN(account, locationID), s3ControlTagsFrom(body, "Tags", "Tag"))
 	s3WriteAccessGrantsLocation(w, "CreateAccessGrantsLocationResult", location)
 }
 
@@ -524,6 +522,7 @@ func handleS3DeleteAccessGrantsLocation(w http.ResponseWriter, r *http.Request) 
 			"The Access Grants location does not exist", http.StatusNotFound)
 		return
 	}
+	s3ControlResourceTags.Delete(s3AccessGrantsLocationARN(account, id))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -597,9 +596,9 @@ func handleS3CreateAccessGrant(w http.ResponseWriter, r *http.Request) {
 		ApplicationArn:    body.ChildText("ApplicationArn"),
 		S3PrefixType:      body.ChildText("S3PrefixType"),
 		GrantScope:        s3AccessGrantScope(location.LocationScope, subPrefix),
-		Tags:              s3ControlTagsFrom(body, "Tags", "Tag"),
 	}
 	s3AccessGrants.Put(s3AccessPointKey(account, grant.GrantID), grant)
+	s3ControlPutCreateTags(s3AccessGrantARN(account, grant.GrantID), s3ControlTagsFrom(body, "Tags", "Tag"))
 	s3WriteAccessGrant(w, "CreateAccessGrantResult", grant)
 }
 
@@ -674,6 +673,7 @@ func handleS3DeleteAccessGrant(w http.ResponseWriter, r *http.Request) {
 			"The Access Grant does not exist", http.StatusNotFound)
 		return
 	}
+	s3ControlResourceTags.Delete(s3AccessGrantARN(account, id))
 	w.WriteHeader(http.StatusOK)
 }
 
