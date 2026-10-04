@@ -161,3 +161,52 @@ func TestRDS_AutomatedBackupsReplicateToAnotherRegion(t *testing.T) {
 	})
 	assertAWSAPIErrorCode(t, err, "DBInstanceAutomatedBackupNotFound")
 }
+
+// A source no client has connected to holds no automated snapshot yet;
+// StartDBInstanceAutomatedBackupsReplication still replicates the first
+// automated backup Amazon RDS takes of it, as the Terraform provider's create
+// waiter expects.
+func TestRDS_AutomatedBackupsReplicationTakesTheSourcesFirstBackup(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	f := rdsInstanceFixture{t: t, ctx: ctx, client: rdsClient(), family: "postgres"}
+	destination := rds.NewFromConfig(sdkConfig(), func(o *rds.Options) {
+		o.BaseEndpoint = aws.String(baseURL)
+		o.Region = "us-west-2"
+	})
+	sourceID := "sdk-replicated-unconnected"
+	created, err := f.client.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
+		DBInstanceIdentifier:  aws.String(sourceID),
+		DBInstanceClass:       aws.String("db.t3.micro"),
+		Engine:                aws.String("postgres"),
+		AllocatedStorage:      aws.Int32(20),
+		MasterUsername:        aws.String(restoreSourceUsername),
+		MasterUserPassword:    aws.String(restoreSourcePassword),
+		BackupRetentionPeriod: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	f.cleanup(sourceID)
+	f.waitAvailable(sourceID)
+
+	started, err := destination.StartDBInstanceAutomatedBackupsReplication(ctx, &rds.StartDBInstanceAutomatedBackupsReplicationInput{
+		SourceDBInstanceArn:   created.DBInstance.DBInstanceArn,
+		BackupRetentionPeriod: aws.Int32(3),
+	})
+	require.NoError(t, err)
+	backupARN := started.DBInstanceAutomatedBackup.DBInstanceAutomatedBackupsArn
+	t.Cleanup(func() {
+		_, _ = destination.StopDBInstanceAutomatedBackupsReplication(context.Background(), &rds.StopDBInstanceAutomatedBackupsReplicationInput{
+			SourceDBInstanceArn: created.DBInstance.DBInstanceArn,
+		})
+		_, _ = destination.DeleteDBInstanceAutomatedBackup(context.Background(), &rds.DeleteDBInstanceAutomatedBackupInput{
+			DBInstanceAutomatedBackupsArn: backupARN,
+		})
+	})
+	require.Eventually(t, func() bool {
+		listed, err := destination.DescribeDBInstanceAutomatedBackups(ctx, &rds.DescribeDBInstanceAutomatedBackupsInput{
+			DBInstanceAutomatedBackupsArn: backupARN,
+		})
+		return err == nil && len(listed.DBInstanceAutomatedBackups) == 1 &&
+			aws.ToString(listed.DBInstanceAutomatedBackups[0].Status) == "replicating"
+	}, 2*time.Minute, waiterMinDelay, "the replicated automated backup copies the source's first automated snapshot")
+}
