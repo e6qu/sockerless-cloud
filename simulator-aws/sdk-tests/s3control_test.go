@@ -647,28 +647,28 @@ func TestS3Control_ListRegionalBuckets(t *testing.T) {
 }
 
 // TestS3Control_ResourceTagging covers the tagging trio the control plane
-// shares across its resources, against a Storage Lens configuration. The three
+// shares across its resources, against a Storage Lens group. The three
 // operations are one path under three methods:
 // "POST /v20180820/tags/{resourceArn...}",
 // "GET /v20180820/tags/{resourceArn...}" and
 // "DELETE /v20180820/tags/{resourceArn...}".
 func TestS3Control_ResourceTagging(t *testing.T) {
 	sc := s3ControlClient()
-	configID := "sl-tagged"
+	groupName := "sl-tagged-group"
 
-	_, err := sc.PutStorageLensConfiguration(ctx, &s3control.PutStorageLensConfigurationInput{
-		AccountId: aws.String(s3ObjectLambdaAccount), ConfigId: aws.String(configID),
-		StorageLensConfiguration: &s3ctypes.StorageLensConfiguration{
-			Id: aws.String(configID), IsEnabled: true,
-			AccountLevel: &s3ctypes.AccountLevel{BucketLevel: &s3ctypes.BucketLevel{}},
+	_, err := sc.CreateStorageLensGroup(ctx, &s3control.CreateStorageLensGroupInput{
+		AccountId: aws.String(s3ObjectLambdaAccount),
+		StorageLensGroup: &s3ctypes.StorageLensGroup{
+			Name:   aws.String(groupName),
+			Filter: &s3ctypes.StorageLensGroupFilter{MatchAnyPrefix: []string{"logs/"}},
 		},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = sc.DeleteStorageLensConfiguration(ctx, &s3control.DeleteStorageLensConfigurationInput{
-			AccountId: aws.String(s3ObjectLambdaAccount), ConfigId: aws.String(configID)})
+		_, _ = sc.DeleteStorageLensGroup(ctx, &s3control.DeleteStorageLensGroupInput{
+			AccountId: aws.String(s3ObjectLambdaAccount), Name: aws.String(groupName)})
 	})
-	arn := fmt.Sprintf("arn:aws:s3:us-east-1:%s:storage-lens/%s", s3ObjectLambdaAccount, configID)
+	arn := fmt.Sprintf("arn:aws:s3:us-east-1:%s:storage-lens-group/%s", s3ObjectLambdaAccount, groupName)
 
 	_, err = sc.TagResource(ctx, &s3control.TagResourceInput{
 		AccountId: aws.String(s3ObjectLambdaAccount), ResourceArn: aws.String(arn),
@@ -700,11 +700,70 @@ func TestS3Control_ResourceTagging(t *testing.T) {
 	_, err = sc.TagResource(ctx, &s3control.TagResourceInput{
 		AccountId: aws.String(s3ObjectLambdaAccount),
 		ResourceArn: aws.String(fmt.Sprintf(
-			"arn:aws:s3:us-east-1:%s:storage-lens/never-created", s3ObjectLambdaAccount)),
+			"arn:aws:s3:us-east-1:%s:storage-lens-group/never-created", s3ObjectLambdaAccount)),
 		Tags: []s3ctypes.Tag{{Key: aws.String("k"), Value: aws.String("v")}},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "NotFoundException")
+}
+
+// TestS3Control_StorageLensConfigurationTagging covers a Storage Lens
+// configuration's tags, which its own tagging operations keep as the one tag
+// set: PutStorageLensConfigurationTagging replaces it and
+// DeleteStorageLensConfigurationTagging empties it. TagResource and
+// ListTagsForResource do not serve the configuration type and refuse its ARN.
+func TestS3Control_StorageLensConfigurationTagging(t *testing.T) {
+	sc := s3ControlClient()
+	configID := "sl-config-tagging"
+	_, err := sc.PutStorageLensConfiguration(ctx, &s3control.PutStorageLensConfigurationInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ConfigId: aws.String(configID),
+		StorageLensConfiguration: &s3ctypes.StorageLensConfiguration{
+			Id: aws.String(configID), IsEnabled: true,
+			AccountLevel: &s3ctypes.AccountLevel{BucketLevel: &s3ctypes.BucketLevel{}},
+		},
+		Tags: []s3ctypes.StorageLensTag{{Key: aws.String("team"), Value: aws.String("storage")}},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = sc.DeleteStorageLensConfiguration(ctx, &s3control.DeleteStorageLensConfigurationInput{
+			AccountId: aws.String(s3ObjectLambdaAccount), ConfigId: aws.String(configID)})
+	})
+	arn := fmt.Sprintf("arn:aws:s3:us-east-1:%s:storage-lens/%s", s3ObjectLambdaAccount, configID)
+	tagsOf := func() map[string]string {
+		t.Helper()
+		out, err := sc.GetStorageLensConfigurationTagging(ctx, &s3control.GetStorageLensConfigurationTaggingInput{
+			AccountId: aws.String(s3ObjectLambdaAccount), ConfigId: aws.String(configID)})
+		require.NoError(t, err)
+		tags := map[string]string{}
+		for _, tag := range out.Tags {
+			tags[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+		}
+		return tags
+	}
+
+	_, err = sc.TagResource(ctx, &s3control.TagResourceInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ResourceArn: aws.String(arn),
+		Tags: []s3ctypes.Tag{{Key: aws.String("tier"), Value: aws.String("gold")}},
+	})
+	require.Error(t, err, "TagResource does not tag a Storage Lens configuration")
+	assert.Contains(t, err.Error(), "NotFoundException")
+	_, err = sc.ListTagsForResource(ctx, &s3control.ListTagsForResourceInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ResourceArn: aws.String(arn)})
+	require.Error(t, err, "ListTagsForResource does not read a Storage Lens configuration")
+	assert.Contains(t, err.Error(), "NotFoundException")
+	assert.Equal(t, map[string]string{"team": "storage"}, tagsOf())
+
+	_, err = sc.PutStorageLensConfigurationTagging(ctx, &s3control.PutStorageLensConfigurationTaggingInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ConfigId: aws.String(configID),
+		Tags: []s3ctypes.StorageLensTag{{Key: aws.String("tier"), Value: aws.String("gold")}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"tier": "gold"}, tagsOf(), "the put replaces the tag set")
+
+	_, err = sc.DeleteStorageLensConfigurationTagging(ctx, &s3control.DeleteStorageLensConfigurationTaggingInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ConfigId: aws.String(configID)})
+	require.NoError(t, err)
+	assert.Empty(t, tagsOf())
 }
 
 // s3BatchLambdaJob creates a function from the Lambda handler image, a bucket

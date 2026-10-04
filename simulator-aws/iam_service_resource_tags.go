@@ -711,8 +711,7 @@ func iamPopulateIAMResourceTags(r *http.Request, ctx map[string][]string) {
 }
 
 // iamS3ControlResourceTags resolves the tags of the resource an Amazon S3
-// control-plane request names: the ARN its route authorizes against, whose
-// tags TagResource and the creates that take tags record.
+// control-plane request names: the ARN its route authorizes against.
 func iamS3ControlResourceTags(r *http.Request) (map[string]string, bool) {
 	for _, route := range s3ControlGatedRoutes() {
 		if route.pattern != r.Pattern || route.resource == nil {
@@ -722,8 +721,8 @@ func iamS3ControlResourceTags(r *http.Request) (map[string]string, bool) {
 		if arn == "" {
 			return nil, false
 		}
-		tags, ok := s3ControlResourceTags.Get(arn)
-		return tags, ok && len(tags) > 0
+		tags := s3ControlResourceTagSet(arn)
+		return tags, len(tags) > 0
 	}
 	return nil, false
 }

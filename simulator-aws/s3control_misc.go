@@ -233,6 +233,26 @@ func s3BucketIsDirectory(bucket S3Bucket) bool {
 // trio rather than through its own operation, keyed by the resource's ARN.
 var s3ControlResourceTags sim.Store[map[string]string]
 
+// s3ControlResourceTagSet is the tag set of the resource an ARN names: a
+// Storage Lens configuration's and a Batch Operations job's own, which their
+// tagging operations keep, and the trio's for every other type.
+func s3ControlResourceTagSet(arn string) map[string]string {
+	parts := strings.SplitN(arn, ":", 6)
+	if len(parts) == 6 {
+		account, resource := parts[4], parts[5]
+		if id, ok := strings.CutPrefix(resource, "storage-lens/"); ok {
+			config, _ := s3StorageLensConfigurations.Get(s3AccessPointKey(account, id))
+			return config.Tags
+		}
+		if id, ok := strings.CutPrefix(resource, "job/"); ok {
+			job, _ := s3BatchJobs.Get(s3AccessPointKey(account, id))
+			return job.Tags
+		}
+	}
+	tags, _ := s3ControlResourceTags.Get(arn)
+	return tags
+}
+
 // s3ControlPutCreateTags records the tags a create carries as the resource's
 // tag set, which TagResource, ListTagsForResource and the IAM gate read.
 func s3ControlPutCreateTags(arn string, tags map[string]string) {
@@ -257,16 +277,15 @@ var s3ControlTaggingRoutes = []s3ControlRoute{
 }
 
 // s3ControlTaggedResourceExists reports whether the ARN names something this
-// simulator holds. Tagging a resource that does not exist is refused the way
-// the service refuses it, rather than accumulating tags nothing can read back.
+// simulator holds of a type the trio tags: a bucket, an access point, a Storage
+// Lens group, or an Access Grants instance, location or grant, the types the
+// Service Reference lists for TagResource. A Storage Lens configuration and a
+// Batch Operations job keep their tags through their own tagging operations,
+// so the trio refuses their ARNs as it refuses a resource that does not exist.
 func s3ControlTaggedResourceExists(account, arn string) bool {
 	switch {
 	case strings.HasPrefix(arn, "arn:aws:s3:::"):
 		_, ok := s3Buckets_.Get(strings.TrimPrefix(arn, "arn:aws:s3:::"))
-		return ok
-	case strings.Contains(arn, ":storage-lens/"):
-		_, ok := s3StorageLensConfigurations.Get(
-			s3AccessPointKey(account, arn[strings.LastIndex(arn, "/")+1:]))
 		return ok
 	case strings.Contains(arn, ":storage-lens-group/"):
 		_, ok := s3StorageLensGroups.Get(s3AccessPointKey(account, arn[strings.LastIndex(arn, "/")+1:]))
@@ -277,9 +296,6 @@ func s3ControlTaggedResourceExists(account, arn string) bool {
 			return true
 		}
 		_, ok := s3ObjectLambdaAccessPoints.Get(s3AccessPointKey(account, name))
-		return ok
-	case strings.Contains(arn, ":job/"):
-		_, ok := s3BatchJobs.Get(s3AccessPointKey(account, arn[strings.LastIndex(arn, "/")+1:]))
 		return ok
 	case strings.Contains(arn, ":access-grants/default/location/"):
 		_, ok := s3AccessGrantsLocations.Get(s3AccessPointKey(account, arn[strings.LastIndex(arn, "/")+1:]))

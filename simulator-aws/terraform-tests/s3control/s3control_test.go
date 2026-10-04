@@ -28,6 +28,8 @@ func TestS3ControlTerraform(t *testing.T) {
 	assert.Contains(t, outputs.must(t, "access_point_arn"), ":accesspoint/tf-s3control-ap")
 	assert.Contains(t, outputs.must(t, "object_lambda_access_point_arn"), "arn:aws:s3-object-lambda:")
 	assert.Contains(t, outputs.must(t, "storage_lens_arn"), "storage-lens/tf-s3control-lens")
+	assert.Equal(t, "storage", outputs.must(t, "storage_lens_team"),
+		"the provider reads the configuration's tags back through GetStorageLensConfigurationTagging")
 	assert.Contains(t, outputs.must(t, "access_grants_instance_arn"), "access-grants/default")
 	assert.Equal(t, "s3://tf-s3control-source/data/*", outputs.must(t, "access_grant_scope"),
 		"a grant with no sub-prefix covers its location's whole scope")

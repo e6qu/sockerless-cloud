@@ -130,6 +130,23 @@ func TestS3ControlCLI_StorageLens(t *testing.T) {
 	listed := s3ControlCLI(t, "list-storage-lens-configurations")
 	assert.Contains(t, listed, configID)
 
+	// The configuration's tags are the set its own tagging operations keep;
+	// tag-resource does not serve the configuration type.
+	var described struct {
+		StorageLensConfiguration struct {
+			StorageLensArn string `json:"StorageLensArn"`
+		} `json:"StorageLensConfiguration"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(got), &described))
+	s3ControlCLI(t, "put-storage-lens-configuration-tagging", "--config-id", configID,
+		"--tags", "Key=team,Value=storage")
+	assert.Contains(t, s3ControlCLI(t, "get-storage-lens-configuration-tagging", "--config-id", configID), "storage")
+	refused := runCLIExpectError(t, s3ControlCLICommand("tag-resource",
+		"--resource-arn", described.StorageLensConfiguration.StorageLensArn, "--tags", "Key=tier,Value=gold"))
+	assert.Contains(t, refused, "NotFoundException")
+	s3ControlCLI(t, "delete-storage-lens-configuration-tagging", "--config-id", configID)
+	assert.NotContains(t, s3ControlCLI(t, "get-storage-lens-configuration-tagging", "--config-id", configID), "storage")
+
 	groupPath := filepath.Join(tmpDir, "lens-group.json")
 	require.NoError(t, os.WriteFile(groupPath, []byte(fmt.Sprintf(`{
 	  "Name": %q,

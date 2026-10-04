@@ -260,6 +260,27 @@ func TestS3Control_StorageLensIsAuthorizedAgainstTheConfiguration(t *testing.T) 
 		AccountId: aws.String(s3ObjectLambdaAccount), ConfigId: aws.String(configID)})
 	require.Error(t, err, "a grant on another configuration does not read this one")
 	assert.Equal(t, "AccessDenied", errCodeOf(err))
+
+	// aws:ResourceTag reads the tag set PutStorageLensConfigurationTagging keeps.
+	_, err = admin.PutStorageLensConfigurationTagging(ctx, &s3control.PutStorageLensConfigurationTaggingInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ConfigId: aws.String(configID),
+		Tags: []s3ctypes.StorageLensTag{{Key: aws.String("team"), Value: aws.String("storage")}},
+	})
+	require.NoError(t, err)
+	byTag := func(team string) string {
+		return fmt.Sprintf(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",`+
+			`"Action":"s3:GetStorageLensConfiguration","Resource":"*",`+
+			`"Condition":{"StringEquals":{"aws:ResourceTag/team":%q}}}]}`, team)
+	}
+	tagged := s3ControlClientWithCreds(restrictedCredential(t, "s3control-lens-team", byTag("storage")))
+	_, err = tagged.GetStorageLensConfiguration(ctx, &s3control.GetStorageLensConfigurationInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ConfigId: aws.String(configID)})
+	require.NoError(t, err, "the configuration carries team=storage")
+	otherTeam := s3ControlClientWithCreds(restrictedCredential(t, "s3control-lens-other-team", byTag("analytics")))
+	_, err = otherTeam.GetStorageLensConfiguration(ctx, &s3control.GetStorageLensConfigurationInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ConfigId: aws.String(configID)})
+	require.Error(t, err, "the configuration carries no team=analytics")
+	assert.Equal(t, "AccessDenied", errCodeOf(err))
 }
 
 // TestS3Control_MultiRegionAccessPointIsAuthorizedAgainstItsAlias covers the

@@ -1830,7 +1830,12 @@ remove it, and TagResource, ListTagsForResource and the IAM gate's
 `aws:ResourceTag/<k>` read nothing else, so a tag given at create time and one
 added later are indistinguishable to every reader. TagResource on an Access
 Grants location or grant ARN requires that location or grant to exist, not
-merely the instance.
+merely the instance. A Storage Lens configuration and a Batch Operations job
+are the exceptions: their own tagging operations
+(PutStorageLensConfigurationTagging, PutJobTagging and their Get and Delete
+pairs) keep their one tag set, the IAM gate reads `aws:ResourceTag/<k>` from
+it, and the trio refuses their ARNs, since the Service Reference lists neither
+type for TagResource, UntagResource or ListTagsForResource.
 
 Google Cloud's `testIamPermissions` answers from the stored policy resolved
 through the vendored curated roles and the held custom roles. A conditional
