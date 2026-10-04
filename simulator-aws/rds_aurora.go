@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
@@ -36,12 +35,7 @@ type rdsAuroraDataPlane struct {
 	replicaAddress string
 	writer         net.Listener
 	reader         net.Listener
-
-	// captureMu serialises taking and expiring automated backups.
-	captureMu      sync.Mutex
-	backupMu       sync.Mutex
-	backupTimer    *time.Timer
-	backupsStopped bool
+	backups        *rdsAutomatedBackups
 }
 
 var (
@@ -65,7 +59,7 @@ func rdsInstallAuroraDataPlane(cluster *RDSCluster, masterPassword string) error
 	if !rdsIsAurora(cluster.Engine) {
 		return nil
 	}
-	engine := rdsAuroraEngine(cluster.Engine)
+	engine, _ := rdsLoggingEngine(cluster.Engine)
 	if len(cluster.MasterUserSecret) == 0 {
 		if masterPassword == "" {
 			return fmt.Errorf("MasterUserPassword is required for the %s data plane", cluster.Engine)
@@ -129,8 +123,9 @@ func rdsInstallAuroraDataPlane(cluster *RDSCluster, masterPassword string) error
 		Authenticate: plane.authenticate,
 		BackendLogin: plane.backendLogin,
 	}
+	plane.backups = &rdsAutomatedBackups{owner: rdsClusterBackups{clusterID: id}, engine: plane.engine, volume: rdsClusterVolume(id)}
 	rdsAuroraDataPlanes.Store(id, plane)
-	plane.scheduleAutomatedBackups()
+	plane.backups.schedule()
 	plane.engine.Serve(engineListener)
 	plane.engine.ServeReadOnly(replicaListener)
 	rdsServeRelay(writer, plane.writerTarget)
@@ -224,27 +219,6 @@ func (plane *rdsAuroraDataPlane) applyPendingMasterPassword() error {
 		stored.BackendMasterUserSecret = append([]byte(nil), cluster.MasterUserSecret...)
 	})
 	return nil
-}
-
-func (plane *rdsAuroraDataPlane) authenticate(user, password string, secure bool) bool {
-	cluster, masterPassword, err := plane.masterPassword()
-	if err != nil {
-		return false
-	}
-	if user == cluster.MasterUsername && subtle.ConstantTimeCompare([]byte(password), []byte(masterPassword)) == 1 {
-		return true
-	}
-	return secure && cluster.EnableIAMDatabaseAuthentication &&
-		rdsValidateIAMAuthToken(rdsAuroraEndpoints(cluster), cluster.DbClusterResourceId, user, password)
-}
-
-func (plane *rdsAuroraDataPlane) backendLogin(string, string) (string, string, error) {
-	cluster, err := plane.cluster()
-	if err != nil {
-		return "", "", err
-	}
-	password, err := rdsAuroraBackendPassword(cluster)
-	return cluster.MasterUsername, password, err
 }
 
 // rdsAuroraEndpoints lists every endpoint an IAM authentication token for the
@@ -371,7 +345,7 @@ func rdsStopAuroraDataPlane(clusterID string, deleteVolume bool) error {
 	var stopErr error
 	if value, ok := rdsAuroraDataPlanes.LoadAndDelete(clusterID); ok {
 		if plane, ok := value.(*rdsAuroraDataPlane); ok {
-			plane.stopAutomatedBackups()
+			plane.backups.stop()
 			_ = plane.writer.Close()
 			_ = plane.reader.Close()
 			if err := plane.engine.Close(); err != nil {
@@ -406,10 +380,11 @@ func rdsFinishClusterDeletion(id, resourceID string) {
 		return
 	}
 	// The cluster goes either way; rdsStopAuroraDataPlane logs a failed stop.
-	_ = rdsStopAuroraDataPlane(id, true)
+	_ = rdsStopAuroraDataPlane(id, false)
 	if cluster, ok := rdsClusters.Get(id); ok {
-		rdsRemoveAutomatedBackups(cluster)
+		rdsKeepOrRemoveClusterBackups(cluster)
 	}
+	_ = rdsStopAuroraDataPlane(id, true)
 	if rdsDeletingCluster(id, resourceID) {
 		rdsClusters.Delete(id)
 	}

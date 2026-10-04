@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/dbengine"
 )
 
 // An Aurora MySQL restore to a time replays the source's binary log onto the
@@ -77,10 +76,10 @@ until client --execute='SELECT 1' >/dev/null; do
 	sleep 0.1
 done
 client --execute="CHANGE REPLICATION SOURCE TO RELAY_LOG_FILE='sockerless-replay.000001', RELAY_LOG_POS=$START_OFFSET, SOURCE_HOST='sockerless-replay'; START REPLICA SQL_THREAD UNTIL RELAY_LOG_FILE='$relay', RELAY_LOG_POS=$LAST_SIZE"
-while client --execute='SHOW REPLICA STATUS\G' | grep -q 'Replica_SQL_Running: Yes'; do
+while client --column-names --execute='SHOW REPLICA STATUS\G' | grep -q 'Replica_SQL_Running: Yes'; do
 	sleep 0.1
 done
-failure=$(client --execute='SHOW REPLICA STATUS\G' | sed -n 's/^ *Last_SQL_Error: //p')
+failure=$(client --column-names --execute='SHOW REPLICA STATUS\G' | sed -n 's/^ *Last_SQL_Error: //p')
 client --execute="STOP REPLICA; RESET REPLICA ALL"
 if [ -z "$failure" ]; then
 	client --execute="$SET_MASTER_PASSWORD"
@@ -188,19 +187,18 @@ func rdsBinaryLogReplayRange(files []rdsBinlogFile, startOffset int, target time
 	return names, end, nil
 }
 
-// rdsReplayBinaryLog replays the binary log in sourceVolume, the source
-// cluster volume, onto the new cluster volume up to target. The replay brings
-// back the master password of the restore time, so the new cluster's master
-// password, the one its record carries, replaces it.
-func rdsReplayBinaryLog(engine dbengine.Engine, cluster RDSCluster, sourceVolume string, target time.Time) error {
-	clusterID := cluster.DBClusterIdentifier
-	clusterVolume := rdsClusterVolume(clusterID)
-	_, password, ok := kmsDecryptBytes(cluster.MasterUserSecret)
+// rdsReplayBinaryLog replays the binary log of the source's volume onto the
+// new volume up to target. The replay brings back the master password of the
+// restore time, so the new resource's master password, the one its record
+// carries, replaces it.
+func rdsReplayBinaryLog(replay rdsLogReplay, target time.Time) error {
+	engine := replay.engine
+	_, password, ok := kmsDecryptBytes(replay.masterUserSecret)
 	if !ok {
-		return fmt.Errorf("decrypt the Amazon Aurora master-user credential")
+		return fmt.Errorf("decrypt the master-user credential")
 	}
-	listing, err := rdsRunVolumeHelper(engine, rdsListBinaryLogScript, map[string]string{"START_FILE": cluster.RestoreBinlogFile}, rdsHelperSandbox,
-		[]string{sourceVolume + ":/source:ro"}, clusterID)
+	listing, err := rdsRunVolumeHelper(engine, rdsListBinaryLogScript, map[string]string{"START_FILE": replay.binlogFile}, rdsHelperSandbox,
+		[]string{replay.logVolume + ":/source:ro"}, replay.label)
 	if err != nil {
 		return err
 	}
@@ -208,18 +206,18 @@ func rdsReplayBinaryLog(engine dbengine.Engine, cluster RDSCluster, sourceVolume
 	if err != nil {
 		return err
 	}
-	names, lastSize, err := rdsBinaryLogReplayRange(files, cluster.RestoreBinlogOffset, target)
+	names, lastSize, err := rdsBinaryLogReplayRange(files, replay.binlogOffset, target)
 	if err != nil {
 		return err
 	}
 	_, err = rdsRunVolumeHelper(engine, rdsReplayBinaryLogScript,
 		map[string]string{
 			"RELAY_FILES":         strings.Join(names, " "),
-			"START_OFFSET":        strconv.Itoa(cluster.RestoreBinlogOffset),
+			"START_OFFSET":        strconv.Itoa(replay.binlogOffset),
 			"LAST_SIZE":           strconv.Itoa(lastSize),
-			"SET_MASTER_PASSWORD": rdsMySQLSetMasterPasswordStatement(cluster.MasterUsername, string(password)),
+			"SET_MASTER_PASSWORD": rdsMySQLSetMasterPasswordStatement(replay.masterUsername, string(password)),
 		},
-		rdsReplaySandbox, []string{sourceVolume + ":/source:ro", clusterVolume + ":" + engine.DataPath}, clusterID)
+		rdsReplaySandbox, []string{replay.logVolume + ":/source:ro", replay.volume + ":" + engine.DataPath}, replay.label)
 	if err != nil {
 		return fmt.Errorf("replay the binary log: %w", err)
 	}

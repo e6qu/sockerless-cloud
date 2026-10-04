@@ -205,29 +205,40 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		_ = awsCLI("rds", "modify-certificates", "--remove-customer-override").Run()
 	})
 
-	out = runCLI(t, awsCLI("rds", "describe-db-instance-automated-backups",
-		"--db-instance-identifier", instID))
-	var ab struct {
+	// The instance's automated backup waits for the automated snapshot its
+	// engine takes when it first serves, and belongs to a live instance.
+	type instanceBackups struct {
 		DBInstanceAutomatedBackups []struct {
 			DBInstanceAutomatedBackupsArn string `json:"DBInstanceAutomatedBackupsArn"`
+			DbiResourceId                 string `json:"DbiResourceId"`
+			Status                        string `json:"Status"`
+			RestoreWindow                 struct {
+				EarliestTime string `json:"EarliestTime"`
+				LatestTime   string `json:"LatestTime"`
+			} `json:"RestoreWindow"`
 		} `json:"DBInstanceAutomatedBackups"`
 	}
-	parseJSON(t, out, &ab)
+	var ab instanceBackups
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-instance-automated-backups",
+		"--db-instance-identifier", instID)), &ab)
 	require.Len(t, ab.DBInstanceAutomatedBackups, 1)
-	runCLI(t, awsCLI("rds", "delete-db-instance-automated-backup",
-		"--db-instance-automated-backups-arn", ab.DBInstanceAutomatedBackups[0].DBInstanceAutomatedBackupsArn))
+	assert.Equal(t, "creating", ab.DBInstanceAutomatedBackups[0].Status)
+	assert.Contains(t, runCLIExpectError(t, awsCLI("rds", "delete-db-instance-automated-backup",
+		"--db-instance-automated-backups-arn", ab.DBInstanceAutomatedBackups[0].DBInstanceAutomatedBackupsArn)),
+		"InvalidDBInstanceAutomatedBackupState")
 
-	out = runCLI(t, awsCLI("rds", "describe-db-cluster-automated-backups",
-		"--db-cluster-identifier", clusterID))
-	var cab struct {
+	// Only a deleted cluster's automated backup is listed: retained, when the
+	// deletion asked for it.
+	type clusterBackups struct {
 		DBClusterAutomatedBackups []struct {
 			DbClusterResourceId string `json:"DbClusterResourceId"`
+			Status              string `json:"Status"`
 		} `json:"DBClusterAutomatedBackups"`
 	}
-	parseJSON(t, out, &cab)
-	require.Len(t, cab.DBClusterAutomatedBackups, 1)
-	runCLI(t, awsCLI("rds", "delete-db-cluster-automated-backup",
-		"--db-cluster-resource-id", cab.DBClusterAutomatedBackups[0].DbClusterResourceId))
+	var cab clusterBackups
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-cluster-automated-backups",
+		"--db-cluster-identifier", clusterID)), &cab)
+	assert.Empty(t, cab.DBClusterAutomatedBackups)
 
 	type logFiles struct {
 		DescribeDBLogFiles []struct {
@@ -395,4 +406,51 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		"--resource-identifier", resArn,
 		"--apply-action", action,
 		"--opt-in-type", "immediate"))
+
+	// Deleting the cluster with --no-delete-automated-backups retains its
+	// automated backup.
+	var clusters struct {
+		DBClusters []struct {
+			DbClusterResourceId string `json:"DbClusterResourceId"`
+		} `json:"DBClusters"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-clusters", "--db-cluster-identifier", clusterID)), &clusters)
+	require.Len(t, clusters.DBClusters, 1)
+	clusterResourceID := clusters.DBClusters[0].DbClusterResourceId
+	runCLI(t, awsCLI("rds", "delete-db-cluster", "--db-cluster-identifier", clusterID,
+		"--skip-final-snapshot", "--no-delete-automated-backups"))
+	runCLI(t, awsCLI("rds", "wait", "db-cluster-deleted", "--db-cluster-identifier", clusterID))
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-cluster-automated-backups",
+		"--db-cluster-resource-id", clusterResourceID)), &cab)
+	require.Len(t, cab.DBClusterAutomatedBackups, 1)
+	assert.Equal(t, "retained", cab.DBClusterAutomatedBackups[0].Status)
+	runCLI(t, awsCLI("rds", "delete-db-cluster-automated-backup", "--db-cluster-resource-id", clusterResourceID))
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-cluster-automated-backups",
+		"--db-cluster-resource-id", clusterResourceID)), &cab)
+	assert.Empty(t, cab.DBClusterAutomatedBackups)
+
+	// The engine took its first automated snapshot when it first served, so
+	// the automated backup is active and restores to a window; deleting the
+	// instance with --no-delete-automated-backups retains it.
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-instance-automated-backups",
+		"--db-instance-identifier", instID)), &ab)
+	require.Len(t, ab.DBInstanceAutomatedBackups, 1)
+	assert.Equal(t, "active", ab.DBInstanceAutomatedBackups[0].Status)
+	assert.NotEmpty(t, ab.DBInstanceAutomatedBackups[0].RestoreWindow.EarliestTime)
+	resourceID := ab.DBInstanceAutomatedBackups[0].DbiResourceId
+	runCLI(t, awsCLI("rds", "delete-db-instance", "--db-instance-identifier", instID,
+		"--skip-final-snapshot", "--no-delete-automated-backups"))
+	runCLI(t, awsCLI("rds", "wait", "db-instance-deleted", "--db-instance-identifier", instID))
+	t.Cleanup(func() {
+		_ = awsCLI("rds", "delete-db-instance-automated-backup", "--dbi-resource-id", resourceID).Run()
+	})
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-instance-automated-backups",
+		"--dbi-resource-id", resourceID)), &ab)
+	require.Len(t, ab.DBInstanceAutomatedBackups, 1)
+	assert.Equal(t, "retained", ab.DBInstanceAutomatedBackups[0].Status)
+	assert.NotEmpty(t, ab.DBInstanceAutomatedBackups[0].RestoreWindow.LatestTime)
+	runCLI(t, awsCLI("rds", "delete-db-instance-automated-backup", "--dbi-resource-id", resourceID))
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-instance-automated-backups",
+		"--dbi-resource-id", resourceID)), &ab)
+	assert.Empty(t, ab.DBInstanceAutomatedBackups)
 }

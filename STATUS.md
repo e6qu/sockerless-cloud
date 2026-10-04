@@ -127,7 +127,14 @@ Current state of the sockerless-cloud repository.
   log or MySQL's binary log onto the daily automated DB cluster snapshot taken
   in its backup window, and expires the snapshots and log the period no longer
   covers; an Aurora cluster restores from an RDS DB snapshot ARN, and an
-  Aurora MySQL cluster from a Percona XtraBackup in Amazon S3.
+  Aurora MySQL cluster from a Percona XtraBackup in Amazon S3. An RDS for
+  PostgreSQL or RDS for MySQL instance keeps the same automated backups:
+  RestoreDBInstanceToPointInTime seeds the new instance from them, and
+  RestoreDBInstanceFromS3 imports a Percona XtraBackup into RDS for MySQL. A
+  deletion with `DeleteAutomatedBackups=false` retains the automated backups,
+  which restore the deleted instance or cluster to a time. An Aurora
+  endpoint signs in the master user and IAM-authenticated users itself and
+  every other database user through the engine's own checks.
 - **The registries answer their own service**: Amazon ECR's empty ping with
   no content type, Artifact Registry's `text/html`, Azure Container Registry's
   `{}`; ECR hydrates a pull through a cache rule from the rule's upstream;

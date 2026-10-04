@@ -79,10 +79,10 @@ func TestRDSNextBackupTimeIsTheNextWindowStart(t *testing.T) {
 // the later of the oldest base backup and the start of the retention period.
 func TestRDSBaseBackupsCoverTheRetentionPeriod(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	day := func(n int) RDSClusterBaseBackup {
-		return RDSClusterBaseBackup{SnapshotID: "rds:c-" + string(rune('a'+n)), Time: now.AddDate(0, 0, -n).Format(rdsRestorableTimeLayout)}
+	day := func(n int) RDSBaseBackup {
+		return RDSBaseBackup{SnapshotID: "rds:c-" + string(rune('a'+n)), Time: now.AddDate(0, 0, -n).Format(rdsRestorableTimeLayout)}
 	}
-	bases := []RDSClusterBaseBackup{day(5), day(4), day(3), day(2), day(1)}
+	bases := []RDSBaseBackup{day(5), day(4), day(3), day(2), day(1)}
 	kept := rdsBaseBackupsToKeep(bases, now.AddDate(0, 0, -3).Add(time.Hour))
 	if len(kept) != 3 || kept[0] != day(3) {
 		t.Fatalf("kept %v, want the backups from three days ago on", kept)
@@ -92,18 +92,18 @@ func TestRDSBaseBackupsCoverTheRetentionPeriod(t *testing.T) {
 	}
 
 	cluster := RDSCluster{BackupRetentionPeriod: 3, BaseBackups: kept}
-	earliest, latest, ok := rdsRestorableWindow(cluster)
+	earliest, latest, ok := rdsClusterRestorableWindow(cluster)
 	cutoff := now.AddDate(0, 0, -3)
 	if !ok || earliest.Before(cutoff) || earliest.After(cutoff.Add(time.Minute)) || latest.Before(now) {
 		t.Fatalf("window %v to %v (%v), want from the start of the retention period %v", earliest, latest, ok, cutoff)
 	}
-	if base, ok := rdsBaseBackupFor(cluster, now.AddDate(0, 0, -2).Add(-time.Hour)); !ok || base != day(3) {
+	if base, ok := rdsBaseBackupFor(cluster.BaseBackups, now.AddDate(0, 0, -2).Add(-time.Hour)); !ok || base != day(3) {
 		t.Fatalf("restore base %v (%v), want the backup of three days ago", base, ok)
 	}
-	if base, ok := rdsBaseBackupFor(cluster, now); !ok || base != day(1) {
+	if base, ok := rdsBaseBackupFor(cluster.BaseBackups, now); !ok || base != day(1) {
 		t.Fatalf("restore base %v (%v), want the newest backup", base, ok)
 	}
-	if _, _, ok := rdsRestorableWindow(RDSCluster{BackupRetentionPeriod: 1}); ok {
+	if _, _, ok := rdsClusterRestorableWindow(RDSCluster{BackupRetentionPeriod: 1}); ok {
 		t.Fatal("a cluster without a base backup reports a restorable window")
 	}
 }

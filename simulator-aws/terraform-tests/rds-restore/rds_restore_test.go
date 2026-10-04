@@ -16,7 +16,7 @@ import (
 
 func TestRDSRestoreTerraform(t *testing.T) {
 	env := tfsim.Start(t, ".")
-	seedSnapshot(t, env)
+	client := seedSnapshot(t, env)
 
 	env.Terraform(t, "init")
 	env.Terraform(t, "apply", "-auto-approve")
@@ -30,11 +30,29 @@ func TestRDSRestoreTerraform(t *testing.T) {
 		"Restored RDS engine must round-trip through terraform-provider-aws refresh")
 	require.Equal(t, "terraform", outputs.must(t, "rds_restored_instance_tags_env"),
 		"Restored RDS tags must round-trip through ListTagsForResource")
+	require.Equal(t, "postgres", outputs.must(t, "rds_point_in_time_engine"),
+		"An instance restored to a point in time runs its source's engine")
+	require.Equal(t, "1", outputs.must(t, "rds_point_in_time_backup_retention_period"),
+		"An instance restored to a point in time keeps its source's backup retention period")
+
+	resourceID := outputs.must(t, "rds_point_in_time_resource_id")
 
 	env.Terraform(t, "destroy", "-auto-approve")
+
+	// delete_automated_backups = false retains the destroyed instance's
+	// automated backup.
+	ctx := context.Background()
+	retained, err := client.DescribeDBInstanceAutomatedBackups(ctx, &rds.DescribeDBInstanceAutomatedBackupsInput{
+		DbiResourceId: aws.String(resourceID),
+	})
+	require.NoError(t, err)
+	require.Len(t, retained.DBInstanceAutomatedBackups, 1)
+	require.Equal(t, "retained", aws.ToString(retained.DBInstanceAutomatedBackups[0].Status))
+	_, err = client.DeleteDBInstanceAutomatedBackup(ctx, &rds.DeleteDBInstanceAutomatedBackupInput{DbiResourceId: aws.String(resourceID)})
+	require.NoError(t, err)
 }
 
-func seedSnapshot(t *testing.T, env *tfsim.Env) {
+func seedSnapshot(t *testing.T, env *tfsim.Env) *rds.Client {
 	t.Helper()
 	ctx := context.Background()
 	client := rds.New(rds.Options{
@@ -80,6 +98,7 @@ func seedSnapshot(t *testing.T, env *tfsim.Env) {
 		})
 		require.NoError(t, err)
 	})
+	return client
 }
 
 type tfOutputs map[string]struct {

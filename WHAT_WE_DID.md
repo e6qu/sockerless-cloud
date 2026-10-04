@@ -111,7 +111,13 @@ through hooks:
   follows a target's redirect and grades a probe by the cloud's own matcher.
 - `dbengine` with `pgwire` and `mysqlwire`: the managed relational database
   data plane Amazon RDS, Cloud SQL and Azure Database for PostgreSQL each
-  carried, including the fixes one copy had and the others lacked.
+  carried, including the fixes one copy had and the others lacked. The MySQL
+  relay logs into the engine the way a client does: it answers an auth switch
+  to `mysql_native_password`, `caching_sha2_password` or `sha256_password`,
+  and, since its link to the engine has no TLS, completes a full
+  authentication by requesting the engine's RSA public key and sending the
+  password under RSA-OAEP, so a user the engine has not cached signs in and a
+  refused login reaches the client as the engine's own 1045.
 
 ## Fidelity rules that came from bugs
 
@@ -1180,6 +1186,91 @@ creates the cluster's database. The cluster lands `available`, or
 `migration-failed` when the import fails. The SDK, CLI and Terraform
 (`s3_import`) suites take a real backup of a MySQL 8.0 container and read its
 rows through the restored cluster.
+
+An RDS for PostgreSQL or RDS for MySQL DB instance keeps automated backups the
+way an Aurora cluster does, through one machinery (`rds_backups.go`) that an
+Aurora cluster and a DB instance each drive as the owner of their backups. The
+instance takes `BackupRetentionPeriod` (0 to 35, default 1) and
+`PreferredBackupWindow` from CreateDBInstance, ModifyDBInstance and the
+restores, and reports them with `LatestRestorableTime` once its first base
+backup exists. Its engine archives PostgreSQL's write-ahead log or keeps
+MySQL's binary log in the instance volume; it takes an automated DB snapshot
+named `rds:<instance>-<yyyy-mm-dd-hh-mm>` when it first serves and at the start
+of each backup window, and expires the snapshots and log the retention period
+no longer covers. DescribeDBSnapshots filters on `SnapshotType` and
+`DbiResourceId`, and DeleteDBSnapshot refuses an automated snapshot with
+`InvalidDBSnapshotState`. An automated snapshot's volume name carries a dot
+where its identifier carries the colon a volume name cannot hold.
+
+RestoreDBInstanceToPointInTime records the new instance `creating` and seeds
+its volume in the background: for `UseLatestRestorableTime` from the source
+instance's volume, for a `RestoreTime` from the newest base backup taken by
+then, replaying the source's log onto it — PostgreSQL's archive recovery when
+the engine first starts, MySQL's replication applier before the instance
+becomes available. A time outside the window is `InvalidRestoreFault`, a
+source without backup retention `PointInTimeRestoreNotEnabled`, and an Aurora
+member is sent to RestoreDBClusterToPointInTime. RestoreDBInstanceFromS3
+imports a Percona XtraBackup of MySQL 8.0 into an RDS for MySQL instance's
+volume through the same import RestoreDBClusterFromS3 runs, refusing a bucket
+the ingestion role cannot read with `InvalidS3BucketFault`. A restore that
+fails lands the instance `incompatible-restore`, an import `failed`; a seed a
+previous process left part-way starts again. DeleteDBInstance of a seeding
+instance with `SkipFinalSnapshot` marks it `deleting` and tears it down once
+the seed ends, and refuses a final snapshot with `InvalidDBInstanceState`. An
+Aurora DB instance reports its cluster's backup settings. The SDK and CLI
+suites restore an instance to a millisecond between two commits and to the
+latest restorable time, and import a real XtraBackup into an instance; the
+Terraform suites restore an `aws_db_instance` with `restore_to_point_in_time`
+and import one with `s3_import`.
+
+DescribeDBInstanceAutomatedBackups reads a live DB instance's automated backup
+from the instance itself (`rds_automated_backups.go`): `creating` until its
+first automated snapshot, then `active` with the restore window the instance's
+base backups and retention period give, for an instance outside a cluster with
+a backup retention period on an engine that keeps its log. DeleteDBInstance
+and DeleteDBCluster honour `DeleteAutomatedBackups=false`: once the engine has
+stopped, the deletion copies the volume into a `sockerless-rds-auto-backup_<resource-id>`
+volume and keeps a `retained` row with the base backups, the automated
+snapshots and the properties a restore reads, its window ending at the
+deletion. DescribeDBClusterAutomatedBackups lists the retained rows, the only
+status its shape names. RestoreDBInstanceToPointInTime restores a retained
+backup through `SourceDbiResourceId` or `SourceDBInstanceAutomatedBackupsArn`
+and RestoreDBClusterToPointInTime through `SourceDbClusterResourceId`, seeding
+from its base backups and replaying the kept log. DeleteDBInstanceAutomatedBackup
+and DeleteDBClusterAutomatedBackup delete only a retained backup, refusing a
+live resource's with `InvalidDBInstanceAutomatedBackupState` or
+`InvalidDBClusterAutomatedBackupStateFault`. A retained backup expires once its
+retention period has passed since the deletion, on a timer the next process
+re-arms, and one a creating restore still reads goes when that restore ends.
+The listings filter on `status`, the identifier and the resource ID. The SDK
+suite restores a deleted RDS for PostgreSQL instance and a deleted Aurora MySQL
+cluster from their retained backups to a millisecond between two commits; the
+CLI suite lists an instance's backup `creating`, then `active`, then
+`retained`, and restores a deleted instance with `--source-dbi-resource-id`;
+the Terraform suite destroys an instance with `delete_automated_backups =
+false` and finds its retained backup.
+
+An Aurora cluster's endpoints own two logins: the master user's, under the
+password the control plane records, and IAM database authentication. Every
+other login reaches the engine, which checks it against its own users
+(`rds_aurora_users.go`). Aurora MySQL's relay logs in to the engine with the
+client's own user and password, so the engine's refusal reaches the client
+verbatim and a session holds only its user's privileges. Aurora PostgreSQL's
+engine trusts the relay, so the endpoint has the engine check the password: a
+`DO` block run as the master user reads the role's `pg_authid` verifier and
+compares the MD5 digest, or recomputes the SCRAM-SHA-256 StoredKey through
+PBKDF2-HMAC-SHA-256 with the builtin `sha256`, the presented user and password
+reaching it as session settings rather than spliced into the SQL. A role
+granted `rds_iam`, directly or through another role, signs in only with an IAM
+authentication token; the check walks `pg_auth_members`, since `pg_has_role`
+counts every role as granted to a superuser. On every engine start Aurora
+PostgreSQL gets the `rds_iam` role, and Aurora MySQL's master user gets the
+global privileges Aurora MySQL version 3 grants it, `CREATE USER` among them,
+while the image's remote `root` account goes. The SDK suite signs in a user the
+master user created on each engine and proves its wrong password, an unknown
+user and `root` are refused, that its session holds only its own grants, and
+that a PostgreSQL role granted `rds_iam` signs in with a token and not with its
+password; it also signs in a user the restored XtraBackup held.
 
 Every volume capture holds one crash-consistent point in time, the property a
 block-level storage snapshot gives. `sim.SnapshotVolume` lists the running

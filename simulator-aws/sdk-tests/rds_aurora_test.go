@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	rdsauth "github.com/aws/aws-sdk-go-v2/feature/rds/auth"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"github.com/go-sql-driver/mysql"
@@ -204,5 +205,142 @@ func TestRDS_AuroraEndpointsShareTheClusterVolume(t *testing.T) {
 		var rows int
 		require.NoError(t, writer.QueryRowContext(testContext, `SELECT count(*) FROM shared_volume`).Scan(&rows))
 		assert.Equal(t, 2, rows)
+	})
+}
+
+// An Aurora cluster's endpoints sign in the database users the engine holds,
+// each under its own password and into a session with its own privileges. A
+// user granted rds_iam on Aurora PostgreSQL signs in only with an IAM
+// authentication token, which no other user can sign in with.
+func TestRDS_AuroraDatabaseUsersSignInThroughTheEngine(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	const (
+		appUser     = "app_user"
+		appPassword = "App-Password-1"
+		iamUser     = "iam_user"
+	)
+	createCluster := func(t *testing.T, clusterID, engine, family string) string {
+		t.Helper()
+		f := auroraClusterFixture{t: t, ctx: testContext, client: rdsClient(), engine: engine, family: family}
+		_, err := f.client.CreateDBCluster(testContext, &rds.CreateDBClusterInput{
+			DBClusterIdentifier:             aws.String(clusterID),
+			Engine:                          aws.String(engine),
+			MasterUsername:                  aws.String(restoreSourceUsername),
+			MasterUserPassword:              aws.String(restoreSourcePassword),
+			DatabaseName:                    aws.String(restoreSourceDatabase),
+			EnableIAMDatabaseAuthentication: aws.Bool(true),
+		})
+		require.NoError(t, err)
+		f.cleanupCluster(clusterID)
+		f.addWriter(clusterID)
+		return f.describe(clusterID).endpoint
+	}
+
+	t.Run("Aurora PostgreSQL", func(t *testing.T) {
+		endpoint := createCluster(t, "sdk-aurora-users-postgresql", "aurora-postgresql", "postgres")
+		signIn := func(user, password string) (*pgx.Conn, error) {
+			config, err := pgx.ParseConfig(fmt.Sprintf("postgres://%s@%s/%s?sslmode=require", user, endpoint, restoreSourceDatabase))
+			require.NoError(t, err)
+			config.Password = password
+			config.TLSConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} // test-only CA coordinate
+			connection, err := pgx.ConnectConfig(testContext, config)
+			if err == nil {
+				t.Cleanup(func() { _ = connection.Close(context.Background()) })
+			}
+			return connection, err
+		}
+		refused := func(user, password string) {
+			t.Helper()
+			_, err := signIn(user, password)
+			var refusal *pgconn.PgError
+			require.ErrorAs(t, err, &refusal, user)
+			assert.Equal(t, "28P01", refusal.Code, user)
+		}
+		master, err := signIn(restoreSourceUsername, restoreSourcePassword)
+		require.NoError(t, err)
+		for _, statement := range []string{
+			`CREATE TABLE ledger (entry text PRIMARY KEY)`,
+			`INSERT INTO ledger VALUES ('written-by-the-master-user')`,
+			fmt.Sprintf(`CREATE ROLE %s LOGIN PASSWORD '%s'`, appUser, appPassword),
+			fmt.Sprintf(`GRANT SELECT ON ledger TO %s`, appUser),
+			fmt.Sprintf(`CREATE ROLE %s LOGIN PASSWORD 'Iam-Password-1'`, iamUser),
+			fmt.Sprintf(`GRANT rds_iam TO %s`, iamUser),
+		} {
+			_, err := master.Exec(testContext, statement)
+			require.NoError(t, err, statement)
+		}
+
+		app, err := signIn(appUser, appPassword)
+		require.NoError(t, err, "a role the engine holds signs in under its own password")
+		var user, entry string
+		require.NoError(t, app.QueryRow(testContext, `SELECT current_user, entry FROM ledger`).Scan(&user, &entry))
+		assert.Equal(t, appUser, user)
+		assert.Equal(t, "written-by-the-master-user", entry)
+		_, err = app.Exec(testContext, `INSERT INTO ledger VALUES ('written-by-the-app-user')`)
+		var denied *pgconn.PgError
+		require.ErrorAs(t, err, &denied, "the session holds only the role's own privileges")
+		assert.Equal(t, "42501", denied.Code)
+		refused(appUser, "Wrong-Password-1")
+		refused("no_such_role", appPassword)
+		refused(iamUser, "Iam-Password-1")
+
+		token := func(user string) string {
+			t.Helper()
+			token, err := rdsauth.BuildAuthToken(testContext, endpoint, "us-east-1", user, sdkConfig().Credentials)
+			require.NoError(t, err)
+			return token
+		}
+		iam, err := signIn(iamUser, token(iamUser))
+		require.NoError(t, err, "a role granted rds_iam signs in with an IAM authentication token")
+		require.NoError(t, iam.QueryRow(testContext, `SELECT current_user`).Scan(&user))
+		assert.Equal(t, iamUser, user)
+		refused(appUser, token(appUser))
+	})
+
+	t.Run("Aurora MySQL", func(t *testing.T) {
+		endpoint := createCluster(t, "sdk-aurora-users-mysql", "aurora-mysql", "mysql")
+		signIn := func(user, password string) (*sql.DB, error) {
+			config := mysql.Config{
+				User: user, Passwd: password, Net: "tcp", Addr: endpoint, DBName: restoreSourceDatabase,
+				TLSConfig: "skip-verify", AllowCleartextPasswords: true,
+			}
+			connection, err := sql.Open("mysql", config.FormatDSN())
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = connection.Close() })
+			return connection, connection.PingContext(testContext)
+		}
+		refused := func(user, password string) {
+			t.Helper()
+			_, err := signIn(user, password)
+			var refusal *mysql.MySQLError
+			require.ErrorAs(t, err, &refusal, user)
+			assert.Equal(t, uint16(1045), refusal.Number, user)
+		}
+		master, err := signIn(restoreSourceUsername, restoreSourcePassword)
+		require.NoError(t, err)
+		for _, statement := range []string{
+			`CREATE TABLE ledger (entry varchar(64) PRIMARY KEY)`,
+			`INSERT INTO ledger VALUES ('written-by-the-master-user')`,
+			fmt.Sprintf(`CREATE USER '%s'@'%%' IDENTIFIED BY '%s'`, appUser, appPassword),
+			fmt.Sprintf(`GRANT SELECT ON %s.ledger TO '%s'@'%%'`, restoreSourceDatabase, appUser),
+		} {
+			_, err := master.ExecContext(testContext, statement)
+			require.NoError(t, err, statement)
+		}
+
+		app, err := signIn(appUser, appPassword)
+		require.NoError(t, err, "a user the engine holds signs in under its own password")
+		var user, entry string
+		require.NoError(t, app.QueryRowContext(testContext, `SELECT CURRENT_USER(), entry FROM ledger`).Scan(&user, &entry))
+		assert.Equal(t, appUser+"@%", user)
+		assert.Equal(t, "written-by-the-master-user", entry)
+		_, err = app.ExecContext(testContext, `INSERT INTO ledger VALUES ('written-by-the-app-user')`)
+		var denied *mysql.MySQLError
+		require.ErrorAs(t, err, &denied, "the session holds only the user's own privileges")
+		assert.Equal(t, uint16(1142), denied.Number)
+		refused(appUser, "Wrong-Password-1")
+		refused("no_such_user", appPassword)
+		refused("root", restoreSourcePassword)
 	})
 }

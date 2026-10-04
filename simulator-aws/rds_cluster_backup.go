@@ -152,33 +152,56 @@ func rdsWALHasTransactionAfter(listing []string, target time.Time) (bool, error)
 	return later, nil
 }
 
-// rdsReplayLogToRestoreTime replays the source cluster's log onto the new
-// cluster volume, which holds the source's base backup, up to the restore
-// time. The helpers read the log from the source cluster volume while its
-// engine runs: every transaction that ended by the restore time is in the log
-// already, and a record the engine is still writing ends after it.
-func rdsReplayLogToRestoreTime(cluster RDSCluster) error {
-	target, err := time.Parse(time.RFC3339Nano, cluster.RestoreToTime)
-	if err != nil {
-		return fmt.Errorf("read RestoreToTime %q: %w", cluster.RestoreToTime, err)
-	}
-	if !sim.VolumeExists(cluster.RestoreLogVolume) {
-		return fmt.Errorf("the source cluster volume %s no longer exists", cluster.RestoreLogVolume)
-	}
-	engine := rdsAuroraEngine(cluster.Engine)
-	if engine.Family == dbengine.MySQL {
-		return rdsReplayBinaryLog(engine, cluster, cluster.RestoreLogVolume, target)
-	}
-	return rdsPrepareArchiveRecovery(engine, cluster.DBClusterIdentifier, cluster.RestoreLogVolume, target)
+// rdsLogReplay replays a source's log onto a volume that holds the source's
+// base backup, up to the restore time. The helpers read the log from the
+// source's volume while its engine runs: every transaction that ended by the
+// restore time is in the log already, and a record the engine is still
+// writing ends after it.
+type rdsLogReplay struct {
+	engine           dbengine.Engine
+	volume           string
+	label            string
+	logVolume        string
+	restoreToTime    string
+	binlogFile       string
+	binlogOffset     int
+	masterUsername   string
+	masterUserSecret []byte
 }
 
-// rdsPrepareArchiveRecovery adds the write-ahead log of sourceVolume to the
-// new cluster volume and configures the archive recovery its engine runs to
-// the restore time when it first starts.
-func rdsPrepareArchiveRecovery(engine dbengine.Engine, clusterID, sourceVolume string, target time.Time) error {
-	clusterVolume := rdsClusterVolume(clusterID)
+func (replay rdsLogReplay) run() error {
+	target, err := time.Parse(time.RFC3339Nano, replay.restoreToTime)
+	if err != nil {
+		return fmt.Errorf("read the restore time %q: %w", replay.restoreToTime, err)
+	}
+	if !sim.VolumeExists(replay.logVolume) {
+		return fmt.Errorf("the source volume %s no longer exists", replay.logVolume)
+	}
+	if replay.engine.Family == dbengine.MySQL {
+		return rdsReplayBinaryLog(replay, target)
+	}
+	return rdsPrepareArchiveRecovery(replay, target)
+}
+
+// rdsReplayLogToRestoreTime replays the source cluster's log onto the new
+// cluster volume up to the restore time.
+func rdsReplayLogToRestoreTime(cluster RDSCluster) error {
+	engine, _ := rdsLoggingEngine(cluster.Engine)
+	return rdsLogReplay{
+		engine: engine, volume: rdsClusterVolume(cluster.DBClusterIdentifier), label: cluster.DBClusterIdentifier,
+		logVolume: cluster.RestoreLogVolume, restoreToTime: cluster.RestoreToTime,
+		binlogFile: cluster.RestoreBinlogFile, binlogOffset: cluster.RestoreBinlogOffset,
+		masterUsername: cluster.MasterUsername, masterUserSecret: cluster.MasterUserSecret,
+	}.run()
+}
+
+// rdsPrepareArchiveRecovery adds the source's write-ahead log to the new
+// volume and configures the archive recovery its engine runs to the restore
+// time when it first starts.
+func rdsPrepareArchiveRecovery(replay rdsLogReplay, target time.Time) error {
+	engine := replay.engine
 	listing, err := rdsRunVolumeHelper(engine, rdsAssembleWALScript, map[string]string{"TZ": "UTC"}, rdsHelperSandbox,
-		[]string{sourceVolume + ":/source:ro", clusterVolume + ":" + engine.DataPath}, clusterID)
+		[]string{replay.logVolume + ":/source:ro", replay.volume + ":" + engine.DataPath}, replay.label)
 	if err != nil {
 		return err
 	}
@@ -191,6 +214,6 @@ func rdsPrepareArchiveRecovery(engine dbengine.Engine, clusterID, sourceVolume s
 		recoveryTarget = target.UTC().Format("2006-01-02 15:04:05.999999") + "+00"
 	}
 	_, err = rdsRunVolumeHelper(engine, rdsConfigureRecoveryScript, map[string]string{"RECOVERY_TARGET_TIME": recoveryTarget}, rdsHelperSandbox,
-		[]string{clusterVolume + ":" + engine.DataPath}, clusterID)
+		[]string{replay.volume + ":" + engine.DataPath}, replay.label)
 	return err
 }

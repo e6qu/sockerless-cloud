@@ -573,14 +573,17 @@ jobs:
           # was the largest block in the suite and it sat in the shard that
           # also installs Firecracker, which put that shard 48s from the job
           # budget. It joins the data shard, whose own tests run in 4s.
+          # The Amazon Aurora tests leave services-n-z for compute, which has
+          # the most room: their cluster volumes, backups and restores took
+          # the N-Z shard past its job budget.
           - suite: compute
-            run: '^Test(E[^C]|EC[^S])'
+            run: '^Test(E[^C]|EC[^S]|RDS_Aurora)'
           - suite: data
             run: '^Test(D|ECS)'
           - suite: services-a-m
             run: '^Test[A-CF-M]'
           - suite: services-n-z
-            run: '^Test[N-Z]'
+            run: '^Test([N-QS-Z]|R[^D]|RD[^S]|RDS[^_]|RDS_[^A]|RDS_A[^u]|RDS_Au[^r])'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0

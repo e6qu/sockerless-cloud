@@ -70,7 +70,7 @@ func TestRDSStopDBInstanceStopsTheEngineBeforeItReportsStopped(t *testing.T) {
 	}
 	engine := &dbengine.Instance{Name: "Amazon RDS " + id, Engine: dbengine.Postgres16}
 	engine.Serve(listener)
-	rdsDataPlanes.Store(id, &rdsDataPlane{engine: engine})
+	rdsDataPlanes.Store(id, &rdsDataPlane{engine: engine, backups: &rdsAutomatedBackups{owner: rdsInstanceBackups{instanceID: id}, engine: engine, volume: rdsInstanceVolume(id)}})
 	rdsInstances.Put(id, RDSInstance{DBInstanceIdentifier: id, Engine: "postgres", DBInstanceStatus: "available"})
 	t.Cleanup(func() {
 		rdsInstances.Delete(id)

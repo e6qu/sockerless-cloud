@@ -3,6 +3,7 @@ package aws_sdk_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
@@ -294,46 +295,78 @@ func TestRDS_CertificatesAndBackups(t *testing.T) {
 		})
 	})
 
+	// The instance's automated backup waits for its first automated snapshot,
+	// which its engine takes when it first serves.
 	ab, err := c.DescribeDBInstanceAutomatedBackups(ctx, &rds.DescribeDBInstanceAutomatedBackupsInput{
 		DBInstanceIdentifier: aws.String(instID),
 	})
 	require.NoError(t, err)
 	require.Len(t, ab.DBInstanceAutomatedBackups, 1)
-	assert.Equal(t, instID, aws.ToString(ab.DBInstanceAutomatedBackups[0].DBInstanceIdentifier))
-	abArn := aws.ToString(ab.DBInstanceAutomatedBackups[0].DBInstanceAutomatedBackupsArn)
+	live := ab.DBInstanceAutomatedBackups[0]
+	assert.Equal(t, instID, aws.ToString(live.DBInstanceIdentifier))
+	assert.Equal(t, "creating", aws.ToString(live.Status))
+	assert.Equal(t, int32(1), aws.ToInt32(live.BackupRetentionPeriod))
+	abArn := aws.ToString(live.DBInstanceAutomatedBackupsArn)
 	require.NotEmpty(t, abArn)
-
 	_, err = c.DeleteDBInstanceAutomatedBackup(ctx, &rds.DeleteDBInstanceAutomatedBackupInput{
 		DBInstanceAutomatedBackupsArn: aws.String(abArn),
 	})
-	require.NoError(t, err)
+	assertAWSAPIErrorCode(t, err, "InvalidDBInstanceAutomatedBackupState")
 
 	clusterID := "backup-cluster"
-	_, err = c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
+	created, err := c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
 		DBClusterIdentifier: aws.String(clusterID),
 		Engine:              aws.String("aurora-postgresql"),
 		MasterUsername:      aws.String("admin"),
 		MasterUserPassword:  aws.String("password123!"),
 	})
 	require.NoError(t, err)
+	clusterResourceID := created.DBCluster.DbClusterResourceId
 	t.Cleanup(func() {
 		_, _ = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
 			DBClusterIdentifier: aws.String(clusterID),
 			SkipFinalSnapshot:   aws.Bool(true),
 		})
+		_, _ = c.DeleteDBClusterAutomatedBackup(ctx, &rds.DeleteDBClusterAutomatedBackupInput{DbClusterResourceId: clusterResourceID})
 	})
 
 	cab, err := c.DescribeDBClusterAutomatedBackups(ctx, &rds.DescribeDBClusterAutomatedBackupsInput{
 		DBClusterIdentifier: aws.String(clusterID),
 	})
 	require.NoError(t, err)
-	require.Len(t, cab.DBClusterAutomatedBackups, 1)
-	cabArn := aws.ToString(cab.DBClusterAutomatedBackups[0].DBClusterAutomatedBackupsArn)
-	require.NotEmpty(t, cabArn)
-	_, err = c.DeleteDBClusterAutomatedBackup(ctx, &rds.DeleteDBClusterAutomatedBackupInput{
-		DbClusterResourceId: cab.DBClusterAutomatedBackups[0].DbClusterResourceId,
+	assert.Empty(t, cab.DBClusterAutomatedBackups, "only a deleted cluster's automated backup is listed, as retained")
+	_, err = c.DeleteDBClusterAutomatedBackup(ctx, &rds.DeleteDBClusterAutomatedBackupInput{DbClusterResourceId: clusterResourceID})
+	assertAWSAPIErrorCode(t, err, "InvalidDBClusterAutomatedBackupStateFault")
+
+	_, err = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
+		DBClusterIdentifier:    aws.String(clusterID),
+		SkipFinalSnapshot:      aws.Bool(true),
+		DeleteAutomatedBackups: aws.Bool(false),
 	})
 	require.NoError(t, err)
+	require.NoError(t, rds.NewDBClusterDeletedWaiter(c, func(o *rds.DBClusterDeletedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &rds.DescribeDBClustersInput{DBClusterIdentifier: aws.String(clusterID)}, 3*time.Minute))
+	cab, err = c.DescribeDBClusterAutomatedBackups(ctx, &rds.DescribeDBClusterAutomatedBackupsInput{
+		DbClusterResourceId: clusterResourceID,
+	})
+	require.NoError(t, err)
+	require.Len(t, cab.DBClusterAutomatedBackups, 1, "DeleteAutomatedBackups=false retains the cluster's automated backup")
+	retainedCluster := cab.DBClusterAutomatedBackups[0]
+	assert.Equal(t, "retained", aws.ToString(retainedCluster.Status))
+	assert.Equal(t, clusterID, aws.ToString(retainedCluster.DBClusterIdentifier))
+	assert.Equal(t, int32(1), aws.ToInt32(retainedCluster.BackupRetentionPeriod))
+	deletedCluster, err := c.DeleteDBClusterAutomatedBackup(ctx, &rds.DeleteDBClusterAutomatedBackupInput{
+		DbClusterResourceId: clusterResourceID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "deleting", aws.ToString(deletedCluster.DBClusterAutomatedBackup.Status))
+	cab, err = c.DescribeDBClusterAutomatedBackups(ctx, &rds.DescribeDBClusterAutomatedBackupsInput{
+		DbClusterResourceId: clusterResourceID,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, cab.DBClusterAutomatedBackups)
 
 	// The instance's engine has not started, so it has written no log file.
 	logs, err := c.DescribeDBLogFiles(ctx, &rds.DescribeDBLogFilesInput{DBInstanceIdentifier: aws.String(instID)})
@@ -346,6 +379,35 @@ func TestRDS_CertificatesAndBackups(t *testing.T) {
 	var logErr smithy.APIError
 	require.True(t, errors.As(err, &logErr), "got %v", err)
 	assert.Equal(t, "DBLogFileNotFoundFault", logErr.ErrorCode())
+
+	// DeleteAutomatedBackups=false retains the instance's automated backup,
+	// which DeleteDBInstanceAutomatedBackup then deletes.
+	_, err = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
+		DBInstanceIdentifier:   aws.String(instID),
+		SkipFinalSnapshot:      aws.Bool(true),
+		DeleteAutomatedBackups: aws.Bool(false),
+	})
+	require.NoError(t, err)
+	require.NoError(t, rds.NewDBInstanceDeletedWaiter(c, func(o *rds.DBInstanceDeletedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(instID)}, 3*time.Minute))
+	ab, err = c.DescribeDBInstanceAutomatedBackups(ctx, &rds.DescribeDBInstanceAutomatedBackupsInput{
+		DbiResourceId: live.DbiResourceId,
+	})
+	require.NoError(t, err)
+	require.Len(t, ab.DBInstanceAutomatedBackups, 1)
+	assert.Equal(t, "retained", aws.ToString(ab.DBInstanceAutomatedBackups[0].Status))
+	deleted, err := c.DeleteDBInstanceAutomatedBackup(ctx, &rds.DeleteDBInstanceAutomatedBackupInput{
+		DBInstanceAutomatedBackupsArn: aws.String(abArn),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "deleting", aws.ToString(deleted.DBInstanceAutomatedBackup.Status))
+	ab, err = c.DescribeDBInstanceAutomatedBackups(ctx, &rds.DescribeDBInstanceAutomatedBackupsInput{
+		DbiResourceId: live.DbiResourceId,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, ab.DBInstanceAutomatedBackups)
 }
 
 // TestRDS_CopyGroupsAndSourceIdentifiers exercises CopyDBParameterGroup,

@@ -85,6 +85,7 @@ func rdsFinishClusterRestore(clusterID string) {
 			stored.RestoreBinlogFile, stored.RestoreBinlogOffset = "", 0
 		}
 	})
+	rdsExpireRetainedBackups()
 }
 
 // rdsRecoverClusterSnapshots resumes the captures and copies a previous

@@ -10,10 +10,13 @@ import (
 	"bytes"
 	"compress/zlib"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
@@ -140,27 +143,40 @@ func (f Frontend) Accept(client, backend net.Conn) (net.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read engine auth result: %w", err)
 	}
+	scramble := engineHandshake.authData
 	if len(result) > 1 && result[0] == 0xfe {
 		plugin, offset, valid := nulTerminated(result, 1)
 		if !valid {
 			return nil, fmt.Errorf("engine sent a malformed auth switch")
 		}
 		seed := []byte(strings.TrimRight(string(result[offset:]), "\x00"))
+		scramble = seed
 		var response []byte
 		switch plugin {
 		case "mysql_native_password":
 			response = nativePassword(backendPassword, seed)
 		case "caching_sha2_password":
 			response = cachingSHA2Password(backendPassword, seed)
+		case "sha256_password":
+			// sha256_password over a link without TLS asks for the
+			// engine's public key with 0x01 in place of a response.
+			if result, err = rsaPasswordExchange(backend, backendSequence, 0x01, backendPassword, seed); err != nil {
+				return nil, err
+			}
 		default:
 			return nil, fmt.Errorf("engine requested unsupported auth plugin %s", plugin)
 		}
-		if err := writePacket(backend, backendSequence+1, response); err != nil {
-			return nil, err
+		if response != nil {
+			if err := writePacket(backend, backendSequence+1, response); err != nil {
+				return nil, err
+			}
+			if backendSequence, result, err = readPacket(backend); err != nil {
+				return nil, fmt.Errorf("read engine auth switch result: %w", err)
+			}
 		}
-		if _, result, err = readPacket(backend); err != nil {
-			return nil, fmt.Errorf("read engine auth switch result: %w", err)
-		}
+	}
+	if result, err = completeCachingSHA2(backend, backendSequence, result, backendPassword, scramble); err != nil {
+		return nil, err
 	}
 	if len(result) == 0 || result[0] != 0x00 {
 		_ = writePacket(client, sequence+1, result)
@@ -466,6 +482,73 @@ func cachingSHA2Password(password string, seed []byte) []byte {
 		response[i] = first[i] ^ third[i]
 	}
 	return response
+}
+
+// completeCachingSHA2 finishes a caching_sha2_password exchange the engine
+// continued with an AuthMoreData packet: fast-auth success is followed by the
+// result, and a password the engine has not cached yet needs full
+// authentication. The link to the engine is not TLS, so the password travels
+// RSA-OAEP encrypted under the public key the engine sends on request.
+func completeCachingSHA2(backend net.Conn, sequence byte, result []byte, password string, scramble []byte) ([]byte, error) {
+	if len(result) != 2 || result[0] != 0x01 {
+		return result, nil
+	}
+	switch result[1] {
+	case 0x03:
+		_, result, err := readPacket(backend)
+		if err != nil {
+			return nil, fmt.Errorf("read engine fast-auth result: %w", err)
+		}
+		return result, nil
+	case 0x04:
+	default:
+		return result, nil
+	}
+	return rsaPasswordExchange(backend, sequence, 0x02, password, scramble)
+}
+
+// rsaPasswordExchange asks the engine for its RSA public key with request,
+// sends the password XORed with the scramble under RSA-OAEP, and returns the
+// engine's answer.
+func rsaPasswordExchange(backend net.Conn, sequence, request byte, password string, scramble []byte) ([]byte, error) {
+	if err := writePacket(backend, sequence+1, []byte{request}); err != nil {
+		return nil, fmt.Errorf("request engine public key: %w", err)
+	}
+	sequence, keyPacket, err := readPacket(backend)
+	if err != nil {
+		return nil, fmt.Errorf("read engine public key: %w", err)
+	}
+	if len(keyPacket) < 2 || keyPacket[0] != 0x01 {
+		return keyPacket, nil
+	}
+	block, _ := pem.Decode(keyPacket[1:])
+	if block == nil {
+		return nil, fmt.Errorf("engine sent no PEM public key")
+	}
+	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse engine public key: %w", err)
+	}
+	publicKey, ok := parsed.(*rsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("engine public key is %T, not RSA", parsed)
+	}
+	plain := append([]byte(password), 0)
+	for i := range plain {
+		plain[i] ^= scramble[i%len(scramble)]
+	}
+	encrypted, err := rsa.EncryptOAEP(sha1.New(), rand.Reader, publicKey, plain, nil)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt password for the engine: %w", err)
+	}
+	if err := writePacket(backend, sequence+1, encrypted); err != nil {
+		return nil, fmt.Errorf("write engine full authentication: %w", err)
+	}
+	_, result, err := readPacket(backend)
+	if err != nil {
+		return nil, fmt.Errorf("read engine full authentication result: %w", err)
+	}
+	return result, nil
 }
 
 func nulTerminated(payload []byte, offset int) (string, int, bool) {
