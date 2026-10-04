@@ -1,11 +1,17 @@
 package aws_sdk_test
 
 import (
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
@@ -432,17 +438,21 @@ func TestS3Control_BatchJob(t *testing.T) {
 	require.NoError(t, err)
 
 	created, err := sc.CreateJob(ctx, &s3control.CreateJobInput{
-		AccountId:          aws.String(s3ObjectLambdaAccount),
-		ClientRequestToken: aws.String("batch-token-1"),
-		Priority:           aws.Int32(10),
-		RoleArn:            aws.String(roleArn),
-		Description:        aws.String("tag every object in the manifest"),
+		AccountId:            aws.String(s3ObjectLambdaAccount),
+		ClientRequestToken:   aws.String("batch-token-1"),
+		Priority:             aws.Int32(10),
+		RoleArn:              aws.String(roleArn),
+		Description:          aws.String("tag every object in the manifest"),
+		ConfirmationRequired: aws.Bool(true),
 		Operation: &s3ctypes.JobOperation{
 			S3PutObjectTagging: &s3ctypes.S3SetObjectTaggingOperation{
 				TagSet: []s3ctypes.S3Tag{{Key: aws.String("reviewed"), Value: aws.String("yes")}},
 			},
 		},
-		Report: &s3ctypes.JobReport{Enabled: false},
+		Report: &s3ctypes.JobReport{
+			Enabled: true, Bucket: aws.String("arn:aws:s3:::" + bucket), Prefix: aws.String("reports"),
+			Format: s3ctypes.JobReportFormatReportCsv20180820, ReportScope: s3ctypes.JobReportScopeAllTasks,
+		},
 		Manifest: &s3ctypes.JobManifest{
 			Spec: &s3ctypes.JobManifestSpec{
 				Format: s3ctypes.JobManifestFormatS3BatchOperationsCsv20180820,
@@ -460,15 +470,49 @@ func TestS3Control_BatchJob(t *testing.T) {
 	jobID := aws.ToString(created.JobId)
 	require.NotEmpty(t, jobID)
 
-	described, err := sc.DescribeJob(ctx, &s3control.DescribeJobInput{
-		AccountId: aws.String(s3ObjectLambdaAccount), JobId: aws.String(jobID)})
+	// A job created awaiting confirmation is prepared — its manifest read —
+	// and then waits, running nothing, until the caller confirms it.
+	suspended := awaitS3BatchJob(t, sc, jobID, func(job *s3ctypes.JobDescriptor) bool {
+		return job.Status == s3ctypes.JobStatusSuspended
+	})
+	require.NotNil(t, suspended.ProgressSummary)
+	assert.Equal(t, int64(2), aws.ToInt64(suspended.ProgressSummary.TotalNumberOfTasks))
+	assert.Equal(t, int64(0), aws.ToInt64(suspended.ProgressSummary.NumberOfTasksSucceeded))
+	assert.NotNil(t, suspended.SuspendedDate)
+	assert.True(t, aws.ToBool(suspended.ConfirmationRequired))
+	untagged, err := s3c.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+		Bucket: aws.String(bucket), Key: aws.String("one.txt")})
 	require.NoError(t, err)
-	require.NotNil(t, described.Job)
-	assert.Equal(t, s3ctypes.JobStatusComplete, described.Job.Status)
-	require.NotNil(t, described.Job.ProgressSummary)
-	assert.Equal(t, int64(2), aws.ToInt64(described.Job.ProgressSummary.TotalNumberOfTasks))
-	assert.Equal(t, int64(2), aws.ToInt64(described.Job.ProgressSummary.NumberOfTasksSucceeded))
-	assert.Equal(t, int64(0), aws.ToInt64(described.Job.ProgressSummary.NumberOfTasksFailed))
+	assert.Empty(t, untagged.TagSet, "a suspended job has run no task")
+
+	confirmed, err := sc.UpdateJobStatus(ctx, &s3control.UpdateJobStatusInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), JobId: aws.String(jobID),
+		RequestedJobStatus: s3ctypes.RequestedJobStatusReady, StatusUpdateReason: aws.String("reviewed")})
+	require.NoError(t, err)
+	assert.Equal(t, s3ctypes.JobStatusReady, confirmed.Status)
+
+	settled := awaitS3BatchJob(t, sc, jobID, s3BatchJobSettled)
+	assert.Equal(t, s3ctypes.JobStatusComplete, settled.Status, "failure reasons: %v", settled.FailureReasons)
+	require.NotNil(t, settled.ProgressSummary)
+	assert.Equal(t, int64(2), aws.ToInt64(settled.ProgressSummary.TotalNumberOfTasks))
+	assert.Equal(t, int64(2), aws.ToInt64(settled.ProgressSummary.NumberOfTasksSucceeded))
+	assert.Equal(t, int64(0), aws.ToInt64(settled.ProgressSummary.NumberOfTasksFailed))
+	assert.NotNil(t, settled.TerminationDate)
+
+	// The completion report lists every task the job ran.
+	report := s3BatchCompletionReport(t, s3c, bucket, "reports/job-"+jobID)
+	require.Len(t, report, 1)
+	assert.Equal(t, "succeeded", report[0].status)
+	assert.ElementsMatch(t, []string{
+		bucket + ",one.txt,,succeeded,200,,Successful",
+		bucket + ",two.txt,,succeeded,200,,Successful",
+	}, report[0].rows)
+
+	_, err = sc.UpdateJobStatus(ctx, &s3control.UpdateJobStatusInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), JobId: aws.String(jobID),
+		RequestedJobStatus: s3ctypes.RequestedJobStatusCancelled})
+	require.Error(t, err, "a complete job cannot be cancelled")
+	assert.Contains(t, err.Error(), "JobStatusException")
 
 	// The job actually tagged the objects, which is what makes the progress
 	// report mean something.
@@ -662,19 +706,22 @@ func TestS3Control_ResourceTagging(t *testing.T) {
 	assert.Contains(t, err.Error(), "NotFoundException")
 }
 
-// TestS3Control_BatchJobLambdaInvoke runs a LambdaInvoke job: Batch Operations
-// invokes the function once per manifest entry, and every invocation the
-// function answers without an error counts as a succeeded task.
-func TestS3Control_BatchJobLambdaInvoke(t *testing.T) {
+// s3BatchLambdaJob creates a function from the Lambda handler image, a bucket
+// holding one object per key and a manifest listing them, and runs a
+// LambdaInvoke job over them with a completion report under "reports". It
+// returns the job's ID, the bucket and the function's name.
+func s3BatchLambdaJob(t *testing.T, name string, keys []string, invoke *s3ctypes.LambdaInvokeOperation) (string, string, string) {
+	t.Helper()
 	sc := s3ControlClient()
 	s3c := s3Client()
 	lc := lambdaClient()
-	bucket := "batch-lambda-job-bucket"
-	roleArn := s3ControlRole(t, "s3-batch-lambda-role")
+	bucket := uniqueName(name)
+	functionName := uniqueName(name + "-fn")
+	roleArn := s3ControlRole(t, uniqueName(name+"-role"))
 
 	function, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName:  aws.String("s3-batch-lambda-task"),
-		Role:          aws.String("arn:aws:iam::123456789012:role/s3-batch-lambda-task"),
+		FunctionName:  aws.String(functionName),
+		Role:          aws.String("arn:aws:iam::123456789012:role/" + functionName),
 		PackageType:   lambdatypes.PackageTypeImage,
 		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
 		Architectures: nativeLambdaArchitectures(),
@@ -683,27 +730,151 @@ func TestS3Control_BatchJobLambdaInvoke(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = lc.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: function.FunctionName})
 	})
+	invoke.FunctionArn = function.FunctionArn
 
 	_, err = s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
-	for _, key := range []string{"one.txt", "two.txt"} {
+	var manifestBody strings.Builder
+	for _, key := range keys {
 		_, err = s3c.PutObject(ctx, &s3.PutObjectInput{
 			Bucket: aws.String(bucket), Key: aws.String(key), Body: strings.NewReader(key)})
 		require.NoError(t, err)
+		fmt.Fprintf(&manifestBody, "%s,%s\n", bucket, key)
 	}
-	manifestKey := "manifest.csv"
 	manifest, err := s3c.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(bucket), Key: aws.String(manifestKey),
-		Body: strings.NewReader(fmt.Sprintf("%s,one.txt\n%s,two.txt\n", bucket, bucket))})
+		Bucket: aws.String(bucket), Key: aws.String("manifest.csv"),
+		Body: strings.NewReader(manifestBody.String())})
 	require.NoError(t, err)
 
 	created, err := sc.CreateJob(ctx, &s3control.CreateJobInput{
 		AccountId:          aws.String(s3ObjectLambdaAccount),
-		ClientRequestToken: aws.String("batch-lambda-token"),
+		ClientRequestToken: aws.String(uniqueName(name + "-token")),
 		Priority:           aws.Int32(10),
 		RoleArn:            aws.String(roleArn),
+		Operation:          &s3ctypes.JobOperation{LambdaInvoke: invoke},
+		Report: &s3ctypes.JobReport{
+			Enabled: true, Bucket: aws.String("arn:aws:s3:::" + bucket), Prefix: aws.String("reports"),
+			Format: s3ctypes.JobReportFormatReportCsv20180820, ReportScope: s3ctypes.JobReportScopeAllTasks,
+		},
+		Manifest: &s3ctypes.JobManifest{
+			Spec: &s3ctypes.JobManifestSpec{
+				Format: s3ctypes.JobManifestFormatS3BatchOperationsCsv20180820,
+				Fields: []s3ctypes.JobManifestFieldName{
+					s3ctypes.JobManifestFieldNameBucket, s3ctypes.JobManifestFieldNameKey,
+				},
+			},
+			Location: &s3ctypes.JobManifestLocation{
+				ObjectArn: aws.String(fmt.Sprintf("arn:aws:s3:::%s/manifest.csv", bucket)),
+				ETag:      manifest.ETag,
+			},
+		},
+	})
+	require.NoError(t, err)
+	return aws.ToString(created.JobId), bucket, functionName
+}
+
+// TestS3Control_BatchJobLambdaInvoke runs a LambdaInvoke job in invocation
+// schema 1.0: Batch Operations invokes the function once per manifest entry
+// with the bucket's ARN, and each task's outcome and message are the
+// resultCode and resultString the function returns for it.
+func TestS3Control_BatchJobLambdaInvoke(t *testing.T) {
+	sc := s3ControlClient()
+	jobID, bucket, _ := s3BatchLambdaJob(t, "batch-lambda-v1", []string{"one.txt", "two.txt"},
+		&s3ctypes.LambdaInvokeOperation{})
+
+	job := awaitS3BatchJob(t, sc, jobID, s3BatchJobSettled)
+	assert.Equal(t, s3ctypes.JobStatusComplete, job.Status, "failure reasons: %v", job.FailureReasons)
+	require.NotNil(t, job.ProgressSummary)
+	assert.Equal(t, int64(2), aws.ToInt64(job.ProgressSummary.NumberOfTasksSucceeded))
+	assert.Equal(t, int64(0), aws.ToInt64(job.ProgressSummary.NumberOfTasksFailed))
+
+	report := s3BatchCompletionReport(t, s3Client(), bucket, "reports/job-"+jobID)
+	require.Len(t, report, 1)
+	assert.Equal(t, "succeeded", report[0].status)
+	assert.ElementsMatch(t, []string{
+		bucket + ",one.txt,,succeeded,200,,processed " + bucket + "/one.txt",
+		bucket + ",two.txt,,succeeded,200,,processed " + bucket + "/two.txt",
+	}, report[0].rows)
+}
+
+// TestS3Control_BatchJobLambdaResultCodes runs a LambdaInvoke job in
+// invocation schema 2.0 with user arguments. The function succeeds one task,
+// fails one permanently and answers TemporaryFailure for the third every time:
+// Batch Operations redrives that task before the job completes, then counts
+// it failed, and the progress summary and completion report carry each
+// task's resultCode and resultString.
+func TestS3Control_BatchJobLambdaResultCodes(t *testing.T) {
+	sc := s3ControlClient()
+	jobID, bucket, functionName := s3BatchLambdaJob(t, "batch-lambda-v2",
+		[]string{"ok.txt", "permanent.txt", "temporary.txt"},
+		&s3ctypes.LambdaInvokeOperation{
+			InvocationSchemaVersion: aws.String("2.0"),
+			UserArguments:           map[string]string{"label": "nightly"},
+		})
+
+	job := awaitS3BatchJob(t, sc, jobID, s3BatchJobSettled)
+	assert.Equal(t, s3ctypes.JobStatusComplete, job.Status, "failure reasons: %v", job.FailureReasons)
+	require.NotNil(t, job.ProgressSummary)
+	assert.Equal(t, int64(3), aws.ToInt64(job.ProgressSummary.TotalNumberOfTasks))
+	assert.Equal(t, int64(1), aws.ToInt64(job.ProgressSummary.NumberOfTasksSucceeded))
+	assert.Equal(t, int64(2), aws.ToInt64(job.ProgressSummary.NumberOfTasksFailed))
+
+	rows := map[string][]string{}
+	for _, results := range s3BatchCompletionReport(t, s3Client(), bucket, "reports/job-"+jobID) {
+		rows[results.status] = results.rows
+	}
+	assert.Equal(t, []string{bucket + ",ok.txt,,succeeded,200,,processed " + bucket + "/ok.txt for nightly"},
+		rows["succeeded"])
+	assert.ElementsMatch(t, []string{
+		bucket + ",permanent.txt,,failed,400,PermanentFailure,refused " + bucket + "/permanent.txt",
+		bucket + ",temporary.txt,,failed,500,TemporaryFailure,retry " + bucket + "/temporary.txt",
+	}, rows["failed"])
+
+	// The function logs every event it receives: the task answered with
+	// TemporaryFailure reached it more than once.
+	logs := cwLogsClient()
+	invocations := 0
+	paginator := cloudwatchlogs.NewFilterLogEventsPaginator(logs, &cloudwatchlogs.FilterLogEventsInput{
+		LogGroupName: aws.String("/aws/lambda/" + functionName)})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		require.NoError(t, err)
+		for _, event := range page.Events {
+			message := aws.ToString(event.Message)
+			if strings.HasPrefix(message, "invocation ") && strings.Contains(message, `"s3Key":"temporary.txt"`) {
+				invocations++
+			}
+		}
+	}
+	assert.Greater(t, invocations, 1, "a TemporaryFailure task is redriven")
+}
+
+// TestS3Control_BatchJobCancelledBeforeConfirmation cancels a job awaiting
+// confirmation: it ends Cancelled without running a task, and a job in a
+// final status refuses any further move.
+func TestS3Control_BatchJobCancelledBeforeConfirmation(t *testing.T) {
+	sc := s3ControlClient()
+	s3c := s3Client()
+	bucket := uniqueName("batch-cancel")
+	roleArn := s3ControlRole(t, uniqueName("batch-cancel-role"))
+	_, err := s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	_, err = s3c.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String("one.txt"), Body: strings.NewReader("one")})
+	require.NoError(t, err)
+	manifest, err := s3c.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String("manifest.csv"), Body: strings.NewReader(bucket + ",one.txt\n")})
+	require.NoError(t, err)
+	created, err := sc.CreateJob(ctx, &s3control.CreateJobInput{
+		AccountId:            aws.String(s3ObjectLambdaAccount),
+		ClientRequestToken:   aws.String(uniqueName("batch-cancel-token")),
+		Priority:             aws.Int32(1),
+		RoleArn:              aws.String(roleArn),
+		ConfirmationRequired: aws.Bool(true),
 		Operation: &s3ctypes.JobOperation{
-			LambdaInvoke: &s3ctypes.LambdaInvokeOperation{FunctionArn: function.FunctionArn},
+			S3PutObjectTagging: &s3ctypes.S3SetObjectTaggingOperation{
+				TagSet: []s3ctypes.S3Tag{{Key: aws.String("reviewed"), Value: aws.String("yes")}},
+			},
 		},
 		Report: &s3ctypes.JobReport{Enabled: false},
 		Manifest: &s3ctypes.JobManifest{
@@ -714,19 +885,110 @@ func TestS3Control_BatchJobLambdaInvoke(t *testing.T) {
 				},
 			},
 			Location: &s3ctypes.JobManifestLocation{
-				ObjectArn: aws.String(fmt.Sprintf("arn:aws:s3:::%s/%s", bucket, manifestKey)),
+				ObjectArn: aws.String(fmt.Sprintf("arn:aws:s3:::%s/manifest.csv", bucket)),
 				ETag:      manifest.ETag,
 			},
 		},
 	})
 	require.NoError(t, err)
+	jobID := aws.ToString(created.JobId)
+
+	awaitS3BatchJob(t, sc, jobID, func(job *s3ctypes.JobDescriptor) bool {
+		return job.Status == s3ctypes.JobStatusSuspended
+	})
+	cancelled, err := sc.UpdateJobStatus(ctx, &s3control.UpdateJobStatusInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), JobId: aws.String(jobID),
+		RequestedJobStatus: s3ctypes.RequestedJobStatusCancelled, StatusUpdateReason: aws.String("not needed")})
+	require.NoError(t, err)
+	assert.Equal(t, s3ctypes.JobStatusCancelled, cancelled.Status)
+	assert.Equal(t, "not needed", aws.ToString(cancelled.StatusUpdateReason))
 
 	described, err := sc.DescribeJob(ctx, &s3control.DescribeJobInput{
-		AccountId: aws.String(s3ObjectLambdaAccount), JobId: created.JobId})
+		AccountId: aws.String(s3ObjectLambdaAccount), JobId: aws.String(jobID)})
 	require.NoError(t, err)
-	require.NotNil(t, described.Job)
-	assert.Equal(t, s3ctypes.JobStatusComplete, described.Job.Status, "failure reasons: %v", described.Job.FailureReasons)
-	require.NotNil(t, described.Job.ProgressSummary)
-	assert.Equal(t, int64(2), aws.ToInt64(described.Job.ProgressSummary.NumberOfTasksSucceeded))
-	assert.Equal(t, int64(0), aws.ToInt64(described.Job.ProgressSummary.NumberOfTasksFailed))
+	assert.Equal(t, s3ctypes.JobStatusCancelled, described.Job.Status)
+	assert.Equal(t, int64(0), aws.ToInt64(described.Job.ProgressSummary.NumberOfTasksSucceeded))
+	tags, err := s3c.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{Bucket: aws.String(bucket), Key: aws.String("one.txt")})
+	require.NoError(t, err)
+	assert.Empty(t, tags.TagSet, "a job cancelled before confirmation ran no task")
+
+	_, err = sc.UpdateJobStatus(ctx, &s3control.UpdateJobStatusInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), JobId: aws.String(jobID),
+		RequestedJobStatus: s3ctypes.RequestedJobStatusReady})
+	require.Error(t, err, "a cancelled job cannot be confirmed")
+	assert.Contains(t, err.Error(), "JobStatusException")
+}
+
+// awaitS3BatchJob polls DescribeJob, the only view Amazon S3 Batch Operations
+// gives of a job's progress, until done accepts the job.
+func awaitS3BatchJob(t *testing.T, sc *s3control.Client, jobID string, done func(*s3ctypes.JobDescriptor) bool) *s3ctypes.JobDescriptor {
+	t.Helper()
+	var job *s3ctypes.JobDescriptor
+	var seen string
+	require.Eventually(t, func() bool {
+		out, err := sc.DescribeJob(ctx, &s3control.DescribeJobInput{
+			AccountId: aws.String(s3ObjectLambdaAccount), JobId: aws.String(jobID)})
+		require.NoError(t, err)
+		require.NotNil(t, out.Job)
+		job = out.Job
+		seen = fmt.Sprintf("status=%s failures=%v", job.Status, job.FailureReasons)
+		return done(job)
+	}, 90*time.Second, 100*time.Millisecond, "job %s never reached the awaited state; last seen %s", jobID, &seen)
+	return job
+}
+
+func s3BatchJobSettled(job *s3ctypes.JobDescriptor) bool {
+	switch job.Status {
+	case s3ctypes.JobStatusComplete, s3ctypes.JobStatusFailed, s3ctypes.JobStatusCancelled:
+		return true
+	}
+	return false
+}
+
+// s3BatchReportResults is one results file of a completion report.
+type s3BatchReportResults struct {
+	status string
+	rows   []string
+}
+
+// s3BatchCompletionReport reads the completion report under base: its
+// manifest.json, and each results file it lists, whose MD5 checksum must
+// match.
+func s3BatchCompletionReport(t *testing.T, s3c *s3.Client, bucket, base string) []s3BatchReportResults {
+	t.Helper()
+	read := func(key string) []byte {
+		t.Helper()
+		out, err := s3c.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+		require.NoError(t, err, key)
+		defer out.Body.Close()
+		body, err := io.ReadAll(out.Body)
+		require.NoError(t, err, key)
+		return body
+	}
+	var manifest struct {
+		Format       string `json:"Format"`
+		ReportSchema string `json:"ReportSchema"`
+		Results      []struct {
+			TaskExecutionStatus string `json:"TaskExecutionStatus"`
+			Bucket              string `json:"Bucket"`
+			MD5Checksum         string `json:"MD5Checksum"`
+			Key                 string `json:"Key"`
+		} `json:"Results"`
+	}
+	require.NoError(t, json.Unmarshal(read(base+"/manifest.json"), &manifest))
+	assert.Equal(t, "Report_CSV_20180820", manifest.Format)
+	assert.Equal(t, "Bucket, Key, VersionId, TaskStatus, ErrorCode, HTTPStatusCode, ResultMessage", manifest.ReportSchema)
+	var out []s3BatchReportResults
+	for _, entry := range manifest.Results {
+		assert.Equal(t, bucket, entry.Bucket)
+		assert.True(t, strings.HasPrefix(entry.Key, base+"/results/"), entry.Key)
+		body := read(entry.Key)
+		sum := md5.Sum(body)
+		assert.Equal(t, hex.EncodeToString(sum[:]), entry.MD5Checksum, entry.Key)
+		out = append(out, s3BatchReportResults{
+			status: entry.TaskExecutionStatus,
+			rows:   strings.Split(strings.TrimSuffix(string(body), "\n"), "\n"),
+		})
+	}
+	return out
 }

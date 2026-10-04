@@ -401,6 +401,23 @@ through hooks:
   and a StartSyncExecution on a Lambda task in flight across SIGTERM and still
   stops within 5 s, and `TestS3Control_BatchJobLambdaInvoke` runs a
   LambdaInvoke job to `Complete`.
+- **An Amazon S3 Batch Operations job runs after CreateJob answers.** CreateJob
+  stores the job `New` and hands it to the server's background workers, which
+  move it through `Preparing` (reading the manifest into one task per row),
+  `Suspended` when the job requires confirmation or `Ready`, `Active`, and
+  `Completing`, `Failing` or `Cancelling` into its final status, writing the
+  completion report on the way. UpdateJobStatus confirms only a `Suspended`
+  job and cancels a running one between tasks. Each task's outcome is
+  recorded as it lands, so a stopping simulator leaves the job where it was
+  and `s3RecoverBatchJobs` resumes it after the last recorded task. A
+  LambdaInvoke task sends the event of the invocation schema the operation
+  names, 1.0 or 2.0 with its user arguments, and takes its outcome from the
+  `results[]` entry for its task — `Succeeded`, `PermanentFailure`, or
+  `TemporaryFailure`, which redrives the task after every other has run — with
+  `treatMissingKeysAs` for a missing entry. The completion report is the
+  service's: `manifest.json` and one results CSV per task status under
+  `<prefix>/job-<id>/`. Tests wait on DescribeJob's status, never on
+  CreateJob's answer.
 - **An image pull says why it pulled.** `pullImage` writes a `[sim-pull]` line
   when the held-image check fails, with the inspect error or the held and
   wanted platforms, and one per throttled retry with the attempt, the error

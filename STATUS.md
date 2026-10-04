@@ -222,7 +222,11 @@ Current state of the sockerless-cloud repository.
 - **Transitional states are served.** Amazon Kinesis Data Streams consumers
   pass through CREATING and DELETING, Client VPN endpoint authorization
   policies through creating, updating and deleting, and Amazon ECR refuses to
-  delete a repository holding images without `force`.
+  delete a repository holding images without `force`. An Amazon S3 Batch
+  Operations job runs as server background work from `New` through
+  `Preparing`, `Suspended` or `Ready`, and `Active` to `Complete`, `Failed` or
+  `Cancelled`, takes each LambdaInvoke task's outcome from the function's
+  `results[]`, writes its completion report, and resumes after a restart.
 - **A NAT gateway route translates the subnets its route table governs**,
   explicitly associated or implicitly through the main route table, recomputed
   on every association change.

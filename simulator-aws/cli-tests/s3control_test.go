@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -281,6 +282,7 @@ func TestS3ControlCLI_BatchJob(t *testing.T) {
 		"--role-arn", "arn:aws:iam::"+s3ControlCLIAccount+":role/"+roleName,
 		"--operation", `{"S3PutObjectTagging":{"TagSet":[{"Key":"reviewed","Value":"yes"}]}}`,
 		"--report", `{"Enabled":false}`,
+		"--confirmation-required",
 		"--manifest", fmt.Sprintf(
 			`{"Spec":{"Format":"S3BatchOperations_CSV_20180820","Fields":["Bucket","Key"]},`+
 				`"Location":{"ObjectArn":"arn:aws:s3:::%s/manifest.csv","ETag":%q}}`,
@@ -291,17 +293,17 @@ func TestS3ControlCLI_BatchJob(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(created), &createdJob))
 	require.NotEmpty(t, createdJob.JobId)
 
-	described := s3ControlCLI(t, "describe-job", "--job-id", createdJob.JobId)
-	assert.Contains(t, described, "Complete")
-	var job struct {
-		Job struct {
-			ProgressSummary struct {
-				NumberOfTasksSucceeded int `json:"NumberOfTasksSucceeded"`
-			} `json:"ProgressSummary"`
-		} `json:"Job"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(described), &job))
-	assert.Equal(t, 2, job.Job.ProgressSummary.NumberOfTasksSucceeded)
+	// The job is prepared and then waits for confirmation, running nothing.
+	suspended := awaitCLIS3BatchJob(t, createdJob.JobId, "Suspended")
+	assert.Equal(t, 2, suspended.ProgressSummary.TotalNumberOfTasks)
+	assert.Equal(t, 0, suspended.ProgressSummary.NumberOfTasksSucceeded)
+
+	confirmed := s3ControlCLI(t, "update-job-status", "--job-id", createdJob.JobId,
+		"--requested-job-status", "Ready", "--status-update-reason", "reviewed")
+	assert.Contains(t, confirmed, `"Status": "Ready"`)
+
+	job := awaitCLIS3BatchJob(t, createdJob.JobId, "Complete")
+	assert.Equal(t, 2, job.ProgressSummary.NumberOfTasksSucceeded)
 
 	// The job really tagged the objects, which is what the progress report is
 	// a report of.
@@ -317,6 +319,29 @@ func TestS3ControlCLI_BatchJob(t *testing.T) {
 	s3ControlCLI(t, "update-job-priority", "--job-id", createdJob.JobId, "--priority", "42")
 	jobs := s3ControlCLI(t, "list-jobs", "--job-statuses", "Complete")
 	assert.Contains(t, jobs, createdJob.JobId)
+}
+
+// cliS3BatchJob is the part of describe-job's answer the tests read.
+type cliS3BatchJob struct {
+	Status          string `json:"Status"`
+	ProgressSummary struct {
+		TotalNumberOfTasks     int `json:"TotalNumberOfTasks"`
+		NumberOfTasksSucceeded int `json:"NumberOfTasksSucceeded"`
+	} `json:"ProgressSummary"`
+}
+
+// awaitCLIS3BatchJob polls describe-job, the only view Amazon S3 Batch
+// Operations gives of a job's progress, until the job reports want.
+func awaitCLIS3BatchJob(t *testing.T, jobID, want string) cliS3BatchJob {
+	t.Helper()
+	var described struct {
+		Job cliS3BatchJob `json:"Job"`
+	}
+	require.Eventually(t, func() bool {
+		require.NoError(t, json.Unmarshal([]byte(s3ControlCLI(t, "describe-job", "--job-id", jobID)), &described))
+		return described.Job.Status == want
+	}, 90*time.Second, 200*time.Millisecond, "job %s never reached %s; last seen %+v", jobID, want, &described.Job)
+	return described.Job
 }
 
 // TestS3ControlCLI_ListRegionalBuckets lists the account's regional buckets.
