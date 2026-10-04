@@ -382,26 +382,19 @@ func iamSNSResourceTags(r *http.Request) (map[string]string, bool) {
 	return t.Tags, true
 }
 
-// iamELBv2ResourceTags resolves the load balancer / target group the request
-// targets — the tag ops carry the ResourceArns.N list; resource-scoped ops carry
-// the single LoadBalancerArn / TargetGroupArn (ARN-keyed stores).
+// iamELBv2ResourceTags resolves the resource the request targets — the tag ops
+// carry the ResourceArns.N list; resource-scoped ops carry the single
+// LoadBalancerArn, TargetGroupArn, ListenerArn, RuleArn or TrustStoreArn.
 func iamELBv2ResourceTags(r *http.Request) (map[string]string, bool) {
 	arns := queryList(r, "ResourceArns")
-	if arn := r.FormValue("LoadBalancerArn"); arn != "" {
-		arns = append(arns, arn)
-	}
-	if arn := r.FormValue("TargetGroupArn"); arn != "" {
-		arns = append(arns, arn)
+	for _, field := range []string{"LoadBalancerArn", "TargetGroupArn", "ListenerArn", "RuleArn", "TrustStoreArn"} {
+		if arn := r.FormValue(field); arn != "" {
+			arns = append(arns, arn)
+		}
 	}
 	for _, arn := range arns {
-		if arn == "" {
-			continue
-		}
-		if lb, ok := elbv2LoadBalancers.Get(arn); ok {
-			return lb.Tags, true
-		}
-		if tg, ok := elbv2TargetGroups.Get(arn); ok {
-			return tg.Tags, true
+		if tags, ok := elbv2ResourceTags(arn); ok {
+			return tags, true
 		}
 	}
 	return nil, false

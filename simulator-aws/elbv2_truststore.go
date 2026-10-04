@@ -92,7 +92,7 @@ func handleELBv2CreateTrustStore(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id := sim.NewUUID()[:12]
+	id := sim.RandomHex(16)
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:truststore/%s/%s", awsRegion(), awsAccountID(), name, id)
 	ts := ELBv2TrustStore{
 		Arn:                                 arn,

@@ -200,6 +200,21 @@ func TestELBv2LoadBalancerCLI(t *testing.T) {
 	if strings.TrimSpace(out) != "cli" {
 		t.Fatalf("expected scenario tag from describe-tags, got %q", out)
 	}
+	runCLI(t, awsCLI("elbv2", "add-tags",
+		"--resource-arns", listenerArn,
+		"--tags", "Key=scenario,Value=cli-listener"))
+	out = runCLI(t, awsCLI("elbv2", "describe-tags",
+		"--resource-arns", listenerArn,
+		"--query", "TagDescriptions[0].Tags[?Key=='scenario'].Value|[0]",
+		"--output", "text"))
+	if strings.TrimSpace(out) != "cli-listener" {
+		t.Fatalf("expected the listener's scenario tag from describe-tags, got %q", out)
+	}
+	missing := runCLIExpectError(t, awsCLI("elbv2", "describe-tags",
+		"--resource-arns", listenerArn[:strings.LastIndex(listenerArn, "/")+1]+"0000000000000000"))
+	if !strings.Contains(missing, "ListenerNotFound") {
+		t.Fatalf("expected ListenerNotFound for a listener that does not exist, got %q", missing)
+	}
 
 	// Deregistering does not remove a target at once: "The load balancer stops
 	// routing requests to a target as soon as it is deregistered. The target

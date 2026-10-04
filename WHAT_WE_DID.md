@@ -654,6 +654,16 @@ through hooks:
   and answers its `504 Gateway Time-out` page when a target stays silent past
   it. Container Apps ingress bounds a request at the service's documented 240
   seconds and answers Envoy's `504 upstream request timeout`.
+- **Every Elastic Load Balancing resource keeps its tags.** CreateListener
+  and CreateRule store the tags they carry, and AddTags, RemoveTags,
+  DescribeTags and the IAM gate's `aws:ResourceTag/<k>` read and write the tag
+  set of a listener, rule or trust store as they do a load balancer's or a
+  target group's; the simulator had dropped listener and rule tags and served
+  no trust store's. A tagging request naming a resource that does not exist
+  answers that type's not-found error (`ListenerNotFound`, `RuleNotFound`, …)
+  and changes nothing. Load balancers, target groups, listeners, rules and
+  trust stores are identified by 16 lowercase hexadecimal characters, as
+  their ARNs are in AWS.
 - **A page token proves where it came from.** Every listing tags the tokens it
   issues and refuses one it never issued with the service's invalid-argument
   error, instead of listing an empty page.

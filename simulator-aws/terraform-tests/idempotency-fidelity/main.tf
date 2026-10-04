@@ -241,6 +241,11 @@ resource "aws_lb_listener" "https" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.this.arn
   }
+
+  # DescribeTags must read back the tags CreateListener carried.
+  tags = {
+    scenario = "idempotency"
+  }
 }
 
 # Second target group for the weighted forward rule below.
@@ -314,6 +319,10 @@ resource "aws_lb_listener_certificate" "sni" {
 resource "aws_lb_listener_rule" "oidc" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 100
+
+  tags = {
+    scenario = "idempotency"
+  }
 
   action {
     type = "authenticate-oidc"

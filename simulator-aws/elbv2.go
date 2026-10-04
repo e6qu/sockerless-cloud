@@ -75,6 +75,7 @@ type ELBv2Listener struct {
 	AlpnPolicy      []string
 	MutualAuth      *ELBv2MutualAuth
 	Attributes      map[string]string
+	Tags            map[string]string
 }
 
 type ELBv2MutualAuth struct {
@@ -270,7 +271,7 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id := sim.NewUUID()[:12]
+	id := sim.RandomHex(16)
 	resourceKind := "app"
 	if lbType == "network" {
 		resourceKind = "net"
@@ -443,7 +444,7 @@ func handleELBv2CreateTargetGroup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id := sim.NewUUID()[:12]
+	id := sim.RandomHex(16)
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:targetgroup/%s/%s", awsRegion(), awsAccountID(), name, id)
 	tg := ELBv2TargetGroup{
 		Arn:                     arn,
@@ -703,7 +704,7 @@ func handleELBv2CreateListener(w http.ResponseWriter, r *http.Request) {
 		protocol = "HTTP"
 	}
 	port := atoiDefault(r.FormValue("Port"), 80)
-	id := sim.NewUUID()[:12]
+	id := sim.RandomHex(16)
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:listener/%s/%s/%s/%s", awsRegion(), awsAccountID(), elbv2LoadBalancerKind(lb), lb.Name, elbv2LoadBalancerID(lb.Arn), id)
 	listener := ELBv2Listener{
 		Arn:             arn,
@@ -716,6 +717,7 @@ func handleELBv2CreateListener(w http.ResponseWriter, r *http.Request) {
 		AlpnPolicy:      queryList(r, "AlpnPolicy"),
 		MutualAuth:      parseELBv2MutualAuth(r),
 		Attributes:      defaultELBv2ListenerAttributes(lb.Type),
+		Tags:            parseELBv2Tags(r, "Tags"),
 	}
 	elbv2Listeners.Put(arn, listener)
 	if err := elbv2StartListenerDataPlane(listener); err != nil {
@@ -812,9 +814,40 @@ func handleELBv2DeleteListener(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "DeleteListener", "", sim.RequestID(r.Context()))
 }
 
+// elbv2TaggedResourcesExist writes the not-found error of the first ARN a
+// tagging request names that no load balancer, target group, listener, rule
+// or trust store holds, and reports whether every one exists.
+func elbv2TaggedResourcesExist(w http.ResponseWriter, r *http.Request, arns []string) bool {
+	for _, arn := range arns {
+		if _, ok := elbv2ResourceTags(arn); ok {
+			continue
+		}
+		code, message := "ValidationError", fmt.Sprintf("'%s' is not a valid resource ARN", arn)
+		for _, kind := range []struct{ marker, code, noun string }{
+			{":loadbalancer/", "LoadBalancerNotFound", "Load balancer"},
+			{":targetgroup/", "TargetGroupNotFound", "Target group"},
+			{":listener/", "ListenerNotFound", "Listener"},
+			{":listener-rule/", "RuleNotFound", "Rule"},
+			{":truststore/", "TrustStoreNotFound", "Trust store"},
+		} {
+			if strings.Contains(arn, kind.marker) {
+				code, message = kind.code, fmt.Sprintf("%s '%s' not found", kind.noun, arn)
+				break
+			}
+		}
+		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return false
+	}
+	return true
+}
+
 func handleELBv2AddTags(w http.ResponseWriter, r *http.Request) {
 	tags := parseELBv2Tags(r, "Tags")
-	for _, arn := range queryList(r, "ResourceArns") {
+	arns := queryList(r, "ResourceArns")
+	if !elbv2TaggedResourcesExist(w, r, arns) {
+		return
+	}
+	for _, arn := range arns {
 		elbv2SetResourceTags(arn, tags, false)
 	}
 	elbv2XMLResponse(w, "AddTags", "", sim.RequestID(r.Context()))
@@ -822,18 +855,27 @@ func handleELBv2AddTags(w http.ResponseWriter, r *http.Request) {
 
 func handleELBv2RemoveTags(w http.ResponseWriter, r *http.Request) {
 	keys := queryList(r, "TagKeys")
-	for _, arn := range queryList(r, "ResourceArns") {
+	arns := queryList(r, "ResourceArns")
+	if !elbv2TaggedResourcesExist(w, r, arns) {
+		return
+	}
+	for _, arn := range arns {
 		elbv2SetResourceTags(arn, keysToMap(keys), true)
 	}
 	elbv2XMLResponse(w, "RemoveTags", "", sim.RequestID(r.Context()))
 }
 
 func handleELBv2DescribeTags(w http.ResponseWriter, r *http.Request) {
+	arns := queryList(r, "ResourceArns")
+	if !elbv2TaggedResourcesExist(w, r, arns) {
+		return
+	}
 	var b strings.Builder
 	b.WriteString("<TagDescriptions>")
-	for _, arn := range queryList(r, "ResourceArns") {
+	for _, arn := range arns {
 		fmt.Fprintf(&b, "<member><ResourceArn>%s</ResourceArn><Tags>", xmlEscape(arn))
-		for k, v := range elbv2ResourceTags(arn) {
+		tags, _ := elbv2ResourceTags(arn)
+		for k, v := range tags {
 			fmt.Fprintf(&b, "<member><Key>%s</Key><Value>%s</Value></member>", xmlEscape(k), xmlEscape(v))
 		}
 		b.WriteString("</Tags></member>")
@@ -1601,52 +1643,51 @@ func elbv2LoadBalancerKind(lb ELBv2LoadBalancer) string {
 }
 
 func elbv2LoadBalancerID(arn string) string {
-	parts := strings.Split(arn, "/")
-	if len(parts) == 0 {
-		return sim.NewUUID()[:12]
-	}
-	return parts[len(parts)-1]
+	return arn[strings.LastIndex(arn, "/")+1:]
 }
 
+// elbv2SetResourceTags adds entries to, or with remove deletes their keys
+// from, the tags of the load balancer, target group, listener, rule or trust
+// store arn names.
 func elbv2SetResourceTags(arn string, entries map[string]string, remove bool) {
-	if elbv2LoadBalancers.Update(arn, func(lb *ELBv2LoadBalancer) {
-		if lb.Tags == nil {
-			lb.Tags = map[string]string{}
+	apply := func(tags *map[string]string) {
+		if *tags == nil {
+			*tags = map[string]string{}
 		}
 		for k, v := range entries {
 			if remove {
-				delete(lb.Tags, k)
+				delete(*tags, k)
 			} else {
-				lb.Tags[k] = v
+				(*tags)[k] = v
 			}
 		}
-	}) {
-		return
 	}
-	if elbv2TargetGroups.Update(arn, func(tg *ELBv2TargetGroup) {
-		if tg.Tags == nil {
-			tg.Tags = map[string]string{}
-		}
-		for k, v := range entries {
-			if remove {
-				delete(tg.Tags, k)
-			} else {
-				tg.Tags[k] = v
-			}
-		}
-	}) {
-		return
-	}
+	_ = elbv2LoadBalancers.Update(arn, func(lb *ELBv2LoadBalancer) { apply(&lb.Tags) }) ||
+		elbv2TargetGroups.Update(arn, func(tg *ELBv2TargetGroup) { apply(&tg.Tags) }) ||
+		elbv2Listeners.Update(arn, func(l *ELBv2Listener) { apply(&l.Tags) }) ||
+		elbv2Rules.Update(arn, func(rule *ELBv2Rule) { apply(&rule.Tags) }) ||
+		elbv2TrustStores.Update(arn, func(ts *ELBv2TrustStore) { apply(&ts.Tags) })
 }
 
-func elbv2ResourceTags(arn string) map[string]string {
+// elbv2ResourceTags is the tag set of the resource arn names, and whether
+// the simulator holds one.
+func elbv2ResourceTags(arn string) (map[string]string, bool) {
 	if lb, ok := elbv2LoadBalancers.Get(arn); ok {
-		return lb.Tags
+		return lb.Tags, true
 	}
 	if tg, ok := elbv2TargetGroups.Get(arn); ok {
-		return tg.Tags
+		return tg.Tags, true
 	}
-	return map[string]string{}
+	if listener, ok := elbv2Listeners.Get(arn); ok {
+		return listener.Tags, true
+	}
+	if rule, ok := elbv2Rules.Get(arn); ok {
+		return rule.Tags, true
+	}
+	if ts, ok := elbv2TrustStores.Get(arn); ok {
+		return ts.Tags, true
+	}
+	return nil, false
 }
 
 func keysToMap(keys []string) map[string]string {
