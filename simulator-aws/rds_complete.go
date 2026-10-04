@@ -61,22 +61,11 @@ type RDSRecommendation struct {
 	UpdatedTime      string
 }
 
-// RDSAutomatedBackupReplication models a cross-region automated-backups
-// replication target keyed by the source DB instance ARN. Started by
-// StartDBInstanceAutomatedBackupsReplication, removed by Stop.
-type RDSAutomatedBackupReplication struct {
-	SourceDBInstanceArn   string
-	BackupRetentionPeriod int
-	KmsKeyId              string
-	Status                string // pending | replicating | stopped
-}
-
 var (
-	rdsCustomEngineVersions    sim.Store[RDSCustomEngineVersion]
-	rdsRecommendations         sim.Store[RDSRecommendation]
-	rdsOptionGroupOptions      sim.Store[RDSOptionGroupOptions]
-	rdsClusterCapacities       sim.Store[RDSClusterCapacity]
-	rdsAutomatedBackupReplicas sim.Store[RDSAutomatedBackupReplication]
+	rdsCustomEngineVersions sim.Store[RDSCustomEngineVersion]
+	rdsRecommendations      sim.Store[RDSRecommendation]
+	rdsOptionGroupOptions   sim.Store[RDSOptionGroupOptions]
+	rdsClusterCapacities    sim.Store[RDSClusterCapacity]
 )
 
 // RDSOptionGroupOptions holds the option names included on an option
@@ -100,7 +89,7 @@ func registerRDSComplete(r *AWSQueryRouter, srv *sim.Server) {
 	rdsRecommendations = sim.MakeStore[RDSRecommendation](srv.DB(), "rds_recommendations")
 	rdsOptionGroupOptions = sim.MakeStore[RDSOptionGroupOptions](srv.DB(), "rds_option_group_options")
 	rdsClusterCapacities = sim.MakeStore[RDSClusterCapacity](srv.DB(), "rds_cluster_capacities")
-	rdsAutomatedBackupReplicas = sim.MakeStore[RDSAutomatedBackupReplication](srv.DB(), "rds_automated_backup_replicas")
+	rdsReplicatedBackups = sim.MakeStore[RDSInstanceAutomatedBackup](srv.DB(), "rds_replicated_automated_backups")
 
 	r.RegisterVersioned(rdsAPIVersion, "CreateCustomDBEngineVersion", handleRDSCreateCustomEngineVersion)
 	r.RegisterVersioned(rdsAPIVersion, "ModifyCustomDBEngineVersion", handleRDSModifyCustomEngineVersion)
@@ -692,40 +681,6 @@ func renderRDSOptionGroupWithOptions(g RDSOptionGroup, options []string) string 
 	return b.String()
 }
 
-// Automated-backups cross-region replication
-
-// renderRDSAutomatedBackup renders a DBInstanceAutomatedBackup. The
-// Start/Stop output shapes wrap it in a single <DBInstanceAutomatedBackup>
-// member element inside the <...Result>.
-func renderRDSAutomatedBackup(inst RDSInstance, rep RDSAutomatedBackupReplication) string {
-	var b strings.Builder
-	b.WriteString("<DBInstanceAutomatedBackup>")
-	fmt.Fprintf(&b, "<DBInstanceArn>%s</DBInstanceArn>", xmlEscape(inst.ARN))
-	fmt.Fprintf(&b, "<DBInstanceIdentifier>%s</DBInstanceIdentifier>", xmlEscape(inst.DBInstanceIdentifier))
-	fmt.Fprintf(&b, "<DbiResourceId>%s</DbiResourceId>", xmlEscape(inst.DbiResourceId))
-	fmt.Fprintf(&b, "<Region>%s</Region>", xmlEscape(awsRegion()))
-	fmt.Fprintf(&b, "<Status>%s</Status>", xmlEscape(rep.Status))
-	fmt.Fprintf(&b, "<Engine>%s</Engine>", xmlEscape(inst.Engine))
-	fmt.Fprintf(&b, "<EngineVersion>%s</EngineVersion>", xmlEscape(inst.EngineVersion))
-	fmt.Fprintf(&b, "<AllocatedStorage>%d</AllocatedStorage>", inst.AllocatedStorage)
-	fmt.Fprintf(&b, "<Port>%d</Port>", inst.Port)
-	fmt.Fprintf(&b, "<MasterUsername>%s</MasterUsername>", xmlEscape(inst.MasterUsername))
-	fmt.Fprintf(&b, "<BackupRetentionPeriod>%d</BackupRetentionPeriod>", rep.BackupRetentionPeriod)
-	fmt.Fprintf(&b, "<InstanceCreateTime>%s</InstanceCreateTime>", xmlEscape(inst.InstanceCreateTime))
-	fmt.Fprintf(&b, "<AvailabilityZone>%s</AvailabilityZone>", xmlEscape(inst.AvailabilityZone))
-	dbabArn := fmt.Sprintf("arn:aws:rds:%s:%s:auto-backup:ab-%s",
-		awsRegion(), awsAccountID(), inst.DbiResourceId)
-	fmt.Fprintf(&b, "<DBInstanceAutomatedBackupsArn>%s</DBInstanceAutomatedBackupsArn>", xmlEscape(dbabArn))
-	if rep.KmsKeyId != "" {
-		fmt.Fprintf(&b, "<KmsKeyId>%s</KmsKeyId>", xmlEscape(rep.KmsKeyId))
-		b.WriteString("<Encrypted>true</Encrypted>")
-	} else {
-		b.WriteString("<Encrypted>false</Encrypted>")
-	}
-	b.WriteString("</DBInstanceAutomatedBackup>")
-	return b.String()
-}
-
 func rdsInstanceByArn(arn string) (RDSInstance, bool) {
 	for _, i := range rdsInstances.List() {
 		if i.ARN == arn {
@@ -733,47 +688,6 @@ func rdsInstanceByArn(arn string) (RDSInstance, bool) {
 		}
 	}
 	return RDSInstance{}, false
-}
-
-func handleRDSStartAutomatedBackupsReplication(w http.ResponseWriter, r *http.Request) {
-	srcArn := r.FormValue("SourceDBInstanceArn")
-	inst, ok := rdsInstanceByArn(srcArn)
-	if !ok {
-		rdsErrorXML(w, "DBInstanceNotFound",
-			fmt.Sprintf("Source DB instance %q not found", srcArn),
-			http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	retention := 7
-	if v := atoiOrZero(r.FormValue("BackupRetentionPeriod")); v > 0 {
-		retention = v
-	}
-	rep := RDSAutomatedBackupReplication{
-		SourceDBInstanceArn:   srcArn,
-		BackupRetentionPeriod: retention,
-		KmsKeyId:              r.FormValue("KmsKeyId"),
-		Status:                "replicating",
-	}
-	rdsAutomatedBackupReplicas.Put(srcArn, rep)
-	rdsXMLResponse(w, "StartDBInstanceAutomatedBackupsReplication", renderRDSAutomatedBackup(inst, rep), sim.RequestID(r.Context()))
-}
-
-func handleRDSStopAutomatedBackupsReplication(w http.ResponseWriter, r *http.Request) {
-	srcArn := r.FormValue("SourceDBInstanceArn")
-	inst, ok := rdsInstanceByArn(srcArn)
-	if !ok {
-		rdsErrorXML(w, "DBInstanceNotFound",
-			fmt.Sprintf("Source DB instance %q not found", srcArn),
-			http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	rep, ok := rdsAutomatedBackupReplicas.Get(srcArn)
-	if !ok {
-		rep = RDSAutomatedBackupReplication{SourceDBInstanceArn: srcArn, BackupRetentionPeriod: 7}
-	}
-	rep.Status = "stopped"
-	rdsAutomatedBackupReplicas.Delete(srcArn)
-	rdsXMLResponse(w, "StopDBInstanceAutomatedBackupsReplication", renderRDSAutomatedBackup(inst, rep), sim.RequestID(r.Context()))
 }
 
 // Switchover (global cluster / read replica)

@@ -81,6 +81,9 @@ func sfnRunTaskWithRetry(
 	for {
 		sfnAppendTaskScheduledHistory(executionARN, state, input, context)
 		result, taskErr := sfnRunTaskValue(ctx, state, input, context, cancel)
+		if ctx.Err() != nil {
+			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution interrupted"}
+		}
 		sfnAppendTaskCompletedHistory(executionARN, state, result, taskErr)
 		if taskErr == nil {
 			return result, nil
@@ -269,10 +272,18 @@ func sfnRunTaskValue(ctx context.Context, state sfnState, input, context any, ca
 		)
 		done <- taskResult{value: value, err: taskErr}
 	})
+	aborted := func() (any, *sfnExecutionError) {
+		// A task the simulator's lifetime interrupts ends with it, so the
+		// stopping process waits for the task to observe ctx.
+		if ctx.Err() != nil {
+			<-done
+		}
+		return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
+	}
 	if timeout <= 0 {
 		select {
 		case <-cancel:
-			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
+			return aborted()
 		case result := <-done:
 			return result.value, result.err
 		}
@@ -281,7 +292,7 @@ func sfnRunTaskValue(ctx context.Context, state sfnState, input, context any, ca
 	defer timer.Stop()
 	select {
 	case <-cancel:
-		return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
+		return aborted()
 	case <-timer.C:
 		return nil, &sfnExecutionError{Name: "States.Timeout", Cause: "Task timed out"}
 	case result := <-done:
@@ -411,10 +422,10 @@ func sfnInvokeTaskResource(ctx context.Context, resource string, input any, inpu
 		resource == "arn:aws:states:::ecs:runTask.sync" ||
 		resource == "arn:aws:states:::ecs:runTask.waitForTaskToken" ||
 		resource == "arn:aws:states:::aws-sdk:ecs:runTask" {
-		return sfnInvokeECSRunTask(resource, input, context, cancel, heartbeat)
+		return sfnInvokeECSRunTask(ctx, resource, input, context, cancel, heartbeat)
 	}
 	if strings.HasPrefix(resource, "arn:aws:states:::codebuild:") {
-		return sfnInvokeCodeBuild(resource, input, context, cancel)
+		return sfnInvokeCodeBuild(ctx, resource, input, context, cancel)
 	}
 	if strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:") {
 		return sfnInvokeAWSSDK(resource, input)
@@ -517,7 +528,7 @@ func awsSDKInvoke(service, action string, input any, authorize awsSDKRequestAuth
 	return sfnInvokeJSONTarget(handler, targetPrefix+"."+action, input, authorize)
 }
 
-func sfnInvokeECSRunTask(resource string, input, context any, cancel <-chan struct{}, heartbeat time.Duration) (any, *sfnExecutionError) {
+func sfnInvokeECSRunTask(ctx context.Context, resource string, input, context any, cancel <-chan struct{}, heartbeat time.Duration) (any, *sfnExecutionError) {
 	var (
 		tasks    []ECSTask
 		failures []any
@@ -571,7 +582,7 @@ func sfnInvokeECSRunTask(resource string, input, context any, cancel <-chan stru
 			return nil, tokenErr
 		}
 		value, waitErr := sfnWaitForTaskToken(task, cancel, heartbeat)
-		if waitErr != nil {
+		if waitErr != nil && ctx.Err() == nil {
 			sfnStopECSTasks(tasks, "AWS Step Functions callback integration stopped")
 			return nil, waitErr
 		}
@@ -586,7 +597,11 @@ func sfnInvokeECSRunTask(resource string, input, context any, cancel <-chan stru
 	for {
 		select {
 		case <-cancel:
-			sfnStopECSTasks(tasks, "AWS Step Functions execution aborted")
+			// A task the simulator's stop interrupts belongs to the next
+			// process, which resumes waiting on it.
+			if ctx.Err() == nil {
+				sfnStopECSTasks(tasks, "AWS Step Functions execution aborted")
+			}
 			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
 		case <-ticker.C:
 			current := make([]ECSTask, 0, len(tasks))
@@ -638,7 +653,7 @@ func sfnStopECSTasks(tasks []ECSTask, reason string) {
 	}
 }
 
-func sfnInvokeCodeBuild(resource string, input, context any, cancel <-chan struct{}) (any, *sfnExecutionError) {
+func sfnInvokeCodeBuild(ctx context.Context, resource string, input, context any, cancel <-chan struct{}) (any, *sfnExecutionError) {
 	action := strings.TrimPrefix(resource, "arn:aws:states:::codebuild:")
 	syncIntegration := strings.HasSuffix(action, ".sync")
 	action = strings.TrimSuffix(action, ".sync")
@@ -671,9 +686,9 @@ func sfnInvokeCodeBuild(resource string, input, context any, cancel <-chan struc
 	if checkpointID != "" {
 		switch action {
 		case "startBuild":
-			return sfnWaitForCodeBuildBuild(checkpointID, cancel)
+			return sfnWaitForCodeBuildBuild(ctx, checkpointID, cancel)
 		case "startBuildBatch", "retryBuildBatch":
-			return sfnWaitForCodeBuildBatch(checkpointID, cancel)
+			return sfnWaitForCodeBuildBatch(ctx, checkpointID, cancel)
 		}
 	}
 	result, taskErr := sfnInvokeJSONService(handler, input)
@@ -691,14 +706,14 @@ func sfnInvokeCodeBuild(resource string, input, context any, cancel <-chan struc
 			return nil, decodeErr
 		}
 		sfnStoreTaskCheckpoint(context, resource, []string{build.ID})
-		return sfnWaitForCodeBuildBuild(build.ID, cancel)
+		return sfnWaitForCodeBuildBuild(ctx, build.ID, cancel)
 	case "startBuildBatch", "retryBuildBatch":
 		batch, decodeErr := sfnDecodeCodeBuildBatch(response["buildBatch"])
 		if decodeErr != nil {
 			return nil, decodeErr
 		}
 		sfnStoreTaskCheckpoint(context, resource, []string{batch.ID})
-		return sfnWaitForCodeBuildBatch(batch.ID, cancel)
+		return sfnWaitForCodeBuildBatch(ctx, batch.ID, cancel)
 	default:
 		return result, nil
 	}
@@ -772,13 +787,15 @@ func sfnDecodeCodeBuildBatch(value any) (CBBuildBatch, *sfnExecutionError) {
 	return batch, nil
 }
 
-func sfnWaitForCodeBuildBuild(buildID string, cancel <-chan struct{}) (any, *sfnExecutionError) {
+func sfnWaitForCodeBuildBuild(ctx context.Context, buildID string, cancel <-chan struct{}) (any, *sfnExecutionError) {
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-cancel:
-			cbStopBuildByID(buildID)
+			if ctx.Err() == nil {
+				cbStopBuildByID(buildID)
+			}
 			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
 		case <-ticker.C:
 			build, exists := cbBuilds.Get(buildID)
@@ -796,13 +813,15 @@ func sfnWaitForCodeBuildBuild(buildID string, cancel <-chan struct{}) (any, *sfn
 	}
 }
 
-func sfnWaitForCodeBuildBatch(batchID string, cancel <-chan struct{}) (any, *sfnExecutionError) {
+func sfnWaitForCodeBuildBatch(ctx context.Context, batchID string, cancel <-chan struct{}) (any, *sfnExecutionError) {
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-cancel:
-			cbStopBuildBatchByID(batchID)
+			if ctx.Err() == nil {
+				cbStopBuildBatchByID(batchID)
+			}
 			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
 		case <-ticker.C:
 			batch, exists := cbBuildBatches.Get(batchID)
@@ -1018,7 +1037,7 @@ func sfnStartNestedExecution(stateMachineARN, name, input string) (SFNExecution,
 	})
 	executionCancel := make(chan struct{})
 	sfnCancels.Store(executionARN, executionCancel)
-	go sfnRunExecution(executionARN, stateMachine.Definition, input, executionCancel)
+	sfnStartExecution(executionARN, stateMachine.Definition, input, executionCancel)
 	return execution, nil
 }
 
@@ -1151,9 +1170,14 @@ func sfnRunParallel(ctx context.Context, state sfnState, input any, cancel <-cha
 			resultCh <- branchResult{index: index, output: value}
 		}(i, branch)
 	}
-	for range state.Branches {
+	for received := range len(state.Branches) {
 		result := <-resultCh
 		if result.abort {
+			if ctx.Err() != nil {
+				for range len(state.Branches) - received - 1 {
+					<-resultCh
+				}
+			}
 			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "parallel branch aborted"}
 		}
 		if result.err != nil {
@@ -1320,7 +1344,7 @@ func sfnRunMap(ctx context.Context, state sfnState, stateName string, input, con
 					}
 				}
 				output, status, runErr := sfnRunDefDepthRuntime(ctx, *processor, itemJSON, cancel, depth+1, variables, itemExecutionARN)
-				if mapRun != nil {
+				if mapRun != nil && (ctx.Err() == nil || status == "SUCCEEDED") {
 					sfnCompleteExecution(itemExecutionARN, status, output, runErr)
 				}
 				if status == "ABORTED" {

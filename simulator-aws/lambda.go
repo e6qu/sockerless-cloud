@@ -357,6 +357,7 @@ func registerLambda(srv *sim.Server, startBackgroundPollers bool) {
 	lambdaESMs = sim.MakeStore[LambdaEventSourceMapping](srv.DB(), "lambda_event_source_mappings")
 	lambdaLayers = sim.MakeStore[[]LambdaLayerVersion](srv.DB(), "lambda_layers")
 	lambdaESMLogger = srv.Logger()
+	lambdaBackgroundServer = srv
 	if startBackgroundPollers {
 		startLambdaEventSourcePollers(srv)
 	}

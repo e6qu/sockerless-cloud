@@ -275,11 +275,16 @@ func TestRDS_ModifyOptionGroup(t *testing.T) {
 	assert.Empty(t, removed.OptionGroup.Options)
 }
 
-// TestRDS_AutomatedBackupsReplication covers the
-// Start/StopDBInstanceAutomatedBackupsReplication toggle keyed on the
-// source DB instance ARN.
+// StartDBInstanceAutomatedBackupsReplication and its Stop, called in the
+// destination Region, start and end the replication of the source DB
+// instance's automated backups there; a stopped replication leaves its
+// replicated automated backup retained.
 func TestRDS_AutomatedBackupsReplication(t *testing.T) {
 	c := rdsClient()
+	destination := rds.NewFromConfig(sdkConfig(), func(o *rds.Options) {
+		o.BaseEndpoint = aws.String(baseURL)
+		o.Region = "us-west-2"
+	})
 	instID := "abr-pg-db"
 	created, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
@@ -293,7 +298,7 @@ func TestRDS_AutomatedBackupsReplication(t *testing.T) {
 	srcArn := aws.ToString(created.DBInstance.DBInstanceArn)
 	require.NotEmpty(t, srcArn)
 	t.Cleanup(func() {
-		_, _ = c.StopDBInstanceAutomatedBackupsReplication(ctx, &rds.StopDBInstanceAutomatedBackupsReplicationInput{
+		_, _ = destination.StopDBInstanceAutomatedBackupsReplication(ctx, &rds.StopDBInstanceAutomatedBackupsReplicationInput{
 			SourceDBInstanceArn: aws.String(srcArn),
 		})
 		_, _ = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
@@ -302,22 +307,26 @@ func TestRDS_AutomatedBackupsReplication(t *testing.T) {
 		})
 	})
 
-	start, err := c.StartDBInstanceAutomatedBackupsReplication(ctx, &rds.StartDBInstanceAutomatedBackupsReplicationInput{
+	start, err := destination.StartDBInstanceAutomatedBackupsReplication(ctx, &rds.StartDBInstanceAutomatedBackupsReplicationInput{
 		SourceDBInstanceArn:   aws.String(srcArn),
 		BackupRetentionPeriod: aws.Int32(14),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, start.DBInstanceAutomatedBackup)
-	assert.Equal(t, "replicating", aws.ToString(start.DBInstanceAutomatedBackup.Status))
+	assert.Equal(t, "pending", aws.ToString(start.DBInstanceAutomatedBackup.Status))
 	assert.Equal(t, int32(14), aws.ToInt32(start.DBInstanceAutomatedBackup.BackupRetentionPeriod))
 	assert.Equal(t, instID, aws.ToString(start.DBInstanceAutomatedBackup.DBInstanceIdentifier))
 
-	stop, err := c.StopDBInstanceAutomatedBackupsReplication(ctx, &rds.StopDBInstanceAutomatedBackupsReplicationInput{
+	stop, err := destination.StopDBInstanceAutomatedBackupsReplication(ctx, &rds.StopDBInstanceAutomatedBackupsReplicationInput{
 		SourceDBInstanceArn: aws.String(srcArn),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, stop.DBInstanceAutomatedBackup)
-	assert.Equal(t, "stopped", aws.ToString(stop.DBInstanceAutomatedBackup.Status))
+	assert.Equal(t, "retained", aws.ToString(stop.DBInstanceAutomatedBackup.Status))
+	_, err = destination.DeleteDBInstanceAutomatedBackup(ctx, &rds.DeleteDBInstanceAutomatedBackupInput{
+		DBInstanceAutomatedBackupsArn: start.DBInstanceAutomatedBackup.DBInstanceAutomatedBackupsArn,
+	})
+	require.NoError(t, err)
 }
 
 // TestRDS_SwitchoverReadReplica covers SwitchoverReadReplica swapping

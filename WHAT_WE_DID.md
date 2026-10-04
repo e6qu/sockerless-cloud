@@ -389,9 +389,7 @@ through hooks:
   synchronous execution when it ends. Step Functions calls an awsJson or
   awsQuery handler in-process with a request from `Server.RequestContext`, so
   an AWS SDK integration such as `sfn:startSyncExecution` finds the same
-  lifetime. A recorded execution keeps `context.Background()` for its tasks,
-  because a task cancelled at shutdown would fail an execution the next
-  process resumes. Amazon S3 event notifications and AWS Lambda function
+  lifetime. Amazon S3 event notifications and AWS Lambda function
   destinations invoke their function asynchronously, through the same
   persisted dispatcher as an `Event` Invoke, as AWS does. A Batch Operations
   LambdaInvoke task had read the invocation's unhandled flag inverted and
@@ -401,6 +399,28 @@ through hooks:
   and a StartSyncExecution on a Lambda task in flight across SIGTERM and still
   stops within 5 s, and `TestS3Control_BatchJobLambdaInvoke` runs a
   LambdaInvoke job to `Complete`.
+- **Recorded executions run as server background work and stop with it.** A
+  Step Functions execution started by StartExecution, RedriveExecution, a
+  nested `states:startExecution` task, EventBridge, EventBridge Scheduler or
+  recovery, and an AWS Lambda durable execution's coordinator, run under
+  `StartBackground` and invoke their functions under its context, so the
+  invocation in flight ends with the process and its execution environment
+  goes with it. The interpreter treats that context ending like an abort: it
+  waits for the task in flight to return, records neither its outcome nor a
+  Catch transition, and leaves the execution `RUNNING` at its checkpoint for
+  the next process's recovery; a Parallel state waits for its other branches
+  first, and a Distributed Map leaves its item executions unrecorded. An
+  Amazon ECS task or AWS CodeBuild build a `.sync` task waits on keeps
+  running for the next process to resume waiting on, where StopExecution
+  stops it. The durable coordinator likewise drops the interrupted
+  invocation's response.
+  Both had run on goroutines the server did not track, under
+  `context.Background()`, so a stopping simulator left their execution
+  environments running until the function timeout while the next process
+  invoked the same step again.
+  `TestLambdaWorkInFlightEndsWithTheSimulatorAndResumes_SDK` stops a
+  simulator during both invocations and finds their containers gone and both
+  executions `RUNNING`, with no failure in the execution history.
 - **An Amazon S3 Batch Operations job runs after CreateJob answers.** CreateJob
   stores the job `New` and hands it to the server's background workers, which
   move it through `Preparing` (reading the manifest into one task per row),
@@ -1335,6 +1355,35 @@ CLI suite lists an instance's backup `creating`, then `active`, then
 `retained`, and restores a deleted instance with `--source-dbi-resource-id`;
 the Terraform suite destroys an instance with `delete_automated_backups =
 false` and finds its retained backup.
+
+A DB instance's automated backups replicate to another Region the way RDS
+does it: StartDBInstanceAutomatedBackupsReplication is called in the
+destination Region — the Region the request is signed for, refused when that
+is the simulator's own — and records a replicated automated backup
+(`rds_backup_replication.go`) whose ARN, `auto-backup:ab-<id>`, names the
+destination while `Region` keeps the source's. The backup holds its own
+copies: every automated snapshot the source takes lands in a
+`sockerless-rds-replicated-snapshot_*` volume as the source's base backup is
+recorded, and the source's log in a `sockerless-rds-replicated-backup_<id>`
+volume, so the copy outlives the source's own automated backups. It is
+`pending` until it holds an automated snapshot and `replicating` after, and
+its own `BackupRetentionPeriod` expires its copies. Only requests signed for
+its Region see it: DescribeDBInstanceAutomatedBackups lists it,
+ListTagsForResource and the tag operations reach it, the source's
+`DBInstanceAutomatedBackupsReplications` names it, and
+RestoreDBInstanceToPointInTime restores it through
+`SourceDBInstanceAutomatedBackupsArn`, first bringing its log up to the
+source's. StopDBInstanceAutomatedBackupsReplication, or the source's
+deletion, takes a last copy and leaves it `retained`; it then expires like a
+retained backup, and DeleteDBInstanceAutomatedBackup deletes it, refusing one
+still replicating. The simulator holds its DB instances in its own Region, so
+an instance restored from a replicated backup is created there (BUG-3358). The
+SDK suite replicates an RDS for PostgreSQL instance to us-west-2, restores
+every committed row from the replicating backup, stops the replication,
+deletes the source and restores from the retained copy; the CLI suite starts,
+lists, stops and deletes a replication in us-west-2; the Terraform suite
+creates `aws_db_instance_automated_backups_replication` through a provider
+configured for us-west-2.
 
 An Aurora cluster's endpoints own two logins: the master user's, under the
 password the control plane records, and IAM database authentication. Every

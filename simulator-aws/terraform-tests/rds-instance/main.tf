@@ -23,6 +23,19 @@ provider "aws" {
   }
 }
 
+provider "aws" {
+  alias                       = "destination"
+  region                      = "us-west-2"
+  access_key                  = "test"
+  secret_key                  = "test"
+  skip_credentials_validation = true
+  skip_requesting_account_id  = true
+
+  endpoints {
+    rds = var.endpoint
+  }
+}
+
 resource "aws_db_instance" "tf_rds" {
   identifier          = "tf-rds-db"
   instance_class      = "db.t3.micro"
@@ -50,4 +63,17 @@ output "rds_instance_port" {
 }
 output "rds_instance_tags_env" {
   value = aws_db_instance.tf_rds.tags["env"]
+}
+
+resource "aws_db_instance_automated_backups_replication" "tf_rds" {
+  provider               = aws.destination
+  source_db_instance_arn = aws_db_instance.tf_rds.arn
+  retention_period       = 3
+}
+
+output "rds_replicated_backup_arn" {
+  value = aws_db_instance_automated_backups_replication.tf_rds.id
+}
+output "rds_replicated_backup_retention_period" {
+  value = tostring(aws_db_instance_automated_backups_replication.tf_rds.retention_period)
 }

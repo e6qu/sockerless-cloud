@@ -140,7 +140,9 @@ Current state of the sockerless-cloud repository.
   RestoreDBInstanceToPointInTime seeds the new instance from them, and
   RestoreDBInstanceFromS3 imports a Percona XtraBackup into RDS for MySQL. A
   deletion with `DeleteAutomatedBackups=false` retains the automated backups,
-  which restore the deleted instance or cluster to a time. An Aurora
+  which restore the deleted instance or cluster to a time, and an instance's
+  automated backups replicate to another Region, where they restore after
+  the replication stops or the source is gone. An Aurora
   endpoint signs in the master user and IAM-authenticated users itself and
   every other database user through the engine's own checks.
 - **The registries answer their own service**: Amazon ECR's empty ping with
