@@ -41,9 +41,9 @@ func TestS3BatchJobRecoveryResumesAfterTheLastRecordedTask(t *testing.T) {
 		AccountID: account, JobID: jobID, Status: s3BatchJobActive, Priority: 1,
 		RoleArn: "arn:aws:iam::" + account + ":role/batch", Operation: operation,
 		Tasks: []S3BatchTask{
-			{TaskID: "task-one", Bucket: "recovered-batch", Key: "one.txt", Status: s3BatchTaskSucceeded,
+			{TaskID: "task-one", Bucket: "recovered-batch", Key: "one.txt", ManifestKey: "one.txt", Status: s3BatchTaskSucceeded,
 				Attempts: 1, HTTPStatus: http.StatusOK, ResultMessage: "Successful"},
-			{TaskID: "task-two", Bucket: "recovered-batch", Key: "two.txt"},
+			{TaskID: "task-two", Bucket: "recovered-batch", Key: "two.txt", ManifestKey: "two.txt"},
 		},
 	})
 

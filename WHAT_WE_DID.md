@@ -418,6 +418,16 @@ through hooks:
   service's: `manifest.json` and one results CSV per task status under
   `<prefix>/job-<id>/`. Tests wait on DescribeJob's status, never on
   CreateJob's answer.
+- **A Batch Operations CSV manifest lists keys URL-encoded.** The
+  S3BatchOperations_CSV_20180820 format requires it, so preparing a job
+  decodes each key as a form value, `+` to a space as AWS Lambda Powertools'
+  Batch Operations event (`unquote_plus`, tested against the service) decodes
+  it, and fails the job on a malformed escape. The task keeps the listed form
+  too: the LambdaInvoke event's `s3Key` carries the key URL-encoded, as the
+  user guide's examples decode it, and a LambdaInvoke task invokes the function
+  whether or not an object holds the key, since the guide's JSON-key manifests
+  name none. `TestS3Control_BatchJobURLEncodedKeys` tags objects whose keys
+  hold a space (`%20` and `+`), a comma, an é and a plus.
 - **An image pull says why it pulled.** `pullImage` writes a `[sim-pull]` line
   when the held-image check fails, with the inspect error or the held and
   wanted platforms, and one per throttled retry with the attempt, the error

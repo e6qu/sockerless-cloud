@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -739,7 +740,7 @@ func s3BatchLambdaJob(t *testing.T, name string, keys []string, invoke *s3ctypes
 		_, err = s3c.PutObject(ctx, &s3.PutObjectInput{
 			Bucket: aws.String(bucket), Key: aws.String(key), Body: strings.NewReader(key)})
 		require.NoError(t, err)
-		fmt.Fprintf(&manifestBody, "%s,%s\n", bucket, key)
+		fmt.Fprintf(&manifestBody, "%s,%s\n", bucket, url.QueryEscape(key))
 	}
 	manifest, err := s3c.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String("manifest.csv"),
@@ -775,11 +776,12 @@ func s3BatchLambdaJob(t *testing.T, name string, keys []string, invoke *s3ctypes
 
 // TestS3Control_BatchJobLambdaInvoke runs a LambdaInvoke job in invocation
 // schema 1.0: Batch Operations invokes the function once per manifest entry
-// with the bucket's ARN, and each task's outcome and message are the
-// resultCode and resultString the function returns for it.
+// with the bucket's ARN and the key as the manifest lists it, URL-encoded,
+// and each task's outcome and message are the resultCode and resultString
+// the function returns for it.
 func TestS3Control_BatchJobLambdaInvoke(t *testing.T) {
 	sc := s3ControlClient()
-	jobID, bucket, _ := s3BatchLambdaJob(t, "batch-lambda-v1", []string{"one.txt", "two.txt"},
+	jobID, bucket, _ := s3BatchLambdaJob(t, "batch-lambda-v1", []string{"one.txt", "q3 report,é.txt"},
 		&s3ctypes.LambdaInvokeOperation{})
 
 	job := awaitS3BatchJob(t, sc, jobID, s3BatchJobSettled)
@@ -793,8 +795,96 @@ func TestS3Control_BatchJobLambdaInvoke(t *testing.T) {
 	assert.Equal(t, "succeeded", report[0].status)
 	assert.ElementsMatch(t, []string{
 		bucket + ",one.txt,,succeeded,200,,processed " + bucket + "/one.txt",
-		bucket + ",two.txt,,succeeded,200,,processed " + bucket + "/two.txt",
+		bucket + ",q3+report%2C%C3%A9.txt,,succeeded,200,,processed " + bucket + "/q3+report%2C%C3%A9.txt",
 	}, report[0].rows)
+}
+
+// TestS3Control_BatchJobURLEncodedKeys runs a tagging job over a manifest whose
+// keys are URL-encoded, as the S3BatchOperations_CSV_20180820 format requires:
+// %20 and + each name a space, %2C a comma, %C3%A9 an é and %2B a plus, so
+// the job tags the objects those decoded keys name and no other.
+func TestS3Control_BatchJobURLEncodedKeys(t *testing.T) {
+	sc := s3ControlClient()
+	s3c := s3Client()
+	bucket := uniqueName("batch-encoded-keys")
+	roleArn := s3ControlRole(t, uniqueName("batch-encoded-role"))
+	_, err := s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	listed := map[string]string{
+		"q3 report,é.txt":   "q3%20report%2C%C3%A9.txt",
+		"plus as space.txt": "plus+as+space.txt",
+		"a+b.txt":           "a%2Bb.txt",
+	}
+	var manifestBody strings.Builder
+	for key, encoded := range listed {
+		_, err = s3c.PutObject(ctx, &s3.PutObjectInput{
+			Bucket: aws.String(bucket), Key: aws.String(key), Body: strings.NewReader(key)})
+		require.NoError(t, err)
+		fmt.Fprintf(&manifestBody, "%s,%s\n", bucket, encoded)
+	}
+	_, err = s3c.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String("plus+as+space.txt"), Body: strings.NewReader("literal")})
+	require.NoError(t, err)
+	manifest, err := s3c.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String("manifest.csv"),
+		Body: strings.NewReader(manifestBody.String())})
+	require.NoError(t, err)
+
+	created, err := sc.CreateJob(ctx, &s3control.CreateJobInput{
+		AccountId:          aws.String(s3ObjectLambdaAccount),
+		ClientRequestToken: aws.String(uniqueName("batch-encoded-token")),
+		Priority:           aws.Int32(10),
+		RoleArn:            aws.String(roleArn),
+		Operation: &s3ctypes.JobOperation{
+			S3PutObjectTagging: &s3ctypes.S3SetObjectTaggingOperation{
+				TagSet: []s3ctypes.S3Tag{{Key: aws.String("reviewed"), Value: aws.String("yes")}},
+			},
+		},
+		Report: &s3ctypes.JobReport{
+			Enabled: true, Bucket: aws.String("arn:aws:s3:::" + bucket), Prefix: aws.String("reports"),
+			Format: s3ctypes.JobReportFormatReportCsv20180820, ReportScope: s3ctypes.JobReportScopeAllTasks,
+		},
+		Manifest: &s3ctypes.JobManifest{
+			Spec: &s3ctypes.JobManifestSpec{
+				Format: s3ctypes.JobManifestFormatS3BatchOperationsCsv20180820,
+				Fields: []s3ctypes.JobManifestFieldName{
+					s3ctypes.JobManifestFieldNameBucket, s3ctypes.JobManifestFieldNameKey,
+				},
+			},
+			Location: &s3ctypes.JobManifestLocation{
+				ObjectArn: aws.String(fmt.Sprintf("arn:aws:s3:::%s/manifest.csv", bucket)),
+				ETag:      manifest.ETag,
+			},
+		},
+	})
+	require.NoError(t, err)
+	jobID := aws.ToString(created.JobId)
+
+	job := awaitS3BatchJob(t, sc, jobID, s3BatchJobSettled)
+	assert.Equal(t, s3ctypes.JobStatusComplete, job.Status, "failure reasons: %v", job.FailureReasons)
+	require.NotNil(t, job.ProgressSummary)
+	assert.Equal(t, int64(3), aws.ToInt64(job.ProgressSummary.NumberOfTasksSucceeded))
+	assert.Equal(t, int64(0), aws.ToInt64(job.ProgressSummary.NumberOfTasksFailed))
+
+	for key := range listed {
+		tags, err := s3c.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+			Bucket: aws.String(bucket), Key: aws.String(key)})
+		require.NoError(t, err, key)
+		require.Len(t, tags.TagSet, 1, key)
+		assert.Equal(t, "reviewed", aws.ToString(tags.TagSet[0].Key), key)
+	}
+	literal, err := s3c.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+		Bucket: aws.String(bucket), Key: aws.String("plus+as+space.txt")})
+	require.NoError(t, err)
+	assert.Empty(t, literal.TagSet, "a + in a listed key names a space, not a plus")
+
+	report := s3BatchCompletionReport(t, s3c, bucket, "reports/job-"+jobID)
+	require.Len(t, report, 1)
+	var rows []string
+	for _, encoded := range listed {
+		rows = append(rows, bucket+","+encoded+",,succeeded,200,,Successful")
+	}
+	assert.ElementsMatch(t, rows, report[0].rows)
 }
 
 // TestS3Control_BatchJobLambdaResultCodes runs a LambdaInvoke job in

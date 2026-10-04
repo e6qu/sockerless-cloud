@@ -11,6 +11,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,6 +71,7 @@ type S3BatchTask struct {
 	TaskID        string `json:"taskId"`
 	Bucket        string `json:"bucket"`
 	Key           string `json:"key"`
+	ManifestKey   string `json:"manifestKey"`
 	VersionID     string `json:"versionId,omitempty"`
 	Status        string `json:"status,omitempty"`
 	Attempts      int    `json:"attempts,omitempty"`
@@ -347,7 +349,9 @@ func s3FinishBatchJob(key string, job S3BatchJob, from, final string) {
 
 // s3BatchManifestTasks reads the manifest object out of S3. A CSV manifest
 // lists one object per row, in the columns its Spec.Fields names: the bucket,
-// the key and, when the spec names one, the version.
+// the URL-encoded key and, when the spec names one, the version. The key
+// decodes as a form value does, `+` to a space. A task keeps the key as listed
+// too: the Lambda event's s3Key and the completion report carry that form.
 func s3BatchManifestTasks(manifest s3ControlXMLNode) ([]S3BatchTask, error) {
 	location, ok := manifest.Child("Location")
 	if !ok {
@@ -387,13 +391,18 @@ func s3BatchManifestTasks(manifest s3ControlXMLNode) ([]S3BatchTask, error) {
 		return nil, fmt.Errorf("the manifest is not readable as CSV: %w", err)
 	}
 	var tasks []S3BatchTask
-	for _, record := range records {
+	for row, record := range records {
 		if len(record) < 2 {
 			continue
 		}
+		listed := strings.TrimSpace(record[1])
+		key, err := url.QueryUnescape(listed)
+		if err != nil {
+			return nil, fmt.Errorf("the manifest's row %d key %q is not URL-encoded: %w", row+1, listed, err)
+		}
 		task := S3BatchTask{
 			TaskID: s3ObjectLambdaID(),
-			Bucket: strings.TrimSpace(record[0]), Key: strings.TrimSpace(record[1]),
+			Bucket: strings.TrimSpace(record[0]), Key: key, ManifestKey: listed,
 		}
 		if versionColumn >= 0 && versionColumn < len(record) {
 			task.VersionID = strings.TrimSpace(record[versionColumn])
@@ -436,15 +445,18 @@ func s3BatchTaskFailure(code string, status int, message string) s3BatchTaskOutc
 
 // s3RunBatchTask applies the job's operation to one object. interrupted
 // reports a run the simulator's shutdown cut short, which records nothing.
+// A LambdaInvoke task hands the function the manifest's key whether or not
+// an object holds it, as the service's documented JSON-key manifests rely on.
 func s3RunBatchTask(ctx context.Context, job S3BatchJob, task S3BatchTask) (s3BatchTaskOutcome, bool) {
+	if hasChild(job.Operation, "LambdaInvoke") {
+		return s3RunBatchLambdaInvoke(ctx, job, task)
+	}
 	object, ok := s3Objects.Get(s3ObjectKey(task.Bucket, task.Key))
 	if !ok {
 		return s3BatchTaskFailure("NoSuchKey", http.StatusNotFound,
 			fmt.Sprintf("s3://%s/%s does not exist", task.Bucket, task.Key)), false
 	}
 	switch {
-	case hasChild(job.Operation, "LambdaInvoke"):
-		return s3RunBatchLambdaInvoke(ctx, job, task)
 	case hasChild(job.Operation, "S3PutObjectTagging"):
 		operation, _ := job.Operation.Child("S3PutObjectTagging")
 		s3ObjectTags.Put(task.Bucket+"/"+task.Key, s3ControlTagsFrom(operation, "TagSet", "member"))
@@ -524,7 +536,7 @@ func s3BatchLambdaEvent(job S3BatchJob, operation s3ControlXMLNode, task S3Batch
 			"invocationId":            s3ObjectLambdaID(),
 			"job":                     map[string]any{"id": job.JobID},
 			"tasks": []map[string]any{{
-				"taskId": task.TaskID, "s3Key": task.Key, "s3VersionId": versionID,
+				"taskId": task.TaskID, "s3Key": task.ManifestKey, "s3VersionId": versionID,
 				"s3BucketArn": s3BucketARN(task.Bucket),
 			}},
 		}
@@ -540,7 +552,7 @@ func s3BatchLambdaEvent(job S3BatchJob, operation s3ControlXMLNode, task S3Batch
 		"invocationId":            s3ObjectLambdaID(),
 		"job":                     map[string]any{"id": job.JobID, "userArguments": userArguments},
 		"tasks": []map[string]any{{
-			"taskId": task.TaskID, "s3Bucket": task.Bucket, "s3Key": task.Key, "s3VersionId": versionID,
+			"taskId": task.TaskID, "s3Bucket": task.Bucket, "s3Key": task.ManifestKey, "s3VersionId": versionID,
 		}},
 	}
 }
@@ -639,7 +651,7 @@ func s3WriteBatchCompletionReport(job S3BatchJob) error {
 			if task.HTTPStatus != 0 {
 				httpStatus = strconv.Itoa(task.HTTPStatus)
 			}
-			if err := writer.Write([]string{task.Bucket, task.Key, task.VersionID, task.Status,
+			if err := writer.Write([]string{task.Bucket, task.ManifestKey, task.VersionID, task.Status,
 				httpStatus, task.ErrorCode, task.ResultMessage}); err != nil {
 				return fmt.Errorf("write the %s results: %w", status, err)
 			}
