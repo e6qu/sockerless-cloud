@@ -21,6 +21,7 @@ type ELBv2Rule struct {
 	Conditions  []ELBv2RuleCondition
 	Actions     []ELBv2Action
 	IsDefault   bool
+	Tags        map[string]string
 }
 
 type ELBv2RuleCondition struct {
@@ -58,11 +59,12 @@ func handleELBv2CreateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rule := ELBv2Rule{
-		Arn:         elbv2RuleArn(listener.Arn, sim.NewUUID()[:12]),
+		Arn:         elbv2RuleArn(listener.Arn, sim.RandomHex(16)),
 		ListenerArn: listenerArn,
 		Priority:    r.FormValue("Priority"),
 		Conditions:  parseELBv2Conditions(r),
 		Actions:     parseELBv2ActionsPrefix(r, "Actions"),
+		Tags:        parseELBv2Tags(r, "Tags"),
 	}
 	elbv2Rules.Put(rule.Arn, rule)
 	elbv2XMLResponse(w, "CreateRule", "<Rules>"+elbv2RuleXML(rule)+"</Rules>", sim.RequestID(r.Context()))

@@ -54,11 +54,15 @@ Current state of the sockerless-cloud repository.
   `testdata/iam_condition_key_gaps.tsv` (BUG-2965 holds the unseeded and
   unbuilt ones). A create carrying tags is also authorized as its service's
   tagging action with `<service>:CreateAction` naming it, for the 297
-  operations the references list one for. The Amazon S3 control plane is
+  operations the references list one for, against the resource the create
+  mints. The Amazon S3 control plane is
   authorized route by route, each in the namespace AWS publishes its action under — s3, s3express,
   s3-outposts or s3-object-lambda. One route is tested as ungated and says why:
   no vendored document declares an action for the control plane's
-  DeleteBucketLifecycleConfiguration.
+  DeleteBucketLifecycleConfiguration. Each control-plane resource has one tag
+  set: a Storage Lens configuration's and a Batch Operations job's are kept by
+  their own tagging operations, every other type's by TagResource and the
+  creates that take tags.
 - **Google Cloud**: 5,583 of 5,583 Discovery method spellings across 30
   documents reach a route that names them — 5,529 served and 54 answering a
   declared 501; the gRPC surfaces serve 213 of 216 methods, the three unserved
@@ -226,7 +230,8 @@ Current state of the sockerless-cloud repository.
   Operations job runs as server background work from `New` through
   `Preparing`, `Suspended` or `Ready`, and `Active` to `Complete`, `Failed` or
   `Cancelled`, takes each LambdaInvoke task's outcome from the function's
-  `results[]`, writes its completion report, and resumes after a restart.
+  `results[]`, writes its completion report, and resumes after a restart; it
+  reads its CSV manifest's keys URL-decoded.
 - **A NAT gateway route translates the subnets its route table governs**,
   explicitly associated or implicitly through the main route table, recomputed
   on every association change.

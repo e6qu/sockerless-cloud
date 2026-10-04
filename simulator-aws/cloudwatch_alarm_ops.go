@@ -442,11 +442,22 @@ func cloudWatchCBORAuthorized(op string, h http.HandlerFunc) http.HandlerFunc {
 }
 
 // cloudWatchCBORTargets is what an RPC v2 CBOR request is authorized as: the
-// operation its path names, and cloudwatch:TagResource as well when a create
-// carries tags.
+// operation its path names on the resources its body names, and
+// cloudwatch:TagResource as well when a create carries tags.
 func cloudWatchCBORTargets(r *http.Request, op string) []iamAuthorizationTarget {
-	return append([]iamAuthorizationTarget{{action: "cloudwatch:" + op, resource: "*"}},
-		iamTagOnCreateTargets(r, "cloudwatch", op, []string{"*"})...)
+	region := iamRequestedRegion(r)
+	if region == "" {
+		region = awsRegion()
+	}
+	resources := iamDerivedResourceARNs(r, "cloudwatch", op, region, awsAccountID())
+	if len(resources) == 0 {
+		resources = []string{"*"}
+	}
+	targets := make([]iamAuthorizationTarget, 0, len(resources))
+	for _, resource := range resources {
+		targets = append(targets, iamAuthorizationTarget{action: "cloudwatch:" + op, resource: resource})
+	}
+	return append(targets, iamTagOnCreateTargets(r, "cloudwatch", op, resources)...)
 }
 
 // cwReadCBOR reads and CBOR-decodes a request body into v, writing the protocol

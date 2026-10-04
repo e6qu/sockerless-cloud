@@ -142,10 +142,12 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// and cloudwatch_misc_ops.go parse exactly that — and the TagList member in
 	// cloudwatch.smithy.json.gz (PutMetricAlarmInput$Tags, TagResourceInput$Tags)
 	// carries no xmlName, so the default `member` is right.
-	// The Go SDK speaks Smithy RPC v2 CBOR to Amazon CloudWatch, carrying the
-	// same Tags list of `Key`/`Value` and UntagResource's TagKeys.
+	// The Go SDK speaks Smithy RPC v2 CBOR to Amazon CloudWatch and the AWS CLI
+	// awsJson1_0, both carrying the same Tags list of `Key`/`Value` and
+	// UntagResource's TagKeys.
 	"cloudwatch": {
 		query: []string{"Tags.member"}, keyQuery: []string{"TagKeys.member"},
+		jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"},
 		cborList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyCBOR: []string{"TagKeys"},
 	},
 

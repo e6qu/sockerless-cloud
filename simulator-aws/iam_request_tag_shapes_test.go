@@ -377,13 +377,14 @@ func TestIAMRequestTagsReadRPCv2CBOR(t *testing.T) {
 	if got := iamRequestTags(put, "cloudwatch"); len(got) != 1 || got[0] != (EC2Tag{Key: "team", Value: "blue"}) {
 		t.Fatalf("tags = %v, want team=blue", got)
 	}
+	const alarm = "arn:aws:cloudwatch:us-east-1:123456789012:alarm:a"
 	targets := targetStrings(cloudWatchCBORTargets(put, "PutMetricAlarm"))
-	if want := []string{"cloudwatch:PutMetricAlarm *", "cloudwatch:TagResource *"}; !slices.Equal(targets, want) {
+	if want := []string{"cloudwatch:PutMetricAlarm " + alarm, "cloudwatch:TagResource " + alarm}; !slices.Equal(targets, want) {
 		t.Fatalf("targets = %v, want %v", targets, want)
 	}
 
 	untagged := cborRequest("PutMetricAlarm", map[string]any{"AlarmName": "a"})
-	if targets := targetStrings(cloudWatchCBORTargets(untagged, "PutMetricAlarm")); !slices.Equal(targets, []string{"cloudwatch:PutMetricAlarm *"}) {
+	if targets := targetStrings(cloudWatchCBORTargets(untagged, "PutMetricAlarm")); !slices.Equal(targets, []string{"cloudwatch:PutMetricAlarm " + alarm}) {
 		t.Fatalf("an untagged alarm authorizes %v", targets)
 	}
 

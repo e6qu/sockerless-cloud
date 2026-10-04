@@ -125,6 +125,19 @@ func lambdaFunctionResourceARN(r *http.Request) string {
 	return lambdaArn(name)
 }
 
+// lambdaCreatedFunctionARN is the function a CreateFunction names in its body,
+// by name, partial ARN or full ARN.
+func lambdaCreatedFunctionARN(r *http.Request) string {
+	name := iamJSONBodyField(r, "FunctionName")
+	switch {
+	case name == "", strings.HasPrefix(name, "arn:"):
+		return name
+	case strings.Contains(name, ":function:"):
+		return lambdaArn(name[strings.Index(name, ":function:")+len(":function:"):])
+	}
+	return lambdaArn(name)
+}
+
 // lambdaProvisionedConcurrencyOpName resolves GET
 // /2019-09-30/functions/{name}/provisioned-concurrency to
 // GetProvisionedConcurrencyConfig or, when the SDK's ?List=ALL selector is

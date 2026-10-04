@@ -418,6 +418,16 @@ through hooks:
   service's: `manifest.json` and one results CSV per task status under
   `<prefix>/job-<id>/`. Tests wait on DescribeJob's status, never on
   CreateJob's answer.
+- **A Batch Operations CSV manifest lists keys URL-encoded.** The
+  S3BatchOperations_CSV_20180820 format requires it, so preparing a job
+  decodes each key as a form value, `+` to a space as AWS Lambda Powertools'
+  Batch Operations event (`unquote_plus`, tested against the service) decodes
+  it, and fails the job on a malformed escape. The task keeps the listed form
+  too: the LambdaInvoke event's `s3Key` carries the key URL-encoded, as the
+  user guide's examples decode it, and a LambdaInvoke task invokes the function
+  whether or not an object holds the key, since the guide's JSON-key manifests
+  name none. `TestS3Control_BatchJobURLEncodedKeys` tags objects whose keys
+  hold a space (`%20` and `+`), a comma, an é and a plus.
 - **An image pull says why it pulled.** `pullImage` writes a `[sim-pull]` line
   when the held-image check fails, with the inspect error or the held and
   wanted platforms, and one per throttled retry with the attempt, the error
@@ -644,6 +654,16 @@ through hooks:
   and answers its `504 Gateway Time-out` page when a target stays silent past
   it. Container Apps ingress bounds a request at the service's documented 240
   seconds and answers Envoy's `504 upstream request timeout`.
+- **Every Elastic Load Balancing resource keeps its tags.** CreateListener
+  and CreateRule store the tags they carry, and AddTags, RemoveTags,
+  DescribeTags and the IAM gate's `aws:ResourceTag/<k>` read and write the tag
+  set of a listener, rule or trust store as they do a load balancer's or a
+  target group's; the simulator had dropped listener and rule tags and served
+  no trust store's. A tagging request naming a resource that does not exist
+  answers that type's not-found error (`ListenerNotFound`, `RuleNotFound`, …)
+  and changes nothing. Load balancers, target groups, listeners, rules and
+  trust stores are identified by 16 lowercase hexadecimal characters, as
+  their ARNs are in AWS.
 - **A page token proves where it came from.** Every listing tags the tokens it
   issues and refuses one it never issued with the service's invalid-argument
   error, instead of listing an empty page.
@@ -1809,7 +1829,17 @@ awsQuery gate, the AWS Lambda REST gate, the Amazon CloudWatch CBOR routes
 and EventBridge Scheduler's universal targets alike. The tagging check
 authorizes against the resource being created — for Amazon EC2 the wildcard
 of each tag specification's resource type — and reports no `aws:ResourceTag`,
-because that resource has none yet. Session tags on an `AssumeRole` need the
+because that resource has none yet. Where the create itself authorizes against
+a parent, the check names the type it mints under that parent with the
+identifier the service assigns as the wildcard (`iamMintedResourceARNs`):
+Elastic Load Balancing's CreateListener a `listener/app/<lb>/<id>/*` under
+its load balancer, CreateRule a `listener-rule/…/*` under its listener, and
+Amazon ECS's RunTask and StartTask a `task/<cluster>/*`. AWS Lambda's
+CreateFunction authorizes, and tags, the `function:<name>` its body names,
+and the Amazon CloudWatch RPC v2 CBOR routes derive their resources from the
+CBOR body as the JSON routes do from theirs, so PutMetricAlarm authorizes
+`alarm:<name>` rather than `"*"`. The AWS CLI's awsJson1_0 CloudWatch
+requests carry their tags in the same `Tags` list, which the check reads too. Session tags on an `AssumeRole` need the
 role's trust policy to allow `sts:TagSession` too.
 
 An Amazon S3 control-plane resource has one tag set, held in
@@ -1820,7 +1850,12 @@ remove it, and TagResource, ListTagsForResource and the IAM gate's
 `aws:ResourceTag/<k>` read nothing else, so a tag given at create time and one
 added later are indistinguishable to every reader. TagResource on an Access
 Grants location or grant ARN requires that location or grant to exist, not
-merely the instance.
+merely the instance. A Storage Lens configuration and a Batch Operations job
+are the exceptions: their own tagging operations
+(PutStorageLensConfigurationTagging, PutJobTagging and their Get and Delete
+pairs) keep their one tag set, the IAM gate reads `aws:ResourceTag/<k>` from
+it, and the trio refuses their ARNs, since the Service Reference lists neither
+type for TagResource, UntagResource or ListTagsForResource.
 
 Google Cloud's `testIamPermissions` answers from the stored policy resolved
 through the vendored curated roles and the held custom roles. A conditional

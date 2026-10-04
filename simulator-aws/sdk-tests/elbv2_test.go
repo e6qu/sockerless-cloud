@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -260,6 +261,11 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 	require.NoError(t, proxiedResp.Body.Close())
 	assert.Equal(t, http.StatusOK, proxiedResp.StatusCode, fmt.Sprintf("ELBv2 proxy status = %s", proxiedResp.Status))
 	listenerArn := *listenerOut.Listeners[0].ListenerArn
+	// Elastic Load Balancing identifies a load balancer, target group and
+	// listener by 16 lowercase hexadecimal characters.
+	assert.Regexp(t, `:loadbalancer/app/[^/]+/[0-9a-f]{16}$`, lbArn)
+	assert.Regexp(t, `:targetgroup/[^/]+/[0-9a-f]{16}$`, tgArn)
+	assert.Regexp(t, `:listener/app/[^/]+/[0-9a-f]{16}/[0-9a-f]{16}$`, listenerArn)
 	listeners, err := elb.DescribeListeners(ctx, &elbv2.DescribeListenersInput{
 		LoadBalancerArn: aws.String(lbArn),
 	})
@@ -287,18 +293,41 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 	})
 
 	_, err = elb.AddTags(ctx, &elbv2.AddTagsInput{
-		ResourceArns: []string{lbArn, tgArn},
+		ResourceArns: []string{lbArn, tgArn, listenerArn},
 		Tags:         []elbtypes.Tag{{Key: aws.String("phase"), Value: aws.String("sdk")}},
 	})
 	require.NoError(t, err)
-	tagOut, err := elb.DescribeTags(ctx, &elbv2.DescribeTagsInput{ResourceArns: []string{lbArn, tgArn}})
+	tagOut, err := elb.DescribeTags(ctx, &elbv2.DescribeTagsInput{ResourceArns: []string{lbArn, tgArn, listenerArn}})
 	require.NoError(t, err)
-	require.Len(t, tagOut.TagDescriptions, 2)
+	require.Len(t, tagOut.TagDescriptions, 3)
+	for _, description := range tagOut.TagDescriptions {
+		assert.Contains(t, description.Tags, elbtypes.Tag{Key: aws.String("phase"), Value: aws.String("sdk")},
+			aws.ToString(description.ResourceArn))
+	}
 	_, err = elb.RemoveTags(ctx, &elbv2.RemoveTagsInput{
-		ResourceArns: []string{lbArn},
+		ResourceArns: []string{lbArn, listenerArn},
 		TagKeys:      []string{"phase"},
 	})
 	require.NoError(t, err)
+	untagged, err := elb.DescribeTags(ctx, &elbv2.DescribeTagsInput{ResourceArns: []string{listenerArn}})
+	require.NoError(t, err)
+	require.Len(t, untagged.TagDescriptions, 1)
+	assert.Empty(t, untagged.TagDescriptions[0].Tags)
+
+	// Tagging a resource that does not exist is refused with the error of its
+	// type, and tags nothing the request also names.
+	missingListener := listenerArn[:strings.LastIndex(listenerArn, "/")+1] + "0000000000000000"
+	_, err = elb.AddTags(ctx, &elbv2.AddTagsInput{
+		ResourceArns: []string{tgArn, missingListener},
+		Tags:         []elbtypes.Tag{{Key: aws.String("orphan"), Value: aws.String("yes")}},
+	})
+	var listenerNotFound *elbtypes.ListenerNotFoundException
+	require.ErrorAs(t, err, &listenerNotFound)
+	tgTags, err := elb.DescribeTags(ctx, &elbv2.DescribeTagsInput{ResourceArns: []string{tgArn}})
+	require.NoError(t, err)
+	for _, tag := range tgTags.TagDescriptions[0].Tags {
+		assert.NotEqual(t, "orphan", aws.ToString(tag.Key))
+	}
 
 	limits, err := elb.DescribeAccountLimits(ctx, &elbv2.DescribeAccountLimitsInput{})
 	require.NoError(t, err)

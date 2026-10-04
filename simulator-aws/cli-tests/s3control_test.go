@@ -130,6 +130,23 @@ func TestS3ControlCLI_StorageLens(t *testing.T) {
 	listed := s3ControlCLI(t, "list-storage-lens-configurations")
 	assert.Contains(t, listed, configID)
 
+	// The configuration's tags are the set its own tagging operations keep;
+	// tag-resource does not serve the configuration type.
+	var described struct {
+		StorageLensConfiguration struct {
+			StorageLensArn string `json:"StorageLensArn"`
+		} `json:"StorageLensConfiguration"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(got), &described))
+	s3ControlCLI(t, "put-storage-lens-configuration-tagging", "--config-id", configID,
+		"--tags", "Key=team,Value=storage")
+	assert.Contains(t, s3ControlCLI(t, "get-storage-lens-configuration-tagging", "--config-id", configID), "storage")
+	refused := runCLIExpectError(t, s3ControlCLICommand("tag-resource",
+		"--resource-arn", described.StorageLensConfiguration.StorageLensArn, "--tags", "Key=tier,Value=gold"))
+	assert.Contains(t, refused, "NotFoundException")
+	s3ControlCLI(t, "delete-storage-lens-configuration-tagging", "--config-id", configID)
+	assert.NotContains(t, s3ControlCLI(t, "get-storage-lens-configuration-tagging", "--config-id", configID), "storage")
+
 	groupPath := filepath.Join(tmpDir, "lens-group.json")
 	require.NoError(t, os.WriteFile(groupPath, []byte(fmt.Sprintf(`{
 	  "Name": %q,
@@ -252,7 +269,8 @@ func TestS3ControlCLI_MultiRegionAccessPoint(t *testing.T) {
 }
 
 // TestS3ControlCLI_BatchJob runs a batch job through the CLI: the manifest
-// lists two objects, the job tags them, and the tags are readable afterwards.
+// lists two objects, one by a URL-encoded key holding a space, a comma and an
+// é, the job tags them, and the tags are readable afterwards.
 func TestS3ControlCLI_BatchJob(t *testing.T) {
 	bucket, roleName := "cli-batch-bucket", "cli-batch-role"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
@@ -261,14 +279,15 @@ func TestS3ControlCLI_BatchJob(t *testing.T) {
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"batchoperations.s3.amazonaws.com"},"Action":"sts:AssumeRole"}]}`))
 	t.Cleanup(func() { _ = awsCLI("iam", "delete-role", "--role-name", roleName).Run() })
 
-	for _, key := range []string{"alpha.txt", "beta.txt"} {
-		local := filepath.Join(tmpDir, key)
+	const encodedKey = "beta+report%2C%C3%A9.txt"
+	for i, key := range []string{"alpha.txt", "beta report,é.txt"} {
+		local := filepath.Join(tmpDir, fmt.Sprintf("batch-object-%d", i))
 		require.NoError(t, os.WriteFile(local, []byte(key), 0o644))
 		runCLI(t, awsCLI("s3api", "put-object", "--bucket", bucket, "--key", key, "--body", local))
 	}
 	manifestLocal := filepath.Join(tmpDir, "batch-manifest.csv")
 	require.NoError(t, os.WriteFile(manifestLocal,
-		[]byte(bucket+",alpha.txt\n"+bucket+",beta.txt\n"), 0o644))
+		[]byte(bucket+",alpha.txt\n"+bucket+","+encodedKey+"\n"), 0o644))
 	putManifest := runCLI(t, awsCLI("s3api", "put-object", "--bucket", bucket,
 		"--key", "manifest.csv", "--body", manifestLocal))
 	var manifestPut struct {
@@ -307,8 +326,10 @@ func TestS3ControlCLI_BatchJob(t *testing.T) {
 
 	// The job really tagged the objects, which is what the progress report is
 	// a report of.
-	tags := runCLI(t, awsCLI("s3api", "get-object-tagging", "--bucket", bucket, "--key", "alpha.txt"))
-	assert.Contains(t, tags, "reviewed")
+	for _, key := range []string{"alpha.txt", "beta report,é.txt"} {
+		tags := runCLI(t, awsCLI("s3api", "get-object-tagging", "--bucket", bucket, "--key", key))
+		assert.Contains(t, tags, "reviewed", key)
+	}
 
 	s3ControlCLI(t, "put-job-tagging", "--job-id", createdJob.JobId,
 		"--tags", "Key=owner,Value=data-team")

@@ -364,7 +364,7 @@ func registerLambda(srv *sim.Server, startBackgroundPollers bool) {
 	mux := srv
 
 	lambdaResource := cloudTrailRESTResource("AWS::Lambda::Function", "name", "arn")
-	mux.HandleFunc("POST /2015-03-31/functions", cloudTrailRecordedREST("CreateFunction", "lambda.amazonaws.com", nil, lambdaEnforced("CreateFunction", nil, handleLambdaCreateFunction)))
+	mux.HandleFunc("POST /2015-03-31/functions", cloudTrailRecordedREST("CreateFunction", "lambda.amazonaws.com", nil, lambdaEnforced("CreateFunction", lambdaCreatedFunctionARN, handleLambdaCreateFunction)))
 	mux.HandleFunc("GET /2015-03-31/functions/{name}", cloudTrailRecordedREST("GetFunction", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("GetFunction", lambdaFunctionResourceARN, handleLambdaGetFunction)))
 	mux.HandleFunc("DELETE /2015-03-31/functions/{name}", cloudTrailRecordedREST("DeleteFunction", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("DeleteFunction", lambdaFunctionResourceARN, handleLambdaDeleteFunction)))
 	mux.HandleFunc("PUT /2015-03-31/functions/{name}/configuration", cloudTrailRecordedREST("UpdateFunctionConfiguration", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("UpdateFunctionConfiguration", lambdaFunctionResourceARN, handleLambdaUpdateFunctionConfiguration)))

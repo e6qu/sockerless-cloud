@@ -89,6 +89,10 @@ resource "aws_s3control_storage_lens_configuration" "dashboard" {
       bucket_level {}
     }
   }
+
+  tags = {
+    team = "storage"
+  }
 }
 
 resource "aws_s3control_access_grants_instance" "grants" {}
@@ -137,6 +141,10 @@ output "object_lambda_access_point_arn" {
 
 output "storage_lens_arn" {
   value = aws_s3control_storage_lens_configuration.dashboard.arn
+}
+
+output "storage_lens_team" {
+  value = aws_s3control_storage_lens_configuration.dashboard.tags_all["team"]
 }
 
 output "access_grants_instance_arn" {

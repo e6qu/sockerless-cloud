@@ -24,7 +24,11 @@ func iamTagOnCreateTargets(r *http.Request, service, operation string, resources
 	}
 	var targets []iamAuthorizationTarget
 	for _, action := range tagging {
-		for _, arn := range iamTaggedResourceARNs(r, service, action, resources) {
+		arns := iamMintedResourceARNs(r, service, operation)
+		if len(arns) == 0 {
+			arns = iamTaggedResourceARNs(r, service, action, resources)
+		}
+		for _, arn := range arns {
 			targets = append(targets, iamAuthorizationTarget{action: service + ":" + action, resource: arn})
 		}
 	}
@@ -62,6 +66,37 @@ func iamTaggedResourceARNs(r *http.Request, service, action string, resources []
 		return []string{"*"}
 	}
 	return out
+}
+
+// iamMintedResourceARNs is the resource a create mints where the generic
+// derivation does not reach it: the created type's ARN under the parent the
+// create authorizes against, with the identifier the service assigns as the
+// wildcard, or the AWS Lambda function its body names.
+func iamMintedResourceARNs(r *http.Request, service, operation string) []string {
+	region := iamRequestedRegion(r)
+	if region == "" {
+		region = awsRegion()
+	}
+	child := func(parent, kind, minted string) []string {
+		prefix, path, ok := strings.Cut(parent, ":"+kind+"/")
+		if !ok || path == "" {
+			return nil
+		}
+		return []string{prefix + ":" + minted + "/" + path + "/*"}
+	}
+	switch service + ":" + operation {
+	case "elasticloadbalancing:CreateListener":
+		return child(r.FormValue("LoadBalancerArn"), "loadbalancer", "listener")
+	case "elasticloadbalancing:CreateRule":
+		return child(r.FormValue("ListenerArn"), "listener", "listener-rule")
+	case "ecs:RunTask", "ecs:StartTask":
+		return []string{"arn:aws:ecs:" + region + ":" + awsAccountID() + ":task/" + iamECSClusterName(r) + "/*"}
+	case "lambda:CreateFunction":
+		if arn := lambdaCreatedFunctionARN(r); arn != "" {
+			return []string{arn}
+		}
+	}
+	return nil
 }
 
 // iamEC2TagSpecificationARNs reads the resource type of each tag specification

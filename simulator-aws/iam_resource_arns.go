@@ -1002,7 +1002,7 @@ func iamACMResourceARNs(r *http.Request, types []string) []string {
 // DashboardName, an insight rule's RuleName — so filling the published format
 // is all it takes.
 func iamCloudWatchResourceARNs(r *http.Request, types []string, region, account string) []string {
-	fields := iamJSONRequestFields(r)
+	fields := iamCloudWatchRequestFields(r)
 	// Listing an alarm's mute rules names the alarm, and the rules on it are
 	// what the listing authorizes against — each rule records the alarms it
 	// covers, so the rules are recovered through an index keyed on them rather
@@ -1038,6 +1038,30 @@ func iamCloudWatchResourceARNs(r *http.Request, types []string, region, account 
 	}
 	return iamTableDrivenARNs("cloudwatch", types, region, account, iamCloudWatchFieldAliases,
 		func(field string) []string { return fields[strings.ToLower(field)] })
+}
+
+// iamCloudWatchRequestFields reads a request's top-level string and
+// string-list members by lower-cased name, from the RPC v2 CBOR body the Go
+// SDK sends or the JSON body other clients send.
+func iamCloudWatchRequestFields(r *http.Request) map[string][]string {
+	document := iamCBORRequestDocument(r)
+	if document == nil {
+		return iamJSONRequestFields(r)
+	}
+	fields := map[string][]string{}
+	for name, value := range document {
+		switch value := value.(type) {
+		case string:
+			fields[strings.ToLower(name)] = []string{value}
+		case []any:
+			for _, item := range value {
+				if s, ok := item.(string); ok {
+					fields[strings.ToLower(name)] = append(fields[strings.ToLower(name)], s)
+				}
+			}
+		}
+	}
+	return fields
 }
 
 // iamCloudWatchFieldAliases records where the API's spelling differs from the

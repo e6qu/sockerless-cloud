@@ -40,6 +40,12 @@ func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 		_, _ = c.DeleteTrustStore(ctx, &elbv2.DeleteTrustStoreInput{TrustStoreArn: aws.String(arn)})
 	})
 
+	tags, err := c.DescribeTags(ctx, &elbv2.DescribeTagsInput{ResourceArns: []string{arn}})
+	require.NoError(t, err)
+	require.Len(t, tags.TagDescriptions, 1)
+	assert.Equal(t, []elbtypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}}, tags.TagDescriptions[0].Tags,
+		"the trust store keeps the tags CreateTrustStore carried")
+
 	// Describe by ARN and by Name.
 	descByArn, err := c.DescribeTrustStores(ctx, &elbv2.DescribeTrustStoresInput{
 		TrustStoreArns: []string{arn},
