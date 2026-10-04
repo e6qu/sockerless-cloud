@@ -119,7 +119,8 @@ func auditServiceAccountResource(sa GCPServiceAccount) *MonitoredResource {
 }
 
 // auditLookupServiceAccount finds the service account a resource name
-// addresses by email or unique ID, under its project or the - wildcard.
+// addresses by email or unique ID, under its project or the - wildcard; a
+// unique ID also finds a deleted account, which undelete addresses.
 func auditLookupServiceAccount(name string) (GCPServiceAccount, bool) {
 	if iamServiceAccounts == nil {
 		return GCPServiceAccount{}, false
@@ -134,6 +135,9 @@ func auditLookupServiceAccount(name string) (GCPServiceAccount, bool) {
 	}
 	for _, sa := range iamServiceAccounts.Filter(func(sa GCPServiceAccount) bool { return sa.UniqueId == id }) {
 		return sa, true
+	}
+	if deleted, ok := iamDeletedServiceAccounts.Get(id); ok {
+		return deleted.Account, true
 	}
 	return GCPServiceAccount{}, false
 }

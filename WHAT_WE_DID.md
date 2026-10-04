@@ -1921,6 +1921,15 @@ credential no IAM user registered is on AWS. `generateAccessToken` honours the
 requested lifetime up to one hour, or twelve where the Organization Policy
 constraint allows it, with the constraint defaulting to deny.
 
+A deleted Google Cloud service account is a resource IAM still holds, not an
+absence. The deleted account lives in its own store keyed by unique ID, not as
+a flag on the live row, because the live store is keyed by email and a new
+account may take that email during the 30-day window; undelete is keyed by
+unique ID for the same reason, which is why gcloud refuses anything else. The
+window is IAM's documented 30 days measured against the clock at each delete
+and undelete, with no timer of the simulator's own, the way Cloud Storage's
+soft-deleted objects lapse at their `hardDeleteTime`.
+
 ## Measurement and gates
 
 Every quality gate has been shown to fail on a planted violation of its own

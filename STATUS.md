@@ -225,6 +225,15 @@ Current state of the sockerless-cloud repository.
   watch never ingests it. Every Cloud Storage JSON API request first waits
   for the events queued before it, and a task's execution completes only
   after its writes are objects. Linux only; the rest is BUGS.md 3084.
+- **A deleted service account is held for IAM's 30 days.** Delete moves the
+  account, its keys, its system-managed key and its own IAM policy out of the
+  live stores into one held under the account's unique ID with its deletion
+  time; get and list no longer see it, and a create under the same email makes
+  a new account with a new unique ID. `projects.serviceAccounts.undelete`,
+  which gcloud sends to `projects/-/serviceAccounts/{uniqueId}:undelete`,
+  restores it with its unique ID while the window lasts and the email is free;
+  each delete and undelete purges the accounts whose window has lapsed against
+  the clock. Every service-account method accepts the unique ID in the name.
 - **Transitional states are served.** Amazon Kinesis Data Streams consumers
   pass through CREATING and DELETING, Client VPN endpoint authorization
   policies through creating, updating and deleting, and Amazon ECR refuses to
