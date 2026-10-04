@@ -180,6 +180,10 @@ func TestOperationsAreAuthorizedAsTheirActions(t *testing.T) {
 		service     = "arn:aws:ecs:us-east-1:123456789012:service/c/s"
 		targetGroup = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/tg/*"
 		image       = "arn:aws:ec2:us-east-1::image/ami-1"
+
+		loadBalancer   = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/50dc6c495c0c9188"
+		listener       = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/50dc6c495c0c9188/f2f7dc8efc522ab2"
+		taskDefinition = "arn:aws:ecs:us-east-1:123456789012:task-definition/web:3"
 	)
 	for name, tc := range map[string]struct {
 		r                  *http.Request
@@ -225,6 +229,29 @@ func TestOperationsAreAuthorizedAsTheirActions(t *testing.T) {
 				"Tags.member.1.Key": {"team"}, "Tags.member.1.Value": {"a"}}),
 			"elasticloadbalancing", "CreateTargetGroup", []string{targetGroup},
 			[]string{"elasticloadbalancing:AddTags " + targetGroup, "elasticloadbalancing:CreateTargetGroup " + targetGroup},
+		},
+		"a tagged listener tags the listener under its load balancer": {
+			queryRequest(url.Values{"Action": {"CreateListener"}, "LoadBalancerArn": {loadBalancer},
+				"Tags.member.1.Key": {"team"}, "Tags.member.1.Value": {"a"}}),
+			"elasticloadbalancing", "CreateListener", []string{loadBalancer},
+			[]string{
+				"elasticloadbalancing:AddTags arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/50dc6c495c0c9188/*",
+				"elasticloadbalancing:CreateListener " + loadBalancer,
+			},
+		},
+		"a tagged rule tags the rule under its listener": {
+			queryRequest(url.Values{"Action": {"CreateRule"}, "ListenerArn": {listener},
+				"Tags.member.1.Key": {"team"}, "Tags.member.1.Value": {"a"}}),
+			"elasticloadbalancing", "CreateRule", []string{listener},
+			[]string{
+				"elasticloadbalancing:AddTags arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/50dc6c495c0c9188/f2f7dc8efc522ab2/*",
+				"elasticloadbalancing:CreateRule " + listener,
+			},
+		},
+		"a tagged run tags the task in its cluster": {
+			jsonRequest(`{"cluster":"arn:aws:ecs:us-east-1:123456789012:cluster/batch","taskDefinition":"web:3","tags":[{"key":"team","value":"a"}]}`),
+			"ecs", "RunTask", []string{taskDefinition},
+			[]string{"ecs:RunTask " + taskDefinition, "ecs:TagResource arn:aws:ecs:us-east-1:123456789012:task/batch/*"},
 		},
 		"a launch tags the resources its tag specifications name": {
 			queryRequest(url.Values{"Action": {"RunInstances"}, "ImageId": {"ami-1"},

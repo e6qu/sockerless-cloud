@@ -54,7 +54,8 @@ Current state of the sockerless-cloud repository.
   `testdata/iam_condition_key_gaps.tsv` (BUG-2965 holds the unseeded and
   unbuilt ones). A create carrying tags is also authorized as its service's
   tagging action with `<service>:CreateAction` naming it, for the 297
-  operations the references list one for. The Amazon S3 control plane is
+  operations the references list one for, against the resource the create
+  mints. The Amazon S3 control plane is
   authorized route by route, each in the namespace AWS publishes its action under — s3, s3express,
   s3-outposts or s3-object-lambda. One route is tested as ungated and says why:
   no vendored document declares an action for the control plane's

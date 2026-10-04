@@ -1829,7 +1829,17 @@ awsQuery gate, the AWS Lambda REST gate, the Amazon CloudWatch CBOR routes
 and EventBridge Scheduler's universal targets alike. The tagging check
 authorizes against the resource being created — for Amazon EC2 the wildcard
 of each tag specification's resource type — and reports no `aws:ResourceTag`,
-because that resource has none yet. Session tags on an `AssumeRole` need the
+because that resource has none yet. Where the create itself authorizes against
+a parent, the check names the type it mints under that parent with the
+identifier the service assigns as the wildcard (`iamMintedResourceARNs`):
+Elastic Load Balancing's CreateListener a `listener/app/<lb>/<id>/*` under
+its load balancer, CreateRule a `listener-rule/…/*` under its listener, and
+Amazon ECS's RunTask and StartTask a `task/<cluster>/*`. AWS Lambda's
+CreateFunction authorizes, and tags, the `function:<name>` its body names,
+and the Amazon CloudWatch RPC v2 CBOR routes derive their resources from the
+CBOR body as the JSON routes do from theirs, so PutMetricAlarm authorizes
+`alarm:<name>` rather than `"*"`. The AWS CLI's awsJson1_0 CloudWatch
+requests carry their tags in the same `Tags` list, which the check reads too. Session tags on an `AssumeRole` need the
 role's trust policy to allow `sts:TagSession` too.
 
 An Amazon S3 control-plane resource has one tag set, held in

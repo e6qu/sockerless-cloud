@@ -1,6 +1,7 @@
 package aws_cli_test
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -249,4 +250,56 @@ func withCreds(env []string, akid, secret string) []string {
 		out = append(out, e)
 	}
 	return append(out, "AWS_ACCESS_KEY_ID="+akid, "AWS_SECRET_ACCESS_KEY="+secret)
+}
+
+// TestIAM_TagOnCreateIsScopedToTheCreatedAlarmCLI creates a tagged alarm under
+// a tagging grant scoped to alarms: the tagging check put-metric-alarm adds
+// authorizes against the alarm it names, so the grant allows it and one
+// scoped to dashboards does not.
+func TestIAM_TagOnCreateIsScopedToTheCreatedAlarmCLI(t *testing.T) {
+	credentials := func(user, tagging string) (string, string) {
+		runCLI(t, awsCLI("iam", "create-user", "--user-name", user))
+		t.Cleanup(func() { _ = awsCLI("iam", "delete-user", "--user-name", user).Run() })
+		runCLI(t, awsCLI("iam", "put-user-policy", "--user-name", user, "--policy-name", "alarms",
+			"--policy-document", `{"Version":"2012-10-17","Statement":[`+
+				`{"Effect":"Allow","Action":"cloudwatch:PutMetricAlarm","Resource":"arn:aws:cloudwatch:*:*:alarm:cli-toc-*"},`+
+				`{"Effect":"Allow","Action":"cloudwatch:TagResource","Resource":"`+tagging+`"}]}`))
+		t.Cleanup(func() {
+			_ = awsCLI("iam", "delete-user-policy", "--user-name", user, "--policy-name", "alarms").Run()
+		})
+		var key struct {
+			AccessKey struct {
+				AccessKeyId     string `json:"AccessKeyId"`
+				SecretAccessKey string `json:"SecretAccessKey"`
+			} `json:"AccessKey"`
+		}
+		parseJSON(t, runCLI(t, awsCLI("iam", "create-access-key", "--user-name", user, "--output", "json")), &key)
+		t.Cleanup(func() {
+			_ = awsCLI("iam", "delete-access-key", "--user-name", user, "--access-key-id", key.AccessKey.AccessKeyId).Run()
+		})
+		return key.AccessKey.AccessKeyId, key.AccessKey.SecretAccessKey
+	}
+	putAlarm := func(name, akid, secret string) *exec.Cmd {
+		cmd := awsCLI("cloudwatch", "put-metric-alarm", "--alarm-name", name,
+			"--namespace", "TagOnCreate", "--metric-name", "Load", "--statistic", "Average",
+			"--period", "60", "--evaluation-periods", "1", "--threshold", "1",
+			"--comparison-operator", "GreaterThanThreshold", "--tags", "Key=team,Value=blue")
+		cmd.Env = withCreds(cmd.Env, akid, secret)
+		t.Cleanup(func() { _ = awsCLI("cloudwatch", "delete-alarms", "--alarm-names", name).Run() })
+		return cmd
+	}
+
+	akid, secret := credentials("cli-toc-dashboards", "arn:aws:cloudwatch::*:dashboard/*")
+	denied := runCLIExpectError(t, putAlarm("cli-toc-denied", akid, secret))
+	if !strings.Contains(denied, "cloudwatch:TagResource") {
+		t.Fatalf("a tagging grant on dashboards should not tag an alarm; got: %s", denied)
+	}
+
+	akid, secret = credentials("cli-toc-alarms", "arn:aws:cloudwatch:*:*:alarm:*")
+	runCLI(t, putAlarm("cli-toc-allowed", akid, secret))
+	tags := runCLI(t, awsCLI("cloudwatch", "list-tags-for-resource",
+		"--resource-arn", "arn:aws:cloudwatch:us-east-1:123456789012:alarm:cli-toc-allowed"))
+	if !strings.Contains(tags, "blue") {
+		t.Fatalf("the alarm should carry team=blue; got: %s", tags)
+	}
 }
