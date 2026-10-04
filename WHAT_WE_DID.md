@@ -379,6 +379,28 @@ through hooks:
   ends with the caller. It
   serves work like a synchronous AWS Lambda invocation, which real Lambda keeps
   running after its caller hangs up.
+- **A synchronous call ends with the simulator, not with its caller.** A
+  synchronous AWS Lambda Invoke, InvokeWithResponseStream, an Amazon S3 Object
+  Lambda transformation, an Amazon S3 Batch Operations LambdaInvoke task, and a
+  Step Functions StartSyncExecution or TestState ran their functions under
+  `context.Background()`, so one in flight held the HTTP drain to its 10 s
+  bound. They run under `sim.LifetimeContext`, and the Step Functions
+  interpreter takes that context down to its Lambda tasks and aborts a
+  synchronous execution when it ends. Step Functions calls an awsJson or
+  awsQuery handler in-process with a request from `Server.RequestContext`, so
+  an AWS SDK integration such as `sfn:startSyncExecution` finds the same
+  lifetime. A recorded execution keeps `context.Background()` for its tasks,
+  because a task cancelled at shutdown would fail an execution the next
+  process resumes. Amazon S3 event notifications and AWS Lambda function
+  destinations invoke their function asynchronously, through the same
+  persisted dispatcher as an `Event` Invoke, as AWS does. A Batch Operations
+  LambdaInvoke task had read the invocation's unhandled flag inverted and
+  counted every succeeded task as failed, and S3 Object Lambda named a failed
+  function's response as a missing WriteGetObjectResponse.
+  `TestSimulatorStopsWithLifecycleWorkInFlight_SDK` keeps a synchronous Invoke
+  and a StartSyncExecution on a Lambda task in flight across SIGTERM and still
+  stops within 5 s, and `TestS3Control_BatchJobLambdaInvoke` runs a
+  LambdaInvoke job to `Complete`.
 - **An image pull says why it pulled.** `pullImage` writes a `[sim-pull]` line
   when the held-image check fails, with the inspect error or the held and
   wanted platforms, and one per throttled retry with the attempt, the error

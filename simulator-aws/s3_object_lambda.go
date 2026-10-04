@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -754,13 +753,10 @@ func s3ObjectLambdaGetObject(w http.ResponseWriter, r *http.Request, olap S3Obje
 	// The function answers out of band, on the route, so the invoke runs
 	// alongside the wait rather than before it.
 	invokeErr := make(chan error, 1)
+	lifetime := sim.LifetimeContext(r.Context())
 	go func() {
-		out, handled, status := invokeLambdaViaRuntimeAPI(context.Background(), fn, payload)
-		if !handled {
-			invokeErr <- fmt.Errorf("the transformation function did not run")
-			return
-		}
-		if status >= 300 {
+		out, unhandled, _ := invokeLambdaViaRuntimeAPI(lifetime, fn, payload)
+		if unhandled {
 			invokeErr <- fmt.Errorf("the transformation function failed: %s", strings.TrimSpace(string(out)))
 			return
 		}

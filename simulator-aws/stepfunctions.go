@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	cryptorand "crypto/rand"
 	"encoding/json"
 	"errors"
@@ -945,7 +946,10 @@ func sfnValidateDefinitionObject(def sfnDefinition, location, inheritedQueryLang
 func sfnRunExecution(execARN, definition, input string, cancel <-chan struct{}) {
 	defer sfnCancels.Delete(execARN)
 
-	output, status, err := sfnExecuteRecorded(execARN, definition, input, cancel)
+	// The simulator's shutdown does not reach a recorded execution's tasks: a
+	// cancelled task would fail the execution, which the next process instead
+	// resumes from RUNNING.
+	output, status, err := sfnExecuteRecorded(context.Background(), execARN, definition, input, cancel)
 	if errors.Is(err, errSFNAborted) {
 		return
 	}
@@ -994,29 +998,29 @@ func recoverStepFunctionsExecutions() {
 	}
 }
 
-func sfnExecute(definition, input string, cancel <-chan struct{}) (string, string, error) {
-	return sfnExecuteWithVariables(definition, input, cancel, nil)
+func sfnExecute(ctx context.Context, definition, input string, cancel <-chan struct{}) (string, string, error) {
+	return sfnExecuteWithVariables(ctx, definition, input, cancel, nil)
 }
 
-func sfnExecuteWithVariables(definition, input string, cancel <-chan struct{}, variables map[string]any) (string, string, error) {
+func sfnExecuteWithVariables(ctx context.Context, definition, input string, cancel <-chan struct{}, variables map[string]any) (string, string, error) {
 	var def sfnDefinition
 	if err := json.Unmarshal([]byte(definition), &def); err != nil {
 		return "", "FAILED", err
 	}
-	return sfnRunTopLevelDefinition(def, input, cancel, variables, "")
+	return sfnRunTopLevelDefinition(ctx, def, input, cancel, variables, "")
 }
 
-func sfnExecuteRecorded(executionARN, definition, input string, cancel <-chan struct{}) (string, string, error) {
+func sfnExecuteRecorded(ctx context.Context, executionARN, definition, input string, cancel <-chan struct{}) (string, string, error) {
 	var def sfnDefinition
 	if err := json.Unmarshal([]byte(definition), &def); err != nil {
 		return "", "FAILED", err
 	}
-	return sfnRunTopLevelDefinition(def, input, cancel, nil, executionARN)
+	return sfnRunTopLevelDefinition(ctx, def, input, cancel, nil, executionARN)
 }
 
-func sfnRunTopLevelDefinition(def sfnDefinition, input string, cancel <-chan struct{}, variables map[string]any, executionARN string) (string, string, error) {
+func sfnRunTopLevelDefinition(ctx context.Context, def sfnDefinition, input string, cancel <-chan struct{}, variables map[string]any, executionARN string) (string, string, error) {
 	if def.TimeoutSeconds == nil {
-		return sfnRunDefDepthRuntime(def, input, cancel, 0, variables, executionARN)
+		return sfnRunDefDepthRuntime(ctx, def, input, cancel, 0, variables, executionARN)
 	}
 	timer := time.NewTimer(time.Duration(*def.TimeoutSeconds) * time.Second)
 	defer timer.Stop()
@@ -1034,7 +1038,7 @@ func sfnRunTopLevelDefinition(def sfnDefinition, input string, cancel <-chan str
 		case <-done:
 		}
 	})
-	output, status, err := sfnRunDefDepthRuntime(def, input, combined, 0, variables, executionARN)
+	output, status, err := sfnRunDefDepthRuntime(ctx, def, input, combined, 0, variables, executionARN)
 	select {
 	case <-timeoutFired:
 		return "", "TIMED_OUT", &sfnExecutionError{Name: "States.Timeout", Cause: "Execution timed out"}
@@ -1048,11 +1052,11 @@ func sfnRunTopLevelDefinition(def sfnDefinition, input string, cancel <-chan str
 // AWS's own ASL nesting limit is far below this.
 const sfnMaxNestingDepth = 200
 
-func sfnRunDefDepthWithVariables(def sfnDefinition, input string, cancel <-chan struct{}, depth int, inheritedVariables map[string]any) (string, string, error) {
-	return sfnRunDefDepthRuntime(def, input, cancel, depth, inheritedVariables, "")
+func sfnRunDefDepthWithVariables(ctx context.Context, def sfnDefinition, input string, cancel <-chan struct{}, depth int, inheritedVariables map[string]any) (string, string, error) {
+	return sfnRunDefDepthRuntime(ctx, def, input, cancel, depth, inheritedVariables, "")
 }
 
-func sfnRunDefDepthRuntime(def sfnDefinition, input string, cancel <-chan struct{}, depth int, inheritedVariables map[string]any, executionARN string) (string, string, error) {
+func sfnRunDefDepthRuntime(ctx context.Context, def sfnDefinition, input string, cancel <-chan struct{}, depth int, inheritedVariables map[string]any, executionARN string) (string, string, error) {
 	if depth > sfnMaxNestingDepth {
 		return "", "FAILED", fmt.Errorf("state machine nesting depth exceeded %d", sfnMaxNestingDepth)
 	}
@@ -1226,7 +1230,7 @@ func sfnRunDefDepthRuntime(def sfnDefinition, input string, cancel <-chan struct
 			result = effectiveInput
 			transition, terminal = state.Next, state.End
 		case "Task":
-			result, executionErr = sfnRunTaskWithRetry(state, effectiveInput, context, cancel, executionARN)
+			result, executionErr = sfnRunTaskWithRetry(ctx, state, effectiveInput, context, cancel, executionARN)
 			transition, terminal = state.Next, state.End
 		case "Choice":
 			transition = state.Default
@@ -1285,10 +1289,10 @@ func sfnRunDefDepthRuntime(def sfnDefinition, input string, cancel <-chan struct
 			current = transition
 			continue
 		case "Parallel":
-			result, executionErr = sfnRunParallel(state, effectiveInput, cancel, depth, variables, executionARN)
+			result, executionErr = sfnRunParallel(ctx, state, effectiveInput, cancel, depth, variables, executionARN)
 			transition, terminal = state.Next, state.End
 		case "Map":
-			result, executionErr = sfnRunMap(state, current, effectiveInput, context, cancel, depth, variables, executionARN)
+			result, executionErr = sfnRunMap(ctx, state, current, effectiveInput, context, cancel, depth, variables, executionARN)
 			transition, terminal = state.Next, state.End
 		default:
 			executionErr = &sfnExecutionError{Name: "States.Runtime", Cause: fmt.Sprintf("unsupported state type %q", state.Type)}
@@ -2750,7 +2754,8 @@ func handleSFNTestState(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	output, status, err := sfnRunDefDepthWithVariables(wrapped, input, nil, 0, variables)
+	lifetime := sim.LifetimeContext(r.Context())
+	output, status, err := sfnRunDefDepthWithVariables(lifetime, wrapped, input, lifetime.Done(), 0, variables)
 
 	resp := map[string]any{
 		"inspectionData": map[string]any{"input": input},
@@ -2815,7 +2820,8 @@ func handleSFNStartSyncExecution(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.DeclareWait(r.Context(), sfnExpressMaxDuration)
 	startDate := sfnEpochNow()
-	output, status, err := sfnExecute(sm.Definition, input, nil)
+	lifetime := sim.LifetimeContext(r.Context())
+	output, status, err := sfnExecute(lifetime, sm.Definition, input, lifetime.Done())
 	stopDate := sfnEpochNow()
 
 	resp := map[string]any{
