@@ -42,6 +42,9 @@ type msRedisPersistence struct {
 	Period      string
 	Start       time.Time
 	AppendFsync string
+	// startDue marks a schedule whose start time the service chose as the
+	// current time, so the snapshot at the start time itself is still owed.
+	startDue bool
 }
 
 // MSRedisPersistenceConfig mirrors google.cloud.redis.v1.PersistenceConfig.
@@ -94,6 +97,7 @@ func (p msRedisPersistence) rdb(period, start string, now time.Time) (msRedisPer
 	}
 	if p.Start.IsZero() {
 		p.Start = now.UTC()
+		p.startDue = true
 	}
 	return p, nil
 }
@@ -199,9 +203,10 @@ func (p msRedisPersistence) clusterConfig() *MSRedisClusterPersistenceConfig {
 }
 
 // nextSnapshot is the first snapshot time after now: the start time itself
-// while it is still ahead, and otherwise the next whole period after it.
+// while it is still ahead or still owed, and otherwise the next whole period
+// after it.
 func (p msRedisPersistence) nextSnapshot(now time.Time) time.Time {
-	if now.Before(p.Start) {
+	if p.startDue || now.Before(p.Start) {
 		return p.Start
 	}
 	period := msRedisSnapshotPeriods[p.Period]
@@ -233,15 +238,32 @@ func (p *msRedisPlane) scheduleSnapshots() {
 	p.snapshots = time.AfterFunc(time.Until(next), p.takeScheduledSnapshot)
 }
 
+// takeScheduledSnapshot snapshots a running engine. A snapshot owed at the
+// start time waits for the engine to come up, and Ensure arms it then.
 func (p *msRedisPlane) takeScheduledSnapshot() {
-	if p.running() {
-		p.opMu.Lock()
-		err := p.backgroundSave()
-		p.opMu.Unlock()
-		if err != nil {
-			log.Printf("Memorystore %s: RDB snapshot: %v", p.name, err)
+	if !p.running() {
+		p.mu.RLock()
+		owed := p.persistence.startDue
+		p.mu.RUnlock()
+		if !owed {
+			p.scheduleSnapshots()
 		}
+		return
 	}
+	p.mu.RLock()
+	start := p.persistence.Start
+	p.mu.RUnlock()
+	p.opMu.Lock()
+	err := p.backgroundSave()
+	p.opMu.Unlock()
+	if err != nil {
+		log.Printf("Memorystore %s: RDB snapshot: %v", p.name, err)
+	}
+	p.mu.Lock()
+	if p.persistence.Start.Equal(start) {
+		p.persistence.startDue = false
+	}
+	p.mu.Unlock()
 	p.scheduleSnapshots()
 }
 

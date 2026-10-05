@@ -1078,6 +1078,17 @@ slots onto one new shard. A cluster created from `gcsSource` or `managedBackupSo
 loads each RDB file into a standalone redis-server inside one node's container
 and moves the keys onto their shards with `redis-cli --cluster import`.
 
+Settling a cluster waits on the engine, never on a timer of the simulator's.
+Before it reads the topology, every node sends `CLUSTER MEET` to every other
+one, because a node learns a peer's role and announced hostname only from a
+packet that peer sends, and gossip picks whom to ping at random, up to half the
+node timeout apart; left to gossip, a replica-count update settled up to ten
+seconds late. Engines start with `repl-diskless-sync-delay 0`, so a primary
+starts a replica's full synchronisation when the replica asks rather than five
+seconds later, and a delete stops a resource's nodes in parallel. What a settle still waits on is Redis's own: a new primary stays
+`cluster_state:fail` for the two seconds Redis holds a master before letting it
+accept writes.
+
 `transitEncryptionMode` `SERVER_AUTHENTICATION` serves TLS from the relay, on
 port 6378 for an instance and 6379 for a cluster, with no plaintext listener.
 Each resource has a server CA of its own (a cluster with
@@ -1113,7 +1124,9 @@ its delete.
 `persistenceConfig` is honoured: RDB snapshots are BGSAVEs the control plane
 takes on the reported schedule (`rdbSnapshotStartTime` plus whole
 `rdbSnapshotPeriod`s, which `rdbNextSnapshotTime` reports), not the engine's
-save points; a cluster's AOF mode runs `appendonly yes` with the configured
+save points. A schedule given no start time starts at the current time, as the
+API reference says, and owes its first snapshot then: the control plane takes
+it at once, or as soon as the engine is up. A cluster's AOF mode runs `appendonly yes` with the configured
 `appendfsync`; an update applies live. A node keeps the files its persistence
 writes across a restart and loads its dataset from them, and a cluster node
 always keeps its `nodes.conf` identity. An export has the primary write its RDB
@@ -2452,9 +2465,14 @@ mounts read-only as a Cloud Run volume, and the test writes that object once it
 has observed the running state; a cancelled execution's hold is never released.
 `TestCloudRun_ExecutionRunningState` had held for thirty seconds and then
 waited out the RunJob operation's polling backoff, 36.5 s on CI and 74 s
-locally; it takes about a second. The wait that remains in the Pub/Sub tests is
-the cloud's own: the ten-second minimum ack deadline in
-`TestPubSub_GRPC_AckDeadlineRedelivery`.
+locally; it takes about a second. The RDB snapshot test waited fifteen seconds
+for a start time it had set ahead of the create; it now asks for a schedule
+with no start time, which snapshots at once. The waits that remain are the
+cloud's or the engine's own: Pub/Sub's ten-second minimum ack deadline in
+`TestPubSub_GRPC_AckDeadlineRedelivery`, the five-second
+`busy-reply-threshold` before a Redis replica running a script answers BUSY in
+`TestMemorystoreRedis_LimitedDataLossFailover`, and Redis's two-second hold on
+a new cluster primary.
 
 `Dockerfile.test`, the shared harness image, had matched `.gitignore`'s
 `*.test` and was never committed, so every `make docker-test` failed. It is
