@@ -2313,9 +2313,14 @@ strict so outside contributors cannot run CI. The owner merges them by bypass.
 The Release workflow ends in a reconciliation job
 (`scripts/verify-release-complete.sh`) that fails unless every expected asset
 and image index exists, because a hanging build once left an ordinary-looking
-release missing part of its contents. The simulator Dockerfiles keep the Go
-caches in cache mounts so the build-cache export carries only the source and
-binary, and manifest composition retries only a broken connection.
+release missing part of its contents. The simulator images build from the
+committed `simulator-<cloud>/dist` console bundle, the one `go install` and the
+release binaries embed, with no console build stage, and keep the Go caches in
+cache mounts. They export no BuildKit cache: every commit changes the source
+layer and the cache mounts never reach an export, so a `mode=max` export only
+re-uploaded the base images and the console stage's `node_modules`, and once
+spent 569 s of v2.0.7's fifteen-minute AWS image job doing so after the image
+was already pushed. Manifest composition retries only a broken connection.
 
 Publishes are keyed per commit and never cancelled by a later merge; retention
 runs in its own workflow and spares anything younger than two hours, because a
