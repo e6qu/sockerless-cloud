@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -124,6 +125,48 @@ func TestRDSCLI_InstanceRestoresToAPointInTime(t *testing.T) {
 	assert.Equal(t, []string{"after-restore-time", "before-restore-time"},
 		cliLedger(t, ctx, cliConnectPostgres(t, ctx, fromRetained.Endpoint.Address, fromRetained.Endpoint.Port)),
 		"the retained automated backup holds every row committed before the deletion")
+}
+
+// aws rds create-db-instance with a backup retention period takes the
+// instance's first automated backup though no client connects: the automated
+// backup describe-db-instance-automated-backups lists turns active and the
+// automated snapshot is available.
+func TestRDSCLI_InstanceTakesItsFirstAutomatedBackupWithoutAClient(t *testing.T) {
+	instanceID := "cli-instance-first-backup"
+	runCLI(t, awsCLI("rds", "create-db-instance",
+		"--db-instance-identifier", instanceID,
+		"--db-instance-class", "db.t3.micro",
+		"--engine", "postgres",
+		"--allocated-storage", "20",
+		"--master-username", cliRestoreUsername,
+		"--master-user-password", cliRestorePassword,
+		"--backup-retention-period", "1"))
+	cliCleanupDBInstance(t, instanceID)
+
+	// No waiter covers an automated backup, so read its status.
+	require.Eventually(t, func() bool {
+		var listed struct {
+			DBInstanceAutomatedBackups []struct {
+				Status string `json:"Status"`
+			} `json:"DBInstanceAutomatedBackups"`
+		}
+		parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-instance-automated-backups",
+			"--db-instance-identifier", instanceID)), &listed)
+		return len(listed.DBInstanceAutomatedBackups) == 1 && listed.DBInstanceAutomatedBackups[0].Status == "active"
+	}, 3*time.Minute, 500*time.Millisecond, "Amazon RDS takes the first automated backup when it creates the instance")
+
+	var snapshots struct {
+		DBSnapshots []struct {
+			DBSnapshotIdentifier string `json:"DBSnapshotIdentifier"`
+			Status               string `json:"Status"`
+		} `json:"DBSnapshots"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-snapshots",
+		"--db-instance-identifier", instanceID, "--snapshot-type", "automated")), &snapshots)
+	require.Len(t, snapshots.DBSnapshots, 1)
+	assert.True(t, strings.HasPrefix(snapshots.DBSnapshots[0].DBSnapshotIdentifier, "rds:"+instanceID+"-"))
+	assert.Equal(t, "available", snapshots.DBSnapshots[0].Status)
+	assert.NotEmpty(t, cliAvailableDBInstance(t, instanceID).LatestRestorableTime)
 }
 
 // aws rds restore-db-instance-from-s3 imports a Percona XtraBackup from an

@@ -161,12 +161,14 @@ func handleRDSStartAutomatedBackupsReplication(w http.ResponseWriter, r *http.Re
 	replica.MasterUserSecret = append([]byte(nil), source.MasterUserSecret...)
 	replica.BackendMasterUserSecret = append([]byte(nil), source.BackendMasterUserSecret...)
 	rdsReplicatedBackups.Put(replica.DBInstanceAutomatedBackupsArn, replica)
+	backedUp := false
 	rdsInstances.Update(source.DBInstanceIdentifier, func(instance *RDSInstance) {
 		instance.AutomatedBackupsReplications = append(instance.AutomatedBackupsReplications, replica.DBInstanceAutomatedBackupsArn)
+		backedUp = len(instance.BaseBackups) > 0
 	})
-	if len(source.BaseBackups) == 0 {
-		rdsTakeFirstBackupToReplicate(source.DBInstanceIdentifier, replica.DBInstanceAutomatedBackupsArn)
-	} else {
+	// A source still taking its first automated backup schedules the copy
+	// when it records that backup.
+	if backedUp {
 		rdsScheduleReplication(replica.DBInstanceAutomatedBackupsArn)
 	}
 	rdsXMLResponse(w, "StartDBInstanceAutomatedBackupsReplication", renderRDSInstanceAutoBackup(replica), requestID)
@@ -200,28 +202,6 @@ func handleRDSStopAutomatedBackupsReplication(w http.ResponseWriter, r *http.Req
 // does not hold yet, in the background.
 func rdsScheduleReplication(arn string) {
 	bg.Go(func() {
-		if _, err := rdsSyncReplicatedBackup(context.Background(), arn); err != nil {
-			log.Printf("Amazon RDS replicated automated backup %s: %v", arn, err)
-		}
-	})
-}
-
-// rdsTakeFirstBackupToReplicate brings up the engine of a source that holds
-// no automated snapshot yet. Amazon RDS takes an instance's first automated
-// backup when it creates the instance, but the simulator starts an engine at
-// its first client, and the engine's start takes that backup; recording it
-// schedules the copy into every automated backup the instance replicates.
-func rdsTakeFirstBackupToReplicate(instanceID, arn string) {
-	bg.Go(func() {
-		plane, ok := rdsLoadDataPlane(instanceID)
-		if !ok {
-			log.Printf("Amazon RDS replicated automated backup %s: the source %s serves no data plane", arn, instanceID)
-			return
-		}
-		if err := plane.engine.Ensure(); err != nil {
-			log.Printf("Amazon RDS replicated automated backup %s: start the source %s: %v", arn, instanceID, err)
-			return
-		}
 		if _, err := rdsSyncReplicatedBackup(context.Background(), arn); err != nil {
 			log.Printf("Amazon RDS replicated automated backup %s: %v", arn, err)
 		}

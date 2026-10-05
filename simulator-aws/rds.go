@@ -607,6 +607,7 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rdsInstances.Put(id, inst)
+	rdsTakeFirstInstanceBackup(id)
 	rdsXMLResponse(w, "CreateDBInstance", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
 
@@ -690,6 +691,7 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Amazon RDS %s: expire automated backups: %v", id, err)
 			}
 		})
+		rdsTakeFirstInstanceBackup(id)
 	}
 	instance, _ = rdsInstances.Get(id)
 	rdsXMLResponse(w, "ModifyDBInstance", renderRDSInstance(instance), sim.RequestID(r.Context()))
@@ -1382,6 +1384,7 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 		inst.Port = rdsDefaultPort(snap.Engine)
 	}
 	rdsInstances.Put(newInstID, inst)
+	rdsTakeFirstInstanceBackup(newInstID)
 	rdsXMLResponse(w, "RestoreDBInstanceFromDBSnapshot", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
 
@@ -1410,6 +1413,7 @@ func handleRDSReboot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rdsInstances.Put(id, inst)
+		rdsTakeFirstInstanceBackup(id)
 	}
 	rdsXMLResponse(w, "RebootDBInstance", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
@@ -2717,6 +2721,7 @@ func handleRDSStartInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	instance.DBInstanceStatus = "available"
 	rdsInstances.Put(id, instance)
+	rdsTakeFirstInstanceBackup(id)
 	updated := instance
 	rdsXMLResponse(w, "StartDBInstance", renderRDSInstance(updated), sim.RequestID(r.Context()))
 }

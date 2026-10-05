@@ -295,8 +295,7 @@ func TestRDS_CertificatesAndBackups(t *testing.T) {
 		})
 	})
 
-	// The instance's automated backup waits for its first automated snapshot,
-	// which its engine takes when it first serves.
+	// The instance's automated backup belongs to a live instance.
 	ab, err := c.DescribeDBInstanceAutomatedBackups(ctx, &rds.DescribeDBInstanceAutomatedBackupsInput{
 		DBInstanceIdentifier: aws.String(instID),
 	})
@@ -304,7 +303,6 @@ func TestRDS_CertificatesAndBackups(t *testing.T) {
 	require.Len(t, ab.DBInstanceAutomatedBackups, 1)
 	live := ab.DBInstanceAutomatedBackups[0]
 	assert.Equal(t, instID, aws.ToString(live.DBInstanceIdentifier))
-	assert.Equal(t, "creating", aws.ToString(live.Status))
 	assert.Equal(t, int32(1), aws.ToInt32(live.BackupRetentionPeriod))
 	abArn := aws.ToString(live.DBInstanceAutomatedBackupsArn)
 	require.NotEmpty(t, abArn)
@@ -368,13 +366,10 @@ func TestRDS_CertificatesAndBackups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, cab.DBClusterAutomatedBackups)
 
-	// The instance's engine has not started, so it has written no log file.
-	logs, err := c.DescribeDBLogFiles(ctx, &rds.DescribeDBLogFilesInput{DBInstanceIdentifier: aws.String(instID)})
-	require.NoError(t, err)
-	assert.Empty(t, logs.DescribeDBLogFiles)
+	// An RDS for PostgreSQL instance writes no MySQL error log.
 	_, err = c.DownloadDBLogFilePortion(ctx, &rds.DownloadDBLogFilePortionInput{
 		DBInstanceIdentifier: aws.String(instID),
-		LogFileName:          aws.String("error/postgresql.log"),
+		LogFileName:          aws.String("error/mysql-error.log"),
 	})
 	var logErr smithy.APIError
 	require.True(t, errors.As(err, &logErr), "got %v", err)

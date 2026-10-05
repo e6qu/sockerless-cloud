@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/subtle"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -101,6 +102,7 @@ func rdsRecoverDataPlanes() error {
 			}
 		}
 		rdsInstances.Put(instance.DBInstanceIdentifier, instance)
+		rdsTakeFirstInstanceBackup(instance.DBInstanceIdentifier)
 		if stopping {
 			// The process that took the StopDBInstance ended before the
 			// engine it adopted here had stopped.
@@ -267,6 +269,25 @@ func (plane *rdsDataPlane) ready() error {
 	return plane.backups.takeFirst()
 }
 
+// rdsTakeFirstInstanceBackup starts the engine of an available DB instance
+// that keeps automated backups and holds none yet, in the background, so the
+// start takes its first automated backup: Amazon RDS backs an instance up when
+// it creates or restores it, or turns its automated backups on, whether or not
+// a client has connected.
+func rdsTakeFirstInstanceBackup(instanceID string) {
+	instance, ok := rdsInstances.Get(instanceID)
+	plane, served := rdsLoadDataPlane(instanceID)
+	if !ok || !served || instance.DBInstanceStatus != "available" || instance.BackupRetentionPeriod == 0 ||
+		len(instance.BaseBackups) > 0 || !rdsKeepsLog(plane.engine.Engine) {
+		return
+	}
+	bg.Go(func() {
+		if err := plane.backups.takeFirstStarting(); err != nil && !errors.Is(err, errRDSBackupsStopped) {
+			log.Printf("Amazon RDS %s: %v", instanceID, err)
+		}
+	})
+}
+
 // applyPendingMasterPassword installs the master-user password the control
 // plane recorded while the engine was not running.
 func (plane *rdsDataPlane) applyPendingMasterPassword() error {
@@ -326,6 +347,10 @@ func rdsModifyDataPlaneAuthentication(instance *RDSInstance, newPassword *string
 	}
 	if newPassword != nil {
 		if plane.engine.Running() {
+			// An engine still starting rotates only once it accepts clients.
+			if err := plane.engine.Ensure(); err != nil {
+				return err
+			}
 			if err := rdsRotateBackendMasterPassword(plane, *newPassword); err != nil {
 				return err
 			}
@@ -459,6 +484,7 @@ func rdsStopDataPlane(instanceID string, deleteVolume bool) error {
 				stopErr = fmt.Errorf("stop database engine: %w", err)
 				log.Printf("Amazon RDS %s: %v", instanceID, stopErr)
 			}
+			plane.backups.awaitStart()
 		}
 	}
 	if deleteVolume {

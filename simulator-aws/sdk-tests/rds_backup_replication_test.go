@@ -162,10 +162,9 @@ func TestRDS_AutomatedBackupsReplicateToAnotherRegion(t *testing.T) {
 	assertAWSAPIErrorCode(t, err, "DBInstanceAutomatedBackupNotFound")
 }
 
-// A source no client has connected to holds no automated snapshot yet;
-// StartDBInstanceAutomatedBackupsReplication still replicates the first
-// automated backup Amazon RDS takes of it, as the Terraform provider's create
-// waiter expects.
+// A replication started while its new source, which no client has connected
+// to, still takes its first automated backup replicates that backup once
+// Amazon RDS has taken it, as the Terraform provider's create waiter expects.
 func TestRDS_AutomatedBackupsReplicationTakesTheSourcesFirstBackup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()

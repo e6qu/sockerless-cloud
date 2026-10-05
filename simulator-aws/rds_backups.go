@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -20,8 +21,10 @@ import (
 // The simulator keeps that backup as base backups and the engine's own log.
 // Each base backup is an automated snapshot: the first is taken when the
 // engine first accepts clients, before the endpoint relays any client to it,
-// and another at the start of every PreferredBackupWindow while the engine
-// runs. A PostgreSQL engine archives every completed write-ahead log segment
+// and another at the start of every PreferredBackupWindow, which starts an
+// engine no client has started. A DB instance starts its engine for the first
+// one as soon as it keeps automated backups, the way Amazon RDS backs a new
+// instance up before any client connects. A PostgreSQL engine archives every completed write-ahead log segment
 // into its volume, and a MySQL engine keeps its binary log there. A restore
 // to a time seeds the new volume from the newest base backup taken by then
 // and replays the source's log onto it up to the restore time: PostgreSQL's
@@ -90,6 +93,10 @@ type rdsAutomatedBackups struct {
 	backupMu       sync.Mutex
 	backupTimer    *time.Timer
 	backupsStopped bool
+	// startMu is held across an engine start for a backup, so awaitStart can
+	// wait for one to give up rather than leave an engine running on a volume
+	// its resource let go of.
+	startMu sync.Mutex
 }
 
 // rdsKeepsLog reports whether engine keeps the log a restore to a time
@@ -123,31 +130,63 @@ func rdsAutomatedSnapshotID(identifier string, at time.Time) string {
 	return "rds:" + identifier + "-" + at.UTC().Format("2006-01-02-15-04")
 }
 
-// takeFirst takes the resource's first automated backup on its engine's first
-// start.
+// takeFirst takes the resource's first automated backup when it keeps
+// automated backups and holds none yet.
 func (b *rdsAutomatedBackups) takeFirst() error {
-	state, err := b.owner.backupState()
-	if err != nil {
-		return err
-	}
-	if state.retention == 0 || len(state.bases) > 0 || !rdsKeepsLog(b.engine.Engine) {
-		return nil
-	}
-	return b.take()
+	return b.takeIf(func(state rdsBackupState) bool {
+		return state.retention > 0 && len(state.bases) == 0 && rdsKeepsLog(b.engine.Engine)
+	})
 }
 
-// take captures the volume as an automated snapshot and records it as the
-// resource's newest base backup. The capture holds the engine frozen, so the
-// volume it copies is what a crash at that instant would leave: the engine's
-// recovery makes it consistent, and for MySQL the binary log in the copy says
-// which transactions it holds.
-func (b *rdsAutomatedBackups) take() error {
+// takeFirstStarting starts the engine when no client has, which takes the
+// first automated backup, and otherwise takes it on the running engine.
+func (b *rdsAutomatedBackups) takeFirstStarting() error {
+	b.startMu.Lock()
+	defer b.startMu.Unlock()
+	if err := b.ensureEngine(); err != nil {
+		return fmt.Errorf("start the engine for the first automated backup: %w", err)
+	}
+	return b.takeFirst()
+}
+
+// ensureEngine brings the engine up for a backup unless the backups have
+// stopped, and stops an engine whose start the stop raced, which would
+// otherwise outlive the data plane that closed it.
+func (b *rdsAutomatedBackups) ensureEngine() error {
+	if b.stopped() {
+		return errRDSBackupsStopped
+	}
+	err := b.engine.Ensure()
+	if b.stopped() {
+		_ = b.engine.Stop()
+		return errRDSBackupsStopped
+	}
+	return err
+}
+
+var errRDSBackupsStopped = errors.New("the resource's data plane stopped")
+
+// takeIf takes an automated backup when wanted holds for the resource's
+// backup state as the capture begins.
+func (b *rdsAutomatedBackups) takeIf(wanted func(rdsBackupState) bool) error {
 	b.captureMu.Lock()
 	defer b.captureMu.Unlock()
 	state, err := b.owner.backupState()
 	if err != nil {
 		return err
 	}
+	if !wanted(state) {
+		return nil
+	}
+	return b.capture(state)
+}
+
+// capture captures the volume as an automated snapshot and records it as the
+// resource's newest base backup. The capture holds the engine frozen, so the
+// volume it copies is what a crash at that instant would leave: the engine's
+// recovery makes it consistent, and for MySQL the binary log in the copy says
+// which transactions it holds.
+func (b *rdsAutomatedBackups) capture(state rdsBackupState) error {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	snapshotID := rdsAutomatedSnapshotID(state.identifier, now)
 	if !b.owner.recordAutomatedSnapshot(snapshotID, now) {
@@ -155,7 +194,7 @@ func (b *rdsAutomatedBackups) take() error {
 	}
 	base := RDSBaseBackup{SnapshotID: snapshotID, Time: now.Format(rdsRestorableTimeLayout)}
 	volume := b.owner.snapshotVolume(snapshotID)
-	err = sim.CaptureVolume(context.Background(), b.volume, volume, "rds")
+	err := sim.CaptureVolume(context.Background(), b.volume, volume, "rds")
 	if err == nil && b.engine.Engine.Family == dbengine.MySQL {
 		base.BinlogFile, base.BinlogOffset, err = rdsBaseBackupBinlogStart(b.engine.Engine, volume, state.identifier)
 	}
@@ -196,6 +235,9 @@ func (b *rdsAutomatedBackups) schedule() {
 	})
 }
 
+// stop disarms the resource's automated backups. The caller closes the
+// engine next, which ends an engine start a backup began, and then waits for
+// that start with awaitStart.
 func (b *rdsAutomatedBackups) stop() {
 	b.backupMu.Lock()
 	defer b.backupMu.Unlock()
@@ -205,21 +247,52 @@ func (b *rdsAutomatedBackups) stop() {
 	}
 }
 
-// run takes the window's automated backup of an available resource whose
-// engine runs, and expires what the retention period no longer covers.
+func (b *rdsAutomatedBackups) awaitStart() {
+	b.startMu.Lock()
+	defer b.startMu.Unlock()
+}
+
+// holdStart waits for an engine start a backup began, and keeps another from
+// beginning until release.
+func (b *rdsAutomatedBackups) holdStart() (release func()) {
+	b.startMu.Lock()
+	return b.startMu.Unlock
+}
+
+func (b *rdsAutomatedBackups) stopped() bool {
+	b.backupMu.Lock()
+	defer b.backupMu.Unlock()
+	return b.backupsStopped
+}
+
+// run takes the window's automated backup of an available resource, starting
+// its engine when no client has, and expires what the retention period no
+// longer covers. An engine start that took the first automated backup holds
+// the window's.
 func (b *rdsAutomatedBackups) run() {
 	state, err := b.owner.backupState()
 	if err != nil {
 		return
 	}
-	if state.available && state.retention > 0 && b.engine.Running() && rdsKeepsLog(b.engine.Engine) {
-		if err := b.take(); err != nil {
+	if state.available && state.retention > 0 && rdsKeepsLog(b.engine.Engine) {
+		if err := b.takeWindowBackup(time.Now().UTC().Truncate(time.Millisecond)); err != nil && !errors.Is(err, errRDSBackupsStopped) {
 			log.Printf("Amazon RDS %s: %v", state.identifier, err)
 		}
 	}
 	if err := b.expire(time.Now()); err != nil {
 		log.Printf("Amazon RDS %s: expire automated backups: %v", state.identifier, err)
 	}
+}
+
+func (b *rdsAutomatedBackups) takeWindowBackup(began time.Time) error {
+	b.startMu.Lock()
+	defer b.startMu.Unlock()
+	if err := b.ensureEngine(); err != nil {
+		return fmt.Errorf("start the engine for the automated backup: %w", err)
+	}
+	return b.takeIf(func(state rdsBackupState) bool {
+		return len(state.bases) == 0 || state.bases[len(state.bases)-1].takenAt().Before(began)
+	})
 }
 
 // rdsBaseBackupsToKeep is the base backups a restore to a time after cutoff

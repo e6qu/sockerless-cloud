@@ -352,6 +352,7 @@ func rdsStopAuroraDataPlane(clusterID string, deleteVolume bool) error {
 				stopErr = fmt.Errorf("stop database engine: %w", err)
 				log.Printf("Amazon Aurora %s: %v", clusterID, stopErr)
 			}
+			plane.backups.awaitStart()
 		}
 	}
 	if deleteVolume {

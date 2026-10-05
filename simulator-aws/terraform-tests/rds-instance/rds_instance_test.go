@@ -31,6 +31,9 @@ func TestRDSInstanceTerraform(t *testing.T) {
 		"StartDBInstanceAutomatedBackupsReplication must create the replicated automated backup in the destination Region")
 	require.Equal(t, "3", outputs.must(t, "rds_replicated_backup_retention_period"),
 		"the replicated automated backup's retention period must round-trip through DescribeDBInstanceAutomatedBackups")
+	require.True(t, strings.HasPrefix(outputs.must(t, "rds_first_automated_snapshot_id"), "rds:tf-rds-db-"),
+		"Amazon RDS must take the instance's first automated snapshot without any client connecting")
+	require.Equal(t, "available", outputs.must(t, "rds_first_automated_snapshot_status"))
 
 	env.Terraform(t, "destroy", "-auto-approve")
 }
