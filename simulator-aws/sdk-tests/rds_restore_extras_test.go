@@ -106,6 +106,10 @@ func TestRDS_RestoreFamily(t *testing.T) {
 		_, _ = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
 			DBInstanceIdentifier: aws.String(srcInst), SkipFinalSnapshot: aws.Bool(true)})
 	})
+	require.NoError(t, rds.NewDBInstanceAvailableWaiter(c, func(o *rds.DBInstanceAvailableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(srcInst)}, 3*time.Minute))
 
 	// RestoreDBInstanceToPointInTime
 	instPIT := "rext-instance-pit"
