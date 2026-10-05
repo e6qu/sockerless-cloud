@@ -49,16 +49,19 @@ func TestRDSLifecycleActionsRequireTheirSourceState(t *testing.T) {
 	}
 }
 
-// Amazon RDS takes no ModifyDBInstance, CreateDBSnapshot or
-// CreateDBInstanceReadReplica on an instance it is still creating, starting or
-// taking the first automated backup of.
+// Amazon RDS takes no ModifyDBInstance, CreateDBSnapshot,
+// CreateDBInstanceReadReplica or RestoreDBInstanceToPointInTime on an instance
+// it is still creating, starting or taking the first automated backup of.
 func TestRDSInstanceRefusesActionsUntilAvailable(t *testing.T) {
 	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
 	rdsSnapshots = sim.MakeStore[RDSSnapshot](nil, "rds_snapshots")
 	id := "bringing-up-db"
 	for _, status := range []string{"creating", "starting", "backing-up"} {
-		rdsInstances.Put(id, RDSInstance{DBInstanceIdentifier: id, Engine: "postgres", DBInstanceStatus: status})
+		rdsInstances.Put(id, RDSInstance{DBInstanceIdentifier: id, Engine: "postgres", DBInstanceStatus: status, BackupRetentionPeriod: 1})
 		for name, call := range map[string]*httptest.ResponseRecorder{
+			"RestoreDBInstanceToPointInTime": rdsFormCall(t, handleRDSRestoreInstanceToPointInTime, url.Values{
+				"SourceDBInstanceIdentifier": {id}, "TargetDBInstanceIdentifier": {id + "-pit"}, "UseLatestRestorableTime": {"true"},
+			}),
 			"ModifyDBInstance": rdsFormCall(t, handleRDSModify, url.Values{"DBInstanceIdentifier": {id}, "DBInstanceClass": {"db.t3.small"}}),
 			"CreateDBSnapshot": rdsFormCall(t, handleRDSCreateSnapshot, url.Values{"DBInstanceIdentifier": {id}, "DBSnapshotIdentifier": {id + "-snap"}}),
 			"CreateDBInstanceReadReplica": rdsFormCall(t, handleRDSCreateReadReplica, url.Values{
@@ -77,6 +80,9 @@ func TestRDSInstanceRefusesActionsUntilAvailable(t *testing.T) {
 		}
 		if _, created := rdsInstances.Get(id + "-replica"); created {
 			t.Fatalf("CreateDBInstanceReadReplica created a replica of a %s instance", status)
+		}
+		if _, restored := rdsInstances.Get(id + "-pit"); restored {
+			t.Fatalf("RestoreDBInstanceToPointInTime restored a %s instance", status)
 		}
 	}
 }

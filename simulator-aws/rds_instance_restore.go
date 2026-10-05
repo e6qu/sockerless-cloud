@@ -196,6 +196,11 @@ func handleRDSRestoreInstanceToPointInTime(w http.ResponseWriter, r *http.Reques
 			http.StatusBadRequest, requestID)
 		return
 	}
+	// A live source still creating holds no restorable time, and its engine may
+	// still be initialising the data directory a restore would copy.
+	if retained == nil && rdsRefuseUnavailableInstance(w, r, src) {
+		return
+	}
 	target, ok := rdsInstanceRestoreTime(w, r)
 	if !ok {
 		return

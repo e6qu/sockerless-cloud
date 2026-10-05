@@ -89,6 +89,7 @@ func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 		_ = awsCLI("rds", "delete-db-instance",
 			"--db-instance-identifier", srcInst, "--skip-final-snapshot").Run()
 	})
+	cliWaitDBInstanceAvailable(t, srcInst)
 
 	instPIT := "cli-rext-instance-pit"
 	runCLI(t, awsCLI("rds", "restore-db-instance-to-point-in-time",
