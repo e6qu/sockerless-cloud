@@ -142,6 +142,11 @@ type Instance struct {
 	listeners []net.Listener
 	backend   string
 	handle    *sim.ContainerHandle
+	// stopped closes when the engine behind handle stops, which ends a start
+	// waiting on it.
+	stopped chan struct{}
+	// accepting records that the engine behind handle accepted clients.
+	accepting bool
 
 	startMu   sync.Mutex
 	attempted bool
@@ -174,6 +179,27 @@ func (i *Instance) serve(listener net.Listener, readOnly bool) {
 
 // Close stops accepting clients and stops the engine; the volume stays.
 func (i *Instance) Close() error {
+	i.closeListeners()
+	return i.Stop()
+}
+
+// Discard stops accepting clients and stops the engine of a resource being
+// deleted, whose volume goes with it. An engine that has not yet accepted
+// clients is killed rather than given the stop grace: the MySQL image's
+// entrypoint ignores SIGTERM while it initialises the data directory, and a
+// directory about to be removed needs no clean shutdown.
+func (i *Instance) Discard() error {
+	i.closeListeners()
+	i.mu.RLock()
+	handle, accepting := i.handle, i.accepting
+	i.mu.RUnlock()
+	if handle != nil && !accepting {
+		sim.StopContainer(handle.ContainerID, 0)
+	}
+	return i.Stop()
+}
+
+func (i *Instance) closeListeners() {
 	i.mu.Lock()
 	listeners := i.listeners
 	i.listeners = nil
@@ -181,7 +207,6 @@ func (i *Instance) Close() error {
 	for _, listener := range listeners {
 		_ = listener.Close()
 	}
-	return i.Stop()
 }
 
 // Running reports whether the engine container is up.
@@ -226,6 +251,7 @@ func (i *Instance) Adopt() error {
 	}
 	i.mu.Lock()
 	i.backend, i.handle = net.JoinHostPort("127.0.0.1", strconv.Itoa(backendPort)), handle
+	i.stopped, i.accepting = make(chan struct{}), false
 	i.mu.Unlock()
 	return nil
 }
@@ -245,17 +271,24 @@ func (i *Instance) Ensure() error {
 }
 
 func (i *Instance) bringUp() error {
-	backend, handle := i.snapshot()
+	i.mu.RLock()
+	backend, handle, stopped := i.backend, i.handle, i.stopped
+	i.mu.RUnlock()
 	if handle == nil {
 		var err error
-		if backend, handle, err = i.start(); err != nil {
+		if backend, handle, stopped, err = i.start(); err != nil {
 			return err
 		}
 	}
-	if err := awaitReady(i.Engine, backend, handle); err != nil {
+	if err := awaitReady(i.Engine, backend, handle, stopped); err != nil {
 		_ = i.stopEngine()
 		return err
 	}
+	i.mu.Lock()
+	if i.handle == handle {
+		i.accepting = true
+	}
+	i.mu.Unlock()
 	if i.Ready != nil {
 		if err := i.Ready(); err != nil {
 			_ = i.stopEngine()
@@ -265,17 +298,17 @@ func (i *Instance) bringUp() error {
 	return nil
 }
 
-func (i *Instance) start() (string, *sim.ContainerHandle, error) {
+func (i *Instance) start() (string, *sim.ContainerHandle, chan struct{}, error) {
 	if i.Engine.Image == "" {
-		return "", nil, fmt.Errorf("%s: the database engine names no image", i.Name)
+		return "", nil, nil, fmt.Errorf("%s: the database engine names no image", i.Name)
 	}
 	environment, err := i.Environment()
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	platform, err := i.Platform(context.Background(), i.Engine.Image)
 	if err != nil {
-		return "", nil, fmt.Errorf("resolve database engine platform: %w", err)
+		return "", nil, nil, fmt.Errorf("resolve database engine platform: %w", err)
 	}
 	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		CancelGracePeriod: stopGrace,
@@ -289,19 +322,20 @@ func (i *Instance) start() (string, *sim.ContainerHandle, error) {
 		Sandbox:           i.Sandbox,
 	}, i.logSink())
 	if err != nil {
-		return "", nil, fmt.Errorf("start %s database engine: %w", i.Engine.Family, err)
+		return "", nil, nil, fmt.Errorf("start %s database engine: %w", i.Engine.Family, err)
 	}
 	backendPort, err := handle.PublishedPort(context.Background(), i.Engine.Port)
 	if err != nil {
 		handle.Cancel()
 		_ = handle.Wait()
-		return "", nil, fmt.Errorf("start %s database engine: %w", i.Engine.Family, err)
+		return "", nil, nil, fmt.Errorf("start %s database engine: %w", i.Engine.Family, err)
 	}
 	backend := net.JoinHostPort("127.0.0.1", strconv.Itoa(backendPort))
+	stopped := make(chan struct{})
 	i.mu.Lock()
-	i.backend, i.handle = backend, handle
+	i.backend, i.handle, i.stopped, i.accepting = backend, handle, stopped, false
 	i.mu.Unlock()
-	return backend, handle, nil
+	return backend, handle, stopped, nil
 }
 
 func (i *Instance) logSink() sim.LogSink {
@@ -311,10 +345,15 @@ func (i *Instance) logSink() sim.LogSink {
 	return i.Log
 }
 
-func awaitReady(engine Engine, backend string, handle *sim.ContainerHandle) error {
+func awaitReady(engine Engine, backend string, handle *sim.ContainerHandle, stopped <-chan struct{}) error {
 	deadline := time.Now().Add(initializationBudget)
 	nextLivenessCheck := time.Now().Add(livenessInterval)
 	for !serving(engine.Family, backend) {
+		select {
+		case <-stopped:
+			return fmt.Errorf("%s database engine stopped before accepting connections", engine.Family)
+		default:
+		}
 		now := time.Now()
 		if !now.Before(nextLivenessCheck) {
 			if !sim.ContainerRunning(handle.ContainerID) {
@@ -325,7 +364,11 @@ func awaitReady(engine Engine, backend string, handle *sim.ContainerHandle) erro
 		if !now.Before(deadline) {
 			return fmt.Errorf("%s database engine did not become ready within %s", engine.Family, initializationBudget)
 		}
-		time.Sleep(probeInterval)
+		select {
+		case <-stopped:
+			return fmt.Errorf("%s database engine stopped before accepting connections", engine.Family)
+		case <-time.After(probeInterval):
+		}
 	}
 	return nil
 }
@@ -361,12 +404,13 @@ func (i *Instance) Stop() error {
 
 func (i *Instance) stopEngine() error {
 	i.mu.Lock()
-	handle := i.handle
-	i.backend, i.handle = "", nil
+	handle, stopped := i.handle, i.stopped
+	i.backend, i.handle, i.stopped, i.accepting = "", nil, nil, false
 	i.mu.Unlock()
 	if handle == nil {
 		return nil
 	}
+	close(stopped)
 	handle.Cancel()
 	_ = handle.Wait()
 	return sim.WaitContainerRemoved(handle.ContainerID, removalTimeout)
