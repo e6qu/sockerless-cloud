@@ -23,6 +23,7 @@ func TestElastiCache_Serverless(t *testing.T) {
 		Engine:              aws.String("redis"),
 		MajorEngineVersion:  aws.String("7"),
 		Description:         aws.String("serverless test"),
+		Tags:                []ectypes.Tag{{Key: aws.String("owner"), Value: aws.String("platform")}},
 		CacheUsageLimits: &ectypes.CacheUsageLimits{
 			DataStorage: &ectypes.DataStorage{
 				Maximum: aws.Int32(10),
@@ -46,6 +47,8 @@ func TestElastiCache_Serverless(t *testing.T) {
 			ServerlessCacheName: aws.String(name),
 		})
 	})
+
+	assertECTags(t, c, aws.ToString(created.ServerlessCache.ARN), map[string]string{"owner": "platform"})
 
 	desc, err := c.DescribeServerlessCaches(ctx, &elasticache.DescribeServerlessCachesInput{
 		ServerlessCacheName: aws.String(name),
@@ -171,6 +174,7 @@ func TestElastiCache_GlobalReplicationGroup(t *testing.T) {
 		GlobalReplicationGroupIdSuffix:    aws.String(globalSuffix),
 		PrimaryReplicationGroupId:         aws.String(primary),
 		GlobalReplicationGroupDescription: aws.String("global datastore"),
+		Tags:                              []ectypes.Tag{{Key: aws.String("owner"), Value: aws.String("platform")}},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, created.GlobalReplicationGroup)
@@ -184,6 +188,11 @@ func TestElastiCache_GlobalReplicationGroup(t *testing.T) {
 			RetainPrimaryReplicationGroup: aws.Bool(true),
 		})
 	})
+
+	// A global datastore spans regions, so its ARN names none.
+	assert.Regexp(t, `^arn:aws:elasticache::\d{12}:globalreplicationgroup:`+gid+`$`,
+		aws.ToString(created.GlobalReplicationGroup.ARN))
+	assertECTags(t, c, aws.ToString(created.GlobalReplicationGroup.ARN), map[string]string{"owner": "platform"})
 
 	desc, err := c.DescribeGlobalReplicationGroups(ctx, &elasticache.DescribeGlobalReplicationGroupsInput{
 		GlobalReplicationGroupId: aws.String(gid),
@@ -249,6 +258,7 @@ func TestElastiCache_CacheSecurityGroups(t *testing.T) {
 	created, err := c.CreateCacheSecurityGroup(ctx, &elasticache.CreateCacheSecurityGroupInput{
 		CacheSecurityGroupName: aws.String(name),
 		Description:            aws.String("classic security group"),
+		Tags:                   []ectypes.Tag{{Key: aws.String("owner"), Value: aws.String("platform")}},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, created.CacheSecurityGroup)
@@ -258,6 +268,19 @@ func TestElastiCache_CacheSecurityGroups(t *testing.T) {
 			CacheSecurityGroupName: aws.String(name),
 		})
 	})
+
+	groupARN := aws.ToString(created.CacheSecurityGroup.ARN)
+	assertECTags(t, c, groupARN, map[string]string{"owner": "platform"})
+	_, err = c.AddTagsToResource(ctx, &elasticache.AddTagsToResourceInput{
+		ResourceName: aws.String(groupARN),
+		Tags:         []ectypes.Tag{{Key: aws.String("tier"), Value: aws.String("cache")}},
+	})
+	require.NoError(t, err)
+	_, err = c.RemoveTagsFromResource(ctx, &elasticache.RemoveTagsFromResourceInput{
+		ResourceName: aws.String(groupARN), TagKeys: []string{"owner"},
+	})
+	require.NoError(t, err)
+	assertECTags(t, c, groupARN, map[string]string{"tier": "cache"})
 
 	auth, err := c.AuthorizeCacheSecurityGroupIngress(ctx, &elasticache.AuthorizeCacheSecurityGroupIngressInput{
 		CacheSecurityGroupName:  aws.String(name),
@@ -434,6 +457,7 @@ func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
 		ReservedCacheNodesOfferingId: offering.ReservedCacheNodesOfferingId,
 		ReservedCacheNodeId:          aws.String(reservationID),
 		CacheNodeCount:               aws.Int32(1),
+		Tags:                         []ectypes.Tag{{Key: aws.String("owner"), Value: aws.String("platform")}},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, purchased.ReservedCacheNode)
@@ -442,6 +466,8 @@ func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
 	assert.Equal(t, aws.ToString(offering.CacheNodeType), aws.ToString(purchased.ReservedCacheNode.CacheNodeType))
 	assert.Equal(t, aws.ToString(offering.ProductDescription), aws.ToString(purchased.ReservedCacheNode.ProductDescription))
 	assert.Equal(t, aws.ToInt32(offering.Duration), aws.ToInt32(purchased.ReservedCacheNode.Duration))
+
+	assertECTags(t, c, aws.ToString(purchased.ReservedCacheNode.ReservationARN), map[string]string{"owner": "platform"})
 
 	// What was bought can be read back. A purchase the account cannot see
 	// afterwards is a receipt for nothing.
@@ -459,4 +485,16 @@ func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ReservedCacheNodesOfferingNotFound")
+}
+
+// assertECTags reads a resource's tags back through ListTagsForResource.
+func assertECTags(t *testing.T, c *elasticache.Client, arn string, want map[string]string) {
+	t.Helper()
+	listed, err := c.ListTagsForResource(t.Context(), &elasticache.ListTagsForResourceInput{ResourceName: aws.String(arn)})
+	require.NoError(t, err)
+	got := map[string]string{}
+	for _, tag := range listed.TagList {
+		got[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+	}
+	assert.Equal(t, want, got)
 }

@@ -33,13 +33,6 @@ type SSMCloudConnector struct {
 	Configuration      json.RawMessage `json:"Configuration,omitempty"`
 	CreatedAt          float64         `json:"CreatedAt"`
 	UpdatedAt          float64         `json:"UpdatedAt"`
-	Tags               []ssmTagKV      `json:"Tags,omitempty"`
-}
-
-// ssmTagKV is the SSM TagList element.
-type ssmTagKV struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
 }
 
 // ssmCloudConnectorConfiguration is the CloudConnectorConfiguration union. Azure
@@ -106,7 +99,7 @@ func handleSSMCreateCloudConnector(w http.ResponseWriter, r *http.Request) {
 		RoleArn            string          `json:"RoleArn"`
 		Configuration      json.RawMessage `json:"Configuration"`
 		ConfigConnectorArn string          `json:"ConfigConnectorArn"`
-		Tags               []ssmTagKV      `json:"Tags"`
+		Tags               []SSMTag        `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "ValidationException", "invalid request body", http.StatusBadRequest)
@@ -149,8 +142,8 @@ func handleSSMCreateCloudConnector(w http.ResponseWriter, r *http.Request) {
 		Configuration:      req.Configuration,
 		CreatedAt:          now,
 		UpdatedAt:          now,
-		Tags:               req.Tags,
 	})
+	ssmTagOnCreate("CloudConnector", id, req.Tags)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"CloudConnectorId": id})
 }
 

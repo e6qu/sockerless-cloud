@@ -1217,6 +1217,17 @@ func TestIAMResourceARNs_ElastiCacheNeedsNoRenamings(t *testing.T) {
 	}
 }
 
+// A global datastore's id carries a prefix AWS picks at creation, so its
+// create names no datastore: it authorizes against the type wildcard and the
+// primary replication group the request does name.
+func TestIAMResourceARNs_ElastiCacheGlobalDatastoreCreateNamesItsPrimary(t *testing.T) {
+	assertDerivedARNs(t, iamElastiCacheRequest("CreateGlobalReplicationGroup", map[string]string{
+		"GlobalReplicationGroupIdSuffix": "orders", "PrimaryReplicationGroupId": "orders-rg",
+	}), "elasticache:CreateGlobalReplicationGroup",
+		"arn:aws:elasticache::123456789012:globalreplicationgroup:*",
+		"arn:aws:elasticache:us-east-1:123456789012:replicationgroup:orders-rg")
+}
+
 func iamDynamoDBRequest(operation, body string) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-amz-json-1.0")

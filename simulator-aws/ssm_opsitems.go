@@ -308,6 +308,7 @@ func handleSSMCreateOpsItem(w http.ResponseWriter, r *http.Request) {
 		RelatedOpsItems []struct {
 			OpsItemId string `json:"OpsItemId"`
 		} `json:"RelatedOpsItems"`
+		Tags []SSMTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
@@ -344,6 +345,7 @@ func handleSSMCreateOpsItem(w http.ResponseWriter, r *http.Request) {
 		o.RelatedOpsItems = append(o.RelatedOpsItems, rel.OpsItemId)
 	}
 	ssmOpsItems.Put(o.OpsItemId, o)
+	ssmTagOnCreate("OpsItem", o.OpsItemId, req.Tags)
 
 	ssmRecordOpsItemEvent(o.OpsItemId, "OpsCenter", "OpsItem Create", "Created OpsItem")
 	sim.WriteJSON(w, http.StatusOK, map[string]any{

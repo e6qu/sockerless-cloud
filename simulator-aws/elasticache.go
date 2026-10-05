@@ -139,19 +139,20 @@ var (
 // restated: a reservation whose price did not come from the offering it was
 // bought against would be a number this simulator made up.
 type ECReservedCacheNode struct {
-	ReservedCacheNodeId string `json:"reservedCacheNodeId"`
-	OfferingId          string `json:"offeringId"`
-	CacheNodeType       string `json:"cacheNodeType"`
-	Duration            int    `json:"duration"`
-	FixedPrice          string `json:"fixedPrice"`
-	UsagePrice          string `json:"usagePrice"`
-	ProductDescription  string `json:"productDescription"`
-	OfferingType        string `json:"offeringType"`
-	RecurringAmount     string `json:"recurringAmount"`
-	RecurringFrequency  string `json:"recurringFrequency"`
-	CacheNodeCount      int    `json:"cacheNodeCount"`
-	StartTime           string `json:"startTime"`
-	State               string `json:"state"`
+	ReservedCacheNodeId string            `json:"reservedCacheNodeId"`
+	OfferingId          string            `json:"offeringId"`
+	CacheNodeType       string            `json:"cacheNodeType"`
+	Duration            int               `json:"duration"`
+	FixedPrice          string            `json:"fixedPrice"`
+	UsagePrice          string            `json:"usagePrice"`
+	ProductDescription  string            `json:"productDescription"`
+	OfferingType        string            `json:"offeringType"`
+	RecurringAmount     string            `json:"recurringAmount"`
+	RecurringFrequency  string            `json:"recurringFrequency"`
+	CacheNodeCount      int               `json:"cacheNodeCount"`
+	StartTime           string            `json:"startTime"`
+	State               string            `json:"state"`
+	Tags                map[string]string `json:"tags,omitempty"`
 }
 
 // ecReservedCacheNodesOffering is one purchasable offering.
@@ -249,6 +250,10 @@ func registerElastiCache(r *AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(ecAPIVersion, "DescribeServiceUpdates", handleECDescribeServiceUpdates)
 	r.RegisterVersioned(ecAPIVersion, "DescribeCacheSecurityGroups", handleECDescribeCacheSecurityGroups)
 	registerElastiCacheServerless(r, srv)
+}
+
+func ecReservedNodeARN(id string) string {
+	return fmt.Sprintf("arn:aws:elasticache:%s:%s:reserved-instance:%s", awsRegion(), awsAccountID(), id)
 }
 
 func ecClusterARN(id string) string {
@@ -736,96 +741,113 @@ func handleECDeleteParamGroup(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "DeleteCacheParameterGroup", "", sim.RequestID(r.Context()))
 }
 
-// ecMutateTags resolves an ElastiCache ARN (cluster, replication
-// group, cache subnet group, or cache parameter group) and applies fn
-// to that resource's tag map, persisting the change. It returns the
-// resulting tag map and whether the resource was found.
+// ecTaggedResource is one ElastiCache resource a tagging call can name.
+type ecTaggedResource struct {
+	tags   map[string]string
+	mutate func(fn func(map[string]string)) map[string]string
+}
+
+func ecFindTagged[T any](store sim.Store[T], arn string, arnOf, idOf func(T) string,
+	tagsOf func(*T) *map[string]string,
+) (ecTaggedResource, bool) {
+	for _, item := range store.List() {
+		if arnOf(item) != arn {
+			continue
+		}
+		id := idOf(item)
+		return ecTaggedResource{
+			tags: *tagsOf(&item),
+			mutate: func(fn func(map[string]string)) map[string]string {
+				store.Update(id, func(v *T) {
+					tags := tagsOf(v)
+					if *tags == nil {
+						*tags = map[string]string{}
+					}
+					fn(*tags)
+				})
+				updated, _ := store.Get(id)
+				return *tagsOf(&updated)
+			},
+		}, true
+	}
+	return ecTaggedResource{}, false
+}
+
+// ecFindTaggedResource resolves an ARN to the resource it names, among every
+// type the ElastiCache tagging operations accept.
+func ecFindTaggedResource(arn string) (ecTaggedResource, bool) {
+	finders := []func() (ecTaggedResource, bool){
+		func() (ecTaggedResource, bool) {
+			return ecFindTagged(ecClusters, arn, func(v ECCluster) string { return v.ARN },
+				func(v ECCluster) string { return v.CacheClusterId }, func(v *ECCluster) *map[string]string { return &v.Tags })
+		},
+		func() (ecTaggedResource, bool) {
+			return ecFindTagged(ecReplGroups, arn, func(v ECReplicationGroup) string { return v.ARN },
+				func(v ECReplicationGroup) string { return v.ReplicationGroupId },
+				func(v *ECReplicationGroup) *map[string]string { return &v.Tags })
+		},
+		func() (ecTaggedResource, bool) {
+			return ecFindTagged(ecSubnetGrps, arn, func(v ECSubnetGroup) string { return v.ARN },
+				func(v ECSubnetGroup) string { return v.Name }, func(v *ECSubnetGroup) *map[string]string { return &v.Tags })
+		},
+		func() (ecTaggedResource, bool) {
+			return ecFindTagged(ecParamGroups, arn, func(v ECParameterGroup) string { return v.ARN },
+				func(v ECParameterGroup) string { return v.Name }, func(v *ECParameterGroup) *map[string]string { return &v.Tags })
+		},
+		func() (ecTaggedResource, bool) {
+			return ecFindTagged(ecSnapshots, arn, func(v ECSnapshot) string { return v.ARN },
+				func(v ECSnapshot) string { return v.SnapshotName }, func(v *ECSnapshot) *map[string]string { return &v.Tags })
+		},
+		func() (ecTaggedResource, bool) {
+			return ecFindTagged(ecUsers, arn, func(v ECUser) string { return v.ARN },
+				func(v ECUser) string { return v.UserId }, func(v *ECUser) *map[string]string { return &v.Tags })
+		},
+		func() (ecTaggedResource, bool) {
+			return ecFindTagged(ecUserGroups, arn, func(v ECUserGroup) string { return v.ARN },
+				func(v ECUserGroup) string { return v.UserGroupId }, func(v *ECUserGroup) *map[string]string { return &v.Tags })
+		},
+		func() (ecTaggedResource, bool) {
+			return ecFindTagged(ecCacheSecGroups, arn, func(v ECCacheSecurityGroup) string { return v.ARN },
+				func(v ECCacheSecurityGroup) string { return v.CacheSecurityGroupName },
+				func(v *ECCacheSecurityGroup) *map[string]string { return &v.Tags })
+		},
+		func() (ecTaggedResource, bool) {
+			return ecFindTagged(ecReservedNodes, arn, func(v ECReservedCacheNode) string { return ecReservedNodeARN(v.ReservedCacheNodeId) },
+				func(v ECReservedCacheNode) string { return v.ReservedCacheNodeId },
+				func(v *ECReservedCacheNode) *map[string]string { return &v.Tags })
+		},
+		func() (ecTaggedResource, bool) {
+			return ecFindTagged(ecGlobalReplGroups, arn, func(v ECGlobalReplicationGroup) string { return v.ARN },
+				func(v ECGlobalReplicationGroup) string { return v.GlobalReplicationGroupId },
+				func(v *ECGlobalReplicationGroup) *map[string]string { return &v.Tags })
+		},
+		func() (ecTaggedResource, bool) {
+			return ecFindTagged(ecServerlessCaches, arn, func(v ECServerlessCache) string { return v.ARN },
+				func(v ECServerlessCache) string { return v.ServerlessCacheName },
+				func(v *ECServerlessCache) *map[string]string { return &v.Tags })
+		},
+		func() (ecTaggedResource, bool) {
+			return ecFindTagged(ecServerlessSnapshots, arn, func(v ECServerlessCacheSnapshot) string { return v.ARN },
+				func(v ECServerlessCacheSnapshot) string { return v.ServerlessCacheSnapshotName },
+				func(v *ECServerlessCacheSnapshot) *map[string]string { return &v.Tags })
+		},
+	}
+	for _, find := range finders {
+		if resource, ok := find(); ok {
+			return resource, true
+		}
+	}
+	return ecTaggedResource{}, false
+}
+
+// ecMutateTags applies fn to the tag map of the resource an ARN names,
+// persisting the change, and returns the resulting map.
 func ecMutateTags(arn string, fn func(map[string]string)) (map[string]string, bool) {
-	for _, c := range ecClusters.List() {
-		if c.ARN == arn {
-			ecClusters.Update(c.CacheClusterId, func(cc *ECCluster) {
-				if cc.Tags == nil {
-					cc.Tags = map[string]string{}
-				}
-				fn(cc.Tags)
-			})
-			updated, _ := ecClusters.Get(c.CacheClusterId)
-			return updated.Tags, true
-		}
+	resource, ok := ecFindTaggedResource(arn)
+	if !ok {
+		return nil, false
 	}
-	for _, g := range ecReplGroups.List() {
-		if g.ARN == arn {
-			ecReplGroups.Update(g.ReplicationGroupId, func(gg *ECReplicationGroup) {
-				if gg.Tags == nil {
-					gg.Tags = map[string]string{}
-				}
-				fn(gg.Tags)
-			})
-			updated, _ := ecReplGroups.Get(g.ReplicationGroupId)
-			return updated.Tags, true
-		}
-	}
-	for _, g := range ecSubnetGrps.List() {
-		if g.ARN == arn {
-			ecSubnetGrps.Update(g.Name, func(gg *ECSubnetGroup) {
-				if gg.Tags == nil {
-					gg.Tags = map[string]string{}
-				}
-				fn(gg.Tags)
-			})
-			updated, _ := ecSubnetGrps.Get(g.Name)
-			return updated.Tags, true
-		}
-	}
-	for _, g := range ecParamGroups.List() {
-		if g.ARN == arn {
-			ecParamGroups.Update(g.Name, func(gg *ECParameterGroup) {
-				if gg.Tags == nil {
-					gg.Tags = map[string]string{}
-				}
-				fn(gg.Tags)
-			})
-			updated, _ := ecParamGroups.Get(g.Name)
-			return updated.Tags, true
-		}
-	}
-	for _, s := range ecSnapshots.List() {
-		if s.ARN == arn {
-			ecSnapshots.Update(s.SnapshotName, func(ss *ECSnapshot) {
-				if ss.Tags == nil {
-					ss.Tags = map[string]string{}
-				}
-				fn(ss.Tags)
-			})
-			updated, _ := ecSnapshots.Get(s.SnapshotName)
-			return updated.Tags, true
-		}
-	}
-	for _, u := range ecUsers.List() {
-		if u.ARN == arn {
-			ecUsers.Update(u.UserId, func(uu *ECUser) {
-				if uu.Tags == nil {
-					uu.Tags = map[string]string{}
-				}
-				fn(uu.Tags)
-			})
-			updated, _ := ecUsers.Get(u.UserId)
-			return updated.Tags, true
-		}
-	}
-	for _, g := range ecUserGroups.List() {
-		if g.ARN == arn {
-			ecUserGroups.Update(g.UserGroupId, func(gg *ECUserGroup) {
-				if gg.Tags == nil {
-					gg.Tags = map[string]string{}
-				}
-				fn(gg.Tags)
-			})
-			updated, _ := ecUserGroups.Get(g.UserGroupId)
-			return updated.Tags, true
-		}
-	}
-	return nil, false
+	return resource.mutate(fn), true
 }
 
 func ecRenderTagList(tags map[string]string) string {
@@ -870,42 +892,8 @@ func handleECListTags(w http.ResponseWriter, r *http.Request) {
 // ecLookupTags resolves an ElastiCache ARN to its tag map without
 // mutating it.
 func ecLookupTags(arn string) (map[string]string, bool) {
-	for _, c := range ecClusters.List() {
-		if c.ARN == arn {
-			return c.Tags, true
-		}
-	}
-	for _, g := range ecReplGroups.List() {
-		if g.ARN == arn {
-			return g.Tags, true
-		}
-	}
-	for _, g := range ecSubnetGrps.List() {
-		if g.ARN == arn {
-			return g.Tags, true
-		}
-	}
-	for _, g := range ecParamGroups.List() {
-		if g.ARN == arn {
-			return g.Tags, true
-		}
-	}
-	for _, s := range ecSnapshots.List() {
-		if s.ARN == arn {
-			return s.Tags, true
-		}
-	}
-	for _, u := range ecUsers.List() {
-		if u.ARN == arn {
-			return u.Tags, true
-		}
-	}
-	for _, g := range ecUserGroups.List() {
-		if g.ARN == arn {
-			return g.Tags, true
-		}
-	}
-	return nil, false
+	resource, ok := ecFindTaggedResource(arn)
+	return resource.tags, ok
 }
 
 func handleECRemoveTags(w http.ResponseWriter, r *http.Request) {
@@ -1651,8 +1639,7 @@ func ecReservedNodeXML(b *strings.Builder, n ECReservedCacheNode) {
 	fmt.Fprintf(b, "<State>%s</State>", xmlEscape(n.State))
 	fmt.Fprintf(b, "<RecurringCharges><RecurringCharge><RecurringChargeAmount>%s</RecurringChargeAmount><RecurringChargeFrequency>%s</RecurringChargeFrequency></RecurringCharge></RecurringCharges>",
 		xmlEscape(n.RecurringAmount), xmlEscape(n.RecurringFrequency))
-	fmt.Fprintf(b, "<ReservationARN>arn:aws:elasticache:%s:%s:reserved-instance:%s</ReservationARN>",
-		awsRegion(), awsAccountID(), xmlEscape(n.ReservedCacheNodeId))
+	fmt.Fprintf(b, "<ReservationARN>%s</ReservationARN>", xmlEscape(ecReservedNodeARN(n.ReservedCacheNodeId)))
 	b.WriteString("</ReservedCacheNode>")
 }
 

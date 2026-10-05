@@ -118,13 +118,14 @@ func ssmDocumentDescriptionWire(d SSMDocument, v SSMDocumentVersion) map[string]
 
 func handleSSMCreateDocument(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name           string `json:"Name"`
-		Content        string `json:"Content"`
-		DisplayName    string `json:"DisplayName"`
-		DocumentType   string `json:"DocumentType"`
-		DocumentFormat string `json:"DocumentFormat"`
-		TargetType     string `json:"TargetType"`
-		VersionName    string `json:"VersionName"`
+		Name           string   `json:"Name"`
+		Content        string   `json:"Content"`
+		DisplayName    string   `json:"DisplayName"`
+		DocumentType   string   `json:"DocumentType"`
+		DocumentFormat string   `json:"DocumentFormat"`
+		TargetType     string   `json:"TargetType"`
+		VersionName    string   `json:"VersionName"`
+		Tags           []SSMTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
@@ -169,6 +170,7 @@ func handleSSMCreateDocument(w http.ResponseWriter, r *http.Request) {
 		Versions:       []SSMDocumentVersion{ver},
 	}
 	ssmDocuments.Put(req.Name, doc)
+	ssmTagOnCreate("Document", req.Name, req.Tags)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"DocumentDescription": ssmDocumentDescriptionWire(doc, ver),
 	})

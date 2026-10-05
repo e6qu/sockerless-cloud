@@ -26,6 +26,10 @@ import (
 //   awsQuery : sns, elbv2, elasticache
 //   REST     : batch (path arn), s3 (bucket/object tags from the URL path)
 //
+// AWS Systems Manager and AWS WAF resolve the resource the gate authorizes the
+// request against through iamPopulateARNResourceTags, which writes
+// aws:ResourceTag/<k> alone.
+//
 // Each resolver returns the targeted resource's tags as a flat map; the
 // dispatcher then writes both condition-key forms. A resolver that can't find
 // the target (no such resource / no identifying param) returns ok=false and the
@@ -382,17 +386,11 @@ func iamSNSResourceTags(r *http.Request) (map[string]string, bool) {
 	return t.Tags, true
 }
 
-// iamELBv2ResourceTags resolves the resource the request targets — the tag ops
-// carry the ResourceArns.N list; resource-scoped ops carry the single
-// LoadBalancerArn, TargetGroupArn, ListenerArn, RuleArn or TrustStoreArn.
+// iamELBv2ResourceTags resolves the tags of the resource the gate authorizes
+// the request against: the load balancer a listener is created on, the target
+// group targets are registered with, the trust store a revocation is added to.
 func iamELBv2ResourceTags(r *http.Request) (map[string]string, bool) {
-	arns := queryList(r, "ResourceArns")
-	for _, field := range []string{"LoadBalancerArn", "TargetGroupArn", "ListenerArn", "RuleArn", "TrustStoreArn"} {
-		if arn := r.FormValue(field); arn != "" {
-			arns = append(arns, arn)
-		}
-	}
-	for _, arn := range arns {
+	for _, arn := range iamResourceARNsForRequest(r, "elasticloadbalancing:"+r.FormValue("Action")) {
 		if tags, ok := elbv2ResourceTags(arn); ok {
 			return tags, true
 		}
@@ -400,21 +398,66 @@ func iamELBv2ResourceTags(r *http.Request) (map[string]string, bool) {
 	return nil, false
 }
 
-// iamElastiCacheResourceTags resolves the cluster the request targets — the tag
-// ops carry ResourceName (an ARN); the cluster-scoped ops carry CacheClusterId.
+// iamElastiCacheResourceTags resolves the tags of the resource the gate
+// authorizes the request against: the cluster, replication group, parameter
+// group, subnet group, snapshot, user or user group it names.
 func iamElastiCacheResourceTags(r *http.Request) (map[string]string, bool) {
-	if arn := r.FormValue("ResourceName"); arn != "" {
+	for _, arn := range iamResourceARNsForRequest(r, "elasticache:"+r.FormValue("Action")) {
 		if tags, ok := ecLookupTags(arn); ok {
 			return tags, true
 		}
-		return nil, false
-	}
-	if id := r.FormValue("CacheClusterId"); id != "" {
-		if c, ok := ecClusters.Get(id); ok {
-			return c.Tags, true
-		}
 	}
 	return nil, false
+}
+
+// iamPopulateARNResourceTags writes aws:ResourceTag/<k> for the first resource
+// the gate authorizes the request against whose tags lookup resolves. It
+// writes no service-prefixed key: AWS WAF declares none, and the Systems
+// Manager spelling ssm:resourceTag/<k> is classified in
+// iamUnmodelledConditionKeys.
+func iamPopulateARNResourceTags(r *http.Request, action string, ctx map[string][]string,
+	lookup func(arn string) (map[string]string, bool),
+) {
+	for _, arn := range iamResourceARNsForRequest(r, action) {
+		tags, ok := lookup(arn)
+		if !ok {
+			continue
+		}
+		for k, v := range tags {
+			ctx["aws:ResourceTag/"+k] = []string{v}
+		}
+		return
+	}
+}
+
+// iamSSMTagsForARN resolves the tags of a resource a Systems Manager request
+// names. A command, a session or an association aimed at a machine names the
+// Amazon EC2 instance itself, whose tags are the instance's own.
+func iamSSMTagsForARN(arn string) (map[string]string, bool) {
+	if i := strings.Index(arn, ":instance/"); i >= 0 && strings.HasPrefix(arn, "arn:aws:ec2:") {
+		instance, ok := ec2Instances.Get(arn[i+len(":instance/"):])
+		if !ok {
+			return nil, false
+		}
+		out := make(map[string]string, len(instance.Tags))
+		for _, t := range instance.Tags {
+			out[t.Key] = t.Value
+		}
+		return out, true
+	}
+	return ssmTagsForARN(arn)
+}
+
+func iamWAFv2TagsForARN(arn string) (map[string]string, bool) {
+	tags, ok := wafGetTagsByARN(arn)
+	if !ok {
+		return nil, false
+	}
+	out := make(map[string]string, len(tags))
+	for _, t := range tags {
+		out[t.Key] = t.Value
+	}
+	return out, true
 }
 
 // ── REST services ─────────────────────────────────────────────────────

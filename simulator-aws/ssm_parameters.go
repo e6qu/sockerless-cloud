@@ -55,6 +55,61 @@ func ssmTagKey(resourceType, resourceID string) string {
 	return resourceType + "/" + resourceID
 }
 
+// ssmTaggedARNTypes maps the resource segment of a Systems Manager ARN to the
+// ResourceTypeForTagging the tagging operations name it by.
+var ssmTaggedARNTypes = map[string]string{
+	"association":          "Association",
+	"automation-execution": "Automation",
+	"cloud-connector":      "CloudConnector",
+	"document":             "Document",
+	"maintenancewindow":    "MaintenanceWindow",
+	"managed-instance":     "ManagedInstance",
+	"opsitem":              "OpsItem",
+	"opsmetadata":          "OpsMetadata",
+	"parameter":            "Parameter",
+	"patchbaseline":        "PatchBaseline",
+}
+
+// ssmTagsForARN returns the tags of the Systems Manager resource an ARN names.
+// A parameter's ARN drops the name's leading slash, which the tagging call
+// that stored its tags may have carried.
+func ssmTagsForARN(arn string) (map[string]string, bool) {
+	fields := strings.SplitN(arn, ":", 6)
+	if len(fields) < 6 || fields[2] != "ssm" {
+		return nil, false
+	}
+	segment, id, ok := strings.Cut(fields[5], "/")
+	resourceType, tagged := ssmTaggedARNTypes[segment]
+	if !ok || !tagged {
+		return nil, false
+	}
+	ids := []string{id}
+	if resourceType == "Parameter" {
+		ids = append(ids, "/"+id)
+	}
+	for _, candidate := range ids {
+		tags, found := ssmResourceTags.Get(ssmTagKey(resourceType, candidate))
+		if !found || len(tags) == 0 {
+			continue
+		}
+		out := make(map[string]string, len(tags))
+		for _, t := range tags {
+			out[t.Key] = t.Value
+		}
+		return out, true
+	}
+	return nil, false
+}
+
+// ssmTagOnCreate stores the tags a create carries where the tagging
+// operations read and write them.
+func ssmTagOnCreate(resourceType, resourceID string, tags []SSMTag) {
+	if len(tags) == 0 {
+		return
+	}
+	ssmResourceTags.Put(ssmTagKey(resourceType, resourceID), tags)
+}
+
 func ssmParamArn(name string) string {
 	// Real ARN: arn:aws:ssm:<region>:<account>:parameter<name-with-leading-slash>
 	return "arn:aws:ssm:" + awsRegion() + ":" + awsAccountID() + ":parameter" + ensureLeadingSlash(name)
@@ -203,15 +258,16 @@ func handleSSMListTagsForResource(w http.ResponseWriter, r *http.Request) {
 
 func handleSSMPutParameter(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name           string `json:"Name"`
-		Type           string `json:"Type"`
-		Value          string `json:"Value"`
-		Description    string `json:"Description"`
-		Overwrite      bool   `json:"Overwrite"`
-		KeyId          string `json:"KeyId"`
-		AllowedPattern string `json:"AllowedPattern"`
-		Tier           string `json:"Tier"`
-		DataType       string `json:"DataType"`
+		Name           string   `json:"Name"`
+		Type           string   `json:"Type"`
+		Value          string   `json:"Value"`
+		Description    string   `json:"Description"`
+		Overwrite      bool     `json:"Overwrite"`
+		KeyId          string   `json:"KeyId"`
+		AllowedPattern string   `json:"AllowedPattern"`
+		Tier           string   `json:"Tier"`
+		DataType       string   `json:"DataType"`
+		Tags           []SSMTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
@@ -219,6 +275,14 @@ func handleSSMPutParameter(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name == "" || req.Value == "" {
 		AWSError(w, "ValidationException", "Name and Value are required", http.StatusBadRequest)
+		return
+	}
+	// The PutParameter reference: Tags cannot be used with Overwrite, which
+	// changes a parameter whose tags only the tagging operations may change.
+	if req.Overwrite && len(req.Tags) > 0 {
+		AWSError(w, "ValidationException", "Invalid request: tags and overwrite can't be used together. "+
+			"To create a parameter with tags, please remove overwrite flag. To update tags for an existing "+
+			"parameter, please use AddTagsToResource or RemoveTagsFromResource.", http.StatusBadRequest)
 		return
 	}
 	if req.Type == "" {
@@ -256,6 +320,7 @@ func handleSSMPutParameter(w http.ResponseWriter, r *http.Request) {
 		AllowedPattern:   req.AllowedPattern,
 	}
 	ssmParams.Put(req.Name, param)
+	ssmTagOnCreate("Parameter", req.Name, req.Tags)
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"Version": version,

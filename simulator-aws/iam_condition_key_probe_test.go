@@ -88,7 +88,8 @@ type iamKeyProbeFill struct {
 	arn       string
 	// fixtures names a resource the simulator holds, by lower-cased member
 	// name, so a probe of an action whose keys describe its target resource
-	// addresses one that exists.
+	// addresses one that exists. A key "<Operation>:<member>" answers for that
+	// operation alone, where one member name means different resources.
 	fixtures map[string]string
 }
 
@@ -112,6 +113,9 @@ func (f *iamKeyProbeFill) shape(target string) (smithyShapeDef, string) {
 // and otherwise the value the resource-derivation probe sends.
 func (f *iamKeyProbeFill) str(member string) string {
 	lower := strings.ToLower(member)
+	if value, ok := f.fixtures[f.operation+":"+lower]; ok {
+		return value
+	}
 	if value, ok := f.fixtures[lower]; ok {
 		return value
 	}

@@ -318,7 +318,10 @@ through hooks:
   context for each action it is authorized as, and checks every key that
   action declares. Resources whose state some keys report — a tagged bucket,
   object and access point, a key behind an alias, a bounded role, a sized task
-  definition — are created through each service's own API first. The pairs it
+  definition, one tagged resource of every type Elastic Load Balancing,
+  Amazon ElastiCache, AWS Systems Manager and AWS WAF tag, an Amazon ECS
+  capacity provider, container instance and task set, an AWS Cloud Map
+  namespace and service — are created through each service's own API first. The pairs it
   does not build are listed one by one in `testdata/iam_condition_key_gaps.tsv`
   with a reason from a closed table, so a new gap and a fixed one both fail.
   Measuring this way found keys a name-only check had credited: untagging
@@ -327,7 +330,20 @@ through hooks:
   `aws:ResourceTag/<k>`, and a role's or user's existing permissions boundary
   never reached `iam:PermissionsBoundary`. It also found PutObject dropping its
   `x-amz-tagging`, CreateUser its `PermissionsBoundary` and CreateAccessPoint
-  its `Tags`.
+  its `Tags`. Seeding every taggable type found more: Elastic Load Balancing
+  and Amazon ElastiCache read a resource's tags from a few members rather than
+  from the resource the gate authorizes against, and AWS Systems Manager and
+  AWS WAF read none; a task definition named by family alone resolved no
+  revision; AWS Cloud Map's DeleteService and UpdateService never carried
+  `servicediscovery:ServiceCreatedByAccount`; an ElastiCache global datastore
+  create was not authorized against its primary replication group, and the
+  simulator minted a global datastore's ARN with a region, which AWS writes
+  without one. Resource tags now resolve from the ARNs the gate derives. The creates themselves were
+  dropping tags: CreateCacheSecurityGroup, PurchaseReservedCacheNodesOffering
+  and CreateGlobalReplicationGroup kept none, ElastiCache's tagging operations
+  did not reach serverless caches and their snapshots, and every Systems
+  Manager create but CreateCloudConnector discarded its `Tags`, while that one
+  kept them where ListTagsForResource never looked.
 - **Maintenance may not end the service.** Failing loudly on a persistence
   fault is right in a handler, where net/http turns the panic into a 500. On a
   background goroutine it was a restart loop: the retention sweeper met a busy

@@ -145,16 +145,17 @@ func ssmWindowWire(m SSMMaintenanceWindow) map[string]any {
 
 func handleSSMCreateMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name                     string `json:"Name"`
-		Description              string `json:"Description"`
-		Schedule                 string `json:"Schedule"`
-		ScheduleTimezone         string `json:"ScheduleTimezone"`
-		ScheduleOffset           int    `json:"ScheduleOffset"`
-		StartDate                string `json:"StartDate"`
-		EndDate                  string `json:"EndDate"`
-		Duration                 int    `json:"Duration"`
-		Cutoff                   int    `json:"Cutoff"`
-		AllowUnassociatedTargets bool   `json:"AllowUnassociatedTargets"`
+		Name                     string   `json:"Name"`
+		Description              string   `json:"Description"`
+		Schedule                 string   `json:"Schedule"`
+		ScheduleTimezone         string   `json:"ScheduleTimezone"`
+		ScheduleOffset           int      `json:"ScheduleOffset"`
+		StartDate                string   `json:"StartDate"`
+		EndDate                  string   `json:"EndDate"`
+		Duration                 int      `json:"Duration"`
+		Cutoff                   int      `json:"Cutoff"`
+		AllowUnassociatedTargets bool     `json:"AllowUnassociatedTargets"`
+		Tags                     []SSMTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
@@ -182,6 +183,7 @@ func handleSSMCreateMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
 		ModifiedDate:             now,
 	}
 	ssmWindows.Put(m.WindowId, m)
+	ssmTagOnCreate("MaintenanceWindow", m.WindowId, req.Tags)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"WindowId": m.WindowId})
 }
 
