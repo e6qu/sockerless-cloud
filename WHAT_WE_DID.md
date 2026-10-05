@@ -863,7 +863,17 @@ without an encryption key it cannot write a key at all. With
 `/home/data/Functions/secrets`, and the ARM key operations read that store
 before they answer and write it after they change a key, so a key set or
 deleted through ARM opens or closes the running function and a key the host
-generated lists through ARM. The store's values are encrypted the way the host
+generated lists through ARM. Without that setting the host picks its blob
+store, as `DefaultSecretManagerProvider` does when no SAS URI or other store is
+named: `azure-webjobs-secrets/<site>/host.json` and one
+`<function>.json` per function in the account the `AzureWebJobsStorage`
+connection string names, with the same document shape and the same
+encryption. The ARM key operations read and write those blobs through the
+simulator's Blob service, refuse a connection string whose account does not
+exist or whose key or SAS does not open it, and generate and store the keys
+when the host has not stored any yet, as the host does the first time it loads
+them; a deleted function's blob stays, since the host's blob repository never
+deletes one. The store's values are encrypted the way the host
 encrypts them, measured against the host itself: an ASP.NET Core Data
 Protection payload under the purpose `function-secrets` and the empty key id,
 AES-256-CBC with HMAC-SHA256 keyed through SP800-108 over HMAC-SHA512, with the

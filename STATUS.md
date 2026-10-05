@@ -264,11 +264,14 @@ Current state of the sockerless-cloud repository.
   spelling.
 - **A Linux function app on `Node|22` runs the Azure Functions host** image
   on its deployed content, with the App Service platform environment every
-  site container gets; with `AzureWebJobsSecretStorageType=files` the ARM key
-  operations read and write the host's own encrypted file secret store, so
-  the keys they list are the keys the host accepts, and `functionAppStacks`
-  lists the stack. Other function stacks, the blob secret store and
-  code-defined functions stay open as BUG-3237.
+  site container gets; the ARM key operations read and write the host's own
+  encrypted secret store — the file store under
+  `AzureWebJobsSecretStorageType=files`, and otherwise the
+  `azure-webjobs-secrets` blobs of the account `AzureWebJobsStorage` names —
+  so with the file store the keys they list are the keys the host accepts,
+  and `functionAppStacks` lists the stack. Other function stacks, the host's
+  own route to the Blob service, and code-defined functions stay open as
+  BUG-3237.
 - **Azure Monitor logs land where something names the workspace.** A
   Container Apps environment's `appLogsConfiguration`, a site's Application
   Insights connection, and a data collection rule's Log Analytics destination

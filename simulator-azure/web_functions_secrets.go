@@ -19,7 +19,7 @@ import (
 
 // The Azure Functions host's key material, in the formats the host itself
 // reads and writes: identifiable secrets for key values, and ASP.NET Core Data
-// Protection payloads for the encrypted values of its file secret store.
+// Protection payloads for the encrypted values of its file and blob secret stores.
 
 // The seeds the host passes to the Marvin checksum of an identifiable secret,
 // one per key family.
@@ -129,7 +129,7 @@ const functionSecretsPurpose = "function-secrets"
 var dataProtectionMagic = []byte{0x09, 0xF0, 0xC9, 0xF0}
 
 // protectFunctionSecret encrypts a key value as the host does when it writes
-// its file secret store on App Service: a Data Protection payload under the
+// its file or blob secret store on App Service: a Data Protection payload under the
 // site's encryption key (whose key id the host leaves as the empty GUID),
 // AES-256-CBC with an HMAC-SHA256 tag, base64url-encoded.
 func protectFunctionSecret(encryptionKey, plaintext string) (string, error) {
