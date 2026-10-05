@@ -306,7 +306,9 @@ Current state of the sockerless-cloud repository.
   the instances have passed their startup probes, and fails both with the
   start error; an instance's exits restart it per its `restartPolicy`, up to
   three times in a row; a simulator restart adopts the stored pools' and
-  instances' running containers and starts only what is missing.
+  instances' running containers and starts only what is missing, adopts the
+  instance serving each service, and lets each running job execution's task
+  run on to its outcome.
   An instance's `urls` reach its ingress container through the Cloud Run front
   end, behind the same invoker check a service's URL has.
 - **A Cloud Run function is served by its Cloud Run service**:

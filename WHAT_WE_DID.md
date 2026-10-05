@@ -1840,6 +1840,24 @@ container's hostname through the instance's URL before and after, deletes both
 and finds the stop lines of the containers the first process started, with
 their start lines logged once.
 
+A service's instance and a job execution's task survive the restart the same
+way. The restarted simulator adopts, for every stored service, the instance
+running the service's template whole, so the next request reaches it, and
+removes every other service container: instances of other revisions and of
+services since deleted. Its output reaches Cloud Logging under the service's
+`cloud_run_revision` resource through the same deduplicating sink. A job
+execution still running keeps its task's containers: the restarted simulator
+adopts them, arms what is left of the task's timeout counted from the
+execution's start, and settles the execution from the main container's exit,
+which a task that exited while no process watched it reports at once. Only an
+execution whose containers are gone fails, and the containers of an execution
+that no longer runs are removed. The adoption has to precede the recovery that
+fails executions without a workload, so both run at start-up with the rest of
+the Cloud Run resumption rather than at registration. The SDK
+restart suite adds a service, read through its URL before and after the
+restart, and a job whose `startExecutionToken` execution runs across it and is
+then cancelled, and finds each container's start and stop lines logged once.
+
 A Cloud Run instance's `urls` are served by the Cloud Run front end the way a
 service's URL is: a request whose Host is one of them reaches the instance's
 running ingress container with the method, path, query, headers and body, and

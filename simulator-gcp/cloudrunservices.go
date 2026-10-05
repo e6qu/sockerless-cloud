@@ -545,11 +545,11 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		env := workloadhost.MergeEnv(containerEnvMap(c.Env), metadataEnv)
 		containerName := fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-%s", serviceID, instanceID)
 		labels := map[string]string{
-			"sockerless-sim-service": serviceID,
-			cloudRunResourceLabel:    name,
-			cloudRunContainerLabel:   c.Name,
-			cloudRunGroupLabel:       instanceID,
-			cloudRunSpecLabel:        cloudRunSpecDigest(specSig),
+			cloudRunServiceLabel:   serviceID,
+			cloudRunResourceLabel:  name,
+			cloudRunContainerLabel: c.Name,
+			cloudRunGroupLabel:     instanceID,
+			cloudRunSpecLabel:      cloudRunSpecDigest(specSig),
 		}
 		if i == 0 {
 			env = workloadhost.MergeEnv(map[string]string{"PORT": strconv.Itoa(cloudRunContainerPort(c))}, containerEnvMap(c.Env), metadataEnv)

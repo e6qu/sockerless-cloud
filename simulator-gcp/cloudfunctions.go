@@ -677,8 +677,10 @@ func applyFunctionPatch(fn, patch *storedFunction, mask string) (serviceConfigCh
 // Cloud Functions backend's log filter expects.
 func injectCloudFunctionLog(project, functionName, text string) {
 	logName := fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2Fstdout", project)
-	writeLogEntries(logName, &MonitoredResource{
-		Type:   "cloud_run_revision",
-		Labels: map[string]string{"service_name": functionName},
-	}, nil, []LogEntry{{TextPayload: text}})
+	resource := cloudRunServiceLogResource(functionName)
+	writeLogEntries(logName, &resource, nil, []LogEntry{{TextPayload: text}})
+}
+
+func cloudRunServiceLogResource(serviceID string) MonitoredResource {
+	return MonitoredResource{Type: "cloud_run_revision", Labels: map[string]string{"service_name": serviceID}}
 }

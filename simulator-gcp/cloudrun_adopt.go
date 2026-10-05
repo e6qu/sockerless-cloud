@@ -12,6 +12,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
 // Cloud Run's control plane never restarts the instances it runs, so a
@@ -26,6 +27,10 @@ const (
 	cloudRunSpecLabel      = "sockerless-sim-cloudrun-spec"
 	cloudRunResourceLabel  = "sockerless-sim-cloudrun-resource"
 	cloudRunContainerLabel = "sockerless-sim-cloudrun-container"
+	cloudRunServiceLabel   = "sockerless-sim-service"
+
+	cloudRunTaskExecutionLabel = "sockerless-sim-execution"
+	cloudRunTaskContainerLabel = "sockerless-sim-execution-container"
 )
 
 // cloudRunSpecDigest is the label value naming a template's containers and
@@ -41,7 +46,7 @@ func cloudRunSpecDigest(specSig string) string {
 // output. Entries carry the millisecond they were written, never earlier than
 // the line.
 type cloudRunAdoptedLogSink struct {
-	sink  *cloudRunResourceLogSink
+	sink  sim.LogSink
 	after time.Time
 }
 
@@ -52,15 +57,17 @@ func (s cloudRunAdoptedLogSink) WriteLog(line sim.LogLine) {
 	s.sink.WriteLog(line)
 }
 
-func newCloudRunAdoptedLogSink(sink *cloudRunResourceLogSink) cloudRunAdoptedLogSink {
+// newCloudRunAdoptedLogSink wraps sink, which writes the entries of resource
+// in project, for a container an earlier process started.
+func newCloudRunAdoptedLogSink(sink sim.LogSink, project string, resource MonitoredResource) cloudRunAdoptedLogSink {
 	adopted := cloudRunAdoptedLogSink{sink: sink}
 	if logEntries == nil {
 		return adopted
 	}
 	for _, stream := range []string{"stdout", "stderr"} {
-		entries, _ := logEntries.Get(fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2F%s", sink.project, stream))
+		entries, _ := logEntries.Get(fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2F%s", project, stream))
 		for _, entry := range entries {
-			if entry.Resource == nil || entry.Resource.Type != sink.resource.Type || !cloudRunSameResource(entry.Resource.Labels, sink.resource.Labels) {
+			if entry.Resource == nil || entry.Resource.Type != resource.Type || !cloudRunSameResource(entry.Resource.Labels, resource.Labels) {
 				continue
 			}
 			if at, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err == nil && at.After(adopted.after) {
@@ -69,6 +76,10 @@ func newCloudRunAdoptedLogSink(sink *cloudRunResourceLogSink) cloudRunAdoptedLog
 		}
 	}
 	return adopted
+}
+
+func newCloudRunAdoptedResourceLogSink(sink *cloudRunResourceLogSink) cloudRunAdoptedLogSink {
+	return newCloudRunAdoptedLogSink(sink, sink.project, sink.resource)
 }
 
 // cloudRunSameResource reports whether a log entry's resource labels name the
@@ -204,7 +215,7 @@ func adoptCloudRunWorkerPoolInstance(poolName, revision string, containers []Con
 	if err != nil {
 		return nil, err
 	}
-	sink := newCloudRunAdoptedLogSink(cloudRunWorkerPoolLogSink(poolName, revision))
+	sink := newCloudRunAdoptedResourceLogSink(cloudRunWorkerPoolLogSink(poolName, revision))
 	handles := make([]*sim.ContainerHandle, 0, len(containers))
 	for _, c := range containers {
 		handle, err := sim.AdoptContainer(byName[c.Name].ID, sim.ContainerConfig{CancelGracePeriod: cloudRunStopGrace}, sink)
@@ -257,7 +268,7 @@ func adoptCloudRunInstance(inst InstanceV2, run bool) {
 		group := groups[id]
 		if run && !adopted && len(inst.Containers) > 0 {
 			if byName, ok := cloudRunAdoptable(group, id, specSig, cloudRunContainerLabel, inst.Containers); ok {
-				if err := adoptCloudRunServiceInstance(inst.Name, specSig, inst.Containers, inst.Volumes, byName, newCloudRunAdoptedLogSink(cloudRunInstanceLogSink(inst.Name))); err == nil {
+				if err := adoptCloudRunServiceInstance(inst.Name, specSig, inst.Containers, inst.Volumes, byName, newCloudRunAdoptedResourceLogSink(cloudRunInstanceLogSink(inst.Name))); err == nil {
 					adopted = true
 					continue
 				}
@@ -319,5 +330,155 @@ func adoptCloudRunServiceInstance(name, specSig string, containers []Container, 
 	cloudRunServiceInstances.byName[name] = inst
 	cloudRunServiceInstances.Unlock()
 	stopCloudRunServiceInstance(previous)
+	return nil
+}
+
+// adoptCloudRunServiceInstances takes over, for every stored service, the
+// instance an earlier process left serving the service's revision, so the
+// next request reaches it rather than starting another, and removes every
+// other service container that process left: instances of other revisions
+// and of services since deleted.
+func adoptCloudRunServiceInstances() {
+	groups, ids, err := cloudRunExistingGroups(map[string]string{cloudRunServiceLabel: ""})
+	if err != nil {
+		log.Printf("Cloud Run services: list the instances an earlier process left: %v", err)
+		return
+	}
+	adopted := map[string]bool{}
+	for _, id := range ids {
+		group := groups[id]
+		name := group[0].Labels[cloudRunResourceLabel]
+		if !strings.Contains(name, "/services/") {
+			// A Cloud Run instance runs on the same containers; adoptCloudRunInstance owns them.
+			continue
+		}
+		if !adopted[name] && adoptCloudRunServiceInstanceGroup(name, id, group) {
+			adopted[name] = true
+			continue
+		}
+		removeCloudRunContainers(name, group)
+	}
+}
+
+// adoptCloudRunServiceInstanceGroup adopts group as the instance of the
+// service name when it runs the service's template whole.
+func adoptCloudRunServiceInstanceGroup(name, groupID string, group []sim.ExistingContainer) bool {
+	if crv2Services == nil {
+		return false
+	}
+	svc, ok := crv2Services.Get(name)
+	if !ok || svc.Template == nil || len(svc.Template.Containers) == 0 {
+		return false
+	}
+	containers, volumes := svc.Template.Containers, svc.Template.Volumes
+	specSig := serviceContainersSignature(containers, volumes)
+	byName, ok := cloudRunAdoptable(group, groupID, specSig, cloudRunContainerLabel, containers)
+	if !ok {
+		return false
+	}
+	project, serviceID := resourceProject(name), name[strings.LastIndex(name, "/")+1:]
+	sink := newCloudRunAdoptedLogSink(&cfLogSink{project: project, functionName: serviceID}, project, cloudRunServiceLogResource(serviceID))
+	if err := adoptCloudRunServiceInstance(name, specSig, containers, volumes, byName, sink); err != nil {
+		log.Printf("Cloud Run service %s: adopt instance %s: %v", name, groupID, err)
+		return false
+	}
+	return true
+}
+
+// adoptCloudRunJobExecutions takes over the containers of every execution an
+// earlier process left running, so the execution runs on to its outcome
+// under this process, and removes the containers of executions that no
+// longer run.
+func adoptCloudRunJobExecutions() {
+	if !sim.HasPersistentWorkloadIdentity() || sim.RequireContainerRuntime("adopting Cloud Run job executions") != nil {
+		return
+	}
+	found, err := sim.FindExistingContainers(map[string]string{cloudRunTaskExecutionLabel: ""})
+	if err != nil {
+		log.Printf("Cloud Run jobs: list the containers an earlier process left: %v", err)
+		return
+	}
+	byExecution := map[string][]sim.ExistingContainer{}
+	var names []string
+	for _, c := range found {
+		name := c.Labels[cloudRunTaskExecutionLabel]
+		if _, seen := byExecution[name]; !seen {
+			names = append(names, name)
+		}
+		byExecution[name] = append(byExecution[name], c)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		group := byExecution[name]
+		if err := adoptCloudRunJobExecution(name, group); err != nil {
+			log.Printf("Cloud Run execution %s: %v", name, err)
+			removeCloudRunContainers(name, group)
+		}
+	}
+}
+
+// adoptCloudRunJobExecution resumes the execution name on the containers
+// group holds, under the timeout its task template set, counted from the
+// execution's start. A task that exited while no process watched it settles
+// from its container's exit code.
+func adoptCloudRunJobExecution(name string, group []sim.ExistingContainer) error {
+	exec, ok := crjExecutions.Get(name)
+	if !ok || exec.RunningCount == 0 || exec.CompletionTime != "" || exec.CancelledCount > 0 {
+		return fmt.Errorf("the execution no longer runs")
+	}
+	if exec.Template == nil || len(exec.Template.Containers) == 0 || len(group) != len(exec.Template.Containers) {
+		return fmt.Errorf("the containers do not run the execution's task template")
+	}
+	byName := make(map[string]sim.ExistingContainer, len(group))
+	for _, c := range group {
+		byName[c.Labels[cloudRunTaskContainerLabel]] = c
+	}
+	containers := exec.Template.Containers
+	for _, c := range containers {
+		if _, ok := byName[c.Name]; !ok {
+			return fmt.Errorf("no container runs %q", c.Name)
+		}
+	}
+	started, err := time.Parse(time.RFC3339Nano, exec.StartTime)
+	if err != nil {
+		return fmt.Errorf("read the execution's start time %q: %w", exec.StartTime, err)
+	}
+	remaining := cloudRunTaskTimeout(exec.Template) - time.Since(started)
+	writable, err := cloudRunWritableBuckets(containers, exec.Template.Volumes)
+	if err != nil {
+		return err
+	}
+	releaseMounts, err := gcsAcquireMounts(writable)
+	if err != nil {
+		return err
+	}
+	project, jobID := resourceProject(name), exec.Job
+	sink := newCloudRunAdoptedLogSink(&crjLogSink{project: project, jobName: jobID}, project, cloudRunJobLogResource(jobID))
+	handles := make([]*sim.ContainerHandle, 0, len(containers))
+	for i, c := range containers {
+		config := sim.ContainerConfig{CancelGracePeriod: cloudRunStopGrace}
+		if i == 0 && remaining > 0 {
+			config.Timeout = remaining
+		}
+		handle, err := sim.AdoptContainer(byName[c.Name].ID, config, sink)
+		if err != nil {
+			for _, h := range handles {
+				h.Cancel()
+			}
+			releaseMounts()
+			return fmt.Errorf("adopt container %s: %w", byName[c.Name].ID, err)
+		}
+		handles = append(handles, handle)
+	}
+	workloads := &workload.Group{Main: handles[0], Sidecars: handles[1:]}
+	// recoverCloudRunJobExecutions fails every running execution without a
+	// handle once adoption returns.
+	crjProcessHandles.Store(name, workloads)
+	bg.Go(func() {
+		if remaining <= 0 {
+			stopCloudRunExecutionWorkload(workloads)
+		}
+		concludeCloudRunJobExecution(name, exec.TaskCount, project, jobID, awaitCloudRunJobExecution(name, workloads, releaseMounts))
+	})
 	return nil
 }

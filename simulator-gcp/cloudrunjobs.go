@@ -602,13 +602,14 @@ const cloudRunStopGrace = 10 * time.Second
 var crOperations sim.Store[Operation]
 
 // recoverCloudRunJobExecutions settles persisted executions that still claim
-// running tasks but whose workload process handles are absent. The processes a
-// Cloud Run Job execution runs die with the simulator process, so an execution
-// that was running before a control-plane restart can never complete on its
-// own; leaving it with runningCount > 0 would make clients poll forever.
-// Cloud Run reports such an execution as completed-failed (failedCount set,
-// completionTime stamped, terminal Completed condition CONDITION_FAILED), and
-// the sim does the same, with an honest message about the lost workload.
+// running tasks but whose containers did not survive a control-plane restart:
+// the earlier process ran without a persistent state directory, or the
+// containers were gone by the time adoptCloudRunJobExecutions looked.
+// Such an execution can never complete on its own, and leaving it with
+// runningCount > 0 would make clients poll forever. Cloud Run reports a task
+// that lost its instance as completed-failed (failedCount set, completionTime
+// stamped, terminal Completed condition CONDITION_FAILED), and the simulator
+// does the same.
 func recoverCloudRunJobExecutions(jobs sim.Store[Job], executions sim.Store[Execution], tasks sim.Store[Task]) {
 	const message = "Workload containers not found after control-plane restart"
 	for _, exec := range executions.List() {
@@ -700,9 +701,6 @@ func registerCloudRunJobs(srv *sim.Server) {
 	if crOperations == nil {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
 	}
-	recoverCloudRunJobExecutions(jobs, executions, tasks)
-	recoverCloudRunJobRunOperations()
-	recoverCloudRunJobExecutionTokens()
 
 	// Create job
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/jobs", func(w http.ResponseWriter, r *http.Request) {
@@ -1275,16 +1273,8 @@ func applyCloudRunJobOverrides(template *TaskTemplate, overrides *Overrides) *Ta
 // completion and transitions the execution, its tasks and the owning job's
 // latest-execution reference from the real container outcome.
 func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID string, taskTmpl *TaskTemplate) {
-	timeout := 600 * time.Second // GCP default
-	if taskTmpl != nil && taskTmpl.Timeout != "" {
-		if d, err := time.ParseDuration(taskTmpl.Timeout); err == nil {
-			timeout = d
-		}
-	}
-
-	succeeded := true
-	var exitCode int32
-	attemptMessage := ""
+	timeout := cloudRunTaskTimeout(taskTmpl)
+	outcome := cloudRunExecutionOutcome{succeeded: true}
 	if taskTmpl != nil && len(taskTmpl.Containers) > 0 {
 		sink := &crjLogSink{project: project, jobName: jobID}
 		execShort := execName
@@ -1306,25 +1296,57 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 		cancelStart()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: failed to start containers for execution: err=%v\n", err)
-			succeeded = false
-			attemptMessage = err.Error()
+			outcome = cloudRunExecutionOutcome{attemptMessage: err.Error()}
 		} else {
-			crjProcessHandles.Store(execName, group)
-			if e, ok := crjExecutions.Get(execName); !ok || e.CancelledCount > 0 {
-				stopCloudRunExecutionWorkload(group)
-			}
-			settleCloudRunJobExecutionToken(execName)
-			result := group.Main.Wait()
-			crjProcessHandles.Delete(execName)
-			for _, h := range group.Sidecars {
-				h.Cancel()
-			}
-			releaseMounts()
-			exitCode = int32(result.ExitCode)
-			succeeded = result.ExitCode == 0 && result.Error == nil
+			outcome = awaitCloudRunJobExecution(execName, group, releaseMounts)
 		}
 	}
+	concludeCloudRunJobExecution(execName, taskCount, project, jobID, outcome)
+}
 
+// cloudRunTaskTimeout is the task template's timeout, ten minutes when it
+// sets none.
+func cloudRunTaskTimeout(taskTmpl *TaskTemplate) time.Duration {
+	if taskTmpl != nil && taskTmpl.Timeout != "" {
+		if d, err := time.ParseDuration(taskTmpl.Timeout); err == nil {
+			return d
+		}
+	}
+	return 600 * time.Second
+}
+
+// cloudRunExecutionOutcome is what an execution's containers ended with.
+type cloudRunExecutionOutcome struct {
+	succeeded      bool
+	exitCode       int32
+	attemptMessage string
+}
+
+// awaitCloudRunJobExecution waits for the execution's running containers to
+// exit, stops them when the execution has been cancelled meanwhile, and
+// returns what the main container exited with.
+func awaitCloudRunJobExecution(execName string, group *workload.Group, releaseMounts func()) cloudRunExecutionOutcome {
+	crjProcessHandles.Store(execName, group)
+	if e, ok := crjExecutions.Get(execName); !ok || e.CancelledCount > 0 {
+		stopCloudRunExecutionWorkload(group)
+	}
+	settleCloudRunJobExecutionToken(execName)
+	result := group.Main.Wait()
+	crjProcessHandles.Delete(execName)
+	for _, h := range group.Sidecars {
+		h.Cancel()
+	}
+	releaseMounts()
+	return cloudRunExecutionOutcome{
+		succeeded: result.ExitCode == 0 && result.Error == nil,
+		exitCode:  int32(result.ExitCode),
+	}
+}
+
+// concludeCloudRunJobExecution transitions the execution, its tasks and the
+// owning job's latest-execution reference from the outcome.
+func concludeCloudRunJobExecution(execName string, taskCount int32, project, jobID string, outcome cloudRunExecutionOutcome) {
+	succeeded, exitCode, attemptMessage := outcome.succeeded, outcome.exitCode, outcome.attemptMessage
 	completed, cancelled := false, false
 	crjExecutions.Update(execName, func(e *Execution) {
 		if e.CancelledCount > 0 {
@@ -1489,10 +1511,12 @@ func stopCloudRunExecutionWorkload(group *workload.Group) {
 // backend's log filter expects.
 func injectCloudRunJobLog(project, jobName, text string) {
 	logName := fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2Fstdout", project)
-	writeLogEntries(logName, &MonitoredResource{
-		Type:   "cloud_run_job",
-		Labels: map[string]string{"job_name": jobName},
-	}, nil, []LogEntry{{TextPayload: text}})
+	resource := cloudRunJobLogResource(jobName)
+	writeLogEntries(logName, &resource, nil, []LogEntry{{TextPayload: text}})
+}
+
+func cloudRunJobLogResource(jobID string) MonitoredResource {
+	return MonitoredResource{Type: "cloud_run_job", Labels: map[string]string{"job_name": jobID}}
 }
 
 // crjLogSink implements sim.LogSink and writes log lines to Cloud Logging.
