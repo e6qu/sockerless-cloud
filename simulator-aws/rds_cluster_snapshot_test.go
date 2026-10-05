@@ -174,6 +174,7 @@ func rdsCleanupRestoredCluster(t *testing.T, clusterID string) {
 	t.Cleanup(func() {
 		bg.Await()
 		_ = rdsStopAuroraDataPlane(clusterID, true)
+		rdsRemoveAuroraClusterVolume(clusterID)
 		if cluster, ok := rdsClusters.Get(clusterID); ok {
 			rdsRemoveAutomatedBackups(cluster)
 		}

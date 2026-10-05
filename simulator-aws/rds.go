@@ -1799,6 +1799,7 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 		rdsInstances.Delete(member.DBInstanceIdentifier)
 		// The member is gone either way; rdsStopDataPlane logs the failure.
 		_ = rdsStopDataPlane(member.DBInstanceIdentifier, true)
+		rdsRemoveInstanceVolume(member.DBInstanceIdentifier)
 	}
 	resourceID := cl.DbClusterResourceId
 	if finalSnapID != "" {

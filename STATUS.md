@@ -147,7 +147,9 @@ Current state of the sockerless-cloud repository.
   automated backups replicate to another Region, where they restore after
   the replication stops or the source is gone. An Aurora
   endpoint signs in the master user and IAM-authenticated users itself and
-  every other database user through the engine's own checks.
+  every other database user through the engine's own checks. Deleting a
+  database kills an engine still initialising its volume rather than waiting
+  out the stop grace.
 - **The registries answer their own service**: Amazon ECR's empty ping with
   no content type, Artifact Registry's `text/html`, Azure Container Registry's
   `{}`; ECR hydrates a pull through a cache rule from the rule's upstream;

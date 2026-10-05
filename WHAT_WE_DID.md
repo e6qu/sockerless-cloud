@@ -997,6 +997,19 @@ an unfinished capture, copy or deletion. A final snapshot whose capture an
 earlier simulator left unfinished, after it had already dropped the resource,
 takes that resource's volume as its own.
 
+A deletion discards the resource's engine rather than stopping it
+(`dbengine.Instance.Discard`, called by Amazon RDS, Amazon Aurora and Cloud SQL
+deletions). An engine that has not yet accepted clients is killed at once: the
+MySQL image's entrypoint runs as PID 1 and ignores SIGTERM while it initialises
+the data directory, so a deletion that landed while the first automated backup
+was starting the engine had waited out the five-second stop grace, and every
+Aurora MySQL cluster test in the SDK suite had grown by about ten seconds. The
+directory goes with the resource, so it needs no clean shutdown. A stop keeps
+the grace, since its volume stays. Every stop also ends a start that is
+waiting on the engine at once, rather than at the next two-second liveness
+check. The deletion stops the engine first, settles the automated backups, and
+then removes the volume.
+
 An Amazon RDS instance's log files are its engine's own output.
 `dbengine.Instance` hands the engine container's lines, each dated by the
 container runtime, to a sink. The Amazon RDS sink stores them by hour under the

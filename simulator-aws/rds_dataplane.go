@@ -512,11 +512,11 @@ func rdsStartInstanceEngine(instance *RDSInstance) error {
 // engine removes the volume only once the engine has let go of it.
 var rdsDataPlaneStops = sim.NewKeyedLocks()
 
-// rdsStopDataPlane closes the instance's endpoint and stops its engine and,
-// when the instance is being deleted, removes its data volume — which exists
-// from the first engine start or from a snapshot restore's clone. It returns
-// the engine's stop error.
-func rdsStopDataPlane(instanceID string, deleteVolume bool) error {
+// rdsStopDataPlane closes the instance's endpoint and stops its engine and its
+// automated backups, and returns the engine's stop error. An instance being
+// deleted discards its engine, which ends a start still initialising the
+// volume at once.
+func rdsStopDataPlane(instanceID string, deleting bool) error {
 	release := rdsDataPlaneStops.Lock(instanceID)
 	defer release()
 	rdsCloseAuroraInstanceEndpoint(instanceID)
@@ -524,22 +524,32 @@ func rdsStopDataPlane(instanceID string, deleteVolume bool) error {
 	if value, ok := rdsDataPlanes.LoadAndDelete(instanceID); ok {
 		if plane, ok := value.(*rdsDataPlane); ok {
 			plane.backups.stop()
-			if err := plane.engine.Close(); err != nil {
+			stop := plane.engine.Close
+			if deleting {
+				stop = plane.engine.Discard
+			}
+			if err := stop(); err != nil {
 				stopErr = fmt.Errorf("stop database engine: %w", err)
 				log.Printf("Amazon RDS %s: %v", instanceID, stopErr)
 			}
 			plane.backups.awaitStart()
 		}
 	}
-	if deleteVolume {
-		rdsRemoveEngineContainers("Amazon RDS "+instanceID, map[string]string{"sockerless-rds-instance": instanceID})
-	}
-	if deleteVolume && sim.VolumeExists(rdsInstanceVolume(instanceID)) {
+	return stopErr
+}
+
+// rdsRemoveInstanceVolume removes a deleted instance's data volume — which
+// exists from the first engine start or from a snapshot restore's clone — with
+// the engine containers an earlier process left on it.
+func rdsRemoveInstanceVolume(instanceID string) {
+	release := rdsDataPlaneStops.Lock(instanceID)
+	defer release()
+	rdsRemoveEngineContainers("Amazon RDS "+instanceID, map[string]string{"sockerless-rds-instance": instanceID})
+	if sim.VolumeExists(rdsInstanceVolume(instanceID)) {
 		if err := sim.RemoveVolume(rdsInstanceVolume(instanceID)); err != nil {
 			log.Printf("Amazon RDS %s: remove data volume: %v", instanceID, err)
 		}
 	}
-	return stopErr
 }
 
 // rdsRemoveEngineContainers removes the engine containers an earlier process
@@ -576,12 +586,12 @@ func rdsFinishInstanceDeletion(id, resourceID string) {
 		return
 	}
 	// The instance goes either way; rdsStopDataPlane logs a failed stop.
-	_ = rdsStopDataPlane(id, false)
+	_ = rdsStopDataPlane(id, true)
 	if instance, ok := rdsInstances.Get(id); ok && !rdsIsAurora(instance.Engine) {
 		rdsRetainInstanceReplications(instance)
 		rdsKeepOrRemoveInstanceBackups(instance)
 	}
-	_ = rdsStopDataPlane(id, true)
+	rdsRemoveInstanceVolume(id)
 	rdsDeleteEngineLogs(resourceID)
 	if rdsDeletingInstance(id, resourceID) {
 		rdsInstances.Delete(id)

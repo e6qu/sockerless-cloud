@@ -336,10 +336,10 @@ func rdsCloseAuroraInstanceEndpoint(instanceID string) {
 	}
 }
 
-// rdsStopAuroraDataPlane closes an Aurora cluster's endpoints, stops its
-// engine and its automated backups, and, when the cluster is being deleted,
-// removes its cluster volume.
-func rdsStopAuroraDataPlane(clusterID string, deleteVolume bool) error {
+// rdsStopAuroraDataPlane closes an Aurora cluster's endpoints and stops its
+// engine and its automated backups. A cluster being deleted discards its
+// engine, which ends a start still initialising the volume at once.
+func rdsStopAuroraDataPlane(clusterID string, deleting bool) error {
 	release := rdsDataPlaneStops.Lock("cluster/" + clusterID)
 	defer release()
 	var stopErr error
@@ -348,22 +348,31 @@ func rdsStopAuroraDataPlane(clusterID string, deleteVolume bool) error {
 			plane.backups.stop()
 			_ = plane.writer.Close()
 			_ = plane.reader.Close()
-			if err := plane.engine.Close(); err != nil {
+			stop := plane.engine.Close
+			if deleting {
+				stop = plane.engine.Discard
+			}
+			if err := stop(); err != nil {
 				stopErr = fmt.Errorf("stop database engine: %w", err)
 				log.Printf("Amazon Aurora %s: %v", clusterID, stopErr)
 			}
 			plane.backups.awaitStart()
 		}
 	}
-	if deleteVolume {
-		rdsRemoveEngineContainers("Amazon Aurora "+clusterID, map[string]string{"sockerless-rds-cluster": clusterID})
-	}
-	if volume := rdsClusterVolume(clusterID); deleteVolume && sim.VolumeExists(volume) {
+	return stopErr
+}
+
+// rdsRemoveAuroraClusterVolume removes a deleted cluster's cluster volume with
+// the engine containers an earlier process left on it.
+func rdsRemoveAuroraClusterVolume(clusterID string) {
+	release := rdsDataPlaneStops.Lock("cluster/" + clusterID)
+	defer release()
+	rdsRemoveEngineContainers("Amazon Aurora "+clusterID, map[string]string{"sockerless-rds-cluster": clusterID})
+	if volume := rdsClusterVolume(clusterID); sim.VolumeExists(volume) {
 		if err := sim.RemoveVolume(volume); err != nil {
 			log.Printf("Amazon Aurora %s: remove volume %s: %v", clusterID, volume, err)
 		}
 	}
-	return stopErr
 }
 
 // rdsDeletingCluster reports whether id still names the deleting cluster whose
@@ -381,11 +390,11 @@ func rdsFinishClusterDeletion(id, resourceID string) {
 		return
 	}
 	// The cluster goes either way; rdsStopAuroraDataPlane logs a failed stop.
-	_ = rdsStopAuroraDataPlane(id, false)
+	_ = rdsStopAuroraDataPlane(id, true)
 	if cluster, ok := rdsClusters.Get(id); ok {
 		rdsKeepOrRemoveClusterBackups(cluster)
 	}
-	_ = rdsStopAuroraDataPlane(id, true)
+	rdsRemoveAuroraClusterVolume(id)
 	if rdsDeletingCluster(id, resourceID) {
 		rdsClusters.Delete(id)
 	}
