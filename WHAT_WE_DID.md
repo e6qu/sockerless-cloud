@@ -1477,27 +1477,46 @@ lists, stops and deletes a replication in us-west-2; the Terraform suite
 creates `aws_db_instance_automated_backups_replication` through a provider
 configured for us-west-2.
 
-An Aurora cluster's endpoints own two logins: the master user's, under the
-password the control plane records, and IAM database authentication. Every
-other login reaches the engine, which checks it against its own users
-(`rds_aurora_users.go`). Aurora MySQL's relay logs in to the engine with the
-client's own user and password, so the engine's refusal reaches the client
-verbatim and a session holds only its user's privileges. Aurora PostgreSQL's
-engine trusts the relay, so the endpoint has the engine check the password: a
-`DO` block run as the master user reads the role's `pg_authid` verifier and
-compares the MD5 digest, or recomputes the SCRAM-SHA-256 StoredKey through
-PBKDF2-HMAC-SHA-256 with the builtin `sha256`, the presented user and password
-reaching it as session settings rather than spliced into the SQL. A role
-granted `rds_iam`, directly or through another role, signs in only with an IAM
-authentication token; the check walks `pg_auth_members`, since `pg_has_role`
-counts every role as granted to a superuser. On every engine start Aurora
-PostgreSQL gets the `rds_iam` role, and Aurora MySQL's master user gets the
-global privileges Aurora MySQL version 3 grants it, `CREATE USER` among them,
-while the image's remote `root` account goes. The SDK suite signs in a user the
-master user created on each engine and proves its wrong password, an unknown
-user and `root` are refused, that its session holds only its own grants, and
-that a PostgreSQL role granted `rds_iam` signs in with a token and not with its
-password; it also signs in a user the restored XtraBackup held.
+An RDS endpoint, a DB instance's and an Aurora cluster's alike, owns two
+logins: the master user's, under the password the control plane records, and
+IAM database authentication. Every other login reaches the engine, which
+checks it against its own users (`rds_database_users.go`, where one
+`rdsEndpointLogins` serves `rdsDataPlane` and `rdsAuroraDataPlane`). A
+MySQL-family relay logs in to the engine with the client's own user and
+password, so the engine's refusal reaches the client verbatim and a session
+holds only its user's privileges. A PostgreSQL engine trusts the relay, so the
+endpoint has the engine check the password: a `DO` block run as the master
+user reads the role's `pg_authid` verifier and compares the MD5 digest, or
+recomputes the SCRAM-SHA-256 StoredKey through PBKDF2-HMAC-SHA-256 with the
+builtin `sha256`, the presented user and password reaching it as session
+settings rather than spliced into the SQL. A role granted `rds_iam`, directly
+or through another role, signs in only with an IAM authentication token whose
+`DBUser` names it, and the session runs as that role; the check walks
+`pg_auth_members`, since `pg_has_role` counts every role as granted to a
+superuser, and a master user not granted `rds_iam` cannot sign in with a
+token. On every engine start a PostgreSQL engine gets the `rds_iam` role, and
+a MySQL-family master user gets the global privileges RDS grants it,
+`CREATE USER` among them, while the image's remote `root` account goes; a
+Percona XtraBackup import installs the master user with those privileges too,
+not `ALL PRIVILEGES`. The SDK suite signs in a user the master user created on
+each engine, on an Aurora cluster and on an RDS for PostgreSQL and RDS for
+MySQL instance, and proves its wrong password, an unknown user and `root` are
+refused, that its session holds only its own grants, and that a PostgreSQL
+role granted `rds_iam` signs in with a token, and not with its password, as
+itself; it also signs in a user the restored XtraBackup held. The CLI suite
+signs in a role granted `rds_iam` with the token `aws rds
+generate-db-auth-token` makes, and a password user on the instance a
+point-in-time restore made.
+
+On MySQL-family engines an IAM-authenticated session still runs as the master
+user (BUG-3346). RDS for MySQL and Aurora MySQL mark a user as IAM-authenticated
+with `CREATE USER ... IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'`, and the
+stock MySQL 8.0 image refuses that statement with error 1524, `Plugin
+'AWSAuthenticationPlugin' is not loaded`: its plugin directory holds no such
+plugin, and the built-in authentication plugins cannot log the endpoint in as
+another user without that user's password. Proxy accounts or a password the
+endpoint sets on the user would invent accounts and credentials the client
+never created, so the simulator does neither.
 
 Every volume capture holds one crash-consistent point in time, the property a
 block-level storage snapshot gives. `sim.SnapshotVolume` lists the running

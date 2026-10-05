@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/subtle"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -268,11 +267,19 @@ func rdsEngineEnvironment(engine dbengine.Engine, user, password, database strin
 	}
 }
 
-// ready reconciles the master password and takes the instance's first
-// automated backup on the engine's first start.
+// ready reconciles the master password and the engine's accounts, and takes
+// the instance's first automated backup on the engine's first start.
 func (plane *rdsDataPlane) ready() error {
 	if err := plane.applyPendingMasterPassword(); err != nil {
 		return err
+	}
+	instance := plane.current()
+	password, err := plane.backendPassword()
+	if err != nil {
+		return err
+	}
+	if err := rdsPrepareEngineAccounts(plane.engine, instance.MasterUsername, rdsDatabaseName(instance), password); err != nil {
+		return fmt.Errorf("prepare the Amazon RDS engine accounts: %w", err)
 	}
 	return plane.backups.takeFirst()
 }
@@ -354,24 +361,36 @@ func (plane *rdsDataPlane) applyPendingMasterPassword() error {
 	return nil
 }
 
-// authenticate accepts the master user's password, or — inside TLS on an
-// instance with IAM database authentication enabled — an RDS IAM
-// authentication token.
-func (plane *rdsDataPlane) authenticate(user, password string, secure bool) bool {
+func (plane *rdsDataPlane) logins() (rdsEndpointLogins, error) {
 	instance := plane.current()
 	_, masterPassword, ok := kmsDecryptBytes(instance.MasterUserSecret)
-	if ok && user == instance.MasterUsername && subtle.ConstantTimeCompare([]byte(password), masterPassword) == 1 {
-		return true
+	if !ok {
+		return rdsEndpointLogins{}, fmt.Errorf("RDS master-user credential could not be decrypted")
 	}
-	return secure && instance.EnableIAMDatabaseAuthentication &&
-		rdsValidateIAMAuthToken([]string{net.JoinHostPort(instance.Endpoint, strconv.Itoa(instance.Port))}, instance.DbiResourceId, user, password)
+	return rdsEndpointLogins{
+		engine:         plane.engine,
+		masterUsername: instance.MasterUsername,
+		masterPassword: string(masterPassword),
+		database:       rdsDatabaseName(instance),
+		iamEnabled:     instance.EnableIAMDatabaseAuthentication,
+		resourceID:     instance.DbiResourceId,
+		iamEndpoints: func() []string {
+			return []string{net.JoinHostPort(instance.Endpoint, strconv.Itoa(instance.Port))}
+		},
+	}, nil
 }
 
-// backendLogin runs every MySQL-family session as the master user: an IAM
-// authentication token is no engine credential.
-func (plane *rdsDataPlane) backendLogin(string, string) (string, string, error) {
-	password, err := plane.backendPassword()
-	return plane.current().MasterUsername, password, err
+func (plane *rdsDataPlane) authenticate(user, password string, secure bool) bool {
+	logins, err := plane.logins()
+	return err == nil && logins.authenticate(user, password, secure)
+}
+
+func (plane *rdsDataPlane) backendLogin(user, password string) (string, string, error) {
+	logins, err := plane.logins()
+	if err != nil {
+		return "", "", err
+	}
+	return rdsBackendLogin(logins, user, password, plane.backendPassword)
 }
 
 func rdsModifyDataPlaneAuthentication(instance *RDSInstance, newPassword *string) error {

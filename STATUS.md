@@ -147,9 +147,10 @@ Current state of the sockerless-cloud repository.
   deletion with `DeleteAutomatedBackups=false` retains the automated backups,
   which restore the deleted instance or cluster to a time, and an instance's
   automated backups replicate to another Region, where they restore after
-  the replication stops or the source is gone. An Aurora
-  endpoint signs in the master user and IAM-authenticated users itself and
-  every other database user through the engine's own checks. Deleting a
+  the replication stops or the source is gone. A DB instance's or an Aurora
+  cluster's endpoint signs in the master user and IAM-authenticated users
+  itself and every other database user through the engine's own checks; on
+  PostgreSQL an IAM token signs in the role granted `rds_iam` that it names. Deleting a
   database kills an engine still initialising its volume rather than waiting
   out the stop grace.
 - **The registries answer their own service**: Amazon ECR's empty ping with

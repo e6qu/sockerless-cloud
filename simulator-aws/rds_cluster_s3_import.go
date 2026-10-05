@@ -316,15 +316,15 @@ func rdsStageS3Object(path string, obj S3Object) error {
 }
 
 // rdsMySQLInstallMasterUserStatements creates the master user, or resets the
-// one the backup holds, with every privilege, gives root the same password,
-// and creates the cluster's database.
+// one the backup holds, with the privileges RDS grants it, gives root the
+// same password, and creates the cluster's database.
 func rdsMySQLInstallMasterUserStatements(user, password, database string) string {
 	account := dbengine.QuoteMySQLLiteral(user) + "@'%'"
 	identified := " IDENTIFIED WITH mysql_native_password BY " + dbengine.QuoteMySQLLiteral(password)
 	return strings.Join([]string{
 		"CREATE USER IF NOT EXISTS " + account + identified,
 		"ALTER USER " + account + identified,
-		"GRANT ALL PRIVILEGES ON *.* TO " + account + " WITH GRANT OPTION",
+		"GRANT " + rdsMySQLMasterPrivileges + " ON *.* TO " + account + " WITH GRANT OPTION",
 		"CREATE USER IF NOT EXISTS 'root'@'localhost'" + identified,
 		"ALTER USER 'root'@'localhost'" + identified,
 		"CREATE DATABASE IF NOT EXISTS " + dbengine.QuoteMySQLIdentifier(database),

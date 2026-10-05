@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +52,9 @@ func cliCleanupDBInstance(t *testing.T, instanceID string) {
 // aws rds restore-db-instance-to-point-in-time --restore-time returns an RDS
 // for PostgreSQL instance to the rows committed by that time, which lies
 // before the LatestRestorableTime describe-db-instances reports, and refuses
-// a time before the instance's first automated snapshot.
+// a time before the instance's first automated snapshot. The instance signs in
+// a user granted rds_iam with the token aws rds generate-db-auth-token makes,
+// and the restored instance signs in the users the engine holds.
 func TestRDSCLI_InstanceRestoresToAPointInTime(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -64,11 +67,28 @@ func TestRDSCLI_InstanceRestoresToAPointInTime(t *testing.T) {
 		"--master-username", cliRestoreUsername,
 		"--master-user-password", cliRestorePassword,
 		"--db-name", cliRestoreDatabase,
+		"--enable-iam-database-authentication",
 		"--backup-retention-period", "1"))
 	cliCleanupDBInstance(t, sourceID)
 	source := cliAvailableDBInstance(t, sourceID)
 	conn := cliConnectPostgres(t, ctx, source.Endpoint.Address, source.Endpoint.Port)
-	_, err := conn.Exec(ctx, `CREATE TABLE ledger (entry text NOT NULL)`)
+	for _, statement := range []string{
+		`CREATE TABLE ledger (entry text NOT NULL)`,
+		`CREATE USER ledger_reader PASSWORD 'Reader-Password-1'`,
+		`GRANT SELECT ON ledger TO ledger_reader`,
+		`CREATE USER ledger_iam`,
+		`GRANT rds_iam TO ledger_iam`,
+	} {
+		_, err := conn.Exec(ctx, statement)
+		require.NoError(t, err, statement)
+	}
+	token := strings.TrimSpace(runCLI(t, awsCLI("rds", "generate-db-auth-token",
+		"--hostname", source.Endpoint.Address, "--port", strconv.Itoa(source.Endpoint.Port), "--username", "ledger_iam")))
+	var user string
+	require.NoError(t, cliConnectPostgresAs(t, ctx, source.Endpoint.Address, source.Endpoint.Port, "ledger_iam", token).
+		QueryRow(ctx, `SELECT current_user`).Scan(&user))
+	assert.Equal(t, "ledger_iam", user, "the session runs as the user the token names")
+	_, err := conn.Exec(ctx, `INSERT INTO ledger VALUES ('before-restore-time')`)
 	require.NoError(t, err)
 	_, err = conn.Exec(ctx, `INSERT INTO ledger VALUES ('before-restore-time')`)
 	require.NoError(t, err)
@@ -105,6 +125,9 @@ func TestRDSCLI_InstanceRestoresToAPointInTime(t *testing.T) {
 	target := cliAvailableDBInstance(t, restoredID)
 	assert.Equal(t, []string{"before-restore-time"}, cliLedger(t, ctx, cliConnectPostgres(t, ctx, target.Endpoint.Address, target.Endpoint.Port)),
 		"the restored instance holds the rows committed by the restore time and none after it")
+	assert.Equal(t, []string{"before-restore-time"},
+		cliLedger(t, ctx, cliConnectPostgresAs(t, ctx, target.Endpoint.Address, target.Endpoint.Port, "ledger_reader", "Reader-Password-1")),
+		"the restored instance signs in the users its engine holds")
 
 	// Deleting the source with --no-delete-automated-backups retains its
 	// automated backup, which restores the deleted instance by its resource ID.
