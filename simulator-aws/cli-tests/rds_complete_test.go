@@ -173,6 +173,7 @@ func TestRDSCLI_Complete(t *testing.T) {
 		_ = awsCLI("rds", "delete-db-instance",
 			"--db-instance-identifier", oracleID, "--skip-final-snapshot").Run()
 	})
+	cliWaitDBInstanceAvailable(t, oracleID)
 	runCLI(t, awsCLI("rds", "create-tenant-database",
 		"--db-instance-identifier", oracleID,
 		"--tenant-db-name", "CLITENANT",
@@ -270,6 +271,7 @@ func TestRDSCLI_Complete(t *testing.T) {
 		_ = awsCLI("rds", "delete-db-instance",
 			"--db-instance-identifier", primaryID, "--skip-final-snapshot").Run()
 	})
+	cliWaitDBInstanceAvailable(t, primaryID)
 	runCLI(t, awsCLI("rds", "create-db-instance-read-replica",
 		"--db-instance-identifier", replicaID,
 		"--source-db-instance-identifier", primaryID))

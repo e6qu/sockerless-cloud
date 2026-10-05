@@ -863,7 +863,17 @@ without an encryption key it cannot write a key at all. With
 `/home/data/Functions/secrets`, and the ARM key operations read that store
 before they answer and write it after they change a key, so a key set or
 deleted through ARM opens or closes the running function and a key the host
-generated lists through ARM. The store's values are encrypted the way the host
+generated lists through ARM. Without that setting the host picks its blob
+store, as `DefaultSecretManagerProvider` does when no SAS URI or other store is
+named: `azure-webjobs-secrets/<site>/host.json` and one
+`<function>.json` per function in the account the `AzureWebJobsStorage`
+connection string names, with the same document shape and the same
+encryption. The ARM key operations read and write those blobs through the
+simulator's Blob service, refuse a connection string whose account does not
+exist or whose key or SAS does not open it, and generate and store the keys
+when the host has not stored any yet, as the host does the first time it loads
+them; a deleted function's blob stays, since the host's blob repository never
+deletes one. The store's values are encrypted the way the host
 encrypts them, measured against the host itself: an ASP.NET Core Data
 Protection payload under the purpose `function-secrets` and the empty key id,
 AES-256-CBC with HMAC-SHA256 keyed through SP800-108 over HMAC-SHA512, with the
@@ -997,6 +1007,19 @@ an unfinished capture, copy or deletion. A final snapshot whose capture an
 earlier simulator left unfinished, after it had already dropped the resource,
 takes that resource's volume as its own.
 
+A deletion discards the resource's engine rather than stopping it
+(`dbengine.Instance.Discard`, called by Amazon RDS, Amazon Aurora and Cloud SQL
+deletions). An engine that has not yet accepted clients is killed at once: the
+MySQL image's entrypoint runs as PID 1 and ignores SIGTERM while it initialises
+the data directory, so a deletion that landed while the first automated backup
+was starting the engine had waited out the five-second stop grace, and every
+Aurora MySQL cluster test in the SDK suite had grown by about ten seconds. The
+directory goes with the resource, so it needs no clean shutdown. A stop keeps
+the grace, since its volume stays. Every stop also ends a start that is
+waiting on the engine at once, rather than at the next two-second liveness
+check. The deletion stops the engine first, settles the automated backups, and
+then removes the volume.
+
 An Amazon RDS instance's log files are its engine's own output.
 `dbengine.Instance` hands the engine container's lines, each dated by the
 container runtime, to a sink. The Amazon RDS sink stores them by hour under the
@@ -1107,6 +1130,13 @@ shutdown cleanup of a simulator that does not persist remove the run's volumes
 with its containers and networks, so an engine volume of a resource that was
 never deleted does not outlive the simulator. `EnsureDockerNetwork` returns the
 network a concurrent caller created first instead of failing.
+
+Every container `sim` removes goes with `RemoveVolumes`, so the anonymous
+volumes its image declares (the MySQL image's `VOLUME /var/lib/mysql`, Redis's
+`VOLUME /data`) go with it, while the named volumes it mounted stay: the engine
+removes only anonymous volumes on that flag. Without it, each Amazon RDS SDK
+run had left about four dangling engine volumes behind, enough to fill a
+small disk over repeated runs.
 
 Firecracker boots Compute Engine, Amazon EC2 and Azure virtual machines where
 the host kernel allows it, over its default virtio-MMIO transport: the opt-in
@@ -1225,8 +1255,26 @@ the engine first accepts clients, before the endpoint relays any client to it,
 and a timer takes another at the start of every `PreferredBackupWindow`
 (honoured on CreateDBCluster and ModifyDBCluster, which refuse a window not
 spelled hh24:mi-hh24:mi) while the cluster is available, starting its engine
-when no client has (BUG-3360 holds the first backup of a cluster no client
-connects to).
+when no client has. Aurora backs a cluster up whether or not a client
+connects, so `rdsTakeFirstClusterBackup` starts the engine in the background,
+the way `rdsTakeFirstInstanceBackup` does for a DB instance, whenever an
+available cluster keeps automated backups and holds none: after
+CreateDBCluster, a restore from a snapshot, to a time or from Amazon S3,
+StartDBCluster, a ModifyDBCluster that changes the backup settings, and a
+simulator restart. The start holds the backups' start lock, so a
+DeleteDBCluster closes the engine and waits for the start to give up, and a
+manual DB cluster snapshot waits for it rather than capture a data directory
+the engine is still initialising; a ModifyDBCluster that rotates the master
+password while the engine starts waits for the engine to accept clients. The
+SDK suite creates a cluster no client connects to, waits for its automated
+snapshot, finds `EarliestRestorableTime`, restores it to the latest restorable
+time and finds the restored cluster's own first automated snapshot; the CLI
+suite lists a new cluster's automated snapshot without adding a writer; the
+Terraform suite waits for the first automated snapshot of the clusters
+`aws_rds_cluster` restored before any client connects. The package's own
+tests start real engines once another test has given the process a container
+runtime, so the ones that create Aurora clusters wait for that first backup and
+remove the cluster volumes and snapshot volumes they made.
 DescribeDBClusterSnapshots lists them under `SnapshotType` `automated`, and
 DeleteDBClusterSnapshot refuses one, as it does for every automated snapshot.
 DescribeDBClusters reports `EarliestRestorableTime` as the later of the oldest
@@ -1324,7 +1372,30 @@ an instance no client connects to, finds its automated backup `active` and its
 automated snapshot available, turns retention off and on again and finds a new
 one; the CLI suite lists the backup `active` and the snapshot available; the
 Terraform suite reads the instance's first automated snapshot through the
-`aws_db_snapshot` data source. DescribeDBSnapshots filters on `SnapshotType` and
+`aws_db_snapshot` data source.
+
+A DB instance reports the statuses Amazon RDS reports while it brings the
+instance up. CreateDBInstance and RestoreDBInstanceFromDBSnapshot answer
+`creating`, StartDBInstance answers `starting`, and a restore to a time or from
+Amazon S3 stays `creating` once its volume is seeded; `rdsFinishInstanceBringUp`
+then starts the engine of an instance that keeps automated backups and holds
+none, the instance turns `backing-up` when the capture of its first automated
+snapshot begins (`recordAutomatedSnapshot`), and lands `available` only once
+that snapshot is taken — or `failed` when the engine does not start or the
+capture fails. An instance with no backup to take, no data plane or a
+retention period of 0 lands `available` at once. A simulator restart resumes
+the bring-up of an instance it finds in any of those statuses. Until then
+ModifyDBInstance, CreateDBSnapshot, CreateDBInstanceReadReplica (of it as the
+source), PromoteReadReplica and SwitchoverReadReplica answer
+`InvalidDBInstanceState` ("Instance … is not in available state."), as do
+RebootDBInstance and StopDBInstance, which run only from `available`. The SDK
+suite waits with `DBInstanceAvailableWaiter`, the CLI suite with `aws rds wait
+db-instance-available`, and terraform-provider-aws's create waiter already
+treats `creating`, `backing-up` and `starting` as pending. The CLI's waiter
+polls every 30 seconds, so CLI tests whose instance takes no automated backup
+create it with `--backup-retention-period 0`, which leaves it available by the
+waiter's first poll; a read replica's source keeps its backups, as Amazon RDS
+requires. DescribeDBSnapshots filters on `SnapshotType` and
 `DbiResourceId`, and DeleteDBSnapshot refuses an automated snapshot with
 `InvalidDBSnapshotState`. An automated snapshot's volume name carries a dot
 where its identifier carries the colon a volume name cannot hold.
@@ -1798,6 +1869,24 @@ restarts a simulator under a worker pool and an instance, reads the same
 container's hostname through the instance's URL before and after, deletes both
 and finds the stop lines of the containers the first process started, with
 their start lines logged once.
+
+A service's instance and a job execution's task survive the restart the same
+way. The restarted simulator adopts, for every stored service, the instance
+running the service's template whole, so the next request reaches it, and
+removes every other service container: instances of other revisions and of
+services since deleted. Its output reaches Cloud Logging under the service's
+`cloud_run_revision` resource through the same deduplicating sink. A job
+execution still running keeps its task's containers: the restarted simulator
+adopts them, arms what is left of the task's timeout counted from the
+execution's start, and settles the execution from the main container's exit,
+which a task that exited while no process watched it reports at once. Only an
+execution whose containers are gone fails, and the containers of an execution
+that no longer runs are removed. The adoption has to precede the recovery that
+fails executions without a workload, so both run at start-up with the rest of
+the Cloud Run resumption rather than at registration. The SDK
+restart suite adds a service, read through its URL before and after the
+restart, and a job whose `startExecutionToken` execution runs across it and is
+then cancelled, and finds each container's start and stop lines logged once.
 
 A Cloud Run instance's `urls` are served by the Cloud Run front end the way a
 service's URL is: a request whose Host is one of them reaches the instance's
@@ -2313,9 +2402,14 @@ strict so outside contributors cannot run CI. The owner merges them by bypass.
 The Release workflow ends in a reconciliation job
 (`scripts/verify-release-complete.sh`) that fails unless every expected asset
 and image index exists, because a hanging build once left an ordinary-looking
-release missing part of its contents. The simulator Dockerfiles keep the Go
-caches in cache mounts so the build-cache export carries only the source and
-binary, and manifest composition retries only a broken connection.
+release missing part of its contents. The simulator images build from the
+committed `simulator-<cloud>/dist` console bundle, the one `go install` and the
+release binaries embed, with no console build stage, and keep the Go caches in
+cache mounts. They export no BuildKit cache: every commit changes the source
+layer and the cache mounts never reach an export, so a `mode=max` export only
+re-uploaded the base images and the console stage's `node_modules`, and once
+spent 569 s of v2.0.7's fifteen-minute AWS image job doing so after the image
+was already pushed. Manifest composition retries only a broken connection.
 
 Publishes are keyed per commit and never cancelled by a later merge; retention
 runs in its own workflow and spares anything younger than two hours, because a

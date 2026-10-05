@@ -1,6 +1,7 @@
 package azure_sdk_test
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"regexp"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -170,4 +172,95 @@ func TestSDK_FunctionApps_NodeHostRunsTheDeployedFunctions(t *testing.T) {
 	forged = forged[:strings.LastIndex(forged, ".")+1] + "c2lnbmF0dXJl"
 	status, _ = functionsHostRequest(t, name, "/admin/host/status", map[string]string{"Authorization": "Bearer " + forged})
 	assert.Equal(t, http.StatusUnauthorized, status, "a token with a forged signature is refused")
+}
+
+// Under the default secret store the Functions host keeps its keys as blobs
+// azure-webjobs-secrets/<site>/host.json in the account the AzureWebJobsStorage
+// connection string names, and the ARM key operations read and write those
+// blobs: a key the host writes there is the key ARM lists, and a key ARM
+// creates lands there, protected as the host protects it on App Service.
+func TestSDK_FunctionApps_BlobSecretStoreHoldsTheKeys(t *testing.T) {
+	rg, name, account := "sdk-func-blob-secrets-rg", "sdk-func-blob-secrets", "sdkfuncblobsecrets"
+	accounts := createStorageAccountForARM(t, rg, account)
+	keys, err := accounts.ListKeys(ctx, rg, account, nil)
+	require.NoError(t, err)
+	accountKey, _ := storageAccountKeyValues(t, keys.Keys)
+	connection := "DefaultEndpointsProtocol=http;AccountName=" + account + ";AccountKey=" + accountKey +
+		";BlobEndpoint=" + storageSDKURL(t, account, "blob")
+	client := createStackFunctionApp(t, rg, name, "Node|22", map[string]string{
+		"FUNCTIONS_WORKER_RUNTIME":    "node",
+		"FUNCTIONS_EXTENSION_VERSION": "~4",
+		"AzureWebJobsStorage":         connection,
+	})
+
+	credential, err := azblob.NewSharedKeyCredential(account, accountKey)
+	require.NoError(t, err)
+	blobs, err := azblob.NewClientWithSharedKeyCredential(storageSDKURL(t, account, "blob"), credential,
+		&azblob.ClientOptions{ClientOptions: storageSDKOptions()})
+	require.NoError(t, err)
+	type secretKey struct {
+		Name      string `json:"name"`
+		Value     string `json:"value"`
+		Encrypted bool   `json:"encrypted"`
+	}
+	type hostSecrets struct {
+		MasterKey    secretKey   `json:"masterKey"`
+		FunctionKeys []secretKey `json:"functionKeys"`
+		SystemKeys   []secretKey `json:"systemKeys"`
+	}
+	readHostSecrets := func() hostSecrets {
+		t.Helper()
+		resp, err := blobs.DownloadStream(ctx, "azure-webjobs-secrets", name+"/host.json", nil)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		var secrets hostSecrets
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&secrets))
+		return secrets
+	}
+
+	listed, err := client.ListHostKeys(ctx, rg, name, nil)
+	require.NoError(t, err)
+	require.NotNil(t, listed.MasterKey)
+	assert.Regexp(t, identifiableFunctionsKey, *listed.MasterKey)
+	stored := readHostSecrets()
+	assert.Equal(t, "master", stored.MasterKey.Name)
+	assert.True(t, stored.MasterKey.Encrypted, "the host protects key values in its blob store on App Service")
+	assert.NotEqual(t, *listed.MasterKey, stored.MasterKey.Value)
+
+	written, err := json.Marshal(hostSecrets{
+		MasterKey:    secretKey{Name: "master", Value: "host-written-master"},
+		FunctionKeys: []secretKey{{Name: "default", Value: "host-written-default"}},
+		SystemKeys:   []secretKey{},
+	})
+	require.NoError(t, err)
+	_, err = blobs.UploadBuffer(ctx, "azure-webjobs-secrets", name+"/host.json", written, nil)
+	require.NoError(t, err)
+	listed, err = client.ListHostKeys(ctx, rg, name, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "host-written-master", *listed.MasterKey)
+	assert.Equal(t, map[string]*string{"default": to.Ptr("host-written-default")}, listed.FunctionKeys)
+
+	_, err = client.CreateOrUpdateHostSecret(ctx, rg, name, "functionKeys", "deploy",
+		armappservice.KeyInfo{Value: to.Ptr("sdk-deploy-key")}, nil)
+	require.NoError(t, err)
+	stored = readHostSecrets()
+	var names []string
+	for _, k := range stored.FunctionKeys {
+		names = append(names, k.Name)
+		assert.True(t, k.Encrypted, "function key %s", k.Name)
+	}
+	assert.ElementsMatch(t, []string{"default", "deploy"}, names)
+	listed, err = client.ListHostKeys(ctx, rg, name, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "sdk-deploy-key", *listed.FunctionKeys["deploy"])
+	assert.Equal(t, "host-written-master", *listed.MasterKey)
+
+	// A connection string whose key does not open the account opens no store.
+	other := name + "-badkey"
+	otherClient := createStackFunctionApp(t, rg, other, "Node|22", map[string]string{
+		"FUNCTIONS_WORKER_RUNTIME": "node",
+		"AzureWebJobsStorage":      strings.Replace(connection, accountKey, "bm90LXRoZS1hY2NvdW50LWtleQ==", 1),
+	})
+	_, err = otherClient.ListHostKeys(ctx, rg, other, nil)
+	require.Error(t, err)
 }

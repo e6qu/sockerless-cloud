@@ -53,6 +53,13 @@ func (o rdsInstanceBackups) recordAutomatedSnapshot(snapshotID string, at time.T
 	if !ok {
 		return false
 	}
+	// Amazon RDS reports an instance it is creating or starting backing-up
+	// while it takes the instance's first automated backup.
+	rdsInstances.Update(o.instanceID, func(stored *RDSInstance) {
+		if stored.DbiResourceId == instance.DbiResourceId && (stored.DBInstanceStatus == "creating" || stored.DBInstanceStatus == "starting") {
+			stored.DBInstanceStatus = "backing-up"
+		}
+	})
 	rdsSnapshots.Put(snapshotID, RDSSnapshot{
 		DBSnapshotIdentifier: snapshotID,
 		DBInstanceIdentifier: instance.DBInstanceIdentifier,
@@ -187,6 +194,11 @@ func handleRDSRestoreInstanceToPointInTime(w http.ResponseWriter, r *http.Reques
 		rdsErrorXML(w, "PointInTimeRestoreNotEnabled",
 			fmt.Sprintf("SourceDBInstanceIdentifier %s refers to a DB instance with BackupRetentionPeriod equal to 0.", srcID),
 			http.StatusBadRequest, requestID)
+		return
+	}
+	// A live source still creating holds no restorable time, and its engine may
+	// still be initialising the data directory a restore would copy.
+	if retained == nil && rdsRefuseUnavailableInstance(w, r, src) {
 		return
 	}
 	target, ok := rdsInstanceRestoreTime(w, r)
@@ -401,7 +413,8 @@ func rdsCreatingInstance(id, resourceID string) bool {
 // rdsFinishInstanceRestore seeds a restored instance's volume — from the
 // source instance's volume for a restore to the latest restorable time, from
 // its base backup and log for a restore to a time, or from a Percona
-// XtraBackup in Amazon S3 — then binds its endpoint and lands it available.
+// XtraBackup in Amazon S3 — then binds its endpoint and brings it up as
+// rdsFinishInstanceBringUp does.
 // A restore to a time that fails lands the instance incompatible-restore, an
 // import that fails lands it failed. A seed a previous process left part-way
 // starts again on an empty volume, and an instance deleted while it seeded
@@ -433,27 +446,26 @@ func rdsFinishInstanceRestore(id string) {
 			}.run()
 		}
 	}
-	status := "available"
 	if err == nil && rdsCreatingInstance(id, resourceID) {
 		err = rdsStartInstanceEngine(&instance)
 	}
 	if err != nil {
 		log.Printf("Amazon RDS %s: restore: %v", id, err)
-		status = failed
 	}
 	rdsInstances.Update(id, func(stored *RDSInstance) {
 		if stored.DbiResourceId != resourceID || stored.DBInstanceStatus != "creating" {
 			return
 		}
-		stored.DBInstanceStatus = status
-		if status == "available" {
+		if err != nil {
+			stored.DBInstanceStatus = failed
+		} else {
 			stored.Endpoint, stored.Port = instance.Endpoint, instance.Port
 		}
 		stored.RestoreSourceVolume, stored.RestoreLogVolume, stored.RestoreToTime = "", "", ""
 		stored.RestoreBinlogFile, stored.RestoreBinlogOffset = "", 0
 		stored.ImportS3Bucket, stored.ImportS3Prefix, stored.ImportS3Role = "", "", ""
 	})
-	rdsTakeFirstInstanceBackup(id)
 	rdsFinishInstanceDeletion(id, resourceID)
 	rdsExpireRetainedBackups()
+	rdsFinishInstanceBringUp(id)
 }

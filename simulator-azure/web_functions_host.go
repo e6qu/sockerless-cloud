@@ -3,9 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -103,12 +101,6 @@ func siteDataProtectionKey(site *Site) string {
 	return ensureWebHostKeys(site.ID).EncryptionKey
 }
 
-// siteUsesFileSecrets reports whether the host keeps its keys in its file
-// secret store, /home/data/Functions/secrets.
-func siteUsesFileSecrets(site *Site) bool {
-	return strings.EqualFold(strings.TrimSpace(siteAppSettings(site)["AzureWebJobsSecretStorageType"]), "files")
-}
-
 func functionsSecretsDir(siteName string) string {
 	return filepath.Join(siteHomeDir(siteName), "data", "Functions", "secrets")
 }
@@ -136,9 +128,10 @@ type functionsFunctionSecretsFile struct {
 }
 
 // syncFunctionsHostSecrets makes the key rows the ARM key operations serve and
-// the host's file secret store hold the same keys: the store's keys are read
-// in first, since the host writes keys too, then every row is written back.
-// It does nothing for a site whose host keeps its keys elsewhere.
+// the host's secret store hold the same keys: the store's keys are read in
+// first, since the host writes keys too, then every row is written back. It
+// does nothing for a site whose host keeps its keys in a store the simulator
+// does not model.
 func syncFunctionsHostSecrets(site *Site) error {
 	if err := importFunctionsHostSecrets(site); err != nil {
 		return err
@@ -147,10 +140,10 @@ func syncFunctionsHostSecrets(site *Site) error {
 }
 
 func importFunctionsHostSecrets(site *Site) error {
-	if !siteUsesFileSecrets(site) {
-		return nil
+	store, err := siteFunctionsSecretStore(site)
+	if store == nil || err != nil {
+		return err
 	}
-	dir := functionsSecretsDir(site.Name)
 	row := ensureWebHostKeys(site.ID)
 	key := siteDataProtectionKey(site)
 	open := func(k functionsSecretKey) (string, error) {
@@ -159,25 +152,12 @@ func importFunctionsHostSecrets(site *Site) error {
 		}
 		return unprotectFunctionSecret(key, k.Value)
 	}
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
+	documents, err := store.list()
 	if err != nil {
 		return fmt.Errorf("read the function app's secret store: %w", err)
 	}
-	for _, e := range entries {
-		name, ok := strings.CutSuffix(e.Name(), ".json")
-		// The host keeps snapshots of secrets it cannot decrypt beside the
-		// live files, as <name>.<timestamp>.snapshot.json.
-		if !ok || e.IsDir() || strings.Contains(name, ".") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			return fmt.Errorf("read secrets %s: %w", e.Name(), err)
-		}
-		data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	for _, name := range sortedKeys(documents) {
+		data := bytes.TrimPrefix(documents[name], []byte("\xef\xbb\xbf"))
 		if name == "host" {
 			var f functionsHostSecretsFile
 			if err := json.Unmarshal(data, &f); err != nil {
@@ -216,6 +196,11 @@ func importFunctionsHostSecrets(site *Site) error {
 		id := siteFunctionID(site, name)
 		webFunctionKeys.Put(id, WebFunctionKeysRow{ID: id, Keys: keys})
 	}
+	// The host generates and stores its keys the first time it loads them,
+	// and ARM loads them through the host.
+	if _, stored := documents["host"]; !stored {
+		return exportFunctionsHostSecrets(site)
+	}
 	return nil
 }
 
@@ -237,17 +222,14 @@ func siteFunctionID(site *Site, name string) string {
 	return prefix + name
 }
 
-// exportFunctionsHostSecrets writes the site's key rows into the host's file
+// exportFunctionsHostSecrets writes the site's key rows into the host's
 // secret store as the host itself writes them on App Service: each value
 // protected with the site's encryption key. A function the site declares
 // gets the default key the host would generate for it.
 func exportFunctionsHostSecrets(site *Site) error {
-	if !siteUsesFileSecrets(site) {
-		return nil
-	}
-	dir := functionsSecretsDir(site.Name)
-	if err := sim.EnsureWritableDir(dir); err != nil {
-		return fmt.Errorf("create the function app's secret store: %w", err)
+	store, err := siteFunctionsSecretStore(site)
+	if store == nil || err != nil {
+		return err
 	}
 	row := ensureWebHostKeys(site.ID)
 	key := siteDataProtectionKey(site)
@@ -277,7 +259,7 @@ func exportFunctionsHostSecrets(site *Site) error {
 	if host.SystemKeys, err = sealAll(row.SystemKeys); err != nil {
 		return err
 	}
-	if err := writeSecretsFile(dir, "host", host); err != nil {
+	if err := putFunctionsSecrets(store, "host", host); err != nil {
 		return err
 	}
 	for _, fn := range siteFunctions(site) {
@@ -291,59 +273,40 @@ func exportFunctionsHostSecrets(site *Site) error {
 		}
 		name := strings.TrimPrefix(fnRow.ID, prefix)
 		f := functionsFunctionSecretsFile{Keys: keys, HostName: site.Properties.DefaultHostName, Source: "runtime"}
-		if err := writeSecretsFile(dir, strings.ToLower(name), f); err != nil {
+		if err := putFunctionsSecrets(store, strings.ToLower(name), f); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// removeFunctionSecretsFile deletes a deleted function's secrets file, so the
-// host stops accepting its keys and the next import does not restore them.
-func removeFunctionSecretsFile(site *Site, name string) error {
-	if !siteUsesFileSecrets(site) {
-		return nil
+// removeFunctionSecrets deletes a deleted function's secrets from a file
+// store, so the host stops accepting its keys and the next import does not
+// restore them. The blob store keeps them, as the host's own blob repository
+// does.
+func removeFunctionSecrets(site *Site, name string) error {
+	store, err := siteFunctionsSecretStore(site)
+	if store == nil || err != nil {
+		return err
 	}
-	err := os.Remove(filepath.Join(functionsSecretsDir(site.Name), strings.ToLower(name)+".json"))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := store.remove(strings.ToLower(name)); err != nil {
 		return fmt.Errorf("remove the secrets of function %q: %w", name, err)
 	}
 	return nil
 }
 
-// writeSecretsFile replaces a secrets file in one rename, so the host's file
-// watcher never reads a partial file, and so a file the host created stays
-// replaceable.
-func writeSecretsFile(dir, name string, v any) error {
+func putFunctionsSecrets(store functionsSecretStore, name string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".write-*")
-	if err != nil {
-		return fmt.Errorf("write %s secrets: %w", name, err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return fmt.Errorf("write %s secrets: %w", name, err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmp.Name())
-		return fmt.Errorf("write %s secrets: %w", name, err)
-	}
-	if err := os.Chmod(tmp.Name(), 0o666); err != nil {
-		_ = os.Remove(tmp.Name())
-		return fmt.Errorf("write %s secrets: %w", name, err)
-	}
-	if err := os.Rename(tmp.Name(), filepath.Join(dir, name+".json")); err != nil {
-		_ = os.Remove(tmp.Name())
+	if err := store.put(name, data); err != nil {
 		return fmt.Errorf("write %s secrets: %w", name, err)
 	}
 	return nil
 }
 
-func sortedKeys(m map[string]string) []string {
+func sortedKeys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)

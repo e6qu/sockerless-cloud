@@ -901,7 +901,7 @@ func registerWebFunctionsRW(both, slot func(string, string, http.HandlerFunc)) {
 		azfFunctionConfigs.Delete(funcID(r))
 		webFunctionKeys.Delete(funcID(r))
 		if site, ok := hostRunFunctionApp(webResourceID(r)); ok {
-			if err := removeFunctionSecretsFile(site, sim.PathParam(r, "functionName")); err != nil {
+			if err := removeFunctionSecrets(site, sim.PathParam(r, "functionName")); err != nil {
 				AzureErrorf(w, "InternalServerError", http.StatusInternalServerError, "%v", err)
 				return
 			}

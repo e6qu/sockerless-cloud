@@ -51,8 +51,15 @@ race-test: ## go test the simulator module's own tests under the race detector
 SDK_TEST_ARGS ?= ./...
 CLI_TEST_ARGS ?= ./...
 
+# A failed run ends by naming its failed tests and panics: the suite's verbose
+# output runs to megabytes, and a log reader that sees only the tail sees a bare
+# FAIL otherwise.
 sdk-test: build ## go test the SDK-driven sim tests
-	cd sdk-tests && $(GO_ENV) go test -v -count=1 $(SDK_TEST_ARGS)
+	cd sdk-tests && log="$$(mktemp)" && \
+	  { $(GO_ENV) go test -v -count=1 $(SDK_TEST_ARGS) 2>&1; echo $$? > "$$log.rc"; } | tee "$$log"; \
+	  rc="$$(cat "$$log.rc")"; \
+	  if [ "$$rc" != 0 ]; then echo "Failed:"; grep -E -- '^[[:space:]]*--- FAIL|^panic:' "$$log"; fi; \
+	  rm -f "$$log" "$$log.rc"; exit "$$rc"
 
 cli-test: build ## go test the CLI-driven sim tests
 	cd cli-tests && $(GO_ENV) go test -v -count=1 -timeout 900s $(CLI_TEST_ARGS)

@@ -37,5 +37,10 @@ echo "ci-apt-install: installing ${missing[*]} (already present: $(($# - ${#miss
 
 root="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 bash "$root/ci-apt-update.sh"
+# A job never wants a package's service started, and a service that hangs in
+# start-up holds the install with it: policy-rc.d answering 101 tells the
+# package scripts not to start services.
+printf '#!/bin/sh\nexit 101\n' | sudo tee /usr/sbin/policy-rc.d > /dev/null
+sudo chmod 0755 /usr/sbin/policy-rc.d
 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
 	install -y "${missing[@]}"

@@ -131,7 +131,7 @@ func webFunctionMissing(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
-// functionsHostSecretsIn reads a host-run function app's file secret store
+// functionsHostSecretsIn reads a host-run function app's secret store
 // into its key rows before a key operation reads or changes them; it answers
 // 500 and returns false when the store cannot be read.
 func functionsHostSecretsIn(w http.ResponseWriter, r *http.Request) bool {
@@ -147,7 +147,7 @@ func functionsHostSecretsIn(w http.ResponseWriter, r *http.Request) bool {
 }
 
 // functionsHostSecretsOut writes a host-run function app's changed key rows
-// into its file secret store, where the running host picks them up.
+// into its secret store, where the running host picks them up.
 func functionsHostSecretsOut(w http.ResponseWriter, r *http.Request) bool {
 	site, ok := hostRunFunctionApp(webResourceID(r))
 	if !ok {

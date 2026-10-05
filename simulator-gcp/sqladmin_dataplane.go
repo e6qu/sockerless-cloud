@@ -444,8 +444,9 @@ func sqlStopEngine(project, instance string) {
 	}
 }
 
-// sqlStopDataPlane closes the instance's listener, stops its engine, and —
-// when the instance is being deleted — removes its data volume.
+// sqlStopDataPlane closes the instance's listener and stops its engine. An
+// instance being deleted discards its engine, which ends a start still
+// initialising the volume at once, and removes its data volume.
 func sqlStopDataPlane(project, instance string, deleteVolume bool) {
 	value, ok := sqlDataPlanes.LoadAndDelete(sqlInstanceKey(project, instance))
 	if !ok {
@@ -455,7 +456,11 @@ func sqlStopDataPlane(project, instance string, deleteVolume bool) {
 	if !ok {
 		return
 	}
-	if err := plane.Close(); err != nil {
+	stop := plane.Close
+	if deleteVolume {
+		stop = plane.Discard
+	}
+	if err := stop(); err != nil {
 		log.Printf("Cloud SQL %s/%s: stop database engine: %v", project, instance, err)
 	}
 	if deleteVolume {

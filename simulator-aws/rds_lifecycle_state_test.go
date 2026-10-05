@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
@@ -45,6 +46,73 @@ func TestRDSLifecycleActionsRequireTheirSourceState(t *testing.T) {
 				t.Fatalf("status moved to %q on a refused action", stored.DBInstanceStatus)
 			}
 		})
+	}
+}
+
+// Amazon RDS takes no ModifyDBInstance, CreateDBSnapshot,
+// CreateDBInstanceReadReplica or RestoreDBInstanceToPointInTime on an instance
+// it is still creating, starting or taking the first automated backup of.
+func TestRDSInstanceRefusesActionsUntilAvailable(t *testing.T) {
+	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
+	rdsSnapshots = sim.MakeStore[RDSSnapshot](nil, "rds_snapshots")
+	id := "bringing-up-db"
+	for _, status := range []string{"creating", "starting", "backing-up"} {
+		rdsInstances.Put(id, RDSInstance{DBInstanceIdentifier: id, Engine: "postgres", DBInstanceStatus: status, BackupRetentionPeriod: 1})
+		for name, call := range map[string]*httptest.ResponseRecorder{
+			"RestoreDBInstanceToPointInTime": rdsFormCall(t, handleRDSRestoreInstanceToPointInTime, url.Values{
+				"SourceDBInstanceIdentifier": {id}, "TargetDBInstanceIdentifier": {id + "-pit"}, "UseLatestRestorableTime": {"true"},
+			}),
+			"ModifyDBInstance": rdsFormCall(t, handleRDSModify, url.Values{"DBInstanceIdentifier": {id}, "DBInstanceClass": {"db.t3.small"}}),
+			"CreateDBSnapshot": rdsFormCall(t, handleRDSCreateSnapshot, url.Values{"DBInstanceIdentifier": {id}, "DBSnapshotIdentifier": {id + "-snap"}}),
+			"CreateDBInstanceReadReplica": rdsFormCall(t, handleRDSCreateReadReplica, url.Values{
+				"DBInstanceIdentifier": {id + "-replica"}, "SourceDBInstanceIdentifier": {id},
+			}),
+		} {
+			if call.Code != http.StatusBadRequest || !strings.Contains(call.Body.String(), "Instance bringing-up-db is not in available state.") {
+				t.Fatalf("%s on a %s instance = %d %s, want InvalidDBInstanceState", name, status, call.Code, call.Body.String())
+			}
+		}
+		if stored, _ := rdsInstances.Get(id); stored.DBInstanceStatus != status || stored.DBInstanceClass != "" {
+			t.Fatalf("a refused action changed the %s instance: %+v", status, stored)
+		}
+		if _, taken := rdsSnapshots.Get(id + "-snap"); taken {
+			t.Fatalf("CreateDBSnapshot recorded a snapshot of a %s instance", status)
+		}
+		if _, created := rdsInstances.Get(id + "-replica"); created {
+			t.Fatalf("CreateDBInstanceReadReplica created a replica of a %s instance", status)
+		}
+		if _, restored := rdsInstances.Get(id + "-pit"); restored {
+			t.Fatalf("RestoreDBInstanceToPointInTime restored a %s instance", status)
+		}
+	}
+}
+
+// Amazon RDS reports an instance it creates or starts backing-up while it
+// takes the first automated backup, and available once the instance is up; a
+// later automated backup leaves an available instance available.
+func TestRDSInstanceBringUpReportsBackingUpThenAvailable(t *testing.T) {
+	bg.Await()
+	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
+	rdsSnapshots = sim.MakeStore[RDSSnapshot](nil, "rds_snapshots")
+	id := "bring-up-db"
+	owner := rdsInstanceBackups{instanceID: id}
+	for _, testCase := range []struct{ from, recorded string }{
+		{from: "creating", recorded: "backing-up"},
+		{from: "starting", recorded: "backing-up"},
+		{from: "available", recorded: "available"},
+	} {
+		rdsInstances.Put(id, RDSInstance{DBInstanceIdentifier: id, DbiResourceId: "db-BRINGUP", Engine: "postgres", DBInstanceStatus: testCase.from})
+		snapshotID := rdsAutomatedSnapshotID(id, time.Now()) + "-" + testCase.from
+		if !owner.recordAutomatedSnapshot(snapshotID, time.Now()) {
+			t.Fatalf("the %s instance recorded no automated snapshot", testCase.from)
+		}
+		if stored, _ := rdsInstances.Get(id); stored.DBInstanceStatus != testCase.recorded {
+			t.Fatalf("a %s instance taking an automated backup reports %q, want %q", testCase.from, stored.DBInstanceStatus, testCase.recorded)
+		}
+		rdsFinishInstanceBringUp(id)
+		if stored, _ := rdsInstances.Get(id); stored.DBInstanceStatus != "available" {
+			t.Fatalf("a %s instance lands %q, want available", testCase.from, stored.DBInstanceStatus)
+		}
 	}
 }
 

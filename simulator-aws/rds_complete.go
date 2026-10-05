@@ -728,7 +728,7 @@ func handleRDSSwitchoverReadReplica(w http.ResponseWriter, r *http.Request) {
 			http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	if rdsRefuseDeletingInstance(w, r, replica) {
+	if rdsRefuseUnavailableInstance(w, r, replica) {
 		return
 	}
 	if replica.ReadReplicaSource == "" {

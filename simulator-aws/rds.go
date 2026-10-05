@@ -588,7 +588,7 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		DBInstanceClass:                 r.FormValue("DBInstanceClass"),
 		Engine:                          engine,
 		EngineVersion:                   engineVersion,
-		DBInstanceStatus:                "available",
+		DBInstanceStatus:                "creating",
 		MasterUsername:                  r.FormValue("MasterUsername"),
 		DBName:                          r.FormValue("DBName"),
 		AllocatedStorage:                atoiOrZero(r.FormValue("AllocatedStorage")),
@@ -607,7 +607,7 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rdsInstances.Put(id, inst)
-	rdsTakeFirstInstanceBackup(id)
+	bg.Go(func() { rdsFinishInstanceBringUp(id) })
 	rdsXMLResponse(w, "CreateDBInstance", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
 
@@ -644,7 +644,7 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	if rdsRefuseDeletingInstance(w, r, instance) {
+	if rdsRefuseUnavailableInstance(w, r, instance) {
 		return
 	}
 	if value := r.FormValue("DBInstanceClass"); value != "" {
@@ -1176,7 +1176,7 @@ func handleRDSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 			http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	if rdsRefuseDeletingInstance(w, r, inst) {
+	if rdsRefuseUnavailableInstance(w, r, inst) {
 		return
 	}
 	if _, exists := rdsSnapshots.Get(snapID); exists {
@@ -1345,7 +1345,7 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 		DBInstanceClass:       r.FormValue("DBInstanceClass"),
 		Engine:                snap.Engine,
 		EngineVersion:         snap.EngineVersion,
-		DBInstanceStatus:      "available",
+		DBInstanceStatus:      "creating",
 		MasterUsername:        snap.MasterUsername,
 		DBName:                snap.DBName,
 		AllocatedStorage:      snap.AllocatedStorage,
@@ -1384,7 +1384,7 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 		inst.Port = rdsDefaultPort(snap.Engine)
 	}
 	rdsInstances.Put(newInstID, inst)
-	rdsTakeFirstInstanceBackup(newInstID)
+	bg.Go(func() { rdsFinishInstanceBringUp(newInstID) })
 	rdsXMLResponse(w, "RestoreDBInstanceFromDBSnapshot", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
 
@@ -1548,6 +1548,7 @@ func handleRDSCreateCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rdsClusters.Put(id, cl)
+	rdsTakeFirstClusterBackup(id)
 	rdsXMLResponse(w, "CreateDBCluster", renderRDSCluster(cl), sim.RequestID(r.Context()))
 }
 
@@ -1659,6 +1660,7 @@ func handleRDSModifyCluster(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Amazon Aurora %s: expire automated backups: %v", id, err)
 			}
 		})
+		rdsTakeFirstClusterBackup(id)
 	}
 	cluster, _ = rdsClusters.Get(id)
 	rdsXMLResponse(w, "ModifyDBCluster", renderRDSCluster(cluster), requestID)
@@ -1712,6 +1714,10 @@ func rdsModifyClusterMasterPassword(cluster *RDSCluster, newPassword string) err
 		cluster.BackendMasterUserSecret = append([]byte(nil), cluster.MasterUserSecret...)
 	}
 	if plane, ok := rdsLoadAuroraDataPlane(cluster.DBClusterIdentifier); ok && plane.engine.Running() {
+		// An engine still starting rotates only once it accepts clients.
+		if err := plane.engine.Ensure(); err != nil {
+			return err
+		}
 		oldPassword, err := rdsAuroraBackendPassword(*cluster)
 		if err != nil {
 			return err
@@ -1793,6 +1799,7 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 		rdsInstances.Delete(member.DBInstanceIdentifier)
 		// The member is gone either way; rdsStopDataPlane logs the failure.
 		_ = rdsStopDataPlane(member.DBInstanceIdentifier, true)
+		rdsRemoveInstanceVolume(member.DBInstanceIdentifier)
 	}
 	resourceID := cl.DbClusterResourceId
 	if finalSnapID != "" {
@@ -2035,6 +2042,9 @@ func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBInstanceNotFound",
 			fmt.Sprintf("DBInstance %q not found", srcID),
 			http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if rdsRefuseUnavailableInstance(w, r, src) {
 		return
 	}
 	if _, exists := rdsInstances.Get(id); exists {
@@ -2678,10 +2688,11 @@ func rdsRequireStandaloneInstance(w http.ResponseWriter, r *http.Request, instan
 	return false
 }
 
-// rdsRefuseDeletingInstance answers InvalidDBInstanceState for an instance
-// that is being deleted, which takes no further action.
-func rdsRefuseDeletingInstance(w http.ResponseWriter, r *http.Request, instance RDSInstance) bool {
-	if instance.DBInstanceStatus != "deleting" {
+// rdsRefuseUnavailableInstance answers InvalidDBInstanceState for an instance
+// that takes no such action until it is available: one Amazon RDS is still
+// creating, starting or taking the first automated backup of, or is deleting.
+func rdsRefuseUnavailableInstance(w http.ResponseWriter, r *http.Request, instance RDSInstance) bool {
+	if instance.DBInstanceStatus != "deleting" && !rdsInstanceBringingUp(instance.DBInstanceStatus) {
 		return false
 	}
 	rdsErrorXML(w, "InvalidDBInstanceState",
@@ -2719,11 +2730,10 @@ func handleRDSStartInstance(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 		return
 	}
-	instance.DBInstanceStatus = "available"
+	instance.DBInstanceStatus = "starting"
 	rdsInstances.Put(id, instance)
-	rdsTakeFirstInstanceBackup(id)
-	updated := instance
-	rdsXMLResponse(w, "StartDBInstance", renderRDSInstance(updated), sim.RequestID(r.Context()))
+	bg.Go(func() { rdsFinishInstanceBringUp(id) })
+	rdsXMLResponse(w, "StartDBInstance", renderRDSInstance(instance), sim.RequestID(r.Context()))
 }
 
 func handleRDSStopInstance(w http.ResponseWriter, r *http.Request) {
@@ -2757,7 +2767,7 @@ func handleRDSPromoteReadReplica(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	if rdsRefuseDeletingInstance(w, r, inst) {
+	if rdsRefuseUnavailableInstance(w, r, inst) {
 		return
 	}
 	src := inst.ReadReplicaSource

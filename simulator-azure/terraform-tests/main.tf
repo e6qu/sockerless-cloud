@@ -1002,6 +1002,29 @@ data "azurerm_function_app_host_keys" "az_node_fa" {
   resource_group_name = azurerm_resource_group.az_rg.name
 }
 
+# The same stack under the default secret store: the host keeps its keys in
+# the azure-webjobs-secrets container of the account AzureWebJobsStorage
+# names, which is where the host key data source reads them from.
+resource "azurerm_linux_function_app" "az_node_blob_fa" {
+  name                       = "tf-azrm-node-blob-fa"
+  resource_group_name        = azurerm_resource_group.az_rg.name
+  location                   = azurerm_resource_group.az_rg.location
+  service_plan_id            = azurerm_service_plan.az_web_sp.id
+  storage_account_name       = azurerm_storage_account.az_st.name
+  storage_account_access_key = azurerm_storage_account.az_st.primary_access_key
+
+  site_config {
+    application_stack {
+      node_version = "22"
+    }
+  }
+}
+
+data "azurerm_function_app_host_keys" "az_node_blob_fa" {
+  name                = azurerm_linux_function_app.az_node_blob_fa.name
+  resource_group_name = azurerm_resource_group.az_rg.name
+}
+
 # App Service public certificate — the Microsoft.Web/sites/publicCertificates
 # child resource. The provider PUTs the DER blob and reads the resource back
 # on every plan, so the sim must derive and round-trip the certificate's
@@ -1745,6 +1768,11 @@ output "azrm_node_function_app_hostname" {
 
 output "azrm_node_function_app_default_key" {
   value     = data.azurerm_function_app_host_keys.az_node_fa.default_function_key
+  sensitive = true
+}
+
+output "azrm_node_blob_function_app_master_key" {
+  value     = data.azurerm_function_app_host_keys.az_node_blob_fa.primary_key
   sensitive = true
 }
 

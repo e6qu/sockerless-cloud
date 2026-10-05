@@ -42,7 +42,7 @@ func TestRDSCLI_DBInstanceLifecycle(t *testing.T) {
 	require.Equal(t, id, created.DBInstance.DBInstanceIdentifier)
 	assert.Equal(t, "db.t3.micro", created.DBInstance.DBInstanceClass)
 	assert.Equal(t, "postgres", created.DBInstance.Engine)
-	assert.Equal(t, "available", created.DBInstance.DBInstanceStatus)
+	assert.Equal(t, "creating", created.DBInstance.DBInstanceStatus)
 	arn := created.DBInstance.DBInstanceArn
 	require.NotEmpty(t, arn)
 	assert.Positive(t, created.DBInstance.Endpoint.Port)
@@ -51,19 +51,24 @@ func TestRDSCLI_DBInstanceLifecycle(t *testing.T) {
 			"--db-instance-identifier", id,
 			"--skip-final-snapshot").Run()
 	})
+	// Amazon RDS reports the instance available once its first automated
+	// backup is taken.
+	described := cliAvailableDBInstance(t, id)
+	assert.Equal(t, "available", described.DBInstanceStatus)
+	assert.NotEmpty(t, described.LatestRestorableTime)
 
 	out = runCLI(t, awsCLI("rds", "describe-db-instances",
 		"--db-instance-identifier", id))
-	var described struct {
+	var describedInstances struct {
 		DBInstances []struct {
 			DBInstanceIdentifier string `json:"DBInstanceIdentifier"`
 			DBInstanceClass      string `json:"DBInstanceClass"`
 		} `json:"DBInstances"`
 	}
-	parseJSON(t, out, &described)
-	require.Len(t, described.DBInstances, 1)
-	assert.Equal(t, id, described.DBInstances[0].DBInstanceIdentifier)
-	assert.Equal(t, "db.t3.micro", described.DBInstances[0].DBInstanceClass)
+	parseJSON(t, out, &describedInstances)
+	require.Len(t, describedInstances.DBInstances, 1)
+	assert.Equal(t, id, describedInstances.DBInstances[0].DBInstanceIdentifier)
+	assert.Equal(t, "db.t3.micro", describedInstances.DBInstances[0].DBInstanceClass)
 
 	runCLI(t, awsCLI("rds", "modify-db-instance",
 		"--db-instance-identifier", id,
@@ -146,12 +151,13 @@ func TestRDSCLI_DBInstanceLifecycle(t *testing.T) {
 	parseJSON(t, out, &restored)
 	require.Equal(t, restoredID, restored.DBInstance.DBInstanceIdentifier)
 	assert.Equal(t, "postgres", restored.DBInstance.Engine)
-	assert.Equal(t, "available", restored.DBInstance.DBInstanceStatus)
+	assert.Equal(t, "creating", restored.DBInstance.DBInstanceStatus)
 	t.Cleanup(func() {
 		_ = awsCLI("rds", "delete-db-instance",
 			"--db-instance-identifier", restoredID,
 			"--skip-final-snapshot").Run()
 	})
+	cliWaitDBInstanceAvailable(t, restoredID)
 
 	out = runCLI(t, awsCLI("rds", "describe-db-instances",
 		"--db-instance-identifier", restoredID))

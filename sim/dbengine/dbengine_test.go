@@ -6,8 +6,11 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func TestListenLoopbackGivesEachIdentityItsOwnAddress(t *testing.T) {
@@ -144,10 +147,69 @@ func tcpPair(t *testing.T) (net.Conn, net.Conn) {
 
 func TestAnEngineWithoutAnImageIsRefused(t *testing.T) {
 	i := &Instance{Name: "no-image", Engine: Postgres16}
-	if _, _, err := i.start(); err == nil || !strings.Contains(err.Error(), "names no image") {
+	if _, _, _, err := i.start(); err == nil || !strings.Contains(err.Error(), "names no image") {
 		t.Fatalf("an engine with no image started: %v", err)
 	}
 	if got := Postgres16.WithImage("example/postgres:16").Image; got != "example/postgres:16" {
 		t.Fatalf("WithImage: %q", got)
+	}
+}
+
+type firstLineSink struct {
+	once    sync.Once
+	written chan struct{}
+}
+
+func (s *firstLineSink) WriteLog(sim.LogLine) { s.once.Do(func() { close(s.written) }) }
+
+// TestDiscardEndsAnEngineStillInitialising pins that deleting a resource whose
+// MySQL engine is still laying down its data directory does not wait out the
+// stop grace: the image's entrypoint ignores SIGTERM until it has initialised.
+func TestDiscardEndsAnEngineStillInitialising(t *testing.T) {
+	if _, err := sim.InitDocker("aws", true, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+	volume := "sockerless-dbengine-discard-" + suffix
+	t.Cleanup(func() { sim.RemoveVolumeSettled(volume, "test") })
+	sink := &firstLineSink{written: make(chan struct{})}
+	instance := &Instance{
+		Name:     "discard test",
+		Engine:   MySQL80.WithImage("public.ecr.aws/docker/library/mysql:8.0"),
+		Volume:   volume,
+		Labels:   map[string]string{"sockerless-dbengine-discard-test": suffix},
+		Platform: FixedPlatform("linux/amd64"),
+		Environment: func() (map[string]string, error) {
+			return map[string]string{"MYSQL_ROOT_PASSWORD": "discard-test"}, nil
+		},
+		Log: sink,
+	}
+	started := make(chan error, 1)
+	go func() { started <- instance.Ensure() }()
+	select {
+	case <-sink.written:
+	case err := <-started:
+		t.Fatalf("the engine start ended before the engine wrote a line: %v", err)
+	}
+	// The container writes before the start records it, so Discard may land in
+	// either order; it ends the engine both ways.
+	begun := time.Now()
+	if err := instance.Discard(); err != nil {
+		t.Fatalf("Discard: %v", err)
+	}
+	if elapsed := time.Since(begun); elapsed >= stopGrace {
+		t.Fatalf("Discard took %s, the stop grace or longer", elapsed)
+	}
+	if err := <-started; err == nil {
+		t.Fatal("the engine start succeeded after Discard")
+	}
+	existing, err := sim.FindExistingContainers(instance.Labels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, container := range existing {
+		if container.Running {
+			t.Fatalf("container %s still runs after Discard", container.ID)
+		}
 	}
 }

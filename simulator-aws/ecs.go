@@ -563,7 +563,7 @@ func ecsAbandonTaskStart(taskID string, p *ecsTaskProcesses) {
 				continue
 			}
 			removeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if _, err := cli.ContainerRemove(removeCtx, handle.ContainerID, dockerclient.ContainerRemoveOptions{Force: true}); err != nil {
+			if _, err := cli.ContainerRemove(removeCtx, handle.ContainerID, dockerclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
 				fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: remove container of the interrupted start: %v\n", taskID, err)
 			}
 			cancel()

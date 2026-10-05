@@ -27,6 +27,7 @@ func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
 			"--db-instance-identifier", instID,
 			"--skip-final-snapshot").Run()
 	})
+	cliWaitDBInstanceAvailable(t, instID)
 
 	out := runCLI(t, awsCLI("rds", "stop-db-instance", "--db-instance-identifier", instID))
 	var stopResp struct {
@@ -51,7 +52,8 @@ func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
 
 	out = runCLI(t, awsCLI("rds", "start-db-instance", "--db-instance-identifier", instID))
 	parseJSON(t, out, &stopResp)
-	assert.Equal(t, "available", stopResp.DBInstance.DBInstanceStatus)
+	assert.Equal(t, "starting", stopResp.DBInstance.DBInstanceStatus)
+	cliWaitDBInstanceAvailable(t, instID)
 
 	replicaID := "cli-state-replica"
 	runCLI(t, awsCLI("rds", "create-db-instance-read-replica",
@@ -234,12 +236,14 @@ func TestRDSCLI_EventSubParamDetailEndpoint(t *testing.T) {
 		"--engine", "postgres",
 		"--master-username", "admin",
 		"--master-user-password", "password123!",
-		"--allocated-storage", "20"))
+		"--allocated-storage", "20",
+		"--backup-retention-period", "0"))
 	t.Cleanup(func() {
 		_ = awsCLI("rds", "delete-db-instance",
 			"--db-instance-identifier", instID,
 			"--skip-final-snapshot").Run()
 	})
+	cliWaitDBInstanceAvailable(t, instID)
 	snapID := "cli-attr-snap"
 	runCLI(t, awsCLI("rds", "create-db-snapshot",
 		"--db-snapshot-identifier", snapID,

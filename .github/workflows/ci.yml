@@ -488,6 +488,12 @@ jobs:
         # registry.
         if: matrix.cloud == 'gcp' && matrix.suite == 'cli'
         run: |
+          # The jobs run caddy themselves; the package's caddy.service is not
+          # wanted, and starting it once held "Setting up caddy" for three
+          # minutes. A policy-rc.d that answers 101 tells the package scripts
+          # not to start services.
+          printf '#!/bin/sh\nexit 101\n' | sudo tee /usr/sbin/policy-rc.d > /dev/null
+          sudo chmod 0755 /usr/sbin/policy-rc.d
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y caddy
           caddy version
       # Module download + test-binary compilation get their own budget so the
@@ -576,14 +582,19 @@ jobs:
           # The Amazon Aurora tests leave services-n-z for compute, which has
           # the most room: their cluster volumes, backups and restores took
           # the N-Z shard past its job budget.
+          # The Amazon RDS tests from A to I join the data shard: an Aurora
+          # cluster now starts its engine for its first automated backup when
+          # it is created, and deleting one whose MySQL engine is still
+          # starting takes about ten seconds (BUG-3363), which pushed the N-Z
+          # shard, already at 470s against the 600s test deadline, past it.
           - suite: compute
             run: '^Test(E[^C]|EC[^S]|RDS_Aurora)'
           - suite: data
-            run: '^Test(D|ECS)'
+            run: '^Test(D|ECS|RDS_(A[^u]|Au[^r]|[B-I]))'
           - suite: services-a-m
             run: '^Test[A-CF-M]'
           - suite: services-n-z
-            run: '^Test([N-QS-Z]|R[^D]|RD[^S]|RDS[^_]|RDS_[^A]|RDS_A[^u]|RDS_Au[^r])'
+            run: '^Test([N-QS-Z]|R[^D]|RD[^S]|RDS[^_]|RDS_[^A-I])'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
@@ -824,7 +835,7 @@ jobs:
             timeout: 1200s
             timeout_minutes: 15
           - suite: iam
-            run: '^Test(IAM)'
+            run: '^Test(IAM|RDSCLI_OptionGroup)'
             timeout: 1200s
             timeout_minutes: 15
           # The EC2 shards and appdata2 split by measured cost after compute
@@ -833,7 +844,7 @@ jobs:
           # cancelled compute was a quarter slower than normal. Each half now
           # holds 150-200s of tests.
           - suite: ec2-a-h
-            run: '^Test(EC2(CLI_[A-H]|Copy|EBS))'
+            run: '^Test(EC2(CLI_[A-H]|Copy|EBS)|RDSCLI_DBInstance)'
             timeout: 1500s
             timeout_minutes: 15
           - suite: ec2-i-m
@@ -857,8 +868,17 @@ jobs:
             run: '^Test(CLI_ECR|DynamoDB|ECR|EFS)'
             timeout: 1200s
             timeout_minutes: 15
+          # The Amazon RDS CLI tests spread over three shards: appdata2 ran
+          # them all in 10m18s, and every DB instance and Aurora cluster now
+          # takes its first automated backup when it is created, which the
+          # CLI's db-instance-available waiter observes at its 30-second
+          # cadence. appdata2 still reached its fifteen-minute job budget, so
+          # its three costliest RDS tests (RestoreAndReserved 173 s,
+          # OptionGroupAndReplica and DBInstanceLifecycle 74 s each) run in
+          # the appdata5, iam and ec2-a-h shards, which finished in about
+          # eight minutes.
           - suite: observability
-            run: '^Test(CloudMap|Logs)'
+            run: '^Test(CloudMap|Logs|RDSCLI_Instance)'
             timeout: 1200s
             timeout_minutes: 15
           - suite: ecs
@@ -869,7 +889,7 @@ jobs:
           # on a cold Go build cache: the CLI test binary's cold compile takes
           # about eight minutes, so a shard's suite must fit the remainder.
           - suite: appdata
-            run: '^Test(CloudWatch|EventBridge|Kinesis|ResourceTags)'
+            run: '^Test(CloudWatch|EventBridge|Kinesis|ResourceTags|RDSCLI_Aurora)'
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata4
@@ -877,7 +897,7 @@ jobs:
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata2
-            run: '^Test(AWSServiceState|RDS)'
+            run: '^Test(AWSServiceState|RDSCLI_([^AIDOR]|A[^u]|I[^n]|D[^B]|DB[^I]|R[^e]|Reb))'
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata5
@@ -885,7 +905,7 @@ jobs:
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata3
-            run: '^Test(Scheduler|SecretsManager|SFN|SNS|SQS|SSM|STS|WAFv2)'
+            run: '^Test(Scheduler|SecretsManager|SFN|SNS|SQS|SSM|STS|WAFv2|RDSCLI_Restore)'
             timeout: 1200s
             timeout_minutes: 15
     steps:
@@ -937,6 +957,12 @@ jobs:
         # matches '^Test(...|ECR|...)', so only the compute shard runs it.
         if: matrix.suite == 'compute'
         run: |
+          # The jobs run caddy themselves; the package's caddy.service is not
+          # wanted, and starting it once held "Setting up caddy" for three
+          # minutes. A policy-rc.d that answers 101 tells the package scripts
+          # not to start services.
+          printf '#!/bin/sh\nexit 101\n' | sudo tee /usr/sbin/policy-rc.d > /dev/null
+          sudo chmod 0755 /usr/sbin/policy-rc.d
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y caddy
           caddy version
       - name: Install latest AWS CLI v2
@@ -1173,6 +1199,12 @@ jobs:
           bash scripts/install-firecracker.sh
       - name: Install Caddy
         run: |
+          # The jobs run caddy themselves; the package's caddy.service is not
+          # wanted, and starting it once held "Setting up caddy" for three
+          # minutes. A policy-rc.d that answers 101 tells the package scripts
+          # not to start services.
+          printf '#!/bin/sh\nexit 101\n' | sudo tee /usr/sbin/policy-rc.d > /dev/null
+          sudo chmod 0755 /usr/sbin/policy-rc.d
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y caddy
       - name: Run terraform tests
         run: |

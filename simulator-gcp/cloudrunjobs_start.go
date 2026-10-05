@@ -119,8 +119,8 @@ func startCloudRunJobContainers(ctx context.Context, execID, execShort string, t
 		},
 		labels: func(c Container) map[string]string {
 			return map[string]string{
-				"sockerless-sim-execution":           execID,
-				"sockerless-sim-execution-container": c.Name,
+				cloudRunTaskExecutionLabel: execID,
+				cloudRunTaskContainerLabel: c.Name,
 			}
 		},
 	}, sink)

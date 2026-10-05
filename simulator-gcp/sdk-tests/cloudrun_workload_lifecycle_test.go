@@ -260,10 +260,11 @@ func TestSDK_CloudRun_InstanceRestartPolicy(t *testing.T) {
 }
 
 // A simulator restarted on the same state directory keeps running the
-// instances of the worker pools and Cloud Run instances it stored, as Cloud
-// Run's control plane never restarts the instances it runs: the containers the
-// earlier process started go on serving, under the new process's management,
-// and none of their output reaches Cloud Logging twice.
+// instances of the worker pools, Cloud Run instances and services it stored,
+// and the tasks of the job executions still running, as Cloud Run's control
+// plane never restarts the instances it runs: the containers the earlier
+// process started go on serving, under the new process's management, and none
+// of their output reaches Cloud Logging twice.
 func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 	stateDir := t.TempDir()
 	httpPort, grpcPort := freePersistentSimPorts(t)
@@ -280,6 +281,15 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 	instances, err := run.NewInstancesRESTClient(ctx, clientOptions...)
 	require.NoError(t, err)
 	defer instances.Close()
+	services, err := run.NewServicesRESTClient(ctx, clientOptions...)
+	require.NoError(t, err)
+	defer services.Close()
+	jobs, err := run.NewJobsRESTClient(ctx, clientOptions...)
+	require.NoError(t, err)
+	defer jobs.Close()
+	executions, err := run.NewExecutionsRESTClient(ctx, clientOptions...)
+	require.NoError(t, err)
+	defer executions.Close()
 
 	parent := "projects/test-project/locations/us-central1"
 	count := int32(1)
@@ -314,8 +324,42 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, inst.Urls, 1)
 
+	svcOp, err := services.CreateService(ctx, &runpb.CreateServiceRequest{
+		Parent:    parent,
+		ServiceId: "resumed-service",
+		Service: &runpb.Service{
+			InvokerIamDisabled: true,
+			Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{Image: simWorkloadImage, Command: []string{"sh", "-c",
+				`trap 'echo "stopping service $HOSTNAME"; exit 0' TERM; ` +
+					`nc -lk -p "$PORT" -e sh -c 'printf "HTTP/1.0 200 OK\r\nContent-Length: ${#HOSTNAME}\r\n\r\n%s" "$HOSTNAME"' & ` +
+					`echo "service $HOSTNAME"; sleep 2147483647 & wait $!`}}}},
+		},
+	})
+	require.NoError(t, err)
+	svc, err := svcOp.Wait(ctx)
+	require.NoError(t, err)
+
+	jobOp, err := jobs.CreateJob(ctx, &runpb.CreateJobRequest{
+		Parent: parent,
+		JobId:  "resumed-job",
+		Job: &runpb.Job{
+			Template: &runpb.ExecutionTemplate{Template: &runpb.TaskTemplate{
+				Containers: []*runpb.Container{{Image: simWorkloadImage, Command: []string{"sh", "-c",
+					`trap 'echo "stopping task $HOSTNAME"; exit 0' TERM; echo "task $HOSTNAME"; sleep 2147483647 & wait $!`}}},
+				Retries: &runpb.TaskTemplate_MaxRetries{MaxRetries: 0},
+			}},
+			CreateExecution: &runpb.Job_StartExecutionToken{StartExecutionToken: "resumed"},
+		},
+	})
+	require.NoError(t, err)
+	job, err := jobOp.Wait(ctx)
+	require.NoError(t, err)
+	executionName := job.Name + "/executions/resumed-job-resumed"
+
 	poolLogs := `resource.type="cloud_run_worker_pool" AND resource.labels.worker_pool_name="resumed-pool"`
 	instanceLogs := `resource.type="cloud_run_instance" AND resource.labels.instance_name="resumed-instance"`
+	serviceLogs := `resource.type="cloud_run_revision" AND resource.labels.service_name="resumed-service"`
+	taskLogs := `resource.type="cloud_run_job" AND resource.labels.job_name="resumed-job"`
 	host := func(filter, prefix string) string {
 		var hosts []string
 		followLogMessagesAt(t, logsAt, filter, func(messages []string) bool {
@@ -327,8 +371,8 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 	}
 	poolHost := host(poolLogs, "pool worker")
 	instanceHost := host(instanceLogs, "instance")
-	invoke := func() string {
-		u, err := url.Parse(inst.Urls[0])
+	invoke := func(target string) string {
+		u, err := url.Parse(target)
 		require.NoError(t, err)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/", nil)
 		require.NoError(t, err)
@@ -341,12 +385,24 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode, "body=%q", body)
 		return string(body)
 	}
-	assert.Equal(t, instanceHost, invoke(), "the instance's URL reaches its container")
+	assert.Equal(t, instanceHost, invoke(inst.Urls[0]), "the instance's URL reaches its container")
+	serviceHost := invoke(svc.Uri)
+	assert.Equal(t, serviceHost, host(serviceLogs, "service"), "the service's URL reaches the instance its first request started")
+	taskHost := host(taskLogs, "task")
 
 	require.NoError(t, shutdownPersistentSimulator(cmd))
 	cmd = startPersistentSimulatorOn(t, "docker", stateDir, httpPort, grpcPort)
 
-	assert.Equal(t, instanceHost, invoke(), "the restarted simulator serves the instance on the container it adopted")
+	assert.Equal(t, instanceHost, invoke(inst.Urls[0]), "the restarted simulator serves the instance on the container it adopted")
+	assert.Equal(t, serviceHost, invoke(svc.Uri), "the restarted simulator serves the service on the instance it adopted")
+	running, err := executions.GetExecution(ctx, &runpb.GetExecutionRequest{Name: executionName})
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), running.RunningCount, "the execution's task runs on across the restart")
+	assert.Nil(t, running.CompletionTime)
+	cancelled, err := executions.CancelExecution(ctx, &runpb.CancelExecutionRequest{Name: executionName})
+	require.NoError(t, err)
+	_, err = cancelled.Wait(ctx)
+	require.NoError(t, err)
 	pool, err := pools.GetWorkerPool(ctx, &runpb.GetWorkerPoolRequest{Name: parent + "/workerPools/resumed-pool"})
 	require.NoError(t, err)
 	assert.Equal(t, runpb.Condition_CONDITION_SUCCEEDED, pool.TerminalCondition.GetState())
@@ -358,6 +414,14 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 	instanceDeleted, err := instances.DeleteInstance(ctx, &runpb.DeleteInstanceRequest{Name: parent + "/instances/resumed-instance"})
 	require.NoError(t, err)
 	_, err = instanceDeleted.Wait(ctx)
+	require.NoError(t, err)
+	serviceDeleted, err := services.DeleteService(ctx, &runpb.DeleteServiceRequest{Name: svc.Name})
+	require.NoError(t, err)
+	_, err = serviceDeleted.Wait(ctx)
+	require.NoError(t, err)
+	jobDeleted, err := jobs.DeleteJob(ctx, &runpb.DeleteJobRequest{Name: job.Name})
+	require.NoError(t, err)
+	_, err = jobDeleted.Wait(ctx)
 	require.NoError(t, err)
 
 	// The deletions stop the containers the earlier process started, which only
@@ -372,4 +436,14 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 	})
 	assert.Equal(t, []string{instanceHost}, distinctLogHosts(instanceMessages, "instance"), "the instance started no other container")
 	assert.Equal(t, 1, countLogMessages(instanceMessages, "instance "+instanceHost))
+	serviceMessages := followLogMessagesAt(t, logsAt, serviceLogs, func(messages []string) bool {
+		return countLogMessages(messages, "stopping service "+serviceHost) == 1
+	})
+	assert.Equal(t, []string{serviceHost}, distinctLogHosts(serviceMessages, "service"), "the service started no other instance")
+	assert.Equal(t, 1, countLogMessages(serviceMessages, "service "+serviceHost))
+	taskMessages := followLogMessagesAt(t, logsAt, taskLogs, func(messages []string) bool {
+		return countLogMessages(messages, "stopping task "+taskHost) == 1
+	})
+	assert.Equal(t, []string{taskHost}, distinctLogHosts(taskMessages, "task"), "the execution started no other task")
+	assert.Equal(t, 1, countLogMessages(taskMessages, "task "+taskHost))
 }

@@ -168,6 +168,7 @@ func TestRDSDeleteDBClusterHoldsTheIdentifierUntilItsTeardown(t *testing.T) {
 	rdsResetAuroraStores(t)
 	const clusterID = "held-cluster"
 	rdsCreateAuroraCluster(t, clusterID, "aurora-postgresql", 25450)
+	t.Cleanup(func() { sim.RemoveVolumeSettled(rdsClusterSnapshotVolume(clusterID+"-final"), "rds") })
 
 	release := rdsDataPlaneStops.Lock("cluster/" + clusterID)
 	deleted := rdsFormCall(t, handleRDSDeleteCluster, url.Values{

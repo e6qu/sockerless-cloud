@@ -102,6 +102,7 @@ func TestRDSLogFilesServeTheEngineOutput_SDK(t *testing.T) {
 				DBInstanceIdentifier: aws.String(instanceID), SkipFinalSnapshot: aws.Bool(true),
 			})
 		})
+		waitForRDSInstanceAvailable(t, client, testContext, instanceID)
 
 		_, err = client.DownloadDBLogFilePortion(testContext, &rds.DownloadDBLogFilePortionInput{
 			DBInstanceIdentifier: aws.String(instanceID),
@@ -177,6 +178,7 @@ func TestRDSLogFilesServeTheEngineOutput_SDK(t *testing.T) {
 				DBInstanceIdentifier: aws.String(instanceID), SkipFinalSnapshot: aws.Bool(true),
 			})
 		})
+		waitForRDSInstanceAvailable(t, client, testContext, instanceID)
 		endpoint := fmt.Sprintf("%s:%d", aws.ToString(created.DBInstance.Endpoint.Address), aws.ToInt32(created.DBInstance.Endpoint.Port))
 		config := mysql.Config{
 			User: username, Passwd: password, Net: "tcp", Addr: endpoint,

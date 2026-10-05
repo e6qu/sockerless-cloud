@@ -495,6 +495,9 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	assertNodeFunctionAppServes(t,
 		outputs.must(t, "azrm_node_function_app_hostname"),
 		outputs.must(t, "azrm_node_function_app_default_key"))
+	require.Regexp(t, `^[A-Za-z0-9_-]{44}AzFu[A-Za-z0-9_-]{6}==$`,
+		outputs.must(t, "azrm_node_blob_function_app_master_key"),
+		"the host key data source reads the master key the host keeps in its blob secret store")
 
 	out, err = runTimed(t, "terraform destroy", terraformCmd(dir, "destroy", "-auto-approve"))
 	require.NoError(t, err, "terraform destroy failed:\n%s", out)

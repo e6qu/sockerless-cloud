@@ -89,12 +89,14 @@ func TestRDSCLI_RebootDBInstance(t *testing.T) {
 		"--engine", "mysql",
 		"--master-username", "admin",
 		"--master-user-password", "password123!",
-		"--allocated-storage", "20"))
+		"--allocated-storage", "20",
+		"--backup-retention-period", "0"))
 	t.Cleanup(func() {
 		_ = awsCLI("rds", "delete-db-instance",
 			"--db-instance-identifier", id,
 			"--skip-final-snapshot").Run()
 	})
+	cliWaitDBInstanceAvailable(t, id)
 
 	out := runCLI(t, awsCLI("rds", "reboot-db-instance",
 		"--db-instance-identifier", id))

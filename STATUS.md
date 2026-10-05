@@ -115,11 +115,13 @@ Current state of the sockerless-cloud repository.
   leaves the containers running and the next process adopts them by label;
   without it, the detached reaper and the startup sweep collect a run's
   containers, scoped to the state directory so a concurrent suite is never
-  touched. A simulator exits when the process in `SOCKERLESS_PARENT_PID` is
-  gone. A stopping simulator does not wait out a container's stop timeout or a
-  function's timeout: interrupted Amazon ECS and AWS Lambda work resumes in the
-  next process, and an open long poll, a Live Tail session or a synchronous
-  AWS Lambda or Step Functions call ends with the server.
+  touched; a removed container takes its anonymous volumes with it and
+  leaves its named ones. A simulator exits when the process in
+  `SOCKERLESS_PARENT_PID` is gone. A stopping simulator does not wait out a
+  container's stop timeout or a function's timeout: interrupted Amazon ECS
+  and AWS Lambda work resumes in the next process, and an open long poll, a
+  Live Tail session or a synchronous AWS Lambda or Step Functions call ends
+  with the server.
 - **Every credential is verified**: SigV4 against the principal's stored
   secret, from the header and from a presigned URL alike; Google Cloud and
   Microsoft Entra bearers against the simulator's signing keys; the Azure
@@ -130,14 +132,16 @@ Current state of the sockerless-cloud repository.
 - **Managed databases run real engines** with volumes, credentials sealed
   under the simulator's own key service, readiness classified by SQLSTATE, and
   snapshots that capture the data copy-on-write where the volume store allows
-  it. An Aurora cluster restores to any time in its backup retention period
-  since its engine first served, replaying PostgreSQL's archived write-ahead
+  it. An Aurora cluster takes its first automated backup when it is created
+  or restored, whether or not a client connects, and restores to any time in
+  its backup retention period since then, replaying PostgreSQL's archived write-ahead
   log or MySQL's binary log onto the daily automated DB cluster snapshot taken
   in its backup window, and expires the snapshots and log the period no longer
   covers; an Aurora cluster restores from an RDS DB snapshot ARN, and an
   Aurora MySQL cluster from a Percona XtraBackup in Amazon S3. An RDS for
   PostgreSQL or RDS for MySQL instance keeps the same automated backups,
-  taking the first when it is created whether or not a client connects:
+  taking the first when it is created whether or not a client connects and
+  reporting `creating`, `starting` and `backing-up` until it is `available`:
   RestoreDBInstanceToPointInTime seeds the new instance from them, and
   RestoreDBInstanceFromS3 imports a Percona XtraBackup into RDS for MySQL. A
   deletion with `DeleteAutomatedBackups=false` retains the automated backups,
@@ -145,7 +149,9 @@ Current state of the sockerless-cloud repository.
   automated backups replicate to another Region, where they restore after
   the replication stops or the source is gone. An Aurora
   endpoint signs in the master user and IAM-authenticated users itself and
-  every other database user through the engine's own checks.
+  every other database user through the engine's own checks. Deleting a
+  database kills an engine still initialising its volume rather than waiting
+  out the stop grace.
 - **The registries answer their own service**: Amazon ECR's empty ping with
   no content type, Artifact Registry's `text/html`, Azure Container Registry's
   `{}`; ECR hydrates a pull through a cache rule from the rule's upstream;
@@ -258,11 +264,14 @@ Current state of the sockerless-cloud repository.
   spelling.
 - **A Linux function app on `Node|22` runs the Azure Functions host** image
   on its deployed content, with the App Service platform environment every
-  site container gets; with `AzureWebJobsSecretStorageType=files` the ARM key
-  operations read and write the host's own encrypted file secret store, so
-  the keys they list are the keys the host accepts, and `functionAppStacks`
-  lists the stack. Other function stacks, the blob secret store and
-  code-defined functions stay open as BUG-3237.
+  site container gets; the ARM key operations read and write the host's own
+  encrypted secret store — the file store under
+  `AzureWebJobsSecretStorageType=files`, and otherwise the
+  `azure-webjobs-secrets` blobs of the account `AzureWebJobsStorage` names —
+  so with the file store the keys they list are the keys the host accepts,
+  and `functionAppStacks` lists the stack. Other function stacks, the host's
+  own route to the Blob service, and code-defined functions stay open as
+  BUG-3237.
 - **Azure Monitor logs land where something names the workspace.** A
   Container Apps environment's `appLogsConfiguration`, a site's Application
   Insights connection, and a data collection rule's Log Analytics destination
@@ -304,7 +313,9 @@ Current state of the sockerless-cloud repository.
   the instances have passed their startup probes, and fails both with the
   start error; an instance's exits restart it per its `restartPolicy`, up to
   three times in a row; a simulator restart adopts the stored pools' and
-  instances' running containers and starts only what is missing.
+  instances' running containers and starts only what is missing, adopts the
+  instance serving each service, and lets each running job execution's task
+  run on to its outcome.
   An instance's `urls` reach its ingress container through the Cloud Run front
   end, behind the same invoker check a service's URL has.
 - **A Cloud Run function is served by its Cloud Run service**:

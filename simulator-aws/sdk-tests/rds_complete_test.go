@@ -123,6 +123,7 @@ func TestRDS_SnapshotTenantDatabases(t *testing.T) {
 			SkipFinalSnapshot:    aws.Bool(true),
 		})
 	})
+	waitForRDSInstanceAvailable(t, c, ctx, instID)
 
 	tenant := "TENANT1"
 	_, err = c.CreateTenantDatabase(ctx, &rds.CreateTenantDatabaseInput{
@@ -354,6 +355,7 @@ func TestRDS_SwitchoverReadReplica(t *testing.T) {
 			SkipFinalSnapshot:    aws.Bool(true),
 		})
 	})
+	waitForRDSInstanceAvailable(t, c, ctx, primaryID)
 
 	_, err = c.CreateDBInstanceReadReplica(ctx, &rds.CreateDBInstanceReadReplicaInput{
 		DBInstanceIdentifier:       aws.String(replicaID),

@@ -80,13 +80,18 @@ func rdsRecoverDataPlanes() error {
 			bg.Go(func() { rdsFinishInstanceRestore(id) })
 			continue
 		}
+		id := instance.DBInstanceIdentifier
 		stopping := instance.DBInstanceStatus == "stopping"
+		bringingUp := rdsInstanceBringingUp(instance.DBInstanceStatus)
 		if stopping && len(instance.MasterUserSecret) == 0 {
-			id := instance.DBInstanceIdentifier
 			bg.Go(func() { rdsFinishStop(id) })
 			continue
 		}
-		if (instance.DBInstanceStatus != "available" && !stopping) || len(instance.MasterUserSecret) == 0 {
+		if bringingUp && len(instance.MasterUserSecret) == 0 {
+			bg.Go(func() { rdsFinishInstanceBringUp(id) })
+			continue
+		}
+		if (instance.DBInstanceStatus != "available" && !stopping && !bringingUp) || len(instance.MasterUserSecret) == 0 {
 			continue
 		}
 		_, masterPassword, ok := kmsDecryptBytes(instance.MasterUserSecret)
@@ -102,12 +107,15 @@ func rdsRecoverDataPlanes() error {
 			}
 		}
 		rdsInstances.Put(instance.DBInstanceIdentifier, instance)
-		rdsTakeFirstInstanceBackup(instance.DBInstanceIdentifier)
-		if stopping {
+		switch {
+		case bringingUp:
+			bg.Go(func() { rdsFinishInstanceBringUp(id) })
+		case stopping:
 			// The process that took the StopDBInstance ended before the
 			// engine it adopted here had stopped.
-			id := instance.DBInstanceIdentifier
 			bg.Go(func() { rdsFinishStop(id) })
+		default:
+			rdsTakeFirstInstanceBackup(id)
 		}
 	}
 	return nil
@@ -284,6 +292,42 @@ func rdsTakeFirstInstanceBackup(instanceID string) {
 	bg.Go(func() {
 		if err := plane.backups.takeFirstStarting(); err != nil && !errors.Is(err, errRDSBackupsStopped) {
 			log.Printf("Amazon RDS %s: %v", instanceID, err)
+		}
+	})
+}
+
+// rdsInstanceBringingUp reports whether status is one Amazon RDS reports while
+// it creates or starts a DB instance, before the instance is available.
+func rdsInstanceBringingUp(status string) bool {
+	return status == "creating" || status == "starting" || status == "backing-up"
+}
+
+// rdsFinishInstanceBringUp lands a creating or starting DB instance available.
+// One that keeps automated backups and holds none yet first starts its engine,
+// which takes the first automated backup with the instance backing-up, and
+// lands failed when the engine does not start or the backup is not taken. A
+// deletion meanwhile ends the start, and the instance goes with it.
+func rdsFinishInstanceBringUp(instanceID string) {
+	instance, ok := rdsInstances.Get(instanceID)
+	if !ok || !rdsInstanceBringingUp(instance.DBInstanceStatus) {
+		return
+	}
+	resourceID := instance.DbiResourceId
+	status := "available"
+	if plane, served := rdsLoadDataPlane(instanceID); served && instance.BackupRetentionPeriod > 0 &&
+		len(instance.BaseBackups) == 0 && rdsKeepsLog(plane.engine.Engine) {
+		err := plane.backups.takeFirstStarting()
+		if errors.Is(err, errRDSBackupsStopped) {
+			return
+		}
+		if err != nil {
+			log.Printf("Amazon RDS %s: %v", instanceID, err)
+			status = "failed"
+		}
+	}
+	rdsInstances.Update(instanceID, func(stored *RDSInstance) {
+		if stored.DbiResourceId == resourceID && rdsInstanceBringingUp(stored.DBInstanceStatus) {
+			stored.DBInstanceStatus = status
 		}
 	})
 }
@@ -468,11 +512,11 @@ func rdsStartInstanceEngine(instance *RDSInstance) error {
 // engine removes the volume only once the engine has let go of it.
 var rdsDataPlaneStops = sim.NewKeyedLocks()
 
-// rdsStopDataPlane closes the instance's endpoint and stops its engine and,
-// when the instance is being deleted, removes its data volume — which exists
-// from the first engine start or from a snapshot restore's clone. It returns
-// the engine's stop error.
-func rdsStopDataPlane(instanceID string, deleteVolume bool) error {
+// rdsStopDataPlane closes the instance's endpoint and stops its engine and its
+// automated backups, and returns the engine's stop error. An instance being
+// deleted discards its engine, which ends a start still initialising the
+// volume at once.
+func rdsStopDataPlane(instanceID string, deleting bool) error {
 	release := rdsDataPlaneStops.Lock(instanceID)
 	defer release()
 	rdsCloseAuroraInstanceEndpoint(instanceID)
@@ -480,22 +524,32 @@ func rdsStopDataPlane(instanceID string, deleteVolume bool) error {
 	if value, ok := rdsDataPlanes.LoadAndDelete(instanceID); ok {
 		if plane, ok := value.(*rdsDataPlane); ok {
 			plane.backups.stop()
-			if err := plane.engine.Close(); err != nil {
+			stop := plane.engine.Close
+			if deleting {
+				stop = plane.engine.Discard
+			}
+			if err := stop(); err != nil {
 				stopErr = fmt.Errorf("stop database engine: %w", err)
 				log.Printf("Amazon RDS %s: %v", instanceID, stopErr)
 			}
 			plane.backups.awaitStart()
 		}
 	}
-	if deleteVolume {
-		rdsRemoveEngineContainers("Amazon RDS "+instanceID, map[string]string{"sockerless-rds-instance": instanceID})
-	}
-	if deleteVolume && sim.VolumeExists(rdsInstanceVolume(instanceID)) {
+	return stopErr
+}
+
+// rdsRemoveInstanceVolume removes a deleted instance's data volume — which
+// exists from the first engine start or from a snapshot restore's clone — with
+// the engine containers an earlier process left on it.
+func rdsRemoveInstanceVolume(instanceID string) {
+	release := rdsDataPlaneStops.Lock(instanceID)
+	defer release()
+	rdsRemoveEngineContainers("Amazon RDS "+instanceID, map[string]string{"sockerless-rds-instance": instanceID})
+	if sim.VolumeExists(rdsInstanceVolume(instanceID)) {
 		if err := sim.RemoveVolume(rdsInstanceVolume(instanceID)); err != nil {
 			log.Printf("Amazon RDS %s: remove data volume: %v", instanceID, err)
 		}
 	}
-	return stopErr
 }
 
 // rdsRemoveEngineContainers removes the engine containers an earlier process
@@ -532,12 +586,12 @@ func rdsFinishInstanceDeletion(id, resourceID string) {
 		return
 	}
 	// The instance goes either way; rdsStopDataPlane logs a failed stop.
-	_ = rdsStopDataPlane(id, false)
+	_ = rdsStopDataPlane(id, true)
 	if instance, ok := rdsInstances.Get(id); ok && !rdsIsAurora(instance.Engine) {
 		rdsRetainInstanceReplications(instance)
 		rdsKeepOrRemoveInstanceBackups(instance)
 	}
-	_ = rdsStopDataPlane(id, true)
+	rdsRemoveInstanceVolume(id)
 	rdsDeleteEngineLogs(resourceID)
 	if rdsDeletingInstance(id, resourceID) {
 		rdsInstances.Delete(id)

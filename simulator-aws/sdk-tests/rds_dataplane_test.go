@@ -73,6 +73,7 @@ func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 				DBInstanceIdentifier: aws.String(instanceID), SkipFinalSnapshot: aws.Bool(true),
 			})
 		})
+		waitForRDSInstanceAvailable(t, rdsAPI, testContext, instanceID)
 		endpoint := fmt.Sprintf("%s:%d", aws.ToString(created.DBInstance.Endpoint.Address), aws.ToInt32(created.DBInstance.Endpoint.Port))
 		token, err := rdsauth.BuildAuthToken(testContext, endpoint, "us-east-1", username, credentialProvider)
 		require.NoError(t, err)
@@ -153,6 +154,7 @@ func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 				DBInstanceIdentifier: aws.String(instanceID), SkipFinalSnapshot: aws.Bool(true),
 			})
 		})
+		waitForRDSInstanceAvailable(t, rdsAPI, testContext, instanceID)
 		endpoint := fmt.Sprintf("%s:%d", aws.ToString(created.DBInstance.Endpoint.Address), aws.ToInt32(created.DBInstance.Endpoint.Port))
 		token, err := rdsauth.BuildAuthToken(testContext, endpoint, "us-east-1", username, credentialProvider)
 		require.NoError(t, err)
@@ -221,6 +223,7 @@ func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 				DBInstanceIdentifier: aws.String(instanceID), SkipFinalSnapshot: aws.Bool(true),
 			})
 		})
+		waitForRDSInstanceAvailable(t, rdsAPI, testContext, instanceID)
 		endpoint := fmt.Sprintf("%s:%d", aws.ToString(created.DBInstance.Endpoint.Address), aws.ToInt32(created.DBInstance.Endpoint.Port))
 		config := mysql.Config{
 			User: username, Passwd: initialPassword, Net: "tcp", Addr: endpoint, DBName: database,
@@ -255,6 +258,8 @@ func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 			DBInstanceIdentifier: aws.String(instanceID),
 		})
 		require.NoError(t, err)
+		require.Equal(t, "starting", aws.ToString(started.DBInstance.DBInstanceStatus))
+		waitForRDSInstanceAvailable(t, rdsAPI, testContext, instanceID)
 		endpoint = fmt.Sprintf("%s:%d", aws.ToString(started.DBInstance.Endpoint.Address), aws.ToInt32(started.DBInstance.Endpoint.Port))
 
 		oldConfig := config

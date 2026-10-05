@@ -54,6 +54,7 @@ func TestRDS_Snapshot_Lifecycle(t *testing.T) {
 			SkipFinalSnapshot:    aws.Bool(true),
 		})
 	})
+	waitForRDSInstanceAvailable(t, c, ctx, "snap-src")
 
 	// CreateDBSnapshot.
 	createOut, err := c.CreateDBSnapshot(ctx, &rds.CreateDBSnapshotInput{
@@ -145,6 +146,7 @@ func TestRDS_RestoreFromSnapshot_PortFromEngine(t *testing.T) {
 			DBInstanceIdentifier: aws.String("port-src"), SkipFinalSnapshot: aws.Bool(true),
 		})
 	})
+	waitForRDSInstanceAvailable(t, c, ctx, "port-src")
 
 	_, err = c.CreateDBSnapshot(ctx, &rds.CreateDBSnapshotInput{
 		DBSnapshotIdentifier: aws.String("port-snap"),
@@ -217,6 +219,7 @@ func TestRDS_DeleteDBInstance_FinalSnapshotContract(t *testing.T) {
 			SkipFinalSnapshot:    aws.Bool(true),
 		})
 	})
+	waitForRDSInstanceAvailable(t, c, ctx, "final-snap-src")
 
 	// Neither skipping nor naming a final snapshot is the contract violation
 	// RDS rejects.
