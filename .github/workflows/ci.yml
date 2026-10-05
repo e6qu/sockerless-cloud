@@ -829,7 +829,7 @@ jobs:
             timeout: 1200s
             timeout_minutes: 15
           - suite: iam
-            run: '^Test(IAM)'
+            run: '^Test(IAM|RDSCLI_OptionGroup)'
             timeout: 1200s
             timeout_minutes: 15
           # The EC2 shards and appdata2 split by measured cost after compute
@@ -838,7 +838,7 @@ jobs:
           # cancelled compute was a quarter slower than normal. Each half now
           # holds 150-200s of tests.
           - suite: ec2-a-h
-            run: '^Test(EC2(CLI_[A-H]|Copy|EBS))'
+            run: '^Test(EC2(CLI_[A-H]|Copy|EBS)|RDSCLI_DBInstance)'
             timeout: 1500s
             timeout_minutes: 15
           - suite: ec2-i-m
@@ -866,7 +866,11 @@ jobs:
           # them all in 10m18s, and every DB instance and Aurora cluster now
           # takes its first automated backup when it is created, which the
           # CLI's db-instance-available waiter observes at its 30-second
-          # cadence.
+          # cadence. appdata2 still reached its fifteen-minute job budget, so
+          # its three costliest RDS tests (RestoreAndReserved 173 s,
+          # OptionGroupAndReplica and DBInstanceLifecycle 74 s each) run in
+          # the appdata5, iam and ec2-a-h shards, which finished in about
+          # eight minutes.
           - suite: observability
             run: '^Test(CloudMap|Logs|RDSCLI_Instance)'
             timeout: 1200s
@@ -887,7 +891,7 @@ jobs:
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata2
-            run: '^Test(AWSServiceState|RDSCLI_[^AI]|RDSCLI_A[^u]|RDSCLI_I[^n])'
+            run: '^Test(AWSServiceState|RDSCLI_([^AIDOR]|A[^u]|I[^n]|D[^B]|DB[^I]|R[^e]|Reb))'
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata5
@@ -895,7 +899,7 @@ jobs:
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata3
-            run: '^Test(Scheduler|SecretsManager|SFN|SNS|SQS|SSM|STS|WAFv2)'
+            run: '^Test(Scheduler|SecretsManager|SFN|SNS|SQS|SSM|STS|WAFv2|RDSCLI_Restore)'
             timeout: 1200s
             timeout_minutes: 15
     steps:
