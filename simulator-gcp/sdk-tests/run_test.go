@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -277,29 +276,6 @@ func waitJobRun(t *testing.T, run jobRun) (map[string]any, error) {
 	return getExecution(t, run.Execution), err
 }
 
-// awaitExecutionRunning returns the first snapshot in which the execution has
-// a task running. An execution that settles without ever reporting one is the
-// failure — the running state is what the caller is here to observe, and a
-// point sample taken after it has passed reports its absence as if it never
-// happened.
-func awaitExecutionRunning(t *testing.T, execName string) map[string]any {
-	t.Helper()
-	deadline := time.Now().Add(60 * time.Second)
-	for {
-		exec := getExecution(t, execName)
-		if running, _ := exec["runningCount"].(float64); running > 0 {
-			return exec
-		}
-		if ct, _ := exec["completionTime"].(string); ct != "" {
-			t.Fatalf("execution %q settled without ever reporting a running task: %v", execName, exec)
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("execution %q never reported a running task within 60s: %v", execName, exec)
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-}
-
 func getExecution(t *testing.T, execName string) map[string]any {
 	t.Helper()
 	req, _ := http.NewRequestWithContext(ctx, "GET", baseURL+"/v2/"+execName, nil)
@@ -314,26 +290,78 @@ func getExecution(t *testing.T, execName string) map[string]any {
 	return result
 }
 
+// heldJob is a Cloud Run job execution whose container announced itself on
+// stdout and holds until the test releases it.
+type heldJob struct {
+	jobRun
+	release func()
+}
+
+// runHeldJob runs a job whose container prints marker and then holds until an
+// object named release appears in a Cloud Storage bucket the job mounts as a
+// volume. The test ends the hold by writing that object, so no fixed duration
+// decides how long the workload runs.
+func runHeldJob(t *testing.T, jobID, marker string) heldJob {
+	t.Helper()
+	client := storageClient(t)
+	t.Cleanup(func() { client.Close() })
+	bucket := client.Bucket(uniqueName("held-job-release"))
+	require.NoError(t, bucket.Create(ctx, "test-project", nil))
+
+	job := map[string]any{
+		"template": map[string]any{
+			"template": map[string]any{
+				"timeout":    "120s",
+				"maxRetries": 0,
+				"containers": []map[string]any{{
+					"image":        commandImageName,
+					"args":         []string{"log-until", marker, "/mnt/release/release"},
+					"volumeMounts": []map[string]any{{"name": "release", "mountPath": "/mnt/release"}},
+				}},
+				"volumes": []map[string]any{{
+					"name": "release",
+					"gcs":  map[string]any{"bucket": bucket.BucketName(), "readOnly": true},
+				}},
+			},
+		},
+	}
+	body, _ := json.Marshal(job)
+	createReq, _ := http.NewRequestWithContext(ctx, "POST",
+		baseURL+"/v2/projects/test-project/locations/us-central1/jobs?jobId="+jobID,
+		strings.NewReader(string(body)))
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp, err := http.DefaultClient.Do(createReq)
+	require.NoError(t, err)
+	createResp.Body.Close()
+	require.Equal(t, http.StatusOK, createResp.StatusCode, "create job %s", jobID)
+
+	runReq, _ := http.NewRequestWithContext(ctx, "POST",
+		baseURL+"/v2/projects/test-project/locations/us-central1/jobs/"+jobID+":run",
+		strings.NewReader("{}"))
+	runReq.Header.Set("Content-Type", "application/json")
+	runResp, err := http.DefaultClient.Do(runReq)
+	require.NoError(t, err)
+	defer runResp.Body.Close()
+	require.Equal(t, http.StatusOK, runResp.StatusCode)
+	return heldJob{
+		jobRun: readJobRun(t, runResp.Body),
+		release: func() {
+			putVolumeObject(t, bucket, "release", "text/plain", "")
+		},
+	}
+}
+
 func TestCloudRun_ExecutionRunningState(t *testing.T) {
 	jobID := uniqueName("status-running-job")
 	const marker = "status-running-marker"
 
-	// The container announces itself on stdout and then holds, so the running
-	// snapshot below is taken while a workload container is genuinely up
+	// The container announces itself on stdout and holds until released, so
+	// the snapshot below is taken while a workload container is genuinely up
 	// rather than while the execution record merely claims one.
-	//
-	// The snapshot is found by watching for it, not by sampling once after the
-	// marker arrives. Waiting for the marker and then reading is a race the
-	// test loses under load: the marker's trip through Cloud Logging can take
-	// longer than the container's hold, and then the read finds an execution
-	// that has already settled. Widening the hold only moves the number.
-	// Watching cannot lose it — the running state either occurs, and the poll
-	// sees it, or it never occurs, which is the defect this test is for.
-	run := createAndRunJobWithImageAndCommand(t, jobID, commandImageName,
-		[]string{"log", marker, "30"}, "120s")
+	run := runHeldJob(t, jobID, marker)
 	waitForJobLogMessage(t, jobID, marker)
 
-	exec := awaitExecutionRunning(t, run.Execution)
+	exec := getExecution(t, run.Execution)
 	assert.Equal(t, float64(1), exec["runningCount"])
 	assert.Equal(t, float64(0), exec["succeededCount"])
 	assert.Equal(t, float64(0), exec["failedCount"])
@@ -341,7 +369,8 @@ func TestCloudRun_ExecutionRunningState(t *testing.T) {
 
 	// The running task was a real container: once it exits, the execution
 	// settles from its exit status as one succeeded task.
-	done, err := waitJobRun(t, run)
+	run.release()
+	done, err := waitJobRun(t, run.jobRun)
 	require.NoError(t, err)
 	assert.Equal(t, float64(0), done["runningCount"])
 	assert.Equal(t, float64(1), done["succeededCount"])
@@ -364,12 +393,11 @@ func TestCloudRun_ExecutionCancelledState(t *testing.T) {
 	jobID := uniqueName("status-cancel-job")
 	const marker = "status-cancel-marker"
 
-	// The container announces itself on stdout and then holds until it is
-	// cancelled. Cancelling a workload that had already exited would settle
+	// The container announces itself on stdout and then holds, never released,
+	// until it is cancelled. Cancelling a workload that had already exited would settle
 	// the execution from its exit status instead, leaving the cancelled count
 	// at zero and the assertions below unprovable.
-	run := createAndRunJobWithImageAndCommand(t, jobID, commandImageName,
-		[]string{"log", marker, "60"}, "60s")
+	run := runHeldJob(t, jobID, marker)
 	execName := run.Execution
 	waitForJobLogMessage(t, jobID, marker)
 
@@ -394,7 +422,7 @@ func TestCloudRun_ExecutionCancelledState(t *testing.T) {
 	assert.NotEmpty(t, exec["completionTime"])
 
 	// The RunJob operation ends with the cancellation once the workload stops.
-	_, err = waitJobRun(t, run)
+	_, err = waitJobRun(t, run.jobRun)
 	require.Error(t, err)
 	assert.Equal(t, codes.Canceled, status.Code(err), "RunJob operation error: %v", err)
 }

@@ -2444,6 +2444,18 @@ against that branch's pins and lands as one commit.
 run without `-C` in a linked worktree writes into the shared `.git/config`.
 Every `git config` this repository runs names its target with `-C`.
 
+The Google Cloud SDK suite once took 14.4 to 14.9 of its fifteen minutes. Its
+slow tests waited on holds and schedules they had chosen, not on events. A
+Cloud Run job that must be seen running now runs `container-command log-until
+MESSAGE PATH`, holding until an object appears in a Cloud Storage bucket the job
+mounts read-only as a Cloud Run volume, and the test writes that object once it
+has observed the running state; a cancelled execution's hold is never released.
+`TestCloudRun_ExecutionRunningState` had held for thirty seconds and then
+waited out the RunJob operation's polling backoff, 36.5 s on CI and 74 s
+locally; it takes about a second. The wait that remains in the Pub/Sub tests is
+the cloud's own: the ten-second minimum ack deadline in
+`TestPubSub_GRPC_AckDeadlineRedelivery`.
+
 `Dockerfile.test`, the shared harness image, had matched `.gitignore`'s
 `*.test` and was never committed, so every `make docker-test` failed. It is
 committed, un-ignored by name, with every toolchain pinned to a version and a

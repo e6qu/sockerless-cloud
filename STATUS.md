@@ -413,7 +413,11 @@ asks the host before a registry; `build-gates` runs the `testutil` tests, whose
 guard fails on a suite that pulls a base image itself. A harness that fronts a
 simulator with the Caddy HTTPS gateway starts it through
 `testutil/httpsgateway`, which returns once Caddy's log reports a cached
-certificate for every name the gateway manages.
+certificate for every name the gateway manages. The Google Cloud SDK suite runs
+unsharded; its tests wait on events they can observe — a Cloud Run job's hold
+ends when the test writes a release object into a mounted Cloud Storage
+bucket — and the waits left are the cloud's or the engine's own, such as
+Pub/Sub's ten-second minimum ack deadline.
 
 ## Releases
 
