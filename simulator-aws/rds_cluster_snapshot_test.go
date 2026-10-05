@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
@@ -26,6 +27,11 @@ func TestRDSAuroraClusterSnapshotsCarryTheClusterEngine(t *testing.T) {
 	rdsResetAuroraStores(t)
 	const clusterID = "aurora-snapshots"
 	cluster := rdsCreateAuroraCluster(t, clusterID, "aurora-postgresql", 25440)
+	t.Cleanup(func() {
+		for _, snapshotID := range []string{"aurora-snapshots-snap", "aurora-snapshots-copy"} {
+			sim.RemoveVolumeSettled(rdsClusterSnapshotVolume(snapshotID), "rds")
+		}
+	})
 
 	created := rdsFormCall(t, handleRDSCreateClusterSnapshot, url.Values{
 		"DBClusterSnapshotIdentifier": {"aurora-snapshots-snap"},
@@ -85,7 +91,7 @@ func TestRDSAuroraClusterSnapshotsCarryTheClusterEngine(t *testing.T) {
 	restoredFromSnapshot := rdsFormCall(t, handleRDSRestoreClusterFromSnapshot, url.Values{
 		"DBClusterIdentifier": {"aurora-snapshots-restored"}, "SnapshotIdentifier": {"aurora-snapshots-copy"}, "Engine": {"aurora-postgresql"},
 	})
-	t.Cleanup(func() { bg.Await(); _ = rdsStopAuroraDataPlane("aurora-snapshots-restored", false) })
+	rdsCleanupRestoredCluster(t, "aurora-snapshots-restored")
 	if restoredFromSnapshot.Code != http.StatusOK || !strings.Contains(restoredFromSnapshot.Body.String(), "<Status>creating</Status>") {
 		t.Fatalf("RestoreDBClusterFromSnapshot = %d %s, want a creating cluster", restoredFromSnapshot.Code, restoredFromSnapshot.Body.String())
 	}
@@ -102,7 +108,7 @@ func TestRDSAuroraClusterSnapshotsCarryTheClusterEngine(t *testing.T) {
 	pit := rdsFormCall(t, handleRDSRestoreClusterToPointInTime, url.Values{
 		"DBClusterIdentifier": {"aurora-snapshots-pit"}, "SourceDBClusterIdentifier": {clusterID}, "UseLatestRestorableTime": {"true"},
 	})
-	t.Cleanup(func() { bg.Await(); _ = rdsStopAuroraDataPlane("aurora-snapshots-pit", false) })
+	rdsCleanupRestoredCluster(t, "aurora-snapshots-pit")
 	if pit.Code != http.StatusOK || !strings.Contains(pit.Body.String(), "<Status>creating</Status>") {
 		t.Fatalf("RestoreDBClusterToPointInTime = %d %s, want a creating cluster", pit.Code, pit.Body.String())
 	}
@@ -159,4 +165,17 @@ func TestRDSAuroraClusterSnapshotsCarryTheClusterEngine(t *testing.T) {
 	if removed.Code != http.StatusOK || !strings.Contains(removed.Body.String(), "<Status>deleted</Status>") {
 		t.Fatalf("DeleteDBClusterSnapshot = %d %s", removed.Code, removed.Body.String())
 	}
+}
+
+// rdsCleanupRestoredCluster removes a restored cluster's engine, cluster
+// volume and automated backups when the test ends.
+func rdsCleanupRestoredCluster(t *testing.T, clusterID string) {
+	t.Helper()
+	t.Cleanup(func() {
+		bg.Await()
+		_ = rdsStopAuroraDataPlane(clusterID, true)
+		if cluster, ok := rdsClusters.Get(clusterID); ok {
+			rdsRemoveAutomatedBackups(cluster)
+		}
+	})
 }

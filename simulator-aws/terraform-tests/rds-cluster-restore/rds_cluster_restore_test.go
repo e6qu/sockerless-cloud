@@ -25,7 +25,8 @@ const (
 // terraform-provider-aws restores one Aurora PostgreSQL cluster to a point in
 // time through restore_to_point_in_time and migrates an RDS for PostgreSQL DB
 // snapshot into another through snapshot_identifier; each restored cluster
-// serves the data its source held.
+// takes its first automated backup before any client connects and serves the
+// data its source held.
 func TestRDSClusterRestoreTerraform(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
@@ -116,6 +117,12 @@ func TestRDSClusterRestoreTerraform(t *testing.T) {
 		"tf-aurora-pitr-restored": {"before-restore-time"},
 		"tf-aurora-migrated":      {"in-the-instance"},
 	} {
+		require.NoError(t, rds.NewDBClusterSnapshotAvailableWaiter(client, func(o *rds.DBClusterSnapshotAvailableWaiterOptions) {
+			o.MinDelay = 250 * time.Millisecond
+			o.MaxDelay = 2 * time.Second
+		}).Wait(ctx, &rds.DescribeDBClusterSnapshotsInput{
+			DBClusterIdentifier: aws.String(clusterID), SnapshotType: aws.String("automated"),
+		}, 3*time.Minute), "Amazon Aurora takes restored cluster %s's first automated backup before any client connects", clusterID)
 		addWriter(t, ctx, client, clusterID)
 		require.Equal(t, want, ledger(t, ctx, connect(t, ctx, clusterEndpoint(t, ctx, client, clusterID))),
 			"cluster %s serves the data its restore source held", clusterID)

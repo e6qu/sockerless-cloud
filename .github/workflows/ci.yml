@@ -576,14 +576,19 @@ jobs:
           # The Amazon Aurora tests leave services-n-z for compute, which has
           # the most room: their cluster volumes, backups and restores took
           # the N-Z shard past its job budget.
+          # The Amazon RDS tests from A to I join the data shard: an Aurora
+          # cluster now starts its engine for its first automated backup when
+          # it is created, and deleting one whose MySQL engine is still
+          # starting takes about ten seconds (BUG-3363), which pushed the N-Z
+          # shard, already at 470s against the 600s test deadline, past it.
           - suite: compute
             run: '^Test(E[^C]|EC[^S]|RDS_Aurora)'
           - suite: data
-            run: '^Test(D|ECS)'
+            run: '^Test(D|ECS|RDS_(A[^u]|Au[^r]|[B-I]))'
           - suite: services-a-m
             run: '^Test[A-CF-M]'
           - suite: services-n-z
-            run: '^Test([N-QS-Z]|R[^D]|RD[^S]|RDS[^_]|RDS_[^A]|RDS_A[^u]|RDS_Au[^r])'
+            run: '^Test([N-QS-Z]|R[^D]|RD[^S]|RDS[^_]|RDS_[^A-I])'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0

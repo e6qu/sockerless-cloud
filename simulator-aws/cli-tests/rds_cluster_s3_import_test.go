@@ -120,12 +120,11 @@ func TestRDSCLI_AuroraClusterRestoresFromS3XtraBackup(t *testing.T) {
 	assert.Equal(t, []string{"kettle", "teapot"}, items, "the cluster serves the backup's data")
 }
 
-// An Aurora cluster lists the automated DB cluster snapshot its engine's first
-// start takes, which aws rds delete-db-cluster-snapshot refuses to delete,
-// and refuses a malformed backup window.
+// An Aurora cluster lists the automated DB cluster snapshot Amazon Aurora
+// takes when it creates the cluster, though no client connects, which aws rds
+// delete-db-cluster-snapshot refuses to delete, and refuses a malformed
+// backup window.
 func TestRDSCLI_AuroraAutomatedSnapshots(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
 	clusterID := "cli-automated-backups"
 	runCLI(t, awsCLI("rds", "create-db-cluster",
 		"--db-cluster-identifier", clusterID,
@@ -135,9 +134,6 @@ func TestRDSCLI_AuroraAutomatedSnapshots(t *testing.T) {
 		"--database-name", cliRestoreDatabase,
 		"--preferred-backup-window", "03:00-03:30"))
 	cliCleanupDBCluster(t, clusterID)
-	cliAddAuroraWriter(t, clusterID, "aurora-postgresql")
-	cluster := cliDescribeDBCluster(t, clusterID)
-	cliConnectPostgres(t, ctx, cluster.Endpoint, cluster.Port)
 
 	var snapshots struct {
 		DBClusterSnapshots []struct {
@@ -146,13 +142,19 @@ func TestRDSCLI_AuroraAutomatedSnapshots(t *testing.T) {
 			Status                      string `json:"Status"`
 		} `json:"DBClusterSnapshots"`
 	}
-	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-cluster-snapshots",
-		"--db-cluster-identifier", clusterID, "--snapshot-type", "automated")), &snapshots)
-	require.Len(t, snapshots.DBClusterSnapshots, 1, "the engine's first start takes an automated snapshot")
+	// aws rds wait db-cluster-snapshot-available polls every 30 seconds, so
+	// read the snapshot's status at the SDK waiter's cadence instead.
+	require.Eventually(t, func() bool {
+		parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-cluster-snapshots",
+			"--db-cluster-identifier", clusterID, "--snapshot-type", "automated")), &snapshots)
+		return len(snapshots.DBClusterSnapshots) == 1 && snapshots.DBClusterSnapshots[0].Status == "available"
+	}, 3*time.Minute, 500*time.Millisecond, "Amazon Aurora takes the first automated backup when it creates the cluster")
 	automated := snapshots.DBClusterSnapshots[0]
 	assert.True(t, strings.HasPrefix(automated.DBClusterSnapshotIdentifier, "rds:"+clusterID+"-"))
 	assert.Equal(t, "automated", automated.SnapshotType)
-	assert.Equal(t, "available", automated.Status)
+	cluster := cliDescribeDBCluster(t, clusterID)
+	assert.NotEmpty(t, cluster.EarliestRestorableTime, "a cluster with an automated backup reports EarliestRestorableTime")
+	assert.NotEmpty(t, cluster.LatestRestorableTime)
 	refused := runCLIExpectError(t, awsCLI("rds", "delete-db-cluster-snapshot", "--db-cluster-snapshot-identifier", automated.DBClusterSnapshotIdentifier))
 	assert.Contains(t, refused, "InvalidDBClusterSnapshotStateFault")
 	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-cluster-snapshots",

@@ -52,8 +52,14 @@ func rdsCreateAuroraCluster(t *testing.T, clusterID, engine string, port int) RD
 	}
 	t.Cleanup(func() {
 		bg.Await()
-		_ = rdsStopAuroraDataPlane(clusterID, false)
+		_ = rdsStopAuroraDataPlane(clusterID, true)
+		if cluster, ok := rdsClusters.Get(clusterID); ok {
+			rdsRemoveAutomatedBackups(cluster)
+		}
 	})
+	// Aurora takes the new cluster's first automated backup in the
+	// background, starting its engine where a container runtime is present.
+	bg.Await()
 	cluster, _ := rdsClusters.Get(clusterID)
 	return cluster
 }

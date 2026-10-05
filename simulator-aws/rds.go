@@ -1548,6 +1548,7 @@ func handleRDSCreateCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rdsClusters.Put(id, cl)
+	rdsTakeFirstClusterBackup(id)
 	rdsXMLResponse(w, "CreateDBCluster", renderRDSCluster(cl), sim.RequestID(r.Context()))
 }
 
@@ -1659,6 +1660,7 @@ func handleRDSModifyCluster(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Amazon Aurora %s: expire automated backups: %v", id, err)
 			}
 		})
+		rdsTakeFirstClusterBackup(id)
 	}
 	cluster, _ = rdsClusters.Get(id)
 	rdsXMLResponse(w, "ModifyDBCluster", renderRDSCluster(cluster), requestID)
@@ -1712,6 +1714,10 @@ func rdsModifyClusterMasterPassword(cluster *RDSCluster, newPassword string) err
 		cluster.BackendMasterUserSecret = append([]byte(nil), cluster.MasterUserSecret...)
 	}
 	if plane, ok := rdsLoadAuroraDataPlane(cluster.DBClusterIdentifier); ok && plane.engine.Running() {
+		// An engine still starting rotates only once it accepts clients.
+		if err := plane.engine.Ensure(); err != nil {
+			return err
+		}
 		oldPassword, err := rdsAuroraBackendPassword(*cluster)
 		if err != nil {
 			return err

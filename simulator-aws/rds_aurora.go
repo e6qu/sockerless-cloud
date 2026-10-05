@@ -408,6 +408,7 @@ func rdsRecoverAuroraDataPlanes() error {
 			}
 		}
 		rdsClusters.Put(cluster.DBClusterIdentifier, cluster)
+		rdsTakeFirstClusterBackup(cluster.DBClusterIdentifier)
 	}
 	return nil
 }

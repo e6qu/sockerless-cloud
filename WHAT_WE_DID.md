@@ -1225,8 +1225,26 @@ the engine first accepts clients, before the endpoint relays any client to it,
 and a timer takes another at the start of every `PreferredBackupWindow`
 (honoured on CreateDBCluster and ModifyDBCluster, which refuse a window not
 spelled hh24:mi-hh24:mi) while the cluster is available, starting its engine
-when no client has (BUG-3360 holds the first backup of a cluster no client
-connects to).
+when no client has. Aurora backs a cluster up whether or not a client
+connects, so `rdsTakeFirstClusterBackup` starts the engine in the background,
+the way `rdsTakeFirstInstanceBackup` does for a DB instance, whenever an
+available cluster keeps automated backups and holds none: after
+CreateDBCluster, a restore from a snapshot, to a time or from Amazon S3,
+StartDBCluster, a ModifyDBCluster that changes the backup settings, and a
+simulator restart. The start holds the backups' start lock, so a
+DeleteDBCluster closes the engine and waits for the start to give up, and a
+manual DB cluster snapshot waits for it rather than capture a data directory
+the engine is still initialising; a ModifyDBCluster that rotates the master
+password while the engine starts waits for the engine to accept clients. The
+SDK suite creates a cluster no client connects to, waits for its automated
+snapshot, finds `EarliestRestorableTime`, restores it to the latest restorable
+time and finds the restored cluster's own first automated snapshot; the CLI
+suite lists a new cluster's automated snapshot without adding a writer; the
+Terraform suite waits for the first automated snapshot of the clusters
+`aws_rds_cluster` restored before any client connects. The package's own
+tests start real engines once another test has given the process a container
+runtime, so the ones that create Aurora clusters wait for that first backup and
+remove the cluster volumes and snapshot volumes they made.
 DescribeDBClusterSnapshots lists them under `SnapshotType` `automated`, and
 DeleteDBClusterSnapshot refuses one, as it does for every automated snapshot.
 DescribeDBClusters reports `EarliestRestorableTime` as the later of the oldest

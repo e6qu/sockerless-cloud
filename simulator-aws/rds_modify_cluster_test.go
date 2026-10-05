@@ -14,6 +14,11 @@ func TestRDSModifyDBClusterPasswordWaitsForTheEngine(t *testing.T) {
 	clusterID := "aurora-modify-password"
 	rdsCreateAuroraCluster(t, clusterID, "aurora-postgresql", 0)
 	plane, _ := rdsLoadAuroraDataPlane(clusterID)
+	// Stop the engine the first automated backup started, so the change
+	// waits for the engine's next start.
+	if err := plane.engine.Stop(); err != nil {
+		t.Fatal(err)
+	}
 
 	modified := rdsFormCall(t, handleRDSModifyCluster, url.Values{
 		"DBClusterIdentifier": {clusterID}, "MasterUserPassword": {"Rotated-Password-2"},

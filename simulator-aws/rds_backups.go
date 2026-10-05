@@ -22,10 +22,11 @@ import (
 // Each base backup is an automated snapshot: the first is taken when the
 // engine first accepts clients, before the endpoint relays any client to it,
 // and another at the start of every PreferredBackupWindow, which starts an
-// engine no client has started. A DB instance starts its engine for the first
-// one as soon as it keeps automated backups, the way Amazon RDS backs a new
-// instance up before any client connects. A PostgreSQL engine archives every completed write-ahead log segment
-// into its volume, and a MySQL engine keeps its binary log there. A restore
+// engine no client has started. An Aurora cluster or a DB instance starts its
+// engine for the first one as soon as it keeps automated backups, the way
+// Amazon RDS backs a new resource up before any client connects. A PostgreSQL
+// engine archives every completed write-ahead log segment into its volume,
+// and a MySQL engine keeps its binary log there. A restore
 // to a time seeds the new volume from the newest base backup taken by then
 // and replays the source's log onto it up to the restore time: PostgreSQL's
 // archive recovery replays the write-ahead log when the new engine first

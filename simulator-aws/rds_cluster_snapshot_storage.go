@@ -21,8 +21,14 @@ func rdsClusterSnapshotVolume(snapshotID string) string {
 // rdsCaptureClusterSnapshotData captures the cluster volume into the
 // snapshot's volume and settles the snapshot. A cluster whose engine never
 // started has no volume and nothing to capture: its restore starts a fresh
-// engine under the same master user and database, which is all it held.
+// engine under the same master user and database, which is all it held. An
+// engine starting for the cluster's first automated backup finishes first, so
+// the capture never holds a data directory the engine is still initialising.
 func rdsCaptureClusterSnapshotData(snapshotID, clusterID string) {
+	if plane, ok := rdsLoadAuroraDataPlane(clusterID); ok {
+		release := plane.backups.holdStart()
+		defer release()
+	}
 	if err := sim.CaptureVolume(context.Background(),
 		rdsClusterVolume(clusterID), rdsClusterSnapshotVolume(snapshotID), "rds"); err != nil {
 		rdsSettleClusterSnapshot(snapshotID, "failed", err.Error())
@@ -85,6 +91,7 @@ func rdsFinishClusterRestore(clusterID string) {
 			stored.RestoreBinlogFile, stored.RestoreBinlogOffset = "", 0
 		}
 	})
+	rdsTakeFirstClusterBackup(clusterID)
 	rdsExpireRetainedBackups()
 }
 

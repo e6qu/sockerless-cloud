@@ -3,12 +3,15 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/dbengine"
 )
 
@@ -94,6 +97,25 @@ func (plane *rdsAuroraDataPlane) ready() error {
 		return fmt.Errorf("prepare the Amazon Aurora engine accounts: %w", err)
 	}
 	return plane.backups.takeFirst()
+}
+
+// rdsTakeFirstClusterBackup starts the engine of an available Aurora cluster
+// that keeps automated backups and holds none yet, in the background, so the
+// start takes its first automated backup: Aurora backs a cluster up when it
+// creates or restores it, or turns its automated backups on, whether or not a
+// client has connected.
+func rdsTakeFirstClusterBackup(clusterID string) {
+	cluster, ok := rdsClusters.Get(clusterID)
+	plane, served := rdsLoadAuroraDataPlane(clusterID)
+	if !ok || !served || cluster.Status != "available" || cluster.BackupRetentionPeriod == 0 ||
+		len(cluster.BaseBackups) > 0 || !rdsKeepsLog(plane.engine.Engine) {
+		return
+	}
+	bg.Go(func() {
+		if err := plane.backups.takeFirstStarting(); err != nil && !errors.Is(err, errRDSBackupsStopped) {
+			log.Printf("Amazon Aurora %s: %v", clusterID, err)
+		}
+	})
 }
 
 // rdsLastBinaryLogScript prints, base64-encoded, the newest binary log file

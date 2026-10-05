@@ -160,6 +160,7 @@ func rdsFinishClusterStart(clusterID string) {
 				c.Status = "available"
 			}
 		})
+		rdsTakeFirstClusterBackup(clusterID)
 	}
 }
 

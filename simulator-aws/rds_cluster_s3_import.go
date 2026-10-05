@@ -222,6 +222,7 @@ func rdsFinishS3Import(clusterID, resourceID, bucket, prefix, role string) {
 			stored.ImportS3Bucket, stored.ImportS3Prefix, stored.ImportS3Role = "", "", ""
 		}
 	})
+	rdsTakeFirstClusterBackup(clusterID)
 }
 
 // rdsImportTarget is the volume an XtraBackup import fills and the master

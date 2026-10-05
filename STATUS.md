@@ -130,8 +130,9 @@ Current state of the sockerless-cloud repository.
 - **Managed databases run real engines** with volumes, credentials sealed
   under the simulator's own key service, readiness classified by SQLSTATE, and
   snapshots that capture the data copy-on-write where the volume store allows
-  it. An Aurora cluster restores to any time in its backup retention period
-  since its engine first served, replaying PostgreSQL's archived write-ahead
+  it. An Aurora cluster takes its first automated backup when it is created
+  or restored, whether or not a client connects, and restores to any time in
+  its backup retention period since then, replaying PostgreSQL's archived write-ahead
   log or MySQL's binary log onto the daily automated DB cluster snapshot taken
   in its backup window, and expires the snapshots and log the period no longer
   covers; an Aurora cluster restores from an RDS DB snapshot ARN, and an

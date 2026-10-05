@@ -120,3 +120,53 @@ func TestRDS_AuroraAutomatedBackups(t *testing.T) {
 		})
 	}
 }
+
+// Amazon Aurora takes a DB cluster's first automated backup when it creates
+// the cluster, whether or not a client ever connects, so the cluster restores
+// to a time from the start; the restored cluster takes its own first
+// automated backup the same way.
+func TestRDS_AuroraClusterTakesItsFirstAutomatedBackupWithoutAClient(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	f := auroraClusterFixture{t: t, ctx: ctx, client: rdsClient(), engine: "aurora-postgresql", family: "postgres"}
+	sourceID, restoredID := "sdk-aurora-first-backup", "sdk-aurora-first-backup-restored"
+	_, err := f.client.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
+		DBClusterIdentifier:   aws.String(sourceID),
+		Engine:                aws.String(f.engine),
+		MasterUsername:        aws.String(restoreSourceUsername),
+		MasterUserPassword:    aws.String(restoreSourcePassword),
+		DatabaseName:          aws.String(restoreSourceDatabase),
+		BackupRetentionPeriod: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	f.cleanupCluster(sourceID)
+
+	awaitFirstBackup := func(clusterID, why string) {
+		t.Helper()
+		automated := &rds.DescribeDBClusterSnapshotsInput{
+			DBClusterIdentifier: aws.String(clusterID), SnapshotType: aws.String("automated"),
+		}
+		require.NoError(t, rds.NewDBClusterSnapshotAvailableWaiter(f.client, func(o *rds.DBClusterSnapshotAvailableWaiterOptions) {
+			o.MinDelay = waiterMinDelay
+			o.MaxDelay = waiterMaxDelay
+		}).Wait(ctx, automated, 3*time.Minute), why)
+		snapshots, err := f.client.DescribeDBClusterSnapshots(ctx, automated)
+		require.NoError(t, err)
+		require.Len(t, snapshots.DBClusterSnapshots, 1, why)
+		assert.True(t, strings.HasPrefix(aws.ToString(snapshots.DBClusterSnapshots[0].DBClusterSnapshotIdentifier), "rds:"+clusterID+"-"))
+		view := f.describe(clusterID)
+		require.NotNil(t, view.earliest, "a cluster with an automated backup reports EarliestRestorableTime")
+		require.NotNil(t, view.latest)
+	}
+	awaitFirstBackup(sourceID, "Amazon Aurora takes the first automated backup when it creates the cluster")
+
+	_, err = f.client.RestoreDBClusterToPointInTime(ctx, &rds.RestoreDBClusterToPointInTimeInput{
+		DBClusterIdentifier:       aws.String(restoredID),
+		SourceDBClusterIdentifier: aws.String(sourceID),
+		UseLatestRestorableTime:   aws.Bool(true),
+	})
+	require.NoError(t, err, "a cluster no client has connected to restores to a time")
+	f.cleanupCluster(restoredID)
+	waitForRDSClusterAvailable(t, f.client, ctx, restoredID)
+	awaitFirstBackup(restoredID, "Amazon Aurora takes the first automated backup of a restored cluster")
+}
