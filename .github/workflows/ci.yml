@@ -318,8 +318,21 @@ jobs:
         # that had roughly doubled in a single pass. Its names partition
         # cleanly: all 171 match `Test[A-Z]`, 99 in A-M and 72 in N-Z.
         include:
+          # The Google Cloud SDK suite is split by cost too. Unsharded it took
+          # 14.4 and 14.9 minutes of a fifteen-minute job on consecutive main
+          # commits and was cancelled at 16.5 on the next pull request. Tests
+          # beginning with A-C (Artifact Registry, BigQuery, Bigtable, Cloud
+          # Build, Cloud Run, Compute Engine, Cloud KMS, Cloud SQL and the
+          # conformance round trips) are 414 of its 849 tests; D-Z holds the
+          # rest, Memorystore's engine-backed tests among them.
           - cloud: gcp
             suite: sdk
+            shard: A-C
+            run: '^Test[A-C]'
+          - cloud: gcp
+            suite: sdk
+            shard: D-Z
+            run: '^Test[D-Z]'
           - cloud: gcp
             suite: cli
           # The Azure SDK suite is split the same way, and for the same reason:
