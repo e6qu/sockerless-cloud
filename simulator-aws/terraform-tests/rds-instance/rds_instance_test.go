@@ -27,6 +27,10 @@ func TestRDSInstanceTerraform(t *testing.T) {
 	require.Positive(t, port, "RDS endpoint port must round-trip through provider refresh")
 	require.Equal(t, "terraform", outputs.must(t, "rds_instance_tags_env"),
 		"RDS tags must round-trip through ListTagsForResource")
+	require.True(t, strings.HasPrefix(outputs.must(t, "rds_replicated_backup_arn"), "arn:aws:rds:us-west-2:123456789012:auto-backup:ab-"),
+		"StartDBInstanceAutomatedBackupsReplication must create the replicated automated backup in the destination Region")
+	require.Equal(t, "3", outputs.must(t, "rds_replicated_backup_retention_period"),
+		"the replicated automated backup's retention period must round-trip through DescribeDBInstanceAutomatedBackups")
 
 	env.Terraform(t, "destroy", "-auto-approve")
 }

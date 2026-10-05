@@ -37,6 +37,23 @@ type GCPServiceAccount struct {
 	Disabled    bool   `json:"disabled"`
 }
 
+// iamServiceAccountRetention is how long IAM keeps a deleted service account
+// before removing it permanently; undelete restores it only inside the window.
+const iamServiceAccountRetention = 30 * 24 * time.Hour
+
+// gcpDeletedServiceAccount is a deleted service account IAM still holds, keyed
+// by its unique ID because a new account may take the same email meanwhile. It
+// carries what undelete restores with the account: its keys, its
+// system-managed key and the IAM policy set on it.
+type gcpDeletedServiceAccount struct {
+	Account    GCPServiceAccount              `json:"account"`
+	DeleteTime time.Time                      `json:"deleteTime"`
+	Keys       []GCPServiceAccountKey         `json:"keys,omitempty"`
+	KeyPublics []GCPServiceAccountKeyMaterial `json:"keyPublics,omitempty"`
+	SystemKey  *serviceAccountSystemKey       `json:"systemKey,omitempty"`
+	Policy     *IAMPolicy                     `json:"policy,omitempty"`
+}
+
 // GCPCustomRole mirrors the iam#Role resource for project- and
 // organization-scoped custom roles. Name is the fully-qualified resource path
 // (projects/{p}/roles/{id} or organizations/{o}/roles/{id}). Deleted roles are
@@ -168,6 +185,78 @@ func serviceAccountSystemManagedKey(accounts sim.Store[GCPServiceAccount], saNam
 	}, true
 }
 
+// iamServiceAccountRef resolves the project and account segments of a
+// service-account resource name, where the account is an email or a unique ID
+// and the project may be the - wildcard, to the account's project and email.
+// An account that resolves to nothing keeps the segments as given.
+func iamServiceAccountRef(accounts sim.Store[GCPServiceAccount], project, account string) (string, string) {
+	if strings.Contains(account, "@") {
+		if project == "-" {
+			project = gcpProjectFromEmail(account)
+		}
+		return project, account
+	}
+	for _, sa := range accounts.Filter(func(sa GCPServiceAccount) bool {
+		return sa.UniqueId == account && (project == "-" || sa.ProjectId == project)
+	}) {
+		return sa.ProjectId, sa.Email
+	}
+	return project, account
+}
+
+// iamPurgeExpiredServiceAccounts removes permanently every deleted account
+// whose retention window has lapsed by now, with the keys and policy it held.
+func iamPurgeExpiredServiceAccounts(now time.Time) {
+	iamDeletedServiceAccounts.Prune(func(d gcpDeletedServiceAccount) bool {
+		return !now.Before(d.DeleteTime.Add(iamServiceAccountRetention))
+	})
+}
+
+// iamUndeleteServiceAccount serves projects.serviceAccounts.undelete. IAM
+// finds the deleted account by its unique ID, the identifier gcloud requires,
+// and restores it under the same unique ID while its retention window lasts
+// and no live account has taken its email. Through the - wildcard a missing
+// account answers PERMISSION_DENIED, as the API reference warns.
+func iamUndeleteServiceAccount(w http.ResponseWriter, accounts sim.Store[GCPServiceAccount], keys sim.Store[GCPServiceAccountKey], keyPublics sim.Store[GCPServiceAccountKeyMaterial], policies sim.Store[IAMPolicy], project, account string) {
+	iamPurgeExpiredServiceAccounts(time.Now().UTC())
+	deleted, ok := iamDeletedServiceAccounts.Get(account)
+	if !ok || (project != "-" && deleted.Account.ProjectId != project) {
+		liveProject, email := iamServiceAccountRef(accounts, project, account)
+		if _, live := accounts.Get(fmt.Sprintf("projects/%s/serviceAccounts/%s", liveProject, email)); live {
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "Service account %s is not deleted.", account)
+			return
+		}
+		if project == "-" {
+			GCPError(w, http.StatusForbidden,
+				"Permission 'iam.serviceAccounts.undelete' denied on resource (or it may not exist).", "PERMISSION_DENIED")
+			return
+		}
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", account)
+		return
+	}
+	sa := deleted.Account
+	if _, taken := accounts.Get(sa.Name); taken {
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+			"Service account %s cannot be restored: an existing service account has the same email.", sa.Email)
+		return
+	}
+	accounts.Put(sa.Name, sa)
+	for _, key := range deleted.Keys {
+		keys.Put(key.Name, key)
+	}
+	for _, material := range deleted.KeyPublics {
+		keyPublics.Put(material.Name, material)
+	}
+	if deleted.SystemKey != nil {
+		iamSASystemKeys.Put(sa.Name, *deleted.SystemKey)
+	}
+	if deleted.Policy != nil {
+		policies.Put("serviceAccount/"+sa.Email, *deleted.Policy)
+	}
+	iamDeletedServiceAccounts.Delete(sa.UniqueId)
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"restoredAccount": sa})
+}
+
 // iamServiceAccounts and iamSAKeyPublics expose the service-account and
 // key-material stores to the OAuth2 token endpoint (registered separately in
 // oauth2.go), which resolves a JWT-bearer assertion's issuer to a registered
@@ -175,9 +264,12 @@ func serviceAccountSystemManagedKey(accounts sim.Store[GCPServiceAccount], saNam
 // Both are assigned once in registerIAM.
 var (
 	iamServiceAccounts sim.Store[GCPServiceAccount]
-	iamSAKeys          sim.Store[GCPServiceAccountKey]
-	iamSAKeyPublics    sim.Store[GCPServiceAccountKeyMaterial]
-	iamSASystemKeys    sim.Store[serviceAccountSystemKey]
+	// iamDeletedServiceAccounts holds deleted accounts by unique ID for the
+	// retention window.
+	iamDeletedServiceAccounts sim.Store[gcpDeletedServiceAccount]
+	iamSAKeys                 sim.Store[GCPServiceAccountKey]
+	iamSAKeyPublics           sim.Store[GCPServiceAccountKeyMaterial]
+	iamSASystemKeys           sim.Store[serviceAccountSystemKey]
 	// iamSessionRevocations holds, per workforce principal, the Unix second at
 	// or before which every access token issued to it is revoked.
 	iamSessionRevocations sim.Store[int64]
@@ -191,6 +283,7 @@ func registerIAM(srv *sim.Server) {
 	saKeys := sim.MakeStore[GCPServiceAccountKey](srv.DB(), "iam_sa_keys")
 	saKeyPublics := sim.MakeStore[GCPServiceAccountKeyMaterial](srv.DB(), "iam_sa_key_publics")
 	iamServiceAccounts = serviceAccounts
+	iamDeletedServiceAccounts = sim.MakeStore[gcpDeletedServiceAccount](srv.DB(), "iam_deleted_service_accounts")
 	iamSAKeys = saKeys
 	iamSAKeyPublics = saKeyPublics
 	iamSASystemKeys = sim.MakeStore[serviceAccountSystemKey](srv.DB(), "iam_sa_system_keys")
@@ -263,11 +356,7 @@ func registerIAM(srv *sim.Server) {
 
 	// Get service account
 	srv.HandleFunc("GET /v1/projects/{project}/serviceAccounts/{email}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		email := sim.PathParam(r, "email")
-		if project == "-" {
-			project = gcpProjectFromEmail(email)
-		}
+		project, email := iamServiceAccountRef(serviceAccounts, sim.PathParam(r, "project"), sim.PathParam(r, "email"))
 		name := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 
 		sa, ok := serviceAccounts.Get(name)
@@ -282,11 +371,7 @@ func registerIAM(srv *sim.Server) {
 	// fields (displayName / description). Real GCP's UpdateServiceAccount
 	// wraps the account under a `serviceAccount` envelope alongside the mask.
 	srv.HandleFunc("PATCH /v1/projects/{project}/serviceAccounts/{email}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		email := sim.PathParam(r, "email")
-		if project == "-" {
-			project = gcpProjectFromEmail(email)
-		}
+		project, email := iamServiceAccountRef(serviceAccounts, sim.PathParam(r, "project"), sim.PathParam(r, "email"))
 		name := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 		sa, ok := serviceAccounts.Get(name)
 		if !ok {
@@ -327,11 +412,7 @@ func registerIAM(srv *sim.Server) {
 	// serviceAccounts.update replaces the mutable fields (displayName /
 	// description) from the request body.
 	srv.HandleFunc("PUT /v1/projects/{project}/serviceAccounts/{email}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		email := sim.PathParam(r, "email")
-		if project == "-" {
-			project = gcpProjectFromEmail(email)
-		}
+		project, email := iamServiceAccountRef(serviceAccounts, sim.PathParam(r, "project"), sim.PathParam(r, "email"))
 		name := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 		sa, ok := serviceAccounts.Get(name)
 		if !ok {
@@ -352,31 +433,44 @@ func registerIAM(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, sa)
 	})
 
-	// Delete service account. A service account's keys cannot outlive it —
-	// real GCP invalidates them with the account — so its key rows and the
-	// registered public halves go with it, and a later account created under
-	// the same email starts with no keys.
+	// Delete service account. IAM keeps the account for its retention window
+	// under its unique ID, and its keys, system-managed key and IAM policy
+	// leave the live stores with it: none authenticates or answers while it is
+	// deleted, and a later account created under the same email starts with
+	// none of them.
 	srv.HandleFunc("DELETE /v1/projects/{project}/serviceAccounts/{email}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		email := sim.PathParam(r, "email")
-		if project == "-" {
-			project = gcpProjectFromEmail(email)
-		}
+		project, email := iamServiceAccountRef(serviceAccounts, sim.PathParam(r, "project"), sim.PathParam(r, "email"))
 		name := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 
-		if _, ok := serviceAccounts.Get(name); !ok {
+		sa, ok := serviceAccounts.Get(name)
+		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
 			return
 		}
-		serviceAccounts.Delete(name)
-		iamSASystemKeys.Delete(name)
+		now := time.Now().UTC()
+		iamPurgeExpiredServiceAccounts(now)
+		deleted := gcpDeletedServiceAccount{Account: sa, DeleteTime: now}
+		if system, ok := iamSASystemKeys.Get(name); ok {
+			deleted.SystemKey = &system
+			iamSASystemKeys.Delete(name)
+		}
 		keyPrefix := name + "/keys/"
 		for _, key := range saKeys.Filter(func(k GCPServiceAccountKey) bool {
 			return strings.HasPrefix(k.Name, keyPrefix)
 		}) {
+			deleted.Keys = append(deleted.Keys, key)
+			if material, ok := saKeyPublics.Get(key.Name); ok {
+				deleted.KeyPublics = append(deleted.KeyPublics, material)
+			}
 			saKeys.Delete(key.Name)
 			saKeyPublics.Delete(key.Name)
 		}
+		if policy, ok := resourcePolicies.Get("serviceAccount/" + email); ok {
+			deleted.Policy = &policy
+			resourcePolicies.Delete("serviceAccount/" + email)
+		}
+		iamDeletedServiceAccounts.Put(sa.UniqueId, deleted)
+		serviceAccounts.Delete(name)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
@@ -384,11 +478,7 @@ func registerIAM(srv *sim.Server) {
 	// Real GCP wire: POST /v1/projects/{p}/serviceAccounts/{email}/keys
 	// project="-" is the GCP wildcard: extract the project from the email.
 	srv.HandleFunc("POST /v1/projects/{project}/serviceAccounts/{email}/keys", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		email := sim.PathParam(r, "email")
-		if project == "-" {
-			project = gcpProjectFromEmail(email)
-		}
+		project, email := iamServiceAccountRef(serviceAccounts, sim.PathParam(r, "project"), sim.PathParam(r, "email"))
 		saName := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 		sa, ok := serviceAccounts.Get(saName)
 		if !ok {
@@ -446,11 +536,7 @@ func registerIAM(srv *sim.Server) {
 	// endpoint — an uploaded key authenticates, exactly as against real
 	// Cloud IAM.
 	srv.HandleFunc("POST /v1/projects/{project}/serviceAccounts/{email}/keys:upload", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		email := sim.PathParam(r, "email")
-		if project == "-" {
-			project = gcpProjectFromEmail(email)
-		}
+		project, email := iamServiceAccountRef(serviceAccounts, sim.PathParam(r, "project"), sim.PathParam(r, "email"))
 		saName := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 		if _, ok := serviceAccounts.Get(saName); !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
@@ -547,11 +633,7 @@ func registerIAM(srv *sim.Server) {
 	// matters: the OAuth2 token endpoint refuses assertions signed with a
 	// disabled key until it is re-enabled.
 	srv.HandleFunc("POST /v1/projects/{project}/serviceAccounts/{email}/keys/{keyAction}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		email := sim.PathParam(r, "email")
-		if project == "-" {
-			project = gcpProjectFromEmail(email)
-		}
+		project, email := iamServiceAccountRef(serviceAccounts, sim.PathParam(r, "project"), sim.PathParam(r, "email"))
 		keyID, verb, found := gcpCustomMethod(sim.PathParam(r, "keyAction"))
 		if !found || (verb != "enable" && verb != "disable") {
 			gcpMethodNotFound(w)
@@ -582,11 +664,7 @@ func registerIAM(srv *sim.Server) {
 	// and signJwt sign with — is addressable here alongside its user-managed
 	// keys, which is what lets a client verify a signature it was handed.
 	srv.HandleFunc("GET /v1/projects/{project}/serviceAccounts/{email}/keys/{keyId}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		email := sim.PathParam(r, "email")
-		if project == "-" {
-			project = gcpProjectFromEmail(email)
-		}
+		project, email := iamServiceAccountRef(serviceAccounts, sim.PathParam(r, "project"), sim.PathParam(r, "email"))
 		keyID := sim.PathParam(r, "keyId")
 		saName := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 		keyName := saName + "/keys/" + keyID
@@ -631,11 +709,7 @@ func registerIAM(srv *sim.Server) {
 	// List service account keys. Both key types are listed unless keyTypes
 	// narrows the result, which is how the API scopes the listing.
 	srv.HandleFunc("GET /v1/projects/{project}/serviceAccounts/{email}/keys", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		email := sim.PathParam(r, "email")
-		if project == "-" {
-			project = gcpProjectFromEmail(email)
-		}
+		project, email := iamServiceAccountRef(serviceAccounts, sim.PathParam(r, "project"), sim.PathParam(r, "email"))
 		saName := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 		prefix := saName + "/keys/"
 		wanted := r.URL.Query()["keyTypes"]
@@ -655,11 +729,7 @@ func registerIAM(srv *sim.Server) {
 
 	// Delete service account key.
 	srv.HandleFunc("DELETE /v1/projects/{project}/serviceAccounts/{email}/keys/{keyId}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		email := sim.PathParam(r, "email")
-		if project == "-" {
-			project = gcpProjectFromEmail(email)
-		}
+		project, email := iamServiceAccountRef(serviceAccounts, sim.PathParam(r, "project"), sim.PathParam(r, "email"))
 		keyID := sim.PathParam(r, "keyId")
 		saName := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 		keyName := saName + "/keys/" + keyID
@@ -695,12 +765,12 @@ func registerIAM(srv *sim.Server) {
 	// iam.serviceAccounts.getAccessToken permission check) is not modeled —
 	// the caller is already an authenticated bearer.
 	srv.HandleFunc("POST /v1/projects/{project}/serviceAccounts/{emailAction}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		emailAction := sim.PathParam(r, "emailAction")
-		email, action, _ := strings.Cut(emailAction, ":")
-		if project == "-" {
-			project = gcpProjectFromEmail(email)
+		account, action, _ := strings.Cut(sim.PathParam(r, "emailAction"), ":")
+		if action == "undelete" {
+			iamUndeleteServiceAccount(w, serviceAccounts, saKeys, saKeyPublics, resourcePolicies, sim.PathParam(r, "project"), account)
+			return
 		}
+		project, email := iamServiceAccountRef(serviceAccounts, sim.PathParam(r, "project"), account)
 		name := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 		if _, ok := serviceAccounts.Get(name); !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)

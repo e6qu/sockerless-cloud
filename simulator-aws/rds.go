@@ -44,7 +44,11 @@ type RDSInstance struct {
 	// ReadReplicas lists the identifiers of read replicas created from
 	// this instance (populated on the source when a replica is created).
 	ReadReplicas []string
-	Tags         map[string]string
+	// AutomatedBackupsReplications are the ARNs of the replicated automated
+	// backups StartDBInstanceAutomatedBackupsReplication made of this
+	// instance's automated backups.
+	AutomatedBackupsReplications []string `json:",omitempty"`
+	Tags                         map[string]string
 	// MasterUserSecret is encrypted under the simulator cloud's AWS-owned RDS
 	// KMS key and is never rendered on the API.
 	MasterUserSecret []byte
@@ -488,6 +492,7 @@ func renderRDSInstance(i RDSInstance) string {
 	fmt.Fprintf(&b, "<IAMDatabaseAuthenticationEnabled>%t</IAMDatabaseAuthenticationEnabled>", i.EnableIAMDatabaseAuthentication)
 	fmt.Fprintf(&b, "<DeletionProtection>%t</DeletionProtection>", i.DeletionProtection)
 	b.WriteString(renderRDSInstanceBackups(i))
+	b.WriteString(rdsRenderAutomatedBackupsReplications(i.AutomatedBackupsReplications))
 	if i.ReadReplicaSource != "" {
 		fmt.Fprintf(&b, "<ReadReplicaSourceDBInstanceIdentifier>%s</ReadReplicaSourceDBInstanceIdentifier>", xmlEscape(i.ReadReplicaSource))
 	}
@@ -782,6 +787,13 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSAddTags(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("ResourceName")
+	if _, ok := rdsReplicatedBackupIn(rdsRequestRegion(r), arn); ok {
+		rdsReplicatedBackups.Update(arn, func(b *RDSInstanceAutomatedBackup) {
+			b.Tags = mergeTags(b.Tags, parseAWSQueryTagMap(r, "Tags.Tag"))
+		})
+		rdsXMLResponse(w, "AddTagsToResource", "", sim.RequestID(r.Context()))
+		return
+	}
 	inst, ok := findRDSByARN(arn)
 	if ok {
 		rdsInstances.Update(inst.DBInstanceIdentifier, func(i *RDSInstance) {
@@ -845,6 +857,10 @@ func handleRDSAddTags(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSListTags(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("ResourceName")
+	if replica, ok := rdsReplicatedBackupIn(rdsRequestRegion(r), arn); ok {
+		rdsXMLResponse(w, "ListTagsForResource", renderRDSTagList(replica.Tags), sim.RequestID(r.Context()))
+		return
+	}
 	inst, ok := findRDSByARN(arn)
 	if ok {
 		rdsXMLResponse(w, "ListTagsForResource", renderRDSTagList(inst.Tags), sim.RequestID(r.Context()))
@@ -894,6 +910,13 @@ func renderRDSTagList(tags map[string]string) string {
 
 func handleRDSRemoveTags(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("ResourceName")
+	if _, ok := rdsReplicatedBackupIn(rdsRequestRegion(r), arn); ok {
+		rdsReplicatedBackups.Update(arn, func(b *RDSInstanceAutomatedBackup) {
+			removeAWSQueryTags(b.Tags, r)
+		})
+		rdsXMLResponse(w, "RemoveTagsFromResource", "", sim.RequestID(r.Context()))
+		return
+	}
 	inst, ok := findRDSByARN(arn)
 	if ok {
 		rdsInstances.Update(inst.DBInstanceIdentifier, func(i *RDSInstance) {
@@ -982,6 +1005,8 @@ func findRDSSnapshotByARN(arn string) (RDSSnapshot, bool) {
 
 func rdsTagResourceNotFoundCode(arn string) string {
 	switch {
+	case strings.Contains(arn, ":auto-backup:"):
+		return "DBInstanceAutomatedBackupNotFound"
 	case strings.Contains(arn, ":cluster-snapshot:"):
 		return "DBClusterSnapshotNotFoundFault"
 	case strings.Contains(arn, ":snapshot:"):

@@ -49,6 +49,15 @@ type RDSInstanceAutomatedBackup struct {
 	BaseBackups             []RDSBaseBackup `json:",omitempty"`
 	MasterUserSecret        []byte          `json:",omitempty"`
 	BackendMasterUserSecret []byte          `json:",omitempty"`
+	// DestinationRegion is the Region holding a replicated automated backup,
+	// which its ARN names; Region stays the source's.
+	DestinationRegion string            `json:",omitempty"`
+	ReplicaID         string            `json:",omitempty"`
+	KmsKeyId          string            `json:",omitempty"`
+	Tags              map[string]string `json:",omitempty"`
+	// AutomatedBackupsReplications are the replicated automated backups of a
+	// live instance's automated backup.
+	AutomatedBackupsReplications []string `json:",omitempty"`
 }
 
 // RDSClusterAutomatedBackup is a deleted DB cluster's retained automated
@@ -237,11 +246,17 @@ func rdsExpireRetainedBackups() {
 	now := time.Now()
 	restoring := rdsRestoringVolumes()
 	for _, backup := range rdsInstanceAutomatedBackups.List() {
-		if now.Before(rdsRetainedExpiry(backup.LatestTime, backup.BackupRetentionPeriod)) ||
-			rdsRetainedBackupRestoring(restoring, backup.DbiResourceId, backup.BaseBackups, rdsSnapshotVolume) {
+		if now.Before(rdsRetainedExpiry(backup.LatestTime, backup.BackupRetentionPeriod)) || backup.restoring(restoring) {
 			continue
 		}
 		rdsRemoveRetainedInstanceBackup(backup)
+	}
+	for _, backup := range rdsReplicatedBackups.List() {
+		if backup.Status != "retained" || now.Before(rdsRetainedExpiry(backup.LatestTime, backup.BackupRetentionPeriod)) ||
+			backup.restoring(restoring) {
+			continue
+		}
+		rdsRemoveReplicatedBackup(backup)
 	}
 	for _, backup := range rdsClusterAutomatedBackups.List() {
 		if now.Before(rdsRetainedExpiry(backup.LatestTime, backup.BackupRetentionPeriod)) ||
@@ -264,6 +279,7 @@ func rdsRecoverRetainedBackups() {
 		}
 		rdsArmRetainedBackupExpiry(rdsRetainedExpiry(backup.LatestTime, backup.BackupRetentionPeriod))
 	}
+	rdsRecoverReplicatedBackups()
 	for _, backup := range rdsClusterAutomatedBackups.List() {
 		if backup.Status != "retained" || backup.LatestTime == "" {
 			rdsClusterAutomatedBackups.Delete(backup.DbClusterResourceId)
@@ -304,6 +320,7 @@ func rdsLiveInstanceAutoBackup(instance RDSInstance) (RDSInstanceAutomatedBackup
 		PreferredBackupWindow:            instance.PreferredBackupWindow,
 		IAMDatabaseAuthenticationEnabled: instance.EnableIAMDatabaseAuthentication,
 		BaseBackups:                      instance.BaseBackups,
+		AutomatedBackupsReplications:     instance.AutomatedBackupsReplications,
 	}, true
 }
 
@@ -330,6 +347,13 @@ func renderRDSInstanceAutoBackup(backup RDSInstanceAutomatedBackup) string {
 	fmt.Fprintf(&b, "<BackupRetentionPeriod>%d</BackupRetentionPeriod>", backup.BackupRetentionPeriod)
 	fmt.Fprintf(&b, "<PreferredBackupWindow>%s</PreferredBackupWindow>", xmlEscape(backup.PreferredBackupWindow))
 	fmt.Fprintf(&b, "<IAMDatabaseAuthenticationEnabled>%t</IAMDatabaseAuthenticationEnabled>", backup.IAMDatabaseAuthenticationEnabled)
+	if backup.KmsKeyId != "" {
+		fmt.Fprintf(&b, "<KmsKeyId>%s</KmsKeyId><Encrypted>true</Encrypted>", xmlEscape(backup.KmsKeyId))
+	}
+	b.WriteString(rdsRenderAutomatedBackupsReplications(backup.AutomatedBackupsReplications))
+	if backup.replicated() {
+		b.WriteString(renderRDSTagList(backup.Tags))
+	}
 	if backup.Status == "retained" {
 		if earliest, latest, ok := rdsRetainedWindow(backup.BaseBackups, backup.BackupRetentionPeriod, backup.LatestTime); ok {
 			rdsRenderRestoreWindow(&b, earliest, latest)
@@ -424,9 +448,22 @@ func handleRDSDescribeInstanceAutomatedBackups(w http.ResponseWriter, r *http.Re
 	instanceIDs := append(rdsFilterValues(r, "db-instance-id"), r.FormValue("DBInstanceIdentifier"))
 	resourceIDs := append(rdsFilterValues(r, "dbi-resource-id"), r.FormValue("DbiResourceId"))
 	arn := r.FormValue("DBInstanceAutomatedBackupsArn")
+	backups := rdsInstanceAutoBackups()
+	region := rdsRequestRegion(r)
+	if arn != "" {
+		if replica, ok := rdsReplicatedBackupIn(region, arn); ok {
+			backups = append(backups, replica)
+		}
+	} else {
+		for _, replica := range rdsReplicatedBackups.List() {
+			if replica.DestinationRegion == region {
+				backups = append(backups, replica)
+			}
+		}
+	}
 	var b strings.Builder
 	b.WriteString("<DBInstanceAutomatedBackups>")
-	for _, backup := range rdsInstanceAutoBackups() {
+	for _, backup := range backups {
 		if !rdsFilterMatches(statuses, backup.Status) ||
 			!rdsFilterMatches(rdsNonEmpty(instanceIDs), backup.DBInstanceIdentifier, backup.DBInstanceArn) ||
 			!rdsFilterMatches(rdsNonEmpty(resourceIDs), backup.DbiResourceId) ||
@@ -452,6 +489,23 @@ func rdsNonEmpty(values []string) []string {
 func handleRDSDeleteInstanceAutomatedBackup(w http.ResponseWriter, r *http.Request) {
 	requestID := sim.RequestID(r.Context())
 	arn, resourceID := r.FormValue("DBInstanceAutomatedBackupsArn"), r.FormValue("DbiResourceId")
+	if replica, ok := rdsReplicatedBackupIn(rdsRequestRegion(r), arn); ok {
+		if replica.Status != "retained" {
+			rdsErrorXML(w, "InvalidDBInstanceAutomatedBackupState",
+				fmt.Sprintf("The automated backup %s still replicates DB instance %s; stop its replication first.", arn, replica.DBInstanceIdentifier),
+				http.StatusBadRequest, requestID)
+			return
+		}
+		if replica.restoring(rdsRestoringVolumes()) {
+			rdsErrorXML(w, "InvalidDBInstanceAutomatedBackupState",
+				fmt.Sprintf("The automated backup %s is being restored.", arn), http.StatusBadRequest, requestID)
+			return
+		}
+		rdsRemoveReplicatedBackup(replica)
+		replica.Status = "deleting"
+		rdsXMLResponse(w, "DeleteDBInstanceAutomatedBackup", renderRDSInstanceAutoBackup(replica), requestID)
+		return
+	}
 	for _, backup := range rdsInstanceAutoBackups() {
 		if (arn == "" || arn != backup.DBInstanceAutomatedBackupsArn) && (resourceID == "" || resourceID != backup.DbiResourceId) {
 			continue
@@ -462,7 +516,7 @@ func handleRDSDeleteInstanceAutomatedBackup(w http.ResponseWriter, r *http.Reque
 				http.StatusBadRequest, requestID)
 			return
 		}
-		if rdsRetainedBackupRestoring(rdsRestoringVolumes(), backup.DbiResourceId, backup.BaseBackups, rdsSnapshotVolume) {
+		if backup.restoring(rdsRestoringVolumes()) {
 			rdsErrorXML(w, "InvalidDBInstanceAutomatedBackupState",
 				fmt.Sprintf("The automated backup %s is being restored.", backup.DbiResourceId), http.StatusBadRequest, requestID)
 			return
@@ -587,4 +641,17 @@ func rdsKeepOrRemoveClusterBackups(cluster RDSCluster) {
 		log.Printf("Amazon RDS cluster %s: retain automated backups: %v", cluster.DBClusterIdentifier, err)
 	}
 	rdsRemoveAutomatedBackups(cluster)
+}
+
+func rdsRenderAutomatedBackupsReplications(arns []string) string {
+	if len(arns) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("<DBInstanceAutomatedBackupsReplications>")
+	for _, arn := range arns {
+		fmt.Fprintf(&b, "<DBInstanceAutomatedBackupsReplication><DBInstanceAutomatedBackupsArn>%s</DBInstanceAutomatedBackupsArn></DBInstanceAutomatedBackupsReplication>", xmlEscape(arn))
+	}
+	b.WriteString("</DBInstanceAutomatedBackupsReplications>")
+	return b.String()
 }

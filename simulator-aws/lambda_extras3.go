@@ -716,6 +716,7 @@ var (
 	// CallbackId -> DurableExecutionArn, registered by a checkpoint that
 	// records a CALLBACK operation; the callback ops advance that execution.
 	lambdaDurableCallbacks = map[string]string{}
+	lambdaBackgroundServer *sim.Server
 )
 
 func lambdaDurableCheckpointToken() string {
@@ -970,50 +971,71 @@ func lambdaStartDurableCoordinator(arn string, function LambdaFunction) {
 	changeCh := execution.ChangeCh
 	lambdaDurableMu.Unlock()
 
-	bg.Go(func() {
-		var executionTimer <-chan time.Time
-		if timeoutSeconds > 0 {
-			timer := time.NewTimer(timeoutRemaining)
-			defer timer.Stop()
-			executionTimer = timer.C
-		}
-		for {
-			payload, running := lambdaDurableInvocationPayload(arn)
-			if !running {
-				return
-			}
-			response, unhandled, _ := invokeLambdaViaRuntimeAPI(context.Background(), function, payload)
-			lambdaProcessDurableInvocationResponse(arn, response, unhandled)
-			status, _, _, _ := lambdaDurableStatus(arn)
-			if status != "RUNNING" {
-				return
-			}
-			select {
-			case <-changeCh:
-			case <-executionTimer:
-				lambdaDurableMu.Lock()
-				if current, exists := lambdaDurableExecs[arn]; exists && current.Status == "RUNNING" {
-					now := lambdaNowEpoch()
-					current.Status = "TIMED_OUT"
-					current.EndTS = now
-					current.ErrorObj = map[string]any{
-						"ErrorType":    "ExecutionTimedOut",
-						"ErrorMessage": "Durable execution exceeded its configured execution timeout",
-					}
-					current.Events = append(current.Events, lambdaDurableEvent{
-						EventType:      "ExecutionTimedOut",
-						EventId:        int64(len(current.Events) + 1),
-						EventTimestamp: now,
-						TimedOutDet:    map[string]any{"Error": current.ErrorObj},
-					})
-					lambdaDeleteDurableCallbacks(current.Arn)
-					lambdaSignalDurableExecution(current)
-				}
-				lambdaDurableMu.Unlock()
-				return
-			}
-		}
+	var workerCtx context.Context
+	run, ok := bg.Handoff(func() {
+		lambdaRunDurableCoordinator(workerCtx, arn, function, timeoutSeconds, timeoutRemaining, changeCh)
 	})
+	if !ok {
+		return
+	}
+	lambdaBackgroundServer.StartBackground("AWS Lambda durable execution coordinator", func(ctx context.Context) {
+		workerCtx = ctx
+		run()
+	})
+}
+
+// lambdaRunDurableCoordinator invokes the function until the execution leaves
+// RUNNING. A stopping simulator ends the invocation in flight and leaves the
+// execution RUNNING, without recording that invocation's outcome, so the next
+// process's recovery replays the step from the last checkpoint.
+func lambdaRunDurableCoordinator(ctx context.Context, arn string, function LambdaFunction, timeoutSeconds int, timeoutRemaining time.Duration, changeCh chan struct{}) {
+	var executionTimer <-chan time.Time
+	if timeoutSeconds > 0 {
+		timer := time.NewTimer(timeoutRemaining)
+		defer timer.Stop()
+		executionTimer = timer.C
+	}
+	for {
+		payload, running := lambdaDurableInvocationPayload(arn)
+		if !running {
+			return
+		}
+		response, unhandled, _ := invokeLambdaViaRuntimeAPI(ctx, function, payload)
+		if ctx.Err() != nil {
+			return
+		}
+		lambdaProcessDurableInvocationResponse(arn, response, unhandled)
+		status, _, _, _ := lambdaDurableStatus(arn)
+		if status != "RUNNING" {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-changeCh:
+		case <-executionTimer:
+			lambdaDurableMu.Lock()
+			if current, exists := lambdaDurableExecs[arn]; exists && current.Status == "RUNNING" {
+				now := lambdaNowEpoch()
+				current.Status = "TIMED_OUT"
+				current.EndTS = now
+				current.ErrorObj = map[string]any{
+					"ErrorType":    "ExecutionTimedOut",
+					"ErrorMessage": "Durable execution exceeded its configured execution timeout",
+				}
+				current.Events = append(current.Events, lambdaDurableEvent{
+					EventType:      "ExecutionTimedOut",
+					EventId:        int64(len(current.Events) + 1),
+					EventTimestamp: now,
+					TimedOutDet:    map[string]any{"Error": current.ErrorObj},
+				})
+				lambdaDeleteDurableCallbacks(current.Arn)
+				lambdaSignalDurableExecution(current)
+			}
+			lambdaDurableMu.Unlock()
+			return
+		}
+	}
 }
 
 func lambdaWaitForDurableExecution(ctx context.Context, arn string) ([]byte, bool) {

@@ -2,6 +2,7 @@ package aws_cli_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,7 +68,7 @@ func TestRDSCLI_Complete(t *testing.T) {
 	require.NotEmpty(t, instArn)
 	t.Cleanup(func() {
 		_ = awsCLI("rds", "stop-db-instance-automated-backups-replication",
-			"--source-db-instance-arn", instArn).Run()
+			"--region", "us-west-2", "--source-db-instance-arn", instArn).Run()
 		_ = awsCLI("rds", "delete-db-instance",
 			"--db-instance-identifier", instID, "--skip-final-snapshot").Run()
 	})
@@ -109,26 +110,55 @@ func TestRDSCLI_Complete(t *testing.T) {
 	require.NotEmpty(t, vmod.ValidDBInstanceModificationsMessage.Storage)
 	assert.Equal(t, "gp2", vmod.ValidDBInstanceModificationsMessage.Storage[0].StorageType)
 
+	type automatedBackup struct {
+		DBInstanceAutomatedBackupsArn string `json:"DBInstanceAutomatedBackupsArn"`
+		DBInstanceArn                 string `json:"DBInstanceArn"`
+		Region                        string `json:"Region"`
+		Status                        string `json:"Status"`
+		BackupRetentionPeriod         int    `json:"BackupRetentionPeriod"`
+	}
 	out = runCLI(t, awsCLI("rds", "start-db-instance-automated-backups-replication",
+		"--region", "us-west-2",
 		"--source-db-instance-arn", instArn,
 		"--backup-retention-period", "14"))
 	var startBak struct {
-		DBInstanceAutomatedBackup struct {
-			Status string `json:"Status"`
-		} `json:"DBInstanceAutomatedBackup"`
+		DBInstanceAutomatedBackup automatedBackup `json:"DBInstanceAutomatedBackup"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(out), &startBak))
-	assert.Equal(t, "replicating", startBak.DBInstanceAutomatedBackup.Status)
+	replicated := startBak.DBInstanceAutomatedBackup
+	assert.Equal(t, "pending", replicated.Status)
+	assert.Equal(t, instArn, replicated.DBInstanceArn)
+	assert.Equal(t, 14, replicated.BackupRetentionPeriod)
+	assert.True(t, strings.HasPrefix(replicated.DBInstanceAutomatedBackupsArn, "arn:aws:rds:us-west-2:"),
+		"the replicated automated backup lives in the destination Region, got %s", replicated.DBInstanceAutomatedBackupsArn)
+
+	var listedBak struct {
+		DBInstanceAutomatedBackups []automatedBackup `json:"DBInstanceAutomatedBackups"`
+	}
+	out = runCLI(t, awsCLI("rds", "describe-db-instance-automated-backups",
+		"--region", "us-west-2",
+		"--db-instance-automated-backups-arn", replicated.DBInstanceAutomatedBackupsArn))
+	require.NoError(t, json.Unmarshal([]byte(out), &listedBak))
+	require.Len(t, listedBak.DBInstanceAutomatedBackups, 1)
+	assert.Equal(t, replicated.DBInstanceAutomatedBackupsArn, listedBak.DBInstanceAutomatedBackups[0].DBInstanceAutomatedBackupsArn)
 
 	out = runCLI(t, awsCLI("rds", "stop-db-instance-automated-backups-replication",
+		"--region", "us-west-2",
 		"--source-db-instance-arn", instArn))
 	var stopBak struct {
-		DBInstanceAutomatedBackup struct {
-			Status string `json:"Status"`
-		} `json:"DBInstanceAutomatedBackup"`
+		DBInstanceAutomatedBackup automatedBackup `json:"DBInstanceAutomatedBackup"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(out), &stopBak))
-	assert.Equal(t, "stopped", stopBak.DBInstanceAutomatedBackup.Status)
+	assert.Equal(t, "retained", stopBak.DBInstanceAutomatedBackup.Status)
+
+	out = runCLI(t, awsCLI("rds", "delete-db-instance-automated-backup",
+		"--region", "us-west-2",
+		"--db-instance-automated-backups-arn", replicated.DBInstanceAutomatedBackupsArn))
+	var deletedBak struct {
+		DBInstanceAutomatedBackup automatedBackup `json:"DBInstanceAutomatedBackup"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &deletedBak))
+	assert.Equal(t, "deleting", deletedBak.DBInstanceAutomatedBackup.Status)
 
 	// --- DB snapshot tenant databases (off an Oracle multi-tenant instance) ---
 	oracleID := "cli-cmpl-oracle-db"

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -95,11 +96,14 @@ func (o rdsInstanceBackups) expireAutomatedSnapshots(resourceID string, cutoff t
 }
 
 func (o rdsInstanceBackups) setBaseBackups(resourceID string, update func([]RDSBaseBackup) []RDSBaseBackup) {
+	var updated RDSInstance
 	rdsInstances.Update(o.instanceID, func(stored *RDSInstance) {
 		if stored.DbiResourceId == resourceID {
 			stored.BaseBackups = update(stored.BaseBackups)
+			updated = *stored
 		}
 	})
+	rdsReplicateInstanceBackups(updated)
 }
 
 // rdsRemoveInstanceAutomatedBackups deletes a deleted instance's automated
@@ -201,7 +205,7 @@ func handleRDSRestoreInstanceToPointInTime(w http.ResponseWriter, r *http.Reques
 	// from the volume its instance left at its deletion.
 	logVolume, latest := rdsInstanceVolume(srcID), time.Now().UTC()
 	if retained != nil {
-		logVolume, latest = rdsRetainedBackupVolume(retained.DbiResourceId), rdsRetainedLatest(retained.LatestTime)
+		logVolume, latest = retained.logVolume(), rdsRetainedLatest(retained.LatestTime)
 	}
 	inst.RestoreSourceVolume = logVolume
 	earliest, windowOpen := rdsRestorableWindow(src.BaseBackups, src.BackupRetentionPeriod, time.Now().UTC())
@@ -219,6 +223,9 @@ func handleRDSRestoreInstanceToPointInTime(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		inst.RestoreSourceVolume = rdsSnapshotVolume(base.SnapshotID)
+		if retained != nil {
+			inst.RestoreSourceVolume = retained.snapshotVolume(base.SnapshotID)
+		}
 		inst.RestoreLogVolume = logVolume
 		inst.RestoreToTime = target.Format(time.RFC3339Nano)
 		inst.RestoreBinlogFile, inst.RestoreBinlogOffset = base.BinlogFile, base.BinlogOffset
@@ -251,6 +258,19 @@ func rdsInstancePointInTimeSource(w http.ResponseWriter, r *http.Request) (src R
 			"One of SourceDBInstanceIdentifier, SourceDbiResourceId or SourceDBInstanceAutomatedBackupsArn must be provided.",
 			http.StatusBadRequest, requestID)
 		return RDSInstance{}, nil, false
+	}
+	if replica, ok := rdsReplicatedBackupIn(rdsRequestRegion(r), arn); ok {
+		// A restore from a replicating backup reads the log the source
+		// holds now.
+		synced, err := rdsSyncReplicatedBackup(r.Context(), arn)
+		if err != nil && !errors.Is(err, errRDSReplicationSourceGone) {
+			rdsErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, requestID)
+			return RDSInstance{}, nil, false
+		}
+		if err == nil {
+			replica = synced
+		}
+		return rdsRetainedInstanceSource(replica), &replica, true
 	}
 	for _, instance := range rdsInstances.List() {
 		if (resourceID != "" && instance.DbiResourceId == resourceID) || (arn != "" && rdsInstanceAutoBackupARN(instance.DbiResourceId) == arn) {

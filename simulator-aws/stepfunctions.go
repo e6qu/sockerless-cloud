@@ -687,7 +687,7 @@ func handleSFNStartExecution(w http.ResponseWriter, r *http.Request) {
 	})
 	cancel := make(chan struct{})
 	sfnCancels.Store(execARN, cancel)
-	go sfnRunExecution(execARN, sm.Definition, input, cancel)
+	sfnStartExecution(execARN, sm.Definition, input, cancel)
 	sfnWriteJSON(w, http.StatusOK, map[string]any{
 		"executionArn": execARN,
 		"startDate":    now,
@@ -943,14 +943,46 @@ func sfnValidateDefinitionObject(def sfnDefinition, location, inheritedQueryLang
 	return nil
 }
 
-func sfnRunExecution(execARN, definition, input string, cancel <-chan struct{}) {
+// sfnStartExecution hands the execution to the server's background workers,
+// which outlive the request that started it and stop with the simulator.
+func sfnStartExecution(execARN, definition, input string, cancel <-chan struct{}) {
+	var workerCtx context.Context
+	run, ok := bg.Handoff(func() { sfnRunExecution(workerCtx, execARN, definition, input, cancel) })
+	if !ok {
+		sfnCancels.Delete(execARN)
+		return
+	}
+	sfnAWSServer.StartBackground("AWS Step Functions execution", func(ctx context.Context) {
+		workerCtx = ctx
+		run()
+	})
+}
+
+// sfnRunExecution interprets the execution until it ends, StopExecution aborts
+// it, or the simulator's lifetime ctx ends. A stopping simulator ends the task
+// in flight and leaves the execution RUNNING, which the next process resumes
+// from its checkpoint, rather than failing it with the interrupted task's
+// error.
+func sfnRunExecution(ctx context.Context, execARN, definition, input string, cancel <-chan struct{}) {
 	defer sfnCancels.Delete(execARN)
 
-	// The simulator's shutdown does not reach a recorded execution's tasks: a
-	// cancelled task would fail the execution, which the next process instead
-	// resumes from RUNNING.
-	output, status, err := sfnExecuteRecorded(context.Background(), execARN, definition, input, cancel)
+	interrupt := make(chan struct{})
+	finished := make(chan struct{})
+	defer close(finished)
+	bg.JoinedGo(func() {
+		select {
+		case <-cancel:
+		case <-ctx.Done():
+		case <-finished:
+			return
+		}
+		close(interrupt)
+	})
+	output, status, err := sfnExecuteRecorded(ctx, execARN, definition, input, interrupt)
 	if errors.Is(err, errSFNAborted) {
+		return
+	}
+	if ctx.Err() != nil && status != "SUCCEEDED" {
 		return
 	}
 	if err != nil {
@@ -994,7 +1026,7 @@ func recoverStepFunctionsExecutions() {
 		if _, alreadyRunning := sfnCancels.LoadOrStore(execution.ExecutionArn, cancel); alreadyRunning {
 			continue
 		}
-		go sfnRunExecution(execution.ExecutionArn, definition, input, cancel)
+		sfnStartExecution(execution.ExecutionArn, definition, input, cancel)
 	}
 }
 
@@ -1079,6 +1111,8 @@ func sfnRunDefDepthRuntime(ctx context.Context, def sfnDefinition, input string,
 		}
 		select {
 		case <-cancel:
+			return "", "ABORTED", errSFNAborted
+		case <-ctx.Done():
 			return "", "ABORTED", errSFNAborted
 		default:
 		}
@@ -1296,6 +1330,9 @@ func sfnRunDefDepthRuntime(ctx context.Context, def sfnDefinition, input string,
 			transition, terminal = state.Next, state.End
 		default:
 			executionErr = &sfnExecutionError{Name: "States.Runtime", Cause: fmt.Sprintf("unsupported state type %q", state.Type)}
+		}
+		if ctx.Err() != nil {
+			return "", "ABORTED", errSFNAborted
 		}
 
 		if executionErr != nil {
@@ -2478,7 +2515,7 @@ func handleSFNRedriveExecution(w http.ResponseWriter, r *http.Request) {
 	sfnCancels.Store(req.ExecutionArn, cancel)
 	sfnMu.Unlock()
 
-	go sfnRunExecution(req.ExecutionArn, definition, input, cancel)
+	sfnStartExecution(req.ExecutionArn, definition, input, cancel)
 	sfnWriteJSON(w, http.StatusOK, map[string]any{"redriveDate": now})
 }
 
