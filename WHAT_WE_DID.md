@@ -2410,10 +2410,6 @@ layer and the cache mounts never reach an export, so a `mode=max` export only
 re-uploaded the base images and the console stage's `node_modules`, and once
 spent 569 s of v2.0.7's fifteen-minute AWS image job doing so after the image
 was already pushed. Manifest composition retries only a broken connection.
-The Google Cloud SDK suite runs as two cost-split shards, `^Test[A-C]` and
-`^Test[D-Z]`, after its single job reached 14.9 of its fifteen minutes on
-`main` and was cancelled on the next pull request; a pre-commit check keeps
-every test in exactly one shard, as the AWS and Azure suites' do.
 
 Publishes are keyed per commit and never cancelled by a later merge; retention
 runs in its own workflow and spares anything younger than two hours, because a
