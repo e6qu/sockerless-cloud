@@ -24,6 +24,17 @@ func waitForRDSInstanceStatus(t *testing.T, c *rds.Client, ctx context.Context, 
 	}, 2*time.Minute, 100*time.Millisecond, "DB instance %s must reach %s", id, status)
 }
 
+// waitForRDSInstanceAvailable waits with the SDK's DBInstanceAvailable waiter
+// for Amazon RDS to finish creating or starting the instance.
+func waitForRDSInstanceAvailable(t *testing.T, c *rds.Client, ctx context.Context, id string) {
+	t.Helper()
+	require.NoError(t, rds.NewDBInstanceAvailableWaiter(c, func(o *rds.DBInstanceAvailableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(id)}, 3*time.Minute),
+		"DB instance %s must become available", id)
+}
+
 // waitForRDSClusterStatus polls until the cluster reports status; the SDK
 // carries no waiter for a stopped cluster.
 func waitForRDSClusterStatus(t *testing.T, c *rds.Client, ctx context.Context, id, status string) {
@@ -56,6 +67,7 @@ func TestRDS_InstanceClusterState(t *testing.T) {
 			SkipFinalSnapshot:    aws.Bool(true),
 		})
 	})
+	waitForRDSInstanceAvailable(t, c, ctx, instID)
 
 	stopOut, err := c.StopDBInstance(ctx, &rds.StopDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
@@ -70,7 +82,8 @@ func TestRDS_InstanceClusterState(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, startOut.DBInstance)
-	assert.Equal(t, "available", aws.ToString(startOut.DBInstance.DBInstanceStatus))
+	assert.Equal(t, "starting", aws.ToString(startOut.DBInstance.DBInstanceStatus))
+	waitForRDSInstanceAvailable(t, c, ctx, instID)
 
 	_, err = c.StartDBInstance(ctx, &rds.StartDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
@@ -384,6 +397,7 @@ func TestRDS_ParameterDetailAndSnapshotAttributes(t *testing.T) {
 			SkipFinalSnapshot:    aws.Bool(true),
 		})
 	})
+	waitForRDSInstanceAvailable(t, c, ctx, instID)
 
 	snapID := "sdk-attr-snap"
 	_, err = c.CreateDBSnapshot(ctx, &rds.CreateDBSnapshotInput{

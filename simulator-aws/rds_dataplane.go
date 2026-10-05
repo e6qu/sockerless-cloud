@@ -80,13 +80,18 @@ func rdsRecoverDataPlanes() error {
 			bg.Go(func() { rdsFinishInstanceRestore(id) })
 			continue
 		}
+		id := instance.DBInstanceIdentifier
 		stopping := instance.DBInstanceStatus == "stopping"
+		bringingUp := rdsInstanceBringingUp(instance.DBInstanceStatus)
 		if stopping && len(instance.MasterUserSecret) == 0 {
-			id := instance.DBInstanceIdentifier
 			bg.Go(func() { rdsFinishStop(id) })
 			continue
 		}
-		if (instance.DBInstanceStatus != "available" && !stopping) || len(instance.MasterUserSecret) == 0 {
+		if bringingUp && len(instance.MasterUserSecret) == 0 {
+			bg.Go(func() { rdsFinishInstanceBringUp(id) })
+			continue
+		}
+		if (instance.DBInstanceStatus != "available" && !stopping && !bringingUp) || len(instance.MasterUserSecret) == 0 {
 			continue
 		}
 		_, masterPassword, ok := kmsDecryptBytes(instance.MasterUserSecret)
@@ -102,12 +107,15 @@ func rdsRecoverDataPlanes() error {
 			}
 		}
 		rdsInstances.Put(instance.DBInstanceIdentifier, instance)
-		rdsTakeFirstInstanceBackup(instance.DBInstanceIdentifier)
-		if stopping {
+		switch {
+		case bringingUp:
+			bg.Go(func() { rdsFinishInstanceBringUp(id) })
+		case stopping:
 			// The process that took the StopDBInstance ended before the
 			// engine it adopted here had stopped.
-			id := instance.DBInstanceIdentifier
 			bg.Go(func() { rdsFinishStop(id) })
+		default:
+			rdsTakeFirstInstanceBackup(id)
 		}
 	}
 	return nil
@@ -284,6 +292,42 @@ func rdsTakeFirstInstanceBackup(instanceID string) {
 	bg.Go(func() {
 		if err := plane.backups.takeFirstStarting(); err != nil && !errors.Is(err, errRDSBackupsStopped) {
 			log.Printf("Amazon RDS %s: %v", instanceID, err)
+		}
+	})
+}
+
+// rdsInstanceBringingUp reports whether status is one Amazon RDS reports while
+// it creates or starts a DB instance, before the instance is available.
+func rdsInstanceBringingUp(status string) bool {
+	return status == "creating" || status == "starting" || status == "backing-up"
+}
+
+// rdsFinishInstanceBringUp lands a creating or starting DB instance available.
+// One that keeps automated backups and holds none yet first starts its engine,
+// which takes the first automated backup with the instance backing-up, and
+// lands failed when the engine does not start or the backup is not taken. A
+// deletion meanwhile ends the start, and the instance goes with it.
+func rdsFinishInstanceBringUp(instanceID string) {
+	instance, ok := rdsInstances.Get(instanceID)
+	if !ok || !rdsInstanceBringingUp(instance.DBInstanceStatus) {
+		return
+	}
+	resourceID := instance.DbiResourceId
+	status := "available"
+	if plane, served := rdsLoadDataPlane(instanceID); served && instance.BackupRetentionPeriod > 0 &&
+		len(instance.BaseBackups) == 0 && rdsKeepsLog(plane.engine.Engine) {
+		err := plane.backups.takeFirstStarting()
+		if errors.Is(err, errRDSBackupsStopped) {
+			return
+		}
+		if err != nil {
+			log.Printf("Amazon RDS %s: %v", instanceID, err)
+			status = "failed"
+		}
+	}
+	rdsInstances.Update(instanceID, func(stored *RDSInstance) {
+		if stored.DbiResourceId == resourceID && rdsInstanceBringingUp(stored.DBInstanceStatus) {
+			stored.DBInstanceStatus = status
 		}
 	})
 }

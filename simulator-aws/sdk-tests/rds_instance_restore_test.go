@@ -152,14 +152,15 @@ func TestRDS_InstanceRestoresToAPointInTime(t *testing.T) {
 }
 
 // Amazon RDS takes a DB instance's first automated backup when it creates the
-// instance, whether or not a client ever connects, and takes one again when
-// ModifyDBInstance turns automated backups back on.
+// instance, whether or not a client ever connects, reporting the instance
+// creating until it is available with that backup taken, and takes one again
+// when ModifyDBInstance turns automated backups back on.
 func TestRDS_InstanceTakesItsFirstAutomatedBackupWithoutAClient(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: rdsClient(), family: "postgres"}
 	instanceID := "sdk-instance-first-backup"
-	_, err := f.client.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
+	created, err := f.client.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier:  aws.String(instanceID),
 		DBInstanceClass:       aws.String("db.t3.micro"),
 		Engine:                aws.String("postgres"),
@@ -194,6 +195,14 @@ func TestRDS_InstanceTakesItsFirstAutomatedBackupWithoutAClient(t *testing.T) {
 		described := f.waitAvailable(instanceID)
 		require.NotNil(t, described.LatestRestorableTime, "an instance with an automated backup reports LatestRestorableTime")
 	}
+	assert.Equal(t, "creating", aws.ToString(created.DBInstance.DBInstanceStatus))
+	// Amazon RDS reports the instance available only once it has taken the
+	// first automated backup.
+	f.waitAvailable(instanceID)
+	snapshots, err := f.client.DescribeDBSnapshots(ctx, automatedSnapshots)
+	require.NoError(t, err)
+	require.Len(t, snapshots.DBSnapshots, 1, "an available instance holds its first automated snapshot")
+	assert.Equal(t, "available", aws.ToString(snapshots.DBSnapshots[0].Status))
 	awaitActiveBackup("Amazon RDS takes the first automated backup when it creates the instance")
 
 	_, err = f.client.ModifyDBInstance(ctx, &rds.ModifyDBInstanceInput{

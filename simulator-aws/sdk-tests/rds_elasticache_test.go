@@ -45,6 +45,7 @@ func TestRDS_DBInstanceLifecycle(t *testing.T) {
 		})
 	})
 
+	waitForRDSInstanceAvailable(t, c, ctx, id)
 	desc, err := c.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{
 		DBInstanceIdentifier: aws.String(id),
 	})

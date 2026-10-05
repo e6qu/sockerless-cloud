@@ -104,12 +104,13 @@ func TestRDS_RebootDBInstance(t *testing.T) {
 	c := rdsClient()
 	id := "test-reboot-db"
 	_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
-		DBInstanceIdentifier: aws.String(id),
-		DBInstanceClass:      aws.String("db.t3.micro"),
-		Engine:               aws.String("mysql"),
-		MasterUsername:       aws.String("admin"),
-		MasterUserPassword:   aws.String("password123!"),
-		AllocatedStorage:     aws.Int32(20),
+		DBInstanceIdentifier:  aws.String(id),
+		DBInstanceClass:       aws.String("db.t3.micro"),
+		Engine:                aws.String("mysql"),
+		MasterUsername:        aws.String("admin"),
+		MasterUserPassword:    aws.String("password123!"),
+		AllocatedStorage:      aws.Int32(20),
+		BackupRetentionPeriod: aws.Int32(0),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -118,6 +119,7 @@ func TestRDS_RebootDBInstance(t *testing.T) {
 			SkipFinalSnapshot:    aws.Bool(true),
 		})
 	})
+	waitForRDSInstanceAvailable(t, c, ctx, id)
 
 	out, err := c.RebootDBInstance(ctx, &rds.RebootDBInstanceInput{
 		DBInstanceIdentifier: aws.String(id),

@@ -71,6 +71,14 @@ func seedSnapshot(t *testing.T, env *tfsim.Env) *rds.Client {
 		AllocatedStorage:     aws.Int32(20),
 	})
 	require.NoError(t, err)
+	// Amazon RDS takes no snapshot of an instance it is still creating; the
+	// instance turns available once its first automated backup is taken.
+	require.NoError(t, rds.NewDBInstanceAvailableWaiter(client, func(o *rds.DBInstanceAvailableWaiterOptions) {
+		o.MinDelay = 250 * time.Millisecond
+		o.MaxDelay = 2 * time.Second
+	}).Wait(ctx, &rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: aws.String("tf-rds-restore-source"),
+	}, 3*time.Minute), "instance tf-rds-restore-source never became available")
 	_, err = client.CreateDBSnapshot(ctx, &rds.CreateDBSnapshotInput{
 		DBInstanceIdentifier: aws.String("tf-rds-restore-source"),
 		DBSnapshotIdentifier: aws.String("tf-rds-snapshot-source"),

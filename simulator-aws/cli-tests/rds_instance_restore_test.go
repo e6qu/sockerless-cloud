@@ -23,10 +23,17 @@ type cliDBInstance struct {
 	} `json:"Endpoint"`
 }
 
+// cliWaitDBInstanceAvailable waits for Amazon RDS to finish creating or
+// starting the instance and taking its first automated backup.
+func cliWaitDBInstanceAvailable(t *testing.T, instanceID string) {
+	t.Helper()
+	runCLI(t, awsCLI("rds", "wait", "db-instance-available", "--db-instance-identifier", instanceID))
+}
+
 // cliAvailableDBInstance waits for the instance and describes it.
 func cliAvailableDBInstance(t *testing.T, instanceID string) cliDBInstance {
 	t.Helper()
-	runCLI(t, awsCLI("rds", "wait", "db-instance-available", "--db-instance-identifier", instanceID))
+	cliWaitDBInstanceAvailable(t, instanceID)
 	var described struct {
 		DBInstances []cliDBInstance `json:"DBInstances"`
 	}

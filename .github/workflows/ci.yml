@@ -862,8 +862,13 @@ jobs:
             run: '^Test(CLI_ECR|DynamoDB|ECR|EFS)'
             timeout: 1200s
             timeout_minutes: 15
+          # The Amazon RDS CLI tests spread over three shards: appdata2 ran
+          # them all in 10m18s, and every DB instance and Aurora cluster now
+          # takes its first automated backup when it is created, which the
+          # CLI's db-instance-available waiter observes at its 30-second
+          # cadence.
           - suite: observability
-            run: '^Test(CloudMap|Logs)'
+            run: '^Test(CloudMap|Logs|RDSCLI_Instance)'
             timeout: 1200s
             timeout_minutes: 15
           - suite: ecs
@@ -874,7 +879,7 @@ jobs:
           # on a cold Go build cache: the CLI test binary's cold compile takes
           # about eight minutes, so a shard's suite must fit the remainder.
           - suite: appdata
-            run: '^Test(CloudWatch|EventBridge|Kinesis|ResourceTags)'
+            run: '^Test(CloudWatch|EventBridge|Kinesis|ResourceTags|RDSCLI_Aurora)'
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata4
@@ -882,7 +887,7 @@ jobs:
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata2
-            run: '^Test(AWSServiceState|RDS)'
+            run: '^Test(AWSServiceState|RDSCLI_[^AI]|RDSCLI_A[^u]|RDSCLI_I[^n])'
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata5

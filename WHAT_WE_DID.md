@@ -1342,7 +1342,30 @@ an instance no client connects to, finds its automated backup `active` and its
 automated snapshot available, turns retention off and on again and finds a new
 one; the CLI suite lists the backup `active` and the snapshot available; the
 Terraform suite reads the instance's first automated snapshot through the
-`aws_db_snapshot` data source. DescribeDBSnapshots filters on `SnapshotType` and
+`aws_db_snapshot` data source.
+
+A DB instance reports the statuses Amazon RDS reports while it brings the
+instance up. CreateDBInstance and RestoreDBInstanceFromDBSnapshot answer
+`creating`, StartDBInstance answers `starting`, and a restore to a time or from
+Amazon S3 stays `creating` once its volume is seeded; `rdsFinishInstanceBringUp`
+then starts the engine of an instance that keeps automated backups and holds
+none, the instance turns `backing-up` when the capture of its first automated
+snapshot begins (`recordAutomatedSnapshot`), and lands `available` only once
+that snapshot is taken — or `failed` when the engine does not start or the
+capture fails. An instance with no backup to take, no data plane or a
+retention period of 0 lands `available` at once. A simulator restart resumes
+the bring-up of an instance it finds in any of those statuses. Until then
+ModifyDBInstance, CreateDBSnapshot, CreateDBInstanceReadReplica (of it as the
+source), PromoteReadReplica and SwitchoverReadReplica answer
+`InvalidDBInstanceState` ("Instance … is not in available state."), as do
+RebootDBInstance and StopDBInstance, which run only from `available`. The SDK
+suite waits with `DBInstanceAvailableWaiter`, the CLI suite with `aws rds wait
+db-instance-available`, and terraform-provider-aws's create waiter already
+treats `creating`, `backing-up` and `starting` as pending. The CLI's waiter
+polls every 30 seconds, so CLI tests whose instance takes no automated backup
+create it with `--backup-retention-period 0`, which leaves it available by the
+waiter's first poll; a read replica's source keeps its backups, as Amazon RDS
+requires. DescribeDBSnapshots filters on `SnapshotType` and
 `DbiResourceId`, and DeleteDBSnapshot refuses an automated snapshot with
 `InvalidDBSnapshotState`. An automated snapshot's volume name carries a dot
 where its identifier carries the colon a volume name cannot hold.

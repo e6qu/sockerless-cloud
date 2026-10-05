@@ -187,6 +187,7 @@ func TestRDS_ReadReplicaAndCopySnapshot(t *testing.T) {
 			SkipFinalSnapshot:    aws.Bool(true),
 		})
 	})
+	waitForRDSInstanceAvailable(t, c, ctx, srcID)
 
 	replicaID := "ext-replica"
 	repOut, err := c.CreateDBInstanceReadReplica(ctx, &rds.CreateDBInstanceReadReplicaInput{

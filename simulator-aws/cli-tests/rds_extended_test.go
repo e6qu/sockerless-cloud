@@ -171,6 +171,7 @@ func TestRDSCLI_OptionGroupAndReplica(t *testing.T) {
 			"--db-instance-identifier", srcID,
 			"--skip-final-snapshot").Run()
 	})
+	cliWaitDBInstanceAvailable(t, srcID)
 
 	replicaID := "cli-ext-replica"
 	out = runCLI(t, awsCLI("rds", "create-db-instance-read-replica",

@@ -491,11 +491,13 @@ func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 		"--engine-version", "8.0.39",
 		"--master-username", "admin",
 		"--master-user-password", "password123!",
-		"--allocated-storage", "20"))
+		"--allocated-storage", "20",
+		"--backup-retention-period", "0"))
 	t.Cleanup(func() {
 		_ = awsCLI("rds", "delete-db-instance",
 			"--db-instance-identifier", instID, "--skip-final-snapshot").Run()
 	})
+	cliWaitDBInstanceAvailable(t, instID)
 	snapID := "cli-rext-snapmod-snap"
 	runCLI(t, awsCLI("rds", "create-db-snapshot",
 		"--db-snapshot-identifier", snapID,

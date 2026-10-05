@@ -138,7 +138,8 @@ Current state of the sockerless-cloud repository.
   covers; an Aurora cluster restores from an RDS DB snapshot ARN, and an
   Aurora MySQL cluster from a Percona XtraBackup in Amazon S3. An RDS for
   PostgreSQL or RDS for MySQL instance keeps the same automated backups,
-  taking the first when it is created whether or not a client connects:
+  taking the first when it is created whether or not a client connects and
+  reporting `creating`, `starting` and `backing-up` until it is `available`:
   RestoreDBInstanceToPointInTime seeds the new instance from them, and
   RestoreDBInstanceFromS3 imports a Percona XtraBackup into RDS for MySQL. A
   deletion with `DeleteAutomatedBackups=false` retains the automated backups,
