@@ -347,7 +347,7 @@ func CleanupContainers() {
 		}
 		timeout := 5
 		_, _ = dockerClient.ContainerStop(ctx, id, client.ContainerStopOptions{Timeout: &timeout})
-		_, _ = dockerClient.ContainerRemove(ctx, id, client.ContainerRemoveOptions{Force: true})
+		_, _ = dockerClient.ContainerRemove(ctx, id, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		return true
 	})
 
@@ -408,7 +408,7 @@ func StartContainerSyncContext(ctx context.Context, cfg ContainerConfig, sink Lo
 		// Remove container after exit
 		rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer rmCancel()
-		_, _ = cli.ContainerRemove(rmCtx, containerID, client.ContainerRemoveOptions{Force: true})
+		_, _ = cli.ContainerRemove(rmCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		resultCh <- result
 	}()
 
@@ -510,7 +510,7 @@ func RemoveExistingContainer(containerID string) error {
 	defer cancel()
 	timeout := 5
 	_, _ = dockerClient.ContainerStop(ctx, containerID, client.ContainerStopOptions{Timeout: &timeout})
-	_, err := dockerClient.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true})
+	_, err := dockerClient.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 	return err
 }
 
@@ -547,7 +547,7 @@ func AdoptContainer(containerID string, cfg ContainerConfig, sink LogSink) (*Con
 		managedContainers.Delete(containerID)
 		removeCtx, removeCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer removeCancel()
-		_, _ = dockerClient.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true})
+		_, _ = dockerClient.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		resultCh <- result
 	}()
 	return &ContainerHandle{
@@ -591,7 +591,7 @@ func WaitContainerRemoved(containerID string, timeout time.Duration) error {
 		}
 		if !time.Now().Before(deadline) {
 			removeCtx, removeCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			_, removeErr := dockerClient.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true})
+			_, removeErr := dockerClient.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 			removeCancel()
 			if removeErr == nil || containerNotFoundError(removeErr) {
 				return nil
@@ -927,7 +927,7 @@ func StartHTTPContainer(ctx context.Context, cfg HTTPContainerConfig) (string, e
 	}
 
 	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
-		_, _ = cli.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
+		_, _ = cli.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		return "", fmt.Errorf("container start: %w", err)
 	}
 
@@ -948,7 +948,7 @@ func StopAndRemoveContainer(containerID string, grace time.Duration) {
 	defer stopCancel()
 	timeout := int(grace / time.Second)
 	_, _ = cli.ContainerStop(stopCtx, containerID, client.ContainerStopOptions{Timeout: &timeout})
-	_, _ = cli.ContainerRemove(stopCtx, containerID, client.ContainerRemoveOptions{Force: true})
+	_, _ = cli.ContainerRemove(stopCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 }
 
 // StreamContainerLogs follows the container's stdout/stderr and writes each
@@ -1262,7 +1262,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 func removeCreated(ctx context.Context, cli *client.Client, containerID string) {
 	removeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	_, _ = cli.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true})
+	_, _ = cli.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 }
 
 // vpcENISetupImage runs the ephemeral network-setup container that plumbs a

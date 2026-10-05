@@ -108,7 +108,7 @@ func TestStartupSweepCollectsAKilledRunsWorkloads(t *testing.T) {
 	t.Cleanup(func() {
 		removeCtx, removeCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer removeCancel()
-		_, _ = engine.ContainerRemove(removeCtx, foreign, client.ContainerRemoveOptions{Force: true})
+		_, _ = engine.ContainerRemove(removeCtx, foreign, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 	})
 
 	// This process becomes the next run over the abandoned run's state.

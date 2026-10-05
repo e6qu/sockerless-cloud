@@ -1121,6 +1121,13 @@ with its containers and networks, so an engine volume of a resource that was
 never deleted does not outlive the simulator. `EnsureDockerNetwork` returns the
 network a concurrent caller created first instead of failing.
 
+Every container `sim` removes goes with `RemoveVolumes`, so the anonymous
+volumes its image declares (the MySQL image's `VOLUME /var/lib/mysql`, Redis's
+`VOLUME /data`) go with it, while the named volumes it mounted stay: the engine
+removes only anonymous volumes on that flag. Without it, each Amazon RDS SDK
+run had left about four dangling engine volumes behind, enough to fill a
+small disk over repeated runs.
+
 Firecracker boots Compute Engine, Amazon EC2 and Azure virtual machines where
 the host kernel allows it, over its default virtio-MMIO transport: the opt-in
 PCI transport never delivers the first virtio-blk completion on aarch64, and

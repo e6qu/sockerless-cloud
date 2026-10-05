@@ -137,7 +137,7 @@ func sweepOrphanedWorkloads(engine *client.Client) {
 		}
 		timeout := 5
 		_, _ = engine.ContainerStop(ctx, workload.ID, client.ContainerStopOptions{Timeout: &timeout})
-		if _, err := engine.ContainerRemove(ctx, workload.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
+		if _, err := engine.ContainerRemove(ctx, workload.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
 			// One container that will not go is no reason to leave the rest.
 			fmt.Fprintf(os.Stderr, "remove workload %s left by run %s: %v\n",
 				workload.ID, workload.Labels["sockerless-sim-run"], err)
@@ -201,7 +201,7 @@ func RunContainerReaper() bool {
 	for _, workload := range containers.Items {
 		timeout := 5
 		_, _ = dockerClient.ContainerStop(ctx, workload.ID, client.ContainerStopOptions{Timeout: &timeout})
-		if _, err := dockerClient.ContainerRemove(ctx, workload.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
+		if _, err := dockerClient.ContainerRemove(ctx, workload.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
 			fmt.Fprintf(os.Stderr, "remove orphaned simulator workload %s: %v\n", workload.ID, err)
 			os.Exit(1)
 		}
