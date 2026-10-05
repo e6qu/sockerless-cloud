@@ -110,13 +110,16 @@ func TestRDS_Snapshot_Lifecycle(t *testing.T) {
 		"final state-machine transition before removal")
 
 	// Subsequent identifier-addressed Describe returns the real RDS
-	// not-found fault; unfiltered list calls are the empty-list shape.
+	// not-found fault; the instance's manual snapshots list empty, beside the
+	// automated snapshot its creation took.
 	_, err = c.DescribeDBSnapshots(ctx, &rds.DescribeDBSnapshotsInput{
 		DBSnapshotIdentifier: aws.String("snap-1"),
 	})
 	assertAWSAPIErrorCode(t, err, "DBSnapshotNotFound")
 
-	desc2, err := c.DescribeDBSnapshots(ctx, &rds.DescribeDBSnapshotsInput{})
+	desc2, err := c.DescribeDBSnapshots(ctx, &rds.DescribeDBSnapshotsInput{
+		DBInstanceIdentifier: aws.String("snap-src"), SnapshotType: aws.String("manual"),
+	})
 	require.NoError(t, err)
 	assert.Empty(t, desc2.DBSnapshots)
 }

@@ -78,3 +78,19 @@ output "rds_replicated_backup_arn" {
 output "rds_replicated_backup_retention_period" {
   value = tostring(aws_db_instance_automated_backups_replication.tf_rds.retention_period)
 }
+
+# A replication turns replicating once it holds the source's first automated
+# snapshot, which Amazon RDS takes when it creates the instance.
+data "aws_db_snapshot" "tf_rds_first_automated" {
+  db_instance_identifier = aws_db_instance.tf_rds.identifier
+  snapshot_type          = "automated"
+  most_recent            = true
+  depends_on             = [aws_db_instance_automated_backups_replication.tf_rds]
+}
+
+output "rds_first_automated_snapshot_id" {
+  value = data.aws_db_snapshot.tf_rds_first_automated.id
+}
+output "rds_first_automated_snapshot_status" {
+  value = data.aws_db_snapshot.tf_rds_first_automated.status
+}

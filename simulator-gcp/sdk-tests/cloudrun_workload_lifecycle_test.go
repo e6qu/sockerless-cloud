@@ -2,7 +2,9 @@ package gcp_sdk_test
 
 import (
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -257,9 +259,11 @@ func TestSDK_CloudRun_InstanceRestartPolicy(t *testing.T) {
 	assert.Equal(t, "Stopped", stopped.TerminalCondition.Reason)
 }
 
-// A simulator restarted on the same state directory runs the instances of the
-// worker pools and Cloud Run instances it stored, as the service keeps them
-// running.
+// A simulator restarted on the same state directory keeps running the
+// instances of the worker pools and Cloud Run instances it stored, as Cloud
+// Run's control plane never restarts the instances it runs: the containers the
+// earlier process started go on serving, under the new process's management,
+// and none of their output reaches Cloud Logging twice.
 func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 	stateDir := t.TempDir()
 	httpPort, grpcPort := freePersistentSimPorts(t)
@@ -286,7 +290,7 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 			Scaling: &runpb.WorkerPoolScaling{ManualInstanceCount: &count},
 			Template: &runpb.WorkerPoolRevisionTemplate{
 				Containers: []*runpb.Container{{Image: simWorkloadImage, Command: []string{"sh", "-c",
-					`trap 'exit 0' TERM; echo "pool worker $HOSTNAME"; sleep 2147483647 & wait $!`}}},
+					`trap 'echo "stopping pool worker $HOSTNAME"; exit 0' TERM; echo "pool worker $HOSTNAME"; sleep 2147483647 & wait $!`}}},
 			},
 		},
 	})
@@ -298,50 +302,74 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 		Parent:     parent,
 		InstanceId: "resumed-instance",
 		Instance: &runpb.Instance{
+			InvokerIamDisabled: true,
 			Containers: []*runpb.Container{{Image: simWorkloadImage, Command: []string{"sh", "-c",
-				`trap 'exit 0' TERM; nc -lk -p "$PORT" -e true & echo "instance $HOSTNAME"; sleep 2147483647 & wait $!`}}},
+				`trap 'echo "stopping instance $HOSTNAME"; exit 0' TERM; ` +
+					`nc -lk -p "$PORT" -e sh -c 'printf "HTTP/1.0 200 OK\r\nContent-Length: ${#HOSTNAME}\r\n\r\n%s" "$HOSTNAME"' & ` +
+					`echo "instance $HOSTNAME"; sleep 2147483647 & wait $!`}}},
 		},
 	})
 	require.NoError(t, err)
-	_, err = instOp.Wait(ctx)
+	inst, err := instOp.Wait(ctx)
 	require.NoError(t, err)
+	require.Len(t, inst.Urls, 1)
 
 	poolLogs := `resource.type="cloud_run_worker_pool" AND resource.labels.worker_pool_name="resumed-pool"`
 	instanceLogs := `resource.type="cloud_run_instance" AND resource.labels.instance_name="resumed-instance"`
-	started := func(filter, prefix string, want int) {
+	host := func(filter, prefix string) string {
+		var hosts []string
 		followLogMessagesAt(t, logsAt, filter, func(messages []string) bool {
-			return len(distinctLogHosts(messages, prefix)) >= want
+			hosts = distinctLogHosts(messages, prefix)
+			return len(hosts) >= 1
 		})
+		require.Len(t, hosts, 1)
+		return hosts[0]
 	}
-	started(poolLogs, "pool worker", 1)
-	started(instanceLogs, "instance", 1)
+	poolHost := host(poolLogs, "pool worker")
+	instanceHost := host(instanceLogs, "instance")
+	invoke := func() string {
+		u, err := url.Parse(inst.Urls[0])
+		require.NoError(t, err)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/", nil)
+		require.NoError(t, err)
+		req.Host = u.Host
+		resp, err := rawClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode, "body=%q", body)
+		return string(body)
+	}
+	assert.Equal(t, instanceHost, invoke(), "the instance's URL reaches its container")
 
 	require.NoError(t, shutdownPersistentSimulator(cmd))
 	cmd = startPersistentSimulatorOn(t, "docker", stateDir, httpPort, grpcPort)
 
-	started(poolLogs, "pool worker", 2)
-	started(instanceLogs, "instance", 2)
-
+	assert.Equal(t, instanceHost, invoke(), "the restarted simulator serves the instance on the container it adopted")
 	pool, err := pools.GetWorkerPool(ctx, &runpb.GetWorkerPoolRequest{Name: parent + "/workerPools/resumed-pool"})
 	require.NoError(t, err)
 	assert.Equal(t, runpb.Condition_CONDITION_SUCCEEDED, pool.TerminalCondition.GetState())
 
-	for _, del := range []func() error{
-		func() error {
-			op, err := pools.DeleteWorkerPool(ctx, &runpb.DeleteWorkerPoolRequest{Name: parent + "/workerPools/resumed-pool"})
-			if err == nil {
-				_, err = op.Wait(ctx)
-			}
-			return err
-		},
-		func() error {
-			op, err := instances.DeleteInstance(ctx, &runpb.DeleteInstanceRequest{Name: parent + "/instances/resumed-instance"})
-			if err == nil {
-				_, err = op.Wait(ctx)
-			}
-			return err
-		},
-	} {
-		require.NoError(t, del())
-	}
+	poolDeleted, err := pools.DeleteWorkerPool(ctx, &runpb.DeleteWorkerPoolRequest{Name: parent + "/workerPools/resumed-pool"})
+	require.NoError(t, err)
+	_, err = poolDeleted.Wait(ctx)
+	require.NoError(t, err)
+	instanceDeleted, err := instances.DeleteInstance(ctx, &runpb.DeleteInstanceRequest{Name: parent + "/instances/resumed-instance"})
+	require.NoError(t, err)
+	_, err = instanceDeleted.Wait(ctx)
+	require.NoError(t, err)
+
+	// The deletions stop the containers the earlier process started, which only
+	// a process that adopted them can do; their start lines stay logged once.
+	poolMessages := followLogMessagesAt(t, logsAt, poolLogs, func(messages []string) bool {
+		return countLogMessages(messages, "stopping pool worker "+poolHost) == 1
+	})
+	assert.Equal(t, []string{poolHost}, distinctLogHosts(poolMessages, "pool worker"), "the pool started no other instance")
+	assert.Equal(t, 1, countLogMessages(poolMessages, "pool worker "+poolHost))
+	instanceMessages := followLogMessagesAt(t, logsAt, instanceLogs, func(messages []string) bool {
+		return countLogMessages(messages, "stopping instance "+instanceHost) == 1
+	})
+	assert.Equal(t, []string{instanceHost}, distinctLogHosts(instanceMessages, "instance"), "the instance started no other container")
+	assert.Equal(t, 1, countLogMessages(instanceMessages, "instance "+instanceHost))
 }

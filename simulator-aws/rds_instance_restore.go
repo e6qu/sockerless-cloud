@@ -453,6 +453,7 @@ func rdsFinishInstanceRestore(id string) {
 		stored.RestoreBinlogFile, stored.RestoreBinlogOffset = "", 0
 		stored.ImportS3Bucket, stored.ImportS3Prefix, stored.ImportS3Role = "", "", ""
 	})
+	rdsTakeFirstInstanceBackup(id)
 	rdsFinishInstanceDeletion(id, resourceID)
 	rdsExpireRetainedBackups()
 }

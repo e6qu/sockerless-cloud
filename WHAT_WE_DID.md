@@ -1224,7 +1224,9 @@ snapshot named `rds:<cluster>-<yyyy-mm-dd-hh-mm>`: `Ready` takes the first when
 the engine first accepts clients, before the endpoint relays any client to it,
 and a timer takes another at the start of every `PreferredBackupWindow`
 (honoured on CreateDBCluster and ModifyDBCluster, which refuse a window not
-spelled hh24:mi-hh24:mi) while the cluster is available and its engine runs.
+spelled hh24:mi-hh24:mi) while the cluster is available, starting its engine
+when no client has (BUG-3360 holds the first backup of a cluster no client
+connects to).
 DescribeDBClusterSnapshots lists them under `SnapshotType` `automated`, and
 DeleteDBClusterSnapshot refuses one, as it does for every automated snapshot.
 DescribeDBClusters reports `EarliestRestorableTime` as the later of the oldest
@@ -1301,9 +1303,28 @@ instance takes `BackupRetentionPeriod` (0 to 35, default 1) and
 restores, and reports them with `LatestRestorableTime` once its first base
 backup exists. Its engine archives PostgreSQL's write-ahead log or keeps
 MySQL's binary log in the instance volume; it takes an automated DB snapshot
-named `rds:<instance>-<yyyy-mm-dd-hh-mm>` when it first serves and at the start
-of each backup window, and expires the snapshots and log the retention period
-no longer covers. DescribeDBSnapshots filters on `SnapshotType` and
+named `rds:<instance>-<yyyy-mm-dd-hh-mm>` at the start of each backup window,
+and expires the snapshots and log the retention period no longer covers. It
+takes its first one as Amazon RDS does, whether or not a client ever connects:
+when CreateDBInstance, a restore, StartDBInstance or a simulator restart leaves
+an available instance with a backup retention period and no base backup, or
+ModifyDBInstance turns its retention on, `rdsTakeFirstInstanceBackup` starts
+its engine in the background, and the engine's start takes the backup before
+the endpoint relays a client. The window's run starts an engine no client has
+started rather than skipping it. A DeleteDBInstance, StopDBInstance or
+RebootDBInstance ends such a start by stopping the engine and waits for it to
+give up, so no engine outlives the data plane on a volume its instance let go
+of; a CreateDBSnapshot waits for the start to finish, so its capture never
+copies a data directory the engine is still initialising, and a
+ModifyDBInstance password change waits for it too, so it rotates the password
+in an engine that accepts clients.
+StartDBInstanceAutomatedBackupsReplication on a source still taking its first
+backup leaves the copy to the source's recording of it. The SDK suite creates
+an instance no client connects to, finds its automated backup `active` and its
+automated snapshot available, turns retention off and on again and finds a new
+one; the CLI suite lists the backup `active` and the snapshot available; the
+Terraform suite reads the instance's first automated snapshot through the
+`aws_db_snapshot` data source. DescribeDBSnapshots filters on `SnapshotType` and
 `DbiResourceId`, and DeleteDBSnapshot refuses an automated snapshot with
 `InvalidDBSnapshotState`. An automated snapshot's volume name carries a dot
 where its identifier carries the colon a volume name cannot hold.
@@ -1754,11 +1775,43 @@ not restarted leaves the instance stopped. The instance's record settles before
 its exit is logged, so a reader that waits on the log line finds the outcome
 recorded.
 
-A simulator restarted on its state directory starts the instances of every
-stored worker pool and of every stored instance not stopped or failed, from the
-serving process only; the start-up sweep has already removed the containers
-the previous process left, so the instances start anew, and a reconciliation
-the restart interrupted settles as they start.
+A simulator restarted on its state directory keeps the instances of every
+stored worker pool and of every stored instance not stopped or failed running,
+as Cloud Run's control plane never restarts the instances it runs. A persistent
+simulator leaves its workloads running when it stops, and the next one adopts
+them (`cloudrun_adopt.go`): every container of an instance carries its
+instance's group label and a digest of the template it runs, so the adoption
+finds whole instances of the current template whose containers all still run,
+attaches to them (`sim.AdoptContainer`, and for an instance's network-namespace
+owner its log stream and its ingress route), registers them where
+`runCloudRunWorkerPool` and `runCloudRunInstance` look, and removes every
+other container the earlier process left for the resource, which includes the
+containers of a stopped instance or a failed pool. Those then start only what
+is missing, and a reconciliation the restart interrupted settles. An adopted
+container's log stream replays its whole output, so the adopted sink drops the
+lines written by the resource's newest Cloud Logging entry. Stopping a
+service instance or an instance stops its containers before it ends the owner
+container's log stream, and waits for that stream to drain, so what a container
+writes as it stops reaches Cloud Logging; the stream had ended before the stop
+signal was sent. The SDK suite
+restarts a simulator under a worker pool and an instance, reads the same
+container's hostname through the instance's URL before and after, deletes both
+and finds the stop lines of the containers the first process started, with
+their start lines logged once.
+
+A Cloud Run instance's `urls` are served by the Cloud Run front end the way a
+service's URL is: a request whose Host is one of them reaches the instance's
+running ingress container with the method, path, query, headers and body, and
+gets the container's answer back, behind the same invoker check
+(`run.routes.invoke` through the instance's own policy or one it inherits, or
+`invokerIamDisabled`), whose ID token names one of the instance's URLs. The
+instance runs its containers itself, so a request finds no container while it
+is stopped or between restarts. The SDK suite invokes an instance with the
+invoker's ID token after granting `roles/run.invoker` through the v2 REST
+client's setIamPolicy; the CLI suite grants it with `gcloud alpha run instances
+add-iam-policy-binding` and invokes with the token `gcloud auth
+print-identity-token` mints. The Terraform provider has no Cloud Run instance
+resource.
 
 A project has one number, the one Cloud Resource Manager assigned. Cloud DNS,
 Cloud Build, Cloud Run's service agent, Compute Engine, BigQuery and Cloud

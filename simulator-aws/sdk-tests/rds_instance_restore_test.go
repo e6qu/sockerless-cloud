@@ -57,8 +57,8 @@ func (f rdsInstanceFixture) connect(instanceID string) auroraSnapshotClient {
 // instance holds every row committed by RestoreTime and none committed after
 // it, and accepts writes of its own; a restore to the latest restorable time
 // holds every committed row. The instance takes an automated DB snapshot when
-// its engine first serves, which cannot be deleted by hand, and an instance
-// with no backup retention does not restore to a time.
+// it is created, which cannot be deleted by hand, and an instance with no
+// backup retention does not restore to a time.
 func TestRDS_InstanceRestoresToAPointInTime(t *testing.T) {
 	for _, engine := range []string{"postgres", "mysql"} {
 		t.Run(engine, func(t *testing.T) {
@@ -95,7 +95,7 @@ func TestRDS_InstanceRestoresToAPointInTime(t *testing.T) {
 				DBInstanceIdentifier: aws.String(sourceID), SnapshotType: aws.String("automated"),
 			})
 			require.NoError(t, err)
-			require.Len(t, snapshots.DBSnapshots, 1, "the engine's first start takes an automated snapshot")
+			require.Len(t, snapshots.DBSnapshots, 1, "the instance's creation takes one automated snapshot")
 			automated := snapshots.DBSnapshots[0]
 			assert.True(t, strings.HasPrefix(aws.ToString(automated.DBSnapshotIdentifier), "rds:"+sourceID+"-"))
 			_, err = f.client.DeleteDBSnapshot(ctx, &rds.DeleteDBSnapshotInput{DBSnapshotIdentifier: automated.DBSnapshotIdentifier})
@@ -149,6 +149,72 @@ func TestRDS_InstanceRestoresToAPointInTime(t *testing.T) {
 				"a restore to the latest restorable time holds every committed row")
 		})
 	}
+}
+
+// Amazon RDS takes a DB instance's first automated backup when it creates the
+// instance, whether or not a client ever connects, and takes one again when
+// ModifyDBInstance turns automated backups back on.
+func TestRDS_InstanceTakesItsFirstAutomatedBackupWithoutAClient(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	f := rdsInstanceFixture{t: t, ctx: ctx, client: rdsClient(), family: "postgres"}
+	instanceID := "sdk-instance-first-backup"
+	_, err := f.client.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
+		DBInstanceIdentifier:  aws.String(instanceID),
+		DBInstanceClass:       aws.String("db.t3.micro"),
+		Engine:                aws.String("postgres"),
+		AllocatedStorage:      aws.Int32(20),
+		MasterUsername:        aws.String(restoreSourceUsername),
+		MasterUserPassword:    aws.String(restoreSourcePassword),
+		BackupRetentionPeriod: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	f.cleanup(instanceID)
+
+	automatedSnapshots := &rds.DescribeDBSnapshotsInput{
+		DBInstanceIdentifier: aws.String(instanceID), SnapshotType: aws.String("automated"),
+	}
+	awaitActiveBackup := func(why string) {
+		t.Helper()
+		require.NoError(t, rds.NewDBSnapshotAvailableWaiter(f.client, func(o *rds.DBSnapshotAvailableWaiterOptions) {
+			o.MinDelay = waiterMinDelay
+			o.MaxDelay = waiterMaxDelay
+		}).Wait(ctx, automatedSnapshots, 3*time.Minute), why)
+		require.Eventually(t, func() bool {
+			listed, err := f.client.DescribeDBInstanceAutomatedBackups(ctx, &rds.DescribeDBInstanceAutomatedBackupsInput{
+				DBInstanceIdentifier: aws.String(instanceID),
+			})
+			return err == nil && len(listed.DBInstanceAutomatedBackups) == 1 &&
+				aws.ToString(listed.DBInstanceAutomatedBackups[0].Status) == "active"
+		}, time.Minute, waiterMinDelay, why)
+		snapshots, err := f.client.DescribeDBSnapshots(ctx, automatedSnapshots)
+		require.NoError(t, err)
+		require.Len(t, snapshots.DBSnapshots, 1, why)
+		assert.True(t, strings.HasPrefix(aws.ToString(snapshots.DBSnapshots[0].DBSnapshotIdentifier), "rds:"+instanceID+"-"))
+		described := f.waitAvailable(instanceID)
+		require.NotNil(t, described.LatestRestorableTime, "an instance with an automated backup reports LatestRestorableTime")
+	}
+	awaitActiveBackup("Amazon RDS takes the first automated backup when it creates the instance")
+
+	_, err = f.client.ModifyDBInstance(ctx, &rds.ModifyDBInstanceInput{
+		DBInstanceIdentifier: aws.String(instanceID), BackupRetentionPeriod: aws.Int32(0), ApplyImmediately: aws.Bool(true),
+	})
+	require.NoError(t, err)
+	require.NoError(t, rds.NewDBSnapshotDeletedWaiter(f.client, func(o *rds.DBSnapshotDeletedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(ctx, automatedSnapshots, 3*time.Minute), "turning automated backups off deletes the automated snapshots")
+	listed, err := f.client.DescribeDBInstanceAutomatedBackups(ctx, &rds.DescribeDBInstanceAutomatedBackupsInput{
+		DBInstanceIdentifier: aws.String(instanceID),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, listed.DBInstanceAutomatedBackups, "an instance without backup retention keeps no automated backup")
+
+	_, err = f.client.ModifyDBInstance(ctx, &rds.ModifyDBInstanceInput{
+		DBInstanceIdentifier: aws.String(instanceID), BackupRetentionPeriod: aws.Int32(1), ApplyImmediately: aws.Bool(true),
+	})
+	require.NoError(t, err)
+	awaitActiveBackup("turning automated backups back on takes an automated backup")
 }
 
 // RestoreDBInstanceFromS3 imports a Percona XtraBackup of a MySQL 8.0 server

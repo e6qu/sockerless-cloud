@@ -136,7 +136,8 @@ Current state of the sockerless-cloud repository.
   in its backup window, and expires the snapshots and log the period no longer
   covers; an Aurora cluster restores from an RDS DB snapshot ARN, and an
   Aurora MySQL cluster from a Percona XtraBackup in Amazon S3. An RDS for
-  PostgreSQL or RDS for MySQL instance keeps the same automated backups:
+  PostgreSQL or RDS for MySQL instance keeps the same automated backups,
+  taking the first when it is created whether or not a client connects:
   RestoreDBInstanceToPointInTime seeds the new instance from them, and
   RestoreDBInstanceFromS3 imports a Percona XtraBackup into RDS for MySQL. A
   deletion with `DeleteAutomatedBackups=false` retains the automated backups,
@@ -302,8 +303,10 @@ Current state of the sockerless-cloud repository.
   create, update or start holds its operation and the `Ready` condition until
   the instances have passed their startup probes, and fails both with the
   start error; an instance's exits restart it per its `restartPolicy`, up to
-  three times in a row; a simulator restart starts the stored pools' and
-  instances' containers again.
+  three times in a row; a simulator restart adopts the stored pools' and
+  instances' running containers and starts only what is missing.
+  An instance's `urls` reach its ingress container through the Cloud Run front
+  end, behind the same invoker check a service's URL has.
 - **A Cloud Run function is served by its Cloud Run service**:
   `serviceConfig.uri` is the service's run.app URL and `url` the function's
   cloudfunctions.net URL, both served through the Cloud Run front end with

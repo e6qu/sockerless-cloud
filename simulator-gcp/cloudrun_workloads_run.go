@@ -218,6 +218,7 @@ func startCloudRunWorkerPoolInstance(poolName, revision string, containers []Con
 	run, ctx := newCloudRunRun()
 	poolID := poolName[strings.LastIndex(poolName, "/")+1:]
 	instanceID := sim.RandomHex(8)
+	spec := cloudRunSpecDigest(serviceContainersSignature(containers, volumes))
 	sink := cloudRunWorkerPoolLogSink(poolName, revision)
 	bg.Go(func() {
 		defer close(run.done)
@@ -235,6 +236,8 @@ func startCloudRunWorkerPoolInstance(poolName, revision string, containers []Con
 				return map[string]string{
 					"sockerless-sim-worker-pool":           poolName,
 					"sockerless-sim-worker-pool-container": c.Name,
+					cloudRunGroupLabel:                     instanceID,
+					cloudRunSpecLabel:                      spec,
 				}
 			},
 		}, sink)

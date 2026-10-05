@@ -73,8 +73,8 @@ func rdsAwaitLogFileHolding(ctx context.Context, t *testing.T, client *rds.Clien
 
 // TestRDSLogFilesServeTheEngineOutput_SDK finds a line the real engine logged
 // behind an Amazon RDS instance in the log files DescribeDBLogFiles lists and
-// DownloadDBLogFilePortion returns. An instance whose engine never started has
-// none.
+// DownloadDBLogFilePortion returns. A log file for an hour before the instance
+// existed is not found.
 func TestRDSLogFilesServeTheEngineOutput_SDK(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
@@ -103,12 +103,9 @@ func TestRDSLogFilesServeTheEngineOutput_SDK(t *testing.T) {
 			})
 		})
 
-		before, err := client.DescribeDBLogFiles(testContext, &rds.DescribeDBLogFilesInput{DBInstanceIdentifier: aws.String(instanceID)})
-		require.NoError(t, err)
-		assert.Empty(t, before.DescribeDBLogFiles, "an engine that has not started has written no log")
 		_, err = client.DownloadDBLogFilePortion(testContext, &rds.DownloadDBLogFilePortionInput{
 			DBInstanceIdentifier: aws.String(instanceID),
-			LogFileName:          aws.String("error/postgresql.log." + time.Now().UTC().Format("2006-01-02-15")),
+			LogFileName:          aws.String("error/postgresql.log." + created.DBInstance.InstanceCreateTime.Add(-time.Hour).UTC().Format("2006-01-02-15")),
 		})
 		var apiErr smithy.APIError
 		require.True(t, errors.As(err, &apiErr), "got %v", err)
@@ -180,10 +177,6 @@ func TestRDSLogFilesServeTheEngineOutput_SDK(t *testing.T) {
 				DBInstanceIdentifier: aws.String(instanceID), SkipFinalSnapshot: aws.Bool(true),
 			})
 		})
-		before, err := client.DescribeDBLogFiles(testContext, &rds.DescribeDBLogFilesInput{DBInstanceIdentifier: aws.String(instanceID)})
-		require.NoError(t, err)
-		assert.Empty(t, before.DescribeDBLogFiles)
-
 		endpoint := fmt.Sprintf("%s:%d", aws.ToString(created.DBInstance.Endpoint.Address), aws.ToInt32(created.DBInstance.Endpoint.Port))
 		config := mysql.Config{
 			User: username, Passwd: password, Net: "tcp", Addr: endpoint,

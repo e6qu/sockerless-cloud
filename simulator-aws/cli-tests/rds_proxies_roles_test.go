@@ -205,8 +205,7 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		_ = awsCLI("rds", "modify-certificates", "--remove-customer-override").Run()
 	})
 
-	// The instance's automated backup waits for the automated snapshot its
-	// engine takes when it first serves, and belongs to a live instance.
+	// The instance's automated backup belongs to a live instance.
 	type instanceBackups struct {
 		DBInstanceAutomatedBackups []struct {
 			DBInstanceAutomatedBackupsArn string `json:"DBInstanceAutomatedBackupsArn"`
@@ -222,7 +221,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-instance-automated-backups",
 		"--db-instance-identifier", instID)), &ab)
 	require.Len(t, ab.DBInstanceAutomatedBackups, 1)
-	assert.Equal(t, "creating", ab.DBInstanceAutomatedBackups[0].Status)
 	assert.Contains(t, runCLIExpectError(t, awsCLI("rds", "delete-db-instance-automated-backup",
 		"--db-instance-automated-backups-arn", ab.DBInstanceAutomatedBackups[0].DBInstanceAutomatedBackupsArn)),
 		"InvalidDBInstanceAutomatedBackupState")
@@ -246,14 +244,11 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 			Size        int64  `json:"Size"`
 		} `json:"DescribeDBLogFiles"`
 	}
-	var before logFiles
-	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-log-files", "--db-instance-identifier", instID)), &before)
-	assert.Empty(t, before.DescribeDBLogFiles, "an engine that has not started has written no log")
+	// An RDS for MySQL instance writes no PostgreSQL log.
 	assert.Contains(t, runCLIExpectError(t, awsCLI("rds", "download-db-log-file-portion",
-		"--db-instance-identifier", instID, "--log-file-name", "error/mysql-error.log")), "DBLogFileNotFoundFault")
+		"--db-instance-identifier", instID, "--log-file-name", "error/postgresql.log")), "DBLogFileNotFoundFault")
 
-	// The first client starts the engine, and the endpoint greets it once the
-	// engine accepts connections.
+	// The endpoint greets a client once the engine accepts connections.
 	var described struct {
 		DBInstances []struct {
 			Endpoint struct {
@@ -429,7 +424,7 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		"--db-cluster-resource-id", clusterResourceID)), &cab)
 	assert.Empty(t, cab.DBClusterAutomatedBackups)
 
-	// The engine took its first automated snapshot when it first served, so
+	// The instance took its first automated snapshot when it was created, so
 	// the automated backup is active and restores to a window; deleting the
 	// instance with --no-delete-automated-backups retains it.
 	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-instance-automated-backups",

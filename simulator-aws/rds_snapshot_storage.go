@@ -49,8 +49,14 @@ func rdsSnapshotVolume(snapshotID string) string {
 // rdsCaptureSnapshotData captures the instance's volume into the snapshot's
 // volume and settles the snapshot's status: available when the data is
 // captured, failed — with the reason in the status the API returns — when the
-// capture could not happen on a host that runs real engines.
+// capture could not happen on a host that runs real engines. An engine
+// starting for the instance's first automated backup finishes first, so the
+// capture never holds a data directory the engine is still initialising.
 func rdsCaptureSnapshotData(snapshotID, instanceID string) {
+	if plane, ok := rdsLoadDataPlane(instanceID); ok {
+		release := plane.backups.holdStart()
+		defer release()
+	}
 	if err := sim.CaptureVolume(context.Background(),
 		rdsInstanceVolume(instanceID), rdsSnapshotVolume(snapshotID), "rds"); err != nil {
 		rdsSettleSnapshot(snapshotID, "failed", err.Error())
