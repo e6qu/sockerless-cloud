@@ -3,6 +3,7 @@ package gcp_cli_test
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -181,4 +182,45 @@ func TestCloudRunInstances_CLI_CoexistWithMemorystore(t *testing.T) {
 		fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, id),
 		redisInstance.Name, "Memorystore's instance lifecycle answers on the same prefix")
 	assert.Equal(t, "READY", redisInstance.State)
+}
+
+// A Cloud Run instance's URL reaches its container through the Cloud Run
+// front end, which refuses the principal `gcloud auth print-identity-token`
+// mints a token for until `gcloud alpha run instances add-iam-policy-binding`
+// grants it roles/run.invoker on the instance.
+func TestCloudRunInstances_CLI_InvokerBindingGatesTheInstanceURL(t *testing.T) {
+	const id = "cli-inst-url"
+	body := `{"containers": [{"image": "` + httpProbeImageName + `", "args": ["echo-request"]}]}`
+	created := httpDoJSON(t, "POST", runInstancesBaseURL()+"?instanceId="+id, body)
+	t.Cleanup(func() {
+		resp, err := httpDo("DELETE", runInstancesBaseURL()+"/"+id, "")
+		if err == nil {
+			resp.Body.Close()
+		}
+	})
+	var op struct {
+		Name string `json:"name"`
+	}
+	parseJSON(t, created, &op)
+	var done struct {
+		Done     bool `json:"done"`
+		Response struct {
+			URLs []string `json:"urls"`
+		} `json:"response"`
+	}
+	parseJSON(t, httpDoJSON(t, "POST", baseURL+"/v2/"+op.Name+":wait", `{"timeout": "120s"}`), &done)
+	require.True(t, done.Done, "the instance's create operation completes once its container has started")
+	require.Len(t, done.Response.URLs, 1)
+	instanceURL := done.Response.URLs[0]
+
+	email := cliInvokerEmail(t)
+	token := cliIDToken(t, email, instanceURL)
+	status, answer := requestService(t, instanceURL, "/", token)
+	assert.Equal(t, http.StatusForbidden, status, "body=%q", answer)
+
+	runCLI(t, gcloudCLI("alpha", "run", "instances", "add-iam-policy-binding", id,
+		"--region="+location, "--member=serviceAccount:"+email, "--role=roles/run.invoker", "--format=json"))
+	status, answer = requestService(t, instanceURL, "/from-cli", token)
+	require.Equal(t, http.StatusOK, status, "body=%q", answer)
+	assert.Equal(t, "GET /from-cli", answer)
 }

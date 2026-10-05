@@ -345,6 +345,8 @@ type cloudRunServiceInstance struct {
 	specSig string
 	// stop ends the instance's log stream, container start and startup probes.
 	stop context.CancelFunc
+	// logsDone closes once the owner container's log stream has ended.
+	logsDone chan struct{}
 	// ready closes once every container has started and passed its startup
 	// probe, or one failed; address and startErr are written before it closes
 	// and read only after.
@@ -542,7 +544,13 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	for i, c := range containers {
 		env := workloadhost.MergeEnv(containerEnvMap(c.Env), metadataEnv)
 		containerName := fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-%s", serviceID, instanceID)
-		labels := map[string]string{"sockerless-sim-service": serviceID}
+		labels := map[string]string{
+			"sockerless-sim-service": serviceID,
+			cloudRunResourceLabel:    name,
+			cloudRunContainerLabel:   c.Name,
+			cloudRunGroupLabel:       instanceID,
+			cloudRunSpecLabel:        cloudRunSpecDigest(specSig),
+		}
 		if i == 0 {
 			env = workloadhost.MergeEnv(map[string]string{"PORT": strconv.Itoa(cloudRunContainerPort(c))}, containerEnvMap(c.Env), metadataEnv)
 		} else {
@@ -588,11 +596,11 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	}
 
 	lifeCtx, stop := context.WithCancel(context.Background())
-	go sim.StreamContainerLogs(lifeCtx, ownerID, sink)
 	inst := &cloudRunServiceInstance{
 		ownerID:       ownerID,
 		specSig:       specSig,
 		stop:          stop,
+		logsDone:      streamCloudRunOwnerLogs(lifeCtx, ownerID, sink),
 		ready:         make(chan struct{}),
 		releaseMounts: releaseMounts,
 	}
@@ -608,6 +616,17 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 
 	go inst.startContainers(lifeCtx, containers, order, members, sink)
 	return inst, nil
+}
+
+// streamCloudRunOwnerLogs follows the owner container's output into sink
+// until the container stops, and returns a channel that closes then.
+func streamCloudRunOwnerLogs(ctx context.Context, ownerID string, sink sim.LogSink) chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sim.StreamContainerLogs(ctx, ownerID, sink)
+	}()
+	return done
 }
 
 func deleteCloudRunServiceInstance(name string) {
@@ -631,12 +650,12 @@ func deleteCloudRunServiceInstanceIf(name string, inst *cloudRunServiceInstance)
 	stopCloudRunServiceInstance(inst)
 }
 
+// stopCloudRunServiceInstance stops the instance's containers with Cloud
+// Run's grace and only then ends its log stream, so what the containers write
+// as they stop still reaches Cloud Logging.
 func stopCloudRunServiceInstance(inst *cloudRunServiceInstance) {
 	if inst == nil {
 		return
-	}
-	if inst.stop != nil {
-		inst.stop()
 	}
 	inst.mu.Lock()
 	inst.stopped = true
@@ -647,6 +666,12 @@ func stopCloudRunServiceInstance(inst *cloudRunServiceInstance) {
 		h.Cancel()
 	}
 	sim.StopAndRemoveContainer(inst.ownerID, cloudRunStopGrace)
+	if inst.logsDone != nil {
+		<-inst.logsDone
+	}
+	if inst.stop != nil {
+		inst.stop()
+	}
 	if inst.releaseMounts != nil {
 		inst.releaseMounts()
 	}

@@ -303,8 +303,10 @@ Current state of the sockerless-cloud repository.
   create, update or start holds its operation and the `Ready` condition until
   the instances have passed their startup probes, and fails both with the
   start error; an instance's exits restart it per its `restartPolicy`, up to
-  three times in a row; a simulator restart starts the stored pools' and
-  instances' containers again.
+  three times in a row; a simulator restart adopts the stored pools' and
+  instances' running containers and starts only what is missing.
+  An instance's `urls` reach its ingress container through the Cloud Run front
+  end, behind the same invoker check a service's URL has.
 - **A Cloud Run function is served by its Cloud Run service**:
   `serviceConfig.uri` is the service's run.app URL and `url` the function's
   cloudfunctions.net URL, both served through the Cloud Run front end with

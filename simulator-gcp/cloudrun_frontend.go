@@ -60,11 +60,32 @@ func cloudRunServiceByHost(host string) (ServiceV2, bool) {
 	})
 }
 
+var cloudRunInstancesByHost sim.GenerationIndex[InstanceV2]
+
+// cloudRunInstanceByHost returns the Cloud Run instance one of whose urls a
+// Host header names.
+func cloudRunInstanceByHost(host string) (InstanceV2, bool) {
+	hostname := lbplane.Hostname(host)
+	if hostname == "" || crv2Instances == nil {
+		return InstanceV2{}, false
+	}
+	return cloudRunInstancesByHost.Lookup(crv2Instances, hostname, func(i InstanceV2) []string {
+		var hosts []string
+		for _, u := range i.URLs {
+			if parsed, err := url.Parse(u); err == nil {
+				hosts = append(hosts, lbplane.Hostname(parsed.Host))
+			}
+		}
+		return hosts
+	})
+}
+
 // registerCloudRunFrontEnd serves each Cloud Run service on its run.app URL:
 // a request whose Host is a service's host goes, with its method, path, query,
 // headers and body, to the service's ingress container, which is started if no
-// instance is running, and the container's answer comes back untouched. The
-// simulator serves every host on its one endpoint, so it dispatches on the
+// instance is running, and the container's answer comes back untouched. A
+// Cloud Run instance's urls reach its running ingress container the same way.
+// The simulator serves every host on its one endpoint, so it dispatches on the
 // Host header.
 func registerCloudRunFrontEnd(srv *sim.Server) {
 	srv.WrapHandler(func(next http.Handler) http.Handler {
@@ -73,12 +94,15 @@ func registerCloudRunFrontEnd(srv *sim.Server) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			svc, ok := cloudRunServiceByHost(r.Host)
-			if !ok {
-				cloudRunFrontEndError(w, http.StatusNotFound, "The requested URL was not found on this server.")
+			if svc, ok := cloudRunServiceByHost(r.Host); ok {
+				serveCloudRunService(w, r, svc)
 				return
 			}
-			serveCloudRunService(w, r, svc)
+			if inst, ok := cloudRunInstanceByHost(r.Host); ok {
+				serveCloudRunInstance(w, r, inst)
+				return
+			}
+			cloudRunFrontEndError(w, http.StatusNotFound, "The requested URL was not found on this server.")
 		})
 	})
 }
@@ -116,7 +140,10 @@ func cloudRunStartupBound(c Container) time.Duration {
 // when its audience is the service's URL, one of its custom audiences, or one
 // of urls, the further URLs the request reached the service on.
 func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2, urls ...string) {
-	if !cloudRunInvokerAuthorized(w, r, svc, urls) {
+	if !cloudRunInvokerAuthorized(w, r, cloudRunInvoked{
+		name: svc.Name, invokerIAMDisabled: svc.InvokerIamDisabled,
+		urls: append([]string{svc.URI}, urls...), customAudiences: svc.CustomAudiences,
+	}) {
 		return
 	}
 	if svc.Template == nil || len(svc.Template.Containers) == 0 || svc.Template.Containers[0].Image == "" {
@@ -148,13 +175,26 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance failed to start: %v", err)))
 		return
 	}
-	err = lbplane.Forward(w, r, lbplane.Upstream{
+	if err := forwardToCloudRunContainer(w, r, address, requestTimeout); err != nil {
+		if !inst.ingressRunning() {
+			deleteCloudRunServiceInstanceIf(svc.Name, inst)
+		}
+		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance did not answer: %v", err)))
+	}
+}
+
+// forwardToCloudRunContainer relays the request to the ingress container at
+// address and its answer back, answering a caller that went away or a request
+// that timed out itself, and returns any other failure for the caller to
+// answer.
+func forwardToCloudRunContainer(w http.ResponseWriter, r *http.Request, address string, timeout time.Duration) error {
+	err := lbplane.Forward(w, r, lbplane.Upstream{
 		Scheme:   "http",
 		Address:  address,
 		Path:     r.URL.EscapedPath(),
 		RawQuery: r.URL.RawQuery,
 		Header:   cloudRunForwardedHeader(r.Header),
-		Timeout:  requestTimeout,
+		Timeout:  timeout,
 	})
 	switch {
 	case err == nil:
@@ -163,9 +203,33 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 	case errors.Is(err, context.DeadlineExceeded):
 		cloudRunFrontEndError(w, http.StatusGatewayTimeout, "upstream request timeout")
 	default:
-		if !inst.ingressRunning() {
-			deleteCloudRunServiceInstanceIf(svc.Name, inst)
-		}
+		return err
+	}
+	return nil
+}
+
+// serveCloudRunInstance serves a request to a Cloud Run instance on its
+// running ingress container. An instance runs its containers itself rather
+// than per request, so a request finds none while it is stopped or between
+// restarts.
+func serveCloudRunInstance(w http.ResponseWriter, r *http.Request, inst InstanceV2) {
+	if !cloudRunInvokerAuthorized(w, r, cloudRunInvoked{name: inst.Name, invokerIAMDisabled: inst.InvokerIamDisabled, urls: inst.URLs}) {
+		return
+	}
+	cloudRunServiceInstances.Lock()
+	running := cloudRunServiceInstances.byName[inst.Name]
+	cloudRunServiceInstances.Unlock()
+	if running == nil {
+		cloudRunFrontEndError(w, http.StatusServiceUnavailable, "The instance is not running.")
+		return
+	}
+	sim.DeclareWait(r.Context(), cloudRunDefaultRequestTimeout)
+	address, err := running.awaitReady(r.Context())
+	if err != nil {
+		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance failed to start: %v", err)))
+		return
+	}
+	if err := forwardToCloudRunContainer(w, r, address, cloudRunDefaultRequestTimeout); err != nil {
 		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance did not answer: %v", err)))
 	}
 }
@@ -208,22 +272,32 @@ type cloudRunIDTokenClaims struct {
 	Email string `json:"email"`
 }
 
-// cloudRunInvokerAuthorized admits a request to a service. A service whose
-// invoker IAM check is disabled admits everyone, and one whose policy, or a
-// policy it inherits from its project, folders and organization, grants
+// cloudRunInvoked is the service or instance a request to the front end
+// invokes: its resource name, whether its invoker IAM check is disabled, and
+// the URLs and custom audiences an ID token for it may name.
+type cloudRunInvoked struct {
+	name               string
+	invokerIAMDisabled bool
+	urls               []string
+	customAudiences    []string
+}
+
+// cloudRunInvokerAuthorized admits a request to a service or an instance. One
+// whose invoker IAM check is disabled admits everyone, and one whose policy,
+// or a policy it inherits from its project, folders and organization, grants
 // run.routes.invoke to allUsers admits a caller without a credential. Any
-// other request carries a Google-signed ID token whose audience is the
-// service's URL or one of its custom audiences — an OAuth access token is not
-// one — and the principal the token names holds run.routes.invoke on the
-// service, conditions on its bindings included.
-func cloudRunInvokerAuthorized(w http.ResponseWriter, r *http.Request, svc ServiceV2, urls []string) bool {
-	if svc.InvokerIamDisabled {
+// other request carries a Google-signed ID token whose audience is one of the
+// resource's URLs or custom audiences — an OAuth access token is not one —
+// and the principal the token names holds run.routes.invoke on the resource,
+// conditions on its bindings included.
+func cloudRunInvokerAuthorized(w http.ResponseWriter, r *http.Request, invoked cloudRunInvoked) bool {
+	if invoked.invokerIAMDisabled {
 		return true
 	}
-	resource := gcpIAMResourceNamed(svc.Name)
-	policies := gcpHierarchyPolicies(resourceProject(svc.Name))
+	resource := gcpIAMResourceNamed(invoked.name)
+	policies := gcpHierarchyPolicies(resourceProject(invoked.name))
 	if store := gcpResourceIAMStore(); store != nil {
-		if own, ok := store.Get(svc.Name); ok {
+		if own, ok := store.Get(invoked.name); ok {
 			policies = append(policies, own)
 		}
 	}
@@ -241,7 +315,7 @@ func cloudRunInvokerAuthorized(w http.ResponseWriter, r *http.Request, svc Servi
 		cloudRunFrontEndError(w, http.StatusForbidden, forbidden)
 		return false
 	}
-	claims, ok := cloudRunVerifyIDToken(strings.TrimSpace(auth[len(prefix):]), svc, urls)
+	claims, ok := cloudRunVerifyIDToken(strings.TrimSpace(auth[len(prefix):]), invoked)
 	if !ok {
 		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token" error_description="The access token could not be verified"`)
 		cloudRunFrontEndError(w, http.StatusUnauthorized, fmt.Sprintf(
@@ -259,18 +333,18 @@ func cloudRunInvokerAuthorized(w http.ResponseWriter, r *http.Request, svc Servi
 	return true
 }
 
-// cloudRunVerifyIDToken verifies an ID token Google signed for the service:
-// one whose audience is the service's URL or one of urls, with or without
-// its trailing slash, or one of the service's custom audiences.
-func cloudRunVerifyIDToken(token string, svc ServiceV2, urls []string) (cloudRunIDTokenClaims, bool) {
+// cloudRunVerifyIDToken verifies an ID token Google signed for the invoked
+// service or instance: one whose audience is one of its URLs, with or without
+// the trailing slash, or one of its custom audiences.
+func cloudRunVerifyIDToken(token string, invoked cloudRunInvoked) (cloudRunIDTokenClaims, bool) {
 	if accessSigner == nil {
 		return cloudRunIDTokenClaims{}, false
 	}
 	var audiences []string
-	for _, u := range append([]string{svc.URI}, urls...) {
+	for _, u := range invoked.urls {
 		audiences = append(audiences, u, strings.TrimRight(u, "/")+"/")
 	}
-	audiences = append(audiences, svc.CustomAudiences...)
+	audiences = append(audiences, invoked.customAudiences...)
 	for _, audience := range audiences {
 		if audience == "" {
 			continue

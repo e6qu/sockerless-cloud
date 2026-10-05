@@ -226,25 +226,28 @@ func cloudRunInstanceStopped(inst InstanceV2) bool {
 	return c != nil && !inst.Reconciling && (c.Reason == "Stopped" || c.State == "CONDITION_FAILED")
 }
 
-// resumeCloudRunWorkloads starts the instances of every stored worker pool and
+// resumeCloudRunWorkloads runs the instances of every stored worker pool and
 // every stored instance that is meant to run, which the previous simulator
-// process ran until it stopped; reconciliations it left unfinished settle as
-// they start.
+// process ran until it stopped: it adopts the containers that process left
+// running, starts what is missing, and removes what no longer belongs to a
+// running instance. Reconciliations it left unfinished settle as they start.
 func resumeCloudRunWorkloads() {
 	if crv2WorkerPools != nil {
 		for _, pool := range crv2WorkerPools.List() {
-			if !pool.Reconciling && pool.TerminalCondition != nil && pool.TerminalCondition.State == "CONDITION_FAILED" {
-				continue
+			failed := !pool.Reconciling && pool.TerminalCondition != nil && pool.TerminalCondition.State == "CONDITION_FAILED"
+			adoptCloudRunWorkerPoolInstances(pool, !failed)
+			if !failed {
+				runCloudRunWorkerPool(pool)
 			}
-			runCloudRunWorkerPool(pool)
 		}
 	}
 	if crv2Instances != nil {
 		for _, inst := range crv2Instances.List() {
-			if cloudRunInstanceStopped(inst) {
-				continue
+			stopped := cloudRunInstanceStopped(inst)
+			adoptCloudRunInstance(inst, !stopped)
+			if !stopped {
+				runCloudRunInstance(inst)
 			}
-			runCloudRunInstance(inst)
 		}
 	}
 }
