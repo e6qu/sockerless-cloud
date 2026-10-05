@@ -147,6 +147,9 @@ type Instance struct {
 	stopped chan struct{}
 	// accepting records that the engine behind handle accepted clients.
 	accepting bool
+	// discarding records a Discard in progress, so a start that records its
+	// container after Discard read none kills that container itself.
+	discarding bool
 
 	startMu   sync.Mutex
 	attempted bool
@@ -190,9 +193,15 @@ func (i *Instance) Close() error {
 // directory about to be removed needs no clean shutdown.
 func (i *Instance) Discard() error {
 	i.closeListeners()
-	i.mu.RLock()
+	i.mu.Lock()
+	i.discarding = true
 	handle, accepting := i.handle, i.accepting
-	i.mu.RUnlock()
+	i.mu.Unlock()
+	defer func() {
+		i.mu.Lock()
+		i.discarding = false
+		i.mu.Unlock()
+	}()
 	if handle != nil && !accepting {
 		sim.StopContainer(handle.ContainerID, 0)
 	}
@@ -334,7 +343,13 @@ func (i *Instance) start() (string, *sim.ContainerHandle, chan struct{}, error) 
 	stopped := make(chan struct{})
 	i.mu.Lock()
 	i.backend, i.handle, i.stopped, i.accepting = backend, handle, stopped, false
+	discarding := i.discarding
 	i.mu.Unlock()
+	if discarding {
+		sim.StopContainer(handle.ContainerID, 0)
+		_ = i.stopEngine()
+		return "", nil, nil, fmt.Errorf("%s database engine discarded while it started", i.Engine.Family)
+	}
 	return backend, handle, stopped, nil
 }
 

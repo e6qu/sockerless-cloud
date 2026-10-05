@@ -191,11 +191,8 @@ func TestDiscardEndsAnEngineStillInitialising(t *testing.T) {
 	case err := <-started:
 		t.Fatalf("the engine start ended before the engine wrote a line: %v", err)
 	}
-	_, handle := instance.snapshot()
-	if handle == nil {
-		t.Fatal("the engine wrote a line but the instance holds no container")
-	}
-
+	// The container writes before the start records it, so Discard may land in
+	// either order; it ends the engine both ways.
 	begun := time.Now()
 	if err := instance.Discard(); err != nil {
 		t.Fatalf("Discard: %v", err)
@@ -206,7 +203,13 @@ func TestDiscardEndsAnEngineStillInitialising(t *testing.T) {
 	if err := <-started; err == nil {
 		t.Fatal("the engine start succeeded after Discard")
 	}
-	if sim.ContainerRunning(handle.ContainerID) {
-		t.Fatalf("container %s still runs after Discard", handle.ContainerID)
+	existing, err := sim.FindExistingContainers(instance.Labels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, container := range existing {
+		if container.Running {
+			t.Fatalf("container %s still runs after Discard", container.ID)
+		}
 	}
 }
