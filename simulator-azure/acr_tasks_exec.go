@@ -662,7 +662,7 @@ func (x *acrTaskRun) cleanup() {
 			kept = true
 			continue
 		}
-		if _, err := x.engine.ContainerRemove(ctx, c.name, client.ContainerRemoveOptions{Force: true}); err != nil {
+		if _, err := x.engine.ContainerRemove(ctx, c.name, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
 			acrTasksLogger.Warn().Err(err).Str("container", c.name).Msg("could not remove an ACR Tasks step container")
 		}
 	}
