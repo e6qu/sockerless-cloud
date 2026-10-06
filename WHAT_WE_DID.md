@@ -1000,6 +1000,68 @@ deployment reaches answers from a generation index — a site's Kudu
 deployments, webjobs and host-name bindings, and a webjob's runs — instead of
 a full-store scan.
 
+The rest of the SCM site followed. The VFS (`/api/vfs`, and `/vfs`, the
+spelling Kudu's job log URLs use) reads, writes and deletes under the site's
+`/home` with Kudu's semantics: a trailing slash addresses a directory, which
+lists as JSON entries with `href` and `path`; a directory or file addressed in
+the other spelling redirects with 307; a file carries an ETag derived from its
+write time, and overwriting or deleting one takes `If-Match`; a directory
+deletes only empty or with `recursive=true`. The deployed content stays the
+authority for `site/wwwroot`: the simulator projects it onto the site's `/home`
+before a VFS or command request — keeping directories and each file's write
+time — and lands what the request changed there back in the content, so a job
+written through the VFS is discovered as a deployed one would be. A
+run-from-package app's wwwroot refuses writes. `/api/command` runs `sh -c` in
+the site's image with `/home` mounted, the app settings in its environment and
+the requested directory as its working directory, answers `Output`, `Error`
+and `ExitCode`, and kills a command that writes nothing for
+`SCM_COMMAND_IDLE_TIMEOUT` seconds. `/api/settings` merges Kudu's defaults, the
+settings written through it and the app settings, in that order of
+precedence; a slot swap carries the written settings with the content.
+`/logstream` writes a welcome line and then each line the site's containers
+log, a quiet-minute line while nothing is logged, and ends after
+`SCM_LOGSTREAM_TIMEOUT`. Webjob runs write Kudu's log files under
+`data/jobs`: a triggered run's `output_log.txt` with the run's status changes
+and stdout and stderr lines, and its `error_log.txt` once it writes to stderr;
+a continuous job's `job_log.txt`; and a scheduled job's `job_scheduler.log`.
+The Kudu and Azure Resource Manager job records name those files by their VFS
+URLs (`output_url`, `error_url`, `log_url`, `scheduler_logs_url`) once they
+exist. A triggered job whose `settings.job` names a six-field NCRONTAB
+`schedule` runs at each occurrence, read in `WEBSITE_TIME_ZONE`, with trigger
+`Schedule - <expression>`, skipping an occurrence while the job runs or while
+`WEBJOBS_STOPPED` is set; a schedule that does not parse is the job's
+`error`. Like Kudu's, the scheduler starts from the next occurrence after the
+simulator comes up and runs none it missed. The command API resolves the
+site's registry credential, which put the Azure Container Registry
+login-server lookup behind the SCM site's handler wrapper, so that lookup
+answers from an index rather than a scan of every registry.
+
+Deployment slots had held their own content, settings, publishing
+credentials and SCM site while running nothing. Each slot came to run its
+own container exactly as its app does, keyed by the slot: the front end routes a
+slot's hostname to it, its `/home`, containers and volumes go by
+`<app>__<slot>` (a slot's name holds a slash, which neither a directory nor a
+container name may), its container sees `WEBSITE_SITE_NAME` as the app's name
+and `WEBSITE_SLOT_NAME` as its own (`Production` for the app), a settings,
+configuration or storage-mount change restarts it, and a deployment's
+deploymentStatus settles on its start. Deleting a slot, or its app, stops its
+container and removes its storage. The swap, which had answered 200 and
+exchanged nothing, became a long-running operation that exchanges what the two
+slots run: their deployed content and everything kept in their file systems
+(deployment history, webjobs and their runs, Kudu settings, `/home`), their
+general settings and sitecontainers, and their app settings, connection
+strings and storage mounts except those the app's `slotconfignames` sticks to
+a slot and the `_EXTENSION_VERSION` settings, which stick unless every slot
+sets `WEBSITE_OVERRIDE_PRESERVE_DEFAULT_STICKY_SLOT_SETTINGS` to 0 or false.
+Each slot keeps its hostnames, publishing endpoints, Always On, scale, IP
+restriction, CORS, diagnostic-log, VNet and TLS settings. The destination
+starts on its new content before the swap succeeds; one that does not start
+swaps back and fails the operation, leaving both slots as they were. Both
+slots then report the swap in `slotSwapStatus`, which
+terraform-provider-azurerm's `azurerm_web_app_active_slot` waits on. The CLI
+and Terraform suites pull an App Service platform image only when the run
+selects a test that runs it.
+
 RunTask places a task only where it fits. The simulator runs real containers on
 one finite host, so rather than invent a capacity it commits each placed task's
 declared memory and CPU against what the simulator's own cgroup, or the

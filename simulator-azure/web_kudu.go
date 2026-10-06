@@ -23,7 +23,9 @@ import (
 // the Repository hostname the site reports in hostNameSslStates: zip deploy
 // (/api/zipdeploy), OneDeploy (/api/publish) and the deployment records both
 // write (/api/deployments, and the legacy /deployments the warmup probe
-// reads). web_kudu_webjobs.go serves its WebJobs API. Requests authenticate with the site's publishing credentials (or
+// reads). Its WebJobs API, VFS, command and settings APIs and log stream live
+// in the web_kudu_*.go files beside it. Requests authenticate with the site's
+// publishing credentials (or
 // the subscription's deployment user) as HTTP basic auth while the scm basic
 // publishing credentials policy allows it, or with a Microsoft Entra bearer
 // token. A deployment lands its artifact through the same placement the Azure
@@ -111,6 +113,7 @@ func kuduTime(t time.Time) string {
 // failed, as Kudu reports a deployment its worker died during.
 func initWebKuduStore(srv *sim.Server) {
 	webKuduDeployments = sim.MakeStore[WebKuduDeployment](srv.DB(), "web_kudu_deployments")
+	kuduSiteSettings = sim.MakeStore[map[string]string](srv.DB(), "web_kudu_settings")
 	for _, rec := range webKuduDeployments.List() {
 		if rec.Complete {
 			continue
@@ -168,8 +171,10 @@ func (rec *WebKuduDeployment) logf(typ int, format string, args ...any) {
 	})
 }
 
-// webCleanupKudu removes the Kudu deployments of a deleted site or slot.
+// webCleanupKudu removes the Kudu deployments and settings of a deleted site
+// or slot.
 func webCleanupKudu(resID string) {
+	kuduSiteSettings.Delete(resID)
 	prefix := resID + "/deployments/"
 	for _, rec := range webKuduDeployments.Filter(func(rec WebKuduDeployment) bool { return strings.HasPrefix(rec.ID, prefix) }) {
 		webKuduDeployments.Delete(rec.ID)
@@ -260,7 +265,15 @@ func serveKudu(w http.ResponseWriter, r *http.Request, site *Site) {
 	if serveKuduWebJobs(w, r, site) {
 		return
 	}
+	if rel, dir, ok := kuduVFSPath(r.URL.Path); ok {
+		serveKuduVFS(w, r, site, rel, dir)
+		return
+	}
 	p := strings.TrimSuffix(strings.ToLower(r.URL.Path), "/")
+	if key, ok := strings.CutPrefix(p, "/api/settings"); ok && (key == "" || strings.HasPrefix(key, "/")) {
+		kuduSettingsAPI(w, r, site, strings.Trim(r.URL.Path[len("/api/settings"):], "/"))
+		return
+	}
 	if rest, ok := strings.CutPrefix(p, "/api"); ok && strings.HasPrefix(rest, "/deployments") {
 		p = rest
 	}
@@ -285,9 +298,20 @@ func serveKudu(w http.ResponseWriter, r *http.Request, site *Site) {
 			return
 		}
 		kuduOneDeploy(w, r, site)
+	case p == "/api/command":
+		if !kuduMethod(w, r, http.MethodPost) {
+			return
+		}
+		sim.DeclareOpenEndedWait(r.Context())
+		kuduCommand(w, r, site)
+	case p == "/logstream" || p == "/api/logstream":
+		if !kuduMethod(w, r, http.MethodGet) {
+			return
+		}
+		kuduLogStream(w, r, site)
 	default:
 		kuduError(w, http.StatusNotImplemented,
-			"App Service SCM site: %s %s is not implemented by the simulator, which serves the Kudu deployment API (/api/zipdeploy, /api/publish, /api/deployments) and the WebJobs API (/api/webjobs, /api/triggeredwebjobs, /api/continuouswebjobs)",
+			"App Service SCM site: %s %s is not implemented by the simulator, which serves the Kudu deployment API (/api/zipdeploy, /api/publish, /api/deployments), the WebJobs API (/api/webjobs, /api/triggeredwebjobs, /api/continuouswebjobs), the VFS (/api/vfs, /vfs), the command API (/api/command), the settings API (/api/settings) and the log stream of the site's container output (/logstream)",
 			r.Method, r.URL.Path)
 	}
 }
@@ -660,9 +684,9 @@ func kuduTrackRuntime(statusID, resID string) {
 			row.Errors = append(row.Errors, msg)
 		})
 	}
-	site, ok := azfSites.Get(resID)
+	site, ok := webJobSite(resID)
 	if !ok {
-		fail("The simulator runs no instance of a deployment slot.")
+		fail("The site was deleted before it restarted.")
 		return
 	}
 	if !siteRunsContainer(&site) {

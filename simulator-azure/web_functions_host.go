@@ -424,10 +424,17 @@ func functionHTTPRoute(name string, config map[string]any) (string, bool) {
 
 // appServicePlatformEnv is the environment App Service gives every site's
 // container beside its app settings: the site's identity, the instance it runs
-// on, and the key the site's platform components encrypt and sign with.
+// on, and the key the site's platform components encrypt and sign with. A
+// slot's container carries its app's name and its own slot name; the
+// production slot is "Production".
 func appServicePlatformEnv(site *Site) map[string]string {
+	app, slot, isSlot := strings.Cut(site.Name, "/")
+	if !isSlot {
+		slot = "Production"
+	}
 	return map[string]string{
-		"WEBSITE_SITE_NAME":           site.Name,
+		"WEBSITE_SITE_NAME":           app,
+		"WEBSITE_SLOT_NAME":           slot,
 		"WEBSITE_HOSTNAME":            site.Properties.DefaultHostName,
 		"WEBSITE_RESOURCE_GROUP":      site.Properties.ResourceGroup,
 		"WEBSITE_INSTANCE_ID":         sim.RandomHex(64),

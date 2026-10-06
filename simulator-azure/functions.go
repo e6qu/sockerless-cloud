@@ -68,6 +68,14 @@ type SiteProperties struct {
 	// Environment. A site normally inherits the environment from its App
 	// Service plan; either way the environment's own app list reads it back.
 	HostingEnvironmentProfile *HostingEnvironmentProfile `json:"hostingEnvironmentProfile,omitempty"`
+	SlotSwapStatus            *SlotSwapStatus            `json:"slotSwapStatus,omitempty"`
+}
+
+// SlotSwapStatus records the last successful swap an app or slot took part in.
+type SlotSwapStatus struct {
+	TimestampUtc        string `json:"timestampUtc"`
+	SourceSlotName      string `json:"sourceSlotName"`
+	DestinationSlotName string `json:"destinationSlotName"`
 }
 
 // SiteConfig holds the site configuration for a function app.
@@ -376,7 +384,8 @@ func registerAzureFunctions(srv *sim.Server) {
 			},
 		}
 
-		_, existed := sites.Get(resourceID)
+		prev, existed := sites.Get(resourceID)
+		site.Properties.SlotSwapStatus = prev.Properties.SlotSwapStatus
 		sites.Put(resourceID, site)
 		// Real Azure provisions the Functions host key set (master key +
 		// "default" host function key) with the new site.
@@ -566,6 +575,7 @@ func registerAzureFunctions(srv *sim.Server) {
 
 		site.AzureStorageAccounts = req.Properties
 		sites.Put(resourceID, site)
+		restartAzureFunctionInstance(site)
 
 		// ARM convention: respond with the resource shape that was PUT.
 		props := site.AzureStorageAccounts
@@ -925,13 +935,10 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		})
 	})
 
-	// GET /sites/{name}/config/slotconfignames — the "sticky settings"
-	// list (which app-setting / connection-string / azure-storage names
-	// should be preserved during slot swap). terraform-provider-azurerm
-	// reads this on every plan refresh even when the resource has no
-	// `sticky_settings` block. The sim doesn't model slot swaps, so
-	// the truthful response is empty arrays for every category. PUT is
-	// also supported so a future `sticky_settings` block round-trips.
+	// GET /sites/{name}/config/slotconfignames — the "sticky settings": the
+	// app-setting, connection-string and azure-storage names a slot swap
+	// leaves with their slot. terraform-provider-azurerm reads it on every
+	// plan refresh, even for a resource with no `sticky_settings` block.
 	slotConfigNamesGet := func(w http.ResponseWriter, r *http.Request) {
 		resourceID := siteResourceID(r)
 		if !siteExists(resourceID) {
@@ -1348,7 +1355,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		Env:          env,
 		Args:         args,
 		Binds:        binds,
-		Name:         fmt.Sprintf("sockerless-sim-azure-site-%s-%s", site.Name, sim.RandomHex(8)),
+		Name:         fmt.Sprintf("sockerless-sim-azure-site-%s-%s", siteStorageName(site.Name), sim.RandomHex(8)),
 		Labels: map[string]string{
 			"sockerless-sim-type": "azure-site",
 			"sockerless-site":     site.Name,
@@ -1498,7 +1505,7 @@ func startAlwaysOnSite(site Site) {
 		inst.mu.Lock()
 		defer inst.mu.Unlock()
 		// The site may have been deleted or changed while the start waited.
-		current, ok := azfSites.Get(site.ID)
+		current, ok := webJobSite(site.ID)
 		if !ok || !siteAlwaysOn(&current) || !siteRunsContainer(&current) {
 			return
 		}

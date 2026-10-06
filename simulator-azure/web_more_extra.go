@@ -28,6 +28,15 @@ func webSlotStringDictPut(w http.ResponseWriter, r *http.Request) {
 	cfg, _ := siteConfigStore.Get(webResourceID(r))
 	cfg.AppSettings = req.Properties
 	siteConfigStore.Put(webResourceID(r), cfg)
+	// The slot's workload reads its settings from siteConfig.appSettings, and
+	// a settings change restarts it.
+	row, _ := webSlots.Get(webResourceID(r))
+	if row.Properties.SiteConfig == nil {
+		row.Properties.SiteConfig = &SiteConfig{}
+	}
+	row.Properties.SiteConfig.AppSettings = nameValuePairs(req.Properties)
+	webSlots.Put(row.ID, row)
+	restartAzureFunctionInstance(row)
 	sim.WriteJSON(w, http.StatusOK, AzureSiteAppSettings{
 		ID:         webResourceID(r) + "/config/appsettings",
 		Name:       "appsettings",
@@ -103,6 +112,7 @@ func webSlotAzureStoragePut(w http.ResponseWriter, r *http.Request) {
 	row, _ := store.Get(webResourceID(r))
 	row.AzureStorageAccounts = req.Properties
 	store.Put(webResourceID(r), row)
+	restartAzureFunctionInstance(row)
 	webWriteAzureStorage(w, webResourceID(r), req.Properties)
 }
 
@@ -206,6 +216,11 @@ func registerWebSlotCRUD(srv *sim.Server) {
 		if siteConfig == nil {
 			siteConfig = &SiteConfig{}
 		}
+		prev, existed := webSlots.Get(resourceID)
+		clientCertMode := req.Properties.ClientCertMode
+		if clientCertMode == "" {
+			clientCertMode = "Optional"
+		}
 		slotSite := Site{
 			ID:       resourceID,
 			Name:     name + "/" + slot,
@@ -227,9 +242,22 @@ func registerWebSlotCRUD(srv *sim.Server) {
 				ResourceGroup:     sim.PathParam(r, "resourceGroupName"),
 				LastModifiedTime:  time.Now().UTC().Format(time.RFC3339),
 				HTTPSOnly:         req.Properties.HTTPSOnly,
+				ClientCertMode:    clientCertMode,
+				SlotSwapStatus:    prev.Properties.SlotSwapStatus,
 			},
 		}
 		webSlots.Put(resourceID, slotSite)
+		// The slot's workload reads its settings from siteConfig.appSettings,
+		// and the appsettings list reads the settings store.
+		if len(siteConfig.AppSettings) > 0 {
+			cfg, _ := siteConfigStore.Get(resourceID)
+			settings := make(map[string]string, len(siteConfig.AppSettings))
+			for _, kv := range siteConfig.AppSettings {
+				settings[kv.Name] = kv.Value
+			}
+			cfg.AppSettings = settings
+			siteConfigStore.Put(resourceID, cfg)
+		}
 		// A slot carries its own Functions host key set, like a real slot.
 		ensureWebHostKeys(resourceID)
 		// virtualNetworkSubnetId on the envelope is regional VNet integration
@@ -246,6 +274,11 @@ func registerWebSlotCRUD(srv *sim.Server) {
 			syncSiteVnetSubnetProperty(r)
 		}
 		slotSite, _ = webSlots.Get(resourceID)
+		if existed {
+			restartAzureFunctionInstance(slotSite)
+		} else {
+			startAlwaysOnSite(slotSite)
+		}
 		sim.WriteJSON(w, http.StatusOK, slotSite)
 	})
 
@@ -256,6 +289,8 @@ func registerWebSlotCRUD(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+base+"/slots/{slot}", func(w http.ResponseWriter, r *http.Request) {
 		deleted, existed := webSlots.Get(webResourceID(r))
 		if webSlots.Delete(webResourceID(r)) {
+			stopAzureFunctionInstance(deleted.Name)
+			cleanupSiteContainers(deleted.ID, deleted.Name)
 			if existed {
 				webRecordDeletedSite(webResourceID(r), deleted)
 			}

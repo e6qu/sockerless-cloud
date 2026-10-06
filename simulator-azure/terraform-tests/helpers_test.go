@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -101,15 +102,18 @@ func TestMain(m *testing.M) {
 	if err := baseimage.Ensure(pullImage); err != nil {
 		log.Fatalf("Failed to pre-pull alpine image: %v", err)
 	}
-	// The App Service platform images the stack's Linux web apps run, and
-	// the Azure Functions host image its Node function app runs.
-	for _, image := range []string{
-		"mcr.microsoft.com/appsvc/node:20-lts_20260904.5.tuxprod",
-		"mcr.microsoft.com/appsvc/python:3.12_20260910.5.tuxprod",
-		"mcr.microsoft.com/azure-functions/node:4.1054.250-4-node22-appservice",
-	} {
-		if err := baseimage.Ensure(image); err != nil {
-			log.Fatalf("Failed to pre-pull %s: %v", image, err)
+	// The App Service platform images the shared stack's Linux web apps run,
+	// and the Azure Functions host image its Node function app runs, pulled
+	// when the run selects the shared stack.
+	if testRunSelects("TestTerraformApplyDestroy") {
+		for _, image := range []string{
+			"mcr.microsoft.com/appsvc/node:20-lts_20260904.5.tuxprod",
+			"mcr.microsoft.com/appsvc/python:3.12_20260910.5.tuxprod",
+			"mcr.microsoft.com/azure-functions/node:4.1054.250-4-node22-appservice",
+		} {
+			if err := baseimage.Ensure(image); err != nil {
+				log.Fatalf("Failed to pre-pull %s: %v", image, err)
+			}
 		}
 	}
 	tag := exec.Command("docker", "tag", pullImage, "alpine:latest")
@@ -178,6 +182,34 @@ func TestMain(m *testing.M) {
 	}
 	os.RemoveAll(gatewayDir)
 	os.Exit(code)
+}
+
+// testRunSelects reports whether the -test.run filter (or SHARD_RUN) selects
+// the named test, so expensive image acquisition runs only when the tests
+// that need it will.
+func testRunSelects(name string) bool {
+	pattern := os.Getenv("SHARD_RUN")
+	if pattern == "" {
+		for i, arg := range os.Args {
+			switch {
+			case strings.HasPrefix(arg, "-test.run="):
+				pattern = strings.TrimPrefix(arg, "-test.run=")
+			case arg == "-test.run" && i+1 < len(os.Args):
+				pattern = os.Args[i+1]
+			}
+			if pattern != "" {
+				break
+			}
+		}
+	}
+	if pattern == "" {
+		return true
+	}
+	selected, err := regexp.MatchString(pattern, name)
+	if err != nil {
+		log.Fatalf("Invalid -test.run expression %q: %v", pattern, err)
+	}
+	return selected
 }
 
 func runTerraformTestsInDocker() int {

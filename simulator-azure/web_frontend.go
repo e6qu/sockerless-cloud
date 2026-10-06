@@ -15,10 +15,11 @@ import (
 )
 
 // registerAppServiceFrontEnd implements the App Service front end: a request
-// whose Host is one of a site's hostnames goes to the site's container on its
-// port, verbatim, after the container is started if none is running. The
-// simulator serves every site on its one endpoint, so it dispatches on the
-// Host header, as Container Apps ingress does. A site the simulator has
+// whose Host is one of an app's or a deployment slot's hostnames goes to that
+// app's or slot's own container on its port, verbatim, after the container is
+// started if none is running. The simulator serves every site on its one
+// endpoint, so it dispatches on the Host header, as Container Apps ingress
+// does. A site the simulator has
 // nothing to run for answers 503 naming what it lacks.
 func registerAppServiceFrontEnd(srv *sim.Server) {
 	srv.WrapHandler(func(next http.Handler) http.Handler {
@@ -37,12 +38,17 @@ func registerAppServiceFrontEnd(srv *sim.Server) {
 	})
 }
 
-// appServiceSitesByHost indexes sites by the hostnames they answer on. The
-// lookup runs in a handler wrapper, so every request into the simulator pays
-// it before any handler runs.
-var appServiceSitesByHost sim.GenerationIndex[Site]
+// appServiceSitesByHost and appServiceSlotsByHost index apps and deployment
+// slots by the hostnames they answer on. The lookup runs in a handler
+// wrapper, so every request into the simulator pays it before any handler
+// runs.
+var (
+	appServiceSitesByHost sim.GenerationIndex[Site]
+	appServiceSlotsByHost sim.GenerationIndex[Site]
+)
 
-// appServiceSiteByHost returns the site a request's Host header addresses.
+// appServiceSiteByHost returns the app or deployment slot a request's Host
+// header addresses.
 func appServiceSiteByHost(host string) (Site, bool) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
@@ -51,15 +57,24 @@ func appServiceSiteByHost(host string) (Site, bool) {
 	if host == "" || azfSites == nil {
 		return Site{}, false
 	}
-	return appServiceSitesByHost.Lookup(azfSites, host, func(s Site) []string {
-		keys := []string{strings.ToLower(s.Properties.DefaultHostName)}
-		for _, h := range s.Properties.HostNames {
-			if h = strings.ToLower(h); h != keys[0] {
-				keys = append(keys, h)
-			}
+	if site, ok := appServiceSitesByHost.Lookup(azfSites, host, siteHostKeys); ok {
+		return site, true
+	}
+	if webSlots == nil {
+		return Site{}, false
+	}
+	return appServiceSlotsByHost.Lookup(webSlots, host, siteHostKeys)
+}
+
+// siteHostKeys are the hostnames an app or slot answers on.
+func siteHostKeys(s Site) []string {
+	keys := []string{strings.ToLower(s.Properties.DefaultHostName)}
+	for _, h := range s.Properties.HostNames {
+		if h = strings.ToLower(h); h != keys[0] {
+			keys = append(keys, h)
 		}
-		return keys
-	})
+	}
+	return keys
 }
 
 func serveSiteRequest(w http.ResponseWriter, r *http.Request, site *Site) {

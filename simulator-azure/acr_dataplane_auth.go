@@ -271,17 +271,18 @@ func acrAccessGrants(granted []sim.RegistryScope, res acrResource) bool {
 // client dials — so the Host header names the registry exactly as it does on
 // real Azure.
 func acrRegistryForHost(host string) (Registry, bool) {
-	wanted := acrBareHost(host)
-	if wanted == "" {
+	wanted := strings.ToLower(acrBareHost(host))
+	if wanted == "" || acrRegistries == nil {
 		return Registry{}, false
 	}
-	for _, reg := range acrRegistries.List() {
-		if strings.EqualFold(acrBareHost(reg.Properties.LoginServer), wanted) {
-			return reg, true
-		}
-	}
-	return Registry{}, false
+	return acrRegistriesByLoginServer.Lookup(acrRegistries, wanted, func(reg Registry) []string {
+		return []string{strings.ToLower(acrBareHost(reg.Properties.LoginServer))}
+	})
 }
+
+// acrRegistriesByLoginServer indexes the registries by the bare host of their
+// login server.
+var acrRegistriesByLoginServer sim.GenerationIndex[Registry]
 
 // acrDataPlaneScope is the OCIRegistry.Scope hook: it names the registry a
 // data-plane request addresses by its ARM resource ID, which is the key every

@@ -348,9 +348,10 @@ func webReplaceSiteContent(resID string, files []WebSiteContentFile) {
 	for _, existing := range webSiteContentFiles(resID) {
 		webSiteContent.Delete(existing.ID)
 	}
+	now := time.Now().UTC()
 	for _, f := range files {
 		id := resID + "|" + f.Path
-		webSiteContent.Put(id, WebSiteContentFile{ID: id, Path: f.Path, Mode: f.Mode, Data: f.Data})
+		webSiteContent.Put(id, WebSiteContentFile{ID: id, Path: f.Path, Mode: f.Mode, Data: f.Data, Modified: now})
 	}
 	webDiscoverWebJobs(resID)
 }

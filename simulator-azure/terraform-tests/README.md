@@ -36,6 +36,11 @@ simulator's Microsoft Graph endpoints (`/v1.0` and `/beta`), with
 `azuread_application_password`, `azuread_service_principal`, `azuread_user`
 with a manager, `azuread_group` and `azuread_group_member`. The
 `subscription/` stack (`subscription_apply_test.go`) applies the subscription-scoped resources.
+The `webslots/` stack (`webslots_apply_test.go`) applies a Linux web app with an
+`azurerm_linux_web_app_slot` and makes the slot the active one with
+`azurerm_web_app_active_slot`, which swaps it into production; each slot runs
+its own container, and the test reads what each hostname serves after the
+swap.
 
 ### Instance discovery is not on the azurerm authentication path
 
