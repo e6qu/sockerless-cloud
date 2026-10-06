@@ -184,6 +184,24 @@ Current state of the sockerless-cloud repository.
   per-object lock (`sim.KeyedLocks`), and all three object stores keep each
   object's contents in a file of its own (`sim.Payloads`) that the row
   references.
+- **Amazon S3 versions objects.** A versioning-enabled bucket gives every
+  write a version id and keeps the version it supersedes; a delete without a
+  version id leaves a delete marker as the key's latest version, and one with a
+  version id removes that version and makes the next newest current. A
+  suspended bucket writes and deletes the `null` version. GetObject,
+  HeadObject, the object subresources, CopyObject's and UploadPartCopy's
+  source, DeleteObject, DeleteObjects and AWS Lambda's `S3ObjectVersion` address
+  a version by id, ListObjectVersions pages versions and delete markers with
+  key and version-id markers, and noncurrent versions keep their own tags and
+  keep a bucket from being deleted. DeleteObjects refuses an entry the caller
+  may not delete as that entry's AccessDenied in the DeleteResult and deletes
+  the rest.
+- **AWS STS sessions carry session tags.** AssumeRole's `Tags`, a SAML
+  assertion's `PrincipalTag:<key>` attributes and a web identity token's
+  `https://aws.amazon.com/tags` claim tag the session, each authorized as
+  sts:TagSession against the role's trust policy; the session reports them as
+  `aws:PrincipalTag/<key>` over its role's tags, and its transitive tags pass
+  to every session chained from it.
 - **A bucket carries Cloud Storage's default policy** from creation — the
   four legacy bindings for the project's owners, editors and viewers — so a
   client revoking what it granted sets the defaults back, never nothing.

@@ -35,11 +35,8 @@ import (
 func handleS3PutObjectAcl(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
-	storeKey := s3ObjectKey(bucket, key)
-	_, ok := s3Objects.Get(storeKey)
+	version, ok := s3AddressedVersion(w, r)
 	if !ok {
-		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
-			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	defer r.Body.Close()
@@ -49,11 +46,12 @@ func handleS3PutObjectAcl(w http.ResponseWriter, r *http.Request) {
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
-	if !s3Objects.Update(storeKey, func(obj *S3Object) { obj.ACL = body }) {
+	if !s3UpdateVersion(s3ObjectKey(bucket, key), version.Object.VersionID, func(obj *S3Object, _ *map[string]string) { obj.ACL = body }) {
 		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
+	s3SetVersionHeader(w, bucket, version.Object.VersionID)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -61,14 +59,12 @@ func handleS3PutObjectAcl(w http.ResponseWriter, r *http.Request) {
 // canonical owner-FULL_CONTROL policy is synthesized (real S3 returns
 // that default for objects created without an explicit ACL).
 func handleS3GetObjectAcl(w http.ResponseWriter, r *http.Request) {
-	bucket := sim.PathParam(r, "bucket")
-	key := sim.PathParam(r, "key")
-	obj, ok := s3Objects.Get(s3ObjectKey(bucket, key))
+	version, ok := s3AddressedVersion(w, r)
 	if !ok {
-		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
-			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
+	obj := version.Object
+	s3SetVersionHeader(w, sim.PathParam(r, "bucket"), obj.VersionID)
 	w.Header().Set("Content-Type", "application/xml")
 	if len(obj.ACL) > 0 {
 		w.WriteHeader(http.StatusOK)
@@ -84,11 +80,8 @@ func handleS3GetObjectAcl(w http.ResponseWriter, r *http.Request) {
 func handleS3PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
-	storeKey := s3ObjectKey(bucket, key)
-	_, ok := s3Objects.Get(storeKey)
+	version, ok := s3AddressedVersion(w, r)
 	if !ok {
-		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
-			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	defer r.Body.Close()
@@ -107,7 +100,7 @@ func handleS3PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
-	if !s3Objects.Update(storeKey, func(obj *S3Object) { obj.LegalHoldStatus = req.Status }) {
+	if !s3UpdateVersion(s3ObjectKey(bucket, key), version.Object.VersionID, func(obj *S3Object, _ *map[string]string) { obj.LegalHoldStatus = req.Status }) {
 		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
@@ -116,14 +109,12 @@ func handleS3PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleS3GetObjectLegalHold(w http.ResponseWriter, r *http.Request) {
-	bucket := sim.PathParam(r, "bucket")
-	key := sim.PathParam(r, "key")
-	obj, ok := s3Objects.Get(s3ObjectKey(bucket, key))
+	version, ok := s3AddressedVersion(w, r)
 	if !ok {
-		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
-			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
+	obj := version.Object
+	s3SetVersionHeader(w, sim.PathParam(r, "bucket"), obj.VersionID)
 	status := obj.LegalHoldStatus
 	if status == "" {
 		// No legal hold ever set: real S3 reports OFF.
@@ -146,11 +137,8 @@ func handleS3GetObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 func handleS3PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
-	storeKey := s3ObjectKey(bucket, key)
-	_, ok := s3Objects.Get(storeKey)
+	version, ok := s3AddressedVersion(w, r)
 	if !ok {
-		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
-			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	defer r.Body.Close()
@@ -170,7 +158,7 @@ func handleS3PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
-	if !s3Objects.Update(storeKey, func(obj *S3Object) {
+	if !s3UpdateVersion(s3ObjectKey(bucket, key), version.Object.VersionID, func(obj *S3Object, _ *map[string]string) {
 		obj.RetentionMode = req.Mode
 		obj.RetainUntilDate = req.RetainUntilDate
 	}) {
@@ -182,14 +170,13 @@ func handleS3PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleS3GetObjectRetention(w http.ResponseWriter, r *http.Request) {
-	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
-	obj, ok := s3Objects.Get(s3ObjectKey(bucket, key))
+	version, ok := s3AddressedVersion(w, r)
 	if !ok {
-		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
-			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
+	obj := version.Object
+	s3SetVersionHeader(w, sim.PathParam(r, "bucket"), obj.VersionID)
 	if obj.RetentionMode == "" {
 		// No retention configured: real S3 returns 404
 		// NoSuchObjectLockConfiguration.
@@ -221,14 +208,12 @@ func handleS3GetObjectRetention(w http.ResponseWriter, r *http.Request) {
 // header-bound). Real S3 only emits the elements named in the header; the
 // sim mirrors that so the response stays a valid subset of the shape.
 func handleS3GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
-	bucket := sim.PathParam(r, "bucket")
-	key := sim.PathParam(r, "key")
-	obj, ok := s3Objects.Get(s3ObjectKey(bucket, key))
+	version, ok := s3AddressedVersion(w, r)
 	if !ok {
-		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
-			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
+	obj := version.Object
+	s3SetVersionHeader(w, sim.PathParam(r, "bucket"), obj.VersionID)
 	// The x-amz-object-attributes header carries the requested attribute
 	// names. aws-sdk-go-v2 serializes the list as repeated header lines
 	// (one value each); the CLI / botocore comma-joins them into one. Honor
@@ -274,14 +259,13 @@ func handleS3GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 // bencoded torrent dictionary referencing the object so SDK/CLI parse a
 // non-empty body without error.
 func handleS3GetObjectTorrent(w http.ResponseWriter, r *http.Request) {
-	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
-	obj, ok := s3Objects.Get(s3ObjectKey(bucket, key))
+	version, ok := s3AddressedVersion(w, r)
 	if !ok {
-		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
-			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
+	obj := version.Object
+	s3SetVersionHeader(w, sim.PathParam(r, "bucket"), obj.VersionID)
 	// Bencoded metainfo: a dict with the object length and name. This is
 	// a faithful (minimal) BitTorrent metainfo document, not XML — the
 	// httpPayload Body member carries opaque bytes.
@@ -302,13 +286,11 @@ func handleS3GetObjectTorrent(w http.ResponseWriter, r *http.Request) {
 func handleS3RestoreObject(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
-	storeKey := s3ObjectKey(bucket, key)
-	obj, ok := s3Objects.Get(storeKey)
+	version, ok := s3AddressedVersion(w, r)
 	if !ok {
-		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
-			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
+	obj := version.Object
 	defer r.Body.Close()
 	var req struct {
 		Days                 *int   `xml:"Days"`
@@ -349,7 +331,7 @@ func handleS3RestoreObject(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusAccepted
 	expiry := s3RestoreExpiry(time.Now().UTC(), *req.Days).Format(time.RFC3339)
 	inProgress := false
-	if !s3Objects.Update(storeKey, func(o *S3Object) {
+	if !s3UpdateVersion(s3ObjectKey(bucket, key), obj.VersionID, func(o *S3Object, _ *map[string]string) {
 		if o.RestoreInProgress {
 			inProgress = true
 			return
@@ -396,10 +378,8 @@ func handleS3UploadPartCopy(w http.ResponseWriter, r *http.Request) {
 			"", sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
-	src, ok := s3Objects.Get(srcBucket + "/" + srcKey)
+	src, ok := s3CopySourceObject(w, r, srcBucket, srcKey)
 	if !ok {
-		S3ErrorXML(w, "NoSuchKey", "The specified source object does not exist",
-			srcBucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 
@@ -462,6 +442,7 @@ func handleS3UploadPartCopy(w http.ResponseWriter, r *http.Request) {
 		ETag:         etag,
 		LastModified: now.Format(time.RFC3339),
 	}
+	s3SetCopySourceVersionHeader(w, r, srcBucket, src)
 	WriteXML(w, http.StatusOK, out)
 }
 

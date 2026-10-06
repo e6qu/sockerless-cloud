@@ -81,9 +81,10 @@ var iamConditionKeyGapReasons = map[string]string{
 	"alexa-event-source": "Set on an invoke an Alexa Smart Home skill makes with the event source token " +
 		"AddPermission names (lambda:EventSourceToken). Alexa is not an AWS API, so no request this simulator " +
 		"receives is one.",
-	"saml-session-tags": "Set on the sts:TagSession AWS STS authorizes when an AssumeRoleWithSAML assertion " +
-		"carries PrincipalTag attributes. The simulator does not turn assertion attributes into session tags, so " +
-		"no SAML request is authorized as sts:TagSession.",
+	"saml-session-tags": "Set on the sts:TagSession AWS STS authorizes, against the role's trust policy, when a " +
+		"verified AssumeRoleWithSAML assertion carries PrincipalTag attributes. The probe's SAMLAssertion member is " +
+		"no assertion a registered provider signed, so AWS STS refuses it before reading any attribute; " +
+		"TestSTS_AssumeRoleWithSAMLSessionTags covers it with a signed one.",
 	"job-operation-shape": "A batch job's Operation structure takes exactly one member. The probe fills every " +
 		"member, which is an operation no client sends, and the gate rightly names none; a one-member request is " +
 		"covered by TestS3ControlConditionKeysReadTheRequestedJob.",

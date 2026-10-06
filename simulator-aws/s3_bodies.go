@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -44,6 +45,7 @@ func s3AdoptBodies(bodies *blobstore.Payloads) error {
 			}
 			adoption.Keep(obj.Body)
 		}
+		s3KeepVersionBodies(adoption)
 		for _, upload := range s3MultipartUploads.List() {
 			moved := false
 			for number, part := range upload.Parts {
@@ -66,17 +68,35 @@ func s3AdoptBodies(bodies *blobstore.Payloads) error {
 	})
 }
 
-// s3StoreObject stores obj under obj.Key with the contents body references,
-// which the row takes over, and releases the contents of the object it
-// replaces.
+// s3StoreObject stores obj as the current object under obj.Key with the
+// contents body references, which the row takes over. In a
+// versioning-enabled bucket the object gets a version id of its own and the
+// object it supersedes becomes a noncurrent version; otherwise it is the null
+// version, and releases the contents of the null version it replaces.
 func s3StoreObject(obj S3Object, body string, digests blobstore.Digests) (S3Object, error) {
 	obj.Body, obj.LegacyData, obj.Size = body, nil, digests.Size
-	var replaced string
+	obj.VersionID, obj.VersionSeq = "", s3NextVersionSeq()
+	bucket, _, _ := strings.Cut(obj.Key, "/")
+	var released []string
+	switch s3VersioningStatus(bucket) {
+	case s3VersioningEnabled:
+		obj.VersionID = s3NewVersionID()
+		s3ArchiveCurrent(obj.Key)
+	case s3VersioningSuspended:
+		released = append(released, s3DropNoncurrentNull(obj.Key))
+		if current, ok := s3Objects.Get(obj.Key); ok && current.VersionID != "" {
+			s3ArchiveCurrent(obj.Key)
+		}
+	}
 	s3Objects.Upsert(obj.Key, func(current *S3Object) {
-		replaced = current.Body
+		released = append(released, current.Body)
 		*current = obj
 	})
-	return obj, s3Bodies.Release(replaced, body)
+	var errs []error
+	for _, ref := range released {
+		errs = append(errs, s3Bodies.Release(ref, body))
+	}
+	return obj, errors.Join(errs...)
 }
 
 // s3StoreObjectData stores obj with data as its contents. An object stated
@@ -122,13 +142,17 @@ func s3DeleteObjectRow(key string) bool {
 	return true
 }
 
-// s3OpenObject opens obj's contents for reading, returning the object they
-// belong to, which is a newer one when obj was overwritten before its file was
-// opened.
+// s3OpenObject opens the contents of obj, one version of an object, reading
+// that version again when an overwrite or a delete removed the file first: an
+// unversioned overwrite replaces the null version, so the contents opened are
+// the newer object's.
 func s3OpenObject(obj S3Object) (S3Object, blobstore.Reader, error) {
 	return blobstore.OpenCurrent(s3Bodies, obj,
 		func(o S3Object) string { return o.Body },
-		func(o S3Object) (S3Object, bool) { return s3Objects.Get(o.Key) },
+		func(o S3Object) (S3Object, bool) {
+			version, ok := s3LookupVersion(o.Key, o.VersionID)
+			return version.Object, ok && !version.DeleteMarker
+		},
 		obj.Key)
 }
 

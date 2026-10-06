@@ -157,8 +157,9 @@ func glueCatalogArn(name string) string {
 	return fmt.Sprintf("arn:aws:glue:%s:%s:catalog/%s", awsRegion(), awsAccountID(), name)
 }
 
-func glueIntegrationArn(name string) string {
-	return fmt.Sprintf("arn:aws:glue:%s:%s:integration/%s", awsRegion(), awsAccountID(), name)
+// glueIntegrationArn is the ARN of the integration AWS Glue assigned id to.
+func glueIntegrationArn(id string) string {
+	return fmt.Sprintf("arn:aws:glue:%s:%s:integration:%s", awsRegion(), awsAccountID(), id)
 }
 
 func glueIntegResPropArn(resourceArn string) string {
@@ -812,7 +813,7 @@ func handleGlueCreateIntegration(w http.ResponseWriter, r *http.Request) {
 	}
 	integ := GlueIntegration{
 		IntegrationName:             req.IntegrationName,
-		IntegrationArn:              glueIntegrationArn(req.IntegrationName),
+		IntegrationArn:              glueIntegrationArn(sim.NewUUID()),
 		SourceArn:                   req.SourceArn,
 		TargetArn:                   req.TargetArn,
 		Description:                 req.Description,

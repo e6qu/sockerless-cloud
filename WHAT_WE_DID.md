@@ -367,6 +367,10 @@ through hooks:
   function's resource-based policy admits, and AddPermission writes the
   conditions its scoping members name. CORS preflights are answered from the
   URL config without invoking the function.
+- **An ARN is minted in the Service Reference's format.** An AWS Glue
+  integration's ARN is `…:integration:<id>`, keyed by an id Glue assigns at
+  CreateIntegration, not `…:integration/<name>`, so a policy naming the
+  integration's ARN matches the ARN the IAM gate derives from the request.
 - **A resource that exists implicitly is not minted on reference.** CloudWatch
   supports one metrics dataset, `default`, which every account has; GetDataset
   had created a dataset for any identifier it was given. Any other identifier
@@ -1852,6 +1856,20 @@ service's single write path rather than at each handler, so a handler added
 later cannot skip it; a lock per object keeps unrelated writes concurrent.
 Cloud Storage generations are timestamps that never repeat.
 
+An Amazon S3 key's current object stays in `s3Objects`, so every listing,
+conditional write and other service reading an object reads the latest
+version unchanged; every other version of the key, and every delete marker,
+lives in `s3ObjectVersions` under `<bucket>/<key>\x00<version id>`, the null
+version under `null`. A version records a sequence number from a clock that
+never repeats, which orders a key's versions newest first in
+ListObjectVersions and picks the version a removal makes current again. The
+version and its tags move together: a version that stops being current takes
+its tag set out of `s3ObjectTags` with it, and one that becomes current again
+brings it back. The single write path (`s3StoreObject`) applies the bucket's
+versioning state, so PutObject, CopyObject, CompleteMultipartUpload and the
+other services that write objects all version alike, and the payload adoption
+at start keeps the contents every noncurrent version references.
+
 A Cloud Storage bucket belongs to a project that exists. The insert resolves
 its `project` through Cloud Resource Manager and stamps that project's number,
 and the service agent is named for the same number, because gcloud's
@@ -2110,6 +2128,23 @@ CBOR body as the JSON routes do from theirs, so PutMetricAlarm authorizes
 `alarm:<name>` rather than `"*"`. The AWS CLI's awsJson1_0 CloudWatch
 requests carry their tags in the same `Tags` list, which the check reads too. Session tags on an `AssumeRole` need the
 role's trust policy to allow `sts:TagSession` too.
+
+An AWS STS session keeps the tags it was given on its temporary credential,
+with the keys that are transitive. `aws:PrincipalTag/<key>` reads the session's
+tags over its role's, a session tag replacing a role tag of the same key,
+compared case-insensitively. An AssumeRole a session signs keeps that
+session's transitive tags and refuses a passed tag that would replace one, and
+needs sts:TagSession only for the tags the request itself passes. A SAML
+assertion's `PrincipalTag:<key>` attributes and a web identity token's
+`https://aws.amazon.com/tags` claim are session tags too, authorized as
+sts:TagSession against the trust policy with the federation context, so a
+statement can condition tagging on `saml:aud` and `aws:RequestTag/<key>`.
+
+A DeleteObjects entry is authorized as its own s3:DeleteObject or
+s3:DeleteObjectVersion. An entry the caller may not delete is that entry's
+AccessDenied `<Error>` in the DeleteResult, Quiet mode included, and the
+entries the caller may delete are deleted; the gate hands the handler the
+refused entries on the request context.
 
 An Amazon S3 control-plane resource has one tag set, held in
 `s3ControlResourceTags` under the resource's ARN. The creates that take tags —

@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -73,6 +75,11 @@ type S3Object struct {
 	// StorageClass is the class the object was written in; empty on a row
 	// written before classes were recorded, which were STANDARD.
 	StorageClass string `json:",omitempty"`
+	// VersionID is the version id S3 assigned the object, empty for the null
+	// version.
+	VersionID string `json:",omitempty"`
+	// VersionSeq orders a key's versions, the newest highest.
+	VersionSeq int64 `json:",omitempty"`
 }
 
 // XML response types for S3
@@ -233,7 +240,7 @@ func s3PutObjectIf(bucket, key string, body io.Reader, contentType string, metad
 	if err != nil {
 		return S3Object{}, err
 	}
-	s3FireObjectNotifications(bucket, key, "ObjectCreated:Put", etag, obj.Size)
+	s3FireObjectNotifications(bucket, key, "ObjectCreated:Put", etag, obj.Size, s3VersionLabel(obj.VersionID))
 	return obj, nil
 }
 
@@ -253,6 +260,7 @@ func registerS3(srv *sim.Server) {
 		"AbortMultipartUpload")
 	s3Buckets_ = sim.MakeStore[S3Bucket](srv.DB(), "s3_buckets")
 	s3Objects = sim.MakeStore[S3Object](srv.DB(), "s3_objects")
+	s3ObjectVersions = sim.MakeStore[s3ObjectVersion](srv.DB(), "s3_object_versions")
 	s3ObjectAnnotations = sim.MakeStore[s3Annotation](srv.DB(), "s3_object_annotations")
 	s3BucketConfigs = sim.MakeStore[S3BucketConfig](srv.DB(), "s3_bucket_configs")
 	s3MultipartUploads = sim.MakeStore[S3MultipartUpload](srv.DB(), "s3_multipart_uploads")
@@ -357,10 +365,20 @@ func s3Enforced(opName func(*http.Request, []byte) string, h http.HandlerFunc) h
 			if s3EnforceAccessPointScope(w, r, op) {
 				return
 			}
+			var refused []s3ObjectIdentifier
 			for _, target := range s3AuthorizationTargets(r, op, []string{s3RequestResourceARN(r)}) {
+				if target.entry != nil {
+					if allowed, _, registered := iamAuthorizeWithContext(r, target.action, target.resource, target.context); registered && !allowed {
+						refused = append(refused, *target.entry)
+					}
+					continue
+				}
 				if !iamEnforceREST(w, r, target, s3WriteIAMDeny) {
 					return
 				}
+			}
+			if len(refused) > 0 {
+				r = r.WithContext(context.WithValue(r.Context(), s3RefusedEntriesKey{}, refused))
 			}
 		}
 		h(w, r)
@@ -799,8 +817,8 @@ func handleS3DeleteBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if bucket is empty
-	if len(s3Objects.ListPrefix(bucket+"/")) > 0 {
+	// A bucket holding any version or delete marker is not empty.
+	if len(s3Objects.ListPrefix(bucket+"/")) > 0 || s3BucketHoldsVersions(bucket) {
 		S3ErrorXML(w, "BucketNotEmpty", "The bucket you tried to delete is not empty",
 			bucket, sim.RequestID(r.Context()), http.StatusConflict)
 		return
@@ -1126,6 +1144,7 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("ETag", obj.ETag)
+	s3SetVersionHeader(w, bucket, obj.VersionID)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1151,27 +1170,23 @@ func s3RequestObjectTagging(header string) (map[string]string, error) {
 
 func handleS3GetObject(w http.ResponseWriter, r *http.Request) {
 	key := sim.PathParam(r, "key")
-	obj, ok := s3Objects.Get(s3ObjectKey(sim.PathParam(r, "bucket"), key))
+	version, ok := s3AddressedVersion(w, r)
 	if !ok {
-		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
-			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
-	if !obj.readable(time.Now().UTC()) {
-		s3InvalidObjectState(w, r, key, obj)
+	if !version.Object.readable(time.Now().UTC()) {
+		s3InvalidObjectState(w, r, key, version.Object)
 		return
 	}
-
-	s3ServeObject(w, r, obj, key)
+	s3ServeObject(w, r, version.Object, key)
 }
 
 func handleS3HeadObject(w http.ResponseWriter, r *http.Request) {
-	obj, ok := s3Objects.Get(s3ObjectKey(sim.PathParam(r, "bucket"), sim.PathParam(r, "key")))
+	version, ok := s3AddressedVersion(w, r)
 	if !ok {
-		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	s3ServeObject(w, r, obj, sim.PathParam(r, "key"))
+	s3ServeObject(w, r, version.Object, sim.PathParam(r, "key"))
 }
 
 // s3RangeGrammar is the Range grammar GetObject and HeadObject accept.
@@ -1197,6 +1212,7 @@ func s3ServeObject(w http.ResponseWriter, r *http.Request, obj S3Object, key str
 	h := w.Header()
 	h.Set("ETag", obj.ETag)
 	h.Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
+	s3SetVersionHeader(w, sim.PathParam(r, "bucket"), obj.VersionID)
 	if outcome == blobstore.NotModified {
 		w.WriteHeader(http.StatusNotModified)
 		return
@@ -1241,17 +1257,13 @@ func s3SetObjectEncryptionHeaders(w http.ResponseWriter, obj S3Object) {
 func handleS3DeleteObject(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
-
-	storeKey := s3ObjectKey(bucket, key)
-	existing, existed := s3Objects.Get(storeKey)
-	s3DeleteObjectRow(storeKey)
-	s3ObjectTags.Delete(storeKey)
-	s3DeleteObjectAnnotations(bucket, key)
-
-	if existed {
-		s3FireObjectNotifications(bucket, key, "ObjectRemoved:Delete", existing.ETag, existing.Size)
+	result, err := s3DeleteObject(bucket, key, r.URL.Query().Get("versionId"))
+	if err != nil {
+		// The rows are gone and nothing references the contents any more;
+		// the next start's sweep removes the file. The delete succeeded.
+		log.Printf("s3: release the contents of %s: %v", s3ObjectKey(bucket, key), err)
 	}
-
-	// S3 returns 204 even if the object didn't exist
+	s3SetDeleteHeaders(w, result)
+	// S3 answers 204 whether or not there was anything to delete.
 	w.WriteHeader(http.StatusNoContent)
 }

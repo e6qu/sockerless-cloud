@@ -95,8 +95,18 @@ func s3EventListMatches(configured []string, occurred string) bool {
 // s3EventNotificationJSON builds a faithful S3 event-notification record for the
 // given bucket/key and concrete event name (e.g. "ObjectCreated:Put"). The shape
 // matches the real S3 Records[].s3 document.
-func s3EventNotificationJSON(bucket, key, eventName, etag string, size int64) string {
+func s3EventNotificationJSON(bucket, key, eventName, etag string, size int64, versionID string) string {
 	now := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	object := map[string]any{
+		"key":       key,
+		"size":      size,
+		"eTag":      strings.Trim(etag, `"`),
+		"sequencer": fmt.Sprintf("%016X", time.Now().UnixNano()),
+	}
+	// The object's versionId is in the event when the bucket is versioned.
+	if versionID != "" && s3VersioningStatus(bucket) != "" {
+		object["versionId"] = versionID
+	}
 	record := map[string]any{
 		"eventVersion": "2.1",
 		"eventSource":  "aws:s3",
@@ -112,12 +122,7 @@ func s3EventNotificationJSON(bucket, key, eventName, etag string, size int64) st
 					"principalId": awsAccountID(),
 				},
 			},
-			"object": map[string]any{
-				"key":       key,
-				"size":      size,
-				"eTag":      strings.Trim(etag, `"`),
-				"sequencer": fmt.Sprintf("%016X", time.Now().UnixNano()),
-			},
+			"object": object,
 		},
 	}
 	envelope := map[string]any{"Records": []any{record}}
@@ -128,7 +133,7 @@ func s3EventNotificationJSON(bucket, key, eventName, etag string, size int64) st
 // s3FireObjectNotifications dispatches the bucket's stored NotificationConfiguration
 // for one object event. eventName is the concrete S3 event name without the
 // "s3:" prefix (e.g. "ObjectCreated:Put", "ObjectRemoved:Delete").
-func s3FireObjectNotifications(bucket, key, eventName, etag string, size int64) {
+func s3FireObjectNotifications(bucket, key, eventName, etag string, size int64, versionID string) {
 	body, _, _, ok := getStoredBucketSubresource(bucket, "notification")
 	if !ok {
 		return
@@ -139,7 +144,7 @@ func s3FireObjectNotifications(bucket, key, eventName, etag string, size int64) 
 	}
 
 	qualified := "s3:" + eventName
-	eventJSON := s3EventNotificationJSON(bucket, key, eventName, etag, size)
+	eventJSON := s3EventNotificationJSON(bucket, key, eventName, etag, size, versionID)
 	src := s3NotificationSource(bucket)
 
 	for _, qc := range cfg.QueueConfigurations {

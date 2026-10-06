@@ -13,9 +13,10 @@ import (
 // Adopting the payload store moves each one out, keeps it readable, and
 // removes the files no row references.
 func TestS3AdoptBodiesMovesRowContentsOutAndSweepsOrphans(t *testing.T) {
-	objects, uploads, bodies := s3Objects, s3MultipartUploads, s3Bodies
-	t.Cleanup(func() { s3Objects, s3MultipartUploads, s3Bodies = objects, uploads, bodies })
+	objects, versions, uploads, bodies := s3Objects, s3ObjectVersions, s3MultipartUploads, s3Bodies
+	t.Cleanup(func() { s3Objects, s3ObjectVersions, s3MultipartUploads, s3Bodies = objects, versions, uploads, bodies })
 	s3Objects = sim.MakeStore[S3Object](nil, "s3_objects")
+	s3ObjectVersions = sim.MakeStore[s3ObjectVersion](nil, "s3_object_versions")
 	s3MultipartUploads = sim.MakeStore[S3MultipartUpload](nil, "s3_multipart_uploads")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "00000000000000000000000000000000"), []byte("orphan"), 0o600); err != nil {
@@ -25,6 +26,15 @@ func TestS3AdoptBodiesMovesRowContentsOutAndSweepsOrphans(t *testing.T) {
 	s3Objects.Put("bucket/empty", S3Object{Key: "bucket/empty"})
 	s3MultipartUploads.Put("upload", S3MultipartUpload{UploadID: "upload", Bucket: "bucket", Key: "big",
 		Parts: map[int]s3MultipartPart{1: {LegacyData: []byte("part one"), ETag: `"x"`}}})
+	earlier, err := blobstore.OpenPayloads(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noncurrent, _, err := earlier.Write([]byte("noncurrent version"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s3ObjectVersions.Put("bucket/legacy\x00v1", s3ObjectVersion{Object: S3Object{Key: "bucket/legacy", VersionID: "v1", Body: noncurrent}})
 
 	store, err := blobstore.OpenPayloads(dir)
 	if err != nil {
@@ -59,7 +69,10 @@ func TestS3AdoptBodiesMovesRowContentsOutAndSweepsOrphans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 2 {
-		t.Fatalf("%d payload files remain, want the object's and the part's", len(entries))
+	if data, err := store.Read(noncurrent); err != nil || string(data) != "noncurrent version" {
+		t.Fatalf("a noncurrent version's contents after adoption = %q, %v", data, err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("%d payload files remain, want the object's, the noncurrent version's and the part's", len(entries))
 	}
 }

@@ -658,6 +658,15 @@ func lambdaDeploymentPackageBytes(code *LambdaFunctionCode) ([]byte, error) {
 			return nil, fmt.Errorf("S3Bucket and S3Key must be supplied together")
 		}
 		obj, ok := s3Objects.Get(s3ObjectKey(code.S3Bucket, code.S3Key))
+		if code.S3ObjectVersion != "" {
+			version, found := s3LookupVersion(s3ObjectKey(code.S3Bucket, code.S3Key), s3VersionIDFromLabel(code.S3ObjectVersion))
+			if !found || version.DeleteMarker {
+				return nil, lambdaDeploymentPackageError(fmt.Sprintf(
+					"Amazon S3 object s3://%s/%s has no version %s", code.S3Bucket, code.S3Key, code.S3ObjectVersion,
+				))
+			}
+			obj, ok = version.Object, true
+		}
 		if !ok {
 			return nil, lambdaDeploymentPackageError(fmt.Sprintf(
 				"Amazon S3 object s3://%s/%s does not exist", code.S3Bucket, code.S3Key,

@@ -231,17 +231,15 @@ func s3DeleteObjectsTargets(r *http.Request) []iamAuthorizationTarget {
 		return nil
 	}
 	var request struct {
-		Objects []struct {
-			Key       string `xml:"Key"`
-			VersionID string `xml:"VersionId"`
-		} `xml:"Object"`
+		Objects []s3ObjectIdentifier `xml:"Object"`
 	}
 	if xml.Unmarshal(body, &request) != nil {
 		return nil
 	}
 	var targets []iamAuthorizationTarget
 	for _, object := range request.Objects {
-		target := iamAuthorizationTarget{action: "s3:DeleteObject", resource: "arn:aws:s3:::" + bucket + "/" + object.Key}
+		target := iamAuthorizationTarget{action: "s3:DeleteObject", resource: "arn:aws:s3:::" + bucket + "/" + object.Key,
+			entry: &object}
 		// Each entry names its own version, so s3:versionid belongs to the
 		// entry's authorization and not to the request.
 		if object.VersionID != "" {

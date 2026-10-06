@@ -315,7 +315,9 @@ func TestGlue_Integration_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, name, aws.ToString(created.IntegrationName))
-	assert.NotEmpty(t, aws.ToString(created.IntegrationArn))
+	// AWS Glue names an integration's ARN by the id it assigns, not by the
+	// integration's name.
+	assert.Regexp(t, `^arn:aws:glue:[a-z0-9-]+:\d{12}:integration:[0-9a-f-]{36}$`, aws.ToString(created.IntegrationArn))
 	integArn := aws.ToString(created.IntegrationArn)
 	t.Cleanup(func() {
 		_, _ = c.DeleteIntegration(ctx, &glue.DeleteIntegrationInput{

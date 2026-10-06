@@ -66,6 +66,9 @@ type iamAuthorizationTarget struct {
 	// context carries the keys that differ between the targets of one
 	// request, such as the version each entry of a DeleteObjects names.
 	context map[string][]string
+	// entry is the DeleteObjects entry the target authorizes. S3 refuses such
+	// an entry on its own, in the DeleteResult, rather than the request.
+	entry *s3ObjectIdentifier
 }
 
 // iamAuthorizationTargets lists what a request is authorized for: see

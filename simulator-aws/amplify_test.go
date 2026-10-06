@@ -33,6 +33,9 @@ func amplifyResetStores() {
 	amplifyBackends = sim.MakeStore[amplifyStoredBackend](nil, "amplify_backends")
 	s3Buckets_ = sim.MakeStore[S3Bucket](nil, "s3_buckets")
 	s3Objects = sim.MakeStore[S3Object](nil, "s3_objects")
+	s3ObjectVersions = sim.MakeStore[s3ObjectVersion](nil, "s3_object_versions")
+	s3ObjectTags = sim.MakeStore[map[string]string](nil, "s3_object_tags")
+	s3BucketConfigs = sim.MakeStore[S3BucketConfig](nil, "s3_bucket_configs")
 	dir, err := os.MkdirTemp("", "amplify-test-s3-bodies-")
 	if err != nil {
 		panic(err)
