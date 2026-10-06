@@ -233,7 +233,9 @@ func TestGlue_IntegrationCRUD_CLI(t *testing.T) {
 	}
 	parseJSON(t, out, &created)
 	assert.Equal(t, name, created.IntegrationName)
-	require.NotEmpty(t, created.IntegrationArn)
+	// AWS Glue names an integration's ARN by the id it assigns, not by the
+	// integration's name.
+	require.Regexp(t, `^arn:aws:glue:[a-z0-9-]+:\d{12}:integration:[0-9a-f-]{36}$`, created.IntegrationArn)
 	integArn := created.IntegrationArn
 	t.Cleanup(func() {
 		runCLIIgnore(awsCLI("glue", "delete-integration", "--integration-identifier", integArn))

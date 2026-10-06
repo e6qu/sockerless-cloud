@@ -547,7 +547,10 @@ func ec2StartRealVM(ctx context.Context, inst EC2Instance) error {
 	if err != nil {
 		return err
 	}
-	vcpus, memMiB := ec2InstanceMachineShape(inst.InstanceType)
+	vcpus, memMiB, err := ec2InstanceMachineShape(inst.InstanceType)
+	if err != nil {
+		return err
+	}
 	var slots map[string]string
 	_, _, started, err := ec2Fabric.StartVM(ctx, fabric.VMSpec[string]{
 		Key:     inst.InstanceId,
@@ -595,15 +598,13 @@ func ec2StartRealVM(ctx context.Context, inst EC2Instance) error {
 }
 
 // ec2InstanceMachineShape sizes the instance's machine from the instance-type
-// catalog DescribeInstanceTypes and the requirements matcher serve. A type the
-// catalog does not carry boots at the substrate's smallest shape.
-func ec2InstanceMachineShape(instanceType string) (vcpus, memMiB int) {
-	for _, entry := range ec2InstanceTypeCatalog() {
-		if entry.name == instanceType {
-			return entry.vcpus, entry.memMiB
-		}
+// catalog DescribeInstanceTypes serves.
+func ec2InstanceMachineShape(instanceType string) (vcpus, memMiB int, err error) {
+	t, ok := ec2LookupInstanceType(instanceType)
+	if !ok {
+		return 0, 0, fmt.Errorf("instance type %s is not in the instance-type catalog", instanceType)
 	}
-	return 1, 512
+	return t.VCpus, t.MemoryMiB, nil
 }
 
 func ec2StopRealVM(ctx context.Context, instanceID string) error {

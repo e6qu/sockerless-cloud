@@ -189,6 +189,8 @@ func TestS3API_BucketSubresourceCoverage(t *testing.T) {
 	assert.Contains(t, runCLI(t, awsCLI("s3api", "get-public-access-block", "--bucket", bucket)), "BlockPublicAcls")
 	runCLI(t, awsCLI("s3api", "delete-public-access-block", "--bucket", bucket))
 
+	// Object Lock needs versioning enabled on the bucket first.
+	runCLI(t, awsCLI("s3api", "put-bucket-versioning", "--bucket", bucket, "--versioning-configuration", "Status=Enabled"))
 	runCLI(t, awsCLI("s3api", "put-object-lock-configuration", "--bucket", bucket, "--object-lock-configuration", `{"ObjectLockEnabled":"Enabled","Rule":{"DefaultRetention":{"Mode":"GOVERNANCE","Days":1}}}`))
 	assert.Contains(t, runCLI(t, awsCLI("s3api", "get-object-lock-configuration", "--bucket", bucket)), "GOVERNANCE")
 

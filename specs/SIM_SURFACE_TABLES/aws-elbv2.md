@@ -53,21 +53,21 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action AddListenerCertificates` | ✓ `simulator-aws/elbv2_rules.go:49::handleELBv2AddListenerCertificates` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action RemoveListenerCertificates` | ✓ `simulator-aws/elbv2_rules.go:50::handleELBv2RemoveListenerCertificates` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeListenerCertificates` | ✓ `simulator-aws/elbv2_rules.go:51::handleELBv2DescribeListenerCertificates` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CreateTrustStore` | ✓ `simulator-aws/elbv2_truststore.go:57::handleELBv2CreateTrustStore` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeTrustStores` | ✓ `simulator-aws/elbv2_truststore.go:58::handleELBv2DescribeTrustStores` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ModifyTrustStore` | ✓ `simulator-aws/elbv2_truststore.go:59::handleELBv2ModifyTrustStore` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DeleteTrustStore` | ✓ `simulator-aws/elbv2_truststore.go:60::handleELBv2DeleteTrustStore` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetTrustStoreCaCertificatesBundle` | ✓ `simulator-aws/elbv2_truststore.go:61::handleELBv2GetTrustStoreCaCertificatesBundle` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeTrustStoreAssociations` | ✓ `simulator-aws/elbv2_truststore.go:62::handleELBv2DescribeTrustStoreAssociations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DeleteSharedTrustStoreAssociation` | ✓ `simulator-aws/elbv2_truststore.go:63::handleELBv2DeleteSharedTrustStoreAssociation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AddTrustStoreRevocations` | ✓ `simulator-aws/elbv2_truststore.go:64::handleELBv2AddTrustStoreRevocations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action RemoveTrustStoreRevocations` | ✓ `simulator-aws/elbv2_truststore.go:65::handleELBv2RemoveTrustStoreRevocations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeTrustStoreRevocations` | ✓ `simulator-aws/elbv2_truststore.go:66::handleELBv2DescribeTrustStoreRevocations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetTrustStoreRevocationContent` | ✓ `simulator-aws/elbv2_truststore.go:67::handleELBv2GetTrustStoreRevocationContent` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeSSLPolicies` | ○ `simulator-aws/elbv2_truststore.go:69::handleELBv2DescribeSSLPolicies` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetResourcePolicy` | ✓ `simulator-aws/elbv2_truststore.go:70::handleELBv2GetResourcePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ModifyCapacityReservation` | ✓ `simulator-aws/elbv2_truststore.go:71::handleELBv2ModifyCapacityReservation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ModifyIpPools` | ✓ `simulator-aws/elbv2_truststore.go:72::handleELBv2ModifyIpPools` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CreateTrustStore` | ✓ `simulator-aws/elbv2_truststore.go:64::handleELBv2CreateTrustStore` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeTrustStores` | ✓ `simulator-aws/elbv2_truststore.go:65::handleELBv2DescribeTrustStores` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ModifyTrustStore` | ✓ `simulator-aws/elbv2_truststore.go:66::handleELBv2ModifyTrustStore` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DeleteTrustStore` | ✓ `simulator-aws/elbv2_truststore.go:67::handleELBv2DeleteTrustStore` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetTrustStoreCaCertificatesBundle` | ✓ `simulator-aws/elbv2_truststore.go:68::handleELBv2GetTrustStoreCaCertificatesBundle` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeTrustStoreAssociations` | ✓ `simulator-aws/elbv2_truststore.go:69::handleELBv2DescribeTrustStoreAssociations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DeleteSharedTrustStoreAssociation` | ✓ `simulator-aws/elbv2_truststore.go:70::handleELBv2DeleteSharedTrustStoreAssociation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AddTrustStoreRevocations` | ✓ `simulator-aws/elbv2_truststore.go:71::handleELBv2AddTrustStoreRevocations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action RemoveTrustStoreRevocations` | ✓ `simulator-aws/elbv2_truststore.go:72::handleELBv2RemoveTrustStoreRevocations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeTrustStoreRevocations` | ✓ `simulator-aws/elbv2_truststore.go:73::handleELBv2DescribeTrustStoreRevocations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetTrustStoreRevocationContent` | ✓ `simulator-aws/elbv2_truststore.go:74::handleELBv2GetTrustStoreRevocationContent` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeSSLPolicies` | ○ `simulator-aws/elbv2_truststore.go:76::handleELBv2DescribeSSLPolicies` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetResourcePolicy` | ✓ `simulator-aws/elbv2_truststore.go:77::handleELBv2GetResourcePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ModifyCapacityReservation` | ✓ `simulator-aws/elbv2_truststore.go:78::handleELBv2ModifyCapacityReservation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ModifyIpPools` | ✓ `simulator-aws/elbv2_truststore.go:79::handleELBv2ModifyIpPools` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

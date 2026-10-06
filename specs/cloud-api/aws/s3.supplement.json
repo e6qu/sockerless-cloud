@@ -10,6 +10,15 @@
     "a model it was never written against."
   ],
   "shapes": {
+    "com.amazonaws.s3#GetObject": {
+      "_evidence": [
+        "GET Object with a Range header answers 206 Partial Content with the",
+        "requested bytes and a Content-Range header, as RFC 9110 defines and",
+        "the operation's own Range and ContentRange members describe. The",
+        "trait declares only 200, the code a request without Range gets."
+      ],
+      "httpCode": { "replaces": 200, "with": [200, 206] }
+    },
     "com.amazonaws.s3#PutBucketPolicy": {
       "_evidence": [
         "PUT Bucket policy answers 204 No Content — the response carries no",

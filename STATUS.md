@@ -184,6 +184,59 @@ Current state of the sockerless-cloud repository.
   per-object lock (`sim.KeyedLocks`), and all three object stores keep each
   object's contents in a file of its own (`sim.Payloads`) that the row
   references.
+- **Amazon S3 versions objects.** A versioning-enabled bucket gives every
+  write a version id and keeps the version it supersedes; a delete without a
+  version id leaves a delete marker as the key's latest version, and one with a
+  version id removes that version and makes the next newest current. A
+  suspended bucket writes and deletes the `null` version. GetObject,
+  HeadObject, the object subresources, CopyObject's and UploadPartCopy's
+  source, DeleteObject, DeleteObjects and AWS Lambda's `S3ObjectVersion` address
+  a version by id, ListObjectVersions pages versions and delete markers with
+  key and version-id markers, and noncurrent versions keep their own tags and
+  keep a bucket from being deleted. DeleteObjects refuses an entry the caller
+  may not delete as that entry's AccessDenied in the DeleteResult and deletes
+  the rest.
+- **Amazon S3 Object Lock protects object versions.** CreateBucket with
+  `x-amz-bucket-object-lock-enabled` enables Object Lock and versioning with
+  it, and PutObjectLockConfiguration enables it on a versioning-enabled bucket;
+  versioning then stays enabled. A new version takes the retention and legal
+  hold its write asks for, or the bucket's default retention. A legal hold, an
+  unexpired COMPLIANCE retention, and an unexpired GOVERNANCE retention without
+  `x-amz-bypass-governance-retention` (authorized as
+  s3:BypassGovernanceRetention) refuse a version delete with AccessDenied, and
+  an active retention only grows stricter. A bucket without Object Lock refuses
+  the Object Lock operations and headers with InvalidRequest.
+- **An Elastic Load Balancing trust store reads its contents from Amazon S3.**
+  CreateTrustStore and ModifyTrustStore read the CA certificates bundle from
+  the object version named (the current one when none is) and count its PEM
+  certificates; AddTrustStoreRevocations reads each certificate revocation list
+  and counts its entries. A missing object answers CaCertificatesBundleNotFound
+  or RevocationContentNotFound, and content that does not parse answers
+  InvalidCaCertificatesBundle or InvalidRevocationContent. The trust store
+  keeps its own copy of what it read, and GetTrustStoreCaCertificatesBundle
+  and GetTrustStoreRevocationContent answer a presigned Amazon S3 URL on the
+  simulator's endpoint that serves exactly that copy, whatever has since
+  happened to the customer's object.
+- **Amazon EC2 instance types carry AWS's published facts.** The simulator
+  embeds the AWS Price List offer file's Compute Instance products for
+  us-east-1 (`simulator-aws/ec2_instance_types_vendored.json`, written by
+  `scripts/fetch-aws-ec2-instance-types.go` with the offer version and
+  SHA-256 it read). DescribeInstanceTypes answers every listed type's vCPUs,
+  memory, architectures, network performance, generation and instance-storage
+  support, filters and pages over them, and refuses an unknown type with
+  InvalidInstanceType; DescribeInstanceTypeOfferings,
+  GetInstanceTypesFromInstanceRequirements, the Capacity Manager vCPU metrics,
+  the real-execution machine shape and the 32-vCPU minimum of a future-dated
+  Capacity Reservation read the same catalog.
+- **Amazon ECR sizes an image by the blobs its manifest references.**
+  DescribeImages' imageSizeInBytes is the compressed layers plus the config,
+  not the manifest document, and a manifest list's largest listed manifest.
+- **AWS STS sessions carry session tags.** AssumeRole's `Tags`, a SAML
+  assertion's `PrincipalTag:<key>` attributes and a web identity token's
+  `https://aws.amazon.com/tags` claim tag the session, each authorized as
+  sts:TagSession against the role's trust policy; the session reports them as
+  `aws:PrincipalTag/<key>` over its role's tags, and its transitive tags pass
+  to every session chained from it.
 - **A bucket carries Cloud Storage's default policy** from creation — the
   four legacy bindings for the project's owners, editors and viewers — so a
   client revoking what it granted sets the defaults back, never nothing.

@@ -356,7 +356,13 @@ func TestEC2_InstanceTypesFromRequirements(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, out.InstanceTypes, "requirements must match catalog instance types")
+	var names []string
 	for _, it := range out.InstanceTypes {
-		assert.NotEmpty(t, aws.ToString(it.InstanceType))
+		names = append(names, aws.ToString(it.InstanceType))
 	}
+	assert.Contains(t, names, "t3.micro", "2 vCPUs and 1024 MiB on x86_64")
+	assert.Contains(t, names, "m5.large", "2 vCPUs and 8192 MiB on x86_64")
+	assert.NotContains(t, names, "t4g.micro", "an arm64 instance type")
+	assert.NotContains(t, names, "m5.xlarge", "4 vCPUs")
+	assert.NotContains(t, names, "r5.large", "16384 MiB")
 }

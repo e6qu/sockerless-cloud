@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -5411,38 +5412,23 @@ func handleDescribeImages(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeImagesResponse %s><requestId>%s</requestId><imagesSet>%s</imagesSet></DescribeImagesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
-func handleDescribeInstanceTypes(w http.ResponseWriter, r *http.Request) {
-	types := ec2ParamList(r, "InstanceType")
-	if len(types) == 0 {
-		types = []string{"t3.micro", "t3.small", "m6i.large"}
-	}
-	var items strings.Builder
-	for _, name := range types {
-		fmt.Fprintf(&items, `<item><instanceType>%s</instanceType><currentGeneration>true</currentGeneration><freeTierEligible>%t</freeTierEligible><supportedUsageClasses><item>on-demand</item><item>spot</item></supportedUsageClasses><supportedRootDeviceTypes><item>ebs</item></supportedRootDeviceTypes><supportedVirtualizationTypes><item>hvm</item></supportedVirtualizationTypes><vCpuInfo><defaultVCpus>2</defaultVCpus><defaultCores>1</defaultCores><defaultThreadsPerCore>2</defaultThreadsPerCore></vCpuInfo><memoryInfo><sizeInMiB>1024</sizeInMiB></memoryInfo><processorInfo><supportedArchitectures><item>x86_64</item></supportedArchitectures></processorInfo><networkInfo><networkPerformance>Up to 5 Gigabit</networkPerformance><maximumNetworkInterfaces>2</maximumNetworkInterfaces><ipv4AddressesPerInterface>2</ipv4AddressesPerInterface></networkInfo><ebsInfo><ebsOptimizedSupport>default</ebsOptimizedSupport><encryptionSupport>supported</encryptionSupport></ebsInfo></item>`,
-			name, name == "t3.micro")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeInstanceTypesResponse %s>
-  <requestId>%s</requestId>
-  <instanceTypeSet>%s</instanceTypeSet>
-</DescribeInstanceTypesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
-}
-
-// handleDescribeInstanceTypeOfferings answers "is this instance type offered in
-// these locations?" — the fck-nat module's pre-flight AZ validation. Like
-// handleDescribeInstanceTypes, the API-only sim does not model real per-AZ
-// capacity: it reports each requested instance type as offered in each
-// requested (or default) location. Filters honoured: `instance-type` and
-// `location`; LocationType selects region / availability-zone / -id scope.
+// handleDescribeInstanceTypeOfferings reports the instance types the
+// vendored catalog lists, each offered in every requested (or default)
+// location. Filters honoured: `instance-type`, with wildcards, and `location`;
+// LocationType selects region / availability-zone / -id scope.
 func handleDescribeInstanceTypeOfferings(w http.ResponseWriter, r *http.Request) {
 	locationType := r.FormValue("LocationType")
 	if locationType == "" {
 		locationType = "region"
 	}
 	filters := ec2Filters(r)
-	types := filters["instance-type"]
-	if len(types) == 0 {
-		types = []string{"t3.micro", "t3.small", "t4g.nano", "m6i.large"}
+	var types []string
+	catalog, _ := ec2InstanceTypeCatalog()
+	for _, t := range catalog {
+		if patterns := filters["instance-type"]; len(patterns) > 0 && !slices.ContainsFunc(patterns, func(p string) bool { return awsWildcardMatch(p, t.Name) }) {
+			continue
+		}
+		types = append(types, t.Name)
 	}
 	locations := filters["location"]
 	if len(locations) == 0 {

@@ -4,10 +4,13 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +31,9 @@ type S3MultipartUpload struct {
 	Parts       map[int]s3MultipartPart // partNumber → bytes+etag
 	// StorageClass is the class CreateMultipartUpload asked for.
 	StorageClass string `json:",omitempty"`
+	// Lock is the Object Lock settings CreateMultipartUpload asked for, which
+	// the completed object takes.
+	Lock s3ObjectLock `json:",omitzero"`
 }
 
 type s3MultipartPart struct {
@@ -236,6 +242,10 @@ func handleS3InitiateMultipart(w http.ResponseWriter, r *http.Request) {
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
+	lock, ok := s3RequestedObjectLock(w, r, bucket)
+	if !ok {
+		return
+	}
 	uploadID := sim.NewUUID()
 	contentType := r.Header.Get("Content-Type")
 	s3MultipartUploads.Put(uploadID, S3MultipartUpload{
@@ -244,6 +254,7 @@ func handleS3InitiateMultipart(w http.ResponseWriter, r *http.Request) {
 		Key:          key,
 		ContentType:  contentType,
 		StorageClass: storageClass,
+		Lock:         lock,
 		Initiated:    time.Now().UTC(),
 		Parts:        map[int]s3MultipartPart{},
 	})
@@ -405,14 +416,16 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 	finalETag := fmt.Sprintf(`"%x-%d"`, finalHash, len(req.Parts))
 
 	storeKey := s3ObjectKey(bucket, key)
-	release := s3ObjectWriters.Lock(storeKey)
-	_, err = s3StoreObject(S3Object{
+	assembledObject := S3Object{
 		Key:          storeKey,
 		ETag:         finalETag,
 		ContentType:  mp.ContentType,
 		LastModified: time.Now().UTC(),
 		StorageClass: mp.StorageClass,
-	}, assembled, digests)
+	}
+	mp.Lock.apply(&assembledObject)
+	release := s3ObjectWriters.Lock(storeKey)
+	completed, err := s3StoreObject(assembledObject, assembled, digests)
 	release()
 	if err != nil {
 		S3ErrorXML(w, "InternalError", err.Error(), bucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
@@ -442,6 +455,7 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 		Key:      key,
 		ETag:     finalETag,
 	}
+	s3SetVersionHeader(w, bucket, completed.VersionID)
 	WriteXML(w, http.StatusOK, result)
 }
 
@@ -659,9 +673,8 @@ func parsePositiveQueryInt(raw string, fallback int) int {
 func handleS3PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
-	if _, ok := s3Objects.Get(bucket + "/" + key); !ok {
-		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist",
-			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
+	version, ok := s3AddressedVersion(w, r)
+	if !ok {
 		return
 	}
 	defer r.Body.Close()
@@ -693,7 +706,13 @@ func handleS3PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 	for _, t := range req.TagSet.Tags {
 		tags[t.Key] = t.Value
 	}
-	s3ObjectTags.Put(bucket+"/"+key, tags)
+	if !s3UpdateVersion(s3ObjectKey(bucket, key), version.Object.VersionID, func(_ *S3Object, stored *map[string]string) {
+		*stored = tags
+	}) {
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.", key, sim.RequestID(r.Context()), http.StatusNotFound)
+		return
+	}
+	s3SetVersionHeader(w, bucket, version.Object.VersionID)
 	// PUT Object tagging answers 200, which is what the operation's own
 	// smithy.api#http trait declares and what the service returns — unlike the
 	// bucket-level subresources beside it, several of which really do answer
@@ -702,15 +721,10 @@ func handleS3PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleS3GetObjectTagging(w http.ResponseWriter, r *http.Request) {
-	bucket := sim.PathParam(r, "bucket")
-	key := sim.PathParam(r, "key")
-	if _, ok := s3Objects.Get(bucket + "/" + key); !ok {
-		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist",
-			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
+	version, ok := s3AddressedVersion(w, r)
+	if !ok {
 		return
 	}
-	tags, _ := s3ObjectTags.Get(bucket + "/" + key)
-
 	type tag struct {
 		Key   string `xml:"Key"`
 		Value string `xml:"Value"`
@@ -724,16 +738,25 @@ func handleS3GetObjectTagging(w http.ResponseWriter, r *http.Request) {
 	}{
 		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
 	}
-	for k, v := range tags {
-		out.TagSet.Tags = append(out.TagSet.Tags, tag{Key: k, Value: v})
+	keys := slices.Sorted(maps.Keys(version.Tags))
+	for _, k := range keys {
+		out.TagSet.Tags = append(out.TagSet.Tags, tag{Key: k, Value: version.Tags[k]})
 	}
+	s3SetVersionHeader(w, sim.PathParam(r, "bucket"), version.Object.VersionID)
 	WriteXML(w, http.StatusOK, out)
 }
 
 func handleS3DeleteObjectTagging(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
-	s3ObjectTags.Delete(bucket + "/" + key)
+	version, ok := s3AddressedVersion(w, r)
+	if !ok {
+		return
+	}
+	s3UpdateVersion(s3ObjectKey(bucket, key), version.Object.VersionID, func(_ *S3Object, stored *map[string]string) {
+		*stored = nil
+	})
+	s3SetVersionHeader(w, bucket, version.Object.VersionID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -750,11 +773,8 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 	dstBucket := sim.PathParam(r, "bucket")
 	dstKey := sim.PathParam(r, "key")
 
-	src, ok := s3Objects.Get(srcBucket + "/" + srcKey)
+	src, ok := s3CopySourceObject(w, r, srcBucket, srcKey)
 	if !ok {
-		S3ErrorXML(w, "NoSuchKey",
-			"The specified source object does not exist",
-			srcBucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	if !src.readable(time.Now().UTC()) {
@@ -772,6 +792,10 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s3Buckets_.Get(dstBucket); !ok {
 		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			dstBucket, sim.RequestID(r.Context()), http.StatusNotFound)
+		return
+	}
+	lock, ok := s3RequestedObjectLock(w, r, dstBucket)
+	if !ok {
 		return
 	}
 
@@ -793,15 +817,17 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC()
 	dstKeyStore := s3ObjectKey(dstBucket, dstKey)
-	release := s3ObjectWriters.Lock(dstKeyStore)
-	_, err = s3StoreObject(S3Object{
+	copyObject := S3Object{
 		Key:          dstKeyStore,
 		ETag:         src.ETag,
 		ContentType:  contentType,
 		Metadata:     metadata,
 		LastModified: now,
 		StorageClass: storageClass,
-	}, copied, digests)
+	}
+	lock.apply(&copyObject)
+	release := s3ObjectWriters.Lock(dstKeyStore)
+	stored, err := s3StoreObject(copyObject, copied, digests)
 	release()
 	if err != nil {
 		S3ErrorXML(w, "InternalError", err.Error(), dstBucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
@@ -817,10 +843,27 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 		ETag:         src.ETag,
 		LastModified: now.Format(time.RFC3339),
 	}
+	s3SetCopySourceVersionHeader(w, r, srcBucket, src)
+	s3SetVersionHeader(w, dstBucket, stored.VersionID)
 	WriteXML(w, http.StatusOK, result)
 }
 
 // ── Multi-object delete ──────────────────────────────────────────────
+
+// s3ObjectIdentifier is one entry of a DeleteObjects request.
+type s3ObjectIdentifier struct {
+	Key       string `xml:"Key"`
+	VersionID string `xml:"VersionId"`
+}
+
+// s3RefusedEntriesKey carries, on a DeleteObjects request's context, the
+// entries the caller may not delete.
+type s3RefusedEntriesKey struct{}
+
+func s3RefusedEntries(r *http.Request) []s3ObjectIdentifier {
+	refused, _ := r.Context().Value(s3RefusedEntriesKey{}).([]s3ObjectIdentifier)
+	return refused
+}
 
 func handleS3MultiObjectDelete(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
@@ -830,11 +873,9 @@ func handleS3MultiObjectDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		XMLName xml.Name `xml:"Delete"`
-		Quiet   bool     `xml:"Quiet"`
-		Objects []struct {
-			Key string `xml:"Key"`
-		} `xml:"Object"`
+		XMLName xml.Name             `xml:"Delete"`
+		Quiet   bool                 `xml:"Quiet"`
+		Objects []s3ObjectIdentifier `xml:"Object"`
 	}
 	defer r.Body.Close()
 	// Multi-object delete body is a fixed-shape XML document
@@ -854,79 +895,57 @@ func handleS3MultiObjectDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type deleted struct {
-		Key string `xml:"Key"`
+		Key                   string `xml:"Key"`
+		VersionID             string `xml:"VersionId,omitempty"`
+		DeleteMarker          bool   `xml:"DeleteMarker,omitempty"`
+		DeleteMarkerVersionID string `xml:"DeleteMarkerVersionId,omitempty"`
+	}
+	type failed struct {
+		Key       string `xml:"Key"`
+		VersionID string `xml:"VersionId,omitempty"`
+		Code      string `xml:"Code"`
+		Message   string `xml:"Message"`
 	}
 	out := struct {
 		XMLName xml.Name  `xml:"DeleteResult"`
 		Xmlns   string    `xml:"xmlns,attr"`
 		Deleted []deleted `xml:"Deleted"`
+		Errors  []failed  `xml:"Error"`
 	}{
 		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
 	}
+	refused := s3RefusedEntries(r)
+	bypassGovernance := s3BypassesGovernance(r)
 	for _, o := range req.Objects {
-		storeKey := s3ObjectKey(bucket, o.Key)
-		s3DeleteObjectRow(storeKey)
-		s3ObjectTags.Delete(storeKey)
-		s3DeleteObjectAnnotations(bucket, o.Key)
-		if !req.Quiet {
-			out.Deleted = append(out.Deleted, deleted{Key: o.Key})
+		// An entry the caller may not delete is refused on its own; the rest
+		// of the request goes ahead. Quiet mode still reports errors.
+		if slices.Contains(refused, o) {
+			out.Errors = append(out.Errors, failed{Key: o.Key, VersionID: o.VersionID,
+				Code: "AccessDenied", Message: "Access Denied"})
+			continue
 		}
-	}
-	WriteXML(w, http.StatusOK, out)
-}
-
-func handleS3ListObjectVersions(w http.ResponseWriter, r *http.Request) {
-	bucket := sim.PathParam(r, "bucket")
-	prefix := r.URL.Query().Get("prefix")
-	bucketPrefix := bucket + "/"
-	objects := s3Objects.ListPrefix(bucketPrefix + prefix)
-
-	type owner struct {
-		ID          string `xml:"ID"`
-		DisplayName string `xml:"DisplayName"`
-	}
-	type version struct {
-		Key          string `xml:"Key"`
-		VersionId    string `xml:"VersionId"`
-		IsLatest     bool   `xml:"IsLatest"`
-		LastModified string `xml:"LastModified"`
-		ETag         string `xml:"ETag"`
-		Size         int64  `xml:"Size"`
-		StorageClass string `xml:"StorageClass"`
-		Owner        owner  `xml:"Owner"`
-	}
-	out := struct {
-		XMLName         xml.Name  `xml:"ListVersionsResult"`
-		Xmlns           string    `xml:"xmlns,attr"`
-		Name            string    `xml:"Name"`
-		Prefix          string    `xml:"Prefix"`
-		KeyMarker       string    `xml:"KeyMarker"`
-		VersionIDMarker string    `xml:"VersionIdMarker"`
-		MaxKeys         int       `xml:"MaxKeys"`
-		IsTruncated     bool      `xml:"IsTruncated"`
-		Versions        []version `xml:"Version"`
-	}{
-		Xmlns:       "http://s3.amazonaws.com/doc/2006-03-01/",
-		Name:        bucket,
-		Prefix:      prefix,
-		MaxKeys:     1000,
-		IsTruncated: false,
-	}
-	for _, row := range objects {
-		obj := row.Item
-		out.Versions = append(out.Versions, version{
-			Key:          row.ID[len(bucketPrefix):],
-			VersionId:    "null",
-			IsLatest:     true,
-			LastModified: obj.LastModified.UTC().Format(time.RFC3339),
-			ETag:         obj.ETag,
-			Size:         obj.Size,
-			StorageClass: obj.storageClassOf(),
-			Owner: owner{
-				ID:          awsAccountID(),
-				DisplayName: "simulator",
-			},
-		})
+		result, err := s3DeleteObject(bucket, o.Key, o.VersionID, bypassGovernance)
+		if errors.Is(err, errS3ObjectLocked) {
+			out.Errors = append(out.Errors, failed{Key: o.Key, VersionID: o.VersionID,
+				Code: "AccessDenied", Message: "Access Denied because object protected by object lock."})
+			continue
+		}
+		if err != nil {
+			// The rows are gone and nothing references the contents; the
+			// next start's sweep removes the file. The delete succeeded.
+			log.Printf("s3: release the contents of %s: %v", s3ObjectKey(bucket, o.Key), err)
+		}
+		if req.Quiet {
+			continue
+		}
+		entry := deleted{Key: o.Key, DeleteMarker: result.DeleteMarker}
+		if o.VersionID != "" {
+			entry.VersionID = o.VersionID
+		}
+		if result.DeleteMarker {
+			entry.DeleteMarkerVersionID = result.VersionID
+		}
+		out.Deleted = append(out.Deleted, entry)
 	}
 	WriteXML(w, http.StatusOK, out)
 }

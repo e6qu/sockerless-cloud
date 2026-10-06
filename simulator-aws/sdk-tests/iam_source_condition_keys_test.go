@@ -74,8 +74,8 @@ func TestECS_DaemonTaskDefinitionSizeScopesTheGrant(t *testing.T) {
 
 // TestS3_DeleteObjectsVersionScopesEachEntry covers s3:versionid on the
 // s3:DeleteObjectVersion a DeleteObjects entry is authorized as: each entry is
-// held to the version it names. A refusal is either the whole request's or the
-// entry's AccessDenied.
+// held to the version it names, and a refused entry is that entry's
+// AccessDenied in the DeleteResult.
 func TestS3_DeleteObjectsVersionScopesEachEntry(t *testing.T) {
 	admin := s3Client()
 	bucket := uniqueName("delete-objects-versions")
@@ -93,9 +93,7 @@ func TestS3_DeleteObjectsVersionScopesEachEntry(t *testing.T) {
 	refused := func(version string) bool {
 		out, err := restricted.DeleteObjects(ctx, &s3.DeleteObjectsInput{Bucket: aws.String(bucket),
 			Delete: &s3types.Delete{Objects: []s3types.ObjectIdentifier{{Key: aws.String("report"), VersionId: aws.String(version)}}}})
-		if err != nil {
-			return errCodeOf(err) == "AccessDenied"
-		}
+		require.NoError(t, err)
 		for _, entry := range out.Errors {
 			if aws.ToString(entry.Code) == "AccessDenied" {
 				return true

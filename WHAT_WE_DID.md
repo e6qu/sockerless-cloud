@@ -367,6 +367,10 @@ through hooks:
   function's resource-based policy admits, and AddPermission writes the
   conditions its scoping members name. CORS preflights are answered from the
   URL config without invoking the function.
+- **An ARN is minted in the Service Reference's format.** An AWS Glue
+  integration's ARN is `…:integration:<id>`, keyed by an id Glue assigns at
+  CreateIntegration, not `…:integration/<name>`, so a policy naming the
+  integration's ARN matches the ARN the IAM gate derives from the request.
 - **A resource that exists implicitly is not minted on reference.** CloudWatch
   supports one metrics dataset, `default`, which every account has; GetDataset
   had created a dataset for any identifier it was given. Any other identifier
@@ -1852,6 +1856,67 @@ service's single write path rather than at each handler, so a handler added
 later cannot skip it; a lock per object keeps unrelated writes concurrent.
 Cloud Storage generations are timestamps that never repeat.
 
+An Amazon S3 key's current object stays in `s3Objects`, so every listing,
+conditional write and other service reading an object reads the latest
+version unchanged; every other version of the key, and every delete marker,
+lives in `s3ObjectVersions` under `<bucket>/<key>\x00<version id>`, the null
+version under `null`. A version records a sequence number from a clock that
+never repeats, which orders a key's versions newest first in
+ListObjectVersions and picks the version a removal makes current again. The
+version and its tags move together: a version that stops being current takes
+its tag set out of `s3ObjectTags` with it, and one that becomes current again
+brings it back. The single write path (`s3StoreObject`) applies the bucket's
+versioning state, so PutObject, CopyObject, CompleteMultipartUpload and the
+other services that write objects all version alike, and the payload adoption
+at start keeps the contents every noncurrent version references.
+
+The S3 Smithy supplement declares GetObject's 206 Partial Content beside its
+200: a ranged read, such as the Terraform `aws_s3_object` data source's, answers
+206, and the trait names only the code an unranged read gets.
+
+Amazon S3 Object Lock lives on the object version. Enablement is the bucket's
+stored `object-lock` configuration, written at CreateBucket together with an
+enabled versioning configuration, so the versioning machinery needs nothing
+of its own; PutBucketVersioning refuses to suspend it. The single write path
+applies the bucket's default retention to a version whose write asked for
+none, so every service writing into a locked bucket honours it. Protection is
+checked under the key's write lock in the version delete itself, so
+DeleteObject and each DeleteObjects entry are refused alike, and a delete
+without a version id only adds a delete marker, which Object Lock never
+refuses. A PutObject carrying Object Lock headers needs Content-MD5 or a
+checksum, as Amazon S3 requires: the AWS SDK for Go v2 sends one only when its
+checksum calculation is `when_supported` or the input names an algorithm.
+s3:BypassGovernanceRetention authorizes against the object, as the Service
+Reference declares, per DeleteObjects entry.
+
+An Elastic Load Balancing trust store reads its CA bundle and revocation lists
+from Amazon S3 at the call, through the same object and version lookup S3's
+own GetObject uses, so a bundle written a moment earlier is the one counted
+and a version id names exactly that version.
+The trust store keeps the bytes it read. Its content locations are presigned
+URLs to that copy in a bucket Elastic Load Balancing writes, keyed by the
+content's digest, so the URL serves what was ingested even after the
+customer's object changes or goes, and the client fetches it from the same
+endpoint it called.
+
+Amazon EC2 instance-type facts come from the AWS Price List bulk offer file,
+the one machine-readable, unauthenticated publication of them: the EC2 Smithy
+model carries only the InstanceType enum. `scripts/fetch-aws-ec2-instance-types.go`
+streams the us-east-1 offer, keeps the Compute Instance products, fails when
+two products of one type disagree on a fact, and records the pinned offer URL
+and its SHA-256. The simulator converts the verbatim attributes: "<n> GiB"
+truncates to MiB, which gives DescribeInstanceTypes' figures for the legacy
+sizes the Price List rounds; the processor names the instruction set, because
+the offer says "64-bit" for both x86 and Arm. A fact the offer does not state
+stays absent from the answer rather than being guessed, and a filter over one
+answers Unsupported.
+
+Amazon ECR's imageSizeInBytes counts the config blob with the layers and
+leaves the manifest document out. The AWS CLI's own examples settle it: its
+describe-images example reports cluster-autoscaler v1.13.6 at 48318255 bytes,
+and its batch-get-image example prints the same digest's manifest, whose four
+layers total 48315478 and whose config is 2777 bytes.
+
 A Cloud Storage bucket belongs to a project that exists. The insert resolves
 its `project` through Cloud Resource Manager and stamps that project's number,
 and the service agent is named for the same number, because gcloud's
@@ -2110,6 +2175,23 @@ CBOR body as the JSON routes do from theirs, so PutMetricAlarm authorizes
 `alarm:<name>` rather than `"*"`. The AWS CLI's awsJson1_0 CloudWatch
 requests carry their tags in the same `Tags` list, which the check reads too. Session tags on an `AssumeRole` need the
 role's trust policy to allow `sts:TagSession` too.
+
+An AWS STS session keeps the tags it was given on its temporary credential,
+with the keys that are transitive. `aws:PrincipalTag/<key>` reads the session's
+tags over its role's, a session tag replacing a role tag of the same key,
+compared case-insensitively. An AssumeRole a session signs keeps that
+session's transitive tags and refuses a passed tag that would replace one, and
+needs sts:TagSession only for the tags the request itself passes. A SAML
+assertion's `PrincipalTag:<key>` attributes and a web identity token's
+`https://aws.amazon.com/tags` claim are session tags too, authorized as
+sts:TagSession against the trust policy with the federation context, so a
+statement can condition tagging on `saml:aud` and `aws:RequestTag/<key>`.
+
+A DeleteObjects entry is authorized as its own s3:DeleteObject or
+s3:DeleteObjectVersion. An entry the caller may not delete is that entry's
+AccessDenied `<Error>` in the DeleteResult, Quiet mode included, and the
+entries the caller may delete are deleted; the gate hands the handler the
+refused entries on the request context.
 
 An Amazon S3 control-plane resource has one tag set, held in
 `s3ControlResourceTags` under the resource's ARN. The creates that take tags —

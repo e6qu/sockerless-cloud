@@ -62,20 +62,26 @@ func iamPopulateGlobalConditionKeys(r *http.Request, akid, principalArn, userNam
 	}
 }
 
-// iamPrincipalTags returns the calling principal's tags (user tags for an AKIA
-// key; the assumed role's tags for an ASIA session).
+// iamPrincipalTags returns the calling principal's tags: a user's tags for an
+// AKIA key, and for an ASIA session its role's tags overlaid with the
+// session's own tags.
 func iamPrincipalTags(akid, userName string) []IAMTag {
 	if userName != "" {
 		if u, ok := iamUsers.Get(userName); ok {
 			return u.Tags
 		}
 	}
-	if tc, ok := iamTempCreds.Get(akid); ok && tc.RoleName != "" {
+	tc, ok := iamTempCreds.Get(akid)
+	if !ok {
+		return nil
+	}
+	var roleTags []IAMTag
+	if tc.RoleName != "" {
 		if role, rok := iamRoles.Get(tc.RoleName); rok {
-			return role.Tags
+			roleTags = role.Tags
 		}
 	}
-	return nil
+	return iamMergeSessionTags(roleTags, tc.SessionTags)
 }
 
 // iamSessionMFA reports whether the credential is an MFA-authenticated session

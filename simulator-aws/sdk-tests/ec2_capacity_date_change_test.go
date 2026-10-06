@@ -59,6 +59,20 @@ func TestEC2SDK_FutureDatedCapacityReservation(t *testing.T) {
 		_, err := client.CreateCapacityReservation(ctx, input)
 		require.Equal(t, "InvalidParameterValue", errCode(t, err), name)
 	}
+
+	// 4 vCPUs each: seven m5.xlarge instances fall short of 32 vCPUs, eight
+	// reach them.
+	sized := func(count int32) error {
+		_, err := client.CreateCapacityReservation(ctx, &ec2.CreateCapacityReservationInput{
+			InstanceType: aws.String("m5.xlarge"), InstancePlatform: ec2types.CapacityReservationInstancePlatformLinuxUnix,
+			AvailabilityZone: aws.String("us-east-1a"), InstanceCount: aws.Int32(count),
+			InstanceMatchCriteria: ec2types.InstanceMatchCriteriaTargeted,
+			StartDate:             aws.Time(time.Now().Add(10 * 24 * time.Hour)), CommitmentDuration: aws.Int64(fourteenDays),
+		})
+		return err
+	}
+	require.Equal(t, "InvalidParameterValue", errCode(t, sized(7)), "28 vCPUs")
+	require.NoError(t, sized(8), "32 vCPUs")
 }
 
 // TestEC2SDK_CapacityReservationDateChangeQuote postpones a scheduled

@@ -43,6 +43,10 @@ type IAMTempCred struct {
 	// FederatedClaims are the identity provider's claims an AssumeRole made
 	// with this session carries; see stsChainedFederationKeys.
 	FederatedClaims map[string][]string `json:",omitempty"`
+	// SessionTags are the session's tags, reported as its principal tags, and
+	// TransitiveTagKeys the ones a role it assumes keeps.
+	SessionTags       []IAMTag `json:",omitempty"`
+	TransitiveTagKeys []string `json:",omitempty"`
 }
 
 // stsRequestMFA reports whether the request presented an MFA device + code,
@@ -321,6 +325,12 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
 			http.StatusForbidden)
 		return
 	}
+	requestedTags, transitive := stsRequestSessionTags(r)
+	sessionTags, err := stsNewSessionTags(stsInheritedSessionTags(r), requestedTags, transitive)
+	if err != nil {
+		stsErrorXML(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return
+	}
 	// The trust policy has to admit the caller. A credential no registered
 	// principal holds is not evaluated here, as the call-time gate does not
 	// evaluate it either.
@@ -339,8 +349,10 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
 				http.StatusForbidden)
 			return
 		}
-		// Session tags need the trust policy to allow sts:TagSession as well.
-		if len(iamRequestTags(r, "sts")) > 0 && !stsTrustAllows(role, "sts:TagSession", callerArn, ctx) {
+		// Tags the request passes need the trust policy to allow
+		// sts:TagSession as well; transitive tags a chained session keeps were
+		// authorized when they were passed.
+		if len(requestedTags) > 0 && !stsTrustAllows(role, "sts:TagSession", callerArn, sessionTags.conditionContext(ctx)) {
 			stsErrorXML(w, "AccessDenied",
 				fmt.Sprintf("User: %s is not authorized to perform: sts:TagSession on resource: %s", callerArn, roleArn),
 				http.StatusForbidden)
@@ -356,6 +368,7 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
 		Expiration: exp.Format(time.RFC3339),
 		MFA:        stsRequestMFA(r), CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		FederatedClaims: stsCallerFederatedClaims(r),
+		SessionTags:     sessionTags.Tags, TransitiveTagKeys: sessionTags.Transitive,
 	})
 	assumedRoleID := role.RoleId + ":" + sessionName
 	w.Header().Set("Content-Type", "text/xml")
@@ -398,8 +411,23 @@ func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	tokenSubject := identity.Subject
-	if !stsTrustAllows(role, "sts:AssumeRoleWithWebIdentity", "federated:"+identity.Provider.Arn, identity.conditionContext(sessionName)) {
+	federation := identity.conditionContext(sessionName)
+	if !stsTrustAllows(role, "sts:AssumeRoleWithWebIdentity", "federated:"+identity.Provider.Arn, federation) {
 		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:AssumeRoleWithWebIdentity on %s", roleArn), http.StatusForbidden)
+		return
+	}
+	tokenTags, tokenTransitive, err := identity.sessionTags()
+	if err != nil {
+		stsErrorXML(w, "InvalidIdentityToken", err.Error(), http.StatusBadRequest)
+		return
+	}
+	sessionTags, err := stsNewSessionTags(stsSessionTags{}, tokenTags, tokenTransitive)
+	if err != nil {
+		stsErrorXML(w, "InvalidIdentityToken", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if sessionTags.passed() && !stsTrustAllows(role, "sts:TagSession", "federated:"+identity.Provider.Arn, sessionTags.conditionContext(federation)) {
+		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:TagSession on %s", roleArn), http.StatusForbidden)
 		return
 	}
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
@@ -407,7 +435,8 @@ func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) 
 	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
 	iamTempCreds.Put(akid, IAMTempCred{AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
 		RoleName: role.RoleName, PrincipalArn: assumedArn, Expiration: exp.Format(time.RFC3339),
-		FederatedClaims: stsChainedClaims(identity.conditionContext(sessionName))})
+		FederatedClaims: stsChainedClaims(federation),
+		SessionTags:     sessionTags.Tags, TransitiveTagKeys: sessionTags.Transitive})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssumeRoleWithWebIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
   <AssumeRoleWithWebIdentityResult>
@@ -451,6 +480,12 @@ func handleSTSGetFederationToken(w http.ResponseWriter, r *http.Request) {
 		stsErrorXML(w, "ValidationError", "Name is required", http.StatusBadRequest)
 		return
 	}
+	requestedTags, transitive := stsRequestSessionTags(r)
+	sessionTags, err := stsNewSessionTags(stsSessionTags{}, requestedTags, transitive)
+	if err != nil {
+		stsErrorXML(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return
+	}
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
 	akid, secret, token := stsMintTempCred(exp)
 	fedArn := fmt.Sprintf("arn:aws:sts::%s:federated-user/%s", awsAccountID(), name)
@@ -458,6 +493,7 @@ func handleSTSGetFederationToken(w http.ResponseWriter, r *http.Request) {
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token, PrincipalArn: fedArn,
 		Expiration: exp.Format(time.RFC3339), CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		SessionTags: sessionTags.Tags, TransitiveTagKeys: sessionTags.Transitive,
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetFederationTokenResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
@@ -508,9 +544,24 @@ func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
 	}
 	// The assertion has to offer this role through this provider, and the
 	// role has to trust the provider for this subject.
+	federation := assertion.conditionContext(awsAccountID())
 	if !assertion.namesRole(role.Arn, provider.Arn) ||
-		!stsTrustAllows(role, "sts:AssumeRoleWithSAML", "federated:"+provider.Arn, assertion.conditionContext(awsAccountID())) {
+		!stsTrustAllows(role, "sts:AssumeRoleWithSAML", "federated:"+provider.Arn, federation) {
 		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:AssumeRoleWithSAML on %s", roleArn), http.StatusForbidden)
+		return
+	}
+	assertionTags, assertionTransitive, err := assertion.sessionTags()
+	if err != nil {
+		stsErrorXML(w, "InvalidIdentityToken", err.Error(), http.StatusBadRequest)
+		return
+	}
+	sessionTags, err := stsNewSessionTags(stsSessionTags{}, assertionTags, assertionTransitive)
+	if err != nil {
+		stsErrorXML(w, "InvalidIdentityToken", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if sessionTags.passed() && !stsTrustAllows(role, "sts:TagSession", "federated:"+provider.Arn, sessionTags.conditionContext(federation)) {
+		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:TagSession on %s", roleArn), http.StatusForbidden)
 		return
 	}
 	sessionName := assertion.SessionName
@@ -521,7 +572,8 @@ func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
 		RoleName: role.RoleName, PrincipalArn: assumedArn,
 		Expiration: exp.Format(time.RFC3339), CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		FederatedClaims: stsChainedClaims(assertion.conditionContext(awsAccountID())),
+		FederatedClaims: stsChainedClaims(federation),
+		SessionTags:     sessionTags.Tags, TransitiveTagKeys: sessionTags.Transitive,
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssumeRoleWithSAMLResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">

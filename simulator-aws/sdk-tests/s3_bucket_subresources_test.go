@@ -399,6 +399,10 @@ func TestS3_Bucket_OwnershipNotificationPublicAccessObjectLock_RoundTrip(t *test
 	_, err = c.DeletePublicAccessBlock(ctx, &s3.DeletePublicAccessBlockInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 
+	// Object Lock needs versioning enabled on the bucket first.
+	_, err = c.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{Bucket: aws.String(bucket),
+		VersioningConfiguration: &types.VersioningConfiguration{Status: types.BucketVersioningStatusEnabled}})
+	require.NoError(t, err)
 	_, err = c.PutObjectLockConfiguration(ctx, &s3.PutObjectLockConfigurationInput{
 		Bucket: aws.String(bucket),
 		ObjectLockConfiguration: &types.ObjectLockConfiguration{

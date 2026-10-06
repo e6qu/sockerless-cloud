@@ -23,6 +23,7 @@ const (
 	ec2FutureDatedMaxLead      = 120 * 24 * time.Hour
 	ec2MinCommitment           = 14 * 24 * time.Hour
 	ec2MinCommitmentUAndX      = 12 * 7 * 24 * time.Hour
+	ec2FutureDatedMinVCpus     = 32
 	ec2MaxCumulativePushout    = 30 * 24 * time.Hour
 	ec2PushoutCommitmentWindow = 14 * 24 * time.Hour
 	ec2QuoteValidity           = 24 * time.Hour
@@ -72,10 +73,11 @@ type ec2FutureDated struct {
 
 // ec2FutureDatedRequest reads a CreateCapacityReservation request's
 // future-dated terms: a start between 5 and 120 days ahead, a commitment of at
-// least 14 days (12 weeks for U and X instances), targeted matching only, and
-// no automatic end inside the commitment. A request with neither StartDate nor
-// CommitmentDuration is for immediate use.
-func ec2FutureDatedRequest(r *http.Request, matchCriteria, endDateType string, now time.Time) (ec2FutureDated, *ec2Problem) {
+// least 14 days (12 weeks for U and X instances), at least 32 vCPUs across its
+// instances, targeted matching only, and no automatic end inside the
+// commitment. A request with neither StartDate nor CommitmentDuration is for
+// immediate use.
+func ec2FutureDatedRequest(r *http.Request, instanceType ec2InstanceTypeFacts, count int, matchCriteria, endDateType string, now time.Time) (ec2FutureDated, *ec2Problem) {
 	rawStart, rawCommitment := r.FormValue("StartDate"), r.FormValue("CommitmentDuration")
 	if rawStart == "" && rawCommitment == "" {
 		return ec2FutureDated{}, nil
@@ -103,6 +105,11 @@ func ec2FutureDatedRequest(r *http.Request, matchCriteria, endDateType string, n
 	if time.Duration(seconds)*time.Second < minimum {
 		return ec2FutureDated{}, ec2Problemf("InvalidParameterValue",
 			"CommitmentDuration must be at least %d seconds for instance type %s.", int64(minimum/time.Second), r.FormValue("InstanceType"))
+	}
+	if vcpus := instanceType.VCpus * count; vcpus < ec2FutureDatedMinVCpus {
+		return ec2FutureDated{}, ec2Problemf("InvalidParameterValue",
+			"A future-dated Capacity Reservation must reserve at least %d vCPUs; %d %s instances have %d.",
+			ec2FutureDatedMinVCpus, count, instanceType.Name, vcpus)
 	}
 	if matchCriteria != "targeted" {
 		return ec2FutureDated{}, ec2Problemf("InvalidParameterValue",

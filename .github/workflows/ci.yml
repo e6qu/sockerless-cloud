@@ -904,8 +904,14 @@ jobs:
             run: '^Test(Route53|S3)'
             timeout: 1200s
             timeout_minutes: 15
+          # appdata3 split again when its suite reached the job's 15-minute
+          # budget: a run that passed took 14.5 minutes end to end.
           - suite: appdata3
-            run: '^Test(Scheduler|SecretsManager|SFN|SNS|SQS|SSM|STS|WAFv2|RDSCLI_Restore)'
+            run: '^Test(Scheduler|SecretsManager|SFN|SNS|RDSCLI_Restore)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: appdata6
+            run: '^Test(SQS|SSM|STS|WAFv2)'
             timeout: 1200s
             timeout_minutes: 15
     steps:
@@ -1093,7 +1099,7 @@ jobs:
             timeout_minutes: 12
           - suite: aws Amazon EC2 launch template
             cloud: aws
-            tf_packages: "./launch-template"
+            tf_packages: "./launch-template ./ec2-instance-type"
             timeout_minutes: 12
           - suite: aws Amazon EC2 network interface
             cloud: aws
@@ -1101,15 +1107,23 @@ jobs:
             timeout_minutes: 12
           - suite: aws S3 control plane
             cloud: aws
-            tf_packages: "./s3control"
+            tf_packages: "./s3control ./s3-versioning ./s3-object-lock"
+            timeout_minutes: 12
+          - suite: aws Elastic Load Balancing trust store
+            cloud: aws
+            tf_packages: "./elb-trust-store"
             timeout_minutes: 12
           - suite: aws Amazon ECR force delete
             cloud: aws
-            tf_packages: "./ecr-force-delete"
+            tf_packages: "./ecr-force-delete ./ecr-image-size"
             timeout_minutes: 12
           - suite: aws NAT gateway route associations
             cloud: aws
             tf_packages: "./nat-associations"
+            timeout_minutes: 12
+          - suite: aws AWS STS session tags
+            cloud: aws
+            tf_packages: "./sts-session-tags"
             timeout_minutes: 12
           - suite: gcp
             cloud: gcp
