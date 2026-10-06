@@ -6,12 +6,14 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -678,6 +680,20 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 		`"containerDefinitions":[{"name":"probe","image":"alpine"}],"tags":[{"key":"owner","value":"platform"}]}`)
 	jsonCall(ecs+"CreateService", json11, `{"cluster":"probe","serviceName":"probe","taskDefinition":"probe",`+
 		`"desiredCount":0,"tags":[{"key":"owner","value":"platform"}]}`)
+	// A tagged capacity provider, a container instance registered with the
+	// cluster, and a task set in the service, each named by the id the
+	// service assigns.
+	jsonCall(ecs+"CreateCapacityProvider", json11, `{"name":"probe","autoScalingGroupProvider":{`+
+		`"autoScalingGroupArn":"arn:aws:autoscaling:us-east-1:`+iamProbeAccount+`:autoScalingGroup:`+
+		`11111111-2222-3333-4444-555555555555:autoScalingGroupName/probe"},"tags":[{"key":"owner","value":"platform"}]}`)
+	containerInstance := field(jsonCall(ecs+"RegisterContainerInstance", json11,
+		`{"cluster":"probe","tags":[{"key":"owner","value":"platform"}]}`), `"containerInstanceArn":"[^"]*/([^"/]+)"`)
+	taskSet := field(jsonCall(ecs+"CreateTaskSet", json11, `{"cluster":"probe","service":"probe",`+
+		`"taskDefinition":"probe:1","tags":[{"key":"owner","value":"platform"}]}`), `"id":"([^"]+)"`)
+	fixtures["ecs"] = map[string]string{
+		"containerinstance": containerInstance, "containerinstances": containerInstance, "targetid": containerInstance,
+		"taskset": taskSet, "tasksets": taskSet, "taskdefinitions": "probe:1",
+	}
 
 	// AWS Identity and Access Management: a boundary policy, and a tagged
 	// user and role that carry it.
@@ -752,6 +768,68 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 		`"Content":"{\"schemaVersion\":\"2.2\",\"mainSteps\":[{\"action\":\"aws:runShellScript\",`+
 		`\"name\":\"probe\",\"inputs\":{\"runCommand\":[\"true\"]}}]}",`+
 		`"Tags":[{"Key":"owner","Value":"platform"}]}`)
+	// A tagged parameter, association running the document, Automation
+	// execution, and cloud connector, each named by the id the service
+	// assigns.
+	const ssmTags = `"Tags":[{"Key":"owner","Value":"platform"}]`
+	jsonCall("AmazonSSM.PutParameter", json11, `{"Name":"probe","Type":"String","Value":"probe",`+ssmTags+`}`)
+	association := field(jsonCall("AmazonSSM.CreateAssociation", json11, `{"Name":"probe",`+ssmTags+`}`),
+		`"AssociationId":"([^"]+)"`)
+	jsonCall("AmazonSSM.CreateDocument", json11, `{"Name":"probe-automation","DocumentType":"Automation",`+
+		`"Content":"{\"schemaVersion\":\"0.3\",\"mainSteps\":[{\"action\":\"aws:sleep\",`+
+		`\"name\":\"probe\",\"inputs\":{\"Duration\":\"PT0S\"}}]}"}`)
+	automation := field(jsonCall("AmazonSSM.StartAutomationExecution", json11,
+		`{"DocumentName":"probe-automation",`+ssmTags+`}`), `"AutomationExecutionId":"([^"]+)"`)
+	cloudConnector := field(jsonCall("AmazonSSM.CreateCloudConnector", json11, `{"DisplayName":"probe",`+
+		`"RoleArn":"arn:aws:iam::`+iamProbeAccount+`:role/probe",`+
+		`"ConfigConnectorArn":"arn:aws:config:us-east-1:`+iamProbeAccount+`:connector/probe",`+
+		`"Configuration":{"AzureConfiguration":{"TenantId":"probe","ApplicationId":"probe"}},`+ssmTags+`}`),
+		`"CloudConnectorId":"([^"]+)"`)
+	fixtures["ssm"] = map[string]string{
+		"associationid": association, "associationids": association,
+		"automationexecutionid": automation, "cloudconnectorid": cloudConnector,
+		"AddTagsToResource:resourceid": association, "ListTagsForResource:resourceid": association,
+		"RemoveTagsFromResource:resourceid": association,
+	}
+
+	// AWS WAF: a tagged IP set, regex pattern set, rule group and web ACL in
+	// the CLOUDFRONT scope, which is the scope every probe names.
+	const waf = "AWSWAF_20190729."
+	wafVisibility := `"VisibilityConfig":{"SampledRequestsEnabled":false,"CloudWatchMetricsEnabled":false,` +
+		`"MetricName":"probe"}`
+	wafTags := `"Tags":[{"Key":"owner","Value":"platform"}]`
+	wafCreate := func(operation, body string) (string, string) {
+		t.Helper()
+		summary := jsonCall(waf+operation, json11, `{"Name":"probe","Scope":"CLOUDFRONT",`+body+`,`+wafTags+`}`)
+		return field(summary, `"Id":"([^"]+)"`), field(summary, `"ARN":"([^"]+)"`)
+	}
+	ipSet, ipSetARN := wafCreate("CreateIPSet", `"IPAddressVersion":"IPV4","Addresses":["10.0.0.0/8"]`)
+	regexSet, _ := wafCreate("CreateRegexPatternSet", `"RegularExpressionList":[{"RegexString":"probe"}]`)
+	ruleGroup, ruleGroupARN := wafCreate("CreateRuleGroup", `"Capacity":10,`+wafVisibility)
+	webACL, webACLARN := wafCreate("CreateWebACL", `"DefaultAction":{"Allow":{}},`+wafVisibility)
+	fixtures["wafv2"] = map[string]string{
+		"GetIPSet:id": ipSet, "UpdateIPSet:id": ipSet,
+		"GetRegexPatternSet:id": regexSet, "UpdateRegexPatternSet:id": regexSet,
+		"GetRuleGroup:id": ruleGroup, "UpdateRuleGroup:id": ruleGroup, "GetRuleGroup:arn": ruleGroupARN,
+		"GetWebACL:id": webACL, "UpdateWebACL:id": webACL, "GetWebACL:arn": webACLARN,
+		"GetRateBasedStatementManagedKeys:webaclid": webACL, "GetLoggingConfiguration:resourcearn": webACLARN,
+		"ListTagsForResource:resourcearn": ipSetARN, "TagResource:resourcearn": ipSetARN,
+		"UntagResource:resourcearn": ipSetARN,
+	}
+
+	// AWS Cloud Map: an HTTP namespace and a service in it, named by the ids
+	// the service assigns.
+	const cloudMap = "Route53AutoNaming_v20170314."
+	operation := field(jsonCall(cloudMap+"CreateHttpNamespace", json11, `{"Name":"probe"}`),
+		`"OperationId":"([^"]+)"`)
+	namespace := field(jsonCall(cloudMap+"GetOperation", json11, `{"OperationId":"`+operation+`"}`),
+		`"NAMESPACE":"([^"]+)"`)
+	cloudMapService := field(jsonCall(cloudMap+"CreateService", json11, `{"Name":"probe","NamespaceId":"`+
+		namespace+`"}`), `"Id":"([^"]+)"`)
+	fixtures["servicediscovery"] = map[string]string{
+		"namespaceid": namespace, "serviceid": cloudMapService,
+		"DeleteService:id": cloudMapService, "UpdateService:id": cloudMapService,
+	}
 
 	// Amazon EventBridge: a tagged rule on a bus named like it.
 	jsonCall("AWSEvents.CreateEventBus", json11, `{"Name":"probe"}`)
@@ -782,5 +860,87 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 	fixtures["states"] = map[string]string{
 		"statemachinearn": version, "statemachineversionarn": version, "statemachinealiasarn": alias,
 	}
+
+	// Elastic Load Balancing: a tagged load balancer, a listener on it with a
+	// rule, a target group, and a trust store, each named by the ARN the
+	// service assigns.
+	const elb = "2015-12-01"
+	elbTags := url.Values{"Tags.member.1.Key": {"owner"}, "Tags.member.1.Value": {"platform"}}
+	elbCall := func(action string, form url.Values) string {
+		t.Helper()
+		form.Set("Action", action)
+		form.Set("Version", elb)
+		for key, values := range elbTags {
+			form[key] = values
+		}
+		return query(form)
+	}
+	loadBalancer := field(elbCall("CreateLoadBalancer", url.Values{"Name": {"probe"}, "Subnets.member.1": {subnet}}),
+		`<LoadBalancerArn>([^<]+)</LoadBalancerArn>`)
+	targetGroup := field(elbCall("CreateTargetGroup", url.Values{"Name": {"probe"}, "Protocol": {"HTTP"},
+		"Port": {"80"}, "VpcId": {vpc}}), `<TargetGroupArn>([^<]+)</TargetGroupArn>`)
+	listenerPort := iamProbeFreePort(t)
+	listener := field(elbCall("CreateListener", url.Values{"LoadBalancerArn": {loadBalancer}, "Protocol": {"HTTP"},
+		"Port": {listenerPort}, "DefaultActions.member.1.Type": {"forward"},
+		"DefaultActions.member.1.TargetGroupArn": {targetGroup}}), `<ListenerArn>([^<]+)</ListenerArn>`)
+	rule := field(elbCall("CreateRule", url.Values{"ListenerArn": {listener}, "Priority": {"1"},
+		"Conditions.member.1.Field": {"path-pattern"}, "Conditions.member.1.Values.member.1": {"/probe"},
+		"Actions.member.1.Type": {"forward"}, "Actions.member.1.TargetGroupArn": {targetGroup}}),
+		`<RuleArn>([^<]+)</RuleArn>`)
+	trustStore := field(elbCall("CreateTrustStore", url.Values{"Name": {"probe"},
+		"CaCertificatesBundleS3Bucket": {"probe"}, "CaCertificatesBundleS3Key": {"probe"}}),
+		`<TrustStoreArn>([^<]+)</TrustStoreArn>`)
+	fixtures["elasticloadbalancing"] = map[string]string{
+		"loadbalancerarn": loadBalancer, "loadbalancerarns": loadBalancer, "resourcearns": loadBalancer,
+		"targetgrouparn": targetGroup, "targetgrouparns": targetGroup,
+		"listenerarn": listener, "listenerarns": listener, "rulearn": rule, "rulearns": rule,
+		"truststorearn": trustStore, "truststorearns": trustStore, "resourcearn": trustStore,
+	}
+
+	// Amazon ElastiCache: one tagged resource of every type its tagging
+	// operations accept, named "probe" except for the global replication
+	// group, whose id the service prefixes.
+	const elastiCache = "2015-02-02"
+	ecCall := func(action string, form url.Values) {
+		t.Helper()
+		form.Set("Action", action)
+		form.Set("Version", elastiCache)
+		form.Set("Tags.Tag.1.Key", "owner")
+		form.Set("Tags.Tag.1.Value", "platform")
+		query(form)
+	}
+	ecCall("CreateCacheParameterGroup", url.Values{"CacheParameterGroupName": {"probe"},
+		"CacheParameterGroupFamily": {"redis7"}, "Description": {"probe"}})
+	ecCall("CreateCacheSubnetGroup", url.Values{"CacheSubnetGroupName": {"probe"},
+		"CacheSubnetGroupDescription": {"probe"}, "SubnetIds.SubnetIdentifier.1": {subnet}})
+	ecCall("CreateCacheCluster", url.Values{"CacheClusterId": {"probe"}, "Engine": {"redis"},
+		"CacheNodeType": {"cache.t3.micro"}, "NumCacheNodes": {"1"}})
+	ecCall("CreateReplicationGroup", url.Values{"ReplicationGroupId": {"probe"},
+		"ReplicationGroupDescription": {"probe"}, "Engine": {"redis"}, "CacheNodeType": {"cache.t3.micro"}})
+	ecCall("CreateSnapshot", url.Values{"SnapshotName": {"probe"}, "CacheClusterId": {"probe"}})
+	ecCall("CreateUser", url.Values{"UserId": {"probe"}, "UserName": {"probe"}, "Engine": {"redis"},
+		"AccessString": {"on ~* +@all"}, "NoPasswordRequired": {"true"}})
+	ecCall("CreateUserGroup", url.Values{"UserGroupId": {"probe"}, "Engine": {"redis"},
+		"UserIds.member.1": {"probe"}})
+	ecCall("CreateCacheSecurityGroup", url.Values{"CacheSecurityGroupName": {"probe"}, "Description": {"probe"}})
+	ecCall("PurchaseReservedCacheNodesOffering", url.Values{"ReservedCacheNodeId": {"probe"},
+		"ReservedCacheNodesOfferingId": {ecReservedCacheNodesOfferings[0].Id}})
+	globalGroup := field(query(url.Values{"Action": {"CreateGlobalReplicationGroup"}, "Version": {elastiCache},
+		"GlobalReplicationGroupIdSuffix": {"probe"}, "PrimaryReplicationGroupId": {"probe"},
+		"Tags.Tag.1.Key": {"owner"}, "Tags.Tag.1.Value": {"platform"}}),
+		`<GlobalReplicationGroupId>([^<]+)</GlobalReplicationGroupId>`)
+	fixtures["elasticache"] = map[string]string{"globalreplicationgroupid": globalGroup}
 	return fixtures
+}
+
+// iamProbeFreePort is a TCP port nothing on the host listens on, for a seeded
+// listener whose data plane binds one.
+func iamProbeFreePort(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("seed: find a free port: %v", err)
+	}
+	defer l.Close()
+	return strconv.Itoa(l.Addr().(*net.TCPAddr).Port)
 }

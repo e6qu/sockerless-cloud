@@ -2605,6 +2605,16 @@ func iamElastiCacheResourceARNs(r *http.Request, op string, types []string, regi
 			return ends
 		}
 	}
+	// AWS picks the prefix of a global datastore's id when it creates one, so
+	// the request cannot name the datastore it makes: that is the type
+	// wildcard, authorized alongside the primary replication group it names.
+	if op == "CreateGlobalReplicationGroup" {
+		arns := iamCreateWildcardARNs("elasticache", op, types, region, account)
+		for _, id := range lookup("PrimaryReplicationGroupId") {
+			arns = append(arns, "arn:aws:elasticache:"+region+":"+account+":replicationgroup:"+id)
+		}
+		return arns
+	}
 	return iamTableDrivenARNs("elasticache", types, region, account, nil, lookup)
 }
 

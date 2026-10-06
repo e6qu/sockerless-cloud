@@ -63,9 +63,14 @@ func cliCleanupDBCluster(t *testing.T, clusterID string) {
 
 func cliConnectPostgres(t *testing.T, ctx context.Context, host string, port int) *pgx.Conn {
 	t.Helper()
-	config, err := pgx.ParseConfig(fmt.Sprintf("postgres://%s@%s:%d/%s?sslmode=require", cliRestoreUsername, host, port, cliRestoreDatabase))
+	return cliConnectPostgresAs(t, ctx, host, port, cliRestoreUsername, cliRestorePassword)
+}
+
+func cliConnectPostgresAs(t *testing.T, ctx context.Context, host string, port int, user, password string) *pgx.Conn {
+	t.Helper()
+	config, err := pgx.ParseConfig(fmt.Sprintf("postgres://%s@%s:%d/%s?sslmode=require", user, host, port, cliRestoreDatabase))
 	require.NoError(t, err)
-	config.Password = cliRestorePassword
+	config.Password = password
 	config.TLSConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} // test-only CA coordinate
 	conn, err := pgx.ConnectConfig(ctx, config)
 	require.NoError(t, err)

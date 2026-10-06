@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +25,9 @@ import (
 // authentication tokens through AWS's official signer, and then executes
 // schema/write/read transactions through stock PostgreSQL and MySQL drivers.
 // The driver connections are the independent data-plane oracle; the simulator
-// test does not call an internal database endpoint.
+// test does not call an internal database endpoint. Each instance signs in the
+// users its engine holds under their own passwords, and RDS for PostgreSQL
+// signs in a user granted rds_iam only with an IAM authentication token.
 func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -75,20 +78,65 @@ func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 		})
 		waitForRDSInstanceAvailable(t, rdsAPI, testContext, instanceID)
 		endpoint := fmt.Sprintf("%s:%d", aws.ToString(created.DBInstance.Endpoint.Address), aws.ToInt32(created.DBInstance.Endpoint.Port))
-		token, err := rdsauth.BuildAuthToken(testContext, endpoint, "us-east-1", username, credentialProvider)
-		require.NoError(t, err)
-
-		config, err := pgx.ParseConfig(fmt.Sprintf(
-			"postgres://%s@%s/%s?sslmode=require", username, endpoint, database,
-		))
-		require.NoError(t, err)
-		config.Password = token
-		config.TLSConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} // test-only CA coordinate
-		disabledConnection, err := pgx.ConnectConfig(testContext, config)
-		require.Error(t, err, "IAM database authentication must be denied while the instance setting is disabled")
-		if disabledConnection != nil {
-			_ = disabledConnection.Close(context.Background())
+		pgConfig := func(user, password, sslMode string) *pgx.ConnConfig {
+			config, err := pgx.ParseConfig(fmt.Sprintf("postgres://%s@%s/%s?sslmode=%s", user, endpoint, database, sslMode))
+			require.NoError(t, err)
+			config.Password = password
+			if sslMode == "require" {
+				config.TLSConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} // test-only CA coordinate
+			}
+			return config
 		}
+		signIn := func(user, password string) (*pgx.Conn, error) {
+			connection, err := pgx.ConnectConfig(testContext, pgConfig(user, password, "require"))
+			if err == nil {
+				t.Cleanup(func() { _ = connection.Close(context.Background()) })
+			}
+			return connection, err
+		}
+		refused := func(user, password, reason string) {
+			t.Helper()
+			_, err := signIn(user, password)
+			var refusal *pgconn.PgError
+			require.ErrorAs(t, err, &refusal, reason)
+			assert.Equal(t, "28P01", refusal.Code, reason)
+		}
+		token := func(user string) string {
+			t.Helper()
+			token, err := rdsauth.BuildAuthToken(testContext, endpoint, "us-east-1", user, credentialProvider)
+			require.NoError(t, err)
+			return token
+		}
+
+		master, err := signIn(username, "MasterPassword-123!")
+		require.NoError(t, err)
+		for _, statement := range []string{
+			`CREATE TABLE fidelity (id integer PRIMARY KEY, value text NOT NULL)`,
+			`INSERT INTO fidelity (id, value) VALUES (1, 'postgres-real-engine')`,
+			`CREATE USER reader PASSWORD 'Reader-Password-1'`,
+			`GRANT SELECT ON fidelity TO reader`,
+			`CREATE USER iam_writer`,
+			`GRANT rds_iam TO iam_writer`,
+			`GRANT SELECT, INSERT ON fidelity TO iam_writer`,
+		} {
+			_, err := master.Exec(testContext, statement)
+			require.NoError(t, err, statement)
+		}
+
+		reader, err := signIn("reader", "Reader-Password-1")
+		require.NoError(t, err, "a user created with CREATE USER ... PASSWORD signs in under its own password")
+		var user, value string
+		require.NoError(t, reader.QueryRow(testContext, `SELECT current_user, value FROM fidelity WHERE id = 1`).Scan(&user, &value))
+		assert.Equal(t, "reader", user)
+		assert.Equal(t, "postgres-real-engine", value)
+		_, err = reader.Exec(testContext, `INSERT INTO fidelity (id, value) VALUES (2, 'written-by-the-reader')`)
+		var denied *pgconn.PgError
+		require.ErrorAs(t, err, &denied, "the session holds only the user's own privileges")
+		assert.Equal(t, "42501", denied.Code)
+		refused("reader", "Wrong-Password-1", "a wrong password is refused")
+		refused("no_such_user", "Reader-Password-1", "a user the engine does not hold is refused")
+
+		refused("iam_writer", token("iam_writer"), "IAM database authentication must be denied while the instance setting is disabled")
 		modified, err := rdsAPI.ModifyDBInstance(testContext, &rds.ModifyDBInstanceInput{
 			DBInstanceIdentifier:            aws.String(instanceID),
 			EnableIAMDatabaseAuthentication: aws.Bool(true),
@@ -96,11 +144,7 @@ func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.True(t, aws.ToBool(modified.DBInstance.IAMDatabaseAuthenticationEnabled))
-		deniedConnection, err := pgx.ConnectConfig(testContext, config)
-		require.Error(t, err, "a valid IAM database token without rds-db:connect must be denied")
-		if deniedConnection != nil {
-			_ = deniedConnection.Close(context.Background())
-		}
+		refused("iam_writer", token("iam_writer"), "a valid IAM database token without rds-db:connect must be denied")
 		_, err = iamAPI.PutUserPolicy(testContext, &iam.PutUserPolicyInput{
 			UserName:   aws.String(iamUser),
 			PolicyName: aws.String(iamPolicy),
@@ -109,27 +153,20 @@ func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 			),
 		})
 		require.NoError(t, err)
-		plaintextConfig, err := pgx.ParseConfig(fmt.Sprintf(
-			"postgres://%s@%s/%s?sslmode=disable", username, endpoint, database,
-		))
-		require.NoError(t, err)
-		plaintextConfig.Password = token
-		plaintextConnection, err := pgx.ConnectConfig(testContext, plaintextConfig)
+		_, err = pgx.ConnectConfig(testContext, pgConfig("iam_writer", token("iam_writer"), "disable"))
 		require.Error(t, err, "IAM database authentication must require TLS")
-		if plaintextConnection != nil {
-			_ = plaintextConnection.Close(context.Background())
-		}
-		connection, err := pgx.ConnectConfig(testContext, config)
-		require.NoError(t, err)
-		defer connection.Close(context.Background())
+		refused(username, token(username), "a user not granted rds_iam cannot sign in with a token")
+		refused("reader", token("reader"), "a user not granted rds_iam cannot sign in with a token")
+		refused("iam_writer", "", "a user granted rds_iam signs in only with a token")
 
-		_, err = connection.Exec(testContext, `CREATE TABLE fidelity (id integer PRIMARY KEY, value text NOT NULL)`)
+		writer, err := signIn("iam_writer", token("iam_writer"))
+		require.NoError(t, err, "a user granted rds_iam signs in with an IAM authentication token")
+		require.NoError(t, writer.QueryRow(testContext, `SELECT current_user`).Scan(&user))
+		assert.Equal(t, "iam_writer", user, "the session runs as the user the token names")
+		_, err = writer.Exec(testContext, `INSERT INTO fidelity (id, value) VALUES (2, 'written-by-iam')`)
 		require.NoError(t, err)
-		_, err = connection.Exec(testContext, `INSERT INTO fidelity (id, value) VALUES (1, 'postgres-real-engine')`)
-		require.NoError(t, err)
-		var value string
-		require.NoError(t, connection.QueryRow(testContext, `SELECT value FROM fidelity WHERE id = 1`).Scan(&value))
-		assert.Equal(t, "postgres-real-engine", value)
+		require.NoError(t, master.QueryRow(testContext, `SELECT value FROM fidelity WHERE id = 2`).Scan(&value))
+		assert.Equal(t, "written-by-iam", value)
 	})
 
 	t.Run("MySQL", func(t *testing.T) {
@@ -198,6 +235,42 @@ func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 		require.NoError(t, rotatedConnection.PingContext(testContext))
 		require.NoError(t, rotatedConnection.QueryRowContext(testContext, `SELECT value FROM fidelity WHERE id = 1`).Scan(&value))
 		assert.Equal(t, "mysql-real-engine", value, "password rotation must preserve the real database volume")
+
+		for _, statement := range []string{
+			`CREATE USER 'reader'@'%' IDENTIFIED BY 'Reader-Password-1'`,
+			`GRANT SELECT ON application.fidelity TO 'reader'@'%'`,
+		} {
+			_, err := rotatedConnection.ExecContext(testContext, statement)
+			require.NoError(t, err, statement)
+		}
+		signIn := func(user, password string) (*sql.DB, error) {
+			config := rotatedConfig
+			config.User, config.Passwd = user, password
+			connection, err := sql.Open("mysql", config.FormatDSN())
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = connection.Close() })
+			return connection, connection.PingContext(testContext)
+		}
+		refused := func(user, password string) {
+			t.Helper()
+			_, err := signIn(user, password)
+			var refusal *mysql.MySQLError
+			require.ErrorAs(t, err, &refusal, user)
+			assert.Equal(t, uint16(1045), refusal.Number, user)
+		}
+		reader, err := signIn("reader", "Reader-Password-1")
+		require.NoError(t, err, "a user created with CREATE USER ... IDENTIFIED BY signs in under its own password")
+		var user string
+		require.NoError(t, reader.QueryRowContext(testContext, `SELECT CURRENT_USER(), value FROM fidelity WHERE id = 1`).Scan(&user, &value))
+		assert.Equal(t, "reader@%", user)
+		assert.Equal(t, "mysql-real-engine", value)
+		_, err = reader.ExecContext(testContext, `INSERT INTO fidelity (id, value) VALUES (2, 'written-by-the-reader')`)
+		var denied *mysql.MySQLError
+		require.ErrorAs(t, err, &denied, "the session holds only the user's own privileges")
+		assert.Equal(t, uint16(1142), denied.Number)
+		refused("reader", "Wrong-Password-1")
+		refused("no_such_user", "Reader-Password-1")
+		refused("root", rotatedPassword)
 	})
 
 	t.Run("MariaDB stopped password change", func(t *testing.T) {

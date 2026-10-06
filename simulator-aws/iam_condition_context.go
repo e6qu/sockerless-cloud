@@ -106,6 +106,10 @@ func iamPopulateResourceConditionKeys(r *http.Request, action string, ctx map[st
 			iamPopulateEC2ResourceTags(r, ctx)
 		case "ecs":
 			iamPopulateECSResourceTags(r, action, ctx)
+		case "ssm":
+			iamPopulateARNResourceTags(r, action, ctx, iamSSMTagsForARN)
+		case "wafv2":
+			iamPopulateARNResourceTags(r, action, ctx, iamWAFv2TagsForARN)
 		default:
 			// Every other tag-storing sim service resolves the request's target
 			// resource into aws:ResourceTag/<k> + <service>:ResourceTag/<k>.
@@ -195,6 +199,11 @@ func iamPopulateECSResourceTags(r *http.Request, action string, ctx map[string][
 	for _, arn := range iamResourceARNsForRequest(r, action) {
 		if arn == "*" {
 			continue
+		}
+		// A request naming a task definition by family alone runs its latest
+		// revision, and that revision's tags are the ones the call is about.
+		if i := strings.Index(arn, ":task-definition/"); i >= 0 {
+			arn = arn[:i+len(":task-definition/")] + ecsTaskDefinitionKey(arn)
 		}
 		resource, fault := ecsResolveTaggable(arn)
 		if fault != nil {

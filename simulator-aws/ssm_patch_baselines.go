@@ -117,6 +117,7 @@ func handleSSMCreatePatchBaseline(w http.ResponseWriter, r *http.Request) {
 		RejectedPatches                  []string        `json:"RejectedPatches"`
 		RejectedPatchesAction            string          `json:"RejectedPatchesAction"`
 		Sources                          json.RawMessage `json:"Sources"`
+		Tags                             []SSMTag        `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
@@ -147,6 +148,7 @@ func handleSSMCreatePatchBaseline(w http.ResponseWriter, r *http.Request) {
 		ModifiedDate:                     now,
 	}
 	ssmPatchBaselines.Put(p.BaselineId, p)
+	ssmTagOnCreate("PatchBaseline", p.BaselineId, req.Tags)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"BaselineId": p.BaselineId})
 }
 

@@ -318,7 +318,10 @@ through hooks:
   context for each action it is authorized as, and checks every key that
   action declares. Resources whose state some keys report — a tagged bucket,
   object and access point, a key behind an alias, a bounded role, a sized task
-  definition — are created through each service's own API first. The pairs it
+  definition, one tagged resource of every type Elastic Load Balancing,
+  Amazon ElastiCache, AWS Systems Manager and AWS WAF tag, an Amazon ECS
+  capacity provider, container instance and task set, an AWS Cloud Map
+  namespace and service — are created through each service's own API first. The pairs it
   does not build are listed one by one in `testdata/iam_condition_key_gaps.tsv`
   with a reason from a closed table, so a new gap and a fixed one both fail.
   Measuring this way found keys a name-only check had credited: untagging
@@ -327,7 +330,20 @@ through hooks:
   `aws:ResourceTag/<k>`, and a role's or user's existing permissions boundary
   never reached `iam:PermissionsBoundary`. It also found PutObject dropping its
   `x-amz-tagging`, CreateUser its `PermissionsBoundary` and CreateAccessPoint
-  its `Tags`.
+  its `Tags`. Seeding every taggable type found more: Elastic Load Balancing
+  and Amazon ElastiCache read a resource's tags from a few members rather than
+  from the resource the gate authorizes against, and AWS Systems Manager and
+  AWS WAF read none; a task definition named by family alone resolved no
+  revision; AWS Cloud Map's DeleteService and UpdateService never carried
+  `servicediscovery:ServiceCreatedByAccount`; an ElastiCache global datastore
+  create was not authorized against its primary replication group, and the
+  simulator minted a global datastore's ARN with a region, which AWS writes
+  without one. Resource tags now resolve from the ARNs the gate derives. The creates themselves were
+  dropping tags: CreateCacheSecurityGroup, PurchaseReservedCacheNodesOffering
+  and CreateGlobalReplicationGroup kept none, ElastiCache's tagging operations
+  did not reach serverless caches and their snapshots, and every Systems
+  Manager create but CreateCloudConnector discarded its `Tags`, while that one
+  kept them where ListTagsForResource never looked.
 - **Maintenance may not end the service.** Failing loudly on a persistence
   fault is right in a handler, where net/http turns the panic into a 500. On a
   background goroutine it was a restart loop: the retention sweeper met a busy
@@ -1078,6 +1094,17 @@ slots onto one new shard. A cluster created from `gcsSource` or `managedBackupSo
 loads each RDB file into a standalone redis-server inside one node's container
 and moves the keys onto their shards with `redis-cli --cluster import`.
 
+Settling a cluster waits on the engine, never on a timer of the simulator's.
+Before it reads the topology, every node sends `CLUSTER MEET` to every other
+one, because a node learns a peer's role and announced hostname only from a
+packet that peer sends, and gossip picks whom to ping at random, up to half the
+node timeout apart; left to gossip, a replica-count update settled up to ten
+seconds late. Engines start with `repl-diskless-sync-delay 0`, so a primary
+starts a replica's full synchronisation when the replica asks rather than five
+seconds later, and a delete stops a resource's nodes in parallel. What a settle still waits on is Redis's own: a new primary stays
+`cluster_state:fail` for the two seconds Redis holds a master before letting it
+accept writes.
+
 `transitEncryptionMode` `SERVER_AUTHENTICATION` serves TLS from the relay, on
 port 6378 for an instance and 6379 for a cluster, with no plaintext listener.
 Each resource has a server CA of its own (a cluster with
@@ -1113,7 +1140,9 @@ its delete.
 `persistenceConfig` is honoured: RDB snapshots are BGSAVEs the control plane
 takes on the reported schedule (`rdbSnapshotStartTime` plus whole
 `rdbSnapshotPeriod`s, which `rdbNextSnapshotTime` reports), not the engine's
-save points; a cluster's AOF mode runs `appendonly yes` with the configured
+save points. A schedule given no start time starts at the current time, as the
+API reference says, and owes its first snapshot then: the control plane takes
+it at once, or as soon as the engine is up. A cluster's AOF mode runs `appendonly yes` with the configured
 `appendfsync`; an update applies live. A node keeps the files its persistence
 writes across a restart and loads its dataset from them, and a cluster node
 always keeps its `nodes.conf` identity. An export has the primary write its RDB
@@ -1477,27 +1506,46 @@ lists, stops and deletes a replication in us-west-2; the Terraform suite
 creates `aws_db_instance_automated_backups_replication` through a provider
 configured for us-west-2.
 
-An Aurora cluster's endpoints own two logins: the master user's, under the
-password the control plane records, and IAM database authentication. Every
-other login reaches the engine, which checks it against its own users
-(`rds_aurora_users.go`). Aurora MySQL's relay logs in to the engine with the
-client's own user and password, so the engine's refusal reaches the client
-verbatim and a session holds only its user's privileges. Aurora PostgreSQL's
-engine trusts the relay, so the endpoint has the engine check the password: a
-`DO` block run as the master user reads the role's `pg_authid` verifier and
-compares the MD5 digest, or recomputes the SCRAM-SHA-256 StoredKey through
-PBKDF2-HMAC-SHA-256 with the builtin `sha256`, the presented user and password
-reaching it as session settings rather than spliced into the SQL. A role
-granted `rds_iam`, directly or through another role, signs in only with an IAM
-authentication token; the check walks `pg_auth_members`, since `pg_has_role`
-counts every role as granted to a superuser. On every engine start Aurora
-PostgreSQL gets the `rds_iam` role, and Aurora MySQL's master user gets the
-global privileges Aurora MySQL version 3 grants it, `CREATE USER` among them,
-while the image's remote `root` account goes. The SDK suite signs in a user the
-master user created on each engine and proves its wrong password, an unknown
-user and `root` are refused, that its session holds only its own grants, and
-that a PostgreSQL role granted `rds_iam` signs in with a token and not with its
-password; it also signs in a user the restored XtraBackup held.
+An RDS endpoint, a DB instance's and an Aurora cluster's alike, owns two
+logins: the master user's, under the password the control plane records, and
+IAM database authentication. Every other login reaches the engine, which
+checks it against its own users (`rds_database_users.go`, where one
+`rdsEndpointLogins` serves `rdsDataPlane` and `rdsAuroraDataPlane`). A
+MySQL-family relay logs in to the engine with the client's own user and
+password, so the engine's refusal reaches the client verbatim and a session
+holds only its user's privileges. A PostgreSQL engine trusts the relay, so the
+endpoint has the engine check the password: a `DO` block run as the master
+user reads the role's `pg_authid` verifier and compares the MD5 digest, or
+recomputes the SCRAM-SHA-256 StoredKey through PBKDF2-HMAC-SHA-256 with the
+builtin `sha256`, the presented user and password reaching it as session
+settings rather than spliced into the SQL. A role granted `rds_iam`, directly
+or through another role, signs in only with an IAM authentication token whose
+`DBUser` names it, and the session runs as that role; the check walks
+`pg_auth_members`, since `pg_has_role` counts every role as granted to a
+superuser, and a master user not granted `rds_iam` cannot sign in with a
+token. On every engine start a PostgreSQL engine gets the `rds_iam` role, and
+a MySQL-family master user gets the global privileges RDS grants it,
+`CREATE USER` among them, while the image's remote `root` account goes; a
+Percona XtraBackup import installs the master user with those privileges too,
+not `ALL PRIVILEGES`. The SDK suite signs in a user the master user created on
+each engine, on an Aurora cluster and on an RDS for PostgreSQL and RDS for
+MySQL instance, and proves its wrong password, an unknown user and `root` are
+refused, that its session holds only its own grants, and that a PostgreSQL
+role granted `rds_iam` signs in with a token, and not with its password, as
+itself; it also signs in a user the restored XtraBackup held. The CLI suite
+signs in a role granted `rds_iam` with the token `aws rds
+generate-db-auth-token` makes, and a password user on the instance a
+point-in-time restore made.
+
+On MySQL-family engines an IAM-authenticated session still runs as the master
+user (BUG-3346). RDS for MySQL and Aurora MySQL mark a user as IAM-authenticated
+with `CREATE USER ... IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'`, and the
+stock MySQL 8.0 image refuses that statement with error 1524, `Plugin
+'AWSAuthenticationPlugin' is not loaded`: its plugin directory holds no such
+plugin, and the built-in authentication plugins cannot log the endpoint in as
+another user without that user's password. Proxy accounts or a password the
+endpoint sets on the user would invent accounts and credentials the client
+never created, so the simulator does neither.
 
 Every volume capture holds one crash-consistent point in time, the property a
 block-level storage snapshot gives. `sim.SnapshotVolume` lists the running
@@ -2424,6 +2472,23 @@ against that branch's pins and lands as one commit.
 `core.bare = true` or a test fixture's identity — the corruption a `git config`
 run without `-C` in a linked worktree writes into the shared `.git/config`.
 Every `git config` this repository runs names its target with `-C`.
+
+The Google Cloud SDK suite once took 14.4 to 14.9 of its fifteen minutes. Its
+slow tests waited on holds and schedules they had chosen, not on events. A
+Cloud Run job that must be seen running now runs `container-command log-until
+MESSAGE PATH`, holding until an object appears in a Cloud Storage bucket the job
+mounts read-only as a Cloud Run volume, and the test writes that object once it
+has observed the running state; a cancelled execution's hold is never released.
+`TestCloudRun_ExecutionRunningState` had held for thirty seconds and then
+waited out the RunJob operation's polling backoff, 36.5 s on CI and 74 s
+locally; it takes about a second. The RDB snapshot test waited fifteen seconds
+for a start time it had set ahead of the create; it now asks for a schedule
+with no start time, which snapshots at once. The waits that remain are the
+cloud's or the engine's own: Pub/Sub's ten-second minimum ack deadline in
+`TestPubSub_GRPC_AckDeadlineRedelivery`, the five-second
+`busy-reply-threshold` before a Redis replica running a script answers BUSY in
+`TestMemorystoreRedis_LimitedDataLossFailover`, and Redis's two-second hold on
+a new cluster primary.
 
 `Dockerfile.test`, the shared harness image, had matched `.gitignore`'s
 `*.test` and was never committed, so every `make docker-test` failed. It is

@@ -13,7 +13,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: container-command hold|http|serve|relay-http|probe-http|log|print|resolve|sleep|stdin-echo")
+		fmt.Fprintln(os.Stderr, "usage: container-command hold|http|serve|relay-http|probe-http|log|log-until|print|resolve|sleep|stdin-echo")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -143,6 +143,20 @@ func main() {
 				os.Exit(2)
 			}
 			time.Sleep(time.Duration(seconds) * time.Second)
+		}
+	case "log-until":
+		// Announce MESSAGE, then hold until PATH exists, so whoever started
+		// the workload decides when it ends by creating PATH.
+		if len(os.Args) != 4 {
+			fmt.Fprintln(os.Stderr, "usage: container-command log-until MESSAGE PATH")
+			os.Exit(2)
+		}
+		fmt.Println(os.Args[2])
+		for {
+			if _, err := os.Stat(os.Args[3]); err == nil {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
 		}
 	case "print":
 		if len(os.Args) < 3 {

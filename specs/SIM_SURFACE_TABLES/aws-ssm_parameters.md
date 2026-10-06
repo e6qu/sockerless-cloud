@@ -17,12 +17,12 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action AmazonSSM.CreateCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:67::handleSSMCreateCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.GetCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:68::handleSSMGetCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.ListCloudConnectors` | ✓ `simulator-aws/ssm_cloud_connectors.go:69::handleSSMListCloudConnectors` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.UpdateCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:70::handleSSMUpdateCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.DeleteCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:71::handleSSMDeleteCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.ValidateCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:72::handleSSMValidateCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.CreateCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:60::handleSSMCreateCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.GetCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:61::handleSSMGetCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.ListCloudConnectors` | ✓ `simulator-aws/ssm_cloud_connectors.go:62::handleSSMListCloudConnectors` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.UpdateCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:63::handleSSMUpdateCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.DeleteCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:64::handleSSMDeleteCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.ValidateCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:65::handleSSMValidateCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonSSM.CreateDocument` | ✓ `simulator-aws/ssm_documents.go:52::handleSSMCreateDocument` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonSSM.DeleteDocument` | ✓ `simulator-aws/ssm_documents.go:53::handleSSMDeleteDocument` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonSSM.DescribeDocument` | ✓ `simulator-aws/ssm_documents.go:54::handleSSMDescribeDocument` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -42,16 +42,16 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action AmazonSSM.DeregisterTaskFromMaintenanceWindow` | ✓ `simulator-aws/ssm_maintenance.go:91::handleSSMDeregisterTask` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonSSM.DescribeMaintenanceWindowTargets` | ✓ `simulator-aws/ssm_maintenance.go:92::handleSSMDescribeTargets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonSSM.DescribeMaintenanceWindowTasks` | ✓ `simulator-aws/ssm_maintenance.go:93::handleSSMDescribeTasks` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.PutParameter` | ✓ `simulator-aws/ssm_parameters.go:82::handleSSMPutParameter` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.GetParameter` | ✓ `simulator-aws/ssm_parameters.go:83::handleSSMGetParameter` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.GetParameters` | ✓ `simulator-aws/ssm_parameters.go:84::handleSSMGetParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.GetParametersByPath` | ✓ `simulator-aws/ssm_parameters.go:85::handleSSMGetParametersByPath` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.DescribeParameters` | ✓ `simulator-aws/ssm_parameters.go:86::handleSSMDescribeParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.DeleteParameter` | ✓ `simulator-aws/ssm_parameters.go:87::handleSSMDeleteParameter` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.DeleteParameters` | ✓ `simulator-aws/ssm_parameters.go:88::handleSSMDeleteParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.AddTagsToResource` | ✓ `simulator-aws/ssm_parameters.go:89::handleSSMAddTagsToResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.RemoveTagsFromResource` | ✓ `simulator-aws/ssm_parameters.go:90::handleSSMRemoveTagsFromResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.ListTagsForResource` | ✓ `simulator-aws/ssm_parameters.go:91::handleSSMListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.PutParameter` | ✓ `simulator-aws/ssm_parameters.go:137::handleSSMPutParameter` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.GetParameter` | ✓ `simulator-aws/ssm_parameters.go:138::handleSSMGetParameter` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.GetParameters` | ✓ `simulator-aws/ssm_parameters.go:139::handleSSMGetParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.GetParametersByPath` | ✓ `simulator-aws/ssm_parameters.go:140::handleSSMGetParametersByPath` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.DescribeParameters` | ✓ `simulator-aws/ssm_parameters.go:141::handleSSMDescribeParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.DeleteParameter` | ✓ `simulator-aws/ssm_parameters.go:142::handleSSMDeleteParameter` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.DeleteParameters` | ✓ `simulator-aws/ssm_parameters.go:143::handleSSMDeleteParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.AddTagsToResource` | ✓ `simulator-aws/ssm_parameters.go:144::handleSSMAddTagsToResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.RemoveTagsFromResource` | ✓ `simulator-aws/ssm_parameters.go:145::handleSSMRemoveTagsFromResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.ListTagsForResource` | ✓ `simulator-aws/ssm_parameters.go:146::handleSSMListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonSSM.CreatePatchBaseline` | ✓ `simulator-aws/ssm_patch_baselines.go:54::handleSSMCreatePatchBaseline` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonSSM.DeletePatchBaseline` | ✓ `simulator-aws/ssm_patch_baselines.go:55::handleSSMDeletePatchBaseline` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonSSM.GetPatchBaseline` | ✓ `simulator-aws/ssm_patch_baselines.go:56::handleSSMGetPatchBaseline` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

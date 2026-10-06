@@ -139,7 +139,7 @@ func caPool(t *testing.T, pems ...string) *x509.CertPool {
 func TestMemorystoreRedis_InstanceTLSAndPersistence(t *testing.T) {
 	svc := redisService(t)
 	parent := "projects/redis-tls/locations/us-central1"
-	start := time.Now().Add(15 * time.Second).UTC().Truncate(time.Second)
+	start := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	inst := createRedisInstance(t, svc, parent, "encrypted", &redis.Instance{
 		Tier: "STANDARD_HA", MemorySizeGb: 1, RedisVersion: "REDIS_7_2", AuthEnabled: true,
 		ReadReplicasMode: "READ_REPLICAS_ENABLED", ReplicaCount: 1,
@@ -205,27 +205,35 @@ func TestMemorystoreRedis_InstanceTLSAndPersistence(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "no", appendonly["appendonly"])
 
-	// The engine writes its snapshot at the time the API reported.
-	time.Sleep(time.Until(start))
-	deadline := start.Add(30 * time.Second)
-	for {
-		last, err := primary.LastSave(ctx).Result()
-		require.NoError(t, err)
-		if last >= start.Unix() {
-			break
-		}
-		require.True(t, time.Now().Before(deadline), "no RDB snapshot by %s; LASTSAVE is %d", deadline, last)
-		time.Sleep(200 * time.Millisecond)
-	}
-	got, err := svc.Projects.Locations.Instances.Get(inst.Name).Do()
-	require.NoError(t, err)
-	assert.Equal(t, start.Add(time.Hour).Format(time.RFC3339), got.PersistenceConfig.RdbNextSnapshotTime)
-
 	disabled := patchRedisInstance(t, svc, inst.Name, "persistenceConfig", &redis.Instance{
 		PersistenceConfig: &redis.PersistenceConfig{PersistenceMode: "DISABLED"},
 	})
 	assert.Equal(t, "DISABLED", disabled.PersistenceConfig.PersistenceMode)
 	assert.Empty(t, disabled.PersistenceConfig.RdbNextSnapshotTime)
+
+	// A schedule given no start time starts at the current time, and the
+	// engine writes its first snapshot then: the write below is in it.
+	require.NoError(t, primary.Set(ctx, "snapshotted", "yes", 0).Err())
+	requested := time.Now().UTC().Truncate(time.Second)
+	scheduled := patchRedisInstance(t, svc, inst.Name, "persistenceConfig", &redis.Instance{
+		PersistenceConfig: &redis.PersistenceConfig{PersistenceMode: "RDB", RdbSnapshotPeriod: "ONE_HOUR"},
+	})
+	scheduledStart, err := time.Parse(time.RFC3339, scheduled.PersistenceConfig.RdbSnapshotStartTime)
+	require.NoError(t, err)
+	assert.False(t, scheduledStart.Before(requested), "the schedule starts when it was requested, not at %s", scheduledStart)
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		info, err := primary.Info(ctx, "persistence").Result()
+		require.NoError(t, err)
+		if strings.Contains(info, "rdb_changes_since_last_save:0\r\n") {
+			break
+		}
+		require.True(t, time.Now().Before(deadline), "no RDB snapshot by %s:\n%s", deadline, info)
+		time.Sleep(200 * time.Millisecond)
+	}
+	got, err := svc.Projects.Locations.Instances.Get(inst.Name).Do()
+	require.NoError(t, err)
+	assert.Equal(t, scheduledStart.Add(time.Hour).Format(time.RFC3339), got.PersistenceConfig.RdbNextSnapshotTime)
 }
 
 // A replicaCount update starts or stops replica nodes while the primary keeps

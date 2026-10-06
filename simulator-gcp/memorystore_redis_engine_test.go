@@ -160,8 +160,11 @@ func TestMSRedisInstanceNodeScripts(t *testing.T) {
 	if !strings.Contains(primary, "exec 'redis-server' '--port' '6379'") || !strings.Contains(primary, "'--requirepass' 's3cret' '--masterauth' 's3cret'") {
 		t.Fatalf("the primary does not serve Redis's port with the AUTH string:\n%s", primary)
 	}
-	if !strings.Contains(primary, "'--save' '' '--appendonly' 'no'") {
+	if !strings.Contains(primary, "'--save' ''") || !strings.Contains(primary, "'--appendonly' 'no'") {
 		t.Fatalf("the primary persists on the engine's own schedule:\n%s", primary)
+	}
+	if !strings.Contains(primary, "'--repl-diskless-sync-delay' '0'") {
+		t.Fatalf("the primary holds a replica's synchronisation for others to join:\n%s", primary)
 	}
 	replica := plane.script(2)
 	if !strings.Contains(replica, "rm -rf '/data/node-2'") {
@@ -256,6 +259,8 @@ func TestMSRedisPersistence(t *testing.T) {
 	if defaults, err := msRedisInstancePersistence(msRedisPersistence{}, &MSRedisPersistenceConfig{PersistenceMode: "RDB"}, now); err != nil ||
 		defaults.Period != msRedisDefaultSnapshotPeriod || !defaults.Start.Equal(now) {
 		t.Fatalf("RDB without a schedule gives %+v, %v", defaults, err)
+	} else if next := defaults.nextSnapshot(now.Add(time.Second)); !next.Equal(now) {
+		t.Fatalf("a schedule starting at the current time owes its first snapshot at once, not at %s", next)
 	}
 	if _, err := msRedisInstancePersistence(msRedisPersistence{}, &MSRedisPersistenceConfig{PersistenceMode: "AOF"}, now); err == nil {
 		t.Fatal("an instance accepted AOF persistence")

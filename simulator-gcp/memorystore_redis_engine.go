@@ -395,6 +395,10 @@ func (p *msRedisPlane) serverCommand(node int) string {
 		"--protected-mode", "no",
 		"--dir", msRedisNodeDir(node),
 		"--save", "",
+		// Start a replica's full synchronisation when the replica asks,
+		// not five seconds later in case another replica joins the transfer:
+		// the service attaches its replicas itself and knows of no other.
+		"--repl-diskless-sync-delay", "0",
 	}
 	args = append(args, persistence.engineArgs()...)
 	if password != "" {
@@ -518,6 +522,9 @@ func (p *msRedisPlane) Ensure() error {
 	if !p.attempted {
 		p.attempted = true
 		p.startErr = p.bringUp()
+		if p.startErr == nil {
+			p.scheduleSnapshots()
+		}
 	}
 	return p.startErr
 }
@@ -856,6 +863,14 @@ func (p *msRedisPlane) follow(node int, primaryID string) error {
 // any node is the whole one, and every replica has synchronised.
 func (p *msRedisPlane) awaitClusterState(shards, replicas int) error {
 	order := p.nodeOrder()
+	// A role or hostname reaches a node in a packet from its owner, and
+	// gossip picks the peer it pings at random, up to half the node timeout
+	// apart. A MEET from every node to every other one delivers each now.
+	for _, node := range order {
+		if err := p.meet(node, order); err != nil {
+			return err
+		}
+	}
 	want := strconv.Itoa(len(order))
 	var followers []int
 	for _, node := range order {
@@ -1325,10 +1340,13 @@ func (p *msRedisPlane) Stop() error {
 }
 
 func (p *msRedisPlane) stopEngine() error {
-	var errs []error
-	for _, node := range p.nodeOrder() {
-		errs = append(errs, p.stopNode(node))
+	order := p.nodeOrder()
+	errs := make([]error, len(order))
+	var wg sync.WaitGroup
+	for i, node := range order {
+		wg.Go(func() { errs[i] = p.stopNode(node) })
 	}
+	wg.Wait()
 	return errors.Join(errs...)
 }
 

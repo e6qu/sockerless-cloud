@@ -289,6 +289,7 @@ type ssmCreateAssociationReq struct {
 	ApplyOnlyAtCronInterval       bool                `json:"ApplyOnlyAtCronInterval"`
 	ScheduleOffset                int                 `json:"ScheduleOffset"`
 	Duration                      int                 `json:"Duration"`
+	Tags                          []SSMTag            `json:"Tags"`
 }
 
 // ssmBuildAssociation creates a fresh association from a request entry.
@@ -386,6 +387,7 @@ func handleSSMCreateAssociation(w http.ResponseWriter, r *http.Request) {
 	}
 	a := ssmBuildAssociation(req)
 	ssmAssociations.Put(a.AssociationId, a)
+	ssmTagOnCreate("Association", a.AssociationId, req.Tags)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"AssociationDescription": ssmAssociationDescriptionWire(a),
 	})
@@ -1007,6 +1009,7 @@ func handleSSMStartAutomationExecution(w http.ResponseWriter, r *http.Request) {
 		Parameters      map[string][]string `json:"Parameters"`
 		Mode            string              `json:"Mode"`
 		Targets         []SSMTarget         `json:"Targets"`
+		Tags            []SSMTag            `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
@@ -1023,6 +1026,7 @@ func handleSSMStartAutomationExecution(w http.ResponseWriter, r *http.Request) {
 	}
 	exec := ssmBuildAutomation(req.DocumentName, req.DocumentVersion, mode, "", req.Parameters, req.Targets)
 	ssmAutomations.Put(exec.AutomationExecutionId, exec)
+	ssmTagOnCreate("Automation", exec.AutomationExecutionId, req.Tags)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"AutomationExecutionId": exec.AutomationExecutionId,
 	})
@@ -1212,6 +1216,7 @@ func handleSSMStartChangeRequestExecution(w http.ResponseWriter, r *http.Request
 		DocumentVersion   string              `json:"DocumentVersion"`
 		Parameters        map[string][]string `json:"Parameters"`
 		ChangeRequestName string              `json:"ChangeRequestName"`
+		Tags              []SSMTag            `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
@@ -1224,6 +1229,7 @@ func handleSSMStartChangeRequestExecution(w http.ResponseWriter, r *http.Request
 	}
 	exec := ssmBuildAutomation(req.DocumentName, req.DocumentVersion, "Auto", req.ChangeRequestName, req.Parameters, nil)
 	ssmAutomations.Put(exec.AutomationExecutionId, exec)
+	ssmTagOnCreate("Automation", exec.AutomationExecutionId, req.Tags)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"AutomationExecutionId": exec.AutomationExecutionId,
 	})

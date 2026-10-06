@@ -50,7 +50,7 @@ Current state of the sockerless-cloud repository.
   is either named by the gate or classified as unmodelled with the reason, and a
   classified key the gate later resolves fails its own row, and every key is
   also measured per action: of 4,307 (action, key) pairs on served operations
-  the gate builds 3,424, and each of the other 883 is listed with its reason in
+  the gate builds 3,614, and each of the other 693 is listed with its reason in
   `testdata/iam_condition_key_gaps.tsv` (BUG-2965 holds the unseeded and
   unbuilt ones). A create carrying tags is also authorized as its service's
   tagging action with `<service>:CreateAction` naming it, for the 297
@@ -147,9 +147,10 @@ Current state of the sockerless-cloud repository.
   deletion with `DeleteAutomatedBackups=false` retains the automated backups,
   which restore the deleted instance or cluster to a time, and an instance's
   automated backups replicate to another Region, where they restore after
-  the replication stops or the source is gone. An Aurora
-  endpoint signs in the master user and IAM-authenticated users itself and
-  every other database user through the engine's own checks. Deleting a
+  the replication stops or the source is gone. A DB instance's or an Aurora
+  cluster's endpoint signs in the master user and IAM-authenticated users
+  itself and every other database user through the engine's own checks; on
+  PostgreSQL an IAM token signs in the role granted `rds_iam` that it names. Deleting a
   database kills an engine still initialising its volume rather than waiting
   out the stop grace.
 - **The registries answer their own service**: Amazon ECR's empty ping with
@@ -412,7 +413,11 @@ asks the host before a registry; `build-gates` runs the `testutil` tests, whose
 guard fails on a suite that pulls a base image itself. A harness that fronts a
 simulator with the Caddy HTTPS gateway starts it through
 `testutil/httpsgateway`, which returns once Caddy's log reports a cached
-certificate for every name the gateway manages.
+certificate for every name the gateway manages. The Google Cloud SDK suite runs
+unsharded; its tests wait on events they can observe — a Cloud Run job's hold
+ends when the test writes a release object into a mounted Cloud Storage
+bucket — and the waits left are the cloud's or the engine's own, such as
+Pub/Sub's ten-second minimum ack deadline.
 
 ## Releases
 

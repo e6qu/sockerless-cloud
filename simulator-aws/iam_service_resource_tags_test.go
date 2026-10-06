@@ -185,14 +185,16 @@ func TestIAMServiceResourceTags(t *testing.T) {
 	elbv2LoadBalancers.Put(lbArn, ELBv2LoadBalancer{Tags: map[string]string{"net": "edge"}})
 	t.Run("elbv2_resourcearns", func(t *testing.T) {
 		assertResolved(t, "elasticloadbalancing",
-			formRequest(map[string]string{"ResourceArns.member.1": lbArn}),
+			formRequest(map[string]string{"Action": "AddTags", "ResourceArns.member.1": lbArn}),
 			"net", "edge")
 	})
 
 	ecClusters.Put("cache1", ECCluster{ARN: "arn:aws:elasticache:us-east-1:123456789012:cluster:cache1", Tags: map[string]string{"ttl": "60"}})
 	t.Run("elasticache_resourcename", func(t *testing.T) {
 		assertResolved(t, "elasticache",
-			formRequest(map[string]string{"ResourceName": "arn:aws:elasticache:us-east-1:123456789012:cluster:cache1"}),
+			formRequest(map[string]string{
+				"Action": "ListTagsForResource", "ResourceName": "arn:aws:elasticache:us-east-1:123456789012:cluster:cache1",
+			}),
 			"ttl", "60")
 	})
 
@@ -234,4 +236,21 @@ func TestIAMServiceResourceTags(t *testing.T) {
 			t.Fatal("budgets must not be handled by the service tag dispatcher")
 		}
 	})
+}
+
+// A Systems Manager command aimed at a machine is about the Amazon EC2
+// instance, so the instance's own tags are the resource tags.
+func TestIAMSSMResourceTagsReadTheTargetedInstance(t *testing.T) {
+	ec2Instances = sim.MakeStore[EC2Instance](nil, "ec2_instances")
+	ec2Instances.Put("i-0123456789abcdef0", EC2Instance{
+		InstanceId: "i-0123456789abcdef0", Tags: []EC2Tag{{Key: "team", Value: "blue"}},
+	})
+	r := jsonRequest(`{"DocumentName":"AWS-RunShellScript","InstanceIds":["i-0123456789abcdef0"]}`)
+	r.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	r.Header.Set("X-Amz-Target", "AmazonSSM.SendCommand")
+	ctx := map[string][]string{}
+	iamPopulateResourceConditionKeys(r, "ssm:SendCommand", ctx)
+	if got := ctx["aws:ResourceTag/team"]; len(got) != 1 || got[0] != "blue" {
+		t.Fatalf("aws:ResourceTag/team = %v, want [blue]", got)
+	}
 }

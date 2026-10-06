@@ -96,6 +96,7 @@ type ECGlobalReplicationGroup struct {
 	ARN                               string
 	Members                           []ECGlobalReplicationGroupMember
 	GlobalNodeGroups                  []ECGlobalNodeGroup
+	Tags                              map[string]string
 }
 
 // ECCacheSecurityGroupRule models one authorized EC2 security group
@@ -114,6 +115,7 @@ type ECCacheSecurityGroup struct {
 	OwnerId                string
 	ARN                    string
 	EC2SecurityGroups      []ECCacheSecurityGroupRule
+	Tags                   map[string]string
 }
 
 var (
@@ -186,8 +188,9 @@ func ecServerlessSnapshotARN(name string) string {
 	return fmt.Sprintf("arn:aws:elasticache:%s:%s:serverlesscachesnapshot:%s", awsRegion(), awsAccountID(), name)
 }
 
+// ecGlobalReplGroupARN carries no region: a global datastore spans regions.
 func ecGlobalReplGroupARN(id string) string {
-	return fmt.Sprintf("arn:aws:elasticache:%s:%s:globalreplicationgroup:%s", awsRegion(), awsAccountID(), id)
+	return fmt.Sprintf("arn:aws:elasticache::%s:globalreplicationgroup:%s", awsAccountID(), id)
 }
 
 func ecCacheSecGroupARN(name string) string {
@@ -635,6 +638,7 @@ func handleECCreateGlobalReplGroup(w http.ResponseWriter, r *http.Request) {
 			GlobalNodeGroupId: id + "-0001",
 			Slots:             "0-16383",
 		}},
+		Tags: parseAWSQueryTagMap(r, "Tags.Tag"),
 	}
 	ecGlobalReplGroups.Put(id, g)
 	ecXMLResponse(w, "CreateGlobalReplicationGroup", renderECGlobalReplGroup(g), sim.RequestID(r.Context()))
@@ -805,6 +809,7 @@ func handleECCreateCacheSecGroup(w http.ResponseWriter, r *http.Request) {
 		Description:            r.FormValue("Description"),
 		OwnerId:                awsAccountID(),
 		ARN:                    ecCacheSecGroupARN(name),
+		Tags:                   parseAWSQueryTagMap(r, "Tags.Tag"),
 	}
 	ecCacheSecGroups.Put(name, g)
 	ecXMLResponse(w, "CreateCacheSecurityGroup", renderECCacheSecGroup(g), sim.RequestID(r.Context()))
@@ -1077,6 +1082,7 @@ func handleECPurchaseReservedCacheNodesOffering(w http.ResponseWriter, r *http.R
 		CacheNodeCount:      count,
 		StartTime:           time.Now().UTC().Format(time.RFC3339),
 		State:               "payment-pending",
+		Tags:                parseAWSQueryTagMap(r, "Tags.Tag"),
 	}
 	ecReservedNodes.Put(rcnID, node)
 	var b strings.Builder

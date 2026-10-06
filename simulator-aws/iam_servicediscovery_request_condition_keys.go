@@ -25,6 +25,14 @@ func iamPopulateCloudMapRequestConditionKeys(_ *http.Request, operation string, 
 		if namespace, found := cmNamespaces.Get(id); found {
 			ctx["servicediscovery:NamespaceArn"] = []string{namespace.Arn}
 		}
+	case "DeleteService", "UpdateService":
+		id, ok := request.str("Id")
+		if !ok {
+			return
+		}
+		if _, found := cmServices.Get(id); found {
+			ctx["servicediscovery:ServiceCreatedByAccount"] = []string{awsAccountID()}
+		}
 	case "DiscoverInstances", "DiscoverInstancesRevision":
 		set.str("servicediscovery:NamespaceName", "NamespaceName")
 		set.str("servicediscovery:ServiceName", "ServiceName")

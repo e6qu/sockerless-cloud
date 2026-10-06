@@ -1,9 +1,7 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -54,19 +52,7 @@ func handleECSStartTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve task definition (latest revision when a bare family is given).
-	tdKey := req.TaskDefinition
-	if strings.HasPrefix(tdKey, "arn:") {
-		parts := strings.Split(tdKey, "/")
-		tdKey = parts[len(parts)-1]
-	}
-	if !strings.Contains(tdKey, ":") {
-		ecsRevisionMu.Lock()
-		rev, exists := ecsRevisions[tdKey]
-		ecsRevisionMu.Unlock()
-		if exists {
-			tdKey = fmt.Sprintf("%s:%d", tdKey, rev)
-		}
-	}
+	tdKey := ecsTaskDefinitionKey(req.TaskDefinition)
 	_, ok = ecsTaskDefinitions.Get(tdKey)
 	if !ok {
 		AWSErrorf(w, "ClientException", http.StatusBadRequest,

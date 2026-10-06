@@ -1617,22 +1617,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 	}
 
 	// Resolve task definition
-	tdKey := in.TaskDefinition
-	if strings.HasPrefix(tdKey, "arn:") {
-		parts := strings.Split(tdKey, "/")
-		if len(parts) > 1 {
-			tdKey = parts[len(parts)-1]
-		}
-	}
-	if !strings.Contains(tdKey, ":") {
-		ecsRevisionMu.Lock()
-		rev, exists := ecsRevisions[tdKey]
-		ecsRevisionMu.Unlock()
-		if exists {
-			tdKey = fmt.Sprintf("%s:%d", tdKey, rev)
-		}
-	}
-
+	tdKey := ecsTaskDefinitionKey(in.TaskDefinition)
 	td, ok := ecsTaskDefinitions.Get(tdKey)
 	if !ok {
 		return nil, nil, &ecsRequestError{"ClientException",
@@ -3958,6 +3943,25 @@ func validateSSMOpenDataChannel(conn *websocket.Conn, expectedToken string) bool
 		return false
 	}
 	return in.TokenValue != "" && in.TokenValue == expectedToken
+}
+
+// ecsTaskDefinitionKey reduces a task definition reference — a family, a
+// family:revision, or either's ARN — to its store key, taking a bare family
+// at its latest revision the way RunTask and StartTask do.
+func ecsTaskDefinitionKey(ref string) string {
+	key := ref
+	if strings.HasPrefix(key, "arn:") {
+		key = key[strings.LastIndexByte(key, '/')+1:]
+	}
+	if !strings.Contains(key, ":") {
+		ecsRevisionMu.Lock()
+		rev, exists := ecsRevisions[key]
+		ecsRevisionMu.Unlock()
+		if exists {
+			key = fmt.Sprintf("%s:%d", key, rev)
+		}
+	}
+	return key
 }
 
 // extractTDKey extracts "family:revision" from a task definition ARN.
