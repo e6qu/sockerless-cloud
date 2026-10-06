@@ -90,8 +90,6 @@ func TestRDSCLI_InstanceRestoresToAPointInTime(t *testing.T) {
 	assert.Equal(t, "ledger_iam", user, "the session runs as the user the token names")
 	_, err := conn.Exec(ctx, `INSERT INTO ledger VALUES ('before-restore-time')`)
 	require.NoError(t, err)
-	_, err = conn.Exec(ctx, `INSERT INTO ledger VALUES ('before-restore-time')`)
-	require.NoError(t, err)
 	// RDS takes the restore time to the millisecond: restore to the engine's
 	// next millisecond, and commit the later row once its clock has passed it.
 	var restoreTo time.Time
