@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -51,13 +52,10 @@ var iamConditionKeyGapReasons = map[string]string{
 		"would have to model before any request could carry it.",
 	"via-service": "AWS sets the key only when another AWS service makes the call on the caller's behalf. " +
 		"Every request the gate authorizes is a direct client call, for which AWS leaves the key out too.",
-	"federated-session-claims": "The claims of the web-identity or SAML session an sts:AssumeRole caller chains " +
-		"from. The simulator's temporary credentials do not retain the identity provider's claims, so a chained " +
-		"AssumeRole carries none.",
 	"resource-unseeded": "The key reports the state of the resource the request names (its tags, its " +
-		"configuration). The probe names one the simulator does not hold — the measure seeds none of this type, or " +
-		"names it in a form the request cannot resolve — so the gate rightly leaves the key out. Seeding the " +
-		"resource in iamSeedConditionKeyFixtures is what measures the key here.",
+		"configuration). Creating one runs a container or boots a microVM — an Amazon ECS task, the Amazon EC2 " +
+		"instance a Systems Manager request targets, an Amazon RDS snapshot's captured volume — which this " +
+		"in-package measure does not, so the probe names a resource the simulator does not hold.",
 	"create-names-no-resource": "Declared on an action that creates the resource. The request names no existing " +
 		"resource whose tags the key could report.",
 	"no-request-member": "The action's request has no member carrying this value, and AWS documents no value for " +
@@ -80,21 +78,15 @@ var iamConditionKeyGapReasons = map[string]string{
 	"undocumented-value": "AWS declares the key on the action but documents no value for it there: a listing " +
 		"spans many configurations, a permission removal names only a statement id, and the transfer direction " +
 		"of an invitation is not spelled anywhere in the vendored references.",
-	"source-resource-not-read": "The value is a property of the source the request copies — the DB instance a " +
-		"snapshot is taken of, the snapshot or cluster a restore reads, the database a blue/green deployment " +
-		"clones — which the gate does not look up.",
-	"daemon-task-definition-size": "A daemon's CPU and memory are its daemon task definition's, which the gate " +
-		"does not look up; it reads the size of an ordinary task definition only.",
-	"invoke-path-unserved": "Set on an invoke that arrives through a function URL (lambda:InvokedViaFunctionUrl) " +
-		"or an Alexa event source (lambda:EventSourceToken). The gate authorizes the Invoke API, which carries " +
-		"neither.",
+	"alexa-event-source": "Set on an invoke an Alexa Smart Home skill makes with the event source token " +
+		"AddPermission names (lambda:EventSourceToken). Alexa is not an AWS API, so no request this simulator " +
+		"receives is one.",
+	"saml-session-tags": "Set on the sts:TagSession AWS STS authorizes when an AssumeRoleWithSAML assertion " +
+		"carries PrincipalTag attributes. The simulator does not turn assertion attributes into session tags, so " +
+		"no SAML request is authorized as sts:TagSession.",
 	"job-operation-shape": "A batch job's Operation structure takes exactly one member. The probe fills every " +
 		"member, which is an operation no client sends, and the gate rightly names none; a one-member request is " +
 		"covered by TestS3ControlConditionKeysReadTheRequestedJob.",
-	"delete-objects-versions": "A DeleteObjects body names the version of each entry. The gate reads " +
-		"s3:versionid from the query string only, so a version deleted inside a batch carries none.",
-	"get-access-point-resource": "GetAccessPoint's route authorizes against \"*\", so the gate has no access " +
-		"point ARN to read tags for.",
 	"access-request-unmodelled": "The just-in-time node access request a Session Manager session is opened " +
 		"under. The simulator models no access requests.",
 }
@@ -154,11 +146,11 @@ func iamDeclaredActionKeys(t *testing.T) map[string][]string {
 
 // iamKeyProbe is one served operation, rendered as the request a client sends.
 type iamKeyProbe struct {
-	label string
-	build func() *http.Request
-	// actions classifies a built request into the actions the gate authorizes
-	// it as.
-	actions func(r *http.Request) []string
+	label   string
+	service string
+	build   func() *http.Request
+	// targets classifies a built request into what the gate authorizes it as.
+	targets func(r *http.Request) []iamAuthorizationTarget
 }
 
 var iamRPCv2Route = regexp.MustCompile(`^POST /service/([^/]+)/operation/([^/]+)$`)
@@ -190,19 +182,35 @@ func iamServedKeyProbes(t *testing.T, srv *sim.Server,
 			fixtures: fixtures[m.service],
 		}
 	}
+	// A member a request fills with one of several kinds of resource — the
+	// Source of a blue/green deployment is a DB instance or a DB cluster —
+	// carries its fixtures separated by newlines, and the operation is probed
+	// once with each.
+	fills := func(m *iamKeyProbeModel, operation string) []*iamKeyProbeFill {
+		for key, value := range fixtures[m.service] {
+			if !strings.HasPrefix(key, operation+":") || !strings.Contains(value, "\n") {
+				continue
+			}
+			var out []*iamKeyProbeFill
+			for _, alternative := range strings.Split(value, "\n") {
+				f := fill(m, operation)
+				f.fixtures = maps.Clone(f.fixtures)
+				f.fixtures[key] = alternative
+				out = append(out, f)
+			}
+			return out
+		}
+		return []*iamKeyProbeFill{fill(m, operation)}
+	}
 	// The awsJson and awsQuery classifier is the gate's own: the action
 	// iamEnforce reads off the request, and every target iamAuthorizationTargets
 	// adds for it.
-	gateActions := func(r *http.Request) []string {
+	gateTargets := func(r *http.Request) []iamAuthorizationTarget {
 		action, ok := iamActionForRequest(r)
 		if !ok {
 			return nil
 		}
-		var out []string
-		for _, target := range iamAuthorizationTargets(r, action) {
-			out = append(out, target.action)
-		}
-		return out
+		return iamAuthorizationTargets(r, action)
 	}
 
 	var probes []iamKeyProbe
@@ -223,12 +231,14 @@ func iamServedKeyProbes(t *testing.T, srv *sim.Server,
 		if idx.protocols["awsJson1_0"] {
 			contentType = "application/x-amz-json-1.0"
 		}
-		f := fill(m, operation)
-		probes = append(probes, iamKeyProbe{
-			label:   "awsJson " + target,
-			build:   func() *http.Request { return f.jsonRequest(target, contentType) },
-			actions: gateActions,
-		})
+		for _, f := range fills(m, operation) {
+			probes = append(probes, iamKeyProbe{
+				label:   "awsJson " + target,
+				service: m.service,
+				build:   func() *http.Request { return f.jsonRequest(target, contentType) },
+				targets: gateTargets,
+			})
+		}
 	}
 	for version, actions := range queryRouter.VersionedActions() {
 		candidates := spec.queryByVersion[version]
@@ -241,13 +251,15 @@ func iamServedKeyProbes(t *testing.T, srv *sim.Server,
 				if !referenced[m.service] || m.inputs[operation] == "" {
 					continue
 				}
-				f := fill(m, operation)
 				ec2 := idx.protocols["ec2Query"]
-				probes = append(probes, iamKeyProbe{
-					label:   "query " + m.service + " " + operation,
-					build:   func() *http.Request { return f.queryRequest(ec2) },
-					actions: gateActions,
-				})
+				for _, f := range fills(m, operation) {
+					probes = append(probes, iamKeyProbe{
+						label:   "query " + m.service + " " + operation,
+						service: m.service,
+						build:   func() *http.Request { return f.queryRequest(ec2) },
+						targets: gateTargets,
+					})
+				}
 			}
 		}
 	}
@@ -278,17 +290,12 @@ func iamServedKeyProbes(t *testing.T, srv *sim.Server,
 		}
 		f := fill(m, operation)
 		probes = append(probes, iamKeyProbe{
-			label: "rpcv2Cbor " + m.service + " " + operation,
-			build: f.cborRequest,
+			label:   "rpcv2Cbor " + m.service + " " + operation,
+			service: m.service,
+			build:   f.cborRequest,
 			// Amazon CloudWatch is the one service served over RPC v2 CBOR;
 			// see cloudWatchCBORAuthorized.
-			actions: func(r *http.Request) []string {
-				var out []string
-				for _, target := range cloudWatchCBORTargets(r, operation) {
-					out = append(out, target.action)
-				}
-				return out
-			},
+			targets: func(r *http.Request) []iamAuthorizationTarget { return cloudWatchCBORTargets(r, operation) },
 		})
 	}
 
@@ -319,13 +326,13 @@ func iamServedKeyProbes(t *testing.T, srv *sim.Server,
 			if pattern == "" || !iamKeyProbeRouteServes(pattern, def) {
 				continue
 			}
-			var actions func(*http.Request) []string
+			var targets func(*http.Request) []iamAuthorizationTarget
 			switch {
 			case m.service == "s3" && idx.serviceShort == "AmazonS3":
 				// The operation name the data plane's own routes give: the
 				// bucket routes name theirs with s3BucketOperationName, the
 				// object routes with s3ObjectOperationName; see registerS3.
-				actions = func(r *http.Request) []string {
+				targets = func(r *http.Request) []iamAuthorizationTarget {
 					operation := s3ObjectOperationName(r, nil)
 					switch {
 					case r.Pattern == "GET /{$}":
@@ -333,38 +340,41 @@ func iamServedKeyProbes(t *testing.T, srv *sim.Server,
 					case !strings.Contains(r.Pattern, "{key...}"):
 						operation = s3BucketOperationName(r, nil)
 					}
-					var out []string
-					for _, target := range s3AuthorizationTargets(r, operation, []string{s3RequestResourceARN(r)}) {
-						out = append(out, target.action)
-					}
-					return out
+					return s3AuthorizationTargets(r, operation, []string{s3RequestResourceARN(r)})
 				}
 			case s3ControlOperations[pattern].operation != "":
 				route := s3ControlOperations[pattern]
-				actions = func(r *http.Request) []string {
-					var out []string
-					for _, target := range s3ControlAuthorizationTargets(r, route.operation, route.resource) {
-						out = append(out, target.action)
-					}
-					return out
+				targets = func(r *http.Request) []iamAuthorizationTarget {
+					return s3ControlAuthorizationTargets(r, route.operation, route.resource)
 				}
 			case m.service == "lambda":
-				actions = func(r *http.Request) []string {
-					var out []string
-					for _, target := range lambdaAuthorizationTargets(r, operation, "*") {
-						out = append(out, target.action)
-					}
-					return out
+				targets = func(r *http.Request) []iamAuthorizationTarget {
+					return lambdaAuthorizationTargets(r, operation, "*")
 				}
 			default:
 				continue
 			}
 			probes = append(probes, iamKeyProbe{
 				label:   "rest " + m.service + " " + operation,
+				service: m.service,
 				build:   build,
-				actions: actions,
+				targets: targets,
 			})
 		}
+	}
+	// A function URL is served at its own host, not as an API operation; the
+	// seeded function's URL is probed as a client calls it.
+	if config, ok := lambdaURLConfigs.Get("probe"); ok {
+		probes = append(probes, iamKeyProbe{
+			label:   "function URL " + config.FunctionUrl,
+			service: "lambda",
+			build: func() *http.Request {
+				r := httptest.NewRequest(http.MethodGet, config.FunctionUrl, nil)
+				iamKeyProbeEnvelope(r, "lambda")
+				return r
+			},
+			targets: lambdaFunctionURLTargets,
+		})
 	}
 	sort.Slice(probes, func(i, j int) bool { return probes[i].label < probes[j].label })
 	return probes
@@ -402,25 +412,35 @@ func iamKeyProbeRouteServes(pattern string, def smithyOpDef) bool {
 }
 
 // iamKeyProbeContexts builds the gate's condition context for every action a
-// probe's request is authorized as, and for the iam:PassRole check the gate
-// adds when the request passes a role.
-func iamKeyProbeContexts(t *testing.T, probe iamKeyProbe) map[string][]map[string][]string {
+// probe's request is authorized as, signed by signer, and for the
+// iam:PassRole check the gate adds when the request passes a role.
+func iamKeyProbeContexts(t *testing.T, probe iamKeyProbe, signer string) map[string][]map[string][]string {
 	t.Helper()
+	build := func() *http.Request {
+		r := probe.build()
+		r.Header.Set("Authorization", strings.Replace(r.Header.Get("Authorization"),
+			"Credential="+iamProbeAccessKeyID+"/", "Credential="+signer+"/", 1))
+		return r
+	}
 	out := map[string][]map[string][]string{}
-	for _, action := range probe.actions(probe.build()) {
+	for _, target := range probe.targets(build()) {
+		action := target.action
 		// The gate authorizes no permissionless call, so it builds no context
 		// for one; see iamPermissionlessAction.
 		if iamPermissionlessAction(action) {
 			continue
 		}
-		r := probe.build()
-		ctx := iamProbeContextFor(t, r, iamProbeAccessKeyID, action)
+		r := build()
+		ctx := iamProbeContextFor(t, r, signer, action)
+		for key, values := range target.context {
+			ctx[key] = values
+		}
 		out[action] = append(out[action], ctx)
 		principals, passes := iamPassRoleOperations[action]
-		if !passes || len(iamPassedRoleARNs(probe.build())) == 0 {
+		if !passes || len(iamPassedRoleARNs(build())) == 0 {
 			continue
 		}
-		pass := iamProbeContextFor(t, probe.build(), iamProbeAccessKeyID, "iam:PassRole")
+		pass := iamProbeContextFor(t, build(), signer, "iam:PassRole")
 		if len(principals) > 0 {
 			pass["iam:PassedToService"] = principals
 		}
@@ -478,12 +498,23 @@ func TestIAMConditionKeyCoveragePerAction(t *testing.T) {
 		referenced[service] = true
 	}
 	fixtures := iamSeedConditionKeyFixtures(t, srv)
+	federated := iamSeedFederatedSessions(t)
 
 	measured := map[string]bool{}
 	satisfied := map[iamConditionKeyPair]bool{}
 	probes := iamServedKeyProbes(t, srv, jsonRouter, queryRouter, referenced, fixtures)
 	for _, probe := range probes {
-		for action, contexts := range iamKeyProbeContexts(t, probe) {
+		contexts := iamKeyProbeContexts(t, probe, iamProbeAccessKeyID)
+		// A web-identity or SAML session is a caller AWS STS alone tells
+		// apart, by the claims it carries into the AssumeRole it chains to.
+		if probe.service == "sts" {
+			for _, signer := range federated {
+				for action, more := range iamKeyProbeContexts(t, probe, signer) {
+					contexts[action] = append(contexts[action], more...)
+				}
+			}
+		}
+		for action, contexts := range contexts {
 			measured[action] = true
 			for _, key := range declared[action] {
 				pair := iamConditionKeyPair{action, key}
@@ -930,7 +961,167 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 		"Tags.Tag.1.Key": {"owner"}, "Tags.Tag.1.Value": {"platform"}}),
 		`<GlobalReplicationGroupId>([^<]+)</GlobalReplicationGroupId>`)
 	fixtures["elasticache"] = map[string]string{"globalreplicationgroupid": globalGroup}
+
+	// Amazon ECS: a sized daemon task definition, whose size a daemon runs at.
+	daemonDefinition := field(jsonCall(ecs+"RegisterDaemonTaskDefinition", json11, `{"family":"probe",`+
+		`"cpu":"256","memory":"512","containerDefinitions":[{"name":"probe","image":"alpine"}]}`),
+		`"daemonTaskDefinitionArn":"([^"]+)"`)
+	fixtures["ecs"]["daemontaskdefinitionarn"] = daemonDefinition
+
+	// Amazon RDS: tagged parameter groups, a tagged DB cluster and DB instance
+	// of engines whose data plane runs no container, a blue/green deployment
+	// of the cluster and a zero-ETL integration from it. A blue/green
+	// deployment clones either kind of database, so it is probed with each.
+	const rdsVersion = "2014-10-31"
+	rdsCall := func(action string, form url.Values) string {
+		t.Helper()
+		form.Set("Action", action)
+		form.Set("Version", rdsVersion)
+		form.Set("Tags.Tag.1.Key", "owner")
+		form.Set("Tags.Tag.1.Value", "platform")
+		return query(form)
+	}
+	rdsCall("CreateDBParameterGroup", url.Values{"DBParameterGroupName": {"probe"},
+		"DBParameterGroupFamily": {"mysql8.0"}, "Description": {"probe"}})
+	rdsCall("CreateDBClusterParameterGroup", url.Values{"DBClusterParameterGroupName": {"probe"},
+		"DBParameterGroupFamily": {"mysql8.0"}, "Description": {"probe"}})
+	cluster := field(rdsCall("CreateDBCluster", url.Values{"DBClusterIdentifier": {"probe"}, "Engine": {"mysql"},
+		"DatabaseName": {"probe"}, "StorageEncrypted": {"true"}, "AllocatedStorage": {"100"},
+		"MasterUsername": {"probe"}, "DBClusterInstanceClass": {"db.m6gd.large"}}),
+		`<DBClusterArn>([^<]+)</DBClusterArn>`)
+	instance := field(rdsCall("CreateDBInstance", url.Values{"DBInstanceIdentifier": {"probe"},
+		"Engine": {"sqlserver-ex"}, "DBInstanceClass": {"db.t3.micro"}, "AllocatedStorage": {"20"},
+		"MasterUsername": {"probe"}, "MasterUserPassword": {"probe-password"}}),
+		`<DBInstanceArn>([^<]+)</DBInstanceArn>`)
+	deployment := field(rdsCall("CreateBlueGreenDeployment", url.Values{"BlueGreenDeploymentName": {"probe"},
+		"Source": {cluster}}), `<BlueGreenDeploymentIdentifier>([^<]+)</BlueGreenDeploymentIdentifier>`)
+	integration := field(rdsCall("CreateIntegration", url.Values{"IntegrationName": {"probe"}, "SourceArn": {cluster},
+		"TargetArn": {"arn:aws:redshift-serverless:us-east-1:" + iamProbeAccount + ":namespace/probe"}}),
+		`<IntegrationArn>([^<]+)</IntegrationArn>`)
+	fixtures["rds"] = map[string]string{
+		"CreateBlueGreenDeployment:source": cluster + "\n" + instance,
+		"bluegreendeploymentidentifier":    deployment, "integrationidentifier": integration,
+	}
+
+	// AWS Certificate Manager: a certificate ACM issues for a name.
+	certificate := field(jsonCall("CertificateManager.RequestCertificate", json11,
+		`{"DomainName":"probe.example.com","ValidationMethod":"DNS"}`), `"CertificateArn":"([^"]+)"`)
+	fixtures["acm"] = map[string]string{"certificatearn": certificate}
+
+	// Amazon EC2 Auto Scaling: a launch configuration and a launch template of
+	// an image. An instance refresh names the template by the id Amazon EC2
+	// assigns and the version it moves to.
+	query(url.Values{"Action": {"CreateLaunchConfiguration"}, "Version": {"2011-01-01"},
+		"LaunchConfigurationName": {"probe"}, "ImageId": {"ami-0123456789abcdef0"}, "InstanceType": {"t3.micro"}})
+	launchTemplate := field(query(url.Values{"Action": {"CreateLaunchTemplate"}, "Version": {"2016-11-15"},
+		"LaunchTemplateName": {"probe"}, "LaunchTemplateData.ImageId": {"ami-0123456789abcdef0"}}),
+		`<launchTemplateId>([^<]+)</launchTemplateId>`)
+	fixtures["autoscaling"]["StartInstanceRefresh:launchtemplateid"] = launchTemplate
+	fixtures["autoscaling"]["StartInstanceRefresh:version"] = "$Latest"
+
+	// AWS Glue: a connection into the seeded subnet and a security group, and
+	// a tagged zero-ETL integration.
+	securityGroup := field(query(url.Values{"Action": {"CreateSecurityGroup"}, "Version": {"2016-11-15"},
+		"GroupName": {"probe"}, "GroupDescription": {"probe"}, "VpcId": {vpc}}), `<groupId>([^<]+)</groupId>`)
+	jsonCall("AWSGlue.CreateConnection", json11, `{"ConnectionInput":{"Name":"probe","ConnectionType":"NETWORK",`+
+		`"ConnectionProperties":{},"PhysicalConnectionRequirements":{"SubnetId":"`+subnet+`",`+
+		`"SecurityGroupIdList":["`+securityGroup+`"],"AvailabilityZone":"us-east-1a"}}}`)
+	jsonCall("AWSGlue.CreateIntegration", json11, `{"IntegrationName":"probe","SourceArn":"`+cluster+`",`+
+		`"TargetArn":"arn:aws:glue:us-east-1:`+iamProbeAccount+`:catalog","Tags":[{"key":"owner","value":"platform"}]}`)
+	fixtures["glue"] = map[string]string{"integrationidentifier": "probe"}
+
+	// AWS Identity and Access Management: a service-specific credential of the
+	// seeded user.
+	credential := field(query(url.Values{"Action": {"CreateServiceSpecificCredential"}, "Version": {"2010-05-08"},
+		"UserName": {"probe"}, "ServiceName": {"codecommit.amazonaws.com"}}),
+		`<ServiceSpecificCredentialId>([^<]+)</ServiceSpecificCredentialId>`)
+	fixtures["iam"] = map[string]string{"servicespecificcredentialid": credential}
+
+	// AWS Organizations: a service control policy in the account's
+	// organization, and an outbound responsibility transfer.
+	const organizations = "AWSOrganizationsV20161128."
+	policy := field(jsonCall(organizations+"CreatePolicy", json11, `{"Name":"probe","Description":"probe",`+
+		`"Type":"SERVICE_CONTROL_POLICY","Content":"{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":`+
+		`\"Allow\",\"Action\":\"*\",\"Resource\":\"*\"}]}"}`), `"Id":"(p-[^"]+)"`)
+	jsonCall(organizations+"InviteOrganizationToTransferResponsibility", json11, `{"Type":"BILLING",`+
+		`"Target":{"Id":"210987654321","Type":"ACCOUNT"},"SourceName":"probe"}`)
+	transfer := field(jsonCall(organizations+"ListOutboundResponsibilityTransfers", json11, `{"Type":"BILLING"}`),
+		`"Id":"(rt-[^"]+)"`)
+	fixtures["organizations"] = map[string]string{
+		"policyid": policy, "ListTagsForResource:resourceid": policy, "UntagResource:resourceid": policy,
+		"DescribeResponsibilityTransfer:id": transfer, "UpdateResponsibilityTransfer:id": transfer,
+		"TerminateResponsibilityTransfer:id": transfer,
+	}
+
+	// Amazon S3 Batch Operations: a job over a manifest in the seeded bucket,
+	// held for confirmation so it never runs.
+	manifestETag := func() string {
+		r := httptest.NewRequest(http.MethodPut, "https://sim.local/probe/manifest.csv", strings.NewReader("probe,probe\n"))
+		r.Header.Set("Content-Type", "text/csv")
+		signSeedControlPlane(r)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, r)
+		if rec.Code >= 300 {
+			t.Fatalf("seed: put the manifest: %d %s", rec.Code, rec.Body.String())
+		}
+		return strings.Trim(rec.Header().Get("ETag"), `"`)
+	}()
+	job := field(call(http.MethodPost, "/v20180820/jobs", "application/xml",
+		`<CreateJobRequest `+s3Control+`><ConfirmationRequired>true</ConfirmationRequired>`+
+			`<Operation><S3PutObjectTagging><TagSet><member><Key>owner</Key><Value>platform</Value></member>`+
+			`</TagSet></S3PutObjectTagging></Operation><Report><Enabled>false</Enabled></Report>`+
+			`<ClientRequestToken>probe</ClientRequestToken><Manifest><Spec><Format>S3BatchOperations_CSV_20180820</Format>`+
+			`<Fields><member>Bucket</member><member>Key</member></Fields></Spec><Location>`+
+			`<ObjectArn>arn:aws:s3:::probe/manifest.csv</ObjectArn><ETag>`+manifestETag+`</ETag></Location></Manifest>`+
+			`<Priority>10</Priority><RoleArn>arn:aws:iam::`+iamProbeAccount+`:role/probe</RoleArn></CreateJobRequest>`,
+		accountHeader), `<JobId>([^<]+)</JobId>`)
+	fixtures["s3"]["jobid"] = job
+
+	// Amazon CloudWatch: the default dataset, tagged.
+	jsonCall("GraniteServiceVersion20100801.TagResource", json10, `{"ResourceARN":"arn:aws:cloudwatch:us-east-1:`+
+		iamProbeAccount+`:dataset/default","Tags":[{"Key":"owner","Value":"platform"}]}`)
+	fixtures["cloudwatch"]["datasetidentifier"] = "default"
 	return fixtures
+}
+
+// iamSeedFederatedSessions opens an assumed-role session of the seeded role as
+// each identity provider whose claims AWS STS carries into a chained
+// AssumeRole, and returns the sessions' access keys. Each session's claims are
+// derived from the provider's token or assertion by the code
+// AssumeRoleWithWebIdentity and AssumeRoleWithSAML run.
+func iamSeedFederatedSessions(t *testing.T) []string {
+	t.Helper()
+	sessions := map[string]map[string][]string{}
+	for i, provider := range []struct {
+		url    string
+		claims map[string]any
+	}{
+		{"https://accounts.google.com", map[string]any{"aud": "probe", "sub": "probe"}},
+		{"https://cognito-identity.amazonaws.com", map[string]any{"aud": "probe", "sub": "probe",
+			"amr": []any{"authenticated"}}},
+		{"https://graph.facebook.com", map[string]any{"app_id": "probe", "id": "probe"}},
+		{"https://www.amazon.com", map[string]any{"app_id": "probe", "user_id": "probe"}},
+	} {
+		identity := webIdentity{Subject: "probe", Claims: provider.claims, Provider: IAMOIDCProvider{
+			URL: provider.url, Arn: "arn:aws:iam::" + iamProbeAccount + ":oidc-provider/" + strings.TrimPrefix(provider.url, "https://")}}
+		sessions[fmt.Sprintf("ASIAFEDERATEDPROBE%d", i)] = stsChainedClaims(identity.conditionContext("probe"))
+	}
+	assertion := samlAssertion{Issuer: "https://idp.probe.example/saml", Subject: "probe", SubjectType: "persistent",
+		ProviderName: "probe", ProviderArn: "arn:aws:iam::" + iamProbeAccount + ":saml-provider/probe"}
+	sessions["ASIAFEDERATEDPROBESAML"] = stsChainedClaims(assertion.conditionContext(iamProbeAccount))
+
+	var keys []string
+	for key, claims := range sessions {
+		if len(claims) == 0 {
+			t.Fatalf("seed: the session %s carries no chained claims", key)
+		}
+		iamTempCreds.Put(key, IAMTempCred{AccessKeyID: key, RoleName: "probe",
+			PrincipalArn: "arn:aws:sts::" + iamProbeAccount + ":assumed-role/probe/probe",
+			Expiration:   "2999-01-01T00:00:00Z", FederatedClaims: claims})
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // iamProbeFreePort is a TCP port nothing on the host listens on, for a seeded

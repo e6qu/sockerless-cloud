@@ -186,12 +186,11 @@ func TestSDK_CloudRun_WorkerPoolDeployCancel(t *testing.T) {
 	assert.Equal(t, "Cancelled", pool.TerminalCondition.Reason)
 }
 
-// instanceExitScript serves the default startup probe on $PORT, logs line,
-// and exits with code once the probe has had a second to pass.
+// instanceExitScript logs line, accepts the one connection the default
+// startup probe makes on $PORT, and exits with code once it has.
 func instanceExitScript(line string, code int) []string {
-	return []string{"sh", "-c", fmt.Sprintf(`nc -lk -p "$PORT" -e true &
-echo %q
-sleep 2
+	return []string{"sh", "-c", fmt.Sprintf(`echo %q
+nc -l -p "$PORT" -e true
 exit %d`, line, code)}
 }
 

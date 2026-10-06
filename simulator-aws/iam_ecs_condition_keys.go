@@ -15,8 +15,8 @@ import (
 // under a size, only inside the private subnets, never with exec enabled.
 //
 // Every one is settled by the request. The two sizes come from the task
-// definition the request names, because that is where Amazon ECS reads them
-// from when the request does not override them.
+// definition or daemon task definition the request names, because that is
+// where Amazon ECS reads them from when the request does not override them.
 
 // iamPopulateECSConditionKeys adds the keys an Amazon ECS request settles.
 func iamPopulateECSConditionKeys(r *http.Request, body []byte, ctx map[string][]string) {
@@ -116,6 +116,16 @@ func iamPopulateECSConditionKeys(r *http.Request, body []byte, ctx map[string][]
 		ctx["ecs:task-definition"] = []string{definitionName}
 	}
 	if definition, ok := ecsServiceTaskDefinition(definitionName); ok && definitionName != "" {
+		if cpu == "" {
+			cpu = definition.Cpu
+		}
+		if memory == "" {
+			memory = definition.Memory
+		}
+	}
+	// A daemon runs its daemon task definition, whose size is the daemon's.
+	if definition, ok := ecsDaemonTaskDefinitions.Get(ecsDaemonTDRefKey(request.DaemonTaskDefinitionArn)); ok &&
+		request.DaemonTaskDefinitionArn != "" {
 		if cpu == "" {
 			cpu = definition.Cpu
 		}

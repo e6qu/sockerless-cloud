@@ -460,6 +460,14 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 				kind = iamRequestParameter(r, body, "Type")
 			}
 		}
+		// A request about one transfer names it by Id, and the transfer's type
+		// is a fact of the stored transfer.
+		switch name {
+		case "DescribeResponsibilityTransfer", "UpdateResponsibilityTransfer", "TerminateResponsibilityTransfer":
+			if transfer, ok := orgResponsibilityTransfers.Get(iamRequestParameter(r, body, "Id")); ok && kind == "" {
+				kind = transfer.Type
+			}
+		}
 		iamSetConditionValues(ctx, "organizations:TransferType", kind)
 	}
 
@@ -617,7 +625,15 @@ func iamOrganizationsRequestPolicyType(r *http.Request, body []byte) string {
 	if policyType := iamRequestParameter(r, body, "PolicyType"); policyType != "" {
 		return policyType
 	}
+	// A policy listing states the type it lists as its Filter.
+	if policyType := iamRequestParameter(r, body, "Filter"); policyType != "" {
+		return policyType
+	}
 	policyID := iamRequestParameter(r, body, "PolicyId")
+	// The tagging operations name a policy as the resource they tag.
+	if resourceID := iamRequestParameter(r, body, "ResourceId"); policyID == "" && strings.HasPrefix(resourceID, "p-") {
+		policyID = resourceID
+	}
 	if policyID == "" {
 		return ""
 	}

@@ -19,6 +19,9 @@ func iamPopulateSTSRequestConditionKeys(r *http.Request, operation string, body 
 	}
 	switch operation {
 	case "AssumeRole":
+		for key, values := range stsCallerFederatedClaims(r) {
+			ctx[key] = values
+		}
 		set("sts:RoleSessionName", "RoleSessionName")
 		set("sts:ExternalId", "ExternalId")
 		set("sts:SourceIdentity", "SourceIdentity")

@@ -86,7 +86,7 @@ func s3ControlRouteService(operation string) (string, string) {
 func s3ControlEnforced(operation string, resource func(*http.Request) string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		for _, target := range s3ControlAuthorizationTargets(r, operation, resource) {
-			if !iamEnforceREST(w, r, target.action, target.resource, s3ControlWriteIAMDeny) {
+			if !iamEnforceREST(w, r, target, s3ControlWriteIAMDeny) {
 				return
 			}
 		}

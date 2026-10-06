@@ -59,7 +59,7 @@ func iamDynamoDBTransactWriteTargets(r *http.Request) []iamAuthorizationTarget {
 	}
 	actions := map[string]string{"Put": "PutItem", "Update": "UpdateItem", "Delete": "DeleteItem", "ConditionCheck": "ConditionCheckItem"}
 	var targets []iamAuthorizationTarget
-	seen := map[iamAuthorizationTarget]bool{}
+	seen := map[[2]string]bool{}
 	for _, item := range request.TransactItems {
 		for member, write := range item {
 			action, ok := actions[member]
@@ -67,8 +67,8 @@ func iamDynamoDBTransactWriteTargets(r *http.Request) []iamAuthorizationTarget {
 				continue
 			}
 			target := iamAuthorizationTarget{action: "dynamodb:" + action, resource: iamDynamoDBTableARN(r, write.TableName)}
-			if !seen[target] {
-				seen[target] = true
+			if !seen[[2]string{target.action, target.resource}] {
+				seen[[2]string{target.action, target.resource}] = true
 				targets = append(targets, target)
 			}
 		}
@@ -96,7 +96,7 @@ func iamDynamoDBPartiQLTargets(r *http.Request) []iamAuthorizationTarget {
 	all = append(all, request.TransactStatements...)
 	kinds := map[partiQLKind]string{pqlSelect: "PartiQLSelect", pqlInsert: "PartiQLInsert", pqlUpdate: "PartiQLUpdate", pqlDelete: "PartiQLDelete"}
 	var targets []iamAuthorizationTarget
-	seen := map[iamAuthorizationTarget]bool{}
+	seen := map[[2]string]bool{}
 	for _, s := range all {
 		if s.Statement == "" {
 			continue
@@ -110,8 +110,8 @@ func iamDynamoDBPartiQLTargets(r *http.Request) []iamAuthorizationTarget {
 			resource += "/index/" + parsed.Index
 		}
 		target := iamAuthorizationTarget{action: "dynamodb:" + kinds[parsed.Kind], resource: resource}
-		if !seen[target] {
-			seen[target] = true
+		if !seen[[2]string{target.action, target.resource}] {
+			seen[[2]string{target.action, target.resource}] = true
 			targets = append(targets, target)
 		}
 	}
@@ -241,11 +241,14 @@ func s3DeleteObjectsTargets(r *http.Request) []iamAuthorizationTarget {
 	}
 	var targets []iamAuthorizationTarget
 	for _, object := range request.Objects {
-		action := "s3:DeleteObject"
+		target := iamAuthorizationTarget{action: "s3:DeleteObject", resource: "arn:aws:s3:::" + bucket + "/" + object.Key}
+		// Each entry names its own version, so s3:versionid belongs to the
+		// entry's authorization and not to the request.
 		if object.VersionID != "" {
-			action = "s3:DeleteObjectVersion"
+			target.action = "s3:DeleteObjectVersion"
+			target.context = map[string][]string{"s3:versionid": {object.VersionID}}
 		}
-		targets = append(targets, iamAuthorizationTarget{action: action, resource: "arn:aws:s3:::" + bucket + "/" + object.Key})
+		targets = append(targets, target)
 	}
 	if strings.EqualFold(r.Header.Get("x-amz-bypass-governance-retention"), "true") {
 		targets = append(targets, iamAuthorizationTarget{action: "s3:BypassGovernanceRetention", resource: "arn:aws:s3:::" + bucket})

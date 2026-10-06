@@ -358,7 +358,7 @@ func s3Enforced(opName func(*http.Request, []byte) string, h http.HandlerFunc) h
 				return
 			}
 			for _, target := range s3AuthorizationTargets(r, op, []string{s3RequestResourceARN(r)}) {
-				if !iamEnforceREST(w, r, target.action, target.resource, s3WriteIAMDeny) {
+				if !iamEnforceREST(w, r, target, s3WriteIAMDeny) {
 					return
 				}
 			}

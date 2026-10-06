@@ -81,6 +81,18 @@ type RDSInstance struct {
 	ImportS3Role   string `json:",omitempty"`
 	// RetainAutomatedBackups records a deletion's DeleteAutomatedBackups=false.
 	RetainAutomatedBackups bool `json:",omitempty"`
+	// BackupTarget is where the instance's automated backups and manual
+	// snapshots are stored: "region" or "outposts".
+	BackupTarget string `json:",omitempty"`
+}
+
+// rdsRequestedBackupTarget is the BackupTarget a create or restore asks for,
+// which Amazon RDS defaults to the AWS Region.
+func rdsRequestedBackupTarget(r *http.Request) string {
+	if target := r.FormValue("BackupTarget"); target != "" {
+		return target
+	}
+	return "region"
 }
 
 // RDSSnapshot models the canonical RDS DB snapshot state machine:
@@ -491,6 +503,9 @@ func renderRDSInstance(i RDSInstance) string {
 	fmt.Fprintf(&b, "<Endpoint><Address>%s</Address><Port>%d</Port></Endpoint>", xmlEscape(i.Endpoint), i.Port)
 	fmt.Fprintf(&b, "<IAMDatabaseAuthenticationEnabled>%t</IAMDatabaseAuthenticationEnabled>", i.EnableIAMDatabaseAuthentication)
 	fmt.Fprintf(&b, "<DeletionProtection>%t</DeletionProtection>", i.DeletionProtection)
+	if i.BackupTarget != "" {
+		fmt.Fprintf(&b, "<BackupTarget>%s</BackupTarget>", xmlEscape(i.BackupTarget))
+	}
 	b.WriteString(renderRDSInstanceBackups(i))
 	b.WriteString(rdsRenderAutomatedBackupsReplications(i.AutomatedBackupsReplications))
 	if i.ReadReplicaSource != "" {
@@ -601,6 +616,7 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		EnableIAMDatabaseAuthentication: strings.EqualFold(r.FormValue("EnableIAMDatabaseAuthentication"), "true"),
 		DeletionProtection:              strings.EqualFold(r.FormValue("DeletionProtection"), "true"),
 		DBClusterIdentifier:             clusterID,
+		BackupTarget:                    rdsRequestedBackupTarget(r),
 	}
 	if err := rdsInstallDataPlane(&inst, r.FormValue("MasterUserPassword")); err != nil {
 		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
@@ -1353,6 +1369,7 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 		InstanceCreateTime:    time.Now().UTC().Format(time.RFC3339),
 		ARN:                   rdsInstanceARN(newInstID),
 		Tags:                  parseAWSQueryTagMap(r, "Tags.Tag"),
+		BackupTarget:          rdsRequestedBackupTarget(r),
 		// The engine starts with the credentials the captured data was
 		// written under, exactly as a restored RDS instance does.
 		MasterUserSecret: append([]byte(nil), snap.MasterUserSecret...),
@@ -2079,6 +2096,7 @@ func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 		ARN:                   rdsInstanceARN(id),
 		ReadReplicaSource:     src.DBInstanceIdentifier,
 		Tags:                  parseAWSQueryTagMap(r, "Tags.Tag"),
+		BackupTarget:          rdsRequestedBackupTarget(r),
 	}
 	rdsInstances.Put(id, replica)
 	// Link the replica back onto the source.

@@ -329,16 +329,33 @@ func iamKinesisResourceTags(r *http.Request) (map[string]string, bool) {
 	return s.Tags, true
 }
 
-// iamGlueResourceTags resolves the database/job the request targets — the tag
-// ops carry ResourceArn; the resource-scoped ops carry DatabaseName / JobName.
+// iamGlueResourceTags resolves the database, job or zero-ETL integration the
+// request targets — the tag ops carry ResourceArn; the resource-scoped ops carry
+// DatabaseName, JobName or IntegrationIdentifier.
 func iamGlueResourceTags(r *http.Request) (map[string]string, bool) {
 	var req struct {
-		ResourceArn  string `json:"ResourceArn"`
-		DatabaseName string `json:"DatabaseName"`
-		JobName      string `json:"JobName"`
+		ResourceArn           string `json:"ResourceArn"`
+		DatabaseName          string `json:"DatabaseName"`
+		JobName               string `json:"JobName"`
+		IntegrationIdentifier string `json:"IntegrationIdentifier"`
 	}
 	if json.Unmarshal(iamReadJSONBody(r), &req) != nil {
 		return nil, false
+	}
+	if req.IntegrationIdentifier != "" {
+		integration, ok := glueResolveIntegration(req.IntegrationIdentifier)
+		if !ok {
+			return nil, false
+		}
+		tags := map[string]string{}
+		for _, tag := range integration.Tags {
+			key, _ := tag["key"].(string)
+			value, _ := tag["value"].(string)
+			if key != "" {
+				tags[key] = value
+			}
+		}
+		return tags, len(tags) > 0
 	}
 	if req.ResourceArn != "" {
 		resType, name := glueResourceFromARN(req.ResourceArn)
@@ -617,6 +634,21 @@ var iamRDSResourceKinds = []iamRDSResourceKind{
 			return nil, false
 		},
 		func(id string) (map[string]string, bool) { v, ok := rdsDBSecurityGroups.Get(id); return v.Tags, ok }},
+	// A blue/green deployment and a zero-ETL integration declare
+	// aws:ResourceTag/${TagKey} alone.
+	{"deployment", "", "BlueGreenDeploymentIdentifier",
+		func(arn string) (map[string]string, bool) {
+			for _, d := range rdsBlueGreenDeployments.List() {
+				if rdsBlueGreenDeploymentARN(d.BlueGreenDeploymentIdentifier) == arn {
+					return d.Tags, true
+				}
+			}
+			return nil, false
+		},
+		func(id string) (map[string]string, bool) { v, ok := rdsBlueGreenDeployments.Get(id); return v.Tags, ok }},
+	{"integration", "", "IntegrationIdentifier",
+		func(arn string) (map[string]string, bool) { v, ok := findRDSIntegration(arn); return v.Tags, ok },
+		func(id string) (map[string]string, bool) { v, ok := findRDSIntegration(id); return v.Tags, ok }},
 	{"es", "rds:es-tag/", "SubscriptionName",
 		func(arn string) (map[string]string, bool) {
 			v, ok := findRDSEventSubscriptionByARN(arn)
@@ -636,7 +668,9 @@ func iamPopulateRDSResourceTags(r *http.Request, ctx map[string][]string) {
 	}
 	for k, v := range tags {
 		ctx["aws:ResourceTag/"+k] = []string{v}
-		ctx[kind.condition+k] = []string{v}
+		if kind.condition != "" {
+			ctx[kind.condition+k] = []string{v}
+		}
 	}
 }
 
@@ -644,11 +678,17 @@ func iamPopulateRDSResourceTags(r *http.Request, ctx map[string][]string) {
 // its kind (which settles the condition-key spelling) and its stored tags.
 //
 // The tag operations (AddTagsToResource, ListTagsForResource,
-// RemoveTagsFromResource) name it by ARN in ResourceName, whose resource-type
-// segment settles the kind outright; every other operation names it by
-// identifier.
+// RemoveTagsFromResource) name it by ARN in ResourceName, and
+// CreateBlueGreenDeployment in Source, whose resource-type segment settles the
+// kind outright; every other operation names it by identifier.
 func iamRDSTargetedResource(r *http.Request) (iamRDSResourceKind, map[string]string, bool) {
-	if arn := r.FormValue("ResourceName"); arn != "" {
+	arn := r.FormValue("ResourceName")
+	// A blue/green deployment names the database it clones by ARN in Source,
+	// a member DescribeDBParameters spells with a word instead.
+	if source := r.FormValue("Source"); arn == "" && strings.HasPrefix(source, "arn:") {
+		arn = source
+	}
+	if arn != "" {
 		// arn:<partition>:rds:<region>:<account>:<type>:<name>
 		fields := strings.SplitN(arn, ":", 7)
 		if len(fields) < 7 {
@@ -747,13 +787,21 @@ func iamPopulateIAMResourceTags(r *http.Request, ctx map[string][]string) {
 }
 
 // iamS3ControlResourceTags resolves the tags of the resource an Amazon S3
-// control-plane request names: the ARN its route authorizes against.
+// control-plane request names: the ARN its route authorizes against, or the
+// access point a GetAccessPoint reads.
 func iamS3ControlResourceTags(r *http.Request) (map[string]string, bool) {
 	for _, route := range s3ControlGatedRoutes() {
-		if route.pattern != r.Pattern || route.resource == nil {
+		resource := route.resource
+		// GetAccessPoint declares no resource type, so it authorizes "*", yet
+		// declares aws:ResourceTag/${TagKey}: the tags of the access point its
+		// path names.
+		if route.operation == "GetAccessPoint" {
+			resource = s3ControlAccessPointResource
+		}
+		if route.pattern != r.Pattern || resource == nil {
 			continue
 		}
-		arn := route.resource(r)
+		arn := resource(r)
 		if arn == "" {
 			return nil, false
 		}

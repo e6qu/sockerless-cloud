@@ -46,7 +46,7 @@ func iamEnforce(w http.ResponseWriter, r *http.Request) bool {
 		return true // calls AWS authorizes for every caller regardless of policy
 	}
 	for _, target := range iamAuthorizationTargets(r, action) {
-		allowed, principalArn, registered := iamAuthorize(r, target.action, target.resource)
+		allowed, principalArn, registered := iamAuthorizeWithContext(r, target.action, target.resource, target.context)
 		if !registered {
 			return true // unknown/test credential — permissive
 		}
@@ -63,6 +63,9 @@ func iamEnforce(w http.ResponseWriter, r *http.Request) bool {
 type iamAuthorizationTarget struct {
 	action   string
 	resource string
+	// context carries the keys that differ between the targets of one
+	// request, such as the version each entry of a DeleteObjects names.
+	context map[string][]string
 }
 
 // iamAuthorizationTargets lists what a request is authorized for: see
@@ -320,15 +323,15 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 // iamEnforceREST gates a non-POST-/ (REST) service request: it authorizes the
 // pre-derived action + resource ARN and, on denial, writes the service-specific
 // error via deny. Returns true when the handler should run.
-func iamEnforceREST(w http.ResponseWriter, r *http.Request, action, resource string, deny func(http.ResponseWriter, *http.Request, string, string)) bool {
-	if action == "" {
+func iamEnforceREST(w http.ResponseWriter, r *http.Request, target iamAuthorizationTarget, deny func(http.ResponseWriter, *http.Request, string, string)) bool {
+	if target.action == "" {
 		return true
 	}
-	allowed, principalArn, registered := iamAuthorize(r, action, resource)
+	allowed, principalArn, registered := iamAuthorizeWithContext(r, target.action, target.resource, target.context)
 	if !registered || allowed {
 		return true
 	}
-	deny(w, r, principalArn, action)
+	deny(w, r, principalArn, target.action)
 	return false
 }
 

@@ -77,15 +77,12 @@ type LambdaPolicyStatement struct {
 	Condition map[string]any `json:"Condition,omitempty"`
 }
 
-// LambdaFunctionUrlConfig is the per-function URL config. Real Lambda
-// returns a canonical `FunctionUrl` like
-// `https://<id>.lambda-url.<region>.on.aws/`; the SDK + Terraform
-// provider read it as an opaque advertised URL. The sim emits the
-// same canonical shape — external by design (sockerless does not
-// host the `*.lambda-url.<region>.on.aws` subdomain).
+// LambdaFunctionUrlConfig is the per-function URL config. FunctionUrl is
+// the canonical `https://<id>.lambda-url.<region>.on.aws/`, which
+// registerLambdaFunctionURLDataPlane serves.
 type LambdaFunctionUrlConfig struct {
 	FunctionArn      string `json:"FunctionArn"`
-	FunctionUrl      string `json:"FunctionUrl"` // external: real-AWS canonical `<id>.lambda-url.<region>.on.aws`
+	FunctionUrl      string `json:"FunctionUrl"`
 	AuthType         string `json:"AuthType"`
 	CreationTime     string `json:"CreationTime"`
 	LastModifiedTime string `json:"LastModifiedTime"`
@@ -435,11 +432,15 @@ func handleLambdaAddPermission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		StatementId   string `json:"StatementId"`
-		Action        string `json:"Action"`
-		Principal     string `json:"Principal"`
-		SourceArn     string `json:"SourceArn"`
-		SourceAccount string `json:"SourceAccount"`
+		StatementId           string `json:"StatementId"`
+		Action                string `json:"Action"`
+		Principal             string `json:"Principal"`
+		SourceArn             string `json:"SourceArn"`
+		SourceAccount         string `json:"SourceAccount"`
+		PrincipalOrgID        string `json:"PrincipalOrgID"`
+		EventSourceToken      string `json:"EventSourceToken"`
+		FunctionUrlAuthType   string `json:"FunctionUrlAuthType"`
+		InvokedViaFunctionUrl *bool  `json:"InvokedViaFunctionUrl"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterValueException",
@@ -459,14 +460,31 @@ func handleLambdaAddPermission(w http.ResponseWriter, r *http.Request) {
 		Action:    req.Action,
 		Resource:  fn.FunctionArn,
 	}
-	if req.SourceArn != "" || req.SourceAccount != "" {
-		cond := map[string]any{}
-		if req.SourceArn != "" {
-			cond["ArnLike"] = map[string]any{"AWS:SourceArn": req.SourceArn}
-		}
-		if req.SourceAccount != "" {
-			cond["StringEquals"] = map[string]any{"AWS:SourceAccount": req.SourceAccount}
-		}
+	// Each scoping member becomes the condition AWS Lambda writes for it.
+	cond := map[string]any{}
+	equals := map[string]any{}
+	if req.SourceArn != "" {
+		cond["ArnLike"] = map[string]any{"AWS:SourceArn": req.SourceArn}
+	}
+	if req.SourceAccount != "" {
+		equals["AWS:SourceAccount"] = req.SourceAccount
+	}
+	if req.PrincipalOrgID != "" {
+		equals["aws:PrincipalOrgID"] = req.PrincipalOrgID
+	}
+	if req.EventSourceToken != "" {
+		equals["lambda:EventSourceToken"] = req.EventSourceToken
+	}
+	if req.FunctionUrlAuthType != "" {
+		equals["lambda:FunctionUrlAuthType"] = req.FunctionUrlAuthType
+	}
+	if len(equals) > 0 {
+		cond["StringEquals"] = equals
+	}
+	if req.InvokedViaFunctionUrl != nil && *req.InvokedViaFunctionUrl {
+		cond["Bool"] = map[string]any{"lambda:InvokedViaFunctionUrl": "true"}
+	}
+	if len(cond) > 0 {
 		stmt.Condition = cond
 	}
 	conflict := false

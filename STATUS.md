@@ -49,10 +49,10 @@ Current state of the sockerless-cloud repository.
   every key the vendored Service References declare -- 653 over 1,917 actions --
   is either named by the gate or classified as unmodelled with the reason, and a
   classified key the gate later resolves fails its own row, and every key is
-  also measured per action: of 4,307 (action, key) pairs on served operations
-  the gate builds 3,614, and each of the other 693 is listed with its reason in
-  `testdata/iam_condition_key_gaps.tsv` (BUG-2965 holds the unseeded and
-  unbuilt ones). A create carrying tags is also authorized as its service's
+  also measured per action: of 4,310 (action, key) pairs on served operations
+  the gate builds 3,695, and each of the other 615 is listed with its reason in
+  `testdata/iam_condition_key_gaps.tsv` (BUG-2965 holds the 16 that need a
+  container or microVM to seed). A create carrying tags is also authorized as its service's
   tagging action with `<service>:CreateAction` naming it, for the 297
   operations the references list one for, against the resource the create
   mints. The Amazon S3 control plane is

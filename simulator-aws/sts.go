@@ -40,6 +40,9 @@ type IAMTempCred struct {
 	Expiration      string
 	MFA             bool   // the session was authenticated with MFA
 	CreatedAt       string // RFC3339, for aws:MultiFactorAuthAge
+	// FederatedClaims are the identity provider's claims an AssumeRole made
+	// with this session carries; see stsChainedFederationKeys.
+	FederatedClaims map[string][]string `json:",omitempty"`
 }
 
 // stsRequestMFA reports whether the request presented an MFA device + code,
@@ -352,6 +355,7 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
 		RoleName: role.RoleName, PrincipalArn: assumedArn,
 		Expiration: exp.Format(time.RFC3339),
 		MFA:        stsRequestMFA(r), CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		FederatedClaims: stsCallerFederatedClaims(r),
 	})
 	assumedRoleID := role.RoleId + ":" + sessionName
 	w.Header().Set("Content-Type", "text/xml")
@@ -401,7 +405,9 @@ func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) 
 	exp := time.Now().UTC().Add(time.Duration(stsDurationSeconds(r)) * time.Second)
 	akid, secret, token := stsMintTempCred(exp)
 	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
-	iamTempCreds.Put(akid, IAMTempCred{AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token, RoleName: role.RoleName, PrincipalArn: assumedArn, Expiration: exp.Format(time.RFC3339)})
+	iamTempCreds.Put(akid, IAMTempCred{AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
+		RoleName: role.RoleName, PrincipalArn: assumedArn, Expiration: exp.Format(time.RFC3339),
+		FederatedClaims: stsChainedClaims(identity.conditionContext(sessionName))})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssumeRoleWithWebIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
   <AssumeRoleWithWebIdentityResult>
@@ -515,6 +521,7 @@ func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
 		RoleName: role.RoleName, PrincipalArn: assumedArn,
 		Expiration: exp.Format(time.RFC3339), CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		FederatedClaims: stsChainedClaims(assertion.conditionContext(awsAccountID())),
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssumeRoleWithSAMLResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">

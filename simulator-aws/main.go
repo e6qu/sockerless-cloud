@@ -183,6 +183,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	// before the validator (and the mux) ever see it.
 	registerELBv2DataPlane(srv)
 	registerAmplifyDataPlane(srv)
+	registerLambdaFunctionURLDataPlane(srv)
 	registerSTSOutboundIssuer(srv)
 
 	// SQS migrated from awsQuery to awsJson1_0 in late 2023. Route
