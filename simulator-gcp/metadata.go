@@ -54,14 +54,19 @@ func registerComputeMetadata(srv *sim.Server) {
 		if !mustFlavor(w, r) {
 			return
 		}
-		writeText(w, metadataProjectID(r))
+		writeText(w, gceMetadataWorkloadFor(r).projectID())
 	})
 
 	srv.HandleFunc("GET /computeMetadata/v1/project/numeric-project-id", func(w http.ResponseWriter, r *http.Request) {
 		if !mustFlavor(w, r) {
 			return
 		}
-		writeText(w, strconv.FormatInt(metadataNumericProjectID, 10))
+		number, ok := gceMetadataWorkloadFor(r).projectNumber()
+		if !ok {
+			metadataNotFound(w)
+			return
+		}
+		writeText(w, number)
 	})
 
 	// /computeMetadata/v1/instance/{id|zone|name|hostname}
@@ -102,17 +107,27 @@ func registerComputeMetadata(srv *sim.Server) {
 
 	// /computeMetadata/v1/instance/service-accounts/{sa}/{leaf}
 	//
-	// `default` is an alias for the project's default compute SA. The
-	// sim accepts any SA name and stamps the requested audience into
-	// the response (matches real GCE behaviour).
+	// `default` is an alias for the account the workload runs as: the one its
+	// Compute Engine instance or Cloud Run resource names, or else its
+	// project's Compute Engine default service account. An account the
+	// workload does not run as has no keys here.
 	srv.HandleFunc("GET /computeMetadata/v1/instance/service-accounts/{sa}/email", func(w http.ResponseWriter, r *http.Request) {
 		if !mustFlavor(w, r) {
 			return
 		}
-		writeText(w, metadataServiceAccountEmail(r, sim.PathParam(r, "sa")))
+		email, ok := metadataServiceAccountEmail(r, sim.PathParam(r, "sa"))
+		if !ok {
+			metadataNotFound(w)
+			return
+		}
+		writeText(w, email)
 	})
 	srv.HandleFunc("GET /computeMetadata/v1/instance/service-accounts/{sa}/scopes", func(w http.ResponseWriter, r *http.Request) {
 		if !mustFlavor(w, r) {
+			return
+		}
+		if _, ok := metadataServiceAccountEmail(r, sim.PathParam(r, "sa")); !ok {
+			metadataNotFound(w)
 			return
 		}
 		// Cloud-platform broad scope is what real GCE returns by default.
@@ -120,6 +135,10 @@ func registerComputeMetadata(srv *sim.Server) {
 	})
 	srv.HandleFunc("GET /computeMetadata/v1/instance/service-accounts/{sa}/aliases", func(w http.ResponseWriter, r *http.Request) {
 		if !mustFlavor(w, r) {
+			return
+		}
+		if _, ok := metadataServiceAccountEmail(r, sim.PathParam(r, "sa")); !ok {
+			metadataNotFound(w)
 			return
 		}
 		writeText(w, strings.Join(metadataServiceAccountAliases, "\n"))
@@ -134,7 +153,11 @@ func registerComputeMetadata(srv *sim.Server) {
 		if !mustFlavor(w, r) {
 			return
 		}
-		sa := metadataServiceAccountEmail(r, sim.PathParam(r, "sa"))
+		sa, ok := metadataServiceAccountEmail(r, sim.PathParam(r, "sa"))
+		if !ok {
+			metadataNotFound(w)
+			return
+		}
 		now := time.Now()
 		expires := now.Add(time.Hour)
 		// Real GCE returns JSON: {access_token,expires_in,token_type}.
@@ -157,7 +180,11 @@ func registerComputeMetadata(srv *sim.Server) {
 			http.Error(w, "non-empty audience parameter required", http.StatusBadRequest)
 			return
 		}
-		sa := metadataServiceAccountEmail(r, sim.PathParam(r, "sa"))
+		sa, ok := metadataServiceAccountEmail(r, sim.PathParam(r, "sa"))
+		if !ok {
+			metadataNotFound(w)
+			return
+		}
 		now := time.Now()
 		expires := now.Add(time.Hour)
 		token := signIdentityToken(sa, audience, now, expires)
@@ -259,11 +286,18 @@ func gceMetadataUniverseChildren(*http.Request) []gceMetadataEntry {
 	}
 }
 
-func gceMetadataProjectChildren(*http.Request) []gceMetadataEntry {
-	return []gceMetadataEntry{
-		{name: "numeric-project-id", value: func(*http.Request) any { return metadataNumericProjectID }},
-		{name: "project-id", value: func(r *http.Request) any { return metadataProjectID(r) }},
+// gceMetadataProjectChildren lists the workload's project. Its number comes
+// from Cloud Resource Manager, and recursive JSON carries it as a number.
+func gceMetadataProjectChildren(r *http.Request) []gceMetadataEntry {
+	workload := gceMetadataWorkloadFor(r)
+	var children []gceMetadataEntry
+	if number, ok := workload.projectNumber(); ok {
+		n, err := strconv.ParseInt(number, 10, 64)
+		if err == nil {
+			children = append(children, gceMetadataEntry{name: "numeric-project-id", value: func(*http.Request) any { return n }})
+		}
 	}
+	return append(children, gceMetadataEntry{name: "project-id", value: func(*http.Request) any { return workload.projectID() }})
 }
 
 func gceMetadataInstanceChildren(*http.Request) []gceMetadataEntry {
@@ -280,7 +314,10 @@ func gceMetadataInstanceChildren(*http.Request) []gceMetadataEntry {
 // lists each account twice — once under the `default` alias and once under its
 // own email — and both are directories.
 func gceMetadataServiceAccountsChildren(r *http.Request) []gceMetadataEntry {
-	email := metadataServiceAccountEmail(r, "default")
+	email, ok := metadataServiceAccountEmail(r, "default")
+	if !ok {
+		return []gceMetadataEntry{}
+	}
 	return []gceMetadataEntry{
 		{name: "default", jsonName: "default", children: gceMetadataServiceAccountChildren},
 		{name: email, jsonName: email, children: gceMetadataServiceAccountChildren},
@@ -297,7 +334,10 @@ func gceMetadataServiceAccountChildren(r *http.Request) []gceMetadataEntry {
 	}
 	return []gceMetadataEntry{
 		{name: "aliases", value: func(*http.Request) any { return metadataServiceAccountAliases }},
-		{name: "email", value: func(r *http.Request) any { return metadataServiceAccountEmail(r, account) }},
+		{name: "email", value: func(r *http.Request) any {
+			email, _ := metadataServiceAccountEmail(r, account)
+			return email
+		}},
 		{name: "identity"},
 		{name: "scopes", value: func(*http.Request) any { return metadataServiceAccountScopes }},
 		{name: "token"},
@@ -405,12 +445,11 @@ func redirectToMetadataDirectory(w http.ResponseWriter, r *http.Request) {
 }
 
 // The instance identity the metadata server reports. Real GCE reports the
-// numeric project number and instance id as numbers in recursive JSON, so both
-// are held as integers and formatted only for the text leaves.
+// instance id as a number in recursive JSON, so it is held as an integer and
+// formatted only for the text leaf.
 const (
-	metadataNumericProjectID int64 = 1000000000001
-	metadataInstanceID       int64 = 1000000000001
-	metadataDefaultName            = "sim-instance-1"
+	metadataInstanceID  int64 = 1000000000001
+	metadataDefaultName       = "sim-instance-1"
 	// metadataUniverseDomain is the public Google Cloud universe — the API
 	// host suffix every Google endpoint is built from.
 	metadataUniverseDomain = "googleapis.com"
@@ -425,20 +464,16 @@ var (
 	metadataServiceAccountScopes  = []string{"https://www.googleapis.com/auth/cloud-platform"}
 )
 
-// metadataProjectID is the project the reading workload belongs to.
-func metadataProjectID(r *http.Request) string {
-	if inst, ok := gcpMetadataInstancesByIP.ForRequest(r); ok {
-		return gcpMetadataProject(inst.SelfLink, defaultMetadataProject(r))
-	}
-	return defaultMetadataProject(r)
-}
-
 // metadataInstanceZone is the fully-qualified zone the reading workload runs in.
 func metadataInstanceZone(r *http.Request) string {
 	if inst, ok := gcpMetadataInstancesByIP.ForRequest(r); ok && inst.Zone != "" {
 		return inst.Zone
 	}
-	return fmt.Sprintf("projects/%s/zones/%s", defaultMetadataProject(r), defaultMetadataZone(r))
+	number, ok := gceMetadataWorkloadFor(r).projectNumber()
+	if !ok {
+		number = gceMetadataWorkloadFor(r).projectID()
+	}
+	return fmt.Sprintf("projects/%s/zones/%s", number, defaultMetadataZone(r))
 }
 
 // metadataInstanceName is the reading workload's instance name.
@@ -456,33 +491,26 @@ func metadataInstanceHostname(r *http.Request) string {
 		if inst.Zone != "" {
 			zone = inst.Zone[strings.LastIndex(inst.Zone, "/")+1:]
 		}
-		return fmt.Sprintf("%s.%s.c.%s.internal", inst.Name, zone, gcpMetadataProject(inst.SelfLink, defaultMetadataProject(r)))
+		return fmt.Sprintf("%s.%s.c.%s.internal", inst.Name, zone, gceMetadataWorkloadFor(r).projectID())
 	}
-	return fmt.Sprintf("%s.%s.c.%s.internal", metadataDefaultName, defaultMetadataZone(r), defaultMetadataProject(r))
+	return fmt.Sprintf("%s.%s.c.%s.internal", metadataDefaultName, defaultMetadataZone(r), gceMetadataWorkloadFor(r).projectID())
 }
 
-// metadataServiceAccountEmail resolves the account a request addressed to the
-// email of a real identity. `default` is real GCE's alias for the instance's
-// primary service account.
-func metadataServiceAccountEmail(r *http.Request, account string) string {
-	if account == "default" || account == "" {
-		return fmt.Sprintf("default@%s.iam.gserviceaccount.com", defaultMetadataProject(r))
+// metadataServiceAccountEmail resolves the account a request addresses, by the
+// `default` alias or by its email, to the email of the account the workload
+// runs as, and false when the workload runs as no account or as another one.
+func metadataServiceAccountEmail(r *http.Request, account string) (string, bool) {
+	email, ok := gceMetadataWorkloadFor(r).defaultServiceAccount()
+	if !ok || (account != "default" && account != "" && account != email) {
+		return "", false
 	}
-	return account
+	return email, true
 }
 
-func gcpMetadataProject(selfLink, defaultProject string) string {
-	if project := gcpProjectFromSelfLink(selfLink); project != "" {
-		return project
-	}
-	return defaultProject
-}
-
-func defaultMetadataProject(r *http.Request) string {
-	if v := r.URL.Query().Get("project"); v != "" {
-		return v
-	}
-	return "sim-project"
+// metadataNotFound answers a key the workload's metadata does not hold the way
+// the metadata server does.
+func metadataNotFound(w http.ResponseWriter) {
+	http.Error(w, "404 page not found", http.StatusNotFound)
 }
 
 func defaultMetadataZone(r *http.Request) string {

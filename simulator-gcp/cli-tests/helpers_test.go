@@ -315,6 +315,13 @@ func installGcloudCLI() string {
 }
 
 // gcloudCLI creates a gcloud command with config isolation and endpoint overrides.
+//
+// Eventarc and Cloud Build both publish `/v1/projects/{p}/locations/{l}/triggers`,
+// and Google tells them apart by host. Their coordinates are therefore their own
+// hosts, `eventarc.googleapis.com` and `cloudbuild.googleapis.com`, and gcloud's
+// HTTP proxy setting delivers those requests to the simulator with the Host a
+// real gcloud sends. The loopback coordinates bypass the proxy: bq, which runs
+// with this environment, tunnels every proxied request with CONNECT.
 func gcloudCLI(args ...string) *exec.Cmd {
 	cmd := exec.Command("gcloud", args...)
 	cmd.Env = append(os.Environ(),
@@ -325,7 +332,7 @@ func gcloudCLI(args ...string) *exec.Cmd {
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_DNS="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_APIGATEWAY="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_API_GATEWAY="+baseURL+"/",
-		"CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDBUILD="+baseURL+"/",
+		"CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDBUILD="+cloudBuildEndpoint,
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDRESOURCEMANAGER="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDBILLING="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_IAM="+baseURL+"/",
@@ -340,7 +347,9 @@ func gcloudCLI(args ...string) *exec.Cmd {
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_VPCACCESS="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_COMPUTE="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_ARTIFACTREGISTRY="+baseURL+"/",
-		"CLOUDSDK_API_ENDPOINT_OVERRIDES_EVENTARC="+baseURL+"/",
+		"CLOUDSDK_API_ENDPOINT_OVERRIDES_EVENTARC="+eventarcEndpoint,
+		"HTTP_PROXY="+baseURL,
+		"NO_PROXY=127.0.0.1,localhost",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_BIGQUERY="+baseURL+"/bigquery/v2/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_FIRESTORE="+baseURL+"/",
@@ -353,6 +362,12 @@ func gcloudCLI(args ...string) *exec.Cmd {
 	)
 	return cmd
 }
+
+// The Eventarc and Cloud Build endpoints gcloudCLI configures.
+const (
+	eventarcEndpoint   = "http://eventarc.googleapis.com/"
+	cloudBuildEndpoint = "http://cloudbuild.googleapis.com/"
+)
 
 // gcloudSAActivatedCLI creates a gcloud command bound to an isolated config
 // dir and carrying no pre-minted access token, so the credentials stored in

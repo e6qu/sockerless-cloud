@@ -51,3 +51,28 @@ func TestServiceAgentsCLI_NamedForTheProjectNumber(t *testing.T) {
 		t.Errorf("bq show --encryption_service_account printed %q, want %q", encryption, want)
 	}
 }
+
+// The Compute Engine default service account the project's Compute Engine
+// resource names is an IAM service account of the project, as gcloud reads it.
+func TestServiceAgentsCLI_ComputeDefaultServiceAccountInIAM(t *testing.T) {
+	number := strings.TrimSpace(runCLI(t, gcloudCLI("projects", "describe", project, "--format=value(projectNumber)")))
+	email := strings.TrimSpace(runCLI(t, gcloudCLI("compute", "project-info", "describe", "--format=value(defaultServiceAccount)")))
+	if want := number + "-compute@developer.gserviceaccount.com"; email != want {
+		t.Fatalf("Compute Engine's default service account = %q, want %q", email, want)
+	}
+
+	var account struct {
+		Name        string `json:"name"`
+		ProjectID   string `json:"projectId"`
+		Email       string `json:"email"`
+		DisplayName string `json:"displayName"`
+	}
+	parseJSON(t, runCLI(t, gcloudCLI("iam", "service-accounts", "describe", email, "--format=json")), &account)
+	if account.Name != "projects/"+project+"/serviceAccounts/"+email || account.ProjectID != project ||
+		account.Email != email || account.DisplayName != "Compute Engine default service account" {
+		t.Errorf("gcloud iam service-accounts describe %s = %+v", email, account)
+	}
+	if listed := runCLI(t, gcloudCLI("iam", "service-accounts", "list", "--format=value(email)")); !strings.Contains(listed, email) {
+		t.Errorf("gcloud iam service-accounts list does not name %s: %q", email, listed)
+	}
+}

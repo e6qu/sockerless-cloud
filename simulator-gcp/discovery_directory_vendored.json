@@ -1,0 +1,554 @@
+{
+ "source": "https://www.googleapis.com/discovery/v1/apis",
+ "retrieved": "2026-10-06",
+ "note": "items holds, verbatim, every entry of the Discovery service directory list whose name and version the simulator embeds a document for. centralRest lists, per host, the ids whose document GET https://{host}/discovery/v1/apis/{name}/{version}/rest answered 200 rather than 404 on the retrieval date. defaultVersion is the version GET https://{name}.googleapis.com/$discovery/rest answered with no version parameter.",
+ "items": [
+  {
+   "kind": "discovery#directoryItem",
+   "id": "apigateway:v1",
+   "name": "apigateway",
+   "version": "v1",
+   "title": "API Gateway API",
+   "description": "",
+   "discoveryRestUrl": "https://apigateway.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/api-gateway/docs",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "artifactregistry:v1",
+   "name": "artifactregistry",
+   "version": "v1",
+   "title": "Artifact Registry API",
+   "description": "Store and manage build artifacts in a scalable and integrated service built on Google infrastructure.",
+   "discoveryRestUrl": "https://artifactregistry.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/artifacts/docs/",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "bigquery:v2",
+   "name": "bigquery",
+   "version": "v2",
+   "title": "BigQuery API",
+   "description": "A data platform for customers to create, manage, share and query data.",
+   "discoveryRestUrl": "https://bigquery.googleapis.com/$discovery/rest?version=v2",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/bigquery/",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "bigtableadmin:v2",
+   "name": "bigtableadmin",
+   "version": "v2",
+   "title": "Cloud Bigtable Admin API",
+   "description": "Administer your Cloud Bigtable tables and instances.",
+   "discoveryRestUrl": "https://bigtableadmin.googleapis.com/$discovery/rest?version=v2",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/bigtable/",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "cloudbilling:v1",
+   "name": "cloudbilling",
+   "version": "v1",
+   "title": "Cloud Billing API",
+   "description": "Allows developers to manage billing for their Google Cloud Platform projects programmatically.",
+   "discoveryRestUrl": "https://cloudbilling.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/billing/docs/apis",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "cloudbuild:v1",
+   "name": "cloudbuild",
+   "version": "v1",
+   "title": "Cloud Build API",
+   "description": "Creates and manages builds on Google Cloud Platform.",
+   "discoveryRestUrl": "https://cloudbuild.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/cloud-build/docs/",
+   "preferred": false
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "cloudfunctions:v2",
+   "name": "cloudfunctions",
+   "version": "v2",
+   "title": "Cloud Functions API",
+   "description": "Manages lightweight user-provided functions executed in response to events.",
+   "discoveryRestUrl": "https://cloudfunctions.googleapis.com/$discovery/rest?version=v2",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/functions",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "cloudkms:v1",
+   "name": "cloudkms",
+   "version": "v1",
+   "title": "Cloud Key Management Service (KMS) API",
+   "description": "Manages keys and performs cryptographic operations in a central cloud service, for direct use by other cloud resources and applications.",
+   "discoveryRestUrl": "https://cloudkms.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/kms/",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "cloudresourcemanager:v1",
+   "name": "cloudresourcemanager",
+   "version": "v1",
+   "title": "Cloud Resource Manager API",
+   "description": "Creates, reads, and updates metadata for Google Cloud Platform resource containers.",
+   "discoveryRestUrl": "https://cloudresourcemanager.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/resource-manager",
+   "preferred": false
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "cloudresourcemanager:v2",
+   "name": "cloudresourcemanager",
+   "version": "v2",
+   "title": "Cloud Resource Manager API",
+   "description": "Creates, reads, and updates metadata for Google Cloud Platform resource containers.",
+   "discoveryRestUrl": "https://cloudresourcemanager.googleapis.com/$discovery/rest?version=v2",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/resource-manager",
+   "preferred": false
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "cloudresourcemanager:v3",
+   "name": "cloudresourcemanager",
+   "version": "v3",
+   "title": "Cloud Resource Manager API",
+   "description": "Creates, reads, and updates metadata for Google Cloud Platform resource containers.",
+   "discoveryRestUrl": "https://cloudresourcemanager.googleapis.com/$discovery/rest?version=v3",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/resource-manager",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "compute:v1",
+   "name": "compute",
+   "version": "v1",
+   "title": "Compute Engine API",
+   "description": "Creates and runs virtual machines on Google Cloud Platform.",
+   "discoveryRestUrl": "https://www.googleapis.com/discovery/v1/apis/compute/v1/rest",
+   "discoveryLink": "./apis/compute/v1/rest",
+   "icons": {
+    "x16": "https://www.google.com/images/icons/product/compute_engine-16.png",
+    "x32": "https://www.google.com/images/icons/product/compute_engine-32.png"
+   },
+   "documentationLink": "https://developers.google.com/compute/docs/reference/latest/",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "dataflow:v1b3",
+   "name": "dataflow",
+   "version": "v1b3",
+   "title": "Dataflow API",
+   "description": "Manages Google Cloud Dataflow projects on Google Cloud Platform.",
+   "discoveryRestUrl": "https://dataflow.googleapis.com/$discovery/rest?version=v1b3",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/dataflow",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "discovery:v1",
+   "name": "discovery",
+   "version": "v1",
+   "title": "API Discovery Service",
+   "description": "Google API Discovery Service allows service consumers to list the discovery metadata of all public APIs managed by the API Platform.",
+   "discoveryRestUrl": "https://discovery.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://developers.google.com/discovery",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "dns:v1",
+   "name": "dns",
+   "version": "v1",
+   "title": "Cloud DNS API",
+   "description": "",
+   "discoveryRestUrl": "https://dns.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/dns/docs",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "eventarc:v1",
+   "name": "eventarc",
+   "version": "v1",
+   "title": "Eventarc API",
+   "description": "Build event-driven applications on Google Cloud Platform.",
+   "discoveryRestUrl": "https://eventarc.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/eventarc",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "firestore:v1",
+   "name": "firestore",
+   "version": "v1",
+   "title": "Cloud Firestore API",
+   "description": "Accesses the NoSQL document database built for automatic scaling, high performance, and ease of application development.",
+   "discoveryRestUrl": "https://firestore.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/firestore",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "iam:v1",
+   "name": "iam",
+   "version": "v1",
+   "title": "Identity and Access Management (IAM) API",
+   "description": "Manages identity and access control for Google Cloud resources, including the creation of service accounts, which you can use to authenticate to Google and make API calls. Enabling this API also enables the IAM Service Account Credentials API (iamcredentials.googleapis.com). However, disabling this API doesn't disable the IAM Service Account Credentials API.",
+   "discoveryRestUrl": "https://iam.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/iam/",
+   "preferred": false
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "iamcredentials:v1",
+   "name": "iamcredentials",
+   "version": "v1",
+   "title": "IAM Service Account Credentials API",
+   "description": "Creates short-lived credentials for impersonating IAM service accounts. Disabling this API also disables the IAM API (iam.googleapis.com). However, enabling this API doesn't enable the IAM API.",
+   "discoveryRestUrl": "https://iamcredentials.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/iam/docs/creating-short-lived-service-account-credentials",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "logging:v2",
+   "name": "logging",
+   "version": "v2",
+   "title": "Cloud Logging API",
+   "description": "Writes log entries and manages your Cloud Logging configuration.",
+   "discoveryRestUrl": "https://logging.googleapis.com/$discovery/rest?version=v2",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/logging/docs/",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "pubsub:v1",
+   "name": "pubsub",
+   "version": "v1",
+   "title": "Cloud Pub/Sub API",
+   "description": "Provides reliable, many-to-many, asynchronous messaging between applications.",
+   "discoveryRestUrl": "https://pubsub.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/pubsub/docs",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "redis:v1",
+   "name": "redis",
+   "version": "v1",
+   "title": "Google Cloud Memorystore for Redis API",
+   "description": "Creates and manages Redis instances on the Google Cloud Platform.",
+   "discoveryRestUrl": "https://redis.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/memorystore/docs/redis/",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "run:v1",
+   "name": "run",
+   "version": "v1",
+   "title": "Cloud Run Admin API",
+   "description": "Deploy and manage user provided container images that scale automatically based on incoming requests. The Cloud Run Admin API v1 follows the Knative Serving API specification, while v2 is aligned with Google Cloud AIP-based API standards, as described in https://google.aip.dev/.",
+   "discoveryRestUrl": "https://run.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/run/",
+   "preferred": false
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "run:v2",
+   "name": "run",
+   "version": "v2",
+   "title": "Cloud Run Admin API",
+   "description": "Deploy and manage user provided container images that scale automatically based on incoming requests. The Cloud Run Admin API v1 follows the Knative Serving API specification, while v2 is aligned with Google Cloud AIP-based API standards, as described in https://google.aip.dev/.",
+   "discoveryRestUrl": "https://run.googleapis.com/$discovery/rest?version=v2",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/run/",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "secretmanager:v1",
+   "name": "secretmanager",
+   "version": "v1",
+   "title": "Secret Manager API",
+   "description": "Stores sensitive data such as API keys, passwords, and certificates. Provides convenience while improving security.",
+   "discoveryRestUrl": "https://secretmanager.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/secret-manager/",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "serviceusage:v1",
+   "name": "serviceusage",
+   "version": "v1",
+   "title": "Service Usage API",
+   "description": "Enables services that service consumers want to use on Google Cloud Platform, lists the available or enabled services, or disables services that service consumers no longer use.",
+   "discoveryRestUrl": "https://serviceusage.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/service-usage/",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "spanner:v1",
+   "name": "spanner",
+   "version": "v1",
+   "title": "Cloud Spanner API",
+   "description": "Cloud Spanner is a managed, mission-critical, globally consistent and scalable relational database service.",
+   "discoveryRestUrl": "https://spanner.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/spanner/",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "sqladmin:v1beta4",
+   "name": "sqladmin",
+   "version": "v1beta4",
+   "title": "Cloud SQL Admin API",
+   "description": "Cloud SQL Admin API",
+   "discoveryRestUrl": "https://sqladmin.googleapis.com/$discovery/rest?version=v1beta4",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/sql/docs",
+   "preferred": false
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "sqladmin:v1",
+   "name": "sqladmin",
+   "version": "v1",
+   "title": "Cloud SQL Admin API",
+   "description": "Cloud SQL Admin API",
+   "discoveryRestUrl": "https://sqladmin.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/sql/docs",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "storage:v1",
+   "name": "storage",
+   "version": "v1",
+   "title": "Cloud Storage API",
+   "description": "Lets you store and retrieve potentially-large, immutable data objects.",
+   "discoveryRestUrl": "https://storage.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/storage/docs/apis",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
+   "id": "vpcaccess:v1",
+   "name": "vpcaccess",
+   "version": "v1",
+   "title": "Serverless VPC Access API",
+   "description": "API for managing VPC access connectors.",
+   "discoveryRestUrl": "https://vpcaccess.googleapis.com/$discovery/rest?version=v1",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/vpc/docs/configure-serverless-vpc-access",
+   "preferred": true
+  }
+ ],
+ "centralRest": {
+  "www.googleapis.com": [
+   "bigquery:v2",
+   "bigtableadmin:v2",
+   "cloudbilling:v1",
+   "cloudbuild:v1",
+   "cloudkms:v1",
+   "cloudresourcemanager:v1",
+   "cloudresourcemanager:v2",
+   "cloudresourcemanager:v3",
+   "compute:v1",
+   "dataflow:v1b3",
+   "discovery:v1",
+   "dns:v1",
+   "firestore:v1",
+   "iam:v1",
+   "iamcredentials:v1",
+   "logging:v2",
+   "pubsub:v1",
+   "redis:v1",
+   "run:v1",
+   "secretmanager:v1",
+   "serviceusage:v1",
+   "spanner:v1",
+   "sqladmin:v1beta4",
+   "sqladmin:v1",
+   "storage:v1",
+   "vpcaccess:v1"
+  ],
+  "discovery.googleapis.com": [
+   "bigtableadmin:v2",
+   "cloudbilling:v1",
+   "cloudbuild:v1",
+   "cloudkms:v1",
+   "cloudresourcemanager:v1",
+   "cloudresourcemanager:v2",
+   "dataflow:v1b3",
+   "discovery:v1",
+   "firestore:v1",
+   "iam:v1",
+   "iamcredentials:v1",
+   "logging:v2",
+   "pubsub:v1",
+   "redis:v1",
+   "run:v1",
+   "secretmanager:v1",
+   "serviceusage:v1",
+   "spanner:v1",
+   "sqladmin:v1",
+   "vpcaccess:v1"
+  ]
+ },
+ "defaultVersion": {
+  "apigateway": "v1beta",
+  "artifactregistry": "v1beta2",
+  "bigquery": "v2",
+  "bigtableadmin": "v2",
+  "cloudbilling": "v2beta",
+  "cloudbuild": "v2",
+  "cloudfunctions": "v2beta",
+  "cloudkms": "v1",
+  "cloudresourcemanager": "v3",
+  "compute": "v1",
+  "dataflow": "v1b3",
+  "discovery": "v1",
+  "dns": "v2beta1",
+  "eventarc": "v1",
+  "firestore": "v1beta2",
+  "iam": "v3beta",
+  "iamcredentials": "v1",
+  "logging": "v2beta1",
+  "pubsub": "v1beta2",
+  "redis": "v1internal1",
+  "run": "v2",
+  "secretmanager": "v1beta2",
+  "serviceusage": "v2beta",
+  "spanner": "v1",
+  "sqladmin": "v1beta4",
+  "storage": "v1",
+  "vpcaccess": "v1beta1"
+ }
+}

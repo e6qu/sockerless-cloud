@@ -2,6 +2,8 @@ package gcp_cli_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -119,4 +121,70 @@ func TestEventarcCLI_ChannelProviderConnection(t *testing.T) {
 	require.Len(t, connections, 1)
 	assert.Equal(t, "projects/"+project+"/locations/"+location+"/channelConnections/cli-connection", connections[0].Name)
 	assert.Equal(t, channel.Name, connections[0].Channel)
+}
+
+// Eventarc and Cloud Build both keep triggers at the global location. Each
+// list names the collection by its own host, so it holds only that service's
+// triggers.
+func TestEventarcCLI_GlobalTriggersApartFromCloudBuild(t *testing.T) {
+	const (
+		serviceID      = "cli-global-trigger-svc"
+		eventarcID     = "cli-global-eventarc-trigger"
+		buildTriggerID = "cli-global-build-trigger"
+	)
+	services := baseURL + "/v2/projects/" + project + "/locations/" + location + "/services"
+	httpDoJSON(t, "POST", services+"?serviceId="+serviceID,
+		`{"template":{"containers":[{"image":"gcr.io/`+project+`/`+serviceID+`"}]}}`)
+	t.Cleanup(func() {
+		resp, err := httpDo("DELETE", services+"/"+serviceID, "")
+		if assert.NoError(t, err) {
+			resp.Body.Close()
+		}
+	})
+
+	runCLI(t, gcloudCLI("eventarc", "triggers", "create", eventarcID,
+		"--location", "global",
+		"--destination-run-service", serviceID,
+		"--destination-run-region", location,
+		"--event-filters", "type=google.cloud.audit.log.v1.written",
+		"--event-filters", "serviceName=iam.googleapis.com",
+		"--event-filters", "methodName=google.iam.admin.v1.CreateServiceAccount",
+		"--format", "json"))
+	t.Cleanup(func() {
+		runCLI(t, gcloudCLI("eventarc", "triggers", "delete", eventarcID, "--location", "global", "--quiet"))
+	})
+
+	configPath := filepath.Join(t.TempDir(), "trigger.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{
+  "name": "`+buildTriggerID+`",
+  "filename": "cloudbuild.yaml",
+  "triggerTemplate": {"repoName": "cli-repo", "branchName": "main"}
+}`), 0o644))
+	var build struct {
+		ID string `json:"id"`
+	}
+	parseJSON(t, runCLI(t, gcloudCLI("builds", "triggers", "create", "manual",
+		"--trigger-config="+configPath, "--format=json")), &build)
+	require.NotEmpty(t, build.ID)
+	t.Cleanup(func() {
+		runCLI(t, gcloudCLI("builds", "triggers", "delete", build.ID, "--quiet"))
+	})
+
+	var eventarcTriggers []struct {
+		Name string `json:"name"`
+	}
+	parseJSON(t, runCLI(t, gcloudCLI("eventarc", "triggers", "list", "--location=global", "--format=json")), &eventarcTriggers)
+	require.Len(t, eventarcTriggers, 1)
+	assert.Equal(t, "projects/"+project+"/locations/global/triggers/"+eventarcID, eventarcTriggers[0].Name)
+
+	var buildTriggers []struct {
+		Name string `json:"name"`
+	}
+	parseJSON(t, runCLI(t, gcloudCLI("builds", "triggers", "list", "--region=global", "--format=json")), &buildTriggers)
+	var names []string
+	for _, tr := range buildTriggers {
+		names = append(names, tr.Name)
+	}
+	assert.Contains(t, names, buildTriggerID)
+	assert.NotContains(t, names, eventarcID)
 }

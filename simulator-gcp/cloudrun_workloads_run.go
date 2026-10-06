@@ -234,7 +234,7 @@ func startCloudRunWorkerPoolInstance(poolName, revision string, containers []Con
 			},
 			labels: func(c Container) map[string]string {
 				return map[string]string{
-					"sockerless-sim-worker-pool":           poolName,
+					cloudRunWorkerPoolLabel:                poolName,
 					"sockerless-sim-worker-pool-container": c.Name,
 					cloudRunGroupLabel:                     instanceID,
 					cloudRunSpecLabel:                      spec,

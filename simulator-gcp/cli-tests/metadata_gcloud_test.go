@@ -86,8 +86,10 @@ func TestGCEMetadataServerGcloudCredentials(t *testing.T) {
 
 	// gcloud reports the identity it read from the metadata server as its
 	// active account. Without the metadata server it has no account at all.
+	// Read from outside every workload, the server answers for the default
+	// project, whose Compute Engine default service account it names.
 	accounts := runCLI(t, gcloudMetadataCLI(t, configDir, "auth", "list", "--format=value(account)"))
-	assert.Contains(t, accounts, "iam.gserviceaccount.com",
+	assert.Contains(t, accounts, "123456789012-compute@developer.gserviceaccount.com",
 		"gcloud must adopt the metadata server's identity as its account, got %q", accounts)
 
 	// A native data-plane command authenticated only by the metadata-server

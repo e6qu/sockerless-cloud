@@ -1,0 +1,31 @@
+{
+  "_about": [
+    "Members of a Discovery document that the Discovery API's own published",
+    "RestDescription schema (revision 20200806) does not declare. Each entry",
+    "records a member the documents Google serves carry, names the evidence,",
+    "and declares its type, so a served document is validated against the",
+    "contract clients read rather than merely tolerated."
+  ],
+  "schemas": {
+    "RestDescription": {
+      "_evidence": [
+        "Every vendored Discovery document fetched from Google carries",
+        "mtlsRootUrl (for example compute-v1: https://compute.mtls.googleapis.com/),",
+        "the root URL google-api-go-client's generated clients switch to under",
+        "mutual TLS; compute-v1 also carries serviceVersion \"v1\". The",
+        "directory's getRest answers those same documents, and the schema",
+        "describing them predates both members."
+      ],
+      "properties": {
+        "mtlsRootUrl": {
+          "type": "string",
+          "description": "The root URL under which all API services live when the client uses mutual TLS."
+        },
+        "serviceVersion": {
+          "type": "string",
+          "description": "The version of the service the document describes."
+        }
+      }
+    }
+  }
+}

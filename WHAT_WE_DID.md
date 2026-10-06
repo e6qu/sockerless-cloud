@@ -1646,11 +1646,58 @@ Every API the simulator implements serves its own Discovery document, the way
 Google's APIs do: `GET /$discovery/rest?version=…` under the API's host. The
 simulator embeds each vendored document (`simulator-gcp/discovery/`, copied by
 `scripts/fetch-gcp-discovery.sh` and held byte-identical by a test) and indexes
-them by the service label of each document's `rootUrl` and its version, so the
+them by the document's `name` and version. The name is the service label of the
+host that serves it, which the `rootUrl` is not for every API — Compute
+Engine's and the Discovery service's own name `www.googleapis.com` — so the
 regional and mTLS hosts reach the same document through `gcpServiceFromHost`.
 A bare address:port names no API, so it serves a version only one implemented
 API publishes, and `v2` stays BigQuery's for `bq`; `v1`, which most publish,
 answers 404 rather than a guess.
+
+The Discovery service's directory is served from a capture of the real one,
+`simulator-gcp/discovery_directory_vendored.json`: the directory entries for
+the embedded documents verbatim, which `discoveryRestUrl` and `preferred` they
+carry included, the ids each of `www.googleapis.com` and
+`discovery.googleapis.com` serves through `apis/{api}/{version}/rest` (the
+two differ, and neither serves every listed document — Cloud Run Admin v2 and
+Eventarc are per-host only), and each API's default version for a request
+without one. A test holds the capture and the embedded documents to the same
+set. The Discovery service's own document declares no auth scopes, and
+Google answers documents and the directory anonymously, so both are exempt
+from the bearer check; the 404 and 400 bodies are the captured ones.
+The Discovery service's `RestDescription` schema predates `mtlsRootUrl` and
+`serviceVersion`, which the served documents carry, so
+`specs/cloud-api/gcp/discovery-v1.supplement.json` declares both and the spec
+validator checks them.
+
+Eventarc and Cloud Build both publish `/v1/projects/{p}/locations/{l}/triggers`.
+Google tells them apart by host, and so does the simulator; the harnesses
+reach each through its own host, `eventarc.googleapis.com` or
+`cloudbuild.googleapis.com`, with an HTTP proxy that delivers the request to the
+simulator — gcloud through `HTTP_PROXY`, the Go SDK through its HTTP client's
+proxy — so the request a client sends is the one it would send to Google.
+At a bare address the simulator still resolves a create by Eventarc's required
+`triggerId` and a read by which service holds the trigger.
+
+A project has its Compute Engine default service account in IAM from the moment
+Cloud Resource Manager creates it, because every API is enabled on a new
+project here and Compute Engine creates the account when its API is enabled.
+The account is created with the project, not on every start, so one a client
+deleted stays deleted. Its email names the project number, so the `-` wildcard
+resolves it through Cloud Resource Manager.
+
+The GCE metadata server answers for the workload that asks. A Compute Engine
+instance is found by its private address in the real-execution index; a Cloud
+Run container by the address of its network namespace, which the simulator
+reads from the Docker engine's container list (sidecars share the first
+container's namespace) and maps through the container's labels to its service,
+instance, job execution or worker pool. The project ID comes from the resource,
+the number from Cloud Resource Manager, and the `default` account is the one
+the resource runs as, or the project's Compute Engine default service account,
+as on Google. A key the workload does not hold — the number of a project Cloud
+Resource Manager does not know, an account the workload does not run as —
+answers 404. A caller outside every workload is answered for the simulator's
+default project, `sockerless`.
 
 Every resumable path Discovery declares is served. The conformance loader and
 the response validator index `mediaUpload.protocols.resumable.path` beside the

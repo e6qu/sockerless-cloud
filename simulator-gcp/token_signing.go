@@ -346,6 +346,10 @@ func isAuthExempt(r *http.Request) bool {
 		// OAuth client credentials (RFC 7662 §2.1) inside the handler — a
 		// client introspects the very token it would otherwise present.
 		return true
+	case r.Method == http.MethodGet && (p == "/$discovery/rest" || strings.HasPrefix(p, "/discovery/v1/apis")):
+		// Discovery documents and the Discovery service's directory are
+		// public: the Discovery service's own document declares no scopes.
+		return true
 	case strings.HasPrefix(p, "/.well-known/"):
 		// OpenID Connect discovery + JWKS.
 		return true

@@ -31,6 +31,8 @@ const (
 
 	cloudRunTaskExecutionLabel = "sockerless-sim-execution"
 	cloudRunTaskContainerLabel = "sockerless-sim-execution-container"
+
+	cloudRunWorkerPoolLabel = "sockerless-sim-worker-pool"
 )
 
 // cloudRunSpecDigest is the label value naming a template's containers and
@@ -164,7 +166,7 @@ func cloudRunWritableBuckets(containers []Container, volumes []Volume) ([]string
 // runCloudRunWorkerPool keeps them and starts only the difference. A pool that
 // is not meant to run adopts none.
 func adoptCloudRunWorkerPoolInstances(pool WorkerPoolV2, run bool) {
-	groups, ids, err := cloudRunExistingGroups(map[string]string{"sockerless-sim-worker-pool": pool.Name})
+	groups, ids, err := cloudRunExistingGroups(map[string]string{cloudRunWorkerPoolLabel: pool.Name})
 	if err != nil {
 		log.Printf("Cloud Run worker pool %s: list the instances an earlier process left: %v", pool.Name, err)
 		return

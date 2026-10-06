@@ -120,5 +120,5 @@ func TestMetadata_DefaultServiceAccountEmail(t *testing.T) {
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	body, _ := io.ReadAll(resp.Body)
-	assert.Contains(t, string(body), "iam.gserviceaccount.com")
+	assert.Equal(t, metadataDefaultAccount, string(body))
 }

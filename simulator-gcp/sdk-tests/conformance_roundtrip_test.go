@@ -124,7 +124,7 @@ func TestConformance_PubSubTopicSchemaSettingsRoundTrip(t *testing.T) {
 }
 
 func TestConformance_EventarcTriggerChannelRoundTrip(t *testing.T) {
-	client, err := eventarc.NewRESTClient(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
+	client, err := eventarc.NewRESTClient(ctx, serviceHostOptions(eventarcHost)...)
 	require.NoError(t, err)
 	t.Cleanup(func() { client.Close() })
 
@@ -361,7 +361,7 @@ func TestConformance_PubSubDuplicateSubscriptionConflict(t *testing.T) {
 // CreateTrigger with the same triggerId returns ALREADY_EXISTS. The eventarc
 // gRPC client surfaces the 409 as codes.AlreadyExists.
 func TestConformance_EventarcDuplicateTriggerConflict(t *testing.T) {
-	client, err := eventarc.NewRESTClient(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
+	client, err := eventarc.NewRESTClient(ctx, serviceHostOptions(eventarcHost)...)
 	require.NoError(t, err)
 	t.Cleanup(func() { client.Close() })
 
@@ -535,7 +535,7 @@ func TestConformance_DNSRecordSetsPaginate(t *testing.T) {
 // pageSize + emits a nextPageToken. The REST iterator's InternalFetch exposes a
 // single page and its follow-on token directly.
 func TestConformance_EventarcTriggersPaginate(t *testing.T) {
-	client, err := eventarc.NewRESTClient(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
+	client, err := eventarc.NewRESTClient(ctx, serviceHostOptions(eventarcHost)...)
 	require.NoError(t, err)
 	t.Cleanup(func() { client.Close() })
 
@@ -914,7 +914,7 @@ func TestConformance_KMSCreateAndToggleCryptoKeyVersion(t *testing.T) {
 }
 
 func TestConformance_CloudBuildListBuilds(t *testing.T) {
-	svc, err := cloudbuild.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
+	svc, err := cloudbuild.NewService(ctx, serviceHostOptions(cloudBuildHost)...)
 	require.NoError(t, err)
 
 	const project = "conf-cb-list-project"

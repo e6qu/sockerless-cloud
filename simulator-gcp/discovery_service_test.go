@@ -3,13 +3,17 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 const vendoredDiscoveryDir = "../specs/cloud-api/gcp"
@@ -89,14 +93,14 @@ func TestDiscoveryDocumentsServedUnderTheirHosts(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := gunzip(t, vendored)
-		for _, host := range []string{d.service + ".googleapis.com", "us-central1-" + d.service + ".googleapis.com", d.service + ".mtls.googleapis.com"} {
+		for _, host := range []string{d.name + ".googleapis.com", "us-central1-" + d.name + ".googleapis.com", d.name + ".mtls.googleapis.com"} {
 			code, body := get(host, d.version)
 			if code != http.StatusOK || !bytes.Equal(body, want) {
 				t.Fatalf("%s version %s answered %d with %d bytes, want the %d bytes of %s", host, d.version, code, len(body), len(want), d.file)
 			}
 		}
-		if code, _ := get(d.service+".googleapis.com", "v0"); code != http.StatusNotFound {
-			t.Fatalf("%s version v0 answered %d", d.service, code)
+		if code, _ := get(d.name+".googleapis.com", "v0"); code != http.StatusNotFound {
+			t.Fatalf("%s version v0 answered %d", d.name, code)
 		}
 	}
 	if code, _ := get("www.googleapis.com", "v1"); code != http.StatusNotFound {
@@ -131,5 +135,149 @@ func TestDiscoveryDocumentAtABareOrigin(t *testing.T) {
 		if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), gunzip(t, vendored)) {
 			t.Fatalf("version %s at a bare origin answered %d, want %s", version, rec.Code, want)
 		}
+	}
+}
+
+// The directory capture holds an entry for exactly the embedded documents.
+func TestDiscoveryDirectoryCoversTheEmbeddedDocuments(t *testing.T) {
+	docs, err := gcpDiscoveryIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err := gcpDiscoveryDirectoryCapture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	embedded := map[string]bool{}
+	for _, d := range docs {
+		embedded[d.name+":"+d.version] = true
+	}
+	listed := map[string]bool{}
+	for _, e := range dir.entries {
+		if e.ID != e.Name+":"+e.Version {
+			t.Fatalf("directory entry %q names %s %s", e.ID, e.Name, e.Version)
+		}
+		if !embedded[e.ID] {
+			t.Fatalf("directory entry %s has no embedded document", e.ID)
+		}
+		listed[e.ID] = true
+	}
+	for id := range embedded {
+		if !listed[id] {
+			t.Fatalf("embedded document %s has no directory entry; recapture discovery_directory_vendored.json", id)
+		}
+	}
+	for host, ids := range dir.CentralRest {
+		for _, id := range ids {
+			if !listed[id] {
+				t.Fatalf("centralRest[%s] names %s, which the directory does not list", host, id)
+			}
+		}
+	}
+}
+
+func serveDiscovery(t *testing.T, srv *sim.Server, target string) (int, []byte) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+	return rec.Code, rec.Body.Bytes()
+}
+
+// discovery.apis.list answers the directory at www.googleapis.com, at
+// discovery.googleapis.com and at a bare origin, filtered by name and by
+// preferred; another API's host serves no directory.
+func TestDiscoveryDirectoryList(t *testing.T) {
+	srv := buildOperationsTestSimulator(t)
+	ids := func(body []byte) []string {
+		var list struct {
+			Kind             string `json:"kind"`
+			DiscoveryVersion string `json:"discoveryVersion"`
+			Items            []struct {
+				ID string `json:"id"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal(body, &list); err != nil {
+			t.Fatal(err)
+		}
+		if list.Kind != "discovery#directoryList" || list.DiscoveryVersion != "v1" {
+			t.Fatalf("directory list %s", body)
+		}
+		var out []string
+		for _, item := range list.Items {
+			out = append(out, item.ID)
+		}
+		return out
+	}
+	for _, origin := range []string{"http://www.googleapis.com", "http://discovery.googleapis.com", "http://127.0.0.1:4567"} {
+		code, body := serveDiscovery(t, srv, origin+"/discovery/v1/apis?name=run")
+		if code != http.StatusOK || !slices.Equal(ids(body), []string{"run:v1", "run:v2"}) {
+			t.Fatalf("%s name=run answered %d %s", origin, code, body)
+		}
+	}
+	code, body := serveDiscovery(t, srv, "http://www.googleapis.com/discovery/v1/apis?name=run&preferred=true")
+	if code != http.StatusOK || !slices.Equal(ids(body), []string{"run:v2"}) {
+		t.Fatalf("name=run&preferred=true answered %d %s", code, body)
+	}
+	code, body = serveDiscovery(t, srv, "http://www.googleapis.com/discovery/v1/apis?name=nope")
+	if code != http.StatusOK || strings.Contains(string(body), `"items"`) {
+		t.Fatalf("name=nope answered %d %s", code, body)
+	}
+	code, body = serveDiscovery(t, srv, "http://www.googleapis.com/discovery/v1/apis?preferred=maybe")
+	if code != http.StatusBadRequest || !strings.Contains(string(body), `Invalid value at 'preferred' (TYPE_BOOL), \"maybe\"`) ||
+		!strings.Contains(string(body), "type.googleapis.com/google.rpc.BadRequest") {
+		t.Fatalf("preferred=maybe answered %d %s", code, body)
+	}
+	if code, _ := serveDiscovery(t, srv, "http://run.googleapis.com/discovery/v1/apis"); code != http.StatusNotFound {
+		t.Fatalf("run.googleapis.com served the directory: %d", code)
+	}
+}
+
+// discovery.apis.getRest serves a document only where the central path of
+// that host serves it.
+func TestDiscoveryDirectoryGetRest(t *testing.T) {
+	srv := buildOperationsTestSimulator(t)
+	for _, tc := range []struct {
+		target string
+		want   string
+	}{
+		{"http://www.googleapis.com/discovery/v1/apis/compute/v1/rest", "compute-v1.discovery.json.gz"},
+		{"http://127.0.0.1:4567/discovery/v1/apis/bigquery/v2/rest", "bigquery-v2.discovery.json.gz"},
+		{"http://discovery.googleapis.com/discovery/v1/apis/run/v1/rest", "cloudrun-v1.discovery.json.gz"},
+		{"http://discovery.googleapis.com/discovery/v1/apis/compute/v1/rest", ""},
+		{"http://www.googleapis.com/discovery/v1/apis/run/v2/rest", ""},
+		{"http://www.googleapis.com/discovery/v1/apis/nope/v1/rest", ""},
+	} {
+		code, body := serveDiscovery(t, srv, tc.target)
+		if tc.want == "" {
+			if code != http.StatusNotFound || !strings.Contains(string(body), "Requested entity was not found.") {
+				t.Fatalf("%s answered %d %s", tc.target, code, body)
+			}
+			continue
+		}
+		vendored, err := os.ReadFile(filepath.Join(vendoredDiscoveryDir, tc.want))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code != http.StatusOK || !bytes.Equal(body, gunzip(t, vendored)) {
+			t.Fatalf("%s answered %d, want %s", tc.target, code, tc.want)
+		}
+	}
+}
+
+// A request with no version parameter gets the API's default version, and a
+// version an API does not publish names the API and version in its 404.
+func TestDiscoveryDocumentDefaultVersion(t *testing.T) {
+	srv := buildOperationsTestSimulator(t)
+	code, body := serveDiscovery(t, srv, "http://run.googleapis.com/$discovery/rest")
+	vendored, err := os.ReadFile(filepath.Join(vendoredDiscoveryDir, "cloudrun-v2.discovery.json.gz"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != http.StatusOK || !bytes.Equal(body, gunzip(t, vendored)) {
+		t.Fatalf("run.googleapis.com without a version answered %d", code)
+	}
+	code, body = serveDiscovery(t, srv, "http://run.googleapis.com/$discovery/rest?version=v9")
+	if code != http.StatusNotFound || !strings.Contains(string(body), "Discovery document not found for API service: run.googleapis.com format: rest version: v9") {
+		t.Fatalf("run v9 answered %d %s", code, body)
 	}
 }
