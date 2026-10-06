@@ -72,6 +72,7 @@ func webMoveSiteTree(oldID, newID, targetRG string) {
 		rekeyEntry(webConfigExtras, pair[0], pair[1])
 		rekeyEntry(siteConfigStore, pair[0], pair[1])
 		rekeyEntry(webWorkflowFiles, pair[0], pair[1])
+		rekeyEntry(kuduSiteSettings, pair[0], pair[1])
 		// The publishing password is derived from the site's resource ID, so
 		// it is pinned across the move the way every other resource-ID-derived
 		// credential is: a move never rotates a site's deployment credential.

@@ -354,14 +354,28 @@ Current state of the sockerless-cloud repository.
   (through the Logs Ingestion API and the rule's `transformKql`) route rows to
   one workspace, whose queries read only its own rows; workspace tables, data
   collection rules and endpoints are served.
-- **A web app's SCM site serves Kudu's deployment and WebJobs APIs** at the Repository
-  hostname it reports: zip deploy and OneDeploy, authenticated with the
-  publishing credentials or a Microsoft Entra token, land the artifact
-  through the placement the Azure Resource Manager deployments use, restart
-  the site and track its start in deploymentStatus, as the Azure Resource
-  Manager MSDeploy and OneDeploy operations do; its WebJobs API lists,
-  places, runs, starts, stops and deletes the jobs the Microsoft.Web webjob
-  resources read.
+- **A web app's SCM site serves Kudu's deployment, WebJobs, VFS, command and
+  settings APIs and its log stream** at the Repository hostname it reports:
+  zip deploy and OneDeploy, authenticated with the publishing credentials or a
+  Microsoft Entra token, land the artifact through the placement the Azure
+  Resource Manager deployments use, restart the site and track its start in
+  deploymentStatus, as the Azure Resource Manager MSDeploy and OneDeploy
+  operations do; its WebJobs API lists, places, runs, starts, stops and
+  deletes the jobs the Microsoft.Web webjob resources read, a triggered job
+  runs on its `settings.job` schedule, and each run and continuous job logs
+  under `data/jobs`, which the job records name. The VFS reads and writes the
+  site's `/home`, whose `site/wwwroot` is the deployed content; the command API
+  runs a shell command in the site's image over that `/home`, bounded by
+  `SCM_COMMAND_IDLE_TIMEOUT`; the log stream carries the site's container
+  output.
+- **Deployment slots run their own instances.** A slot's hostname reaches the
+  slot's own container, started from its own image or built-in stack, app
+  settings and content, and a deployment to the slot settles once that
+  container answers. A swap (WebApps_SwapSlot, WebApps_SwapSlotWithProduction)
+  exchanges the two slots' content, general settings and swappable app
+  settings, connection strings and storage mounts, keeps each slot's sticky
+  settings, hostnames and publishing endpoints, starts the destination on its
+  new content before it reports success, and records `slotSwapStatus`.
 - **A Cloud Run service is served at its run.app URL**: a request whose Host
   is the service's `uri` host reaches the ingress container once its startup
   probes (the configured `startupProbe`, or Cloud Run's default TCP probe)

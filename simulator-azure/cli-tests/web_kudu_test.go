@@ -101,10 +101,9 @@ func (e kuduCLIEnv) command(args ...string) *exec.Cmd {
 	return cmd
 }
 
-// kuduCLIWebApp starts a TLS simulator, logs the CLI in to it through the
-// loopback proxy, and creates a NODE:20-lts web app, returning the CLI and
-// the SCM host the app reports.
-func kuduCLIWebApp(t *testing.T, rg, plan, app string) (kuduCLIEnv, string) {
+// kuduCLILogin starts a TLS simulator and logs the CLI in to it through the
+// loopback proxy.
+func kuduCLILogin(t *testing.T) kuduCLIEnv {
 	t.Helper()
 	env := startAzTLSSimulator(t)
 	port := env.baseURL[strings.LastIndex(env.baseURL, ":")+1:]
@@ -120,14 +119,28 @@ func kuduCLIWebApp(t *testing.T, rg, plan, app string) (kuduCLIEnv, string) {
 		"-u", "test-client-id", "-p", "test-client-secret",
 		"--tenant", azLoginTenantID, "--allow-no-subscriptions"))
 	t.Cleanup(func() { runCLI(t, az.command("logout")) })
+	return az
+}
 
+// kuduCLIWebApp starts a TLS simulator, logs the CLI in to it through the
+// loopback proxy, and creates a NODE:20-lts web app, returning the CLI and
+// the SCM host the app reports.
+func kuduCLIWebApp(t *testing.T, rg, plan, app string) (kuduCLIEnv, string) {
+	t.Helper()
+	az := kuduCLILogin(t)
 	runCLI(t, az.command("group", "create", "-n", rg, "-l", "eastus", "-o", "json"))
 	runCLI(t, az.command("appservice", "plan", "create", "-g", rg, "-n", plan,
 		"--is-linux", "--sku", "B1", "-o", "json"))
 	runCLI(t, az.command("webapp", "create", "-g", rg, "-p", plan, "-n", app,
 		"--runtime", "NODE:20-lts", "-o", "json"))
 	t.Cleanup(func() { runCLI(t, az.command("webapp", "delete", "-g", rg, "-n", app)) })
+	return az, kuduCLIScmHost(t, az, rg, app)
+}
 
+// kuduCLIScmHost is the SCM host az webapp show reports for an app.
+func kuduCLIScmHost(t *testing.T, az kuduCLIEnv, rg, app string) string {
+	t.Helper()
+	port := az.baseURL[strings.LastIndex(az.baseURL, ":")+1:]
 	// az webapp show prints the site's properties flattened.
 	var site struct {
 		HostNameSslStates []struct {
@@ -143,7 +156,7 @@ func kuduCLIWebApp(t *testing.T, rg, plan, app string) (kuduCLIEnv, string) {
 		}
 	}
 	assert.Equal(t, app+".scm.localhost:"+port, scmHost, "the SCM site is advertised at the simulator's coordinate")
-	return az, scmHost
+	return scmHost
 }
 
 func TestWebAppKudu_NativeAzDeployAndConfigZip(t *testing.T) {

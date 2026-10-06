@@ -12,7 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -166,16 +168,29 @@ func TestMain(m *testing.M) {
 	// test's own deadline is running. A cold runner's registry transfer would
 	// otherwise sit inside the window a test allows for the container to reach
 	// RUNNING, and surface as "container never started" rather than as the
-	// image acquisition it actually is.
-	for _, image := range []string{
-		"public.ecr.aws/docker/library/alpine:latest",
-		"public.ecr.aws/docker/library/alpine:3.20",
-		// The App Service platform image the Node web app test runs.
-		"mcr.microsoft.com/appsvc/node:20-lts_20260904.5.tuxprod",
-		// The Azure Functions host image the Node function app test runs.
-		"mcr.microsoft.com/azure-functions/node:4.1054.250-4-node22-appservice",
+	// image acquisition it actually is. A platform image is pulled only when
+	// the run selects a test that runs it.
+	for _, pull := range []struct {
+		image string
+		tests []string
+	}{
+		{image: "public.ecr.aws/docker/library/alpine:latest"},
+		{image: "public.ecr.aws/docker/library/alpine:3.20"},
+		// The App Service platform image the Node web app tests run.
+		{image: "mcr.microsoft.com/appsvc/node:20-lts_20260904.5.tuxprod", tests: []string{
+			"TestWebAppKudu_NativeAzDeployAndConfigZip",
+			"TestWebAppKudu_WebJobsAPI",
+			"TestWebApp_CLI_NodeStackRunsTheDeployedZip",
+		}},
+		// The Azure Functions host image the Node function app tests run.
+		{image: "mcr.microsoft.com/azure-functions/node:4.1054.250-4-node22-appservice", tests: []string{
+			"TestFunctionApp_CLI_NodeHostRunsTheDeployedFunctions",
+			"TestFunctionApp_CLI_BlobSecretStoreHoldsTheKeys",
+		}},
 	} {
-		pullWorkloadImage(image)
+		if len(pull.tests) == 0 || slices.ContainsFunc(pull.tests, testRunSelects) {
+			pullWorkloadImage(pull.image)
+		}
 	}
 
 	code := m.Run()
@@ -404,6 +419,34 @@ func waitForCLIJSON(t *testing.T, url string, ready func(string) bool) string {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// testRunSelects reports whether the -test.run filter (or SHARD_RUN) selects
+// the named test, so expensive image acquisition runs only when the tests
+// that need it will.
+func testRunSelects(name string) bool {
+	pattern := os.Getenv("SHARD_RUN")
+	if pattern == "" {
+		for i, arg := range os.Args {
+			switch {
+			case strings.HasPrefix(arg, "-test.run="):
+				pattern = strings.TrimPrefix(arg, "-test.run=")
+			case arg == "-test.run" && i+1 < len(os.Args):
+				pattern = os.Args[i+1]
+			}
+			if pattern != "" {
+				break
+			}
+		}
+	}
+	if pattern == "" {
+		return true
+	}
+	selected, err := regexp.MatchString(pattern, name)
+	if err != nil {
+		log.Fatalf("Invalid -test.run expression %q: %v", pattern, err)
+	}
+	return selected
 }
 
 // pullWorkloadImage fetches an image with bounded exponential backoff, so a

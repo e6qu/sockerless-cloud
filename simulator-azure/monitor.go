@@ -119,9 +119,11 @@ func appendRetainedRow(store sim.Store[[]monitorLogRow], key string, row monitor
 	store.Put(key, existing)
 }
 
-// appendSiteDockerLog keeps one line of a site's container output.
+// appendSiteDockerLog keeps one line of a site's container output and hands
+// it to the site's open log streams.
 func appendSiteDockerLog(siteID, at, message string) {
 	appendRetainedRow(webSiteDockerLogs, strings.ToLower(siteID), monitorLogRow{"TimeGenerated": at, "Message": message})
+	kuduPublishLogLine(siteID, at+" "+message)
 }
 
 func registerAzureMonitor(srv *sim.Server) {

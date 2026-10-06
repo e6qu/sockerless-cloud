@@ -179,7 +179,7 @@ func siteContainerVolumeBinds(siteName string, mounts []SiteContainerVolMount) [
 		if vm.VolumeSubPath == "" || vm.ContainerMountPath == "" {
 			continue
 		}
-		vol := fmt.Sprintf("skls-azf-%s-%s", siteName, vm.VolumeSubPath)
+		vol := fmt.Sprintf("skls-azf-%s-%s", siteStorageName(siteName), vm.VolumeSubPath)
 		spec := vol + ":" + vm.ContainerMountPath
 		if vm.ReadOnly {
 			spec += ":ro"
@@ -216,7 +216,7 @@ func startSidecarContainers(ctx context.Context, site *Site, mainContainerID str
 			Args:              splitStartUpCommand(sc.Properties.StartUpCommand),
 			Env:               workloadhost.MergeEnv(envVarsMap(sc.Properties.EnvironmentVariables), metadataEnv),
 			Binds:             siteContainerVolumeBinds(site.Name, sc.Properties.VolumeMounts),
-			Name:              fmt.Sprintf("sockerless-sim-azure-func-sidecar-%s-%s-%d", site.Name, sc.Name, time.Now().UnixNano()),
+			Name:              fmt.Sprintf("sockerless-sim-azure-func-sidecar-%s-%s-%d", siteStorageName(site.Name), sc.Name, time.Now().UnixNano()),
 			Labels: map[string]string{
 				"sockerless-sim-type":           "azure-function-sidecar",
 				"sockerless-site":               site.Name,
@@ -246,7 +246,7 @@ func cleanupSiteContainers(siteID, siteName string) {
 	for _, sc := range siteContainersFor(siteID) {
 		for _, vm := range sc.Properties.VolumeMounts {
 			if vm.VolumeSubPath != "" {
-				vols[fmt.Sprintf("skls-azf-%s-%s", siteName, vm.VolumeSubPath)] = true
+				vols[fmt.Sprintf("skls-azf-%s-%s", siteStorageName(siteName), vm.VolumeSubPath)] = true
 			}
 		}
 		azfSiteContainers.Delete(sc.ID)

@@ -54,6 +54,19 @@ type WebJobRecord struct {
 	Status         string `json:"status,omitempty"`
 	DetailedStatus string `json:"detailedStatus,omitempty"`
 	Error          string `json:"error,omitempty"`
+	// Schedule is the settings.job schedule the scheduler last read, and
+	// ScheduleError why it does not run it.
+	Schedule      string `json:"schedule,omitempty"`
+	ScheduleError string `json:"scheduleError,omitempty"`
+}
+
+// webJobError is the error a job reports: its schedule's, else its last
+// start's.
+func webJobError(rec WebJobRecord) string {
+	if rec.ScheduleError != "" {
+		return rec.ScheduleError
+	}
+	return rec.Error
 }
 
 var webWebJobs sim.Store[WebJobRecord]
@@ -96,6 +109,7 @@ var webJobContainers = struct {
 func initWebJobStores(srv *sim.Server) {
 	webWebJobs = sim.MakeStore[WebJobRecord](srv.DB(), "web_webjobs")
 	webJobRuns = sim.MakeStore[WebJobRunRecord](srv.DB(), "web_webjob_runs")
+	startWebJobSchedules(srv)
 	for _, rec := range webWebJobs.List() {
 		if rec.JobKind == "continuous" && (rec.Status == "Running" || rec.Status == "Starting" || rec.Status == "Initializing") {
 			webWebJobs.Update(rec.ID, func(row *WebJobRecord) {
@@ -280,7 +294,7 @@ func materializeWebJobDir(resID, kind, name string) (string, error) {
 // startWebJobProcess launches the job's run command inside a container of the
 // site's own image with the site's app settings and Azure Files mounts — the
 // execution model App Service gives a webjob — and returns the live handle.
-func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string) (*sim.ContainerHandle, error) {
+func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string, outRel, errRel string) (*sim.ContainerHandle, error) {
 	image := siteContainerImage(site)
 	if platformImage, ok := sitePlatformImage(site); ok {
 		image = platformImage
@@ -320,7 +334,7 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 		"WEBJOBS_TYPE": rec.JobKind,
 		"WEBJOBS_PATH": jobDir,
 	}, extraEnv)
-	sink := newFuncLogSink(site)
+	sink := webJobLogSink{site: site, container: newFuncLogSink(site), outRel: outRel, errRel: errRel}
 	return sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
 		CancelGracePeriod: siteStopGrace(site),
 		Image:             localImage,
@@ -328,7 +342,7 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 		Command:           []string{"/bin/sh", "-c", "cd " + jobDir + " && " + runInvocation},
 		Env:               env,
 		Binds:             append([]string{hostDir + ":" + jobDir}, siteAzureStorageBinds(site)...),
-		Name:              fmt.Sprintf("sockerless-sim-azure-webjob-%s-%s-%s", site.Name, rec.Name, randomSuffix(6)),
+		Name:              fmt.Sprintf("sockerless-sim-azure-webjob-%s-%s-%s", siteStorageName(site.Name), rec.Name, randomSuffix(6)),
 		Labels: map[string]string{
 			"sockerless-sim-type": "azure-webjob",
 			"sockerless-site":     site.Name,
@@ -360,8 +374,12 @@ func webRunTriggeredWebJob(site *Site, rec WebJobRecord, trigger, arguments stri
 	if arguments != "" {
 		env["WEBJOBS_COMMAND_ARGUMENTS"] = arguments
 	}
-	handle, err := startWebJobProcess(site, rec, env)
+	outRel := webJobRunLogRel(rec.Name, runID, "output_log.txt")
+	webJobAppendLog(site, outRel, "SYS INFO", "Status changed to Initializing")
+	handle, err := startWebJobProcess(site, rec, env, outRel, webJobRunLogRel(rec.Name, runID, "error_log.txt"))
 	if err != nil {
+		webJobAppendLog(site, outRel, "SYS ERR ", err.Error())
+		webJobAppendLog(site, outRel, "SYS INFO", "Status changed to Failed")
 		webJobRuns.Update(runRecID, func(row *WebJobRunRecord) {
 			row.Status = "Error"
 			row.EndTime = time.Now().UTC().Format(time.RFC3339)
@@ -373,6 +391,7 @@ func webRunTriggeredWebJob(site *Site, rec WebJobRecord, trigger, arguments stri
 	webJobContainers.Lock()
 	webJobContainers.m[runRecID] = handle
 	webJobContainers.Unlock()
+	webJobAppendLog(site, outRel, "SYS INFO", "Status changed to Running")
 	var result sim.ProcessResult
 	bg.WatchThen(func() { result = handle.Wait() }, func() {
 		webJobContainers.Lock()
@@ -386,7 +405,9 @@ func webRunTriggeredWebJob(site *Site, rec WebJobRecord, trigger, arguments stri
 		status := "Success"
 		if result.Error != nil || result.ExitCode != 0 {
 			status = "Failed"
+			webJobAppendLog(site, outRel, "SYS ERR ", fmt.Sprintf("Job failed due to exit code %d", result.ExitCode))
 		}
+		webJobAppendLog(site, outRel, "SYS INFO", "Status changed to "+status)
 		end := result.StoppedAt
 		if end.IsZero() {
 			end = time.Now().UTC()
@@ -419,8 +440,12 @@ func webStartContinuousWebJob(rec WebJobRecord) {
 	if !ok {
 		return
 	}
-	handle, err := startWebJobProcess(&site, rec, nil)
+	logRel := webContinuousJobLogRel(rec.Name)
+	webJobAppendLog(&site, logRel, "SYS INFO", "Status changed to Starting")
+	handle, err := startWebJobProcess(&site, rec, nil, logRel, "")
 	if err != nil {
+		webJobAppendLog(&site, logRel, "SYS ERR ", err.Error())
+		webJobAppendLog(&site, logRel, "SYS INFO", "Status changed to Stopped")
 		webWebJobs.Update(rec.ID, func(row *WebJobRecord) {
 			row.Status = "Stopped"
 			row.DetailedStatus = ""
@@ -436,6 +461,7 @@ func webStartContinuousWebJob(rec WebJobRecord) {
 		row.DetailedStatus = "Running"
 		row.Error = ""
 	})
+	webJobAppendLog(&site, logRel, "SYS INFO", "Status changed to Running")
 	var result sim.ProcessResult
 	bg.WatchThen(func() { result = handle.Wait() }, func() {
 		webJobContainers.Lock()
@@ -451,6 +477,7 @@ func webStartContinuousWebJob(rec WebJobRecord) {
 		webJobContainers.Unlock()
 		// The container exited on its own — the state the real platform
 		// reports as PendingRestart.
+		webJobAppendLog(&site, logRel, "SYS INFO", "Status changed to PendingRestart")
 		webWebJobs.Update(rec.ID, func(row *WebJobRecord) {
 			row.Status = "PendingRestart"
 			row.DetailedStatus = fmt.Sprintf("The job's process exited with code %d.", result.ExitCode)
@@ -482,7 +509,7 @@ func webJobScmBase(r *http.Request, rec WebJobRecord) string {
 	return azureRequestScheme(r) + "://" + siteScmHost(&site)
 }
 
-func triggeredJobRunWire(run WebJobRunRecord) map[string]any {
+func triggeredJobRunWire(scm string, run WebJobRunRecord) map[string]any {
 	out := map[string]any{
 		"web_job_id":   run.RunID,
 		"web_job_name": run.JobName,
@@ -490,7 +517,9 @@ func triggeredJobRunWire(run WebJobRunRecord) map[string]any {
 		"status":       run.Status,
 		"start_time":   run.StartTime,
 		"trigger":      webJobRunTrigger(run),
+		"url":          scm + "/api/triggeredwebjobs/" + run.JobName + "/history/" + run.RunID,
 	}
+	webJobRunLogURLs(out, scm, run)
 	if run.EndTime != "" {
 		out["end_time"] = run.EndTime
 	}
@@ -510,8 +539,8 @@ func webJobWire(rec WebJobRecord) map[string]any {
 		"web_job_type": kind,
 		"using_sdk":    false,
 	}
-	if rec.Error != "" {
-		props["error"] = rec.Error
+	if msg := webJobError(rec); msg != "" {
+		props["error"] = msg
 	}
 	return map[string]any{
 		"id":         rec.SiteID + "/webjobs/" + rec.Name,
@@ -528,12 +557,14 @@ func triggeredWebJobWire(r *http.Request, rec WebJobRecord) map[string]any {
 		"using_sdk":    false,
 		"url":          webJobScmBase(r, rec) + "/api/triggeredwebjobs/" + rec.Name,
 		"history_url":  webJobScmBase(r, rec) + "/api/triggeredwebjobs/" + rec.Name + "/history",
+		"settings":     kuduWebJobSettings(rec),
 	}
-	if rec.Error != "" {
-		props["error"] = rec.Error
+	webJobSchedulerLogURL(props, webJobScmBase(r, rec), rec)
+	if msg := webJobError(rec); msg != "" {
+		props["error"] = msg
 	}
 	if latest, ok := webLatestRun(rec.ID); ok {
-		props["latest_run"] = triggeredJobRunWire(latest)
+		props["latest_run"] = triggeredJobRunWire(webJobScmBase(r, rec), latest)
 	}
 	return map[string]any{
 		"id":         rec.ID,
@@ -554,12 +585,14 @@ func continuousWebJobWire(r *http.Request, rec WebJobRecord) map[string]any {
 		"using_sdk":    false,
 		"status":       status,
 		"url":          webJobScmBase(r, rec) + "/api/continuouswebjobs/" + rec.Name,
+		"settings":     kuduWebJobSettings(rec),
 	}
+	webContinuousJobLogURL(props, webJobScmBase(r, rec), rec)
 	if rec.DetailedStatus != "" {
 		props["detailed_status"] = rec.DetailedStatus
 	}
-	if rec.Error != "" {
-		props["error"] = rec.Error
+	if msg := webJobError(rec); msg != "" {
+		props["error"] = msg
 	}
 	return map[string]any{
 		"id":         rec.ID,
@@ -569,14 +602,14 @@ func continuousWebJobWire(r *http.Request, rec WebJobRecord) map[string]any {
 	}
 }
 
-func triggeredJobHistoryWire(rec WebJobRecord, runs []WebJobRunRecord) []any {
+func triggeredJobHistoryWire(scm string, runs []WebJobRunRecord) []any {
 	out := make([]any, 0, len(runs))
 	for _, run := range runs {
 		out = append(out, map[string]any{
 			"id":         run.ID,
 			"name":       run.RunID,
 			"type":       "Microsoft.Web/sites/triggeredwebjobs/history",
-			"properties": map[string]any{"runs": []any{triggeredJobRunWire(run)}},
+			"properties": map[string]any{"runs": []any{triggeredJobRunWire(scm, run)}},
 		})
 	}
 	return out
@@ -710,7 +743,7 @@ func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"value": triggeredJobHistoryWire(rec, webJobRunsFor(rec.ID)),
+			"value": triggeredJobHistoryWire(webJobScmBase(r, rec), webJobRunsFor(rec.ID)),
 		})
 	})
 	both("GET", "/triggeredwebjobs/{webJobName}/history/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -728,7 +761,7 @@ func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 			"id":         run.ID,
 			"name":       run.RunID,
 			"type":       "Microsoft.Web/sites/triggeredwebjobs/history",
-			"properties": map[string]any{"runs": []any{triggeredJobRunWire(run)}},
+			"properties": map[string]any{"runs": []any{triggeredJobRunWire(webJobScmBase(r, rec), run)}},
 		})
 	})
 

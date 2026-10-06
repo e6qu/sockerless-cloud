@@ -36,10 +36,11 @@ import (
 // slot. ID is "<resID>|<path>"; Path is wwwroot-relative with forward
 // slashes.
 type WebSiteContentFile struct {
-	ID   string `json:"id"`
-	Path string `json:"path"`
-	Mode uint32 `json:"mode"`
-	Data []byte `json:"data"`
+	ID       string    `json:"id"`
+	Path     string    `json:"path"`
+	Mode     uint32    `json:"mode"`
+	Data     []byte    `json:"data"`
+	Modified time.Time `json:"modified,omitzero"`
 }
 
 var webSiteContent sim.Store[WebSiteContentFile]
@@ -433,7 +434,7 @@ func webDeployArtifact(resID string, data []byte, a webArtifact) (int, error) {
 	// snapshot of this app state exists from here on.
 	webCaptureAppSnapshot(resID)
 	if a.Restart {
-		if site, ok := azfSites.Get(resID); ok {
+		if site, ok := webJobSite(resID); ok {
 			if _, runsStack := sitePlatformImage(&site); runsStack {
 				restartAzureFunctionInstance(site)
 			}
@@ -482,10 +483,11 @@ func webWriteSiteContent(resID, dir string, files []archive.File, a webArtifact)
 			}
 		}
 	}
+	now := time.Now().UTC()
 	paths := make([]string, 0, len(files))
 	for _, f := range files {
 		p := join(f.Name)
-		webSiteContent.Put(resID+"|"+p, WebSiteContentFile{ID: resID + "|" + p, Path: p, Mode: uint32(f.Mode), Data: f.Data})
+		webSiteContent.Put(resID+"|"+p, WebSiteContentFile{ID: resID + "|" + p, Path: p, Mode: uint32(f.Mode), Data: f.Data, Modified: now})
 		paths = append(paths, p)
 	}
 	if a.SyncManifest {
@@ -541,7 +543,7 @@ func webPublishingScmURI(site *Site, user, password string) string {
 // webSiteHomeDir is the persistent /home storage of a site or slot. A slot's
 // is its own, beside its app's.
 func webSiteHomeDir(site *Site) string {
-	return siteHomeDir(strings.Replace(site.Name, "/", "__", 1))
+	return siteHomeDir(site.Name)
 }
 
 func msDeployStatusWire(rec WebMSDeployRecord) map[string]any {

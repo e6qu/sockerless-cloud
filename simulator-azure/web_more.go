@@ -180,6 +180,8 @@ func webCleanupSiteResources(resID string) {
 		// name for exactly this case.
 		webRecordDeletedSite(s.ID, s)
 		webSlots.Delete(s.ID)
+		stopAzureFunctionInstance(s.Name)
+		cleanupSiteContainers(s.ID, s.Name)
 	}
 	for _, id := range ids {
 		sub := id + "/"
@@ -552,7 +554,7 @@ func webConfigWebPatch(w http.ResponseWriter, r *http.Request) {
 // webConfigWebWrite stores a SiteConfig write. A PUT replaces the
 // configuration and a PATCH decodes onto the stored one; either keeps the
 // app settings when the request carries none, as they are their own resource.
-// A production site's workload restarts on the change, as App Service
+// The app's or slot's workload restarts on the change, as App Service
 // restarts an app whose configuration changed.
 func webConfigWebWrite(w http.ResponseWriter, r *http.Request, merge bool) {
 	if webMissing(w, r) {
@@ -577,9 +579,7 @@ func webConfigWebWrite(w http.ResponseWriter, r *http.Request, merge bool) {
 	row.Properties.SiteConfig = &req.Properties
 	store.Put(webResourceID(r), row)
 	webRecordConfigSnapshot(webResourceID(r), row.Properties.SiteConfig)
-	if sim.PathParam(r, "slot") == "" {
-		restartAzureFunctionInstance(row)
-	}
+	restartAzureFunctionInstance(row)
 	sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "web", row.Properties.SiteConfig))
 }
 
@@ -616,10 +616,7 @@ func registerWebLifecycle(both func(string, string, http.HandlerFunc)) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Slot-swap family — production⇄slot config exchange. The simulator
-	// records the call and returns success (the swap itself is an
-	// orchestration the sim does not model deeply).
-	both("POST", "/slotsswap", okIfExists)
+	registerWebSlotSwap(both)
 	both("POST", "/applySlotConfig", okIfExists)
 	both("POST", "/resetSlotConfig", okIfExists)
 	both("POST", "/slotsdiffs", emptyValueIfExists)
@@ -1090,6 +1087,9 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 	}
 
 	store.Put(id, row)
+	if _, present := props["siteConfig"]; present {
+		restartAzureFunctionInstance(row)
+	}
 
 	// virtualNetworkSubnetId is the modern spelling of regional VNet
 	// integration: a patched value joins (or detaches) the site's containers

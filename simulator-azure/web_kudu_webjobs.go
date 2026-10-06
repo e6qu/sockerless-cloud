@@ -202,9 +202,10 @@ func kuduWebJobWire(r *http.Request, rec WebJobRecord) map[string]any {
 		"using_sdk":   false,
 		"settings":    kuduWebJobSettings(rec),
 	}
-	if rec.Error != "" {
-		out["error"] = rec.Error
+	if msg := webJobError(rec); msg != "" {
+		out["error"] = msg
 	}
+	scm := azureRequestScheme(r) + "://" + r.Host
 	if rec.JobKind == "continuous" {
 		status := rec.Status
 		if status == "" {
@@ -212,8 +213,10 @@ func kuduWebJobWire(r *http.Request, rec WebJobRecord) map[string]any {
 		}
 		out["status"] = status
 		out["detailed_status"] = rec.DetailedStatus
+		webContinuousJobLogURL(out, scm, rec)
 		return out
 	}
+	webJobSchedulerLogURL(out, scm, rec)
 	out["history_url"] = jobURL + "/history"
 	out["latest_run"] = nil
 	if latest, ok := webLatestRun(rec.ID); ok {
@@ -235,6 +238,7 @@ func kuduWebJobRunWire(r *http.Request, rec WebJobRecord, run WebJobRunRecord) m
 		"job_name":   rec.Name,
 		"trigger":    webJobRunTrigger(run),
 	}
+	webJobRunLogURLs(out, azureRequestScheme(r)+"://"+r.Host, run)
 	start, startErr := time.Parse(time.RFC3339, run.StartTime)
 	if run.EndTime != "" {
 		out["end_time"] = run.EndTime
@@ -297,7 +301,7 @@ func kuduPutWebJobSettings(w http.ResponseWriter, r *http.Request, site *Site, k
 		return
 	}
 	p := kuduWebJobSettingsPath(rec.JobKind, rec.Name)
-	webSiteContent.Put(site.ID+"|"+p, WebSiteContentFile{ID: site.ID + "|" + p, Path: p, Mode: 0o644, Data: data})
+	webSiteContent.Put(site.ID+"|"+p, WebSiteContentFile{ID: site.ID + "|" + p, Path: p, Mode: 0o644, Data: data, Modified: time.Now().UTC()})
 	w.WriteHeader(http.StatusOK)
 }
 

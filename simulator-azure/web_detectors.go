@@ -49,9 +49,9 @@ import (
 //	servicehealth               Azure Service Health incident records for the
 //	                            region hosting the site. The simulator
 //	                            publishes no service-health events at all.
-//	siteswap                    the slot-swap history. The simulator's swap
-//	                            operation exchanges nothing and keeps no
-//	                            record of having run.
+//	siteswap                    the slot-swap history. The simulator keeps
+//	                            each slot's last swap (slotSwapStatus), not
+//	                            a history of them.
 //	workeravailability          the health of the worker instances of the App
 //	                            Service plan. There is no worker fleet here:
 //	                            the whole execution model is one workload
@@ -314,7 +314,7 @@ func webDetectors() []webDetector {
 func webUnservedDetectors() []webUnservedDetector {
 	return []webUnservedDetector{
 		{"servicehealth", "an Azure Service Health incident record for the region hosting the site; the simulator publishes no service-health events"},
-		{"siteswap", "the slot-swap history; the simulator's slot swap keeps no record of having run"},
+		{"siteswap", "the slot-swap history; the simulator keeps each slot's last swap (slotSwapStatus), not a history of them"},
 		{"workeravailability", "the health of the App Service plan's worker instances; the simulator runs one workload container per site and no worker fleet"},
 		{"sitelatency", "per-request timing; requests reach the site's container without a request log being kept"},
 		{"failedrequestsperuri", "per-request status codes and URIs, from a request log the simulator does not keep"},
