@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -61,23 +60,20 @@ func cloudRunStartupProbe(c Container) Probe {
 }
 
 // cloudRunContainerRoute returns the address this host reaches a container's
-// port at. The container's own address is used whenever this host routes to
-// it, which a connection the container accepts or refuses proves; a host that
-// does not route container addresses (Docker Desktop, rootless Podman) reaches
-// the workload only through the port the engine publishes on loopback.
+// port at, without connecting to the container: Cloud Run opens no connection
+// to a workload but its probes and requests. The container's own address is
+// used when one of this host's interfaces is on the container's network, as a
+// Linux engine's bridge is; a host that is not (Docker Desktop, rootless
+// Podman) reaches the workload only through the port the engine publishes on
+// loopback.
 func cloudRunContainerRoute(ctx context.Context, containerID string, port int) (string, error) {
 	if ip := sim.ContainerIPv4(containerID); ip != "" {
-		addr := net.JoinHostPort(ip, strconv.Itoa(port))
-		conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "tcp", addr)
-		if err == nil {
-			_ = conn.Close()
-			return addr, nil
+		onNetwork, err := cloudRunHostOnNetworkOf(ip)
+		if err != nil {
+			return "", err
 		}
-		if errors.Is(err, syscall.ECONNREFUSED) {
-			return addr, nil
-		}
-		if ctx.Err() != nil {
-			return "", ctx.Err()
+		if onNetwork {
+			return net.JoinHostPort(ip, strconv.Itoa(port)), nil
 		}
 	}
 	if port != cloudRunPublishedPort {
@@ -88,6 +84,25 @@ func cloudRunContainerRoute(ctx context.Context, containerID string, port int) (
 		return "", err
 	}
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(hostPort)), nil
+}
+
+// cloudRunHostOnNetworkOf reports whether one of this host's interfaces is on
+// the network that holds ip.
+func cloudRunHostOnNetworkOf(ip string) (bool, error) {
+	address := net.ParseIP(ip)
+	if address == nil {
+		return false, fmt.Errorf("container address %q is not an IP address", ip)
+	}
+	interfaces, err := net.InterfaceAddrs()
+	if err != nil {
+		return false, fmt.Errorf("list this host's interface addresses: %w", err)
+	}
+	for _, assigned := range interfaces {
+		if network, ok := assigned.(*net.IPNet); ok && !network.IP.IsLoopback() && network.Contains(address) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // probeTarget is a probed container in the instance's network namespace:

@@ -832,11 +832,14 @@ probes succeed: the container's configured `startupProbe` (`tcpSocket`,
 container port Cloud Run applies when none is configured (timeout and period
 240 seconds, threshold 1); sidecars that configure one are probed after it.
 The probes and the traffic go to the container's own address wherever the host
-routes to it, which a connection the container accepts or refuses proves,
-rather than through the engine's published loopback port, whose userland proxy
+routes to it — one of the host's interfaces is on the container's network, as a
+Linux engine's bridge is — rather than through the engine's published loopback port, whose userland proxy
 accepts a connection before the workload listens, so a bare TCP accept there
 proved nothing and reset the first request; a host that routes no container
-address reaches the workload only through that port. A probe that fails its threshold, or a container that
+address reaches the workload only through that port. The route is found from
+the host's interfaces, not by connecting: a connection Cloud Run never makes
+had been the first one a workload accepted, so a workload could not act on its
+startup probe's. A probe that fails its threshold, or a container that
 exits first, fails the instance and answers 503, and `workload.FirstReachable`
 was removed.
 
