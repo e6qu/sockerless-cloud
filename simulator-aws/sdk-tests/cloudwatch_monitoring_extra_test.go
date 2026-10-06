@@ -13,12 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_DatasetKmsKey covers the metrics-dataset KMS lifecycle:
-// GetDataset materializes the dataset (id + ARN), AssociateDatasetKmsKey sets
-// the CMK, GetDataset reads it back, and DisassociateDatasetKmsKey clears it.
+// TestCloudWatch_DatasetKmsKey covers the metrics-dataset KMS lifecycle on the
+// default dataset, the one CloudWatch supports: GetDataset reads it without its
+// having been created, AssociateDatasetKmsKey sets the CMK, GetDataset reads it
+// back, and DisassociateDatasetKmsKey clears it. Any other dataset does not
+// exist.
 func TestCloudWatch_DatasetKmsKey(t *testing.T) {
 	client := cloudwatchClient()
-	id := "sdk-dataset-1"
+	id := "default"
 	kms := "arn:aws:kms:us-east-1:000000000000:key/11111111-2222-3333-4444-555555555555"
 
 	got, err := client.GetDataset(ctx, &cloudwatch.GetDatasetInput{DatasetIdentifier: aws.String(id)})
@@ -26,6 +28,11 @@ func TestCloudWatch_DatasetKmsKey(t *testing.T) {
 	assert.Equal(t, id, aws.ToString(got.DatasetId))
 	assert.Contains(t, aws.ToString(got.Arn), ":dataset/"+id)
 	assert.Empty(t, aws.ToString(got.KmsKeyArn), "no key before association")
+
+	_, err = client.GetDataset(ctx, &cloudwatch.GetDatasetInput{
+		DatasetIdentifier: aws.String("arn:aws:cloudwatch:us-east-1:123456789012:dataset/other")})
+	require.Error(t, err)
+	assert.Equal(t, "ResourceNotFoundException", errCodeOf(err), "only the default dataset exists")
 
 	_, err = client.AssociateDatasetKmsKey(ctx, &cloudwatch.AssociateDatasetKmsKeyInput{
 		DatasetIdentifier: aws.String(id),

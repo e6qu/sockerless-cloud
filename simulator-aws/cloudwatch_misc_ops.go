@@ -284,8 +284,8 @@ func handleCWJSONListAlarmMuteRules(w http.ResponseWriter, r *http.Request) {
 // ── cross-resource tagging (awsJson) ────────────────────────────────────────
 
 // cwResourceTags returns the tag map for any CloudWatch ARN the tagging API
-// covers (metric alarm, composite alarm, metric stream, insight rule), and a
-// setter that writes the updated map back.
+// covers (metric alarm, composite alarm, metric stream, insight rule, alarm
+// mute rule, dataset), and a setter that writes the updated map back.
 func cwResourceTags(arn string) (map[string]string, func(map[string]string), bool) {
 	if a, ok := cwAlarmByArn(arn); ok {
 		return a.Tags, func(m map[string]string) { cwAlarms.Update(a.AlarmName, func(x *CWAlarm) { x.Tags = m }) }, true
@@ -303,6 +303,9 @@ func cwResourceTags(arn string) (map[string]string, func(map[string]string), boo
 	}
 	if mr, ok := cwAlarmMuteRuleByArn(arn); ok {
 		return mr.Tags, func(m map[string]string) { cwAlarmMuteRules.Update(mr.Name, func(x *CWAlarmMuteRule) { x.Tags = m }) }, true
+	}
+	if ds, ok := cwResolveDataset(arn); ok && arn == ds.Arn {
+		return ds.Tags, func(m map[string]string) { cwUpdateDataset(arn, func(x *CWDataset) { x.Tags = m }) }, true
 	}
 	return nil, nil, false
 }

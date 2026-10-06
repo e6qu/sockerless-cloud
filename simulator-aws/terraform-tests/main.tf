@@ -987,6 +987,16 @@ resource "aws_lambda_function_url" "tf_lambda_url" {
   authorization_type = "NONE"
 }
 
+# A NONE function URL admits whoever the function's resource-based policy
+# allows lambda:InvokeFunctionUrl under that auth type.
+resource "aws_lambda_permission" "tf_lambda_url_public" {
+  statement_id           = "AllowPublicFunctionUrl"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.tf_lambda.function_name
+  principal              = "*"
+  function_url_auth_type = "NONE"
+}
+
 # EventBridge Scheduler — cron/rate-driven invocation of the runner Lambda.
 # Exercises the REST-JSON Scheduler surface (CreateSchedule / GetSchedule),
 # distinct from the EventBridge rule above.

@@ -154,6 +154,10 @@ type RDSBlueGreenDeployment struct {
 	Tags                          map[string]string
 }
 
+func rdsBlueGreenDeploymentARN(id string) string {
+	return fmt.Sprintf("arn:aws:rds:%s:%s:deployment:%s", awsRegion(), awsAccountID(), id)
+}
+
 // RDSIntegration models a zero-ETL integration linking a source DB
 // (cluster ARN) to a target (e.g. Redshift namespace ARN).
 type RDSIntegration struct {
@@ -579,6 +583,7 @@ func rdsInstanceFromSource(r *http.Request, newID string, src RDSInstance, engin
 		InstanceCreateTime:   time.Now().UTC().Format(time.RFC3339),
 		ARN:                  rdsInstanceARN(newID),
 		Tags:                 parseAWSQueryTagMap(r, "Tags.Tag"),
+		BackupTarget:         rdsRequestedBackupTarget(r),
 	}
 }
 

@@ -344,6 +344,33 @@ through hooks:
   did not reach serverless caches and their snapshots, and every Systems
   Manager create but CreateCloudConnector discarded its `Tags`, while that one
   kept them where ListTagsForResource never looked.
+- **A key about a source is read from the source.** A daemon's size is its
+  daemon task definition's; a blue/green deployment's engine, name, encryption,
+  Multi-AZ placement and tags are the DB instance's or DB cluster's it clones,
+  and its parameter-group tags the groups it names; a DB snapshot's
+  `rds:BackupTarget` is its instance's, now stored and rendered; a cluster
+  restore's `rds:StorageSize` is its snapshot's or source cluster's. A key that
+  differs between the entries of one request — the version each DeleteObjects
+  entry names — travels with that entry's authorization target rather than with
+  the request. GetAccessPoint authorizes `"*"`, as the reference says, and still
+  reports the tags of the access point its path names. A web-identity or SAML
+  session keeps the provider claims AWS STS declares on sts:AssumeRole and an
+  AssumeRole it signs carries them, so a chained role's trust policy can still
+  name the person behind the first session; the measure probes AWS STS as each
+  such session as well as an IAM user. A probe whose member takes either of two
+  resource kinds is rendered once per kind.
+- **A function URL is served at its own host.** `<url-id>.lambda-url.<region>.on.aws`
+  reaches the function as a payload format version 2.0 event and its result is
+  the HTTP response; an AWS_IAM URL verifies the lambda SigV4 signature and
+  authorizes both lambda:InvokeFunctionUrl and lambda:InvokeFunction, the
+  second with `lambda:InvokedViaFunctionUrl`; a NONE URL admits whoever the
+  function's resource-based policy admits, and AddPermission writes the
+  conditions its scoping members name. CORS preflights are answered from the
+  URL config without invoking the function.
+- **A resource that exists implicitly is not minted on reference.** CloudWatch
+  supports one metrics dataset, `default`, which every account has; GetDataset
+  had created a dataset for any identifier it was given. Any other identifier
+  is now ResourceNotFoundException, and the default dataset carries tags.
 - **Maintenance may not end the service.** Failing loudly on a persistence
   fault is right in a handler, where net/http turns the panic into a 500. On a
   background goroutine it was a restart loop: the retention sweeper met a busy

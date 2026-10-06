@@ -13,12 +13,13 @@ func init() {
 }
 
 type cloudWatchConditionRequest struct {
-	AlarmActions   []string                      `json:"AlarmActions" cbor:"AlarmActions"`
-	RuleDefinition string                        `json:"RuleDefinition" cbor:"RuleDefinition"`
-	ResourceARN    string                        `json:"ResourceARN" cbor:"ResourceARN"`
-	ResourceArn    string                        `json:"ResourceArn" cbor:"ResourceArn"`
-	ManagedRules   []cloudWatchManagedRuleTarget `json:"ManagedRules" cbor:"ManagedRules"`
-	Tags           []cloudWatchConditionTag      `json:"Tags" cbor:"Tags"`
+	DatasetIdentifier string                        `json:"DatasetIdentifier" cbor:"DatasetIdentifier"`
+	AlarmActions      []string                      `json:"AlarmActions" cbor:"AlarmActions"`
+	RuleDefinition    string                        `json:"RuleDefinition" cbor:"RuleDefinition"`
+	ResourceARN       string                        `json:"ResourceARN" cbor:"ResourceARN"`
+	ResourceArn       string                        `json:"ResourceArn" cbor:"ResourceArn"`
+	ManagedRules      []cloudWatchManagedRuleTarget `json:"ManagedRules" cbor:"ManagedRules"`
+	Tags              []cloudWatchConditionTag      `json:"Tags" cbor:"Tags"`
 }
 
 type cloudWatchManagedRuleTarget struct {
@@ -38,12 +39,22 @@ func iamPopulateCloudWatchRequestConditionKeys(r *http.Request, operation string
 	case "PutMetricAlarm", "PutCompositeAlarm", "PutLogAlarm",
 		"PutInsightRule", "PutManagedInsightRules", "ListManagedInsightRules",
 		"CreateResourceMetricsConfiguration", "DeleteResourceMetricsConfiguration",
-		"GetResourceMetricsConfiguration", "UpdateResourceMetricsConfiguration":
+		"GetResourceMetricsConfiguration", "UpdateResourceMetricsConfiguration",
+		"GetDataset", "AssociateDatasetKmsKey", "DisassociateDatasetKmsKey":
 	default:
 		return
 	}
 	request, ok := cloudWatchDecodeConditionRequest(r, body)
 	if !ok {
+		return
+	}
+	// The dataset a request names is the resource it is authorized against.
+	if request.DatasetIdentifier != "" {
+		if dataset, found := cwResolveDataset(request.DatasetIdentifier); found {
+			for key, value := range dataset.Tags {
+				iamSetConditionValues(ctx, "aws:ResourceTag/"+key, value)
+			}
+		}
 		return
 	}
 	// The tags a JSON or CBOR request carries, and those a managed rule

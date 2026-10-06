@@ -36,10 +36,15 @@ import (
 // CWDataset is a CloudWatch metrics dataset resource. The optional KmsKeyArn is
 // set by AssociateDatasetKmsKey and cleared by DisassociateDatasetKmsKey.
 type CWDataset struct {
-	DatasetId string `json:"DatasetId"`
-	Arn       string `json:"Arn"`
-	KmsKeyArn string `json:"KmsKeyArn,omitempty"`
+	DatasetId string            `json:"DatasetId"`
+	Arn       string            `json:"Arn"`
+	KmsKeyArn string            `json:"KmsKeyArn,omitempty"`
+	Tags      map[string]string `json:"Tags,omitempty"`
 }
+
+// cwDefaultDataset is the one dataset CloudWatch supports, which every account
+// has in every Region without creating it.
+const cwDefaultDataset = "default"
 
 // CWManagedRule is a managed Contributor-Insights rule, keyed by its resource
 // ARN + template. PutManagedInsightRules creates the underlying insight rule in
@@ -98,25 +103,33 @@ func cwDatasetArn(id string) string {
 	return "arn:aws:cloudwatch:" + awsRegion() + ":" + awsAccountID() + ":dataset/" + id
 }
 
-// cwResolveDataset looks up a dataset by identifier (its id or its ARN),
-// creating it on first reference. Real CloudWatch datasets are created out of
-// band; the sim materializes one on first access so the identifier a client
-// hands us is a real, stable resource it can read back.
-func cwResolveDataset(identifier string) CWDataset {
-	for _, d := range cwDatasets.List() {
-		if d.DatasetId == identifier || d.Arn == identifier {
-			return d
-		}
+// cwResolveDataset finds the dataset an identifier names, by id or ARN. Only
+// the default dataset exists, implicitly; its stored record holds what a
+// caller has set on it.
+func cwResolveDataset(identifier string) (CWDataset, bool) {
+	if identifier != cwDefaultDataset && identifier != cwDatasetArn(cwDefaultDataset) {
+		return CWDataset{}, false
 	}
-	ds := CWDataset{DatasetId: identifier, Arn: cwDatasetArn(identifier)}
-	cwDatasets.Put(identifier, ds)
-	return ds
+	if ds, ok := cwDatasets.Get(cwDefaultDataset); ok {
+		return ds, true
+	}
+	return CWDataset{DatasetId: cwDefaultDataset, Arn: cwDatasetArn(cwDefaultDataset)}, true
 }
 
-func cwSetDatasetKey(identifier, kmsKeyArn string) {
-	ds := cwResolveDataset(identifier)
-	ds.KmsKeyArn = kmsKeyArn
+// cwUpdateDataset applies mutate to the dataset an identifier names and
+// reports whether it exists.
+func cwUpdateDataset(identifier string, mutate func(*CWDataset)) bool {
+	ds, ok := cwResolveDataset(identifier)
+	if !ok {
+		return false
+	}
+	mutate(&ds)
 	cwDatasets.Put(ds.DatasetId, ds)
+	return true
+}
+
+func cwDatasetNotFound(identifier string) string {
+	return "Dataset " + identifier + " does not exist."
 }
 
 type cwManagedRuleInput struct {
@@ -251,7 +264,11 @@ func handleCWJSONGetDataset(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "MissingParameter", "The parameter DatasetIdentifier is required.", http.StatusBadRequest)
 		return
 	}
-	ds := cwResolveDataset(req.DatasetIdentifier)
+	ds, ok := cwResolveDataset(req.DatasetIdentifier)
+	if !ok {
+		AWSError(w, "ResourceNotFoundException", cwDatasetNotFound(req.DatasetIdentifier), http.StatusNotFound)
+		return
+	}
 	out := map[string]any{"DatasetId": ds.DatasetId, "Arn": ds.Arn}
 	if ds.KmsKeyArn != "" {
 		out["KmsKeyArn"] = ds.KmsKeyArn
@@ -272,7 +289,10 @@ func handleCWJSONAssociateDatasetKmsKey(w http.ResponseWriter, r *http.Request) 
 		AWSError(w, "MissingParameter", "DatasetIdentifier and KmsKeyArn are required.", http.StatusBadRequest)
 		return
 	}
-	cwSetDatasetKey(req.DatasetIdentifier, req.KmsKeyArn)
+	if !cwUpdateDataset(req.DatasetIdentifier, func(ds *CWDataset) { ds.KmsKeyArn = req.KmsKeyArn }) {
+		AWSError(w, "ResourceNotFoundException", cwDatasetNotFound(req.DatasetIdentifier), http.StatusNotFound)
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -288,7 +308,10 @@ func handleCWJSONDisassociateDatasetKmsKey(w http.ResponseWriter, r *http.Reques
 		AWSError(w, "MissingParameter", "The parameter DatasetIdentifier is required.", http.StatusBadRequest)
 		return
 	}
-	cwSetDatasetKey(req.DatasetIdentifier, "")
+	if !cwUpdateDataset(req.DatasetIdentifier, func(ds *CWDataset) { ds.KmsKeyArn = "" }) {
+		AWSError(w, "ResourceNotFoundException", cwDatasetNotFound(req.DatasetIdentifier), http.StatusNotFound)
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -445,7 +468,11 @@ func handleCWCBORGetDataset(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "MissingParameter", "The parameter DatasetIdentifier is required.", http.StatusBadRequest)
 		return
 	}
-	ds := cwResolveDataset(req.DatasetIdentifier)
+	ds, ok := cwResolveDataset(req.DatasetIdentifier)
+	if !ok {
+		cwWriteCBORError(w, "ResourceNotFoundException", cwDatasetNotFound(req.DatasetIdentifier), http.StatusNotFound)
+		return
+	}
 	out := map[string]any{"DatasetId": ds.DatasetId, "Arn": ds.Arn}
 	if ds.KmsKeyArn != "" {
 		out["KmsKeyArn"] = ds.KmsKeyArn
@@ -465,7 +492,10 @@ func handleCWCBORAssociateDatasetKmsKey(w http.ResponseWriter, r *http.Request) 
 		cwWriteCBORError(w, "MissingParameter", "DatasetIdentifier and KmsKeyArn are required.", http.StatusBadRequest)
 		return
 	}
-	cwSetDatasetKey(req.DatasetIdentifier, req.KmsKeyArn)
+	if !cwUpdateDataset(req.DatasetIdentifier, func(ds *CWDataset) { ds.KmsKeyArn = req.KmsKeyArn }) {
+		cwWriteCBORError(w, "ResourceNotFoundException", cwDatasetNotFound(req.DatasetIdentifier), http.StatusNotFound)
+		return
+	}
 	cwWriteCBOR(w, map[string]any{})
 }
 
@@ -480,7 +510,10 @@ func handleCWCBORDisassociateDatasetKmsKey(w http.ResponseWriter, r *http.Reques
 		cwWriteCBORError(w, "MissingParameter", "The parameter DatasetIdentifier is required.", http.StatusBadRequest)
 		return
 	}
-	cwSetDatasetKey(req.DatasetIdentifier, "")
+	if !cwUpdateDataset(req.DatasetIdentifier, func(ds *CWDataset) { ds.KmsKeyArn = "" }) {
+		cwWriteCBORError(w, "ResourceNotFoundException", cwDatasetNotFound(req.DatasetIdentifier), http.StatusNotFound)
+		return
+	}
 	cwWriteCBOR(w, map[string]any{})
 }
 

@@ -75,9 +75,14 @@ func lambdaEnforcedDynamic(opFn func(*http.Request) string, resource func(*http.
 			}
 		}
 		for _, target := range lambdaAuthorizationTargets(r, opFn(r), resARN) {
-			if !iamEnforceREST(w, r, target.action, target.resource, lambdaWriteIAMDeny) {
+			if !iamEnforceREST(w, r, target, lambdaWriteIAMDeny) {
 				return
 			}
+		}
+		// A FunctionName is a name, a full ARN or a partial ARN, any of them
+		// with a qualifier; the handlers look the function up by name.
+		if name := r.PathValue("name"); strings.Contains(name, ":function:") {
+			r.SetPathValue("name", name[strings.Index(name, ":function:")+len(":function:"):])
 		}
 		h(w, r)
 	}

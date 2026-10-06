@@ -428,7 +428,7 @@ func cloudWatchCBORAuthorized(op string, h http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 			for _, target := range cloudWatchCBORTargets(r, op) {
-				allowed, principalARN, registered := iamAuthorize(r, target.action, target.resource)
+				allowed, principalARN, registered := iamAuthorizeWithContext(r, target.action, target.resource, target.context)
 				if registered && !allowed {
 					cwWriteCBORError(w, "AccessDenied",
 						fmt.Sprintf("User: %s is not authorized to perform: %s", principalARN, target.action),

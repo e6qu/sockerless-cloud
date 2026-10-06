@@ -255,7 +255,7 @@ func simDialContext(ctx context.Context, network, addr string) (net.Conn, error)
 	switch {
 	case isLocalhostName(host):
 		addr = net.JoinHostPort("127.0.0.1", port)
-	case isS3ExpressName(host), isS3AccessPointName(host):
+	case isS3ExpressName(host), isS3AccessPointName(host), isLambdaFunctionURLName(host):
 		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(simPort))
 	case host == "127.0.0.1" || host == "::1":
 	default:
@@ -293,6 +293,14 @@ func isS3AccessPointName(host string) bool {
 	return strings.Contains(h, ".s3-accesspoint.") || strings.Contains(h, ".s3-object-lambda.")
 }
 
+// isLambdaFunctionURLName reports whether a hostname is an AWS Lambda function
+// URL, `<url-id>.lambda-url.<region>.on.aws`, which a client reaches by the URL
+// GetFunctionUrlConfig reports.
+func isLambdaFunctionURLName(host string) bool {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	return strings.Contains(h, ".lambda-url.") && strings.HasSuffix(h, ".on.aws")
+}
+
 func isS3ExpressName(host string) bool {
 	h := strings.ToLower(strings.TrimSuffix(host, "."))
 	return strings.HasPrefix(h, "s3express-control.") || strings.Contains(h, ".s3express-")
@@ -302,7 +310,8 @@ func isS3ExpressName(host string) bool {
 // except the `.localhost` family, which resolves to loopback and must never be
 // routed through a proxy Go would otherwise apply to a non-`localhost` name.
 func simProxy(req *http.Request) (*url.URL, error) {
-	if host := req.URL.Hostname(); isLocalhostName(host) || isS3ExpressName(host) || isS3AccessPointName(host) {
+	if host := req.URL.Hostname(); isLocalhostName(host) || isS3ExpressName(host) || isS3AccessPointName(host) ||
+		isLambdaFunctionURLName(host) {
 		return nil, nil
 	}
 	return http.ProxyFromEnvironment(req)
