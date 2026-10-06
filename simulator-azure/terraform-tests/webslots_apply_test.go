@@ -16,7 +16,8 @@ import (
 // (WebApps_SwapSlotWithProduction) and waits for the app's slotSwapStatus to
 // name it. Each slot runs its own container on its own hostname; after the
 // swap the app's hostname serves what the slot ran, and the slot's hostname
-// what production ran.
+// what production ran, each with the DB connection string that stays with
+// its slot in its environment.
 func TestTerraformWebAppSlotApplyDestroy(t *testing.T) {
 	dir := tfWorkspaceFrom(t, mustAbs("webslots"))
 	out, err := runTimed(t, "terraform init", terraformCmd(dir, "init"))
@@ -38,8 +39,10 @@ func TestTerraformWebAppSlotApplyDestroy(t *testing.T) {
 		outputs.must(t, "active_slot_id"))
 	require.NotEmpty(t, outputs.must(t, "last_successful_swap"))
 
-	require.Equal(t, "staging-content", slotSiteServes(t, appHost), "production's hostname serves what the slot ran")
-	require.Equal(t, "production-content", slotSiteServes(t, slotHost), "the slot's hostname serves what production ran")
+	require.Equal(t, "staging-content production-db", slotSiteServes(t, appHost),
+		"production's hostname serves what the slot ran, with production's sticky connection string")
+	require.Equal(t, "production-content staging-db", slotSiteServes(t, slotHost),
+		"the slot's hostname serves what production ran, with the slot's sticky connection string")
 
 	out, err = runTimed(t, "terraform destroy", terraformCmd(dir, "destroy", "-auto-approve"))
 	require.NoError(t, err, "terraform destroy failed:\n%s", out)

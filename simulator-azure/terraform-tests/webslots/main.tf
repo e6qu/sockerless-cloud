@@ -12,7 +12,9 @@ terraform {
 # staging slot each run their own container, and azurerm_web_app_active_slot
 # swaps the slot into production. The startup commands travel with the swap,
 # so the configuration ignores them after creation, as a configuration that
-# swaps slots does; the STICKY app setting stays with its slot.
+# swaps slots does; the STICKY app setting and the DB connection string stay
+# with their slot. Each container answers with its content and the
+# CUSTOMCONNSTR_DB variable App Service puts the DB connection string in.
 
 variable "endpoint" {
   description = "Simulator endpoint URL"
@@ -62,12 +64,19 @@ resource "azurerm_linux_web_app" "slots" {
     STICKY        = "production"
   }
 
+  connection_string {
+    name  = "DB"
+    type  = "Custom"
+    value = "production-db"
+  }
+
   sticky_settings {
-    app_setting_names = ["STICKY"]
+    app_setting_names       = ["STICKY"]
+    connection_string_names = ["DB"]
   }
 
   site_config {
-    app_command_line = format(local.serve, "production-content")
+    app_command_line = format(local.serve, "production-content $${CUSTOMCONNSTR_DB}")
 
     application_stack {
       docker_image_name   = "docker/library/alpine:latest"
@@ -89,8 +98,14 @@ resource "azurerm_linux_web_app_slot" "staging" {
     STICKY        = "staging"
   }
 
+  connection_string {
+    name  = "DB"
+    type  = "Custom"
+    value = "staging-db"
+  }
+
   site_config {
-    app_command_line = format(local.serve, "staging-content")
+    app_command_line = format(local.serve, "staging-content $${CUSTOMCONNSTR_DB}")
 
     application_stack {
       docker_image_name   = "docker/library/alpine:latest"

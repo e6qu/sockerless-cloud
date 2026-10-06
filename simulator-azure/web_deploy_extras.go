@@ -27,23 +27,10 @@ import (
 // control token catalogs.
 //
 // Deployments do real work: the package the request's packageUri names is
-// fetched over HTTP, unpacked, and persisted durably as the site's deployed
-// content (webSiteContent). Webjobs are discovered from that content
+// fetched over HTTP, unpacked, and written into the site's /home/site/wwwroot
+// on its persistent /home share. Webjobs are discovered from that content
 // (web_webjobs.go), so the deploy → discover → run chain is the same one the
 // real platform executes.
-
-// WebSiteContentFile is one durably persisted deployed file of a site or
-// slot. ID is "<resID>|<path>"; Path is wwwroot-relative with forward
-// slashes.
-type WebSiteContentFile struct {
-	ID       string    `json:"id"`
-	Path     string    `json:"path"`
-	Mode     uint32    `json:"mode"`
-	Data     []byte    `json:"data"`
-	Modified time.Time `json:"modified,omitzero"`
-}
-
-var webSiteContent sim.Store[WebSiteContentFile]
 
 // WebMSDeployRecord is the durable state of a site's (or instance's) latest
 // MSDeploy operation, served by WebApps_GetMSDeployStatus / GetMSDeployLog.
@@ -145,7 +132,6 @@ var webKnownSourceControls = []string{"Bitbucket", "Dropbox", "GitHub", "OneDriv
 
 // initWebDeployStores wires the stores of this slice.
 func initWebDeployStores(srv *sim.Server) {
-	webSiteContent = sim.MakeStore[WebSiteContentFile](srv.DB(), "web_site_content")
 	webMSDeployOps = sim.MakeStore[WebMSDeployRecord](srv.DB(), "web_msdeploy_ops")
 	webOneDeployOps = sim.MakeStore[WebOneDeployRecord](srv.DB(), "web_onedeploy_ops")
 	webDeploymentStatuses = sim.MakeStore[WebDeploymentStatusRecord](srv.DB(), "web_deployment_statuses")
@@ -185,10 +171,6 @@ func initWebDeployStores(srv *sim.Server) {
 // under a deleted site or slot, and drops its publishing-password rotation
 // counter so a recreated site starts from fresh credentials.
 func webCleanupDeployments(resID string) {
-	filePrefix := resID + "|"
-	for _, f := range webSiteContent.Filter(func(f WebSiteContentFile) bool { return strings.HasPrefix(f.ID, filePrefix) }) {
-		webSiteContent.Delete(f.ID)
-	}
 	subPrefix := resID + "/"
 	for _, rec := range webMSDeployOps.Filter(func(rec WebMSDeployRecord) bool { return strings.HasPrefix(rec.ID, subPrefix) }) {
 		webMSDeployOps.Delete(rec.ID)
@@ -200,6 +182,7 @@ func webCleanupDeployments(resID string) {
 		webDeploymentStatuses.Delete(rec.ID)
 	}
 	webDeployManifests.Delete(resID)
+	webCleanupSlotPreview(resID)
 	webCleanupKudu(resID)
 	webSiteDockerLogs.Delete(strings.ToLower(resID))
 	for _, protocol := range []string{"ftp", "scm"} {
@@ -390,10 +373,10 @@ func webSiteRunsFromDeployedPackage(site *Site) bool {
 	return strings.TrimSpace(siteAppSettings(site)["WEBSITE_RUN_FROM_PACKAGE"]) == "1"
 }
 
-// webDeployArtifact lands one artifact: wwwroot content in the site's durable
-// content, anything else under /home in the site's persistent storage. It
-// then rediscovers the site's webjobs, records the app-state snapshot, and
-// restarts a site that runs its content, as a deployment restarts the app.
+// webDeployArtifact lands one artifact under /home in the site's persistent
+// storage, then rediscovers the site's webjobs, records the app-state
+// snapshot, and restarts a site that runs its content, as a deployment
+// restarts the app.
 // Returns the number of files written.
 func webDeployArtifact(resID string, data []byte, a webArtifact) (int, error) {
 	site, ok := webJobSite(resID)
@@ -422,14 +405,16 @@ func webDeployArtifact(resID string, data []byte, a webArtifact) (int, error) {
 	var written int
 	var err error
 	if rel, inRoot := webWWWRootRelative(a.Target); inRoot {
-		written = webWriteSiteContent(resID, rel, files, a)
+		written, err = webWriteSiteContent(resID, rel, files, a)
 	} else {
 		written, err = webWriteSiteHome(&site, a.Target, files, a.Clean)
 	}
 	if err != nil {
 		return written, err
 	}
-	webDiscoverWebJobs(resID)
+	if err := webDiscoverWebJobs(resID); err != nil {
+		return written, err
+	}
 	// The app's content just changed, so the platform's automatic-backup
 	// snapshot of this app state exists from here on.
 	webCaptureAppSnapshot(resID)
@@ -451,50 +436,6 @@ func webWWWRootRelative(target string) (string, bool) {
 	}
 	rel, ok := strings.CutPrefix(target, webWWWRoot+"/")
 	return rel, ok
-}
-
-// webWriteSiteContent writes files under dir (wwwroot-relative) into the
-// site's durable content.
-func webWriteSiteContent(resID, dir string, files []archive.File, a webArtifact) int {
-	under := func(p string) bool { return dir == "" || p == dir || strings.HasPrefix(p, dir+"/") }
-	join := func(name string) string {
-		if dir == "" {
-			return name
-		}
-		return dir + "/" + name
-	}
-	incoming := make(map[string]bool, len(files))
-	for _, f := range files {
-		incoming[join(f.Name)] = true
-	}
-	switch {
-	case a.Clean:
-		for _, f := range webSiteContent.Filter(func(f WebSiteContentFile) bool {
-			return strings.HasPrefix(f.ID, resID+"|") && under(f.Path)
-		}) {
-			webSiteContent.Delete(f.ID)
-		}
-	case a.SyncManifest:
-		if prev, ok := webDeployManifests.Get(resID); ok {
-			for _, p := range prev.Paths {
-				if !incoming[p] {
-					webSiteContent.Delete(resID + "|" + p)
-				}
-			}
-		}
-	}
-	now := time.Now().UTC()
-	paths := make([]string, 0, len(files))
-	for _, f := range files {
-		p := join(f.Name)
-		webSiteContent.Put(resID+"|"+p, WebSiteContentFile{ID: resID + "|" + p, Path: p, Mode: uint32(f.Mode), Data: f.Data, Modified: now})
-		paths = append(paths, p)
-	}
-	if a.SyncManifest {
-		sort.Strings(paths)
-		webDeployManifests.Put(resID, WebDeployManifest{ID: resID, Paths: paths})
-	}
-	return len(files)
 }
 
 // webWriteSiteHome writes files under dir, an absolute /home path outside

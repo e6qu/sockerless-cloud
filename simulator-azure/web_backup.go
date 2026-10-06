@@ -24,7 +24,7 @@ import (
 // app) — at both the production-site and the deployment-slot scope.
 //
 // A backup does real work. The archive is built from the site's deployed
-// content (webSiteContent) and written into the Blob data plane of the storage
+// content (its /home/site/wwwroot) and written into the Blob data plane of the storage
 // account the request's `storageAccountUrl` names, which is the same surface a
 // client downloads it from; a restore reads that blob back and replaces the
 // site's content with what the archive holds. Deleting the blob through the
@@ -252,20 +252,14 @@ func webCustomHostNames(resID string) []string {
 	return out
 }
 
-// webSiteContentFiles returns a site's deployed files sorted by path, so an
-// archive built twice from the same content is byte-identical.
-func webSiteContentFiles(resID string) []WebSiteContentFile {
-	prefix := resID + "|"
-	files := webSiteContent.Filter(func(f WebSiteContentFile) bool { return strings.HasPrefix(f.ID, prefix) })
-	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	return files
-}
-
 // webBuildBackupArchive packs a site's deployed content into the ZIP an App
 // Service backup writes, and renders the XML manifest that lists it.
 func webBuildBackupArchive(resID, siteName, backupName, created string, hostNames []string,
 	databases []WebDatabaseBackupSetting, cfg *SiteConfig) (webBackupArchive, error) {
-	files := webSiteContentFiles(resID)
+	files, err := webSiteContentFiles(resID)
+	if err != nil {
+		return webBackupArchive{}, err
+	}
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	manifest := webBackupManifest{
@@ -337,23 +331,6 @@ func webReadBackupArchive(data []byte) ([]WebSiteContentFile, error) {
 		return nil, fmt.Errorf("read the backup archive: %w", err)
 	}
 	return out, nil
-}
-
-// webReplaceSiteContent makes the site's file system exactly the given set of
-// files. Microsoft: "Without `_backup.filter`, restoring a backup deletes all
-// existing files in the app and replaces them with the files in the backup" —
-// so every file the archive does not carry is removed, which is the opposite
-// of a deployment's merge.
-func webReplaceSiteContent(resID string, files []WebSiteContentFile) {
-	for _, existing := range webSiteContentFiles(resID) {
-		webSiteContent.Delete(existing.ID)
-	}
-	now := time.Now().UTC()
-	for _, f := range files {
-		id := resID + "|" + f.Path
-		webSiteContent.Put(id, WebSiteContentFile{ID: id, Path: f.Path, Mode: f.Mode, Data: f.Data, Modified: now})
-	}
-	webDiscoverWebJobs(resID)
 }
 
 // webBackupStorageTarget is the storage account and container a

@@ -97,6 +97,12 @@ func registerWebSlotSwap(both func(string, string, http.HandlerFunc)) {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cannot find slot '%s' of site '%s'.", target, appName)
 			return
 		}
+		if p, pending := webSlotPreviews.Get(appID); pending && !webSlotPreviewPair(p, src.ID, dst.ID) {
+			AzureErrorf(w, "Conflict", http.StatusConflict,
+				"A swap with preview between slots '%s' and '%s' of site '%s' is in progress; complete it or cancel it with resetSlotConfig first.",
+				webSlotNameByID(p.SourceID), webSlotNameByID(p.TargetID), appName)
+			return
+		}
 		opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 			return webSwapSlots(appID, src.ID, dst.ID)
 		})
@@ -141,6 +147,11 @@ func webSaveSlotRow(site Site) {
 func webSwapSlots(appID, srcID, dstID string) *AsyncOperationError {
 	defer webSwapLocks.Lock(appID)()
 
+	// A swap between the slots of a swap with preview completes it, from the
+	// settings the source held before the preview.
+	if p, pending := webSlotPreviews.Get(appID); pending && webSlotPreviewPair(p, srcID, dstID) {
+		webRestoreSlotPreview(p)
+	}
 	if err := webExchangeSlots(appID, srcID, dstID); err != nil {
 		return &AsyncOperationError{Code: "InternalServerError", Message: err.Error()}
 	}
@@ -148,7 +159,7 @@ func webSwapSlots(appID, srcID, dstID string) *AsyncOperationError {
 	if !ok {
 		return &AsyncOperationError{Code: "ResourceNotFound", Message: "The destination slot was deleted during the swap."}
 	}
-	if siteRunsContainer(&dst) {
+	if siteRunsContainer(&dst) && !siteStopped(&dst) {
 		ctx, cancel := context.WithTimeout(context.Background(), siteStartTimeLimit(&dst))
 		_, err := siteContainerAddress(ctx, &dst)
 		cancel()
@@ -201,25 +212,7 @@ func webExchangeSlots(appID, aID, bID string) error {
 		inst.teardownLocked()
 	}
 	for _, site := range []Site{a, b} {
-		for _, rec := range webWebJobs.Filter(func(rec WebJobRecord) bool { return rec.SiteID == site.ID }) {
-			webKillWebJobContainer(rec.ID)
-			for _, run := range webJobRunsFor(rec.ID) {
-				if run.Status != "Running" {
-					continue
-				}
-				webKillWebJobContainer(run.ID)
-				webJobRuns.Update(run.ID, func(row *WebJobRunRecord) {
-					row.Status = "Aborted"
-					row.EndTime = time.Now().UTC().Format(time.RFC3339)
-				})
-			}
-			if rec.JobKind == "continuous" {
-				webWebJobs.Update(rec.ID, func(row *WebJobRecord) {
-					row.Status = "Stopped"
-					row.DetailedStatus = ""
-				})
-			}
-		}
+		webStopSiteWebJobs(site.ID)
 	}
 
 	appCfg, _ := siteConfigStore.Get(appID)
@@ -268,9 +261,10 @@ func webExchangeSlots(appID, aID, bID string) error {
 	if err := webSwapHomes(a.Name, b.Name); err != nil {
 		return err
 	}
-	webDiscoverWebJobs(aID)
-	webDiscoverWebJobs(bID)
-	return nil
+	if err := webDiscoverWebJobs(aID); err != nil {
+		return err
+	}
+	return webDiscoverWebJobs(bID)
 }
 
 // webStickyAppSetting reports whether an app setting stays with its slot: one
@@ -377,13 +371,10 @@ func webSwapSiteConfig(own, other *SiteConfig) *SiteConfig {
 	return &out
 }
 
-// webSwapContent exchanges the two slots' deployed content and the records
-// that live in their file systems: the deployment history and the webjobs
-// with their run history.
+// webSwapContent exchanges the records that live in the two slots' file
+// systems: the deployment manifest and history, and the webjobs with their run
+// history. webSwapHomes exchanges the file systems themselves.
 func webSwapContent(aID, bID string) {
-	swapRowsByPrefix(webSiteContent, aID+"|", bID+"|", func(f *WebSiteContentFile, from, to string) {
-		f.ID = to + strings.TrimPrefix(f.ID, from)
-	})
 	if am, aok := webDeployManifests.Get(aID); aok {
 		webDeployManifests.Delete(aID)
 		if bm, bok := webDeployManifests.Get(bID); bok {
@@ -473,4 +464,28 @@ func webSwapHomes(aName, bName string) error {
 func webDirExists(dir string) bool {
 	info, err := os.Stat(dir)
 	return err == nil && info.IsDir()
+}
+
+// webStopSiteWebJobs stops every webjob process of a site: its continuous
+// jobs stop and its running triggered runs abort.
+func webStopSiteWebJobs(siteID string) {
+	for _, rec := range webWebJobs.Filter(func(rec WebJobRecord) bool { return rec.SiteID == siteID }) {
+		webKillWebJobContainer(rec.ID)
+		for _, run := range webJobRunsFor(rec.ID) {
+			if run.Status != "Running" {
+				continue
+			}
+			webKillWebJobContainer(run.ID)
+			webJobRuns.Update(run.ID, func(row *WebJobRunRecord) {
+				row.Status = "Aborted"
+				row.EndTime = time.Now().UTC().Format(time.RFC3339)
+			})
+		}
+		if rec.JobKind == "continuous" {
+			webWebJobs.Update(rec.ID, func(row *WebJobRecord) {
+				row.Status = "Stopped"
+				row.DetailedStatus = ""
+			})
+		}
+	}
 }

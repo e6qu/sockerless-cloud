@@ -364,7 +364,7 @@ Current state of the sockerless-cloud repository.
   deletes the jobs the Microsoft.Web webjob resources read, a triggered job
   runs on its `settings.job` schedule, and each run and continuous job logs
   under `data/jobs`, which the job records name. The VFS reads and writes the
-  site's `/home`, whose `site/wwwroot` is the deployed content; the command API
+  site's `/home`, the persistent share its containers mount; the command API
   runs a shell command in the site's image over that `/home`, bounded by
   `SCM_COMMAND_IDLE_TIMEOUT`; the log stream carries the site's container
   output.
@@ -375,7 +375,20 @@ Current state of the sockerless-cloud repository.
   exchanges the two slots' content, general settings and swappable app
   settings, connection strings and storage mounts, keeps each slot's sticky
   settings, hostnames and publishing endpoints, starts the destination on its
-  new content before it reports success, and records `slotSwapStatus`.
+  new content before it reports success, and records `slotSwapStatus`. Swap
+  with preview (`applySlotConfig`) restarts the source slot on the target's
+  slot settings until the swap completes it or `resetSlotConfig` cancels it,
+  and `slotsdiffs` lists the app settings, connection strings and general
+  settings the two slots hold differently, each with how the swap treats it.
+- **An App Service app runs as the platform runs it.** Its `/home` is one
+  persistent share — deployments, restores, swaps, Kudu and the app itself
+  write into the same `site/wwwroot`, so a file the app writes outlives a
+  restart; a custom container mounts it when
+  `WEBSITES_ENABLE_APP_SERVICE_STORAGE` is true. Each connection string
+  reaches the container's environment under its type's prefix
+  (`SQLAZURECONNSTR_`, `CUSTOMCONNSTR_`, …) and a change restarts the app. A
+  stopped app runs no container or webjob and its hostname answers App
+  Service's 403 stopped-site page until `WebApps_Start`.
 - **A Cloud Run service is served at its run.app URL**: a request whose Host
   is the service's `uri` host reaches the ingress container once its startup
   probes (the configured `startupProbe`, or Cloud Run's default TCP probe)

@@ -71,9 +71,16 @@ func webSlotConnStringsPut(w http.ResponseWriter, r *http.Request) {
 		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := webValidateConnStrings(req.Properties); err != nil {
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
 	cfg, _ := siteConfigStore.Get(webResourceID(r))
 	cfg.ConnectionStrings = req.Properties
 	siteConfigStore.Put(webResourceID(r), cfg)
+	if slot, ok := webSlots.Get(webResourceID(r)); ok {
+		restartAzureFunctionInstance(slot)
+	}
 	sim.WriteJSON(w, http.StatusOK, AzureSiteConnectionStrings{
 		ID:         webResourceID(r) + "/config/connectionstrings",
 		Name:       "connectionstrings",
@@ -246,7 +253,22 @@ func registerWebSlotCRUD(srv *sim.Server) {
 				SlotSwapStatus:    prev.Properties.SlotSwapStatus,
 			},
 		}
+		connStrings, hasConnStrings, err := siteConfigConnStrings(siteConfig)
+		if err != nil {
+			AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+			return
+		}
+		if existed {
+			slotSite.Properties.State = prev.Properties.State
+		} else {
+			removeSiteHome(slotSite.Name)
+		}
 		webSlots.Put(resourceID, slotSite)
+		if hasConnStrings {
+			cfg, _ := siteConfigStore.Get(resourceID)
+			cfg.ConnectionStrings = connStrings
+			siteConfigStore.Put(resourceID, cfg)
+		}
 		// The slot's workload reads its settings from siteConfig.appSettings,
 		// and the appsettings list reads the settings store.
 		if len(siteConfig.AppSettings) > 0 {
@@ -289,11 +311,11 @@ func registerWebSlotCRUD(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+base+"/slots/{slot}", func(w http.ResponseWriter, r *http.Request) {
 		deleted, existed := webSlots.Get(webResourceID(r))
 		if webSlots.Delete(webResourceID(r)) {
-			stopAzureFunctionInstance(deleted.Name)
-			cleanupSiteContainers(deleted.ID, deleted.Name)
 			if existed {
 				webRecordDeletedSite(webResourceID(r), deleted)
 			}
+			stopAzureFunctionInstance(deleted.Name)
+			cleanupSiteContainers(deleted.ID, deleted.Name)
 			webCleanupSiteResources(webResourceID(r))
 			w.WriteHeader(http.StatusOK)
 			return

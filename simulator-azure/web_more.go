@@ -143,6 +143,7 @@ func registerWebMore(srv *sim.Server) {
 	webFunctionKeys = sim.MakeStore[WebFunctionKeysRow](srv.DB(), "web_function_keys")
 	webBasicPublishingPolicies = sim.MakeStore[WebBasicPublishingPolicy](srv.DB(), "web_basic_publishing_policies")
 	initWebDeployStores(srv)
+	initWebSlotPreviewStore(srv)
 	initWebJobStores(srv)
 	initWebBackupStores(srv)
 
@@ -591,11 +592,13 @@ func registerWebLifecycle(both func(string, string, http.HandlerFunc)) {
 			if webMissing(w, r) {
 				return
 			}
-			if state != "" {
-				store := webResourceStore(r)
-				row, _ := store.Get(webResourceID(r))
-				row.Properties.State = state
-				store.Put(webResourceID(r), row)
+			store := webResourceStore(r)
+			row, _ := store.Get(webResourceID(r))
+			row.Properties.State = state
+			store.Put(webResourceID(r), row)
+			if err := webApplySiteState(row); err != nil {
+				AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+				return
 			}
 			recordWebSiteEvent(webResourceID(r), operation, webEventCauseUser)
 			w.WriteHeader(http.StatusOK)
@@ -617,9 +620,9 @@ func registerWebLifecycle(both func(string, string, http.HandlerFunc)) {
 	})
 
 	registerWebSlotSwap(both)
-	both("POST", "/applySlotConfig", okIfExists)
-	both("POST", "/resetSlotConfig", okIfExists)
-	both("POST", "/slotsdiffs", emptyValueIfExists)
+	both("POST", "/applySlotConfig", webApplySlotConfig)
+	both("POST", "/resetSlotConfig", webResetSlotConfig)
+	both("POST", "/slotsdiffs", webListSlotDifferences)
 
 	// /usages — resource usage quotas (empty for a sim site).
 	both("GET", "/usages", emptyValueIfExists)

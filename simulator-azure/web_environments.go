@@ -1526,6 +1526,12 @@ func aseSetSuspended(suspended bool) http.HandlerFunc {
 		}
 		for _, site := range aseSites(row.ID) {
 			azfSites.Update(site.ID, func(s *Site) { s.Properties.State = state })
+			if current, ok := azfSites.Get(site.ID); ok {
+				if err := webApplySiteState(current); err != nil {
+					AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+					return
+				}
+			}
 			recordWebSiteEvent(site.ID, operation, webEventCausePlatform)
 		}
 		row.Properties.Suspended = boolPtr(suspended)

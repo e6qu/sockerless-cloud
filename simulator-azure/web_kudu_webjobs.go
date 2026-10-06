@@ -69,8 +69,11 @@ func serveKuduWebJobs(w http.ResponseWriter, r *http.Request, site *Site) bool {
 		case http.MethodPut:
 			kuduUploadWebJob(w, r, site, kind, name)
 		case http.MethodDelete:
-			kuduDeleteWebJob(site, kind, name)
-			w.WriteHeader(http.StatusOK)
+			if err := kuduDeleteWebJob(site, kind, name); err != nil {
+				kuduError(w, http.StatusInternalServerError, "%v", err)
+			} else {
+				w.WriteHeader(http.StatusOK)
+			}
 		default:
 			kuduMethod(w, r, http.MethodGet, http.MethodPut, http.MethodDelete)
 		}
@@ -271,11 +274,12 @@ func kuduWebJobSettingsPath(kind, name string) string {
 // a job without one has no settings.
 func kuduWebJobSettings(rec WebJobRecord) map[string]any {
 	settings := map[string]any{}
-	f, ok := webSiteContent.Get(rec.SiteID + "|" + kuduWebJobSettingsPath(rec.JobKind, rec.Name))
-	if ok {
-		if err := json.Unmarshal(f.Data, &settings); err != nil {
-			return map[string]any{}
-		}
+	data, ok, err := webReadSiteFile(rec.SiteID, kuduWebJobSettingsPath(rec.JobKind, rec.Name))
+	if err != nil || !ok {
+		return settings
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return map[string]any{}
 	}
 	return settings
 }
@@ -300,8 +304,11 @@ func kuduPutWebJobSettings(w http.ResponseWriter, r *http.Request, site *Site, k
 		kuduError(w, http.StatusBadRequest, "%v", err)
 		return
 	}
-	p := kuduWebJobSettingsPath(rec.JobKind, rec.Name)
-	webSiteContent.Put(site.ID+"|"+p, WebSiteContentFile{ID: site.ID + "|" + p, Path: p, Mode: 0o644, Data: data, Modified: time.Now().UTC()})
+	files := []archive.File{{Name: "settings.job", Mode: 0o644, Data: data}}
+	if _, err := webWriteSiteContent(site.ID, path.Dir(kuduWebJobSettingsPath(rec.JobKind, rec.Name)), files, webArtifact{}); err != nil {
+		kuduError(w, http.StatusInternalServerError, "%v", err)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -360,8 +367,14 @@ func kuduUploadWebJob(w http.ResponseWriter, r *http.Request, site *Site, kind, 
 		webKillWebJobContainer(id)
 		webWebJobs.Update(id, func(row *WebJobRecord) { row.Status = "Stopped" })
 	}
-	webWriteSiteContent(site.ID, webJobsRoot+kind+"/"+name, files, webArtifact{Clean: true})
-	webDiscoverWebJobs(site.ID)
+	if _, err := webWriteSiteContent(site.ID, webJobsRoot+kind+"/"+name, files, webArtifact{Clean: true}); err != nil {
+		kuduError(w, http.StatusInternalServerError, "%v", err)
+		return
+	}
+	if err := webDiscoverWebJobs(site.ID); err != nil {
+		kuduError(w, http.StatusInternalServerError, "%v", err)
+		return
+	}
 	rec, ok := kuduWebJob(w, site, kind, name)
 	if !ok {
 		return
@@ -371,12 +384,11 @@ func kuduUploadWebJob(w http.ResponseWriter, r *http.Request, site *Site, kind, 
 
 // kuduDeleteWebJob removes a job's files and with them the job; deleting a job
 // that does not exist changes nothing.
-func kuduDeleteWebJob(site *Site, kind, name string) {
-	prefix := site.ID + "|" + webJobsRoot + kind + "/" + name + "/"
-	for _, f := range webSiteContent.Filter(func(f WebSiteContentFile) bool { return strings.HasPrefix(f.ID, prefix) }) {
-		webSiteContent.Delete(f.ID)
+func kuduDeleteWebJob(site *Site, kind, name string) error {
+	if err := webRemoveSiteContent(site.ID, webJobsRoot+kind+"/"+name); err != nil {
+		return err
 	}
-	webDiscoverWebJobs(site.ID)
+	return webDiscoverWebJobs(site.ID)
 }
 
 // kuduRunWebJob starts a run of a triggered job and answers 202 with the
