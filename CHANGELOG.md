@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.9](https://github.com/e6qu/sockerless-cloud/compare/v2.0.8...v2.0.9) (2026-10-06)
+
+
+### Bug Fixes
+
+* **aws:** twenty-third bug sweep across the AWS simulator ([6441b09](https://github.com/e6qu/sockerless-cloud/commit/6441b09e6564e7331474e6894f7d1489c7bfa306))
+
 ## [2.0.8](https://github.com/e6qu/sockerless-cloud/compare/v2.0.7...v2.0.8) (2026-10-06)
 
 
