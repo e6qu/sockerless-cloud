@@ -35,3 +35,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudbilling-v1.discovery.json.gz` | `cloudbilling.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261002` | 2026-10-06T13:40:44Z |
 | `spanner-v1.discovery.json.gz` | `spanner.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260928` | 2026-10-06T13:40:44Z |
 | `vpcaccess-v1.discovery.json.gz` | `vpcaccess.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260930` | 2026-10-06T13:40:44Z |
+| `discovery-v1.discovery.json.gz` | `discovery.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20200806` | 2026-10-06T10:43:37Z |

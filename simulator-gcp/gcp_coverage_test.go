@@ -79,6 +79,7 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"cloudrun-v2":             119,
 	"compute-v1":              2036,
 	"dataflow-v1b3":           114,
+	"discovery-v1":            2,
 	"dns-v1":                  80,
 	"eventarc-v1":             132,
 	"firestore-v1":            120,
@@ -303,6 +304,10 @@ var gcpMethodFloor = map[string]int{
 	// per-resource policy store every other AIP-141 resource uses, behind
 	// the managedZones colon-verb fan-in in dns.go.
 	"dns-v1": 80,
+
+	// Discovery: apis.list and apis.getRest serve the directory of the
+	// documents the simulator embeds.
+	"discovery-v1": 2,
 
 	// Cloud KMS: the two Key Access Justifications reads
 	// (showEffectiveKeyAccessJustificationsPolicyConfig and

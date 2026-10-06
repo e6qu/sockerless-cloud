@@ -63,8 +63,8 @@ Current state of the sockerless-cloud repository.
   set: a Storage Lens configuration's and a Batch Operations job's are kept by
   their own tagging operations, every other type's by TagResource and the
   creates that take tags.
-- **Google Cloud**: 5,583 of 5,583 Discovery method spellings across 30
-  documents reach a route that names them — 5,529 served and 54 answering a
+- **Google Cloud**: 5,585 of 5,585 Discovery method spellings across 31
+  documents reach a route that names them — 5,531 served and 54 answering a
   declared 501; the gRPC surfaces serve 213 of 216 methods, the three unserved
   each needing state the simulator does not hold.
   Every gRPC service is crossed against its REST door.
@@ -246,9 +246,14 @@ Current state of the sockerless-cloud repository.
   answers REST errors with BigQuery's `errors[]` reasons.
 - **Every implemented API serves its Discovery document** at
   `GET /$discovery/rest?version=…` under its own host (regional and mTLS hosts
-  too), byte-identical to the vendored one. A bare address:port answers a
-  version one implemented API publishes and `v2` with BigQuery's, which `bq`
-  builds its client from.
+  too), byte-identical to the vendored one, and without a version the API's
+  default version. A bare address:port answers a version one implemented API
+  publishes and `v2` with BigQuery's, which `bq` builds its client from. The
+  Discovery service's directory, `GET /discovery/v1/apis` and
+  `GET /discovery/v1/apis/{api}/{version}/rest`, serves the real directory's
+  entries for the embedded documents and each document where that host's
+  central path serves it (`simulator-gcp/discovery_directory_vendored.json`).
+  Discovery documents and the directory answer without a credential.
 - **A bucket belongs to a project Cloud Resource Manager holds.**
   `buckets.insert` resolves its project by ID or number, refuses an unknown one
   with `400 Unknown project id`, and stamps the project's own number;
@@ -266,6 +271,23 @@ Current state of the sockerless-cloud repository.
   `service-{number}@gcp-sa-logging…` (settings, CMEK settings and unique writer
   identities) resolve the project by ID or number and refuse one that does not
   exist with the service's own error; build creation refuses it too.
+- **Compute Engine's default service account is an IAM service account** of
+  every project Cloud Resource Manager creates, so Terraform's
+  `google_compute_default_service_account` reads it back, and IAM resolves it
+  through the `-` wildcard by the number its email carries.
+- **The GCE metadata server answers for the workload that asks.** A Compute
+  Engine instance is placed by its private address and a Cloud Run container
+  by its network namespace's address; the server answers the resource's
+  project ID, the number Cloud Resource Manager holds, and the account the
+  resource runs as — the one it names, or the project's Compute Engine
+  default service account. A read from outside every workload is answered for
+  the default project, `sockerless`.
+- **Eventarc and Cloud Build are addressed by host.** Both publish
+  `/v1/projects/{p}/locations/{l}/triggers`; the CLI and SDK harnesses point
+  their endpoint overrides at `eventarc.googleapis.com` and
+  `cloudbuild.googleapis.com` and deliver them to the simulator through an HTTP
+  proxy, so the `Host` decides every request, a list at `locations/global`
+  included.
 - **A Cloud Run service instance starts its containers in `dependsOn`
   order**, as a job task does: the first to start owns the network namespace
   and publishes the ingress port, and each other container starts once those

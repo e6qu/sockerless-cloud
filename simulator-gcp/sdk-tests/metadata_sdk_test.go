@@ -11,6 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// metadataDefaultAccount is the account a metadata read from outside every
+// workload runs as: the Compute Engine default service account of the
+// simulator's default project, sockerless, whose number is 123456789012.
+const metadataDefaultAccount = "123456789012-compute@developer.gserviceaccount.com"
+
 // SDK-driven metadata client tests. Validates our handlers match what
 // cloud.google.com/go/compute/metadata expects (header casing, JSON
 // shape, error semantics). Raw-HTTP coverage lives in metadata_test.go;
@@ -33,15 +38,18 @@ func TestMetadataSDK_ProjectID(t *testing.T) {
 	c := gcpMetadataClient(t)
 	got, err := c.ProjectIDWithContext(context.Background())
 	require.NoError(t, err)
-	assert.NotEmpty(t, got)
+	assert.Equal(t, "sockerless", got)
+
+	number, err := c.NumericProjectIDWithContext(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "123456789012", number, "the number Cloud Resource Manager holds for the project")
 }
 
 func TestMetadataSDK_Email(t *testing.T) {
 	c := gcpMetadataClient(t)
 	got, err := c.EmailWithContext(context.Background(), "default")
 	require.NoError(t, err)
-	assert.Contains(t, got, "iam.gserviceaccount.com",
-		"SDK Email() expects a service-account email shape")
+	assert.Equal(t, metadataDefaultAccount, got)
 }
 
 func TestMetadataSDK_Zone(t *testing.T) {

@@ -12,8 +12,8 @@ import (
 	"cloud.google.com/go/run/apiv2/runpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	cloudbuild "google.golang.org/api/cloudbuild/v1"
 	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
 	locationpb "google.golang.org/genproto/googleapis/cloud/location"
 )
 
@@ -37,10 +37,7 @@ func eventarcCollect[T any](t *testing.T, next func() (T, error), id func(T) str
 
 func eventarcClient(t *testing.T) *eventarc.Client {
 	t.Helper()
-	client, err := eventarc.NewRESTClient(ctx,
-		option.WithEndpoint(baseURL),
-		option.WithTokenSource(simTokenSource()),
-	)
+	client, err := eventarc.NewRESTClient(ctx, serviceHostOptions(eventarcHost)...)
 	require.NoError(t, err)
 	t.Cleanup(func() { client.Close() })
 	return client
@@ -488,4 +485,64 @@ func TestEventarc_LocationsSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "projects/test-project/locations/us-central1", got.GetName())
 	assert.Equal(t, "us-central1", got.GetLocationId())
+}
+
+// Eventarc and Cloud Build both keep triggers at the global location, under
+// one path. Each service's list holds only its own triggers, because each
+// client names its service by host.
+func TestEventarc_GlobalTriggersApartFromCloudBuild(t *testing.T) {
+	const project = "eventarc-global-project"
+	client := eventarcClient(t)
+	parent := "projects/" + project + "/locations/global"
+	name := parent + "/triggers/sdk-global-trigger"
+	eventarcRunService(t, project, "us-central1", "sdk-global-trigger-svc")
+
+	create, err := client.CreateTrigger(ctx, &eventarcpb.CreateTriggerRequest{
+		Parent:    parent,
+		TriggerId: "sdk-global-trigger",
+		Trigger: &eventarcpb.Trigger{
+			EventFilters: []*eventarcpb.EventFilter{
+				{Attribute: "type", Value: "google.cloud.audit.log.v1.written"},
+				{Attribute: "serviceName", Value: "iam.googleapis.com"},
+				{Attribute: "methodName", Value: "google.iam.admin.v1.CreateServiceAccount"},
+			},
+			Destination: &eventarcpb.Destination{
+				Descriptor_: &eventarcpb.Destination_CloudRun{
+					CloudRun: &eventarcpb.CloudRun{Service: "sdk-global-trigger-svc", Region: "us-central1"},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	_, err = create.Wait(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		op, err := client.DeleteTrigger(ctx, &eventarcpb.DeleteTriggerRequest{Name: name})
+		if assert.NoError(t, err, "delete %s", name) {
+			_, err = op.Wait(ctx)
+			assert.NoError(t, err, "await deletion of %s", name)
+		}
+	})
+
+	builds := cloudbuildService(t)
+	build, err := builds.Projects.Locations.Triggers.Create(parent, &cloudbuild.BuildTrigger{
+		Name:            "sdk-global-build-trigger",
+		Filename:        "cloudbuild.yaml",
+		TriggerTemplate: &cloudbuild.RepoSource{RepoName: "sdk-repo", BranchName: "main"},
+	}).Do()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := builds.Projects.Locations.Triggers.Delete(parent + "/triggers/" + build.Id).Do()
+		assert.NoError(t, err)
+	})
+
+	triggers := eventarcCollect(t,
+		client.ListTriggers(ctx, &eventarcpb.ListTriggersRequest{Parent: parent}).Next,
+		(*eventarcpb.Trigger).GetName)
+	assert.Equal(t, []string{name}, triggers)
+
+	listed, err := builds.Projects.Locations.Triggers.List(parent).Do()
+	require.NoError(t, err)
+	require.Len(t, listed.Triggers, 1)
+	assert.Equal(t, build.Id, listed.Triggers[0].Id)
 }

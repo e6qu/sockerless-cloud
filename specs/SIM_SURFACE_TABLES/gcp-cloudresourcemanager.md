@@ -17,22 +17,22 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v1/projects` | ✓ `simulator-gcp/cloudresourcemanager.go:588::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects` | ✓ `simulator-gcp/cloudresourcemanager.go:619::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}` | ✓ `simulator-gcp/cloudresourcemanager.go:651::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /v1/projects/{project}` | ✓ `simulator-gcp/cloudresourcemanager.go:673::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{projectAction}` | ✓ `simulator-gcp/cloudresourcemanager.go:699::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/folders/{folderAction}` | ✓ `simulator-gcp/cloudresourcemanager.go:752::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/organizations/{org}` | ✓ `simulator-gcp/cloudresourcemanager.go:771::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/organizations:search` | ✓ `simulator-gcp/cloudresourcemanager.go:779::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/organizations/{orgAction}` | ✓ `simulator-gcp/cloudresourcemanager.go:805::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/liens` | ✓ `simulator-gcp/cloudresourcemanager.go:827::crmCreateLien` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/liens` | ✓ `simulator-gcp/cloudresourcemanager.go:828::crmListLiens` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/liens/{lien}` | ✓ `simulator-gcp/cloudresourcemanager.go:829::crmGetLien` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/liens/{lien}` | ✓ `simulator-gcp/cloudresourcemanager.go:830::crmDeleteLien` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/operations/{operation}` | ✓ `simulator-gcp/cloudresourcemanager.go:835::crmGetOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v3/operations/{operation}` | ✓ `simulator-gcp/cloudresourcemanager.go:836::crmGetOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/billingInfo` | ✓ `simulator-gcp/cloudresourcemanager.go:843::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects` | ✓ `simulator-gcp/cloudresourcemanager.go:590::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects` | ✓ `simulator-gcp/cloudresourcemanager.go:622::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/projects/{project}` | ✓ `simulator-gcp/cloudresourcemanager.go:654::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /v1/projects/{project}` | ✓ `simulator-gcp/cloudresourcemanager.go:676::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{projectAction}` | ✓ `simulator-gcp/cloudresourcemanager.go:702::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/folders/{folderAction}` | ✓ `simulator-gcp/cloudresourcemanager.go:755::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/organizations/{org}` | ✓ `simulator-gcp/cloudresourcemanager.go:774::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/organizations:search` | ✓ `simulator-gcp/cloudresourcemanager.go:782::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/organizations/{orgAction}` | ✓ `simulator-gcp/cloudresourcemanager.go:808::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/liens` | ✓ `simulator-gcp/cloudresourcemanager.go:830::crmCreateLien` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/liens` | ✓ `simulator-gcp/cloudresourcemanager.go:831::crmListLiens` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/liens/{lien}` | ✓ `simulator-gcp/cloudresourcemanager.go:832::crmGetLien` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/liens/{lien}` | ✓ `simulator-gcp/cloudresourcemanager.go:833::crmDeleteLien` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/operations/{operation}` | ✓ `simulator-gcp/cloudresourcemanager.go:838::crmGetOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v3/operations/{operation}` | ✓ `simulator-gcp/cloudresourcemanager.go:839::crmGetOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/billingInfo` | ✓ `simulator-gcp/cloudresourcemanager.go:846::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

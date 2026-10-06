@@ -179,6 +179,7 @@ func crmCapabilityManagementProject(w http.ResponseWriter, parent, supplied stri
 		Etag:        crmEtag(),
 	}
 	crmProjects.Put(p.ProjectId, p)
+	iamEnsureComputeDefaultServiceAccount(p)
 	return p.Name, true
 }
 

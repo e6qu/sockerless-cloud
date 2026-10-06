@@ -13,7 +13,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|after-sidecar|echo-request|log-request|teapot [MESSAGE]")
+		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|after-sidecar|echo-request|log-request|metadata|teapot [MESSAGE]")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -115,6 +115,31 @@ func main() {
 				return
 			}
 			fmt.Println("CLOUDEVENT " + string(line))
+		})
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "metadata":
+		// Answers each request with the value the metadata server holds at the
+		// request's path under /computeMetadata/v1, read the way a Google client
+		// library reads it: from GCE_METADATA_HOST with Metadata-Flavor: Google.
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			req, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
+				"http://"+os.Getenv("GCE_METADATA_HOST")+"/computeMetadata/v1"+r.URL.Path, nil)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			req.Header.Set("Metadata-Flavor", "Google")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			defer resp.Body.Close()
+			w.WriteHeader(resp.StatusCode)
+			_, _ = io.Copy(w, resp.Body)
 		})
 		if err := http.ListenAndServe(":8080", nil); err != nil {
 			fmt.Fprintln(os.Stderr, err)

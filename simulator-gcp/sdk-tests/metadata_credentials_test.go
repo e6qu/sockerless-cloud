@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/compute/metadata"
+	"cloud.google.com/go/run/apiv2/runpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2/google"
@@ -95,7 +96,7 @@ func TestMetadataSDK_RecursiveDirectoryRead(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(raw), &account), "recursive read must be JSON: %q", raw)
 	assert.Equal(t, []string{"default"}, account.Aliases)
-	assert.Contains(t, account.Email, "iam.gserviceaccount.com")
+	assert.Equal(t, metadataDefaultAccount, account.Email)
 	assert.Contains(t, account.Scopes, "https://www.googleapis.com/auth/cloud-platform")
 	assert.Nil(t, account.Token, "recursive output must omit the minted token leaf")
 
@@ -108,8 +109,8 @@ func TestMetadataSDK_RecursiveDirectoryRead(t *testing.T) {
 		ProjectID        string `json:"projectId"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(rawProject), &project), "recursive read must be JSON: %q", rawProject)
-	assert.NotZero(t, project.NumericProjectID)
-	assert.NotEmpty(t, project.ProjectID)
+	assert.Equal(t, int64(123456789012), project.NumericProjectID)
+	assert.Equal(t, "sockerless", project.ProjectID)
 }
 
 // TestMetadataSDK_UniverseDomain reads /computeMetadata/v1/universe/universe-domain,
@@ -181,4 +182,39 @@ func TestOAuth2_LegacyTokenEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	_, err = svc.Projects.ServiceAccounts.List("projects/test-project").Do()
 	require.NoError(t, err, "a token minted at the legacy endpoint must be accepted by the data plane")
+}
+
+// A Cloud Run container reads its own identity from the metadata server: the
+// project its service runs in, that project's number from Cloud Resource
+// Manager, and the service account the revision runs as — the one it names,
+// or the project's Compute Engine default service account.
+func TestMetadataSDK_CloudRunWorkloadIdentity(t *testing.T) {
+	client := newServicesClient(t)
+	runner := createServiceAccount(t, "test-project", uniqueName("md-runner"))
+	for _, tc := range []struct {
+		prefix  string
+		account string
+		want    string
+	}{
+		{"v2-svc-md-named", runner, runner},
+		{"v2-svc-md-default", "", "735298346210-compute@developer.gserviceaccount.com"},
+	} {
+		svc := createInvokableService(t, client, tc.prefix, &runpb.Service{
+			Template: &runpb.RevisionTemplate{
+				ServiceAccount: tc.account,
+				Containers:     []*runpb.Container{{Image: httpProbeImageName, Args: []string{"metadata"}}},
+			},
+		})
+		token := invokerIDToken(t, svc.Uri)
+		for path, want := range map[string]string{
+			"/project/project-id":                              "test-project",
+			"/project/numeric-project-id":                      "735298346210",
+			"/instance/service-accounts/default/email":         tc.want,
+			"/instance/service-accounts/" + tc.want + "/email": tc.want,
+		} {
+			status, _, body := invokeService(t, token, svc.Uri, http.MethodGet, path, "")
+			require.Equal(t, http.StatusOK, status, "%s %s: %q", tc.prefix, path, body)
+			assert.Equal(t, want, body, "%s %s", tc.prefix, path)
+		}
+	}
 }

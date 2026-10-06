@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/cloudbuild/v1"
-	"google.golang.org/api/option"
 )
 
 // TestCloudBuild_DockerBuild exercises the Cloud Build slice: the GCP simulator
@@ -321,10 +320,7 @@ func httpPOST(t *testing.T, url, body string) string {
 
 func cloudbuildService(t *testing.T) *cloudbuild.Service {
 	t.Helper()
-	svc, err := cloudbuild.NewService(ctx,
-		option.WithEndpoint(baseURL),
-		option.WithTokenSource(simTokenSource()),
-	)
+	svc, err := cloudbuild.NewService(ctx, serviceHostOptions(cloudBuildHost)...)
 	require.NoError(t, err)
 	return svc
 }

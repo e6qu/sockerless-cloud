@@ -275,3 +275,29 @@ func TestCompute_ProjectVerbsResolveThroughResourceManager(t *testing.T) {
 	_, err = svc.Projects.GetXpnResources(absent).Do()
 	notFound("GetXpnResources", err)
 }
+
+// The service account a project's Compute Engine resource names as its default
+// exists in IAM once the project does, under the project and through the -
+// wildcard, which is how terraform-provider-google reads it back.
+func TestCompute_DefaultServiceAccountIsAnIAMServiceAccount(t *testing.T) {
+	const project = "compute-default-sa"
+	number := requireProject(t, project)
+	got, err := computeService(t).Projects.Get(project).Do()
+	require.NoError(t, err)
+	email := got.DefaultServiceAccount
+	require.Equal(t, number+"-compute@developer.gserviceaccount.com", email)
+
+	accounts := iamService(t).Projects.ServiceAccounts
+	for _, name := range []string{"projects/" + project + "/serviceAccounts/" + email, "projects/-/serviceAccounts/" + email} {
+		sa, err := accounts.Get(name).Do()
+		require.NoError(t, err, name)
+		assert.Equal(t, "projects/"+project+"/serviceAccounts/"+email, sa.Name)
+		assert.Equal(t, project, sa.ProjectId)
+		assert.Equal(t, email, sa.Email)
+		assert.Equal(t, "Compute Engine default service account", sa.DisplayName)
+		assert.NotEmpty(t, sa.UniqueId)
+	}
+	listed, err := accounts.List("projects/" + project).Do()
+	require.NoError(t, err)
+	assert.Contains(t, iamAccountNames(listed), "projects/"+project+"/serviceAccounts/"+email)
+}

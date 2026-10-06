@@ -23,6 +23,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
 	"golang.org/x/oauth2"
+	"google.golang.org/api/option"
 )
 
 var (
@@ -220,6 +221,30 @@ func simAuthHTTPClient() *http.Client {
 		ts:   simTokenSource(),
 	}}
 }
+
+// serviceHostOptions points a client at a Google API's own host, the
+// coordinate whose Host header names the service, and delivers its requests to
+// the simulator through an HTTP proxy. Eventarc and Cloud Build both publish
+// `/v1/projects/{p}/locations/{l}/triggers`, and Google tells them apart by
+// host.
+func serviceHostOptions(host string) []option.ClientOption {
+	proxy, err := url.Parse(baseURL)
+	if err != nil {
+		log.Fatalf("parse simulator URL: %v", err)
+	}
+	return []option.ClientOption{
+		option.WithEndpoint("http://" + host),
+		option.WithHTTPClient(&http.Client{Transport: &oauth2.Transport{
+			Source: simTokenSource(),
+			Base:   &http.Transport{Proxy: http.ProxyURL(proxy)},
+		}}),
+	}
+}
+
+const (
+	eventarcHost   = "eventarc.googleapis.com"
+	cloudBuildHost = "cloudbuild.googleapis.com"
+)
 
 type simTokenFetcher struct{ base string }
 

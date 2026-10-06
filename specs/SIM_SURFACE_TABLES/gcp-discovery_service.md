@@ -17,7 +17,9 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /$discovery/rest` | ○ `simulator-gcp/discovery_service.go:111::func` | n/a (not exposed by provider; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /$discovery/rest` | ○ `simulator-gcp/discovery_service.go:179::handleDiscoveryPerHost` | n/a (not exposed by provider; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /discovery/v1/apis` | ✓ `simulator-gcp/discovery_service.go:180::handleDiscoveryAPIsList` | n/a (not exposed by provider; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /discovery/v1/apis/{api}/{version}/rest` | ○ `simulator-gcp/discovery_service.go:181::handleDiscoveryAPIsGetRest` | n/a (not exposed by provider; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

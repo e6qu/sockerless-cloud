@@ -7,16 +7,12 @@ import (
 	cloudbuildv2 "cloud.google.com/go/cloudbuild/apiv1/v2"
 	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/api/option"
 )
 
 // newCloudBuildClient is the Cloud Build Go SDK over its REST transport.
 func newCloudBuildClient(t *testing.T) *cloudbuildv2.Client {
 	t.Helper()
-	client, err := cloudbuildv2.NewRESTClient(ctx,
-		option.WithEndpoint(baseURL),
-		option.WithTokenSource(simTokenSource()),
-	)
+	client, err := cloudbuildv2.NewRESTClient(ctx, serviceHostOptions(cloudBuildHost)...)
 	require.NoError(t, err)
 	t.Cleanup(func() { client.Close() })
 	return client

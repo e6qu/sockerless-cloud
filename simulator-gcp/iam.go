@@ -1574,6 +1574,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 			Etag:        crmEtag(),
 		}
 		projects.Put(p.ProjectId, p)
+		iamEnsureComputeDefaultServiceAccount(p)
 		// The project is gettable and ready when the create returns, since the
 		// operation completes inside the request.
 		sim.WriteJSON(w, http.StatusOK, crmLROWithMetadata(p, typeProject, map[string]any{
@@ -2973,13 +2974,26 @@ func gcpResourceIAMStore() sim.Store[IAMPolicy] { return gcpResourcePolicies }
 
 // gcpProjectFromEmail extracts the project ID from a GCP service account email.
 // When the GCP API receives project="-" (a valid wildcard), the SDK resolves the
-// project from the account email: {accountId}@{project}.iam.gserviceaccount.com.
+// project from the account email: {accountId}@{project}.iam.gserviceaccount.com,
+// or, for Compute Engine's default service account,
+// {projectNumber}-compute@developer.gserviceaccount.com.
 func gcpProjectFromEmail(email string) string {
 	at := strings.LastIndex(email, "@")
 	if at < 0 {
 		return ""
 	}
-	host := email[at+1:]
+	local, host := email[:at], email[at+1:]
+	if host == computeDefaultServiceAccountDomain {
+		number, ok := strings.CutSuffix(local, "-compute")
+		if !ok {
+			return ""
+		}
+		p, found := crmResolveProject(number)
+		if !found {
+			return ""
+		}
+		return p.ProjectId
+	}
 	return strings.TrimSuffix(host, ".iam.gserviceaccount.com")
 }
 

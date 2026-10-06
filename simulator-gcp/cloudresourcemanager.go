@@ -47,7 +47,7 @@ func crmEnsureDefaultProject() {
 		if _, ok := crmProjects.Get(seed.id); ok {
 			continue
 		}
-		crmProjects.Put(seed.id, CRMProject{
+		p := CRMProject{
 			Name:        "projects/" + seed.number,
 			ProjectId:   seed.id,
 			State:       "ACTIVE",
@@ -56,7 +56,9 @@ func crmEnsureDefaultProject() {
 			CreateTime:  nowTimestamp(),
 			UpdateTime:  nowTimestamp(),
 			Etag:        crmEtag(),
-		})
+		}
+		crmProjects.Put(seed.id, p)
+		iamEnsureComputeDefaultServiceAccount(p)
 	}
 }
 
@@ -611,6 +613,7 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 			Etag:        crmEtag(),
 		}
 		crmProjects.Put(p.ProjectId, p)
+		iamEnsureComputeDefaultServiceAccount(p)
 		sim.WriteJSON(w, http.StatusOK, crmV1LRO(p))
 	})
 
