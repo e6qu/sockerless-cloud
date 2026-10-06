@@ -2019,6 +2019,12 @@ versioning state, so PutObject, CopyObject, CompleteMultipartUpload and the
 other services that write objects all version alike, and the payload adoption
 at start keeps the contents every noncurrent version references.
 
+An AWS owned KMS key (RDS, Amplify, CodeBuild, Firehose) gets its material on
+first use through `kmsEnsureKeyMaterial`, which generates under the store's
+lock: a separate check and generate let a Terraform apply's DB cluster and DB
+instance both generate, and the second overwrote the material the first had
+already sealed its master password under.
+
 The S3 Smithy supplement declares GetObject's 206 Partial Content beside its
 200: a ranged read, such as the Terraform `aws_s3_object` data source's, answers
 206, and the trait names only the code an unranged read gets.

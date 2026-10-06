@@ -93,10 +93,8 @@ func firehoseEncryptBufferedRecord(encryption FirehoseEncryption, plaintext []by
 		if !ok {
 			return FirehoseBufferedRecord{}, fmt.Errorf("KMS key %q does not exist", encryption.KeyARN)
 		}
-	} else if _, ok := kmsGetKeyMaterial(keyID); !ok {
-		if _, err := kmsGenerateKeyMaterial(keyID); err != nil {
-			return FirehoseBufferedRecord{}, fmt.Errorf("AWS owned KMS key material could not be generated: %w", err)
-		}
+	} else if err := kmsEnsureKeyMaterial(keyID); err != nil {
+		return FirehoseBufferedRecord{}, fmt.Errorf("AWS owned KMS key material could not be generated: %w", err)
 	}
 	ciphertext, ok := kmsEncryptBytes(keyID, plaintext)
 	if !ok {
