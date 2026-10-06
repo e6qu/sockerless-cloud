@@ -1149,6 +1149,11 @@ jobs:
             tf_timeout: 600s
             tf_run: TestTerraformWebAppSlotApplyDestroy
             timeout_minutes: 12
+          - suite: azure web app key vault references and source control
+            cloud: azure
+            tf_timeout: 600s
+            tf_run: TestTerraformWebAppKeyVaultReferenceAndSourceControl
+            timeout_minutes: 12
     name: tf (${{ matrix.suite }})
     steps:
       - uses: actions/checkout@v7.0.1
@@ -1248,8 +1253,8 @@ jobs:
         # Must exceed the inner go-test deadline (TERRAFORM_TEST_TIMEOUT)
         # plus docker startup so the step never beats the test's own
         # watchdog, while staying inside the repo-wide 15-minute job
-        # ceiling: 12 for the shared stacks and the azure web app slots
-        # shard (inner 600s), 14 for the azure subscription and azure entra
+        # ceiling: 12 for the shared stacks and the two azure web app
+        # shards (inner 600s), 14 for the azure subscription and azure entra
         # shards (inner 780s).
         timeout-minutes: ${{ matrix.timeout_minutes }}
       - name: Spec-shape ratchet (tf)

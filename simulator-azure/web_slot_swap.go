@@ -27,9 +27,11 @@ var webSwapLocks = sim.NewKeyedLocks()
 
 // webSlotSettingsNotSwapped are the siteConfig properties a swap leaves with
 // the slot: scale settings, IP restrictions, Always On, diagnostic log
-// settings, CORS, VNet integration and the TLS settings.
+// settings, CORS, VNet integration, the TLS settings and the kind of the
+// slot's own source control.
 var webSlotSettingsNotSwapped = map[string]bool{
 	"alwaysOn":                               true,
+	"scmType":                                true,
 	"minTlsVersion":                          true,
 	"scmMinTlsVersion":                       true,
 	"minTlsCipherSuite":                      true,
@@ -357,6 +359,7 @@ func webSwapSiteConfig(own, other *SiteConfig) *SiteConfig {
 	out.IPSecurityRestrictionsDefaultAction = own.IPSecurityRestrictionsDefaultAction
 	out.ScmIPSecurityRestrictionsDefaultAction = own.ScmIPSecurityRestrictionsDefaultAction
 	out.FunctionAppScaleLimit = own.FunctionAppScaleLimit
+	out.ScmType = own.ScmType
 	out.Extra = map[string]json.RawMessage{}
 	for k, v := range other.Extra {
 		if !webSlotSettingsNotSwapped[k] {

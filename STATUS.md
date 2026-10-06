@@ -389,6 +389,18 @@ Current state of the sockerless-cloud repository.
   (`SQLAZURECONNSTR_`, `CUSTOMCONNSTR_`, …) and a change restarts the app. A
   stopped app runs no container or webjob and its hostname answers App
   Service's 403 stopped-site page until `WebApps_Start`.
+- **An App Service app reaches Key Vault as its own identity.** A site or
+  slot carries a system-assigned identity and user-assigned identities, and
+  each Key Vault reference in its app settings and connection strings resolves
+  through the identity `keyVaultReferenceIdentity` names when the vault's
+  access policies or Azure RBAC role assignments grant it the secret; the
+  workload sees the secret's value, an unresolved reference reaches it as
+  written, and `configreferences` reports each reference's status and why.
+- **Source control deploys the repository.** Configuring `sourcecontrols/web`
+  and each `WebApps_SyncRepository` fetch the branch's head over HTTP(S) and
+  deploy its tree into wwwroot with KuduSync's semantics, recorded as a Kudu
+  deployment under the commit's ID and author; `siteConfig.scmType` names the
+  repository's kind while source control is configured.
 - **A Cloud Run service is served at its run.app URL**: a request whose Host
   is the service's `uri` host reaches the ingress container once its startup
   probes (the configured `startupProbe`, or Cloud Run's default TCP probe)

@@ -41,6 +41,7 @@ func azureNormalizeRequestPath(r *http.Request) {
 		"/publishingcredentials":              "/publishingcredentials",
 		"/azurestorageaccounts":               "/azurestorageaccounts",
 		"/basicpublishingcredentialspolicies": "/basicpublishingcredentialspolicies",
+		"/sourcecontrols":                     "/sourcecontrols",
 		"/deletedvaults":                      "/deletedVaults",
 		"/deletedworkspaces":                  "/deletedWorkspaces",
 		"/getauthtoken":                       "/getAuthtoken",

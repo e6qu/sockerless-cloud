@@ -379,8 +379,9 @@ func TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth(t *testing.T) {
 	instLog := runCLI(t, azRest("GET", sub("instances/0/extensions/MSDeploy/log"), ""))
 	assert.Contains(t, instLog, "Deployment succeeded")
 
-	// Repository sync + host sync family.
-	runCLI(t, azRest("POST", sub("sync"), ""))
+	// An app with no source control has no repository to sync; the host sync
+	// family runs.
+	assert.Contains(t, runStorageCLIExpectFailure(t, azRest("POST", sub("sync"), "")), "no repository to sync")
 	runCLI(t, azRest("POST", sub("host/default/sync"), ""))
 	runCLI(t, azRest("POST", sub("host/default/listsyncstatus"), ""))
 	runCLI(t, azRest("POST", sub("syncfunctiontriggers"), ""))
