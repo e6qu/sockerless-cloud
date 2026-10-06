@@ -1665,6 +1665,10 @@ without one. A test holds the capture and the embedded documents to the same
 set. The Discovery service's own document declares no auth scopes, and
 Google answers documents and the directory anonymously, so both are exempt
 from the bearer check; the 404 and 400 bodies are the captured ones.
+The Discovery service's `RestDescription` schema predates `mtlsRootUrl` and
+`serviceVersion`, which the served documents carry, so
+`specs/cloud-api/gcp/discovery-v1.supplement.json` declares both and the spec
+validator checks them.
 
 Eventarc and Cloud Build both publish `/v1/projects/{p}/locations/{l}/triggers`.
 Google tells them apart by host, and so does the simulator; the harnesses
