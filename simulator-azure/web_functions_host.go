@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -371,36 +370,28 @@ func siteFunction(site *Site, name string) (FunctionEnvelope, bool) {
 }
 
 // siteContentFunctionConfigs reads <function>/function.json from the site's
-// content: the package WEBSITE_RUN_FROM_PACKAGE names by URL once the site has
-// unpacked it, else what its deployments wrote.
+// wwwroot: the package WEBSITE_RUN_FROM_PACKAGE names by URL once the site has
+// unpacked it there, else what its deployments and its file system wrote.
 func siteContentFunctionConfigs(site *Site) map[string]map[string]any {
 	out := map[string]map[string]any{}
-	add := func(p string, data []byte) {
-		dir, file := path.Split(p)
-		dir = strings.TrimSuffix(dir, "/")
-		if file != "function.json" || dir == "" || strings.Contains(dir, "/") {
-			return
+	root := webWWWRootDir(site.ID)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, e.Name(), "function.json"))
+		if err != nil {
+			continue
 		}
 		// The host loads no function from a function.json it cannot parse.
 		var config map[string]any
 		if json.Unmarshal(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), &config) == nil {
-			out[dir] = config
+			out[e.Name()] = config
 		}
-	}
-	if isPackageURL(strings.TrimSpace(siteAppSettings(site)["WEBSITE_RUN_FROM_PACKAGE"])) {
-		root := filepath.Join(siteHomeDir(site.Name), "site", "wwwroot")
-		entries, _ := os.ReadDir(root) // a site not started yet has no unpacked package
-		for _, e := range entries {
-			data, err := os.ReadFile(filepath.Join(root, e.Name(), "function.json"))
-			if err == nil {
-				add(e.Name()+"/function.json", data)
-			}
-		}
-		return out
-	}
-	prefix := site.ID + "|"
-	for _, f := range webSiteContent.Filter(func(f WebSiteContentFile) bool { return strings.HasPrefix(f.ID, prefix) }) {
-		add(f.Path, f.Data)
 	}
 	return out
 }

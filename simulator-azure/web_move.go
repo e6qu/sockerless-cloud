@@ -54,7 +54,6 @@ func webMoveSiteTree(oldID, newID, targetRG string) {
 	rekeyRowsByPrefix(webMSDeployOps, oldSub, newSub, func(rec *WebMSDeployRecord) *string { return &rec.ID })
 	rekeyRowsByPrefix(webOneDeployOps, oldSub, newSub, func(rec *WebOneDeployRecord) *string { return &rec.ID })
 	rekeyRowsByPrefix(webDeploymentStatuses, oldSub, newSub, func(rec *WebDeploymentStatusRecord) *string { return &rec.ID })
-	rekeyRowsByPrefix(webSiteContent, oldID+"|", newID+"|", func(f *WebSiteContentFile) *string { return &f.ID })
 	rekeyRowsByPrefix(logicWorkflows, oldSub, newSub, func(wf *LogicWorkflow) *string { return &wf.ID })
 	rekeyRowsByPrefix(webConfigSnapshots, oldSub, newSub, func(row *webConfigSnapshotRow) *string {
 		row.SiteID = strings.Replace(row.SiteID, oldID, newID, 1)

@@ -132,13 +132,18 @@ func initWebJobStores(srv *sim.Server) {
 // App_Data/jobs/{triggered,continuous}/<name>/ directories and upserts a
 // WebJobRecord per job found — the discovery the real platform performs after
 // a deployment. Continuous jobs auto-start exactly as the platform does,
-// unless the site carries the real WEBJOBS_STOPPED=1 app setting.
-func webDiscoverWebJobs(resID string) {
+// unless the site carries the real WEBJOBS_STOPPED=1 app setting or is
+// stopped.
+func webDiscoverWebJobs(resID string) error {
 	type found struct{ kind, name, runCmd string }
 	jobs := map[string]found{}
-	prefix := resID + "|"
-	for _, f := range webSiteContent.Filter(func(f WebSiteContentFile) bool { return strings.HasPrefix(f.ID, prefix) }) {
-		rest, ok := strings.CutPrefix(f.Path, webJobsRoot)
+	paths, err := webSiteContentPaths(resID, webJobsRoot)
+	if err != nil {
+		return err
+	}
+	site, _ := webJobSite(resID)
+	for _, p := range paths {
+		rest, ok := strings.CutPrefix(p, webJobsRoot)
 		if !ok {
 			continue
 		}
@@ -197,11 +202,12 @@ func webDiscoverWebJobs(resID string) {
 			}
 			webWebJobs.Put(id, rec)
 		}
-		if j.kind == "continuous" && !webJobsStopped(resID) {
+		if j.kind == "continuous" && !webJobsStopped(resID) && !siteStopped(&site) {
 			rec, _ := webWebJobs.Get(id)
 			webStartContinuousWebJob(rec)
 		}
 	}
+	return nil
 }
 
 // webJobsStopped reports the real WEBJOBS_STOPPED=1 App Service setting, the
@@ -264,9 +270,10 @@ func webKillWebJobContainer(key string) {
 // to bind-mount at the job's real App Service path.
 func materializeWebJobDir(resID, kind, name string) (string, error) {
 	jobPrefix := webJobsRoot + kind + "/" + name + "/"
-	files := webSiteContent.Filter(func(f WebSiteContentFile) bool {
-		return strings.HasPrefix(f.ID, resID+"|") && strings.HasPrefix(f.Path, jobPrefix)
-	})
+	files, err := webReadSiteContent(resID, jobPrefix)
+	if err != nil {
+		return "", err
+	}
 	if len(files) == 0 {
 		return "", fmt.Errorf("no deployed artifact files under %s", jobPrefix)
 	}
@@ -329,7 +336,7 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 		return nil, err
 	}
 	// The real platform exposes the job's identity to the process.
-	env := workloadhost.MergeEnv(siteAppSettings(site), metadataEnv, map[string]string{
+	env := workloadhost.MergeEnv(siteAppSettings(site), siteConnectionStringEnv(site), metadataEnv, map[string]string{
 		"WEBJOBS_NAME": rec.Name,
 		"WEBJOBS_TYPE": rec.JobKind,
 		"WEBJOBS_PATH": jobDir,

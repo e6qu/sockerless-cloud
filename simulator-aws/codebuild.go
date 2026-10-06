@@ -1608,11 +1608,9 @@ func handleCBImportSourceCredentials(w http.ResponseWriter, r *http.Request) {
 		AuthType:   req.AuthType,
 		Resource:   resource,
 	}
-	if _, ok := kmsGetKeyMaterial(cbAWSOwnedKMSKeyID); !ok {
-		if _, err := kmsGenerateKeyMaterial(cbAWSOwnedKMSKeyID); err != nil {
-			cbWriteError(w, "InternalFailure", "AWS owned KMS key material could not be generated")
-			return
-		}
+	if err := kmsEnsureKeyMaterial(cbAWSOwnedKMSKeyID); err != nil {
+		cbWriteError(w, "InternalFailure", "AWS owned KMS key material could not be generated")
+		return
 	}
 	ciphertext, encrypted := kmsEncryptBytes(cbAWSOwnedKMSKeyID, []byte(req.Token))
 	if !encrypted {

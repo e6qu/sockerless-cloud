@@ -213,6 +213,10 @@ func webFireScheduledWebJob(jobID, expr string, scheduled time.Time) {
 		webJobAppendLog(&site, logRel, "SYS INFO", "Skipped the run scheduled for "+scheduled.UTC().Format(time.RFC3339)+": WEBJOBS_STOPPED is 1.")
 		return
 	}
+	if siteStopped(&site) {
+		webJobAppendLog(&site, logRel, "SYS INFO", "Skipped the run scheduled for "+scheduled.UTC().Format(time.RFC3339)+": the site is stopped.")
+		return
+	}
 	if latest, ok := webLatestRun(rec.ID); ok && latest.Status == "Running" {
 		webJobAppendLog(&site, logRel, "SYS INFO", "Skipped the run scheduled for "+scheduled.UTC().Format(time.RFC3339)+": the job is already running.")
 		return

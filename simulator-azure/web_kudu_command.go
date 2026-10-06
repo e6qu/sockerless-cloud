@@ -21,8 +21,8 @@ import (
 // /home mounted and its app settings in the environment — from a directory
 // relative to /home, and answers with what it wrote and its exit code. A
 // command that writes nothing for SCM_COMMAND_IDLE_TIMEOUT seconds is
-// killed. A change the command makes under site/wwwroot lands in the site's
-// deployed content.
+// killed. The command works on the site's persistent /home share, the one the
+// app's containers mount.
 
 // kuduSettingDefaults are the settings Kudu holds before any app setting or
 // SCM settings write names them.
@@ -114,7 +114,12 @@ func kuduCommand(w http.ResponseWriter, r *http.Request, site *Site) {
 		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	env := workloadhost.MergeEnv(siteAppSettings(site), appServicePlatformEnv(site), metadataEnv, map[string]string{"HOME": "/home"})
+	env := workloadhost.MergeEnv(siteAppSettings(site), siteConnectionStringEnv(site), appServicePlatformEnv(site), metadataEnv, map[string]string{"HOME": "/home"})
+	binds := []string{home + ":/home"}
+	if kuduWWWRootReadOnly(site) {
+		wwwroot := filepath.Join(home, "site", "wwwroot")
+		binds = append(binds, wwwroot+":/home/site/wwwroot:ro")
+	}
 	sink := &kuduCommandSink{activity: make(chan struct{}, 1)}
 	handle, err := sim.StartContainerSyncContext(r.Context(), sim.ContainerConfig{
 		Image:        localImage,
@@ -123,7 +128,7 @@ func kuduCommand(w http.ResponseWriter, r *http.Request, site *Site) {
 		Command:      []string{"/bin/sh", "-c", req.Command},
 		Env:          env,
 		WorkingDir:   workdir,
-		Binds:        append([]string{home + ":/home"}, siteAzureStorageBinds(site)...),
+		Binds:        append(binds, siteAzureStorageBinds(site)...),
 		Name:         fmt.Sprintf("sockerless-sim-azure-kudu-command-%s-%s", siteStorageName(site.Name), randomSuffix(6)),
 		Labels: map[string]string{
 			"sockerless-sim-type": "azure-kudu-command",
@@ -163,11 +168,9 @@ wait:
 			return
 		}
 	}
-	if deployed, readOnly := kuduWWWRootState(site); deployed && !readOnly {
-		if err := captureDeployedContent(site.ID, filepath.Join(home, "site", "wwwroot")); err != nil {
-			kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
+	if err := webDiscoverWebJobs(site.ID); err != nil {
+		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	if timedOut {
 		kuduWebAPIError(w, http.StatusInternalServerError, fmt.Sprintf(

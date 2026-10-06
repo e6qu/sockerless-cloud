@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net"
@@ -386,7 +387,24 @@ func registerAzureFunctions(srv *sim.Server) {
 
 		prev, existed := sites.Get(resourceID)
 		site.Properties.SlotSwapStatus = prev.Properties.SlotSwapStatus
+		connStrings, hasConnStrings, err := siteConfigConnStrings(siteConfig)
+		if err != nil {
+			AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+			return
+		}
+		if existed {
+			// state is read-only: an update leaves a stopped app stopped.
+			site.Properties.State = prev.Properties.State
+		} else {
+			// A new app starts on an empty /home.
+			removeSiteHome(name)
+		}
 		sites.Put(resourceID, site)
+		if hasConnStrings {
+			cfg, _ := siteConfigStore.Get(resourceID)
+			cfg.ConnectionStrings = connStrings
+			siteConfigStore.Put(resourceID, cfg)
+		}
 		// Real Azure provisions the Functions host key set (master key +
 		// "default" host function key) with the new site.
 		ensureWebHostKeys(resourceID)
@@ -479,13 +497,13 @@ func registerAzureFunctions(srv *sim.Server) {
 
 		deleted, existed := sites.Get(resourceID)
 		if sites.Delete(resourceID) {
-			stopAzureFunctionInstance(name)
-			cleanupSiteContainers(resourceID, name)
 			if existed {
 				// Retain the app so RestoreFromDeletedApp and the deletedSites
 				// reads can reach it, before its content is cleaned up.
 				webRecordDeletedSite(resourceID, deleted)
 			}
+			stopAzureFunctionInstance(name)
+			cleanupSiteContainers(resourceID, name)
 			webCleanupSiteResources(resourceID)
 			// Clean up associated functions
 			funcs := functionConfigs.Filter(func(f FunctionEnvelope) bool {
@@ -905,9 +923,18 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
+		if err := webValidateConnStrings(req.Properties); err != nil {
+			AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+			return
+		}
 		cfg, _ := siteConfigStore.Get(resourceID)
 		cfg.ConnectionStrings = req.Properties
 		siteConfigStore.Put(resourceID, cfg)
+		// The workload reads its connection strings from its environment, so
+		// a change restarts it.
+		if site, ok := sites.Get(resourceID); ok {
+			restartAzureFunctionInstance(site)
+		}
 		sim.WriteJSON(w, http.StatusOK, AzureSiteConnectionStrings{
 			ID:         resourceID + "/config/connectionstrings",
 			Name:       "connectionstrings",
@@ -1210,9 +1237,16 @@ func siteStartTimeLimit(site *Site) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
+// errSiteStopped refuses to start a stopped site's container.
+var errSiteStopped = errors.New("the site is stopped")
+
 // ensureStarted starts the site's container if none is running, and attaches
-// a running one to the site's VNet-integration networks. Caller holds inst.mu.
+// a running one to the site's VNet-integration networks; a stopped site runs
+// nothing. Caller holds inst.mu.
 func (inst *azureFunctionInstance) ensureStarted(site *Site) error {
+	if current, ok := webJobSite(site.ID); ok && siteStopped(&current) {
+		return errSiteStopped
+	}
 	if inst.containerID != "" {
 		select {
 		case <-inst.exited:
@@ -1325,6 +1359,15 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		// Azure Files share, so every container that mounts it sees the same
 		// workspace.
 		binds = siteAzureStorageBinds(site)
+		// A custom container mounts the site's persistent /home only when
+		// WEBSITES_ENABLE_APP_SERVICE_STORAGE is true.
+		if strings.EqualFold(strings.TrimSpace(siteAppSettings(site)["WEBSITES_ENABLE_APP_SERVICE_STORAGE"]), "true") {
+			home, err := prepareSiteHome(site)
+			if err != nil {
+				return err
+			}
+			binds = append(home, binds...)
+		}
 	}
 	if image == "" {
 		return siteImageMissing(site)
@@ -1346,7 +1389,8 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	if err != nil {
 		return err
 	}
-	env := workloadhost.MergeEnv(siteAppSettings(site), appServicePlatformEnv(site), map[string]string{"PORT": strconv.Itoa(port)}, metadataEnv, containerEnv)
+	env := workloadhost.MergeEnv(siteAppSettings(site), siteConnectionStringEnv(site), appServicePlatformEnv(site),
+		map[string]string{"PORT": strconv.Itoa(port)}, metadataEnv, containerEnv)
 	sink := newFuncLogSink(site)
 
 	containerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{
@@ -1497,7 +1541,7 @@ func restartAzureFunctionInstance(site Site) {
 // the platform does once the site is created or changed; a start that fails is
 // recorded in the site's log, and the next request retries it.
 func startAlwaysOnSite(site Site) {
-	if !siteAlwaysOn(&site) || !siteRunsContainer(&site) {
+	if !siteAlwaysOn(&site) || !siteRunsContainer(&site) || siteStopped(&site) {
 		return
 	}
 	go func() {
@@ -1506,7 +1550,7 @@ func startAlwaysOnSite(site Site) {
 		defer inst.mu.Unlock()
 		// The site may have been deleted or changed while the start waited.
 		current, ok := webJobSite(site.ID)
-		if !ok || !siteAlwaysOn(&current) || !siteRunsContainer(&current) {
+		if !ok || !siteAlwaysOn(&current) || !siteRunsContainer(&current) || siteStopped(&current) {
 			return
 		}
 		if err := inst.ensureStarted(&current); err != nil {
@@ -1585,4 +1629,93 @@ func siteAppSettings(site *Site) map[string]string {
 		out[s.Name] = s.Value
 	}
 	return out
+}
+
+// webConnStringEnvPrefixes are the environment-variable prefixes App Service
+// exposes a connection string under, by its type.
+var webConnStringEnvPrefixes = map[string]string{
+	"mysql":           "MYSQLCONNSTR_",
+	"sqlserver":       "SQLCONNSTR_",
+	"sqlazure":        "SQLAZURECONNSTR_",
+	"custom":          "CUSTOMCONNSTR_",
+	"notificationhub": "NOTIFICATIONHUBCONNSTR_",
+	"servicebus":      "SERVICEBUSCONNSTR_",
+	"eventhub":        "EVENTHUBCONNSTR_",
+	"apihub":          "APIHUBCONNSTR_",
+	"docdb":           "DOCDBCONNSTR_",
+	"rediscache":      "REDISCACHECONNSTR_",
+	"postgresql":      "POSTGRESQLCONNSTR_",
+}
+
+// webConnStringType is the ConnectionStringType a request names, spelled as
+// the enum spells it, and whether it is one.
+func webConnStringType(t string) (string, bool) {
+	for _, name := range []string{"MySql", "SQLServer", "SQLAzure", "Custom", "NotificationHub", "ServiceBus",
+		"EventHub", "ApiHub", "DocDb", "RedisCache", "PostgreSQL"} {
+		if strings.EqualFold(t, name) {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// webValidateConnStrings normalizes each connection string's type to the
+// enum's spelling and refuses one that names no ConnectionStringType.
+func webValidateConnStrings(props map[string]AzureSiteConnStringValue) error {
+	for name, v := range props {
+		t, ok := webConnStringType(v.Type)
+		if !ok {
+			return fmt.Errorf("connection string %q has type %q, which is not one of MySql, SQLServer, SQLAzure, Custom, NotificationHub, ServiceBus, EventHub, ApiHub, DocDb, RedisCache or PostgreSQL", name, v.Type)
+		}
+		v.Type = t
+		props[name] = v
+	}
+	return nil
+}
+
+// siteConnectionStringEnv is the environment App Service gives a site's
+// workload for its connection strings: each under its type's prefix.
+func siteConnectionStringEnv(site *Site) map[string]string {
+	out := map[string]string{}
+	if site == nil {
+		return out
+	}
+	cfg, _ := siteConfigStore.Get(site.ID)
+	for name, v := range cfg.ConnectionStrings {
+		if prefix, ok := webConnStringEnvPrefixes[strings.ToLower(v.Type)]; ok {
+			out[prefix+name] = v.Value
+		}
+	}
+	return out
+}
+
+// siteStopped reports whether the site is stopped: App Service runs nothing
+// for it and its front end answers with the stopped-site page.
+func siteStopped(site *Site) bool {
+	return site != nil && strings.EqualFold(site.Properties.State, "Stopped")
+}
+
+// siteConfigConnStrings reads the connectionStrings a site PUT's siteConfig
+// carries, which replace the site's connection strings when present.
+func siteConfigConnStrings(cfg *SiteConfig) (map[string]AzureSiteConnStringValue, bool, error) {
+	raw, ok := cfg.Extra["connectionStrings"]
+	if !ok || string(raw) == "null" {
+		return nil, false, nil
+	}
+	var list []struct {
+		Name             string `json:"name"`
+		ConnectionString string `json:"connectionString"`
+		Type             string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, false, fmt.Errorf("siteConfig.connectionStrings: %w", err)
+	}
+	out := make(map[string]AzureSiteConnStringValue, len(list))
+	for _, c := range list {
+		out[c.Name] = AzureSiteConnStringValue{Value: c.ConnectionString, Type: c.Type}
+	}
+	if err := webValidateConnStrings(out); err != nil {
+		return nil, false, err
+	}
+	return out, true, nil
 }

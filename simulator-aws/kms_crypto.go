@@ -177,6 +177,23 @@ func kmsGenerateKeyMaterial(keyId string) ([]byte, error) {
 	return material, nil
 }
 
+// kmsEnsureKeyMaterial gives an AWS owned key its material on first use. It
+// generates under the store's lock, so two first callers seal under one key
+// instead of the second overwriting the material the first already used.
+func kmsEnsureKeyMaterial(keyId string) error {
+	var err error
+	kmsKeyMaterial.Upsert(keyId, func(material *[]byte) {
+		if len(*material) > 0 {
+			return
+		}
+		generated := make([]byte, kmsKeyMaterialLen)
+		if _, err = io.ReadFull(rand.Reader, generated); err == nil {
+			*material = generated
+		}
+	})
+	return err
+}
+
 // kmsGetKeyMaterial returns the persisted AES key for a CMK.
 func kmsGetKeyMaterial(keyId string) ([]byte, bool) {
 	return kmsKeyMaterial.Get(keyId)

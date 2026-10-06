@@ -505,7 +505,12 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 			}
 		}
 		if !req.Properties.Overwrite {
-			if len(webSiteContentFiles(resID)) > 0 {
+			hasContent, err := webSiteHasContent(resID)
+			if err != nil {
+				AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if hasContent {
 				AzureError(w, "Conflict",
 					"The target app already has content; set overwrite to true to replace it.",
 					http.StatusConflict)
@@ -519,7 +524,9 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		recoverConfig := req.Properties.RecoverConfiguration
 		webIssueRestore(w, r, resID, func() *AsyncOperationError {
-			webReplaceSiteContent(resID, files)
+			if err := webReplaceSiteContent(resID, files); err != nil {
+				return &AsyncOperationError{Code: "InternalServerError", Message: err.Error()}
+			}
 			if recoverConfig && chosen.Config != nil {
 				store := webSiteStoreFor(resID)
 				site, ok := store.Get(resID)
@@ -562,7 +569,9 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		resID := webResourceID(r)
 		recoverConfig := req.Properties.RecoverConfiguration
 		webIssueRestore(w, r, resID, func() *AsyncOperationError {
-			webReplaceSiteContent(resID, files)
+			if err := webReplaceSiteContent(resID, files); err != nil {
+				return &AsyncOperationError{Code: "InternalServerError", Message: err.Error()}
+			}
 			if recoverConfig && deleted.Config != nil {
 				store := webSiteStoreFor(resID)
 				if site, ok := store.Get(resID); ok {
@@ -623,7 +632,12 @@ func webRestoreFromBlob(w http.ResponseWriter, r *http.Request, storageURL, blob
 	}
 	resID := webResourceID(r)
 	// "true is needed if trying to restore over an existing app."
-	if !req.Properties.Overwrite && len(webSiteContentFiles(resID)) > 0 {
+	hasContent, err := webSiteHasContent(resID)
+	if err != nil {
+		AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !req.Properties.Overwrite && hasContent {
 		AzureError(w, "Conflict",
 			"The target app already has content; set overwrite to true to restore over it.",
 			http.StatusConflict)
@@ -640,7 +654,9 @@ func webRestoreFromBlob(w http.ResponseWriter, r *http.Request, storageURL, blob
 	}
 	ignoreHostNames := req.Properties.IgnoreConflictingHostNames
 	webIssueRestore(w, r, resID, func() *AsyncOperationError {
-		webReplaceSiteContent(resID, files)
+		if err := webReplaceSiteContent(resID, files); err != nil {
+			return &AsyncOperationError{Code: "InternalServerError", Message: err.Error()}
+		}
 		if !ignoreHostNames {
 			webApplyManifestHostNames(resID, hostNames)
 		}

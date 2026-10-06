@@ -138,10 +138,8 @@ func rdsEngine(engine string) (dbengine.Engine, bool) {
 // rdsSealMasterPassword encrypts a master-user password under the AWS owned
 // RDS key.
 func rdsSealMasterPassword(password string) ([]byte, error) {
-	if _, ok := kmsGetKeyMaterial(rdsAWSOwnedKMSKeyID); !ok {
-		if _, err := kmsGenerateKeyMaterial(rdsAWSOwnedKMSKeyID); err != nil {
-			return nil, fmt.Errorf("generate AWS owned RDS key: %w", err)
-		}
+	if err := kmsEnsureKeyMaterial(rdsAWSOwnedKMSKeyID); err != nil {
+		return nil, fmt.Errorf("generate AWS owned RDS key: %w", err)
 	}
 	ciphertext, ok := kmsEncryptBytes(rdsAWSOwnedKMSKeyID, []byte(password))
 	if !ok {

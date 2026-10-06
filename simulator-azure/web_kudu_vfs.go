@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -21,8 +20,9 @@ import (
 // reads, writes and deletes files and directories under the site's /home,
 // the storage its containers mount. A directory is addressed with a trailing
 // slash and reads as a JSON listing; a file reads as its content with an ETag
-// a write or delete must match through If-Match. site/wwwroot is the site's
-// deployed content, so a change there lands in it as a deployment's would.
+// a write or delete must match through If-Match. /home is the persistent
+// share the site's containers mount, so the VFS and the running app see the
+// same files.
 
 // kuduVFSMaxUpload bounds one file written through the VFS.
 const kuduVFSMaxUpload = webSiteContentLimit
@@ -54,17 +54,11 @@ func kuduVFSBaseURL(r *http.Request) string {
 	return azureRequestScheme(r) + "://" + r.Host + prefix
 }
 
-// kuduWWWRootState says how a site's wwwroot behaves: whether the deployed
-// content backs it, and whether it is read-only (a run-from-package app).
-func kuduWWWRootState(site *Site) (deployed, readOnly bool) {
-	pkg := strings.TrimSpace(siteAppSettings(site)["WEBSITE_RUN_FROM_PACKAGE"])
-	switch {
-	case isPackageURL(pkg):
-		return false, true
-	case webSiteRunsFromDeployedPackage(site):
-		return true, true
-	}
-	return true, false
+// kuduWWWRootReadOnly reports whether a site's wwwroot is read-only: a
+// run-from-package app's.
+func kuduWWWRootReadOnly(site *Site) bool {
+	return isPackageURL(strings.TrimSpace(siteAppSettings(site)["WEBSITE_RUN_FROM_PACKAGE"])) ||
+		webSiteRunsFromDeployedPackage(site)
 }
 
 // kuduInWWWRoot reports whether a /home-relative path lies in site/wwwroot.
@@ -72,19 +66,9 @@ func kuduInWWWRoot(rel string) bool {
 	return rel == "site/wwwroot" || strings.HasPrefix(rel, "site/wwwroot/")
 }
 
-// kuduOpenHome lays out the site's /home with its deployed content in
-// site/wwwroot and returns its host directory.
+// kuduOpenHome lays out the site's /home and returns its host directory.
 func kuduOpenHome(site *Site) (string, error) {
-	home, err := ensureSiteHome(site)
-	if err != nil {
-		return "", err
-	}
-	if deployed, _ := kuduWWWRootState(site); deployed {
-		if err := syncDeployedContent(site.ID, filepath.Join(home, "site", "wwwroot")); err != nil {
-			return "", err
-		}
-	}
-	return home, nil
+	return ensureSiteHome(site.Name)
 }
 
 // kuduEtag is the ETag Kudu derives from a file's last write time: the .NET
@@ -134,7 +118,7 @@ func serveKuduVFS(w http.ResponseWriter, r *http.Request, site *Site, rel string
 		if kuduVFSRefuseReadOnly(w, site, rel) {
 			return
 		}
-		commit := kuduVFSCommit(site, home, rel)
+		commit := kuduVFSCommit(site, rel)
 		if dir {
 			kuduVFSPutDir(w, root, name, commit)
 		} else {
@@ -148,7 +132,7 @@ func serveKuduVFS(w http.ResponseWriter, r *http.Request, site *Site, rel string
 			kuduWebAPIError(w, http.StatusConflict, fmt.Sprintf("Cannot delete directory '/home/%s'.", rel))
 			return
 		}
-		kuduVFSDelete(w, r, root, name, dir, kuduVFSCommit(site, home, rel))
+		kuduVFSDelete(w, r, root, name, dir, kuduVFSCommit(site, rel))
 	default:
 		kuduMethod(w, r, http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete)
 	}
@@ -157,7 +141,7 @@ func serveKuduVFS(w http.ResponseWriter, r *http.Request, site *Site, rel string
 // kuduVFSRefuseReadOnly refuses a write to the wwwroot of a run-from-package
 // app, which the platform mounts read-only.
 func kuduVFSRefuseReadOnly(w http.ResponseWriter, site *Site, rel string) bool {
-	if _, readOnly := kuduWWWRootState(site); readOnly && kuduInWWWRoot(rel) {
+	if kuduWWWRootReadOnly(site) && kuduInWWWRoot(rel) {
 		kuduWebAPIError(w, http.StatusConflict,
 			"'/home/site/wwwroot' is read-only because the app runs from a package (WEBSITE_RUN_FROM_PACKAGE).")
 		return true
@@ -166,13 +150,14 @@ func kuduVFSRefuseReadOnly(w http.ResponseWriter, site *Site, rel string) bool {
 }
 
 // kuduVFSCommit is what a change to the file system does once it is on disk:
-// a change under site/wwwroot lands in the site's deployed content.
-func kuduVFSCommit(site *Site, home, rel string) func() error {
+// a change under site/wwwroot rediscovers the site's webjobs, as Kudu's
+// watcher on App_Data/jobs does.
+func kuduVFSCommit(site *Site, rel string) func() error {
 	return func() error {
 		if !kuduInWWWRoot(rel) {
 			return nil
 		}
-		return captureDeployedContent(site.ID, filepath.Join(home, "site", "wwwroot"))
+		return webDiscoverWebJobs(site.ID)
 	}
 }
 

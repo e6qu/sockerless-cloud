@@ -1006,12 +1006,10 @@ spelling Kudu's job log URLs use) reads, writes and deletes under the site's
 lists as JSON entries with `href` and `path`; a directory or file addressed in
 the other spelling redirects with 307; a file carries an ETag derived from its
 write time, and overwriting or deleting one takes `If-Match`; a directory
-deletes only empty or with `recursive=true`. The deployed content stays the
-authority for `site/wwwroot`: the simulator projects it onto the site's `/home`
-before a VFS or command request — keeping directories and each file's write
-time — and lands what the request changed there back in the content, so a job
-written through the VFS is discovered as a deployed one would be. A
-run-from-package app's wwwroot refuses writes. `/api/command` runs `sh -c` in
+deletes only empty or with `recursive=true`. A change under `site/wwwroot`
+rediscovers the site's webjobs, so a job written through the VFS is
+discovered as a deployed one would be. A run-from-package app's wwwroot
+refuses writes. `/api/command` runs `sh -c` in
 the site's image with `/home` mounted, the app settings in its environment and
 the requested directory as its working directory, answers `Output`, `Error`
 and `ExitCode`, and kills a command that writes nothing for
@@ -1061,6 +1059,48 @@ slots then report the swap in `slotSwapStatus`, which
 terraform-provider-azurerm's `azurerm_web_app_active_slot` waits on. The CLI
 and Terraform suites pull an App Service platform image only when the run
 selects a test that runs it.
+
+The deployed content had been a store of its own that the simulator projected
+onto a site's `/home` at each start and before each Kudu request, which
+deleted every file the running app had written to `site/wwwroot`. App Service
+keeps `/home` as one persistent share the app, Kudu and every instance mount,
+so the share became the content: a deployment writes into it with KuduSync's
+manifest semantics and leaves the files no deployment wrote, a restore
+replaces it and restarts the app, a swap exchanges the two slots' shares, and
+backups, snapshots, webjob discovery and the Functions host's function list
+read it. A new app or slot starts on an empty share, and an app's deletion
+retains its content for `restoreFromDeletedApp` before the share goes. A
+custom container mounts the share when `WEBSITES_ENABLE_APP_SERVICE_STORAGE` is
+true, as App Service mounts it.
+
+Connection strings had been stored, listed and swapped without reaching the
+workload. Each one now enters the container's environment — and a webjob's and
+the Kudu command's — under the prefix App Service gives its type
+(`MYSQLCONNSTR_`, `SQLCONNSTR_`, `SQLAZURECONNSTR_`, `CUSTOMCONNSTR_`,
+`NOTIFICATIONHUBCONNSTR_`, `SERVICEBUSCONNSTR_`, `EVENTHUBCONNSTR_`,
+`APIHUBCONNSTR_`, `DOCDBCONNSTR_`, `REDISCACHECONNSTR_`, `POSTGRESQLCONNSTR_`);
+a write names a `ConnectionStringType` or is refused, a site PUT's
+`siteConfig.connectionStrings` sets them, and a change restarts the app or
+slot.
+
+`WebApps_Stop` had only recorded `state: Stopped`. A stopped app or slot now
+runs nothing: the stop tears its container down and stops its webjobs, nothing
+starts it again — a request, Always On, a swap's warm-up, a deployment, a
+webjob schedule — and its hostname answers App Service's 403 stopped-site page.
+`WebApps_Start`, and an App Service Environment's resume, start it again, and
+an update leaves a stopped app stopped, since `state` is read-only.
+
+Swap with preview and the slot differences read had answered 200 and an empty
+list. `applySlotConfig` now gives the slot it addresses the target slot's
+sticky app settings and connection strings, keeps its own swappable ones,
+restarts it and waits for it to answer, reverting it when it does not;
+`resetSlotConfig` on either slot of the pair restores the source's own
+settings; the swap between the same two slots completes the preview from the
+source's own settings, and a swap of any other pair is refused while a preview
+is pending. `slotsdiffs` lists each app setting, connection string and
+general setting the two slots hold differently, with both values: a swappable
+one as `SettingsWillBeSwapped` at level `Information`, a slot setting as
+`SettingsWillNotBeSwapped` at level `Warning`.
 
 RunTask places a task only where it fits. The simulator runs real containers on
 one finite host, so rather than invent a capacity it commits each placed task's
@@ -1978,6 +2018,12 @@ brings it back. The single write path (`s3StoreObject`) applies the bucket's
 versioning state, so PutObject, CopyObject, CompleteMultipartUpload and the
 other services that write objects all version alike, and the payload adoption
 at start keeps the contents every noncurrent version references.
+
+An AWS owned KMS key (RDS, Amplify, CodeBuild, Firehose) gets its material on
+first use through `kmsEnsureKeyMaterial`, which generates under the store's
+lock: a separate check and generate let a Terraform apply's DB cluster and DB
+instance both generate, and the second overwrote the material the first had
+already sealed its master password under.
 
 The S3 Smithy supplement declares GetObject's 206 Partial Content beside its
 200: a ranged read, such as the Terraform `aws_s3_object` data source's, answers

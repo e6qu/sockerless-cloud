@@ -800,10 +800,8 @@ func amplifySetRepositoryConnection(appID, repository, accessToken, oauthToken s
 	if repository == "" {
 		return fmt.Errorf("repository is required when a repository credential is supplied")
 	}
-	if _, ok := kmsGetKeyMaterial(amplifyAWSOwnedKMSKeyID); !ok {
-		if _, err := kmsGenerateKeyMaterial(amplifyAWSOwnedKMSKeyID); err != nil {
-			return fmt.Errorf("AWS owned KMS key material could not be generated: %w", err)
-		}
+	if err := kmsEnsureKeyMaterial(amplifyAWSOwnedKMSKeyID); err != nil {
+		return fmt.Errorf("AWS owned KMS key material could not be generated: %w", err)
 	}
 	ciphertext, ok := kmsEncryptBytes(amplifyAWSOwnedKMSKeyID, []byte(token))
 	if !ok {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -19,14 +20,18 @@ import (
 // app's or slot's own container on its port, verbatim, after the container is
 // started if none is running. The simulator serves every site on its one
 // endpoint, so it dispatches on the Host header, as Container Apps ingress
-// does. A site the simulator has
-// nothing to run for answers 503 naming what it lacks.
+// does. A stopped site answers App Service's stopped-site page, and a site the
+// simulator has nothing to run for answers 503 naming what it lacks.
 func registerAppServiceFrontEnd(srv *sim.Server) {
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			site, ok := appServiceSiteByHost(r.Host)
 			if !ok {
 				next.ServeHTTP(w, r)
+				return
+			}
+			if siteStopped(&site) {
+				writeStoppedSitePage(w)
 				return
 			}
 			if !siteRunsContainer(&site) {
@@ -86,6 +91,10 @@ func serveSiteRequest(w http.ResponseWriter, r *http.Request, site *Site) {
 	}
 	sim.DeclareWait(r.Context(), azureFunctionsHTTPRequestLimit)
 	address, err := siteContainerAddress(r.Context(), site)
+	if errors.Is(err, errSiteStopped) {
+		writeStoppedSitePage(w)
+		return
+	}
 	if err != nil {
 		AzureErrorf(w, "ServiceUnavailable", http.StatusServiceUnavailable, "%v", err)
 		return
@@ -220,4 +229,45 @@ func appServiceWarmupPing(ctx context.Context, candidates []string) (string, err
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+}
+
+// stoppedSitePage is the page App Service's front end answers a stopped app's
+// hostname with.
+const stoppedSitePage = `<!DOCTYPE html>
+<html>
+<head>
+<title>Web App - Unavailable</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+</head>
+<body>
+<h1>Error 403 - This web app is stopped.</h1>
+<p>The web app you have attempted to reach is currently stopped and does not accept any requests. Please try to reload the page or visit it again soon.</p>
+<p>If you are the web app administrator, please find the common 403 error scenarios and resolution <a href="https://go.microsoft.com/fwlink/?linkid=2095007" target="_blank">here</a>. For further troubleshooting tools and recommendations, please visit <a href="https://portal.azure.com/" target="_blank">Azure Portal</a>.</p>
+</body>
+</html>
+`
+
+func writeStoppedSitePage(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = io.WriteString(w, stoppedSitePage)
+}
+
+// webApplySiteState makes what runs for a site match its state: a stopped
+// site's container and webjobs stop; a started site's continuous webjobs
+// start, and its container too when it is Always On.
+func webApplySiteState(site Site) error {
+	if siteStopped(&site) {
+		inst := azfInstanceFor(site.Name)
+		inst.mu.Lock()
+		inst.teardownLocked()
+		inst.mu.Unlock()
+		webStopSiteWebJobs(site.ID)
+		return nil
+	}
+	if err := webDiscoverWebJobs(site.ID); err != nil {
+		return err
+	}
+	startAlwaysOnSite(site)
+	return nil
 }

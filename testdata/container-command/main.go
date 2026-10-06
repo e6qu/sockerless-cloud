@@ -7,13 +7,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: container-command hold|http|serve|relay-http|probe-http|log|log-until|print|resolve|sleep|stdin-echo")
+		fmt.Fprintln(os.Stderr, "usage: container-command hold|http|serve|files-http|relay-http|probe-http|log|log-until|print|resolve|sleep|stdin-echo")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -63,6 +64,61 @@ func main() {
 			_, _ = io.WriteString(w, os.Args[3])
 		})
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), handler); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "files-http":
+		// An HTTP server over its environment and a directory: GET /env/NAME
+		// answers the variable's value (404 when unset), PUT /files/PATH
+		// writes the body to ROOT/PATH, and GET /files/PATH answers the file.
+		if len(os.Args) != 4 {
+			fmt.Fprintln(os.Stderr, "usage: container-command files-http PORT ROOT")
+			os.Exit(2)
+		}
+		port, err := strconv.Atoi(os.Args[2])
+		if err != nil || port < 1 || port > 65535 {
+			fmt.Fprintf(os.Stderr, "invalid HTTP port %q\n", os.Args[2])
+			os.Exit(2)
+		}
+		root := os.Args[3]
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /env/{name}", func(w http.ResponseWriter, r *http.Request) {
+			value, ok := os.LookupEnv(r.PathValue("name"))
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = io.WriteString(w, value)
+		})
+		mux.HandleFunc("GET /files/{path...}", func(w http.ResponseWriter, r *http.Request) {
+			data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(r.PathValue("path"))))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			_, _ = w.Write(data)
+		})
+		mux.HandleFunc("PUT /files/{path...}", func(w http.ResponseWriter, r *http.Request) {
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			name := filepath.Join(root, filepath.FromSlash(r.PathValue("path")))
+			if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if err := os.WriteFile(name, data, 0o644); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+		})
+		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, "files-http")
+		})
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), mux); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
