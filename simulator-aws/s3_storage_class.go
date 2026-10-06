@@ -67,8 +67,8 @@ func (o S3Object) restoreExpiry() time.Time {
 }
 
 // s3SetObjectStateHeaders writes the headers GetObject and HeadObject share:
-// x-amz-storage-class for every class but STANDARD, and x-amz-restore once a
-// restore has been requested.
+// x-amz-storage-class for every class but STANDARD, x-amz-restore once a
+// restore has been requested, and the version's Object Lock settings.
 func s3SetObjectStateHeaders(w http.ResponseWriter, obj S3Object) {
 	if class := obj.storageClassOf(); class != "STANDARD" {
 		w.Header().Set("x-amz-storage-class", class)
@@ -82,6 +82,7 @@ func s3SetObjectStateHeaders(w http.ResponseWriter, obj S3Object) {
 		}
 	}
 	s3SetObjectEncryptionHeaders(w, obj)
+	s3SetObjectLockHeaders(w, obj)
 }
 
 // s3InvalidObjectState refuses a read of an archived object, naming its class

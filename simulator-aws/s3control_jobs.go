@@ -490,6 +490,10 @@ func s3RunBatchTask(ctx context.Context, job S3BatchJob, task S3BatchTask) (s3Ba
 		}
 		return s3BatchTaskSuccess("Successful"), false
 	case hasChild(job.Operation, "S3PutObjectLegalHold"):
+		if _, enabled := s3BucketObjectLock(task.Bucket); !enabled {
+			return s3BatchTaskFailure("InvalidRequest", http.StatusBadRequest,
+				"Bucket is missing Object Lock Configuration"), false
+		}
 		operation, _ := job.Operation.Child("S3PutObjectLegalHold")
 		status := "OFF"
 		if hold, ok := operation.Child("LegalHold"); ok {

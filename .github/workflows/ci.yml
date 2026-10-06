@@ -1101,7 +1101,11 @@ jobs:
             timeout_minutes: 12
           - suite: aws S3 control plane
             cloud: aws
-            tf_packages: "./s3control ./s3-versioning"
+            tf_packages: "./s3control ./s3-versioning ./s3-object-lock"
+            timeout_minutes: 12
+          - suite: aws Elastic Load Balancing trust store
+            cloud: aws
+            tf_packages: "./elb-trust-store"
             timeout_minutes: 12
           - suite: aws Amazon ECR force delete
             cloud: aws

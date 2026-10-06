@@ -142,7 +142,7 @@ func s3ObjectKey(bucket, key string) string {
 // AWS Private CA audit reports, and certificate-revocation lists use the same
 // durable object representation and notification pipeline as PutObject.
 func s3PutServiceObject(bucket, key string, body []byte, contentType string, metadata map[string]string) (S3Object, error) {
-	return s3PutObjectIf(bucket, key, bytes.NewReader(body), contentType, metadata, "STANDARD", nil)
+	return s3PutObjectIf(bucket, key, bytes.NewReader(body), contentType, metadata, "STANDARD", s3ObjectLock{}, nil)
 }
 
 var (
@@ -202,11 +202,12 @@ func s3WriteCondition(h http.Header) func(existing S3Object, exists bool) bool {
 	}
 }
 
-// s3PutObjectIf stores what body yields under bucket/key when condition,
-// given the object as it stands, holds; a nil condition always does. It fails
-// with errS3NoSuchBucket or errS3PreconditionFailed.
+// s3PutObjectIf stores what body yields under bucket/key, with the Object
+// Lock settings lock, when condition, given the object as it stands, holds; a
+// nil condition always does. It fails with errS3NoSuchBucket or
+// errS3PreconditionFailed.
 func s3PutObjectIf(bucket, key string, body io.Reader, contentType string, metadata map[string]string,
-	storageClass string, condition func(existing S3Object, exists bool) bool,
+	storageClass string, lock s3ObjectLock, condition func(existing S3Object, exists bool) bool,
 ) (S3Object, error) {
 	if _, ok := s3Buckets_.Get(bucket); !ok {
 		return S3Object{}, fmt.Errorf("bucket %q: %w", bucket, errS3NoSuchBucket)
@@ -228,14 +229,16 @@ func s3PutObjectIf(bucket, key string, body io.Reader, contentType string, metad
 			return S3Object{}, errors.Join(errS3PreconditionFailed, s3Bodies.Remove(ref))
 		}
 	}
-	obj, err := s3StoreObject(S3Object{
+	stored := S3Object{
 		Key:          storeKey,
 		ContentType:  contentType,
 		ETag:         etag,
 		LastModified: time.Now(),
 		Metadata:     metadata,
 		StorageClass: storageClass,
-	}, ref, digests)
+	}
+	lock.apply(&stored)
+	obj, err := s3StoreObject(stored, ref, digests)
 	release()
 	if err != nil {
 		return S3Object{}, err
@@ -772,6 +775,9 @@ func handleS3CreateBucket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s3Buckets_.Put(bucket, b)
+	if strings.EqualFold(r.Header.Get("x-amz-bucket-object-lock-enabled"), "true") {
+		s3EnableObjectLockAtCreate(bucket)
+	}
 	if len(createConfig.Tags) > 0 {
 		var body strings.Builder
 		body.WriteString(`<Tagging xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><TagSet>`)
@@ -1097,6 +1103,16 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	lock, ok := s3RequestedObjectLock(w, r, bucket)
+	if !ok {
+		return
+	}
+	if lock != (s3ObjectLock{}) && !s3HasIntegrityCheck(r.Header) {
+		S3ErrorXML(w, "InvalidRequest", "Content-MD5 OR x-amz-checksum- HTTP header is required for Put Object requests with Object Lock parameters",
+			key, sim.RequestID(r.Context()), http.StatusBadRequest)
+		return
+	}
+
 	defer r.Body.Close()
 	// AWS SDKs switch to aws-chunked encoding when the request body
 	// is non-seekable (io.Pipe, http.Request.Body, streaming
@@ -1120,7 +1136,7 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	obj, err := s3PutObjectIf(bucket, key, bodyReader, contentType, metadata, storageClass, condition)
+	obj, err := s3PutObjectIf(bucket, key, bodyReader, contentType, metadata, storageClass, lock, condition)
 	switch {
 	case errors.Is(err, errS3NoSuchBucket):
 		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
@@ -1257,7 +1273,11 @@ func s3SetObjectEncryptionHeaders(w http.ResponseWriter, obj S3Object) {
 func handleS3DeleteObject(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
-	result, err := s3DeleteObject(bucket, key, r.URL.Query().Get("versionId"))
+	result, err := s3DeleteObject(bucket, key, r.URL.Query().Get("versionId"), s3BypassesGovernance(r))
+	if errors.Is(err, errS3ObjectLocked) {
+		s3WriteObjectLocked(w, r, key)
+		return
+	}
 	if err != nil {
 		// The rows are gone and nothing references the contents any more;
 		// the next start's sweep removes the file. The delete succeeded.

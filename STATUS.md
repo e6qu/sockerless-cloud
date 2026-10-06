@@ -196,6 +196,23 @@ Current state of the sockerless-cloud repository.
   keep a bucket from being deleted. DeleteObjects refuses an entry the caller
   may not delete as that entry's AccessDenied in the DeleteResult and deletes
   the rest.
+- **Amazon S3 Object Lock protects object versions.** CreateBucket with
+  `x-amz-bucket-object-lock-enabled` enables Object Lock and versioning with
+  it, and PutObjectLockConfiguration enables it on a versioning-enabled bucket;
+  versioning then stays enabled. A new version takes the retention and legal
+  hold its write asks for, or the bucket's default retention. A legal hold, an
+  unexpired COMPLIANCE retention, and an unexpired GOVERNANCE retention without
+  `x-amz-bypass-governance-retention` (authorized as
+  s3:BypassGovernanceRetention) refuse a version delete with AccessDenied, and
+  an active retention only grows stricter. A bucket without Object Lock refuses
+  the Object Lock operations and headers with InvalidRequest.
+- **An Elastic Load Balancing trust store reads its contents from Amazon S3.**
+  CreateTrustStore and ModifyTrustStore read the CA certificates bundle from
+  the object version named (the current one when none is) and count its PEM
+  certificates; AddTrustStoreRevocations reads each certificate revocation list
+  and counts its entries. A missing object answers CaCertificatesBundleNotFound
+  or RevocationContentNotFound, and content that does not parse answers
+  InvalidCaCertificatesBundle or InvalidRevocationContent.
 - **AWS STS sessions carry session tags.** AssumeRole's `Tags`, a SAML
   assertion's `PrincipalTag:<key>` attributes and a web identity token's
   `https://aws.amazon.com/tags` claim tag the session, each authorized as

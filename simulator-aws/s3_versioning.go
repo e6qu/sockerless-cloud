@@ -215,11 +215,16 @@ type s3DeleteResult struct {
 // gains a delete marker as the key's latest version, and a suspended one
 // gains a null delete marker in place of the null version. With versionLabel,
 // that one version is permanently removed and the next newest becomes
-// current.
-func s3DeleteObject(bucket, key, versionLabel string) (s3DeleteResult, error) {
+// current, unless its Object Lock protects it, which fails with
+// errS3ObjectLocked.
+func s3DeleteObject(bucket, key, versionLabel string, bypassGovernance bool) (s3DeleteResult, error) {
 	storeKey := s3ObjectKey(bucket, key)
 	defer s3ObjectWriters.Lock(storeKey)()
 	if versionLabel != "" {
+		if version, ok := s3LookupVersion(storeKey, s3VersionIDFromLabel(versionLabel)); ok && !version.DeleteMarker &&
+			s3VersionProtected(version.Object, bypassGovernance, time.Now()) {
+			return s3DeleteResult{}, errS3ObjectLocked
+		}
 		return s3DeleteVersion(bucket, key, versionLabel)
 	}
 	status := s3VersioningStatus(bucket)

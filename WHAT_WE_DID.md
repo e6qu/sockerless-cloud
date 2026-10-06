@@ -1874,6 +1874,26 @@ The S3 Smithy supplement declares GetObject's 206 Partial Content beside its
 200: a ranged read, such as the Terraform `aws_s3_object` data source's, answers
 206, and the trait names only the code an unranged read gets.
 
+Amazon S3 Object Lock lives on the object version. Enablement is the bucket's
+stored `object-lock` configuration, written at CreateBucket together with an
+enabled versioning configuration, so the versioning machinery needs nothing
+of its own; PutBucketVersioning refuses to suspend it. The single write path
+applies the bucket's default retention to a version whose write asked for
+none, so every service writing into a locked bucket honours it. Protection is
+checked under the key's write lock in the version delete itself, so
+DeleteObject and each DeleteObjects entry are refused alike, and a delete
+without a version id only adds a delete marker, which Object Lock never
+refuses. A PutObject carrying Object Lock headers needs Content-MD5 or a
+checksum, as Amazon S3 requires: the AWS SDK for Go v2 sends one only when its
+checksum calculation is `when_supported` or the input names an algorithm.
+s3:BypassGovernanceRetention authorizes against the object, as the Service
+Reference declares, per DeleteObjects entry.
+
+An Elastic Load Balancing trust store reads its CA bundle and revocation lists
+from Amazon S3 at the call, through the same object and version lookup S3's
+own GetObject uses, so a bundle written a moment earlier is the one counted
+and a version id names exactly that version.
+
 A Cloud Storage bucket belongs to a project that exists. The insert resolves
 its `project` through Cloud Resource Manager and stamps that project's number,
 and the service agent is named for the same number, because gcloud's

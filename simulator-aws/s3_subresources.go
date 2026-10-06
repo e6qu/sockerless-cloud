@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -30,6 +31,9 @@ type S3MultipartUpload struct {
 	Parts       map[int]s3MultipartPart // partNumber → bytes+etag
 	// StorageClass is the class CreateMultipartUpload asked for.
 	StorageClass string `json:",omitempty"`
+	// Lock is the Object Lock settings CreateMultipartUpload asked for, which
+	// the completed object takes.
+	Lock s3ObjectLock `json:",omitzero"`
 }
 
 type s3MultipartPart struct {
@@ -238,6 +242,10 @@ func handleS3InitiateMultipart(w http.ResponseWriter, r *http.Request) {
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
+	lock, ok := s3RequestedObjectLock(w, r, bucket)
+	if !ok {
+		return
+	}
 	uploadID := sim.NewUUID()
 	contentType := r.Header.Get("Content-Type")
 	s3MultipartUploads.Put(uploadID, S3MultipartUpload{
@@ -246,6 +254,7 @@ func handleS3InitiateMultipart(w http.ResponseWriter, r *http.Request) {
 		Key:          key,
 		ContentType:  contentType,
 		StorageClass: storageClass,
+		Lock:         lock,
 		Initiated:    time.Now().UTC(),
 		Parts:        map[int]s3MultipartPart{},
 	})
@@ -407,14 +416,16 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 	finalETag := fmt.Sprintf(`"%x-%d"`, finalHash, len(req.Parts))
 
 	storeKey := s3ObjectKey(bucket, key)
-	release := s3ObjectWriters.Lock(storeKey)
-	completed, err := s3StoreObject(S3Object{
+	assembledObject := S3Object{
 		Key:          storeKey,
 		ETag:         finalETag,
 		ContentType:  mp.ContentType,
 		LastModified: time.Now().UTC(),
 		StorageClass: mp.StorageClass,
-	}, assembled, digests)
+	}
+	mp.Lock.apply(&assembledObject)
+	release := s3ObjectWriters.Lock(storeKey)
+	completed, err := s3StoreObject(assembledObject, assembled, digests)
 	release()
 	if err != nil {
 		S3ErrorXML(w, "InternalError", err.Error(), bucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
@@ -783,6 +794,10 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 			dstBucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
+	lock, ok := s3RequestedObjectLock(w, r, dstBucket)
+	if !ok {
+		return
+	}
 
 	src, copied, digests, err := s3CopyContents(src)
 	if err != nil {
@@ -802,15 +817,17 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC()
 	dstKeyStore := s3ObjectKey(dstBucket, dstKey)
-	release := s3ObjectWriters.Lock(dstKeyStore)
-	stored, err := s3StoreObject(S3Object{
+	copyObject := S3Object{
 		Key:          dstKeyStore,
 		ETag:         src.ETag,
 		ContentType:  contentType,
 		Metadata:     metadata,
 		LastModified: now,
 		StorageClass: storageClass,
-	}, copied, digests)
+	}
+	lock.apply(&copyObject)
+	release := s3ObjectWriters.Lock(dstKeyStore)
+	stored, err := s3StoreObject(copyObject, copied, digests)
 	release()
 	if err != nil {
 		S3ErrorXML(w, "InternalError", err.Error(), dstBucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
@@ -898,6 +915,7 @@ func handleS3MultiObjectDelete(w http.ResponseWriter, r *http.Request) {
 		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
 	}
 	refused := s3RefusedEntries(r)
+	bypassGovernance := s3BypassesGovernance(r)
 	for _, o := range req.Objects {
 		// An entry the caller may not delete is refused on its own; the rest
 		// of the request goes ahead. Quiet mode still reports errors.
@@ -906,7 +924,12 @@ func handleS3MultiObjectDelete(w http.ResponseWriter, r *http.Request) {
 				Code: "AccessDenied", Message: "Access Denied"})
 			continue
 		}
-		result, err := s3DeleteObject(bucket, o.Key, o.VersionID)
+		result, err := s3DeleteObject(bucket, o.Key, o.VersionID, bypassGovernance)
+		if errors.Is(err, errS3ObjectLocked) {
+			out.Errors = append(out.Errors, failed{Key: o.Key, VersionID: o.VersionID,
+				Code: "AccessDenied", Message: "Access Denied because object protected by object lock."})
+			continue
+		}
 		if err != nil {
 			// The rows are gone and nothing references the contents; the
 			// next start's sweep removes the file. The delete succeeded.

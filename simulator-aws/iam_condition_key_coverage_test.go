@@ -4,9 +4,16 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"maps"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -894,8 +902,8 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 	}
 
 	// Elastic Load Balancing: a tagged load balancer, a listener on it with a
-	// rule, a target group, and a trust store, each named by the ARN the
-	// service assigns.
+	// rule, a target group, and a trust store reading its CA bundle from Amazon
+	// S3, each named by the ARN the service assigns.
 	const elb = "2015-12-01"
 	elbTags := url.Values{"Tags.member.1.Key": {"owner"}, "Tags.member.1.Value": {"platform"}}
 	elbCall := func(action string, form url.Values) string {
@@ -919,8 +927,9 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 		"Conditions.member.1.Field": {"path-pattern"}, "Conditions.member.1.Values.member.1": {"/probe"},
 		"Actions.member.1.Type": {"forward"}, "Actions.member.1.TargetGroupArn": {targetGroup}}),
 		`<RuleArn>([^<]+)</RuleArn>`)
+	call(http.MethodPut, "/probe/probe-ca.pem", "application/x-pem-file", iamProbeCABundle(t), nil)
 	trustStore := field(elbCall("CreateTrustStore", url.Values{"Name": {"probe"},
-		"CaCertificatesBundleS3Bucket": {"probe"}, "CaCertificatesBundleS3Key": {"probe"}}),
+		"CaCertificatesBundleS3Bucket": {"probe"}, "CaCertificatesBundleS3Key": {"probe-ca.pem"}}),
 		`<TrustStoreArn>([^<]+)</TrustStoreArn>`)
 	fixtures["elasticloadbalancing"] = map[string]string{
 		"loadbalancerarn": loadBalancer, "loadbalancerarns": loadBalancer, "resourcearns": loadBalancer,
@@ -1135,4 +1144,20 @@ func iamProbeFreePort(t *testing.T) string {
 	}
 	defer l.Close()
 	return strconv.Itoa(l.Addr().(*net.TCPAddr).Port)
+}
+
+// iamProbeCABundle is a PEM bundle of one self-signed CA certificate.
+func iamProbeCABundle(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "probe CA"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }

@@ -72,11 +72,18 @@ func s3AdoptBodies(bodies *blobstore.Payloads) error {
 // contents body references, which the row takes over. In a
 // versioning-enabled bucket the object gets a version id of its own and the
 // object it supersedes becomes a noncurrent version; otherwise it is the null
-// version, and releases the contents of the null version it replaces.
+// version, and releases the contents of the null version it replaces. A
+// version that asks for no retention of its own takes the bucket's default
+// retention.
 func s3StoreObject(obj S3Object, body string, digests blobstore.Digests) (S3Object, error) {
 	obj.Body, obj.LegacyData, obj.Size = body, nil, digests.Size
 	obj.VersionID, obj.VersionSeq = "", s3NextVersionSeq()
 	bucket, _, _ := strings.Cut(obj.Key, "/")
+	if obj.RetentionMode == "" {
+		if mode, until, ok := s3DefaultRetainUntil(bucket, time.Now()); ok {
+			obj.RetentionMode, obj.RetainUntilDate = mode, until
+		}
+	}
 	var released []string
 	switch s3VersioningStatus(bucket) {
 	case s3VersioningEnabled:

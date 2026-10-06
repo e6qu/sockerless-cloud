@@ -160,6 +160,15 @@ func s3AuthorizationTargets(r *http.Request, operation string, resources []strin
 		return on("ListBucket", resources...)
 	case "DeleteObjects":
 		return s3DeleteObjectsTargets(r)
+	case "DeleteObject", "PutObjectRetention":
+		targets := on(operation, resources...)
+		if action, ok := iamOperationActions["s3:"+operation]; ok {
+			targets = on(action, resources...)
+		}
+		if s3BypassesGovernance(r) {
+			targets = append(targets, on("BypassGovernanceRetention", resources...)...)
+		}
+		return targets
 	}
 	if action, ok := iamOperationActions["s3:"+operation]; ok {
 		return on(action, resources...)
@@ -236,10 +245,11 @@ func s3DeleteObjectsTargets(r *http.Request) []iamAuthorizationTarget {
 	if xml.Unmarshal(body, &request) != nil {
 		return nil
 	}
+	bypass := s3BypassesGovernance(r)
 	var targets []iamAuthorizationTarget
 	for _, object := range request.Objects {
-		target := iamAuthorizationTarget{action: "s3:DeleteObject", resource: "arn:aws:s3:::" + bucket + "/" + object.Key,
-			entry: &object}
+		resource := "arn:aws:s3:::" + bucket + "/" + object.Key
+		target := iamAuthorizationTarget{action: "s3:DeleteObject", resource: resource, entry: &object}
 		// Each entry names its own version, so s3:versionid belongs to the
 		// entry's authorization and not to the request.
 		if object.VersionID != "" {
@@ -247,9 +257,9 @@ func s3DeleteObjectsTargets(r *http.Request) []iamAuthorizationTarget {
 			target.context = map[string][]string{"s3:versionid": {object.VersionID}}
 		}
 		targets = append(targets, target)
-	}
-	if strings.EqualFold(r.Header.Get("x-amz-bypass-governance-retention"), "true") {
-		targets = append(targets, iamAuthorizationTarget{action: "s3:BypassGovernanceRetention", resource: "arn:aws:s3:::" + bucket})
+		if bypass {
+			targets = append(targets, iamAuthorizationTarget{action: "s3:BypassGovernanceRetention", resource: resource, entry: &object})
+		}
 	}
 	return targets
 }

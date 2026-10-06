@@ -75,11 +75,12 @@ func handleS3GetObjectAcl(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><AccessControlPolicy xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>` + awsAccountID() + `</ID><DisplayName>simulator</DisplayName></Owner><AccessControlList><Grant><Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="CanonicalUser"><ID>` + awsAccountID() + `</ID><DisplayName>simulator</DisplayName></Grantee><Permission>FULL_CONTROL</Permission></Grant></AccessControlList></AccessControlPolicy>`))
 }
 
-// ── Object Lock legal-hold ───────────────────────────────────────────
-
 func handleS3PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
+	if !s3RequireObjectLock(w, r) {
+		return
+	}
 	version, ok := s3AddressedVersion(w, r)
 	if !ok {
 		return
@@ -95,8 +96,9 @@ func handleS3PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 		XMLName xml.Name `xml:"LegalHold"`
 		Status  string   `xml:"Status"`
 	}
-	if err := xml.Unmarshal(body, &req); err != nil {
-		S3ErrorXML(w, "MalformedXML", "Failed to parse LegalHold body: "+err.Error(),
+	if err := xml.Unmarshal(body, &req); err != nil || (req.Status != s3LegalHoldOn && req.Status != s3LegalHoldOff) {
+		S3ErrorXML(w, "MalformedXML",
+			"The XML you provided was not well-formed or did not validate against our published schema",
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
@@ -109,34 +111,41 @@ func handleS3PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleS3GetObjectLegalHold(w http.ResponseWriter, r *http.Request) {
+	if !s3RequireObjectLock(w, r) {
+		return
+	}
 	version, ok := s3AddressedVersion(w, r)
 	if !ok {
 		return
 	}
 	obj := version.Object
 	s3SetVersionHeader(w, sim.PathParam(r, "bucket"), obj.VersionID)
-	status := obj.LegalHoldStatus
-	if status == "" {
-		// No legal hold ever set: real S3 reports OFF.
-		status = "OFF"
+	if obj.LegalHoldStatus == "" {
+		S3ErrorXML(w, "NoSuchObjectLockConfiguration",
+			"The specified object does not have a ObjectLock configuration",
+			sim.PathParam(r, "key"), sim.RequestID(r.Context()), http.StatusNotFound)
+		return
 	}
-	// httpPayload member LegalHold serializes as <LegalHold> (its xmlName).
 	out := struct {
 		XMLName xml.Name `xml:"LegalHold"`
 		Xmlns   string   `xml:"xmlns,attr"`
 		Status  string   `xml:"Status"`
 	}{
 		Xmlns:  "http://s3.amazonaws.com/doc/2006-03-01/",
-		Status: status,
+		Status: obj.LegalHoldStatus,
 	}
 	WriteXML(w, http.StatusOK, out)
 }
 
-// ── Object Lock retention ────────────────────────────────────────────
-
+// handleS3PutObjectRetention sets, extends or removes a version's retention.
+// An active retention only grows stricter, unless it is GOVERNANCE and the
+// request bypasses governance retention.
 func handleS3PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
+	if !s3RequireObjectLock(w, r) {
+		return
+	}
 	version, ok := s3AddressedVersion(w, r)
 	if !ok {
 		return
@@ -153,17 +162,46 @@ func handleS3PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 		Mode            string   `xml:"Mode"`
 		RetainUntilDate string   `xml:"RetainUntilDate"`
 	}
-	if err := xml.Unmarshal(body, &req); err != nil {
-		S3ErrorXML(w, "MalformedXML", "Failed to parse Retention body: "+err.Error(),
+	malformed := func() {
+		S3ErrorXML(w, "MalformedXML",
+			"The XML you provided was not well-formed or did not validate against our published schema",
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
+	}
+	if err := xml.Unmarshal(body, &req); err != nil || (req.Mode == "") != (req.RetainUntilDate == "") ||
+		(req.Mode != "" && req.Mode != s3LockGovernance && req.Mode != s3LockCompliance) {
+		malformed()
 		return
 	}
+	now := time.Now()
+	var until time.Time
+	if req.Mode != "" {
+		if until, err = time.Parse(time.RFC3339, req.RetainUntilDate); err != nil {
+			malformed()
+			return
+		}
+		if !until.After(now) {
+			S3ErrorXML(w, "InvalidArgument", "The retain until date must be in the future!",
+				key, sim.RequestID(r.Context()), http.StatusBadRequest)
+			return
+		}
+	}
+	bypass, refused := s3BypassesGovernance(r), false
 	if !s3UpdateVersion(s3ObjectKey(bucket, key), version.Object.VersionID, func(obj *S3Object, _ *map[string]string) {
-		obj.RetentionMode = req.Mode
-		obj.RetainUntilDate = req.RetainUntilDate
+		if !s3RetentionChangeAllowed(*obj, req.Mode, until, bypass, now) {
+			refused = true
+			return
+		}
+		obj.RetentionMode, obj.RetainUntilDate = req.Mode, ""
+		if req.Mode != "" {
+			obj.RetainUntilDate = until.UTC().Format(s3LockDateFormat)
+		}
 	}) {
 		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
+		return
+	}
+	if refused {
+		s3WriteObjectLocked(w, r, key)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -171,6 +209,9 @@ func handleS3PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 
 func handleS3GetObjectRetention(w http.ResponseWriter, r *http.Request) {
 	key := sim.PathParam(r, "key")
+	if !s3RequireObjectLock(w, r) {
+		return
+	}
 	version, ok := s3AddressedVersion(w, r)
 	if !ok {
 		return
@@ -178,15 +219,11 @@ func handleS3GetObjectRetention(w http.ResponseWriter, r *http.Request) {
 	obj := version.Object
 	s3SetVersionHeader(w, sim.PathParam(r, "bucket"), obj.VersionID)
 	if obj.RetentionMode == "" {
-		// No retention configured: real S3 returns 404
-		// NoSuchObjectLockConfiguration.
 		S3ErrorXML(w, "NoSuchObjectLockConfiguration",
-			"The specified object does not have an ObjectLock configuration",
+			"The specified object does not have a ObjectLock configuration",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
-	// httpPayload member Retention serializes as <Retention> (its xmlName);
-	// its RetainUntilDate member serializes as <RetainUntilDate>.
 	out := struct {
 		XMLName         xml.Name `xml:"Retention"`
 		Xmlns           string   `xml:"xmlns,attr"`

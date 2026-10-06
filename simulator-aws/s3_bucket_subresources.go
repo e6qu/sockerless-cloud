@@ -178,6 +178,13 @@ func handleS3PutBucketSubresource(w http.ResponseWriter, r *http.Request, sub st
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
+	switch {
+	case sub == "object-lock":
+		handleS3PutObjectLockConfiguration(w, r, bucket, body)
+		return
+	case sub == "versioning" && s3VersioningChangeRefused(w, r, bucket, body):
+		return
+	}
 	var notification s3NotificationConfiguration
 	validateNotification := sub == "notification" && r.Header.Get("x-amz-skip-destination-validation") != "true"
 	if sub == "notification" {
