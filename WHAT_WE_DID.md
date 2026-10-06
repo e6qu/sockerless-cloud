@@ -1870,6 +1870,10 @@ versioning state, so PutObject, CopyObject, CompleteMultipartUpload and the
 other services that write objects all version alike, and the payload adoption
 at start keeps the contents every noncurrent version references.
 
+The S3 Smithy supplement declares GetObject's 206 Partial Content beside its
+200: a ranged read, such as the Terraform `aws_s3_object` data source's, answers
+206, and the trait names only the code an unranged read gets.
+
 A Cloud Storage bucket belongs to a project that exists. The insert resolves
 its `project` through Cloud Resource Manager and stamps that project's number,
 and the service agent is named for the same number, because gcloud's
