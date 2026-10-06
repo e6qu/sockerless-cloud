@@ -46,3 +46,24 @@ func TestEC2CLI_CapacityReservationDateChangeQuote(t *testing.T) {
 		t.Fatalf("start date after the quote = %q, want %s", fields[0], newStart.Format(time.RFC3339))
 	}
 }
+
+// TestEC2CLI_FutureDatedCapacityReservationVCpuMinimum holds a future-dated
+// Capacity Reservation to its 32-vCPU minimum, counted from the instance
+// type's vCPUs: seven 4-vCPU m5.xlarge instances are refused, eight accepted.
+func TestEC2CLI_FutureDatedCapacityReservationVCpuMinimum(t *testing.T) {
+	start := time.Now().Add(10 * 24 * time.Hour).UTC().Truncate(time.Second).Format(time.RFC3339)
+	args := func(count string) []string {
+		return []string{"ec2", "create-capacity-reservation",
+			"--instance-type", "m5.xlarge", "--instance-platform", "Linux/UNIX",
+			"--availability-zone", "us-east-1a", "--instance-count", count,
+			"--instance-match-criteria", "targeted",
+			"--start-date", start, "--commitment-duration", "1209600",
+			"--query", "CapacityReservation.State", "--output", "text"}
+	}
+	if out := runCLIExpectError(t, awsCLI(args("7")...)); !strings.Contains(out, "InvalidParameterValue") {
+		t.Fatalf("expected InvalidParameterValue for 28 vCPUs, got %s", out)
+	}
+	if got := strings.TrimSpace(runCLI(t, awsCLI(args("8")...))); got != "scheduled" {
+		t.Fatalf("a 32-vCPU future-dated reservation is %q, want scheduled", got)
+	}
+}

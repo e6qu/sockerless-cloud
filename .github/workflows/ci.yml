@@ -1093,7 +1093,7 @@ jobs:
             timeout_minutes: 12
           - suite: aws Amazon EC2 launch template
             cloud: aws
-            tf_packages: "./launch-template"
+            tf_packages: "./launch-template ./ec2-instance-type"
             timeout_minutes: 12
           - suite: aws Amazon EC2 network interface
             cloud: aws
@@ -1109,7 +1109,7 @@ jobs:
             timeout_minutes: 12
           - suite: aws Amazon ECR force delete
             cloud: aws
-            tf_packages: "./ecr-force-delete"
+            tf_packages: "./ecr-force-delete ./ecr-image-size"
             timeout_minutes: 12
           - suite: aws NAT gateway route associations
             cloud: aws

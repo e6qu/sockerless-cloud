@@ -773,23 +773,6 @@ func ec2CapacityMetricValue(metric string, totalInst, availInst, totalVcpu int) 
 	}
 }
 
-// vcpusForInstanceType returns a real vCPU count for the common instance
-// families the sim deals with, defaulting to 2.
-func vcpusForInstanceType(it string) int {
-	switch {
-	case strings.HasSuffix(it, ".nano"), strings.HasSuffix(it, ".micro"), strings.HasSuffix(it, ".small"):
-		return 1
-	case strings.HasSuffix(it, ".medium"), strings.HasSuffix(it, ".large"):
-		return 2
-	case strings.HasSuffix(it, ".xlarge"):
-		return 4
-	case strings.HasSuffix(it, ".2xlarge"):
-		return 8
-	default:
-		return 2
-	}
-}
-
 func handleGetCapacityManagerMetricData(w http.ResponseWriter, r *http.Request) {
 	metrics := ec2NumberedList(r, "MetricName")
 	if len(metrics) == 0 {
@@ -802,7 +785,8 @@ func handleGetCapacityManagerMetricData(w http.ResponseWriter, r *http.Request) 
 	var results strings.Builder
 	reservations := ec2CapacityReservations.List()
 	for _, cr := range reservations {
-		vcpu := vcpusForInstanceType(cr.InstanceType) * cr.TotalInstanceCount
+		facts, _ := ec2LookupInstanceType(cr.InstanceType)
+		vcpu := facts.VCpus * cr.TotalInstanceCount
 		var values strings.Builder
 		for _, m := range metrics {
 			v := ec2CapacityMetricValue(m, cr.TotalInstanceCount, cr.AvailableInstanceCount, vcpu)

@@ -340,6 +340,11 @@ func handleCreateCapacityReservation(w http.ResponseWriter, r *http.Request) {
 	if tenancy == "" {
 		tenancy = "default"
 	}
+	facts, ok := ec2LookupInstanceType(instanceType)
+	if !ok {
+		ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("Invalid value '%s' for InstanceType.", instanceType), http.StatusBadRequest)
+		return
+	}
 	count := ec2AtoiOr(r.FormValue("InstanceCount"), 1)
 	matchCriteria := r.FormValue("InstanceMatchCriteria")
 	if matchCriteria == "" {
@@ -349,7 +354,7 @@ func handleCreateCapacityReservation(w http.ResponseWriter, r *http.Request) {
 	if endDateType == "" {
 		endDateType = "unlimited"
 	}
-	future, problem := ec2FutureDatedRequest(r, matchCriteria, endDateType, time.Now())
+	future, problem := ec2FutureDatedRequest(r, facts, count, matchCriteria, endDateType, time.Now())
 	if problem != nil {
 		ec2ErrorXML(w, problem.code, problem.message, http.StatusBadRequest)
 		return

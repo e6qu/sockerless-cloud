@@ -984,11 +984,17 @@ func handleECRUntagResource(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ecrImageSize is DescribeImages' imageSizeInBytes: the image's compressed
-// layers as the registry holds them, and for a manifest list the largest of
-// the manifests it lists (ImageDetail, Amazon ECR API Reference).
+// ecrImageSize is DescribeImages' imageSizeInBytes: the compressed sizes of the
+// blobs the image's manifest references — its layers and its config — and for
+// a manifest list the largest of the manifests it lists (ImageDetail, Amazon ECR
+// API Reference). The manifest document itself does not count: the AWS CLI's
+// describe-images and batch-get-image examples for cluster-autoscaler v1.13.6
+// show 48318255 bytes for four layers of 48315478 and a 2777-byte config.
 func ecrImageSize(img ECRImageDetail) (int64, error) {
 	var manifest struct {
+		Config *struct {
+			Size int64 `json:"size"`
+		} `json:"config"`
 		Layers []struct {
 			Size int64 `json:"size"`
 		} `json:"layers"`
@@ -1000,6 +1006,9 @@ func ecrImageSize(img ECRImageDetail) (int64, error) {
 		return 0, fmt.Errorf("the stored manifest of %s@%s: %w", img.RepositoryName, img.ImageDigest, err)
 	}
 	var size int64
+	if manifest.Config != nil {
+		size += manifest.Config.Size
+	}
 	for _, layer := range manifest.Layers {
 		size += layer.Size
 	}

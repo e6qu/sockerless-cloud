@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -925,23 +926,24 @@ func handleGetInstanceTypesFromInstanceRequirements(w http.ResponseWriter, r *ht
 	arches := ec2ParamList(r, "ArchitectureType")
 
 	var matches []string
-	for _, t := range ec2InstanceTypeCatalog() {
-		if minVcpus > 0 && t.vcpus < minVcpus {
+	catalog, _ := ec2InstanceTypeCatalog()
+	for _, t := range catalog {
+		if minVcpus > 0 && t.VCpus < minVcpus {
 			continue
 		}
-		if maxVcpus > 0 && t.vcpus > maxVcpus {
+		if maxVcpus > 0 && t.VCpus > maxVcpus {
 			continue
 		}
-		if minMem > 0 && t.memMiB < minMem {
+		if minMem > 0 && t.MemoryMiB < minMem {
 			continue
 		}
-		if maxMem > 0 && t.memMiB > maxMem {
+		if maxMem > 0 && t.MemoryMiB > maxMem {
 			continue
 		}
-		if len(arches) > 0 && !ec2StrInValues(t.arch, arches) {
+		if len(arches) > 0 && !slices.ContainsFunc(t.Architectures, func(a string) bool { return ec2StrInValues(a, arches) }) {
 			continue
 		}
-		matches = append(matches, t.name)
+		matches = append(matches, t.Name)
 	}
 	sort.Strings(matches)
 	var items strings.Builder
@@ -951,34 +953,4 @@ func handleGetInstanceTypesFromInstanceRequirements(w http.ResponseWriter, r *ht
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetInstanceTypesFromInstanceRequirementsResponse %s><requestId>%s</requestId><instanceTypeSet>%s</instanceTypeSet></GetInstanceTypesFromInstanceRequirementsResponse>`,
 		ec2Xmlns(), sim.NewUUID(), items.String())
-}
-
-// ec2InstanceTypeCatalogEntry is one entry in the instance-type catalog the
-// requirements matcher filters over.
-type ec2InstanceTypeCatalogEntry struct {
-	name   string
-	vcpus  int
-	memMiB int
-	arch   string
-}
-
-// ec2InstanceTypeCatalog returns the instance-type catalog the requirements
-// matcher selects from — the same families DescribeInstanceTypes reports, with
-// their vCPU/memory/architecture attributes so a requirements query resolves to
-// real instance types.
-func ec2InstanceTypeCatalog() []ec2InstanceTypeCatalogEntry {
-	return []ec2InstanceTypeCatalogEntry{
-		{"t3.micro", 2, 1024, "x86_64"},
-		{"t3.small", 2, 2048, "x86_64"},
-		{"t3.medium", 2, 4096, "x86_64"},
-		{"t3.large", 2, 8192, "x86_64"},
-		{"t4g.nano", 2, 512, "arm64"},
-		{"t4g.micro", 2, 1024, "arm64"},
-		{"m6i.large", 2, 8192, "x86_64"},
-		{"m6i.xlarge", 4, 16384, "x86_64"},
-		{"m6g.large", 2, 8192, "arm64"},
-		{"c6i.large", 2, 4096, "x86_64"},
-		{"c6i.xlarge", 4, 8192, "x86_64"},
-		{"r6i.large", 2, 16384, "x86_64"},
-	}
 }

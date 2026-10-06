@@ -9,7 +9,9 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"io"
 	"math/big"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +28,8 @@ import (
 // through terraform-provider-aws from a CA certificates bundle it uploads to
 // Amazon S3, and adds a certificate revocation list to it. Elastic Load
 // Balancing reads both objects: the trust store counts the bundle's three
-// certificates and the revocation its two entries.
+// certificates and the revocation its two entries, and its bundle location
+// serves the bundle it read.
 func TestELBTrustStoreTerraform(t *testing.T) {
 	env := tfsim.Start(t, ".")
 	env.Terraform(t, "init")
@@ -59,6 +62,17 @@ func TestELBTrustStoreTerraform(t *testing.T) {
 	require.Len(t, described.TrustStores, 1)
 	assert.Equal(t, int32(3), aws.ToInt32(described.TrustStores[0].NumberOfCaCertificates))
 	assert.Equal(t, int64(2), aws.ToInt64(described.TrustStores[0].TotalRevokedEntries))
+
+	located, err := client.GetTrustStoreCaCertificatesBundle(context.Background(),
+		&elbv2.GetTrustStoreCaCertificatesBundleInput{TrustStoreArn: aws.String(arn)})
+	require.NoError(t, err)
+	resp, err := env.Client.Get(aws.ToString(located.Location))
+	require.NoError(t, err)
+	served, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(served))
+	assert.Equal(t, bundle.String(), string(served), "the bundle location serves the bundle Terraform uploaded")
 
 	env.Terraform(t, append([]string{"destroy", "-auto-approve"}, vars...)...)
 }

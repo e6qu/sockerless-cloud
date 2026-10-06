@@ -212,7 +212,25 @@ Current state of the sockerless-cloud repository.
   certificates; AddTrustStoreRevocations reads each certificate revocation list
   and counts its entries. A missing object answers CaCertificatesBundleNotFound
   or RevocationContentNotFound, and content that does not parse answers
-  InvalidCaCertificatesBundle or InvalidRevocationContent.
+  InvalidCaCertificatesBundle or InvalidRevocationContent. The trust store
+  keeps its own copy of what it read, and GetTrustStoreCaCertificatesBundle
+  and GetTrustStoreRevocationContent answer a presigned Amazon S3 URL on the
+  simulator's endpoint that serves exactly that copy, whatever has since
+  happened to the customer's object.
+- **Amazon EC2 instance types carry AWS's published facts.** The simulator
+  embeds the AWS Price List offer file's Compute Instance products for
+  us-east-1 (`simulator-aws/ec2_instance_types_vendored.json`, written by
+  `scripts/fetch-aws-ec2-instance-types.go` with the offer version and
+  SHA-256 it read). DescribeInstanceTypes answers every listed type's vCPUs,
+  memory, architectures, network performance, generation and instance-storage
+  support, filters and pages over them, and refuses an unknown type with
+  InvalidInstanceType; DescribeInstanceTypeOfferings,
+  GetInstanceTypesFromInstanceRequirements, the Capacity Manager vCPU metrics,
+  the real-execution machine shape and the 32-vCPU minimum of a future-dated
+  Capacity Reservation read the same catalog.
+- **Amazon ECR sizes an image by the blobs its manifest references.**
+  DescribeImages' imageSizeInBytes is the compressed layers plus the config,
+  not the manifest document, and a manifest list's largest listed manifest.
 - **AWS STS sessions carry session tags.** AssumeRole's `Tags`, a SAML
   assertion's `PrincipalTag:<key>` attributes and a web identity token's
   `https://aws.amazon.com/tags` claim tag the session, each authorized as

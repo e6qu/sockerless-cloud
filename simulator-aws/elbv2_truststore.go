@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"net/http"
@@ -14,9 +16,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ELBv2TrustStore is a mutual-TLS trust store: a named resource holding the CA
-// certificate bundle it read from Amazon S3 plus a set of numbered revocation
-// lists. Status is ACTIVE once the bundle is ingested.
+// ELBv2TrustStore is a mutual-TLS trust store: a named resource holding its own
+// copy of the CA certificate bundle it read from Amazon S3 plus a set of
+// numbered revocation lists. Status is ACTIVE once the bundle is ingested.
 type ELBv2TrustStore struct {
 	Arn                                 string
 	Name                                string
@@ -25,6 +27,7 @@ type ELBv2TrustStore struct {
 	CaCertificatesBundleS3Bucket        string
 	CaCertificatesBundleS3Key           string
 	CaCertificatesBundleS3ObjectVersion string
+	CaCertificatesBundle                []byte
 	Revocations                         []ELBv2TrustStoreRevocation
 	NextRevocationID                    int64
 	Tags                                map[string]string
@@ -39,6 +42,7 @@ type ELBv2TrustStoreRevocation struct {
 	S3Bucket               string
 	S3Key                  string
 	S3ObjectVersion        string
+	Content                []byte
 }
 
 // ELBv2TrustStoreAssociation records a resource (a listener ARN) that uses the
@@ -96,7 +100,7 @@ func handleELBv2CreateTrustStore(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	version := r.FormValue("CaCertificatesBundleS3ObjectVersion")
-	certificates, ok := elbv2ReadCaCertificatesBundle(w, r, bucket, key, version)
+	bundle, certificates, ok := elbv2ReadCaCertificatesBundle(w, r, bucket, key, version)
 	if !ok {
 		return
 	}
@@ -110,6 +114,7 @@ func handleELBv2CreateTrustStore(w http.ResponseWriter, r *http.Request) {
 		CaCertificatesBundleS3Bucket:        bucket,
 		CaCertificatesBundleS3Key:           key,
 		CaCertificatesBundleS3ObjectVersion: version,
+		CaCertificatesBundle:                bundle,
 		NextRevocationID:                    1,
 		Tags:                                parseELBv2Tags(r, "Tags"),
 	}
@@ -145,7 +150,7 @@ func handleELBv2ModifyTrustStore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	version := r.FormValue("CaCertificatesBundleS3ObjectVersion")
-	certificates, ok := elbv2ReadCaCertificatesBundle(w, r, bucket, key, version)
+	bundle, certificates, ok := elbv2ReadCaCertificatesBundle(w, r, bucket, key, version)
 	if !ok {
 		return
 	}
@@ -153,6 +158,7 @@ func handleELBv2ModifyTrustStore(w http.ResponseWriter, r *http.Request) {
 		ts.CaCertificatesBundleS3Bucket = bucket
 		ts.CaCertificatesBundleS3Key = key
 		ts.CaCertificatesBundleS3ObjectVersion = version
+		ts.CaCertificatesBundle = bundle
 		ts.NumberOfCaCertificates = certificates
 	}) {
 		elbv2ErrorXML(w, "TrustStoreNotFound", "Trust store not found", http.StatusBadRequest, sim.RequestID(r.Context()))
@@ -183,7 +189,11 @@ func handleELBv2GetTrustStoreCaCertificatesBundle(w http.ResponseWriter, r *http
 		elbv2ErrorXML(w, "TrustStoreNotFound", "Trust store not found", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	loc := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", ts.CaCertificatesBundleS3Bucket, awsRegion(), ts.CaCertificatesBundleS3Key)
+	loc, err := elbv2TrustStoreContentURL(r, ts, "ca-certificates-bundle.pem", ts.CaCertificatesBundle)
+	if err != nil {
+		elbv2ErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
+		return
+	}
 	elbv2XMLResponse(w, "GetTrustStoreCaCertificatesBundle", fmt.Sprintf("<Location>%s</Location>", xmlEscape(loc)), sim.RequestID(r.Context()))
 }
 
@@ -247,10 +257,11 @@ func handleELBv2AddTrustStoreRevocations(w http.ResponseWriter, r *http.Request)
 			S3Key:           key,
 			S3ObjectVersion: r.FormValue(base + ".S3ObjectVersion"),
 		}
-		entries, ok := elbv2ReadRevocationList(w, r, rev)
+		content, entries, ok := elbv2ReadRevocationList(w, r, rev)
 		if !ok {
 			return
 		}
+		rev.Content = content
 		rev.NumberOfRevokedEntries = entries
 		requested = append(requested, rev)
 	}
@@ -338,7 +349,11 @@ func handleELBv2GetTrustStoreRevocationContent(w http.ResponseWriter, r *http.Re
 	}
 	for _, rev := range ts.Revocations {
 		if rev.RevocationID == id {
-			loc := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", rev.S3Bucket, awsRegion(), rev.S3Key)
+			loc, err := elbv2TrustStoreContentURL(r, ts, fmt.Sprintf("revocations/%d.crl", rev.RevocationID), rev.Content)
+			if err != nil {
+				elbv2ErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
+				return
+			}
 			elbv2XMLResponse(w, "GetTrustStoreRevocationContent", fmt.Sprintf("<Location>%s</Location>", xmlEscape(loc)), sim.RequestID(r.Context()))
 			return
 		}
@@ -677,12 +692,12 @@ func elbv2PEMBlocks(data []byte, blockType string) ([][]byte, bool) {
 // from Amazon S3 and counts its certificates. It answers
 // CaCertificatesBundleNotFound for an object or version that is not there and
 // InvalidCaCertificatesBundle for a bundle that is not PEM X.509 certificates.
-func elbv2ReadCaCertificatesBundle(w http.ResponseWriter, r *http.Request, bucket, key, version string) (int, bool) {
+func elbv2ReadCaCertificatesBundle(w http.ResponseWriter, r *http.Request, bucket, key, version string) ([]byte, int, bool) {
 	data, ok := elbv2BundleObject(bucket, key, version)
 	if !ok {
 		elbv2ErrorXML(w, "CaCertificatesBundleNotFound", "The specified ca certificate bundle does not exist.",
 			http.StatusBadRequest, sim.RequestID(r.Context()))
-		return 0, false
+		return nil, 0, false
 	}
 	blocks, ok := elbv2PEMBlocks(data, "CERTIFICATE")
 	for _, der := range blocks {
@@ -693,21 +708,21 @@ func elbv2ReadCaCertificatesBundle(w http.ResponseWriter, r *http.Request, bucke
 	if !ok {
 		elbv2ErrorXML(w, "InvalidCaCertificatesBundle", "The specified ca certificate bundle is in an invalid format, or corrupt.",
 			http.StatusBadRequest, sim.RequestID(r.Context()))
-		return 0, false
+		return nil, 0, false
 	}
-	return len(blocks), true
+	return data, len(blocks), true
 }
 
 // elbv2ReadRevocationList reads a revocation file from Amazon S3 and counts
 // the certificates it revokes. It answers RevocationContentNotFound for an
 // object that is not there and InvalidRevocationContent for anything but a
 // PEM certificate revocation list.
-func elbv2ReadRevocationList(w http.ResponseWriter, r *http.Request, rev ELBv2TrustStoreRevocation) (int, bool) {
+func elbv2ReadRevocationList(w http.ResponseWriter, r *http.Request, rev ELBv2TrustStoreRevocation) ([]byte, int, bool) {
 	data, ok := elbv2BundleObject(rev.S3Bucket, rev.S3Key, rev.S3ObjectVersion)
 	if !ok {
 		elbv2ErrorXML(w, "RevocationContentNotFound", "The specified revocation file does not exist.",
 			http.StatusBadRequest, sim.RequestID(r.Context()))
-		return 0, false
+		return nil, 0, false
 	}
 	blocks, ok := elbv2PEMBlocks(data, "X509 CRL")
 	entries := 0
@@ -722,7 +737,33 @@ func elbv2ReadRevocationList(w http.ResponseWriter, r *http.Request, rev ELBv2Tr
 	if !ok || rev.RevocationType != "CRL" {
 		elbv2ErrorXML(w, "InvalidRevocationContent", "The provided revocation file is an invalid format, or uses an incorrect algorithm.",
 			http.StatusBadRequest, sim.RequestID(r.Context()))
-		return 0, false
+		return nil, 0, false
 	}
-	return entries, true
+	return data, entries, true
+}
+
+// elbv2TrustStoreContentURL places the trust store's own copy of a bundle or
+// revocation list in Elastic Load Balancing's Amazon S3 bucket and answers a
+// presigned GET for it, as GetTrustStoreCaCertificatesBundle and
+// GetTrustStoreRevocationContent do. The key carries the content's digest, so
+// the URL names exactly the bytes the trust store ingested.
+func elbv2TrustStoreContentURL(r *http.Request, ts ELBv2TrustStore, name string, content []byte) (string, error) {
+	bucket := awsAccountID() + "-elasticloadbalancing-trust-stores"
+	if _, ok := s3Buckets_.Get(bucket); !ok {
+		s3Buckets_.Put(bucket, S3Bucket{Name: bucket, CreationDate: time.Now().UTC().Format(time.RFC3339)})
+	}
+	digest := sha256.Sum256(content)
+	key := fmt.Sprintf("%s/%s/%s/%s", ts.Name, ts.Arn[strings.LastIndex(ts.Arn, "/")+1:], hex.EncodeToString(digest[:]), name)
+	storeKey := s3ObjectKey(bucket, key)
+	release := s3ObjectWriters.Lock(storeKey)
+	defer release()
+	if _, err := s3StoreObjectData(S3Object{
+		Key:          storeKey,
+		ContentType:  "application/x-pem-file",
+		LastModified: time.Now().UTC(),
+		Metadata:     map[string]string{"aws-service": "elasticloadbalancing"},
+	}, content); err != nil {
+		return "", err
+	}
+	return presignedS3URLBase(awsRequestURLBase(r), bucket, key, http.MethodGet), nil
 }

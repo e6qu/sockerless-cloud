@@ -7,7 +7,9 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"io"
 	"math/big"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,8 +38,10 @@ func TestELBv2TrustStoreCLI(t *testing.T) {
 		runCLI(t, awsCLI("s3api", "put-object", "--bucket", "cli-ca-bucket", "--key", key, "--body", path))
 	}
 	upload("bundle.pem", append(elbv2CLIPEM("CERTIFICATE", firstCA.Raw), elbv2CLIPEM("CERTIFICATE", secondCA.Raw)...))
-	upload("bundle-v2.pem", elbv2CLIPEM("CERTIFICATE", secondCA.Raw))
-	upload("crl.pem", elbv2CLITestCRL(t, firstCA, firstKey, 4))
+	bundleV2 := elbv2CLIPEM("CERTIFICATE", secondCA.Raw)
+	upload("bundle-v2.pem", bundleV2)
+	crl := elbv2CLITestCRL(t, firstCA, firstKey, 4)
+	upload("crl.pem", crl)
 	upload("garbage.pem", []byte("not a certificate"))
 
 	out := runCLIExpectError(t, awsCLI("elbv2", "create-trust-store", "--name", "cli-mtls-missing",
@@ -91,8 +95,9 @@ func TestELBv2TrustStoreCLI(t *testing.T) {
 		"--trust-store-arn", tsArn,
 		"--query", "Location",
 		"--output", "text"))
-	if strings.TrimSpace(out) == "" {
-		t.Fatalf("expected CA bundle location, got empty")
+	upload("bundle-v2.pem", []byte("replaced after the trust store read it"))
+	if got := elbv2CLIDownload(t, out); got != string(bundleV2) {
+		t.Fatalf("the CA bundle location serves %q, want the bundle the trust store read", got)
 	}
 
 	out = runCLI(t, awsCLI("elbv2", "add-trust-store-revocations",
@@ -119,8 +124,9 @@ func TestELBv2TrustStoreCLI(t *testing.T) {
 		"--revocation-id", revID,
 		"--query", "Location",
 		"--output", "text"))
-	if strings.TrimSpace(out) == "" {
-		t.Fatalf("expected revocation content location, got empty")
+	runCLI(t, awsCLI("s3api", "delete-object", "--bucket", "cli-ca-bucket", "--key", "crl.pem"))
+	if got := elbv2CLIDownload(t, out); got != string(crl) {
+		t.Fatalf("the revocation content location serves %q, want the list the trust store read", got)
 	}
 
 	runCLI(t, awsCLI("elbv2", "remove-trust-store-revocations",
@@ -226,4 +232,26 @@ func elbv2CLITestCRL(t *testing.T, ca *x509.Certificate, key *ecdsa.PrivateKey, 
 
 func elbv2CLIPEM(blockType string, der []byte) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der})
+}
+
+// elbv2CLIDownload GETs the presigned content location the aws CLI printed.
+func elbv2CLIDownload(t *testing.T, location string) string {
+	t.Helper()
+	location = strings.TrimSpace(location)
+	if !strings.Contains(location, "X-Amz-Signature=") {
+		t.Fatalf("expected a presigned URL, got %q", location)
+	}
+	resp, err := http.Get(location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: %d %s", location, resp.StatusCode, body)
+	}
+	return string(body)
 }

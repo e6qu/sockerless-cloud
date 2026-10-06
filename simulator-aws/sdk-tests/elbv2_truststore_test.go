@@ -8,7 +8,9 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"io"
 	"math/big"
+	"net/http"
 	"testing"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
@@ -206,6 +209,14 @@ func TestELBv2_TrustStoreReadsItsBundleFromS3(t *testing.T) {
 	arn := aws.ToString(pinned.TrustStores[0].TrustStoreArn)
 	t.Cleanup(func() { _, _ = c.DeleteTrustStore(ctx, &elbv2.DeleteTrustStoreInput{TrustStoreArn: aws.String(arn)}) })
 	assert.Equal(t, int32(1), aws.ToInt32(pinned.TrustStores[0].NumberOfCaCertificates), "the named version holds one certificate")
+	bundleLocation := func() string {
+		t.Helper()
+		out, err := c.GetTrustStoreCaCertificatesBundle(ctx, &elbv2.GetTrustStoreCaCertificatesBundleInput{TrustStoreArn: aws.String(arn)})
+		require.NoError(t, err)
+		return aws.ToString(out.Location)
+	}
+	assert.Equal(t, string(elbv2PEM("CERTIFICATE", first.Raw)), elbv2Download(t, bundleLocation()),
+		"the bundle location serves the object version the trust store read")
 
 	_, err = c.ModifyTrustStore(ctx, &elbv2.ModifyTrustStoreInput{TrustStoreArn: aws.String(arn),
 		CaCertificatesBundleS3Bucket: aws.String(bucket), CaCertificatesBundleS3Key: aws.String("garbage.pem")})
@@ -214,6 +225,10 @@ func TestELBv2_TrustStoreReadsItsBundleFromS3(t *testing.T) {
 		CaCertificatesBundleS3Bucket: aws.String(bucket), CaCertificatesBundleS3Key: aws.String("bundle.pem")})
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), aws.ToInt32(current.TrustStores[0].NumberOfCaCertificates), "the current version holds two")
+	twoCerts := string(elbv2PEM("CERTIFICATE", first.Raw)) + string(elbv2PEM("CERTIFICATE", second.Raw))
+	s3Put(t, s3c, bucket, "bundle.pem", "replaced after the trust store read it")
+	assert.Equal(t, twoCerts, elbv2Download(t, bundleLocation()),
+		"the trust store serves its own copy, not the object Amazon S3 now holds")
 
 	revoke := func(key string) error {
 		_, err := c.AddTrustStoreRevocations(ctx, &elbv2.AddTrustStoreRevocationsInput{TrustStoreArn: aws.String(arn),
@@ -223,8 +238,35 @@ func TestELBv2_TrustStoreReadsItsBundleFromS3(t *testing.T) {
 	assert.Equal(t, "RevocationContentNotFound", code(revoke("absent-crl.pem")))
 	assert.Equal(t, "InvalidRevocationContent", code(revoke("bundle.pem")))
 	require.NoError(t, revoke("crl.pem"))
+	crl := elbv2TestCRL(t, first, firstKey, 1)
+	s3Put(t, s3c, bucket, "crl-2.pem", string(crl))
+	require.NoError(t, revoke("crl-2.pem"))
+	_, err = s3c.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(bucket), Key: aws.String("crl-2.pem")})
+	require.NoError(t, err)
+	revocations, err := c.DescribeTrustStoreRevocations(ctx, &elbv2.DescribeTrustStoreRevocationsInput{TrustStoreArn: aws.String(arn)})
+	require.NoError(t, err)
+	require.Len(t, revocations.TrustStoreRevocations, 2)
+	content, err := c.GetTrustStoreRevocationContent(ctx, &elbv2.GetTrustStoreRevocationContentInput{TrustStoreArn: aws.String(arn),
+		RevocationId: revocations.TrustStoreRevocations[1].RevocationId})
+	require.NoError(t, err)
+	assert.Equal(t, string(crl), elbv2Download(t, aws.ToString(content.Location)),
+		"the revocation content location serves the list the trust store read, after its object is gone")
 	_, err = c.DescribeTrustStores(ctx, &elbv2.DescribeTrustStoresInput{TrustStoreArns: []string{"arn:aws:elasticloadbalancing:us-east-1:000000000000:truststore/absent/0123456789abcdef"}})
 	assert.Equal(t, "TrustStoreNotFound", code(err))
+}
+
+// elbv2Download GETs a presigned content location Elastic Load Balancing
+// answered.
+func elbv2Download(t *testing.T, location string) string {
+	t.Helper()
+	require.Contains(t, location, "X-Amz-Signature=", "Elastic Load Balancing answers a presigned URL")
+	resp, err := http.Get(location)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+	return string(body)
 }
 
 // elbv2TestCA makes a self-signed CA certificate.

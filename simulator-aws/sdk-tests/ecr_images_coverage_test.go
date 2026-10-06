@@ -138,8 +138,9 @@ func TestECR_LifecyclePolicyLifecycle(t *testing.T) {
 	assert.Error(t, err, "lifecycle policy gone after delete")
 }
 
-// imageSizeInBytes is the image's compressed layers, and a repository's images
-// are its own even when another repository's name begins with its name.
+// imageSizeInBytes is the image's compressed layers and its config, and a
+// repository's images are its own even when another repository's name begins
+// with its name.
 func TestECR_DescribeImagesReportsLayerSizesPerRepository(t *testing.T) {
 	c := ecrClient()
 	repo, otherRepo := uniqueName("cov-size"), uniqueName("cov-size-other")
@@ -163,5 +164,58 @@ func TestECR_DescribeImagesReportsLayerSizesPerRepository(t *testing.T) {
 	desc, err := c.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 	require.Len(t, desc.ImageDetails, 1, "only cov-size's own image")
-	assert.Equal(t, int64(1234), aws.ToInt64(desc.ImageDetails[0].ImageSizeInBytes))
+	assert.Equal(t, int64(1241), aws.ToInt64(desc.ImageDetails[0].ImageSizeInBytes),
+		"two layers of 1200 and 34 bytes and a 7-byte config")
+}
+
+// ecrClusterAutoscalerManifest is the manifest of cluster-autoscaler v1.13.6
+// as the AWS CLI's batch-get-image example prints it; its describe-images
+// example reports the same image at 48318255 bytes.
+const ecrClusterAutoscalerManifest = `{
+   "schemaVersion": 2,
+   "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+   "config": {
+      "mediaType": "application/vnd.docker.container.image.v1+json",
+      "size": 2777,
+      "digest": "sha256:6171c7451a50945f8ddd72f7732cc04d7a0d1f48138a426b2e64387fdeb834ed"
+   },
+   "layers": [
+      {
+         "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+         "size": 17743696,
+         "digest": "sha256:39fafc05754f195f134ca11ecdb1c9a691ab0848c697fffeb5a85f900caaf6e1"
+      },
+      {
+         "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+         "size": 2565026,
+         "digest": "sha256:8c8a779d3a537b767ae1091fe6e00c2590afd16767aa6096d1b318d75494819f"
+      },
+      {
+         "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+         "size": 28005981,
+         "digest": "sha256:c44ba47496991c9982ee493b47fd25c252caabf2b4ae7dd679c9a27b6a3c8fb7"
+      },
+      {
+         "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+         "size": 775,
+         "digest": "sha256:e2c388b44226544363ca007be7b896bcce1baebea04da23cbd165eac30be650f"
+      }
+   ]
+}`
+
+// The size Amazon ECR reports for an image AWS documents both the manifest and
+// the imageSizeInBytes of.
+func TestECR_DescribeImagesSizesTheDocumentedImage(t *testing.T) {
+	c := ecrClient()
+	repo := uniqueName("cluster-autoscaler")
+	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
+	require.NoError(t, err)
+	_, err = c.PutImage(ctx, &ecr.PutImageInput{
+		RepositoryName: aws.String(repo), ImageTag: aws.String("v1.13.6"), ImageManifest: aws.String(ecrClusterAutoscalerManifest),
+	})
+	require.NoError(t, err)
+	desc, err := c.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String(repo)})
+	require.NoError(t, err)
+	require.Len(t, desc.ImageDetails, 1)
+	assert.Equal(t, int64(48318255), aws.ToInt64(desc.ImageDetails[0].ImageSizeInBytes))
 }

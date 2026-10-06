@@ -22,6 +22,9 @@ func TestECRCLI_ListDescribeDeleteImages(t *testing.T) {
 	if got := strings.TrimSpace(runCLI(t, awsCLI("ecr", "describe-images", "--repository-name", "cli-cov-img", "--query", "imageDetails[0].imageTags[0]", "--output", "text"))); got != "v1" {
 		t.Fatalf("describe-images tag = %q, want v1", got)
 	}
+	if got := strings.TrimSpace(runCLI(t, awsCLI("ecr", "describe-images", "--repository-name", "cli-cov-img", "--query", "imageDetails[0].imageSizeInBytes", "--output", "text"))); got != "7" {
+		t.Fatalf("describe-images imageSizeInBytes = %q, want the 7-byte config of an image with no layers", got)
+	}
 	runCLI(t, awsCLI("ecr", "batch-delete-image", "--repository-name", "cli-cov-img", "--image-ids", "imageTag=v1"))
 	if got := strings.TrimSpace(runCLI(t, awsCLI("ecr", "describe-images", "--repository-name", "cli-cov-img", "--query", "length(imageDetails)", "--output", "text"))); got != "0" {
 		t.Fatalf("images after batch-delete = %q, want 0", got)

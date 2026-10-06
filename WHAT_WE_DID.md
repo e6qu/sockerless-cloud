@@ -1893,6 +1893,29 @@ An Elastic Load Balancing trust store reads its CA bundle and revocation lists
 from Amazon S3 at the call, through the same object and version lookup S3's
 own GetObject uses, so a bundle written a moment earlier is the one counted
 and a version id names exactly that version.
+The trust store keeps the bytes it read. Its content locations are presigned
+URLs to that copy in a bucket Elastic Load Balancing writes, keyed by the
+content's digest, so the URL serves what was ingested even after the
+customer's object changes or goes, and the client fetches it from the same
+endpoint it called.
+
+Amazon EC2 instance-type facts come from the AWS Price List bulk offer file,
+the one machine-readable, unauthenticated publication of them: the EC2 Smithy
+model carries only the InstanceType enum. `scripts/fetch-aws-ec2-instance-types.go`
+streams the us-east-1 offer, keeps the Compute Instance products, fails when
+two products of one type disagree on a fact, and records the pinned offer URL
+and its SHA-256. The simulator converts the verbatim attributes: "<n> GiB"
+truncates to MiB, which gives DescribeInstanceTypes' figures for the legacy
+sizes the Price List rounds; the processor names the instruction set, because
+the offer says "64-bit" for both x86 and Arm. A fact the offer does not state
+stays absent from the answer rather than being guessed, and a filter over one
+answers Unsupported.
+
+Amazon ECR's imageSizeInBytes counts the config blob with the layers and
+leaves the manifest document out. The AWS CLI's own examples settle it: its
+describe-images example reports cluster-autoscaler v1.13.6 at 48318255 bytes,
+and its batch-get-image example prints the same digest's manifest, whose four
+layers total 48315478 and whose config is 2777 bytes.
 
 A Cloud Storage bucket belongs to a project that exists. The insert resolves
 its `project` through Cloud Resource Manager and stamps that project's number,
