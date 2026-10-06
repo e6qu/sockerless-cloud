@@ -904,8 +904,14 @@ jobs:
             run: '^Test(Route53|S3)'
             timeout: 1200s
             timeout_minutes: 15
+          # appdata3 split again when its suite reached the job's 15-minute
+          # budget: a run that passed took 14.5 minutes end to end.
           - suite: appdata3
-            run: '^Test(Scheduler|SecretsManager|SFN|SNS|SQS|SSM|STS|WAFv2|RDSCLI_Restore)'
+            run: '^Test(Scheduler|SecretsManager|SFN|SNS|RDSCLI_Restore)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: appdata6
+            run: '^Test(SQS|SSM|STS|WAFv2)'
             timeout: 1200s
             timeout_minutes: 15
     steps:
