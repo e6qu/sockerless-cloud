@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.0.8](https://github.com/e6qu/sockerless-cloud/compare/v2.0.7...v2.0.8) (2026-10-06)
+
+
+### Bug Fixes
+
+* twentieth bug sweep and image build cache ([3363af8](https://github.com/e6qu/sockerless-cloud/commit/3363af8ce7411c20dfa814df874185788a5c15ae))
+* twenty-first bug sweep and faster Google Cloud SDK tests ([45e3150](https://github.com/e6qu/sockerless-cloud/commit/45e3150ea6f89981a9aa38e7c2ed0807aed73d0e))
+* twenty-second bug sweep across the simulators ([3d6833c](https://github.com/e6qu/sockerless-cloud/commit/3d6833c4e9f08ca337fe5024181af9c8405ead35))
+
 ## [2.0.7](https://github.com/e6qu/sockerless-cloud/compare/v2.0.6...v2.0.7) (2026-10-05)
 
 
