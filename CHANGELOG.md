@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.11](https://github.com/e6qu/sockerless-cloud/compare/v2.0.10...v2.0.11) (2026-10-07)
+
+
+### Bug Fixes
+
+* Container Apps identities, Key Vault grants, fixture registries ([c9deff3](https://github.com/e6qu/sockerless-cloud/commit/c9deff3a472fe5e81a8948d1a216e9ed38d39417))
+
 ## [2.0.10](https://github.com/e6qu/sockerless-cloud/compare/v2.0.9...v2.0.10) (2026-10-07)
 
 
