@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -28,10 +27,11 @@ var rdsServerCertificate = dbengine.SelfSignedCertificate("Amazon RDS simulator"
 // rdsDataPlane is an Amazon RDS instance's endpoint and engine, with the
 // instance record its authentication and engine start read.
 type rdsDataPlane struct {
-	engine   *dbengine.Instance
-	backups  *rdsAutomatedBackups
-	mu       sync.RWMutex
-	instance RDSInstance
+	engine      *dbengine.Instance
+	backups     *rdsAutomatedBackups
+	mu          sync.RWMutex
+	instance    RDSInstance
+	replication *rdsReplicaMonitor
 }
 
 func (plane *rdsDataPlane) current() RDSInstance {
@@ -74,12 +74,21 @@ func rdsRecoverDataPlanes() error {
 			}
 			continue
 		}
+		if instance.DBInstanceStatus == "creating" && rdsIsReadReplica(instance) {
+			id := instance.DBInstanceIdentifier
+			bg.Go(func() { rdsProvisionReadReplica(id) })
+			continue
+		}
 		if instance.DBInstanceStatus == "creating" && (instance.RestoreSourceVolume != "" || instance.ImportS3Bucket != "") {
 			id := instance.DBInstanceIdentifier
 			bg.Go(func() { rdsFinishInstanceRestore(id) })
 			continue
 		}
 		id := instance.DBInstanceIdentifier
+		if instance.DBInstanceStatus == "upgrading" {
+			bg.Go(func() { rdsUpgradeInstanceEngine(id) })
+			continue
+		}
 		stopping := instance.DBInstanceStatus == "stopping"
 		bringingUp := rdsInstanceBringingUp(instance.DBInstanceStatus)
 		if stopping && len(instance.MasterUserSecret) == 0 {
@@ -90,7 +99,8 @@ func rdsRecoverDataPlanes() error {
 			bg.Go(func() { rdsFinishInstanceBringUp(id) })
 			continue
 		}
-		if (instance.DBInstanceStatus != "available" && !stopping && !bringingUp) || len(instance.MasterUserSecret) == 0 {
+		modifying := instance.DBInstanceStatus == "modifying"
+		if (instance.DBInstanceStatus != "available" && !stopping && !bringingUp && !modifying) || len(instance.MasterUserSecret) == 0 {
 			continue
 		}
 		_, masterPassword, ok := kmsDecryptBytes(instance.MasterUserSecret)
@@ -107,6 +117,21 @@ func rdsRecoverDataPlanes() error {
 		}
 		rdsInstances.Put(instance.DBInstanceIdentifier, instance)
 		switch {
+		case modifying && rdsIsReadReplica(instance):
+			bg.Go(func() { rdsPromoteReadReplica(id) })
+		case modifying:
+			// The promotion ended the replication and stopped the engine
+			// before the previous process went.
+			rdsInstances.Update(id, func(stored *RDSInstance) { stored.DBInstanceStatus = "available" })
+		case rdsIsReadReplica(instance) && instance.DBInstanceStatus == "available":
+			bg.Go(func() {
+				if plane, served := rdsLoadDataPlane(id); served {
+					if err := plane.engine.Ensure(); err != nil {
+						log.Printf("Amazon RDS %s: restart the replica engine: %v", id, err)
+					}
+				}
+				rdsMonitorReplica(id, true)
+			})
 		case bringingUp:
 			bg.Go(func() { rdsFinishInstanceBringUp(id) })
 		case stopping:
@@ -118,21 +143,6 @@ func rdsRecoverDataPlanes() error {
 		}
 	}
 	return nil
-}
-
-// rdsEngine names the engine an RDS engine runs. Aurora PostgreSQL 16 and
-// Aurora MySQL 3 are compatible with PostgreSQL 16 and MySQL 8.0.
-func rdsEngine(engine string) (dbengine.Engine, bool) {
-	switch {
-	case strings.HasPrefix(strings.ToLower(engine), "postgres"), strings.EqualFold(engine, "aurora-postgresql"):
-		return dbengine.Postgres16.WithImage("public.ecr.aws/docker/library/postgres:16-alpine"), true
-	case strings.EqualFold(engine, "mysql"), strings.EqualFold(engine, "aurora-mysql"):
-		return dbengine.MySQL80.WithImage("public.ecr.aws/docker/library/mysql:8.0"), true
-	case strings.EqualFold(engine, "mariadb"):
-		return dbengine.MariaDB114.WithImage("public.ecr.aws/docker/library/mariadb:11.4"), true
-	default:
-		return dbengine.Engine{}, false
-	}
 }
 
 // rdsSealMasterPassword encrypts a master-user password under the AWS owned
@@ -149,10 +159,14 @@ func rdsSealMasterPassword(password string) ([]byte, error) {
 }
 
 func rdsInstallDataPlane(instance *RDSInstance, masterPassword string) error {
-	engine, ok := rdsLoggingEngine(instance.Engine)
+	engine, ok := rdsLoggingEngine(instance.Engine, instance.EngineVersion)
+	if !ok && rdsVersionedEngine(instance.Engine) {
+		return fmt.Errorf("the simulator runs no %s %s engine", instance.Engine, instance.EngineVersion)
+	}
 	if !ok {
 		return nil
 	}
+	engine = rdsReplicaEngineArgs(engine, *instance)
 	if masterPassword == "" {
 		return fmt.Errorf("MasterUserPassword is required for the %s data plane", instance.Engine)
 	}
@@ -200,7 +214,7 @@ func rdsInstallDataPlane(instance *RDSInstance, masterPassword string) error {
 	}
 	rdsDataPlanes.Store(instance.DBInstanceIdentifier, plane)
 	plane.backups.schedule()
-	if instance.BlueGreenDeploymentIdentifier != "" {
+	if instance.BlueGreenDeploymentIdentifier != "" || rdsIsReadReplica(*instance) {
 		plane.engine.ServeReadOnly(listener)
 	} else {
 		plane.engine.Serve(listener)
@@ -269,9 +283,14 @@ func rdsEngineEnvironment(engine dbengine.Engine, user, password, database strin
 	}
 }
 
-// ready reconciles the master password and the engine's accounts, and takes
-// the instance's first automated backup on the engine's first start.
+// ready reconciles the master password and the engine's accounts, attaches a
+// source to its replicas' network, and takes the instance's first automated
+// backup on the engine's first start. A read replica's engine starts
+// replicating instead.
 func (plane *rdsDataPlane) ready() error {
+	if rdsIsReadReplica(plane.current()) {
+		return plane.replicaReady()
+	}
 	if err := plane.applyPendingMasterPassword(); err != nil {
 		return err
 	}
@@ -282,6 +301,9 @@ func (plane *rdsDataPlane) ready() error {
 	}
 	if err := rdsPrepareEngineAccounts(plane.engine, instance.MasterUsername, rdsDatabaseName(instance), password); err != nil {
 		return fmt.Errorf("prepare the Amazon RDS engine accounts: %w", err)
+	}
+	if err := plane.sourceReady(); err != nil {
+		return err
 	}
 	return plane.backups.takeFirst()
 }
@@ -551,6 +573,10 @@ func rdsStopDataPlane(instanceID string, deleting bool) error {
 	var stopErr error
 	if value, ok := rdsDataPlanes.LoadAndDelete(instanceID); ok {
 		if plane, ok := value.(*rdsDataPlane); ok {
+			plane.mu.RLock()
+			monitor := plane.replication
+			plane.mu.RUnlock()
+			monitor.stop()
 			plane.backups.stop()
 			stop := plane.engine.Close
 			if deleting {
@@ -615,7 +641,8 @@ func rdsFinishInstanceDeletion(id, resourceID string) {
 	}
 	// The instance goes either way; rdsStopDataPlane logs a failed stop.
 	_ = rdsStopDataPlane(id, true)
-	if instance, ok := rdsInstances.Get(id); ok && !rdsIsAurora(instance.Engine) {
+	instance, found := rdsInstances.Get(id)
+	if found && !rdsIsAurora(instance.Engine) {
 		rdsRetainInstanceReplications(instance)
 		rdsKeepOrRemoveInstanceBackups(instance)
 	}
@@ -623,6 +650,9 @@ func rdsFinishInstanceDeletion(id, resourceID string) {
 	rdsDeleteEngineLogs(resourceID)
 	if rdsDeletingInstance(id, resourceID) {
 		rdsInstances.Delete(id)
+	}
+	if found && !rdsIsAurora(instance.Engine) {
+		bg.Go(func() { rdsDetachDeletedInstance(instance) })
 	}
 }
 

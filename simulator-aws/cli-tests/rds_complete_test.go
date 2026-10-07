@@ -260,7 +260,7 @@ func TestRDSCLI_Complete(t *testing.T) {
 	replicaID := "cli-cmpl-replica-db"
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", primaryID,
-		"--engine", "postgres",
+		"--engine", "oracle-ee",
 		"--db-instance-class", "db.t3.micro",
 		"--allocated-storage", "20",
 		"--master-username", "admin",

@@ -59,7 +59,7 @@ func rdsInstallAuroraDataPlane(cluster *RDSCluster, masterPassword string) error
 	if !rdsIsAurora(cluster.Engine) {
 		return nil
 	}
-	engine, _ := rdsLoggingEngine(cluster.Engine)
+	engine, _ := rdsLoggingEngine(cluster.Engine, cluster.EngineVersion)
 	if len(cluster.MasterUserSecret) == 0 {
 		if masterPassword == "" {
 			return fmt.Errorf("MasterUserPassword is required for the %s data plane", cluster.Engine)

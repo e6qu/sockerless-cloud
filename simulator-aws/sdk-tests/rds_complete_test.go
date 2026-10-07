@@ -330,15 +330,15 @@ func TestRDS_AutomatedBackupsReplication(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestRDS_SwitchoverReadReplica covers SwitchoverReadReplica swapping
-// the primary/replica roles on an existing read-replica relationship.
+// TestRDS_SwitchoverReadReplica covers SwitchoverReadReplica swapping the
+// primary and standby roles of an RDS for Oracle read replica.
 func TestRDS_SwitchoverReadReplica(t *testing.T) {
 	c := rdsClient()
 	primaryID := "sw-primary-db"
 	replicaID := "sw-replica-db"
 	_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(primaryID),
-		Engine:               aws.String("postgres"),
+		Engine:               aws.String("oracle-ee"),
 		DBInstanceClass:      aws.String("db.t3.micro"),
 		AllocatedStorage:     aws.Int32(20),
 		MasterUsername:       aws.String("admin"),

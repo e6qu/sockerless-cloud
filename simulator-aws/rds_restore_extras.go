@@ -222,7 +222,7 @@ func rdsClusterFromSource(r *http.Request, newID, engine, engineVersion string) 
 	}
 	paramGroup := r.FormValue("DBClusterParameterGroupName")
 	if paramGroup == "" {
-		paramGroup = "default." + engine
+		paramGroup = "default." + rdsParameterGroupFamily(engine, engineVersion)
 	}
 	return RDSCluster{
 		DBClusterIdentifier:        newID,
@@ -531,7 +531,7 @@ func rdsClusterPointInTimeSource(w http.ResponseWriter, r *http.Request) (src RD
 // rdsInstanceFromSource builds a new RDSInstance row for the
 // instance-restore handlers, applying the new identifier and request
 // overrides over an optional source instance.
-func rdsInstanceFromSource(r *http.Request, newID string, src RDSInstance, engine string) RDSInstance {
+func rdsInstanceFromSource(r *http.Request, newID string, src RDSInstance, engine string) (RDSInstance, string, string) {
 	if engine == "" {
 		engine = src.Engine
 		if engine == "" {
@@ -542,15 +542,27 @@ func rdsInstanceFromSource(r *http.Request, newID string, src RDSInstance, engin
 	if class == "" {
 		class = src.DBInstanceClass
 	}
-	engineVersion := r.FormValue("EngineVersion")
-	if engineVersion == "" {
-		engineVersion = src.EngineVersion
+	requested := r.FormValue("EngineVersion")
+	if requested == "" {
+		requested = src.EngineVersion
+	}
+	engineVersion, problem := rdsResolveEngineVersion(engine, requested)
+	if problem == "" && src.EngineVersion != "" && strings.EqualFold(engine, src.Engine) {
+		problem = rdsCheckEngineUpgrade(engine, src.EngineVersion, engineVersion, true)
+	}
+	if problem != "" {
+		return RDSInstance{}, "InvalidParameterCombination", problem
+	}
+	paramGroup, code, message := rdsInstanceParameterGroup(r.FormValue("DBParameterGroupName"), engine, engineVersion)
+	if code != "" {
+		return RDSInstance{}, code, message
 	}
 	storage := src.AllocatedStorage
 	if v := atoiOrZero(r.FormValue("AllocatedStorage")); v > 0 {
 		storage = v
 	}
 	return RDSInstance{
+		DBParameterGroupName: paramGroup,
 		DBInstanceIdentifier: newID,
 		DbiResourceId:        rdsResourceID(),
 		DBInstanceClass:      class,
@@ -567,7 +579,7 @@ func rdsInstanceFromSource(r *http.Request, newID string, src RDSInstance, engin
 		ARN:                  rdsInstanceARN(newID),
 		Tags:                 parseAWSQueryTagMap(r, "Tags.Tag"),
 		BackupTarget:         rdsRequestedBackupTarget(r),
-	}
+	}, "", ""
 }
 
 // Reserved instances
@@ -1619,11 +1631,17 @@ func handleRDSModifySnapshot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	rdsSnapshots.Update(snap.DBSnapshotIdentifier, func(x *RDSSnapshot) {
-		if v := r.FormValue("EngineVersion"); v != "" {
-			x.EngineVersion = v
+	if requested := r.FormValue("EngineVersion"); requested != "" {
+		version, problem := rdsResolveEngineVersion(snap.Engine, requested)
+		if problem == "" {
+			problem = rdsCheckEngineUpgrade(snap.Engine, snap.EngineVersion, version, true)
 		}
-	})
+		if problem != "" {
+			rdsErrorXML(w, "InvalidParameterCombination", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+		rdsSnapshots.Update(snap.DBSnapshotIdentifier, func(x *RDSSnapshot) { x.EngineVersion = version })
+	}
 	snap, _ = rdsSnapshots.Get(snap.DBSnapshotIdentifier)
 	rdsXMLResponse(w, "ModifyDBSnapshot", renderRDSSnapshot(snap), sim.RequestID(r.Context()))
 }

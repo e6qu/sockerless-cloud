@@ -205,14 +205,17 @@ func handleRDSRestoreInstanceToPointInTime(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	inst := rdsInstanceFromSource(r, newID, src, r.FormValue("Engine"))
-	if !strings.EqualFold(inst.Engine, src.Engine) {
+	if engine := r.FormValue("Engine"); engine != "" && !strings.EqualFold(engine, src.Engine) {
 		rdsErrorXML(w, "InvalidParameterCombination",
-			fmt.Sprintf("The engine %s is not compatible with the engine %s of DB instance %s.", inst.Engine, src.Engine, srcID),
+			fmt.Sprintf("The engine %s is not compatible with the engine %s of DB instance %s.", engine, src.Engine, srcID),
 			http.StatusBadRequest, requestID)
 		return
 	}
-	inst.Engine = src.Engine
+	inst, code, message := rdsInstanceFromSource(r, newID, src, src.Engine)
+	if code != "" {
+		rdsErrorXML(w, code, message, rdsParameterGroupErrorStatus(code), requestID)
+		return
+	}
 	// A live source restores from its own volume, a retained automated backup
 	// from the volume its instance left at its deletion.
 	logVolume, latest := rdsInstanceVolume(srcID), time.Now().UTC()
@@ -394,7 +397,11 @@ func handleRDSRestoreInstanceFromS3(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, requestID)
 		return
 	}
-	inst := rdsInstanceFromSource(r, newID, RDSInstance{}, "mysql")
+	inst, code, message := rdsInstanceFromSource(r, newID, RDSInstance{}, "mysql")
+	if code != "" {
+		rdsErrorXML(w, code, message, rdsParameterGroupErrorStatus(code), requestID)
+		return
+	}
 	inst.MasterUsername = r.FormValue("MasterUsername")
 	inst.DBName = r.FormValue("DBName")
 	inst.MasterUserSecret = sealed
@@ -427,7 +434,7 @@ func rdsFinishInstanceRestore(id string) {
 	resourceID := instance.DbiResourceId
 	volume := rdsInstanceVolume(id)
 	sim.RemoveVolumeSettled(volume, "rds")
-	engine, _ := rdsLoggingEngine(instance.Engine)
+	engine, _ := rdsLoggingEngine(instance.Engine, instance.EngineVersion)
 	var err error
 	failed := "incompatible-restore"
 	if instance.ImportS3Bucket != "" {

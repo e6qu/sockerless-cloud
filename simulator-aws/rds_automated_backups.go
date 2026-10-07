@@ -293,7 +293,7 @@ func rdsRecoverRetainedBackups() {
 // that keeps one: an instance outside a DB cluster, with a backup retention
 // period, on an engine that keeps the log a restore replays.
 func rdsLiveInstanceAutoBackup(instance RDSInstance) (RDSInstanceAutomatedBackup, bool) {
-	engine, ok := rdsEngine(instance.Engine)
+	engine, ok := rdsEngine(instance.Engine, instance.EngineVersion)
 	if instance.DBClusterIdentifier != "" || instance.BackupRetentionPeriod == 0 || !ok || !rdsKeepsLog(engine) {
 		return RDSInstanceAutomatedBackup{}, false
 	}

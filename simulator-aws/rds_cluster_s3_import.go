@@ -205,7 +205,7 @@ func rdsFinishS3Import(clusterID, resourceID, bucket, prefix, role string) {
 	sim.RemoveVolumeSettled(volume, "rds")
 	err := fmt.Errorf("the cluster no longer exists")
 	if cluster, ok := rdsClusters.Get(clusterID); ok {
-		engine, _ := rdsLoggingEngine(cluster.Engine)
+		engine, _ := rdsLoggingEngine(cluster.Engine, cluster.EngineVersion)
 		err = rdsImportXtraBackup(rdsImportTarget{
 			engine: engine, volume: volume, label: clusterID, masterUsername: cluster.MasterUsername,
 			masterUserSecret: cluster.MasterUserSecret, database: rdsAuroraDatabaseName(cluster),

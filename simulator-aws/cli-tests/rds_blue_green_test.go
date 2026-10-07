@@ -42,8 +42,8 @@ func cliAwaitBlueGreenStatus(t *testing.T, id, status string) cliBlueGreenDeploy
 }
 
 // aws rds create-blue-green-deployment provisions a green RDS for MySQL
-// instance holding the blue instance's rows, read-only, with the target
-// engine version; switchover-blue-green-deployment moves the green instance
+// instance holding the blue instance's rows, read-only;
+// switchover-blue-green-deployment moves the green instance
 // onto the blue identifier and endpoint with every row the blue instance
 // committed and keeps the blue instance as -old1; delete-blue-green-deployment
 // then ends the deployment and leaves both instances.
@@ -84,8 +84,7 @@ func TestRDSCLI_BlueGreenSwitchover(t *testing.T) {
 	}
 	parseJSON(t, runCLI(t, awsCLI("rds", "create-blue-green-deployment",
 		"--blue-green-deployment-name", blueID,
-		"--source", blueARN,
-		"--target-engine-version", "8.0.41")), &created)
+		"--source", blueARN)), &created)
 	deploymentID := created.BlueGreenDeployment.BlueGreenDeploymentIdentifier
 	t.Cleanup(func() {
 		_ = awsCLI("rds", "delete-blue-green-deployment", "--blue-green-deployment-identifier", deploymentID, "--delete-target").Run()

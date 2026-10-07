@@ -444,8 +444,8 @@ func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", instID,
 		"--db-instance-class", "db.t3.micro",
-		"--engine", "mysql",
-		"--engine-version", "8.0.39",
+		"--engine", "postgres",
+		"--engine-version", "16.14",
 		"--master-username", "admin",
 		"--master-user-password", "password123!",
 		"--allocated-storage", "20",
@@ -465,14 +465,14 @@ func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 	})
 	modSnap := runCLI(t, awsCLI("rds", "modify-db-snapshot",
 		"--db-snapshot-identifier", snapID,
-		"--engine-version", "8.0.40"))
+		"--engine-version", "16.15"))
 	var ms struct {
 		DBSnapshot struct {
 			EngineVersion string `json:"EngineVersion"`
 		} `json:"DBSnapshot"`
 	}
 	parseJSON(t, modSnap, &ms)
-	assert.Equal(t, "8.0.40", ms.DBSnapshot.EngineVersion)
+	assert.Equal(t, "16.15", ms.DBSnapshot.EngineVersion)
 
 	exportID := "cli-rext-export"
 	expOut := runCLI(t, awsCLI("rds", "start-export-task",

@@ -32,7 +32,7 @@ func TestRDS_DBInstanceLifecycle(t *testing.T) {
 		DBInstanceIdentifier: aws.String(id),
 		DBInstanceClass:      aws.String("db.t3.micro"),
 		Engine:               aws.String("postgres"),
-		EngineVersion:        aws.String("15.4"),
+		EngineVersion:        aws.String("16.15"),
 		MasterUsername:       aws.String("admin"),
 		MasterUserPassword:   aws.String("password123!"),
 		AllocatedStorage:     aws.Int32(20),

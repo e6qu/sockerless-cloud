@@ -1776,11 +1776,89 @@ SourceClusterNotSupportedFault, a source without automated backups, a read
 replica or a cluster member SourceDatabaseNotSupportedFault, so the IAM
 condition-key tests that name a Multi-AZ DB cluster source expect that refusal
 once the grant admits the request. The SDK suite switches an RDS for MySQL and
-an RDS for PostgreSQL instance over and reads every committed row through the
-original endpoint, the CLI suite does the same on RDS for MySQL in its own
-`rds-blue-green` shard, and the Terraform suite applies an engine version and
-parameter group change to an `aws_db_instance` with `blue_green_update` in its
-own shard.
+an RDS for PostgreSQL instance over — the PostgreSQL one from 16.14 to
+16.15 — and reads every committed row through the original endpoint, the CLI
+suite does the same on RDS for MySQL in its own `rds-blue-green` shard, and
+the Terraform suite applies a parameter group change to an `aws_db_instance`
+with `blue_green_update` in its own shard. A switchover moves the blue
+instance's read replicas onto the `-old1` identifier, whose engine they keep
+replicating.
+
+Every RDS engine version runs the engine's own release of that version.
+`rdsEngineVersions` lists each version the simulator offers with the image of
+that release — PostgreSQL 17.11, 16.15 and 16.14, MySQL 8.0.46 and MariaDB
+11.4.13 from the ECR Public Gallery's Docker official images, where each
+patch release has a tag of its own — and with its DB parameter group family;
+`rdsEngine` resolves an instance's engine and version to that image, so
+`SELECT version()` answers the EngineVersion DescribeDBInstances reports. The
+set is what the Docker images can run: it carries no MySQL 8.4 or MariaDB 10.11,
+and DescribeDBEngineVersions lists exactly these versions, each with the
+ValidUpgradeTarget entries the simulator performs. CreateDBInstance,
+CreateBlueGreenDeployment's TargetEngineVersion, the snapshot restores and
+ModifyDBSnapshot refuse any other version with InvalidParameterCombination
+("Cannot find version 15.4 for postgres"), a major version alone resolves to
+that major's newest version as Amazon RDS resolves it, and a downgrade is
+refused. ModifyDBInstance with a newer version answers `upgrading` with the
+version under PendingModifiedValues, stops the engine and starts the new
+release on the same volume — PostgreSQL reads a minor release's data as it
+is, and MySQL and MariaDB upgrade their data dictionary themselves — and lands
+`available` once it accepts clients. A PostgreSQL major version upgrade needs
+`pg_upgrade` with both releases' binaries, which no official image carries, so
+it is refused and listed in `BUGS.md`; Aurora clusters keep running the one
+community release their row names. Records an earlier simulator wrote — which
+ran PostgreSQL 16, MySQL 8.0 and MariaDB 11.4 whatever version they recorded —
+move to the newest offered version of that major when the simulator starts, so
+the engine that starts on a volume reads it. The default PostgreSQL version is
+16.15, the major the earlier images held. Every row's image is a literal in
+the source, so `base-images-for.sh` warms each in CI.
+
+An instance created, restored or provisioned as a read replica without a DB
+parameter group is associated with its family's default group,
+`default.<family>`, which Amazon RDS creates in each account the first time a
+family is used and which DescribeDBParameterGroups and DescribeDBParameters
+read; ModifyDBParameterGroup, ResetDBParameterGroup and DeleteDBParameterGroup
+refuse a default group with InvalidParameterValue, and a group of another
+family is refused with InvalidParameterCombination. DB cluster parameter
+groups take their default name from the family too (`default.aurora-postgresql16`).
+
+An RDS DB instance read replica is a real replica. CreateDBInstanceReadReplica
+refuses a source without automated backups (InvalidDBInstanceState) or in a DB
+cluster, answers `creating` and in the background readies the source's
+running engine: the root of the replication chain creates the
+`rdsrepladmin` replication user, whose password it records sealed, a
+PostgreSQL source admits that user's replication connections in `pg_hba.conf`
+and keeps a physical replication slot for the replica, and the source's
+engine joins `sockerless-rds-replication-<source DbiResourceId>`, a container
+network on which it answers as `source`. The replica's volume is a frozen
+capture of the source's; a MySQL-family replica drops the source's server UUID
+and replicates from the end of the last whole transaction in the source's
+newest binary log file, read with the parser the restores to a time use, and
+runs with a server ID of its own and `read_only` on; a PostgreSQL replica drops
+the copied slots and starts as a hot standby with `primary_conninfo` and
+`primary_slot_name`. Its engine joins the source's network when it starts,
+and a MySQL-family replica runs `CHANGE REPLICATION SOURCE TO` (`CHANGE MASTER
+TO` on MariaDB) at the captured position the first time; the engine keeps
+that configuration across restarts. The replica lands `available` once its
+engine reports its replication running, serves sessions read-only, and
+reports the `read replication` status in StatusInfos and ReplicaLag in the
+`AWS/RDS` namespace from its engine's own status (`Seconds_Behind_Source`,
+`Seconds_Behind_Master`, or the replay delay of `pg_stat_wal_receiver`'s
+stream), at once and then each minute, Amazon RDS's metric period;
+`rdsEngineOutput` reads that status through the Docker Engine API's exec. The
+replica takes the source's master-user password with its data, refuses one of
+its own, and follows the source's when it changes. A source with read replicas
+and a replica cannot be stopped. PromoteReadReplica answers `modifying`, ends
+the replication (`RESET REPLICA ALL` and `read_only` off, or `pg_promote`),
+drops the source's slot and reopens the engine writable with the request's
+backup settings; deleting a source promotes its replicas and removes its
+network, and deleting a replica drops its slot. SwitchoverReadReplica, an RDS
+for Oracle Data Guard operation, refuses the engines the simulator runs.
+Engines the simulator runs no data plane for keep record-only replicas. The
+SDK suite replicates and promotes RDS for MySQL, PostgreSQL and MariaDB
+replicas and promotes the replica of a deleted source, the CLI suite does the
+same for RDS for MySQL and upgrades an RDS for PostgreSQL instance in its own
+`rds-read-replica` shard, and the Terraform suite creates an `aws_db_instance`
+with `replicate_source_db` in its own shard.
 
 RDS for MariaDB keeps automated backups and restores to a time as RDS for
 MySQL does. Its engine writes a binary log only when told to, so the instance

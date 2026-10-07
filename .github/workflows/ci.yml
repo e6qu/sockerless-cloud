@@ -918,6 +918,14 @@ jobs:
             run: '^Test(RDSCLI_(MariaDB|MySQLIAM))'
             timeout: 1200s
             timeout_minutes: 15
+          # A read replica starts its source's engine and its own, copies the
+          # source volume and waits on the CLI's 30-second waiter cadence for
+          # each of the create, the replica and the promotion, so the replica
+          # and engine version upgrade tests run apart.
+          - suite: rds-read-replica
+            run: '^Test(RDSCLI_(ReadReplica|ReleasedEngineVersion))'
+            timeout: 1200s
+            timeout_minutes: 15
           - suite: appdata5
             run: '^Test(Route53|S3)'
             timeout: 1200s
@@ -1102,6 +1110,13 @@ jobs:
           - suite: aws Amazon RDS blue/green deployment
             cloud: aws
             tf_packages: "./rds-blue-green"
+            tf_timeout: 720s
+            timeout_minutes: 15
+          # The provider's create, replica and destroy waits take about six
+          # minutes of the stack's test.
+          - suite: aws Amazon RDS read replica
+            cloud: aws
+            tf_packages: "./rds-read-replica"
             tf_timeout: 720s
             timeout_minutes: 15
           - suite: aws Amazon RDS snapshot

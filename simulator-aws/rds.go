@@ -87,9 +87,23 @@ type RDSInstance struct {
 	// AutoMinorVersionUpgrade is the request's choice; nil is Amazon RDS's
 	// default of true.
 	AutoMinorVersionUpgrade *bool `json:",omitempty"`
-	// DBParameterGroupName names the DB parameter group a request associated
-	// with the instance.
+	// DBParameterGroupName names the DB parameter group the instance is
+	// associated with: the one a request named, or its family's default.
 	DBParameterGroupName string `json:",omitempty"`
+	// PendingEngineVersion is the version an upgrade in progress moves the
+	// instance's engine to.
+	PendingEngineVersion string `json:",omitempty"`
+	// ReplicationUserSecret seals the password of the replication user the
+	// root of a replication chain creates for its read replicas.
+	ReplicationUserSecret []byte `json:",omitempty"`
+	// A MySQL-family replica's position in its source's binary log, which its
+	// engine starts replicating from on its first start.
+	ReplicaSourceLogFile string `json:",omitempty"`
+	ReplicaSourceLogPos  int    `json:",omitempty"`
+	// ReplicationStatus and ReplicationMessage are a read replica's read
+	// replication status as its engine last reported it.
+	ReplicationStatus  string `json:",omitempty"`
+	ReplicationMessage string `json:",omitempty"`
 	// BlueGreenDeploymentIdentifier names the blue/green deployment whose
 	// green environment the instance is, which serves its sessions read-only.
 	BlueGreenDeploymentIdentifier string `json:",omitempty"`
@@ -457,6 +471,7 @@ func registerRDS(r *AWSQueryRouter, srv *sim.Server) {
 	registerRDSProxiesRoles(r, srv)
 	registerRDSRestoreExtras(r, srv)
 	registerRDSComplete(r, srv)
+	rdsMigrateEngineVersions()
 	if err := rdsMoveVolumesToKindNames(); err != nil {
 		panic(fmt.Sprintf("move Amazon Relational Database Service volumes: %v", err))
 	}
@@ -531,6 +546,10 @@ func renderRDSInstance(i RDSInstance) string {
 		fmt.Fprintf(&b, "<DBParameterGroups><DBParameterGroup><DBParameterGroupName>%s</DBParameterGroupName><ParameterApplyStatus>in-sync</ParameterApplyStatus></DBParameterGroup></DBParameterGroups>",
 			xmlEscape(i.DBParameterGroupName))
 	}
+	if i.PendingEngineVersion != "" {
+		fmt.Fprintf(&b, "<PendingModifiedValues><EngineVersion>%s</EngineVersion></PendingModifiedValues>", xmlEscape(i.PendingEngineVersion))
+	}
+	b.WriteString(renderRDSReplicaStatusInfos(i))
 	b.WriteString(renderRDSInstanceBackups(i))
 	b.WriteString(rdsRenderAutomatedBackupsReplications(i.AutomatedBackupsReplications))
 	if i.ReadReplicaSource != "" {
@@ -565,9 +584,10 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 	if v := r.FormValue("AvailabilityZone"); v != "" {
 		az = v
 	}
-	engineVersion := r.FormValue("EngineVersion")
-	if engineVersion == "" {
-		engineVersion = rdsDefaultEngineVersion(engine)
+	engineVersion, problem := rdsResolveEngineVersion(engine, r.FormValue("EngineVersion"))
+	if problem != "" {
+		rdsErrorXML(w, "InvalidParameterCombination", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
 	}
 	clusterID := r.FormValue("DBClusterIdentifier")
 	var cluster RDSCluster
@@ -607,6 +627,12 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 			EnableIAMDatabaseAuthentication: cluster.EnableIAMDatabaseAuthentication,
 			DBClusterIdentifier:             clusterID,
 		}
+		groupName, code, message := rdsInstanceParameterGroup(r.FormValue("DBParameterGroupName"), inst.Engine, inst.EngineVersion)
+		if code != "" {
+			rdsErrorXML(w, code, message, rdsParameterGroupErrorStatus(code), sim.RequestID(r.Context()))
+			return
+		}
+		inst.DBParameterGroupName = groupName
 		if err := rdsInstallAuroraInstanceEndpoint(&inst); err != nil {
 			rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 			return
@@ -620,10 +646,9 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "InvalidParameterValue", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	paramGroup := r.FormValue("DBParameterGroupName")
-	if !rdsResolveParameterGroup(paramGroup) {
-		rdsErrorXML(w, "DBParameterGroupNotFound", fmt.Sprintf("DBParameterGroup not found: %s", paramGroup),
-			http.StatusNotFound, sim.RequestID(r.Context()))
+	paramGroup, code, message := rdsInstanceParameterGroup(r.FormValue("DBParameterGroupName"), engine, engineVersion)
+	if code != "" {
+		rdsErrorXML(w, code, message, rdsParameterGroupErrorStatus(code), sim.RequestID(r.Context()))
 		return
 	}
 	inst := RDSInstance{
@@ -703,18 +728,38 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 		instance.AllocatedStorage = atoiOrZero(value)
 	}
 	if value := r.FormValue("EngineVersion"); value != "" {
-		instance.EngineVersion = value
+		version, problem := rdsResolveEngineVersion(instance.Engine, value)
+		if problem == "" {
+			problem = rdsCheckEngineUpgrade(instance.Engine, instance.EngineVersion, version,
+				strings.EqualFold(r.FormValue("AllowMajorVersionUpgrade"), "true"))
+		}
+		if problem != "" {
+			rdsErrorXML(w, "InvalidParameterCombination", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+		switch {
+		case version == instance.EngineVersion:
+		case !rdsVersionedEngine(instance.Engine) || len(instance.MasterUserSecret) == 0:
+			instance.EngineVersion = version
+		default:
+			instance.PendingEngineVersion = version
+			instance.DBInstanceStatus = "upgrading"
+		}
 	}
 	if requested := rdsRequestedBool(r, "AutoMinorVersionUpgrade"); requested != nil {
 		instance.AutoMinorVersionUpgrade = requested
 	}
 	if value := r.FormValue("DBParameterGroupName"); value != "" {
-		if !rdsResolveParameterGroup(value) {
-			rdsErrorXML(w, "DBParameterGroupNotFound", fmt.Sprintf("DBParameterGroup not found: %s", value),
-				http.StatusNotFound, sim.RequestID(r.Context()))
+		version := instance.EngineVersion
+		if instance.PendingEngineVersion != "" {
+			version = instance.PendingEngineVersion
+		}
+		group, code, message := rdsInstanceParameterGroup(value, instance.Engine, version)
+		if code != "" {
+			rdsErrorXML(w, code, message, rdsParameterGroupErrorStatus(code), sim.RequestID(r.Context()))
 			return
 		}
-		instance.DBParameterGroupName = value
+		instance.DBParameterGroupName = group
 	}
 	if value := r.FormValue("EnableIAMDatabaseAuthentication"); value != "" {
 		instance.EnableIAMDatabaseAuthentication = strings.EqualFold(value, "true")
@@ -733,6 +778,12 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 	}
 	var newPassword *string
 	if value := r.FormValue("MasterUserPassword"); value != "" {
+		if rdsIsReadReplica(instance) && len(instance.MasterUserSecret) > 0 {
+			rdsErrorXML(w, "InvalidParameterCombination",
+				fmt.Sprintf("The master user password of read replica %s follows its source DB instance %s.", id, instance.ReadReplicaSource),
+				http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
 		newPassword = &value
 	}
 	if err := rdsModifyDataPlaneAuthentication(&instance, newPassword); err != nil {
@@ -744,6 +795,12 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 		*stored = instance
 		stored.BaseBackups = bases
 	})
+	if newPassword != nil {
+		rdsFollowSourceMasterPassword(instance)
+	}
+	if instance.DBInstanceStatus == "upgrading" {
+		bg.Go(func() { rdsUpgradeInstanceEngine(id) })
+	}
 	if plane, ok := rdsLoadDataPlane(id); ok && backupsChanged {
 		plane.backups.schedule()
 		bg.Go(func() {
@@ -822,7 +879,8 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	seeding := false
 	rdsInstances.Update(id, func(stored *RDSInstance) {
-		seeding = stored.DBInstanceStatus == "creating" && (stored.RestoreSourceVolume != "" || stored.ImportS3Bucket != "")
+		seeding = stored.DBInstanceStatus == "creating" &&
+			(stored.RestoreSourceVolume != "" || stored.ImportS3Bucket != "" || (rdsIsReadReplica(*stored) && len(stored.MasterUserSecret) > 0))
 		stored.DBInstanceStatus = "deleting"
 		stored.RetainAutomatedBackups = strings.EqualFold(r.FormValue("DeleteAutomatedBackups"), "false")
 		inst = *stored
@@ -830,8 +888,8 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 	resourceID := inst.DbiResourceId
 	switch {
 	case seeding:
-		// rdsFinishInstanceRestore tears the instance down once its seed lets
-		// go of the volume.
+		// rdsFinishInstanceRestore or rdsProvisionReadReplica tears the
+		// instance down once its seed lets go of the volume.
 	case finalSnapID != "":
 		// The final snapshot captures the instance's volume before the data
 		// plane and the volume go away, and the deleting instance holds its
@@ -1146,15 +1204,6 @@ func removeAWSQueryTags(tags map[string]string, r *http.Request) {
 	}
 }
 
-// rdsDefaultEngineVersion returns the engine's current GA major
-// version when the request omits EngineVersion. Real RDS resolves
-// the default server-side and includes it in the CreateDBInstance
-// response; the terraform-provider-aws resource captures the
-// resolved version into state, so an empty echo persists as `""`
-// and surfaces as state drift on the next plan.
-//
-// Versions kept current as of mid-2026 GA releases. New majors land
-// rarely (1-2× per year); update here when they ship.
 // rdsDefaultPort returns the engine's default listener port, matching what RDS
 // assigns when no explicit Port is given (and what a snapshot restore inherits
 // from the source engine).
@@ -1169,28 +1218,6 @@ func rdsDefaultPort(engine string) int {
 	default: // mysql, aurora, aurora-mysql, mariadb, and unknown engines
 		return 3306
 	}
-}
-
-func rdsDefaultEngineVersion(engine string) string {
-	switch engine {
-	case "postgres":
-		return "17.5"
-	case "mysql":
-		return "8.0.40"
-	case "mariadb":
-		return "11.4.4"
-	case "aurora-postgresql":
-		return "16.6"
-	case "aurora-mysql":
-		return "8.0.mysql_aurora.3.07.0"
-	case "oracle-se2":
-		return "19.0.0.0.ru-2024-10.rur-2024-10.r1"
-	case "oracle-ee":
-		return "19.0.0.0.ru-2024-10.rur-2024-10.r1"
-	case "sqlserver-ex", "sqlserver-web", "sqlserver-se", "sqlserver-ee":
-		return "16.00.4150.1.v1"
-	}
-	return ""
 }
 
 func rdsSnapshotARN(id string) string {
@@ -1397,14 +1424,32 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "InvalidParameterValue", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	engineVersion := snap.EngineVersion
+	if requested := r.FormValue("EngineVersion"); requested != "" {
+		resolved, unknown := rdsResolveEngineVersion(snap.Engine, requested)
+		if unknown == "" {
+			unknown = rdsCheckEngineUpgrade(snap.Engine, snap.EngineVersion, resolved, true)
+		}
+		if unknown != "" {
+			rdsErrorXML(w, "InvalidParameterCombination", unknown, http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+		engineVersion = resolved
+	}
+	paramGroup, code, message := rdsInstanceParameterGroup(r.FormValue("DBParameterGroupName"), snap.Engine, engineVersion)
+	if code != "" {
+		rdsErrorXML(w, code, message, rdsParameterGroupErrorStatus(code), sim.RequestID(r.Context()))
+		return
+	}
 	inst := RDSInstance{
+		DBParameterGroupName:  paramGroup,
 		BackupRetentionPeriod: retention,
 		PreferredBackupWindow: window,
 		DBInstanceIdentifier:  newInstID,
 		DbiResourceId:         rdsResourceID(),
 		DBInstanceClass:       r.FormValue("DBInstanceClass"),
 		Engine:                snap.Engine,
-		EngineVersion:         snap.EngineVersion,
+		EngineVersion:         engineVersion,
 		DBInstanceStatus:      "creating",
 		MasterUsername:        snap.MasterUsername,
 		DBName:                snap.DBName,
@@ -1560,7 +1605,7 @@ func handleRDSCreateCluster(w http.ResponseWriter, r *http.Request) {
 	}
 	paramGroup := r.FormValue("DBClusterParameterGroupName")
 	if paramGroup == "" {
-		paramGroup = "default." + engine
+		paramGroup = "default." + rdsParameterGroupFamily(engine, engineVersion)
 	}
 	backupRetention := 1
 	if v := r.FormValue("BackupRetentionPeriod"); v != "" {
@@ -2057,6 +2102,7 @@ func handleRDSCreateParamGroup(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSDescribeParamGroups(w http.ResponseWriter, r *http.Request) {
 	wanted := r.FormValue("DBParameterGroupName")
+	rdsEnsureOfferedDefaultParameterGroup(wanted)
 	matched := false
 	var b strings.Builder
 	b.WriteString("<DBParameterGroups>")
@@ -2079,6 +2125,10 @@ func handleRDSDescribeParamGroups(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSDeleteParamGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("DBParameterGroupName")
+	if strings.HasPrefix(name, "default.") {
+		rdsErrorXML(w, "InvalidParameterValue", "Default DBParameterGroup cannot be deleted: "+name, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	if _, ok := rdsParamGroups.Get(name); !ok {
 		rdsErrorXML(w, "DBParameterGroupNotFound", "DB parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -2086,68 +2136,6 @@ func handleRDSDeleteParamGroup(w http.ResponseWriter, r *http.Request) {
 	rdsParamGroups.Delete(name)
 	// DeleteDBParameterGroup has an empty result body on real RDS.
 	rdsXMLResponse(w, "DeleteDBParameterGroup", "", sim.RequestID(r.Context()))
-}
-
-func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("DBInstanceIdentifier")
-	srcID := r.FormValue("SourceDBInstanceIdentifier")
-	if id == "" || srcID == "" {
-		rdsErrorXML(w, "MissingParameter",
-			"DBInstanceIdentifier and SourceDBInstanceIdentifier are required",
-			http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	// The source can be passed as an identifier or an ARN.
-	src, ok := findRDSByARN(srcID)
-	if !ok {
-		rdsErrorXML(w, "DBInstanceNotFound",
-			fmt.Sprintf("DBInstance %q not found", srcID),
-			http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	if rdsRefuseUnavailableInstance(w, r, src) {
-		return
-	}
-	if _, exists := rdsInstances.Get(id); exists {
-		rdsErrorXML(w, "DBInstanceAlreadyExists",
-			fmt.Sprintf("DBInstance %q already exists", id),
-			http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	class := r.FormValue("DBInstanceClass")
-	if class == "" {
-		class = src.DBInstanceClass
-	}
-	az := awsRegion() + "a"
-	if v := r.FormValue("AvailabilityZone"); v != "" {
-		az = v
-	}
-	replica := RDSInstance{
-		PreferredBackupWindow: rdsDefaultBackupWindow,
-		DBInstanceIdentifier:  id,
-		DbiResourceId:         rdsResourceID(),
-		DBInstanceClass:       class,
-		Engine:                src.Engine,
-		EngineVersion:         src.EngineVersion,
-		DBInstanceStatus:      "available",
-		MasterUsername:        src.MasterUsername,
-		DBName:                src.DBName,
-		AllocatedStorage:      src.AllocatedStorage,
-		Endpoint:              fmt.Sprintf("%s.%s.rds.amazonaws.com", id, awsRegion()),
-		Port:                  src.Port,
-		AvailabilityZone:      az,
-		InstanceCreateTime:    time.Now().UTC().Format(time.RFC3339),
-		ARN:                   rdsInstanceARN(id),
-		ReadReplicaSource:     src.DBInstanceIdentifier,
-		Tags:                  parseAWSQueryTagMap(r, "Tags.Tag"),
-		BackupTarget:          rdsRequestedBackupTarget(r),
-	}
-	rdsInstances.Put(id, replica)
-	// Link the replica back onto the source.
-	rdsInstances.Update(src.DBInstanceIdentifier, func(i *RDSInstance) {
-		i.ReadReplicas = append(i.ReadReplicas, id)
-	})
-	rdsXMLResponse(w, "CreateDBInstanceReadReplica", renderRDSInstance(replica), sim.RequestID(r.Context()))
 }
 
 func handleRDSCopySnapshot(w http.ResponseWriter, r *http.Request) {
@@ -2639,55 +2627,6 @@ func handleRDSDescribeEventCategories(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DescribeEventCategories", b.String(), sim.RequestID(r.Context()))
 }
 
-// rdsEngineVersionRow is a faithful static-but-real DB engine version
-// the SDK/CLI can consume. The set mirrors the current GA majors the
-// sim defaults to in rdsDefaultEngineVersion.
-type rdsEngineVersionRow struct {
-	Engine        string
-	EngineVersion string
-	MajorVersion  string
-	Family        string
-}
-
-func rdsEngineVersionRows() []rdsEngineVersionRow {
-	return []rdsEngineVersionRow{
-		{"postgres", "17.5", "17", "postgres17"},
-		{"postgres", "16.6", "16", "postgres16"},
-		{"mysql", "8.0.40", "8.0", "mysql8.0"},
-		{"mariadb", "11.4.4", "11.4", "mariadb11.4"},
-		{"aurora-postgresql", "16.6", "16", "aurora-postgresql16"},
-		{"aurora-mysql", "8.0.mysql_aurora.3.07.0", "8.0", "aurora-mysql8.0"},
-	}
-}
-
-func handleRDSDescribeEngineVersions(w http.ResponseWriter, r *http.Request) {
-	wantEngine := r.FormValue("Engine")
-	wantVersion := r.FormValue("EngineVersion")
-	var b strings.Builder
-	b.WriteString("<DBEngineVersions>")
-	for _, row := range rdsEngineVersionRows() {
-		if wantEngine != "" && row.Engine != wantEngine {
-			continue
-		}
-		if wantVersion != "" && row.EngineVersion != wantVersion {
-			continue
-		}
-		b.WriteString("<DBEngineVersion>")
-		fmt.Fprintf(&b, "<Engine>%s</Engine>", xmlEscape(row.Engine))
-		fmt.Fprintf(&b, "<EngineVersion>%s</EngineVersion>", xmlEscape(row.EngineVersion))
-		fmt.Fprintf(&b, "<MajorEngineVersion>%s</MajorEngineVersion>", xmlEscape(row.MajorVersion))
-		fmt.Fprintf(&b, "<DBParameterGroupFamily>%s</DBParameterGroupFamily>", xmlEscape(row.Family))
-		fmt.Fprintf(&b, "<DBEngineDescription>%s</DBEngineDescription>", xmlEscape("Amazon RDS "+row.Engine))
-		fmt.Fprintf(&b, "<DBEngineVersionDescription>%s</DBEngineVersionDescription>", xmlEscape(row.Engine+" "+row.EngineVersion))
-		b.WriteString("<Status>available</Status>")
-		b.WriteString("<SupportsReadReplica>true</SupportsReadReplica>")
-		b.WriteString("<SupportsLogExportsToCloudwatchLogs>true</SupportsLogExportsToCloudwatchLogs>")
-		b.WriteString("</DBEngineVersion>")
-	}
-	b.WriteString("</DBEngineVersions>")
-	rdsXMLResponse(w, "DescribeDBEngineVersions", b.String(), sim.RequestID(r.Context()))
-}
-
 func handleRDSDescribeOrderableOptions(w http.ResponseWriter, r *http.Request) {
 	engine := r.FormValue("Engine")
 	if engine == "" {
@@ -2695,41 +2634,46 @@ func handleRDSDescribeOrderableOptions(w http.ResponseWriter, r *http.Request) {
 			"Engine is required", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	wantVersion := r.FormValue("EngineVersion")
-	if wantVersion == "" {
-		wantVersion = rdsDefaultEngineVersion(engine)
-	}
+	versions := rdsOrderableVersions(engine, r.FormValue("EngineVersion"))
 	wantClass := r.FormValue("DBInstanceClass")
 	classes := []string{"db.t3.micro", "db.t3.small", "db.t3.medium", "db.m5.large", "db.m5.xlarge", "db.r5.large"}
 	azs := []string{awsRegion() + "a", awsRegion() + "b", awsRegion() + "c"}
 	var b strings.Builder
 	b.WriteString("<OrderableDBInstanceOptions>")
-	for _, class := range classes {
-		if wantClass != "" && class != wantClass {
-			continue
+	for _, version := range versions {
+		for _, class := range classes {
+			if wantClass != "" && class != wantClass {
+				continue
+			}
+			b.WriteString(rdsRenderOrderableOption(engine, version, class, azs))
 		}
-		b.WriteString("<OrderableDBInstanceOption>")
-		fmt.Fprintf(&b, "<Engine>%s</Engine>", xmlEscape(engine))
-		fmt.Fprintf(&b, "<EngineVersion>%s</EngineVersion>", xmlEscape(wantVersion))
-		fmt.Fprintf(&b, "<DBInstanceClass>%s</DBInstanceClass>", xmlEscape(class))
-		b.WriteString("<LicenseModel>general-public-license</LicenseModel>")
-		b.WriteString("<MultiAZCapable>true</MultiAZCapable>")
-		b.WriteString("<ReadReplicaCapable>true</ReadReplicaCapable>")
-		b.WriteString("<Vpc>true</Vpc>")
-		b.WriteString("<SupportsStorageEncryption>true</SupportsStorageEncryption>")
-		b.WriteString("<SupportsIAMDatabaseAuthentication>true</SupportsIAMDatabaseAuthentication>")
-		b.WriteString("<StorageType>gp3</StorageType>")
-		b.WriteString("<AvailabilityZones>")
-		for _, az := range azs {
-			b.WriteString("<AvailabilityZone>")
-			fmt.Fprintf(&b, "<Name>%s</Name>", xmlEscape(az))
-			b.WriteString("</AvailabilityZone>")
-		}
-		b.WriteString("</AvailabilityZones>")
-		b.WriteString("</OrderableDBInstanceOption>")
 	}
 	b.WriteString("</OrderableDBInstanceOptions>")
 	rdsXMLResponse(w, "DescribeOrderableDBInstanceOptions", b.String(), sim.RequestID(r.Context()))
+}
+
+func rdsRenderOrderableOption(engine, version, class string, azs []string) string {
+	var b strings.Builder
+	b.WriteString("<OrderableDBInstanceOption>")
+	fmt.Fprintf(&b, "<Engine>%s</Engine>", xmlEscape(engine))
+	fmt.Fprintf(&b, "<EngineVersion>%s</EngineVersion>", xmlEscape(version))
+	fmt.Fprintf(&b, "<DBInstanceClass>%s</DBInstanceClass>", xmlEscape(class))
+	b.WriteString("<LicenseModel>general-public-license</LicenseModel>")
+	b.WriteString("<MultiAZCapable>true</MultiAZCapable>")
+	b.WriteString("<ReadReplicaCapable>true</ReadReplicaCapable>")
+	b.WriteString("<Vpc>true</Vpc>")
+	b.WriteString("<SupportsStorageEncryption>true</SupportsStorageEncryption>")
+	b.WriteString("<SupportsIAMDatabaseAuthentication>true</SupportsIAMDatabaseAuthentication>")
+	b.WriteString("<StorageType>gp3</StorageType>")
+	b.WriteString("<AvailabilityZones>")
+	for _, az := range azs {
+		b.WriteString("<AvailabilityZone>")
+		fmt.Fprintf(&b, "<Name>%s</Name>", xmlEscape(az))
+		b.WriteString("</AvailabilityZone>")
+	}
+	b.WriteString("</AvailabilityZones>")
+	b.WriteString("</OrderableDBInstanceOption>")
+	return b.String()
 }
 
 // Real RDS transitions an instance through starting→available and
@@ -2752,9 +2696,12 @@ func rdsRequireStandaloneInstance(w http.ResponseWriter, r *http.Request, instan
 
 // rdsRefuseUnavailableInstance answers InvalidDBInstanceState for an instance
 // that takes no such action until it is available: one Amazon RDS is still
-// creating, starting or taking the first automated backup of, or is deleting.
+// creating, starting, taking the first automated backup of, upgrading or
+// promoting, or is deleting.
 func rdsRefuseUnavailableInstance(w http.ResponseWriter, r *http.Request, instance RDSInstance) bool {
-	if instance.DBInstanceStatus != "deleting" && !rdsInstanceBringingUp(instance.DBInstanceStatus) {
+	switch {
+	case instance.DBInstanceStatus == "deleting", instance.DBInstanceStatus == "upgrading", instance.DBInstanceStatus == "modifying":
+	case !rdsInstanceBringingUp(instance.DBInstanceStatus):
 		return false
 	}
 	rdsErrorXML(w, "InvalidDBInstanceState",
@@ -2811,47 +2758,18 @@ func handleRDSStopInstance(w http.ResponseWriter, r *http.Request) {
 	if !rdsRequireInstanceState(w, r, instance, "available", "stopped") {
 		return
 	}
+	if rdsIsReadReplica(instance) || len(rdsReadReplicasOf(instance)) > 0 {
+		rdsErrorXML(w, "InvalidDBInstanceState",
+			fmt.Sprintf("Instance %s cannot be stopped: a DB instance that has a read replica, or that is a read replica, can't be stopped.", id),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	// Amazon RDS answers stopping and lands stopped once the engine has shut
 	// down, which is when the engine container here has stopped.
 	rdsInstances.Update(id, func(i *RDSInstance) { i.DBInstanceStatus = "stopping" })
 	updated, _ := rdsInstances.Get(id)
 	bg.Go(func() { rdsFinishStop(id) })
 	rdsXMLResponse(w, "StopDBInstance", renderRDSInstance(updated), sim.RequestID(r.Context()))
-}
-
-// handleRDSPromoteReadReplica detaches a read replica from its source,
-// turning it into a standalone primary (clears ReadReplicaSource and
-// unlinks it from the source's ReadReplicas list).
-func handleRDSPromoteReadReplica(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("DBInstanceIdentifier")
-	inst, ok := rdsInstances.Get(id)
-	if !ok {
-		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	if rdsRefuseUnavailableInstance(w, r, inst) {
-		return
-	}
-	src := inst.ReadReplicaSource
-	rdsInstances.Update(id, func(i *RDSInstance) {
-		i.ReadReplicaSource = ""
-		i.DBInstanceStatus = "available"
-	})
-	if src != "" {
-		if _, ok := rdsInstances.Get(src); ok {
-			rdsInstances.Update(src, func(i *RDSInstance) {
-				kept := i.ReadReplicas[:0]
-				for _, rep := range i.ReadReplicas {
-					if rep != id {
-						kept = append(kept, rep)
-					}
-				}
-				i.ReadReplicas = kept
-			})
-		}
-	}
-	updated, _ := rdsInstances.Get(id)
-	rdsXMLResponse(w, "PromoteReadReplica", renderRDSInstance(updated), sim.RequestID(r.Context()))
 }
 
 // handleRDSFailoverCluster simulates an Aurora failover. With no engine
@@ -3007,6 +2925,7 @@ func renderRDSParametersList(override map[string]string) string {
 
 func handleRDSDescribeParameters(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("DBParameterGroupName")
+	rdsEnsureOfferedDefaultParameterGroup(name)
 	g, ok := rdsParamGroups.Get(name)
 	if !ok {
 		g, ok = findRDSParamGroupByARN(name)
@@ -3049,6 +2968,10 @@ func parseRDSParameterOverrides(r *http.Request) map[string]string {
 
 func handleRDSModifyParameterGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("DBParameterGroupName")
+	if strings.HasPrefix(name, "default.") {
+		rdsErrorXML(w, "InvalidParameterValue", "Default parameter groups cannot be modified.", http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	if _, ok := rdsParamGroups.Get(name); !ok {
 		rdsErrorXML(w, "DBParameterGroupNotFound", "DB parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -3068,6 +2991,10 @@ func handleRDSModifyParameterGroup(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSResetParameterGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("DBParameterGroupName")
+	if strings.HasPrefix(name, "default.") {
+		rdsErrorXML(w, "InvalidParameterValue", "Default parameter groups cannot be modified.", http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	if _, ok := rdsParamGroups.Get(name); !ok {
 		rdsErrorXML(w, "DBParameterGroupNotFound", "DB parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return

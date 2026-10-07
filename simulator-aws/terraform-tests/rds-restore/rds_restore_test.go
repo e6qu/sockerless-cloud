@@ -75,7 +75,7 @@ func seedSnapshot(t *testing.T, env *tfsim.Env) *rds.Client {
 		DBInstanceIdentifier: aws.String("tf-rds-restore-source"),
 		DBInstanceClass:      aws.String("db.t3.micro"),
 		Engine:               aws.String("postgres"),
-		EngineVersion:        aws.String("17.5"),
+		EngineVersion:        aws.String("16.15"),
 		MasterUsername:       aws.String("admin"),
 		MasterUserPassword:   aws.String("password123!"),
 		AllocatedStorage:     aws.Int32(20),

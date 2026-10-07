@@ -737,6 +737,14 @@ func handleRDSSwitchoverReadReplica(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	// SwitchoverReadReplica switches over an Oracle Data Guard standby; a
+	// MySQL, MariaDB or PostgreSQL read replica has PromoteReadReplica.
+	if !strings.HasPrefix(replica.Engine, "oracle-") {
+		rdsErrorXML(w, "InvalidParameterCombination",
+			fmt.Sprintf("SwitchoverReadReplica supports RDS for Oracle read replicas; DB instance %s runs %s.", id, replica.Engine),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	// Switchover swaps the primary/replica roles: the old primary becomes
 	// a replica of the named instance, which becomes the new primary.
 	oldPrimaryID := replica.ReadReplicaSource
