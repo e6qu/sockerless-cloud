@@ -424,6 +424,7 @@ func amplifyServeManifestTarget(w http.ResponseWriter, r *http.Request, app Ampl
 			return true
 		}
 		served, err := amplifyProxyToCompute(w, r, port, interceptNotFound)
+		abortStartedForward(w, err)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return true

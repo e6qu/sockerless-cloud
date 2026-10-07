@@ -2506,13 +2506,38 @@ stays as it was. `azurerm_key_vault_access_policy` relies on all three, sending
 `remove` with the permissions it reads back.
 
 A front end — the Container Apps ingress, the App Service front end, Azure Load
-Balancer and Application Gateway — had written a 502 error body after a
-forward failed while it copied the target's body, so the error landed inside
-the response the client was already reading. A failure after the target's
-status and headers reached the client now relays what the target sent and
-closes the client's stream unfinished, as a proxy that streams its upstream's
-answer and then loses it does; a failure before that is still answered with
-the front end's own error.
+Balancer, Application Gateway, the Application Load Balancer, Amplify Hosting's
+compute, the Cloud Run front end and the external Application Load Balancer —
+had written an error body after a forward failed while it copied the target's
+body, so the error landed inside the response the client was already reading.
+A failure after the target's status and headers reached the client now relays
+what the target sent and closes the client's stream unfinished, as a proxy
+that streams its upstream's answer and then loses it does; a failure before
+that is still answered with the front end's own error. Each simulator carries
+the decision itself (`abortStartedForward`), since `lbplane.Forward` reports
+the failure and leaves the answer to the cloud's front end; Cloud Run removes
+an instance whose ingress container died before it aborts the response.
+
+A sitecontainer's `environmentVariables` had reached its container as written,
+the app setting's name in place of its value. Microsoft.Web defines each
+entry's value as the name of an app setting whose value the container gets
+under the entry's name, and an empty string when the setting does not exist;
+the main container and every sidecar now get that, with a Key Vault reference
+in the setting resolved as the app's own environment resolves it. The Azure CLI
+refuses a spec file whose entry names an app setting the app lacks, so the CLI
+test removes the setting afterwards to reach the empty string.
+
+An app had resolved its Key Vault references only when its container started,
+so a rotated secret reached a running app only on a restart. App Service caches
+the values for 24 hours and then re-fetches them: each start records the values
+its containers got and schedules the re-fetch 24 hours on; a re-fetch that
+finds them unchanged keeps the app running and schedules the next, and one that
+finds a changed value — a versionless reference to a rotated secret, a disabled
+version, a revoked grant — restarts the app on the new values, at once when
+Always On and on its next request otherwise. The vendored Microsoft.Web
+specification defines no operation that forces the re-fetch, so the simulator
+offers none; a configuration change restarts the app and resolves the
+references afresh, as it always did.
 
 Google Cloud's `testIamPermissions` answers from the stored policy resolved
 through the vendored curated roles and the held custom roles. A conditional

@@ -29,10 +29,7 @@ type SiteContainer struct {
 }
 
 // SiteContainerProperties mirrors armappservice.SiteContainerProperties.
-// image + isMain are REQUIRED per the ARM schema. EnvironmentVariables on
-// real Azure name AppSettings that are resolved at runtime; the simulator
-// realizes them as literal container env so a workload can read them
-// directly.
+// image + isMain are REQUIRED per the ARM schema.
 type SiteContainerProperties struct {
 	Image                                  string                  `json:"image"`
 	TargetPort                             string                  `json:"targetPort,omitempty"`
@@ -155,15 +152,18 @@ func splitStartUpCommand(s string) []string {
 	return args
 }
 
-// envVarsMap flattens a sitecontainer's EnvironmentVariables to a map for
-// container env injection.
-func envVarsMap(vars []SiteContainerEnvVar) map[string]string {
+// siteContainerEnv is a sitecontainer's environmentVariables as its container
+// sees them. Each entry's value names an app setting, and the container gets
+// that setting's value, a Key Vault reference resolved, under the entry's
+// name: "If the AppSetting is not found, the value will be set to an empty
+// string in the container at runtime."
+func siteContainerEnv(vars []SiteContainerEnvVar, appSettings map[string]string) map[string]string {
 	if len(vars) == 0 {
 		return nil
 	}
 	m := make(map[string]string, len(vars))
 	for _, v := range vars {
-		m[v.Name] = v.Value
+		m[v.Name] = appSettings[v.Value]
 	}
 	return m
 }
@@ -197,8 +197,10 @@ func siteContainerVolumeBinds(siteName string, mounts []SiteContainerVolMount) [
 // tear them down with the main on invoke completion. A sidecar that does not
 // start fails the site's start, as on App Service, where a site whose
 // sitecontainer fails to start does not run; the sidecars already started are
-// stopped and the main stays the caller's to stop.
-func startSidecarContainers(ctx context.Context, site *Site, mainContainerID string, sink sim.LogSink) ([]*sim.ContainerHandle, error) {
+// stopped and the main stays the caller's to stop. appSettings are the site's
+// app settings with their Key Vault references resolved, which each sidecar's
+// environmentVariables name.
+func startSidecarContainers(ctx context.Context, site *Site, mainContainerID string, appSettings map[string]string, sink sim.LogSink) ([]*sim.ContainerHandle, error) {
 	sidecars := sidecarSiteContainers(site.ID)
 	if len(sidecars) == 0 {
 		return nil, nil
@@ -214,7 +216,7 @@ func startSidecarContainers(ctx context.Context, site *Site, mainContainerID str
 			Image:             sim.ResolveLocalImage(sc.Properties.Image),
 			RegistryAuth:      acrWorkloadRegistryAuth(sc.Properties.Image, siteWorkloadRegistries(site, sc.Properties.Image)),
 			Args:              splitStartUpCommand(sc.Properties.StartUpCommand),
-			Env:               workloadhost.MergeEnv(envVarsMap(sc.Properties.EnvironmentVariables), metadataEnv),
+			Env:               workloadhost.MergeEnv(siteContainerEnv(sc.Properties.EnvironmentVariables, appSettings), metadataEnv),
 			Binds:             siteContainerVolumeBinds(site.Name, sc.Properties.VolumeMounts),
 			Name:              fmt.Sprintf("sockerless-sim-azure-func-sidecar-%s-%s-%d", siteStorageName(site.Name), sc.Name, time.Now().UnixNano()),
 			Labels: map[string]string{

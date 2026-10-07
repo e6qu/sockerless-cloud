@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -288,5 +290,50 @@ func TestGCPForwardingRulesShareAnAddressAcrossPorts(t *testing.T) {
 	}
 	if rr := f.request(f.fr.IPAddress+":9090", "/"); rr.Code != http.StatusNotFound {
 		t.Fatalf("port 9090 status = %d, want 404 for an address no rule serves on that port", rr.Code)
+	}
+}
+
+// A backend that closes its connection in the middle of a chunked body has
+// already had its status and headers relayed, so the load balancer ends the
+// client's response where the backend stopped rather than appending an error
+// to the body.
+func TestGCPComputeLoadBalancerDataPlaneAbortsAResponseTheBackendCutsShort(t *testing.T) {
+	f := newGCPLBFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+		conn, buf, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer conn.Close()
+		_, _ = buf.WriteString("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n7\r\npartial\r\n")
+		_ = buf.Flush()
+	}), "/healthz")
+	f.sweep(time.Now(), 2)
+	front := httptest.NewServer(f.srv.Mux())
+	t.Cleanup(front.Close)
+
+	req, err := http.NewRequest(http.MethodGet, front.URL+"/work", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = f.fr.IPAddress
+	resp, err := front.Client().Do(req)
+	if err != nil {
+		t.Fatalf("request through the load balancer: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want the backend's 200", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("read error = %v, want the response to end where the backend stopped", err)
+	}
+	if string(body) != "partial" {
+		t.Fatalf("body = %q, want only what the backend sent", body)
 	}
 }

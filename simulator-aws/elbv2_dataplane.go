@@ -97,6 +97,7 @@ func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listene
 		// does not validate these certificates."
 		SkipTargetVerification: true,
 	})
+	abortStartedForward(w, err)
 	switch {
 	case err == nil:
 	case errors.Is(err, lbplane.ErrClientWentAway):
@@ -110,10 +111,6 @@ func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listene
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusGatewayTimeout)
 		_, _ = io.WriteString(w, elbv2GatewayTimeoutPage)
-	case errors.Is(err, lbplane.ErrIdleTimeout):
-		// The target's answer had begun, so the load balancer closes the
-		// connection on it instead of ending the answer as though complete.
-		panic(http.ErrAbortHandler)
 	default:
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	}

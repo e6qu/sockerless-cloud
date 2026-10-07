@@ -368,6 +368,33 @@ func TestSDK_CloudRunV2Services_PassesTheContainersAnswerThrough(t *testing.T) {
 	assert.Equal(t, "short and stout", body)
 }
 
+// A container that closes its connection in the middle of a chunked body has
+// already had its status and headers relayed, so Cloud Run ends the caller's
+// response where the container stopped rather than appending an error page.
+func TestSDK_CloudRunV2Services_AbortsAResponseTheContainerCutsShort(t *testing.T) {
+	client := newServicesClient(t)
+	svc := createInvokableService(t, client, "v2-svc-cut-short", &runpb.Service{
+		Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{
+			Image: httpProbeImageName,
+			Args:  []string{"cut-short"},
+		}}},
+	})
+
+	u, err := url.Parse(svc.Uri)
+	require.NoError(t, err)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/", nil)
+	require.NoError(t, err)
+	req.Host = u.Host
+	req.Header.Set("Authorization", "Bearer "+invokerIDToken(t, svc.Uri))
+	resp, err := rawClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "the container's status reached the caller")
+	body, err := io.ReadAll(resp.Body)
+	assert.ErrorIs(t, err, io.ErrUnexpectedEOF, "the response ends where the container stopped")
+	assert.Equal(t, "partial", string(body), "nothing follows what the container sent")
+}
+
 // A configured HTTP startup probe gates the instance: traffic reaches the
 // container once the probe's GET answers 2xx.
 func TestSDK_CloudRunV2Services_HTTPStartupProbeAdmitsTraffic(t *testing.T) {

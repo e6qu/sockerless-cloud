@@ -13,7 +13,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|after-sidecar|echo-request|log-request|metadata|teapot [MESSAGE]")
+		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|after-sidecar|echo-request|log-request|metadata|teapot|cut-short [MESSAGE]")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -152,6 +152,24 @@ func main() {
 			w.Header().Set("X-Workload", "teapot")
 			w.WriteHeader(http.StatusTeapot)
 			_, _ = io.WriteString(w, "short and stout")
+		})
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "cut-short":
+		// Answers 200 with the first chunk of a chunked body, "partial", and
+		// closes the connection before the body ends, so a front end that
+		// relays the answer has to end its own response short too.
+		http.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+			conn, buf, err := http.NewResponseController(w).Hijack()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			defer conn.Close()
+			_, _ = buf.WriteString("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n7\r\npartial\r\n")
+			_ = buf.Flush()
 		})
 		if err := http.ListenAndServe(":8080", nil); err != nil {
 			fmt.Fprintln(os.Stderr, err)

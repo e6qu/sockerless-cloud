@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // web_configrefs.go resolves an App Service app's Key Vault references — app
@@ -193,6 +195,60 @@ func webResolvedAppSettings(site *Site) map[string]string {
 		}
 	}
 	return settings
+}
+
+// webReferenceValues are a site's app settings and connection-string
+// environment with their Key Vault references resolved: what its containers
+// start with.
+type webReferenceValues struct {
+	appSettings       map[string]string
+	connectionStrings map[string]string
+}
+
+func webSiteReferenceValues(site *Site) webReferenceValues {
+	return webReferenceValues{appSettings: webResolvedAppSettings(site), connectionStrings: siteConnectionStringEnv(site)}
+}
+
+func (v webReferenceValues) equal(other webReferenceValues) bool {
+	return maps.Equal(v.appSettings, other.appSettings) && maps.Equal(v.connectionStrings, other.connectionStrings)
+}
+
+// webKeyVaultReferenceRefresh is how long App Service caches the secrets a
+// running app's Key Vault references resolved to: "App Service caches the
+// values of the key vault references and refetches it every 24 hours."
+const webKeyVaultReferenceRefresh = 24 * time.Hour
+
+// cacheReferencesLocked records the reference values the containers started
+// as containerID run with, and schedules their re-fetch. Caller holds inst.mu.
+func (inst *azureFunctionInstance) cacheReferencesLocked(siteID, containerID string, references webReferenceValues) {
+	inst.references = references
+	inst.referenceRefresh = bg.AfterFunc(webKeyVaultReferenceRefresh, func() {
+		inst.refreshReferences(siteID, containerID)
+	})
+}
+
+// refreshReferences re-fetches the Key Vault references of the site whose
+// containers started as containerID. A reference that names no version
+// resolves to the secret's latest version, so a rotated secret changes its
+// value; the app then restarts on the new values, at once when Always On and
+// on its next request otherwise, as after any configuration change. Unchanged
+// values stay cached for another period.
+func (inst *azureFunctionInstance) refreshReferences(siteID, containerID string) {
+	site, ok := webJobSite(siteID)
+	inst.mu.Lock()
+	if !ok || inst.containerID != containerID {
+		inst.mu.Unlock()
+		return
+	}
+	references := webSiteReferenceValues(&site)
+	if references.equal(inst.references) {
+		inst.cacheReferencesLocked(siteID, containerID, references)
+		inst.mu.Unlock()
+		return
+	}
+	inst.teardownLocked()
+	inst.mu.Unlock()
+	startAlwaysOnSite(site)
 }
 
 // webKVRefResource wraps one reference's properties in the ApiKVReference
