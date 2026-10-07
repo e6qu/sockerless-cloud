@@ -465,10 +465,21 @@ jobs:
       - name: Install Azure CLI
         if: matrix.cloud == 'azure'
         run: |
-          curl --fail --location --show-error --silent \
-            --retry 5 --retry-all-errors --retry-delay 5 \
-            --connect-timeout 20 --max-time 300 \
-            https://aka.ms/InstallAzureCLIDeb | sudo bash
+          # The installer runs apt-get with apt's default network timeouts, so a
+          # stalled mirror held one run for fourteen minutes; the timeouts
+          # ci-apt-install.sh passes apt-get apply to it through apt.conf.d.
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
+            | sudo tee /etc/apt/apt.conf.d/80ci-timeouts > /dev/null
+          for attempt in 1 2; do
+            curl --fail --location --show-error --silent \
+              --retry 5 --retry-all-errors --retry-delay 5 \
+              --connect-timeout 20 --max-time 300 \
+              -o /tmp/install-azure-cli.sh https://aka.ms/InstallAzureCLIDeb
+            if sudo timeout 240 bash /tmp/install-azure-cli.sh; then
+              break
+            fi
+            [ "$attempt" = 2 ] && exit 1
+          done
           hash -r
           az version
       - name: Install real-execution tools
