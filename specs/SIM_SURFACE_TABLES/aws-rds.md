@@ -193,7 +193,9 @@ MariaDB expose the native database protocol at the returned `Endpoint`. The
 engine starts lazily in its real vendor container, retains data in an
 instance-owned volume, terminates TLS at the service endpoint, and accepts
 either the encrypted master credential or a TLS-protected, 15-minute SigV4 IAM
-database authentication token authorized through `rds-db:connect`.
+database authentication token authorized through `rds-db:connect`, which signs
+in a PostgreSQL role granted `rds_iam` or a MySQL or MariaDB user identified
+with `AWSAuthenticationPlugin`.
 `ModifyDBInstance` changes IAM authentication and rotates the actual database
 account both while running and across a stopped/start lifecycle without
 replacing the volume. Stock pgx and MySQL drivers prove authentication denial,

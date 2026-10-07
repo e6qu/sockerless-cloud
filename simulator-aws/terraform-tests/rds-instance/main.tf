@@ -94,3 +94,27 @@ output "rds_first_automated_snapshot_id" {
 output "rds_first_automated_snapshot_status" {
   value = data.aws_db_snapshot.tf_rds_first_automated.status
 }
+
+resource "aws_db_instance" "tf_rds_mysql_iam" {
+  identifier                          = "tf-rds-mysql-iam"
+  instance_class                      = "db.t3.micro"
+  engine                              = "mysql"
+  username                            = "dbadmin"
+  password                            = "MasterPassword-123!"
+  db_name                             = "application"
+  allocated_storage                   = 20
+  backup_retention_period             = 0
+  iam_database_authentication_enabled = true
+  skip_final_snapshot                 = true
+  apply_immediately                   = true
+}
+
+output "rds_mysql_iam_address" {
+  value = aws_db_instance.tf_rds_mysql_iam.address
+}
+output "rds_mysql_iam_port" {
+  value = tostring(aws_db_instance.tf_rds_mysql_iam.port)
+}
+output "rds_mysql_iam_enabled" {
+  value = tostring(aws_db_instance.tf_rds_mysql_iam.iam_database_authentication_enabled)
+}

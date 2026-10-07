@@ -2,7 +2,10 @@ package rds_restore_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -11,15 +14,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/e6qu/sockerless-cloud/simulator-aws/terraform-tests/internal/tfsim"
+	"github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRDSRestoreTerraform(t *testing.T) {
 	env := tfsim.Start(t, ".")
 	client := seedSnapshot(t, env)
+	vars := []string{"-var", "mariadb_restore_time=" + seedMariaDBSource(t, client).Format(time.RFC3339)}
 
 	env.Terraform(t, "init")
-	env.Terraform(t, "apply", "-auto-approve")
+	env.Terraform(t, append([]string{"apply", "-auto-approve"}, vars...)...)
 
 	outputs := readOutputs(t, env)
 	require.True(t, strings.HasPrefix(outputs.must(t, "rds_restored_instance_arn"), "arn:aws:rds:us-east-1:"),
@@ -35,9 +40,14 @@ func TestRDSRestoreTerraform(t *testing.T) {
 	require.Equal(t, "1", outputs.must(t, "rds_point_in_time_backup_retention_period"),
 		"An instance restored to a point in time keeps its source's backup retention period")
 
+	require.Equal(t, "mariadb", outputs.must(t, "rds_mariadb_point_in_time_engine"))
+	require.Equal(t, []string{"before-restore-time"}, mariaDBLedger(t,
+		net.JoinHostPort(outputs.must(t, "rds_mariadb_point_in_time_address"), outputs.must(t, "rds_mariadb_point_in_time_port"))),
+		"an RDS for MariaDB instance restored to a time holds the rows its binary log dates before it")
+
 	resourceID := outputs.must(t, "rds_point_in_time_resource_id")
 
-	env.Terraform(t, "destroy", "-auto-approve")
+	env.Terraform(t, append([]string{"destroy", "-auto-approve"}, vars...)...)
 
 	// delete_automated_backups = false retains the destroyed instance's
 	// automated backup.
@@ -107,6 +117,81 @@ func seedSnapshot(t *testing.T, env *tfsim.Env) *rds.Client {
 		require.NoError(t, err)
 	})
 	return client
+}
+
+// seedMariaDBSource creates an RDS for MariaDB instance that keeps automated
+// backups, commits a row, and commits another once the engine's clock passes
+// the next whole second, which it returns: MariaDB's binary log dates
+// transactions in whole seconds.
+func seedMariaDBSource(t *testing.T, client *rds.Client) time.Time {
+	t.Helper()
+	ctx := context.Background()
+	const instanceID = "tf-rds-mariadb-source"
+	_, err := client.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
+		DBInstanceIdentifier:  aws.String(instanceID),
+		DBInstanceClass:       aws.String("db.t3.micro"),
+		Engine:                aws.String("mariadb"),
+		MasterUsername:        aws.String("dbadmin"),
+		MasterUserPassword:    aws.String("MasterPassword-123!"),
+		DBName:                aws.String("application"),
+		AllocatedStorage:      aws.Int32(20),
+		BackupRetentionPeriod: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := client.DeleteDBInstance(context.Background(), &rds.DeleteDBInstanceInput{
+			DBInstanceIdentifier: aws.String(instanceID), SkipFinalSnapshot: aws.Bool(true),
+		})
+		require.NoError(t, err)
+	})
+	described, err := rds.NewDBInstanceAvailableWaiter(client, func(o *rds.DBInstanceAvailableWaiterOptions) {
+		o.MinDelay = 250 * time.Millisecond
+		o.MaxDelay = 2 * time.Second
+	}).WaitForOutput(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(instanceID)}, 3*time.Minute)
+	require.NoError(t, err, "instance %s never became available", instanceID)
+	instance := described.DBInstances[0]
+	db := openMariaDB(t, net.JoinHostPort(aws.ToString(instance.Endpoint.Address), fmt.Sprint(aws.ToInt32(instance.Endpoint.Port))))
+	for _, statement := range []string{
+		`CREATE TABLE ledger (entry varchar(64) NOT NULL)`,
+		`INSERT INTO ledger VALUES ('before-restore-time')`,
+	} {
+		_, err := db.ExecContext(ctx, statement)
+		require.NoError(t, err, statement)
+	}
+	var next int64
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT FLOOR(UNIX_TIMESTAMP(NOW(6))) + 1`).Scan(&next))
+	_, err = db.ExecContext(ctx, fmt.Sprintf(`DO SLEEP(GREATEST(0, %d - UNIX_TIMESTAMP(NOW(6))))`, next))
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO ledger VALUES ('after-restore-time')`)
+	require.NoError(t, err)
+	return time.Unix(next, 0).UTC()
+}
+
+func openMariaDB(t *testing.T, address string) *sql.DB {
+	t.Helper()
+	config := mysql.Config{
+		User: "dbadmin", Passwd: "MasterPassword-123!", Net: "tcp", DBName: "application",
+		Addr: address, TLSConfig: "skip-verify", AllowCleartextPasswords: true,
+	}
+	db, err := sql.Open("mysql", config.FormatDSN())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+func mariaDBLedger(t *testing.T, address string) []string {
+	t.Helper()
+	rows, err := openMariaDB(t, address).QueryContext(context.Background(), `SELECT entry FROM ledger ORDER BY entry`)
+	require.NoError(t, err)
+	defer rows.Close()
+	var entries []string
+	for rows.Next() {
+		var entry string
+		require.NoError(t, rows.Scan(&entry))
+		entries = append(entries, entry)
+	}
+	require.NoError(t, rows.Err())
+	return entries
 }
 
 type tfOutputs map[string]struct {

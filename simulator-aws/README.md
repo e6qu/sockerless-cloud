@@ -209,8 +209,11 @@ Amazon RDS DB instances backed by PostgreSQL, MySQL, or MariaDB expose their
 native database wire protocol at the `Endpoint` returned by
 `CreateDBInstance`. The engine starts on the first data-plane connection,
 retains its files in an instance-owned volume, and accepts the configured
-master password or a TLS-protected, 15-minute SigV4 IAM database authentication
-token. `ModifyDBInstance` changes IAM authentication and rotates the actual
+master password, the passwords of the users the engine holds, and a
+TLS-protected, 15-minute SigV4 IAM database authentication token for a
+PostgreSQL role granted `rds_iam` or a MySQL or MariaDB user identified with
+`AWSAuthenticationPlugin`, a server plugin the simulator ships for both
+engines. `ModifyDBInstance` changes IAM authentication and rotates the actual
 database account while running or across a stopped/start lifecycle without
 replacing its data volume. Official AWS token generation plus stock PostgreSQL
 and MySQL drivers exercise schema, insert, query, denial, TLS enforcement,

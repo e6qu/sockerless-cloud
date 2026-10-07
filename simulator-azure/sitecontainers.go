@@ -39,7 +39,7 @@ type SiteContainerProperties struct {
 	UserName                               string                  `json:"userName,omitempty"`
 	PasswordSecret                         string                  `json:"passwordSecret,omitempty"`
 	UserManagedIdentityClientID            string                  `json:"userManagedIdentityClientId,omitempty"`
-	InheritAppSettingsAndConnectionStrings bool                    `json:"inheritAppSettingsAndConnectionStrings,omitempty"`
+	InheritAppSettingsAndConnectionStrings *bool                   `json:"inheritAppSettingsAndConnectionStrings,omitempty"`
 	EnvironmentVariables                   []SiteContainerEnvVar   `json:"environmentVariables,omitempty"`
 	VolumeMounts                           []SiteContainerVolMount `json:"volumeMounts,omitempty"`
 	CreatedTime                            string                  `json:"createdTime,omitempty"`
@@ -168,6 +168,16 @@ func siteContainerEnv(vars []SiteContainerEnvVar, appSettings map[string]string)
 	return m
 }
 
+// inheritedEnv is the app settings and connection-string environment a
+// sitecontainer gets: all of them unless its inheritAppSettingsAndConnectionStrings
+// is false.
+func (sc *SiteContainer) inheritedEnv(references webReferenceValues) map[string]string {
+	if inherit := sc.Properties.InheritAppSettingsAndConnectionStrings; inherit != nil && !*inherit {
+		return nil
+	}
+	return workloadhost.MergeEnv(references.appSettings, references.connectionStrings)
+}
+
 // siteContainerVolumeBinds realizes a sitecontainer's VolumeMounts as Docker
 // bind specs against a per-(site, volume) named volume. Pod members of the
 // same site that mount the same VolumeSubPath share one Docker volume — the
@@ -197,10 +207,10 @@ func siteContainerVolumeBinds(siteName string, mounts []SiteContainerVolMount) [
 // tear them down with the main on invoke completion. A sidecar that does not
 // start fails the site's start, as on App Service, where a site whose
 // sitecontainer fails to start does not run; the sidecars already started are
-// stopped and the main stays the caller's to stop. appSettings are the site's
-// app settings with their Key Vault references resolved, which each sidecar's
-// environmentVariables name.
-func startSidecarContainers(ctx context.Context, site *Site, mainContainerID string, appSettings map[string]string, sink sim.LogSink) ([]*sim.ContainerHandle, error) {
+// stopped and the main stays the caller's to stop. references are the site's
+// app settings and connection strings with their Key Vault references
+// resolved, which each sidecar inherits or its environmentVariables name.
+func startSidecarContainers(ctx context.Context, site *Site, mainContainerID string, references webReferenceValues, sink sim.LogSink) ([]*sim.ContainerHandle, error) {
 	sidecars := sidecarSiteContainers(site.ID)
 	if len(sidecars) == 0 {
 		return nil, nil
@@ -216,7 +226,7 @@ func startSidecarContainers(ctx context.Context, site *Site, mainContainerID str
 			Image:             sim.ResolveLocalImage(sc.Properties.Image),
 			RegistryAuth:      acrWorkloadRegistryAuth(sc.Properties.Image, siteWorkloadRegistries(site, sc.Properties.Image)),
 			Args:              splitStartUpCommand(sc.Properties.StartUpCommand),
-			Env:               workloadhost.MergeEnv(siteContainerEnv(sc.Properties.EnvironmentVariables, appSettings), metadataEnv),
+			Env:               workloadhost.MergeEnv(sc.inheritedEnv(references), siteContainerEnv(sc.Properties.EnvironmentVariables, references.appSettings), metadataEnv),
 			Binds:             siteContainerVolumeBinds(site.Name, sc.Properties.VolumeMounts),
 			Name:              fmt.Sprintf("sockerless-sim-azure-func-sidecar-%s-%s-%d", siteStorageName(site.Name), sc.Name, time.Now().UnixNano()),
 			Labels: map[string]string{
@@ -301,6 +311,10 @@ func registerSiteContainerHandlers(srv *sim.Server, armBase string) {
 			created = existing.Properties.CreatedTime
 		}
 		req.Properties.CreatedTime = created
+		if req.Properties.InheritAppSettingsAndConnectionStrings == nil {
+			inherit := true
+			req.Properties.InheritAppSettingsAndConnectionStrings = &inherit
+		}
 		req.Properties.LastModifiedTime = now
 
 		sc := SiteContainer{

@@ -7,14 +7,17 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/dbengine"
 )
 
-// An RDS endpoint, a DB instance's or an Aurora cluster's, owns two logins:
-// the master user's, under the password the control plane records, and IAM
-// database authentication, which RDS for PostgreSQL and Aurora PostgreSQL
-// grant through the rds_iam role. Every other login reaches the engine, which
-// checks it against its own users: a MySQL-family engine takes the client's
-// credential in the relayed login, and a PostgreSQL engine, which trusts the
-// relay, has the endpoint check the password against the role's stored
-// SCRAM-SHA-256 or MD5 verifier.
+// An RDS endpoint, a DB instance's or an Aurora cluster's, owns the master
+// user's login, under the password the control plane records, and checks
+// IAM database authentication tokens. RDS for PostgreSQL and Aurora PostgreSQL
+// grant IAM database authentication through the rds_iam role; RDS for MySQL,
+// RDS for MariaDB and Aurora MySQL through users identified with
+// AWSAuthenticationPlugin, which the endpoint relays a validated token's
+// session to as the user the token names. Every other login reaches the
+// engine, which checks it against its own users: a MySQL-family engine takes
+// the client's credential in the relayed login, and a PostgreSQL engine,
+// which trusts the relay, has the endpoint check the password against the
+// role's stored SCRAM-SHA-256 or MD5 verifier.
 
 // rdsPostgresLoginSettings hands the presented user and password to the
 // checks below as session settings, so neither is ever spliced into SQL.
@@ -137,18 +140,12 @@ type rdsEndpointLogins struct {
 	// iamEndpoints lists the endpoints an IAM authentication token may be
 	// signed for.
 	iamEndpoints func() []string
+	// backendPassword is the master password the engine holds.
+	backendPassword func() (string, error)
 }
 
 func (logins rdsEndpointLogins) isMaster(user, password string) bool {
 	return user == logins.masterUsername && subtle.ConstantTimeCompare([]byte(password), []byte(logins.masterPassword)) == 1
-}
-
-// endpointOwns reports whether the endpoint, not the engine, holds the
-// credential: the master user's password, which the engine may hold only once
-// a pending change is applied, or an IAM authentication token, which is no
-// engine credential.
-func (logins rdsEndpointLogins) endpointOwns(user, password string) bool {
-	return logins.isMaster(user, password) || rdsIsIAMAuthToken(password)
 }
 
 func (logins rdsEndpointLogins) authenticate(user, password string, secure bool) bool {
@@ -162,13 +159,28 @@ func (logins rdsEndpointLogins) authenticate(user, password string, secure bool)
 		}
 		return logins.isMaster(user, password) || logins.postgresCheck(user, password, rdsPostgresPasswordCheck)
 	}
-	if logins.isMaster(user, password) {
+	switch {
+	case logins.isMaster(user, password):
 		return true
-	}
-	if rdsIsIAMAuthToken(password) {
+	case rdsIsIAMAuthToken(password):
 		return iamToken()
 	}
-	return true
+	// The engine's AWSAuthenticationPlugin trusts the relay, so only a token
+	// signs a user identified with it in.
+	return logins.mysqlUserWithoutIAM(user)
+}
+
+// mysqlUserWithoutIAM reports whether the engine holds no account of user
+// identified with AWSAuthenticationPlugin.
+func (logins rdsEndpointLogins) mysqlUserWithoutIAM(user string) bool {
+	password, err := logins.backendPassword()
+	if err != nil {
+		return false
+	}
+	query := "SELECT COUNT(*) FROM mysql.user WHERE user = " + dbengine.QuoteMySQLLiteral(user) +
+		" AND plugin = " + dbengine.QuoteMySQLLiteral(rdsIAMAuthenticationPlugin)
+	return logins.engine.Exec([]string{"sh", "-c", `test "$("$0" --user=root --password="$1" --batch --skip-column-names --execute="$2")" = 0`,
+		logins.engine.Engine.Client, password, query}) == nil
 }
 
 // postgresCheck runs one of the login checks as the master user and reports
@@ -179,15 +191,18 @@ func (logins rdsEndpointLogins) postgresCheck(user, password, check string) bool
 		"-c", rdsPostgresLoginSettings(user, password), "-c", check}) == nil
 }
 
-// rdsBackendLogin runs a MySQL-family session as the client's own user, whose
-// password the engine checks, except for a login the endpoint owns, which
-// runs as the master user under the password installed in the engine.
-func rdsBackendLogin(logins rdsEndpointLogins, user, password string, backendPassword func() (string, error)) (string, string, error) {
-	if !logins.endpointOwns(user, password) {
-		return user, password, nil
+// rdsBackendLogin runs a MySQL-family session as the client's own user under
+// the client's own password or IAM authentication token: the engine checks a
+// password itself, and admits a token only for a user identified with
+// AWSAuthenticationPlugin. The master user's session logs in under the
+// password installed in the engine, which holds a changed password only once
+// the change is applied.
+func rdsBackendLogin(logins rdsEndpointLogins, user, password string) (string, string, error) {
+	if logins.isMaster(user, password) {
+		installed, err := logins.backendPassword()
+		return logins.masterUsername, installed, err
 	}
-	installed, err := backendPassword()
-	return logins.masterUsername, installed, err
+	return user, password, nil
 }
 
 // rdsPrepareEngineAccounts gives the engine the accounts RDS has: the rds_iam
@@ -203,7 +218,10 @@ func rdsPrepareEngineAccounts(engine *dbengine.Instance, masterUsername, databas
 	if masterUsername != "root" {
 		statements += "; DROP USER IF EXISTS 'root'@'%'"
 	}
-	return engine.Exec([]string{engine.Engine.Client, "--user=root", "--password=" + backendPassword, "--execute=" + statements})
+	if err := engine.Exec([]string{engine.Engine.Client, "--user=root", "--password=" + backendPassword, "--execute=" + statements}); err != nil {
+		return err
+	}
+	return rdsInstallIAMAuthenticationPlugin(engine, backendPassword)
 }
 
 // rdsMySQLMasterPrivileges are the global privileges RDS for MySQL, RDS for
@@ -225,6 +243,13 @@ func (plane *rdsAuroraDataPlane) logins() (rdsEndpointLogins, error) {
 		iamEnabled:     cluster.EnableIAMDatabaseAuthentication,
 		resourceID:     cluster.DbClusterResourceId,
 		iamEndpoints:   func() []string { return rdsAuroraEndpoints(cluster) },
+		backendPassword: func() (string, error) {
+			current, err := plane.cluster()
+			if err != nil {
+				return "", err
+			}
+			return rdsAuroraBackendPassword(current)
+		},
 	}, nil
 }
 
@@ -238,13 +263,7 @@ func (plane *rdsAuroraDataPlane) backendLogin(user, password string) (string, st
 	if err != nil {
 		return "", "", err
 	}
-	return rdsBackendLogin(logins, user, password, func() (string, error) {
-		cluster, err := plane.cluster()
-		if err != nil {
-			return "", err
-		}
-		return rdsAuroraBackendPassword(cluster)
-	})
+	return rdsBackendLogin(logins, user, password)
 }
 
 func (plane *rdsAuroraDataPlane) prepareEngineAccounts() error {

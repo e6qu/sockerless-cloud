@@ -891,7 +891,14 @@ jobs:
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata2
-            run: '^Test(AWSServiceState|RDSCLI_([^AIDOR]|A[^u]|I[^n]|D[^B]|DB[^I]|R[^e]|Reb))'
+            run: '^Test(AWSServiceState|RDSCLI_([^AIDMOR]|A[^u]|I[^n]|D[^B]|DB[^I]|R[^e]|Reb))'
+            timeout: 1200s
+            timeout_minutes: 15
+          # The RDS for MariaDB and MySQL engine-user tests each start their
+          # own engines and take first automated backups, so they run apart
+          # from the other Amazon RDS shards.
+          - suite: rds-engines
+            run: '^Test(RDSCLI_(MariaDB|MySQLIAM))'
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata5

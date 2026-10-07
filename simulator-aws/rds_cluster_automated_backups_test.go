@@ -117,3 +117,32 @@ func TestRDSAutomatedSnapshotVolumeNamesHoldNoColon(t *testing.T) {
 		t.Fatalf("volume %q", volume)
 	}
 }
+
+// A MariaDB transaction opens at its GTID event, with no BEGIN, and ends at
+// its XID or COMMIT; a standalone GTID event's group ends with its statement.
+func TestRDSBinlogConsistentStartReadsMariaDBEventGroups(t *testing.T) {
+	const formatDescription, gtidList, writeRows = 15, 163, 23
+	at := time.Date(2026, 10, 3, 7, 0, 0, 0, time.UTC)
+	log := []byte(rdsBinlogMagic)
+	log = append(log, rdsTestBinlogEvent(formatDescription, time.Time{})...)
+	log = append(log, rdsTestBinlogEvent(gtidList, time.Time{})...)
+	log = append(log, rdsTestMariaDBGTIDEvent(at, true)...)
+	log = append(log, rdsTestQueryEvent("shop", "CREATE TABLE t (id INT PRIMARY KEY)")...)
+	log = append(log, rdsTestMariaDBGTIDEvent(at, false)...)
+	log = append(log, rdsTestQueryEvent("shop", "INSERT INTO t VALUES (1)")...)
+	log = append(log, rdsTestBinlogEvent(rdsBinlogXIDEvent, time.Time{})...)
+	log = append(log, rdsTestMariaDBGTIDEvent(at, false)...)
+	log = append(log, rdsTestQueryEvent("shop", "INSERT INTO t_myisam VALUES (1)")...)
+	log = append(log, rdsTestQueryEvent("shop", "COMMIT")...)
+	whole := len(log)
+
+	if start, err := rdsBinlogConsistentStart(log); err != nil || start != whole {
+		t.Fatalf("start = %d, %v; want the end %d", start, err, whole)
+	}
+	partial := append(append([]byte(nil), log...), rdsTestMariaDBGTIDEvent(at, false)...)
+	partial = append(partial, rdsTestQueryEvent("shop", "INSERT INTO t VALUES (2)")...)
+	partial = append(partial, rdsTestBinlogEvent(writeRows, time.Time{})...)
+	if start, err := rdsBinlogConsistentStart(partial); err != nil || start != whole {
+		t.Fatalf("start = %d, %v; want the open transaction's GTID event at %d", start, err, whole)
+	}
+}

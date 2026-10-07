@@ -1332,7 +1332,8 @@ func siteImageMissing(site *Site) error {
 // custom container: the image's own entrypoint, with the site's startup command
 // (siteConfig.appCommandLine, or a sitecontainer's startUpCommand) as the
 // container command in place of the image's CMD, the app settings and PORT in
-// its environment, and any sidecar sitecontainers in its network namespace.
+// its environment (for a main sitecontainer, the app settings only when it
+// inherits them), and any sidecar sitecontainers in its network namespace.
 // Caller holds inst.mu.
 func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	references := webSiteReferenceValues(site)
@@ -1340,6 +1341,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	var (
 		image        string
 		args         []string
+		inheritedEnv = workloadhost.MergeEnv(references.appSettings, references.connectionStrings)
 		containerEnv map[string]string
 		binds        []string
 	)
@@ -1347,6 +1349,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	if main != nil {
 		image = main.Properties.Image
 		args = splitStartUpCommand(main.Properties.StartUpCommand)
+		inheritedEnv = main.inheritedEnv(references)
 		containerEnv = siteContainerEnv(main.Properties.EnvironmentVariables, references.appSettings)
 		binds = siteContainerVolumeBinds(site.Name, main.Properties.VolumeMounts)
 		if p, err := strconv.Atoi(strings.TrimSpace(main.Properties.TargetPort)); err == nil && p > 0 && p < 65536 {
@@ -1420,7 +1423,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	if err != nil {
 		return err
 	}
-	env := workloadhost.MergeEnv(references.appSettings, references.connectionStrings, appServicePlatformEnv(site),
+	env := workloadhost.MergeEnv(inheritedEnv, appServicePlatformEnv(site),
 		map[string]string{"PORT": strconv.Itoa(port)}, metadataEnv, containerEnv)
 	sink := newFuncLogSink(site)
 
@@ -1452,7 +1455,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	// Sidecar sitecontainers share the main's network namespace, so a
 	// sidecar that binds a port is reachable from the main on
 	// localhost:<port> — the App Service multi-container loopback contract.
-	sidecarHandles, err := startSidecarContainers(ctx, site, containerID, references.appSettings, sink)
+	sidecarHandles, err := startSidecarContainers(ctx, site, containerID, references, sink)
 	if err != nil {
 		stopWait()
 		cancelLogs()

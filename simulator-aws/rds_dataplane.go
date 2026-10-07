@@ -375,6 +375,7 @@ func (plane *rdsDataPlane) logins() (rdsEndpointLogins, error) {
 		iamEndpoints: func() []string {
 			return []string{net.JoinHostPort(instance.Endpoint, strconv.Itoa(instance.Port))}
 		},
+		backendPassword: plane.backendPassword,
 	}, nil
 }
 
@@ -388,7 +389,7 @@ func (plane *rdsDataPlane) backendLogin(user, password string) (string, string, 
 	if err != nil {
 		return "", "", err
 	}
-	return rdsBackendLogin(logins, user, password, plane.backendPassword)
+	return rdsBackendLogin(logins, user, password)
 }
 
 func rdsModifyDataPlaneAuthentication(instance *RDSInstance, newPassword *string) error {

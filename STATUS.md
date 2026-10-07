@@ -139,7 +139,8 @@ Current state of the sockerless-cloud repository.
   in its backup window, and expires the snapshots and log the period no longer
   covers; an Aurora cluster restores from an RDS DB snapshot ARN, and an
   Aurora MySQL cluster from a Percona XtraBackup in Amazon S3. An RDS for
-  PostgreSQL or RDS for MySQL instance keeps the same automated backups,
+  PostgreSQL, RDS for MySQL or RDS for MariaDB instance keeps the same
+  automated backups, replaying MariaDB's binary log to the whole second,
   taking the first when it is created whether or not a client connects and
   reporting `creating`, `starting` and `backing-up` until it is `available`:
   RestoreDBInstanceToPointInTime seeds the new instance from them, and
@@ -150,7 +151,9 @@ Current state of the sockerless-cloud repository.
   the replication stops or the source is gone. A DB instance's or an Aurora
   cluster's endpoint signs in the master user and IAM-authenticated users
   itself and every other database user through the engine's own checks; on
-  PostgreSQL an IAM token signs in the role granted `rds_iam` that it names. Deleting a
+  PostgreSQL an IAM token signs in the role granted `rds_iam` that it names,
+  and on MySQL and MariaDB the user identified with the `AWSAuthenticationPlugin`
+  server plugin the simulator ships and loads from the data volume. Deleting a
   database kills an engine still initialising its volume rather than waiting
   out the stop grace.
 - **The registries answer their own service**: Amazon ECR's empty ping with

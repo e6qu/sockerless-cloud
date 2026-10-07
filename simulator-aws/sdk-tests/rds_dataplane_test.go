@@ -193,10 +193,14 @@ func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 		})
 		waitForRDSInstanceAvailable(t, rdsAPI, testContext, instanceID)
 		endpoint := fmt.Sprintf("%s:%d", aws.ToString(created.DBInstance.Endpoint.Address), aws.ToInt32(created.DBInstance.Endpoint.Port))
-		token, err := rdsauth.BuildAuthToken(testContext, endpoint, "us-east-1", username, credentialProvider)
-		require.NoError(t, err)
+		token := func(user string) string {
+			t.Helper()
+			token, err := rdsauth.BuildAuthToken(testContext, endpoint, "us-east-1", user, credentialProvider)
+			require.NoError(t, err)
+			return token
+		}
 		config := mysql.Config{
-			User: username, Passwd: token, Net: "tcp", Addr: endpoint, DBName: database,
+			User: username, Passwd: "MasterPassword-123!", Net: "tcp", Addr: endpoint, DBName: database,
 			TLSConfig: "skip-verify", AllowCleartextPasswords: true,
 		}
 		databaseConnection, err := sql.Open("mysql", config.FormatDSN())
@@ -239,6 +243,8 @@ func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 		for _, statement := range []string{
 			`CREATE USER 'reader'@'%' IDENTIFIED BY 'Reader-Password-1'`,
 			`GRANT SELECT ON application.fidelity TO 'reader'@'%'`,
+			`CREATE USER 'iam_writer'@'%' IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'`,
+			`GRANT SELECT, INSERT ON application.fidelity TO 'iam_writer'@'%'`,
 		} {
 			_, err := rotatedConnection.ExecContext(testContext, statement)
 			require.NoError(t, err, statement)
@@ -271,6 +277,17 @@ func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 		refused("reader", "Wrong-Password-1")
 		refused("no_such_user", "Reader-Password-1")
 		refused("root", rotatedPassword)
+
+		writer, err := signIn("iam_writer", token("iam_writer"))
+		require.NoError(t, err, "a user identified with AWSAuthenticationPlugin signs in with an IAM authentication token")
+		require.NoError(t, writer.QueryRowContext(testContext, `SELECT CURRENT_USER()`).Scan(&user))
+		assert.Equal(t, "iam_writer@%", user, "the session runs as the user the token names")
+		_, err = writer.ExecContext(testContext, `INSERT INTO fidelity (id, value) VALUES (2, 'written-by-iam')`)
+		require.NoError(t, err)
+		refused("iam_writer", "Iam-Password-1")
+		refused("iam_writer", "")
+		refused(username, token(username))
+		refused("reader", token("reader"))
 	})
 
 	t.Run("MariaDB stopped password change", func(t *testing.T) {
