@@ -1,21 +1,23 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_configrefs.go serves /config/configreferences: the Key Vault reference
-// status of a site's (or slot's) application settings and connection strings.
-// The surface keeps NO state of its own — every response is derived on read
-// by parsing the stored app-setting / connection-string values for the
-// @Microsoft.KeyVault(...) reference syntax and resolving the named vault and
-// secret against the simulator's own Key Vault slice, exactly as the real
-// service resolves references against real Key Vault.
+// web_configrefs.go resolves an App Service app's Key Vault references — app
+// settings and connection strings whose value is @Microsoft.KeyVault(...) —
+// against the simulator's Key Vault slice through the identity the app's
+// keyVaultReferenceIdentity names, with that identity's access to the vault,
+// and serves /config/configreferences: the status of each reference. The
+// workload's environment carries the secret's value where a reference
+// resolves and the reference text where it does not.
 
 // webKVRef is one parsed @Microsoft.KeyVault(...) reference.
 type webKVRef struct {
@@ -71,12 +73,21 @@ func webParseKeyVaultRef(value string) (webKVRef, bool) {
 	return ref, true
 }
 
-// webResolveKVRef derives the ApiKVReference properties for one reference
-// value: the reference string, the vault/secret coordinates it names, and the
-// resolution status against the simulator's Key Vault stores (the vault
-// resource, the secret, and — when the reference pins one — the exact secret
-// version must exist).
-func webResolveKVRef(raw string) map[string]any {
+// Details App Service reports with an unresolved reference's status.
+const (
+	webKVRefDetailMSINotEnabled = "Key Vault reference was not able to be resolved because site Managed Identity not enabled"
+	webKVRefDetailDenied        = "Key Vault reference was not able to be resolved because site was denied access to Key Vault reference's vault."
+)
+
+// webResolveKVRef resolves one reference value for a site: the ApiKVReference
+// properties that report it, and the secret's value when it resolved. The
+// site reaches the vault as the identity its keyVaultReferenceIdentity names,
+// which must be attached to it; the vault must exist and grant that identity
+// the secret get permission (an access policy, or an Azure RBAC role
+// assignment with the getSecret data action when the vault uses Azure RBAC);
+// and the secret, and the version a reference pins, must exist and be
+// enabled and current.
+func webResolveKVRef(site *Site, raw string) (map[string]any, string, bool) {
 	props := map[string]any{
 		"reference": raw,
 		"source":    "KeyVault",
@@ -84,37 +95,109 @@ func webResolveKVRef(raw string) map[string]any {
 	ref, _ := webParseKeyVaultRef(raw)
 	if !ref.Valid {
 		props["status"] = "InvalidSyntax"
-		return props
+		props["details"] = "Key Vault reference was not able to be resolved because the reference syntax is invalid."
+		return props, "", false
 	}
 	props["vaultName"] = ref.VaultName
 	props["secretName"] = ref.SecretName
 	if ref.SecretVersion != "" {
 		props["secretVersion"] = ref.SecretVersion
 	}
-	vaults := keyVaults.Filter(func(v KeyVault) bool { return strings.EqualFold(v.Name, ref.VaultName) })
-	if len(vaults) == 0 {
+	principalID, identityType, ok := webKVRefPrincipal(site)
+	props["identityType"] = identityType
+	if !ok {
+		props["status"] = "MSINotEnabled"
+		props["details"] = webKVRefDetailMSINotEnabled
+		return props, "", false
+	}
+	vault, found := keyVaultsByName.Lookup(keyVaults, strings.ToLower(ref.VaultName),
+		func(v KeyVault) []string { return []string{strings.ToLower(v.Name)} })
+	if !found {
 		props["status"] = "VaultNotFound"
-		return props
+		props["details"] = fmt.Sprintf("Key Vault reference was not able to be resolved because vault '%s' could not be found.", ref.VaultName)
+		return props, "", false
+	}
+	if !keyVaultGrantsSecretGet(vault, principalID, ref.SecretName) {
+		props["status"] = "AccessToKeyVaultDenied"
+		props["details"] = webKVRefDetailDenied
+		return props, "", false
 	}
 	// The data plane keys secrets by the vault's host label, which is the
 	// vault name as created; resolve through the stored vault's own name so
 	// a reference written in a different casing still finds it.
-	stored, ok := keyVaultData.Get(keyVaultSecretKey(vaults[0].Name, ref.SecretName))
-	if !ok || stored.isDeleted() || len(stored.Versions) == 0 {
+	stored, found := keyVaultData.Get(keyVaultSecretKey(vault.Name, ref.SecretName))
+	if !found || stored.isDeleted() || len(stored.Versions) == 0 {
 		props["status"] = "SecretNotFound"
-		return props
+		props["details"] = fmt.Sprintf("Key Vault reference was not able to be resolved because secret '%s' could not be found in vault '%s'.", ref.SecretName, ref.VaultName)
+		return props, "", false
 	}
-	version := stored.latest().Version
+	version := stored.latest()
 	if ref.SecretVersion != "" {
-		if _, ok := stored.findVersion(ref.SecretVersion); !ok {
+		if version, found = stored.findVersion(ref.SecretVersion); !found {
 			props["status"] = "SecretVersionNotFound"
-			return props
+			props["details"] = fmt.Sprintf("Key Vault reference was not able to be resolved because version '%s' of secret '%s' could not be found in vault '%s'.", ref.SecretVersion, ref.SecretName, ref.VaultName)
+			return props, "", false
 		}
-		version = ref.SecretVersion
+	}
+	if reason := keyVaultSecretVersionUnusable(version.Attributes, time.Now()); reason != "" {
+		props["status"] = "OtherReasons"
+		props["details"] = "Key Vault reference was not able to be resolved because the secret " + reason + "."
+		return props, "", false
 	}
 	props["status"] = "Resolved"
-	props["activeVersion"] = version
-	return props
+	props["activeVersion"] = version.Version
+	return props, version.Value, true
+}
+
+// keyVaultsByName finds a vault by its globally unique name on every
+// reference a workload resolves.
+var keyVaultsByName sim.GenerationIndex[KeyVault]
+
+// webKVRefPrincipal is the principal a site reaches Key Vault as, and the
+// ManagedServiceIdentity a reference status reports: the site's
+// system-assigned identity, or the user-assigned identity its
+// keyVaultReferenceIdentity names, which must be attached to the site.
+func webKVRefPrincipal(site *Site) (string, map[string]any, bool) {
+	want := webKeyVaultReferenceIdentity(site)
+	if strings.EqualFold(want, "SystemAssigned") {
+		identityType := map[string]any{"type": "SystemAssigned"}
+		if !site.Identity.systemAssigned() {
+			return "", identityType, false
+		}
+		return site.Identity.PrincipalID, identityType, true
+	}
+	identityType := map[string]any{
+		"type":                   "UserAssigned",
+		"userAssignedIdentities": map[string]any{want: map[string]any{}},
+	}
+	if !site.Identity.userAssigned() {
+		return "", identityType, false
+	}
+	for rid, uai := range site.Identity.UserAssignedIdentities {
+		if strings.EqualFold(rid, want) && uai != nil {
+			identityType["userAssignedIdentities"] = map[string]any{rid: map[string]any{
+				"principalId": uai.PrincipalID,
+				"clientId":    uai.ClientID,
+			}}
+			return uai.PrincipalID, identityType, true
+		}
+	}
+	return "", identityType, false
+}
+
+// webResolvedAppSettings is the site's app settings as its workload sees
+// them: each Key Vault reference that resolves replaced by the secret's
+// value, one that does not left as the reference.
+func webResolvedAppSettings(site *Site) map[string]string {
+	settings := siteAppSettings(site)
+	for k, v := range settings {
+		if _, isRef := webParseKeyVaultRef(v); isRef {
+			if _, value, ok := webResolveKVRef(site, v); ok {
+				settings[k] = value
+			}
+		}
+	}
+	return settings
 }
 
 // webKVRefResource wraps one reference's properties in the ApiKVReference
@@ -142,6 +225,7 @@ func registerWebConfigReferences(srv *sim.Server) {
 		if webMissing(w, r) {
 			return
 		}
+		site, _ := webResource(r)
 		cfg, _ := siteConfigStore.Get(webResourceID(r))
 		keys := make([]string, 0, len(cfg.AppSettings))
 		for k := range cfg.AppSettings {
@@ -151,7 +235,8 @@ func registerWebConfigReferences(srv *sim.Server) {
 		refs := []any{}
 		for _, k := range keys {
 			if _, isRef := webParseKeyVaultRef(cfg.AppSettings[k]); isRef {
-				refs = append(refs, webKVRefResource(webResourceID(r), "appsettings", k, webResolveKVRef(cfg.AppSettings[k])))
+				props, _, _ := webResolveKVRef(&site, cfg.AppSettings[k])
+				refs = append(refs, webKVRefResource(webResourceID(r), "appsettings", k, props))
 			}
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": refs})
@@ -173,7 +258,9 @@ func registerWebConfigReferences(srv *sim.Server) {
 				"App setting %q is not a Key Vault reference.", key)
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, webKVRefResource(webResourceID(r), "appsettings", key, webResolveKVRef(value)))
+		site, _ := webResource(r)
+		props, _, _ := webResolveKVRef(&site, value)
+		sim.WriteJSON(w, http.StatusOK, webKVRefResource(webResourceID(r), "appsettings", key, props))
 	})
 
 	// Connection-string references, over the stored connection-string values.
@@ -181,6 +268,7 @@ func registerWebConfigReferences(srv *sim.Server) {
 		if webMissing(w, r) {
 			return
 		}
+		site, _ := webResource(r)
 		cfg, _ := siteConfigStore.Get(webResourceID(r))
 		keys := make([]string, 0, len(cfg.ConnectionStrings))
 		for k := range cfg.ConnectionStrings {
@@ -190,7 +278,8 @@ func registerWebConfigReferences(srv *sim.Server) {
 		refs := []any{}
 		for _, k := range keys {
 			if _, isRef := webParseKeyVaultRef(cfg.ConnectionStrings[k].Value); isRef {
-				refs = append(refs, webKVRefResource(webResourceID(r), "connectionstrings", k, webResolveKVRef(cfg.ConnectionStrings[k].Value)))
+				props, _, _ := webResolveKVRef(&site, cfg.ConnectionStrings[k].Value)
+				refs = append(refs, webKVRefResource(webResourceID(r), "connectionstrings", k, props))
 			}
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": refs})
@@ -212,6 +301,8 @@ func registerWebConfigReferences(srv *sim.Server) {
 				"Connection string %q is not a Key Vault reference.", key)
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, webKVRefResource(webResourceID(r), "connectionstrings", key, webResolveKVRef(entry.Value)))
+		site, _ := webResource(r)
+		props, _, _ := webResolveKVRef(&site, entry.Value)
+		sim.WriteJSON(w, http.StatusOK, webKVRefResource(webResourceID(r), "connectionstrings", key, props))
 	})
 }

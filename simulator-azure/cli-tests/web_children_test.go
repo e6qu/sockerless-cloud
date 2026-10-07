@@ -116,7 +116,18 @@ func TestWebChildren_CLI(t *testing.T) {
 	// reference naming no existing vault to VaultNotFound.
 	vaultURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/cli-wc-vault?api-version=2024-04-01-preview",
 		baseURL, subscriptionID, resourceGroup)
-	runCLI(t, azRest("PUT", vaultURL, `{"location":"eastus","properties":{"tenantId":"00000000-0000-0000-0000-000000000000"}}`))
+	// The site reaches the vault as its system-assigned identity, which the
+	// vault's access policy grants the secret.
+	var identified struct {
+		Identity struct {
+			PrincipalID string `json:"principalId"`
+		} `json:"identity"`
+	}
+	parseJSON(t, runCLI(t, azRest("PATCH", webChildURL("sites/cli-wc-site"), `{"identity":{"type":"SystemAssigned"}}`)), &identified)
+	require.NotEmpty(t, identified.Identity.PrincipalID)
+	runCLI(t, azRest("PUT", vaultURL, fmt.Sprintf(`{"location":"eastus","properties":{"tenantId":"00000000-0000-0000-0000-000000000000",
+		"accessPolicies":[{"tenantId":"00000000-0000-0000-0000-000000000000","objectId":%q,"permissions":{"secrets":["get"]}}]}}`,
+		identified.Identity.PrincipalID)))
 	defer runCLI(t, azRest("DELETE", vaultURL, ""))
 	runCLI(t, azRest("PUT", webChildURL("sites/cli-wc-site/config/appsettings"),
 		`{"properties":{"NO_SECRET":"@Microsoft.KeyVault(VaultName=cli-wc-vault;SecretName=absent)","NO_VAULT":"@Microsoft.KeyVault(SecretUri=https://no-such-vault.vault.azure.net/secrets/x)","PLAIN":"value"}}`))

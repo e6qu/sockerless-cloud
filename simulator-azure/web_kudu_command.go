@@ -114,7 +114,7 @@ func kuduCommand(w http.ResponseWriter, r *http.Request, site *Site) {
 		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	env := workloadhost.MergeEnv(siteAppSettings(site), siteConnectionStringEnv(site), appServicePlatformEnv(site), metadataEnv, map[string]string{"HOME": "/home"})
+	env := workloadhost.MergeEnv(webResolvedAppSettings(site), siteConnectionStringEnv(site), appServicePlatformEnv(site), metadataEnv, map[string]string{"HOME": "/home"})
 	binds := []string{home + ":/home"}
 	if kuduWWWRootReadOnly(site) {
 		wwwroot := filepath.Join(home, "site", "wwwroot")

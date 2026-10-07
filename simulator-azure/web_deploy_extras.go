@@ -383,9 +383,6 @@ func webDeployArtifact(resID string, data []byte, a webArtifact) (int, error) {
 	if !ok {
 		return 0, fmt.Errorf("site %s not found", resID)
 	}
-	if a.Type == "zip" && webSiteRunsFromDeployedPackage(&site) {
-		a.Target, a.Clean, a.SyncManifest = webWWWRoot, true, false
-	}
 	var files []archive.File
 	if a.Type == "zip" {
 		if err := archive.ReadZip(data, webSiteContentLimit, func(f archive.File) error {
@@ -402,12 +399,23 @@ func webDeployArtifact(resID string, data []byte, a webArtifact) (int, error) {
 		files = []archive.File{{Name: path.Base(a.Target), Mode: mode, Data: data}}
 		a.Target = path.Dir(a.Target)
 	}
+	return webDeployFiles(&site, files, a)
+}
+
+// webDeployFiles lands files as the artifact a describes, then rediscovers
+// the site's webjobs, records the app-state snapshot, and restarts a site
+// that runs its content. Returns the number of files written.
+func webDeployFiles(site *Site, files []archive.File, a webArtifact) (int, error) {
+	resID := site.ID
+	if a.Type == "zip" && webSiteRunsFromDeployedPackage(site) {
+		a.Target, a.Clean, a.SyncManifest = webWWWRoot, true, false
+	}
 	var written int
 	var err error
 	if rel, inRoot := webWWWRootRelative(a.Target); inRoot {
 		written, err = webWriteSiteContent(resID, rel, files, a)
 	} else {
-		written, err = webWriteSiteHome(&site, a.Target, files, a.Clean)
+		written, err = webWriteSiteHome(site, a.Target, files, a.Clean)
 	}
 	if err != nil {
 		return written, err
@@ -859,11 +867,6 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 		}
 		sim.WriteJSON(w, http.StatusOK, deploymentStatusWire(rec))
 	})
-
-	// POST /sync — WebApps_SyncRepository: re-sync the configured source
-	// control. The sim's source-control record has no remote content to pull,
-	// so the sync finds nothing to reconcile and reports success.
-	both("POST", "/sync", okIfExists)
 
 	// POST /newpassword — WebApps_GenerateNewSitePublishingPassword: rotate
 	// the site's SCM publishing password. The rotation is observable through

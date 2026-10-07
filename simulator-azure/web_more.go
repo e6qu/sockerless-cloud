@@ -39,8 +39,8 @@ type WebDeployment struct {
 // WebDeploymentProperties mirrors armappservice.DeploymentProperties. Field
 // names are the wire spelling (snake_case) the spec defines.
 type WebDeploymentProperties struct {
-	Status      int    `json:"status,omitempty"`
-	Active      bool   `json:"active,omitempty"`
+	Status      int    `json:"status"`
+	Active      bool   `json:"active"`
 	Author      string `json:"author,omitempty"`
 	AuthorEmail string `json:"author_email,omitempty"`
 	Deployer    string `json:"deployer,omitempty"`
@@ -180,6 +180,7 @@ func webCleanupSiteResources(resID string) {
 		// directly deleted slot is — DeletedSiteProperties carries the slot
 		// name for exactly this case.
 		webRecordDeletedSite(s.ID, s)
+		webSyncSiteIdentityPrincipal(&s, nil)
 		webSlots.Delete(s.ID)
 		stopAzureFunctionInstance(s.Name)
 		cleanupSiteContainers(s.ID, s.Name)
@@ -577,6 +578,7 @@ func webConfigWebWrite(w http.ResponseWriter, r *http.Request, merge bool) {
 	if req.Properties.AppSettings == nil && row.Properties.SiteConfig != nil {
 		req.Properties.AppSettings = row.Properties.SiteConfig.AppSettings
 	}
+	webKeepScmType(&req.Properties, &row)
 	row.Properties.SiteConfig = &req.Properties
 	store.Put(webResourceID(r), row)
 	webRecordConfigSnapshot(webResourceID(r), row.Properties.SiteConfig)
@@ -643,13 +645,6 @@ func registerWebLifecycle(both func(string, string, http.HandlerFunc)) {
 		_, _ = fmt.Fprintf(w, `<publishData><publishProfile profileName="%s - Web Deploy" publishMethod="MSDeploy" publishUrl="%s" userName="%s" destinationAppUrl="https://%s"></publishProfile></publishData>`,
 			strings.Replace(site.Name, "/", "-", 1), scm, webPublishingUserName(&site), site.Properties.DefaultHostName)
 	})
-}
-
-func okIfExists(w http.ResponseWriter, r *http.Request) {
-	if webMissing(w, r) {
-		return
-	}
-	w.WriteHeader(http.StatusOK)
 }
 
 func emptyValueIfExists(w http.ResponseWriter, r *http.Request) {
@@ -769,47 +764,6 @@ func registerWebHostNameBindings(both func(string, string, http.HandlerFunc)) {
 			return
 		}
 		webHostNameBindings.Delete(bindID(r))
-		w.WriteHeader(http.StatusOK)
-	})
-}
-
-func registerWebSourceControl(both func(string, string, http.HandlerFunc)) {
-	scID := func(r *http.Request) string { return webResourceID(r) + "/sourcecontrols/web" }
-	get := func(w http.ResponseWriter, r *http.Request) {
-		if webMissing(w, r) {
-			return
-		}
-		sc, ok := webSourceControls.Get(scID(r))
-		if !ok {
-			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-				"No source control configured for %q.", sim.PathParam(r, "siteName"))
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, sc)
-	}
-	put := func(w http.ResponseWriter, r *http.Request) {
-		if webMissing(w, r) {
-			return
-		}
-		var req WebSourceControl
-		if err := sim.ReadJSON(r, &req); err != nil {
-			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
-			return
-		}
-		req.ID = scID(r)
-		req.Name = "web"
-		req.Type = "Microsoft.Web/sites/sourcecontrols"
-		webSourceControls.Put(req.ID, req)
-		sim.WriteJSON(w, http.StatusOK, req)
-	}
-	both("GET", "/sourcecontrols/web", get)
-	both("PUT", "/sourcecontrols/web", put)
-	both("PATCH", "/sourcecontrols/web", put)
-	both("DELETE", "/sourcecontrols/web", func(w http.ResponseWriter, r *http.Request) {
-		if webMissing(w, r) {
-			return
-		}
-		webSourceControls.Delete(scID(r))
 		w.WriteHeader(http.StatusOK)
 	})
 }
@@ -1072,8 +1026,19 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 	applyIfPresent(props, "enabled", &row.Properties.Enabled)
 	applyIfPresent(props, "clientCertMode", &row.Properties.ClientCertMode)
 	applyIfPresent(props, "virtualNetworkSubnetId", &row.Properties.VirtualNetworkSubnetID)
+	applyIfPresent(props, "keyVaultReferenceIdentity", &row.Properties.KeyVaultReferenceIdentity)
+	var identity *SiteIdentity
+	applyIfPresent(raw, "identity", &identity)
 	if bad {
 		return
+	}
+	prev := row
+	if identity != nil {
+		if err := webApplySiteIdentity(&row, identity, &prev); err != nil {
+			AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+			return
+		}
+		webSyncSiteIdentityPrincipal(&prev, &row)
 	}
 
 	// The sku member derives from the associated App Service plan, so a

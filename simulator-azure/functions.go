@@ -37,8 +37,13 @@ type Site struct {
 	Kind                 string                            `json:"kind,omitempty"`
 	Location             string                            `json:"location"`
 	Tags                 map[string]string                 `json:"tags,omitempty"`
+	Identity             *SiteIdentity                     `json:"identity,omitempty"`
 	Properties           SiteProperties                    `json:"properties"`
 	AzureStorageAccounts map[string]*AzureStorageInfoValue `json:"-"`
+	// SystemIdentityClientID is the application ID of the site's
+	// system-assigned identity, which the directory reads and the site's
+	// identity wire shape does not carry.
+	SystemIdentityClientID string `json:"-"`
 }
 
 // SiteProperties holds the properties of a function app.
@@ -70,6 +75,10 @@ type SiteProperties struct {
 	// Service plan; either way the environment's own app list reads it back.
 	HostingEnvironmentProfile *HostingEnvironmentProfile `json:"hostingEnvironmentProfile,omitempty"`
 	SlotSwapStatus            *SlotSwapStatus            `json:"slotSwapStatus,omitempty"`
+	// KeyVaultReferenceIdentity names the identity the site resolves Key
+	// Vault references with: SystemAssigned or a user-assigned identity's
+	// resource ID.
+	KeyVaultReferenceIdentity string `json:"keyVaultReferenceIdentity,omitempty"`
 }
 
 // SlotSwapStatus records the last successful swap an app or slot took part in.
@@ -92,8 +101,11 @@ type SiteConfig struct {
 	// from Azure Container Registry with a managed identity: the
 	// user-assigned identity AcrUserManagedIdentityID names by client id,
 	// else the site's system-assigned identity.
-	AcrUseManagedIdentityCreds             bool   `json:"acrUseManagedIdentityCreds,omitempty"`
-	AcrUserManagedIdentityID               string `json:"acrUserManagedIdentityID,omitempty"`
+	AcrUseManagedIdentityCreds bool   `json:"acrUseManagedIdentityCreds,omitempty"`
+	AcrUserManagedIdentityID   string `json:"acrUserManagedIdentityID,omitempty"`
+	// ScmType is the site's source-control kind: None until source control
+	// is configured, then the kind of repository it deploys from.
+	ScmType                                string `json:"scmType,omitempty"`
 	FunctionAppScaleLimit                  int    `json:"functionAppScaleLimit,omitempty"`
 	FtpsState                              string `json:"ftpsState,omitempty"`
 	LoadBalancing                          string `json:"loadBalancing,omitempty"`
@@ -392,6 +404,17 @@ func registerAzureFunctions(srv *sim.Server) {
 			AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 			return
 		}
+		var prevRow *Site
+		if existed {
+			prevRow = &prev
+		}
+		webKeepScmType(siteConfig, prevRow)
+		if err := webApplySiteIdentity(&site, req.Identity, prevRow); err != nil {
+			AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+			return
+		}
+		site.Properties.KeyVaultReferenceIdentity = webRequestedKVRefIdentity(req.Properties.KeyVaultReferenceIdentity, prevRow)
+		webSyncSiteIdentityPrincipal(prevRow, &site)
 		if existed {
 			// state is read-only: an update leaves a stopped app stopped.
 			site.Properties.State = prev.Properties.State
@@ -502,6 +525,7 @@ func registerAzureFunctions(srv *sim.Server) {
 				// reads can reach it, before its content is cleaned up.
 				webRecordDeletedSite(resourceID, deleted)
 			}
+			webSyncSiteIdentityPrincipal(&deleted, nil)
 			stopAzureFunctionInstance(name)
 			cleanupSiteContainers(resourceID, name)
 			webCleanupSiteResources(resourceID)
@@ -1389,7 +1413,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	if err != nil {
 		return err
 	}
-	env := workloadhost.MergeEnv(siteAppSettings(site), siteConnectionStringEnv(site), appServicePlatformEnv(site),
+	env := workloadhost.MergeEnv(webResolvedAppSettings(site), siteConnectionStringEnv(site), appServicePlatformEnv(site),
 		map[string]string{"PORT": strconv.Itoa(port)}, metadataEnv, containerEnv)
 	sink := newFuncLogSink(site)
 
@@ -1674,7 +1698,8 @@ func webValidateConnStrings(props map[string]AzureSiteConnStringValue) error {
 }
 
 // siteConnectionStringEnv is the environment App Service gives a site's
-// workload for its connection strings: each under its type's prefix.
+// workload for its connection strings: each under its type's prefix, a Key
+// Vault reference that resolves as the secret's value.
 func siteConnectionStringEnv(site *Site) map[string]string {
 	out := map[string]string{}
 	if site == nil {
@@ -1682,9 +1707,17 @@ func siteConnectionStringEnv(site *Site) map[string]string {
 	}
 	cfg, _ := siteConfigStore.Get(site.ID)
 	for name, v := range cfg.ConnectionStrings {
-		if prefix, ok := webConnStringEnvPrefixes[strings.ToLower(v.Type)]; ok {
-			out[prefix+name] = v.Value
+		prefix, ok := webConnStringEnvPrefixes[strings.ToLower(v.Type)]
+		if !ok {
+			continue
 		}
+		value := v.Value
+		if _, isRef := webParseKeyVaultRef(value); isRef {
+			if _, secret, resolved := webResolveKVRef(site, value); resolved {
+				value = secret
+			}
+		}
+		out[prefix+name] = value
 	}
 	return out
 }

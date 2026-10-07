@@ -336,7 +336,7 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 		return nil, err
 	}
 	// The real platform exposes the job's identity to the process.
-	env := workloadhost.MergeEnv(siteAppSettings(site), siteConnectionStringEnv(site), metadataEnv, map[string]string{
+	env := workloadhost.MergeEnv(webResolvedAppSettings(site), siteConnectionStringEnv(site), metadataEnv, map[string]string{
 		"WEBJOBS_NAME": rec.Name,
 		"WEBJOBS_TYPE": rec.JobKind,
 		"WEBJOBS_PATH": jobDir,

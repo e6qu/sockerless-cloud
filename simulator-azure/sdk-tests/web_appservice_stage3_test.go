@@ -547,9 +547,9 @@ func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, instLog.Properties.Entries)
 
-	// Repository sync succeeds against the configured (empty) source control.
+	// An app with no source control configured has no repository to sync.
 	_, err = client.SyncRepository(ctx, rg, name, nil)
-	require.NoError(t, err)
+	require.Error(t, err)
 
 	// newpassword rotates the SCM publishing password observably.
 	credsPoller, err := client.BeginListPublishingCredentials(ctx, rg, name, nil)
@@ -641,5 +641,5 @@ func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 	_, err = client.GenerateNewSitePublishingPasswordSlot(ctx, rg, name, "staging", nil)
 	require.NoError(t, err)
 	_, err = client.SyncRepositorySlot(ctx, rg, name, "staging", nil)
-	require.NoError(t, err)
+	require.Error(t, err, "a slot with no source control configured has no repository to sync")
 }

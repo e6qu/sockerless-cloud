@@ -258,6 +258,17 @@ func registerWebSlotCRUD(srv *sim.Server) {
 			AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 			return
 		}
+		var prevRow *Site
+		if existed {
+			prevRow = &prev
+		}
+		webKeepScmType(siteConfig, prevRow)
+		if err := webApplySiteIdentity(&slotSite, req.Identity, prevRow); err != nil {
+			AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+			return
+		}
+		slotSite.Properties.KeyVaultReferenceIdentity = webRequestedKVRefIdentity(req.Properties.KeyVaultReferenceIdentity, prevRow)
+		webSyncSiteIdentityPrincipal(prevRow, &slotSite)
 		if existed {
 			slotSite.Properties.State = prev.Properties.State
 		} else {
@@ -313,6 +324,7 @@ func registerWebSlotCRUD(srv *sim.Server) {
 		if webSlots.Delete(webResourceID(r)) {
 			if existed {
 				webRecordDeletedSite(webResourceID(r), deleted)
+				webSyncSiteIdentityPrincipal(&deleted, nil)
 			}
 			stopAzureFunctionInstance(deleted.Name)
 			cleanupSiteContainers(deleted.ID, deleted.Name)

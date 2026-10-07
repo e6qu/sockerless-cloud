@@ -15,6 +15,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/keyvault/armkeyvault"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -351,6 +352,27 @@ func TestSDK_WebChildren_ConfigKeyVaultReferences(t *testing.T) {
 	name, slot := "wc-kvref-site", "staging"
 	webMoreCreateSite(t, client, rg, name, planID)
 	webChildrenCreateSlot(t, client, rg, name, slot, planID)
+
+	// The app and its slot each reach the vault as their own system-assigned
+	// identity, which the vault's access policies grant the secret.
+	systemAssigned := &armappservice.ManagedServiceIdentity{Type: to.Ptr(armappservice.ManagedServiceIdentityTypeSystemAssigned)}
+	site, err := client.Update(ctx, rg, name, armappservice.SitePatchResource{Identity: systemAssigned}, nil)
+	require.NoError(t, err)
+	slotSite, err := client.UpdateSlot(ctx, rg, name, slot, armappservice.SitePatchResource{Identity: systemAssigned}, nil)
+	require.NoError(t, err)
+	require.NotEqual(t, *site.Identity.PrincipalID, *slotSite.Identity.PrincipalID, "a slot has its own identity")
+	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	for _, principal := range []*string{site.Identity.PrincipalID, slotSite.Identity.PrincipalID} {
+		_, err = vaults.UpdateAccessPolicy(ctx, rg, vault, armkeyvault.AccessPolicyUpdateKindAdd, armkeyvault.VaultAccessPolicyParameters{
+			Properties: &armkeyvault.VaultAccessPolicyProperties{AccessPolicies: []*armkeyvault.AccessPolicyEntry{{
+				TenantID:    to.Ptr("00000000-0000-0000-0000-000000000000"),
+				ObjectID:    principal,
+				Permissions: &armkeyvault.Permissions{Secrets: []*armkeyvault.SecretPermissions{to.Ptr(armkeyvault.SecretPermissionsGet)}},
+			}}},
+		}, nil)
+		require.NoError(t, err)
+	}
 
 	resolvedRef := "@Microsoft.KeyVault(SecretUri=https://" + vault + ".vault.azure.net/secrets/db-password)"
 	_, err = client.UpdateApplicationSettings(ctx, rg, name, armappservice.StringDictionary{

@@ -221,6 +221,80 @@ var builtinRoleDefs = []builtinRoleDef{
 		},
 	},
 	{
+		Name:        "Key Vault Administrator",
+		ID:          "00482a5a-887f-4fb3-b363-3b7fe8e74483",
+		Description: "Perform all data plane operations on a key vault and all objects in it, including certificates, keys, and secrets. Cannot manage key vault resources or manage role assignments. Only works for key vaults that use the 'Azure role-based access control' permission model.",
+		Permissions: builtinRolePermission{
+			Actions: []string{
+				"Microsoft.Authorization/*/read",
+				"Microsoft.Insights/alertRules/*",
+				"Microsoft.Resources/deployments/*",
+				"Microsoft.Resources/subscriptions/resourceGroups/read",
+				"Microsoft.Support/*",
+				"Microsoft.KeyVault/checkNameAvailability/read",
+				"Microsoft.KeyVault/deletedVaults/read",
+				"Microsoft.KeyVault/locations/*/read",
+				"Microsoft.KeyVault/vaults/*/read",
+				"Microsoft.KeyVault/operations/read",
+			},
+			DataActions: []string{"Microsoft.KeyVault/vaults/*"},
+		},
+	},
+	{
+		Name:        "Key Vault Reader",
+		ID:          "21090545-7ca7-4776-b22c-e363652d74d2",
+		Description: "Read metadata of key vaults and its certificates, keys, and secrets. Cannot read sensitive values such as secret contents or key material. Only works for key vaults that use the 'Azure role-based access control' permission model.",
+		Permissions: builtinRolePermission{
+			Actions: []string{
+				"Microsoft.Authorization/*/read",
+				"Microsoft.Insights/alertRules/*",
+				"Microsoft.Resources/deployments/*",
+				"Microsoft.Resources/subscriptions/resourceGroups/read",
+				"Microsoft.Support/*",
+				"Microsoft.KeyVault/checkNameAvailability/read",
+				"Microsoft.KeyVault/deletedVaults/read",
+				"Microsoft.KeyVault/locations/*/read",
+				"Microsoft.KeyVault/vaults/*/read",
+				"Microsoft.KeyVault/operations/read",
+			},
+			DataActions: []string{
+				"Microsoft.KeyVault/vaults/*/read",
+				"Microsoft.KeyVault/vaults/secrets/readMetadata/action",
+			},
+		},
+	},
+	{
+		Name:        "Key Vault Secrets Officer",
+		ID:          "b86a8fe4-44ce-4948-aee5-eccb2c155cd7",
+		Description: "Perform any action on the secrets of a key vault, except manage permissions. Only works for key vaults that use the 'Azure role-based access control' permission model.",
+		Permissions: builtinRolePermission{
+			Actions: []string{
+				"Microsoft.Authorization/*/read",
+				"Microsoft.Insights/alertRules/*",
+				"Microsoft.Resources/deployments/*",
+				"Microsoft.Resources/subscriptions/resourceGroups/read",
+				"Microsoft.Support/*",
+				"Microsoft.KeyVault/checkNameAvailability/read",
+				"Microsoft.KeyVault/deletedVaults/read",
+				"Microsoft.KeyVault/locations/*/read",
+				"Microsoft.KeyVault/vaults/*/read",
+				"Microsoft.KeyVault/operations/read",
+			},
+			DataActions: []string{"Microsoft.KeyVault/vaults/secrets/*"},
+		},
+	},
+	{
+		Name:        "Key Vault Secrets User",
+		ID:          "4633458b-17de-408a-b874-0445c86b69e6",
+		Description: "Read secret contents. Only works for key vaults that use the 'Azure role-based access control' permission model.",
+		Permissions: builtinRolePermission{
+			DataActions: []string{
+				"Microsoft.KeyVault/vaults/secrets/getSecret/action",
+				"Microsoft.KeyVault/vaults/secrets/readMetadata/action",
+			},
+		},
+	},
+	{
 		Name:        "Monitoring Reader",
 		ID:          "43d0d8ad-25c7-4714-9337-8ba259a9fe05",
 		Description: "Can read all monitoring data.",
@@ -816,4 +890,81 @@ func customRoleDefName(c CustomRoleDefinition) string {
 	props, _ := c.Response["properties"].(map[string]any)
 	name, _ := props["roleName"].(string)
 	return name
+}
+
+// rbacPrincipalHasDataAction reports whether the role assignments of
+// principalID grant dataAction at scope: some assigned role's permission set
+// matches it in dataActions and not in notDataActions, as Azure RBAC
+// evaluates a data-plane request.
+func rbacPrincipalHasDataAction(principalID, scope, dataAction string) bool {
+	for _, ra := range azureRoleAssignmentsAll.LookupAll(azureRoleAssignments, "all", azureRoleAssignmentAllKeys) {
+		if !strings.EqualFold(ra.Properties.PrincipalId, principalID) || !rbacScopeCovers(ra.Properties.Scope, scope) {
+			continue
+		}
+		for _, p := range rbacRolePermissions(roleDefinitionGUID(ra.Properties.RoleDefinitionId)) {
+			if rbacActionMatchesAny(p.DataActions, dataAction) && !rbacActionMatchesAny(p.NotDataActions, dataAction) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// rbacRolePermissions is the permission sets of a built-in or custom role.
+func rbacRolePermissions(guid string) []builtinRolePermission {
+	if d, ok := builtinRoleDefByID(guid); ok {
+		return []builtinRolePermission{d.Permissions}
+	}
+	c, ok := customRoleDefs.Get(guid)
+	if !ok {
+		return nil
+	}
+	var out []builtinRolePermission
+	for _, entry := range customRoleDefPermissions(c) {
+		strs := func(key string) []string {
+			list, _ := entry[key].([]any)
+			var vals []string
+			for _, v := range list {
+				if s, ok := v.(string); ok {
+					vals = append(vals, s)
+				}
+			}
+			return vals
+		}
+		out = append(out, builtinRolePermission{
+			Actions: strs("actions"), NotActions: strs("notActions"),
+			DataActions: strs("dataActions"), NotDataActions: strs("notDataActions"),
+		})
+	}
+	return out
+}
+
+// rbacActionMatchesAny matches an operation against RBAC action patterns,
+// case-insensitively, with * standing for any run of characters.
+func rbacActionMatchesAny(patterns []string, action string) bool {
+	for _, p := range patterns {
+		if rbacWildcardMatch(strings.ToLower(p), strings.ToLower(action)) {
+			return true
+		}
+	}
+	return false
+}
+
+func rbacWildcardMatch(pattern, s string) bool {
+	parts := strings.Split(pattern, "*")
+	if len(parts) == 1 {
+		return pattern == s
+	}
+	if !strings.HasPrefix(s, parts[0]) {
+		return false
+	}
+	s = s[len(parts[0]):]
+	for _, mid := range parts[1 : len(parts)-1] {
+		i := strings.Index(s, mid)
+		if i < 0 {
+			return false
+		}
+		s = s[i+len(mid):]
+	}
+	return strings.HasSuffix(s, parts[len(parts)-1])
 }

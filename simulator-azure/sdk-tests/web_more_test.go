@@ -233,9 +233,11 @@ func TestSDK_WebMore_SiteSubResources(t *testing.T) {
 	}
 
 	// Source control round-trip.
+	repo := startGitHTTPRepo(t, "webmore")
+	repo.commit("main", "Initial content", map[string]string{"index.html": "webmore"})
 	scPoller, err := client.BeginCreateOrUpdateSourceControl(ctx, rg, name, armappservice.SiteSourceControl{
 		Properties: &armappservice.SiteSourceControlProperties{
-			RepoURL: to.Ptr("https://github.com/example/repo"),
+			RepoURL: to.Ptr(repo.URL),
 			Branch:  to.Ptr("main"),
 		},
 	}, nil)

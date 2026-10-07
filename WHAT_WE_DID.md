@@ -1102,6 +1102,44 @@ general setting the two slots hold differently, with both values: a swappable
 one as `SettingsWillBeSwapped` at level `Information`, a slot setting as
 `SettingsWillNotBeSwapped` at level `Warning`.
 
+An App Service app's Key Vault references had reached its workload as the
+reference text, and the `configreferences` reads had resolved them without an
+identity. An app or slot now carries a managed identity: `identity` on a site
+PUT or PATCH enables a system-assigned identity, whose principal lasts as long
+as the identity and is registered in the directory so role assignments and
+Graph reads find it, and attaches user-assigned identities by resource ID,
+each reported with its own principal and client IDs; `keyVaultReferenceIdentity`
+(SystemAssigned unless set) names the one the app reaches Key Vault as. A
+reference — `SecretUri=…` or `VaultName=…;SecretName=…[;SecretVersion=…]`, in
+an app setting or a connection string — resolves when that identity is attached
+and the vault grants it the secret: through an Azure RBAC role assignment
+carrying `Microsoft.KeyVault/vaults/secrets/getSecret/action` at the secret, the
+vault or a scope above it when the vault uses Azure RBAC (the Key Vault
+Administrator, Reader, Secrets Officer and Secrets User built-in roles carry
+their published permissions), and otherwise through an access policy for that
+object with the secret `get` permission; the secret, and a pinned version,
+must exist and be enabled and current. The container, a webjob, the Kudu
+command and Kudu's settings see the secret's value; an unresolved reference
+reaches them as written, and the `configreferences` status says why —
+`MSINotEnabled`, `VaultNotFound`, `AccessToKeyVaultDenied`, `SecretNotFound`,
+`SecretVersionNotFound`, `InvalidSyntax` or `OtherReasons` — with its details
+and the identity it tried as `identityType`.
+
+Source control had stored a repository and branch, and `WebApps_SyncRepository`
+had answered 200, without anything deployed. Configuring `sourcecontrols/web`
+now fetches the branch's head over HTTP or HTTPS and deploys its tree, without
+the repository's `.git`, into wwwroot with KuduSync's semantics, as does each
+sync; the deployment is recorded under the commit's ID with its author, author
+email and message, the previous one stops being active, and a fetch that fails
+is recorded as a failed deployment of the fetch while the app keeps what it
+ran. The site's `siteConfig.scmType` is `None` until source control sets it
+(`ExternalGit` for a manually integrated repository, `GitHub` or `BitbucketGit`
+for a continuously integrated one) and returns to `None` when it is removed,
+which is what terraform-provider-azurerm's `azurerm_app_service_source_control`
+reads; a sync of an app without source control is refused. Azure Resource
+Manager paths fold `sourceControls` to the registered spelling, and a
+deployment record reports `status` and `active` even when they are zero.
+
 RunTask places a task only where it fits. The simulator runs real containers on
 one finite host, so rather than invent a capacity it commits each placed task's
 declared memory and CPU against what the simulator's own cgroup, or the

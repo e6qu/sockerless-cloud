@@ -30,7 +30,7 @@ func kuduSettings(site *Site) map[string]string {
 	for k, v := range written {
 		kuduSetFold(out, k, v)
 	}
-	for k, v := range siteAppSettings(site) {
+	for k, v := range webResolvedAppSettings(site) {
 		kuduSetFold(out, k, v)
 	}
 	return out
