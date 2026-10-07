@@ -156,6 +156,7 @@ func handleApplicationGatewayDataPlane(w http.ResponseWriter, r *http.Request, g
 		return
 	}
 	err := applicationGatewayForward(w, r, *target.settings, target.rewrite, server)
+	abortStartedForward(w, err)
 	switch {
 	case err == nil:
 	case errors.Is(err, lbplane.ErrClientWentAway):

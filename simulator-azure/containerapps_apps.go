@@ -40,8 +40,13 @@ type ContainerApp struct {
 	Type       string            `json:"type"`
 	Location   string            `json:"location"`
 	Tags       map[string]string `json:"tags,omitempty"`
+	Identity   *SiteIdentity     `json:"identity,omitempty"`
 	Properties ContainerAppProps `json:"properties"`
 	SystemData *SystemData       `json:"systemData,omitempty"`
+	// SystemIdentityClientID is the application ID of the app's
+	// system-assigned identity, which the directory reads and the identity's
+	// wire shape does not carry.
+	SystemIdentityClientID string `json:"-"`
 }
 
 // ContainerAppProps holds the properties of a ContainerApp. Matches
@@ -174,16 +179,14 @@ type ContainerAppRegistry struct {
 	Identity          string `json:"identity,omitempty"`
 }
 
-// ContainerAppSecret mirrors armappcontainers.Secret. KeyVaultURL is
-// an operator-supplied Azure Key Vault secret reference; the sim KV
-// data plane accepts the URL shape but the ACA App runtime does not
-// auto-resolve at app-start time. External by design — same
-// rationale as JobSecret.KeyVaultURL in containerapps.go.
+// ContainerAppSecret mirrors armappcontainers.Secret: a value, or the Key
+// Vault secret KeyVaultURL names, read as the managed identity Identity names
+// (containerapps_identity.go).
 type ContainerAppSecret struct {
 	Name        string `json:"name"`
 	Value       string `json:"value,omitempty"`
 	Identity    string `json:"identity,omitempty"`
-	KeyVaultURL string `json:"keyVaultUrl,omitempty"` // external (operator-supplied): KV secret reference; ACA App runtime doesn't auto-resolve
+	KeyVaultURL string `json:"keyVaultUrl,omitempty"`
 }
 
 // ContainerAppTemplate mirrors armappcontainers.Template.
@@ -398,12 +401,19 @@ func registerContainerAppsApps(srv *sim.Server) {
 			systemData.CreatedAt = existing.SystemData.CreatedAt
 		}
 
+		identity, identityClientID, err := acaApplyIdentity(req.Identity, existing.Identity, existing.SystemIdentityClientID)
+		if err != nil {
+			AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+			return
+		}
 		app := ContainerApp{
-			ID:       resourceID,
-			Name:     name,
-			Type:     "Microsoft.App/containerApps",
-			Location: req.Location,
-			Tags:     req.Tags,
+			ID:                     resourceID,
+			Name:                   name,
+			Type:                   "Microsoft.App/containerApps",
+			Location:               req.Location,
+			Tags:                   req.Tags,
+			Identity:               identity,
+			SystemIdentityClientID: identityClientID,
 			Properties: ContainerAppProps{
 				ProvisioningState:       "Succeeded",
 				EnvironmentID:           req.Properties.EnvironmentID,
@@ -421,8 +431,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		}
 		stampContainerAppServerDefaults(&app, appFqdn)
 
-		if err := acaReconcileRevisions(r.Context(), &app, appFqdn); err != nil {
-			writeACARevisionError(w, name, err)
+		if !acaSettleAppIdentity(w, r, &app, existing, appFqdn) {
 			return
 		}
 		apps.Put(resourceID, app)
@@ -522,6 +531,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 			// Deleting, so the record present here is still the one this
 			// operation owns.
 			apps.Delete(resourceID)
+			syncManagedIdentityPrincipal(app.Identity, nil, "", "")
 			deleteACAAppRevisions(resourceID)
 			acaAppSystemLogs.Delete(resourceID)
 			return nil
@@ -577,8 +587,20 @@ func registerContainerAppsApps(srv *sim.Server) {
 			return
 		}
 		prior := app
+		var patchIdentity struct {
+			Identity *SiteIdentity `json:"identity"`
+		}
+		if err := json.Unmarshal(patch, &patchIdentity); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		if err := applyARMMergePatch(&app, patch); err != nil {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		app.Identity, app.SystemIdentityClientID, err = acaApplyIdentity(patchIdentity.Identity, prior.Identity, prior.SystemIdentityClientID)
+		if err != nil {
+			AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
 			return
 		}
 		// Identity and server-owned fields are not client-writable.
@@ -595,8 +617,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 			app.SystemData.LastModifiedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		}
 
-		if err := acaReconcileRevisions(r.Context(), &app, appFqdn); err != nil {
-			writeACARevisionError(w, name, err)
+		if !acaSettleAppIdentity(w, r, &app, prior, appFqdn) {
 			return
 		}
 		apps.Put(resourceID, app)
@@ -705,6 +726,42 @@ func writeACARevisionError(w http.ResponseWriter, app string, err error) {
 		"failed to start container app replica for %s: %v", app, err)
 }
 
+// acaSettleAppIdentity validates an app's secrets against its identity, brings
+// the directory in step with its system-assigned identity and reconciles its
+// revisions, answering the request and restoring the directory and the stored
+// app when any of it fails. The app is stored before its replicas start, so a
+// replica that asks its identity endpoint for a token at once finds the
+// identity it was started with.
+func acaSettleAppIdentity(w http.ResponseWriter, r *http.Request, app *ContainerApp, prev ContainerApp, appFqdn string) bool {
+	secrets := acaAppSecrets(*app)
+	var containers []JobContainer
+	if app.Properties.Template != nil {
+		containers = append(append(containers, app.Properties.Template.InitContainers...), app.Properties.Template.Containers...)
+	}
+	if err := acaValidateSecretRefs(containers, secrets); err != nil {
+		AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return false
+	}
+	syncManagedIdentityPrincipal(prev.Identity, app.Identity, app.SystemIdentityClientID, app.Name)
+	if _, err := acaResolveSecrets(app.Identity, secrets); err != nil {
+		syncManagedIdentityPrincipal(app.Identity, prev.Identity, prev.SystemIdentityClientID, prev.Name)
+		AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return false
+	}
+	acaApps.Put(app.ID, *app)
+	if err := acaReconcileRevisions(r.Context(), app, appFqdn); err != nil {
+		if prev.ID != "" {
+			acaApps.Put(prev.ID, prev)
+		} else {
+			acaApps.Delete(app.ID)
+		}
+		syncManagedIdentityPrincipal(app.Identity, prev.Identity, prev.SystemIdentityClientID, prev.Name)
+		writeACARevisionError(w, app.Name, err)
+		return false
+	}
+	return true
+}
+
 func acaEnvironmentName(id string) string {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -754,9 +811,13 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 		}
 	}
 
-	metadataEnv, err := hostMetadataEnv(nil)
+	metadataEnv, err := workloadMetadataEnv(app.ID, app.Identity)
 	if err != nil {
 		return err
+	}
+	secrets, err := acaResolveSecrets(app.Identity, acaAppSecrets(app))
+	if err != nil {
+		return &acaRevisionRequestError{err}
 	}
 	handles := make([]*sim.ContainerHandle, 0, int(minReplicas)*len(app.Properties.Template.Containers))
 	containers := app.Properties.Template.Containers
@@ -775,7 +836,7 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 		replica := newACAReplica(revision, names)
 		acaRecordSystemEvent(resourceID, envID, app.Name, revision, replica.name, "AssigningReplica",
 			fmt.Sprintf("Replica '%s' has been scheduled to run on a node.", replica.name))
-		main := acaAppContainer(resourceID, app, containers[0], replicaIndex, envID, metadataEnv)
+		main := acaAppContainer(resourceID, app, containers[0], replicaIndex, envID, metadataEnv, secrets)
 		main.Config.Network = netName
 		main.Config.NetworkAliases = netAliases
 		main.Config.ExtraHosts = workloadhost.ExtraHosts()
@@ -789,7 +850,7 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 		for i, c := range containers[1:] {
 			sidecar := replica.containers[i+1]
 			started, err := workload.StartSidecars(ctx, group.Main.ContainerID,
-				[]workload.Container{acaAppContainer(resourceID, app, c, replicaIndex, envID, metadataEnv)}, sidecar.sink(app, revision))
+				[]workload.Container{acaAppContainer(resourceID, app, c, replicaIndex, envID, metadataEnv, secrets)}, sidecar.sink(app, revision))
 			if err != nil {
 				cancelStarted()
 				return err
@@ -814,11 +875,8 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 	return nil
 }
 
-func acaAppContainer(resourceID string, app ContainerApp, c JobContainer, replica int32, envID string, metadataEnv map[string]string) workload.Container {
-	cmdEnv := make(map[string]string, len(c.Env)+1)
-	for _, ev := range c.Env {
-		cmdEnv[ev.Name] = ev.Value
-	}
+func acaAppContainer(resourceID string, app ContainerApp, c JobContainer, replica int32, envID string, metadataEnv, secrets map[string]string) workload.Container {
+	cmdEnv := acaContainerEnv(c, secrets)
 	if _, ok := cmdEnv["PORT"]; !ok {
 		cmdEnv["PORT"] = "8080"
 	}
@@ -855,7 +913,7 @@ func acaAppContainer(resourceID string, app ContainerApp, c JobContainer, replic
 	return workload.Container{Name: c.Name, Config: sim.ContainerConfig{
 		CancelGracePeriod: acaAppStopGrace(app),
 		Image:             sim.ResolveLocalImage(c.Image),
-		RegistryAuth:      acrWorkloadRegistryAuth(c.Image, acaAppWorkloadRegistries(app)),
+		RegistryAuth:      acrWorkloadRegistryAuth(c.Image, acaAppWorkloadRegistries(app, secrets)),
 		Command:           c.Command,
 		Args:              c.Args,
 		Env:               workloadhost.MergeEnv(cmdEnv, metadataEnv),

@@ -546,40 +546,20 @@ func registerKeyVault(srv *sim.Server) {
 				"Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		var policies []KeyVaultAccessPolicy
 		switch operation {
 		case "add":
-			for _, incoming := range req.Properties.AccessPolicies {
-				replaced := false
-				for i, existing := range v.Properties.AccessPolicies {
-					if existing.ObjectID == incoming.ObjectID {
-						v.Properties.AccessPolicies[i] = incoming
-						replaced = true
-						break
-					}
-				}
-				if !replaced {
-					v.Properties.AccessPolicies = append(v.Properties.AccessPolicies, incoming)
-				}
-			}
+			policies = keyVaultAddAccessPolicies(v.Properties.AccessPolicies, req.Properties.AccessPolicies)
 		case "replace":
-			v.Properties.AccessPolicies = req.Properties.AccessPolicies
+			policies = keyVaultReplaceAccessPolicies(v.Properties.AccessPolicies, req.Properties.AccessPolicies)
 		case "remove":
-			remove := map[string]bool{}
-			for _, p := range req.Properties.AccessPolicies {
-				remove[p.ObjectID] = true
-			}
-			kept := v.Properties.AccessPolicies[:0]
-			for _, p := range v.Properties.AccessPolicies {
-				if !remove[p.ObjectID] {
-					kept = append(kept, p)
-				}
-			}
-			v.Properties.AccessPolicies = kept
+			policies = keyVaultRemoveAccessPolicies(v.Properties.AccessPolicies, req.Properties.AccessPolicies)
 		default:
 			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 				"access policy operation %q is invalid", operation)
 			return
 		}
+		v.Properties.AccessPolicies = policies
 		keyVaults.Put(resourceID, v)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"id":       resourceID + "/accessPolicies/" + operation,

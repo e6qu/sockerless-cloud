@@ -100,21 +100,15 @@ jobs:
           shellcheck -x -s bash scripts/*.sh
           bash -n scripts/*.sh
           zsh -n scripts/*.sh
-      # The Actions half of this check reads the GitHub API. Unauthenticated
-      # requests are rate limited, and a throttled reply is indistinguishable
-      # from "this action has no newer tag", so the token is passed explicitly
-      # rather than left to whatever quota the runner happens to have.
-      #
-      # A dependency must also have been public for at least a day before this
+      # A dependency must have been public for at least a day before this
       # project adopts it, so the check holds versions younger than that instead
       # of reporting them as drift. The adoption quarantine is exercised in both
       # directions, with its negative controls, before the check itself runs —
       # a held version that should have been drift is the one way this gate
-      # could go quiet without anyone noticing.
+      # could go quiet without anyone noticing. The test serves the registries'
+      # documents from fixtures, so it needs no GitHub token.
       - name: Adoption quarantine is exercised, negative controls included
         run: bash scripts/test-latest-deps-quarantine.sh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Attribution is the one change that can make this gate quieter, so it is
       # the one change that could make it stop gating. The controls prove a pin
       # the branch moved, and a pin the branch added, still fail with a baseline
@@ -1151,9 +1145,9 @@ jobs:
             timeout_minutes: 12
           - suite: azure web app key vault references and source control
             cloud: azure
-            tf_timeout: 600s
-            tf_run: TestTerraformWebAppKeyVaultReferenceAndSourceControl
-            timeout_minutes: 12
+            tf_timeout: 780s
+            tf_run: TestTerraformWebAppKeyVault
+            timeout_minutes: 15
     name: tf (${{ matrix.suite }})
     steps:
       - uses: actions/checkout@v7.0.1

@@ -402,6 +402,19 @@ Current state of the sockerless-cloud repository.
   presenting that secret with a token for the app's system-assigned identity,
   or for the user-assigned identity `client_id`, `principal_id`/`object_id` or
   `mi_res_id` names, and refuses an identity the app does not have.
+- **Container apps and jobs have managed identities.** A container app or
+  Container Apps job carries system-assigned and user-assigned identities; its
+  workload gets `IDENTITY_ENDPOINT` and an `IDENTITY_HEADER` of its own, and a
+  secret that references Key Vault is read as the identity it names, reaching
+  the workload through `secretRef` environment variables; a secret the identity
+  cannot read fails the request.
+- **App Service imports Key Vault certificates as its own service
+  principal.** The directory holds "Microsoft Azure App Service" in every
+  tenant, and a certificate imports only when the vault grants that principal
+  the secret.
+- **Key Vault access-policy updates work per permission.** `add`, `replace` and
+  `remove` merge, set and subtract the permissions of the policy with the same
+  tenant, object and application IDs, leaving every other policy alone.
 - **The Key Vault data plane authorizes every request.** It verifies the bearer
   token's signature, expiry, Key Vault audience and the vault tenant's issuer
   (401 with the `Bearer authorization=…, resource=…` challenge otherwise),
@@ -518,6 +531,8 @@ shape, and one whose scan set can go empty exits non-zero.
   Actions, installed tools and the consoles' npm packages to the newest
   release past a 24-hour adoption quarantine, with the repository's own modules
   excluded and covered by the pin gate instead.
+  Its self-test serves the module proxy, the Terraform registry and the GitHub
+  API from fixtures with fixed publication times.
 - The race detector over every module on every pull request, with zero
   races held by `simGo`/`simAfterFunc`/`simJoinedGo` accounting.
 - Spec conformance in every simulator's unit tests, and the runtime

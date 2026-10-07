@@ -740,6 +740,7 @@ func handleAzureLoadBalancerDataPlane(w http.ResponseWriter, r *http.Request, lb
 		RawQuery: r.URL.RawQuery,
 		Timeout:  idle,
 	})
+	abortStartedForward(w, err)
 	switch {
 	case err == nil:
 	case errors.Is(err, lbplane.ErrClientWentAway):

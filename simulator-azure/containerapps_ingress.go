@@ -138,6 +138,7 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, r
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+	abortStartedForward(w, err)
 	switch {
 	case err == nil:
 	case errors.Is(err, lbplane.ErrClientWentAway):

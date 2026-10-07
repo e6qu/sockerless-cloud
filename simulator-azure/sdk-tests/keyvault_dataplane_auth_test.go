@@ -223,6 +223,14 @@ func TestKeyVault_AccessPoliciesAuthorizeEachOperation(t *testing.T) {
 	_, err = keys.CreateKey(ctx, "policy-key", azkeys.CreateKeyParameters{Kty: to.Ptr(azkeys.KeyTypeRSA)}, nil)
 	requireKVForbidden(t, err, "AccessDenied", "does not have keys create permission")
 
+	// Removing the caller's every permission removes its policy; a compound
+	// identity policy for the same object is a policy of its own.
+	_, err = vaults.UpdateAccessPolicy(ctx, rg, vault, armkeyvault.AccessPolicyUpdateKindRemove, armkeyvault.VaultAccessPolicyParameters{
+		Properties: &armkeyvault.VaultAccessPolicyProperties{AccessPolicies: []*armkeyvault.AccessPolicyEntry{
+			policy(armkeyvault.SecretPermissionsSet, armkeyvault.SecretPermissionsGet),
+		}},
+	}, nil)
+	require.NoError(t, err)
 	compound := policy(armkeyvault.SecretPermissionsGet)
 	compound.ApplicationID = to.Ptr(uuid.NewString())
 	_, err = vaults.UpdateAccessPolicy(ctx, rg, vault, armkeyvault.AccessPolicyUpdateKindReplace, armkeyvault.VaultAccessPolicyParameters{

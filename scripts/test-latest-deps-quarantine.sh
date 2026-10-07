@@ -4,14 +4,16 @@
 # adopts it — in both directions, plus the negative controls that prove the
 # gate still fails on everything it failed on before.
 #
-# The fixtures are real. A real go.mod pinned to a real superseded release, a
-# real workflow pinned to a real superseded action tag, and a real
-# required_providers block are resolved against the real Go module proxy, the
-# real GitHub API, and the real Terraform registry; every publication timestamp
-# the check compares against is the one the registry actually serves. Only the
-# repository the check reads is a fixture, and only one thing is synthesised at
-# all: a module proxy that answers with no publication time, which is the one
-# condition no public registry can be asked to reproduce on demand.
+# The registries the check reads are fixtures this test serves: a Go module
+# proxy over Go's file:// proxy protocol, and the Terraform registry's provider
+# documents and the GitHub API's tag, ref, commit and release documents over a
+# local HTTP server. Every publication time the check compares is one written
+# here, so a public registry gaining a release, or listing a version before its
+# publication time is readable, cannot move a verdict. The check reaches the
+# fixtures through the same coordinates it reaches the public registries
+# through — GOPROXY, DEPS_TERRAFORM_REGISTRY_URL and DEPS_GITHUB_API_URL — and
+# the module files the fixture proxy does not carry (go.mod files and source
+# archives, which the checksum database pins) still come from proxy.golang.org.
 #
 # The quarantine window is widened, never narrowed, to put a known-old release
 # inside it: check-latest-deps.sh clamps DEPS_ADOPTION_QUARANTINE_SECONDS up to
@@ -32,15 +34,113 @@ unset -v GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DI
 
 root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 fixture="$(mktemp -d)"
-# Go's module cache is written read-only, so the fixture has to be made
-# writable again before it can be removed.
-trap 'chmod -R u+w "$fixture" 2>/dev/null || true; rm -rf "$fixture"' EXIT
+background_pids=()
+cleanup() {
+	if ((${#background_pids[@]} > 0)); then
+		kill "${background_pids[@]}" 2>/dev/null || true
+	fi
+	# Go's module cache is written read-only, so the fixture has to be made
+	# writable again before it can be removed.
+	chmod -R u+w "$fixture" 2>/dev/null || true
+	rm -rf "$fixture"
+}
+trap cleanup EXIT
 
-# A window wide enough that testify v1.12.0 (published 2026-06-10) and
-# actions/checkout v7.0.1 (published 2026-07-20) both land inside it.
+# A window wide enough that every fixed publication time below lands inside it.
 wide_window=315360000 # 10 years
 
 failures=0
+
+# rfc3339_ago prints the UTC time <seconds> before now, for a release the test
+# needs inside the default one-day window whenever it runs.
+rfc3339_ago() {
+	python3 -c 'import datetime, sys
+t = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=int(sys.argv[1]))
+print(t.strftime("%Y-%m-%dT%H:%M:%SZ"))' "$1"
+}
+
+# --- Fixture registries ----------------------------------------------------
+# One HTTP server answers for the Terraform registry under /terraform... and
+# for the GitHub API under /github. It serves the file at the request path,
+# or the directory's .index file when the path names a directory (a provider's
+# version index sits at the same path its version documents sit under), and
+# 404s anything absent, as the registries do. Like the GitHub API, it answers
+# an unauthenticated request and refuses a credential it does not know with
+# 401 Bad credentials.
+registry_root="$fixture/registry"
+fixture_token=latest-deps-fixture-token
+registry_port_file="$fixture/registry-port"
+mkdir -p "$registry_root"
+python3 - "$registry_root" "$fixture_token" "$registry_port_file" <<'PY' &
+import http.server, os, sys
+
+root, token, port_file = sys.argv[1:4]
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        auth = self.headers.get("Authorization")
+        if auth is not None and auth != "Bearer " + token:
+            return self.reply(401, b'{"message":"Bad credentials"}')
+        path = os.path.normpath(os.path.join(root, self.path.split("?", 1)[0].lstrip("/")))
+        if not path.startswith(root + os.sep):
+            return self.reply(404, b'{"message":"Not Found"}')
+        if os.path.isdir(path):
+            path = os.path.join(path, ".index")
+        try:
+            with open(path, "rb") as f:
+                body = f.read()
+        except (FileNotFoundError, NotADirectoryError):
+            return self.reply(404, b'{"message":"Not Found"}')
+        self.reply(200, body)
+
+    def reply(self, code, body):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+with open(port_file + ".tmp", "w") as f:
+    f.write(str(server.server_address[1]))
+os.rename(port_file + ".tmp", port_file)
+server.serve_forever()
+PY
+background_pids+=($!)
+until [[ -s "$registry_port_file" ]]; do sleep 0.1; done
+registry_url="http://127.0.0.1:$(cat "$registry_port_file")"
+
+# fixture_doc writes one registry document: <path under the registry root>
+# <body>.
+fixture_doc() {
+	mkdir -p "$(dirname "$registry_root/$1")"
+	printf '%s\n' "$2" >"$registry_root/$1"
+}
+
+# The fixture module proxy carries testify's version list and publication
+# records, at the times proxy.golang.org records for them.
+goproxy_dir="$fixture/goproxy/github.com/stretchr/testify/@v"
+mkdir -p "$goproxy_dir"
+printf 'v1.11.0\nv1.11.1\nv1.12.0\n' >"$goproxy_dir/list"
+printf '{"Version":"v1.11.0","Time":"2025-08-17T15:57:51Z"}' >"$goproxy_dir/v1.11.0.info"
+printf '{"Version":"v1.11.1","Time":"2025-08-27T10:46:31Z"}' >"$goproxy_dir/v1.11.1.info"
+printf '{"Version":"v1.12.0","Time":"2026-06-10T14:10:43Z"}' >"$goproxy_dir/v1.12.0.info"
+goproxy="file://$fixture/goproxy,https://proxy.golang.org"
+
+# Every run reads the fixture registries. A case that needs another registry
+# names it in its own arguments, which env applies after these.
+registry_env=(
+	"GOPROXY=$goproxy"
+	"DEPS_TERRAFORM_REGISTRY_URL=$registry_url/terraform"
+	"DEPS_GITHUB_API_URL=$registry_url/github"
+	"GITHUB_TOKEN=$fixture_token"
+	"GH_TOKEN=$fixture_token"
+)
 
 # new_repo lays out one fixture git repository holding the check under test.
 new_repo() {
@@ -71,7 +171,7 @@ run_check_with() {
 	local shell="$1" dir="$2"
 	shift 2
 	set +e
-	CHECK_OUT="$(cd "$dir" && env "$@" "$shell" "$dir/scripts/check-latest-deps.sh" 2>&1)"
+	CHECK_OUT="$(cd "$dir" && env "${registry_env[@]}" "$@" "$shell" "$dir/scripts/check-latest-deps.sh" 2>&1)"
 	CHECK_STATUS=$?
 	set -e
 }
@@ -108,9 +208,8 @@ expect_silent_about() {
 }
 
 # --- Go modules ------------------------------------------------------------
-# testify v1.11.1 is superseded by v1.12.0, which the module proxy records as
-# published 2026-06-10 — comfortably older than a day, and the drift the real
-# repository is red on today.
+# testify v1.11.1 is superseded by v1.12.0, published 2026-06-10 — comfortably
+# older than a day.
 go_repo="$(new_repo go)"
 cat >"$go_repo/go.mod" <<'GOMOD'
 module example.invalid/latest-deps-fixture
@@ -119,7 +218,7 @@ go 1.25
 
 require github.com/stretchr/testify v1.11.1
 GOMOD
-(cd "$go_repo" && GOWORK=off GOFLAGS=-mod=mod go mod download github.com/stretchr/testify >/dev/null)
+(cd "$go_repo" && GOWORK=off GOFLAGS=-mod=mod GOPROXY="$goproxy" go mod download github.com/stretchr/testify >/dev/null)
 commit_repo "$go_repo"
 
 # A release older than the window, behind the pin: still drift, still red. This
@@ -128,7 +227,7 @@ commit_repo "$go_repo"
 run_check "$go_repo" GOWORK=off
 expect_status 1 'go: aged-out release is still drift'
 expect_says 'FAIL' 'go: aged-out release is still drift'
-expect_says 'github.com/stretchr/testify pinned v1.11.1 (latest adoptable v1.' \
+expect_says 'github.com/stretchr/testify pinned v1.11.1 (latest adoptable v1.12.0)' \
 	'go: aged-out release is still drift'
 
 # The same release, the same pin, inside the window: held, explained, and green.
@@ -142,7 +241,7 @@ expect_silent_about 'FAIL' 'go: release inside the window is held'
 # Both directions again under zsh, the other shell CI runs this check with.
 run_check_with zsh "$go_repo" GOWORK=off
 expect_status 1 'go/zsh: aged-out release is still drift'
-expect_says 'pinned v1.11.1 (latest adoptable v1.' 'go/zsh: aged-out release is still drift'
+expect_says 'pinned v1.11.1 (latest adoptable v1.12.0)' 'go/zsh: aged-out release is still drift'
 
 run_check_with zsh "$go_repo" GOWORK=off "DEPS_ADOPTION_QUARANTINE_SECONDS=$wide_window"
 expect_status 0 'go/zsh: release inside the window is held'
@@ -155,7 +254,7 @@ expect_silent_about 'FAIL' 'go/zsh: release inside the window is held'
 run_check "$go_repo" GOWORK=off DEPS_ADOPTION_QUARANTINE_SECONDS=1
 expect_status 1 'go: the window cannot be shortened'
 expect_says 'adoption quarantine 86400s' 'go: the window cannot be shortened'
-expect_says 'pinned v1.11.1 (latest adoptable v1.' 'go: the window cannot be shortened'
+expect_says 'pinned v1.11.1 (latest adoptable v1.12.0)' 'go: the window cannot be shortened'
 
 # Negative control: a window that is not a number is a configuration error, not
 # a reason to run with no quarantine at all.
@@ -164,21 +263,16 @@ expect_status 2 'go: a nonsense window is rejected'
 expect_says 'must be a whole number of seconds' 'go: a nonsense window is rejected'
 
 # --- Go modules: publication time unavailable ------------------------------
-# No public registry can be asked to withhold a publication time on demand, so
-# this fixture is a module proxy of its own: real testify bytes fetched from
-# proxy.golang.org, served over Go's real file:// proxy protocol, with one
-# version's .info rewritten to the protocol-legal form that carries no Time.
-# The Go toolchain renders that absence as the zero time rather than dropping
-# the field, so a check that trusted it would read "published in year 1" and
-# adopt instantly. It must fail loudly and name the version instead.
+# A second fixture proxy carries v1.12.0's .info in the protocol-legal form
+# that has no Time. The Go toolchain renders that absence as the zero time
+# rather than dropping the field, so a check that trusted it would read
+# "published in year 1" and adopt instantly. It must fail loudly and name the
+# version instead.
 notime_repo="$(new_repo notime)"
 proxy_dir="$fixture/notime-proxy/github.com/stretchr/testify/@v"
 mkdir -p "$proxy_dir"
 printf 'v1.11.1\nv1.12.0\n' >"$proxy_dir/list"
-for artefact in v1.11.1.info v1.11.1.mod v1.12.0.mod; do
-	curl -fsSL -o "$proxy_dir/$artefact" \
-		"https://proxy.golang.org/github.com/stretchr/testify/@v/$artefact"
-done
+cp "$goproxy_dir/v1.11.1.info" "$proxy_dir/"
 printf '{"Version":"v1.12.0"}' >"$proxy_dir/v1.12.0.info"
 cat >"$notime_repo/go.mod" <<'GOMOD'
 module example.invalid/latest-deps-notime-fixture
@@ -190,11 +284,9 @@ GOMOD
 cp "$go_repo/go.sum" "$notime_repo/go.sum"
 commit_repo "$notime_repo"
 
-# The fixture proxy is consulted first and the public proxy answers everything
-# it does not carry, so only the one withheld timestamp differs from a normal
-# run. A module cache of its own keeps the warm copy of the real .info on this
-# machine from answering the question the fixture is asking.
-notime_proxy="file://$fixture/notime-proxy,https://proxy.golang.org,direct"
+# A module cache of its own keeps the copy of the fixture's real .info the
+# cases above cached from answering the question this fixture is asking.
+notime_proxy="file://$fixture/notime-proxy,https://proxy.golang.org"
 notime_cache="$fixture/notime-gomodcache"
 run_check "$notime_repo" GOWORK=off "GOPROXY=$notime_proxy" "GOMODCACHE=$notime_cache"
 expect_status 1 'go: unknown publication time fails loudly'
@@ -212,18 +304,19 @@ expect_says 'could not be determined' 'go: unknown publication time fails loudly
 # runs the check under are held to it.
 stall_port_file="$fixture/stall-port"
 python3 - "$stall_port_file" <<'PY' &
-import socket, sys
+import os, socket, sys
 listener = socket.socket()
 listener.bind(("127.0.0.1", 0))
 listener.listen()
-with open(sys.argv[1], "w") as f:
+with open(sys.argv[1] + ".tmp", "w") as f:
     f.write(str(listener.getsockname()[1]))
+os.rename(sys.argv[1] + ".tmp", sys.argv[1])
 held = []
 while True:
     connection, _ = listener.accept()
     held.append(connection)
 PY
-stall_pid=$!
+background_pids+=($!)
 until [[ -s "$stall_port_file" ]]; do sleep 0.1; done
 stall_proxy="http://127.0.0.1:$(cat "$stall_port_file")"
 for shell in bash zsh; do
@@ -233,14 +326,34 @@ for shell in bash zsh; do
 	expect_says 'stalled for 2s (attempt 3 of 3)' "go ($shell): a proxy that never answers fails the run"
 	expect_says 'The module proxy never answered' "go ($shell): a proxy that never answers fails the run"
 done
-kill "$stall_pid"
 
 run_check "$go_repo" GOWORK=off DEPS_GO_PROXY_DEADLINE_SECONDS=0
 expect_status 2 'go: a zero proxy deadline is rejected'
 
 # --- GitHub Actions --------------------------------------------------------
-# actions/checkout v6.1.0 is superseded by v7.0.1, whose GitHub Release records
-# published_at 2026-07-20 — again older than a day.
+# example/action is pinned at v6.1.0, and each newer tag reaches its
+# publication time by a different road the check walks: v7.0.1 through its
+# GitHub Release, v7.0.0 (no release) through its annotated tag's tagger date,
+# and v6.2.0 (no release, a lightweight tag) through its commit's committer
+# date.
+gh_repo_api=github/repos/example/action
+fixture_doc "$gh_repo_api/tags" '[
+  {"name": "v7.0.1", "commit": {"sha": "7010000000000000000000000000000000000000"}},
+  {"name": "v7.0.0", "commit": {"sha": "7000000000000000000000000000000000000000"}},
+  {"name": "v6.2.0", "commit": {"sha": "6200000000000000000000000000000000000000"}},
+  {"name": "v6.1.0", "commit": {"sha": "6100000000000000000000000000000000000000"}}
+]'
+fixture_doc "$gh_repo_api/releases/tags/v7.0.1" \
+	'{"tag_name": "v7.0.1", "draft": false, "published_at": "2026-07-20T15:10:05Z"}'
+fixture_doc "$gh_repo_api/git/ref/tags/v7.0.0" \
+	'{"ref": "refs/tags/v7.0.0", "object": {"type": "tag", "sha": "a700000000000000000000000000000000000000"}}'
+fixture_doc "$gh_repo_api/git/tags/a700000000000000000000000000000000000000" \
+	'{"tag": "v7.0.0", "tagger": {"name": "fixture", "date": "2026-07-14T09:30:00Z"}}'
+fixture_doc "$gh_repo_api/git/ref/tags/v6.2.0" \
+	'{"ref": "refs/tags/v6.2.0", "object": {"type": "commit", "sha": "6200000000000000000000000000000000000000"}}'
+fixture_doc "$gh_repo_api/commits/6200000000000000000000000000000000000000" \
+	'{"sha": "6200000000000000000000000000000000000000", "commit": {"committer": {"name": "fixture", "date": "2026-05-02T11:00:00Z"}}}'
+
 gha_repo="$(new_repo actions)"
 mkdir -p "$gha_repo/.github/workflows"
 cat >"$gha_repo/.github/workflows/pins.yml" <<'YAML'
@@ -251,20 +364,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6.1.0
+      - uses: example/action@v6.1.0
 YAML
 commit_repo "$gha_repo"
 
 run_check "$gha_repo"
 expect_status 1 'actions: aged-out tag is still drift'
-expect_says 'actions/checkout pinned v6.1.0 (latest adoptable v' \
+expect_says 'example/action pinned v6.1.0 (latest adoptable v7.0.1)' \
 	'actions: aged-out tag is still drift'
 
 run_check "$gha_repo" "DEPS_ADOPTION_QUARANTINE_SECONDS=$wide_window"
-expect_status 0 'actions: tag inside the window is held'
-expect_says 'HELD' 'actions: tag inside the window is held'
-expect_says 'v7.0.1 published 2026-07-20T15:10:05Z' 'actions: tag inside the window is held'
-expect_silent_about 'FAIL' 'actions: tag inside the window is held'
+expect_status 0 'actions: tags inside the window are held'
+expect_says 'HELD' 'actions: tags inside the window are held'
+expect_says 'v7.0.1 published 2026-07-20T15:10:05Z' 'actions: a release dates its tag'
+expect_says 'v7.0.0 published 2026-07-14T09:30:00Z' 'actions: an annotated tag dates itself'
+expect_says 'v6.2.0 published 2026-05-02T11:00:00Z' 'actions: a lightweight tag is dated by its commit'
+expect_silent_about 'FAIL' 'actions: tags inside the window are held'
 
 # Negative control: a credential the API rejects is indistinguishable from a
 # throttled reply, and neither may be read as "no newer tag exists".
@@ -274,18 +389,20 @@ expect_status 1 'actions: a rejected credential fails loudly'
 expect_says 'tags could not be read' 'actions: a rejected credential fails loudly'
 
 # --- Terraform providers ---------------------------------------------------
-# hashicorp/null is a real registry provider with a short version history, so
-# the wide-window case walks a handful of real published_at timestamps rather
-# than the several hundred a provider like hashicorp/aws carries. Which major
-# is current comes from the registry, not from this file, so the fixture stays
-# true as the provider moves.
-tf_provider=hashicorp/null
-tf_latest="$(curl -fsSL "https://registry.terraform.io/v1/providers/$tf_provider" | jq -er '.version')"
-tf_major="${tf_latest%%.*}"
-if ! [[ "$tf_major" =~ ^[0-9]+$ ]]; then
-	echo "FAIL terraform fixture: the registry did not report a version for $tf_provider" >&2
-	exit 1
-fi
+# example/null has one release published an hour before the test runs, so the
+# newest release is inside the default window and the newest adoptable one is
+# the release below it — the state the registry is in for a day after every
+# upstream release.
+tf_provider=example/null
+tf_fresh="$(rfc3339_ago 3600)"
+tf_index="terraform/v1/providers/$tf_provider"
+fixture_doc "$tf_index/.index" \
+	'{"namespace": "example", "name": "null", "version": "3.3.3", "versions": ["2.1.2", "3.2.3", "3.2.4", "3.3.2", "3.3.3"]}'
+fixture_doc "$tf_index/2.1.2" '{"version": "2.1.2", "published_at": "2020-11-30T16:23:46Z"}'
+fixture_doc "$tf_index/3.2.3" '{"version": "3.2.3", "published_at": "2024-09-11T19:39:45Z"}'
+fixture_doc "$tf_index/3.2.4" '{"version": "3.2.4", "published_at": "2025-04-22T13:25:13Z"}'
+fixture_doc "$tf_index/3.3.2" '{"version": "3.3.2", "published_at": "2026-09-10T16:04:21Z"}'
+fixture_doc "$tf_index/3.3.3" "{\"version\": \"3.3.3\", \"published_at\": \"$tf_fresh\"}"
 
 tf_repo="$(new_repo terraform)"
 write_tf() {
@@ -301,88 +418,71 @@ terraform {
 TF
 }
 
-# The release before the newest ADOPTABLE one, for the exact-pin cases: an exact
-# pin names the one version Terraform may install, so being one release behind
-# is drift even though the major matches.
-#
-# "Newest adoptable" is not "newest published", and taking the second-newest
-# published release made this fixture fail for a day every time upstream
-# shipped: the newest is then inside the quarantine, so the newest adoptable
-# release IS the second-newest, and pinning it is correctly not drift while the
-# assertion below still demands drift. hashicorp/null 3.3.2, published
-# 2026-09-10, did exactly that.
-#
-# Rather than re-deriving the window here — which would mean a second copy of
-# the checker's RFC 3339 arithmetic, free to disagree with the original — the
-# fixture asks the checker. An impossible pin makes it name the version it
-# considers adoptable, and the release below that is what an exact pin one
-# behind means.
-write_tf 0.0.1
-commit_repo "$tf_repo"
-run_check "$tf_repo"
-tf_newest_adoptable="$(printf '%s\n' "$CHECK_OUT" |
-	sed -n -E 's/.*vs latest adoptable ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -1)"
-if ! [[ "$tf_newest_adoptable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-	echo "FAIL terraform fixture: the checker did not name an adoptable version for $tf_provider" >&2
-	printf '%s\n' "$CHECK_OUT" >&2
-	exit 1
-fi
-
-tf_previous="$(curl -fsSL "https://registry.terraform.io/v1/providers/$tf_provider" |
-	jq -er --arg newest "$tf_newest_adoptable" '
-		[.versions[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))]
-		| sort_by(split(".") | map(tonumber))
-		| index($newest) as $i
-		| if $i == null or $i == 0 then error("no release below the newest adoptable") else .[$i - 1] end')"
-if ! [[ "$tf_previous" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-	echo "FAIL terraform fixture: the registry did not report a release below $tf_newest_adoptable" >&2
-	exit 1
-fi
-
 # Negative control for the section itself: it reads required_providers wherever
 # Terraform puts it, and a range constraint a major behind the newest adoptable
 # release is red. A Terraform section that matched no file at all would pass
 # this fixture in silence and prove nothing.
-write_tf "~> $((tf_major - 1)).0"
+write_tf '~> 2.0'
 commit_repo "$tf_repo"
 run_check "$tf_repo"
 expect_status 1 'terraform: a stale major is drift'
-expect_says "constraint ~> $((tf_major - 1)).0 vs latest adoptable" 'terraform: a stale major is drift'
+expect_says 'constraint ~> 2.0 vs latest adoptable 3.3.2' 'terraform: a stale major is drift'
 
 # A range constraint admits newer releases by itself, so only its major has to
-# keep up.
-write_tf "~> ${tf_major}.0"
+# keep up; the release inside the window is reported as held.
+write_tf '~> 3.0'
 run_check "$tf_repo"
 expect_status 0 'terraform: a current major range is clean'
+expect_says "3.3.3 published $tf_fresh" 'terraform: a current major range is clean'
 expect_silent_about 'FAIL' 'terraform: a current major range is clean'
 
 # An exact pin is held to the exact newest adoptable release: one release back
-# is drift even inside the current major, which is the case that had been
-# passing silently.
-write_tf "$tf_previous"
+# is drift even inside the current major.
+write_tf 3.2.4
 run_check "$tf_repo"
 expect_status 1 'terraform: an exact pin one release behind is drift'
-expect_says "pinned at $tf_previous vs latest adoptable" 'terraform: an exact pin one release behind is drift'
+expect_says 'pinned at 3.2.4 vs latest adoptable 3.3.2' 'terraform: an exact pin one release behind is drift'
 
-write_tf "$tf_latest"
+# The newest adoptable release is not the newest published one: pinning the
+# release below a quarantined one is current, and the newer one is held.
+write_tf 3.3.2
 run_check "$tf_repo"
-expect_status 0 'terraform: an exact pin at the newest release is clean'
-expect_silent_about 'FAIL' 'terraform: an exact pin at the newest release is clean'
+expect_status 0 'terraform: an exact pin at the newest adoptable release is clean'
+expect_says 'pinned at 3.3.2: 3.3.3 published' 'terraform: an exact pin at the newest adoptable release is clean'
+expect_silent_about 'FAIL' 'terraform: an exact pin at the newest adoptable release is clean'
 
-# Under a window wide enough to quarantine the newest releases, the pin is
-# newer than anything adoptable — the state a freshly bumped pin is in for its
-# first day. That is held, not a demand to downgrade.
+# A pin newer than anything adoptable is the state a freshly bumped pin is in
+# for its first day. That is held, not a demand to downgrade.
+write_tf 3.3.3
+run_check "$tf_repo"
+expect_status 0 'terraform: a pin inside the window is held'
+expect_says 'pinned at 3.3.3, newer than the latest adoptable 3.3.2' 'terraform: a pin inside the window is held'
+expect_silent_about 'FAIL' 'terraform: a pin inside the window is held'
+
 run_check "$tf_repo" "DEPS_ADOPTION_QUARANTINE_SECONDS=$wide_window"
 expect_status 0 'terraform: releases inside the window are held'
 expect_says 'HELD' 'terraform: releases inside the window are held'
 expect_says "$tf_provider" 'terraform: releases inside the window are held'
 expect_silent_about 'FAIL' 'terraform: releases inside the window are held'
 
-write_tf "~> ${tf_major}.0"
+write_tf '~> 3.0'
 run_check "$tf_repo" "DEPS_ADOPTION_QUARANTINE_SECONDS=$wide_window"
 expect_status 0 'terraform: a range constraint inside the window is held'
 expect_says 'HELD' 'terraform: a range constraint inside the window is held'
 expect_silent_about 'FAIL' 'terraform: a range constraint inside the window is held'
+
+# The registry can list a version in the provider index before that version's
+# document carries published_at. A version of unknown age is never adopted, so
+# that is a failure naming the version, not a release to skip or to take.
+cp -R "$registry_root/terraform" "$registry_root/terraform-unpublished"
+tf_unpublished="terraform-unpublished/v1/providers/$tf_provider"
+fixture_doc "$tf_unpublished/.index" \
+	'{"namespace": "example", "name": "null", "version": "3.3.4", "versions": ["2.1.2", "3.2.3", "3.2.4", "3.3.2", "3.3.3", "3.3.4"]}'
+fixture_doc "$tf_unpublished/3.3.4" '{"version": "3.3.4"}'
+run_check "$tf_repo" "DEPS_TERRAFORM_REGISTRY_URL=$registry_url/terraform-unpublished"
+expect_status 1 'terraform: a version without a publication time fails loudly'
+expect_says "$tf_provider) publication time for 3.3.4 could not be determined from the Terraform registry" \
+	'terraform: a version without a publication time fails loudly'
 
 # --- The GitHub rate-limit protocol ----------------------------------------
 # A throttle is not something a test can ask GitHub for, so the decision the

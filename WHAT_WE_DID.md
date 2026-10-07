@@ -2465,6 +2465,55 @@ the tests ask for a token the way app code does; the Terraform harness's
 simulator listens on every interface, as the SDK and CLI suites' do, so an app
 reaches it.
 
+Container apps and Container Apps jobs carry a managed identity as sites do,
+through the same settling code: `identity` (common types v3, which spells the
+combined type `SystemAssigned,UserAssigned` and reports `{"type": "None"}` for
+none), a system-assigned principal kept for the resource's life and
+registered in the directory under the resource's name, and user-assigned
+identities resolved to their principal and client IDs. A workload with an
+identity gets `IDENTITY_ENDPOINT` and its own `IDENTITY_HEADER`, and
+`/msi/token` resolves the header to the app, slot, container app or job it was
+issued to. A container app is stored before its replicas start, so a replica
+that asks for a token at once finds the identity it started with. A secret
+that names a `keyVaultUrl` is read from Key Vault as the identity its
+`identity` names — `system` or an attached user-assigned identity — under the
+vault's access policies or Azure RBAC, at the version the URL pins; an
+environment variable's `secretRef` carries the secret's value, which no
+workload had received before, and a registry password reference reads the same
+values. A secret the identity cannot read fails the PUT or PATCH with 400
+`Field 'configuration.secrets' is invalid ... Unable to get value using Managed
+identity <identity> for secret <name>`, and a `secretRef` that names no secret
+fails it too; a job execution that cannot read its secrets fails and logs why.
+
+App Service had imported a Key Vault certificate whenever any access policy of
+the vault granted any object the secret `get` permission, and always from an
+Azure RBAC vault. It reads the secret as its first-party service principal,
+"Microsoft Azure App Service" (application ID
+`abfa0a7c-a6b6-4736-8310-5855508787cd`), which the directory holds in every
+tenant as Microsoft Entra does, so the import is authorized for that principal
+alone through the data plane's own decision; the tests grant it the way an
+operator does, with `az keyvault set-policy --spn <appId>`, a role assignment,
+or an `azurerm_key_vault_access_policy` whose object ID
+`azuread_service_principal` reads from Microsoft Graph.
+
+`Vaults_UpdateAccessPolicy` had replaced a principal's policy on `add` and
+removed it whole on `remove`. Each operation addresses the policy of the same
+tenant, object and application IDs and works per permission category: `add`
+merges the request's permissions in, `replace` sets them, `remove` takes them
+away, and a policy an update leaves with no permissions goes; add and replace
+append a policy no entry matches, remove ignores it, and every other policy
+stays as it was. `azurerm_key_vault_access_policy` relies on all three, sending
+`remove` with the permissions it reads back.
+
+A front end — the Container Apps ingress, the App Service front end, Azure Load
+Balancer and Application Gateway — had written a 502 error body after a
+forward failed while it copied the target's body, so the error landed inside
+the response the client was already reading. A failure after the target's
+status and headers reached the client now relays what the target sent and
+closes the client's stream unfinished, as a proxy that streams its upstream's
+answer and then loses it does; a failure before that is still answered with
+the front end's own error.
+
 Google Cloud's `testIamPermissions` answers from the stored policy resolved
 through the vendored curated roles and the held custom roles. A conditional
 binding grants its role only while its condition holds: the simulator compiles
@@ -2769,6 +2818,25 @@ deadline and fails naming what never answered. A deliberate hold names its
 cause and goes when the cause does. Resolving the module behind a workflow's
 `go install` package path asks the module proxies alone: `direct` would answer
 each non-module prefix by cloning the whole repository.
+
+The quarantine's self-test (`scripts/test-latest-deps-quarantine.sh`) had read
+the live registries, and failed once when the Terraform registry listed
+`hashicorp/null` 3.3.2 before its version document carried `published_at`. It
+serves every registry from fixtures it writes: a Go module proxy over Go's
+`file://` protocol holding testify's version list and publication records,
+with `proxy.golang.org` answering only the checksum-pinned go.mod files and
+archives, and a local HTTP server holding the Terraform registry's provider
+index and version documents and the GitHub API's tag, ref, commit and release
+documents, which answers an unknown credential with 401 as GitHub does. The
+check reads them through `GOPROXY`, `DEPS_TERRAFORM_REGISTRY_URL` and
+`DEPS_GITHUB_API_URL`, the last two defaulting to the public services. Every
+publication time is fixed, except one Terraform release the test dates an hour
+before it runs, so the newest release is always inside the default window;
+and the incident itself is a case, a listed version whose document carries no
+`published_at` failing the run by name. Reading `GOPROXY` runs with
+`GOTOOLCHAIN=local`: under a Go older than a module's `go` line, `go env`
+otherwise downloads the newer toolchain first, through the very proxy a stalled
+run cannot reach, with no deadline.
 
 ## Continuous integration
 

@@ -106,6 +106,7 @@ func serveSiteRequest(w http.ResponseWriter, r *http.Request, site *Site) {
 		RawQuery: r.URL.RawQuery,
 		Timeout:  azureFunctionsHTTPRequestLimit,
 	})
+	abortStartedForward(w, err)
 	switch {
 	case err == nil:
 	case errors.Is(err, lbplane.ErrClientWentAway):

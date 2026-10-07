@@ -51,14 +51,10 @@ func acrWorkloadRegistryAuth(image string, registries []acrWorkloadRegistry) str
 }
 
 // acaAppWorkloadRegistries is what a Container App declares, its password
-// references resolved against its secrets.
-func acaAppWorkloadRegistries(app ContainerApp) []acrWorkloadRegistry {
+// references resolved against its secrets' values.
+func acaAppWorkloadRegistries(app ContainerApp, secrets map[string]string) []acrWorkloadRegistry {
 	if app.Properties.Configuration == nil {
 		return nil
-	}
-	secrets := map[string]string{}
-	for _, s := range app.Properties.Configuration.Secrets {
-		secrets[s.Name] = s.Value
 	}
 	var out []acrWorkloadRegistry
 	for _, r := range app.Properties.Configuration.Registries {
@@ -67,14 +63,11 @@ func acaAppWorkloadRegistries(app ContainerApp) []acrWorkloadRegistry {
 	return out
 }
 
-// acaJobWorkloadRegistries is what a Container Apps Job declares.
-func acaJobWorkloadRegistries(cfg *JobConfiguration) []acrWorkloadRegistry {
+// acaJobWorkloadRegistries is what a Container Apps Job declares, its password
+// references resolved against its secrets' values.
+func acaJobWorkloadRegistries(cfg *JobConfiguration, secrets map[string]string) []acrWorkloadRegistry {
 	if cfg == nil {
 		return nil
-	}
-	secrets := map[string]string{}
-	for _, s := range cfg.Secrets {
-		secrets[s.Name] = s.Value
 	}
 	var out []acrWorkloadRegistry
 	for _, r := range cfg.Registries {
