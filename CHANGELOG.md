@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.10](https://github.com/e6qu/sockerless-cloud/compare/v2.0.9...v2.0.10) (2026-10-07)
+
+
+### Bug Fixes
+
+* **azure:** authorize the Key Vault data plane and per-app identities ([499eaae](https://github.com/e6qu/sockerless-cloud/commit/499eaae531c2711eb0d3c84da730e1bba08022eb))
+* **azure:** persistent /home, connection strings, stop and swap preview ([9c9fb73](https://github.com/e6qu/sockerless-cloud/commit/9c9fb732b46fe7c93e074da5c3ffb9873c396d9d))
+* **azure:** resolve App Service Key Vault refs, deploy source control ([91184b7](https://github.com/e6qu/sockerless-cloud/commit/91184b77711a1c755428375fedf44924a4f74c12))
+* **azure:** run App Service slots and swap them, and serve more of Kudu ([7503ef9](https://github.com/e6qu/sockerless-cloud/commit/7503ef9652c6941a2f1d0727739f5abcf65f6676))
+* **gcp:** serve the Discovery directory, place metadata callers, route triggers ([8bbf6ae](https://github.com/e6qu/sockerless-cloud/commit/8bbf6aef19036e36c40f614a1b173d3a0c719863))
+
 ## [2.0.9](https://github.com/e6qu/sockerless-cloud/compare/v2.0.8...v2.0.9) (2026-10-06)
 
 
