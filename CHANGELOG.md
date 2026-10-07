@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.0](https://github.com/e6qu/sockerless-cloud/compare/v2.0.11...v2.1.0) (2026-10-07)
+
+
+### Features
+
+* **rds:** blue/green deployments provision and switch over instances ([d32c1f0](https://github.com/e6qu/sockerless-cloud/commit/d32c1f0c7cd2f4d2dc3736f53a1ab7898fa76e31))
+
+
+### Bug Fixes
+
+* abort cut-short forwards, sitecontainer env, Key Vault refresh ([ae6aae0](https://github.com/e6qu/sockerless-cloud/commit/ae6aae0170b8c2879a4c407f4c88d4f115af9b05))
+* MariaDB restores, RDS IAM database users, sitecontainer inheritance ([5167d87](https://github.com/e6qu/sockerless-cloud/commit/5167d870786893fcc2c9c6a723ec12bd94280740))
+
 ## [2.0.11](https://github.com/e6qu/sockerless-cloud/compare/v2.0.10...v2.0.11) (2026-10-07)
 
 
