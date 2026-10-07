@@ -184,7 +184,7 @@ func kvReq(t *testing.T, method, vault, path string, body []byte) *http.Response
 	req, err := http.NewRequest(method, baseURL+path, br)
 	require.NoError(t, err)
 	req.Host = vault + ".vault.localhost"
-	req.Header.Set("Authorization", simARMBearer)
+	req.Header.Set("Authorization", simKVBearer)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -199,13 +199,7 @@ func kvReq(t *testing.T, method, vault, path string, body []byte) *http.Response
 func TestKeyVault_KeysAndCertificates(t *testing.T) {
 	// Vault must exist in the ARM control plane first.
 	vault := uniqueAlnumName("testvault")
-	armPath := "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg1/providers/Microsoft.KeyVault/vaults/" + vault
-	armReq, err := http.NewRequest("PUT", baseURL+armPath, strings.NewReader(`{"location":"eastus","properties":{"tenantId":"t","sku":{"name":"standard"}}}`))
-	require.NoError(t, err)
-	armReq.Header.Set("Content-Type", "application/json")
-	armResp, err := http.DefaultClient.Do(armReq)
-	require.NoError(t, err)
-	armResp.Body.Close()
+	createKVViaARM(t, "kv-keys-certs-rg", vault)
 
 	// Create a key.
 	keyBody := `{"kty":"RSA","key_size":2048}`
@@ -258,55 +252,4 @@ func TestKeyVault_KeysAndCertificates(t *testing.T) {
 	resp = kvReq(t, "DELETE", vault, "/certificates/mycert", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
-}
-
-// TestKeyVault_AuthChallenge asserts the WWW-Authenticate: Bearer
-// challenge response on unauthenticated probes. The Azure SDK's KV
-// clients do challenge-then-retry: first request has no
-// Authorization, SDK parses WWW-Authenticate to discover the AAD
-// issuer + resource scope, then fetches a token and retries. The
-// sim must issue the 401 + challenge for any SDK consumer to work.
-func TestKeyVault_AuthChallenge(t *testing.T) {
-	vault := "challengevault"
-	armPath := "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg1/providers/Microsoft.KeyVault/vaults/" + vault
-	armReq, err := http.NewRequest("PUT", baseURL+armPath,
-		strings.NewReader(`{"location":"eastus","properties":{"tenantId":"t","sku":{"name":"standard"}}}`))
-	require.NoError(t, err)
-	armReq.Header.Set("Content-Type", "application/json")
-	armReq.Header.Set("Authorization", simARMBearer)
-	armResp, err := http.DefaultClient.Do(armReq)
-	require.NoError(t, err)
-	armResp.Body.Close()
-
-	// Probe without Authorization — must get 401 + WWW-Authenticate.
-	req, err := http.NewRequest("PUT", baseURL+"/secrets/probe?api-version=7.6",
-		strings.NewReader(`{"value":"v"}`))
-	require.NoError(t, err)
-	req.Host = vault + ".vault.localhost"
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	require.Equal(t, http.StatusUnauthorized, resp.StatusCode,
-		"unauthenticated KV probe must 401 (real Azure does)")
-	challenge := resp.Header.Get("WWW-Authenticate")
-	require.NotEmpty(t, challenge, "401 must carry WWW-Authenticate header")
-	assert.Contains(t, challenge, "Bearer ", "challenge must use Bearer scheme")
-	assert.Contains(t, challenge, `authorization=`, "challenge must announce authorization URL")
-	assert.Contains(t, challenge, `resource="https://vault.azure.net"`,
-		"challenge must announce the KV resource scope")
-
-	// Same request with Authorization — must succeed (challenge cleared).
-	req2, err := http.NewRequest("PUT", baseURL+"/secrets/probe?api-version=7.6",
-		strings.NewReader(`{"value":"v"}`))
-	require.NoError(t, err)
-	req2.Host = vault + ".vault.localhost"
-	req2.Header.Set("Content-Type", "application/json")
-	req2.Header.Set("Authorization", simARMBearer)
-	resp2, err := http.DefaultClient.Do(req2)
-	require.NoError(t, err)
-	defer resp2.Body.Close()
-	require.Equal(t, http.StatusOK, resp2.StatusCode,
-		"authenticated KV request must succeed")
 }

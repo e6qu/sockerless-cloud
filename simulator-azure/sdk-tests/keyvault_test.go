@@ -31,7 +31,7 @@ func TestKeyVault_ARM_CRUD(t *testing.T) {
 	body := map[string]any{
 		"location": "eastus",
 		"properties": map[string]any{
-			"tenantId": "00000000-0000-0000-0000-000000000000",
+			"tenantId": simTenantID,
 			"sku": map[string]any{
 				"family": "A",
 				"name":   "standard",
@@ -79,7 +79,7 @@ func TestKeyVault_ARMPatchAccessPolicyAdvertisedEndpointAndDeletedVault(t *testi
 	createBody, _ := json.Marshal(map[string]any{
 		"location": "eastus",
 		"properties": map[string]any{
-			"tenantId": "00000000-0000-0000-0000-000000000000",
+			"tenantId": simTenantID,
 			"sku": map[string]any{
 				"family": "A",
 				"name":   "standard",
@@ -109,7 +109,7 @@ func TestKeyVault_ARMPatchAccessPolicyAdvertisedEndpointAndDeletedVault(t *testi
 	assert.Equal(t, expectedVaultURI, props["vaultUri"])
 	assert.Equal(t, true, props["enableRbacAuthorization"])
 
-	accessPolicyBody := `{"properties":{"accessPolicies":[{"tenantId":"00000000-0000-0000-0000-000000000000","objectId":"11111111-1111-1111-1111-111111111111","permissions":{"secrets":["get","list"]}}]}}`
+	accessPolicyBody := `{"properties":{"accessPolicies":[{"tenantId":"11111111-1111-1111-1111-111111111111","objectId":"11111111-1111-1111-1111-111111111111","permissions":{"secrets":["get","list"]}}]}}`
 	apReq, _ := http.NewRequest("PUT",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.KeyVault/vaults/"+vaultName+"/accessPolicies/add?api-version=2024-11-01",
 		strings.NewReader(accessPolicyBody))
@@ -181,7 +181,8 @@ func TestKeyVault_DataPlane_SetGetDelete(t *testing.T) {
 	createBody, _ := json.Marshal(map[string]any{
 		"location": "eastus",
 		"properties": map[string]any{
-			"tenantId": "00000000-0000-0000-0000-000000000000",
+			"tenantId":       simTenantID,
+			"accessPolicies": []any{kvFullAccessPolicy(simCallerObjectID)},
 		},
 	})
 	createReq, _ := http.NewRequest("PUT",
@@ -205,7 +206,7 @@ func TestKeyVault_DataPlane_SetGetDelete(t *testing.T) {
 	setReq, _ := http.NewRequest("PUT",
 		baseURL+"/secrets/db-password?api-version=7.4",
 		strings.NewReader(string(setBody)))
-	setReq.Header.Set("Authorization", simARMBearer)
+	setReq.Header.Set("Authorization", simKVBearer)
 	setReq.Header.Set("Content-Type", "application/json")
 	setReq.Host = dataPlaneHost
 	setResp, err := http.DefaultClient.Do(setReq)
@@ -216,7 +217,7 @@ func TestKeyVault_DataPlane_SetGetDelete(t *testing.T) {
 	// GET secret back.
 	getReq, _ := http.NewRequest("GET",
 		baseURL+"/secrets/db-password?api-version=7.4", nil)
-	getReq.Header.Set("Authorization", simARMBearer)
+	getReq.Header.Set("Authorization", simKVBearer)
 	getReq.Host = dataPlaneHost
 	getResp, err := http.DefaultClient.Do(getReq)
 	require.NoError(t, err)
@@ -230,7 +231,7 @@ func TestKeyVault_DataPlane_SetGetDelete(t *testing.T) {
 	// DELETE secret.
 	delReq, _ := http.NewRequest("DELETE",
 		baseURL+"/secrets/db-password?api-version=7.4", nil)
-	delReq.Header.Set("Authorization", simARMBearer)
+	delReq.Header.Set("Authorization", simKVBearer)
 	delReq.Host = dataPlaneHost
 	delResp, err := http.DefaultClient.Do(delReq)
 	require.NoError(t, err)

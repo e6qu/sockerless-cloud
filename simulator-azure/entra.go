@@ -317,6 +317,7 @@ func registerEntra(srv *sim.Server) {
 	// The sim is configured as the graph endpoint in metadata.go, so requests
 	// hit this process. The oid from the bearer token identifies the user whose
 	// group memberships are read from the membership store.
+	srv.HandleFunc("GET /v1.0/me", handleGraphMe)
 	srv.HandleFunc("GET /v1.0/me/memberOf", handleGraphMemberOf)
 	srv.HandleFunc("GET /v1.0/me/transitiveMemberOf", handleGraphMemberOf)
 	srv.HandleFunc("GET /beta/me/memberOf", handleGraphMemberOf)
@@ -960,11 +961,12 @@ func registerEntraServicePrincipals(srv *sim.Server) {
 // entraServicePrincipalDoc renders a service principal in Graph's wire shape.
 func entraServicePrincipalDoc(r *http.Request, sp EntraServicePrincipal) map[string]any {
 	return graphDoc(r, "servicePrincipals", map[string]any{
-		"id":                   sp.ID,
-		"appId":                sp.AppID,
-		"displayName":          sp.DisplayName,
-		"servicePrincipalType": sp.ServicePrincipalType,
-		"passwordCredentials":  entraPasswordCredentialsJSON(sp.PasswordCredentials),
+		"id":                    sp.ID,
+		"appId":                 sp.AppID,
+		"displayName":           sp.DisplayName,
+		"servicePrincipalType":  sp.ServicePrincipalType,
+		"servicePrincipalNames": []string{sp.AppID},
+		"passwordCredentials":   entraPasswordCredentialsJSON(sp.PasswordCredentials),
 	}, sp.Props)
 }
 
@@ -1321,6 +1323,35 @@ func entraPasswordCredentialsJSON(creds []EntraPasswordCredential) []map[string]
 	return out
 }
 
+// entraMembershipsByMember answers a member's groups from an index keyed by
+// the store's generation: Key Vault reads it on every data-plane request.
+var entraMembershipsByMember sim.GenerationIndex[entraGroupMembership]
+
+// entraTransitiveGroupIDs is every group objectID belongs to, directly or
+// through groups that are themselves members of other groups.
+func entraTransitiveGroupIDs(objectID string) []string {
+	if entraGroupMembershipStore == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	frontier := []string{objectID}
+	for len(frontier) > 0 {
+		member := frontier[0]
+		frontier = frontier[1:]
+		for _, m := range entraMembershipsByMember.LookupAll(entraGroupMembershipStore, strings.ToLower(member),
+			func(m entraGroupMembership) []string { return []string{strings.ToLower(m.MemberID)} }) {
+			if seen[m.GroupID] {
+				continue
+			}
+			seen[m.GroupID] = true
+			out = append(out, m.GroupID)
+			frontier = append(frontier, m.GroupID)
+		}
+	}
+	return out
+}
+
 // entraMemberOfDocs renders the groups one directory object belongs to.
 func entraMemberOfDocs(r *http.Request, objectID string) []map[string]any {
 	memberships := entraGroupMembershipStore.Filter(func(m entraGroupMembership) bool {
@@ -1345,6 +1376,25 @@ func entraMemberOfDocs(r *http.Request, objectID string) []map[string]any {
 		docs = append(docs, doc)
 	}
 	return docs
+}
+
+// handleGraphMe serves the signed-in user of a delegated token. An app-only
+// token signs in no user, and Graph refuses it.
+func handleGraphMe(w http.ResponseWriter, r *http.Request) {
+	oid, ok := parseOIDFromBearer(r)
+	if !ok {
+		AzureError(w, "InvalidAuthenticationToken",
+			"Access token is empty or carries no oid claim.", http.StatusUnauthorized)
+		return
+	}
+	u, ok := entraLookupUser(oid)
+	if !ok {
+		AzureError(w, "BadRequest", "/me request is only valid with delegated authentication flow.", http.StatusBadRequest)
+		return
+	}
+	doc := entraUserDoc(r, u)
+	doc["@odata.context"] = "$metadata#users/$entity"
+	sim.WriteJSON(w, http.StatusOK, graphApplySelect(r, doc))
 }
 
 func handleGraphMemberOf(w http.ResponseWriter, r *http.Request) {

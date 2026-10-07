@@ -783,3 +783,51 @@ func TestEntra_DiscoveryAdvertisesGroupsClaimAndROPC(t *testing.T) {
 	assert.Contains(t, body.ClaimsSupported, "groups")
 	assert.Contains(t, body.GrantTypesSupported, "password")
 }
+
+// TestEntra_GraphMeAndServicePrincipalNames covers the two reads a client uses
+// to find its own object ID: GET /v1.0/me answers the signed-in user of a
+// delegated token and refuses an app-only token, and a service principal is
+// found by the servicePrincipalNames its appId is one of.
+func TestEntra_GraphMeAndServicePrincipalNames(t *testing.T) {
+	u := createGraphUser(t, "Me User", "me-user@example.com")
+	delegated := requestAzureToken(t, simTenantID, "oauth2/v2.0/token", url.Values{
+		"grant_type": {"password"},
+		"client_id":  {"client-entra-me"},
+		"username":   {"me-user@example.com"},
+		"password":   {"x"},
+		"scope":      {"https://graph.microsoft.com/.default"},
+	})
+	get := func(path, token string) (int, map[string]any) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodGet, baseURL+path, nil)
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+		return resp.StatusCode, body
+	}
+
+	status, me := get("/v1.0/me", delegated.AccessToken)
+	require.Equal(t, http.StatusOK, status, "%v", me)
+	assert.Equal(t, u.ID, me["id"])
+	assert.Equal(t, "me-user@example.com", me["userPrincipalName"])
+
+	appOnly, _, err := fetchSimAccessToken("https://graph.microsoft.com/.default")
+	require.NoError(t, err)
+	status, refused := get("/v1.0/me", appOnly)
+	assert.Equal(t, http.StatusBadRequest, status)
+	errBody, _ := refused["error"].(map[string]any)
+	assert.Equal(t, "/me request is only valid with delegated authentication flow.", errBody["message"])
+
+	filter := url.QueryEscape("servicePrincipalNames/any(c:c eq 'test-client-id')")
+	status, listed := get("/v1.0/servicePrincipals?$filter="+filter, appOnly)
+	require.Equal(t, http.StatusOK, status, "%v", listed)
+	values, _ := listed["value"].([]any)
+	require.Len(t, values, 1)
+	sp, _ := values[0].(map[string]any)
+	assert.Equal(t, simCallerObjectID, sp["id"])
+	assert.Equal(t, []any{"test-client-id"}, sp["servicePrincipalNames"])
+}

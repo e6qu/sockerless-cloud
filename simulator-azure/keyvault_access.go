@@ -1,40 +1,16 @@
 package main
 
 import (
-	"strings"
+	"net/http"
 	"time"
 )
 
-// keyVaultSecretGetDataAction is the Azure RBAC data action Key Vault checks
-// before it returns a secret's value.
-const keyVaultSecretGetDataAction = "Microsoft.KeyVault/vaults/secrets/getSecret/action"
-
 // keyVaultGrantsSecretGet reports whether a vault lets principalID read the
-// value of the named secret, under the vault's permission model: a vault that
-// uses Azure RBAC grants it through a role assignment at the secret, the vault
-// or a scope above it; any other vault through an access policy for that
-// object in the vault's tenant that carries the secret get permission.
+// value of the named secret under the vault's permission model, as the data
+// plane decides it for GetSecret.
 func keyVaultGrantsSecretGet(v KeyVault, principalID, secretName string) bool {
-	if principalID == "" {
-		return false
-	}
-	if v.Properties.EnableRbacAuthorization {
-		return rbacPrincipalHasDataAction(principalID, v.ID+"/secrets/"+secretName, keyVaultSecretGetDataAction)
-	}
-	for _, pol := range v.Properties.AccessPolicies {
-		if !strings.EqualFold(pol.ObjectID, principalID) {
-			continue
-		}
-		if pol.TenantID != "" && v.Properties.TenantID != "" && !strings.EqualFold(pol.TenantID, v.Properties.TenantID) {
-			continue
-		}
-		for _, verb := range pol.Permissions.Secrets {
-			if strings.EqualFold(verb, "get") || strings.EqualFold(verb, "all") {
-				return true
-			}
-		}
-	}
-	return false
+	op, _ := kvDataPlaneOperation(http.MethodGet, "/secrets/"+secretName)
+	return keyVaultGrants(v, kvCaller{oid: principalID}, op)
 }
 
 // keyVaultSecretVersionUnusable names why Key Vault refuses to return a

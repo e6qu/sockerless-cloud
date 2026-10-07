@@ -61,6 +61,15 @@ func TestSDK_WebApps_KeyVaultReferencesReachTheWorkload(t *testing.T) {
 	}
 	rbac := createVault(rbacVault, true)
 	createVault(policyVault, false)
+	grantRole(t, *rbac.ID, kvSecretsOfficerRole, simCallerObjectID)
+	_, err = vaults.UpdateAccessPolicy(ctx, rg, policyVault, armkeyvault.AccessPolicyUpdateKindAdd, armkeyvault.VaultAccessPolicyParameters{
+		Properties: &armkeyvault.VaultAccessPolicyProperties{AccessPolicies: []*armkeyvault.AccessPolicyEntry{{
+			TenantID:    to.Ptr(simTenantID),
+			ObjectID:    to.Ptr(simCallerObjectID),
+			Permissions: &armkeyvault.Permissions{Secrets: []*armkeyvault.SecretPermissions{to.Ptr(armkeyvault.SecretPermissionsSet)}},
+		}}},
+	}, nil)
+	require.NoError(t, err)
 	version := setSecret(rbacVault, "db-password", "hunter2")
 	setSecret(policyVault, "api-key", "from-the-policy-vault")
 

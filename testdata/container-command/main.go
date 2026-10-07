@@ -70,7 +70,8 @@ func main() {
 	case "files-http":
 		// An HTTP server over its environment and a directory: GET /env/NAME
 		// answers the variable's value (404 when unset), PUT /files/PATH
-		// writes the body to ROOT/PATH, and GET /files/PATH answers the file.
+		// writes the body to ROOT/PATH, GET /files/PATH answers the file, and
+		// GET /identity-token relays a managed identity token request.
 		if len(os.Args) != 4 {
 			fmt.Fprintln(os.Stderr, "usage: container-command files-http PORT ROOT")
 			os.Exit(2)
@@ -114,6 +115,40 @@ func main() {
 				return
 			}
 			w.WriteHeader(http.StatusCreated)
+		})
+		// GET /identity-token asks the platform's managed identity endpoint
+		// for a token, as app code does: the query names the resource and
+		// identity, and the request presents IDENTITY_HEADER unless the query
+		// names another identity-header to present. It answers with the
+		// endpoint's own status and body.
+		mux.HandleFunc("GET /identity-token", func(w http.ResponseWriter, r *http.Request) {
+			endpoint, ok := os.LookupEnv("IDENTITY_ENDPOINT")
+			if !ok {
+				http.Error(w, "IDENTITY_ENDPOINT is not set", http.StatusNotFound)
+				return
+			}
+			q := r.URL.Query()
+			header := os.Getenv("IDENTITY_HEADER")
+			if q.Has("identity-header") {
+				header = q.Get("identity-header")
+				q.Del("identity-header")
+			}
+			q.Set("api-version", "2019-08-01")
+			req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, endpoint+"?"+q.Encode(), nil)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			req.Header.Set("X-IDENTITY-HEADER", header)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			defer resp.Body.Close()
+			w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+			w.WriteHeader(resp.StatusCode)
+			_, _ = io.Copy(w, resp.Body)
 		})
 		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = io.WriteString(w, "files-http")

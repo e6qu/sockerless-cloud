@@ -197,6 +197,7 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	registerNetwork(srv)
 	registerCompute(srv)
 	registerManagedIdentity(srv)
+	registerWorkloadIdentity(srv)
 	registerKeyVault(srv)
 	registerKeyVaultManagedHSM(srv)
 	registerPublicDNS(srv)

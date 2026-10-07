@@ -432,6 +432,12 @@ func extractTenantFromPath(path string) string {
 
 func handleAzureToken(w http.ResponseWriter, r *http.Request, path string) {
 	tenantId := extractTenantFromPath(path)
+	// An AD FS authority (`<host>/adfs`) serves one directory, which for this
+	// simulator is its tenant: tokens it issues carry that tenant, as the
+	// subscriptions the caller then reaches report.
+	if strings.EqualFold(tenantId, "adfs") {
+		tenantId = simTenantID
+	}
 	if err := r.ParseForm(); err != nil {
 		azureOAuthError(w, "invalid_request", fmt.Sprintf("parse Azure token request form: %v", err), http.StatusBadRequest)
 		return

@@ -105,6 +105,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`azure-subscription_operations`](azure-subscription_operations.md)
 - [`azure-subscription_ownership`](azure-subscription_ownership.md)
 - [`azure-subscription_policy`](azure-subscription_policy.md)
+- [`azure-workload_identity`](azure-workload_identity.md)
 - [`gcp-apigateway`](gcp-apigateway.md)
 - [`gcp-artifactregistry`](gcp-artifactregistry.md)
 - [`gcp-bigquery`](gcp-bigquery.md)

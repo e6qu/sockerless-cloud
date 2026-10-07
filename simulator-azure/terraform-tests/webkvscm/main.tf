@@ -60,10 +60,12 @@ resource "azurerm_key_vault" "kvscm" {
   soft_delete_retention_days = 7
 }
 
+data "azurerm_client_config" "current" {}
+
 resource "azurerm_key_vault_access_policy" "writer" {
   key_vault_id       = azurerm_key_vault.kvscm.id
-  tenant_id          = "11111111-1111-1111-1111-111111111111"
-  object_id          = "22222222-2222-2222-2222-222222222222"
+  tenant_id          = data.azurerm_client_config.current.tenant_id
+  object_id          = data.azurerm_client_config.current.object_id
   secret_permissions = ["Get", "List", "Set", "Delete", "Purge"]
 }
 
@@ -91,7 +93,8 @@ resource "azurerm_service_plan" "kvscm" {
 }
 
 # busybox nc answers each connection on WEBSITES_PORT after reading the
-# request's headers, with the resolved DB setting and the deployed page.
+# request's headers, with the resolved DB setting and the deployed page, then
+# the token the app's identity endpoint issues its user-assigned identity.
 resource "azurerm_linux_web_app" "kvscm" {
   name                            = "tf-azrm-kvscm-app"
   resource_group_name             = azurerm_resource_group.kvscm.name
@@ -108,10 +111,11 @@ resource "azurerm_linux_web_app" "kvscm" {
     WEBSITES_PORT                       = "8080"
     WEBSITES_ENABLE_APP_SERVICE_STORAGE = "true"
     DB                                  = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.db.versionless_id})"
+    IDENTITY_CLIENT_ID                  = azurerm_user_assigned_identity.kvscm.client_id
   }
 
   site_config {
-    app_command_line = "nc -lk -p 8080 -e sh -c \"while read -r l && [ $${#l} -gt 1 ]; do :; done; printf 'HTTP/1.1 200 OK\\r\\nConnection: close\\r\\n\\r\\n'; echo $DB $(cat /home/site/wwwroot/index.html)\""
+    app_command_line = "nc -lk -p 8080 -e sh -c \"while read -r l && [ $${#l} -gt 1 ]; do :; done; printf 'HTTP/1.1 200 OK\\r\\nConnection: close\\r\\n\\r\\n'; echo $DB $(cat /home/site/wwwroot/index.html); wget -qO- --header X-IDENTITY-HEADER:$IDENTITY_HEADER $IDENTITY_ENDPOINT'?api-version=2019-08-01&resource=https://vault.azure.net&client_id='$IDENTITY_CLIENT_ID\""
 
     application_stack {
       docker_image_name   = "docker/library/alpine:latest"

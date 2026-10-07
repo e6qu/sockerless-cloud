@@ -1223,14 +1223,18 @@ resource "azurerm_key_vault" "az_kv" {
   soft_delete_retention_days = 7
 }
 
+# The principal Terraform signs in as writes the vault's objects, so the
+# vault grants it through an access policy naming its object ID.
+data "azurerm_client_config" "current" {}
+
 resource "azurerm_key_vault_access_policy" "az_kv_policy" {
   key_vault_id = azurerm_key_vault.az_kv.id
-  tenant_id    = "11111111-1111-1111-1111-111111111111"
-  object_id    = "22222222-2222-2222-2222-222222222222"
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = data.azurerm_client_config.current.object_id
 
-  key_permissions         = ["Get", "List", "Create", "Update", "Delete", "Backup", "Restore", "Import", "Sign", "Verify", "Encrypt", "Decrypt", "WrapKey", "UnwrapKey"]
-  secret_permissions      = ["Get", "List", "Set", "Delete", "Backup", "Restore"]
-  certificate_permissions = ["Get", "List", "Create", "Update", "Delete", "Import", "Backup", "Restore"]
+  key_permissions         = ["Get", "List", "Create", "Update", "Delete", "Backup", "Restore", "Import", "Recover", "Purge", "Sign", "Verify", "Encrypt", "Decrypt", "WrapKey", "UnwrapKey", "GetRotationPolicy", "SetRotationPolicy"]
+  secret_permissions      = ["Get", "List", "Set", "Delete", "Backup", "Restore", "Recover", "Purge"]
+  certificate_permissions = ["Get", "List", "Create", "Update", "Delete", "Import", "Backup", "Restore", "Recover", "Purge"]
 }
 
 resource "azurerm_key_vault_secret" "az_kv_secret" {

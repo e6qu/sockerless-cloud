@@ -19,9 +19,12 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azcertificates"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -92,16 +95,17 @@ func kvClientOptions() azcore.ClientOptions {
 	}
 }
 
-// createKVViaARM creates a key vault through the ARM control plane.
-// Raw HTTP is fine here — ARM endpoints don't issue the data-plane
-// `WWW-Authenticate` challenge that the KV SDK packages exercise.
+// createKVViaARM creates a key vault through the ARM control plane with an
+// access policy granting the test's own principal every data-plane
+// permission, the policy `az keyvault create` gives a vault's creator.
 func createKVViaARM(t *testing.T, rg, vault string) {
 	t.Helper()
 	ensureRG(t, rg)
 	createBody, _ := json.Marshal(map[string]any{
 		"location": "eastus",
 		"properties": map[string]any{
-			"tenantId": "00000000-0000-0000-0000-000000000000",
+			"tenantId":       simTenantID,
+			"accessPolicies": []any{kvFullAccessPolicy(simCallerObjectID)},
 		},
 	})
 	req, _ := http.NewRequest("PUT",
@@ -384,6 +388,44 @@ func TestKeyVault_SDK_Certificates_ChallengeRoundTrip(t *testing.T) {
 	require.NotNil(t, restored.ID)
 }
 
+// Built-in Azure RBAC roles for the Key Vault data plane.
+const (
+	kvAdministratorRole  = "00482a5a-887f-4fb3-b363-3b7fe8e74483"
+	kvSecretsOfficerRole = "b86a8fe4-44ce-4948-aee5-eccb2c155cd7"
+)
+
+// grantRole assigns a built-in role to principalID at scope, and removes the
+// assignment when the test ends.
+func grantRole(t *testing.T, scope, roleGUID, principalID string) {
+	t.Helper()
+	roles, err := armauthorization.NewRoleAssignmentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	name := uuid.NewString()
+	_, err = roles.Create(ctx, scope, name, armauthorization.RoleAssignmentCreateParameters{
+		Properties: &armauthorization.RoleAssignmentProperties{
+			RoleDefinitionID: to.Ptr("/subscriptions/" + subscriptionID + "/providers/Microsoft.Authorization/roleDefinitions/" + roleGUID),
+			PrincipalID:      to.Ptr(principalID),
+			PrincipalType:    to.Ptr(armauthorization.PrincipalTypeServicePrincipal),
+		},
+	}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = roles.Delete(ctx, scope, name, nil) })
+}
+
+// kvFullAccessPolicy is an access policy granting objectID every key, secret
+// and certificate permission.
+func kvFullAccessPolicy(objectID string) map[string]any {
+	return map[string]any{
+		"tenantId": simTenantID,
+		"objectId": objectID,
+		"permissions": map[string]any{
+			"keys":         []string{"all"},
+			"secrets":      []string{"all"},
+			"certificates": []string{"all"},
+		},
+	}
+}
+
 // Helper to express &"..." inline — Azure SDKs take *string everywhere.
 func stringPtr(s string) *string { return &s }
 
@@ -476,7 +518,7 @@ func kvGET(t *testing.T, host, path string) (int, []byte) {
 	t.Helper()
 	req, _ := http.NewRequest("GET", baseURL+path, nil)
 	req.Host = host
-	req.Header.Set("Authorization", simARMBearer)
+	req.Header.Set("Authorization", simKVBearer)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -506,7 +548,7 @@ func TestKV_ListSecrets_Pagination(t *testing.T) {
 		body, _ := json.Marshal(map[string]any{"value": "val"})
 		req, _ := http.NewRequest("PUT", baseURL+"/secrets/"+name+"?api-version=7.4", bytes.NewReader(body))
 		req.Host = host
-		req.Header.Set("Authorization", simARMBearer)
+		req.Header.Set("Authorization", simKVBearer)
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
@@ -570,7 +612,7 @@ func TestKV_ListKeys_Pagination(t *testing.T) {
 		body, _ := json.Marshal(map[string]any{"kty": "RSA", "key_size": 2048})
 		req, _ := http.NewRequest("POST", baseURL+"/keys/"+name+"/create?api-version=7.4", bytes.NewReader(body))
 		req.Host = host
-		req.Header.Set("Authorization", simARMBearer)
+		req.Header.Set("Authorization", simKVBearer)
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)

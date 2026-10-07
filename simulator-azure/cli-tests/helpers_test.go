@@ -2,6 +2,7 @@ package azure_cli_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -48,6 +49,12 @@ var (
 	// this token through az rest's --headers flag on every ARM control-plane
 	// call and the simulator's bearer verification accepts it.
 	armBearer string
+	// kvBearer is the same principal's Azure Key Vault access token, which the
+	// hand-addressed Key Vault data-plane requests carry.
+	kvBearer string
+	// callerObjectID is the object ID of that principal, read from its token's
+	// oid claim, which a vault's access policy names to grant it access.
+	callerObjectID string
 
 	// simTenantID matches the tenant the SDK and Terraform harnesses use so all
 	// three acquire tokens from the same /{tenant}/oauth2/v2.0/token route.
@@ -151,6 +158,14 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to acquire simulator ARM bearer token: %v", err)
 	}
 	armBearer = token
+	if kvBearer, err = fetchSimBearer("https://vault.azure.net/.default"); err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to acquire simulator Key Vault bearer token: %v", err)
+	}
+	if callerObjectID, err = jwtStringClaim(token, "oid"); err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to read the caller's object ID: %v", err)
+	}
 
 	// Create tmp dir
 	tmpDir, _ = filepath.Abs("tmp")
@@ -207,11 +222,16 @@ func TestMain(m *testing.M) {
 // simulator's token endpoint — the same request a real Azure AD service
 // principal makes — and returns the minted ARM access token.
 func fetchSimARMBearer() (string, error) {
+	return fetchSimBearer("https://management.azure.com/.default")
+}
+
+// fetchSimBearer performs the same grant for another resource's scope.
+func fetchSimBearer(scope string) (string, error) {
 	form := neturl.Values{
 		"grant_type":    {"client_credentials"},
 		"client_id":     {"test-client-id"},
 		"client_secret": {"test-client-secret"},
-		"scope":         {"https://management.azure.com/.default"},
+		"scope":         {scope},
 	}
 	resp, err := http.PostForm(baseURL+"/"+simTenantID+"/oauth2/v2.0/token", form)
 	if err != nil {
@@ -235,6 +255,27 @@ func fetchSimARMBearer() (string, error) {
 		return "", fmt.Errorf("simulator token response carried no access_token: %s", body)
 	}
 	return out.AccessToken, nil
+}
+
+// jwtStringClaim reads one string claim from a JWT's payload.
+func jwtStringClaim(token, name string) (string, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("token is not a JWT")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("decode token payload: %w", err)
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", fmt.Errorf("parse token payload: %w", err)
+	}
+	value, _ := claims[name].(string)
+	if value == "" {
+		return "", fmt.Errorf("token carries no %s claim", name)
+	}
+	return value, nil
 }
 
 // azRest creates an "az rest" command with config isolation.

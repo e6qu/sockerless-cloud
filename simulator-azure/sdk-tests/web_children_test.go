@@ -366,7 +366,7 @@ func TestSDK_WebChildren_ConfigKeyVaultReferences(t *testing.T) {
 	for _, principal := range []*string{site.Identity.PrincipalID, slotSite.Identity.PrincipalID} {
 		_, err = vaults.UpdateAccessPolicy(ctx, rg, vault, armkeyvault.AccessPolicyUpdateKindAdd, armkeyvault.VaultAccessPolicyParameters{
 			Properties: &armkeyvault.VaultAccessPolicyProperties{AccessPolicies: []*armkeyvault.AccessPolicyEntry{{
-				TenantID:    to.Ptr("00000000-0000-0000-0000-000000000000"),
+				TenantID:    to.Ptr(simTenantID),
 				ObjectID:    principal,
 				Permissions: &armkeyvault.Permissions{Secrets: []*armkeyvault.SecretPermissions{to.Ptr(armkeyvault.SecretPermissionsGet)}},
 			}}},

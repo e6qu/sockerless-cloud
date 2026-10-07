@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"flag"
@@ -50,6 +51,16 @@ const simTenantID = "11111111-1111-1111-1111-111111111111"
 // hand rather than through an SDK client's credential — send it as their
 // Authorization header so the simulator's ARM bearer verification accepts them.
 var simARMBearer string
+
+// simKVBearer is the same principal's access token for Azure Key Vault (scope
+// https://vault.azure.net/.default) in "Bearer <jwt>" form, which hand-built
+// Key Vault data-plane requests send.
+var simKVBearer string
+
+// simCallerObjectID is the object ID of the principal the test credential
+// signs in as, read from its token's oid claim; a vault grants it data-plane
+// access through an access policy or a role assignment naming this ID.
+var simCallerObjectID string
 
 var (
 	baseURL            string
@@ -101,13 +112,19 @@ func (f *fakeCredential) GetToken(_ context.Context, opts policy.TokenRequestOpt
 // simulator's token endpoint — the same request a real Azure AD service
 // principal makes — and returns the minted access token and its expiry.
 func fetchSimAccessToken(scope string) (string, time.Time, error) {
+	return fetchSimAccessTokenInTenant(simTenantID, scope)
+}
+
+// fetchSimAccessTokenInTenant performs the same grant against one tenant's
+// token endpoint.
+func fetchSimAccessTokenInTenant(tenant, scope string) (string, time.Time, error) {
 	form := url.Values{
 		"grant_type":    {"client_credentials"},
 		"client_id":     {"test-client-id"},
 		"client_secret": {"test-client-secret"},
 		"scope":         {scope},
 	}
-	resp, err := http.PostForm(baseURL+"/"+simTenantID+"/oauth2/v2.0/token", form)
+	resp, err := http.PostForm(baseURL+"/"+tenant+"/oauth2/v2.0/token", form)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("acquire simulator access token: %w", err)
 	}
@@ -130,6 +147,27 @@ func fetchSimAccessToken(scope string) (string, time.Time, error) {
 		return "", time.Time{}, fmt.Errorf("simulator token response carried no access_token: %s", body)
 	}
 	return out.AccessToken, time.Now().Add(time.Duration(out.ExpiresIn) * time.Second), nil
+}
+
+// jwtStringClaim reads one string claim from a JWT's payload.
+func jwtStringClaim(token, name string) (string, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("token is not a JWT")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("decode token payload: %w", err)
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", fmt.Errorf("parse token payload: %w", err)
+	}
+	value, _ := claims[name].(string)
+	if value == "" {
+		return "", fmt.Errorf("token carries no %s claim", name)
+	}
+	return value, nil
 }
 
 func clientOpts() *arm.ClientOptions {
@@ -298,6 +336,17 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to acquire simulator ARM bearer token: %v", err)
 	}
 	simARMBearer = "Bearer " + token
+	kvToken, _, err := fetchSimAccessToken("https://vault.azure.net/.default")
+	if err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to acquire simulator Key Vault bearer token: %v", err)
+	}
+	simKVBearer = "Bearer " + kvToken
+	simCallerObjectID, err = jwtStringClaim(token, "oid")
+	if err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to read the caller's object ID: %v", err)
+	}
 
 	// The Cosmos emulator takes minutes to initialise and only two tests need
 	// it, so it is started here and initialises alongside everything else

@@ -40,6 +40,11 @@ func TestAzureResources_MoveKeyVault(t *testing.T) {
 
 	vault := uniqueAlnumName("kvmovevault")
 	createKVVault(t, srcRG, vault)
+	// The vault uses Azure RBAC. A role assignment at the vault's own scope
+	// does not move with it, so the destination group carries one too.
+	grantRole(t, "/subscriptions/"+subscriptionID+"/resourceGroups/"+srcRG+"/providers/Microsoft.KeyVault/vaults/"+vault,
+		kvAdministratorRole, simCallerObjectID)
+	grantRole(t, "/subscriptions/"+subscriptionID+"/resourceGroups/"+dstRG, kvAdministratorRole, simCallerObjectID)
 
 	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

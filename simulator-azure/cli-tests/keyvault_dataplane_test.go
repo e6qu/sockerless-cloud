@@ -19,15 +19,15 @@ import (
 // TLS by targeting baseURL (127.0.0.1:port) directly and routing to
 // the right vault via the Host header — the sim's WrapHandler checks
 // for ".vault." in Host and dispatches accordingly.
-// Requests pre-carry "Authorization: Bearer …" to skip the 401
-// challenge (the sim trusts any Bearer token for data-plane ops).
+// Requests carry the caller's Key Vault access token, which the vault's
+// access policy grants.
 func kvDataRest(method, vaultName, path, body string) *exec.Cmd {
 	port := strings.TrimPrefix(baseURL, "http://127.0.0.1:")
 	host := fmt.Sprintf("%s.vault.cli-shim.localhost:%s", vaultName, port)
 	args := []string{
 		"rest", "--method", method,
 		"--url", baseURL + path + "?api-version=7.4",
-		"--headers", "Host=" + host, "Authorization=Bearer cli-test-token",
+		"--headers", "Host=" + host, "Authorization=Bearer " + kvBearer,
 		"--output", "json",
 	}
 	if body != "" {
@@ -41,12 +41,15 @@ func kvDataRest(method, vaultName, path, body string) *exec.Cmd {
 	return cmd
 }
 
-// createKVVaultCLI provisions a KV vault via ARM and registers a t.Cleanup
+// createKVVaultCLI provisions a KV vault via ARM, with an access policy
+// granting the caller every data-plane permission, and registers a t.Cleanup
 // to delete it.
 func createKVVaultCLI(t *testing.T, vaultName string) {
 	t.Helper()
 	url := armURL("Microsoft.KeyVault", "vaults/"+vaultName, "2024-11-01")
-	runCLI(t, azRest("PUT", url, `{"location":"eastus","properties":{"tenantId":"00000000-0000-0000-0000-000000000000","sku":{"family":"A","name":"standard"}}}`))
+	runCLI(t, azRest("PUT", url, fmt.Sprintf(`{"location":"eastus","properties":{"tenantId":%q,"sku":{"family":"A","name":"standard"},
+		"accessPolicies":[{"tenantId":%q,"objectId":%q,"permissions":{"keys":["all"],"secrets":["all"],"certificates":["all"]}}]}}`,
+		simTenantID, simTenantID, callerObjectID)))
 	t.Cleanup(func() {
 		_ = azRest("DELETE", url, "").Run()
 	})
