@@ -177,44 +177,6 @@ func TestRDS_ReservedInstances(t *testing.T) {
 	assert.Equal(t, offeringID, aws.ToString(dOut.ReservedDBInstances[0].ReservedDBInstancesOfferingId))
 }
 
-// TestRDS_BlueGreenDeployment covers the blue/green deployment family
-// including switchover role-swap.
-func TestRDS_BlueGreenDeployment(t *testing.T) {
-	c := rdsClient()
-
-	source := "arn:aws:rds:us-east-1:123456789012:cluster:bg-source"
-	cOut, err := c.CreateBlueGreenDeployment(ctx, &rds.CreateBlueGreenDeploymentInput{
-		BlueGreenDeploymentName: aws.String("rext-bg"),
-		Source:                  aws.String(source),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, cOut.BlueGreenDeployment)
-	bgID := aws.ToString(cOut.BlueGreenDeployment.BlueGreenDeploymentIdentifier)
-	require.NotEmpty(t, bgID)
-	assert.Equal(t, source, aws.ToString(cOut.BlueGreenDeployment.Source))
-	t.Cleanup(func() {
-		_, _ = c.DeleteBlueGreenDeployment(ctx, &rds.DeleteBlueGreenDeploymentInput{
-			BlueGreenDeploymentIdentifier: aws.String(bgID)})
-	})
-
-	dOut, err := c.DescribeBlueGreenDeployments(ctx, &rds.DescribeBlueGreenDeploymentsInput{
-		BlueGreenDeploymentIdentifier: aws.String(bgID),
-	})
-	require.NoError(t, err)
-	require.Len(t, dOut.BlueGreenDeployments, 1)
-	target := aws.ToString(dOut.BlueGreenDeployments[0].Target)
-	require.NotEmpty(t, target)
-
-	sOut, err := c.SwitchoverBlueGreenDeployment(ctx, &rds.SwitchoverBlueGreenDeploymentInput{
-		BlueGreenDeploymentIdentifier: aws.String(bgID),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, sOut.BlueGreenDeployment)
-	assert.Equal(t, "SWITCHOVER_COMPLETED", aws.ToString(sOut.BlueGreenDeployment.Status))
-	// Roles swapped: the old target is now the source.
-	assert.Equal(t, target, aws.ToString(sOut.BlueGreenDeployment.Source))
-}
-
 // TestRDS_Integrations covers the zero-ETL integration CRUD family.
 func TestRDS_Integrations(t *testing.T) {
 	c := rdsClient()

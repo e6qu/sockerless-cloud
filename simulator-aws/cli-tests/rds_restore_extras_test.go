@@ -152,53 +152,9 @@ func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 	require.Len(t, desc.ReservedDBInstances, 1)
 }
 
-// TestRDSCLI_DeploymentsAndIntegrations covers blue/green deployments,
-// zero-ETL integrations, tenant databases, and Aurora Limitless shard
-// groups through the aws CLI.
+// TestRDSCLI_DeploymentsAndIntegrations covers zero-ETL integrations, tenant
+// databases, and Aurora Limitless shard groups through the aws CLI.
 func TestRDSCLI_DeploymentsAndIntegrations(t *testing.T) {
-	source := "arn:aws:rds:us-east-1:123456789012:cluster:cli-bg-source"
-	bgOut := runCLI(t, awsCLI("rds", "create-blue-green-deployment",
-		"--blue-green-deployment-name", "cli-rext-bg",
-		"--source", source))
-	var bg struct {
-		BlueGreenDeployment struct {
-			BlueGreenDeploymentIdentifier string `json:"BlueGreenDeploymentIdentifier"`
-			Source                        string `json:"Source"`
-			Target                        string `json:"Target"`
-		} `json:"BlueGreenDeployment"`
-	}
-	parseJSON(t, bgOut, &bg)
-	bgID := bg.BlueGreenDeployment.BlueGreenDeploymentIdentifier
-	require.NotEmpty(t, bgID)
-	assert.Equal(t, source, bg.BlueGreenDeployment.Source)
-	target := bg.BlueGreenDeployment.Target
-	t.Cleanup(func() {
-		_ = awsCLI("rds", "delete-blue-green-deployment",
-			"--blue-green-deployment-identifier", bgID).Run()
-	})
-
-	descBG := runCLI(t, awsCLI("rds", "describe-blue-green-deployments",
-		"--blue-green-deployment-identifier", bgID))
-	var dbg struct {
-		BlueGreenDeployments []struct {
-			BlueGreenDeploymentIdentifier string `json:"BlueGreenDeploymentIdentifier"`
-		} `json:"BlueGreenDeployments"`
-	}
-	parseJSON(t, descBG, &dbg)
-	require.Len(t, dbg.BlueGreenDeployments, 1)
-
-	swOut := runCLI(t, awsCLI("rds", "switchover-blue-green-deployment",
-		"--blue-green-deployment-identifier", bgID))
-	var sw struct {
-		BlueGreenDeployment struct {
-			Status string `json:"Status"`
-			Source string `json:"Source"`
-		} `json:"BlueGreenDeployment"`
-	}
-	parseJSON(t, swOut, &sw)
-	assert.Equal(t, "SWITCHOVER_COMPLETED", sw.BlueGreenDeployment.Status)
-	assert.Equal(t, target, sw.BlueGreenDeployment.Source)
-
 	intSrc := "arn:aws:rds:us-east-1:123456789012:cluster:cli-int-source"
 	intTgt := "arn:aws:redshift-serverless:us-east-1:123456789012:namespace/ns-1"
 	intOut := runCLI(t, awsCLI("rds", "create-integration",

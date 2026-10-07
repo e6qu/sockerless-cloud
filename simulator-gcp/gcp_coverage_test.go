@@ -80,7 +80,7 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"compute-v1":              2036,
 	"dataflow-v1b3":           114,
 	"discovery-v1":            2,
-	"dns-v1":                  80,
+	"dns-v1":                  102,
 	"eventarc-v1":             132,
 	"firestore-v1":            120,
 	"iam-v1":                  274,
@@ -299,10 +299,11 @@ var gcpMethodFloor = map[string]int{
 	// paths run the load.
 	"bigquery-v2": 96,
 
-	// Cloud DNS: every documented method is served. The managed-zone IAM
-	// triple (getIamPolicy, setIamPolicy, testIamPermissions) rides the same
-	// per-resource policy store every other AIP-141 resource uses, behind
-	// the managedZones colon-verb fan-in in dns.go.
+	// Cloud DNS: every documented method but the locations, operations and
+	// outboundEndpoints collections is served; those eleven answer a declared
+	// 501 in dns.go. The managed-zone IAM triple (getIamPolicy, setIamPolicy,
+	// testIamPermissions) rides the same per-resource policy store every other
+	// AIP-141 resource uses, behind the managedZones colon-verb fan-in.
 	"dns-v1": 80,
 
 	// Discovery: apis.list and apis.getRest serve the directory of the

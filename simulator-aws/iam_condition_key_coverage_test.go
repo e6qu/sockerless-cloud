@@ -979,9 +979,12 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 	fixtures["ecs"]["daemontaskdefinitionarn"] = daemonDefinition
 
 	// Amazon RDS: tagged parameter groups, a tagged DB cluster and DB instance
-	// of engines whose data plane runs no container, a blue/green deployment
-	// of the cluster and a zero-ETL integration from it. A blue/green
-	// deployment clones either kind of database, so it is probed with each.
+	// of engines whose data plane runs no container, a tagged blue/green
+	// deployment and a zero-ETL integration from the cluster. A blue/green
+	// deployment names either kind of database as its source, so it is probed
+	// with each. A deployment the API creates provisions a green DB instance
+	// whose engine runs in a container, so the deployment the keys are
+	// measured against is stored as one that finished provisioning.
 	const rdsVersion = "2014-10-31"
 	rdsCall := func(action string, form url.Values) string {
 		t.Helper()
@@ -1003,8 +1006,12 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 		"Engine": {"sqlserver-ex"}, "DBInstanceClass": {"db.t3.micro"}, "AllocatedStorage": {"20"},
 		"MasterUsername": {"probe"}, "MasterUserPassword": {"probe-password"}}),
 		`<DBInstanceArn>([^<]+)</DBInstanceArn>`)
-	deployment := field(rdsCall("CreateBlueGreenDeployment", url.Values{"BlueGreenDeploymentName": {"probe"},
-		"Source": {cluster}}), `<BlueGreenDeploymentIdentifier>([^<]+)</BlueGreenDeploymentIdentifier>`)
+	deployment := "bgd-probe0000000000"
+	rdsBlueGreenDeployments.Put(deployment, RDSBlueGreenDeployment{
+		BlueGreenDeploymentIdentifier: deployment, BlueGreenDeploymentName: "probe",
+		Source: instance, Target: rdsInstanceARN("probe-green-probes"), Status: rdsBlueGreenAvailable,
+		CreateTime: time.Now().UTC().Format(time.RFC3339), Tags: map[string]string{"owner": "platform"},
+	})
 	integration := field(rdsCall("CreateIntegration", url.Values{"IntegrationName": {"probe"}, "SourceArn": {cluster},
 		"TargetArn": {"arn:aws:redshift-serverless:us-east-1:" + iamProbeAccount + ":namespace/probe"}}),
 		`<IntegrationArn>([^<]+)</IntegrationArn>`)

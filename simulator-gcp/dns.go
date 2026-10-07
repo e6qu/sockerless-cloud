@@ -205,6 +205,34 @@ func registerCloudDNS(srv *sim.Server) {
 	responsePolicyRules := sim.MakeStore[storedDNSResponsePolicyRule](srv.DB(), "dns_response_policy_rules")
 	operations := sim.MakeStore[storedDNSOperation](srv.DB(), "dns_zone_operations")
 
+	// Cloud DNS outbound endpoints and the locations and long-running
+	// operations they are created through: no vendored source describes what
+	// an outbound endpoint forwards or how its operations progress.
+	const outboundWhy = "no vendored source describes an outbound endpoint's forwarding behaviour or its operations' progression"
+	dnsUnserved := func(what string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED", "the simulator serves no %s: %s", what, outboundWhy)
+		}
+	}
+	const loc = "/dns/v1/projects/{project}/locations"
+	srv.HandleFunc("GET "+loc, dnsUnserved("locations.list"))
+	srv.HandleFunc("GET "+loc+"/{location}", dnsUnserved("locations.get"))
+	srv.HandleFunc("GET "+loc+"/{location}/outboundEndpoints", dnsUnserved("outboundEndpoints.list"))
+	srv.HandleFunc("POST "+loc+"/{location}/outboundEndpoints", dnsUnserved("outboundEndpoints.create"))
+	srv.HandleFunc("GET "+loc+"/{location}/outboundEndpoints/{endpoint}", dnsUnserved("outboundEndpoints.get"))
+	srv.HandleFunc("PATCH "+loc+"/{location}/outboundEndpoints/{endpoint}", dnsUnserved("outboundEndpoints.patch"))
+	srv.HandleFunc("DELETE "+loc+"/{location}/outboundEndpoints/{endpoint}", dnsUnserved("outboundEndpoints.delete"))
+	srv.HandleFunc("GET "+loc+"/{location}/operations", dnsUnserved("operations.list"))
+	srv.HandleFunc("GET "+loc+"/{location}/operations/{operation}", dnsUnserved("operations.get"))
+	srv.HandleFunc("DELETE "+loc+"/{location}/operations/{operation}", dnsUnserved("operations.delete"))
+	srv.HandleFunc("POST "+loc+"/{location}/operations/{opverb}", func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.PathValue("opverb"), ":cancel") {
+			http.NotFound(w, r)
+			return
+		}
+		dnsUnserved("operations.cancel")(w, r)
+	})
+
 	// Create managed zone
 	srv.HandleFunc("POST /dns/v1/projects/{project}/managedZones", func(w http.ResponseWriter, r *http.Request) {
 		var zone ManagedZone

@@ -189,19 +189,16 @@ func TestRDS_SourceConditionKeysScopeTheGrant(t *testing.T) {
 	restricted := rds.NewFromConfig(keyConfig(akid, secret), func(o *rds.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
 	blueGreen := func(source string) error {
-		out, err := restricted.CreateBlueGreenDeployment(ctx, &rds.CreateBlueGreenDeploymentInput{
+		_, err := restricted.CreateBlueGreenDeployment(ctx, &rds.CreateBlueGreenDeploymentInput{
 			BlueGreenDeploymentName: aws.String(uniqueName("bg")), Source: aws.String(source),
 			TargetDBClusterParameterGroupName: aws.String(group),
 		})
-		if err == nil {
-			t.Cleanup(func() {
-				_, _ = admin.DeleteBlueGreenDeployment(ctx, &rds.DeleteBlueGreenDeploymentInput{
-					BlueGreenDeploymentIdentifier: out.BlueGreenDeployment.BlueGreenDeploymentIdentifier})
-			})
-		}
 		return err
 	}
-	assert.NoError(t, blueGreen(dataCluster), "the source is the encrypted MySQL cluster of the team the grant names")
+	// The grant admits the request, and Amazon RDS then refuses a Multi-AZ DB
+	// cluster as a blue/green source.
+	assert.Equal(t, "SourceClusterNotSupportedFault", errCodeOf(blueGreen(dataCluster)),
+		"the source is the encrypted MySQL cluster of the team the grant names")
 	assert.True(t, notAuthorized(blueGreen(webCluster)), "a source tagged for another team is refused")
 
 	restore := func(source string) error {

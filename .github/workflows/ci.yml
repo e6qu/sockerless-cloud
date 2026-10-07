@@ -465,10 +465,21 @@ jobs:
       - name: Install Azure CLI
         if: matrix.cloud == 'azure'
         run: |
-          curl --fail --location --show-error --silent \
-            --retry 5 --retry-all-errors --retry-delay 5 \
-            --connect-timeout 20 --max-time 300 \
-            https://aka.ms/InstallAzureCLIDeb | sudo bash
+          # The installer runs apt-get with apt's default network timeouts, so a
+          # stalled mirror held one run for fourteen minutes; the timeouts
+          # ci-apt-install.sh passes apt-get apply to it through apt.conf.d.
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
+            | sudo tee /etc/apt/apt.conf.d/80ci-timeouts > /dev/null
+          for attempt in 1 2; do
+            curl --fail --location --show-error --silent \
+              --retry 5 --retry-all-errors --retry-delay 5 \
+              --connect-timeout 20 --max-time 300 \
+              -o /tmp/install-azure-cli.sh https://aka.ms/InstallAzureCLIDeb
+            if sudo timeout 240 bash /tmp/install-azure-cli.sh; then
+              break
+            fi
+            [ "$attempt" = 2 ] && exit 1
+          done
           hash -r
           az version
       - name: Install real-execution tools
@@ -891,7 +902,13 @@ jobs:
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata2
-            run: '^Test(AWSServiceState|RDSCLI_([^AIDMOR]|A[^u]|I[^n]|D[^B]|DB[^I]|R[^e]|Reb))'
+            run: '^Test(AWSServiceState|RDSCLI_([^ABIDMOR]|A[^u]|I[^n]|D[^B]|DB[^I]|R[^e]|Reb))'
+            timeout: 1200s
+            timeout_minutes: 15
+          # A blue/green deployment starts the blue and green engines and
+          # copies the blue volume twice, so its tests run apart.
+          - suite: rds-blue-green
+            run: '^Test(RDSCLI_BlueGreen)'
             timeout: 1200s
             timeout_minutes: 15
           # The RDS for MariaDB and MySQL engine-user tests each start their
@@ -1078,6 +1095,15 @@ jobs:
             # spends most of its time in the provider's RDS status waits.
             tf_parallelism: 2
             timeout_minutes: 14
+          # The provider waits a minute before its first poll of each
+          # blue/green deployment and DB instance state it waits on, so the
+          # stack's create, blue/green update and destroy take about nine
+          # minutes of the test's twelve.
+          - suite: aws Amazon RDS blue/green deployment
+            cloud: aws
+            tf_packages: "./rds-blue-green"
+            tf_timeout: 720s
+            timeout_minutes: 15
           - suite: aws Amazon RDS snapshot
             cloud: aws
             tf_packages: "./rds-snapshot ./rds-cluster-snapshot"
@@ -1240,7 +1266,7 @@ jobs:
           if [ "${{ matrix.cloud }}" = "aws" ]; then
             sudo env "PATH=$PATH" "HOME=$HOME" \
               SOCKERLESS_SPEC_VALIDATE="$SOCKERLESS_SPEC_VALIDATE" SOCKERLESS_SPEC_DIR="$SOCKERLESS_SPEC_DIR" \
-              make terraform-https-test TERRAFORM_TEST_TIMEOUT=600s TERRAFORM_TEST_PACKAGES="${{ matrix.tf_packages }}" \
+              make terraform-https-test TERRAFORM_TEST_TIMEOUT=${{ matrix.tf_timeout || '600s' }} TERRAFORM_TEST_PACKAGES="${{ matrix.tf_packages }}" \
                 TERRAFORM_TEST_PACKAGE_PARALLELISM="${{ matrix.tf_parallelism || 1 }}"
           elif [ "${{ matrix.cloud }}" = "azure" ]; then
             sudo env "PATH=$PATH" "HOME=$HOME" \
@@ -1491,9 +1517,15 @@ jobs:
 
   build-gates:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Install the RDS authentication plugin toolchain
+        run: bash scripts/ci-apt-install.sh clang lld
+        timeout-minutes: 3
+      - name: Committed RDS authentication plugin binaries match their source
+        run: bash scripts/check-rds-auth-plugin-build.sh
+        timeout-minutes: 2
       - uses: actions/setup-go@v7.0.0
         with:
           go-version: '1.26'
