@@ -2,6 +2,9 @@
 *.exe
 *.dll
 *.so
+# The engine plugin the Amazon RDS data plane loads ships with the simulator,
+# built by its build.sh.
+!simulator-aws/rds_auth_plugin/*.so
 *.dylib
 *.test
 *.out

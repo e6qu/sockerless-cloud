@@ -1,6 +1,7 @@
 package azure_sdk_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
@@ -96,8 +97,112 @@ func TestSDK_SiteContainers_EnvironmentVariablesNameAppSettings(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got.Properties.EnvironmentVariables, 3)
 	assert.Equal(t, "GREETING_SETTING", *got.Properties.EnvironmentVariables[0].Value, "the resource keeps the setting's name")
+	require.NotNil(t, got.Properties.InheritAppSettingsAndConnectionStrings)
+	assert.True(t, *got.Properties.InheritAppSettingsAndConnectionStrings, "inheritAppSettingsAndConnectionStrings defaults to true")
 
 	assert.Equal(t, "hello from an app setting", siteEnv(t, name, "GREETING"))
 	assert.Equal(t, "from-the-vault", siteEnv(t, name, "DB"), "a Key Vault reference resolves through the setting")
 	assert.Equal(t, "", siteEnv(t, name, "ABSENT"), "a setting that does not exist is an empty string")
+	assert.Equal(t, "hello from an app setting", siteEnv(t, name, "GREETING_SETTING"), "a main that inherits by default gets every app setting")
+	assert.Equal(t, "from-the-vault", siteEnv(t, name, "DB_SETTING"), "an inherited Key Vault reference resolves")
+}
+
+// createInheritanceSite creates a sitecontainers web app with one app setting
+// and one connection string, and returns its Web Apps client.
+func createInheritanceSite(t *testing.T, rg, name string) *armappservice.WebAppsClient {
+	t.Helper()
+	ensureRG(t, rg)
+	planID := webMoreEnsurePlan(t, rg, name+"-plan")
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	t.Cleanup(func() { azureDeleteSite(rg, name) })
+	poller, err := client.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
+		Location: to.Ptr("eastus"),
+		Kind:     to.Ptr("app,linux,sitecontainers"),
+		Properties: &armappservice.SiteProperties{
+			ServerFarmID: to.Ptr(planID),
+			SiteConfig: &armappservice.SiteConfig{
+				LinuxFxVersion: to.Ptr("SITECONTAINERS"),
+				AppSettings:    slotSettings(map[string]string{"GREETING_SETTING": "hello from an app setting"}),
+				ConnectionStrings: []*armappservice.ConnStringInfo{{
+					Name:             to.Ptr("Orders"),
+					ConnectionString: to.Ptr("Server=orders"),
+					Type:             to.Ptr(armappservice.ConnectionStringTypeCustom),
+				}},
+			},
+		},
+	}, nil)
+	require.NoError(t, err)
+	_, err = poller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	return client
+}
+
+// TestSDK_SiteContainers_MainThatDoesNotInheritGetsNoAppSettings holds a main
+// sitecontainer to Microsoft.Web's inheritAppSettingsAndConnectionStrings:
+// "true if all AppSettings and ConnectionStrings have to be passed to the
+// container as environment variables; false otherwise." A main that sets it
+// false gets neither, and still gets the platform's own variables.
+func TestSDK_SiteContainers_MainThatDoesNotInheritGetsNoAppSettings(t *testing.T) {
+	rg, name := "sdk-sc-noinherit-rg", "sdk-sc-noinherit-app"
+	client := createInheritanceSite(t, rg, name)
+	_, err := client.CreateOrUpdateSiteContainer(ctx, rg, name, "main", armappservice.SiteContainer{
+		Properties: &armappservice.SiteContainerProperties{
+			Image:                                  to.Ptr(commandImageName),
+			IsMain:                                 to.Ptr(true),
+			TargetPort:                             to.Ptr("80"),
+			StartUpCommand:                         to.Ptr(filesHTTPCommand),
+			InheritAppSettingsAndConnectionStrings: to.Ptr(false),
+		},
+	}, nil)
+	require.NoError(t, err)
+	got, err := client.GetSiteContainer(ctx, rg, name, "main", nil)
+	require.NoError(t, err)
+	require.NotNil(t, got.Properties.InheritAppSettingsAndConnectionStrings)
+	assert.False(t, *got.Properties.InheritAppSettingsAndConnectionStrings)
+
+	assert.Equal(t, name, siteEnv(t, name, "WEBSITE_SITE_NAME"), "the platform's variables reach the main")
+	status, body := siteGet(t, name, "/env/GREETING_SETTING")
+	assert.Equal(t, http.StatusNotFound, status, "a main that does not inherit gets no app setting: %s", body)
+	status, body = siteGet(t, name, "/env/CUSTOMCONNSTR_Orders")
+	assert.Equal(t, http.StatusNotFound, status, "a main that does not inherit gets no connection string: %s", body)
+}
+
+// TestSDK_SiteContainers_SidecarInheritsAppSettingsUnlessFalse gives a sidecar
+// the app settings and connection strings unless its
+// inheritAppSettingsAndConnectionStrings is false; unset, it defaults to true. The main relays requests to
+// each sidecar's files-http over the shared loopback.
+func TestSDK_SiteContainers_SidecarInheritsAppSettingsUnlessFalse(t *testing.T) {
+	rg, name := "sdk-sc-inherit-rg", "sdk-sc-inherit-app"
+	client := createInheritanceSite(t, rg, name)
+	for _, sc := range []struct {
+		name  string
+		props armappservice.SiteContainerProperties
+	}{
+		{"main", armappservice.SiteContainerProperties{
+			Image: to.Ptr(httpProbeImageName), IsMain: to.Ptr(true), TargetPort: to.Ptr("8080"), StartUpCommand: to.Ptr("relay-local"),
+		}},
+		{"inherits", armappservice.SiteContainerProperties{
+			Image: to.Ptr(commandImageName), IsMain: to.Ptr(false), TargetPort: to.Ptr("9090"),
+			StartUpCommand: to.Ptr("files-http 9090 /tmp"),
+		}},
+		{"isolated", armappservice.SiteContainerProperties{
+			Image: to.Ptr(commandImageName), IsMain: to.Ptr(false), TargetPort: to.Ptr("9091"),
+			StartUpCommand: to.Ptr("files-http 9091 /tmp"), InheritAppSettingsAndConnectionStrings: to.Ptr(false),
+		}},
+	} {
+		_, err := client.CreateOrUpdateSiteContainer(ctx, rg, name, sc.name, armappservice.SiteContainer{Properties: &sc.props}, nil)
+		require.NoError(t, err)
+	}
+
+	status, body := siteGet(t, name, "/9090/env/GREETING_SETTING")
+	assert.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, "hello from an app setting", body, "a sidecar that inherits gets every app setting")
+	status, body = siteGet(t, name, "/9090/env/CUSTOMCONNSTR_Orders")
+	assert.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, "Server=orders", body, "a sidecar that inherits gets every connection string")
+	status, body = siteGet(t, name, "/9091/env/GREETING_SETTING")
+	assert.Equal(t, http.StatusNotFound, status, "a sidecar that does not inherit gets no app setting: %s", body)
+	status, body = siteGet(t, name, "/9091/env/CUSTOMCONNSTR_Orders")
+	assert.Equal(t, http.StatusNotFound, status, "a sidecar that does not inherit gets no connection string: %s", body)
 }

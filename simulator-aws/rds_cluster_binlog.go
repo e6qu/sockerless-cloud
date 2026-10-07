@@ -9,13 +9,14 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/dbengine"
 )
 
-// An Aurora MySQL restore to a time replays the source's binary log onto the
-// base backup with MySQL's own replication applier: the binary log files
+// A MySQL-family restore to a time replays the source's binary log onto the
+// base backup with the engine's own replication applier: the binary log files
 // written since the base backup become the relay log of a server started on
-// the new cluster volume, and its SQL thread applies them up to the first
-// transaction that committed after RestoreToTime.
+// the new volume, and its SQL thread applies them up to the first transaction
+// the log dates after the restore time.
 
 const (
 	rdsBinlogMagic             = "\xfebin"
@@ -28,6 +29,11 @@ const (
 	// original commit timestamp follows.
 	rdsBinlogGTIDPostHeaderLength = 42
 	rdsBinlogCommitTimestampBytes = 7
+	// A MariaDB GTID event's post-header is its sequence number, domain ID
+	// and flags.
+	rdsBinlogMariaDBGTIDEvent       = 162
+	rdsBinlogMariaDBGTIDFlagsOffset = 12
+	rdsBinlogMariaDBStandaloneFlag  = 1
 )
 
 // rdsListBinaryLogScript prints, base64-encoded, every binary log file of the
@@ -93,6 +99,62 @@ if [ -n "$failure" ]; then
 fi
 `
 
+// rdsMariaDBReplayBinaryLogScript is rdsReplayBinaryLogScript for MariaDB,
+// whose applier runs by position, not GTID, and leaves no replication state.
+const rdsMariaDBReplayBinaryLogScript = `set -e
+cd "$DATA"
+n=0
+: > sockerless-replay.index
+for f in $RELAY_FILES; do
+	n=$((n + 1))
+	relay=$(printf 'sockerless-replay.%06d' "$n")
+	cp "/source/$f" "$relay"
+	echo "./$relay" >> sockerless-replay.index
+done
+truncate -s "$LAST_SIZE" "$relay"
+chown mysql:mysql sockerless-replay.*
+password=$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')
+printf "CREATE USER 'sockerless_replay'@'localhost' IDENTIFIED BY '%s';\nGRANT ALL ON *.* TO 'sockerless_replay'@'localhost' WITH GRANT OPTION;\n" "$password" > /tmp/replay-init.sql
+chmod 644 /tmp/replay-init.sql
+mariadbd --user=mysql --skip-log-bin --server-id=4294967295 --skip-networking --socket=/tmp/replay.sock \
+	--relay-log=sockerless-replay --relay-log-index=sockerless-replay.index --skip-slave-start \
+	--slave-parallel-threads=0 --init-file=/tmp/replay-init.sql &
+server=$!
+client() {
+	mariadb --socket=/tmp/replay.sock --user=sockerless_replay --password="$password" --batch --skip-column-names "$@" 2>/dev/null
+}
+until client --execute='SELECT 1' >/dev/null; do
+	kill -0 "$server"
+	sleep 0.1
+done
+client --execute="CHANGE MASTER TO RELAY_LOG_FILE='sockerless-replay.000001', RELAY_LOG_POS=$START_OFFSET, MASTER_HOST='sockerless-replay', MASTER_USE_GTID=no; START SLAVE SQL_THREAD UNTIL RELAY_LOG_FILE='$relay', RELAY_LOG_POS=$LAST_SIZE"
+# MariaDB checks UNTIL only as it reads the next event, and the cut relay log
+# has none: the applier is done once it has executed up to the cut, or moved
+# on to the relay log the server opened after the copied ones.
+while :; do
+	status=$(client --column-names --execute='SHOW SLAVE STATUS\G')
+	echo "$status" | grep -q 'Slave_SQL_Running: Yes' || break
+	file=$(echo "$status" | sed -n 's/^ *Relay_Log_File: //p')
+	file=${file##*/}
+	position=$(echo "$status" | sed -n 's/^ *Relay_Log_Pos: //p')
+	[ "$file" \> "$relay" ] && break
+	[ "$file" = "$relay" ] && [ "$position" -ge "$LAST_SIZE" ] && break
+	sleep 0.1
+done
+failure=$(client --column-names --execute='SHOW SLAVE STATUS\G' | sed -n 's/^ *Last_SQL_Error: //p')
+client --execute="STOP SLAVE; RESET SLAVE ALL; SET GLOBAL gtid_slave_pos = ''"
+if [ -z "$failure" ]; then
+	client --execute="$SET_MASTER_PASSWORD"
+fi
+client --execute="DROP USER 'sockerless_replay'@'localhost'"
+kill -TERM "$server"
+wait "$server"
+if [ -n "$failure" ]; then
+	echo "$failure"
+	exit 1
+fi
+`
+
 // rdsReplaySandbox lets the replaying server drop from root to the mysql user,
 // and the script signal it.
 var rdsReplaySandbox = func() sim.SandboxProfile {
@@ -146,10 +208,15 @@ func rdsReadBinaryLogListing(lines []string) ([]rdsBinlogFile, error) {
 
 // rdsBinaryLogReplayRange names the files to replay, from startOffset of the
 // first, and the size the last is cut to: just before the first transaction
-// whose immediate commit timestamp is after target, or the end of the last
-// complete event.
+// the log dates after target, or else before the transaction the source is
+// still writing, or the end of the last complete event. MySQL
+// dates a transaction by its GTID event's immediate commit timestamp, in
+// microseconds. MariaDB dates it by its GTID event's timestamp, in whole
+// seconds, and the replay stops at the first transaction dated at or after
+// target's second, as mariadb-binlog --stop-datetime does.
 func rdsBinaryLogReplayRange(files []rdsBinlogFile, startOffset int, target time.Time) ([]string, int, error) {
 	targetMicros := target.UnixMicro()
+	targetSeconds := target.Unix()
 	var names []string
 	end := 0
 	for i, file := range files {
@@ -164,6 +231,7 @@ func rdsBinaryLogReplayRange(files []rdsBinlogFile, startOffset int, target time
 			}
 			offset = startOffset
 		}
+		from := offset
 		for offset+rdsBinlogEventHeaderLength <= len(file.data) {
 			size := int(binary.LittleEndian.Uint32(file.data[offset+9:]))
 			if size < rdsBinlogEventHeaderLength || offset+size > len(file.data) {
@@ -180,9 +248,12 @@ func rdsBinaryLogReplayRange(files []rdsBinlogFile, startOffset int, target time
 					return names, offset, nil
 				}
 			}
+			if eventType == rdsBinlogMariaDBGTIDEvent && int64(binary.LittleEndian.Uint32(file.data[offset:])) >= targetSeconds {
+				return names, offset, nil
+			}
 			offset += size
 		}
-		end = offset
+		end = rdsBinlogWholeTransactionsEnd(file.data, from)
 	}
 	return names, end, nil
 }
@@ -210,7 +281,11 @@ func rdsReplayBinaryLog(replay rdsLogReplay, target time.Time) error {
 	if err != nil {
 		return err
 	}
-	_, err = rdsRunVolumeHelper(engine, rdsReplayBinaryLogScript,
+	script := rdsReplayBinaryLogScript
+	if engine.Client == dbengine.MariaDB114.Client {
+		script = rdsMariaDBReplayBinaryLogScript
+	}
+	_, err = rdsRunVolumeHelper(engine, script,
 		map[string]string{
 			"RELAY_FILES":         strings.Join(names, " "),
 			"START_OFFSET":        strconv.Itoa(replay.binlogOffset),

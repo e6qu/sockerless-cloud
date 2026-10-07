@@ -1711,15 +1711,58 @@ signs in a role granted `rds_iam` with the token `aws rds
 generate-db-auth-token` makes, and a password user on the instance a
 point-in-time restore made.
 
-On MySQL-family engines an IAM-authenticated session still runs as the master
-user (BUG-3346). RDS for MySQL and Aurora MySQL mark a user as IAM-authenticated
-with `CREATE USER ... IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'`, and the
-stock MySQL 8.0 image refuses that statement with error 1524, `Plugin
-'AWSAuthenticationPlugin' is not loaded`: its plugin directory holds no such
-plugin, and the built-in authentication plugins cannot log the endpoint in as
-another user without that user's password. Proxy accounts or a password the
-endpoint sets on the user would invent accounts and credentials the client
-never created, so the simulator does neither.
+On RDS for MySQL, RDS for MariaDB and Aurora MySQL an IAM authentication
+token signs in the user its `DBUser` names, as that user, and only when the
+user was created `IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'`. The stock
+MySQL 8.0 and MariaDB 11.4 images hold no plugin of that name and refuse the
+statement with error 1524, and no built-in plugin, proxy account or rewritten
+statement gives the same observable behaviour, so the simulator ships a real
+server plugin named `AWSAuthenticationPlugin`
+(`simulator-aws/rds_auth_plugin/`): a C source with no C library dependency,
+built by `build.sh` with clang and ld.lld for each engine's plugin ABI on
+amd64 and arm64 and embedded in the binary, since `go install` cannot compile
+it. The engine loads plugins from `.sockerless-plugin` in its data volume
+(`--plugin-dir`, and `--ignore-db-dirs` on MariaDB, which lists every
+directory of its data directory as a database), so snapshots and restores
+carry the plugin with the users identified with it; on every engine start the
+endpoint writes the build for the container's architecture there, replacing
+it by rename so a loaded copy stays mapped, and installs the plugin unless the
+engine has it loaded. The plugin trusts the relay as the PostgreSQL engine's
+`trust` method does, and the endpoint enforces what RDS's plugin does: it
+validates the token and relays it as the user's password, which the engine
+admits for a user identified with the plugin and refuses, with its own error
+1045, for every other user, the master user included; a password login of a
+user identified with the plugin never reaches the engine, since the endpoint
+asks the engine for the account's plugin before it relays a non-master login.
+The SDK suite signs in such a user with a token on an RDS for MySQL instance
+and an Aurora MySQL cluster and proves its password, an empty password, and a
+token for the master user or a password user are refused; the CLI suite does
+the same on RDS for MySQL and RDS for MariaDB with `aws rds
+generate-db-auth-token`, and the Terraform suite on an `aws_db_instance` with
+`iam_database_authentication_enabled`. A unit test proves each embedded build
+is a shared object for its architecture that imports nothing and exports its
+engine's plugin declarations.
+
+RDS for MariaDB keeps automated backups and restores to a time as RDS for
+MySQL does. Its engine writes a binary log only when told to, so the instance
+runs MariaDB with `--log-bin=binlog`, into the same `binlog.NNNNNN` files, and
+`rdsKeepsLog` names MariaDB beside PostgreSQL and MySQL. MariaDB's binary log
+differs in what the replay reads: its GTID event (type 162) opens a
+transaction without a BEGIN, a standalone one wraps a single DDL or
+non-transactional statement, a transaction ends at its XID event or a
+`COMMIT` query, and the GTID event dates the transaction in whole seconds, so
+a restore replays the transactions dated before the restore time's second, as
+`mariadb-binlog --stop-datetime` does, and the tests restore to a whole second.
+The base backup's replay start and the replay's end both stop before a
+transaction the log holds only in part. MariaDB's applier runs
+`CHANGE MASTER TO ... MASTER_USE_GTID=no` and `START SLAVE SQL_THREAD UNTIL`
+with `mariadbd`, checks its UNTIL position only as it reads a next event the
+cut relay log never has, and moves on to the relay log the server opened after
+the copied ones, so the replay ends once the applier has executed up to the
+cut or moved past the copied logs. The SDK suite restores an RDS for MariaDB
+instance to a time beside PostgreSQL and MySQL, the CLI suite with `aws rds
+restore-db-instance-to-point-in-time --restore-time`, and the Terraform suite
+through `aws_db_instance`'s `restore_to_point_in_time` with `restore_time`.
 
 Every volume capture holds one crash-consistent point in time, the property a
 block-level storage snapshot gives. `sim.SnapshotVolume` lists the running
@@ -2526,6 +2569,19 @@ the main container and every sidecar now get that, with a Key Vault reference
 in the setting resolved as the app's own environment resolves it. The Azure CLI
 refuses a spec file whose entry names an app setting the app lacks, so the CLI
 test removes the setting afterwards to reach the empty string.
+
+A sitecontainer's `inheritAppSettingsAndConnectionStrings` had been stored and
+ignored: the main container got every app setting and connection string, and
+a sidecar none. Microsoft.Web passes them to a sitecontainer as environment
+variables unless the flag is false, and fills an unset flag with true; the
+simulator now does both, for the main container and each sidecar, and keeps
+the platform's own variables and the container's `environmentVariables` either
+way. The Azure CLI's `--sitecontainers-spec-file` never sends the flag, so a
+sitecontainer it creates inherits; the CLI test sets the flag false through
+`az rest`. The `http-localhost-probe` image's `relay-local` mode relays a
+request to a sidecar's port over the shared loopback, so a test reads a
+sidecar's environment through the main container. The `azurerm` Terraform
+provider has no sitecontainer resource.
 
 An app had resolved its Key Vault references only when its container started,
 so a rotated secret reached a running app only on a restart. App Service caches

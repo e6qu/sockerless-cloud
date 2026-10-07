@@ -133,6 +133,18 @@ func nextMillisecondThenWait(t *testing.T, ctx context.Context, database auroraS
 	return time.Time{}
 }
 
+// nextSecondThenWait returns the MySQL-family engine's next whole second and
+// waits until the engine's clock reaches it.
+func nextSecondThenWait(t *testing.T, ctx context.Context, database auroraSnapshotClient) time.Time {
+	t.Helper()
+	engine, ok := database.(auroraMySQL)
+	require.True(t, ok, "a whole-second restore time needs a MySQL-family client, got %T", database)
+	var next int64
+	require.NoError(t, engine.db.QueryRowContext(ctx, `SELECT FLOOR(UNIX_TIMESTAMP(NOW(6))) + 1`).Scan(&next))
+	engine.exec(t, fmt.Sprintf(`DO SLEEP(GREATEST(0, %d - UNIX_TIMESTAMP(NOW(6))))`, next))
+	return time.Unix(next, 0).UTC()
+}
+
 // An Aurora cluster restores to any time in its restorable window: the
 // restored cluster holds every row committed by RestoreToTime and none
 // committed after it, and accepts writes of its own. The window opens when

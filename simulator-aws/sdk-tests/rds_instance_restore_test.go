@@ -58,9 +58,10 @@ func (f rdsInstanceFixture) connect(instanceID string) auroraSnapshotClient {
 // it, and accepts writes of its own; a restore to the latest restorable time
 // holds every committed row. The instance takes an automated DB snapshot when
 // it is created, which cannot be deleted by hand, and an instance with no
-// backup retention does not restore to a time.
+// backup retention does not restore to a time. MariaDB's binary log dates a
+// transaction in whole seconds, so its restore time falls on a second.
 func TestRDS_InstanceRestoresToAPointInTime(t *testing.T) {
-	for _, engine := range []string{"postgres", "mysql"} {
+	for _, engine := range []string{"postgres", "mysql", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
@@ -85,6 +86,9 @@ func TestRDS_InstanceRestoresToAPointInTime(t *testing.T) {
 			source.exec(t, `CREATE TABLE ledger (entry varchar(64) NOT NULL)`)
 			source.exec(t, `INSERT INTO ledger VALUES ('before-restore-time')`)
 			restoreTo := nextMillisecondThenWait(t, ctx, source)
+			if engine == "mariadb" {
+				restoreTo = nextSecondThenWait(t, ctx, source)
+			}
 			source.exec(t, `INSERT INTO ledger VALUES ('after-restore-time')`)
 
 			described := f.waitAvailable(sourceID)

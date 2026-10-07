@@ -71,3 +71,43 @@ func TestRDSWALListingFindsTransactionsAfterTheRestoreTime(t *testing.T) {
 		t.Fatal("a missing segment must fail the restore")
 	}
 }
+
+// rdsTestMariaDBGTIDEvent encodes a MariaDB GTID event dated at, whose event
+// group is one standalone statement when standalone is set.
+func rdsTestMariaDBGTIDEvent(at time.Time, standalone bool) []byte {
+	body := make([]byte, rdsBinlogMariaDBGTIDFlagsOffset+1+4)
+	if standalone {
+		body[rdsBinlogMariaDBGTIDFlagsOffset] = rdsBinlogMariaDBStandaloneFlag
+	}
+	event := make([]byte, rdsBinlogEventHeaderLength, rdsBinlogEventHeaderLength+len(body))
+	binary.LittleEndian.PutUint32(event, uint32(at.Unix()))
+	event[4] = rdsBinlogMariaDBGTIDEvent
+	binary.LittleEndian.PutUint32(event[9:], uint32(rdsBinlogEventHeaderLength+len(body)))
+	return append(event, body...)
+}
+
+// MariaDB dates a transaction in whole seconds, so the replay stops at the
+// first transaction dated at or after the restore time's second.
+func TestRDSBinaryLogReplayRangeStopsAtTheMariaDBRestoreSecond(t *testing.T) {
+	restoreTo := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	const formatDescription, xid = 15, 16
+	log := []byte(rdsBinlogMagic)
+	log = append(log, rdsTestBinlogEvent(formatDescription, time.Time{})...)
+	log = append(log, rdsTestMariaDBGTIDEvent(restoreTo.Add(-time.Second), false)...)
+	log = append(log, rdsTestBinlogEvent(xid, time.Time{})...)
+	cut := len(log)
+	log = append(log, rdsTestMariaDBGTIDEvent(restoreTo, false)...)
+	log = append(log, rdsTestBinlogEvent(xid, time.Time{})...)
+	files := []rdsBinlogFile{{name: "binlog.000002", data: log}}
+
+	for _, target := range []time.Time{restoreTo, restoreTo.Add(500 * time.Millisecond)} {
+		names, size, err := rdsBinaryLogReplayRange(files, len(rdsBinlogMagic), target)
+		if err != nil || len(names) != 1 || size != cut {
+			t.Fatalf("replay range to %s = %v up to %d (%v), want the file up to %d", target, names, size, err, cut)
+		}
+	}
+	names, size, err := rdsBinaryLogReplayRange(files, len(rdsBinlogMagic), restoreTo.Add(time.Second))
+	if err != nil || len(names) != 1 || size != len(log) {
+		t.Fatalf("replay range = %v up to %d (%v), want the file whole", names, size, err)
+	}
+}

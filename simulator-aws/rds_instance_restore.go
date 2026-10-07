@@ -244,7 +244,7 @@ func handleRDSRestoreInstanceToPointInTime(w http.ResponseWriter, r *http.Reques
 	}
 	inst.MasterUserSecret = append([]byte(nil), src.MasterUserSecret...)
 	inst.BackendMasterUserSecret = append([]byte(nil), src.BackendMasterUserSecret...)
-	if inst.RestoreToTime != "" && strings.EqualFold(inst.Engine, "mysql") {
+	if inst.RestoreToTime != "" && (strings.EqualFold(inst.Engine, "mysql") || strings.EqualFold(inst.Engine, "mariadb")) {
 		// The binary log replay installs the master password.
 		inst.BackendMasterUserSecret = append([]byte(nil), inst.MasterUserSecret...)
 	}

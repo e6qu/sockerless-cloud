@@ -156,43 +156,69 @@ const (
 )
 
 // rdsBinlogConsistentStart is the offset in a captured binary log file of the
-// first transaction the capture does not hold. MySQL commits a transaction in
-// InnoDB only once the whole transaction is in the binary log, and crash
-// recovery commits exactly the transactions the binary log holds whole, so the
-// first transaction the file holds only in part, or the end of its last
-// complete event, is where the captured data ends.
+// first transaction the capture does not hold. MySQL and MariaDB commit a
+// transaction in InnoDB only once the whole transaction is in the binary log,
+// and crash recovery commits exactly the transactions the binary log holds
+// whole, so the first transaction the file holds only in part, or the end of
+// its last complete event, is where the captured data ends.
 func rdsBinlogConsistentStart(data []byte) (int, error) {
 	if !bytes.HasPrefix(data, []byte(rdsBinlogMagic)) {
 		return 0, fmt.Errorf("the file does not start with the binary log magic number")
 	}
-	offset, open := len(rdsBinlogMagic), -1
+	return rdsBinlogWholeTransactionsEnd(data, len(rdsBinlogMagic)), nil
+}
+
+// rdsBinlogWholeTransactionsEnd is the offset, from offset on, of the first
+// transaction data holds only in part, or the end of its last complete event.
+func rdsBinlogWholeTransactionsEnd(data []byte, offset int) int {
+	open := -1
+	// A MariaDB GTID event opens the transaction itself, and a standalone one
+	// opens a single statement with no BEGIN, COMMIT or XID around it.
+	mariaDB, standalone := false, false
 	for offset+rdsBinlogEventHeaderLength <= len(data) {
 		size := int(binary.LittleEndian.Uint32(data[offset+9:]))
 		if size < rdsBinlogEventHeaderLength || offset+size > len(data) {
 			break
 		}
-		switch data[offset+4] {
+		event := data[offset : offset+size]
+		switch event[4] {
 		case rdsBinlogGTIDEvent, rdsBinlogAnonymousGTID:
-			open = offset
+			open, mariaDB = offset, false
+		case rdsBinlogMariaDBGTIDEvent:
+			open, mariaDB, standalone = offset, true, rdsBinlogMariaDBStandalone(event)
 		case rdsBinlogXIDEvent:
 			open = -1
 		case rdsBinlogQueryEvent:
-			if open >= 0 && !rdsBinlogQueryBegins(data[offset:offset+size]) {
+			switch {
+			case open < 0:
+			case mariaDB:
+				if standalone || rdsBinlogQueryIs(event, "COMMIT") || rdsBinlogQueryIs(event, "ROLLBACK") {
+					open = -1
+				}
+			case !rdsBinlogQueryIs(event, "BEGIN"):
 				open = -1
 			}
 		}
 		offset += size
 	}
 	if open >= 0 {
-		return open, nil
+		return open
 	}
-	return offset, nil
+	return offset
 }
 
-// rdsBinlogQueryBegins reports whether a query event is the BEGIN that opens a
-// transaction, rather than a statement that completes one. The event may end
-// in a 4-byte checksum.
-func rdsBinlogQueryBegins(event []byte) bool {
+// rdsBinlogMariaDBStandalone reports whether a MariaDB GTID event carries
+// FL_STANDALONE: its event group is one statement, DDL or non-transactional,
+// that no BEGIN opened.
+func rdsBinlogMariaDBStandalone(event []byte) bool {
+	at := rdsBinlogEventHeaderLength + rdsBinlogMariaDBGTIDFlagsOffset
+	return at < len(event) && event[at]&rdsBinlogMariaDBStandaloneFlag != 0
+}
+
+// rdsBinlogQueryIs reports whether a query event's statement is statement,
+// such as the BEGIN that opens a transaction or the COMMIT that ends a MariaDB
+// one. The event may end in a 4-byte checksum.
+func rdsBinlogQueryIs(event []byte, statement string) bool {
 	postHeader := rdsBinlogEventHeaderLength
 	if len(event) < postHeader+rdsBinlogQueryPostHeaderLength {
 		return false
@@ -204,7 +230,7 @@ func rdsBinlogQueryBegins(event []byte) bool {
 		return false
 	}
 	query := event[start:]
-	return bytes.HasPrefix(query, []byte("BEGIN")) && (len(query) == 5 || len(query) == 9)
+	return bytes.HasPrefix(query, []byte(statement)) && (len(query) == len(statement) || len(query) == len(statement)+4)
 }
 
 // rdsNextBackupTime is the next start of a PreferredBackupWindow,

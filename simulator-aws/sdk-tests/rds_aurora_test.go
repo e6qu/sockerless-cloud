@@ -210,7 +210,8 @@ func TestRDS_AuroraEndpointsShareTheClusterVolume(t *testing.T) {
 
 // An Aurora cluster's endpoints sign in the database users the engine holds,
 // each under its own password and into a session with its own privileges. A
-// user granted rds_iam on Aurora PostgreSQL signs in only with an IAM
+// user granted rds_iam on Aurora PostgreSQL, or identified with
+// AWSAuthenticationPlugin on Aurora MySQL, signs in only with an IAM
 // authentication token, which no other user can sign in with.
 func TestRDS_AuroraDatabaseUsersSignInThroughTheEngine(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -324,6 +325,8 @@ func TestRDS_AuroraDatabaseUsersSignInThroughTheEngine(t *testing.T) {
 			`INSERT INTO ledger VALUES ('written-by-the-master-user')`,
 			fmt.Sprintf(`CREATE USER '%s'@'%%' IDENTIFIED BY '%s'`, appUser, appPassword),
 			fmt.Sprintf(`GRANT SELECT ON %s.ledger TO '%s'@'%%'`, restoreSourceDatabase, appUser),
+			fmt.Sprintf(`CREATE USER '%s'@'%%' IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'`, iamUser),
+			fmt.Sprintf(`GRANT SELECT ON %s.ledger TO '%s'@'%%'`, restoreSourceDatabase, iamUser),
 		} {
 			_, err := master.ExecContext(testContext, statement)
 			require.NoError(t, err, statement)
@@ -342,5 +345,20 @@ func TestRDS_AuroraDatabaseUsersSignInThroughTheEngine(t *testing.T) {
 		refused(appUser, "Wrong-Password-1")
 		refused("no_such_user", appPassword)
 		refused("root", restoreSourcePassword)
+
+		token := func(user string) string {
+			t.Helper()
+			token, err := rdsauth.BuildAuthToken(testContext, endpoint, "us-east-1", user, sdkConfig().Credentials)
+			require.NoError(t, err)
+			return token
+		}
+		iam, err := signIn(iamUser, token(iamUser))
+		require.NoError(t, err, "a user identified with AWSAuthenticationPlugin signs in with an IAM authentication token")
+		require.NoError(t, iam.QueryRowContext(testContext, `SELECT CURRENT_USER(), entry FROM ledger`).Scan(&user, &entry))
+		assert.Equal(t, iamUser+"@%", user, "the session runs as the user the token names")
+		refused(iamUser, "Iam-Password-1")
+		refused(iamUser, "")
+		refused(appUser, token(appUser))
+		refused(restoreSourceUsername, token(restoreSourceUsername))
 	})
 }

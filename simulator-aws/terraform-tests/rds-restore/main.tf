@@ -11,6 +11,10 @@ variable "endpoint" {
   type = string
 }
 
+variable "mariadb_restore_time" {
+  type = string
+}
+
 provider "aws" {
   region                      = "us-east-1"
   access_key                  = "test"
@@ -64,4 +68,25 @@ output "rds_restored_instance_engine" {
 }
 output "rds_restored_instance_tags_env" {
   value = aws_db_instance.tf_rds_restored.tags["env"]
+}
+
+resource "aws_db_instance" "tf_rds_mariadb_point_in_time" {
+  identifier          = "tf-rds-mariadb-point-in-time"
+  instance_class      = "db.t3.micro"
+  skip_final_snapshot = true
+
+  restore_to_point_in_time {
+    source_db_instance_identifier = "tf-rds-mariadb-source"
+    restore_time                  = var.mariadb_restore_time
+  }
+}
+
+output "rds_mariadb_point_in_time_engine" {
+  value = aws_db_instance.tf_rds_mariadb_point_in_time.engine
+}
+output "rds_mariadb_point_in_time_address" {
+  value = aws_db_instance.tf_rds_mariadb_point_in_time.address
+}
+output "rds_mariadb_point_in_time_port" {
+  value = tostring(aws_db_instance.tf_rds_mariadb_point_in_time.port)
 }

@@ -101,17 +101,25 @@ type rdsAutomatedBackups struct {
 }
 
 // rdsKeepsLog reports whether engine keeps the log a restore to a time
-// replays: PostgreSQL's archived write-ahead log or MySQL's binary log.
+// replays: PostgreSQL's archived write-ahead log or the MySQL or MariaDB
+// binary log.
 func rdsKeepsLog(engine dbengine.Engine) bool {
-	return engine.Client == dbengine.Postgres16.Client || engine.Client == dbengine.MySQL80.Client
+	switch engine.Client {
+	case dbengine.Postgres16.Client, dbengine.MySQL80.Client, dbengine.MariaDB114.Client:
+		return true
+	}
+	return false
 }
 
 // rdsLoggingEngine is the engine an Aurora cluster or a DB instance runs,
-// keeping its log for restores to a time. PostgreSQL archives each completed
-// write-ahead log segment into the volume; the archive command runs in the
-// data directory, and refuses to overwrite a segment it archived already.
+// keeping its log for restores to a time; a MySQL-family engine also loads
+// AWSAuthenticationPlugin from its data volume. PostgreSQL archives each
+// completed write-ahead log segment into the volume; the archive command runs
+// in the data directory, and refuses to overwrite a segment it archived
+// already.
 // MySQL keeps its binary log until the backup retention period lets it go,
-// rather than for its own 30-day expiry.
+// rather than for its own 30-day expiry; MariaDB writes one only when told to,
+// into the same binlog.NNNNNN files.
 func rdsLoggingEngine(engineName string) (dbengine.Engine, bool) {
 	engine, ok := rdsEngine(engineName)
 	switch engine.Client {
@@ -120,7 +128,10 @@ func rdsLoggingEngine(engineName string) (dbengine.Engine, bool) {
 			"-c", "archive_mode=on",
 			"-c", "archive_command=mkdir -p "+rdsWALArchive+" && test ! -f "+rdsWALArchive+"/%f && cp %p "+rdsWALArchive+"/%f")
 	case dbengine.MySQL80.Client:
-		engine.Args = append(append([]string(nil), engine.Args...), "--binlog-expire-logs-seconds=0")
+		engine.Args = append(append(append([]string(nil), engine.Args...), "--binlog-expire-logs-seconds=0"), rdsPluginArgs(engine)...)
+	case dbengine.MariaDB114.Client:
+		engine.Args = append(append(append([]string(nil), engine.Args...), "--log-bin=binlog", "--binlog-expire-logs-seconds=0"),
+			rdsPluginArgs(engine)...)
 	}
 	return engine, ok
 }

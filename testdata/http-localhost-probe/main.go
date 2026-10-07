@@ -13,7 +13,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|after-sidecar|echo-request|log-request|metadata|teapot|cut-short [MESSAGE]")
+		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|after-sidecar|relay-local|echo-request|log-request|metadata|teapot|cut-short [MESSAGE]")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -63,6 +63,38 @@ func main() {
 				if time.Now().After(deadline) {
 					w.WriteHeader(http.StatusServiceUnavailable)
 					_, _ = io.WriteString(w, "sidecar-missing")
+					return
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		})
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "relay-local":
+		// Long-lived HTTP server on :8080 that relays GET /PORT/PATH to
+		// http://127.0.0.1:PORT/PATH and answers with its status and body,
+		// retrying for up to 10s while nothing listens on PORT yet.
+		http.HandleFunc("GET /{port}/{path...}", func(w http.ResponseWriter, r *http.Request) {
+			client := &http.Client{Timeout: 500 * time.Millisecond}
+			target := "http://127.0.0.1:" + r.PathValue("port") + "/" + r.PathValue("path")
+			deadline := time.Now().Add(10 * time.Second)
+			for {
+				resp, err := client.Get(target)
+				if err == nil {
+					body, readErr := io.ReadAll(resp.Body)
+					_ = resp.Body.Close()
+					if readErr != nil {
+						http.Error(w, readErr.Error(), http.StatusBadGateway)
+						return
+					}
+					w.WriteHeader(resp.StatusCode)
+					_, _ = w.Write(body)
+					return
+				}
+				if time.Now().After(deadline) {
+					http.Error(w, err.Error(), http.StatusBadGateway)
 					return
 				}
 				time.Sleep(100 * time.Millisecond)
