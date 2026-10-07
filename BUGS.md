@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 89.
+Open: 90.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -10,6 +10,7 @@ live in `WHAT_WE_DID.md`.
 
 | ID | Sev | Area | Symptom and cause | Fix shape — what closes it |
 |----|-----|------|-------------------|----------------------------|
+| 3403 | P3 | Cloud DNS outbound endpoints | Cloud DNS v1 revision 20261002 publishes `locations`, `operations` and `outboundEndpoints` (eleven methods). The simulator answers each with a declared 501, because no vendored source describes what an outbound endpoint forwards or how its long-running operations progress. | Serve the locations directory, outbound endpoints (create, get, list, patch, delete) and their operations once a source states their forwarding behaviour and operation lifecycle; test through the Go SDK, gcloud and the Google Terraform provider. |
 | 3369 | P2 | Amazon RDS blue/green deployments of Aurora DB clusters, green replication, and zero-ETL integrations | CreateBlueGreenDeployment answers SourceClusterNotSupportedFault for an Aurora DB cluster, which Amazon RDS deploys blue/green. A DB instance's green instance holds the blue instance's data as captured when the deployment was created and is not replicated continuously: its readers miss the blue instance's later writes until the switchover, which recaptures the blue volume, so a change made on the green instance does not survive the switchover. The green environment gets no counterparts of the blue instance's read replicas. CreateIntegration is `active` at once and replicates nothing. | Provision a green Aurora cluster and its members from the blue cluster volume and rename them on switchover; replicate the blue engine into the green one (MySQL binary log replication, PostgreSQL logical replication), which needs engine-to-engine networking in `sim/dbengine`; take an integration through creating to active and replicate the source into its target, or answer the operation as unsupported. |
 | 3398 | P3 | Amazon RDS engine versions | Every RDS for PostgreSQL instance runs PostgreSQL 16, every RDS for MySQL instance MySQL 8.0 and every RDS for MariaDB instance MariaDB 11.4, whatever EngineVersion the request or a blue/green deployment's TargetEngineVersion names: `rdsEngine` maps an engine name to one image. | Map each supported engine version to the engine image of that version, refuse versions the simulator has no image for, and run a major version upgrade through the engine's own upgrade tool. |
 | 3399 | P2 | Amazon RDS DB instance read replicas are records | CreateDBInstanceReadReplica stores an `available` instance with no master-user credential, so it gets no data plane: its endpoint serves nothing and it holds none of its source's data. SwitchoverReadReplica and PromoteReadReplica only rewrite the replica links. | Provision the replica from a capture of the source volume as a blue/green deployment's green instance is, serve it read-only, and replicate the source into it. |
