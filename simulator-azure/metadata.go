@@ -43,7 +43,7 @@ func registerMetadata(srv *sim.Server) {
 		}
 		baseURL := fmt.Sprintf("%s://%s", scheme, host)
 		storageSuffix := azureEndpointSuffix(azureStorageEndpointURL(r, "metadataacct", "blob"), "metadataacct", "blob")
-		keyVaultSuffix := azureEndpointSuffix(azureKeyVaultEndpointURL(r, "metadatavault"), "metadatavault", "vault")
+		keyVaultSuffix := keyVaultDNSSuffix(r)
 
 		env := map[string]any{
 			"name": "AzureCloud",
@@ -242,22 +242,28 @@ func azureCIDRAddressPrefix(cidr, defaultAddress, defaultPrefix string) (string,
 // simListenAddr is the listen address main() serves on.
 var simListenAddr string
 
-// hostMetadataEnv returns env vars to inject on every Azure workload
-// host so the Azure SDKs route metadata + identity reads to the sim.
-// Apply on every ACA / AZF / App Service workload host.
-func hostMetadataEnv() (map[string]string, error) {
+// hostMetadataEnv returns the platform environment of a workload: the
+// instance metadata endpoint, and for an App Service or Azure Functions app or
+// slot with a managed identity the IDENTITY_ENDPOINT and IDENTITY_HEADER its
+// code acquires the identity's tokens with. A workload with no identity gets
+// neither, as on App Service.
+func hostMetadataEnv(site *Site) (map[string]string, error) {
 	addr, err := workloadhost.CallbackAddr(simListenAddr)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]string{
-		// DefaultAzureCredential picks up these two for managed-identity
-		// token acquisition (App Service / Container Apps style).
-		"IDENTITY_ENDPOINT": "http://" + addr + "/msi/token",
-		"IDENTITY_HEADER":   "sim-identity-header",
-		// Azure SDK respects this for IMDS instance metadata routing.
+	env := map[string]string{
 		"AZURE_INSTANCE_METADATA_ENDPOINT": "http://" + addr + "/metadata/instance",
-	}, nil
+	}
+	if siteHasManagedIdentity(site) {
+		header, err := workloadIdentityHeader(site.ID)
+		if err != nil {
+			return nil, err
+		}
+		env["IDENTITY_ENDPOINT"] = "http://" + addr + "/msi/token"
+		env["IDENTITY_HEADER"] = header
+	}
+	return env, nil
 }
 
 // mustMetadataHeader enforces the header every instance-metadata read requires.

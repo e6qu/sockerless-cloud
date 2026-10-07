@@ -754,7 +754,7 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 		}
 	}
 
-	metadataEnv, err := hostMetadataEnv()
+	metadataEnv, err := hostMetadataEnv(nil)
 	if err != nil {
 		return err
 	}

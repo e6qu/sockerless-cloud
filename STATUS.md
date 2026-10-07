@@ -396,6 +396,21 @@ Current state of the sockerless-cloud repository.
   access policies or Azure RBAC role assignments grant it the secret; the
   workload sees the secret's value, an unresolved reference reaches it as
   written, and `configreferences` reports each reference's status and why.
+- **An app's code gets tokens for its own identities.** An App Service or
+  Azure Functions app or slot with a managed identity gets `IDENTITY_ENDPOINT`
+  and an `IDENTITY_HEADER` secret of its own; the endpoint answers a request
+  presenting that secret with a token for the app's system-assigned identity,
+  or for the user-assigned identity `client_id`, `principal_id`/`object_id` or
+  `mi_res_id` names, and refuses an identity the app does not have.
+- **The Key Vault data plane authorizes every request.** It verifies the bearer
+  token's signature, expiry, Key Vault audience and the vault tenant's issuer
+  (401 with the `Bearer authorization=…, resource=…` challenge otherwise),
+  applies `publicNetworkAccess` and the `networkAcls` IP and virtual network
+  rules (403 `ForbiddenByConnection` / `ForbiddenByFirewall`), and authorizes
+  each operation against the vault's access policies — compound identities and
+  nested group membership included — or, with `enableRbacAuthorization`, the
+  Azure RBAC data actions of the caller's role assignments at the object, the
+  vault or above (403 `AccessDenied` / `ForbiddenByRbac`).
 - **Source control deploys the repository.** Configuring `sourcecontrols/web`
   and each `WebApps_SyncRepository` fetch the branch's head over HTTP(S) and
   deploy its tree into wwwroot with KuduSync's semantics, recorded as a Kudu

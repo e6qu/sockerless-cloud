@@ -96,6 +96,7 @@ type KeyVaultProperties struct {
 	EnableRbacAuthorization      bool                   `json:"enableRbacAuthorization,omitempty"`
 	SoftDeleteRetentionInDays    int                    `json:"softDeleteRetentionInDays,omitempty"`
 	NetworkAcls                  *KeyVaultNetworkAcls   `json:"networkAcls,omitempty"`
+	PublicNetworkAccess          string                 `json:"publicNetworkAccess,omitempty"`
 	ProvisioningState            string                 `json:"provisioningState,omitempty"`
 }
 
@@ -104,13 +105,15 @@ type KeyVaultSku struct {
 	Name   string `json:"name"`
 }
 
-// KeyVaultAccessPolicy entries grant per-principal access — superseded
-// by RBAC when `EnableRbacAuthorization=true` but still accepted on
-// PUT for legacy callers.
+// KeyVaultAccessPolicy grants an object in the vault's tenant data-plane
+// permissions; a vault with enableRbacAuthorization ignores its policies. An
+// applicationId makes the policy a compound identity's: it applies only to
+// tokens that application obtained on the object's behalf.
 type KeyVaultAccessPolicy struct {
-	TenantID    string              `json:"tenantId"`
-	ObjectID    string              `json:"objectId"`
-	Permissions KeyVaultPermissions `json:"permissions"`
+	TenantID      string              `json:"tenantId"`
+	ObjectID      string              `json:"objectId"`
+	ApplicationID string              `json:"applicationId,omitempty"`
+	Permissions   KeyVaultPermissions `json:"permissions"`
 }
 
 // KeyVaultPermissions lists per-policy verbs.
@@ -313,6 +316,9 @@ func registerKeyVault(srv *sim.Server) {
 		if req.Properties.SoftDeleteRetentionInDays == 0 {
 			req.Properties.SoftDeleteRetentionInDays = 90
 		}
+		if req.Properties.PublicNetworkAccess == "" {
+			req.Properties.PublicNetworkAccess = "Enabled"
+		}
 		req.Properties.VaultURI = azureKeyVaultEndpointURL(r, name)
 		req.Properties.ProvisioningState = "Succeeded"
 
@@ -354,6 +360,7 @@ func registerKeyVault(srv *sim.Server) {
 				EnablePurgeProtection        *bool                   `json:"enablePurgeProtection,omitempty"`
 				EnableRbacAuthorization      *bool                   `json:"enableRbacAuthorization,omitempty"`
 				NetworkAcls                  *KeyVaultNetworkAcls    `json:"networkAcls,omitempty"`
+				PublicNetworkAccess          *string                 `json:"publicNetworkAccess,omitempty"`
 			} `json:"properties,omitempty"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
@@ -393,6 +400,9 @@ func registerKeyVault(srv *sim.Server) {
 		}
 		if req.Properties.NetworkAcls != nil {
 			v.Properties.NetworkAcls = req.Properties.NetworkAcls
+		}
+		if req.Properties.PublicNetworkAccess != nil {
+			v.Properties.PublicNetworkAccess = *req.Properties.PublicNetworkAccess
 		}
 		v.Properties.VaultURI = azureKeyVaultEndpointURL(r, name)
 		v.Properties.ProvisioningState = "Succeeded"
@@ -642,50 +652,20 @@ func registerKeyVault(srv *sim.Server) {
 	srv.HandleFunc("GET "+vaultBase+"/{name}/privateEndpointConnections", handleKeyVaultPECList)
 	srv.HandleFunc("GET "+vaultBase+"/{name}/privateLinkResources", handleKeyVaultPrivateLinkResources)
 
-	// Data plane — subdomain routing via WrapHandler. Host pattern:
-	// `<vault>.vault.<sim-host>:<port>`. Strip the suffix to identify
-	// the vault and route to the right handler.
-	//
-	// Requests without an `Authorization` header receive a 401 +
-	// `WWW-Authenticate: Bearer` challenge so the Azure SDK's KV
-	// clients (azsecrets/azkeys/azcertificates) can complete their
-	// challenge-then-retry token-acquisition flow. Real KV is
-	// HTTPS-only and the SDK refuses to attach the token until it
-	// has read the challenge; the sim trusts any Bearer token
-	// thereafter (validation is real-AAD's job).
+	// The data plane answers on `<vault>.vault.<suffix>`: the Host header names
+	// the vault, and every request is authenticated and authorized against it
+	// before a handler runs.
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			host := r.Host
-			hostname := host
+			hostname := r.Host
 			if i := strings.LastIndex(hostname, ":"); i >= 0 {
 				hostname = hostname[:i]
 			}
-			// Match "<vault>.vault." prefix — works for both
-			// localhost (sim) and vault.azure.net (real cloud) suffixes.
 			parts := strings.SplitN(hostname, ".vault.", 2)
 			if len(parts) == 2 {
-				if r.Header.Get("Authorization") == "" {
-					// `authorization` must be a URL whose `/`-split
-					// yields ≥ 4 segments — every official Azure SDK
-					// (Go / .NET / Python / Java) extracts the tenant
-					// via `parts[3]` on this URL, with no bounds
-					// check. Real KV emits
-					// `https://login.microsoftonline.com/<tenant>`;
-					// for the sim we substitute the zero-UUID tenant
-					// (the SDK only needs *some* extractable string
-					// at `parts[3]` — it then asks its own configured
-					// credential provider for a token, not the sim).
-					// `resource` is the canonical KV audience URI; the
-					// SDK does a host-suffix match against the request
-					// host, so it must remain `https://vault.azure.net`.
-					const kvChallengeTenant = "00000000-0000-0000-0000-000000000000"
-					w.Header().Set("WWW-Authenticate", fmt.Sprintf(
-						`Bearer authorization="http://%s/%s", resource="https://vault.azure.net"`,
-						r.Host, kvChallengeTenant))
-					w.WriteHeader(http.StatusUnauthorized)
-					return
+				if keyVaultAuthorizeDataPlane(w, r, parts[0]) {
+					handleKeyVaultDataPlane(w, r, parts[0])
 				}
-				handleKeyVaultDataPlane(w, r, parts[0])
 				return
 			}
 			next.ServeHTTP(w, r)

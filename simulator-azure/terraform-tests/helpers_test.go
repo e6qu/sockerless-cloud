@@ -132,8 +132,11 @@ func TestMain(m *testing.M) {
 	caCertFile = filepath.Join(gatewayDir, "data", "caddy", "pki", "authorities", "local", "root.crt")
 
 	simCmd = exec.Command(binaryPath)
+	// Workloads call back into the simulator at the container runtime's host
+	// address — an app's IDENTITY_ENDPOINT and instance metadata endpoint — so
+	// it listens on every interface, as the SDK and CLI suites' simulators do.
 	simCmd.Env = append(os.Environ(),
-		fmt.Sprintf("SIM_LISTEN_ADDR=127.0.0.1:%d", simPort),
+		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", simPort),
 		"SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON="+azureGatewayDataPlaneEndpoints(gatewayPort),
 	)
 	simCmd.Stdout = os.Stdout

@@ -27,12 +27,13 @@ import (
 // `<vault>.vault.<suffix>` coordinate a client reaches on Azure — while the
 // request is addressed to the simulator's own certificate name, because
 // `*.vault.localhost` resolves nowhere on macOS and the certificate names only
-// the simulator's host.
+// the simulator's host. az acquires the token for the Key Vault resource.
 func kvMoveDataPlane(env azLoginEnv, vault, method, path, body string) *exec.Cmd {
 	hostPort := strings.TrimPrefix(env.baseURL, "https://")
 	args := []string{
 		"rest", "--method", method,
 		"--url", env.baseURL + path + "?api-version=7.4",
+		"--resource", "https://vault.azure.net",
 		"--headers", "Host=" + vault + ".vault." + hostPort,
 		"--output", "json",
 	}
@@ -40,6 +41,21 @@ func kvMoveDataPlane(env azLoginEnv, vault, method, path, body string) *exec.Cmd
 		args = append(args, "--body", body)
 	}
 	return env.command(args...)
+}
+
+// kvGrantCaller assigns the logged-in service principal a role at scope, the
+// way an operator grants itself data-plane access to a vault that uses Azure
+// RBAC.
+func kvGrantCaller(t *testing.T, command func(...string) *exec.Cmd, role, scope string) {
+	t.Helper()
+	var sp struct {
+		ID string `json:"id"`
+	}
+	parseJSON(t, runCLI(t, command("ad", "sp", "show", "--id", "test-client-id", "-o", "json")), &sp)
+	require.NotEmpty(t, sp.ID)
+	runCLI(t, command("role", "assignment", "create", "--role", role,
+		"--assignee-object-id", sp.ID, "--assignee-principal-type", "ServicePrincipal",
+		"--scope", scope, "-o", "json"))
 }
 
 // kvMoveVaultListed reports whether `az keyvault list -g <rg>` — the
@@ -93,6 +109,11 @@ func TestResourceMoveKeyVaultCLI(t *testing.T) {
 	}
 	parseJSON(t, runCLI(t, env.command("keyvault", "show", "-g", srcRG, "-n", vault, "-o", "json")), &before)
 	require.NotEmpty(t, before.Properties.VaultURI)
+	// A role assignment at the vault's own scope does not move with it, so the
+	// destination group carries one too.
+	kvGrantCaller(t, env.command, "Key Vault Secrets Officer", before.ID)
+	kvGrantCaller(t, env.command, "Key Vault Secrets Officer",
+		fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", subscriptionID, dstRG))
 
 	// Real secret material written through the vault's own data plane before
 	// the move.

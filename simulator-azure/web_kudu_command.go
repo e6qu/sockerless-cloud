@@ -109,7 +109,7 @@ func kuduCommand(w http.ResponseWriter, r *http.Request, site *Site) {
 		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	metadataEnv, err := hostMetadataEnv()
+	metadataEnv, err := hostMetadataEnv(site)
 	if err != nil {
 		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 		return

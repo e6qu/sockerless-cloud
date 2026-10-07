@@ -331,7 +331,7 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 	if args := extraEnv["WEBJOBS_COMMAND_ARGUMENTS"]; args != "" {
 		runInvocation += " " + args
 	}
-	metadataEnv, err := hostMetadataEnv()
+	metadataEnv, err := hostMetadataEnv(site)
 	if err != nil {
 		return nil, err
 	}

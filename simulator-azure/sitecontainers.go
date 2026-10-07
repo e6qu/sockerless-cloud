@@ -203,7 +203,7 @@ func startSidecarContainers(ctx context.Context, site *Site, mainContainerID str
 	if len(sidecars) == 0 {
 		return nil, nil
 	}
-	metadataEnv, err := hostMetadataEnv()
+	metadataEnv, err := hostMetadataEnv(site)
 	if err != nil {
 		return nil, fmt.Errorf("sidecars: resolve the metadata endpoint: %w", err)
 	}

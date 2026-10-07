@@ -712,7 +712,7 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl
 	for _, v := range tmpl.Volumes {
 		volByName[v.Name] = v
 	}
-	metadataEnv, err := hostMetadataEnv()
+	metadataEnv, err := hostMetadataEnv(nil)
 	if err != nil {
 		return nil, err
 	}

@@ -12,12 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMSI_TokenEndpoint pins the IMDS-style metadata service. Real
-// Azure exposes managed-identity tokens via two paths
-// (`/metadata/identity/oauth2/token` for VMs, `/msi/token` via
-// IDENTITY_ENDPOINT for App Service / Container Apps); both must
-// return the standard token-payload shape so DefaultAzureCredential
-// (Azure SDK + every SDK that wraps it) can mint tokens.
+// TestMSI_TokenEndpoint_VMShape pins the instance metadata service's token
+// endpoint, which answers the standard token payload DefaultAzureCredential
+// reads.
 func TestMSI_TokenEndpoint_VMShape(t *testing.T) {
 	resp, err := http.Get(baseURL + "/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fmanagement.azure.com%2F")
 	require.NoError(t, err)
@@ -55,20 +52,6 @@ func decodeJWTClaims(t *testing.T, token string) map[string]any {
 	var claims map[string]any
 	require.NoError(t, json.Unmarshal(payloadJSON, &claims))
 	return claims
-}
-
-func TestMSI_TokenEndpoint_AppServiceShape(t *testing.T) {
-	resp, err := http.Get(baseURL + "/msi/token?api-version=2019-08-01&resource=https%3A%2F%2Fstorage.azure.com%2F")
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	body, _ := io.ReadAll(resp.Body)
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(body, &payload))
-
-	assert.NotEmpty(t, payload["access_token"])
-	assert.Equal(t, "https://storage.azure.com/", payload["resource"])
 }
 
 func TestMSI_TokenEndpoint_RejectsMissingResource(t *testing.T) {

@@ -2401,6 +2401,70 @@ pairs) keep their one tag set, the IAM gate reads `aws:ResourceTag/<k>` from
 it, and the trio refuses their ARNs, since the Service Reference lists neither
 type for TagResource, UntagResource or ListTagsForResource.
 
+The Azure Key Vault data plane had answered any request that carried a bearer
+of any kind. It now authenticates and authorizes each one the way Key Vault
+does, in Key Vault's order. The token must be one the simulator signed and
+unexpired, issued for Key Vault (`https://vault.azure.net`, its application ID,
+or `https://<keyVaultDns>` for the cloud `/metadata/endpoints` describes, the
+audience a custom-cloud client such as Terraform's acquires) by the vault's own
+tenant (`sts.windows.net/{tenant}/` or `login.microsoftonline.com/{tenant}/v2.0`);
+a request without one, or with another, gets 401 `Unauthorized` with the
+`Bearer authorization="<authority>/<vault tenant>", resource="https://vault.azure.net"`
+challenge clients start their token acquisition from, and the documented
+`AKV10000`, `AKV10022` and `AKV10032` messages. The network rules come next:
+`publicNetworkAccess: Disabled` refuses with 403 `ForbiddenByConnection`, and a
+`Deny` default action admits only a client address an IP rule names or one in
+a subnet a virtual network rule names, refusing with `ForbiddenByFirewall` and
+the address it saw. Last, `kvDataPlaneOperation` maps each route to the
+permission its REST reference documents — an access-policy permission in the
+keys, secrets or certificates category and the Azure RBAC data action — and
+`keyVaultGrants` decides it under the vault's model: role assignments matched
+through the shared `dataActions`/`notDataActions` matcher at the object, the
+vault or a scope above when `enableRbacAuthorization` is set, access policies
+in the vault's tenant otherwise, a compound identity's only for tokens its
+application obtained. Either may name a group the caller belongs to, directly
+or through nested groups. A refusal is 403 `Forbidden` with Key Vault's
+`AccessDenied` or `ForbiddenByRbac` inner code and a message naming the caller
+as `appid=…;oid=…;iss=…`. App Service's Key Vault reference resolution goes
+through the same decision. The Key Vault Crypto Officer, Crypto User,
+Certificates Officer and Certificate User built-in roles joined the four Key
+Vault roles the simulator served.
+
+Every test that wrote to a vault had relied on any token working. Each now
+grants itself access the way an operator does: an access policy naming the
+object ID its own token carries (`data.azurerm_client_config.current` in
+Terraform, `az keyvault create`'s creator policy, `az keyvault set-policy`), or
+a role assignment (`az role assignment create`) on a vault that uses Azure
+RBAC. A role assignment at a vault's own scope does not move with the vault,
+so the move tests grant at the destination group as well. That exposed three
+gaps the Azure CLI reaches on the way: Microsoft Graph's `GET /me`, which
+answers an app-only token's caller 400 "/me request is only valid with
+delegated authentication flow." (so `az keyvault create` falls back to looking
+the service principal up); the OData `any`/`all` lambda, which
+`servicePrincipalNames/any(c:c eq '<appId>')` needs; and a service principal's
+`servicePrincipalNames`, which hold its appId. An AD FS authority
+(`<host>/adfs`, the shape the CLI's custom-cloud login uses) issues its tokens
+for the simulator's tenant, the tenant its subscriptions report, so a vault
+`az keyvault create` makes accepts them. `keyVaultDns` in `/metadata/endpoints`
+became `vault.<suffix>`, as `vault.azure.net` carries the label.
+
+An App Service app's code had acquired tokens through `IDENTITY_ENDPOINT` as
+one simulator-wide identity, presenting a header every workload shared. An app
+or slot with a managed identity now gets its own `IDENTITY_HEADER` secret,
+issued on first start and bound to the app's resource ID, and the endpoint
+(`GET /msi/token`, api-version 2019-08-01) authenticates the request by it and
+mints the app's system-assigned identity's token — `oid` its principal,
+`appid` its client ID, `xms_mirid` the app's resource ID — or the token of the
+user-assigned identity `client_id`, `principal_id`, `object_id` or `mi_res_id`
+selects among the app's own, refusing one the app does not have with App
+Service's 400 "Unable to load the proper Managed Identity.". An app without an
+identity gets neither variable, as on App Service. The instance metadata
+service's token endpoint is a separate handler that keeps its own behaviour.
+`container-command files-http` relays `GET /identity-token` to the endpoint, so
+the tests ask for a token the way app code does; the Terraform harness's
+simulator listens on every interface, as the SDK and CLI suites' do, so an app
+reaches it.
+
 Google Cloud's `testIamPermissions` answers from the stored policy resolved
 through the vendored curated roles and the held custom roles. A conditional
 binding grants its role only while its condition holds: the simulator compiles

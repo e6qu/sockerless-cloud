@@ -19,9 +19,6 @@ package azure_sdk_test
 // BeginAcceptOwnership returns.
 
 import (
-	"encoding/base64"
-	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -30,27 +27,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// simCallerObjectID is the object id of the principal the SDK tests
-// authenticate as, read from the access token the simulator minted for them.
-// The tenant policy's exemptedPrincipals names object ids, so a test that
-// exempts "the caller" has to know which principal that is — the same way a
-// real administrator reads it off the identity they are granting.
-func simCallerObjectID(t *testing.T) string {
-	t.Helper()
-	token, _, err := fetchSimAccessToken("https://management.azure.com/.default")
-	require.NoError(t, err)
-	parts := strings.Split(token, ".")
-	require.Len(t, parts, 3, "an access token is a three-part JWT")
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	require.NoError(t, err)
-	var claims struct {
-		OID string `json:"oid"`
-	}
-	require.NoError(t, json.Unmarshal(payload, &claims))
-	require.NotEmpty(t, claims.OID, "the access token must name the principal it was issued to")
-	return claims.OID
-}
 
 // resetTenantPolicy restores the permissive tenant policy. Every test that
 // tightens the policy registers this so the tenant it shares with the rest of
@@ -202,7 +178,7 @@ func TestSubscriptionTenantPolicyLifecycle(t *testing.T) {
 	policyID := *initial.Properties.PolicyID
 	assert.NotEmpty(t, policyID)
 
-	exempted := simCallerObjectID(t)
+	exempted := simCallerObjectID
 	updated, err := policyClient.AddUpdatePolicyForTenant(ctx, armsubscription.PutTenantPolicyRequestProperties{
 		BlockSubscriptionsLeavingTenant: to.Ptr(true),
 		BlockSubscriptionsIntoTenant:    to.Ptr(true),
@@ -278,7 +254,7 @@ func TestSubscriptionPolicyBlocksTenantTransfer(t *testing.T) {
 
 	_, err = policyClient.AddUpdatePolicyForTenant(ctx, armsubscription.PutTenantPolicyRequestProperties{
 		BlockSubscriptionsLeavingTenant: to.Ptr(true),
-		ExemptedPrincipals:              []*string{to.Ptr(simCallerObjectID(t))},
+		ExemptedPrincipals:              []*string{to.Ptr(simCallerObjectID)},
 	}, nil)
 	require.NoError(t, err)
 

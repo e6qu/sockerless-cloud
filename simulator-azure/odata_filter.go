@@ -40,6 +40,10 @@ func azureApplyListQuery[T any](items []T, r *http.Request) ([]T, error) {
 }
 
 func odataCmp(field, op, value string) listq.Node {
+	return listq.Cmp{Path: field, Sep: "/", Test: odataTest(op, value)}
+}
+
+func odataTest(op, value string) listq.Test {
 	var test listq.Test
 	switch op {
 	case "eq":
@@ -55,7 +59,42 @@ func odataCmp(field, op, value string) listq.Node {
 	case "le":
 		test = func(v string, present bool) bool { return present && listq.CompareOrdered(v, value) <= 0 }
 	}
-	return listq.Cmp{Path: field, Sep: "/", Test: test}
+	return test
+}
+
+// odataLambda is an any or all lambda over the collection at Path: each
+// element, or the member Sub of each element, is compared with Test.
+type odataLambda struct {
+	Path, Sub string
+	All       bool
+	Test      listq.Test
+}
+
+func (n odataLambda) Eval(d listq.Doc) bool {
+	v, ok := listq.Lookup(d, n.Path, "/")
+	if !ok {
+		return n.All
+	}
+	items, _ := v.([]any)
+	for _, item := range items {
+		value, present := item, true
+		if n.Sub != "" {
+			m, isObject := item.(map[string]any)
+			if isObject {
+				value, present = listq.Lookup(m, n.Sub, "/")
+			} else {
+				present = false
+			}
+		}
+		matched := n.Test(listq.ScalarString(value), present)
+		if matched && !n.All {
+			return true
+		}
+		if !matched && n.All {
+			return false
+		}
+	}
+	return n.All
 }
 
 func odataFunc(name, field, value string) listq.Node {
@@ -324,6 +363,11 @@ func (p *odataParser) parseTerm() listq.Node {
 		return listq.True{}
 	}
 	field := p.next().text
+	if p.peek().kind == odataLParen {
+		if i := strings.LastIndex(field, "/"); i > 0 && odataIsLambda(field[i+1:]) {
+			return p.parseLambda(field[:i], strings.EqualFold(field[i+1:], "all"))
+		}
+	}
 	if p.peek().kind != odataWord {
 		p.fail("Invalid syntax in $filter: expected a comparison operator after %q", field)
 		return listq.True{}
@@ -339,6 +383,50 @@ func (p *odataParser) parseTerm() listq.Node {
 	}
 	value := p.next().text
 	return odataCmp(field, op, value)
+}
+
+func odataIsLambda(word string) bool {
+	return strings.EqualFold(word, "any") || strings.EqualFold(word, "all")
+}
+
+// parseLambda parses the body of collection/any(x:x op value) or
+// collection/all(x:x/member op value).
+func (p *odataParser) parseLambda(collection string, all bool) listq.Node {
+	p.next()
+	if p.peek().kind != odataWord {
+		p.fail("Invalid syntax in $filter: expected a lambda variable after '('")
+		return listq.True{}
+	}
+	variable, operand, ok := strings.Cut(p.next().text, ":")
+	if !ok || variable == "" {
+		p.fail("Invalid syntax in $filter: a lambda must read variable:expression")
+		return listq.True{}
+	}
+	sub := ""
+	if operand != variable {
+		rest, found := strings.CutPrefix(operand, variable+"/")
+		if !found {
+			p.fail("Invalid syntax in $filter: the lambda expression must use its variable %q", variable)
+			return listq.True{}
+		}
+		sub = rest
+	}
+	if p.peek().kind != odataWord || !odataIsComparisonOp(strings.ToLower(p.peek().text)) {
+		p.fail("Invalid syntax in $filter: expected a comparison operator in the lambda")
+		return listq.True{}
+	}
+	op := strings.ToLower(p.next().text)
+	if p.peek().kind != odataString && p.peek().kind != odataWord {
+		p.fail("Invalid syntax in $filter: expected a value in the lambda")
+		return listq.True{}
+	}
+	value := p.next().text
+	if p.peek().kind != odataRParen {
+		p.fail("Invalid syntax in $filter: missing ')' after the lambda")
+		return listq.True{}
+	}
+	p.next()
+	return odataLambda{Path: collection, Sub: sub, All: all, Test: odataTest(op, value)}
 }
 
 // odataIsComparisonOp reports whether op is one of the OData scalar comparison

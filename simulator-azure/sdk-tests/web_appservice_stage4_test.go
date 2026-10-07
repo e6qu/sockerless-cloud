@@ -202,17 +202,22 @@ func TestSDK_WebCertificates_PfxLifecycle(t *testing.T) {
 
 // stage4CreateVault creates a Key Vault through the ARM control plane,
 // optionally granting an access policy with the secret verbs App Service
-// needs to pull certificate material.
+// needs to pull certificate material, and one letting the test's own
+// principal write the secret.
 func stage4CreateVault(t *testing.T, rg, vault string, secretPerms []string) string {
 	t.Helper()
 	props := map[string]any{
-		"tenantId": "00000000-0000-0000-0000-000000000000",
+		"tenantId": simTenantID,
 	}
 	if len(secretPerms) > 0 {
 		props["accessPolicies"] = []map[string]any{{
-			"tenantId":    "00000000-0000-0000-0000-000000000000",
+			"tenantId":    simTenantID,
 			"objectId":    "11111111-2222-3333-4444-555555555555",
 			"permissions": map[string]any{"secrets": secretPerms},
+		}, {
+			"tenantId":    simTenantID,
+			"objectId":    simCallerObjectID,
+			"permissions": map[string]any{"secrets": []string{"set"}},
 		}}
 	}
 	body, _ := json.Marshal(map[string]any{"location": "eastus", "properties": props})
@@ -237,7 +242,7 @@ func stage4SetVaultSecret(t *testing.T, vault, name, value string) {
 	u := baseURL + "/secrets/" + name + "?api-version=7.4"
 	req, _ := http.NewRequestWithContext(ctx, "PUT", u, bytes.NewReader(body))
 	req.Host = vault + ".vault." + strings.TrimPrefix(baseURL, "http://")
-	req.Header.Set("Authorization", simARMBearer)
+	req.Header.Set("Authorization", simKVBearer)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

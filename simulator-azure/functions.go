@@ -1409,7 +1409,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	if err != nil {
 		return err
 	}
-	metadataEnv, err := hostMetadataEnv()
+	metadataEnv, err := hostMetadataEnv(site)
 	if err != nil {
 		return err
 	}

@@ -224,17 +224,8 @@ func registerManagedIdentity(srv *sim.Server) {
 	srv.HandleFunc("GET /providers/Microsoft.ManagedIdentity/operations", handleManagedIdentityOperations)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.ManagedIdentity/identities/default", handleSystemAssignedIdentityGetByScope)
 
-	// IMDS metadata token endpoint. Real Azure exposes managed-identity
-	// access tokens via two equivalent paths:
-	//   - VMs: http://169.254.169.254/metadata/identity/oauth2/token
-	//   - App Service / Container Apps: $IDENTITY_ENDPOINT (e.g.
-	//     http://localhost:42356/msi/token), with $IDENTITY_HEADER as a
-	//     simple shared-secret to gate the call.
-	// Any Azure SDK that relies on DefaultAzureCredential /
-	// ChainedTokenCredential reaches this endpoint to mint scoped tokens. A
-	// client points its managed containers at
-	// <sim-base>/metadata/identity/oauth2/token by setting
-	// IDENTITY_ENDPOINT in the function/app env.
+	// The instance metadata service's token endpoint, which a virtual
+	// machine reaches at http://169.254.169.254/metadata/identity/oauth2/token.
 	tokenHandler := func(w http.ResponseWriter, r *http.Request) {
 		resource := r.URL.Query().Get("resource")
 		if resource == "" {
@@ -287,9 +278,6 @@ func registerManagedIdentity(srv *sim.Server) {
 		})
 	}
 	srv.HandleFunc("GET /metadata/identity/oauth2/token", tokenHandler)
-	// App-Service-style endpoint that container apps inject as
-	// IDENTITY_ENDPOINT — same payload, different path.
-	srv.HandleFunc("GET /msi/token", tokenHandler)
 
 	// DELETE - Delete managed identity
 	srv.HandleFunc("DELETE "+armBase+"/userAssignedIdentities/{identityName}", func(w http.ResponseWriter, r *http.Request) {

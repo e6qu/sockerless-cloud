@@ -84,6 +84,7 @@ func TestWebAppKeyVaultReferences_ResolveThroughTheAppIdentity(t *testing.T) {
 	}
 	parseJSON(t, runCLI(t, az.command("keyvault", "create", "-n", vault, "-g", rg, "-l", "eastus",
 		"--sku", "standard", "--enable-rbac-authorization", "true", "--no-self-perms", "-o", "json")), &created)
+	kvGrantCaller(t, az.command, "Key Vault Secrets Officer", created.ID)
 	runCLI(t, kvMoveDataPlane(az.azLoginEnv, vault, "PUT", "/secrets/db-password", `{"value":"hunter2"}`))
 	runCLI(t, az.command("role", "assignment", "create", "--role", "Key Vault Secrets User",
 		"--assignee-object-id", identity.PrincipalID, "--assignee-principal-type", "ServicePrincipal",

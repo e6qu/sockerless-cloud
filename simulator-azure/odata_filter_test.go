@@ -7,15 +7,21 @@ import (
 )
 
 type odItem struct {
-	Name  string `json:"name"`
-	State string `json:"state"`
-	Tier  int    `json:"tier"`
+	Name  string   `json:"name"`
+	State string   `json:"state"`
+	Tier  int      `json:"tier"`
+	Tags  []string `json:"tags,omitempty"`
+	Ports []odPort `json:"ports,omitempty"`
+}
+
+type odPort struct {
+	Number int `json:"number"`
 }
 
 func TestAzureODataFilter(t *testing.T) {
 	items := []odItem{
-		{Name: "alpha", State: "ACTIVE", Tier: 1},
-		{Name: "beta", State: "STOPPED", Tier: 3},
+		{Name: "alpha", State: "ACTIVE", Tier: 1, Tags: []string{"web", "prod"}, Ports: []odPort{{80}, {443}}},
+		{Name: "beta", State: "STOPPED", Tier: 3, Tags: []string{"batch"}, Ports: []odPort{{443}}},
 		{Name: "alefel", State: "ACTIVE", Tier: 2},
 	}
 	apply := func(filter string) []odItem {
@@ -43,6 +49,11 @@ func TestAzureODataFilter(t *testing.T) {
 		{"contains(name, 'lef')", 1},
 		{"not (state eq 'ACTIVE')", 1},
 		{"substringof('eta', name)", 1},
+		{"tags/any(t:t eq 'prod')", 1},
+		{"tags/any(t:t ne 'batch')", 1},
+		{"ports/any(p:p/number eq 443)", 2},
+		{"ports/all(p:p/number eq 443)", 2}, // beta, and alefel with no ports
+		{"state eq 'ACTIVE' and tags/any(t:t eq 'web')", 1},
 	}
 	for _, tc := range cases {
 		if got := apply(tc.filter); len(got) != tc.want {
@@ -76,13 +87,15 @@ func TestAzureODataFilterMalformed(t *testing.T) {
 		{Name: "beta", State: "STOPPED", Tier: 3},
 	}
 	bad := []string{
-		"name eq",             // missing value
-		"name",                // missing operator + value
-		"name foo 'x'",        // unknown operator
-		"startswith(name",     // truncated function
-		"((name eq 'alpha'",   // unbalanced parens
-		"contains('x')",       // missing function field arg
-		"and name eq 'alpha'", // leading binary operator
+		"name eq",              // missing value
+		"name",                 // missing operator + value
+		"name foo 'x'",         // unknown operator
+		"startswith(name",      // truncated function
+		"((name eq 'alpha'",    // unbalanced parens
+		"contains('x')",        // missing function field arg
+		"and name eq 'alpha'",  // leading binary operator
+		"tags/any(t eq 'x')",   // lambda without a variable
+		"tags/any(t:u eq 'x')", // lambda expression not using its variable
 	}
 	for _, f := range bad {
 		q := url.Values{"$filter": {f}}

@@ -110,8 +110,7 @@ func webResolveKVRef(site *Site, raw string) (map[string]any, string, bool) {
 		props["details"] = webKVRefDetailMSINotEnabled
 		return props, "", false
 	}
-	vault, found := keyVaultsByName.Lookup(keyVaults, strings.ToLower(ref.VaultName),
-		func(v KeyVault) []string { return []string{strings.ToLower(v.Name)} })
+	vault, found := keyVaultByName(ref.VaultName)
 	if !found {
 		props["status"] = "VaultNotFound"
 		props["details"] = fmt.Sprintf("Key Vault reference was not able to be resolved because vault '%s' could not be found.", ref.VaultName)
@@ -148,10 +147,6 @@ func webResolveKVRef(site *Site, raw string) (map[string]any, string, bool) {
 	props["activeVersion"] = version.Version
 	return props, version.Value, true
 }
-
-// keyVaultsByName finds a vault by its globally unique name on every
-// reference a workload resolves.
-var keyVaultsByName sim.GenerationIndex[KeyVault]
 
 // webKVRefPrincipal is the principal a site reaches Key Vault as, and the
 // ManagedServiceIdentity a reference status reports: the site's
