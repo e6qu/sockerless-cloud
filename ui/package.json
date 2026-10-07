@@ -7,7 +7,7 @@
   ],
   "devDependencies": {
     "jscpd": "5.4.0",
-    "turbo": "^2.11.6",
+    "turbo": "^2.11.7",
     "typescript": "^7.0.2"
   }
 }

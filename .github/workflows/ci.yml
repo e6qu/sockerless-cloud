@@ -1474,7 +1474,7 @@ jobs:
       - name: Install Bun
         uses: ./.github/actions/install-bun
       - name: Install deadcode
-        run: go install golang.org/x/tools/cmd/deadcode@v0.50.0
+        run: go install golang.org/x/tools/cmd/deadcode@v0.51.0
       - name: Install dupl
         run: go install github.com/mibk/dupl@v1.1.0
       - name: Install UI deps
