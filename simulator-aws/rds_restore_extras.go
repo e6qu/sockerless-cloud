@@ -13,7 +13,7 @@ import (
 // registerRDSRestoreExtras mounts the second tranche of Amazon RDS
 // (Aurora) control-plane operations on top of the core slice in
 // rds.go: point-in-time / S3 restores, reserved instances, blue/green
-// deployments, zero-ETL integrations, tenant databases, Aurora
+// deployments (rds_blue_green.go), zero-ETL integrations, tenant databases, Aurora
 // Limitless shard groups, database activity streams, Aurora backtrack,
 // snapshot-export tasks, and the remaining cluster / snapshot-attribute
 // / static-describe operations.
@@ -139,23 +139,6 @@ type RDSReservedInstance struct {
 	CurrencyCode                  string
 	StartTime                     string
 	ARN                           string
-}
-
-// RDSBlueGreenDeployment models a blue/green deployment: a named pair
-// binding a source (blue) DB cluster/instance ARN to a freshly created
-// green replica. Switchover swaps the Source/Target roles.
-type RDSBlueGreenDeployment struct {
-	BlueGreenDeploymentIdentifier string
-	BlueGreenDeploymentName       string
-	Source                        string
-	Target                        string
-	Status                        string // PROVISIONING | AVAILABLE | SWITCHOVER_COMPLETED | DELETING
-	CreateTime                    string
-	Tags                          map[string]string
-}
-
-func rdsBlueGreenDeploymentARN(id string) string {
-	return fmt.Sprintf("arn:aws:rds:%s:%s:deployment:%s", awsRegion(), awsAccountID(), id)
 }
 
 // RDSIntegration models a zero-ETL integration linking a source DB
@@ -741,112 +724,6 @@ func handleRDSPurchaseReservedInstancesOffering(w http.ResponseWriter, r *http.R
 	}
 	rdsReservedInstances.Put(resID, ri)
 	rdsXMLResponse(w, "PurchaseReservedDBInstancesOffering", renderRDSReservedInstance(ri), sim.RequestID(r.Context()))
-}
-
-// Blue/green deployments
-
-func renderRDSBlueGreenDeployment(d RDSBlueGreenDeployment) string {
-	var b strings.Builder
-	b.WriteString("<BlueGreenDeployment>")
-	fmt.Fprintf(&b, "<BlueGreenDeploymentIdentifier>%s</BlueGreenDeploymentIdentifier>", xmlEscape(d.BlueGreenDeploymentIdentifier))
-	fmt.Fprintf(&b, "<BlueGreenDeploymentName>%s</BlueGreenDeploymentName>", xmlEscape(d.BlueGreenDeploymentName))
-	fmt.Fprintf(&b, "<Source>%s</Source>", xmlEscape(d.Source))
-	fmt.Fprintf(&b, "<Target>%s</Target>", xmlEscape(d.Target))
-	fmt.Fprintf(&b, "<Status>%s</Status>", xmlEscape(d.Status))
-	fmt.Fprintf(&b, "<CreateTime>%s</CreateTime>", xmlEscape(d.CreateTime))
-	// SwitchoverDetails members serialize as <member> (no xmlName in the
-	// spec's SwitchoverDetailList).
-	b.WriteString("<SwitchoverDetails><member>")
-	fmt.Fprintf(&b, "<SourceMember>%s</SourceMember>", xmlEscape(d.Source))
-	fmt.Fprintf(&b, "<TargetMember>%s</TargetMember>", xmlEscape(d.Target))
-	if d.Status == "SWITCHOVER_COMPLETED" {
-		b.WriteString("<Status>SWITCHOVER_COMPLETED</Status>")
-	} else {
-		b.WriteString("<Status>AVAILABLE</Status>")
-	}
-	b.WriteString("</member></SwitchoverDetails>")
-	// Tasks members serialize as <member> (no xmlName in
-	// BlueGreenDeploymentTaskList).
-	b.WriteString("<Tasks><member><Name>CREATING_READ_REPLICA_OF_SOURCE</Name><Status>COMPLETED</Status></member></Tasks>")
-	b.WriteString(renderRDSTagList(d.Tags))
-	b.WriteString("</BlueGreenDeployment>")
-	return b.String()
-}
-
-func handleRDSCreateBlueGreenDeployment(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("BlueGreenDeploymentName")
-	source := r.FormValue("Source")
-	if name == "" || source == "" {
-		rdsErrorXML(w, "MissingParameter",
-			"BlueGreenDeploymentName and Source are required",
-			http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	id := "bgd-" + strings.ToLower(strings.ReplaceAll(sim.NewUUID(), "-", ""))[:17]
-	target := source + "-green"
-	d := RDSBlueGreenDeployment{
-		BlueGreenDeploymentIdentifier: id,
-		BlueGreenDeploymentName:       name,
-		Source:                        source,
-		Target:                        target,
-		Status:                        "AVAILABLE",
-		CreateTime:                    time.Now().UTC().Format(time.RFC3339),
-		Tags:                          parseAWSQueryTagMap(r, "Tags.Tag"),
-	}
-	rdsBlueGreenDeployments.Put(id, d)
-	rdsXMLResponse(w, "CreateBlueGreenDeployment", renderRDSBlueGreenDeployment(d), sim.RequestID(r.Context()))
-}
-
-func handleRDSDescribeBlueGreenDeployments(w http.ResponseWriter, r *http.Request) {
-	wantID := r.FormValue("BlueGreenDeploymentIdentifier")
-	var b strings.Builder
-	b.WriteString("<BlueGreenDeployments>")
-	for _, d := range rdsBlueGreenDeployments.List() {
-		if wantID != "" && d.BlueGreenDeploymentIdentifier != wantID {
-			continue
-		}
-		// List members serialize as <member> (no xmlName in
-		// BlueGreenDeploymentList) — renderRDSBlueGreenDeployment emits the
-		// <BlueGreenDeployment> element, so wrap it as a list member.
-		b.WriteString("<member>")
-		b.WriteString(strings.TrimSuffix(strings.TrimPrefix(renderRDSBlueGreenDeployment(d), "<BlueGreenDeployment>"), "</BlueGreenDeployment>"))
-		b.WriteString("</member>")
-	}
-	b.WriteString("</BlueGreenDeployments>")
-	rdsXMLResponse(w, "DescribeBlueGreenDeployments", b.String(), sim.RequestID(r.Context()))
-}
-
-func handleRDSDeleteBlueGreenDeployment(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("BlueGreenDeploymentIdentifier")
-	d, ok := rdsBlueGreenDeployments.Get(id)
-	if !ok {
-		rdsErrorXML(w, "BlueGreenDeploymentNotFoundFault",
-			fmt.Sprintf("BlueGreenDeployment %q not found", id),
-			http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	rdsBlueGreenDeployments.Delete(id)
-	d.Status = "DELETING"
-	rdsXMLResponse(w, "DeleteBlueGreenDeployment", renderRDSBlueGreenDeployment(d), sim.RequestID(r.Context()))
-}
-
-func handleRDSSwitchoverBlueGreenDeployment(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("BlueGreenDeploymentIdentifier")
-	_, ok := rdsBlueGreenDeployments.Get(id)
-	if !ok {
-		rdsErrorXML(w, "BlueGreenDeploymentNotFoundFault",
-			fmt.Sprintf("BlueGreenDeployment %q not found", id),
-			http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	// Switchover promotes the green (Target) environment: the roles swap
-	// and the deployment settles to SWITCHOVER_COMPLETED.
-	rdsBlueGreenDeployments.Update(id, func(x *RDSBlueGreenDeployment) {
-		x.Source, x.Target = x.Target, x.Source
-		x.Status = "SWITCHOVER_COMPLETED"
-	})
-	d, _ := rdsBlueGreenDeployments.Get(id)
-	rdsXMLResponse(w, "SwitchoverBlueGreenDeployment", renderRDSBlueGreenDeployment(d), sim.RequestID(r.Context()))
 }
 
 // Zero-ETL integrations

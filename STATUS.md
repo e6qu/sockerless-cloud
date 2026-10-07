@@ -155,7 +155,15 @@ Current state of the sockerless-cloud repository.
   and on MySQL and MariaDB the user identified with the `AWSAuthenticationPlugin`
   server plugin the simulator ships and loads from the data volume. Deleting a
   database kills an engine still initialising its volume rather than waiting
-  out the stop grace.
+  out the stop grace. A blue/green deployment of a DB instance provisions a
+  green instance from a capture of the blue volume with the target engine
+  version, class, storage and DB parameter group, serves it read-only and
+  walks PROVISIONING to AVAILABLE as it comes up; the switchover, bounded by
+  SwitchoverTimeout, gives the green instance the blue identifier, ARN and
+  endpoint over the blue data and keeps the blue instance as `-old1`, and a
+  deletion before the switchover deletes the green instance with DeleteTarget
+  and otherwise leaves it standalone and writable. A Multi-AZ or Aurora DB
+  cluster source answers SourceClusterNotSupportedFault.
 - **The registries answer their own service**: Amazon ECR's empty ping with
   no content type, Artifact Registry's `text/html`, Azure Container Registry's
   `{}`; ECR hydrates a pull through a cache rule from the rule's upstream;
@@ -553,12 +561,15 @@ shape, and one whose scan set can go empty exits non-zero.
   shrink.
 - The required-status-check manifest compared against the workflows in
   pre-commit and against `main`'s live protection at push time.
+- `check-rds-auth-plugin-build.sh` in `build-gates` rebuilds the committed
+  Amazon RDS `AWSAuthenticationPlugin` shared objects from their C source with
+  their `build.sh` and fails when any committed binary differs.
 
 ## Continuous integration
 
 Per-cloud lint and unit tests; the Google Cloud and Azure SDK and CLI suites;
-the AWS SDK suite in four shards and CLI suite in sixteen; Terraform in fifteen
-shards; console vitest, typecheck, build and Playwright; the race jobs per
+the AWS SDK suite in four shards and CLI suite in nineteen; Terraform in
+twenty-two shards; console vitest, typecheck, build and Playwright; the race jobs per
 simulator and for `sim`; the quality gates; the one-open-pull-request and
 rebased-on-main checks; the nightly fuzz workflow across the four Go modules.
 Every job holds a fifteen-minute ceiling, and an AWS CLI call that stalls

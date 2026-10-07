@@ -84,6 +84,15 @@ type RDSInstance struct {
 	// BackupTarget is where the instance's automated backups and manual
 	// snapshots are stored: "region" or "outposts".
 	BackupTarget string `json:",omitempty"`
+	// AutoMinorVersionUpgrade is the request's choice; nil is Amazon RDS's
+	// default of true.
+	AutoMinorVersionUpgrade *bool `json:",omitempty"`
+	// DBParameterGroupName names the DB parameter group a request associated
+	// with the instance.
+	DBParameterGroupName string `json:",omitempty"`
+	// BlueGreenDeploymentIdentifier names the blue/green deployment whose
+	// green environment the instance is, which serves its sessions read-only.
+	BlueGreenDeploymentIdentifier string `json:",omitempty"`
 }
 
 // rdsRequestedBackupTarget is the BackupTarget a create or restore asks for,
@@ -457,6 +466,17 @@ func registerRDS(r *AWSQueryRouter, srv *sim.Server) {
 	rdsRecoverClusterTransitions()
 	rdsRecoverInstanceSnapshots()
 	rdsRecoverRetainedBackups()
+	rdsRecoverBlueGreenDeployments()
+}
+
+// rdsRequestedBool is a boolean member the request sets, or nil.
+func rdsRequestedBool(r *http.Request, name string) *bool {
+	value := r.FormValue(name)
+	if value == "" {
+		return nil
+	}
+	set := strings.EqualFold(value, "true")
+	return &set
 }
 
 func rdsInstanceARN(id string) string {
@@ -505,6 +525,11 @@ func renderRDSInstance(i RDSInstance) string {
 	fmt.Fprintf(&b, "<DeletionProtection>%t</DeletionProtection>", i.DeletionProtection)
 	if i.BackupTarget != "" {
 		fmt.Fprintf(&b, "<BackupTarget>%s</BackupTarget>", xmlEscape(i.BackupTarget))
+	}
+	fmt.Fprintf(&b, "<AutoMinorVersionUpgrade>%t</AutoMinorVersionUpgrade>", i.AutoMinorVersionUpgrade == nil || *i.AutoMinorVersionUpgrade)
+	if i.DBParameterGroupName != "" {
+		fmt.Fprintf(&b, "<DBParameterGroups><DBParameterGroup><DBParameterGroupName>%s</DBParameterGroupName><ParameterApplyStatus>in-sync</ParameterApplyStatus></DBParameterGroup></DBParameterGroups>",
+			xmlEscape(i.DBParameterGroupName))
 	}
 	b.WriteString(renderRDSInstanceBackups(i))
 	b.WriteString(rdsRenderAutomatedBackupsReplications(i.AutomatedBackupsReplications))
@@ -595,7 +620,15 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "InvalidParameterValue", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	paramGroup := r.FormValue("DBParameterGroupName")
+	if !rdsResolveParameterGroup(paramGroup) {
+		rdsErrorXML(w, "DBParameterGroupNotFound", fmt.Sprintf("DBParameterGroup not found: %s", paramGroup),
+			http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
 	inst := RDSInstance{
+		AutoMinorVersionUpgrade:         rdsRequestedBool(r, "AutoMinorVersionUpgrade"),
+		DBParameterGroupName:            paramGroup,
 		BackupRetentionPeriod:           retention,
 		PreferredBackupWindow:           window,
 		DBInstanceIdentifier:            id,
@@ -671,6 +704,17 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 	}
 	if value := r.FormValue("EngineVersion"); value != "" {
 		instance.EngineVersion = value
+	}
+	if requested := rdsRequestedBool(r, "AutoMinorVersionUpgrade"); requested != nil {
+		instance.AutoMinorVersionUpgrade = requested
+	}
+	if value := r.FormValue("DBParameterGroupName"); value != "" {
+		if !rdsResolveParameterGroup(value) {
+			rdsErrorXML(w, "DBParameterGroupNotFound", fmt.Sprintf("DBParameterGroup not found: %s", value),
+				http.StatusNotFound, sim.RequestID(r.Context()))
+			return
+		}
+		instance.DBParameterGroupName = value
 	}
 	if value := r.FormValue("EnableIAMDatabaseAuthentication"); value != "" {
 		instance.EnableIAMDatabaseAuthentication = strings.EqualFold(value, "true")

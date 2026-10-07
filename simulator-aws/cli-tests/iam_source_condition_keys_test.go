@@ -117,14 +117,10 @@ func TestRDSCLI_BlueGreenSourceConditionKeys(t *testing.T) {
 		return cliAs(akid, secret, "rds", "create-blue-green-deployment", "--blue-green-deployment-name",
 			fmt.Sprintf("cli-bg-%d", time.Now().UnixNano()), "--source", source, "--output", "json")
 	}
-	var deployment struct {
-		BlueGreenDeployment struct{ BlueGreenDeploymentIdentifier string }
-	}
-	parseJSON(t, runCLI(t, create(data)), &deployment)
-	t.Cleanup(func() {
-		_ = awsCLI("rds", "delete-blue-green-deployment", "--blue-green-deployment-identifier",
-			deployment.BlueGreenDeployment.BlueGreenDeploymentIdentifier).Run()
-	})
+	// The grant admits the request, and Amazon RDS then refuses a Multi-AZ DB
+	// cluster as a blue/green source.
+	admitted := runCLIExpectError(t, create(data))
+	assert.Contains(t, admitted, "SourceClusterNotSupportedFault")
 	out := runCLIExpectError(t, create(web))
 	assert.True(t, strings.Contains(out, "AccessDenied") || strings.Contains(out, "not authorized"), out)
 }

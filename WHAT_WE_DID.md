@@ -1742,6 +1742,45 @@ generate-db-auth-token`, and the Terraform suite on an `aws_db_instance` with
 `iam_database_authentication_enabled`. A unit test proves each embedded build
 is a shared object for its architecture that imports nothing and exports its
 engine's plugin declarations.
+The `build-gates` CI job installs clang and lld and runs
+`scripts/check-rds-auth-plugin-build.sh`, which rebuilds the shared objects in
+a scratch copy with `build.sh` and fails when a committed binary differs from
+the rebuild, so a source edit cannot ship without its binaries; the build is
+reproducible because it links with no build ID and strips its symbols.
+
+An Amazon RDS blue/green deployment of a DB instance is a real green
+environment. CreateBlueGreenDeployment answers PROVISIONING and records a green
+instance named `<blue>-green-<six letters>` as a read replica of the blue one,
+with the request's target engine version, class, storage and DB parameter group
+(DescribeDBInstances now reports a DB parameter group a request named, and
+CreateDBInstance and ModifyDBInstance refuse one that does not exist; it also
+reports AutoMinorVersionUpgrade, true unless a request turns it off, whose
+absence had the provider modify every green instance to set it); the
+green instance seeds its volume from a capture of the blue volume the way a
+restore to the latest restorable time does, takes its first automated backup,
+and its coming up settles the deployment AVAILABLE, or INVALID_CONFIGURATION
+when it fails. Its endpoint serves sessions read-only, as RDS's green
+environment does. SwitchoverBlueGreenDeployment answers
+SWITCHOVER_IN_PROGRESS and, within SwitchoverTimeout, stops both engines,
+copies the blue volume to the `-old1` identifier's, and moves the green record
+onto the blue identifier, ARN and endpoint over the blue volume, with the blue
+master-user credential and a fresh first automated backup; the deployment's
+Source then names the `-old1` instance, which is what the Terraform provider
+deletes after a `blue_green_update`, and its Target the instance in
+production. A switchover that fails or runs out of time rolls back and reports
+SWITCHOVER_FAILED, and one a previous process left in progress runs again.
+DeleteBlueGreenDeployment refuses DeleteTarget after a switchover, deletes the
+green instance with it before one, and otherwise leaves the green instance
+standalone and writable. A Multi-AZ or Aurora DB cluster source answers
+SourceClusterNotSupportedFault, a source without automated backups, a read
+replica or a cluster member SourceDatabaseNotSupportedFault, so the IAM
+condition-key tests that name a Multi-AZ DB cluster source expect that refusal
+once the grant admits the request. The SDK suite switches an RDS for MySQL and
+an RDS for PostgreSQL instance over and reads every committed row through the
+original endpoint, the CLI suite does the same on RDS for MySQL in its own
+`rds-blue-green` shard, and the Terraform suite applies an engine version and
+parameter group change to an `aws_db_instance` with `blue_green_update` in its
+own shard.
 
 RDS for MariaDB keeps automated backups and restores to a time as RDS for
 MySQL does. Its engine writes a binary log only when told to, so the instance

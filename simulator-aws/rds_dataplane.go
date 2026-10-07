@@ -200,7 +200,11 @@ func rdsInstallDataPlane(instance *RDSInstance, masterPassword string) error {
 	}
 	rdsDataPlanes.Store(instance.DBInstanceIdentifier, plane)
 	plane.backups.schedule()
-	plane.engine.Serve(listener)
+	if instance.BlueGreenDeploymentIdentifier != "" {
+		plane.engine.ServeReadOnly(listener)
+	} else {
+		plane.engine.Serve(listener)
+	}
 	return nil
 }
 
@@ -311,8 +315,14 @@ func rdsInstanceBringingUp(status string) bool {
 // One that keeps automated backups and holds none yet first starts its engine,
 // which takes the first automated backup with the instance backing-up, and
 // lands failed when the engine does not start or the backup is not taken. A
-// deletion meanwhile ends the start, and the instance goes with it.
+// deletion meanwhile ends the start, and the instance goes with it. A green
+// instance's outcome then settles its blue/green deployment.
 func rdsFinishInstanceBringUp(instanceID string) {
+	defer func() {
+		if settled, ok := rdsInstances.Get(instanceID); ok {
+			rdsSettleBlueGreenProvisioning(settled)
+		}
+	}()
 	instance, ok := rdsInstances.Get(instanceID)
 	if !ok || !rdsInstanceBringingUp(instance.DBInstanceStatus) {
 		return
