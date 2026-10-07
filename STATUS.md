@@ -395,7 +395,17 @@ Current state of the sockerless-cloud repository.
   through the identity `keyVaultReferenceIdentity` names when the vault's
   access policies or Azure RBAC role assignments grant it the secret; the
   workload sees the secret's value, an unresolved reference reaches it as
-  written, and `configreferences` reports each reference's status and why.
+  written, and `configreferences` reports each reference's status and why. A
+  running app re-fetches its references every 24 hours and restarts on the new
+  values when one changed, so a rotated secret reaches it without a restart.
+- **Sitecontainer environment variables name app settings.** Each
+  `environmentVariables` entry gives its container the named app setting's
+  value, a Key Vault reference resolved, and an empty string when the setting
+  does not exist.
+- **Front ends abort a response their target cuts short.** Every load balancer,
+  ingress and serverless front end of the three simulators relays what the
+  target sent and closes the stream when the target fails after its status and
+  headers reached the client, instead of appending an error to the body.
 - **An app's code gets tokens for its own identities.** An App Service or
   Azure Functions app or slot with a managed identity gets `IDENTITY_ENDPOINT`
   and an `IDENTITY_HEADER` secret of its own; the endpoint answers a request

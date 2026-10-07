@@ -692,6 +692,7 @@ func TestAmplifyHostingRouteFallbacksE2E(t *testing.T) {
 	entrypoint := `const http = require('http');
 http.createServer((req, res) => {
   if (req.url.startsWith('/app/missing')) { res.statusCode = 404; res.end('compute-404'); return; }
+  if (req.url === '/app/cut') { res.writeHead(200, {'content-type': 'text/plain'}); res.write('partial', () => res.socket.destroy()); return; }
   res.setHeader('content-type', 'text/plain');
   res.end('compute:' + req.url);
 }).listen(process.env.PORT);
@@ -707,6 +708,20 @@ http.createServer((req, res) => {
 	resp, body := amplifyHostGet(t, host, "/app/hello", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "compute proxy: %s", body)
 	assert.Equal(t, "compute:/app/hello", string(body))
+
+	// Compute that closes its connection mid-body has had its status and
+	// headers relayed, so the response ends where compute stopped rather than
+	// with an error appended to the body.
+	cutReq, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/app/cut", nil)
+	require.NoError(t, err)
+	cutReq.Host = host
+	cutResp, err := http.DefaultClient.Do(cutReq)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, cutResp.StatusCode, "compute's status reached the client")
+	body, err = io.ReadAll(cutResp.Body)
+	_ = cutResp.Body.Close()
+	assert.ErrorIs(t, err, io.ErrUnexpectedEOF, "the response ends where compute stopped")
+	assert.Equal(t, "partial", string(body), "nothing follows what compute sent")
 
 	// A compute 404 falls back to the route's Static fallback.
 	resp, body = amplifyHostGet(t, host, "/app/missing-page", nil)

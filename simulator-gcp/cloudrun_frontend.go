@@ -179,14 +179,15 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 		if !inst.ingressRunning() {
 			deleteCloudRunServiceInstanceIf(svc.Name, inst)
 		}
+		abortStartedForward(w, err)
 		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance did not answer: %v", err)))
 	}
 }
 
 // forwardToCloudRunContainer relays the request to the ingress container at
 // address and its answer back, answering a caller that went away or a request
-// that timed out itself, and returns any other failure for the caller to
-// answer.
+// that timed out before the container answered, and returns any other failure
+// for the caller to answer or, once the answer has started, abort.
 func forwardToCloudRunContainer(w http.ResponseWriter, r *http.Request, address string, timeout time.Duration) error {
 	err := lbplane.Forward(w, r, lbplane.Upstream{
 		Scheme:   "http",
@@ -198,6 +199,8 @@ func forwardToCloudRunContainer(w http.ResponseWriter, r *http.Request, address 
 	})
 	switch {
 	case err == nil:
+	case forwardStarted(err):
+		return err
 	case errors.Is(err, lbplane.ErrClientWentAway):
 		w.WriteHeader(lbplane.StatusClientClosedRequest)
 	case errors.Is(err, context.DeadlineExceeded):
@@ -230,6 +233,7 @@ func serveCloudRunInstance(w http.ResponseWriter, r *http.Request, inst Instance
 		return
 	}
 	if err := forwardToCloudRunContainer(w, r, address, cloudRunDefaultRequestTimeout); err != nil {
+		abortStartedForward(w, err)
 		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance did not answer: %v", err)))
 	}
 }

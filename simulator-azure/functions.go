@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	mobycontainer "github.com/moby/moby/api/types/container"
@@ -1159,6 +1160,11 @@ type azureFunctionInstance struct {
 	// attach to every one with the site's identity aliases so peers resolve it.
 	// They outlive a restart, as the integration does.
 	dockerNetworks []string
+	// references are the Key Vault reference values the running containers
+	// started with, and referenceRefresh re-fetches them when the platform's
+	// cache of them expires.
+	references       webReferenceValues
+	referenceRefresh *bg.Timer
 }
 
 // addNetworkLocked records a VNet-integration network on the instance.
@@ -1329,6 +1335,7 @@ func siteImageMissing(site *Site) error {
 // its environment, and any sidecar sitecontainers in its network namespace.
 // Caller holds inst.mu.
 func (inst *azureFunctionInstance) startLocked(site *Site) error {
+	references := webSiteReferenceValues(site)
 	main := mainSiteContainer(site.ID)
 	var (
 		image        string
@@ -1340,7 +1347,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	if main != nil {
 		image = main.Properties.Image
 		args = splitStartUpCommand(main.Properties.StartUpCommand)
-		containerEnv = envVarsMap(main.Properties.EnvironmentVariables)
+		containerEnv = siteContainerEnv(main.Properties.EnvironmentVariables, references.appSettings)
 		binds = siteContainerVolumeBinds(site.Name, main.Properties.VolumeMounts)
 		if p, err := strconv.Atoi(strings.TrimSpace(main.Properties.TargetPort)); err == nil && p > 0 && p < 65536 {
 			port = p
@@ -1413,7 +1420,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	if err != nil {
 		return err
 	}
-	env := workloadhost.MergeEnv(webResolvedAppSettings(site), siteConnectionStringEnv(site), appServicePlatformEnv(site),
+	env := workloadhost.MergeEnv(references.appSettings, references.connectionStrings, appServicePlatformEnv(site),
 		map[string]string{"PORT": strconv.Itoa(port)}, metadataEnv, containerEnv)
 	sink := newFuncLogSink(site)
 
@@ -1445,7 +1452,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	// Sidecar sitecontainers share the main's network namespace, so a
 	// sidecar that binds a port is reachable from the main on
 	// localhost:<port> — the App Service multi-container loopback contract.
-	sidecarHandles, err := startSidecarContainers(ctx, site, containerID, sink)
+	sidecarHandles, err := startSidecarContainers(ctx, site, containerID, references.appSettings, sink)
 	if err != nil {
 		stopWait()
 		cancelLogs()
@@ -1478,6 +1485,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	inst.candidates = candidates
 	inst.address = ""
 	inst.stopGrace = siteStopGrace(site)
+	inst.cacheReferencesLocked(site.ID, containerID, references)
 	return nil
 }
 
@@ -1511,6 +1519,9 @@ func watchContainerExit(containerID string) (<-chan struct{}, context.CancelFunc
 // recorded: the integration belongs to the site, not to one container. Caller
 // holds inst.mu.
 func (inst *azureFunctionInstance) teardownLocked() {
+	if inst.referenceRefresh != nil {
+		inst.referenceRefresh.Stop()
+	}
 	for _, h := range inst.sidecarHandles {
 		h.Cancel()
 	}
@@ -1532,6 +1543,8 @@ func (inst *azureFunctionInstance) teardownLocked() {
 	inst.port = 0
 	inst.candidates = nil
 	inst.address = ""
+	inst.references = webReferenceValues{}
+	inst.referenceRefresh = nil
 }
 
 // stopAzureFunctionInstance tears a deleted site's container down and forgets
