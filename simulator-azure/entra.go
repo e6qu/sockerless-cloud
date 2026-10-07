@@ -193,7 +193,8 @@ const (
 )
 
 // entraSeedBootstrap seeds the bootstrap application registration, its service
-// principal, and its client secret so the client_credentials grant is
+// principal, and its client secret, and the first-party service principals
+// every tenant holds, so the client_credentials grant is
 // immediately usable for entraBootstrapClientID — the same directory state an
 // administrator would provision once via the Certificates & secrets blade and
 // the Enterprise applications blade before handing the credential to
@@ -221,7 +222,20 @@ func entraSeedBootstrap() {
 	if _, ok := entraServicePrincipalStore.Get(entraBootstrapSPObjectID); !ok {
 		entraRegisterServicePrincipal(entraBootstrapSPObjectID, entraBootstrapClientID, "Sockerless Bootstrap", "Application")
 	}
+	if _, ok := entraServicePrincipalStore.Get(appServiceSPObjectID); !ok {
+		entraRegisterServicePrincipal(appServiceSPObjectID, appServiceAppID, "Microsoft Azure App Service", "Application")
+	}
 }
+
+// Microsoft Entra materializes Microsoft's first-party applications in every
+// tenant as service principals whose application lives in Microsoft's own
+// tenant. App Service reads Key Vault certificates as its own, "Microsoft
+// Azure App Service", whose application ID is the same everywhere and whose
+// object ID is the tenant's own.
+const (
+	appServiceAppID      = "abfa0a7c-a6b6-4736-8310-5855508787cd"
+	appServiceSPObjectID = "00000000-0000-0000-0000-0000000000a5"
+)
 
 // getEntraSimUser looks up a directory user by oid, falling back to the
 // built-in default identity.

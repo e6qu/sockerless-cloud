@@ -77,6 +77,15 @@ if ! [[ $go_proxy_deadline =~ ^[1-9][0-9]*$ ]]; then
 fi
 readonly go_proxy_deadline
 
+# Where the Terraform registry and the GitHub API answer. Each defaults to the
+# public service; the dependency-freshness self-test points them at fixture
+# documents it serves itself, so it tests the quarantine against publication
+# times that do not move. Module proxies need no such setting: GOPROXY already
+# names them.
+terraform_registry=${DEPS_TERRAFORM_REGISTRY_URL:-https://registry.terraform.io}
+github_api=${DEPS_GITHUB_API_URL:-https://api.github.com}
+readonly terraform_registry github_api
+
 # --- Baseline attribution --------------------------------------------------
 #
 # Usage: scripts/check-latest-deps.sh [--baseline <ref>]
@@ -417,7 +426,7 @@ tf_provider_publish_time() {
   # A registry that does not answer once is retried, as the npm lookup is:
   # a transient refusal is not a version of unknown age.
   curl -fsSL --max-time 30 --retry 3 --retry-delay 3 --retry-all-errors \
-    "https://registry.terraform.io/v1/providers/$LOOKUP_SUBJECT/$1" 2>/dev/null | jq -r '.published_at // empty'
+    "$terraform_registry/v1/providers/$LOOKUP_SUBJECT/$1" 2>/dev/null | jq -r '.published_at // empty'
 }
 
 echo
@@ -475,7 +484,7 @@ while IFS= read -r tf; do
     # the next attempt was a transport failure and nothing else.
     tf_index_read=1
     for attempt in 1 2 3; do
-      if curl -fsSL --max-time 30 --retry 3 --retry-delay 3 --retry-all-errors -o "$index" "https://registry.terraform.io/v1/providers/${source}" 2>/dev/null; then
+      if curl -fsSL --max-time 30 --retry 3 --retry-delay 3 --retry-all-errors -o "$index" "$terraform_registry/v1/providers/${source}" 2>/dev/null; then
         tf_index_read=0
         break
       fi
@@ -608,7 +617,7 @@ gh_api() {
     [[ $code == 403 || $code == 429 ]] || return 1
     [[ $attempt == 3 ]] && return 1
     wait_for=$(gh_throttle_wait "$headers" "$(date +%s)") || return 1
-    echo "  ..    GitHub API throttled on ${url#https://api.github.com/repos/}; waiting ${wait_for}s as the reply asked" >&2
+    echo "  ..    GitHub API throttled on ${url#"$github_api"/repos/}; waiting ${wait_for}s as the reply asked" >&2
     sleep "$wait_for"
   done
   return 1
@@ -635,7 +644,7 @@ gh_tag_publish_time() {
   local release obj ref_type ref_sha ts code
   release="$work/gh-release.json"
   code=$(curl -sSL --max-time 30 -o "$release" -w '%{http_code}' "${github_headers[@]}" \
-    "https://api.github.com/repos/$LOOKUP_SUBJECT/releases/tags/$tag" 2>/dev/null || echo 000)
+    "$github_api/repos/$LOOKUP_SUBJECT/releases/tags/$tag" 2>/dev/null || echo 000)
   case "$code" in
     200)
       ts=$(jq -r '.published_at // empty' "$release" 2>/dev/null || true)
@@ -647,16 +656,16 @@ gh_tag_publish_time() {
     *) return 1 ;;
   esac
   obj="$work/gh-object.json"
-  gh_api "https://api.github.com/repos/$LOOKUP_SUBJECT/git/ref/tags/$tag" "$obj" || return 1
+  gh_api "$github_api/repos/$LOOKUP_SUBJECT/git/ref/tags/$tag" "$obj" || return 1
   ref_type=$(jq -r '.object.type // empty' "$obj")
   ref_sha=$(jq -r '.object.sha // empty' "$obj")
   case "$ref_type" in
     tag)
-      gh_api "https://api.github.com/repos/$LOOKUP_SUBJECT/git/tags/$ref_sha" "$obj" || return 1
+      gh_api "$github_api/repos/$LOOKUP_SUBJECT/git/tags/$ref_sha" "$obj" || return 1
       ts=$(jq -r '.tagger.date // empty' "$obj")
       ;;
     commit)
-      gh_api "https://api.github.com/repos/$LOOKUP_SUBJECT/commits/$ref_sha" "$obj" || return 1
+      gh_api "$github_api/repos/$LOOKUP_SUBJECT/commits/$ref_sha" "$obj" || return 1
       ts=$(jq -r '.commit.committer.date // empty' "$obj")
       ;;
     *) return 1 ;;
@@ -687,7 +696,7 @@ if [[ -d .github/workflows ]]; then
     repo=${action_ref%@*}
     pinned=${action_ref#*@}
     tagfile="$work/gh-tags.json"
-    if ! gh_api "https://api.github.com/repos/${repo}/tags?per_page=100" "$tagfile"; then
+    if ! gh_api "$github_api/repos/${repo}/tags?per_page=100" "$tagfile"; then
       echo "  FAIL  $file: $repo tags could not be read (set GITHUB_TOKEN, or authenticate the gh CLI; unauthenticated requests are rate limited)"
       fail=$((fail + 1))
       continue
@@ -728,8 +737,13 @@ go_tool_module_error=""
 # GOPROXY's `direct` fallback answers such a 404 by cloning the repository the
 # path names (all of go.googlesource.com/tools for x/tools/cmd/deadcode), which
 # outran the query deadline in CI. The walk asks the proxies alone.
-go_tool_proxies=$(GOFLAGS='' go env GOPROXY | tr ',|' '\n' | { grep -vxE 'direct|off' || true; } | paste -sd, -)
-[[ -n "$go_tool_proxies" ]] || go_tool_proxies=$(GOFLAGS='' go env GOPROXY)
+#
+# GOTOOLCHAIN=local because reading a setting needs no toolchain: under a Go
+# older than the module's `go` line, `go env` otherwise downloads the newer
+# toolchain first, through the very proxy a stalled run cannot reach, with no
+# deadline.
+go_tool_proxies=$(GOFLAGS='' GOTOOLCHAIN=local go env GOPROXY | tr ',|' '\n' | { grep -vxE 'direct|off' || true; } | paste -sd, -)
+[[ -n "$go_tool_proxies" ]] || go_tool_proxies=$(GOFLAGS='' GOTOOLCHAIN=local go env GOPROXY)
 
 go_tool_module() {
   # NOT named `path`. In zsh `path` is tied to `PATH` as an array, so a

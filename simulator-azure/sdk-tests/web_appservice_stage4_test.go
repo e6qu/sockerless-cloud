@@ -25,6 +25,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/dns/armdns"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/keyvault/armkeyvault"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
@@ -200,25 +201,51 @@ func TestSDK_WebCertificates_PfxLifecycle(t *testing.T) {
 	require.NoError(t, err, "deleting an absent certificate answers 204")
 }
 
+// appServicePrincipalID is the object ID of the tenant's "Microsoft Azure
+// App Service" service principal, found the way `az keyvault set-policy --spn`
+// finds it: by its application ID among the service principal names.
+func appServicePrincipalID(t *testing.T) string {
+	t.Helper()
+	filter := url.QueryEscape("servicePrincipalNames/any(c:c eq '" + appServiceAppID + "')")
+	resp, err := http.Get(baseURL + "/v1.0/servicePrincipals?$filter=" + filter)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var listed struct {
+		Value []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"displayName"`
+		} `json:"value"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&listed))
+	require.Len(t, listed.Value, 1, "every tenant holds App Service's service principal")
+	assert.Equal(t, "Microsoft Azure App Service", listed.Value[0].DisplayName)
+	return listed.Value[0].ID
+}
+
+// appServiceAppID is the application ID of App Service's first-party
+// service principal, the same in every tenant.
+const appServiceAppID = "abfa0a7c-a6b6-4736-8310-5855508787cd"
+
 // stage4CreateVault creates a Key Vault through the ARM control plane,
-// optionally granting an access policy with the secret verbs App Service
-// needs to pull certificate material, and one letting the test's own
-// principal write the secret.
-func stage4CreateVault(t *testing.T, rg, vault string, secretPerms []string) string {
+// granting reader the secret verbs secretPerms names, and the test's own
+// principal the permission to write the secret.
+func stage4CreateVault(t *testing.T, rg, vault, reader string, secretPerms []string) string {
 	t.Helper()
 	props := map[string]any{
 		"tenantId": simTenantID,
-	}
-	if len(secretPerms) > 0 {
-		props["accessPolicies"] = []map[string]any{{
-			"tenantId":    simTenantID,
-			"objectId":    "11111111-2222-3333-4444-555555555555",
-			"permissions": map[string]any{"secrets": secretPerms},
-		}, {
+		"accessPolicies": []map[string]any{{
 			"tenantId":    simTenantID,
 			"objectId":    simCallerObjectID,
 			"permissions": map[string]any{"secrets": []string{"set"}},
-		}}
+		}},
+	}
+	if len(secretPerms) > 0 {
+		props["accessPolicies"] = append(props["accessPolicies"].([]map[string]any), map[string]any{
+			"tenantId":    simTenantID,
+			"objectId":    reader,
+			"permissions": map[string]any{"secrets": secretPerms},
+		})
 	}
 	body, _ := json.Marshal(map[string]any{"location": "eastus", "properties": props})
 	req, _ := http.NewRequestWithContext(ctx, "PUT",
@@ -258,7 +285,8 @@ func TestSDK_WebCertificates_KeyVaultSourced(t *testing.T) {
 	require.NoError(t, err)
 
 	leaf, pfx := stage4SelfSignedCert(t, "kv.stage4.example.com", []string{"kv.stage4.example.com"}, "")
-	vaultID := stage4CreateVault(t, rg, "s4kvcertok", []string{"Get", "List"})
+	appService := appServicePrincipalID(t)
+	vaultID := stage4CreateVault(t, rg, "s4kvcertok", appService, []string{"Get", "List"})
 	stage4SetVaultSecret(t, "s4kvcertok", "s4-cert-secret", base64.StdEncoding.EncodeToString(pfx))
 
 	status := func(c armappservice.CertificatesClientCreateOrUpdateResponse) armappservice.KeyVaultSecretStatus {
@@ -291,17 +319,41 @@ func TestSDK_WebCertificates_KeyVaultSourced(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, armappservice.KeyVaultSecretStatusKeyVaultSecretDoesNotExist, status(noSecret))
 
-	// Vault grants no secret "get" permission → OperationNotPermittedOnKeyVault.
-	lockedID := stage4CreateVault(t, rg, "s4kvcertlocked", nil)
-	locked, err := client.CreateOrUpdate(ctx, rg, "s4-kv-locked", armappservice.AppCertificate{
+	// App Service reads the secret as its own service principal, so a vault
+	// that grants the secret get permission only to someone else, or that
+	// uses Azure RBAC and assigns App Service no role, keeps it out →
+	// OperationNotPermittedOnKeyVault.
+	otherID := stage4CreateVault(t, rg, "s4kvcertother", "11111111-2222-3333-4444-555555555555", []string{"Get", "List"})
+	stage4SetVaultSecret(t, "s4kvcertother", "s4-cert-secret", base64.StdEncoding.EncodeToString(pfx))
+	createAuthTestVault(t, rg, "s4kvcertrbac", armkeyvault.VaultProperties{EnableRbacAuthorization: to.Ptr(true)})
+	rbacID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.KeyVault/vaults/s4kvcertrbac"
+	grantRole(t, rbacID, kvSecretsOfficerRole, simCallerObjectID)
+	stage4SetVaultSecret(t, "s4kvcertrbac", "s4-cert-secret", base64.StdEncoding.EncodeToString(pfx))
+	for _, locked := range []struct{ name, vaultID string }{
+		{"s4-kv-other", otherID},
+		{"s4-kv-rbac-unassigned", rbacID},
+	} {
+		got, err := client.CreateOrUpdate(ctx, rg, locked.name, armappservice.AppCertificate{
+			Location: to.Ptr("eastus"),
+			Properties: &armappservice.AppCertificateProperties{
+				KeyVaultID:         to.Ptr(locked.vaultID),
+				KeyVaultSecretName: to.Ptr("s4-cert-secret"),
+			},
+		}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, armappservice.KeyVaultSecretStatusOperationNotPermittedOnKeyVault, status(got), locked.name)
+	}
+	grantRole(t, rbacID, kvSecretsUserRole, appService)
+	rbacOK, err := client.CreateOrUpdate(ctx, rg, "s4-kv-rbac", armappservice.AppCertificate{
 		Location: to.Ptr("eastus"),
 		Properties: &armappservice.AppCertificateProperties{
-			KeyVaultID:         to.Ptr(lockedID),
+			KeyVaultID:         to.Ptr(rbacID),
 			KeyVaultSecretName: to.Ptr("s4-cert-secret"),
 		},
 	}, nil)
 	require.NoError(t, err)
-	assert.Equal(t, armappservice.KeyVaultSecretStatusOperationNotPermittedOnKeyVault, status(locked))
+	assert.Equal(t, armappservice.KeyVaultSecretStatusSucceeded, status(rbacOK),
+		"a role assignment granting App Service's service principal the secret imports it")
 
 	// No vault at that resource ID → KeyVaultDoesNotExist.
 	missing, err := client.CreateOrUpdate(ctx, rg, "s4-kv-missing", armappservice.AppCertificate{

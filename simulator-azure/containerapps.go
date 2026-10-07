@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,8 +29,13 @@ type ContainerAppJob struct {
 	Type       string            `json:"type"`
 	Location   string            `json:"location"`
 	Tags       map[string]string `json:"tags,omitempty"`
+	Identity   *SiteIdentity     `json:"identity,omitempty"`
 	Properties JobProperties     `json:"properties"`
 	SystemData *SystemData       `json:"systemData,omitempty"`
+	// SystemIdentityClientID is the application ID of the job's
+	// system-assigned identity, which the directory reads and the identity's
+	// wire shape does not carry.
+	SystemIdentityClientID string `json:"-"`
 }
 
 // SystemData holds Azure Resource Manager metadata. Real ARM stamps
@@ -78,21 +84,14 @@ type EventTrigger struct {
 	ReplicaCompletionCount int `json:"replicaCompletionCount,omitempty"`
 }
 
-// JobSecret holds a secret reference for a Container Apps Job.
-//
-// KeyVaultURL is an operator-supplied reference to an Azure Key Vault
-// secret (`https://<vault>.vault.azure.net/secrets/<name>[/<version>]`).
-// The sim stores and round-trips the string but does not auto-resolve
-// it on Job execution — real ACA reads the KV secret at job-start
-// time using the supplied managed identity. The sim's KV data plane
-// (in keyvault.go) accepts the same URL shape when followed by a
-// data-plane client, but the ACA Job runtime itself doesn't do the
-// resolution step today. Operator-supplied external URL.
+// JobSecret holds a secret of a Container Apps Job: a value, or the Key Vault
+// secret KeyVaultURL names, read as the managed identity Identity names
+// (containerapps_identity.go).
 type JobSecret struct {
 	Name        string `json:"name"`
 	Value       string `json:"value,omitempty"`
 	Identity    string `json:"identity,omitempty"`
-	KeyVaultURL string `json:"keyVaultUrl,omitempty"` // external (operator-supplied): KV secret reference; sim KV data plane accepts the URL shape but ACA Job runtime doesn't auto-resolve
+	KeyVaultURL string `json:"keyVaultUrl,omitempty"`
 }
 
 // JobRegistry holds a container registry reference for a Container Apps Job.
@@ -244,12 +243,19 @@ func registerContainerApps(srv *sim.Server) {
 			systemData.CreatedAt = existing.SystemData.CreatedAt
 		}
 
+		identity, identityClientID, err := acaApplyIdentity(req.Identity, existing.Identity, existing.SystemIdentityClientID)
+		if err != nil {
+			AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+			return
+		}
 		job := ContainerAppJob{
-			ID:       resourceID,
-			Name:     name,
-			Type:     "Microsoft.App/jobs",
-			Location: req.Location,
-			Tags:     req.Tags,
+			ID:                     resourceID,
+			Name:                   name,
+			Type:                   "Microsoft.App/jobs",
+			Location:               req.Location,
+			Tags:                   req.Tags,
+			Identity:               identity,
+			SystemIdentityClientID: identityClientID,
 			Properties: JobProperties{
 				ProvisioningState:   "Succeeded",
 				EnvironmentID:       req.Properties.EnvironmentID,
@@ -270,6 +276,9 @@ func registerContainerApps(srv *sim.Server) {
 			}
 		}
 
+		if !acaSettleJobIdentity(w, job, existing) {
+			return
+		}
 		jobs.Put(resourceID, job)
 
 		opID := issueAzureAsyncOperation(nil)
@@ -347,8 +356,20 @@ func registerContainerApps(srv *sim.Server) {
 			return
 		}
 		prior := job
+		var patchIdentity struct {
+			Identity *SiteIdentity `json:"identity"`
+		}
+		if err := json.Unmarshal(patch, &patchIdentity); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		if err := applyARMMergePatch(&job, patch); err != nil {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		job.Identity, job.SystemIdentityClientID, err = acaApplyIdentity(patchIdentity.Identity, prior.Identity, prior.SystemIdentityClientID)
+		if err != nil {
+			AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
 			return
 		}
 		// Identity and server-owned fields are not client-writable.
@@ -366,6 +387,9 @@ func registerContainerApps(srv *sim.Server) {
 		}
 		if job.SystemData != nil {
 			job.SystemData.LastModifiedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		}
+		if !acaSettleJobIdentity(w, job, prior) {
+			return
 		}
 		jobs.Put(resourceID, job)
 		sim.WriteJSON(w, http.StatusOK, job)
@@ -415,6 +439,7 @@ func registerContainerApps(srv *sim.Server) {
 		jobs.Put(resourceID, job)
 		opID := issueAzureAsyncOperation(func() {
 			jobs.Delete(resourceID)
+			syncManagedIdentityPrincipal(job.Identity, nil, "", "")
 			// Also delete associated executions
 			execs := executions.Filter(func(e JobExecution) bool {
 				return strings.HasPrefix(e.ID, resourceID+"/executions/")
@@ -605,6 +630,28 @@ func registerContainerApps(srv *sim.Server) {
 	srv.HandleFunc("POST "+basePath+"/jobs/{jobName}/executions/{execName}/exec", handleACAJobExec)
 }
 
+// acaSettleJobIdentity validates a job's secrets against its identity and
+// brings the directory in step with its system-assigned identity, answering
+// the request and restoring the directory when the secrets do not resolve.
+func acaSettleJobIdentity(w http.ResponseWriter, job, prev ContainerAppJob) bool {
+	secrets := acaJobSecrets(job)
+	var containers []JobContainer
+	if job.Properties.Template != nil {
+		containers = append(append(containers, job.Properties.Template.InitContainers...), job.Properties.Template.Containers...)
+	}
+	if err := acaValidateSecretRefs(containers, secrets); err != nil {
+		AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return false
+	}
+	syncManagedIdentityPrincipal(prev.Identity, job.Identity, job.SystemIdentityClientID, job.Name)
+	if _, err := acaResolveSecrets(job.Identity, secrets); err != nil {
+		syncManagedIdentityPrincipal(job.Identity, prev.Identity, prev.SystemIdentityClientID, prev.Name)
+		AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
 // acaStartJobExecution starts one execution of job's template: its containers
 // run to completion, bounded by the job's replicaTimeout, and the execution
 // records how they ended.
@@ -662,9 +709,10 @@ func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJo
 			}
 
 			sink := &acaLogSink{job: job}
-			group, err := startACAJobContainers(context.Background(), id, shortExecID, tmpl, acaJobWorkloadRegistries(job.Properties.Configuration), envID, timeout, netName, netAliases, sink)
+			group, err := startACAJobContainers(context.Background(), id, shortExecID, job, tmpl, envID, timeout, netName, netAliases, sink)
 			if err != nil {
 				succeeded = false
+				acaJobSystemLog(job, execName, "Warning", err.Error())
 			} else {
 				acaProcessHandles.Store(id, group)
 				result := group.Main.Wait()
@@ -703,7 +751,7 @@ func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJo
 	return exec
 }
 
-func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl *JobTemplate, registries []acrWorkloadRegistry, envID string, timeout time.Duration, netName string, netAliases []string, sink sim.LogSink) (*workload.Group, error) {
+func startACAJobContainers(ctx context.Context, execID, shortExecID string, job ContainerAppJob, tmpl *JobTemplate, envID string, timeout time.Duration, netName string, netAliases []string, sink sim.LogSink) (*workload.Group, error) {
 	if tmpl == nil || len(tmpl.Containers) == 0 {
 		return nil, fmt.Errorf("execution has no containers")
 	}
@@ -712,10 +760,15 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl
 	for _, v := range tmpl.Volumes {
 		volByName[v.Name] = v
 	}
-	metadataEnv, err := hostMetadataEnv(nil)
+	metadataEnv, err := workloadMetadataEnv(job.ID, job.Identity)
 	if err != nil {
 		return nil, err
 	}
+	secrets, err := acaResolveSecrets(job.Identity, acaJobSecrets(job))
+	if err != nil {
+		return nil, err
+	}
+	registries := acaJobWorkloadRegistries(job.Properties.Configuration, secrets)
 	member := func(c JobContainer, name string) workload.Container {
 		var binds []string
 		for _, mp := range c.VolumeMounts {
@@ -729,10 +782,7 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl
 			}
 			binds = append(binds, FileShareHostDir(acct, share)+":"+mp.MountPath)
 		}
-		cmdEnv := make(map[string]string, len(c.Env))
-		for _, ev := range c.Env {
-			cmdEnv[ev.Name] = ev.Value
-		}
+		cmdEnv := acaContainerEnv(c, secrets)
 		return workload.Container{Name: c.Name, Config: sim.ContainerConfig{
 			CancelGracePeriod: acaDefaultTerminationGrace,
 			Image:             sim.ResolveLocalImage(c.Image),

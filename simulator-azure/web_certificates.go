@@ -146,8 +146,9 @@ func applyX509ToWebCertificate(p *WebCertificateProperties, leaf *x509.Certifica
 // swagger's KeyVaultSecretStatus from what the lookup actually finds:
 //
 //	KeyVaultDoesNotExist          — no vault at that resource ID
-//	OperationNotPermittedOnKeyVault — vault grants no access policy with
-//	                                 secret "get" permission
+//	OperationNotPermittedOnKeyVault — vault does not grant App Service's
+//	                                 service principal the secret get
+//	                                 permission
 //	KeyVaultSecretDoesNotExist    — vault exists, secret does not
 //	Succeeded                     — secret resolved and parsed as a certificate
 //	Initialized                   — link recorded but the secret's material
@@ -158,7 +159,7 @@ func resolveKeyVaultCertificate(p *WebCertificateProperties) {
 		p.KeyVaultSecretStatus = "KeyVaultDoesNotExist"
 		return
 	}
-	if !webCertVaultPermitsSecretGet(vault) {
+	if !webCertVaultPermitsSecretGet(vault, p.KeyVaultSecretName) {
 		p.KeyVaultSecretStatus = "OperationNotPermittedOnKeyVault"
 		return
 	}
@@ -198,23 +199,12 @@ func webCertLookupVault(keyVaultID string) (KeyVault, bool) {
 	return KeyVault{}, false
 }
 
-// webCertVaultPermitsSecretGet reports whether any of the vault's access
-// policies grants the secret "get" verb — the permission App Service needs to
-// pull the certificate material. A vault with RBAC authorization enabled
-// delegates to Azure RBAC instead of access policies, which the simulator's
-// single-principal model always satisfies.
-func webCertVaultPermitsSecretGet(v KeyVault) bool {
-	if v.Properties.EnableRbacAuthorization {
-		return true
-	}
-	for _, pol := range v.Properties.AccessPolicies {
-		for _, verb := range pol.Permissions.Secrets {
-			if strings.EqualFold(verb, "get") {
-				return true
-			}
-		}
-	}
-	return false
+// webCertVaultPermitsSecretGet reports whether the vault lets App Service read
+// the certificate's secret: App Service reads it as its first-party service
+// principal, which the vault's access policies, or its Azure RBAC role
+// assignments, must grant the secret get permission itself.
+func webCertVaultPermitsSecretGet(v KeyVault, secretName string) bool {
+	return keyVaultGrantsSecretGet(v, appServiceSPObjectID, secretName)
 }
 
 // buildWebCertificateProperties assembles the stored properties from a

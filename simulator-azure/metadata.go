@@ -242,12 +242,22 @@ func azureCIDRAddressPrefix(cidr, defaultAddress, defaultPrefix string) (string,
 // simListenAddr is the listen address main() serves on.
 var simListenAddr string
 
-// hostMetadataEnv returns the platform environment of a workload: the
-// instance metadata endpoint, and for an App Service or Azure Functions app or
-// slot with a managed identity the IDENTITY_ENDPOINT and IDENTITY_HEADER its
-// code acquires the identity's tokens with. A workload with no identity gets
-// neither, as on App Service.
+// hostMetadataEnv returns the platform environment of an App Service or Azure
+// Functions app or slot's workload, or of a workload that is neither when site
+// is nil.
 func hostMetadataEnv(site *Site) (map[string]string, error) {
+	if site == nil {
+		return workloadMetadataEnv("", nil)
+	}
+	return workloadMetadataEnv(site.ID, site.Identity)
+}
+
+// workloadMetadataEnv returns the platform environment of the workload of
+// resource resourceID: the instance metadata endpoint, and for a workload with
+// a managed identity the IDENTITY_ENDPOINT and IDENTITY_HEADER its code
+// acquires the identity's tokens with. A workload with no identity gets
+// neither, as on App Service and Container Apps.
+func workloadMetadataEnv(resourceID string, identity *SiteIdentity) (map[string]string, error) {
 	addr, err := workloadhost.CallbackAddr(simListenAddr)
 	if err != nil {
 		return nil, err
@@ -255,8 +265,8 @@ func hostMetadataEnv(site *Site) (map[string]string, error) {
 	env := map[string]string{
 		"AZURE_INSTANCE_METADATA_ENDPOINT": "http://" + addr + "/metadata/instance",
 	}
-	if siteHasManagedIdentity(site) {
-		header, err := workloadIdentityHeader(site.ID)
+	if hasManagedIdentity(identity) {
+		header, err := workloadIdentityHeader(resourceID)
 		if err != nil {
 			return nil, err
 		}

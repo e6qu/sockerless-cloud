@@ -17,6 +17,7 @@ import (
 // the secret's value and the page the repository's head carries, and with the
 // token its identity endpoint issues the user-assigned identity.
 func TestTerraformWebAppKeyVaultReferenceAndSourceControl(t *testing.T) {
+	t.Parallel()
 	repo := startGitHTTPRepo(t, "tf-site")
 	repo.commit("main", "Deployed page", map[string]string{"index.html": "page-from-the-repository"})
 

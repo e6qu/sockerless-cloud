@@ -42,49 +42,60 @@ func siteIdentityType(t string) (string, bool) {
 }
 
 // webApplySiteIdentity settles the identity a site PUT or PATCH asks for onto
-// site, given what the site had before. A system-assigned identity keeps its
-// principal for the life of the site and gets a new one when it is enabled
-// again; each user-assigned identity must exist and carries its own principal
-// and client IDs. A request that names no identity keeps the site's.
+// site, given what the site had before.
 func webApplySiteIdentity(site *Site, requested *SiteIdentity, prev *Site) error {
-	if requested == nil {
-		if prev != nil {
-			site.Identity = prev.Identity
-			site.SystemIdentityClientID = prev.SystemIdentityClientID
-		}
+	var prevIdentity *SiteIdentity
+	prevClientID := ""
+	if prev != nil {
+		prevIdentity, prevClientID = prev.Identity, prev.SystemIdentityClientID
+	} else if requested == nil {
 		return nil
+	}
+	identity, clientID, err := applyManagedIdentity(requested, prevIdentity, prevClientID)
+	if err != nil {
+		return err
+	}
+	site.Identity, site.SystemIdentityClientID = identity, clientID
+	return nil
+}
+
+// applyManagedIdentity settles the ManagedServiceIdentity a request asks for,
+// given the resource's previous identity and its system-assigned identity's
+// client ID, and returns the identity and that client ID. A system-assigned
+// identity keeps its principal for the life of the resource and gets a new one
+// when it is enabled again; each user-assigned identity must exist and carries
+// its own principal and client IDs. A request that names no identity keeps the
+// previous one, and None removes it.
+func applyManagedIdentity(requested, prev *SiteIdentity, prevClientID string) (*SiteIdentity, string, error) {
+	if requested == nil {
+		return prev, prevClientID, nil
 	}
 	typ, ok := siteIdentityType(requested.Type)
 	if !ok {
-		return fmt.Errorf("the identity type %q is not one of SystemAssigned, UserAssigned, 'SystemAssigned, UserAssigned' or None", requested.Type)
+		return nil, "", fmt.Errorf("the identity type %q is not one of SystemAssigned, UserAssigned, 'SystemAssigned, UserAssigned' or None", requested.Type)
 	}
 	if typ == "None" {
-		site.Identity = nil
-		site.SystemIdentityClientID = ""
-		return nil
+		return nil, "", nil
 	}
 	out := &SiteIdentity{Type: typ}
+	clientID := ""
 	if out.systemAssigned() {
 		out.TenantID = simTenantID
-		if prev != nil && prev.Identity.systemAssigned() {
-			out.PrincipalID = prev.Identity.PrincipalID
-			site.SystemIdentityClientID = prev.SystemIdentityClientID
+		if prev.systemAssigned() && prev.PrincipalID != "" {
+			out.PrincipalID, clientID = prev.PrincipalID, prevClientID
 		} else {
-			out.PrincipalID = sim.NewUUID()
-			site.SystemIdentityClientID = sim.NewUUID()
+			out.PrincipalID, clientID = sim.NewUUID(), sim.NewUUID()
 		}
-	} else {
-		site.SystemIdentityClientID = ""
 	}
 	if out.userAssigned() {
 		if len(requested.UserAssignedIdentities) == 0 {
-			return fmt.Errorf("the identity type %s names no userAssignedIdentities", typ)
+			return nil, "", fmt.Errorf("the identity type %s names no userAssignedIdentities", typ)
 		}
 		out.UserAssignedIdentities = map[string]*SiteUserAssignedIdentity{}
 		for rid := range requested.UserAssignedIdentities {
 			uai, found := webUserAssignedIdentity(rid)
 			if !found {
-				return fmt.Errorf("the user assigned identity '%s' was not found", rid)
+				return nil, "", fmt.Errorf("the user assigned identity '%s' was not found", rid)
 			}
 			out.UserAssignedIdentities[rid] = &SiteUserAssignedIdentity{
 				PrincipalID: uai.Properties.PrincipalId,
@@ -92,8 +103,7 @@ func webApplySiteIdentity(site *Site, requested *SiteIdentity, prev *Site) error
 			}
 		}
 	}
-	site.Identity = out
-	return nil
+	return out, clientID, nil
 }
 
 // webUserAssignedIdentity finds a user-assigned identity by its ARM ID,
@@ -111,15 +121,29 @@ func webUserAssignedIdentity(rid string) (UserAssignedIdentity, bool) {
 }
 
 // webSyncSiteIdentityPrincipal keeps the directory in step with a site's
-// system-assigned identity: its service principal exists while the identity
-// does, so role assignments and Graph reads resolve it.
+// system-assigned identity.
 func webSyncSiteIdentityPrincipal(prev *Site, site *Site) {
-	if prev != nil && prev.Identity.systemAssigned() &&
-		(site == nil || !site.Identity.systemAssigned() || site.Identity.PrincipalID != prev.Identity.PrincipalID) {
-		entraUnregisterServicePrincipal(prev.Identity.PrincipalID)
+	var prevIdentity, next *SiteIdentity
+	if prev != nil {
+		prevIdentity = prev.Identity
 	}
-	if site != nil && site.Identity.systemAssigned() {
-		entraRegisterServicePrincipal(site.Identity.PrincipalID, site.SystemIdentityClientID, site.Name, "ManagedIdentity")
+	clientID, name := "", ""
+	if site != nil {
+		next, clientID, name = site.Identity, site.SystemIdentityClientID, site.Name
+	}
+	syncManagedIdentityPrincipal(prevIdentity, next, clientID, name)
+}
+
+// syncManagedIdentityPrincipal keeps the directory in step with a resource's
+// system-assigned identity: its service principal, named after the resource,
+// exists while the identity does, so role assignments and Graph reads resolve
+// it.
+func syncManagedIdentityPrincipal(prev, next *SiteIdentity, clientID, name string) {
+	if prev.systemAssigned() && (!next.systemAssigned() || next.PrincipalID != prev.PrincipalID) {
+		entraUnregisterServicePrincipal(prev.PrincipalID)
+	}
+	if next.systemAssigned() {
+		entraRegisterServicePrincipal(next.PrincipalID, clientID, name, "ManagedIdentity")
 	}
 }
 
