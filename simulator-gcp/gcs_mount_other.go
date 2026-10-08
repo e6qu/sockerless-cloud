@@ -13,3 +13,9 @@ func gcsMountAcquire(string) error { return nil }
 func gcsMountRelease(string) {}
 
 func gcsMountBarrier(context.Context) error { return nil }
+
+// gcsMountView is a mounted bucket's view; off Linux no mount takes one, so
+// it carries only the paths the shared bookkeeping reads.
+type gcsMountView struct {
+	entries map[string]gcsMountEntry
+}

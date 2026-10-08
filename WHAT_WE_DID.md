@@ -2503,6 +2503,13 @@ S3 control plane runs the same gate route by route; a route whose action
 declares no resource type authorizes `"*"` because that is what the reference
 says, and a test crosses every route against the reference.
 
+An ARN format's identifiers end at the next `/`, except the ones AWS documents
+as names that may be paths — `SecretId`, `ParameterNameWithoutLeadingSlash`,
+`EntityPath` and every `…WithPath` — which end only at a `:`. Without that
+exception the tagging check of a CreateSecret for `edd/workspace/ws-1` fell to
+`"*"`, and a grant scoped to the `edd/workspace/*` prefix allowed the untagged
+create and refused the tagged one.
+
 A create that carries tags is authorized twice, as AWS does: as itself and as
 its service's tagging action, with `<service>:CreateAction` naming the create
 on the second check. Which tagging action a create adds is generated, not
