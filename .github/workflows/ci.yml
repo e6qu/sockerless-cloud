@@ -182,7 +182,7 @@ jobs:
       # newer document can produce it.
       - name: Preserve drifted Amazon Web Services API specifications
         if: ${{ !cancelled() && steps.aws-spec-freshness.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: aws-smithy-drift
           path: ${{ runner.temp }}/aws-spec-drift
@@ -196,7 +196,7 @@ jobs:
           SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/azure-spec-drift
       - name: Preserve drifted Microsoft Azure API specifications
         if: ${{ !cancelled() && steps.azure-spec-freshness.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: azure-spec-drift
           path: ${{ runner.temp }}/azure-spec-drift
@@ -209,7 +209,7 @@ jobs:
           SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/gcp-spec-drift
       - name: Preserve drifted Google Cloud API specifications
         if: ${{ !cancelled() && steps.gcp-spec-freshness.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: gcp-discovery-drift
           path: ${{ runner.temp }}/gcp-spec-drift

@@ -61,7 +61,7 @@ jobs:
           SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/spec-drift
       - name: Preserve the drifted specifications
         if: ${{ !cancelled() && steps.freshness.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ matrix.cloud }}-spec-drift
           path: ${{ runner.temp }}/spec-drift
@@ -128,7 +128,7 @@ jobs:
       # freshness run will keep seeing.
       - name: Collect the drifted specifications the run sampled
         if: ${{ steps.gate.outputs.refresh == 'yes' }}
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           pattern: '*-spec-drift'
           merge-multiple: true
