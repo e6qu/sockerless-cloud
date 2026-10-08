@@ -64,6 +64,9 @@ func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
 			"--db-instance-identifier", replicaID,
 			"--skip-final-snapshot").Run()
 	})
+	// A replica is promoted once it is available, as Amazon RDS requires: it
+	// answers InvalidDBInstanceState while its engine is still starting.
+	cliWaitDBInstanceAvailable(t, replicaID)
 	out = runCLI(t, awsCLI("rds", "promote-read-replica", "--db-instance-identifier", replicaID))
 	var promResp struct {
 		DBInstance struct {
