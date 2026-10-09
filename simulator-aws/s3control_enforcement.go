@@ -65,7 +65,7 @@ func s3ControlGatedRoutes() []s3ControlRoute {
 	var all []s3ControlRoute
 	for _, table := range [][]s3ControlRoute{
 		s3AccessPointRoutes, s3ObjectLambdaAccessPointRoutes,
-		s3ControlAccessGrantsRoutes, s3ControlJobRoutes,
+		s3ControlAccessGrantsRoutes, s3ControlJobRoutes(),
 		s3ControlMultiRegionRoutes, s3ControlStorageLensRoutes,
 		s3ControlTaggingRoutes, s3ControlMiscRoutes,
 	} {

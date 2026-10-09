@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -96,6 +98,14 @@ func iamAuthorizeServiceDelivery(targetArn, action string, src iamServiceSource)
 // role ARN and again at delivery time, so deleting or narrowing the role takes
 // effect without cached simulator-local authority.
 func iamValidateServiceRole(roleARN, service string, actions map[string]string) error {
+	return iamValidateServiceRoleCall(roleARN, service, nil, actions)
+}
+
+// iamValidateServiceRoleCall is iamValidateServiceRole for a call the service
+// sends as request: the condition keys that request settles, such as the
+// ecs:cluster a RunTask names, are part of each action's context. A nil
+// request is a call that has no request of its own to read.
+func iamValidateServiceRoleCall(roleARN, service string, request *http.Request, actions map[string]string) error {
 	roleName := iamRoleNameFromArn(roleARN)
 	role, ok := iamRoles.Get(roleName)
 	if !ok || role.Arn != roleARN {
@@ -114,7 +124,7 @@ func iamValidateServiceRole(roleARN, service string, actions map[string]string) 
 	}
 	docs := iamPolicyDocsForRole(roleName)
 	for action, resource := range actions {
-		ctx := iamServiceCallConditionContext(src, action)
+		ctx := iamServiceCallConditionContext(src, request, action)
 		if decision, _ := iamEvalDecision(docs, action, resource, ctx); decision != "allowed" {
 			return fmt.Errorf("IAM role %s does not allow %s on %s", roleARN, action, resource)
 		}
@@ -129,10 +139,21 @@ func iamValidateServiceRole(roleARN, service string, actions map[string]string) 
 // kms:ViaService and kms:GrantIsForAWSResource. Before this, the per-action
 // check evaluated a nil context, so a role policy that scoped a permission to
 // use through one service could not match at all.
-func iamServiceCallConditionContext(src iamServiceSource, action string) map[string][]string {
+func iamServiceCallConditionContext(src iamServiceSource, request *http.Request, action string) map[string][]string {
 	ctx := iamServiceInitiatedConditionContext(src)
-	service, operation, _ := strings.Cut(action, ":")
-	iamRunRequestConditionPopulators(iamServiceInitiatedRequest(src), service, operation, nil, ctx)
+	if request == nil {
+		service, operation, _ := strings.Cut(action, ":")
+		iamRunRequestConditionPopulators(iamServiceInitiatedRequest(src), service, operation, nil, ctx)
+		return ctx
+	}
+	// The populators read and replace the body of the request they are given,
+	// so each one reads a copy and the request itself still carries its body
+	// to the handler.
+	body := iamRequestBody(request)
+	r := iamStampServiceInitiation(request, src)
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	iamPopulateResourceConditionKeys(r, action, ctx)
+	iamPopulateServiceConditionKeys(r, action, body, ctx)
 	return ctx
 }
 

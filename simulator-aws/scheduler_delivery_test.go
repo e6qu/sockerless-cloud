@@ -4,8 +4,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/delivery"
 )
 
 // A schedule's target reads its RetryPolicy, and the defaults are 185 retries
@@ -213,6 +216,41 @@ func TestSchedulerValidatesModelRanges(t *testing.T) {
 		}
 		if !testCase.accepted && (recorder.Code != 400 || recorder.Header().Get("X-Amzn-Errortype") != "ValidationException") {
 			t.Errorf("%s: %d %s, want a 400 ValidationException", name, recorder.Code, recorder.Header().Get("X-Amzn-Errortype"))
+		}
+	}
+}
+
+// A RunTask target is authorized against the RunTask request it sends, so a
+// role policy that scopes ecs:RunTask to one cluster with an ecs:cluster
+// condition allows a target on that cluster and refuses one on any other,
+// for EventBridge Scheduler and EventBridge rules alike.
+func TestECSTargetRoleIsAuthorizedAgainstTheTargetCluster(t *testing.T) {
+	buildConformanceSimulator(t)
+	taskDefinition := ecsArn("task-definition", "reconciler:1")
+	allowedCluster, otherCluster := ecsArn("cluster", "workspaces"), ecsArn("cluster", "elsewhere")
+	for _, service := range []string{"scheduler.amazonaws.com", "events.amazonaws.com"} {
+		name := strings.TrimSuffix(service, ".amazonaws.com") + "-runs-reconciler"
+		role := putServiceRole(t, name, service)
+		iamRolePolicies.Put(name+"/run", IAMRolePolicy{
+			RoleName: name, PolicyName: "run",
+			PolicyDocument: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ecs:RunTask",` +
+				`"Resource":"` + taskDefinition + `","Condition":{"ArnLike":{"ecs:cluster":"` + allowedCluster + `"}}}]}`,
+		})
+		fire := func(cluster string) delivery.Outcome {
+			if service == "scheduler.amazonaws.com" {
+				return schedulerAttemptTarget(schedulerTarget{Arn: cluster, RoleArn: role, EcsParameters: &schedulerEcsParams{TaskDefinitionArn: taskDefinition}})
+			}
+			return ebInvokeECSTarget("arn:aws:events:"+awsRegion()+":"+awsAccountID()+":rule/run", EBTarget{
+				Arn: cluster, RoleArn: role, EcsParameters: json.RawMessage(`{"TaskDefinitionArn":"` + taskDefinition + `"}`),
+			}, "")
+		}
+		if outcome := fire(otherCluster); outcome.OK() || outcome.Err.(ebTargetError).Code != "AccessDeniedException" {
+			t.Fatalf("%s: RunTask on a cluster the policy does not name: %+v, want AccessDeniedException", service, outcome)
+		}
+		// The task definition is not registered, so the call the role is
+		// allowed to make reaches ECS and fails there.
+		if outcome := fire(allowedCluster); !outcome.OK() && outcome.Err.(ebTargetError).Code == "AccessDeniedException" {
+			t.Fatalf("%s: RunTask on the cluster the policy names was refused: %v", service, outcome.Err)
 		}
 	}
 }

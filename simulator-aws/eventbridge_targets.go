@@ -21,11 +21,18 @@ import (
 // events.amazonaws.com and allow the call the target makes.
 
 func ebAuthorizeTargetRole(target EBTarget, actions map[string]string) *delivery.Outcome {
+	return ebAuthorizeTargetRoleCall(target, nil, actions)
+}
+
+// ebAuthorizeTargetRoleCall is ebAuthorizeTargetRole for a call whose request
+// EventBridge has built, so the policy's conditions on that request are
+// evaluated against it.
+func ebAuthorizeTargetRoleCall(target EBTarget, request *http.Request, actions map[string]string) *delivery.Outcome {
 	if target.RoleArn == "" {
 		outcome := delivery.Permanent(ebTargetError{"AccessDeniedException", "Target " + target.Arn + " requires a RoleArn"})
 		return &outcome
 	}
-	if err := iamValidateServiceRole(target.RoleArn, "events.amazonaws.com", actions); err != nil {
+	if err := iamValidateServiceRoleCall(target.RoleArn, "events.amazonaws.com", request, actions); err != nil {
 		outcome := delivery.Permanent(ebTargetError{"AccessDeniedException", err.Error()})
 		return &outcome
 	}
@@ -78,9 +85,6 @@ func ebInvokeECSTarget(ruleArn string, target EBTarget, input string) delivery.O
 	if len(target.EcsParameters) == 0 || json.Unmarshal(target.EcsParameters, &params) != nil || params.TaskDefinitionArn == "" {
 		return delivery.Permanent(ebTargetError{"InvalidParameterException", "Target " + target.Arn + " names no EcsParameters.TaskDefinitionArn"})
 	}
-	if denied := ebAuthorizeTargetRole(target, map[string]string{"ecs:RunTask": params.TaskDefinitionArn}); denied != nil {
-		return *denied
-	}
 	body := map[string]any{
 		"cluster":        target.Arn,
 		"taskDefinition": params.TaskDefinitionArn,
@@ -113,6 +117,9 @@ func ebInvokeECSTarget(ruleArn string, target EBTarget, input string) delivery.O
 			return delivery.Permanent(ebTargetError{"InvalidParameterException", "The input for an Amazon ECS target is not the JSON of a task override"})
 		}
 		body["overrides"] = overrides
+	}
+	if denied := ebAuthorizeTargetRoleCall(target, jsonHandlerRequest(body), map[string]string{"ecs:RunTask": params.TaskDefinitionArn}); denied != nil {
+		return *denied
 	}
 	status, response := callJSONHandler(handleECSRunTask, body)
 	if outcome := ebCallOutcome(status, response); !outcome.OK() {
