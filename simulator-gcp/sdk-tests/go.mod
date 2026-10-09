@@ -26,7 +26,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/stretchr/testify v1.12.1
-	google.golang.org/api v0.300.0
+	google.golang.org/api v0.301.0
 	google.golang.org/genproto v0.0.0-20260928230214-8a89bd6388cc
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc
 	google.golang.org/grpc v1.84.0
@@ -62,13 +62,13 @@ require (
 require (
 	cel.dev/expr v0.25.3 // indirect
 	cloud.google.com/go v0.123.0 // indirect
-	cloud.google.com/go/auth v0.24.0 // indirect
+	cloud.google.com/go/auth v0.24.1-0.20261001053825-dbc26066f70a // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
 	cloud.google.com/go/longrunning v1.3.0
 	cloud.google.com/go/monitoring v1.31.0 // indirect
 	cloud.google.com/go/pubsub v1.51.1
 	cloud.google.com/go/pubsub/v2 v2.7.0 // indirect
-	cloud.google.com/go/spanner v1.95.1
+	cloud.google.com/go/spanner v1.96.0
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.39.0 // indirect

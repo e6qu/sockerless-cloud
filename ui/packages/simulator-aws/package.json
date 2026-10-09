@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@cloudscape-design/components": "3.0.1393",
+    "@cloudscape-design/components": "3.0.1394",
     "@cloudscape-design/design-tokens": "^3.0.114",
     "@cloudscape-design/global-styles": "^1.0.71",
     "@sockerless/ui-core": "workspace:*",
@@ -23,7 +23,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "^1.64.0",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/react": "^16.3.3",
     "@types/react": "^19.3.0",

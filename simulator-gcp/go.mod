@@ -21,7 +21,7 @@ require (
 	cloud.google.com/go/run v1.23.0
 	cloud.google.com/go/secretmanager v1.22.0
 	cloud.google.com/go/serviceusage v1.16.0
-	cloud.google.com/go/spanner v1.95.1
+	cloud.google.com/go/spanner v1.96.0
 	cloud.google.com/go/vpcaccess v1.15.0
 	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261003021821-79bf1cd9c7da
 	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261006234659-47a14bb9d0df

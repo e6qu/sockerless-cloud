@@ -12,8 +12,8 @@ github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0 h1:Terj1CMW4+NY5CpWjSRkqL
 github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0/go.mod h1:7Ut2Qw9vcwpLW5Q4MBy43uSxXS7tK2yjs94OJ6j5thE=
 github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2 v2.0.2 h1:EBiOwZYJUMsjLGJ9x0oNY6ADf+5915P/jhhVcn42KXc=
 github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2 v2.0.2/go.mod h1:NjuxmUsBJ0Ya9Xxjhjo06bj3/QB4C8z838I5S88UtQQ=
-github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus v1.10.0 h1:kE5kpeiSqu4jcCQ/sWuyggMXJ/pT6oQ99+8hwPmyeJ0=
-github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus v1.10.0/go.mod h1:IAN3Z0DMtehoxoQQnfqg1891z1P7GNoDryKtFcAyMBI=
+github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus v1.11.0 h1:bq6fFmNF//35QT8FdiZcvm5XvYe0kuj4GgUoqqOz4BU=
+github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus v1.11.0/go.mod h1:ZimGNz4ajrwBMTdiLwq0q/Xh0/g7xi56vqgy9TCFDYk=
 github.com/Azure/azure-sdk-for-go/sdk/messaging/eventgrid/azeventgrid v1.0.0 h1:iSs3BpwqQ5IHvuxAMeqO6q/9sCJYhjDZZgQZd++n374=
 github.com/Azure/azure-sdk-for-go/sdk/messaging/eventgrid/azeventgrid v1.0.0/go.mod h1:1IRNP46kxovPgEKGS0W3NrGasGj8JomLgvEnR48Sxko=
 github.com/Azure/azure-sdk-for-go/sdk/monitor/azquery v1.2.0 h1:s0SaQtHigowP0n3Kx4ieV94pNZAHlHhS+xjZyLCSVCQ=
