@@ -1353,6 +1353,8 @@ var iamActionResourceTypes = map[string][]string{
 	"glue:GetSession":                                                  {"session"},
 	"glue:GetSessionEndpoint":                                          {"session"},
 	"glue:GetStatement":                                                {"session"},
+	"glue:GetSystemLogsForJobRun":                                      {"job"},
+	"glue:GetSystemLogsForSession":                                     {"session"},
 	"glue:GetTable":                                                    {"catalog", "database", "rootcatalog", "table"},
 	"glue:GetTableOptimizer":                                           {"database", "rootcatalog", "table"},
 	"glue:GetTables":                                                   {"catalog", "database", "rootcatalog", "table"},
