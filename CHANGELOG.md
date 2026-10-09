@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/e6qu/sockerless-cloud/compare/v2.1.0...v2.2.0) (2026-10-09)
+
+
+### Features
+
+* **rds:** run read replicas and each engine version's own release ([#273](https://github.com/e6qu/sockerless-cloud/issues/273)) ([76d907d](https://github.com/e6qu/sockerless-cloud/commit/76d907d7549625be73a584f3ca58324ae1bc678a))
+
 ## [2.1.0](https://github.com/e6qu/sockerless-cloud/compare/v2.0.11...v2.1.0) (2026-10-07)
 
 
