@@ -272,17 +272,26 @@ func handleRDSCreateBlueGreenDeployment(w http.ResponseWriter, r *http.Request) 
 			"TargetDBClusterParameterGroupName applies to a blue/green deployment of a DB cluster.", http.StatusBadRequest)
 		return
 	}
-	paramGroup := blue.DBParameterGroupName
-	if v := r.FormValue("TargetDBParameterGroupName"); v != "" {
-		if !rdsResolveParameterGroup(v) {
-			fail("DBParameterGroupNotFound", fmt.Sprintf("DBParameterGroup not found: %s", v), http.StatusNotFound)
-			return
-		}
-		paramGroup = v
-	}
 	engineVersion := blue.EngineVersion
 	if v := r.FormValue("TargetEngineVersion"); v != "" {
-		engineVersion = v
+		resolved, problem := rdsResolveEngineVersion(blue.Engine, v)
+		if problem == "" {
+			problem = rdsCheckEngineUpgrade(blue.Engine, blue.EngineVersion, resolved, true)
+		}
+		if problem != "" {
+			fail("InvalidParameterCombination", problem, http.StatusBadRequest)
+			return
+		}
+		engineVersion = resolved
+	}
+	requestedGroup := r.FormValue("TargetDBParameterGroupName")
+	if requestedGroup == "" && !strings.HasPrefix(blue.DBParameterGroupName, "default.") {
+		requestedGroup = blue.DBParameterGroupName
+	}
+	paramGroup, code, message := rdsInstanceParameterGroup(requestedGroup, blue.Engine, engineVersion)
+	if code != "" {
+		fail(code, message, rdsParameterGroupErrorStatus(code))
+		return
 	}
 	class := blue.DBInstanceClass
 	if v := r.FormValue("TargetDBInstanceClass"); v != "" {
@@ -599,6 +608,15 @@ func rdsSwapBlueGreenRecords(blue, green RDSInstance, retiredID string) {
 	rdsInstances.Put(retiredID, retired)
 	rdsInstances.Put(blue.DBInstanceIdentifier, production)
 	rdsInstances.Delete(green.DBInstanceIdentifier)
+	// The blue instance's read replicas keep replicating it under its new
+	// identifier.
+	for _, replicaID := range retired.ReadReplicas {
+		rdsInstances.Update(replicaID, func(stored *RDSInstance) {
+			if rdsIsReadReplica(*stored) && stored.ReadReplicaSource == blue.DBInstanceIdentifier {
+				stored.ReadReplicaSource = retiredID
+			}
+		})
+	}
 	for _, snapshot := range rdsSnapshots.List() {
 		switch snapshot.DbiResourceId {
 		case blue.DbiResourceId:

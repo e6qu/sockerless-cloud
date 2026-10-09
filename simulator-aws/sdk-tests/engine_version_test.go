@@ -34,7 +34,7 @@ func TestRDS_EngineVersionDefault(t *testing.T) {
 	require.NoError(t, err)
 	got := aws.ToString(out.DBInstance.EngineVersion)
 	require.NotEmpty(t, got, "EngineVersion default must be populated")
-	assert.Equal(t, "17.5", got, "postgres GA default must be the canonical sim value")
+	assert.Equal(t, "16.15", got, "postgres default must be the canonical sim value")
 
 	// Explicit EngineVersion still wins.
 	out2, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
@@ -42,12 +42,12 @@ func TestRDS_EngineVersionDefault(t *testing.T) {
 		DBInstanceClass:      aws.String("db.t3.micro"),
 		Engine:               aws.String("postgres"),
 		AllocatedStorage:     aws.Int32(20),
-		EngineVersion:        aws.String("15.4"),
+		EngineVersion:        aws.String("16.14"),
 		MasterUsername:       aws.String("adm"),
 		MasterUserPassword:   aws.String("Password1234!"),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "15.4", aws.ToString(out2.DBInstance.EngineVersion),
+	assert.Equal(t, "16.14", aws.ToString(out2.DBInstance.EngineVersion),
 		"explicit EngineVersion must win over default")
 }
 

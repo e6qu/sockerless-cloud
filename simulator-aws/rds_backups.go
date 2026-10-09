@@ -120,8 +120,8 @@ func rdsKeepsLog(engine dbengine.Engine) bool {
 // MySQL keeps its binary log until the backup retention period lets it go,
 // rather than for its own 30-day expiry; MariaDB writes one only when told to,
 // into the same binlog.NNNNNN files.
-func rdsLoggingEngine(engineName string) (dbengine.Engine, bool) {
-	engine, ok := rdsEngine(engineName)
+func rdsLoggingEngine(engineName, version string) (dbengine.Engine, bool) {
+	engine, ok := rdsEngine(engineName, version)
 	switch engine.Client {
 	case dbengine.Postgres16.Client:
 		engine.Args = append(append([]string(nil), engine.Args...),

@@ -102,6 +102,14 @@ func gcsRetireObject(bucket Bucket, bucketName string, obj GCSObject) bool {
 	return false
 }
 
+// gcsObjectETag is an object generation's entity tag. Each generation is a
+// new entity, so its generation is part of the tag: two generations written
+// within one millisecond, as a restore can be, still answer different tags.
+func gcsObjectETag(md5 []byte, generation int64, now string) string {
+	tag := append(append([]byte{}, md5...), strconv.FormatInt(generation, 10)...)
+	return base64.StdEncoding.EncodeToString(append(tag, now...))
+}
+
 // gcsRestoreGeneration makes a soft-deleted generation's contents the live
 // object again. A restore writes the object anew, the way a copy does: the
 // live object gets a generation of its own, newer than every generation the
@@ -113,11 +121,12 @@ func gcsRestoreGeneration(objects sim.PrefixStore[GCSObject], bucket Bucket, ent
 	restored.Body = entry.Body
 	now := gcsTimestamp()
 	md5, _ := base64.StdEncoding.DecodeString(restored.Md5Hash)
-	restored.Generation = strconv.FormatInt(gcsNextGeneration(), 10)
+	generation := gcsNextGeneration()
+	restored.Generation = strconv.FormatInt(generation, 10)
 	restored.Metageneration = "1"
 	restored.TimeCreated = now
 	restored.Updated = now
-	restored.Etag = base64.StdEncoding.EncodeToString(append(md5, []byte(now)...))
+	restored.Etag = gcsObjectETag(md5, generation, now)
 	key := restored.Bucket + "/" + restored.Name
 	replaced, existed := objects.Get(key)
 	objects.Put(key, restored)

@@ -32,13 +32,6 @@ var gcsMountViews = map[string]*gcsMountView{}
 // touches no mounted bucket costs nothing.
 var gcsMountsWatched atomic.Int32
 
-type gcsMountView struct {
-	refs int
-	// entries maps a path relative to the bucket's directory, slash
-	// separated, to what is there. "" is the directory itself.
-	entries map[string]gcsMountEntry
-}
-
 // gcsMountEntry is what a path in a mounted bucket's directory stands for: a
 // file holding generation of the object of its name, or a directory, whose
 // generation is that of its placeholder object (the name with a trailing
@@ -57,16 +50,6 @@ func gcsMountEntryOf(info os.FileInfo, generation int64) gcsMountEntry {
 		entry.ino = stat.Ino
 	}
 	return entry
-}
-
-// matches reports whether info is the file or directory the entry records,
-// unchanged since.
-func (e gcsMountEntry) matches(info os.FileInfo) bool {
-	now := gcsMountEntryOf(info, e.generation)
-	if e.dir || now.dir {
-		return e.dir == now.dir && e.ino == now.ino
-	}
-	return e.ino == now.ino && e.size == now.size && e.mtime.Equal(now.mtime)
 }
 
 // gcsMountRecordFileLocked records that the simulator put generation of the

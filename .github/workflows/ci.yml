@@ -182,7 +182,7 @@ jobs:
       # newer document can produce it.
       - name: Preserve drifted Amazon Web Services API specifications
         if: ${{ !cancelled() && steps.aws-spec-freshness.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: aws-smithy-drift
           path: ${{ runner.temp }}/aws-spec-drift
@@ -196,7 +196,7 @@ jobs:
           SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/azure-spec-drift
       - name: Preserve drifted Microsoft Azure API specifications
         if: ${{ !cancelled() && steps.azure-spec-freshness.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: azure-spec-drift
           path: ${{ runner.temp }}/azure-spec-drift
@@ -209,7 +209,7 @@ jobs:
           SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/gcp-spec-drift
       - name: Preserve drifted Google Cloud API specifications
         if: ${{ !cancelled() && steps.gcp-spec-freshness.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: gcp-discovery-drift
           path: ${{ runner.temp }}/gcp-spec-drift
@@ -312,8 +312,18 @@ jobs:
         # that had roughly doubled in a single pass. Its names partition
         # cleanly: all 171 match `Test[A-Z]`, 99 in A-M and 72 in N-Z.
         include:
+          # The Google Cloud SDK suite is split by cost as well: unsharded its
+          # job reached 781 seconds against the 15-minute bound, and the names
+          # beginning with C — Cloud SQL, Cloud Run and the rest of the Cloud
+          # family — are 183 seconds of its 359, every other letter 176.
           - cloud: gcp
             suite: sdk
+            shard: C
+            run: '^TestC'
+          - cloud: gcp
+            suite: sdk
+            shard: not-C
+            run: '^Test[^C]'
           - cloud: gcp
             suite: cli
           # The Azure SDK suite is split the same way, and for the same reason:
@@ -594,8 +604,13 @@ jobs:
           # shard, already at 470s against the 600s test deadline, past it.
           - suite: compute
             run: '^Test(E[^C]|EC[^S]|RDS_Aurora)'
+          # The Amazon RDS tests from A to I then leave the data shard for one
+          # of their own: with the shard at 883 seconds of a 900-second job,
+          # read replicas that start their own engine put it past the bound.
           - suite: data
-            run: '^Test(D|ECS|RDS_(A[^u]|Au[^r]|[B-I]))'
+            run: '^Test(D|ECS)'
+          - suite: rds-a-i
+            run: '^Test(RDS_(A[^u]|Au[^r]|[B-I]))'
           - suite: services-a-m
             run: '^Test[A-CF-M]'
           - suite: services-n-z
@@ -918,6 +933,14 @@ jobs:
             run: '^Test(RDSCLI_(MariaDB|MySQLIAM))'
             timeout: 1200s
             timeout_minutes: 15
+          # A read replica starts its source's engine and its own, copies the
+          # source volume and waits on the CLI's 30-second waiter cadence for
+          # each of the create, the replica and the promotion, so the replica
+          # and engine version upgrade tests run apart.
+          - suite: rds-read-replica
+            run: '^Test(RDSCLI_(ReadReplica|ReleasedEngineVersion))'
+            timeout: 1200s
+            timeout_minutes: 15
           - suite: appdata5
             run: '^Test(Route53|S3)'
             timeout: 1200s
@@ -1102,6 +1125,13 @@ jobs:
           - suite: aws Amazon RDS blue/green deployment
             cloud: aws
             tf_packages: "./rds-blue-green"
+            tf_timeout: 720s
+            timeout_minutes: 15
+          # The provider's create, replica and destroy waits take about six
+          # minutes of the stack's test.
+          - suite: aws Amazon RDS read replica
+            cloud: aws
+            tf_packages: "./rds-read-replica"
             tf_timeout: 720s
             timeout_minutes: 15
           - suite: aws Amazon RDS snapshot

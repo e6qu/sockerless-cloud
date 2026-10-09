@@ -43,7 +43,13 @@ import (
 // registration, and the source scan alone cannot tell the two apart. Scoped
 // entries are therefore also excluded from the staleness sweep — their
 // review lives with the catalogue their reason cites.
-var modelScopedDriftExemptions = map[string]string{}
+var modelScopedDriftExemptions = map[string]string{
+	// Added to the AWS Glue model on 2026-10-08; the only Go SDK release
+	// carrying them, service/glue v1.169.0, is inside the adoption quarantine
+	// until 2026-10-09 18:23 UTC, so no client can exercise them yet.
+	"glue.smithy.json.gz:GetSystemLogsForJobRun":  "BUG-3404: no client past the quarantine carries it yet",
+	"glue.smithy.json.gz:GetSystemLogsForSession": "BUG-3404: no client past the quarantine carries it yet",
+}
 
 var modelDriftExemptions = map[string]string{
 	// S3 routes bucket subresources by query parameter, so these operation

@@ -102,13 +102,18 @@ func TestRDS_InstanceClusterState(t *testing.T) {
 			SkipFinalSnapshot:    aws.Bool(true),
 		})
 	})
+	waitForRDSInstanceAvailable(t, c, ctx, replicaID)
 	promOut, err := c.PromoteReadReplica(ctx, &rds.PromoteReadReplicaInput{
 		DBInstanceIdentifier: aws.String(replicaID),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, promOut.DBInstance)
+	assert.Equal(t, "modifying", aws.ToString(promOut.DBInstance.DBInstanceStatus))
+	waitForRDSInstanceAvailable(t, c, ctx, replicaID)
+	promoted, err := c.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(replicaID)})
+	require.NoError(t, err)
 	// After promotion the replica has no source.
-	assert.Empty(t, aws.ToString(promOut.DBInstance.ReadReplicaSourceDBInstanceIdentifier))
+	assert.Empty(t, aws.ToString(promoted.DBInstances[0].ReadReplicaSourceDBInstanceIdentifier))
 
 	clusterID := "state-aurora-cluster"
 	_, err = c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{

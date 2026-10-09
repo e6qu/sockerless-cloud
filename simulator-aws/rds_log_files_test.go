@@ -247,7 +247,7 @@ func TestRDSDescribeDBLogFilesFiltersAndPages(t *testing.T) {
 	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
 	rdsEngineLogs = sim.MakeStore[RDSEngineLogHour](nil, "rds_engine_logs")
 	const id, resourceID = "log-files-db", "db-LOGFILES"
-	rdsInstances.Put(id, RDSInstance{DBInstanceIdentifier: id, DbiResourceId: resourceID, Engine: "postgres", DBInstanceStatus: "available"})
+	rdsInstances.Put(id, RDSInstance{DBInstanceIdentifier: id, DbiResourceId: resourceID, Engine: "postgres", EngineVersion: "16.15", DBInstanceStatus: "available"})
 
 	empty := rdsLogCall(t, handleRDSDescribeLogFiles, url.Values{"DBInstanceIdentifier": {id}})
 	var none rdsTestLogFilesResponse

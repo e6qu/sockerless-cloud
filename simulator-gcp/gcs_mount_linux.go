@@ -889,3 +889,22 @@ func gcsMountReport(action, bucket, name string, err error) {
 		log.Printf("cloud storage: %s %s/%s through a mount: %v", action, bucket, name, err)
 	}
 }
+
+// matches reports whether info is the file or directory the entry records,
+// unchanged since.
+func (e gcsMountEntry) matches(info os.FileInfo) bool {
+	now := gcsMountEntryOf(info, e.generation)
+	if e.dir || now.dir {
+		return e.dir == now.dir && e.ino == now.ino
+	}
+	return e.ino == now.ino && e.size == now.size && e.mtime.Equal(now.mtime)
+}
+
+// gcsMountView is one mounted bucket's view: how many mounts hold it, and
+// what each path in its directory stands for.
+type gcsMountView struct {
+	refs int
+	// entries maps a path relative to the bucket's directory, slash
+	// separated, to what is there. "" is the directory itself.
+	entries map[string]gcsMountEntry
+}

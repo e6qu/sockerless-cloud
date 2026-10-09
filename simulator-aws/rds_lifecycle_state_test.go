@@ -196,7 +196,7 @@ func TestRDSClusterStopAndStartFollowTheMembersEngines(t *testing.T) {
 	kmsKeyMaterial = sim.MakeStore[[]byte](nil, "kms_key_material")
 	clusterID, memberID := "lifecycle-cluster", "lifecycle-cluster-writer"
 	rdsClusters.Put(clusterID, RDSCluster{DBClusterIdentifier: clusterID, Engine: "postgres", Status: "available"})
-	member := RDSInstance{DBInstanceIdentifier: memberID, Engine: "postgres", DBInstanceStatus: "available", DBClusterIdentifier: clusterID, MasterUsername: "admin"}
+	member := RDSInstance{DBInstanceIdentifier: memberID, Engine: "postgres", EngineVersion: "16.15", DBInstanceStatus: "available", DBClusterIdentifier: clusterID, MasterUsername: "admin"}
 	if err := rdsInstallDataPlane(&member, "MasterPassword-1"); err != nil {
 		t.Fatal(err)
 	}

@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "6.67.0"
+      version = "6.68.0"
     }
   }
 }
@@ -27,7 +27,7 @@ resource "aws_db_instance" "tf_rds" {
   identifier          = "tf-rds-snapshot-source"
   instance_class      = "db.t3.micro"
   engine              = "postgres"
-  engine_version      = "17.5"
+  engine_version      = "16.15"
   username            = "admin"
   password            = "password123!"
   allocated_storage   = 20

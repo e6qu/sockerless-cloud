@@ -574,8 +574,8 @@ func TestRDS_SnapshotAttributesAndModify(t *testing.T) {
 	_, err = c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
 		DBInstanceClass:      aws.String("db.t3.micro"),
-		Engine:               aws.String("mysql"),
-		EngineVersion:        aws.String("8.0.39"),
+		Engine:               aws.String("postgres"),
+		EngineVersion:        aws.String("16.14"),
 		MasterUsername:       aws.String("admin"),
 		MasterUserPassword:   aws.String("password123!"),
 		AllocatedStorage:     aws.Int32(20),
@@ -598,10 +598,10 @@ func TestRDS_SnapshotAttributesAndModify(t *testing.T) {
 	})
 	msOut, err := c.ModifyDBSnapshot(ctx, &rds.ModifyDBSnapshotInput{
 		DBSnapshotIdentifier: aws.String(snapID),
-		EngineVersion:        aws.String("8.0.40"),
+		EngineVersion:        aws.String("16.15"),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "8.0.40", aws.ToString(msOut.DBSnapshot.EngineVersion))
+	assert.Equal(t, "16.15", aws.ToString(msOut.DBSnapshot.EngineVersion))
 }
 
 // TestRDS_StaticDescribes covers the catalog/default describe ops.

@@ -88,6 +88,7 @@ func TestRDS_BlueGreenDeploymentSwitchesOver(t *testing.T) {
 				DBInstanceIdentifier:  aws.String(blueID),
 				DBInstanceClass:       aws.String("db.t3.micro"),
 				Engine:                aws.String(engine),
+				EngineVersion:         aws.String(map[string]string{"mysql": "8.0.46", "postgres": "16.14"}[engine]),
 				AllocatedStorage:      aws.Int32(20),
 				MasterUsername:        aws.String(restoreSourceUsername),
 				MasterUserPassword:    aws.String(restoreSourcePassword),
@@ -102,8 +103,8 @@ func TestRDS_BlueGreenDeploymentSwitchesOver(t *testing.T) {
 			blueDB.exec(t, `INSERT INTO ledger VALUES ('before-green')`)
 			blue := rdsDescribeInstance(t, ctx, c, blueID)
 
-			family := map[string]string{"mysql": "mysql8.0", "postgres": "postgres17"}[engine]
-			targetVersion := map[string]string{"mysql": "8.0.41", "postgres": "17.6"}[engine]
+			family := map[string]string{"mysql": "mysql8.0", "postgres": "postgres16"}[engine]
+			targetVersion := map[string]string{"mysql": "8.0.46", "postgres": "16.15"}[engine]
 			group := uniqueName("sdk-bg-green")
 			_, err = c.CreateDBParameterGroup(ctx, &rds.CreateDBParameterGroupInput{
 				DBParameterGroupName: aws.String(group), DBParameterGroupFamily: aws.String(family), Description: aws.String("green"),

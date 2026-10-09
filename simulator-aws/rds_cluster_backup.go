@@ -186,7 +186,7 @@ func (replay rdsLogReplay) run() error {
 // rdsReplayLogToRestoreTime replays the source cluster's log onto the new
 // cluster volume up to the restore time.
 func rdsReplayLogToRestoreTime(cluster RDSCluster) error {
-	engine, _ := rdsLoggingEngine(cluster.Engine)
+	engine, _ := rdsLoggingEngine(cluster.Engine, cluster.EngineVersion)
 	return rdsLogReplay{
 		engine: engine, volume: rdsClusterVolume(cluster.DBClusterIdentifier), label: cluster.DBClusterIdentifier,
 		logVolume: cluster.RestoreLogVolume, restoreToTime: cluster.RestoreToTime,

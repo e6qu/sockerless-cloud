@@ -346,8 +346,8 @@ func persistGCSObject(objects sim.PrefixStore[GCSObject], bucketName, objectName
 		return fail(errGCSPreconditionFailed)
 	}
 	now := gcsTimestamp()
-	etag := base64.StdEncoding.EncodeToString(append(digests.MD5[:], []byte(now)...))
 	generation := gcsNextGeneration()
+	etag := gcsObjectETag(digests.MD5[:], generation, now)
 
 	obj := attrs
 	obj.Name = objectName

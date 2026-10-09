@@ -163,7 +163,22 @@ Current state of the sockerless-cloud repository.
   endpoint over the blue data and keeps the blue instance as `-old1`, and a
   deletion before the switchover deletes the green instance with DeleteTarget
   and otherwise leaves it standalone and writable. A Multi-AZ or Aurora DB
-  cluster source answers SourceClusterNotSupportedFault.
+  cluster source answers SourceClusterNotSupportedFault. Each RDS for
+  PostgreSQL, RDS for MySQL and RDS for MariaDB engine version runs that
+  release's own image (PostgreSQL 17.11, 16.15 and 16.14, MySQL 8.0.46,
+  MariaDB 11.4.13), which DescribeDBEngineVersions lists with the upgrades the
+  simulator runs; CreateDBInstance refuses another version and resolves a
+  major version alone to its newest, and ModifyDBInstance upgrades the engine
+  in place, `upgrading` until the new release runs on the volume. An instance
+  created without a DB parameter group is associated with its family's
+  `default.<family>` group, which cannot be modified or deleted. A read
+  replica runs an engine of its own on a capture of its source's volume and
+  replicates the source with the engine's own replication — MySQL and MariaDB
+  binary log replication, PostgreSQL streaming replication through a physical
+  replication slot — over a container network the two engines share; it
+  serves its sessions read-only, reports its read replication status and its
+  ReplicaLag metric each minute, and PromoteReadReplica, or deleting its
+  source, reopens it standalone and writable.
 - **The registries answer their own service**: Amazon ECR's empty ping with
   no content type, Artifact Registry's `text/html`, Azure Container Registry's
   `{}`; ECR hydrates a pull through a cache rule from the rule's upstream;
@@ -568,8 +583,8 @@ shape, and one whose scan set can go empty exits non-zero.
 ## Continuous integration
 
 Per-cloud lint and unit tests; the Google Cloud and Azure SDK and CLI suites;
-the AWS SDK suite in four shards and CLI suite in nineteen; Terraform in
-twenty-two shards; console vitest, typecheck, build and Playwright; the race jobs per
+the AWS SDK suite in four shards and CLI suite in twenty; Terraform in
+twenty-three shards; console vitest, typecheck, build and Playwright; the race jobs per
 simulator and for `sim`; the quality gates; the one-open-pull-request and
 rebased-on-main checks; the nightly fuzz workflow across the four Go modules.
 Every job holds a fifteen-minute ceiling, and an AWS CLI call that stalls

@@ -78,6 +78,18 @@ func iamARNsNamingADeclaredType(r *http.Request, service string, types []string,
 // ends one is the punctuation of the document around it, never of the ARN.
 var iamARNLiteral = regexp.MustCompile(`arn:[a-z0-9-]*:[^"'\s,}\]&]+`)
 
+// iamARNPathVariable reports whether a published ARN format's identifier is a
+// name that may itself contain "/": a secret named edd/workspace/ws-1, an SSM
+// parameter hierarchy, an IAM name under its path. Every other identifier ends
+// at the next "/".
+func iamARNPathVariable(name string) bool {
+	switch name {
+	case "SecretId", "ParameterNameWithoutLeadingSlash", "EntityPath":
+		return true
+	}
+	return strings.HasSuffix(name, "WithPath")
+}
+
 // iamARNFormatMatcher turns a published ARN format into the test for whether a
 // given ARN is one. Region and account are wildcards rather than the request's
 // own: a request may legitimately name a resource in another account, and what
@@ -109,7 +121,11 @@ func iamARNFormatMatcher(format string) *regexp.Regexp {
 			// an IAM ARN carries no region — so neither may be required.
 			pattern.WriteString(`[a-z0-9-]*`)
 		default:
-			pattern.WriteString(`[^:/]+`)
+			if iamARNPathVariable(rest[open+2 : open+close]) {
+				pattern.WriteString(`[^:]+`)
+			} else {
+				pattern.WriteString(`[^:/]+`)
+			}
 		}
 		rest = rest[open+close+1:]
 	}

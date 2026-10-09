@@ -185,7 +185,7 @@ func rdsLogFilesAt(family dbengine.Family, hours []RDSEngineLogHour, now time.Ti
 // rdsInstanceLogFiles reads an instance's log files now, dropping the engine
 // output no log file keeps any longer.
 func rdsInstanceLogFiles(inst RDSInstance) []rdsLogFile {
-	engine, ok := rdsEngine(inst.Engine)
+	engine, ok := rdsEngine(inst.Engine, inst.EngineVersion)
 	if !ok || rdsIsAurora(inst.Engine) {
 		return nil
 	}
