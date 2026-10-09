@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.1](https://github.com/e6qu/sockerless-cloud/compare/v2.2.0...v2.2.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* **deps:** x/net v0.60.0 for GO-2026-6617; split slow CI shards; ECS targets ([e5120d3](https://github.com/e6qu/sockerless-cloud/commit/e5120d394be5515fe0d753e37f75c31767b48b71))
+
 ## [2.2.0](https://github.com/e6qu/sockerless-cloud/compare/v2.1.0...v2.2.0) (2026-10-09)
 
 
