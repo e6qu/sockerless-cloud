@@ -1390,6 +1390,10 @@ dead-letter queue. An EventBridge target puts its event through the bus's own
 PutEvents path, so the bus's rules deliver it. A universal target calls an
 awsJson or awsQuery API action through the Step Functions AWS SDK dispatcher,
 checking every action and resource the request names against the role.
+A call the service has built is authorized against that request, so the
+condition keys it settles are in the context: an Amazon ECS RunTask target
+reports the `ecs:cluster` it names, and a role scoped to one cluster runs
+tasks there and nowhere else, for Scheduler and EventBridge rules alike.
 Create and update reject values outside the ranges the model declares, and
 ListSchedules and ListScheduleGroups page by MaxResults and NextToken. The
 IAM gate reads an Amazon SQS request's queue from a JSON body as well as from

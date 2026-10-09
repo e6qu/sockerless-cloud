@@ -39,6 +39,10 @@ github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261003021821-79bf1cd9c7da h1:
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261003021821-79bf1cd9c7da/go.mod h1:wCmWJm99y1p60+UeaefEE2pABaDS7UiJp3eIgNj64fg=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261006234659-47a14bb9d0df h1:bYeQJbOV9aOazoUG2nwczItXpgbWZiBzvA6xZIE/vMo=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261006234659-47a14bb9d0df/go.mod h1:klUlyizrvYCyPTNEdbghF17FSb10NtPKMsjpN3BQyKo=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261009094452-698a5e5fe964 h1:E/BcvZpQSLnS62Z6tZoeRARnU4rWMri2+c5INFpAOqM=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261009094452-698a5e5fe964/go.mod h1:q513DVf4RudFWsBoQUxs30nuuckklX1ICNZYlmChOYg=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261009142842-14fab14d9d93 h1:Y1QAA6JIiGjD/vNBLqfiRQ70bOrdL94NQUUBVOxrI+o=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261009142842-14fab14d9d93/go.mod h1:q513DVf4RudFWsBoQUxs30nuuckklX1ICNZYlmChOYg=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff h1:QSRn3RZ/F1p1r2idkV3KH9E9k0fEagRtQyjjss2W2HA=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff/go.mod h1:7JfIZuzs3VNYJ0eUH8WdbduJN/Evw8W/kn3q+5Z+834=
 github.com/elazarl/goproxy v1.7.2 h1:Y2o6urb7Eule09PjlhQRGNsqRfPmYI3KKQLFpCAV3+o=
@@ -182,8 +186,8 @@ golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba/go.mod h1:50RgIsmK7OwqzTTeqc
 golang.org/x/mod v0.41.0 h1:qJmnOUb4YB+FsEuM3HcWucdZASCPGhsX6uljO6pog0c=
 golang.org/x/mod v0.41.0/go.mod h1:Ek9pY8RKWXwsWvd3rQiHYtMqkjSUV+s1Rj7j4H5Ur6o=
 golang.org/x/net v0.0.0-20211112202133-69e39bad7dc2/go.mod h1:9nx3DQGgdP8bBQD5qxJ1jj9UTztislL4KSBs9R2vV5Y=
-golang.org/x/net v0.59.0 h1:5zfYln+w5XCxwrnMMJPufRgNoXEaGxl0wo5GqPXyues=
-golang.org/x/net v0.59.0/go.mod h1:2DA/G1UfVbCpQPeWTmMPGY7Cs2PkBkwu743bVX5PIVg=
+golang.org/x/net v0.60.0 h1:79p50tfZlm0J9YfoDsSi639qSXNGVwEzOPLCxM2FsYU=
+golang.org/x/net v0.60.0/go.mod h1:2DA/G1UfVbCpQPeWTmMPGY7Cs2PkBkwu743bVX5PIVg=
 golang.org/x/oauth2 v0.37.0 h1:JUlcxA8oAtauLfiH8FX2/FkAWHAdi0QtGCGc+hofE98=
 golang.org/x/oauth2 v0.37.0/go.mod h1:IxwZNxUULJmpBFf9K/9NTMSIfZZuvuTy1gGxhigP/58=
 golang.org/x/sync v0.23.0 h1:KameEIfc1IkluZyXWLn39Wd4tURc6GbCiISGiZm2bQk=

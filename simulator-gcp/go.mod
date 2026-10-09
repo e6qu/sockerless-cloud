@@ -24,7 +24,7 @@ require (
 	cloud.google.com/go/spanner v1.96.0
 	cloud.google.com/go/vpcaccess v1.15.0
 	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261003021821-79bf1cd9c7da
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261006234659-47a14bb9d0df
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261009142842-14fab14d9d93
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.1
@@ -96,7 +96,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.1 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	modernc.org/libc v1.77.1 // indirect

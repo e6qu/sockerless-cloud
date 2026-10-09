@@ -186,10 +186,7 @@ func schedulerAttemptTarget(t schedulerTarget) delivery.Outcome {
 	case strings.HasPrefix(t.Arn, schedulerUniversalTargetPrefix):
 		return fireUniversalTarget(t)
 	case strings.Contains(t.Arn, ":ecs:") && t.EcsParameters != nil:
-		if denied := schedulerAuthorizeRole(t, "ecs:RunTask", t.EcsParameters.TaskDefinitionArn); denied != nil {
-			return *denied
-		}
-		return fireECSTarget(t.Arn, t.EcsParameters)
+		return fireECSTarget(t)
 	case strings.Contains(t.Arn, ":lambda:"):
 		if denied := schedulerAuthorizeRole(t, "lambda:InvokeFunction", t.Arn); denied != nil {
 			return *denied
@@ -227,7 +224,14 @@ func schedulerAttemptTarget(t schedulerTarget) delivery.Outcome {
 // schedulerAuthorizeRole checks that the target's execution role trusts
 // scheduler.amazonaws.com and allows the call the invocation makes.
 func schedulerAuthorizeRole(t schedulerTarget, action, resource string) *delivery.Outcome {
-	if err := iamValidateServiceRole(t.RoleArn, "scheduler.amazonaws.com", map[string]string{action: resource}); err != nil {
+	return schedulerAuthorizeRoleCall(t, nil, action, resource)
+}
+
+// schedulerAuthorizeRoleCall is schedulerAuthorizeRole for a call whose
+// request the scheduler has built, so the policy's conditions on that request
+// are evaluated against it.
+func schedulerAuthorizeRoleCall(t schedulerTarget, request *http.Request, action, resource string) *delivery.Outcome {
+	if err := iamValidateServiceRoleCall(t.RoleArn, "scheduler.amazonaws.com", request, map[string]string{action: resource}); err != nil {
 		outcome := delivery.Permanent(ebTargetError{"AccessDeniedException", err.Error()})
 		return &outcome
 	}
@@ -266,7 +270,7 @@ func fireUniversalTarget(t schedulerTarget) delivery.Outcome {
 			return nil
 		}
 		for _, target := range iamAuthorizationTargets(r, call) {
-			if err := iamValidateServiceRole(t.RoleArn, "scheduler.amazonaws.com", map[string]string{target.action: target.resource}); err != nil {
+			if err := iamValidateServiceRoleCall(t.RoleArn, "scheduler.amazonaws.com", r, map[string]string{target.action: target.resource}); err != nil {
 				return &sfnExecutionError{Name: "AccessDeniedException", Cause: err.Error()}
 			}
 		}
@@ -368,12 +372,17 @@ func schedulerFinishDelivery(item delivery.Item[schedulerDelivery], reason deliv
 // tell whether the downstream call actually succeeded (a scheduler fire must
 // not record a phantom success when the target API rejected the request).
 func callJSONHandler(h http.HandlerFunc, body map[string]any) (int, []byte) {
+	rec := httptest.NewRecorder()
+	h(rec, jsonHandlerRequest(body))
+	return rec.Code, rec.Body.Bytes()
+}
+
+// jsonHandlerRequest is the awsJson request callJSONHandler sends with body.
+func jsonHandlerRequest(body map[string]any) *http.Request {
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
-	rec := httptest.NewRecorder()
-	h(rec, req)
-	return rec.Code, rec.Body.Bytes()
+	return req
 }
 
 // awsJSONError extracts the (__type, message) pair from an awsJson error body.
@@ -435,7 +444,8 @@ func recordSchedulerFireResult(eventName, source, resType, resName string, statu
 	return delivery.Permanent(failure).WithStatus(status)
 }
 
-func fireECSTarget(clusterArn string, p *schedulerEcsParams) delivery.Outcome {
+func fireECSTarget(t schedulerTarget) delivery.Outcome {
+	clusterArn, p := t.Arn, t.EcsParameters
 	count := p.TaskCount
 	if count <= 0 {
 		count = 1
@@ -461,6 +471,9 @@ func fireECSTarget(clusterArn string, p *schedulerEcsParams) delivery.Outcome {
 	// but reflect a failed launch honestly with errorCode/errorMessage rather
 	// than a phantom success — e.g. RunTask rejects a security group that does
 	// not exist, so no task is created and none ever transitions to STOPPED.
+	if denied := schedulerAuthorizeRoleCall(t, jsonHandlerRequest(body), "ecs:RunTask", p.TaskDefinitionArn); denied != nil {
+		return *denied
+	}
 	status, respBody := callJSONHandler(handleECSRunTask, body)
 	outcome := recordSchedulerFireResult("RunTask", "ecs.amazonaws.com",
 		"AWS::ECS::Cluster", cloudTrailShortName(clusterArn), status, respBody, false)

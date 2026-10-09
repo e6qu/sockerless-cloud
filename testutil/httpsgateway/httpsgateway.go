@@ -10,6 +10,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
+	"strings"
+	"sync"
+	"syscall"
 	"time"
 )
 
@@ -52,10 +56,11 @@ func Start(cmd *exec.Cmd, out io.Writer) error {
 
 	ready := make(chan struct{})
 	closed := make(chan struct{})
+	var pendingMu sync.Mutex
+	var pending map[string]bool
 	go func() {
 		defer close(closed)
 		defer func() { _ = pr.Close() }()
-		var pending map[string]bool
 		cached := map[string]bool{}
 		announced := false
 		scanner := bufio.NewScanner(pr)
@@ -70,6 +75,7 @@ func Start(cmd *exec.Cmd, out io.Writer) error {
 			if json.Unmarshal(line, &entry) != nil {
 				continue
 			}
+			pendingMu.Lock()
 			switch {
 			case entry.Logger == "http" && entry.Msg == managingMessage:
 				pending = make(map[string]bool, len(entry.Domains))
@@ -84,12 +90,14 @@ func Start(cmd *exec.Cmd, out io.Writer) error {
 					delete(pending, s)
 				}
 			default:
+				pendingMu.Unlock()
 				continue
 			}
 			if pending != nil && len(pending) == 0 {
 				announced = true
 				close(ready)
 			}
+			pendingMu.Unlock()
 		}
 		_, _ = io.Copy(out, pr)
 	}()
@@ -100,6 +108,22 @@ func Start(cmd *exec.Cmd, out io.Writer) error {
 	case <-closed:
 		return errors.New("the HTTPS gateway exited before it served every name it manages")
 	case <-time.After(startupBound):
-		return fmt.Errorf("the HTTPS gateway did not cache a certificate for every name it manages within %s", startupBound)
+		pendingMu.Lock()
+		names := make([]string, 0, len(pending))
+		for name := range pending {
+			names = append(names, name)
+		}
+		pendingMu.Unlock()
+		sort.Strings(names)
+		// A Go process answers SIGQUIT with every goroutine's stack on
+		// standard error, which is copied to out: the dump shows where the
+		// issuance of the pending names is stuck.
+		_ = cmd.Process.Signal(syscall.SIGQUIT)
+		select {
+		case <-closed:
+		case <-time.After(10 * time.Second):
+		}
+		return fmt.Errorf("the HTTPS gateway did not cache a certificate for every name it manages within %s; still pending: %s",
+			startupBound, strings.Join(names, ", "))
 	}
 }

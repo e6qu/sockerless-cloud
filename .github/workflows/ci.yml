@@ -842,8 +842,17 @@ jobs:
             run: '^Test(ACM|Amplify|APIGateway|ApplicationAutoScaling|AutoScaling|Batch|Budgets|PrivateCA)'
             timeout: 1200s
             timeout_minutes: 15
+          # edge-delivery ran 760-863s of its 900s job on every recent run and
+          # was cancelled at the bound on run 37912429249 (915s): its tests
+          # held 387s (run 37900857385) — ELBv2 133s, CloudFront 119s,
+          # CloudTrail 72s, CodeBuild 54s, Firehose 10s. CloudFront and
+          # CloudTrail (191s) keep the shard; the rest (197s) take edge-build.
           - suite: edge-delivery
-            run: '^Test(CloudFront|CloudTrail|CodeBuild|ELBv2|Firehose)'
+            run: '^Test(CloudFront|CloudTrail)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: edge-build
+            run: '^Test(CodeBuild|ELBv2|Firehose)'
             timeout: 1200s
             timeout_minutes: 15
           # AWS Glue and IAM each take a shard: the joint shard ran 14m03s on
@@ -1121,12 +1130,18 @@ jobs:
           # The provider waits a minute before its first poll of each
           # blue/green deployment and DB instance state it waits on, so the
           # stack's create, blue/green update and destroy take about nine
-          # minutes of the test's twelve.
+          # minutes of the test's twelve. That left the job at 796-851s of its
+          # 900s, and run 37927068400 was cancelled at the bound; 157s of it
+          # was loading the whole AWS base-image archive. The stack runs only
+          # its MySQL engine, the snapshot volume copier and the ENI setup
+          # helper, so it warms those alone: warming primes a cache, and an
+          # image missing from the list is pulled where it is used.
           - suite: aws Amazon RDS blue/green deployment
             cloud: aws
             tf_packages: "./rds-blue-green"
             tf_timeout: 720s
             timeout_minutes: 15
+            base_images: "public.ecr.aws/docker/library/mysql:8.0.46 public.ecr.aws/docker/library/alpine:3.22 public.ecr.aws/docker/library/busybox:latest"
           # The provider's create, replica and destroy waits take about six
           # minutes of the stack's test.
           - suite: aws Amazon RDS read replica
@@ -1226,7 +1241,12 @@ jobs:
       - name: Resolve the base images this job runs containers from
         id: base-images-list
         run: |
-          images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | tr '\n' ' ')"
+          # A stack that names its base_images warms those alone (see its
+          # matrix entry); every other stack warms its cloud's whole set.
+          images="${{ matrix.base_images }}"
+          if [ -z "$images" ]; then
+            images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | tr '\n' ' ')"
+          fi
           echo "images=$images" >> "$GITHUB_OUTPUT"
           echo "digest=$({ printf '%s' "$images"; cat scripts/warm-base-images.sh; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
           echo "$images"
@@ -1240,8 +1260,10 @@ jobs:
           # what a cap counted in bytes actually responds to. A changed set restores
           # the nearest earlier entry and fetches only the images it lacks.
           key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
-          restore-keys: |
-            base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
+          # A stack's own small set falls back to nothing: an earlier entry is
+          # the cloud's whole archive, and loading it is the cost the small
+          # set exists to avoid.
+          restore-keys: ${{ !matrix.base_images && format('base-images-{0}-{1}-{2}-', runner.os, runner.arch, matrix.cloud) || '' }}
       - name: Load or fetch the base images
         # Priming a cache, not checking a dependency: if the registry refuses an
         # image here, the job carries on and whatever actually needs it fails at
