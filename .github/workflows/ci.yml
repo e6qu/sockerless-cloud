@@ -842,8 +842,17 @@ jobs:
             run: '^Test(ACM|Amplify|APIGateway|ApplicationAutoScaling|AutoScaling|Batch|Budgets|PrivateCA)'
             timeout: 1200s
             timeout_minutes: 15
+          # edge-delivery ran 760-863s of its 900s job on every recent run and
+          # was cancelled at the bound on run 37912429249 (915s): its tests
+          # held 387s (run 37900857385) — ELBv2 133s, CloudFront 119s,
+          # CloudTrail 72s, CodeBuild 54s, Firehose 10s. CloudFront and
+          # CloudTrail (191s) keep the shard; the rest (197s) take edge-build.
           - suite: edge-delivery
-            run: '^Test(CloudFront|CloudTrail|CodeBuild|ELBv2|Firehose)'
+            run: '^Test(CloudFront|CloudTrail)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: edge-build
+            run: '^Test(CodeBuild|ELBv2|Firehose)'
             timeout: 1200s
             timeout_minutes: 15
           # AWS Glue and IAM each take a shard: the joint shard ran 14m03s on
