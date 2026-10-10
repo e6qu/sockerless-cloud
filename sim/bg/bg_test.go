@@ -230,3 +230,33 @@ func TestAwaitWaitsForAWatchWhoseEventArrived(t *testing.T) {
 		t.Fatal("Await returned while a watch's work was still running")
 	}
 }
+
+func TestAwaitStopsATimerOrWatchArmedAsTheDrainBegins(t *testing.T) {
+	Await()
+	never := make(chan struct{})
+	defer close(never)
+	for range 2000 {
+		start := make(chan struct{})
+		armed := make(chan struct{})
+		go func() {
+			<-start
+			AfterFunc(time.Hour, func() {})
+			WatchThen(func() { <-never }, func() {})
+			close(armed)
+		}()
+		drained := make(chan struct{})
+		go func() {
+			<-start
+			Await()
+			close(drained)
+		}()
+		close(start)
+		select {
+		case <-drained:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the drain waited on a timer or watch armed as it began")
+		}
+		<-armed
+		Await()
+	}
+}
