@@ -51,14 +51,19 @@ func TestRDSParameterGroupTerraform(t *testing.T) {
 		HTTPClient:   env.Client,
 	})
 	ctx := context.Background()
-	window := weekly(time.Now().UTC().Truncate(time.Minute).Add(2 * time.Minute))
-	apply(vars("8192", "db.t3.small", window))
+	distant := weekly(now.Add(24 * time.Hour))
+	apply(vars("8192", "db.t3.small", distant))
 	described, err := client.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String("tf-rds-parameters")})
 	require.NoError(t, err)
 	instance := described.DBInstances[0]
-	require.Equal(t, window, aws.ToString(instance.PreferredMaintenanceWindow))
+	require.Equal(t, distant, aws.ToString(instance.PreferredMaintenanceWindow))
 	require.Equal(t, "db.t3.micro", aws.ToString(instance.DBInstanceClass), "the class change waits for the maintenance window")
 	require.Equal(t, "db.t3.small", aws.ToString(instance.PendingModifiedValues.DBInstanceClass))
+
+	// The provider's create and modify waits outlast a minute, so the window
+	// may open while this apply still runs; the waiter below covers both orders.
+	window := weekly(time.Now().UTC().Truncate(time.Minute).Add(2 * time.Minute))
+	apply(vars("8192", "db.t3.small", window))
 
 	_, err = rds.NewDBInstanceAvailableWaiter(client, func(o *rds.DBInstanceAvailableWaiterOptions) {
 		o.MinDelay = time.Second
