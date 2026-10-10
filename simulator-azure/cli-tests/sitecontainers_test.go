@@ -46,7 +46,7 @@ func TestSiteContainers_CLI_CRUD(t *testing.T) {
 	// Sidecar sitecontainer.
 	sideURL := scURL("sites/cli-sc-app/sitecontainers/redis")
 	runCLI(t, azRest("PUT", sideURL, `{
-		"properties": {"image": "redis:7-alpine", "isMain": false, "targetPort": "6379"}
+		"properties": {"image": "public.ecr.aws/docker/library/redis:7-alpine", "isMain": false, "targetPort": "6379"}
 	}`))
 
 	// GET the main back.

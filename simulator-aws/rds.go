@@ -93,6 +93,15 @@ type RDSInstance struct {
 	// PendingEngineVersion is the version an upgrade in progress moves the
 	// instance's engine to.
 	PendingEngineVersion string `json:",omitempty"`
+	// PreferredMaintenanceWindow is the weekly window, ddd:hh24:mi-ddd:hh24:mi
+	// in UTC, that applies PendingModifications.
+	PreferredMaintenanceWindow string `json:",omitempty"`
+	// PendingModifications are the changes ModifyDBInstance deferred to the
+	// next maintenance window.
+	PendingModifications *RDSPendingModifications `json:",omitempty"`
+	// EngineParameters are the DB parameter group parameters the engine runs
+	// with; nil until the engine first starts.
+	EngineParameters *RDSEngineParameters `json:",omitempty"`
 	// ReplicationUserSecret seals the password of the replication user the
 	// root of a replication chain creates for its read replicas.
 	ReplicationUserSecret []byte `json:",omitempty"`
@@ -236,15 +245,15 @@ type RDSSubnetGroup struct {
 	Tags                     map[string]string
 }
 
-// RDSParamGroup models a DB parameter group. The default engine
-// parameters are not stored; Parameters holds the user-set overrides
-// applied via ModifyDBParameterGroup, which DescribeDBParameters
-// reflects on top of the engine-default set.
+// RDSParamGroup models a DB parameter group. Parameters holds the values
+// ModifyDBParameterGroup set, with the apply method each was set with, over
+// the family's engine defaults.
 type RDSParamGroup struct {
 	DBParameterGroupName   string
 	DBParameterGroupFamily string
 	Description            string
 	Parameters             map[string]string
+	ApplyMethods           map[string]string `json:",omitempty"`
 	ARN                    string
 	Tags                   map[string]string
 }
@@ -258,6 +267,7 @@ type RDSClusterParamGroup struct {
 	DBParameterGroupFamily      string
 	Description                 string
 	Parameters                  map[string]string
+	ApplyMethods                map[string]string `json:",omitempty"`
 	ARN                         string
 	Tags                        map[string]string
 }
@@ -482,6 +492,7 @@ func registerRDS(r *AWSQueryRouter, srv *sim.Server) {
 	rdsRecoverInstanceSnapshots()
 	rdsRecoverRetainedBackups()
 	rdsRecoverBlueGreenDeployments()
+	rdsRecoverMaintenance()
 }
 
 // rdsRequestedBool is a boolean member the request sets, or nil.
@@ -543,12 +554,13 @@ func renderRDSInstance(i RDSInstance) string {
 	}
 	fmt.Fprintf(&b, "<AutoMinorVersionUpgrade>%t</AutoMinorVersionUpgrade>", i.AutoMinorVersionUpgrade == nil || *i.AutoMinorVersionUpgrade)
 	if i.DBParameterGroupName != "" {
-		fmt.Fprintf(&b, "<DBParameterGroups><DBParameterGroup><DBParameterGroupName>%s</DBParameterGroupName><ParameterApplyStatus>in-sync</ParameterApplyStatus></DBParameterGroup></DBParameterGroups>",
-			xmlEscape(i.DBParameterGroupName))
+		fmt.Fprintf(&b, "<DBParameterGroups><DBParameterGroup><DBParameterGroupName>%s</DBParameterGroupName><ParameterApplyStatus>%s</ParameterApplyStatus></DBParameterGroup></DBParameterGroups>",
+			xmlEscape(i.DBParameterGroupName), rdsParameterApplyStatus(i))
 	}
-	if i.PendingEngineVersion != "" {
-		fmt.Fprintf(&b, "<PendingModifiedValues><EngineVersion>%s</EngineVersion></PendingModifiedValues>", xmlEscape(i.PendingEngineVersion))
+	if i.PreferredMaintenanceWindow != "" {
+		fmt.Fprintf(&b, "<PreferredMaintenanceWindow>%s</PreferredMaintenanceWindow>", xmlEscape(i.PreferredMaintenanceWindow))
 	}
+	b.WriteString(renderRDSPendingModifiedValues(i))
 	b.WriteString(renderRDSReplicaStatusInfos(i))
 	b.WriteString(renderRDSInstanceBackups(i))
 	b.WriteString(rdsRenderAutomatedBackupsReplications(i.AutomatedBackupsReplications))
@@ -633,6 +645,12 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		inst.DBParameterGroupName = groupName
+		window, problem := rdsRequestedMaintenanceWindow(r, cluster.PreferredBackupWindow)
+		if problem != "" {
+			rdsErrorXML(w, "InvalidParameterValue", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+		inst.PreferredMaintenanceWindow = window
 		if err := rdsInstallAuroraInstanceEndpoint(&inst); err != nil {
 			rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 			return
@@ -651,7 +669,13 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, code, message, rdsParameterGroupErrorStatus(code), sim.RequestID(r.Context()))
 		return
 	}
+	maintenanceWindow, problem := rdsRequestedMaintenanceWindow(r, window)
+	if problem != "" {
+		rdsErrorXML(w, "InvalidParameterValue", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	inst := RDSInstance{
+		PreferredMaintenanceWindow:      maintenanceWindow,
 		AutoMinorVersionUpgrade:         rdsRequestedBool(r, "AutoMinorVersionUpgrade"),
 		DBParameterGroupName:            paramGroup,
 		BackupRetentionPeriod:           retention,
@@ -721,11 +745,10 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 	if rdsRefuseUnavailableInstance(w, r, instance) {
 		return
 	}
-	if value := r.FormValue("DBInstanceClass"); value != "" {
-		instance.DBInstanceClass = value
-	}
-	if value := r.FormValue("AllocatedStorage"); value != "" {
-		instance.AllocatedStorage = atoiOrZero(value)
+	applyNow := strings.EqualFold(r.FormValue("ApplyImmediately"), "true")
+	requested := RDSPendingModifications{
+		DBInstanceClass:  r.FormValue("DBInstanceClass"),
+		AllocatedStorage: atoiOrZero(r.FormValue("AllocatedStorage")),
 	}
 	if value := r.FormValue("EngineVersion"); value != "" {
 		version, problem := rdsResolveEngineVersion(instance.Engine, value)
@@ -737,22 +760,18 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 			rdsErrorXML(w, "InvalidParameterCombination", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
 			return
 		}
-		switch {
-		case version == instance.EngineVersion:
-		case !rdsVersionedEngine(instance.Engine) || len(instance.MasterUserSecret) == 0:
-			instance.EngineVersion = version
-		default:
-			instance.PendingEngineVersion = version
-			instance.DBInstanceStatus = "upgrading"
-		}
+		requested.EngineVersion = version
 	}
-	if requested := rdsRequestedBool(r, "AutoMinorVersionUpgrade"); requested != nil {
-		instance.AutoMinorVersionUpgrade = requested
+	if autoUpgrade := rdsRequestedBool(r, "AutoMinorVersionUpgrade"); autoUpgrade != nil {
+		instance.AutoMinorVersionUpgrade = autoUpgrade
 	}
 	if value := r.FormValue("DBParameterGroupName"); value != "" {
 		version := instance.EngineVersion
 		if instance.PendingEngineVersion != "" {
 			version = instance.PendingEngineVersion
+		}
+		if requested.EngineVersion != "" {
+			version = requested.EngineVersion
 		}
 		group, code, message := rdsInstanceParameterGroup(value, instance.Engine, version)
 		if code != "" {
@@ -767,15 +786,39 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 	if value := r.FormValue("DeletionProtection"); value != "" {
 		instance.DeletionProtection = strings.EqualFold(value, "true")
 	}
-	backupsChanged := r.FormValue("BackupRetentionPeriod") != "" || r.FormValue("PreferredBackupWindow") != ""
-	if backupsChanged {
+	retentionBefore := instance.BackupRetentionPeriod
+	if r.FormValue("BackupRetentionPeriod") != "" || r.FormValue("PreferredBackupWindow") != "" {
 		retention, window, problem := rdsInstanceBackupSettings(r, instance.BackupRetentionPeriod, instance.PreferredBackupWindow)
 		if problem != "" {
 			rdsErrorXML(w, "InvalidParameterValue", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
 			return
 		}
-		instance.BackupRetentionPeriod, instance.PreferredBackupWindow = retention, window
+		instance.PreferredBackupWindow = window
+		// Turning automated backups on or off waits for the maintenance
+		// window; a change between two non-zero periods applies at once.
+		if (retention == 0) != (instance.BackupRetentionPeriod == 0) {
+			requested.BackupRetentionPeriod = &retention
+		} else {
+			instance.BackupRetentionPeriod = retention
+		}
 	}
+	if value := r.FormValue("PreferredMaintenanceWindow"); value != "" {
+		instance.PreferredMaintenanceWindow = strings.ToLower(value)
+	}
+	if r.FormValue("PreferredMaintenanceWindow") != "" || r.FormValue("PreferredBackupWindow") != "" {
+		if problem := rdsCheckMaintenanceWindow(instance.PreferredMaintenanceWindow, instance.PreferredBackupWindow); problem != "" {
+			rdsErrorXML(w, "InvalidParameterValue", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+	}
+	if applyNow {
+		rdsApplyModifications(&instance, instance.PendingModifications.merge(requested))
+		instance.PendingModifications = nil
+	} else if !requested.empty() {
+		merged := instance.PendingModifications.merge(requested)
+		instance.PendingModifications = &merged
+	}
+	backupsChanged := retentionBefore != instance.BackupRetentionPeriod || r.FormValue("PreferredBackupWindow") != ""
 	var newPassword *string
 	if value := r.FormValue("MasterUserPassword"); value != "" {
 		if rdsIsReadReplica(instance) && len(instance.MasterUserSecret) > 0 {
@@ -798,18 +841,8 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 	if newPassword != nil {
 		rdsFollowSourceMasterPassword(instance)
 	}
-	if instance.DBInstanceStatus == "upgrading" {
-		bg.Go(func() { rdsUpgradeInstanceEngine(id) })
-	}
-	if plane, ok := rdsLoadDataPlane(id); ok && backupsChanged {
-		plane.backups.schedule()
-		bg.Go(func() {
-			if err := plane.backups.expire(time.Now()); err != nil {
-				log.Printf("Amazon RDS %s: expire automated backups: %v", id, err)
-			}
-		})
-		rdsTakeFirstInstanceBackup(id)
-	}
+	rdsAfterModifications(id, instance, backupsChanged)
+	rdsArmMaintenance(id)
 	instance, _ = rdsInstances.Get(id)
 	rdsXMLResponse(w, "ModifyDBInstance", renderRDSInstance(instance), sim.RequestID(r.Context()))
 }
@@ -1442,23 +1475,24 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inst := RDSInstance{
-		DBParameterGroupName:  paramGroup,
-		BackupRetentionPeriod: retention,
-		PreferredBackupWindow: window,
-		DBInstanceIdentifier:  newInstID,
-		DbiResourceId:         rdsResourceID(),
-		DBInstanceClass:       r.FormValue("DBInstanceClass"),
-		Engine:                snap.Engine,
-		EngineVersion:         engineVersion,
-		DBInstanceStatus:      "creating",
-		MasterUsername:        snap.MasterUsername,
-		DBName:                snap.DBName,
-		AllocatedStorage:      snap.AllocatedStorage,
-		AvailabilityZone:      awsRegion() + "a",
-		InstanceCreateTime:    time.Now().UTC().Format(time.RFC3339),
-		ARN:                   rdsInstanceARN(newInstID),
-		Tags:                  parseAWSQueryTagMap(r, "Tags.Tag"),
-		BackupTarget:          rdsRequestedBackupTarget(r),
+		PreferredMaintenanceWindow: rdsDefaultMaintenanceWindow(window),
+		DBParameterGroupName:       paramGroup,
+		BackupRetentionPeriod:      retention,
+		PreferredBackupWindow:      window,
+		DBInstanceIdentifier:       newInstID,
+		DbiResourceId:              rdsResourceID(),
+		DBInstanceClass:            r.FormValue("DBInstanceClass"),
+		Engine:                     snap.Engine,
+		EngineVersion:              engineVersion,
+		DBInstanceStatus:           "creating",
+		MasterUsername:             snap.MasterUsername,
+		DBName:                     snap.DBName,
+		AllocatedStorage:           snap.AllocatedStorage,
+		AvailabilityZone:           awsRegion() + "a",
+		InstanceCreateTime:         time.Now().UTC().Format(time.RFC3339),
+		ARN:                        rdsInstanceARN(newInstID),
+		Tags:                       parseAWSQueryTagMap(r, "Tags.Tag"),
+		BackupTarget:               rdsRequestedBackupTarget(r),
 		// The engine starts with the credentials the captured data was
 		// written under, exactly as a restored RDS instance does.
 		MasterUserSecret: append([]byte(nil), snap.MasterUserSecret...),
@@ -1514,6 +1548,7 @@ func handleRDSReboot(w http.ResponseWriter, r *http.Request) {
 			rdsErrorXML(w, "ProvisioningFailure", "RDS master-user credential could not be decrypted", http.StatusInternalServerError, sim.RequestID(r.Context()))
 			return
 		}
+		inst.EngineParameters = nil
 		if err := rdsInstallDataPlane(&inst, string(password)); err != nil {
 			rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 			return
@@ -2870,167 +2905,6 @@ func applyAttributeValueDelta(cur, add, remove []string) []string {
 		}
 	}
 	return out
-}
-
-// rdsDefaultParameters returns a representative slice of engine
-// parameters. RDS exposes hundreds; the sim returns a small faithful
-// set (correct Parameter shape) so DescribeDBParameters/Cluster
-// round-trips and the CLI/SDK parse a non-empty list.
-func rdsDefaultParameters() []struct {
-	Name, Value, ApplyType, DataType, Source, ApplyMethod string
-	IsModifiable                                          bool
-} {
-	return []struct {
-		Name, Value, ApplyType, DataType, Source, ApplyMethod string
-		IsModifiable                                          bool
-	}{
-		{"max_connections", "LEAST({DBInstanceClassMemory/9531392},5000)", "dynamic", "integer", "engine-default", "pending-reboot", true},
-		{"character_set_server", "utf8", "dynamic", "string", "engine-default", "immediate", true},
-		{"autocommit", "1", "dynamic", "boolean", "engine-default", "immediate", true},
-	}
-}
-
-func renderRDSParameter(name, value, applyType, dataType, source, applyMethod string, modifiable bool, override map[string]string) string {
-	if v, ok := override[name]; ok {
-		value = v
-	}
-	var b strings.Builder
-	b.WriteString("<Parameter>")
-	fmt.Fprintf(&b, "<ParameterName>%s</ParameterName>", xmlEscape(name))
-	if value != "" {
-		fmt.Fprintf(&b, "<ParameterValue>%s</ParameterValue>", xmlEscape(value))
-	}
-	fmt.Fprintf(&b, "<ApplyType>%s</ApplyType>", xmlEscape(applyType))
-	fmt.Fprintf(&b, "<DataType>%s</DataType>", xmlEscape(dataType))
-	fmt.Fprintf(&b, "<Source>%s</Source>", xmlEscape(source))
-	fmt.Fprintf(&b, "<ApplyMethod>%s</ApplyMethod>", xmlEscape(applyMethod))
-	fmt.Fprintf(&b, "<IsModifiable>%t</IsModifiable>", modifiable)
-	b.WriteString("</Parameter>")
-	return b.String()
-}
-
-func renderRDSParametersList(override map[string]string) string {
-	var b strings.Builder
-	b.WriteString("<Parameters>")
-	for _, p := range rdsDefaultParameters() {
-		src := p.Source
-		if _, ok := override[p.Name]; ok {
-			src = "user"
-		}
-		b.WriteString(renderRDSParameter(p.Name, p.Value, p.ApplyType, p.DataType, src, p.ApplyMethod, p.IsModifiable, override))
-	}
-	b.WriteString("</Parameters>")
-	return b.String()
-}
-
-func handleRDSDescribeParameters(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("DBParameterGroupName")
-	rdsEnsureOfferedDefaultParameterGroup(name)
-	g, ok := rdsParamGroups.Get(name)
-	if !ok {
-		g, ok = findRDSParamGroupByARN(name)
-		if !ok {
-			rdsErrorXML(w, "DBParameterGroupNotFound",
-				fmt.Sprintf("DBParameterGroup %q not found", name),
-				http.StatusNotFound, sim.RequestID(r.Context()))
-			return
-		}
-	}
-	rdsXMLResponse(w, "DescribeDBParameters", renderRDSParametersList(g.Parameters), sim.RequestID(r.Context()))
-}
-
-func handleRDSDescribeClusterParameters(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("DBClusterParameterGroupName")
-	g, ok := rdsClusterParamGroups.Get(name)
-	if !ok {
-		g, ok = findRDSClusterParamGroupByARN(name)
-		if !ok {
-			rdsErrorXML(w, "DBParameterGroupNotFound",
-				fmt.Sprintf("DBClusterParameterGroup %q not found", name),
-				http.StatusNotFound, sim.RequestID(r.Context()))
-			return
-		}
-	}
-	rdsXMLResponse(w, "DescribeDBClusterParameters", renderRDSParametersList(g.Parameters), sim.RequestID(r.Context()))
-}
-
-func parseRDSParameterOverrides(r *http.Request) map[string]string {
-	out := map[string]string{}
-	for n := 1; n <= 200; n++ {
-		name := r.FormValue(fmt.Sprintf("Parameters.Parameter.%d.ParameterName", n))
-		if name == "" {
-			break
-		}
-		out[name] = r.FormValue(fmt.Sprintf("Parameters.Parameter.%d.ParameterValue", n))
-	}
-	return out
-}
-
-func handleRDSModifyParameterGroup(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("DBParameterGroupName")
-	if strings.HasPrefix(name, "default.") {
-		rdsErrorXML(w, "InvalidParameterValue", "Default parameter groups cannot be modified.", http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	if _, ok := rdsParamGroups.Get(name); !ok {
-		rdsErrorXML(w, "DBParameterGroupNotFound", "DB parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	override := parseRDSParameterOverrides(r)
-	rdsParamGroups.Update(name, func(g *RDSParamGroup) {
-		if g.Parameters == nil {
-			g.Parameters = map[string]string{}
-		}
-		for k, v := range override {
-			g.Parameters[k] = v
-		}
-	})
-	body := fmt.Sprintf("<DBParameterGroupName>%s</DBParameterGroupName>", xmlEscape(name))
-	rdsXMLResponse(w, "ModifyDBParameterGroup", body, sim.RequestID(r.Context()))
-}
-
-func handleRDSResetParameterGroup(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("DBParameterGroupName")
-	if strings.HasPrefix(name, "default.") {
-		rdsErrorXML(w, "InvalidParameterValue", "Default parameter groups cannot be modified.", http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	if _, ok := rdsParamGroups.Get(name); !ok {
-		rdsErrorXML(w, "DBParameterGroupNotFound", "DB parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	resetAll := r.FormValue("ResetAllParameters") == "true"
-	toReset := parseRDSParameterOverrides(r)
-	rdsParamGroups.Update(name, func(g *RDSParamGroup) {
-		if resetAll {
-			g.Parameters = map[string]string{}
-			return
-		}
-		for k := range toReset {
-			delete(g.Parameters, k)
-		}
-	})
-	body := fmt.Sprintf("<DBParameterGroupName>%s</DBParameterGroupName>", xmlEscape(name))
-	rdsXMLResponse(w, "ResetDBParameterGroup", body, sim.RequestID(r.Context()))
-}
-
-func handleRDSModifyClusterParameterGroup(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("DBClusterParameterGroupName")
-	if _, ok := rdsClusterParamGroups.Get(name); !ok {
-		rdsErrorXML(w, "DBParameterGroupNotFound", "DB cluster parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	override := parseRDSParameterOverrides(r)
-	rdsClusterParamGroups.Update(name, func(g *RDSClusterParamGroup) {
-		if g.Parameters == nil {
-			g.Parameters = map[string]string{}
-		}
-		for k, v := range override {
-			g.Parameters[k] = v
-		}
-	})
-	body := fmt.Sprintf("<DBClusterParameterGroupName>%s</DBClusterParameterGroupName>", xmlEscape(name))
-	rdsXMLResponse(w, "ModifyDBClusterParameterGroup", body, sim.RequestID(r.Context()))
 }
 
 func handleRDSCopyClusterSnapshot(w http.ResponseWriter, r *http.Request) {

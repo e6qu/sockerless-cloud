@@ -434,8 +434,9 @@ echo "=== Terraform provider freshness (adoption quarantine ${quarantine_seconds
 while IFS= read -r tf; do
   [[ -z "$tf" ]] && continue
   # Parse required_providers blocks. Output lines: "<name>|<source>|<constraint>".
-  # Brace depth is tracked so the block ends at ITS closing brace rather than at
-  # the first provider entry's, which would hide every provider but the first.
+  # Brace depth is tracked so each provider entry is printed when its own brace
+  # closes and the block ends at ITS closing brace: printing only at the block's
+  # end reported just the last entry and hid every provider before it.
   parsed=$(awk '
     !in_rp && /required_providers[[:space:]]*\{/ { in_rp=1; depth=1; next }
     in_rp {
@@ -453,10 +454,11 @@ while IFS= read -r tf; do
     }
     in_rp {
       depth = next_depth
-      if (depth <= 0) {
+      if (depth <= 1) {
         if (name != "" && src != "") { print name "|" src "|" ver }
-        in_rp=0; name=""; src=""; ver=""
+        name=""; src=""; ver=""
       }
+      if (depth <= 0) { in_rp=0 }
     }
   ' "$tf")
 

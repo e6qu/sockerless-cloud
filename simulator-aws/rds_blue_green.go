@@ -326,6 +326,7 @@ func handleRDSCreateBlueGreenDeployment(w http.ResponseWriter, r *http.Request) 
 		DeletionProtection:              blue.DeletionProtection,
 		BackupRetentionPeriod:           blue.BackupRetentionPeriod,
 		PreferredBackupWindow:           blue.PreferredBackupWindow,
+		PreferredMaintenanceWindow:      blue.PreferredMaintenanceWindow,
 		BackupTarget:                    blue.BackupTarget,
 		DBParameterGroupName:            paramGroup,
 		AutoMinorVersionUpgrade:         blue.AutoMinorVersionUpgrade,

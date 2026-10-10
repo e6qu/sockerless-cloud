@@ -5,6 +5,7 @@ package sparse
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"testing"
 
@@ -80,7 +81,13 @@ func TestDataExtentsFollowWritesAndClears(t *testing.T) {
 	require.NoError(t, Clear(f, 4*block+5, 2*block-5))
 	extents, err = DataExtents(f)
 	require.NoError(t, err)
-	require.Equal(t, []Extent{{Start: 4 * block, End: 5*block - 1}}, extents)
+	// APFS allocates the never-written zeros a truncate added once the file
+	// is flushed, which deallocating forces, so only the cleared range is
+	// portable: its partial block keeps its data and its whole block is a hole.
+	require.Equal(t, []Extent{{Start: 4 * block, End: 5*block - 1}}, Clip(extents, 4*block, 6*block-1))
+	if runtime.GOOS == "linux" {
+		require.Equal(t, []Extent{{Start: 4 * block, End: 5*block - 1}}, extents)
+	}
 	got := make([]byte, 1)
 	_, err = f.ReadAt(got, 4*block+10)
 	require.NoError(t, err)

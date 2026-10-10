@@ -329,7 +329,7 @@ func TestTagOnCreate_ECSRunTaskTaggingIsScopedToTheTask(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = admin.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)}) })
 	_, err = admin.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{Family: aws.String(family),
-		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("alpine:latest")}}})
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("public.ecr.aws/docker/library/alpine:latest")}}})
 	require.NoError(t, err)
 
 	client := func(user, tagging string) *ecs.Client {

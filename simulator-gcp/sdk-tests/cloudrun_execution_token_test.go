@@ -16,7 +16,7 @@ import (
 func tokenJobTemplate(script string) *runpb.ExecutionTemplate {
 	return &runpb.ExecutionTemplate{
 		Template: &runpb.TaskTemplate{
-			Containers: []*runpb.Container{{Image: "alpine:latest", Command: []string{"sh", "-c", script}}},
+			Containers: []*runpb.Container{{Image: "public.ecr.aws/docker/library/alpine:latest", Command: []string{"sh", "-c", script}}},
 			Retries:    &runpb.TaskTemplate_MaxRetries{MaxRetries: 0},
 			Timeout:    durationpb.New(120 * time.Second),
 		},

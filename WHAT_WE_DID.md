@@ -1825,6 +1825,55 @@ refuse a default group with InvalidParameterValue, and a group of another
 family is refused with InvalidParameterCombination. DB cluster parameter
 groups take their default name from the family too (`default.aurora-postgresql16`).
 
+Each DB parameter group family's parameters are its engine's own.
+`scripts/capture-rds-parameter-catalogs.go` starts the image of each family's
+newest version with the arguments the simulator runs it with and reads the
+engine's catalog — `pg_settings` on PostgreSQL, `information_schema.SYSTEM_VARIABLES`
+on MariaDB, and on MySQL 8.0 the Performance Schema's variable tables, the
+options `mysqld --verbose --help` lists and a `SET GLOBAL v = @@GLOBAL.v` of
+each variable, which the server refuses for one it cannot change while running
+— into `rds_parameter_catalogs_vendored.json`, recording each image, its image
+ID and the version the engine reported; `TestRDSParameterCatalogImages` fails
+when a catalog's image drifts from `rdsEngineVersions`. A setting a restart
+applies is `static`, any other `dynamic`; a parameter is modifiable when the
+server takes it as a configuration option, except the settings the simulator
+runs every engine with for its endpoint, automated backups, log files and read
+replicas. DescribeDBParameters, DescribeDBClusterParameters and
+DescribeEngineDefaultParameters page through that catalog with MaxRecords and
+Marker, and ModifyDBParameterGroup checks each change against it: an unknown or
+unmodifiable parameter and a value outside AllowedValues are
+InvalidParameterValue, and `immediate` for a static parameter is
+InvalidParameterCombination.
+
+An engine starts with the parameters its group sets: a MySQL-family engine
+takes them all as command-line options, and PostgreSQL takes the static ones as
+`-c` options and the dynamic ones from `rds_parameters.conf`, which
+`postgresql.conf` includes, because a reload never overrides a command-line
+setting. A dynamic change applied immediately reaches each running engine
+whose instance uses the group — `SET GLOBAL` on MySQL and MariaDB, a rewritten
+file and `pg_reload_conf()` on PostgreSQL, which waits until a new session
+sees the reload, since the postmaster rereads its configuration
+asynchronously. The instance records the parameters its engine started with;
+while they differ from its group's, or the instance was associated with another
+group since, ParameterApplyStatus is `pending-reboot`, and RebootDBInstance,
+StartDBInstance, an upgrade, a class change and every other engine restart
+start the engine under the group as it is then.
+
+ModifyDBInstance follows ApplyImmediately. Without it, a class, storage or
+engine version change and a BackupRetentionPeriod change that turns automated
+backups on or off wait in PendingModifications, which PendingModifiedValues
+reports; PreferredMaintenanceWindow, the backup window, the DB parameter group
+name and the authentication and deletion settings apply at once. A
+`sim/bg` timer armed for the window's next start applies what is pending — at
+once when the window is open with at least 30 minutes left, as the
+ModifyDBInstance reference requires — and a later request with
+ApplyImmediately applies the pending changes with its own. An engine version
+change leaves the instance `upgrading`, and a class change on an instance with
+an engine leaves it `modifying` while the engine restarts. Every instance has a
+PreferredMaintenanceWindow: the request's, checked for format, a 30-minute
+minimum and overlap with the backup window, or a random 30-minute window in
+the Region's 8-hour block that clears the backup window.
+
 An RDS DB instance read replica is a real replica. CreateDBInstanceReadReplica
 refuses a source without automated backups (InvalidDBInstanceState) or in a DB
 cluster, answers `creating` and in the background readies the source's
@@ -3020,7 +3069,10 @@ installed tools, the consoles' npm packages — are held to their newest release
 past a 24-hour adoption quarantine. `ui/bunfig.toml` sets
 `install.minimumReleaseAge` to the same day, because caret ranges let the
 resolver pick versions the quarantine refuses. An exact provider pin is
-compared exactly and an unpinned provider is a failure. On a pull request, a
+compared exactly and an unpinned provider is a failure. Every entry of a
+`required_providers` block is read: the parser once reported only a block's
+last entry, which left `hashicorp/google` six minor releases behind in the
+Google Cloud stack while `hashicorp/random` after it was current. On a pull request, a
 drift byte-identical to `main`'s is reported rather than failed, since upstream
 moved under the branch. Every network lookup the check makes carries a
 deadline and fails naming what never answered. A deliberate hold names its
@@ -3072,6 +3124,17 @@ simulators cold inside the job's five minutes. The workflows reference as few ex
 actions as possible, because the runner downloads every action a workflow
 names for every job. A tool a suite needs — gcloud, `cbt`, the AWS CLI — is
 installed in `TestMain` with a few retries, never skipped.
+
+Nothing CI builds or runs pulls from Docker Hub, which limits anonymous pulls
+per address and which the shared runners exhaust. The simulator images and
+`Dockerfile.test` build from the ECR Public Gallery's copy of Docker's official
+images and BuildKit comes from `mirror.gcr.io`, each pinned to the index digest
+Docker Hub serves for the same tag; a test's workload image names its ECR
+Public tag, which `base-images-for.sh` warms, and another public image comes
+from `mirror.gcr.io` at Docker Hub's digest. A digest-pinned workload image is
+left out because `docker load` restores none of them by digest. A simulator's
+own Dockerfile is not scanned, since no suite runs a container from its build
+images.
 
 A differential oracle is pinned by its multi-platform index digest, never a
 tag or one platform's manifest, and the harness refuses an image built for

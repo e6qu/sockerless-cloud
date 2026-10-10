@@ -12,7 +12,7 @@ func TestECSTaskDefFidelityCLI(t *testing.T) {
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	containerDefs := `[
-	  {"name":"app","image":"nginx:latest","essential":true,"user":"1000:1000",
+	  {"name":"app","image":"public.ecr.aws/docker/library/nginx:latest","essential":true,"user":"1000:1000",
 	   "workingDirectory":"/srv","readonlyRootFilesystem":true,"startTimeout":30,"stopTimeout":10,
 	   "dockerLabels":{"com.example.team":"platform"},
 	   "ulimits":[{"name":"nofile","softLimit":1024,"hardLimit":2048}],

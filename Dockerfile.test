@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=mirror.gcr.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # The shared Linux test harness image. `make docker-test` in every simulator
@@ -13,7 +13,11 @@
 #
 # Every download is pinned to a version and a digest: this image decides what a
 # test result means, so two builds of it must be the same image.
-FROM ubuntu:24.04
+#
+# The frontend above comes from Google's Docker Hub mirror and the base image
+# from the Amazon ECR Public copy of Docker's official images, each pinned to
+# the digest Docker Hub serves: Docker Hub limits anonymous pulls per address.
+FROM public.ecr.aws/docker/library/ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
 
 ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive

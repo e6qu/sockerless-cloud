@@ -287,7 +287,7 @@ run_test_json "ecs describe-clusters (json)" '.clusters[0].clusterName' \
     aws_cli ecs describe-clusters --clusters bash-cluster-json --output json
 
 # -- Task Definition --
-CONTAINER_DEFS='[{"name":"app","image":"alpine:latest","command":["echo","hello"],"logConfiguration":{"logDriver":"awslogs","options":{"awslogs-create-group":"true","awslogs-group":"/ecs/bash-test","awslogs-stream-prefix":"ecs"}}}]'
+CONTAINER_DEFS='[{"name":"app","image":"public.ecr.aws/docker/library/alpine:latest","command":["echo","hello"],"logConfiguration":{"logDriver":"awslogs","options":{"awslogs-create-group":"true","awslogs-group":"/ecs/bash-test","awslogs-stream-prefix":"ecs"}}}]'
 
 run_test "ecs register-task-definition (text)" \
     aws_cli ecs register-task-definition \

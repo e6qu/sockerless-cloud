@@ -387,7 +387,7 @@ func TestLambda_InvokeContainerCrash(t *testing.T) {
 		FunctionName: aws.String(fnName),
 		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
 		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("alpine:latest")},
+		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("public.ecr.aws/docker/library/alpine:latest")},
 		ImageConfig: &lambdatypes.ImageConfig{
 			Command: []string{"sh", "-c", "exit 1"},
 		},

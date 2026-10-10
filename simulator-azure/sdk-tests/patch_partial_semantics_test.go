@@ -130,7 +130,7 @@ func TestSDK_ACAJob_UpdatePartial(t *testing.T) {
 			},
 			Template: &armappcontainers.JobTemplate{
 				Containers: []*armappcontainers.Container{
-					{Name: to.Ptr("main"), Image: to.Ptr("alpine:3.20")},
+					{Name: to.Ptr("main"), Image: to.Ptr("public.ecr.aws/docker/library/alpine:3.20")},
 				},
 			},
 		},
@@ -167,7 +167,7 @@ func TestSDK_ACAJob_UpdatePartial(t *testing.T) {
 		"job template must survive a tags-only PATCH")
 	require.Len(t, got.Properties.Template.Containers, 1)
 	require.NotNil(t, got.Properties.Template.Containers[0].Image)
-	assert.Equal(t, "alpine:3.20", *got.Properties.Template.Containers[0].Image)
+	assert.Equal(t, "public.ecr.aws/docker/library/alpine:3.20", *got.Properties.Template.Containers[0].Image)
 
 	// A configuration-only PATCH must apply the new value and keep the tags.
 	cfgUp, err := client.BeginUpdate(ctx, rg, jobName, armappcontainers.JobPatchProperties{

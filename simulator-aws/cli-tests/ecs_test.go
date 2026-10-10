@@ -121,7 +121,7 @@ func TestECS_CLI_RunTaskAndCheckLogs(t *testing.T) {
 		"--memory", "512",
 		"--container-definitions", `[{
 			"name": "app",
-			"image": "alpine:latest",
+			"image": "public.ecr.aws/docker/library/alpine:latest",
 			"command": ["echo", "hello-from-ecs"],
 			"logConfiguration": {
 				"logDriver": "awslogs",
@@ -221,7 +221,7 @@ func TestECS_CLI_RunTaskContainerOverrideEnvironment(t *testing.T) {
 		"--memory", "512",
 		"--container-definitions", `[{
 			"name": "workspace",
-			"image": "alpine:latest",
+			"image": "public.ecr.aws/docker/library/alpine:latest",
 			"command": ["sh", "-c", "echo taskdef:${EDD_WORKSPACE_ID:-missing}:${BASE_ONLY}:${OVERRIDE_ME}"],
 			"environment": [
 				{"name": "BASE_ONLY", "value": "from-task-definition"},
@@ -459,7 +459,7 @@ func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 		// seed is gone; the round trip has to happen.
 		"--container-definitions", `[{
 			"name": "writer",
-			"image": "alpine:latest",
+			"image": "public.ecr.aws/docker/library/alpine:latest",
 			"entryPoint": ["sh", "-c"],
 			"command": ["printf 'cli-ebs-roundtrip' > /workspace/state.txt"],
 			"mountPoints": [{"sourceVolume":"workspace","containerPath":"/workspace"}]
@@ -538,7 +538,7 @@ func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 		"--volumes", `[{"name":"workspace","configuredAtLaunch":true}]`,
 		"--container-definitions", `[{
 			"name": "reader",
-			"image": "alpine:latest",
+			"image": "public.ecr.aws/docker/library/alpine:latest",
 			"entryPoint": ["sh", "-c"],
 			"command": ["test \"$(cat /workspace/state.txt)\" = \"cli-ebs-roundtrip\" && echo CLI_EBS_ROUNDTRIP_OK"],
 			"mountPoints": [{"sourceVolume":"workspace","containerPath":"/workspace"}],
@@ -602,7 +602,7 @@ func TestECS_CLI_RunTaskNonZeroExit(t *testing.T) {
 		"--memory", "512",
 		"--container-definitions", `[{
 			"name": "app",
-			"image": "alpine:latest",
+			"image": "public.ecr.aws/docker/library/alpine:latest",
 			"command": ["sh", "-c", "exit 1"],
 			"logConfiguration": {
 				"logDriver": "awslogs",
@@ -675,7 +675,7 @@ func TestECS_CLI_TagAndUntagTask(t *testing.T) {
 		"--memory", "512",
 		"--container-definitions", `[{
 				"name": "app",
-				"image": "alpine:latest",
+				"image": "public.ecr.aws/docker/library/alpine:latest",
 				"entryPoint": ["sh", "-c"],
 				"command": ["trap 'exit 143' TERM; sleep 30 & wait"]
 			}]`,

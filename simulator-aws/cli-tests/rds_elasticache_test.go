@@ -74,6 +74,8 @@ func TestRDSCLI_DBInstanceLifecycle(t *testing.T) {
 		"--db-instance-identifier", id,
 		"--db-instance-class", "db.t3.small",
 		"--apply-immediately"))
+	// The class change restarts the engine with the instance modifying.
+	runCLI(t, awsCLI("rds", "wait", "db-instance-available", "--db-instance-identifier", id))
 
 	runCLI(t, awsCLI("rds", "add-tags-to-resource",
 		"--resource-name", arn,

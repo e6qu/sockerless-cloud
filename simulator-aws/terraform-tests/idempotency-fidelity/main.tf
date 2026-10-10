@@ -146,7 +146,7 @@ resource "aws_ecs_task_definition" "this" {
   container_definitions = jsonencode([{
     name        = "app"
     stopTimeout = 2
-    image       = "nginx"
+    image       = "public.ecr.aws/docker/library/nginx:latest"
     essential   = true
   }])
   runtime_platform {

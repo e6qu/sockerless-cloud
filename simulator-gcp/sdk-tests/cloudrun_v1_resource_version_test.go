@@ -52,7 +52,7 @@ func TestCloudRunV1_Service_ResourceVersionOptimisticConcurrency(t *testing.T) {
 		}
 	}
 
-	created, err := svc.Namespaces.Services.Create(parent, body("alpine:latest", "")).Do()
+	created, err := svc.Namespaces.Services.Create(parent, body("public.ecr.aws/docker/library/alpine:latest", "")).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Namespaces.Services.Delete(name).Do() })
 	require.NotEmpty(t, created.Metadata.ResourceVersion,
@@ -61,27 +61,27 @@ func TestCloudRunV1_Service_ResourceVersionOptimisticConcurrency(t *testing.T) {
 	// A replace naming the version the client last read proceeds and moves the
 	// service on.
 	replaced, err := svc.Namespaces.Services.ReplaceService(name,
-		body("alpine:3.20", created.Metadata.ResourceVersion)).Do()
+		body("public.ecr.aws/docker/library/alpine:3.20", created.Metadata.ResourceVersion)).Do()
 	require.NoError(t, err)
 	require.NotEqual(t, created.Metadata.ResourceVersion, replaced.Metadata.ResourceVersion,
 		"a replace mints a new resourceVersion")
 
 	// The version the client still holds is now stale.
 	_, err = svc.Namespaces.Services.ReplaceService(name,
-		body("alpine:3.19", created.Metadata.ResourceVersion)).Do()
+		body("public.ecr.aws/docker/library/alpine:3.19", created.Metadata.ResourceVersion)).Do()
 	requireRunV1Conflict(t, err)
 
 	// The service is untouched by the refused replace.
 	after, err := svc.Namespaces.Services.Get(name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, replaced.Metadata.ResourceVersion, after.Metadata.ResourceVersion)
-	assert.Equal(t, "alpine:3.20", after.Spec.Template.Spec.Containers[0].Image)
+	assert.Equal(t, "public.ecr.aws/docker/library/alpine:3.20", after.Spec.Template.Spec.Containers[0].Image)
 
 	// An omitted resourceVersion disables conflict detection, which is what the
 	// ObjectMeta member's own description says it does.
-	unconditional, err := svc.Namespaces.Services.ReplaceService(name, body("alpine:3.21", "")).Do()
+	unconditional, err := svc.Namespaces.Services.ReplaceService(name, body("public.ecr.aws/docker/library/alpine:3.21", "")).Do()
 	require.NoError(t, err)
-	assert.Equal(t, "alpine:3.21", unconditional.Spec.Template.Spec.Containers[0].Image)
+	assert.Equal(t, "public.ecr.aws/docker/library/alpine:3.21", unconditional.Spec.Template.Spec.Containers[0].Image)
 }
 
 // TestCloudRunV1_Service_ResourceVersionTracksV2Writes proves the two spellings
@@ -100,7 +100,7 @@ func TestCloudRunV1_Service_ResourceVersionTracksV2Writes(t *testing.T) {
 		Metadata:   &run.ObjectMeta{Name: id},
 		Spec: &run.ServiceSpec{
 			Template: &run.RevisionTemplate{
-				Spec: &run.RevisionSpec{Containers: []*run.Container{{Image: "alpine:latest"}}},
+				Spec: &run.RevisionSpec{Containers: []*run.Container{{Image: "public.ecr.aws/docker/library/alpine:latest"}}},
 			},
 		},
 	}).Do()
@@ -112,7 +112,7 @@ func TestCloudRunV1_Service_ResourceVersionTracksV2Writes(t *testing.T) {
 	v2Name := crV2Parent + "/services/" + id
 	patchOp, err := v2.Projects.Locations.Services.Patch(v2Name, &runv2.GoogleCloudRunV2Service{
 		Template: &runv2.GoogleCloudRunV2RevisionTemplate{
-			Containers: []*runv2.GoogleCloudRunV2Container{{Image: "alpine:3.20"}},
+			Containers: []*runv2.GoogleCloudRunV2Container{{Image: "public.ecr.aws/docker/library/alpine:3.20"}},
 		},
 	}).Do()
 	require.NoError(t, err)
@@ -129,7 +129,7 @@ func TestCloudRunV1_Service_ResourceVersionTracksV2Writes(t *testing.T) {
 		Metadata:   &run.ObjectMeta{Name: id, ResourceVersion: held},
 		Spec: &run.ServiceSpec{
 			Template: &run.RevisionTemplate{
-				Spec: &run.RevisionSpec{Containers: []*run.Container{{Image: "alpine:3.19"}}},
+				Spec: &run.RevisionSpec{Containers: []*run.Container{{Image: "public.ecr.aws/docker/library/alpine:3.19"}}},
 			},
 		},
 	}).Do()
@@ -158,18 +158,18 @@ func TestCloudRunV1_RegionalService_ResourceVersionOptimisticConcurrency(t *test
 		}
 	}
 
-	created, err := svc.Projects.Locations.Services.Create(parent, body("alpine:latest", "")).Do()
+	created, err := svc.Projects.Locations.Services.Create(parent, body("public.ecr.aws/docker/library/alpine:latest", "")).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Projects.Locations.Services.Delete(name).Do() })
 	require.NotEmpty(t, created.Metadata.ResourceVersion)
 
 	replaced, err := svc.Projects.Locations.Services.ReplaceService(name,
-		body("alpine:3.20", created.Metadata.ResourceVersion)).Do()
+		body("public.ecr.aws/docker/library/alpine:3.20", created.Metadata.ResourceVersion)).Do()
 	require.NoError(t, err)
 	require.NotEqual(t, created.Metadata.ResourceVersion, replaced.Metadata.ResourceVersion)
 
 	_, err = svc.Projects.Locations.Services.ReplaceService(name,
-		body("alpine:3.19", created.Metadata.ResourceVersion)).Do()
+		body("public.ecr.aws/docker/library/alpine:3.19", created.Metadata.ResourceVersion)).Do()
 	requireRunV1Conflict(t, err)
 }
 
@@ -196,21 +196,21 @@ func TestCloudRunV1_Job_ResourceVersionOptimisticConcurrency(t *testing.T) {
 		}
 	}
 
-	created, err := svc.Namespaces.Jobs.Create(parent, body("alpine:latest", "")).Do()
+	created, err := svc.Namespaces.Jobs.Create(parent, body("public.ecr.aws/docker/library/alpine:latest", "")).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Namespaces.Jobs.Delete(name).Do() })
 	require.NotEmpty(t, created.Metadata.ResourceVersion)
 
 	replaced, err := svc.Namespaces.Jobs.ReplaceJob(name,
-		body("alpine:3.20", created.Metadata.ResourceVersion)).Do()
+		body("public.ecr.aws/docker/library/alpine:3.20", created.Metadata.ResourceVersion)).Do()
 	require.NoError(t, err)
 	require.NotEqual(t, created.Metadata.ResourceVersion, replaced.Metadata.ResourceVersion)
 
 	_, err = svc.Namespaces.Jobs.ReplaceJob(name,
-		body("alpine:3.19", created.Metadata.ResourceVersion)).Do()
+		body("public.ecr.aws/docker/library/alpine:3.19", created.Metadata.ResourceVersion)).Do()
 	requireRunV1Conflict(t, err)
 
-	unconditional, err := svc.Namespaces.Jobs.ReplaceJob(name, body("alpine:3.21", "")).Do()
+	unconditional, err := svc.Namespaces.Jobs.ReplaceJob(name, body("public.ecr.aws/docker/library/alpine:3.21", "")).Do()
 	require.NoError(t, err)
 	require.NotEqual(t, replaced.Metadata.ResourceVersion, unconditional.Metadata.ResourceVersion)
 }
@@ -230,18 +230,18 @@ func TestCloudRunV1_Instance_ResourceVersionOptimisticConcurrency(t *testing.T) 
 		}
 	}
 
-	created, err := svc.Namespaces.Instances.Create(parent, body("alpine:latest", "")).Do()
+	created, err := svc.Namespaces.Instances.Create(parent, body("public.ecr.aws/docker/library/alpine:latest", "")).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Namespaces.Instances.Delete(name).Do() })
 	require.NotEmpty(t, created.Metadata.ResourceVersion)
 
 	replaced, err := svc.Namespaces.Instances.ReplaceInstance(name,
-		body("alpine:3.20", created.Metadata.ResourceVersion)).Do()
+		body("public.ecr.aws/docker/library/alpine:3.20", created.Metadata.ResourceVersion)).Do()
 	require.NoError(t, err)
 	require.NotEqual(t, created.Metadata.ResourceVersion, replaced.Metadata.ResourceVersion)
 
 	_, err = svc.Namespaces.Instances.ReplaceInstance(name,
-		body("alpine:3.19", created.Metadata.ResourceVersion)).Do()
+		body("public.ecr.aws/docker/library/alpine:3.19", created.Metadata.ResourceVersion)).Do()
 	requireRunV1Conflict(t, err)
 }
 
@@ -264,17 +264,17 @@ func TestCloudRunV1_WorkerPool_ResourceVersionOptimisticConcurrency(t *testing.T
 		}
 	}
 
-	created, err := svc.Namespaces.Workerpools.Create(parent, body("alpine:latest", "")).Do()
+	created, err := svc.Namespaces.Workerpools.Create(parent, body("public.ecr.aws/docker/library/alpine:latest", "")).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Namespaces.Workerpools.Delete(name).Do() })
 	require.NotEmpty(t, created.Metadata.ResourceVersion)
 
 	replaced, err := svc.Namespaces.Workerpools.ReplaceWorkerPool(name,
-		body("alpine:3.20", created.Metadata.ResourceVersion)).Do()
+		body("public.ecr.aws/docker/library/alpine:3.20", created.Metadata.ResourceVersion)).Do()
 	require.NoError(t, err)
 	require.NotEqual(t, created.Metadata.ResourceVersion, replaced.Metadata.ResourceVersion)
 
 	_, err = svc.Namespaces.Workerpools.ReplaceWorkerPool(name,
-		body("alpine:3.19", created.Metadata.ResourceVersion)).Do()
+		body("public.ecr.aws/docker/library/alpine:3.19", created.Metadata.ResourceVersion)).Do()
 	requireRunV1Conflict(t, err)
 }

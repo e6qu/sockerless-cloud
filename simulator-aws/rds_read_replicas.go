@@ -897,6 +897,7 @@ func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 	}
 	replica := RDSInstance{
 		PreferredBackupWindow:           src.PreferredBackupWindow,
+		PreferredMaintenanceWindow:      rdsDefaultMaintenanceWindow(src.PreferredBackupWindow),
 		DBInstanceIdentifier:            id,
 		DbiResourceId:                   rdsResourceID(),
 		DBInstanceClass:                 class,

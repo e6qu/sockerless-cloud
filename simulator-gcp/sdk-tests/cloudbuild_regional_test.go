@@ -33,7 +33,7 @@ func TestCloudBuild_RegionalBuildCreateAndRetry(t *testing.T) {
 	parent := "projects/cb-regional/locations/us-central1"
 
 	op, err := svc.Projects.Locations.Builds.Create(parent, &cloudbuild.Build{
-		Steps: []*cloudbuild.BuildStep{{Name: "alpine", Args: []string{"true"}}},
+		Steps: []*cloudbuild.BuildStep{{Name: "public.ecr.aws/docker/library/alpine:latest", Args: []string{"true"}}},
 	}).Do()
 	require.NoError(t, err)
 	require.False(t, op.Done, "the operation comes back before the build runs")
@@ -64,7 +64,7 @@ func TestCloudBuild_ApproveRejectsABuildThatIsNotPending(t *testing.T) {
 	parent := "projects/cb-approve/locations/us-central1"
 
 	op, err := svc.Projects.Locations.Builds.Create(parent, &cloudbuild.Build{
-		Steps: []*cloudbuild.BuildStep{{Name: "alpine", Args: []string{"true"}}},
+		Steps: []*cloudbuild.BuildStep{{Name: "public.ecr.aws/docker/library/alpine:latest", Args: []string{"true"}}},
 	}).Do()
 	require.NoError(t, err)
 	created := buildFromOperation(t, op)
@@ -92,7 +92,7 @@ func TestCloudBuild_RunTriggerStartsItsInlineBuild(t *testing.T) {
 	trigger, err := svc.Projects.Locations.Triggers.Create(parent, &cloudbuild.BuildTrigger{
 		Name: "run-me",
 		Build: &cloudbuild.Build{
-			Steps: []*cloudbuild.BuildStep{{Name: "alpine", Args: []string{"true"}}},
+			Steps: []*cloudbuild.BuildStep{{Name: "public.ecr.aws/docker/library/alpine:latest", Args: []string{"true"}}},
 		},
 	}).Do()
 	require.NoError(t, err)
