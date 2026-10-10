@@ -614,7 +614,11 @@ jobs:
           - suite: services-a-m
             run: '^Test[A-CF-M]'
           - suite: services-n-z
-            run: '^Test([N-QS-Z]|R[^D]|RD[^S]|RDS[^_]|RDS_[^A-I])'
+            run: '^Test([N-QS-Z]|R[^D]|RD[^S]|RDS[^_]|RDS_([^A-IM]|M[^o]|Modify[^D]))'
+          # The ModifyDBInstance tests restart engines on a new CA, a new port
+          # and a renamed volume, which the services-n-z shard has no room for.
+          - suite: rds-modify
+            run: '^Test(RDS_ModifyDB)'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
@@ -950,11 +954,12 @@ jobs:
             run: '^Test(RDSCLI_(ReadReplica|ReleasedEngineVersion))'
             timeout: 1200s
             timeout_minutes: 15
-          # The DB parameter group and maintenance window tests start and
-          # reboot engines and wait for a maintenance window that opens at the
-          # next minute, read at the CLI waiter's 30-second cadence.
+          # The DB parameter group, maintenance window and ModifyDBInstance
+          # tests start, reboot and rename engines and wait for a maintenance
+          # window that opens at the next minute, read at the CLI waiter's
+          # 30-second cadence.
           - suite: rds-parameters
-            run: '^Test(RDSCLI_(Maintenance|ModifiedDBParameterGroup))'
+            run: '^Test(RDSCLI_(Maintenance|ModifiedDBParameterGroup|ModifyDBInstance))'
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata5
@@ -1163,6 +1168,13 @@ jobs:
             tf_packages: "./rds-parameter-group"
             tf_timeout: 720s
             timeout_minutes: 15
+          # The provider waits on the create, on the rename and port move,
+          # and on the destroy.
+          - suite: aws Amazon RDS instance settings
+            cloud: aws
+            tf_packages: "./rds-instance-settings"
+            tf_timeout: 720s
+            timeout_minutes: 15
           - suite: aws Amazon RDS snapshot
             cloud: aws
             tf_packages: "./rds-snapshot ./rds-cluster-snapshot"
@@ -1196,9 +1208,9 @@ jobs:
             cloud: aws
             tf_packages: "./s3control ./s3-versioning ./s3-object-lock"
             timeout_minutes: 12
-          - suite: aws Elastic Load Balancing trust store
+          - suite: aws Elastic Load Balancing
             cloud: aws
-            tf_packages: "./elb-trust-store"
+            tf_packages: "./elb-trust-store ./alb-forwarded-headers"
             timeout_minutes: 12
           - suite: aws Amazon ECR force delete
             cloud: aws

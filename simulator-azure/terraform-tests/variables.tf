@@ -17,3 +17,13 @@ variable "node_function_package_url" {
   description = "URL of the zip package the Node function app runs from"
   type        = string
 }
+
+variable "appgw_echo_ip" {
+  description = "Address of the header-echoing server behind the application gateway's web pool"
+  type        = string
+}
+
+variable "appgw_echo_port" {
+  description = "Port of the header-echoing server behind the application gateway's web pool"
+  type        = number
+}

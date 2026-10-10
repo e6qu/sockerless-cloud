@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/stretchr/testify/require"
@@ -79,6 +81,7 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		"hello/index.js": `module.exports = async function (context, req) {` +
 			` context.res = { body: "hello from " + process.env.WEBSITE_SITE_NAME + " on node " + process.version }; };`,
 	})
+	appGatewayEchoIP, appGatewayEchoPort = serveHeaderEcho(t)
 	zipAppPackagePath = writeZipPackage(t, map[string]string{
 		"server.js": `require("http").createServer((req, res) => res.end("zip deployed on node " + process.version + " " + req.url)).listen(process.env.PORT)`,
 	})
@@ -435,6 +438,8 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, azrmSEP, "/providers/Microsoft.Network/serviceEndpointPolicies/tf-azrm-sep",
 		"service endpoint policy id must include canonical ARM path; got %s", azrmSEP)
 
+	assertApplicationGatewayForwardedHeaders(t, outputs.must(t, "azrm_application_gateway_frontend_ip"))
+
 	azrmAppGateway := outputs.must(t, "azrm_application_gateway_id")
 	require.Contains(t, azrmAppGateway, "/providers/Microsoft.Network/applicationGateways/tf-azrm-appgw",
 		"application gateway id must include canonical ARM path; got %s", azrmAppGateway)
@@ -591,6 +596,60 @@ func assertNodeFunctionAppServes(t *testing.T, host, defaultKey string) {
 	status, body = get("/api/hello?code=" + url.QueryEscape(defaultKey))
 	require.Equal(t, http.StatusOK, status, "body: %s", body)
 	require.Regexp(t, `^hello from tf-azrm-node-fa on node v22\.\d+\.\d+$`, body)
+}
+
+// appGatewayEchoIP and appGatewayEchoPort address the server behind the
+// application gateway's web pool; terraformCmd passes them as the
+// appgw_echo_ip and appgw_echo_port variables.
+var appGatewayEchoIP, appGatewayEchoPort string
+
+// serveHeaderEcho serves the request headers it receives as JSON, and its
+// health path with 200.
+func serveHeaderEcho(t *testing.T) (string, string) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(r.Header)
+	}))
+	t.Cleanup(srv.Close)
+	ip, port, err := net.SplitHostPort(strings.TrimPrefix(srv.URL, "http://"))
+	require.NoError(t, err)
+	return ip, port
+}
+
+// assertApplicationGatewayForwardedHeaders sends a request at the application
+// gateway's frontend address. The gateway's web pool is the header-echoing
+// server, which sees the six headers the gateway inserts into every request.
+func assertApplicationGatewayForwardedHeaders(t *testing.T, frontendIP string) {
+	t.Helper()
+	require.NotEmpty(t, frontendIP)
+	request := func() *http.Response {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/orders?page=2", simPort), nil)
+		require.NoError(t, err)
+		req.Host = frontendIP
+		req.Header.Set("X-Forwarded-For", "203.0.113.9")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		return resp
+	}
+	// The gateway forwards only once its probe has found the server Up.
+	var resp *http.Response
+	require.Eventually(t, func() bool {
+		resp = request()
+		if resp.StatusCode == http.StatusOK {
+			return true
+		}
+		resp.Body.Close()
+		return false
+	}, 90*time.Second, time.Second, "the application gateway never forwarded to its web pool")
+	defer resp.Body.Close()
+	var seen http.Header
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&seen))
+	require.Regexp(t, `^203\.0\.113\.9, 127\.0\.0\.1:\d+$`, seen.Get("X-Forwarded-For"))
+	require.Equal(t, "http", seen.Get("X-Forwarded-Proto"))
+	require.Equal(t, "80", seen.Get("X-Forwarded-Port"))
+	require.Equal(t, frontendIP, seen.Get("X-Original-Host"))
+	require.Equal(t, "/orders?page=2", seen.Get("X-Original-URL"))
+	require.Regexp(t, `^[0-9a-f]{32}$`, seen.Get("X-AppGW-Trace-Id"))
 }
 
 // nodeAppPackageURL is the package the Node web app's WEBSITE_RUN_FROM_PACKAGE

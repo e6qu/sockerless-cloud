@@ -332,7 +332,15 @@ func handleRDSCreateBlueGreenDeployment(w http.ResponseWriter, r *http.Request) 
 		AutoMinorVersionUpgrade:         blue.AutoMinorVersionUpgrade,
 		BlueGreenDeploymentIdentifier:   id,
 		RestoreSourceVolume:             rdsInstanceVolume(blue.DBInstanceIdentifier),
+		MultiAZ:                         blue.MultiAZ,
+		StorageType:                     blue.StorageType,
+		Iops:                            blue.Iops,
+		StorageThroughput:               blue.StorageThroughput,
+		DBSubnetGroupName:               blue.DBSubnetGroupName,
+		OptionGroupName:                 blue.OptionGroupName,
+		CACertificateIdentifier:         blue.CACertificateIdentifier,
 	}
+	rdsAssignInstanceDefaults(&green)
 	d := RDSBlueGreenDeployment{
 		BlueGreenDeploymentIdentifier: id,
 		BlueGreenDeploymentName:       name,

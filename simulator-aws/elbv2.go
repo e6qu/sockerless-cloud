@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -341,6 +342,15 @@ func handleELBv2ModifyLoadBalancerAttributes(w http.ResponseWriter, r *http.Requ
 			elbv2ErrorXML(w, "InvalidConfigurationRequest",
 				fmt.Sprintf("Load balancer attribute value '%s' for key 'idle_timeout.timeout_seconds' is not valid; it must be an integer from %d to %d",
 					value, elbv2MinIdleTimeoutSeconds, elbv2MaxIdleTimeoutSeconds),
+				http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+	}
+	for key, allowed := range elbv2EnumeratedLoadBalancerAttributes {
+		if value, ok := modified[key]; ok && !slices.Contains(allowed, value) {
+			elbv2ErrorXML(w, "InvalidConfigurationRequest",
+				fmt.Sprintf("Load balancer attribute value '%s' for key '%s' is not valid; it must be one of '%s'",
+					value, key, strings.Join(allowed, "', '")),
 				http.StatusBadRequest, sim.RequestID(r.Context()))
 			return
 		}
@@ -1585,6 +1595,13 @@ const (
 	elbv2MaxIdleTimeoutSeconds     = 4000
 )
 
+// elbv2EnumeratedLoadBalancerAttributes lists the values each load balancer
+// attribute with a closed set of values accepts.
+var elbv2EnumeratedLoadBalancerAttributes = map[string][]string{
+	"routing.http.xff_header_processing.mode": {"append", "preserve", "remove"},
+	"routing.http.xff_client_port.enabled":    {"true", "false"},
+}
+
 func defaultELBv2LoadBalancerAttributes() map[string]string {
 	return map[string]string{
 		"deletion_protection.enabled":                     "false",
@@ -1594,6 +1611,8 @@ func defaultELBv2LoadBalancerAttributes() map[string]string {
 		"routing.http2.enabled":                           "true",
 		"routing.http.drop_invalid_header_fields.enabled": "false",
 		"routing.http.preserve_host_header.enabled":       "false",
+		"routing.http.xff_header_processing.mode":         "append",
+		"routing.http.xff_client_port.enabled":            "false",
 	}
 }
 

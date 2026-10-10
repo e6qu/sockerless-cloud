@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -634,4 +635,47 @@ func elbv2TestTopologyForTarget(t *testing.T, target *httptest.Server, name stri
 		DefaultActions:  []ELBv2Action{{Type: "forward", TargetGroupArn: tg.Arn}},
 	}
 	return lb, tg, listener
+}
+
+func TestELBv2TraceIDFollowsTheRequestTracingRules(t *testing.T) {
+	now := time.Unix(0x67891233, 0)
+	id := `1-67891233-[0-9a-f]{24}`
+	for _, tc := range []struct{ incoming, want string }{
+		{"", `^Root=` + id + `$`},
+		{"Root=1-67891233-abcdef012345678912345678", `^Self=` + id + `;Root=1-67891233-abcdef012345678912345678$`},
+		{"Root=1-67891233-abcdef012345678912345678;CalledFrom=app", `^Self=` + id + `;Root=1-67891233-abcdef012345678912345678;CalledFrom=app$`},
+		{"Self=1-67891233-12456789abcdef0123456789;Root=1-67891233-abcdef012345678912345678", `^Self=` + id + `;Root=1-67891233-abcdef012345678912345678$`},
+	} {
+		got := elbv2TraceID(tc.incoming, now)
+		if ok, _ := regexp.MatchString(tc.want, got); !ok {
+			t.Errorf("trace id for %q = %q, want %s", tc.incoming, got, tc.want)
+		}
+	}
+}
+
+func TestELBv2ForwardedHeadersFollowTheXFFAttributes(t *testing.T) {
+	listener := ELBv2Listener{Protocol: "HTTPS", Port: 443}
+	r := httptest.NewRequest(http.MethodGet, "https://lb.example/", nil)
+	r.RemoteAddr = "[2001:db8::7]:50123"
+	for _, tc := range []struct {
+		mode, clientPort string
+		want             []string
+	}{
+		{"append", "false", []string{"203.0.113.1, 2001:db8::7"}},
+		{"append", "true", []string{"203.0.113.1, [2001:db8::7]:50123"}},
+		{"preserve", "false", []string{"203.0.113.1"}},
+		{"remove", "false", nil},
+	} {
+		h := http.Header{"X-Forwarded-For": {"203.0.113.1"}}
+		elbv2ForwardedHeaders(r, listener, map[string]string{
+			"routing.http.xff_header_processing.mode": tc.mode,
+			"routing.http.xff_client_port.enabled":    tc.clientPort,
+		})(h)
+		if got := h.Values("X-Forwarded-For"); strings.Join(got, "|") != strings.Join(tc.want, "|") {
+			t.Errorf("mode %s, client port %s: X-Forwarded-For = %q, want %q", tc.mode, tc.clientPort, got, tc.want)
+		}
+		if h.Get("X-Forwarded-Proto") != "https" || h.Get("X-Forwarded-Port") != "443" {
+			t.Errorf("X-Forwarded-Proto = %q, X-Forwarded-Port = %q", h.Get("X-Forwarded-Proto"), h.Get("X-Forwarded-Port"))
+		}
+	}
 }

@@ -599,6 +599,9 @@ func terraformCmd(dir string, args ...string) *exec.Cmd {
 	if nodeFunctionPackageURL != "" {
 		cmd.Env = append(cmd.Env, "TF_VAR_node_function_package_url="+nodeFunctionPackageURL)
 	}
+	if appGatewayEchoIP != "" {
+		cmd.Env = append(cmd.Env, "TF_VAR_appgw_echo_ip="+appGatewayEchoIP, "TF_VAR_appgw_echo_port="+appGatewayEchoPort)
+	}
 	if v := os.Getenv("TF_LOG"); v != "" {
 		cmd.Env = append(cmd.Env, "TF_LOG="+v)
 	}

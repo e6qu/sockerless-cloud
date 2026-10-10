@@ -810,6 +810,8 @@ func applicationGatewayForward(w http.ResponseWriter, r *http.Request, settings 
 		path = strings.TrimSuffix(settings.Properties.Path, "/") + path
 	}
 	headers := r.Header.Clone()
+	lbplane.RemoveHopByHopHeaders(headers)
+	applicationGatewayAddForwardedHeaders(r, headers)
 	host := applicationGatewayBackendHost(r, settings, server)
 	if rewrite != nil {
 		vars := applicationGatewayServerVariables(r, host, 0)
@@ -837,6 +839,24 @@ func applicationGatewayForward(w http.ResponseWriter, r *http.Request, settings 
 	return lbplane.Forward(w, r, up)
 }
 
+// applicationGatewayAddForwardedHeaders inserts the six headers Application
+// Gateway adds to every request before it forwards it, and before a rewrite
+// rule set runs, so a rewrite can read or replace them. X-Forwarded-For is a
+// comma-separated list of IP:port.
+func applicationGatewayAddForwardedHeaders(r *http.Request, headers http.Header) {
+	clientIP, clientPort := lbplane.ClientAddress(r)
+	lbplane.AppendToHeaderList(headers, "X-Forwarded-For", ", ", net.JoinHostPort(clientIP, clientPort))
+	proto := "http"
+	if r.TLS != nil {
+		proto = "https"
+	}
+	headers.Set("X-Forwarded-Proto", proto)
+	headers.Set("X-Forwarded-Port", strconv.Itoa(int(applicationGatewayRequestPort(r))))
+	headers.Set("X-Original-Host", r.Host)
+	headers.Set("X-Original-Url", r.URL.RequestURI())
+	headers.Set("X-Appgw-Trace-Id", lbplane.RandomHex(16))
+}
+
 // applicationGatewayBackendHost decides the Host header the gateway sends to
 // the backend: the name the settings pin, the pool member's own name, or the
 // name the client used.
@@ -854,27 +874,28 @@ func applicationGatewayBackendHost(r *http.Request, settings ApplicationGatewayB
 // condition can be written against, from the request the gateway is handling
 // and (for a response-scoped condition) the status the backend returned.
 func applicationGatewayServerVariables(r *http.Request, backendHost string, status int) map[string]string {
-	clientIP := r.RemoteAddr
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		clientIP = host
-	}
+	clientIP, clientPort := lbplane.ClientAddress(r)
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
+	forwardedFor := http.Header{"X-Forwarded-For": r.Header.Values("X-Forwarded-For")}
+	lbplane.AppendToHeaderList(forwardedFor, "X-Forwarded-For", ", ", clientIP)
 	vars := map[string]string{
-		"client_ip":       clientIP,
-		"host":            applicationGatewayRequestHostname(r),
-		"http_method":     r.Method,
-		"http_version":    r.Proto,
-		"query_string":    r.URL.RawQuery,
-		"request_query":   r.URL.RawQuery,
-		"request_scheme":  scheme,
-		"request_uri":     r.URL.RequestURI(),
-		"uri_path":        r.URL.Path,
-		"server_port":     strconv.Itoa(int(applicationGatewayRequestPort(r))),
-		"ssl_enabled":     strconv.FormatBool(r.TLS != nil),
-		"ssl_server_name": backendHost,
+		"add_x_forwarded_for_proxy": forwardedFor.Get("X-Forwarded-For"),
+		"client_ip":                 clientIP,
+		"client_port":               clientPort,
+		"host":                      applicationGatewayRequestHostname(r),
+		"http_method":               r.Method,
+		"http_version":              r.Proto,
+		"query_string":              r.URL.RawQuery,
+		"request_query":             r.URL.RawQuery,
+		"request_scheme":            scheme,
+		"request_uri":               r.URL.RequestURI(),
+		"uri_path":                  r.URL.Path,
+		"server_port":               strconv.Itoa(int(applicationGatewayRequestPort(r))),
+		"ssl_enabled":               strconv.FormatBool(r.TLS != nil),
+		"ssl_server_name":           backendHost,
 	}
 	if status != 0 {
 		vars["http_status"] = strconv.Itoa(status)

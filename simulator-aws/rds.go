@@ -116,6 +116,18 @@ type RDSInstance struct {
 	// BlueGreenDeploymentIdentifier names the blue/green deployment whose
 	// green environment the instance is, which serves its sessions read-only.
 	BlueGreenDeploymentIdentifier string `json:",omitempty"`
+	MultiAZ                       bool   `json:",omitempty"`
+	StorageType                   string `json:",omitempty"`
+	Iops                          int    `json:",omitempty"`
+	StorageThroughput             int    `json:",omitempty"`
+	DBSubnetGroupName             string `json:",omitempty"`
+	OptionGroupName               string `json:",omitempty"`
+	CACertificateIdentifier       string `json:",omitempty"`
+	// ServerCertificateValidTill is when the server certificate the endpoint
+	// last presented expires.
+	ServerCertificateValidTill string `json:",omitempty"`
+	// Restart is what the engine restart of a modifying instance applies.
+	Restart *RDSRestartModifications `json:",omitempty"`
 }
 
 // rdsRequestedBackupTarget is the BackupTarget a create or restore asks for,
@@ -493,6 +505,7 @@ func registerRDS(r *AWSQueryRouter, srv *sim.Server) {
 	rdsRecoverRetainedBackups()
 	rdsRecoverBlueGreenDeployments()
 	rdsRecoverMaintenance()
+	rdsRecoverInstanceSettings()
 }
 
 // rdsRequestedBool is a boolean member the request sets, or nil.
@@ -560,6 +573,7 @@ func renderRDSInstance(i RDSInstance) string {
 	if i.PreferredMaintenanceWindow != "" {
 		fmt.Fprintf(&b, "<PreferredMaintenanceWindow>%s</PreferredMaintenanceWindow>", xmlEscape(i.PreferredMaintenanceWindow))
 	}
+	b.WriteString(renderRDSInstanceSettings(i))
 	b.WriteString(renderRDSPendingModifiedValues(i))
 	b.WriteString(renderRDSReplicaStatusInfos(i))
 	b.WriteString(renderRDSInstanceBackups(i))
@@ -651,6 +665,10 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		inst.PreferredMaintenanceWindow = window
+		if code, message := rdsRequestedInstanceSettings(r, &inst); code != "" {
+			rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), sim.RequestID(r.Context()))
+			return
+		}
 		if err := rdsInstallAuroraInstanceEndpoint(&inst); err != nil {
 			rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 			return
@@ -700,6 +718,10 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		DBClusterIdentifier:             clusterID,
 		BackupTarget:                    rdsRequestedBackupTarget(r),
 	}
+	if code, message := rdsRequestedInstanceSettings(r, &inst); code != "" {
+		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), sim.RequestID(r.Context()))
+		return
+	}
 	if err := rdsInstallDataPlane(&inst, r.FormValue("MasterUserPassword")); err != nil {
 		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 		return
@@ -746,10 +768,7 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	applyNow := strings.EqualFold(r.FormValue("ApplyImmediately"), "true")
-	requested := RDSPendingModifications{
-		DBInstanceClass:  r.FormValue("DBInstanceClass"),
-		AllocatedStorage: atoiOrZero(r.FormValue("AllocatedStorage")),
-	}
+	requested := RDSPendingModifications{DBInstanceClass: r.FormValue("DBInstanceClass")}
 	if value := r.FormValue("EngineVersion"); value != "" {
 		version, problem := rdsResolveEngineVersion(instance.Engine, value)
 		if problem == "" {
@@ -761,6 +780,11 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		requested.EngineVersion = version
+	}
+	movePort, code, message := rdsRequestedInstanceChanges(r, instance, &requested)
+	if code != "" {
+		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), sim.RequestID(r.Context()))
+		return
 	}
 	if autoUpgrade := rdsRequestedBool(r, "AutoMinorVersionUpgrade"); autoUpgrade != nil {
 		instance.AutoMinorVersionUpgrade = autoUpgrade
@@ -818,6 +842,14 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 		merged := instance.PendingModifications.merge(requested)
 		instance.PendingModifications = &merged
 	}
+	if movePort != 0 {
+		// A port change restarts the engine whatever ApplyImmediately says.
+		instance.Restart = rdsRestartFor(&instance)
+		instance.Restart.Port = movePort
+		if instance.DBInstanceStatus != "upgrading" {
+			instance.DBInstanceStatus = "modifying"
+		}
+	}
 	backupsChanged := retentionBefore != instance.BackupRetentionPeriod || r.FormValue("PreferredBackupWindow") != ""
 	var newPassword *string
 	if value := r.FormValue("MasterUserPassword"); value != "" {
@@ -833,11 +865,8 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 		return
 	}
-	rdsInstances.Update(id, func(stored *RDSInstance) {
-		bases := stored.BaseBackups
-		*stored = instance
-		stored.BaseBackups = bases
-	})
+	id = rdsStoreModifiedInstance(id, instance)
+	instance, _ = rdsInstances.Get(id)
 	if newPassword != nil {
 		rdsFollowSourceMasterPassword(instance)
 	}
@@ -1497,6 +1526,10 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 		// written under, exactly as a restored RDS instance does.
 		MasterUserSecret: append([]byte(nil), snap.MasterUserSecret...),
 	}
+	if code, message := rdsRequestedInstanceSettings(r, &inst); code != "" {
+		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), sim.RequestID(r.Context()))
+		return
+	}
 	// The captured data is cloned into the new instance's volume before the
 	// engine can first start, so the restored engine boots on the snapshot's
 	// data. A snapshot taken on the modeled tier has no volume and seeds
@@ -2081,6 +2114,14 @@ func handleRDSDeleteSubnetGroup(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBSubnetGroupNotFoundFault", "DB subnet group not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	if users := rdsInstancesUsing(func(i RDSInstance) bool {
+		return i.DBSubnetGroupName == name || (i.PendingModifications != nil && i.PendingModifications.DBSubnetGroupName == name)
+	}); len(users) > 0 {
+		rdsErrorXML(w, "InvalidDBSubnetGroupStateFault",
+			fmt.Sprintf("Cannot delete the subnet group '%s' because at least one database instance: %s is still using it.", name, users[0]),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	rdsSubnetGroups.Delete(name)
 	// DeleteDBSubnetGroup has an empty result body on real RDS.
 	rdsXMLResponse(w, "DeleteDBSubnetGroup", "", sim.RequestID(r.Context()))
@@ -2591,6 +2632,19 @@ func handleRDSDeleteOptionGroup(w http.ResponseWriter, r *http.Request) {
 	if _, ok := rdsOptionGroups.Get(name); !ok {
 		rdsErrorXML(w, "OptionGroupNotFoundFault",
 			"Option group not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if rdsIsDefaultGroupName(name) {
+		rdsErrorXML(w, "InvalidOptionGroupStateFault",
+			fmt.Sprintf("Default option group %s cannot be deleted.", name), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if users := rdsInstancesUsing(func(i RDSInstance) bool {
+		return i.OptionGroupName == name || (i.PendingModifications != nil && i.PendingModifications.OptionGroupName == name)
+	}); len(users) > 0 {
+		rdsErrorXML(w, "InvalidOptionGroupStateFault",
+			fmt.Sprintf("The option group '%s' cannot be deleted because it is in use by DB instance %s.", name, users[0]),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	rdsOptionGroups.Delete(name)

@@ -398,14 +398,22 @@ func rdsUpgradeInstanceEngine(id string) {
 		log.Printf("Amazon RDS %s: upgrade to %s: %v", id, instance.EngineVersion, err)
 		status = "failed"
 	}
+	restart := false
 	rdsInstances.Update(id, func(stored *RDSInstance) {
 		if stored.DbiResourceId != instance.DbiResourceId || stored.DBInstanceStatus != "upgrading" {
 			return
 		}
 		stored.EngineVersion, stored.PendingEngineVersion = instance.EngineVersion, ""
 		stored.Endpoint, stored.Port = instance.Endpoint, instance.Port
+		stored.ServerCertificateValidTill = instance.ServerCertificateValidTill
 		stored.DBInstanceStatus = status
+		if status == "available" && stored.Restart != nil {
+			stored.DBInstanceStatus, restart = "modifying", true
+		}
 	})
+	if restart {
+		rdsRestartModifiedInstance(id, instance.DbiResourceId)
+	}
 }
 
 // rdsEnsureOfferedDefaultParameterGroup creates the default DB parameter

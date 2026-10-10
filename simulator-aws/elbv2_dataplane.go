@@ -85,13 +85,14 @@ func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listene
 	started := time.Now()
 	sim.DeclareWait(r.Context(), idle)
 	err = lbplane.Forward(w, r, lbplane.Upstream{
-		Scheme:      scheme,
-		Address:     address,
-		Path:        r.URL.EscapedPath(),
-		RawQuery:    r.URL.RawQuery,
-		Host:        elbv2TargetHostHeader(r.Host, listener),
-		IdleTimeout: idle,
-		Activity:    func() { sim.DeclareWait(r.Context(), time.Since(started)+idle) },
+		Scheme:        scheme,
+		Address:       address,
+		Path:          r.URL.EscapedPath(),
+		RawQuery:      r.URL.RawQuery,
+		Host:          elbv2TargetHostHeader(r.Host, listener),
+		RequestHeader: elbv2ForwardedHeaders(r, listener, elbv2LoadBalancerAttributes(listener.LoadBalancerArn)),
+		IdleTimeout:   idle,
+		Activity:      func() { sim.DeclareWait(r.Context(), time.Since(started)+idle) },
 		// "The load balancer establishes TLS connections with the targets
 		// using certificates that you install on the targets. The load balancer
 		// does not validate these certificates."
@@ -117,6 +118,54 @@ func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listene
 }
 
 const elbv2GatewayTimeoutPage = "<html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n</body>\r\n</html>\r\n"
+
+// elbv2ForwardedHeaders adds the headers an Application Load Balancer sends
+// every target: X-Forwarded-For as routing.http.xff_header_processing.mode and
+// routing.http.xff_client_port.enabled direct, the protocol and port of the
+// listener the client connected to, and X-Amzn-Trace-Id.
+func elbv2ForwardedHeaders(r *http.Request, listener ELBv2Listener, attrs map[string]string) func(http.Header) {
+	clientIP, clientPort := lbplane.ClientAddress(r)
+	return func(h http.Header) {
+		switch attrs["routing.http.xff_header_processing.mode"] {
+		case "append":
+			client := clientIP
+			if attrs["routing.http.xff_client_port.enabled"] == "true" {
+				client = net.JoinHostPort(clientIP, clientPort)
+			}
+			lbplane.AppendToHeaderList(h, "X-Forwarded-For", ", ", client)
+		case "remove":
+			h.Del("X-Forwarded-For")
+		}
+		h.Set("X-Forwarded-Proto", strings.ToLower(listener.Protocol))
+		h.Set("X-Forwarded-Port", strconv.Itoa(listener.Port))
+		h.Set("X-Amzn-Trace-Id", elbv2TraceID(h.Get("X-Amzn-Trace-Id"), time.Now()))
+	}
+}
+
+// elbv2TraceID is the X-Amzn-Trace-Id the load balancer forwards: a new Root
+// when the request carries none, a Self inserted ahead of a Root the request
+// carries, or its Self updated. Every other field passes through.
+func elbv2TraceID(existing string, now time.Time) string {
+	id := fmt.Sprintf("1-%08x-%s", now.Unix(), lbplane.RandomHex(12))
+	if existing == "" {
+		return "Root=" + id
+	}
+	fields := strings.Split(existing, ";")
+	hasRoot := false
+	for i, field := range fields {
+		switch name, _, _ := strings.Cut(strings.TrimSpace(field), "="); name {
+		case "Self":
+			fields[i] = "Self=" + id
+			return strings.Join(fields, ";")
+		case "Root":
+			hasRoot = true
+		}
+	}
+	if hasRoot {
+		return "Self=" + id + ";" + existing
+	}
+	return "Root=" + id + ";" + existing
+}
 
 // elbv2IdleTimeout reads the load balancer's idle_timeout.timeout_seconds for
 // each request, so ModifyLoadBalancerAttributes governs the next one.
@@ -145,10 +194,10 @@ func elbv2ListenerForDataPlaneRequest(r *http.Request, lb ELBv2LoadBalancer) (EL
 		})
 }
 
+// elbv2DataPlaneListenerPort is the port the client connected to, which alone
+// selects the listener: a client's X-Forwarded-Proto is a claim the load
+// balancer forwards, never one it routes on.
 func elbv2DataPlaneListenerPort(r *http.Request) int {
-	if proto := r.Header.Get("X-Forwarded-Proto"); strings.EqualFold(proto, "https") {
-		return 443
-	}
 	if r.TLS != nil {
 		return 443
 	}

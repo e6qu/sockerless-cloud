@@ -85,6 +85,10 @@ func rdsRecoverDataPlanes() error {
 			continue
 		}
 		id := instance.DBInstanceIdentifier
+		if instance.DBInstanceStatus == "modifying" && instance.Restart != nil {
+			// rdsRecoverInstanceSettings resumes the restart.
+			continue
+		}
 		if instance.DBInstanceStatus == "upgrading" {
 			bg.Go(func() { rdsUpgradeInstanceEngine(id) })
 			continue
@@ -202,6 +206,21 @@ func rdsInstallDataPlane(instance *RDSInstance, masterPassword string) error {
 	}
 	instance.Endpoint = listenAddress.IP.String()
 	instance.Port = listenAddress.Port
+	if instance.CACertificateIdentifier == "" {
+		instance.CACertificateIdentifier = rdsDefaultCertificateForNewLaunches()
+	}
+	certificate, err := rdsIssueServerCertificate(instance.CACertificateIdentifier, instance.Endpoint)
+	if err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("issue the server certificate: %w", err)
+	}
+	instance.ServerCertificateValidTill = certificate.Leaf.NotAfter.UTC().Format(time.RFC3339)
+	rdsInstances.Update(instance.DBInstanceIdentifier, func(stored *RDSInstance) {
+		if stored.DbiResourceId == instance.DbiResourceId {
+			stored.CACertificateIdentifier = instance.CACertificateIdentifier
+			stored.ServerCertificateValidTill = instance.ServerCertificateValidTill
+		}
+	})
 	plane := &rdsDataPlane{instance: *instance}
 	plane.engine = &dbengine.Instance{
 		Name:         "Amazon RDS " + instance.DBInstanceIdentifier,
@@ -212,7 +231,7 @@ func rdsInstallDataPlane(instance *RDSInstance, masterPassword string) error {
 		Platform:     dbengine.FixedPlatform("linux/amd64"),
 		Environment:  plane.environment,
 		Ready:        plane.ready,
-		Certificate:  rdsServerCertificate,
+		Certificate:  func() (tls.Certificate, error) { return certificate, nil },
 		Authenticate: plane.authenticate,
 		BackendLogin: plane.backendLogin,
 		Log:          newRDSEngineLogSink(instance.DbiResourceId),

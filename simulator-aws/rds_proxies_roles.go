@@ -109,18 +109,6 @@ type rdsEC2SecurityGroup struct {
 	Status                  string
 }
 
-// RDSCertificate models an RDS CA certificate (the SSL/TLS root CA the
-// service presents to clients).
-type RDSCertificate struct {
-	CertificateIdentifier string
-	CertificateType       string
-	Thumbprint            string
-	ValidFrom             string
-	ValidTill             string
-	CustomerOverride      bool
-	ARN                   string
-}
-
 // rdsRole models one IAM-role association (RoleArn + FeatureName) on a
 // DB cluster or DB instance. Keyed by resourceID in its store.
 type rdsRoleSet struct {
@@ -996,93 +984,6 @@ func handleRDSRevokeSecurityGroupIngress(w http.ResponseWriter, r *http.Request)
 	})
 	updated, _ := rdsDBSecurityGroups.Get(name)
 	rdsXMLResponse(w, "RevokeDBSecurityGroupIngress", renderRDSDBSecurityGroup(updated), sim.RequestID(r.Context()))
-}
-
-// Certificates
-
-func rdsSeedCertificates() {
-	if len(rdsCertificates.List()) > 0 {
-		return
-	}
-	now := time.Now().UTC()
-	for _, id := range []string{"rds-ca-rsa2048-g1", "rds-ca-rsa4096-g1", "rds-ca-ecc384-g1"} {
-		c := RDSCertificate{
-			CertificateIdentifier: id,
-			CertificateType:       "CA",
-			Thumbprint:            strings.ToUpper(strings.ReplaceAll(sim.NewUUID(), "-", "")),
-			ValidFrom:             now.AddDate(-1, 0, 0).Format(time.RFC3339),
-			ValidTill:             now.AddDate(40, 0, 0).Format(time.RFC3339),
-			CustomerOverride:      false,
-			ARN:                   rdsCertificateARN(id),
-		}
-		rdsCertificates.Put(id, c)
-	}
-}
-
-func renderRDSCertificate(c RDSCertificate) string {
-	var b strings.Builder
-	b.WriteString("<Certificate>")
-	fmt.Fprintf(&b, "<CertificateIdentifier>%s</CertificateIdentifier>", xmlEscape(c.CertificateIdentifier))
-	fmt.Fprintf(&b, "<CertificateType>%s</CertificateType>", xmlEscape(c.CertificateType))
-	fmt.Fprintf(&b, "<Thumbprint>%s</Thumbprint>", xmlEscape(c.Thumbprint))
-	fmt.Fprintf(&b, "<ValidFrom>%s</ValidFrom>", xmlEscape(c.ValidFrom))
-	fmt.Fprintf(&b, "<ValidTill>%s</ValidTill>", xmlEscape(c.ValidTill))
-	fmt.Fprintf(&b, "<CertificateArn>%s</CertificateArn>", xmlEscape(c.ARN))
-	fmt.Fprintf(&b, "<CustomerOverride>%t</CustomerOverride>", c.CustomerOverride)
-	b.WriteString("</Certificate>")
-	return b.String()
-}
-
-func handleRDSDescribeCertificates(w http.ResponseWriter, r *http.Request) {
-	rdsSeedCertificates()
-	wanted := r.FormValue("CertificateIdentifier")
-	matched := false
-	var b strings.Builder
-	b.WriteString("<Certificates>")
-	for _, c := range rdsCertificates.List() {
-		if wanted != "" && c.CertificateIdentifier != wanted {
-			continue
-		}
-		matched = true
-		b.WriteString(renderRDSCertificate(c))
-	}
-	b.WriteString("</Certificates>")
-	if wanted != "" && !matched {
-		rdsErrorXML(w, "CertificateNotFound", fmt.Sprintf("Certificate %q not found", wanted), http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	rdsXMLResponse(w, "DescribeCertificates", b.String(), sim.RequestID(r.Context()))
-}
-
-func handleRDSModifyCertificates(w http.ResponseWriter, r *http.Request) {
-	rdsSeedCertificates()
-	id := r.FormValue("CertificateIdentifier")
-	if r.FormValue("RemoveCustomerOverride") == "true" {
-		for _, c := range rdsCertificates.List() {
-			rdsCertificates.Update(c.CertificateIdentifier, func(cert *RDSCertificate) {
-				cert.CustomerOverride = false
-			})
-		}
-		if id != "" {
-			if c, ok := rdsCertificates.Get(id); ok {
-				rdsXMLResponse(w, "ModifyCertificates", renderRDSCertificate(c), sim.RequestID(r.Context()))
-				return
-			}
-		}
-		rdsXMLResponse(w, "ModifyCertificates", "", sim.RequestID(r.Context()))
-		return
-	}
-	if _, ok := rdsCertificates.Get(id); !ok {
-		rdsErrorXML(w, "CertificateNotFound", fmt.Sprintf("Certificate %q not found", id), http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	for _, other := range rdsCertificates.List() {
-		rdsCertificates.Update(other.CertificateIdentifier, func(cert *RDSCertificate) {
-			cert.CustomerOverride = cert.CertificateIdentifier == id
-		})
-	}
-	c, _ := rdsCertificates.Get(id)
-	rdsXMLResponse(w, "ModifyCertificates", renderRDSCertificate(c), sim.RequestID(r.Context()))
 }
 
 // Parameter / option group copies

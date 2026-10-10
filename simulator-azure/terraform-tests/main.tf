@@ -1942,7 +1942,7 @@ resource "azurerm_application_gateway" "az_appgw" {
 
   backend_address_pool {
     name         = "web"
-    ip_addresses = ["10.96.1.10"]
+    ip_addresses = [var.appgw_echo_ip]
   }
 
   backend_address_pool {
@@ -1967,7 +1967,7 @@ resource "azurerm_application_gateway" "az_appgw" {
   backend_http_settings {
     name                  = "web-settings"
     cookie_based_affinity = "Disabled"
-    port                  = 80
+    port                  = var.appgw_echo_port
     protocol              = "Http"
     request_timeout       = 30
     probe_name            = "web-probe"
@@ -2066,6 +2066,10 @@ resource "azurerm_network_manager" "az_netman" {
 
 output "azrm_application_gateway_id" {
   value = azurerm_application_gateway.az_appgw.id
+}
+
+output "azrm_application_gateway_frontend_ip" {
+  value = azurerm_public_ip.az_appgw_pip.ip_address
 }
 
 output "azrm_application_gateway_backend_pool_ids" {

@@ -721,6 +721,18 @@ through hooks:
   and answers its `504 Gateway Time-out` page when a target stays silent past
   it. Container Apps ingress bounds a request at the service's documented 240
   seconds and answers Envoy's `504 upstream request timeout`.
+- **A load balancer adds its own headers after the hop-by-hop ones are gone.**
+  No load balancer had added `X-Forwarded-For` or its siblings. Each cloud's
+  data plane now passes `lbplane.Upstream.RequestHeader`, which `Forward` runs
+  after removing the client's hop-by-hop headers, so a client that names
+  `X-Forwarded-For` in `Connection` strips only its own copy. Application
+  Gateway builds its header set itself, because its rewrite rule set must see
+  the headers the gateway inserts: it removes the hop-by-hop headers with
+  `lbplane.RemoveHopByHopHeaders`, inserts its six, then rewrites. The
+  Application Load Balancer data plane had picked an HTTPS listener whenever
+  the client sent `X-Forwarded-Proto: https`, so a plaintext request could
+  claim the port-443 listener; it now selects by the port the client reached,
+  and the listener's own protocol and port become the forwarded values.
 - **Every Elastic Load Balancing resource keeps its tags.** CreateListener
   and CreateRule store the tags they carry, and AddTags, RemoveTags,
   DescribeTags and the IAM gate's `aws:ResourceTag/<k>` read and write the tag
@@ -1873,6 +1885,44 @@ an engine leaves it `modifying` while the engine restarts. Every instance has a
 PreferredMaintenanceWindow: the request's, checked for format, a 30-minute
 minimum and overlap with the backup window, or a random 30-minute window in
 the Region's 8-hour block that clears the backup window.
+
+Every ModifyDBInstance member the reference describes takes effect.
+MultiAZ, StorageType, Iops, StorageThroughput, AllocatedStorage,
+DBSubnetGroupName, OptionGroupName, CACertificateIdentifier and
+NewDBInstanceIdentifier wait for the maintenance window without
+ApplyImmediately and report under PendingModifiedValues meanwhile; a pending
+option group shows as `pending-maintenance-apply` beside the current group's
+`pending-maintenance-removal` in OptionGroupMemberships, which PendingModifiedValues
+has no member for. The storage members are checked against the reference's
+rules, over the storage the instance's pending changes leave: io1 and io2 need
+Iops, gp2 and standard refuse it, StorageThroughput is gp3's alone and leaving
+gp3 drops it, IOPS stay within 0.5 to 50 times the storage (1 to 50 on SQL
+Server), the size within the engine's range for the type, an IOPS increase
+needs AllocatedStorage and a storage increase with Provisioned IOPS needs Iops,
+and an increase of storage or IOPS under a tenth rounds up to a tenth on the
+engines the reference names. An unknown storage type is StorageTypeNotSupported,
+a missing group DBSubnetGroupNotFoundFault or OptionGroupNotFoundFault, an
+option group of another engine or major version InvalidParameterCombination, and
+an unknown CA CertificateNotFound. CreateDBInstance, the restores and
+CreateDBInstanceReadReplica take the same members; an instance gets gp3 (io1
+with Iops), its engine version's `default:<engine>-<major>` option group, and
+the account's CA for new launches unless the request names others, and
+DeleteOptionGroup and DeleteDBSubnetGroup refuse a group an instance uses.
+
+DBPortNumber applies at once, as the reference states, whatever
+ApplyImmediately says: the instance is `modifying` with the port under
+PendingModifiedValues while `rdsRestartModifiedInstance` stops the engine and
+listens on the new port. A rename moves the record to the new identifier as
+it applies, so the instance answers to its new name and ARN while `modifying`,
+and the restart then moves the volume (`sim.SnapshotVolume`) and starts the
+engine under the new name on a loopback address of its own; read replicas,
+the source's replica list, blue/green deployments and custom cluster endpoints
+follow the name, and the DbiResourceId stays. A CA change restarts the engine
+unless CertificateRotationRestart is false, and the endpoint presents a server
+certificate the instance's CA signs. Each CA DescribeCertificates lists is a
+real certificate authority with a KMS-sealed key whose thumbprint is the SHA-1
+digest of its certificate, and DefaultCertificateForNewLaunches is the
+ModifyCertificates override or the system default.
 
 An RDS DB instance read replica is a real replica. CreateDBInstanceReadReplica
 refuses a source without automated backups (InvalidDBInstanceState) or in a DB

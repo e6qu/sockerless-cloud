@@ -176,9 +176,14 @@ Current state of the sockerless-cloud repository.
   `rds_parameter_catalogs_vendored.json`; an engine starts with its group's
   parameters, a dynamic change reaches running engines at once, and a static
   one waits for a reboot with the group `pending-reboot`. ModifyDBInstance
-  without ApplyImmediately holds class, storage, engine version and backup
-  on/off changes in PendingModifiedValues until a timer armed for the
-  instance's PreferredMaintenanceWindow applies them. A read
+  without ApplyImmediately holds class, storage, engine version, backup
+  on/off, Multi-AZ, DB subnet group, option group, CA certificate and rename
+  changes in PendingModifiedValues until a timer armed for the instance's
+  PreferredMaintenanceWindow applies them. The storage members are checked
+  against the rules the reference states; DBPortNumber restarts the engine on
+  the new port at once, a rename moves the record, ARN, endpoint and volume to
+  the new identifier, and each endpoint presents a server certificate issued
+  by the instance's CA, a real CA with its own key. A read
   replica runs an engine of its own on a capture of its source's volume and
   replicates the source with the engine's own replication — MySQL and MariaDB
   binary log replication, PostgreSQL streaming replication through a physical
@@ -250,6 +255,23 @@ Current state of the sockerless-cloud repository.
   and GetTrustStoreRevocationContent answer a presigned Amazon S3 URL on the
   simulator's endpoint that serves exactly that copy, whatever has since
   happened to the customer's object.
+- **Layer-7 load balancers add each cloud's forwarded-request headers.**
+  `lbplane.Upstream.RequestHeader` edits the headers a target receives after
+  the client's hop-by-hop headers are gone. An Application Load Balancer
+  appends the client's IP to `X-Forwarded-For` as
+  `routing.http.xff_header_processing.mode` (`append`, `preserve`, `remove`)
+  and `routing.http.xff_client_port.enabled` direct, sets
+  `X-Forwarded-Proto` and `X-Forwarded-Port` from the listener the client
+  reached, and adds or extends `X-Amzn-Trace-Id`; it selects that listener by
+  the port the client connected to alone. An external Application Load
+  Balancer in Google Cloud appends `<client-ip>,<load-balancer-ip>`, sets
+  `X-Forwarded-Proto`, adds `Via: 1.1 google` to the request and the response,
+  and starts an `X-Cloud-Trace-Context` for a request without one. Application
+  Gateway inserts `X-Forwarded-For` (IP:port), `X-Forwarded-Port`,
+  `X-Forwarded-Proto`, `X-Original-Host`, `X-Original-URL` and
+  `X-AppGW-Trace-Id` before its rewrite rule set runs, and serves the
+  `add_x_forwarded_for_proxy` and `client_port` server variables. A Network
+  Load Balancer and Azure Load Balancer forward at layer 4 and add nothing.
 - **Amazon EC2 instance types carry AWS's published facts.** The simulator
   embeds the AWS Price List offer file's Compute Instance products for
   us-east-1 (`simulator-aws/ec2_instance_types_vendored.json`, written by
