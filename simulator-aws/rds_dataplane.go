@@ -166,6 +166,16 @@ func rdsInstallDataPlane(instance *RDSInstance, masterPassword string) error {
 	if !ok {
 		return nil
 	}
+	if instance.EngineParameters == nil {
+		applied := rdsResolveEngineParameters(*instance)
+		instance.EngineParameters = applied
+		rdsInstances.Update(instance.DBInstanceIdentifier, func(stored *RDSInstance) {
+			if stored.DbiResourceId == instance.DbiResourceId {
+				stored.EngineParameters = applied
+			}
+		})
+	}
+	engine.Args = append(append([]string(nil), engine.Args...), rdsEngineParameterArgs(engine, *instance)...)
 	engine = rdsReplicaEngineArgs(engine, *instance)
 	if masterPassword == "" {
 		return fmt.Errorf("MasterUserPassword is required for the %s data plane", instance.Engine)
@@ -288,6 +298,9 @@ func rdsEngineEnvironment(engine dbengine.Engine, user, password, database strin
 // backup on the engine's first start. A read replica's engine starts
 // replicating instead.
 func (plane *rdsDataPlane) ready() error {
+	if err := plane.applyEngineParameters(); err != nil {
+		return err
+	}
 	if rdsIsReadReplica(plane.current()) {
 		return plane.replicaReady()
 	}
@@ -542,11 +555,13 @@ func rdsValidateIAMAuthToken(endpoints []string, resourceID, user, token string)
 }
 
 // rdsStartInstanceEngine reinstalls a stopped instance's endpoint and engine
-// with its recorded master-user credential.
+// with its recorded master-user credential, under the parameters its DB
+// parameter group sets now.
 func rdsStartInstanceEngine(instance *RDSInstance) error {
 	if rdsIsAurora(instance.Engine) {
 		return rdsInstallAuroraInstanceEndpoint(instance)
 	}
+	instance.EngineParameters = nil
 	if len(instance.MasterUserSecret) == 0 {
 		return nil
 	}

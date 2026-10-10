@@ -171,7 +171,14 @@ Current state of the sockerless-cloud repository.
   major version alone to its newest, and ModifyDBInstance upgrades the engine
   in place, `upgrading` until the new release runs on the volume. An instance
   created without a DB parameter group is associated with its family's
-  `default.<family>` group, which cannot be modified or deleted. A read
+  `default.<family>` group, which cannot be modified or deleted. Each family's
+  parameters are the catalog its engine reports, captured into
+  `rds_parameter_catalogs_vendored.json`; an engine starts with its group's
+  parameters, a dynamic change reaches running engines at once, and a static
+  one waits for a reboot with the group `pending-reboot`. ModifyDBInstance
+  without ApplyImmediately holds class, storage, engine version and backup
+  on/off changes in PendingModifiedValues until a timer armed for the
+  instance's PreferredMaintenanceWindow applies them. A read
   replica runs an engine of its own on a capture of its source's volume and
   replicates the source with the engine's own replication — MySQL and MariaDB
   binary log replication, PostgreSQL streaming replication through a physical

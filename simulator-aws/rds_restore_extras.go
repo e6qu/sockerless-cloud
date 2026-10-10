@@ -1676,52 +1676,6 @@ func handleRDSDescribeOptionGroupOptions(w http.ResponseWriter, r *http.Request)
 	rdsXMLResponse(w, "DescribeOptionGroupOptions", b.String(), sim.RequestID(r.Context()))
 }
 
-// rdsEngineDefaultParams renders the canonical EngineDefaults body —
-// a parameter family plus a small set of real default parameters.
-func rdsEngineDefaultParams(family string, params [][2]string) string {
-	var b strings.Builder
-	b.WriteString("<EngineDefaults>")
-	fmt.Fprintf(&b, "<DBParameterGroupFamily>%s</DBParameterGroupFamily>", xmlEscape(family))
-	b.WriteString("<Parameters>")
-	for _, p := range params {
-		b.WriteString("<Parameter>")
-		fmt.Fprintf(&b, "<ParameterName>%s</ParameterName>", xmlEscape(p[0]))
-		fmt.Fprintf(&b, "<ParameterValue>%s</ParameterValue>", xmlEscape(p[1]))
-		b.WriteString("<Source>engine-default</Source>")
-		b.WriteString("<ApplyType>dynamic</ApplyType>")
-		b.WriteString("<DataType>integer</DataType>")
-		b.WriteString("<IsModifiable>true</IsModifiable>")
-		b.WriteString("</Parameter>")
-	}
-	b.WriteString("</Parameters>")
-	b.WriteString("</EngineDefaults>")
-	return b.String()
-}
-
-func handleRDSDescribeEngineDefaultParameters(w http.ResponseWriter, r *http.Request) {
-	family := r.FormValue("DBParameterGroupFamily")
-	if family == "" {
-		family = "mysql8.0"
-	}
-	body := rdsEngineDefaultParams(family, [][2]string{
-		{"max_connections", "{DBInstanceClassMemory/12582880}"},
-		{"max_allowed_packet", "4194304"},
-	})
-	rdsXMLResponse(w, "DescribeEngineDefaultParameters", body, sim.RequestID(r.Context()))
-}
-
-func handleRDSDescribeEngineDefaultClusterParameters(w http.ResponseWriter, r *http.Request) {
-	family := r.FormValue("DBParameterGroupFamily")
-	if family == "" {
-		family = "aurora-mysql8.0"
-	}
-	body := rdsEngineDefaultParams(family, [][2]string{
-		{"aurora_lab_mode", "0"},
-		{"server_audit_logging", "0"},
-	})
-	rdsXMLResponse(w, "DescribeEngineDefaultClusterParameters", body, sim.RequestID(r.Context()))
-}
-
 func handleRDSDescribeSourceRegions(w http.ResponseWriter, r *http.Request) {
 	regions := []string{"us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1"}
 	var b strings.Builder

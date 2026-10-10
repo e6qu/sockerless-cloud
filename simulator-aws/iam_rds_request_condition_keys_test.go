@@ -3,6 +3,8 @@ package main
 import (
 	"net/url"
 	"testing"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func TestRDSConditionKeysReadTheRequest(t *testing.T) {
@@ -86,6 +88,8 @@ func TestRDSConditionKeysReadTheRequest(t *testing.T) {
 }
 
 func TestRDSConditionKeysAreAbsentForAbsentMembers(t *testing.T) {
+	rdsClusterSnapshots = sim.MakeStore[RDSClusterSnapshot](nil, "rds_cluster_snapshots")
+	rdsSnapshots = sim.MakeStore[RDSSnapshot](nil, "rds_snapshots")
 	ctx := queryServiceConditionContext(t, "rds", "RestoreDBClusterFromSnapshot", url.Values{
 		"DBClusterIdentifier": {"c"},
 		"SnapshotIdentifier":  {"s"},

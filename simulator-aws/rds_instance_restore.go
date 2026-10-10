@@ -336,6 +336,12 @@ func rdsStartInstanceRestore(w http.ResponseWriter, r *http.Request, inst, src R
 		return
 	}
 	inst.BackupRetentionPeriod, inst.PreferredBackupWindow = retention, window
+	maintenanceWindow, problem := rdsRequestedMaintenanceWindow(r, window)
+	if problem != "" {
+		rdsErrorXML(w, "InvalidParameterValue", problem, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	inst.PreferredMaintenanceWindow = maintenanceWindow
 	inst.DBInstanceStatus = "creating"
 	inst.EnableIAMDatabaseAuthentication = strings.EqualFold(r.FormValue("EnableIAMDatabaseAuthentication"), "true")
 	inst.DeletionProtection = strings.EqualFold(r.FormValue("DeletionProtection"), "true")

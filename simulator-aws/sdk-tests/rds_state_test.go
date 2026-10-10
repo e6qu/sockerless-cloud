@@ -295,7 +295,7 @@ func TestRDS_ParameterDetailAndSnapshotAttributes(t *testing.T) {
 	pgName := "sdk-detail-pg"
 	_, err := c.CreateDBParameterGroup(ctx, &rds.CreateDBParameterGroupInput{
 		DBParameterGroupName:   aws.String(pgName),
-		DBParameterGroupFamily: aws.String("postgres15"),
+		DBParameterGroupFamily: aws.String("postgres16"),
 		Description:            aws.String("detail pg"),
 	})
 	require.NoError(t, err)
@@ -325,6 +325,7 @@ func TestRDS_ParameterDetailAndSnapshotAttributes(t *testing.T) {
 
 	dpAfter, err := c.DescribeDBParameters(ctx, &rds.DescribeDBParametersInput{
 		DBParameterGroupName: aws.String(pgName),
+		Source:               aws.String("user"),
 	})
 	require.NoError(t, err)
 	var found bool
@@ -375,6 +376,7 @@ func TestRDS_ParameterDetailAndSnapshotAttributes(t *testing.T) {
 
 	dcpAfter, err := c.DescribeDBClusterParameters(ctx, &rds.DescribeDBClusterParametersInput{
 		DBClusterParameterGroupName: aws.String(cpgName),
+		Source:                      aws.String("user"),
 	})
 	require.NoError(t, err)
 	found = false

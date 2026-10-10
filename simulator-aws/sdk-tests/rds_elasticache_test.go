@@ -69,7 +69,9 @@ func TestRDS_DBInstanceLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, desc2.DBInstances, 1)
-	assert.Equal(t, "db.t3.small", aws.ToString(desc2.DBInstances[0].DBInstanceClass))
+	assert.Equal(t, "db.t3.micro", aws.ToString(desc2.DBInstances[0].DBInstanceClass),
+		"a class change without ApplyImmediately waits for the maintenance window")
+	assert.Equal(t, "db.t3.small", aws.ToString(desc2.DBInstances[0].PendingModifiedValues.DBInstanceClass))
 
 	_, err = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
 		DBInstanceIdentifier: aws.String(id),

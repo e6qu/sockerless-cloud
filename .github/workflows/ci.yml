@@ -950,6 +950,13 @@ jobs:
             run: '^Test(RDSCLI_(ReadReplica|ReleasedEngineVersion))'
             timeout: 1200s
             timeout_minutes: 15
+          # The DB parameter group and maintenance window tests start and
+          # reboot engines and wait for a maintenance window that opens at the
+          # next minute, read at the CLI waiter's 30-second cadence.
+          - suite: rds-parameters
+            run: '^Test(RDSCLI_(Maintenance|ModifiedDBParameterGroup))'
+            timeout: 1200s
+            timeout_minutes: 15
           - suite: appdata5
             run: '^Test(Route53|S3)'
             timeout: 1200s
@@ -1147,6 +1154,13 @@ jobs:
           - suite: aws Amazon RDS read replica
             cloud: aws
             tf_packages: "./rds-read-replica"
+            tf_timeout: 720s
+            timeout_minutes: 15
+          # The stack waits for a maintenance window that opens two minutes
+          # after its second apply.
+          - suite: aws Amazon RDS parameter group
+            cloud: aws
+            tf_packages: "./rds-parameter-group"
             tf_timeout: 720s
             timeout_minutes: 15
           - suite: aws Amazon RDS snapshot
