@@ -3069,7 +3069,10 @@ installed tools, the consoles' npm packages — are held to their newest release
 past a 24-hour adoption quarantine. `ui/bunfig.toml` sets
 `install.minimumReleaseAge` to the same day, because caret ranges let the
 resolver pick versions the quarantine refuses. An exact provider pin is
-compared exactly and an unpinned provider is a failure. On a pull request, a
+compared exactly and an unpinned provider is a failure. Every entry of a
+`required_providers` block is read: the parser once reported only a block's
+last entry, which left `hashicorp/google` six minor releases behind in the
+Google Cloud stack while `hashicorp/random` after it was current. On a pull request, a
 drift byte-identical to `main`'s is reported rather than failed, since upstream
 moved under the branch. Every network lookup the check makes carries a
 deadline and fails naming what never answered. A deliberate hold names its
