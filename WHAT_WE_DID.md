@@ -3122,6 +3122,17 @@ actions as possible, because the runner downloads every action a workflow
 names for every job. A tool a suite needs — gcloud, `cbt`, the AWS CLI — is
 installed in `TestMain` with a few retries, never skipped.
 
+Nothing CI builds or runs pulls from Docker Hub, which limits anonymous pulls
+per address and which the shared runners exhaust. The simulator images and
+`Dockerfile.test` build from the ECR Public Gallery's copy of Docker's official
+images and BuildKit comes from `mirror.gcr.io`, each pinned to the index digest
+Docker Hub serves for the same tag; a test's workload image names its ECR
+Public tag, which `base-images-for.sh` warms, and another public image comes
+from `mirror.gcr.io` at Docker Hub's digest. A digest-pinned workload image is
+left out because `docker load` restores none of them by digest. A simulator's
+own Dockerfile is not scanned, since no suite runs a container from its build
+images.
+
 A differential oracle is pinned by its multi-platform index digest, never a
 tag or one platform's manifest, and the harness refuses an image built for
 another architecture than the engine's, naming the pin. Its readiness wait is

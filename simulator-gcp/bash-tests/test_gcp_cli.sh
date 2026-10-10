@@ -388,7 +388,7 @@ output=$(sim_curl POST "$JOBS_BASE?jobId=bash-test-job" "$(cat <<JSONEOF
     "template": {
       "containers": [{
         "name": "app",
-        "image": "alpine:latest",
+        "image": "public.ecr.aws/docker/library/alpine:latest",
         "command": ["echo", "hello-from-bash"]
       }],
       "maxRetries": 0,
@@ -470,7 +470,7 @@ output=$(sim_curl POST "$JOBS_BASE?jobId=bash-delete-job" "$(cat <<JSONEOF
     "template": {
       "containers": [{
         "name": "app",
-        "image": "alpine:latest",
+        "image": "public.ecr.aws/docker/library/alpine:latest",
         "command": ["echo", "bye"]
       }],
       "maxRetries": 0,

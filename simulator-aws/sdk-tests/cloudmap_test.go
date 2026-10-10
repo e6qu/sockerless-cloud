@@ -390,7 +390,7 @@ func TestECS_CrossTaskDNS(t *testing.T) {
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("app"),
-			Image:       aws.String("alpine:latest"),
+			Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
 			EntryPoint:  []string{"sh", "-c"},
 			Command:     []string{"sleep 120"},
 			LogConfiguration: &ecstypes.LogConfiguration{
@@ -607,7 +607,7 @@ func TestECS_MultiServiceDNS(t *testing.T) {
 		NetworkMode:             ecstypes.NetworkModeAwsvpc, Cpu: aws.String("256"), Memory: aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
-			Name:        aws.String("app"), Image: aws.String("alpine:latest"),
+			Name:        aws.String("app"), Image: aws.String("public.ecr.aws/docker/library/alpine:latest"),
 			EntryPoint: []string{"sh", "-c"}, Command: []string{"sleep 120"},
 		}},
 	})

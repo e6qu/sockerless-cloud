@@ -53,7 +53,7 @@ func TestSDK_SiteContainers_CRUD(t *testing.T) {
 
 	_, err = client.CreateOrUpdateSiteContainer(ctx, rg, site, "redis", armappservice.SiteContainer{
 		Properties: &armappservice.SiteContainerProperties{
-			Image:      to.Ptr("redis:7-alpine"),
+			Image:      to.Ptr("public.ecr.aws/docker/library/redis:7-alpine"),
 			IsMain:     to.Ptr(false),
 			TargetPort: to.Ptr("6379"),
 			EnvironmentVariables: []*armappservice.EnvironmentVariable{

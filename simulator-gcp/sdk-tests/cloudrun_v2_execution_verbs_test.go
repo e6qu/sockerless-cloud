@@ -35,7 +35,7 @@ func TestCloudRunV2_Executions_CancelIsServedAndUnknownVerbsAreNot(t *testing.T)
 		Template: &runv2.GoogleCloudRunV2ExecutionTemplate{
 			Template: &runv2.GoogleCloudRunV2TaskTemplate{
 				Containers: []*runv2.GoogleCloudRunV2Container{{
-					Image:   "alpine:latest",
+					Image:   "public.ecr.aws/docker/library/alpine:latest",
 					Command: []string{"sleep"},
 					Args:    []string{"30"},
 				}},

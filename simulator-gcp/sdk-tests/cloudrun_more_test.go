@@ -307,7 +307,7 @@ func TestSDK_CloudRunV2_JobUpdate_And_ExecutionTasks(t *testing.T) {
 			Template: &runpb.ExecutionTemplate{
 				TaskCount: 2,
 				Template: &runpb.TaskTemplate{
-					Containers: []*runpb.Container{{Image: "alpine:latest"}},
+					Containers: []*runpb.Container{{Image: "public.ecr.aws/docker/library/alpine:latest"}},
 				},
 			},
 		},
@@ -330,7 +330,7 @@ func TestSDK_CloudRunV2_JobUpdate_And_ExecutionTasks(t *testing.T) {
 			Template: &runpb.ExecutionTemplate{
 				TaskCount: 3,
 				Template: &runpb.TaskTemplate{
-					Containers: []*runpb.Container{{Image: "alpine:3.20"}},
+					Containers: []*runpb.Container{{Image: "public.ecr.aws/docker/library/alpine:3.20"}},
 				},
 			},
 		},

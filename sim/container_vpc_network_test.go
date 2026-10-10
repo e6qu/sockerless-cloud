@@ -341,7 +341,7 @@ func TestRemoveDockerNetworkWaitsForItsLastContainerToDisconnect(t *testing.T) {
 		t.Fatalf("create network: %v: %s", err, out)
 	}
 	t.Cleanup(func() { _ = exec.Command("docker", "network", "rm", name).Run() })
-	out, err := exec.Command("docker", "run", "-d", "--network", name, "alpine:3.21", "sleep", "300").Output()
+	out, err := exec.Command("docker", "run", "-d", "--network", name, "public.ecr.aws/docker/library/alpine:3.21", "sleep", "300").Output()
 	if err != nil {
 		t.Fatalf("start attached container: %v", err)
 	}

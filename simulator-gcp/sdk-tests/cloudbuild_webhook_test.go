@@ -39,7 +39,7 @@ func TestCloudBuild_TriggerWebhookStartsTheBuild(t *testing.T) {
 		Name:          "webhook-trigger",
 		WebhookConfig: &cloudbuild.WebhookConfig{Secret: version.Name},
 		Build: &cloudbuild.Build{
-			Steps: []*cloudbuild.BuildStep{{Name: "alpine", Args: []string{"true"}}},
+			Steps: []*cloudbuild.BuildStep{{Name: "public.ecr.aws/docker/library/alpine:latest", Args: []string{"true"}}},
 		},
 	}).Do()
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestCloudBuild_SharedWebhookStartsTheTriggersWatchingTheRepository(t *testi
 			Push: &cloudbuild.PushFilter{Branch: "^main$"},
 		},
 		Build: &cloudbuild.Build{
-			Steps: []*cloudbuild.BuildStep{{Name: "alpine", Args: []string{"true"}}},
+			Steps: []*cloudbuild.BuildStep{{Name: "public.ecr.aws/docker/library/alpine:latest", Args: []string{"true"}}},
 		},
 	}).Do()
 	require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestCloudBuild_SharedWebhookStartsTheTriggersWatchingTheRepository(t *testi
 			Owner: "acme", Name: "gadgets",
 		},
 		Build: &cloudbuild.Build{
-			Steps: []*cloudbuild.BuildStep{{Name: "alpine", Args: []string{"true"}}},
+			Steps: []*cloudbuild.BuildStep{{Name: "public.ecr.aws/docker/library/alpine:latest", Args: []string{"true"}}},
 		},
 	}).Do()
 	require.NoError(t, err)

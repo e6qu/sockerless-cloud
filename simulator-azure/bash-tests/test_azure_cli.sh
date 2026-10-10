@@ -180,7 +180,7 @@ ACA_JOB_BODY='{
     "template": {
       "containers": [{
         "name": "app",
-        "image": "alpine:latest",
+        "image": "public.ecr.aws/docker/library/alpine:latest",
         "command": ["echo", "hello-bash-test"]
       }]
     }

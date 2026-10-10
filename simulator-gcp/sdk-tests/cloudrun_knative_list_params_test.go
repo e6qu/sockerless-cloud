@@ -271,7 +271,7 @@ func TestSDK_RunV2REST_Job_RunEtagOptimisticConcurrency(t *testing.T) {
 		}
 	}
 
-	op, err := svc.Projects.Locations.Jobs.Create(crV2Parent, body("alpine:latest")).JobId(id).Do()
+	op, err := svc.Projects.Locations.Jobs.Create(crV2Parent, body("public.ecr.aws/docker/library/alpine:latest")).JobId(id).Do()
 	require.NoError(t, err)
 	awaitRunV2Operation(t, svc, op)
 	t.Cleanup(func() {
@@ -304,13 +304,13 @@ func TestSDK_RunV2REST_Job_RunEtagOptimisticConcurrency(t *testing.T) {
 
 	// An update naming the stale etag is refused the same way, and the same
 	// update naming the current one succeeds.
-	stale := body("alpine:3.20")
+	stale := body("public.ecr.aws/docker/library/alpine:3.20")
 	stale.Etag = created.Etag
 	_, err = svc.Projects.Locations.Jobs.Patch(name, stale).Do()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "409")
 
-	current := body("alpine:3.20")
+	current := body("public.ecr.aws/docker/library/alpine:3.20")
 	current.Etag = moved.Etag
 	patchOp, err := svc.Projects.Locations.Jobs.Patch(name, current).Do()
 	require.NoError(t, err)

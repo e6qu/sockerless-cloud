@@ -358,7 +358,7 @@ func TestSDK_ContainerAppsApps_SystemDataPreservedAcrossUpdates(t *testing.T) {
 		}
 	}
 
-	poller, err := client.BeginCreateOrUpdate(ctx, rg, "sdk-systemdata-app", mkApp("alpine:3.18"), nil)
+	poller, err := client.BeginCreateOrUpdate(ctx, rg, "sdk-systemdata-app", mkApp("public.ecr.aws/docker/library/alpine:3.18"), nil)
 	require.NoError(t, err)
 	created, err := poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)

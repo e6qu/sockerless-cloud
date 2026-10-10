@@ -56,7 +56,7 @@ resource "google_cloud_run_v2_service" "ordered" {
 
     containers {
       name    = "sidecar"
-      image   = "alpine:latest"
+      image   = "public.ecr.aws/docker/library/alpine:latest"
       command = ["sh", "-c", "sleep 3; exec nc -lk -p 9090 -e true"]
 
       startup_probe {

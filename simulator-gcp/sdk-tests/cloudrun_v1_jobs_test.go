@@ -29,7 +29,7 @@ const cloudRunV1Namespace = "test-project"
 // returns the long-running operation name the create returned.
 func createCloudRunV2JobLRO(t *testing.T, jobID string) string {
 	t.Helper()
-	body := `{"template":{"template":{"containers":[{"image":"alpine:latest"}]}}}`
+	body := `{"template":{"template":{"containers":[{"image":"public.ecr.aws/docker/library/alpine:latest"}]}}}`
 	req, err := http.NewRequestWithContext(ctx, "POST",
 		fmt.Sprintf("%s/v2/projects/%s/locations/us-central1/jobs?jobId=%s", baseURL, cloudRunV1Namespace, jobID),
 		strings.NewReader(body))

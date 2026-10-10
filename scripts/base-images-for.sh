@@ -33,6 +33,8 @@ done
 # and one arrives only when a suite invokes a function on that runtime. Reading
 # it literally would cache all thirty, so it is resolved the other way round —
 # from the identifiers the suites name — by lambda-runtime-images-for.sh.
+# A simulator's own Dockerfile names the images its container build runs on,
+# which no suite runs a container from.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # A simulator runs the framework's helper containers too (the volume snapshot
@@ -50,7 +52,8 @@ done
             -name '*.go' -o -name '*.tf' -o -name '*.tftpl' -o -name '*.hcl' -o \
             -name '*.sh' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' -o \
             -name 'Dockerfile*' \
-        \) ! -path '*simulator-aws/lambda_runtime.go' -print0 |
+        \) ! -path '*simulator-aws/lambda_runtime.go' \
+        ! -path '*simulator-*/Dockerfile' -print0 |
         xargs -0 grep -hoE 'public\.ecr\.aws/[a-z0-9][a-z0-9/._-]*(:[a-zA-Z0-9][a-zA-Z0-9._-]*|@sha256:[0-9a-f]{64})'
 
     for dir in "$@"; do
