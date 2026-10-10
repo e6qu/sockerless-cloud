@@ -2849,7 +2849,11 @@ because a reconciliation requests another whenever it moves a task.
 `bg.JoinedGo` counts work a caller waits on and never drops it, since dropping
 a fan-out the caller joins leaves it waiting forever. Finite work handed to
 `Server.StartBackground` registers with the drain too (`bg.Handoff`); lifetime
-daemons do not, or the barrier would wait forever.
+daemons do not, or the barrier would wait forever. Arming a timer or watch
+holds a read lock across its admission and its entry in the map a drain
+stops, and a drain takes the write lock to begin, so a timer armed as a drain
+starts is either stopped by it or refused: counting it first and publishing it
+after let a drain wait out a 5-minute Event Grid manual-validation window.
 
 A test waits on the event it asserts. The AWS suites use the SDK's own
 waiters, with 250 ms to 2 s delay bounds instead of the published 5 to 60 s:
