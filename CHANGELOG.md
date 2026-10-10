@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/e6qu/sockerless-cloud/compare/v2.2.1...v2.3.0) (2026-10-10)
+
+
+### Features
+
+* **rds:** parameter catalogs, maintenance windows; CI pulls off Docker Hub ([ff8c8b3](https://github.com/e6qu/sockerless-cloud/commit/ff8c8b329480569ef004d4dc752f8ec250c47832))
+
 ## [2.2.1](https://github.com/e6qu/sockerless-cloud/compare/v2.2.0...v2.2.1) (2026-10-09)
 
 
