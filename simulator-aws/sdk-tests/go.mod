@@ -50,7 +50,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.79.2
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.3
 	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.83.3
-	github.com/aws/smithy-go v1.28.4
+	github.com/aws/smithy-go v1.28.5
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/go-sql-driver/mysql v1.10.1
