@@ -46,8 +46,13 @@ type Upstream struct {
 	RawQuery string
 	// Host is the Host header the target receives; empty keeps the client's.
 	Host string
-	// Header replaces the client's request headers when set.
+	// Header replaces the client's request headers when set. Forward still
+	// removes the hop-by-hop headers from it.
 	Header http.Header
+	// RequestHeader, when set, edits the headers the target receives once the
+	// client's hop-by-hop headers are gone, so a header the client nominated in
+	// Connection cannot strip one the load balancer adds.
+	RequestHeader func(header http.Header)
 	// Body replaces the client's request body when set.
 	Body io.Reader
 	// Timeout bounds a request/response exchange from start to finish. An
@@ -79,7 +84,9 @@ var hopByHopHeaders = []string{
 	"Proxy-Authorization", "Te", "Trailer", "Transfer-Encoding", "Upgrade",
 }
 
-func removeHopByHopHeaders(header http.Header) {
+// RemoveHopByHopHeaders removes the headers that belong to one connection,
+// including each one the Connection header nominates.
+func RemoveHopByHopHeaders(header http.Header) {
 	for _, value := range header.Values("Connection") {
 		for _, name := range strings.Split(value, ",") {
 			if name = strings.TrimSpace(name); name != "" {
@@ -134,11 +141,13 @@ func Forward(w http.ResponseWriter, r *http.Request, up Upstream) error {
 	if header == nil {
 		header = r.Header.Clone()
 	}
-	upgradeProtocol := header.Get("Upgrade")
-	removeHopByHopHeaders(header)
+	RemoveHopByHopHeaders(header)
+	if up.RequestHeader != nil {
+		up.RequestHeader(header)
+	}
 	if upgrade {
 		header.Set("Connection", "Upgrade")
-		header.Set("Upgrade", upgradeProtocol)
+		header.Set("Upgrade", r.Header.Get("Upgrade"))
 	}
 	req.Header = header
 	req.Host = up.Host
@@ -174,7 +183,7 @@ func Forward(w http.ResponseWriter, r *http.Request, up Upstream) error {
 		return ErrDeclined
 	}
 	responseHeader := resp.Header.Clone()
-	removeHopByHopHeaders(responseHeader)
+	RemoveHopByHopHeaders(responseHeader)
 	if up.ResponseHeader != nil {
 		up.ResponseHeader(resp.StatusCode, responseHeader)
 	}
