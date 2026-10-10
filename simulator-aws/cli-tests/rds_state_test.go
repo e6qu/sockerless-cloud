@@ -182,7 +182,7 @@ func TestRDSCLI_EventSubParamDetailEndpoint(t *testing.T) {
 	pgName := "cli-detail-pg"
 	runCLI(t, awsCLI("rds", "create-db-parameter-group",
 		"--db-parameter-group-name", pgName,
-		"--db-parameter-group-family", "postgres15",
+		"--db-parameter-group-family", "postgres16",
 		"--description", "cli detail pg"))
 	t.Cleanup(func() {
 		_ = awsCLI("rds", "delete-db-parameter-group",

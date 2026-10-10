@@ -1825,6 +1825,55 @@ refuse a default group with InvalidParameterValue, and a group of another
 family is refused with InvalidParameterCombination. DB cluster parameter
 groups take their default name from the family too (`default.aurora-postgresql16`).
 
+Each DB parameter group family's parameters are its engine's own.
+`scripts/capture-rds-parameter-catalogs.go` starts the image of each family's
+newest version with the arguments the simulator runs it with and reads the
+engine's catalog — `pg_settings` on PostgreSQL, `information_schema.SYSTEM_VARIABLES`
+on MariaDB, and on MySQL 8.0 the Performance Schema's variable tables, the
+options `mysqld --verbose --help` lists and a `SET GLOBAL v = @@GLOBAL.v` of
+each variable, which the server refuses for one it cannot change while running
+— into `rds_parameter_catalogs_vendored.json`, recording each image, its image
+ID and the version the engine reported; `TestRDSParameterCatalogImages` fails
+when a catalog's image drifts from `rdsEngineVersions`. A setting a restart
+applies is `static`, any other `dynamic`; a parameter is modifiable when the
+server takes it as a configuration option, except the settings the simulator
+runs every engine with for its endpoint, automated backups, log files and read
+replicas. DescribeDBParameters, DescribeDBClusterParameters and
+DescribeEngineDefaultParameters page through that catalog with MaxRecords and
+Marker, and ModifyDBParameterGroup checks each change against it: an unknown or
+unmodifiable parameter and a value outside AllowedValues are
+InvalidParameterValue, and `immediate` for a static parameter is
+InvalidParameterCombination.
+
+An engine starts with the parameters its group sets: a MySQL-family engine
+takes them all as command-line options, and PostgreSQL takes the static ones as
+`-c` options and the dynamic ones from `rds_parameters.conf`, which
+`postgresql.conf` includes, because a reload never overrides a command-line
+setting. A dynamic change applied immediately reaches each running engine
+whose instance uses the group — `SET GLOBAL` on MySQL and MariaDB, a rewritten
+file and `pg_reload_conf()` on PostgreSQL, which waits until a new session
+sees the reload, since the postmaster rereads its configuration
+asynchronously. The instance records the parameters its engine started with;
+while they differ from its group's, or the instance was associated with another
+group since, ParameterApplyStatus is `pending-reboot`, and RebootDBInstance,
+StartDBInstance, an upgrade, a class change and every other engine restart
+start the engine under the group as it is then.
+
+ModifyDBInstance follows ApplyImmediately. Without it, a class, storage or
+engine version change and a BackupRetentionPeriod change that turns automated
+backups on or off wait in PendingModifications, which PendingModifiedValues
+reports; PreferredMaintenanceWindow, the backup window, the DB parameter group
+name and the authentication and deletion settings apply at once. A
+`sim/bg` timer armed for the window's next start applies what is pending — at
+once when the window is open with at least 30 minutes left, as the
+ModifyDBInstance reference requires — and a later request with
+ApplyImmediately applies the pending changes with its own. An engine version
+change leaves the instance `upgrading`, and a class change on an instance with
+an engine leaves it `modifying` while the engine restarts. Every instance has a
+PreferredMaintenanceWindow: the request's, checked for format, a 30-minute
+minimum and overlap with the backup window, or a random 30-minute window in
+the Region's 8-hour block that clears the backup window.
+
 An RDS DB instance read replica is a real replica. CreateDBInstanceReadReplica
 refuses a source without automated backups (InvalidDBInstanceState) or in a DB
 cluster, answers `creating` and in the background readies the source's
