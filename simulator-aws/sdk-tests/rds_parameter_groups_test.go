@@ -217,10 +217,11 @@ func TestRDS_DBParameterGroupsConfigureTheMySQLEngine(t *testing.T) {
 	assert.Equal(t, "in-sync", rdsParameterApplyStatus(t, ctx, c, id))
 }
 
-// rdsWindowAfterNow is a 30-minute maintenance window that opens at the next
-// minute, with a backup window half a day away from it.
+// rdsWindowAfterNow is a 30-minute maintenance window that opens two minutes
+// out, so it is still closed when the request that sets it arrives, with a
+// backup window half a day away from it.
 func rdsWindowAfterNow() (maintenance, backup string) {
-	start := time.Now().UTC().Truncate(time.Minute).Add(time.Minute)
+	start := time.Now().UTC().Truncate(time.Minute).Add(2 * time.Minute)
 	weekly := func(at time.Time) string {
 		return strings.ToLower(at.Format("Mon")) + ":" + at.Format("15:04")
 	}
