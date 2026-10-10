@@ -443,6 +443,27 @@ run_check "$tf_repo"
 expect_status 1 'terraform: an exact pin one release behind is drift'
 expect_says 'pinned at 3.2.4 vs latest adoptable 3.3.2' 'terraform: an exact pin one release behind is drift'
 
+# Every entry of a required_providers block is checked, not only its last: a
+# stale provider listed before a current one is still drift.
+cat >"$tf_repo/main.tf" <<TF
+terraform {
+  required_providers {
+    stale = {
+      source  = "$tf_provider"
+      version = "3.2.4"
+    }
+    current = {
+      source  = "$tf_provider"
+      version = "3.3.2"
+    }
+  }
+}
+TF
+run_check "$tf_repo"
+expect_status 1 'terraform: a stale provider before a current one is drift'
+expect_says 'stale (example/null) pinned at 3.2.4 vs latest adoptable 3.3.2' \
+	'terraform: a stale provider before a current one is drift'
+
 # The newest adoptable release is not the newest published one: pinning the
 # release below a quarantined one is current, and the newer one is held.
 write_tf 3.3.2
