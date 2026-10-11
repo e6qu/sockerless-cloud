@@ -23,6 +23,7 @@ func TestEC2InstanceTypeTerraform(t *testing.T) {
 	require.NoError(t, json.Unmarshal(env.Terraform(t, "output", "-json"), &outputs))
 	assert.Equal(t, "t4g.nano", outputs["graviton_2_vcpus_512_mib"].Value)
 	assert.Equal(t, "m5.24xlarge,m5.metal", outputs["m5_96_vcpus"].Value)
+	assert.Equal(t, "48/96", outputs["host_cores_vcpus"].Value, "the m5 Dedicated Host's cores and vCPUs")
 
 	env.Terraform(t, "destroy", "-auto-approve")
 }

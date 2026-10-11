@@ -4,8 +4,8 @@
  "version": "20260925174521",
  "publicationDate": "2026-09-25T17:45:21Z",
  "sha256": "a822b8b9ae885a3e6027860ea08d26c0a3c83db47fcede71db96b7b2b265a502",
- "retrieved": "2026-10-06T09:38:39Z",
- "note": "Every value is an attribute of the offer file's Compute Instance products, verbatim. The offer file does not state cores, threads per core, network interface limits, supported usage classes or Free Tier eligibility, and the catalog leaves them absent.",
+ "retrieved": "2026-10-11T10:20:27Z",
+ "note": "Every value is an attribute of the offer file's Compute Instance products, verbatim. The offer file does not state cores, threads per core, network interface limits, supported usage classes or Free Tier eligibility, and the catalog leaves them absent. Dedicated Host values are attributes of its Dedicated Host products, verbatim; it states no socket count.",
  "instanceTypes": [
   {
    "instanceType": "a1.2xlarge",
@@ -15516,6 +15516,1718 @@
    "currentGeneration": "Yes",
    "storage": "1 x 150 NVMe SSD",
    "instanceFamily": "Memory optimized"
+  }
+ ],
+ "dedicatedHosts": [
+  {
+   "instanceFamily": "a1",
+   "vcpu": "16",
+   "physicalCores": "16",
+   "instanceCapacity": {
+    "2xlarge": "2",
+    "4xlarge": "1",
+    "Large": "8",
+    "Medium": "16",
+    "Xlarge": "4"
+   }
+  },
+  {
+   "instanceFamily": "c3",
+   "vcpu": "32",
+   "physicalCores": "20",
+   "instanceCapacity": {
+    "2xlarge": "4",
+    "4xlarge": "2",
+    "8xlarge": "1",
+    "Large": "16",
+    "Xlarge": "8"
+   }
+  },
+  {
+   "instanceFamily": "c4",
+   "vcpu": "36",
+   "physicalCores": "20",
+   "instanceCapacity": {
+    "2xlarge": "4",
+    "4xlarge": "2",
+    "8xlarge": "1",
+    "Large": "16",
+    "Xlarge": "8"
+   }
+  },
+  {
+   "instanceFamily": "c5",
+   "vcpu": "72",
+   "physicalCores": "36",
+   "instanceCapacity": {
+    "18xlarge": "1",
+    "24xlarge": "1",
+    "2xlarge": "8",
+    "4xlarge": "4",
+    "9xlarge": "2",
+    "Large": "36",
+    "Xlarge": "18"
+   }
+  },
+  {
+   "instanceFamily": "c5d",
+   "vcpu": "72",
+   "physicalCores": "36",
+   "instanceCapacity": {
+    "18xlarge": "1",
+    "2xlarge": "8",
+    "4xlarge": "4",
+    "9xlarge": "2",
+    "Large": "36",
+    "Xlarge": "18"
+   }
+  },
+  {
+   "instanceFamily": "c5n",
+   "vcpu": "72",
+   "physicalCores": "36",
+   "instanceCapacity": {
+    "18xlarge": "1",
+    "2xlarge": "8",
+    "4xlarge": "4",
+    "9xlarge": "2",
+    "Large": "36",
+    "Xlarge": "18"
+   }
+  },
+  {
+   "instanceFamily": "c6a",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "3",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "32xlarge": "1",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "c6g",
+   "vcpu": "64",
+   "physicalCores": "64",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "c6gd",
+   "vcpu": "64",
+   "physicalCores": "64",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "c6gn",
+   "vcpu": "64",
+   "physicalCores": "64",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "c6i",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "2",
+    "24xlarge": "1",
+    "2xlarge": "16",
+    "32xlarge": "1",
+    "4xlarge": "8",
+    "8xlarge": "4",
+    "Large": "64",
+    "Xlarge": "32"
+   }
+  },
+  {
+   "instanceFamily": "c6id",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "2",
+    "24xlarge": "1",
+    "2xlarge": "16",
+    "32xlarge": "1",
+    "4xlarge": "8",
+    "8xlarge": "4",
+    "Large": "64",
+    "Xlarge": "32"
+   }
+  },
+  {
+   "instanceFamily": "c6in",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "2",
+    "24xlarge": "1",
+    "2xlarge": "16",
+    "32xlarge": "1",
+    "4xlarge": "8",
+    "8xlarge": "4",
+    "Large": "64",
+    "Xlarge": "32"
+   }
+  },
+  {
+   "instanceFamily": "c7a",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "2",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "32xlarge": "1",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Medium": "192",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "c7g",
+   "vcpu": "64",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "c7gd",
+   "vcpu": "64",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "c7gn",
+   "vcpu": "64",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "c7i",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "2",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "c8a",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "2",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Medium": "192",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "c8g",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "c8gb",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "c8gd",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "c8gn",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "c8i",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "c8ib",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "c8id",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "c8in",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "c9g",
+   "vcpu": "192",
+   "physicalCores": "384",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "3",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Medium": "192",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "c9gd",
+   "vcpu": "192",
+   "physicalCores": "384",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "3",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Medium": "192",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "d2",
+   "vcpu": "36",
+   "physicalCores": "24",
+   "instanceCapacity": {
+    "2xlarge": "4",
+    "4xlarge": "2",
+    "8xlarge": "1",
+    "Xlarge": "8"
+   }
+  },
+  {
+   "instanceFamily": "dl1",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "24xlarge": "1"
+   }
+  },
+  {
+   "instanceFamily": "f1",
+   "vcpu": "64",
+   "physicalCores": "0",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "f2",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "g2",
+   "vcpu": "32",
+   "physicalCores": "0",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "g3",
+   "vcpu": "64",
+   "physicalCores": "36",
+   "instanceCapacity": {
+    "16xlarge": "1",
+    "4xlarge": "4",
+    "8xlarge": "2"
+   }
+  },
+  {
+   "instanceFamily": "g4ad",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {
+    "4xlarge": "12",
+    "8xlarge": "6"
+   }
+  },
+  {
+   "instanceFamily": "g4dn",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "Metal": "1"
+   }
+  },
+  {
+   "instanceFamily": "g5",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {
+    "24xlarge": "2"
+   }
+  },
+  {
+   "instanceFamily": "g5g",
+   "vcpu": "64",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "16xlarge": "1"
+   }
+  },
+  {
+   "instanceFamily": "g6",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {
+    "24xlarge": "2"
+   }
+  },
+  {
+   "instanceFamily": "g6e",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {
+    "24xlarge": "2"
+   }
+  },
+  {
+   "instanceFamily": "g7",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "24xlarge": "2"
+   }
+  },
+  {
+   "instanceFamily": "g7e",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "24xlarge": "2"
+   }
+  },
+  {
+   "instanceFamily": "h1",
+   "vcpu": "64",
+   "physicalCores": "36",
+   "instanceCapacity": {
+    "16xlarge": "1",
+    "2xlarge": "8",
+    "4xlarge": "4",
+    "8xlarge": "2"
+   }
+  },
+  {
+   "instanceFamily": "i2",
+   "vcpu": "32",
+   "physicalCores": "20",
+   "instanceCapacity": {
+    "2xlarge": "4",
+    "4xlarge": "2",
+    "8xlarge": "1",
+    "Xlarge": "8"
+   }
+  },
+  {
+   "instanceFamily": "i3",
+   "vcpu": "64",
+   "physicalCores": "36",
+   "instanceCapacity": {
+    "16xlarge": "1",
+    "2xlarge": "8",
+    "4xlarge": "4",
+    "8xlarge": "2",
+    "Large": "32",
+    "Metal": "1",
+    "Xlarge": "16"
+   }
+  },
+  {
+   "instanceFamily": "i3en",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "i4g",
+   "vcpu": "64",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "16xlarge": "1",
+    "2xlarge": "8",
+    "4xlarge": "4",
+    "8xlarge": "2",
+    "Large": "32",
+    "Metal": "1",
+    "Xlarge": "16"
+   }
+  },
+  {
+   "instanceFamily": "i4i",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "16xlarge": "2",
+    "2xlarge": "16",
+    "32xlarge": "1",
+    "4xlarge": "8",
+    "8xlarge": "4",
+    "Large": "64",
+    "Xlarge": "32"
+   }
+  },
+  {
+   "instanceFamily": "i7i",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "3",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "i7ie",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "i8g",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "i8ge",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "im4gn",
+   "vcpu": "64",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "16xlarge": "1"
+   }
+  },
+  {
+   "instanceFamily": "inf1",
+   "vcpu": "96",
+   "physicalCores": "0",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "inf2",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "m3",
+   "vcpu": "8",
+   "physicalCores": "20",
+   "instanceCapacity": {
+    "2xlarge": "4",
+    "Large": "16",
+    "Medium": "32",
+    "Xlarge": "8"
+   }
+  },
+  {
+   "instanceFamily": "m4",
+   "vcpu": "40",
+   "physicalCores": "24",
+   "instanceCapacity": {
+    "10xlarge": "1",
+    "2xlarge": "5",
+    "4xlarge": "2",
+    "Large": "22",
+    "Xlarge": "11"
+   }
+  },
+  {
+   "instanceFamily": "m5",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "24xlarge": "1",
+    "2xlarge": "12",
+    "4xlarge": "6",
+    "Large": "48",
+    "Xlarge": "24"
+   }
+  },
+  {
+   "instanceFamily": "m5d",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "24xlarge": "1",
+    "2xlarge": "12",
+    "4xlarge": "6",
+    "Large": "48",
+    "Xlarge": "24"
+   }
+  },
+  {
+   "instanceFamily": "m5dn",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "1",
+    "24xlarge": "1",
+    "2xlarge": "12",
+    "4xlarge": "6",
+    "8xlarge": "3",
+    "Large": "48",
+    "Metal": "1",
+    "Xlarge": "24"
+   }
+  },
+  {
+   "instanceFamily": "m5n",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "1",
+    "24xlarge": "1",
+    "2xlarge": "12",
+    "4xlarge": "6",
+    "8xlarge": "3",
+    "Large": "48",
+    "Metal": "1",
+    "Xlarge": "24"
+   }
+  },
+  {
+   "instanceFamily": "m5zn",
+   "vcpu": "48",
+   "physicalCores": "24",
+   "instanceCapacity": {
+    "12xlarge": "1",
+    "2xlarge": "6",
+    "Large": "24",
+    "Xlarge": "12"
+   }
+  },
+  {
+   "instanceFamily": "m6a",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "3",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "32xlarge": "1",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "m6g",
+   "vcpu": "64",
+   "physicalCores": "64",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "m6gd",
+   "vcpu": "64",
+   "physicalCores": "64",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "m6i",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "2",
+    "24xlarge": "1",
+    "2xlarge": "16",
+    "32xlarge": "1",
+    "4xlarge": "8",
+    "8xlarge": "4",
+    "Large": "64",
+    "Xlarge": "32"
+   }
+  },
+  {
+   "instanceFamily": "m6id",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "2",
+    "24xlarge": "1",
+    "2xlarge": "16",
+    "32xlarge": "1",
+    "4xlarge": "8",
+    "8xlarge": "4",
+    "Large": "64",
+    "Xlarge": "32"
+   }
+  },
+  {
+   "instanceFamily": "m6idn",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "2",
+    "24xlarge": "1",
+    "2xlarge": "16",
+    "32xlarge": "1",
+    "4xlarge": "8",
+    "8xlarge": "4",
+    "Large": "64",
+    "Xlarge": "32"
+   }
+  },
+  {
+   "instanceFamily": "m6in",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "2",
+    "24xlarge": "1",
+    "2xlarge": "16",
+    "32xlarge": "1",
+    "4xlarge": "8",
+    "8xlarge": "4",
+    "Large": "64",
+    "Xlarge": "32"
+   }
+  },
+  {
+   "instanceFamily": "m7a",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "2",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "32xlarge": "1",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Medium": "192",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "m7g",
+   "vcpu": "64",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "m7gd",
+   "vcpu": "64",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "m7i",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "2",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "m8a",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "2",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Medium": "192",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "m8azn",
+   "vcpu": "96",
+   "physicalCores": "96",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "24xlarge": "1",
+    "Large": "48",
+    "Medium": "96",
+    "Xlarge": "24"
+   }
+  },
+  {
+   "instanceFamily": "m8g",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "m8gb",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "m8gd",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "m8gn",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "m8i",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "m8ib",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "m8id",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "m8idb",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "m8idn",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "m8in",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "m9g",
+   "vcpu": "192",
+   "physicalCores": "384",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "3",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Medium": "192",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "m9gd",
+   "vcpu": "192",
+   "physicalCores": "384",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "3",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Medium": "192",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "mac-m3ultra",
+   "vcpu": "28",
+   "physicalCores": "28",
+   "instanceCapacity": {
+    "Metal": "1"
+   }
+  },
+  {
+   "instanceFamily": "mac-m4",
+   "vcpu": "10",
+   "physicalCores": "10",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "mac-m4max",
+   "vcpu": "16",
+   "physicalCores": "16",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "mac-m4pro",
+   "vcpu": "14",
+   "physicalCores": "14",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "mac1",
+   "vcpu": "12",
+   "physicalCores": "6",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "mac2",
+   "vcpu": "8",
+   "physicalCores": "8",
+   "instanceCapacity": {
+    "Metal": "1"
+   }
+  },
+  {
+   "instanceFamily": "mac2-m1ultra",
+   "vcpu": "20",
+   "physicalCores": "20",
+   "instanceCapacity": {
+    "Metal": "1"
+   }
+  },
+  {
+   "instanceFamily": "mac2-m2",
+   "vcpu": "8",
+   "physicalCores": "8",
+   "instanceCapacity": {
+    "Metal": "1"
+   }
+  },
+  {
+   "instanceFamily": "mac2-m2pro",
+   "vcpu": "12",
+   "physicalCores": "12",
+   "instanceCapacity": {
+    "Metal": "1"
+   }
+  },
+  {
+   "instanceFamily": "p2",
+   "vcpu": "64",
+   "physicalCores": "36",
+   "instanceCapacity": {
+    "16xlarge": "1",
+    "8xlarge": "2",
+    "Xlarge": "16"
+   }
+  },
+  {
+   "instanceFamily": "p3",
+   "vcpu": "64",
+   "physicalCores": "36",
+   "instanceCapacity": {
+    "16xlarge": "1",
+    "2xlarge": "8",
+    "8xlarge": "2"
+   }
+  },
+  {
+   "instanceFamily": "p3dn",
+   "vcpu": "96",
+   "physicalCores": "0",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "p4d",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "24xlarge": "1"
+   }
+  },
+  {
+   "instanceFamily": "p4de",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "24xlarge": "1"
+   }
+  },
+  {
+   "instanceFamily": "r3",
+   "vcpu": "32",
+   "physicalCores": "20",
+   "instanceCapacity": {
+    "2xlarge": "4",
+    "4xlarge": "2",
+    "8xlarge": "1",
+    "Large": "16",
+    "Xlarge": "8"
+   }
+  },
+  {
+   "instanceFamily": "r4",
+   "vcpu": "64",
+   "physicalCores": "36",
+   "instanceCapacity": {
+    "16xlarge": "1",
+    "2xlarge": "8",
+    "4xlarge": "4",
+    "8xlarge": "2",
+    "Large": "32",
+    "Xlarge": "16"
+   }
+  },
+  {
+   "instanceFamily": "r5",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "1",
+    "24xlarge": "1",
+    "2xlarge": "12",
+    "4xlarge": "6",
+    "8xlarge": "2",
+    "Large": "48",
+    "Xlarge": "24"
+   }
+  },
+  {
+   "instanceFamily": "r5b",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "1",
+    "24xlarge": "1",
+    "2xlarge": "12",
+    "4xlarge": "6",
+    "8xlarge": "3",
+    "Large": "48",
+    "Xlarge": "24"
+   }
+  },
+  {
+   "instanceFamily": "r5d",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "1",
+    "24xlarge": "1",
+    "2xlarge": "12",
+    "4xlarge": "6",
+    "8xlarge": "2",
+    "Large": "48",
+    "Xlarge": "24"
+   }
+  },
+  {
+   "instanceFamily": "r5dn",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "1",
+    "24xlarge": "1",
+    "2xlarge": "12",
+    "4xlarge": "6",
+    "8xlarge": "3",
+    "Large": "48",
+    "Metal": "1",
+    "Xlarge": "24"
+   }
+  },
+  {
+   "instanceFamily": "r5n",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "1",
+    "24xlarge": "1",
+    "2xlarge": "12",
+    "4xlarge": "6",
+    "8xlarge": "3",
+    "Large": "48",
+    "Metal": "1",
+    "Xlarge": "24"
+   }
+  },
+  {
+   "instanceFamily": "r6a",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "3",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "32xlarge": "1",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "r6g",
+   "vcpu": "64",
+   "physicalCores": "64",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "r6gd",
+   "vcpu": "64",
+   "physicalCores": "64",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "r6i",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "2",
+    "24xlarge": "1",
+    "2xlarge": "16",
+    "32xlarge": "1",
+    "4xlarge": "8",
+    "8xlarge": "4",
+    "Large": "64",
+    "Xlarge": "32"
+   }
+  },
+  {
+   "instanceFamily": "r6id",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "2",
+    "24xlarge": "1",
+    "2xlarge": "16",
+    "32xlarge": "1",
+    "4xlarge": "8",
+    "8xlarge": "4",
+    "Large": "64",
+    "Xlarge": "32"
+   }
+  },
+  {
+   "instanceFamily": "r6idn",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "2",
+    "24xlarge": "1",
+    "2xlarge": "16",
+    "32xlarge": "1",
+    "4xlarge": "8",
+    "8xlarge": "4",
+    "Large": "64",
+    "Xlarge": "32"
+   }
+  },
+  {
+   "instanceFamily": "r6in",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "2",
+    "24xlarge": "1",
+    "2xlarge": "16",
+    "32xlarge": "1",
+    "4xlarge": "8",
+    "8xlarge": "4",
+    "Large": "64",
+    "Xlarge": "32"
+   }
+  },
+  {
+   "instanceFamily": "r7a",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "2",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "32xlarge": "1",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Medium": "192",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "r7g",
+   "vcpu": "64",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "r7gd",
+   "vcpu": "64",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "r7i",
+   "vcpu": "192",
+   "physicalCores": "96",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "2",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "r7iz",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "12xlarge": "2",
+    "16xlarge": "1",
+    "2xlarge": "16",
+    "32xlarge": "1",
+    "4xlarge": "8",
+    "8xlarge": "4",
+    "Large": "64",
+    "Xlarge": "32"
+   }
+  },
+  {
+   "instanceFamily": "r8a",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "2",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Medium": "192",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "r8g",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "r8gb",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "r8gd",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "r8gn",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "r8i",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "r8ib",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "r8id",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "r8idb",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "r8idn",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "r8in",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "r9g",
+   "vcpu": "192",
+   "physicalCores": "384",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "3",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Medium": "192",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "r9gd",
+   "vcpu": "192",
+   "physicalCores": "384",
+   "instanceCapacity": {
+    "12xlarge": "4",
+    "16xlarge": "3",
+    "24xlarge": "2",
+    "2xlarge": "24",
+    "4xlarge": "12",
+    "8xlarge": "6",
+    "Large": "96",
+    "Medium": "192",
+    "Xlarge": "48"
+   }
+  },
+  {
+   "instanceFamily": "t3",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "trn1",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "2xlarge": "16",
+    "32xlarge": "1"
+   }
+  },
+  {
+   "instanceFamily": "u-12tb1",
+   "vcpu": "448",
+   "physicalCores": "224",
+   "instanceCapacity": {
+    "Metal": "1"
+   }
+  },
+  {
+   "instanceFamily": "u-18tb1",
+   "vcpu": "448",
+   "physicalCores": "224",
+   "instanceCapacity": {
+    "Metal": "1"
+   }
+  },
+  {
+   "instanceFamily": "u-24tb1",
+   "vcpu": "448",
+   "physicalCores": "224",
+   "instanceCapacity": {
+    "Metal": "1"
+   }
+  },
+  {
+   "instanceFamily": "u-6tb1",
+   "vcpu": "448",
+   "physicalCores": "224",
+   "instanceCapacity": {
+    "Metal": "1"
+   }
+  },
+  {
+   "instanceFamily": "u-9tb1",
+   "vcpu": "448",
+   "physicalCores": "224",
+   "instanceCapacity": {
+    "Metal": "1"
+   }
+  },
+  {
+   "instanceFamily": "u7i-12tb",
+   "vcpu": "896",
+   "physicalCores": "448",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "u7i-6tb",
+   "vcpu": "448",
+   "physicalCores": "224",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "u7i-8tb",
+   "vcpu": "448",
+   "physicalCores": "224",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "u7in-16tb",
+   "vcpu": "896",
+   "physicalCores": "448",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "u7in-24tb",
+   "vcpu": "896",
+   "physicalCores": "448",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "u7in-32tb",
+   "vcpu": "896",
+   "physicalCores": "448",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "vt1",
+   "vcpu": "96",
+   "physicalCores": "48",
+   "instanceCapacity": {
+    "24xlarge": "1"
+   }
+  },
+  {
+   "instanceFamily": "x1",
+   "vcpu": "128",
+   "physicalCores": "72",
+   "instanceCapacity": {
+    "16xlarge": "2",
+    "32xlarge": "1"
+   }
+  },
+  {
+   "instanceFamily": "x1e",
+   "vcpu": "128",
+   "physicalCores": "72",
+   "instanceCapacity": {
+    "32xlarge": "1"
+   }
+  },
+  {
+   "instanceFamily": "x2gd",
+   "vcpu": "64",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "12xlarge": "1",
+    "16xlarge": "1",
+    "2xlarge": "8",
+    "4xlarge": "4",
+    "8xlarge": "2",
+    "Large": "32",
+    "Medium": "64",
+    "Xlarge": "16"
+   }
+  },
+  {
+   "instanceFamily": "x2idn",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "32xlarge": "1",
+    "Metal": "1"
+   }
+  },
+  {
+   "instanceFamily": "x2iedn",
+   "vcpu": "128",
+   "physicalCores": "64",
+   "instanceCapacity": {
+    "32xlarge": "1",
+    "Metal": "1"
+   }
+  },
+  {
+   "instanceFamily": "x2iezn",
+   "vcpu": "48",
+   "physicalCores": "24",
+   "instanceCapacity": {
+    "12xlarge": "1",
+    "2xlarge": "6",
+    "4xlarge": "3",
+    "8xlarge": "1"
+   }
+  },
+  {
+   "instanceFamily": "x8g",
+   "vcpu": "192",
+   "physicalCores": "192",
+   "instanceCapacity": {}
+  },
+  {
+   "instanceFamily": "x8i",
+   "vcpu": "384",
+   "physicalCores": "192",
+   "instanceCapacity": {
+    "12xlarge": "6",
+    "16xlarge": "6",
+    "24xlarge": "2",
+    "2xlarge": "48",
+    "32xlarge": "2",
+    "4xlarge": "24",
+    "8xlarge": "12",
+    "Large": "192",
+    "Xlarge": "96"
+   }
+  },
+  {
+   "instanceFamily": "z1d",
+   "vcpu": "48",
+   "physicalCores": "24",
+   "instanceCapacity": {
+    "12xlarge": "1",
+    "2xlarge": "6",
+    "Large": "48",
+    "Xlarge": "12"
+   }
   }
  ]
 }

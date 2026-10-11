@@ -39,7 +39,6 @@ type EC2Host struct {
 	OutpostArn                         string
 	AssetId                            string
 	Cores                              int
-	Sockets                            int
 	TotalVCpus                         int
 	MacHost                            bool
 	MacOSVersions                      []string
@@ -266,6 +265,10 @@ func handleAllocateHosts(w http.ResponseWriter, r *http.Request) {
 		maintenance = "off"
 	}
 	tags := parseTags(r)
+	// The host's properties are its family's in the Price List, which states
+	// no socket count; a family it does not list gets none.
+	probe := EC2Host{InstanceFamily: family, InstanceType: instType}
+	facts := ec2DedicatedHostCatalog()[ec2HostFamily(probe)]
 	var ids []string
 	for i := 0; i < quantity; i++ {
 		h := EC2Host{
@@ -282,9 +285,8 @@ func handleAllocateHosts(w http.ResponseWriter, r *http.Request) {
 			OwnerId:                     ec2Owner(),
 			ClientToken:                 r.FormValue("ClientToken"),
 			AllocationTime:              ec2NowRFC3339Milli(),
-			Cores:                       8,
-			Sockets:                     1,
-			TotalVCpus:                  16,
+			Cores:                       facts.Cores,
+			TotalVCpus:                  facts.VCpus,
 			Tags:                        tags,
 		}
 		ec2Hosts.Put(h.HostId, h)
@@ -307,27 +309,39 @@ func ec2HostFieldsXML(h EC2Host) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<autoPlacement>%s</autoPlacement>", h.AutoPlacement)
 	fmt.Fprintf(&b, "<availabilityZone>%s</availabilityZone>", h.AvailabilityZone)
-	// availableCapacity advertises remaining instance slots for the host's family.
-	famType := h.InstanceType
-	if famType == "" {
-		famType = h.InstanceFamily + ".large"
+	placed := ec2HostInstances(h.HostId)
+	if h.TotalVCpus > 0 {
+		availableVCpus, types := ec2HostCapacity(h, placed)
+		b.WriteString("<availableCapacity><availableInstanceCapacity>")
+		for _, t := range types {
+			fmt.Fprintf(&b, "<item><availableCapacity>%d</availableCapacity><instanceType>%s</instanceType><totalCapacity>%d</totalCapacity></item>",
+				t.Available, t.InstanceType, t.Total)
+		}
+		fmt.Fprintf(&b, "</availableInstanceCapacity><availableVCpus>%d</availableVCpus></availableCapacity>", availableVCpus)
 	}
-	fmt.Fprintf(&b, "<availableCapacity><availableInstanceCapacity><item><availableCapacity>%d</availableCapacity><instanceType>%s</instanceType><totalCapacity>%d</totalCapacity></item></availableInstanceCapacity><availableVCpus>%d</availableVCpus></availableCapacity>",
-		2, famType, 2, h.TotalVCpus)
 	if h.ClientToken != "" {
 		fmt.Fprintf(&b, "<clientToken>%s</clientToken>", xmlEscape(h.ClientToken))
 	}
 	fmt.Fprintf(&b, "<hostId>%s</hostId>", h.HostId)
-	fmt.Fprintf(&b, "<hostProperties><cores>%d</cores>", h.Cores)
+	b.WriteString("<hostProperties>")
+	if h.Cores > 0 {
+		fmt.Fprintf(&b, "<cores>%d</cores>", h.Cores)
+	}
 	if h.InstanceType != "" {
 		fmt.Fprintf(&b, "<instanceType>%s</instanceType>", h.InstanceType)
 	}
 	if h.InstanceFamily != "" {
 		fmt.Fprintf(&b, "<instanceFamily>%s</instanceFamily>", h.InstanceFamily)
 	}
-	fmt.Fprintf(&b, "<sockets>%d</sockets><totalVCpus>%d</totalVCpus></hostProperties>", h.Sockets, h.TotalVCpus)
-	// instances list (empty unless instances are launched onto the host).
-	b.WriteString("<instances/>")
+	if h.TotalVCpus > 0 {
+		fmt.Fprintf(&b, "<totalVCpus>%d</totalVCpus>", h.TotalVCpus)
+	}
+	b.WriteString("</hostProperties><instances>")
+	for _, inst := range placed {
+		fmt.Fprintf(&b, "<item><instanceId>%s</instanceId><instanceType>%s</instanceType><ownerId>%s</ownerId></item>",
+			inst.InstanceId, inst.InstanceType, ec2Owner())
+	}
+	b.WriteString("</instances>")
 	fmt.Fprintf(&b, "<state>%s</state>", h.State)
 	fmt.Fprintf(&b, "<allocationTime>%s</allocationTime>", h.AllocationTime)
 	if h.ReleaseTime != "" {

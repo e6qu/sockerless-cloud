@@ -151,6 +151,14 @@ func TestEC2_InstancePlacement(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(place.Return))
+	placed, err := c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instID}})
+	require.NoError(t, err)
+	require.Len(t, placed.Reservations, 1)
+	require.Len(t, placed.Reservations[0].Instances, 1)
+	require.NotNil(t, placed.Reservations[0].Instances[0].Placement)
+	assert.Equal(t, "my-pg", aws.ToString(placed.Reservations[0].Instances[0].Placement.GroupName),
+		"DescribeInstances reports the placement ModifyInstancePlacement set")
+	assert.Equal(t, types.TenancyDefault, placed.Reservations[0].Instances[0].Placement.Tenancy)
 
 	maint, err := c.ModifyInstanceMaintenanceOptions(ctx, &ec2.ModifyInstanceMaintenanceOptionsInput{
 		InstanceId:   aws.String(instID),

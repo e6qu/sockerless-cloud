@@ -76,12 +76,6 @@ type EC2ConversionTask struct {
 type EC2InstanceAttributes struct {
 	InstanceId                 string
 	CpuCredits                 string
-	PlacementAffinity          string
-	PlacementGroupName         string
-	PlacementGroupId           string
-	PlacementHostId            string
-	PlacementTenancy           string
-	PlacementPartitionNumber   int
 	MaintenanceAutoRecovery    string
 	MaintenanceRebootMigration string
 	BandwidthWeighting         string
@@ -518,29 +512,44 @@ func handleModifyInstanceCpuOptions(w http.ResponseWriter, r *http.Request) {
 
 func handleModifyInstancePlacement(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
-	if _, ok := ec2RequireInstance(w, instanceID); !ok {
+	inst, ok := ec2RequireInstance(w, instanceID)
+	if !ok {
 		return
 	}
-	a := ec2InstanceAttrs(instanceID)
+	p := inst.Placement
 	if v := r.FormValue("Affinity"); v != "" {
-		a.PlacementAffinity = v
+		p.Affinity = v
 	}
 	if v := r.FormValue("GroupName"); v != "" {
-		a.PlacementGroupName = v
-	}
-	if v := r.FormValue("HostId"); v != "" {
-		a.PlacementHostId = v
+		p.GroupName = v
 	}
 	if v := r.FormValue("Tenancy"); v != "" {
-		a.PlacementTenancy = v
+		p.Tenancy = v
 	}
 	if v := r.FormValue("PartitionNumber"); v != "" {
-		a.PlacementPartitionNumber = ec2AtoiOr(v, a.PlacementPartitionNumber)
+		p.PartitionNumber = ec2AtoiOr(v, p.PartitionNumber)
 	}
 	if v := r.FormValue("GroupId"); v != "" {
-		a.PlacementGroupId = v
+		p.GroupId = v
 	}
-	ec2InstanceAttributes.Put(instanceID, a)
+	ec2HostPlacementMu.Lock()
+	defer ec2HostPlacementMu.Unlock()
+	if v := r.FormValue("HostId"); v != "" && v != p.HostId {
+		host, found := ec2Hosts.Get(v)
+		if !found {
+			ec2ErrorXML(w, "InvalidHostID.NotFound", fmt.Sprintf("The host ID %q does not exist", v), http.StatusBadRequest)
+			return
+		}
+		if refusal := ec2HostRefusal(host, inst.InstanceType); refusal != "" {
+			ec2ErrorXML(w, "InsufficientHostCapacity", refusal, http.StatusBadRequest)
+			return
+		}
+		p.HostId = v
+	}
+	if !ec2Instances.Update(instanceID, func(stored *EC2Instance) { stored.Placement = p }) {
+		ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", instanceID), http.StatusBadRequest)
+		return
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyInstancePlacementResponse %s><requestId>%s</requestId><return>true</return></ModifyInstancePlacementResponse>`,
 		ec2Xmlns(), sim.NewUUID())

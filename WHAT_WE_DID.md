@@ -757,6 +757,22 @@ through hooks:
   says it is always on. The defaults are now built per type from the
   LoadBalancerAttribute reference in the vendored Smithy model, and the keys a
   type reports are the keys it accepts.
+- **A Dedicated Host is its family's host in the Price List.**
+  `scripts/fetch-aws-ec2-instance-types.go` keeps the offer file's Dedicated
+  Host products beside its instance types: each family's vCPUs, physical cores
+  and `instanceCapacity-<size>` counts, verbatim. AllocateHosts reports those
+  cores and vCPUs and no socket count, which the offer file does not state;
+  a family it does not list gets neither. DescribeHosts counts what is left from
+  the instances placed on the host: its vCPUs less theirs, and for each type
+  the host runs, the Price List's count for that type less the instances of
+  it, bounded by the vCPUs left. An instance carries its Placement on its own
+  record: RunInstances takes it from the request or the launch template,
+  ModifyInstancePlacement changes it, DescribeInstances reports it in the
+  subnet's Availability Zone, and a placement on a host that has no room for
+  the type is refused as `InsufficientHostCapacity`. The simulator had given
+  every host 8 cores, 1 socket and 16 vCPUs with room for two instances,
+  reported every instance as `default` tenancy in one zone, and kept
+  ModifyInstancePlacement's values where nothing read them.
 - **Every Elastic Load Balancing resource keeps its tags.** CreateListener
   and CreateRule store the tags they carry, and AddTags, RemoveTags,
   DescribeTags and the IAM gate's `aws:ResourceTag/<k>` read and write the tag

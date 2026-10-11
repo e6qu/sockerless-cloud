@@ -2,7 +2,9 @@
 
 // fetch-aws-ec2-instance-types writes simulator-aws/ec2_instance_types_vendored.json:
 // the Amazon EC2 instance types the AWS Price List bulk offer file for
-// us-east-1 lists, with the per-type facts it states.
+// us-east-1 lists, with the per-type facts it states, and the Dedicated Host
+// families it lists, with each host's vCPUs, physical cores and per-size
+// instance capacity.
 //
 // The facts DescribeInstanceTypes answers are AWS's to publish: the EC2 Smithy
 // model carries only the InstanceType enum. The Price List offer file is the
@@ -12,9 +14,10 @@
 // catalog never carries a value the source does not state unambiguously. It
 // records the pinned offer version URL and the SHA-256 of the file it read.
 //
-// Run from the repository root:
+// Run from the repository root, naming an offer version URL to re-read a
+// pinned version rather than the current one:
 //
-//	go run scripts/fetch-aws-ec2-instance-types.go
+//	go run scripts/fetch-aws-ec2-instance-types.go [offer-version-url]
 package main
 
 import (
@@ -26,6 +29,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -44,6 +48,16 @@ var facts = []string{
 type product struct {
 	ProductFamily string            `json:"productFamily"`
 	Attributes    map[string]string `json:"attributes"`
+}
+
+// dedicatedHost is one Dedicated Host family: the host's vCPUs and physical
+// cores, and how many instances of each size it holds, keyed by the size the
+// offer file spells in its instanceCapacity-<size> attributes.
+type dedicatedHost struct {
+	InstanceFamily   string            `json:"instanceFamily"`
+	VCPU             string            `json:"vcpu"`
+	PhysicalCores    string            `json:"physicalCores"`
+	InstanceCapacity map[string]string `json:"instanceCapacity"`
 }
 
 type instanceType struct {
@@ -96,6 +110,9 @@ func run() error {
 	if index.Regions[region].CurrentVersionURL == "" {
 		return fmt.Errorf("region index lists no offer file for %s", region)
 	}
+	if len(os.Args) > 1 {
+		offerURL = os.Args[1]
+	}
 
 	resp, err = get(offerURL)
 	if err != nil {
@@ -107,6 +124,7 @@ func run() error {
 
 	var publicationDate, version string
 	byType := map[string]map[string]string{}
+	hosts := map[string]map[string]string{}
 	if err := expectDelim(dec, '{'); err != nil {
 		return err
 	}
@@ -125,7 +143,7 @@ func run() error {
 				return err
 			}
 		case "products":
-			if err := readProducts(dec, byType); err != nil {
+			if err := readProducts(dec, byType, hosts); err != nil {
 				return err
 			}
 		default:
@@ -153,15 +171,29 @@ func run() error {
 	}
 	sort.Slice(types, func(i, j int) bool { return types[i].InstanceType < types[j].InstanceType })
 
+	families := make([]dedicatedHost, 0, len(hosts))
+	for family, a := range hosts {
+		host := dedicatedHost{InstanceFamily: family, VCPU: a["vcpu"], PhysicalCores: a["physicalCores"],
+			InstanceCapacity: map[string]string{}}
+		for name, value := range a {
+			if size, ok := strings.CutPrefix(name, "instanceCapacity-"); ok {
+				host.InstanceCapacity[size] = value
+			}
+		}
+		families = append(families, host)
+	}
+	sort.Slice(families, func(i, j int) bool { return families[i].InstanceFamily < families[j].InstanceFamily })
+
 	payload := struct {
-		Source          string         `json:"source"`
-		Region          string         `json:"region"`
-		Version         string         `json:"version"`
-		PublicationDate string         `json:"publicationDate"`
-		SHA256          string         `json:"sha256"`
-		Retrieved       string         `json:"retrieved"`
-		Note            string         `json:"note"`
-		InstanceTypes   []instanceType `json:"instanceTypes"`
+		Source          string          `json:"source"`
+		Region          string          `json:"region"`
+		Version         string          `json:"version"`
+		PublicationDate string          `json:"publicationDate"`
+		SHA256          string          `json:"sha256"`
+		Retrieved       string          `json:"retrieved"`
+		Note            string          `json:"note"`
+		InstanceTypes   []instanceType  `json:"instanceTypes"`
+		DedicatedHosts  []dedicatedHost `json:"dedicatedHosts"`
 	}{
 		Source:          offerURL,
 		Region:          region,
@@ -171,8 +203,10 @@ func run() error {
 		Retrieved:       time.Now().UTC().Format(time.RFC3339),
 		Note: "Every value is an attribute of the offer file's Compute Instance products, verbatim. " +
 			"The offer file does not state cores, threads per core, network interface limits, " +
-			"supported usage classes or Free Tier eligibility, and the catalog leaves them absent.",
-		InstanceTypes: types,
+			"supported usage classes or Free Tier eligibility, and the catalog leaves them absent. " +
+			"Dedicated Host values are attributes of its Dedicated Host products, verbatim; it states no socket count.",
+		InstanceTypes:  types,
+		DedicatedHosts: families,
 	}
 	f, err := os.Create(out)
 	if err != nil {
@@ -187,7 +221,7 @@ func run() error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	fmt.Printf("%d instance types from %s -> %s\n", len(types), offerURL, out)
+	fmt.Printf("%d instance types and %d Dedicated Host families from %s -> %s\n", len(types), len(families), offerURL, out)
 	return nil
 }
 
@@ -202,7 +236,11 @@ func expectDelim(dec *json.Decoder, want json.Delim) error {
 	return nil
 }
 
-func readProducts(dec *json.Decoder, byType map[string]map[string]string) error {
+// hostFacts are the Dedicated Host attributes kept besides each
+// instanceCapacity-<size>.
+var hostFacts = []string{"vcpu", "physicalCores"}
+
+func readProducts(dec *json.Decoder, byType, hosts map[string]map[string]string) error {
 	if err := expectDelim(dec, '{'); err != nil {
 		return err
 	}
@@ -215,10 +253,16 @@ func readProducts(dec *json.Decoder, byType map[string]map[string]string) error 
 		if err := dec.Decode(&p); err != nil {
 			return fmt.Errorf("product %v: %w", sku, err)
 		}
-		if p.ProductFamily != "Compute Instance" && p.ProductFamily != "Compute Instance (bare metal)" {
+		if p.Attributes["locationType"] != "AWS Region" || p.Attributes["regionCode"] != region {
 			continue
 		}
-		if p.Attributes["locationType"] != "AWS Region" || p.Attributes["regionCode"] != region {
+		if p.ProductFamily == "Dedicated Host" {
+			if err := readDedicatedHost(sku, p, hosts); err != nil {
+				return err
+			}
+			continue
+		}
+		if p.ProductFamily != "Compute Instance" && p.ProductFamily != "Compute Instance (bare metal)" {
 			continue
 		}
 		name := p.Attributes["instanceType"]
@@ -241,4 +285,36 @@ func readProducts(dec *json.Decoder, byType map[string]map[string]string) error 
 		}
 	}
 	return expectDelim(dec, '}')
+}
+
+// readDedicatedHost records one Dedicated Host product's facts under its
+// family, failing when two products of a family disagree.
+func readDedicatedHost(sku json.Token, p product, hosts map[string]map[string]string) error {
+	family := p.Attributes["instanceType"]
+	if family == "" {
+		return fmt.Errorf("Dedicated Host product %v names no instanceType", sku)
+	}
+	facts := map[string]string{}
+	for _, fact := range hostFacts {
+		facts[fact] = p.Attributes[fact]
+	}
+	for name, value := range p.Attributes {
+		if strings.HasPrefix(name, "instanceCapacity-") {
+			facts[name] = value
+		}
+	}
+	seen, ok := hosts[family]
+	if !ok {
+		hosts[family] = facts
+		return nil
+	}
+	if len(seen) != len(facts) {
+		return fmt.Errorf("Dedicated Host family %s: product %v states %d facts, another %d", family, sku, len(facts), len(seen))
+	}
+	for name, value := range facts {
+		if seen[name] != value {
+			return fmt.Errorf("Dedicated Host family %s: product %v states %s %q, another %q", family, sku, name, value, seen[name])
+		}
+	}
+	return nil
 }
