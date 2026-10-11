@@ -596,7 +596,12 @@ jobs:
           # starting takes about ten seconds (BUG-3363), which pushed the N-Z
           # shard, already at 470s against the 600s test deadline, past it.
           - suite: compute
-            run: '^Test(E[^C]|EC[^S]|RDS_Aurora)'
+            run: '^Test(E[^C]|EC[^S])'
+          # The Amazon Aurora tests then leave compute for a shard of their own:
+          # with the EC2 real-execution tests, compute ran 11 to 14 minutes of
+          # its 15-minute job and was cancelled at the bound once.
+          - suite: rds-aurora
+            run: '^Test(RDS_Aurora)'
           # The Amazon RDS tests from A to I then leave the data shard for one
           # of their own: with the shard at 883 seconds of a 900-second job,
           # read replicas that start their own engine put it past the bound.

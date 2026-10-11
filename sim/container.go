@@ -142,13 +142,23 @@ type ContainerConfig struct {
 type ContainerHandle struct {
 	ContainerID string
 	cancel      context.CancelFunc
-	done        <-chan ProcessResult
-	cli         *client.Client
-	memory      *memoryPeakObserver
+	// exited closes once the container has exited and been removed, after
+	// result is set.
+	exited chan struct{}
+	result ProcessResult
+	cli    *client.Client
+	memory *memoryPeakObserver
 }
 
-// Wait blocks until the container exits.
-func (h *ContainerHandle) Wait() ProcessResult { return <-h.done }
+// Wait blocks until the container exits, and returns how it exited to every
+// caller.
+func (h *ContainerHandle) Wait() ProcessResult {
+	<-h.exited
+	return h.result
+}
+
+// Exited closes once the container has exited; Wait then returns at once.
+func (h *ContainerHandle) Exited() <-chan struct{} { return h.exited }
 
 // Cancel stops and removes the container.
 func (h *ContainerHandle) Cancel() { h.cancel() }
@@ -386,7 +396,7 @@ func StartContainerSyncContext(ctx context.Context, cfg ContainerConfig, sink Lo
 	}
 
 	lifetime, cancel := context.WithCancel(context.Background())
-	resultCh := make(chan ProcessResult, 1)
+	handle := &ContainerHandle{ContainerID: containerID, cancel: cancel, exited: make(chan struct{}), cli: cli}
 
 	managedContainers.Store(containerID, true)
 
@@ -395,6 +405,7 @@ func StartContainerSyncContext(ctx context.Context, cfg ContainerConfig, sink Lo
 		memory = newMemoryPeakObserver()
 		go memory.observe(lifetime, cli, containerID)
 	}
+	handle.memory = memory
 
 	// Stream logs and wait for exit in background
 	go func() {
@@ -409,16 +420,9 @@ func StartContainerSyncContext(ctx context.Context, cfg ContainerConfig, sink Lo
 		rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer rmCancel()
 		_, _ = cli.ContainerRemove(rmCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-		resultCh <- result
+		handle.result = result
+		close(handle.exited)
 	}()
-
-	handle := &ContainerHandle{
-		ContainerID: containerID,
-		cancel:      cancel,
-		done:        resultCh,
-		cli:         cli,
-		memory:      memory,
-	}
 	return handle, nil
 }
 
@@ -540,7 +544,7 @@ func AdoptContainer(containerID string, cfg ContainerConfig, sink LogSink) (*Con
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	resultCh := make(chan ProcessResult, 1)
+	handle := &ContainerHandle{ContainerID: containerID, cancel: cancel, exited: make(chan struct{}), cli: dockerClient}
 	managedContainers.Store(containerID, true)
 	go func() {
 		result := waitAndCaptureLogs(ctx, dockerClient, containerID, cfg, sink)
@@ -548,14 +552,10 @@ func AdoptContainer(containerID string, cfg ContainerConfig, sink LogSink) (*Con
 		removeCtx, removeCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer removeCancel()
 		_, _ = dockerClient.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-		resultCh <- result
+		handle.result = result
+		close(handle.exited)
 	}()
-	return &ContainerHandle{
-		ContainerID: containerID,
-		cancel:      cancel,
-		done:        resultCh,
-		cli:         dockerClient,
-	}, nil
+	return handle, nil
 }
 
 // StopContainer stops a running container by ID, sending SIGTERM and then

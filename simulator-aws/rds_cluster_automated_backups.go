@@ -118,20 +118,83 @@ func rdsTakeFirstClusterBackup(clusterID string) {
 	})
 }
 
-// rdsLastBinaryLogScript prints, base64-encoded, the newest binary log file
-// of the volume at DATA.
-const rdsLastBinaryLogScript = `set -e
+// rdsRecoverBaseBackupScript prints, base64-encoded, the newest binary log
+// file of the crash image at DATA, then runs the engine's own crash recovery on
+// it and shuts the engine down cleanly. SERVER_COMMAND, one argument a line,
+// is rdsBaseBackupRecoveryServer's command; ADMIN pings the server, and
+// reports it alive once it accepts connections even when it refuses the
+// unauthenticated ping. The file is printed first because the start rotates
+// the binary log.
+const rdsRecoverBaseBackupScript = `set -e
 last=$(tail -n 1 "$DATA/binlog.index")
 last=${last##*/}
 echo "binlog $last"
-base64 -w 76 "$DATA/$last"
+base64 < "$DATA/$last"
+set --
+while IFS= read -r arg; do
+	[ -z "$arg" ] || set -- "$@" "$arg"
+done <<COMMAND
+$SERVER_COMMAND
+COMMAND
+log=$(mktemp)
+"$@" > "$log" 2>&1 &
+server=$!
+until "$ADMIN" --socket=` + rdsRecoverySocket + ` ping >/dev/null 2>&1; do
+	if ! kill -0 "$server" 2>/dev/null; then
+		echo "the engine stopped during crash recovery:"
+		cat "$log"
+		exit 1
+	fi
+	sleep 0.1
+done
+kill -TERM "$server"
+if ! wait "$server"; then
+	echo "the engine did not shut down cleanly after crash recovery:"
+	cat "$log"
+	exit 1
+fi
 `
 
-// rdsBaseBackupBinlogStart reads the newest binary log file of a base
-// backup's volume and returns where the replay onto it starts.
-func rdsBaseBackupBinlogStart(engine dbengine.Engine, volume, label string) (string, int, error) {
-	listing, err := rdsRunVolumeHelper(engine, rdsLastBinaryLogScript, nil, rdsHelperSandbox,
-		[]string{volume + ":" + engine.DataPath + ":ro"}, label)
+// rdsRecoverySocket is the socket the recovering server listens on, in place
+// of any network.
+const rdsRecoverySocket = "/tmp/recover.sock"
+
+// rdsBaseBackupRecoveryServer is the command that runs engine's crash recovery
+// on a base backup, and the admin command that pings it. The server runs with
+// the arguments the engine runs with, its binary log among them: that recovery
+// commits each transaction InnoDB holds prepared whose XID the binary log
+// holds, and rolls back the rest, which is the cut rdsBinlogConsistentStart
+// reads. A server started without the binary log, as the replay's is, rolls
+// back every prepared transaction, so a crash image it opened would lose the
+// transactions committed as the capture froze the engine.
+func rdsBaseBackupRecoveryServer(engine dbengine.Engine) (server []string, admin string, err error) {
+	binary, admin := "mysqld", "mysqladmin"
+	if engine.Client == dbengine.MariaDB114.Client {
+		binary, admin = "mariadbd", "mariadb-admin"
+	}
+	server = []string{binary, "--user=mysql", "--skip-networking", "--socket=" + rdsRecoverySocket}
+	for _, arg := range engine.Args {
+		if arg == "" || strings.ContainsAny(arg, "\n\r") {
+			return nil, "", fmt.Errorf("the engine argument %q cannot be passed one to a line", arg)
+		}
+		server = append(server, arg)
+	}
+	return server, admin, nil
+}
+
+// rdsRecoverBaseBackup recovers a base backup's volume, a crash image of the
+// engine, the way the engine recovers it with its binary log, and returns the
+// binary log file and offset where the replay onto it starts. The volume then
+// holds a clean shutdown, so every later start of it, with or without the
+// binary log, opens the same transactions the offset assumes.
+func rdsRecoverBaseBackup(engine dbengine.Engine, volume, label string) (string, int, error) {
+	server, admin, err := rdsBaseBackupRecoveryServer(engine)
+	if err != nil {
+		return "", 0, err
+	}
+	env := map[string]string{"SERVER_COMMAND": strings.Join(server, "\n"), "ADMIN": admin}
+	listing, err := rdsRunVolumeHelper(engine, rdsRecoverBaseBackupScript, env, rdsReplaySandbox,
+		[]string{volume + ":" + engine.DataPath}, label)
 	if err != nil {
 		return "", 0, err
 	}
@@ -156,11 +219,12 @@ const (
 )
 
 // rdsBinlogConsistentStart is the offset in a captured binary log file of the
-// first transaction the capture does not hold. MySQL and MariaDB commit a
-// transaction in InnoDB only once the whole transaction is in the binary log,
-// and crash recovery commits exactly the transactions the binary log holds
-// whole, so the first transaction the file holds only in part, or the end of
-// its last complete event, is where the captured data ends.
+// first transaction the capture does not hold once rdsRecoverBaseBackup has
+// recovered it. MySQL and MariaDB commit a transaction in InnoDB only once
+// the whole transaction is in the binary log, and crash recovery with the
+// binary log commits exactly the transactions the binary log holds whole, so
+// the first transaction the file holds only in part, or the end of its last
+// complete event, is where the captured data ends.
 func rdsBinlogConsistentStart(data []byte) (int, error) {
 	if !bytes.HasPrefix(data, []byte(rdsBinlogMagic)) {
 		return 0, fmt.Errorf("the file does not start with the binary log magic number")

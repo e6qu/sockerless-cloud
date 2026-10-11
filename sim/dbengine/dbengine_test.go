@@ -213,3 +213,65 @@ func TestDiscardEndsAnEngineStillInitialising(t *testing.T) {
 		}
 	}
 }
+
+// An engine that stops before it accepts clients is reported with its exit
+// status and its last output, which says why it stopped: the engine's own log
+// sink may be a store the reader of the error cannot see.
+func TestEnsureReportsWhyTheEngineStopped(t *testing.T) {
+	if _, err := sim.InitDocker("aws", true, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+	volume := "sockerless-dbengine-stopped-" + suffix
+	t.Cleanup(func() { sim.RemoveVolumeSettled(volume, "test") })
+	engine := MySQL80.WithImage("public.ecr.aws/docker/library/mysql:8.0")
+	engine.Args = []string{"--no-such-engine-option"}
+	instance := &Instance{
+		Name:     "stopped engine test",
+		Engine:   engine,
+		Volume:   volume,
+		Labels:   map[string]string{"sockerless-dbengine-stopped-test": suffix},
+		Platform: FixedPlatform("linux/amd64"),
+		Environment: func() (map[string]string, error) {
+			return map[string]string{"MYSQL_ROOT_PASSWORD": "stopped-test"}, nil
+		},
+	}
+	t.Cleanup(func() { _ = instance.Discard() })
+	err := instance.Ensure()
+	if err == nil {
+		t.Fatal("an engine refusing its arguments started")
+	}
+	if !strings.Contains(err.Error(), "exited with status 1") || !strings.Contains(err.Error(), "no-such-engine-option") {
+		t.Fatalf("the error does not say how and why the engine stopped: %v", err)
+	}
+}
+
+// engineOutput passes every line on and keeps only the last
+// engineOutputLines of the current container.
+func TestEngineOutputKeepsTheLastLinesOfTheCurrentContainer(t *testing.T) {
+	var next collectingSink
+	var output engineOutput
+	output.begin(&next).WriteLog(sim.LogLine{Text: "from an earlier container"})
+	sink := output.begin(&next)
+	for n := 0; n < engineOutputLines+5; n++ {
+		sink.WriteLog(sim.LogLine{Text: "line " + strconv.Itoa(n)})
+	}
+	if len(next.lines) != engineOutputLines+6 {
+		t.Fatalf("the instance's sink got %d lines, want %d", len(next.lines), engineOutputLines+6)
+	}
+	kept := strings.Split(output.last(), "\n")
+	if len(kept) != engineOutputLines || kept[0] != "line 5" || kept[len(kept)-1] != "line "+strconv.Itoa(engineOutputLines+4) {
+		t.Fatalf("kept %d lines from %q to %q", len(kept), kept[0], kept[len(kept)-1])
+	}
+}
+
+type collectingSink struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (s *collectingSink) WriteLog(line sim.LogLine) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lines = append(s.lines, line.Text)
+}
