@@ -22,7 +22,7 @@ import (
 // verified against this exact runtime (its body/buffer size flags are
 // `--max-body-size` / `--read-buffer-size`; other daprd releases spell
 // them differently).
-const daprdSidecarImage = "daprio/daprd:1.18.2"
+const daprdSidecarImage = "mirror.gcr.io/daprio/daprd:1.18.2"
 
 // containerAppDaprSpec returns the app's Dapr configuration when the
 // sidecar is enabled, nil otherwise.

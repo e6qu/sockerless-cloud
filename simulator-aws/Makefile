@@ -78,7 +78,7 @@ terraform-https-test: ## go test terraform via the optional Caddy HTTPS gateway
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
 	  $(MAKE) terraform-https-test-docker; \
 	else \
-	  $(MAKE) build; \
+	  $(MAKE) build && \
 	  cd terraform-tests && SOCKERLESS_AWS_SIMULATOR_BINARY=$(CURDIR)/$(APP_NAME) SOCKERLESS_TF_HTTPS_GATEWAY=1 $(GO_ENV) go test -p $(TERRAFORM_TEST_PACKAGE_PARALLELISM) $(TERRAFORM_TEST_JSON_FLAG) -v -count=1 -timeout $(TERRAFORM_TEST_TIMEOUT) $(TERRAFORM_TEST_ARGS) $(TERRAFORM_TEST_PACKAGES); \
 	fi
 

@@ -58,8 +58,10 @@ func TestNoSuitePullsABaseImageItself(t *testing.T) {
 
 func TestLocalRefSpellsTheDigestAsATag(t *testing.T) {
 	cases := map[string]string{
-		"public.ecr.aws/docker/library/alpine:3.22":           "public.ecr.aws/docker/library/alpine:3.22",
-		"public.ecr.aws/aws-dynamodb-local/x@sha256:ff89bd48": "public.ecr.aws/aws-dynamodb-local/x:sha256-ff89bd48",
+		"public.ecr.aws/docker/library/alpine:3.22":            "public.ecr.aws/docker/library/alpine:3.22",
+		"public.ecr.aws/aws-dynamodb-local/x@sha256:ff89bd48":  "public.ecr.aws/aws-dynamodb-local/x:sha256-ff89bd48",
+		"mirror.gcr.io/hashicorp/terraform:1.15.8@sha256:7ae5": "mirror.gcr.io/hashicorp/terraform:sha256-7ae5",
+		"localhost:5000/x@sha256:7ae5":                         "localhost:5000/x:sha256-7ae5",
 	}
 	for image, want := range cases {
 		if got := LocalRef(image); got != want {

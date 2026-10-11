@@ -48,7 +48,7 @@ func takeXtraBackup(t *testing.T, name string, statements ...string) []byte {
 	}
 	docker(append(client, "--execute="+strings.Join(statements, "; "))...)
 	return docker("run", "--rm", "--user", "root", "--network", "container:"+name, "-v", volume+":/var/lib/mysql:ro",
-		"docker.io/percona/percona-xtrabackup:8.0", "xtrabackup", "--backup", "--stream=xbstream", "--user=root",
+		"mirror.gcr.io/percona/percona-xtrabackup:8.0", "xtrabackup", "--backup", "--stream=xbstream", "--user=root",
 		"--password=source-root", "--host=127.0.0.1", "--target-dir=/tmp")
 }
 

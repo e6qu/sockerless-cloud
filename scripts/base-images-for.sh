@@ -15,8 +15,10 @@
 # HCL, so a flat Go-only scan sees neither: it misses the Amazon ECS pause
 # image and the alpine workloads, which are the pulls that failed those jobs.
 #
-# The scan is limited to the ECR Public Gallery, which is where every base
-# image these tests pull comes from. A wider host pattern would sweep up the
+# The scan is limited to the ECR Public Gallery and mirror.gcr.io, which are
+# where every base image these tests pull comes from: mirror.gcr.io serves
+# Docker Hub's index for an image the Gallery does not carry, without Docker
+# Hub's anonymous pull limit. A wider host pattern would sweep up the
 # registry names the simulators serve themselves — myacr.azurecr.io is a
 # coordinate the test points a client at, not somewhere to fetch bytes from,
 # and asking a real registry for it would fail.
@@ -54,7 +56,7 @@ done
             -name 'Dockerfile*' \
         \) ! -path '*simulator-aws/lambda_runtime.go' \
         ! -path '*simulator-*/Dockerfile' -print0 |
-        xargs -0 grep -hoE 'public\.ecr\.aws/[a-z0-9][a-z0-9/._-]*(:[a-zA-Z0-9][a-zA-Z0-9._-]*|@sha256:[0-9a-f]{64})'
+        xargs -0 grep -hoE '(public\.ecr\.aws|mirror\.gcr\.io)/[a-z0-9][a-z0-9/._-]*(:[a-zA-Z0-9][a-zA-Z0-9._-]*(@sha256:[0-9a-f]{64})?|@sha256:[0-9a-f]{64})'
 
     for dir in "$@"; do
         case "$dir" in
