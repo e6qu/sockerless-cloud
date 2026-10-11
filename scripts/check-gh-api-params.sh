@@ -14,7 +14,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 # Parameters this repository has a documented use for. Extend deliberately.
-ALLOWED="path per_page page sha since until author state ref"
+# head_sha, event and status filter "List workflow runs for a repository"
+# (https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository),
+# which scripts/ci-verified-on-pr.sh reads.
+ALLOWED="path per_page page sha since until author state ref head_sha event status"
 
 fail=0
 while IFS=: read -r file line url; do
