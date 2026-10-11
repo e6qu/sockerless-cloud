@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.0](https://github.com/e6qu/sockerless-cloud/compare/v2.3.0...v2.4.0) (2026-10-11)
+
+
+### Features
+
+* forwarded-request headers and every ModifyDBInstance member ([d3c3a89](https://github.com/e6qu/sockerless-cloud/commit/d3c3a89784942910230b50c4611802f91fbba63b))
+
 ## [2.3.0](https://github.com/e6qu/sockerless-cloud/compare/v2.2.1...v2.3.0) (2026-10-10)
 
 
