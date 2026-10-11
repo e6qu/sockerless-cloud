@@ -145,6 +145,18 @@ func s3PutServiceObject(bucket, key string, body []byte, contentType string, met
 	return s3PutObjectIf(bucket, key, bytes.NewReader(body), contentType, metadata, "STANDARD", s3ObjectLock{}, nil)
 }
 
+// s3EnsureServiceBucket creates the bucket a service keeps the objects it
+// hands out presigned URLs to, on first use, and returns its name.
+func s3EnsureServiceBucket(bucket string) string {
+	if _, ok := s3Buckets_.Get(bucket); !ok {
+		s3Buckets_.Put(bucket, S3Bucket{
+			Name:         bucket,
+			CreationDate: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+	return bucket
+}
+
 var (
 	errS3NoSuchBucket       = errors.New("the specified bucket does not exist")
 	errS3PreconditionFailed = errors.New("at least one of the pre-conditions you specified did not hold")

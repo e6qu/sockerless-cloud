@@ -157,25 +157,7 @@ func cbBuildLogSink(p CBProject, buildID string) sim.LogSink {
 	// starts (its service role carries logs:CreateLogGroup and
 	// logs:CreateLogStream for that), so a build's stream exists — empty —
 	// even when the environment prints nothing.
-	nowMs := time.Now().UnixMilli()
-	if _, exists := cwLogGroups.Get(group); !exists {
-		cwLogGroups.Put(group, CWLogGroup{
-			LogGroupName: group,
-			Arn:          cwLogGroupArn(group),
-			CreationTime: nowMs,
-		})
-	}
-	key := cwEventsKey(group, stream)
-	if _, exists := cwLogStreams.Get(key); !exists {
-		cwLogStreams.Put(key, CWLogStream{
-			LogStreamName:       stream,
-			LogGroupName:        group,
-			CreationTime:        nowMs,
-			Arn:                 cwLogStreamArn(group, stream),
-			UploadSequenceToken: "1",
-		})
-		cwLogEvents.Put(key, []CWLogEvent{})
-	}
+	cwEnsureLogStream(group, stream)
 	return &cwLogSink{logGroup: group, logStream: stream}
 }
 

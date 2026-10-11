@@ -777,13 +777,7 @@ func lambdaArtifactBucketName() string {
 }
 
 func lambdaPutArtifact(key string, data []byte) error {
-	bucket := lambdaArtifactBucketName()
-	if _, ok := s3Buckets_.Get(bucket); !ok {
-		s3Buckets_.Put(bucket, S3Bucket{
-			Name:         bucket,
-			CreationDate: time.Now().UTC().Format(time.RFC3339),
-		})
-	}
+	bucket := s3EnsureServiceBucket(lambdaArtifactBucketName())
 	storeKey := s3ObjectKey(bucket, key)
 	release := s3ObjectWriters.Lock(storeKey)
 	defer release()

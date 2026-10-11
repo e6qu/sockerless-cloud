@@ -2,10 +2,13 @@ package aws_sdk_test
 
 import (
 	"bytes"
+	"io"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/glue"
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -414,7 +417,7 @@ func TestGlue_JobCRUD_SDK(t *testing.T) {
 	_, err = s3c.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String("script.py"),
-		Body:   bytes.NewReader([]byte("import sys\nprint('glue-sdk-ready')\nsys.exit(0)\n")),
+		Body:   bytes.NewReader([]byte("import sys\nprint('glue-sdk-ready')\nprint('glue-sdk-warning', file=sys.stderr)\nsys.exit(0)\n")),
 	})
 	require.NoError(t, err)
 
@@ -486,6 +489,46 @@ func TestGlue_JobCRUD_SDK(t *testing.T) {
 	}, glueJobRunCompletionBudget, 100*time.Millisecond)
 	assert.Equal(t, aws.ToString(runResp.JobRunId), aws.ToString(run.JobRun.Id))
 	assert.Equal(t, gluetypes.JobRunStateSucceeded, run.JobRun.JobRunState)
+	assert.Equal(t, "/aws-glue/jobs", aws.ToString(run.JobRun.LogGroupName))
+
+	logs := cwLogsClient()
+	for group, line := range map[string]string{
+		"/aws-glue/jobs/output": "glue-sdk-ready",
+		"/aws-glue/jobs/error":  "glue-sdk-warning",
+	} {
+		events, err := logs.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
+			LogGroupName:  aws.String(group),
+			LogStreamName: runResp.JobRunId,
+			StartFromHead: aws.Bool(true),
+		})
+		require.NoError(t, err, group)
+		var messages []string
+		for _, e := range events.Events {
+			messages = append(messages, aws.ToString(e.Message))
+		}
+		assert.Contains(t, messages, line, group)
+	}
+
+	systemLogs, err := c.GetSystemLogsForJobRun(ctx, &glue.GetSystemLogsForJobRunInput{
+		JobName: aws.String("glue-sdk-job"),
+		RunId:   runResp.JobRunId,
+	})
+	require.NoError(t, err)
+	download, err := http.Get(aws.ToString(systemLogs.SystemLogsUrl))
+	require.NoError(t, err)
+	systemLog, err := io.ReadAll(download.Body)
+	require.NoError(t, download.Body.Close())
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, download.StatusCode, string(systemLog))
+	assert.Contains(t, string(systemLog), "glue-sdk-ready\n")
+	assert.Contains(t, string(systemLog), "glue-sdk-warning\n")
+
+	_, err = c.GetSystemLogsForJobRun(ctx, &glue.GetSystemLogsForJobRunInput{
+		JobName: aws.String("glue-sdk-job"),
+		RunId:   aws.String("jr_does_not_exist"),
+	})
+	var runNotFound *gluetypes.EntityNotFoundException
+	assert.ErrorAs(t, err, &runNotFound)
 
 	runs, err := c.GetJobRuns(ctx, &glue.GetJobRunsInput{
 		JobName: aws.String("glue-sdk-job"),

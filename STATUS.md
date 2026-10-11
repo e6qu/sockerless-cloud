@@ -44,7 +44,7 @@ Current state of the sockerless-cloud repository.
 - **AWS**: the 42 vendored Smithy models are implemented or exempt in full, the
   exemptions being the Amazon S3 bucket subresources the query-parameter table
   routes, each verified against that table. IAM resource derivation covers
-  2,007 of 2,015 served operations; the eight that remain are requests naming
+  2,009 of 2,017 served operations; the eight that remain are requests naming
   no resource, and `"*"` is the honest answer. Condition keys are ratcheted too:
   every key the vendored Service References declare -- 653 over 1,917 actions --
   is either named by the gate or classified as unmodelled with the reason, and a
@@ -299,9 +299,31 @@ Current state of the sockerless-cloud repository.
   `client_keep_alive.seconds`, `idle_timeout.timeout_seconds`, `waf.fail_open.enabled`
   and the `routing.http*` keys, with cross-zone load balancing on.
   ModifyLoadBalancerAttributes refuses another type's key with
-  `InvalidConfigurationRequest` `Key <key> not valid`, and checks each
-  enumerated, boolean and ranged value. A Gateway Load Balancer's ARN names
+  `InvalidConfigurationRequest` `Key <key> not valid`, refuses turning an
+  Application Load Balancer's cross-zone load balancing off with
+  `InvalidConfigurationRequest`, and checks each enumerated, boolean and
+  ranged value. A Gateway Load Balancer's ARN names
   `loadbalancer/gwy/`.
+- **An Application Load Balancer publishes its request metrics.** Each
+  request a listener routes counts once toward `AWS/ApplicationELB`
+  `RequestCount` for the load balancer and for its target group, and toward
+  `RequestCountPerTarget` as its share across the targets in service, each
+  dimension value being the final portion of the resource's ARN. The data
+  plane only counts; a background publisher reports the counts to CloudWatch
+  as one datapoint per metric, dimension set and minute.
+- **Application Auto Scaling target tracking scales by the metric's
+  proportion.** A policy sets ceil(current × metric ÷ target) within the
+  scalable target's bounds. An ALBRequestCountPerTarget policy's alarms watch
+  the `Sum` of `RequestCountPerTarget` for the target group its ResourceLabel
+  names, so an Amazon ECS service scales on the requests its load balancer
+  routes.
+- **An AWS Glue job run keeps its logs.** A Python shell run's standard output
+  and standard error land in CloudWatch Logs `/aws-glue/jobs/output` and
+  `/aws-glue/jobs/error`, in a stream named by the run ID, and GetJobRun
+  reports `LogGroupName` `/aws-glue/jobs`. GetSystemLogsForJobRun answers a
+  presigned Amazon S3 URL that downloads every line the run wrote, and
+  GetSystemLogsForSession one for the session's log, which is empty because a
+  session runs no process.
 - **Amazon EC2 instance types carry AWS's published facts.** The simulator
   embeds the AWS Price List offer file's Compute Instance products for
   us-east-1 (`simulator-aws/ec2_instance_types_vendored.json`, written by

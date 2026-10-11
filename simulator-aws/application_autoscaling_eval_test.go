@@ -18,13 +18,15 @@ func appScalingTestStores(t *testing.T) {
 	appScalingActivities = sim.MakeStore[AppScalingActivity](nil, "app_scaling_activities")
 	cwAlarms = sim.MakeStore[CWAlarm](nil, "cw_alarms")
 	cwMetrics = sim.MakeStore[[]CWMetricDatum](nil, "cw_metrics")
+	cwMetricStreams = sim.MakeStore[CWMetricStream](nil, "cw_metric_streams")
 	ecsServices = sim.MakeStore[ECSService](nil, "ecs_services")
 	appScalingAlarmInvocations.Clear()
 	t.Cleanup(bg.Await)
 }
 
 // appScalingTrackedService registers an Amazon ECS service as a scalable
-// target and puts a CPU target tracking policy on it, returning the policy.
+// target and puts a target tracking policy on it, tracking CPU unless the
+// configuration names another metric, returning the policy.
 func appScalingTrackedService(t *testing.T, service string, desired int, configuration map[string]any) AppScalingPolicy {
 	t.Helper()
 	ecsServices.Put(ecsServiceKey("tracking", service), ECSService{ServiceName: service, DesiredCount: desired})
@@ -33,7 +35,9 @@ func appScalingTrackedService(t *testing.T, service string, desired int, configu
 		ServiceNamespace: "ecs", ResourceId: resourceID, ScalableDimension: "ecs:service:DesiredCount",
 		MinCapacity: 1, MaxCapacity: 10,
 	})
-	configuration["PredefinedMetricSpecification"] = map[string]any{"PredefinedMetricType": "ECSServiceAverageCPUUtilization"}
+	if _, ok := configuration["PredefinedMetricSpecification"]; !ok {
+		configuration["PredefinedMetricSpecification"] = map[string]any{"PredefinedMetricType": "ECSServiceAverageCPUUtilization"}
+	}
 	code, out := sqsCall(t, handleAppASPutScalingPolicy, map[string]any{
 		"PolicyName": "cpu", "ServiceNamespace": "ecs", "ResourceId": resourceID, "ScalableDimension": "ecs:service:DesiredCount",
 		"PolicyType": "TargetTrackingScaling", "TargetTrackingScalingPolicyConfiguration": configuration,
@@ -127,13 +131,13 @@ func TestAppScalingTargetTrackingScalesOutOnAlarmHighWithItsCooldown(t *testing.
 		offset  time.Duration
 		desired int
 	}{
-		{0, 2},                   // AlarmHigh enters ALARM: round(1 * 90 / 50)
+		{0, 2},                   // AlarmHigh enters ALARM: ceil(1 * 90 / 50)
 		{30 * time.Second, 2},    // the alarm invokes the policy once a minute
 		{61 * time.Second, 2},    // invoked again, inside the 120-second cooldown
-		{125 * time.Second, 4},   // cooldown over: round(2 * 90 / 50)
+		{125 * time.Second, 4},   // cooldown over: ceil(2 * 90 / 50)
 		{150 * time.Second, 4},   // not yet a minute since the last invocation
 		{185 * time.Second, 4},   // invoked, inside the cooldown of the second scale-out
-		{246 * time.Second, 7},   // round(4 * 90 / 50)
+		{246 * time.Second, 8},   // ceil(4 * 90 / 50)
 		{1000 * time.Second, 10}, // clamped to MaxCapacity
 	} {
 		appScalingPutCPU("out", 90, 3, now.Add(step.offset))
@@ -165,14 +169,97 @@ func TestAppScalingTargetTrackingScalesInOnAlarmLowWithTheDefaultCooldown(t *tes
 		offset  time.Duration
 		desired int
 	}{
-		{0, 3},                 // round(8 * 20 / 50)
-		{61 * time.Second, 3},  // inside the 300-second default cooldown
-		{301 * time.Second, 1}, // round(3 * 20 / 50)
+		{0, 4},                 // ceil(8 * 20 / 50)
+		{61 * time.Second, 4},  // inside the 300-second default cooldown
+		{301 * time.Second, 2}, // ceil(4 * 20 / 50)
 	} {
 		appScalingPutCPU("in", 20, 15, now.Add(step.offset))
 		appScalingEvaluatePolicies(now.Add(step.offset))
 		if desired := appScalingDesired(t, "in"); desired != step.desired {
 			t.Fatalf("at +%s desired %d, want %d", step.offset, desired, step.desired)
 		}
+	}
+}
+
+// The capacity a target tracking policy sets is the smallest whole number of
+// units at which the metric, falling in inverse proportion to capacity, no
+// longer exceeds the target.
+func TestAppScalingComputeCapacity(t *testing.T) {
+	for _, tc := range []struct {
+		current        int
+		metric         float64
+		target         float64
+		minCap, maxCap int
+		want           int
+	}{
+		{1, 90, 50, 1, 10, 2},
+		{4, 90, 50, 1, 10, 8},
+		{3, 50, 50, 1, 10, 3},
+		{3, 0.1, 0.1, 1, 10, 3},
+		{8, 20, 50, 1, 10, 4},
+		{4, 0, 50, 2, 10, 2},
+		{9, 100, 10, 1, 10, 10},
+		{0, 30, 50, 0, 10, 1},
+	} {
+		if got := appScalingComputeCapacity(tc.current, tc.metric, tc.target, tc.minCap, tc.maxCap); got != tc.want {
+			t.Errorf("capacity %d at %g against target %g in [%d, %d]: got %d, want %d",
+				tc.current, tc.metric, tc.target, tc.minCap, tc.maxCap, got, tc.want)
+		}
+	}
+}
+
+// An ALBRequestCountPerTarget policy alarms on the RequestCountPerTarget the
+// Application Load Balancer publishes for the target group its ResourceLabel
+// names, and scales the service on the requests the load balancer routed.
+func TestAppScalingTargetTrackingScalesOnALBRequestCountPerTarget(t *testing.T) {
+	appScalingTestStores(t)
+	elbv2TargetGroups = sim.MakeStore[ELBv2TargetGroup](nil, "elbv2_target_groups")
+	policy := appScalingTrackedService(t, "requests", 1, map[string]any{
+		"TargetValue": 100.0,
+		"PredefinedMetricSpecification": map[string]any{
+			"PredefinedMetricType": "ALBRequestCountPerTarget",
+			"ResourceLabel":        "app/web/50dc6c495c0c9188/targetgroup/web-tg/943f017f100becff",
+		},
+	})
+	if len(policy.Alarms) != 2 {
+		t.Fatalf("policy alarms %v, want AlarmHigh and AlarmLow", policy.Alarms)
+	}
+	for _, reference := range policy.Alarms {
+		alarm, _ := cwAlarms.Get(reference.AlarmName)
+		if alarm.Namespace != "AWS/ApplicationELB" || alarm.MetricName != "RequestCountPerTarget" || alarm.Statistic != "Sum" ||
+			len(alarm.Dimensions) != 1 || alarm.Dimensions[0] != (CWDimension{Name: "TargetGroup", Value: "targetgroup/web-tg/943f017f100becff"}) {
+			t.Fatalf("alarm %+v, want the Sum of the target group's RequestCountPerTarget", alarm)
+		}
+	}
+
+	lbArn := "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/50dc6c495c0c9188"
+	tg := ELBv2TargetGroup{Arn: "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web-tg/943f017f100becff"}
+	now := time.Now().UTC()
+	for minute := 2; minute >= 0; minute-- {
+		for range 250 {
+			elbv2RecordRoutedRequest(lbArn, tg, now.Add(-time.Duration(minute)*time.Minute))
+		}
+	}
+	elbv2FlushRequestMetrics()
+	perLoadBalancer, _ := cwMetrics.Get(metricsKey("AWS/ApplicationELB", "RequestCount",
+		[]CWDimension{{Name: "LoadBalancer", Value: "app/web/50dc6c495c0c9188"}}))
+	routed := 0.0
+	for _, datum := range perLoadBalancer {
+		routed += datum.Value
+	}
+	if len(perLoadBalancer) != 3 || routed != 750 {
+		t.Fatalf("RequestCount reports %v for the load balancer, want 750 requests over three one-minute datapoints", perLoadBalancer)
+	}
+	appScalingEvaluatePolicies(now)
+	if desired := appScalingDesired(t, "requests"); desired != 3 {
+		t.Fatalf("desired %d after 250 requests a minute against a target of 100, want ceil(1 * 250 / 100) = 3", desired)
+	}
+
+	unlabelled := appScalingTrackedService(t, "unlabelled", 1, map[string]any{
+		"TargetValue":                   100.0,
+		"PredefinedMetricSpecification": map[string]any{"PredefinedMetricType": "ALBRequestCountPerTarget"},
+	})
+	if len(unlabelled.Alarms) != 0 {
+		t.Fatalf("a policy with no ResourceLabel names no target group, yet has alarms %v", unlabelled.Alarms)
 	}
 }

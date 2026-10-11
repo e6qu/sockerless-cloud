@@ -187,7 +187,7 @@ func TestAmplifyBuildCacheBranchKeyCannotEscapeAppDirectory(t *testing.T) {
 }
 
 func TestAmplifyBuildOutputManifestError(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("buildman1", "main")
 	amplifyApps.Update("buildman1", func(a *amplifyStoredApp) { a.App.Platform = "WEB_COMPUTE" })
 	amplifySeedApp("buildman2", "main") // static WEB platform

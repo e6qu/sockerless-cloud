@@ -1585,14 +1585,7 @@ func amplifyDeleteDeployment(dep amplifyStoredDeployment) {
 }
 
 func amplifyArtifactBucketName() string {
-	bucket := "amplify-sim-artifacts-" + awsRegion() + "-" + awsAccountID()
-	if _, ok := s3Buckets_.Get(bucket); !ok {
-		s3Buckets_.Put(bucket, S3Bucket{
-			Name:         bucket,
-			CreationDate: time.Now().UTC().Format(time.RFC3339),
-		})
-	}
-	return bucket
+	return s3EnsureServiceBucket("amplify-sim-artifacts-" + awsRegion() + "-" + awsAccountID())
 }
 
 func amplifyPutS3Object(key, contentType string, data []byte) error {
