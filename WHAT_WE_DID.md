@@ -179,6 +179,11 @@ through hooks:
   `modelAsString` enums permit other values). Discovery documents express
   required-ness only for requests, so `TestRequestsMissingARequiredPropertyAreRefused`
   drives each insert with the property removed and requires a refusal.
+- **A workload's answer is not the cloud's.** The Azure validator skips a
+  response served on an App Service site's host, its SCM host, or a container
+  app's or revision's ingress FQDN: the body is what the workload wrote, and
+  matching its path against the storage swagger reported a header-echoing app
+  as Get Blob Service Properties divergences.
 - **An error shape is attested, never invented.** Where the service documents a
   refusal but not its code — a resource move onto an occupied name — the
   simulator carries the attested message with no leaf code rather than a code
