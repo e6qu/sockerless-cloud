@@ -100,13 +100,10 @@ const (
 	// ends as soon as the container stops, so a broken engine still fails at
 	// once rather than burning the budget.
 	initializationBudget = 10 * time.Minute
-	// livenessInterval spaces the container-state reads the wait makes between
-	// 100 ms readiness probes.
-	livenessInterval = 2 * time.Second
-	probeInterval    = 100 * time.Millisecond
-	stopGrace        = 5 * time.Second
-	removalTimeout   = 30 * time.Second
-	execTimeout      = 30 * time.Second
+	probeInterval        = 100 * time.Millisecond
+	stopGrace            = 5 * time.Second
+	removalTimeout       = 30 * time.Second
+	execTimeout          = 30 * time.Second
 )
 
 // Instance is one database instance's data plane: its endpoint listener and
@@ -405,31 +402,17 @@ func (i *Instance) logSink() sim.LogSink {
 func (i *Instance) awaitReady(backend string, handle *sim.ContainerHandle, stopped <-chan struct{}) error {
 	engine := i.Engine
 	deadline := time.Now().Add(initializationBudget)
-	nextLivenessCheck := time.Now().Add(livenessInterval)
 	for !serving(engine.Family, backend) {
-		select {
-		case <-stopped:
-			return fmt.Errorf("%s database engine stopped before accepting connections", engine.Family)
-		default:
-		}
-		now := time.Now()
-		if !now.Before(nextLivenessCheck) {
-			state, err := sim.InspectContainerState(handle.ContainerID)
-			if err != nil {
-				return fmt.Errorf("%s database engine: %w", engine.Family, err)
-			}
-			if !state.Running {
-				return fmt.Errorf("%s database engine stopped before accepting connections: container %s exited with status %d (%s); its last output:\n%s",
-					engine.Family, handle.ContainerID, state.ExitCode, state.Status, i.output.last())
-			}
-			nextLivenessCheck = now.Add(livenessInterval)
-		}
-		if !now.Before(deadline) {
+		if !time.Now().Before(deadline) {
 			return fmt.Errorf("%s database engine did not become ready within %s", engine.Family, initializationBudget)
 		}
 		select {
 		case <-stopped:
 			return fmt.Errorf("%s database engine stopped before accepting connections", engine.Family)
+		case <-handle.Exited():
+			result := handle.Wait()
+			return fmt.Errorf("%s database engine stopped before accepting connections: container %s exited with status %d (%v); its last output:\n%s",
+				engine.Family, handle.ContainerID, result.ExitCode, result.Error, i.output.last())
 		case <-time.After(probeInterval):
 		}
 	}

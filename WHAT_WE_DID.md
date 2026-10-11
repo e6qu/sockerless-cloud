@@ -1526,7 +1526,11 @@ the binary log, opens exactly the transactions the offset assumes. A database
 engine that stops before it accepts clients is reported with its container's
 exit status and its last 40 output lines: the engine's output otherwise goes
 only to the resource's own log store, and a CI job that saw a PostgreSQL
-engine stop three seconds after it started could not say why. Aurora PostgreSQL's engine runs with `archive_mode=on`
+engine stop three seconds after it started could not say why. The start
+learns of the exit from the container handle, whose Wait now returns the
+exit to every caller, and no longer by inspecting the container: the
+simulator removes an exited container at once, so an inspection found none
+and could report neither the status nor the output. Aurora PostgreSQL's engine runs with `archive_mode=on`
 and archives every completed write-ahead log segment into the cluster volume;
 Aurora MySQL's binary log is on by default. RestoreDBClusterToPointInTime with
 `RestoreToTime` refuses a time outside the window with `InvalidRestoreFault`,
