@@ -25,14 +25,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 # What the suites and the handlers under test reach for: the real-network
 # fabric (iproute2, nftables, iptables, procps for sysctl), Firecracker's guest
 # assets (squashfs-tools, e2fsprogs), the entrypoint's DNS shim (dnsmasq) and
-# privilege drop (util-linux's setpriv), the HTTPS gateway the Azure and
-# Google Cloud Terraform suites put in front of the simulator (caddy, the
-# distribution package CI installs too), and the usual build/test tooling.
+# privilege drop (util-linux's setpriv), and the usual build/test tooling.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates curl git make jq unzip xz-utils gnupg \
         iproute2 iptables nftables iputils-ping procps util-linux dnsmasq \
-        openssh-client squashfs-tools e2fsprogs python3 caddy \
+        openssh-client squashfs-tools e2fsprogs python3 \
     && install -d -m 0755 /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/*
 
@@ -106,6 +104,13 @@ RUN case "${TARGETARCH}" in \
     && /opt/google-cloud-sdk/bin/gcloud components install cloud-firestore-emulator beta --quiet \
     && ln -s /opt/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud
 ENV CLOUDSDK_CORE_DISABLE_PROMPTS=1
+
+# The HTTPS gateway the Terraform suites put in front of the simulator, from
+# Caddy's own repository as CI installs it (scripts/install-caddy.sh): the
+# distribution package is too old for the gateway's Caddyfile.
+COPY scripts/install-caddy.sh /tmp/caddy-install/scripts/install-caddy.sh
+COPY make/https-gateway/Caddyfile /tmp/caddy-install/make/https-gateway/Caddyfile
+RUN bash /tmp/caddy-install/scripts/install-caddy.sh && rm -rf /tmp/caddy-install /var/lib/apt/lists/*
 
 # Firecracker + jailer, the same release CI installs (scripts/install-firecracker.sh).
 ARG FIRECRACKER_VERSION=v1.15.1
