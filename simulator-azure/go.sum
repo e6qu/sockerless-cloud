@@ -41,6 +41,8 @@ github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261011100636-da7e3fee1c38 h1:
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261011100636-da7e3fee1c38/go.mod h1:WFMghz4xqlYeOznkIPE3g7vIp3jnSgysSJtDbByVEJk=
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261011112245-e641cc46834c h1:y+IaU+wiFYalnc4UDBz29PwczbMTFqrztZNl+3Hj0Qc=
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261011112245-e641cc46834c/go.mod h1:WFMghz4xqlYeOznkIPE3g7vIp3jnSgysSJtDbByVEJk=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261011120424-5c03a2e98d15 h1:pgTlpxfsP/UnaBKbUYLYKyMMqLX+5R7gbB4PDbODPEs=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261011120424-5c03a2e98d15/go.mod h1:WFMghz4xqlYeOznkIPE3g7vIp3jnSgysSJtDbByVEJk=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261011083314-2d03c9daecc0 h1:5Dqd3JCTH6/xTk1VS3s/OFc0aL89NoKifdviPRnk4vE=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261011083314-2d03c9daecc0/go.mod h1:IjLGlVmMJr++uJ42xkTj6teFTGRvoyQNcKlT7UBgL0I=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261011085119-5bd3571ee98b h1:T36ZZhjYYKpEYCdXnaczrZzgZBradLNd/WgcCfBzMq4=
@@ -49,6 +51,8 @@ github.com/e6qu/sockerless-cloud/sim v0.0.0-20261011100636-da7e3fee1c38 h1:n7Jkv
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261011100636-da7e3fee1c38/go.mod h1:IjLGlVmMJr++uJ42xkTj6teFTGRvoyQNcKlT7UBgL0I=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261011112245-e641cc46834c h1:MSfZosbD4gXN73xxCsSdb6twq9qxUB1L4S6FCy4FeUU=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261011112245-e641cc46834c/go.mod h1:IjLGlVmMJr++uJ42xkTj6teFTGRvoyQNcKlT7UBgL0I=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261011120424-5c03a2e98d15 h1:XC41hPb7uBKXL9QbHNWb6W1rsM+tbKq5OAtedyUnYmc=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261011120424-5c03a2e98d15/go.mod h1:IjLGlVmMJr++uJ42xkTj6teFTGRvoyQNcKlT7UBgL0I=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff h1:QSRn3RZ/F1p1r2idkV3KH9E9k0fEagRtQyjjss2W2HA=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff/go.mod h1:7JfIZuzs3VNYJ0eUH8WdbduJN/Evw8W/kn3q+5Z+834=
 github.com/elazarl/goproxy v1.7.2 h1:Y2o6urb7Eule09PjlhQRGNsqRfPmYI3KKQLFpCAV3+o=

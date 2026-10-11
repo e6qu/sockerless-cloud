@@ -58,3 +58,18 @@ output "graviton_2_vcpus_512_mib" {
 output "m5_96_vcpus" {
   value = join(",", sort(data.aws_ec2_instance_types.m5_96_vcpus.instance_types))
 }
+
+# A Dedicated Host reports its family's cores and vCPUs as the AWS Price List
+# states them.
+resource "aws_ec2_host" "m5" {
+  availability_zone = "us-east-1a"
+  instance_type     = "m5.large"
+}
+
+data "aws_ec2_host" "m5" {
+  host_id = aws_ec2_host.m5.id
+}
+
+output "host_cores_vcpus" {
+  value = "${data.aws_ec2_host.m5.cores}/${data.aws_ec2_host.m5.total_vcpus}"
+}

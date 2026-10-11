@@ -24,6 +24,16 @@ func TestEC2CLI_HostsAndEventWindows(t *testing.T) {
 		"--query", "Hosts[0].[State,AvailabilityZone,HostProperties.InstanceFamily]", "--output", "text"); v != "available\tus-east-1a\tm5" {
 		t.Fatalf("describe-hosts: got %q, want 'available\tus-east-1a\tm5'", v)
 	}
+	// The m5 Dedicated Host's cores and vCPUs as the AWS Price List states
+	// them, and the capacity of each m5 size it runs.
+	if v := q("ec2", "describe-hosts", "--host-ids", hostID,
+		"--query", "Hosts[0].[HostProperties.Cores,HostProperties.TotalVCpus,AvailableCapacity.AvailableVCpus]", "--output", "text"); v != "48\t96\t96" {
+		t.Fatalf("describe-hosts properties: got %q, want '48\t96\t96'", v)
+	}
+	if v := q("ec2", "describe-hosts", "--host-ids", hostID,
+		"--query", "Hosts[0].AvailableCapacity.AvailableInstanceCapacity[?InstanceType=='m5.xlarge'].[AvailableCapacity,TotalCapacity] | [0]", "--output", "text"); v != "24\t24" {
+		t.Fatalf("describe-hosts m5.xlarge capacity: got %q, want '24\t24'", v)
+	}
 
 	q("ec2", "modify-hosts", "--host-ids", hostID, "--auto-placement", "on")
 	if v := q("ec2", "describe-hosts", "--host-ids", hostID,

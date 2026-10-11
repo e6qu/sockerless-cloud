@@ -492,3 +492,73 @@ func TestEC2_VpcBlockPublicAccessSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, delEx.VpcBlockPublicAccessExclusion)
 }
+
+// TestEC2_DedicatedHostCapacitySDK allocates a Dedicated Host for one instance
+// type, reads its cores, vCPUs and per-type capacity as the Price List states
+// them for the family, places an instance on it with RunInstances, and sees
+// the placement take one slot and the host refuse a type it does not run.
+func TestEC2_DedicatedHostCapacitySDK(t *testing.T) {
+	c := ec2Client()
+	alloc, err := c.AllocateHosts(ctx, &ec2.AllocateHostsInput{
+		AvailabilityZone: aws.String("us-east-1a"),
+		InstanceType:     aws.String("m5.large"),
+		Quantity:         aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, alloc.HostIds, 1)
+	hostID := alloc.HostIds[0]
+	t.Cleanup(func() { _, _ = c.ReleaseHosts(ctx, &ec2.ReleaseHostsInput{HostIds: alloc.HostIds}) })
+
+	host := func() types.Host {
+		t.Helper()
+		desc, err := c.DescribeHosts(ctx, &ec2.DescribeHostsInput{HostIds: []string{hostID}})
+		require.NoError(t, err)
+		require.Len(t, desc.Hosts, 1)
+		return desc.Hosts[0]
+	}
+	h := host()
+	require.NotNil(t, h.HostProperties)
+	assert.Equal(t, int32(48), aws.ToInt32(h.HostProperties.Cores), "the m5 Dedicated Host's physical cores")
+	assert.Equal(t, int32(96), aws.ToInt32(h.HostProperties.TotalVCpus), "the m5 Dedicated Host's vCPUs")
+	assert.Nil(t, h.HostProperties.Sockets, "the Price List states no socket count")
+	require.NotNil(t, h.AvailableCapacity)
+	assert.Equal(t, int32(96), aws.ToInt32(h.AvailableCapacity.AvailableVCpus))
+	require.Len(t, h.AvailableCapacity.AvailableInstanceCapacity, 1)
+	assert.Equal(t, "m5.large", aws.ToString(h.AvailableCapacity.AvailableInstanceCapacity[0].InstanceType))
+	assert.Equal(t, int32(48), aws.ToInt32(h.AvailableCapacity.AvailableInstanceCapacity[0].TotalCapacity))
+	assert.Equal(t, int32(48), aws.ToInt32(h.AvailableCapacity.AvailableInstanceCapacity[0].AvailableCapacity))
+
+	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.196.0.0/16")})
+	require.NoError(t, err)
+	subnet, err := c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+		VpcId: vpc.Vpc.VpcId, CidrBlock: aws.String("10.196.1.0/24"), AvailabilityZone: aws.String("us-east-1a"),
+	})
+	require.NoError(t, err)
+	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
+		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeM5Large,
+		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet.Subnet.SubnetId,
+		Placement: &types.Placement{HostId: aws.String(hostID)},
+	})
+	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
+	require.Len(t, run.Instances, 1)
+	placement := run.Instances[0].Placement
+	require.NotNil(t, placement)
+	assert.Equal(t, hostID, aws.ToString(placement.HostId))
+	assert.Equal(t, types.TenancyHost, placement.Tenancy)
+	assert.Equal(t, "us-east-1a", aws.ToString(placement.AvailabilityZone))
+
+	h = host()
+	assert.Equal(t, int32(94), aws.ToInt32(h.AvailableCapacity.AvailableVCpus))
+	assert.Equal(t, int32(47), aws.ToInt32(h.AvailableCapacity.AvailableInstanceCapacity[0].AvailableCapacity))
+	require.Len(t, h.Instances, 1)
+	assert.Equal(t, aws.ToString(run.Instances[0].InstanceId), aws.ToString(h.Instances[0].InstanceId))
+	assert.Equal(t, "m5.large", aws.ToString(h.Instances[0].InstanceType))
+
+	_, err = c.RunInstances(ctx, &ec2.RunInstancesInput{
+		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeC5Large,
+		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet.Subnet.SubnetId,
+		Placement: &types.Placement{HostId: aws.String(hostID)},
+	})
+	requireAWSErrorCode(t, err, "InsufficientHostCapacity")
+}

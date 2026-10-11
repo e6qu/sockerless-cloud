@@ -235,6 +235,7 @@ type EC2Instance struct {
 	MetadataHttpEndpoint   string
 	MetadataHopLimit       int
 	MetadataInstanceTags   string
+	Placement              EC2Placement
 	// StateTransitionReason is the free-text reason for the most recent
 	// state transition (the DescribeInstances <reason> element); empty
 	// while the instance is running.
@@ -244,6 +245,53 @@ type EC2Instance struct {
 	// for stopped and terminated instances.
 	StateReasonCode    string
 	StateReasonMessage string
+}
+
+// EC2Placement is an instance's Placement as RunInstances and
+// ModifyInstancePlacement set it.
+type EC2Placement struct {
+	Tenancy         string
+	HostId          string
+	Affinity        string
+	GroupName       string
+	GroupId         string
+	PartitionNumber int
+}
+
+// ec2PlacementXML renders an instance's placement in the subnet's
+// Availability Zone. An instance launched without a tenancy runs on shared
+// hardware, which the API reports as `default`.
+func ec2PlacementXML(inst EC2Instance) string {
+	az := awsAvailabilityZone()
+	if subnet, ok := ec2Subnets.Get(inst.SubnetId); ok && subnet.AvailabilityZone != "" {
+		az = subnet.AvailabilityZone
+	}
+	p := inst.Placement
+	tenancy := p.Tenancy
+	if tenancy == "" {
+		tenancy = "default"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "<placement><availabilityZone>%s</availabilityZone>", xmlEscape(az))
+	if p.Affinity != "" {
+		fmt.Fprintf(&b, "<affinity>%s</affinity>", xmlEscape(p.Affinity))
+	}
+	if p.GroupName != "" {
+		fmt.Fprintf(&b, "<groupName>%s</groupName>", xmlEscape(p.GroupName))
+	} else {
+		b.WriteString("<groupName/>")
+	}
+	if p.GroupId != "" {
+		fmt.Fprintf(&b, "<groupId>%s</groupId>", xmlEscape(p.GroupId))
+	}
+	if p.PartitionNumber > 0 {
+		fmt.Fprintf(&b, "<partitionNumber>%d</partitionNumber>", p.PartitionNumber)
+	}
+	if p.HostId != "" {
+		fmt.Fprintf(&b, "<hostId>%s</hostId>", xmlEscape(p.HostId))
+	}
+	fmt.Fprintf(&b, "<tenancy>%s</tenancy></placement>", xmlEscape(tenancy))
+	return b.String()
 }
 
 type EC2NetworkInterface struct {
@@ -3302,7 +3350,7 @@ func ec2InstanceXML(inst EC2Instance) string {
     <productCodes/>
     <instanceType>%s</instanceType>
     <launchTime>%s</launchTime>
-    <placement><availabilityZone>%s</availabilityZone><groupName/><tenancy>default</tenancy></placement>
+    %s
     <monitoring><state>%s</state></monitoring>
     <subnetId>%s</subnetId>
     <vpcId>%s</vpcId>
@@ -3322,7 +3370,7 @@ func ec2InstanceXML(inst EC2Instance) string {
   </item>`,
 		inst.InstanceId, inst.ImageId, instanceStateCode(inst.State), inst.State,
 		strings.ReplaceAll(inst.PrivateIpAddress, ".", "-"), awsRegion(), reasonXML, keyNameXML, inst.InstanceType, inst.LaunchTime,
-		awsAvailabilityZone(), monitoringState, inst.SubnetId, inst.VpcId, inst.PrivateIpAddress, publicXML, inst.SourceDestCheck, groups.String(), stateReasonXML,
+		ec2PlacementXML(inst), monitoringState, inst.SubnetId, inst.VpcId, inst.PrivateIpAddress, publicXML, inst.SourceDestCheck, groups.String(), stateReasonXML,
 		inst.Architecture, inst.RootDeviceName, inst.RootDeviceName, "vol-"+strings.TrimPrefix(inst.InstanceId, "i-"), inst.LaunchTime,
 		inst.EbsOptimized, iamXML, metaXML, cpuXML,
 		writeTagSetXML(inst.Tags), ni.String())
@@ -3499,6 +3547,37 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	// VPC/subnet/NAT. ec2LaunchInstance boots a real Firecracker VM only when
 	// the host has VM capabilities; their absence must not fail RunInstances,
 	// so IaC/control-plane testing works in SIM_RUNTIME=process.
+	placement := EC2Placement{
+		Tenancy:         r.FormValue("Placement.Tenancy"),
+		HostId:          r.FormValue("Placement.HostId"),
+		Affinity:        r.FormValue("Placement.Affinity"),
+		GroupName:       r.FormValue("Placement.GroupName"),
+		GroupId:         r.FormValue("Placement.GroupId"),
+		PartitionNumber: ec2AtoiOr(r.FormValue("Placement.PartitionNumber"), 0),
+	}
+	if lt := ltData.Placement; lt != nil {
+		if placement.Tenancy == "" {
+			placement.Tenancy = lt.Tenancy
+		}
+		if placement.GroupName == "" {
+			placement.GroupName = lt.GroupName
+		}
+	}
+	var host EC2Host
+	if placement.HostId != "" {
+		var found bool
+		if host, found = ec2Hosts.Get(placement.HostId); !found {
+			ec2ErrorXML(w, "InvalidHostID.NotFound", fmt.Sprintf("The host ID %q does not exist", placement.HostId), http.StatusBadRequest)
+			return
+		}
+		if placement.Tenancy == "" {
+			placement.Tenancy = "host"
+		}
+		// The capacity check and the placements it admits hold the lock
+		// together, so concurrent launches cannot share the last slot.
+		ec2HostPlacementMu.Lock()
+		defer ec2HostPlacementMu.Unlock()
+	}
 	reservationID := ec2ID("r")
 	sgIDs := runInstancesSecurityGroups(r)
 	if len(sgIDs) == 0 {
@@ -3559,10 +3638,20 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		MetadataHttpEndpoint:   metaEndpoint,
 		MetadataHopLimit:       ec2AtoiOr(ec2FormOrLT(r, "MetadataOptions.HttpPutResponseHopLimit", ltMetaHop), 1),
 		MetadataInstanceTags:   metaTags,
+		Placement:              placement,
 	}
 
 	var instances []EC2Instance
 	for i := 0; i < maxCount; i++ {
+		if placement.HostId != "" {
+			if refusal := ec2HostRefusal(host, instanceType); refusal != "" {
+				if i < minCount {
+					ec2ErrorXML(w, "InsufficientHostCapacity", refusal, http.StatusBadRequest)
+					return
+				}
+				break
+			}
+		}
 		privateIP := ""
 		if i == 0 {
 			privateIP = r.FormValue("PrivateIpAddress")
@@ -3712,6 +3801,7 @@ type EC2InstanceCreateSpec struct {
 	MetadataHttpEndpoint   string
 	MetadataHopLimit       int
 	MetadataInstanceTags   string
+	Placement              EC2Placement
 }
 
 func ec2CreateInstance(spec EC2InstanceCreateSpec) (EC2Instance, error) {
@@ -3763,6 +3853,7 @@ func ec2CreateInstance(spec EC2InstanceCreateSpec) (EC2Instance, error) {
 		MetadataHttpEndpoint:   spec.MetadataHttpEndpoint,
 		MetadataHopLimit:       spec.MetadataHopLimit,
 		MetadataInstanceTags:   spec.MetadataInstanceTags,
+		Placement:              spec.Placement,
 	}
 	ec2Instances.Put(instanceID, inst)
 	ec2NetworkInterfaces.Put(eniID, EC2NetworkInterface{
