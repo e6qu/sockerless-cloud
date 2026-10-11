@@ -77,10 +77,10 @@ SDK_TEST_ARGS ?= ./...
 CLI_TEST_ARGS ?= ./...
 
 sdk-test-local: build ## go test the SDK-driven sim tests on a Linux host with real-network capabilities
-	cd sdk-tests && $(GO_ENV) go test -v -count=1 -timeout $(SDK_TEST_TIMEOUT) $(SDK_TEST_ARGS)
+	cd sdk-tests && $(GO_ENV) bash ../../scripts/go-test-summary.sh -count=1 -timeout $(SDK_TEST_TIMEOUT) $(SDK_TEST_ARGS)
 
 cli-test: build ## go test the CLI-driven sim tests
-	cd cli-tests && $(GO_ENV) go test -v -count=1 -timeout $(CLI_TEST_TIMEOUT) $(CLI_TEST_ARGS)
+	cd cli-tests && $(GO_ENV) bash ../../scripts/go-test-summary.sh -count=1 -timeout $(CLI_TEST_TIMEOUT) $(CLI_TEST_ARGS)
 
 # The azure terraform stack is Docker-only: this outer `go test` wraps a
 # `docker run go test` (terraform-tests/helpers_test.go) that does the real

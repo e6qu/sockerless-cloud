@@ -2279,6 +2279,12 @@ once in `TestMain`; its Firestore and Pub/Sub gRPC clients take the simulator's
 address as their endpoint, because the Firestore REST client refuses to start
 while `FIRESTORE_EMULATOR_HOST` is set.
 
+Every SDK and CLI suite target runs `go test -v` through
+`scripts/go-test-summary.sh`, which ends a failed run with each failing test's
+own lines grouped under its `--- FAIL`. A suite's output runs to megabytes and
+its parallel tests interleave, so the tail a CI log reader sees otherwise held a
+bare FAIL.
+
 An Amazon ECS test that deletes its subnet first stops its own cluster's tasks
 in that subnet and waits with `aws ecs wait tasks-stopped`, scanning only its
 own cluster. A task that holds the subnet traps SIGTERM, so `StopTask` ends it at
