@@ -3,3 +3,6 @@
 # starting with t.Parallel().
 TestCosmosScripts_DifferentialVsEmulator	initialises the Cosmos DB emulator, which a two-core runner starves while the parallel suite runs
 TestCosmos_DifferentialVsEmulator	initialises the Cosmos DB emulator, which a two-core runner starves while the parallel suite runs
+TestSDK_Compute_UsageCountsWhatIsHeld	reads the subscription's compute usage, which other tests change by creating and deleting machines
+TestSubscriptionPolicyBlocksTenantTransfer	changes the tenant's one subscription policy, which other tests' transfers read
+TestSubscriptionTenantPolicyLifecycle	changes the tenant's one subscription policy, which other tests' transfers read
