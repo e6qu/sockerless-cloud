@@ -106,11 +106,11 @@ RUN case "${TARGETARCH}" in \
 ENV CLOUDSDK_CORE_DISABLE_PROMPTS=1
 
 # The HTTPS gateway the Terraform suites put in front of the simulator, from
-# Caddy's own repository as CI installs it (scripts/install-caddy.sh): the
+# the pinned Caddy release CI installs (scripts/install-caddy.sh): the
 # distribution package is too old for the gateway's Caddyfile.
 COPY scripts/install-caddy.sh /tmp/caddy-install/scripts/install-caddy.sh
 COPY make/https-gateway/Caddyfile /tmp/caddy-install/make/https-gateway/Caddyfile
-RUN bash /tmp/caddy-install/scripts/install-caddy.sh && rm -rf /tmp/caddy-install /var/lib/apt/lists/*
+RUN bash /tmp/caddy-install/scripts/install-caddy.sh && rm -rf /tmp/caddy-install
 
 # Firecracker + jailer, the same release CI installs (scripts/install-firecracker.sh).
 ARG FIRECRACKER_VERSION=v1.15.1

@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
-# install-caddy.sh — install Caddy from Caddy's own apt repository and prove it
-# reads the HTTPS gateway's Caddyfile.
+# install-caddy.sh — install a pinned Caddy release and prove it reads the HTTPS
+# gateway's Caddyfile.
 #
 # Ubuntu 24.04 packages Caddy 2.6.2, which predates the storage_check and
 # storage_clean_interval global options make/https-gateway/Caddyfile sets, so
-# the distribution package refuses the gateway's configuration. The repository
-# Caddy publishes at dl.cloudsmith.io carries the current release.
-#
-# The jobs run caddy themselves; the package's caddy.service is not wanted, and
-# starting it once held "Setting up caddy" for three minutes. A policy-rc.d
-# that answers 101 tells the package scripts not to start services.
+# the distribution package refuses the gateway's configuration; Caddy's own apt
+# repository at dl.cloudsmith.io answers CI runners 402 Payment Required. The
+# release archive comes from Caddy's GitHub release and is checked against the
+# checksum file published with it.
 
 set -euo pipefail
+
+version="${CADDY_VERSION:-2.11.7}"
+case "$(uname -m)" in
+	x86_64) arch=amd64 ;;
+	aarch64) arch=arm64 ;;
+	*)
+		echo "install-caddy: no Caddy release archive for $(uname -m)" >&2
+		exit 1
+		;;
+esac
 
 sudo=()
 if [ "$(id -u)" -ne 0 ]; then
@@ -19,24 +27,21 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
-keyring=/usr/share/keyrings/caddy-stable-archive-keyring.gpg
-sources=/etc/apt/sources.list.d/caddy-stable.list
-apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
 
-printf '#!/bin/sh\nexit 101\n' | "${sudo[@]}" tee /usr/sbin/policy-rc.d >/dev/null
-"${sudo[@]}" chmod 0755 /usr/sbin/policy-rc.d
+archive="caddy_${version}_linux_${arch}.tar.gz"
+base="https://github.com/caddyserver/caddy/releases/download/v${version}"
+for file in "$archive" "caddy_${version}_checksums.txt"; do
+	curl --fail --location --show-error --silent \
+		--retry 5 --retry-all-errors --retry-delay 5 \
+		--connect-timeout 20 --max-time 300 \
+		--output "$tmpdir/$file" "$base/$file"
+done
+(cd "$tmpdir" && grep " $archive\$" "caddy_${version}_checksums.txt" | sha512sum --check --strict -)
 
-curl -sSLf --retry 3 https://dl.cloudsmith.io/public/caddy/stable/gpg.key |
-	"${sudo[@]}" gpg --batch --yes --dearmor -o "$keyring"
-curl -sSLf --retry 3 https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt |
-	"${sudo[@]}" tee "$sources" >/dev/null
-"${sudo[@]}" chmod o+r "$keyring" "$sources"
-
-# Refresh only Caddy's list: the job needs nothing else from the package
-# mirrors, and a degraded Ubuntu mirror must not fail it.
-"${sudo[@]}" apt-get "${apt_options[@]}" update \
-	-o Dir::Etc::sourcelist="$sources" -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
-"${sudo[@]}" apt-get "${apt_options[@]}" install -y caddy
+tar -xzf "$tmpdir/$archive" -C "$tmpdir" caddy
+"${sudo[@]}" install -m 0755 "$tmpdir/caddy" /usr/local/bin/caddy
 
 caddy version
 caddy adapt --adapter caddyfile --config "$repo_root/make/https-gateway/Caddyfile" >/dev/null
