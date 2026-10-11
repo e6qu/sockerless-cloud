@@ -24,8 +24,15 @@ images=("$@")
 # by digest names none, so a digest-pinned image is saved and checked under a
 # local tag that spells its digest.
 local_ref() {
+    local repo name
     case "$1" in
-        *@sha256:*) printf '%s:sha256-%s\n' "${1%@sha256:*}" "${1##*@sha256:}" ;;
+        *@sha256:*)
+            # A digest overrides a tag spelled beside it: repo:tag@sha256:x
+            # saves as repo:sha256-x, as testutil/baseimage.LocalRef reads it.
+            repo="${1%@sha256:*}"
+            name="${repo##*/}"
+            case "$name" in *:*) repo="${repo%:*}" ;; esac
+            printf '%s:sha256-%s\n' "$repo" "${1##*@sha256:}" ;;
         *) printf '%s\n' "$1" ;;
     esac
 }

@@ -20,7 +20,7 @@ import (
 
 const (
 	xtraBackupSourceImage = "public.ecr.aws/docker/library/mysql:8.0"
-	xtraBackupImage       = "docker.io/percona/percona-xtrabackup:8.0"
+	xtraBackupImage       = "mirror.gcr.io/percona/percona-xtrabackup:8.0"
 )
 
 // takeXtraBackup runs a MySQL 8.0 server, has it hold the statements' data,

@@ -3227,7 +3227,17 @@ Public tag, which `base-images-for.sh` warms, and another public image comes
 from `mirror.gcr.io` at Docker Hub's digest. A digest-pinned workload image is
 left out because `docker load` restores none of them by digest. A simulator's
 own Dockerfile is not scanned, since no suite runs a container from its build
-images.
+images. The simulators follow the same rule for the images they
+pull themselves: the Azure Container Apps Dapr sidecar, the Percona XtraBackup
+helper of the Amazon Aurora and RDS restores, and the Memorystore for Redis
+3.2 and 4.0 engines come from `mirror.gcr.io`, whose index digest for each tag
+matched Docker Hub's when they moved, and the Amazon EBS volume-copy helper
+runs the ECR Public alpine. `scripts/base-images-for.sh` scans for both hosts,
+and a reference that spells a tag and a digest is saved and found under the
+digest's local tag (`repo:sha256-<hex>`) by both the warm script and
+`testutil/baseimage.LocalRef`; the tag had made the local name invalid. A
+Terraform harness stops when its simulator does not build, where it had gone
+on to run whatever binary an earlier build left.
 
 A differential oracle is pinned by its multi-platform index digest, never a
 tag or one platform's manifest, and the harness refuses an image built for

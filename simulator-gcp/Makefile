@@ -80,7 +80,7 @@ terraform-https-test: ## go test terraform via the optional Caddy HTTPS gateway
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
 	  $(MAKE) terraform-https-test-docker; \
 	else \
-	  $(MAKE) build; \
+	  $(MAKE) build && \
 	  cd terraform-tests && SOCKERLESS_TF_HTTPS_GATEWAY=1 $(GO_ENV) go test -v -count=1 -timeout $(TERRAFORM_TEST_TIMEOUT) ./...; \
 	fi
 

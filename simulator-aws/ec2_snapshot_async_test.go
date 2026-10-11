@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -32,10 +31,18 @@ func TestCreateSnapshotReturnsBeforeCapturingData(t *testing.T) {
 	ec2Volumes = sim.MakeStore[EC2Volume](nil, "ec2_volumes")
 	ec2Snapshots = sim.MakeStore[EC2Snapshot](nil, "ec2_snapshots")
 
-	// A host-path volume holding a file large enough that a synchronous copy
-	// would still be running when the handler returns.
+	// Hold the capture at its start, so the response and the destination are
+	// sampled before any byte moves whatever the scheduler does.
+	captureStarted := make(chan string, 1)
+	releaseCapture := make(chan struct{})
+	ec2SnapshotCaptureStarting = func(snapshotID string) {
+		captureStarted <- snapshotID
+		<-releaseCapture
+	}
+	t.Cleanup(func() { ec2SnapshotCaptureStarting = func(string) {} })
+
 	source := t.TempDir()
-	payload := make([]byte, 256*1024*1024)
+	payload := make([]byte, 4*1024*1024)
 	for i := range payload {
 		payload[i] = byte(i)
 	}
@@ -54,10 +61,10 @@ func TestCreateSnapshotReturnsBeforeCapturingData(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 
+	// A capture inside the handler would block on the held hook and never
+	// return, so returning at all proves the copy runs behind the response.
 	handleCreateSnapshot(rec, req)
-	// Sampled the instant the handler returns. A synchronous copy would have
-	// finished the whole 256 MiB before responding, so an equal-sized
-	// destination here is the signature of the bug this guards against.
+	held := <-captureStarted
 	returnedAt := ec2SnapshotDirSize(t, ec2SnapshotHostDirPathForResponse(rec.Body.String()))
 
 	require.Equal(t, 200, rec.Code)
@@ -70,11 +77,11 @@ func TestCreateSnapshotReturnsBeforeCapturingData(t *testing.T) {
 	snapshotID := body[start+len("<snapshotId>"):]
 	snapshotID = snapshotID[:strings.Index(snapshotID, "</snapshotId>")]
 
+	require.Equal(t, snapshotID, held)
 	stored, ok := ec2Snapshots.Get(snapshotID)
 	require.True(t, ok)
 	require.Equal(t, "pending", stored.State)
-	require.Less(t, returnedAt, int64(len(payload)),
-		"CreateSnapshot returned only after copying the volume; the copy belongs behind the response")
+	require.Zero(t, returnedAt, "the destination held data before the capture started")
 
 	// A lazy settle must not call it completed while bytes are still moving:
 	// a restore from a half-written snapshot would silently lose data.
@@ -84,19 +91,13 @@ func TestCreateSnapshotReturnsBeforeCapturingData(t *testing.T) {
 	require.NotEqual(t, "completed", settled.State,
 		"a snapshot must not report completed before its data is captured")
 
-	// The capture goroutine completes it once the data is actually there.
-	deadline := time.Now().Add(60 * time.Second)
-	for {
-		current, ok := ec2Snapshots.Get(snapshotID)
-		require.True(t, ok)
-		if current.State == "completed" {
-			require.Equal(t, "100%", current.Progress)
-			break
-		}
-		require.NotEqual(t, "error", current.State, "capture failed")
-		require.False(t, time.Now().After(deadline), "snapshot never completed")
-		time.Sleep(100 * time.Millisecond)
-	}
+	// The capture completes it once the data is actually there.
+	close(releaseCapture)
+	bg.Await()
+	current, ok := ec2Snapshots.Get(snapshotID)
+	require.True(t, ok)
+	require.Equal(t, "completed", current.State)
+	require.Equal(t, "100%", current.Progress)
 
 	copied, err := os.ReadFile(filepath.Join(stored.HostPath, "blob"))
 	require.NoError(t, err)

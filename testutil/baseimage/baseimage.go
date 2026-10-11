@@ -49,11 +49,15 @@ func EnsureRef(image string) (string, error) {
 }
 
 // LocalRef is the tag scripts/warm-base-images.sh saves image under: the image
-// itself, or `repo:sha256-<hex>` for a digest-pinned `repo@sha256:<hex>`.
+// itself, or `repo:sha256-<hex>` for a digest-pinned `repo[:tag]@sha256:<hex>`,
+// whose tag the digest overrides.
 func LocalRef(image string) string {
 	repo, digest, pinned := strings.Cut(image, "@sha256:")
 	if !pinned {
 		return image
+	}
+	if slash, colon := strings.LastIndex(repo, "/"), strings.LastIndex(repo, ":"); colon > slash {
+		repo = repo[:colon]
 	}
 	return repo + ":sha256-" + digest
 }

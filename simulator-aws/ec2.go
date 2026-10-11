@@ -4543,7 +4543,7 @@ func ebsRemoveDockerVolume(name string) {
 // it does not yet exist.
 func ebsCopyDockerVolumes(ctx context.Context, srcVolume, dstVolume string) error {
 	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
-		Image:        "alpine:latest",
+		Image:        "public.ecr.aws/docker/library/alpine:latest",
 		Architecture: "linux/" + runtime.GOARCH,
 		Command:      []string{"sh", "-c", "cp -a /src/. /dst/"},
 		Binds: []string{
@@ -5076,7 +5076,9 @@ func handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	snap.CompletionDue = now.Add(ec2SnapshotCaptureNotBefore).Format(time.RFC3339Nano)
 	ec2Volumes.Put(vol.VolumeId, vol)
 	ec2Snapshots.Put(snap.SnapshotId, snap)
-	go ec2CaptureSnapshotData(snap.SnapshotId, vol.DockerVolumeName, snap.DockerVolumeName, vol.HostPath, snap.HostPath)
+	bg.Go(func() {
+		ec2CaptureSnapshotData(snap.SnapshotId, vol.DockerVolumeName, snap.DockerVolumeName, vol.HostPath, snap.HostPath)
+	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateSnapshotResponse %s><requestId>%s</requestId>%s</CreateSnapshotResponse>`,
 		ec2Xmlns(), sim.NewUUID(), ec2SnapshotFieldsXML(snap))
@@ -5141,7 +5143,12 @@ const ec2SnapshotCaptureNotBefore = 100 * 365 * 24 * time.Hour
 // the copy must not happen inside the handler. The source is a volume for
 // CreateSnapshot and another snapshot for CopySnapshot; both are asynchronous
 // on real EC2.
+// ec2SnapshotCaptureStarting runs at the start of each capture; a test holds
+// the capture there to observe the snapshot before any byte moves.
+var ec2SnapshotCaptureStarting = func(snapshotID string) {}
+
 func ec2CaptureSnapshotData(snapshotID, dockerSrc, dockerDst, hostSrc, hostDst string) {
+	ec2SnapshotCaptureStarting(snapshotID)
 	var err error
 	switch {
 	case dockerDst != "":

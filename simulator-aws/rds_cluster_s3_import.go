@@ -27,7 +27,7 @@ import (
 
 // rdsXtraBackupImage is the Percona XtraBackup release that prepares MySQL 8.0
 // backups.
-const rdsXtraBackupImage = "docker.io/percona/percona-xtrabackup:8.0"
+const rdsXtraBackupImage = "mirror.gcr.io/percona/percona-xtrabackup:8.0"
 
 // rdsOpenDataDirectoryScript lets the XtraBackup image's own unprivileged
 // user copy a backup into the new, empty data directory.
