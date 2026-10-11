@@ -85,6 +85,13 @@ func rdsRecoverDataPlanes() error {
 			continue
 		}
 		id := instance.DBInstanceIdentifier
+		if instance.DBInstanceStatus == "rebooting" {
+			// RebootDBInstance with ForceFailover sets the only rebooting
+			// status; the failover resumes from the standby's volume.
+			resourceID := instance.DbiResourceId
+			bg.Go(func() { rdsFailOver(id, resourceID) })
+			continue
+		}
 		if instance.DBInstanceStatus == "modifying" && instance.Restart != nil {
 			// rdsRecoverInstanceSettings resumes the restart.
 			continue
@@ -123,6 +130,9 @@ func rdsRecoverDataPlanes() error {
 		switch {
 		case modifying && rdsIsReadReplica(instance):
 			bg.Go(func() { rdsPromoteReadReplica(id) })
+		case modifying && instance.AvailabilityConversion:
+			resourceID := instance.DbiResourceId
+			bg.Go(func() { rdsConvertAvailability(id, resourceID) })
 		case modifying:
 			// The promotion ended the replication and stopped the engine
 			// before the previous process went.
@@ -138,6 +148,9 @@ func rdsRecoverDataPlanes() error {
 			})
 		case bringingUp:
 			bg.Go(func() { rdsFinishInstanceBringUp(id) })
+		case rdsStandbyConcerns(instance) && instance.DBInstanceStatus == "available":
+			rdsTakeFirstInstanceBackup(id)
+			rdsReconcileStandbyInBackground(id)
 		case stopping:
 			// The process that took the StopDBInstance ended before the
 			// engine it adopted here had stopped.
@@ -317,6 +330,11 @@ func rdsEngineEnvironment(engine dbengine.Engine, user, password, database strin
 // backup on the engine's first start. A read replica's engine starts
 // replicating instead.
 func (plane *rdsDataPlane) ready() error {
+	if !rdsIsReadReplica(plane.current()) {
+		if err := plane.suspendSynchronousStandby(); err != nil {
+			return err
+		}
+	}
 	if err := plane.applyEngineParameters(); err != nil {
 		return err
 	}
@@ -336,6 +354,9 @@ func (plane *rdsDataPlane) ready() error {
 	}
 	if err := plane.sourceReady(); err != nil {
 		return err
+	}
+	if stored, ok := rdsInstances.Get(instance.DBInstanceIdentifier); ok && stored.DbiResourceId == instance.DbiResourceId && rdsStandbyConcerns(stored) {
+		rdsReconcileStandbyInBackground(instance.DBInstanceIdentifier)
 	}
 	return plane.backups.takeFirst()
 }
@@ -391,6 +412,12 @@ func rdsFinishInstanceBringUp(instanceID string) {
 		}
 		if err != nil {
 			log.Printf("Amazon RDS %s: %v", instanceID, err)
+			status = "failed"
+		}
+	}
+	if status == "available" && rdsStandbyConcerns(instance) {
+		if err := rdsReconcileStandby(instanceID); err != nil {
+			log.Printf("Amazon RDS %s: Multi-AZ standby: %v", instanceID, err)
 			status = "failed"
 		}
 	}
@@ -677,6 +704,7 @@ func rdsFinishInstanceDeletion(id, resourceID string) {
 	_ = rdsStopDataPlane(id, true)
 	instance, found := rdsInstances.Get(id)
 	if found && !rdsIsAurora(instance.Engine) {
+		rdsDeleteStandby(instance)
 		rdsRetainInstanceReplications(instance)
 		rdsKeepOrRemoveInstanceBackups(instance)
 	}
@@ -754,6 +782,9 @@ func rdsRecoverInstanceSnapshots() {
 func rdsFinishStop(instanceID string) {
 	if err := rdsStopDataPlane(instanceID, false); err != nil {
 		return
+	}
+	if instance, ok := rdsInstances.Get(instanceID); ok {
+		rdsStopStandby(instance)
 	}
 	rdsInstances.Update(instanceID, func(i *RDSInstance) {
 		if i.DBInstanceStatus == "stopping" {

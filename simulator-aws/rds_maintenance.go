@@ -404,8 +404,8 @@ func rdsApplyModifications(instance *RDSInstance, changes RDSPendingModification
 	if changes.BackupRetentionPeriod != nil {
 		instance.BackupRetentionPeriod = *changes.BackupRetentionPeriod
 	}
-	if changes.MultiAZ != nil {
-		instance.MultiAZ = *changes.MultiAZ
+	if changes.MultiAZ != nil && *changes.MultiAZ != instance.MultiAZ {
+		rdsBeginAvailabilityConversion(instance, *changes.MultiAZ)
 	}
 	if changes.DBSubnetGroupName != "" {
 		instance.DBSubnetGroupName = changes.DBSubnetGroupName
@@ -436,6 +436,7 @@ func rdsApplyModifications(instance *RDSInstance, changes RDSPendingModification
 		return
 	}
 	if _, served := rdsLoadDataPlane(instance.DBInstanceIdentifier); (classChanged || certificateChanged) && served {
+		instance.Restart = rdsRestartFor(instance)
 		instance.DBInstanceStatus = "modifying"
 	}
 	if instance.Restart != nil {
@@ -460,11 +461,15 @@ func rdsRestartFor(instance *RDSInstance) *RDSRestartModifications {
 // upgrade or the restart with the modified settings, and the automated
 // backups a retention change turns on or off.
 func rdsAfterModifications(id string, instance RDSInstance, backupsChanged bool) {
-	switch instance.DBInstanceStatus {
-	case "upgrading":
+	switch {
+	case instance.DBInstanceStatus == "upgrading":
 		bg.Go(func() { rdsUpgradeInstanceEngine(id) })
-	case "modifying":
+	case instance.DBInstanceStatus == "modifying" && instance.Restart == nil:
+		bg.Go(func() { rdsConvertAvailability(id, instance.DbiResourceId) })
+	case instance.DBInstanceStatus == "modifying":
 		bg.Go(func() { rdsRestartModifiedInstance(id, instance.DbiResourceId) })
+	case instance.AvailabilityConversion:
+		rdsReconcileStandbyInBackground(id)
 	}
 	if plane, ok := rdsLoadDataPlane(id); ok && backupsChanged {
 		plane.backups.schedule()
@@ -525,6 +530,9 @@ func rdsRestartModifiedInstance(id, resourceID string) {
 	}
 	if served && err == nil {
 		err = rdsStartInstanceEngine(&instance)
+	}
+	if served && err == nil && rdsStandbyConcerns(instance) {
+		err = rdsReconcileStandby(id)
 	}
 	status := restart.Status
 	if served {

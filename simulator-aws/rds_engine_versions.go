@@ -393,6 +393,10 @@ func rdsUpgradeInstanceEngine(id string) {
 			err = plane.engine.Ensure()
 		}
 	}
+	if err == nil && rdsStandbyConcerns(instance) {
+		// The standby runs the version the primary ran, so it is rebuilt.
+		err = rdsReconcileStandby(id)
+	}
 	status := "available"
 	if err != nil {
 		log.Printf("Amazon RDS %s: upgrade to %s: %v", id, instance.EngineVersion, err)

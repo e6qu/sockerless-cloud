@@ -612,11 +612,15 @@ jobs:
           - suite: services-a-m
             run: '^Test[A-CF-M]'
           - suite: services-n-z
-            run: '^Test([N-QS-Z]|R[^D]|RD[^S]|RDS[^_]|RDS_([^A-IM]|M[^o]|Modify[^D]))'
+            run: '^Test([N-QS-Z]|R[^D]|RD[^S]|RDS[^_]|RDS_([^A-IM]|M[^ou]|Modify[^D]))'
           # The ModifyDBInstance tests restart engines on a new CA, a new port
           # and a renamed volume, which the services-n-z shard has no room for.
           - suite: rds-modify
             run: '^Test(RDS_ModifyDB)'
+          # The Multi-AZ tests build a standby engine for each of three engine
+          # families, fail over twice and build a new standby after each.
+          - suite: rds-multi-az
+            run: '^Test(RDS_MultiAZ)'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
@@ -952,6 +956,12 @@ jobs:
             run: '^Test(RDSCLI_(ReadReplica|ReleasedEngineVersion))'
             timeout: 1200s
             timeout_minutes: 15
+          # A Multi-AZ instance starts a primary and a standby engine, and its
+          # failover waits on the CLI's 30-second waiter cadence.
+          - suite: rds-multi-az
+            run: '^Test(RDSCLI_MultiAZ)'
+            timeout: 1200s
+            timeout_minutes: 15
           # The DB parameter group, maintenance window and ModifyDBInstance
           # tests start, reboot and rename engines and wait for a maintenance
           # window that opens at the next minute, read at the CLI waiter's
@@ -1150,6 +1160,13 @@ jobs:
           - suite: aws Amazon RDS read replica
             cloud: aws
             tf_packages: "./rds-read-replica"
+            tf_timeout: 720s
+            timeout_minutes: 15
+          # The provider waits on the create of the primary and its standby and
+          # on the destroy; the test waits on the failover in between.
+          - suite: aws Amazon RDS Multi-AZ
+            cloud: aws
+            tf_packages: "./rds-multi-az"
             tf_timeout: 720s
             timeout_minutes: 15
           # The stack waits for a maintenance window that opens two minutes
