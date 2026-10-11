@@ -1508,9 +1508,21 @@ a file a restore needs, and for PostgreSQL every archived segment before the
 REDO WAL file `pg_controldata` reports for that base backup. A capture freezes
 the engine, so it holds what a crash would leave; for MySQL the simulator reads
 the capture's newest binary log file and records the offset of the first
-transaction it does not hold whole (crash recovery commits exactly the
-transactions the binary log holds whole), where the replay onto that base
-backup starts. Aurora PostgreSQL's engine runs with `archive_mode=on`
+transaction it does not hold whole, where the replay onto that base backup
+starts. That offset is only true of crash recovery run with the binary log,
+which commits each transaction InnoDB holds prepared whose XID the binary log
+holds and rolls back the rest. A server started without the binary log, as the
+replay's server is, rolls back every prepared transaction, so a row committed
+while the capture froze the engine, between its binary log write and its
+InnoDB commit, was in neither the restored copy nor the replayed range: the
+SDK suite's Aurora MySQL restore lost one such row, and frozen copies of a
+MySQL 8.0 engine under load lost one or two transactions when started with
+`--skip-log-bin` against the same copies started with the binary log. So the
+capture now reads the binary log file and then runs the engine on the snapshot
+volume with its own arguments, binary log included, until it accepts
+connections, and shuts it down cleanly before the snapshot turns available.
+A base backup is stored recovered: every later start of it, with or without
+the binary log, opens exactly the transactions the offset assumes. Aurora PostgreSQL's engine runs with `archive_mode=on`
 and archives every completed write-ahead log segment into the cluster volume;
 Aurora MySQL's binary log is on by default. RestoreDBClusterToPointInTime with
 `RestoreToTime` refuses a time outside the window with `InvalidRestoreFault`,

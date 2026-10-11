@@ -2,8 +2,12 @@ package main
 
 import (
 	"encoding/binary"
+	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/dbengine"
 )
 
 // rdsTestQueryEvent encodes a query event for query in database, ending in a
@@ -144,5 +148,59 @@ func TestRDSBinlogConsistentStartReadsMariaDBEventGroups(t *testing.T) {
 	partial = append(partial, rdsTestBinlogEvent(writeRows, time.Time{})...)
 	if start, err := rdsBinlogConsistentStart(partial); err != nil || start != whole {
 		t.Fatalf("start = %d, %v; want the open transaction's GTID event at %d", start, err, whole)
+	}
+}
+
+// A base backup is a crash image: InnoDB holds prepared the transactions the
+// capture froze between their binary log write and their commit, and the
+// replay starts after every transaction the captured binary log holds whole.
+// Only crash recovery with the binary log commits exactly those transactions;
+// a server started without it, as the replay's is, rolls them back, and a row
+// committed while the capture froze the engine was in neither the copy nor the
+// replay. So the base backup is recovered by the server run with the engine's
+// own arguments, binary log included, and its binary log file is read before
+// that server starts and rotates it.
+func TestRDSBaseBackupRecoveryKeepsTheBinaryLog(t *testing.T) {
+	for _, version := range []struct{ engine, version, binary, admin string }{
+		{"aurora-mysql", "8.0.mysql_aurora.3.07.0", "mysqld", "mysqladmin"},
+		{"mysql", "8.0.46", "mysqld", "mysqladmin"},
+		{"mariadb", "11.4.13", "mariadbd", "mariadb-admin"},
+	} {
+		engine, ok := rdsLoggingEngine(version.engine, version.version)
+		if !ok {
+			t.Fatalf("no engine %s %s", version.engine, version.version)
+		}
+		engine.Args = append(engine.Args, "--init-connect=SET NAMES utf8mb4")
+		server, admin, err := rdsBaseBackupRecoveryServer(engine)
+		if err != nil {
+			t.Fatalf("%s: %v", version.engine, err)
+		}
+		want := append([]string{version.binary, "--user=mysql", "--skip-networking", "--socket=" + rdsRecoverySocket}, engine.Args...)
+		if !slices.Equal(server, want) || admin != version.admin {
+			t.Errorf("%s recovers with %q and pings with %s, want %q and %s", version.engine, server, admin, want, version.admin)
+		}
+		if slices.ContainsFunc(server, func(arg string) bool {
+			return strings.HasPrefix(arg, "--skip-log-bin") || strings.HasPrefix(arg, "--disable-log-bin") || arg == "--log-bin=0" || arg == "--log-bin=OFF"
+		}) {
+			t.Errorf("%s recovers without its binary log: %q", version.engine, server)
+		}
+		if engine.Client == dbengine.MariaDB114.Client && !slices.Contains(server, "--log-bin=binlog") {
+			t.Errorf("MariaDB writes no binary log unless told to, and recovers with %q", server)
+		}
+	}
+
+	engine, _ := rdsLoggingEngine("aurora-mysql", "8.0.mysql_aurora.3.07.0")
+	engine.Args = append(engine.Args, "--init-connect=SET NAMES utf8mb4;\nDROP TABLE t")
+	if _, _, err := rdsBaseBackupRecoveryServer(engine); err == nil {
+		t.Error("an engine argument holding a line break was split into two")
+	}
+
+	script := rdsRecoverBaseBackupScript
+	listed, started := strings.Index(script, `base64 < "$DATA/$last"`), strings.Index(script, `"$@" > "$log" 2>&1 &`)
+	if listed < 0 || started < 0 || listed > started {
+		t.Errorf("the binary log file is not read before the server starts:\n%s", script)
+	}
+	if !strings.Contains(script, `kill -TERM "$server"`) || !strings.Contains(script, `if ! wait "$server"; then`) {
+		t.Errorf("the server is not shut down cleanly and waited for:\n%s", script)
 	}
 }

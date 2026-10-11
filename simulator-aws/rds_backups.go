@@ -196,8 +196,9 @@ func (b *rdsAutomatedBackups) takeIf(wanted func(rdsBackupState) bool) error {
 // capture captures the volume as an automated snapshot and records it as the
 // resource's newest base backup. The capture holds the engine frozen, so the
 // volume it copies is what a crash at that instant would leave: the engine's
-// recovery makes it consistent, and for MySQL the binary log in the copy says
-// which transactions it holds.
+// recovery makes it consistent. For MySQL and MariaDB, rdsRecoverBaseBackup
+// runs that recovery with the binary log before the snapshot is available, so
+// the binary log in the copy says which transactions it holds.
 func (b *rdsAutomatedBackups) capture(state rdsBackupState) error {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	snapshotID := rdsAutomatedSnapshotID(state.identifier, now)
@@ -208,7 +209,7 @@ func (b *rdsAutomatedBackups) capture(state rdsBackupState) error {
 	volume := b.owner.snapshotVolume(snapshotID)
 	err := sim.CaptureVolume(context.Background(), b.volume, volume, "rds")
 	if err == nil && b.engine.Engine.Family == dbengine.MySQL {
-		base.BinlogFile, base.BinlogOffset, err = rdsBaseBackupBinlogStart(b.engine.Engine, volume, state.identifier)
+		base.BinlogFile, base.BinlogOffset, err = rdsRecoverBaseBackup(b.engine.Engine, volume, state.identifier)
 	}
 	if err != nil {
 		b.owner.settleAutomatedSnapshot(snapshotID, "failed", err.Error())
