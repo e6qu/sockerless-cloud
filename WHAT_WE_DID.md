@@ -179,6 +179,12 @@ through hooks:
   `modelAsString` enums permit other values). Discovery documents express
   required-ness only for requests, so `TestRequestsMissingARequiredPropertyAreRefused`
   drives each insert with the property removed and requires a refusal.
+- **An int64 field answers as a string.** Proto3 JSON reads an int64 from a
+  JSON number or string and writes it as a decimal string. A Cloud Build worker
+  pool stored its open `privatePoolV1Config` as the request spelled it, so the
+  Google provider's numeric `workerConfig.diskSizeGb` read back as a number and
+  failed the Google Cloud spec gate; create and patch now store it as the string
+  and refuse a value that is not an integer.
 - **A workload's answer is not the cloud's.** The Azure validator skips a
   response served on an App Service site's host, its SCM host, or a container
   app's or revision's ingress FQDN: the body is what the workload wrote, and
