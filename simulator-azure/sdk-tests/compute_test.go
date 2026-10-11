@@ -13,7 +13,7 @@ import (
 )
 
 func TestCompute_VirtualMachineLifecycle(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 	const rg = "compute-rg"
 	const vnetName = "compute-vnet"
 	const subnetName = "compute-subnet"

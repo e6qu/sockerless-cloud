@@ -16,7 +16,7 @@ func TestCompute_InstancesBulkInsert(t *testing.T) {
 	// Every member of the run is a real virtual machine on a real network
 	// interface, so the run needs the host that can boot one — the same
 	// requirement a single instances.insert has.
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone = "bulk-project", "us-central1-a"
 

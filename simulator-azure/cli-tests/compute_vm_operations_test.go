@@ -11,7 +11,7 @@ import (
 // machine that exists and, for the guest-moving operations, one that is really
 // running.
 func TestComputeVirtualMachineOperationsCLI(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-vmops-vnet", "2024-05-01")
 	runCLI(t, azRest("PUT", vnetURL, `{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.95.0.0/16"]}}}`))

@@ -487,7 +487,7 @@ func TestCompute_InstanceGroups_Lifecycle(t *testing.T) {
 }
 
 func TestCompute_Instances_Lifecycle(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project = "test-project"
 	const zone = "us-central1-a"
@@ -751,7 +751,7 @@ func awaitZoneOperation(t *testing.T, svc *compute.Service, project, zone, name 
 // could not show the instance in PROVISIONING or STAGING at all, because the
 // response would not exist until the boot had finished.
 func TestCompute_InsertReturnsARunningOperation(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project = "test-project"
 	const zone = "us-central1-a"

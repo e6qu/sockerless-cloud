@@ -19,7 +19,7 @@ import (
 // call happened — a machine reported fully patched because nothing looked is
 // indistinguishable from a real answer unless the test reads the guest.
 func TestCompute_VirtualMachinePatchOperations(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 	const rg = "vm-patch-rg"
 	const vmName = "vm-patch"
 	nicID := vmOperationsFixture(t, rg, "vm-patch", "10.98")

@@ -26,7 +26,7 @@ import (
 // against an Azure virtual machine produces a file a client can fetch.
 
 func TestNetworkWatcher_PacketCaptureRecordsToStorage(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 	const (
 		rg         = "pcap-rg"
 		vnetName   = "pcap-vnet"
@@ -148,7 +148,7 @@ func TestNetworkWatcher_PacketCaptureRecordsToStorage(t *testing.T) {
 // distinguish a fabricated empty capture from a real one that saw no traffic,
 // so the simulator must not produce one.
 func TestNetworkWatcher_PacketCaptureRefusesATargetItCannotRecord(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 	const rg = "pcap-missing-rg"
 	const watcher = "NetworkWatcher_eastus"
 

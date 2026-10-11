@@ -552,7 +552,7 @@ func TestCompute_AggregatedLists_Existing(t *testing.T) {
 }
 
 func TestCompute_InstanceActions(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 	svc := computeService(t)
 	const zone = "us-central1-a"
 	const name = "sdk-inst-actions"
