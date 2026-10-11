@@ -75,6 +75,10 @@ func TestRDSInstanceSettingsTerraform(t *testing.T) {
 		multiAZ: true, caCertificate: "rds-ca-ecc384-g1", optionGroup: "second",
 	}
 	env.Terraform(t, append([]string{"apply", "-auto-approve"}, second.vars()...)...)
+	// The provider plans arn unchanged across a rename, so the apply's outputs
+	// carry the old ARN while its state holds the new one; a refresh-only apply
+	// brings the outputs to the renamed instance.
+	env.Terraform(t, append([]string{"apply", "-refresh-only", "-auto-approve"}, second.vars()...)...)
 	outputs = readOutputs(t, env)
 	require.Equal(t, resourceID, outputs.must(t, "resource_id"), "the rename keeps the instance")
 	require.Equal(t, strconv.Itoa(second.port), outputs.must(t, "port"))
