@@ -20,10 +20,6 @@ import (
 // passes in PORT, when a container declares none.
 const cloudRunDefaultContainerPort = 8080
 
-// cloudRunPublishedPort is the one container port sim.StartHTTPContainer
-// publishes on the host's loopback.
-const cloudRunPublishedPort = 8080
-
 // cloudRunContainerPort is the port a container receives requests on:
 // ports[0].containerPort, or 8080.
 func cloudRunContainerPort(c Container) int {
@@ -76,10 +72,7 @@ func cloudRunContainerRoute(ctx context.Context, containerID string, port int) (
 			return net.JoinHostPort(ip, strconv.Itoa(port)), nil
 		}
 	}
-	if port != cloudRunPublishedPort {
-		return "", fmt.Errorf("container %s listens on port %d, and this host reaches a container only through its published port %d", containerID, port, cloudRunPublishedPort)
-	}
-	hostPort, err := sim.PublishedHostPort(ctx, containerID, cloudRunPublishedPort)
+	hostPort, err := sim.PublishedHostPort(ctx, containerID, port)
 	if err != nil {
 		return "", err
 	}
@@ -106,39 +99,69 @@ func cloudRunHostOnNetworkOf(ip string) (bool, error) {
 }
 
 // probeTarget is a probed container in the instance's network namespace:
-// route reaches routePort there, and port is the probed container's own port,
-// which an action that names no port probes.
+// route gives the address this host reaches a port of that namespace at, and
+// port is the probed container's own port, which an action that names no port
+// probes.
 type probeTarget struct {
-	route     string
-	routePort int
-	port      int
+	route func(port int) (string, error)
+	port  int
 }
 
 // address is the address a probe action dials.
 func (t probeTarget) address(actionPort int32) (string, error) {
-	port := t.port
+	return t.route(probeActionPort(actionPort, t.port))
+}
+
+func probeActionPort(actionPort int32, containerPort int) int {
 	if actionPort > 0 {
-		port = int(actionPort)
+		return int(actionPort)
 	}
-	if port == t.routePort {
-		return t.route, nil
+	return containerPort
+}
+
+// cloudRunNamespacePorts is every port of an instance's network namespace this
+// host reaches: the ingress container's port when the workload serves
+// requests, and the port of each startup probe a container runs. The owner of
+// the namespace publishes them all, since a host that routes no container
+// address reaches a port only where the engine publishes it.
+func cloudRunNamespacePorts(containers []Container, serves bool) []int {
+	seen := map[int]bool{}
+	var ports []int
+	add := func(port int) {
+		if !seen[port] {
+			seen[port] = true
+			ports = append(ports, port)
+		}
 	}
-	host, _, err := net.SplitHostPort(t.route)
-	if err != nil {
-		return "", err
+	if serves {
+		add(cloudRunContainerPort(containers[0]))
 	}
-	if host == "127.0.0.1" {
-		return "", fmt.Errorf("probe port %d is reachable only at the container's own address, which this host does not route to", port)
+	for i, c := range containers {
+		if c.StartupProbe == nil && (!serves || i != 0) {
+			continue
+		}
+		p := cloudRunStartupProbe(c)
+		own := cloudRunContainerPort(c)
+		switch {
+		case p.HTTPGet != nil:
+			add(probeActionPort(p.HTTPGet.Port, own))
+		case p.GRPC != nil:
+			add(probeActionPort(p.GRPC.Port, own))
+		case p.TCPSocket != nil:
+			add(probeActionPort(p.TCPSocket.Port, own))
+		default:
+			add(own)
+		}
 	}
-	return net.JoinHostPort(host, strconv.Itoa(port)), nil
+	return ports
 }
 
 // runStartupProbe runs a container's startup probe until it succeeds, fails
-// failureThreshold times in a row, the container exits, or ctx ends. route is
-// the address routePort is reached at; containerPort is the probed
-// container's own port.
-func runStartupProbe(ctx context.Context, p Probe, route string, routePort, containerPort int, exited <-chan struct{}) error {
-	target := probeTarget{route: route, routePort: routePort, port: containerPort}
+// failureThreshold times in a row, the container exits, or ctx ends. route
+// gives the address a port of the container's network namespace is reached
+// at; containerPort is the probed container's own port.
+func runStartupProbe(ctx context.Context, p Probe, route func(int) (string, error), containerPort int, exited <-chan struct{}) error {
+	target := probeTarget{route: route, port: containerPort}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {

@@ -182,8 +182,10 @@ func StartFirecrackerVM(ctx context.Context, cfg FirecrackerVMConfig) (*Firecrac
 	// filesystem image. The same kernel and image reach userspace over MMIO.
 	args := []string{"netns", "exec", cfg.Tap.NetworkNamespace(), "firecracker", "--api-sock", apiSocket}
 	cmd := exec.Command("ip", args...)
-	cmd.Stdout = consoleLog
-	cmd.Stderr = consoleLog
+	networkUp := newConsoleLineWatch(guestNetworkUpLine)
+	console := io.MultiWriter(consoleLog, networkUp)
+	cmd.Stdout = console
+	cmd.Stderr = console
 	if err := cmd.Start(); err != nil {
 		_ = rollback.Close(context.Background())
 		return nil, err
@@ -214,7 +216,7 @@ func StartFirecrackerVM(ctx context.Context, cfg FirecrackerVMConfig) (*Firecrac
 		_ = rollback.Close(context.Background())
 		return nil, err
 	}
-	if err := waitForGuestPing(ctx, cfg.Tap.NetworkNamespace(), cfg.Tap.PrivateIP, cmd, cfg.BootPeriod); err != nil {
+	if err := waitForGuestNetwork(ctx, networkUp.seen, cfg.Tap.NetworkNamespace(), cfg.Tap.PrivateIP, cmd, cfg.BootPeriod); err != nil {
 		err = withFirecrackerFailureLogs(err, cfg.WorkDir)
 		_ = rollback.Close(context.Background())
 		return nil, err
@@ -986,23 +988,86 @@ func firecrackerRequest(ctx context.Context, method, socket, path, payload strin
 	return nil
 }
 
-func waitForGuestPing(ctx context.Context, namespace string, ip net.IP, cmd *exec.Cmd, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+// guestNetworkUpLine is what the guest kernel writes to its serial console
+// once it has configured the static address the `ip=` boot argument gives it.
+const guestNetworkUpLine = "IP-Config: Complete"
+
+// consoleLineWatch is a writer that closes seen the first time line appears in
+// what is written to it, across write boundaries.
+type consoleLineWatch struct {
+	line string
+	seen chan struct{}
+	once sync.Once
+	mu   sync.Mutex
+	tail []byte
+}
+
+func newConsoleLineWatch(line string) *consoleLineWatch {
+	return &consoleLineWatch{line: line, seen: make(chan struct{})}
+}
+
+func (w *consoleLineWatch) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	select {
+	case <-w.seen:
+		return len(p), nil
+	default:
+	}
+	w.tail = append(w.tail, p...)
+	if bytes.Contains(w.tail, []byte(w.line)) {
+		w.once.Do(func() { close(w.seen) })
+		w.tail = nil
+		return len(p), nil
+	}
+	if keep := len(w.line) - 1; len(w.tail) > keep {
+		w.tail = append(w.tail[:0], w.tail[len(w.tail)-keep:]...)
+	}
+	return len(p), nil
+}
+
+// waitForGuestNetwork waits for the guest kernel to report its network
+// configured on the serial console, then confirms the guest answers on its
+// address. The console line is the boot event; pinging before it only waits
+// out reply timeouts against a guest that cannot answer yet.
+func waitForGuestNetwork(ctx context.Context, networkUp <-chan struct{}, namespace string, ip net.IP, cmd *exec.Cmd, timeout time.Duration) error {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	done := make(chan struct{})
+	defer close(done)
+	exited := make(chan struct{})
+	go func() {
+		for cmd.Process != nil && cmd.Process.Signal(syscall.Signal(0)) == nil {
+			select {
+			case <-networkUp:
+				return
+			case <-done:
+				return
+			case <-time.After(time.Second):
+			}
+		}
+		close(exited)
+	}()
+	select {
+	case <-networkUp:
+	case <-exited:
+		return fmt.Errorf("firecracker exited before guest %s configured its network", ip)
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-deadline.C:
+		return fmt.Errorf("timed out waiting for Firecracker guest %s to report %q on its console", ip, guestNetworkUpLine)
+	}
 	for {
 		ping := exec.CommandContext(ctx, "ip", "netns", "exec", namespace, "ping", "-c", "1", "-W", "1", ip.String())
 		if err := ping.Run(); err == nil {
 			return nil
 		}
-		if cmd.Process != nil && cmd.Process.Signal(syscall.Signal(0)) != nil {
-			return fmt.Errorf("firecracker exited before guest %s became reachable", ip)
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for Firecracker guest %s reachability", ip)
-		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(1 * time.Second):
+		case <-deadline.C:
+			return fmt.Errorf("guest %s reported its network configured and never answered on it", ip)
+		default:
 		}
 	}
 }

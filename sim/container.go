@@ -841,17 +841,21 @@ type HTTPContainerConfig struct {
 	Architecture string            // OS/arch (e.g. "linux/arm64"); workload's spec — never derived from host
 	Command      []string          // entrypoint override (empty = use image default)
 	Args         []string          // command override (empty = use image default)
-	Env          map[string]string // env vars (must include PORT to match the published port-target)
+	Env          map[string]string // env vars
 	Name         string            // container name (optional, auto-generated if empty)
 	Labels       map[string]string // container labels for tracking
 	Binds        []string          // bind mounts (e.g., "vol:/path")
 	ExtraHosts   []string          // --add-host entries (e.g., "host.docker.internal:host-gateway")
+	// PublishPorts are the container ports the workload serves on, each
+	// published on a 127.0.0.1 port the engine allocates, so a host that
+	// routes no container address reaches them; at least one is required.
+	PublishPorts []int
 	Sandbox      SandboxProfile
 }
 
-// StartHTTPContainer starts a container detached, with its container-internal
-// :8080 published on a 127.0.0.1 port the engine allocates (read it back with
-// PublishedHostPort), and returns the container ID;
+// StartHTTPContainer starts a container detached, with each of its
+// PublishPorts published on a 127.0.0.1 port the engine allocates (read it
+// back with PublishedHostPort), and returns the container ID;
 // the caller stops and removes it with StopAndRemoveContainer. The image must
 // already be present in the local engine — the simulator runs entirely on
 // local images, so an absent one surfaces as a real "image not present" error
@@ -885,12 +889,24 @@ func StartHTTPContainer(ctx context.Context, cfg HTTPContainerConfig) (string, e
 		labels[k] = v
 	}
 
-	exposedPort := network.MustParsePort("8080/tcp")
+	if len(cfg.PublishPorts) == 0 {
+		return "", errors.New("an HTTP container needs at least one port to publish")
+	}
+	exposed := network.PortSet{}
+	bindings := network.PortMap{}
+	for _, containerPort := range cfg.PublishPorts {
+		port, err := network.ParsePort(strconv.Itoa(containerPort) + "/tcp")
+		if err != nil {
+			return "", fmt.Errorf("container port %d: %w", containerPort, err)
+		}
+		exposed[port] = struct{}{}
+		bindings[port] = []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1")}}
+	}
 	containerCfg := &container.Config{
 		Image:        imageRef,
 		Env:          env,
 		Labels:       labels,
-		ExposedPorts: network.PortSet{exposedPort: struct{}{}},
+		ExposedPorts: exposed,
 	}
 	if len(cfg.Command) > 0 {
 		containerCfg.Entrypoint = cfg.Command
@@ -899,11 +915,9 @@ func StartHTTPContainer(ctx context.Context, cfg HTTPContainerConfig) (string, e
 		containerCfg.Cmd = cfg.Args
 	}
 	hostCfg := &container.HostConfig{
-		PortBindings: network.PortMap{
-			exposedPort: []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1")}},
-		},
-		Binds:      selinuxRelabelBinds(cfg.Binds),
-		ExtraHosts: cfg.ExtraHosts,
+		PortBindings: bindings,
+		Binds:        selinuxRelabelBinds(cfg.Binds),
+		ExtraHosts:   cfg.ExtraHosts,
 	}
 	if err := cfg.Sandbox.Apply(hostCfg, containerCfg); err != nil {
 		return "", fmt.Errorf("sandbox enforce: %w", err)

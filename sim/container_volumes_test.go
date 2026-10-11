@@ -101,6 +101,7 @@ func TestRemovedWorkloadLeavesNoAnonymousVolume(t *testing.T) {
 			Args:         []string{"-c", "sleep 300"},
 			Name:         fmt.Sprintf("sockerless-sim-anonymous-volume-http-%d", time.Now().UnixNano()),
 			Binds:        []string{named + ":/named"},
+			PublishPorts: []int{8080},
 		})
 		if err != nil {
 			t.Fatalf("start workload: %v", err)

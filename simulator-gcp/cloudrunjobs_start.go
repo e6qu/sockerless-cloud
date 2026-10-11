@@ -226,6 +226,7 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 	// join, and with it the hosts file the metadata server's name resolves in.
 	owner := order[0]
 	members[owner].Config.ExtraHosts = extraHosts
+	members[owner].Config.PublishPorts = cloudRunNamespacePorts(containers, false)
 	ownerGroup, err := workload.StartGroup(ctx, members[owner], nil, sink)
 	if err != nil {
 		return fail(err)
@@ -254,12 +255,8 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 		mu.Unlock()
 		exited, releaseWait := watchCloudRunContainerExit(containerID)
 		defer releaseWait()
-		port := cloudRunContainerPort(c)
-		route, err := cloudRunContainerRoute(ctx, ownerID, port)
-		if err == nil {
-			err = runStartupProbe(ctx, cloudRunStartupProbe(c), route, port, port, exited)
-		}
-		if err != nil {
+		route := func(port int) (string, error) { return cloudRunContainerRoute(ctx, ownerID, port) }
+		if err := runStartupProbe(ctx, cloudRunStartupProbe(c), route, cloudRunContainerPort(c), exited); err != nil {
 			return fmt.Errorf("container %q failed its startup probe: %w", c.Name, err)
 		}
 		return nil

@@ -3309,6 +3309,20 @@ endpoints that resource reaches. The 8.6.0 batch covered
 sources, and the Eventarc pipeline IAM binding, member, policy and policy data
 source; the capability-config SDK test moved from raw requests onto the
 `cloudresourcemanager/v3` client once `google.golang.org/api` generated it.
+A workload container publishes every port the host reaches it on.
+`sim.HTTPContainerConfig.PublishPorts` is required, and `StartHTTPContainer`
+publishes each listed port on loopback: an App Service site publishes its
+`WEBSITES_PORT`, and the owner of a Cloud Run instance's network namespace
+publishes the ingress port and the port of every startup probe a container
+runs, for services and jobs alike. Only 8080 had been published, so on a host
+that routes no container address a site on another port and a probe of another
+port could not be reached at all.
+
+A Firecracker guest's boot is the kernel's `IP-Config: Complete` line on the
+serial console, which the console writer watches for, and one ping then
+confirms the address answers. Pinging from the start had cost each boot up to
+two seconds of reply timeouts and sleeps against a guest that could not answer
+yet.
 
 `scripts/check-repo-config-sane.sh` fails a commit whose checkout has acquired
 `core.bare = true` or a test fixture's identity — the corruption a `git config`
