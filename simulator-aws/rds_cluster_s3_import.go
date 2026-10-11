@@ -101,10 +101,12 @@ func handleRDSRestoreClusterFromS3(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, exists := rdsClusters.Get(newID); exists {
+	releaseIdentifier, claimed := rdsClusterIdentifiers.claim(newID)
+	if !claimed {
 		rdsErrorXML(w, "DBClusterAlreadyExistsFault", fmt.Sprintf("DBCluster %q already exists", newID), http.StatusConflict, requestID)
 		return
 	}
+	defer releaseIdentifier()
 	engine := r.FormValue("Engine")
 	if !strings.EqualFold(engine, "aurora-mysql") {
 		rdsErrorXML(w, "InvalidParameterValue",

@@ -142,9 +142,13 @@ Current state of the sockerless-cloud repository.
   PostgreSQL, RDS for MySQL or RDS for MariaDB instance keeps the same
   automated backups, replaying MariaDB's binary log to the whole second,
   taking the first when it is created whether or not a client connects and
-  reporting `creating`, `starting` and `backing-up` until it is `available`:
-  RestoreDBInstanceToPointInTime seeds the new instance from them, and
-  RestoreDBInstanceFromS3 imports a Percona XtraBackup into RDS for MySQL. A
+  reporting `creating`, `starting` and `backing-up` until it is `available`.
+  A create or restore repeated under an identifier another request is still
+  provisioning answers DBInstanceAlreadyExists or DBClusterAlreadyExistsFault,
+  as one under a stored identifier does.
+  RestoreDBInstanceToPointInTime seeds the new instance from the automated
+  backups, and RestoreDBInstanceFromS3 imports a Percona XtraBackup into RDS
+  for MySQL. A
   deletion with `DeleteAutomatedBackups=false` retains the automated backups,
   which restore the deleted instance or cluster to a time, and an instance's
   automated backups replicate to another Region, where they restore after

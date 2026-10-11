@@ -364,7 +364,9 @@ func startHTTPSGateway(t *testing.T, env *Env, stateDir, simDir string, simPort 
 }
 
 func checkHTTPSHealth(raw string, client *http.Client) error {
-	resp, err := client.Get(raw)
+	bounded := *client
+	bounded.Timeout = 2 * time.Second
+	resp, err := bounded.Get(raw)
 	if err != nil {
 		return fmt.Errorf("GET %s: %w", raw, err)
 	}
@@ -385,8 +387,9 @@ func trustedHTTPClient(caCert string) (*http.Client, error) {
 	if !pool.AppendCertsFromPEM(caPEM) {
 		return nil, fmt.Errorf("parse CA cert %s", caCert)
 	}
+	// No overall timeout, as in the SDKs' own default client: an SDK retries a
+	// request its client gave up on, which turns a slow create into two.
 	return &http.Client{
-		Timeout: 2 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{RootCAs: pool},
 		},
