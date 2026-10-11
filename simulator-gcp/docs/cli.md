@@ -7,14 +7,24 @@
 
 ## Setup
 
-The gcloud CLI supports per-service endpoint overrides via `CLOUDSDK_API_ENDPOINT_OVERRIDES_*` environment variables. Set up an isolated gcloud config and a local-test auth token:
+The gcloud CLI takes per-service endpoint overrides from
+`CLOUDSDK_API_ENDPOINT_OVERRIDES_*` variables. The simulator verifies an OAuth 2.0
+access token on every request; mint one from its token endpoint with the
+JWT-bearer grant and hand it to gcloud, in a gcloud configuration of its own:
 
 ```sh
+SIM=http://localhost:4567
 export CLOUDSDK_CONFIG=/tmp/gcloud-sim-config
-export CLOUDSDK_AUTH_ACCESS_TOKEN=local-test-gcp-token
-export CLOUDSDK_CORE_PROJECT=my-project
+export CLOUDSDK_AUTH_ACCESS_TOKEN=$(curl -s -X POST $SIM/token \
+  -d grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+export CLOUDSDK_CORE_PROJECT=sockerless
 export CLOUDSDK_CORE_DISABLE_PROMPTS=1
 ```
+
+`sockerless` is the project every simulator starts with; create others through
+Cloud Resource Manager. The [simulator README](../README.md#credentials) shows
+the service-account key and metadata-server credential paths.
 
 Then override the endpoints for the services you need:
 
@@ -30,7 +40,10 @@ export CLOUDSDK_API_ENDPOINT_OVERRIDES_REDIS=http://localhost:4567/
 export CLOUDSDK_API_ENDPOINT_OVERRIDES_SQL=http://localhost:4567/
 ```
 
-Note the trailing `/` — gcloud appends API paths directly to the override URL.
+Keep the trailing `/`: gcloud appends API paths to the override URL. For a
+regional service gcloud prefixes the region onto the host
+(`us-central1-localhost:4567`); reach it through `HTTP_PROXY=$SIM` or a resolver
+entry.
 
 ## Examples
 
@@ -105,7 +118,7 @@ gcloud sql users list --instance=my-sql --format=json
 
 ```sh
 # List log entries (via gcloud or direct HTTP)
-gcloud logging read "resource.type=global" --project=my-project --format=json
+gcloud logging read "resource.type=global" --project=sockerless --format=json
 ```
 
 ### Service Usage
@@ -147,7 +160,7 @@ gcloud artifacts repositories create docker-hub \
 
 # List cached Docker images through the Artifact Registry API surface
 gcloud artifacts docker images list \
-  us-central1-docker.pkg.dev/my-project/docker-hub \
+  us-central1-docker.pkg.dev/sockerless/docker-hub \
   --include-tags \
   --format=json
 ```
@@ -164,14 +177,14 @@ gcloud storage rm gs://my-bucket/hello.txt
 gcloud storage buckets delete gs://my-bucket
 ```
 
-### Direct HTTP (for services without CLI endpoint overrides)
+### Direct HTTP
 
-Some services work better with direct HTTP calls since gcloud doesn't support endpoint overrides for all APIs:
+Every API also answers plain HTTP with the same bearer token:
 
 ```sh
 # Cloud Run Jobs — Create a job
-curl -X POST http://localhost:4567/v2/projects/my-project/locations/us-central1/jobs?jobId=my-job \
-  -H "Authorization: Bearer local-test-gcp-token" \
+curl -X POST http://localhost:4567/v2/projects/sockerless/locations/us-central1/jobs?jobId=my-job \
+  -H "Authorization: Bearer $CLOUDSDK_AUTH_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "template": {
@@ -182,12 +195,12 @@ curl -X POST http://localhost:4567/v2/projects/my-project/locations/us-central1/
   }'
 
 # Cloud Run Jobs — Get a job
-curl http://localhost:4567/v2/projects/my-project/locations/us-central1/jobs/my-job \
-  -H "Authorization: Bearer local-test-gcp-token"
+curl http://localhost:4567/v2/projects/sockerless/locations/us-central1/jobs/my-job \
+  -H "Authorization: Bearer $CLOUDSDK_AUTH_ACCESS_TOKEN"
 
 # Cloud Functions — Create a function
-curl -X POST "http://localhost:4567/v2/projects/my-project/locations/us-central1/functions?functionId=my-func" \
-  -H "Authorization: Bearer local-test-gcp-token" \
+curl -X POST "http://localhost:4567/v2/projects/sockerless/locations/us-central1/functions?functionId=my-func" \
+  -H "Authorization: Bearer $CLOUDSDK_AUTH_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "buildConfig": {"runtime": "docker"},
@@ -196,60 +209,39 @@ curl -X POST "http://localhost:4567/v2/projects/my-project/locations/us-central1
 
 # GCS — Create a bucket
 curl -X POST http://localhost:4567/storage/v1/b \
-  -H "Authorization: Bearer local-test-gcp-token" \
+  -H "Authorization: Bearer $CLOUDSDK_AUTH_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-bucket"}'
 
 # GCS — Upload an object
 curl -X POST "http://localhost:4567/upload/storage/v1/b/my-bucket/o?name=hello.txt" \
-  -H "Authorization: Bearer local-test-gcp-token" \
+  -H "Authorization: Bearer $CLOUDSDK_AUTH_ACCESS_TOKEN" \
   -H "Content-Type: text/plain" \
   -d 'hello world'
 
 # IAM — Create a service account
-curl -X POST http://localhost:4567/v1/projects/my-project/serviceAccounts \
-  -H "Authorization: Bearer local-test-gcp-token" \
+curl -X POST http://localhost:4567/v1/projects/sockerless/serviceAccounts \
+  -H "Authorization: Bearer $CLOUDSDK_AUTH_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"accountId": "my-sa", "serviceAccount": {"displayName": "My SA"}}'
 
 # Compute — Create a network
-curl -X POST http://localhost:4567/compute/v1/projects/my-project/global/networks \
-  -H "Authorization: Bearer local-test-gcp-token" \
+curl -X POST http://localhost:4567/compute/v1/projects/sockerless/global/networks \
+  -H "Authorization: Bearer $CLOUDSDK_AUTH_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-network", "autoCreateSubnetworks": false}'
 ```
 
-## Supported services
+## Coverage
 
-| Service | gcloud Subcommand | Endpoint Override | Notes |
-|---------|------------------|-------------------|-------|
-| Cloud DNS | `gcloud dns` | `CLOUDSDK_API_ENDPOINT_OVERRIDES_DNS` | Full CLI support |
-| Cloud Logging | `gcloud logging` | `CLOUDSDK_API_ENDPOINT_OVERRIDES_LOGGING` | Full CLI support |
-| Service Usage | `gcloud services` | `CLOUDSDK_API_ENDPOINT_OVERRIDES_SERVICEUSAGE` | Full CLI support |
-| VPC Access | `gcloud compute networks vpc-access` | `CLOUDSDK_API_ENDPOINT_OVERRIDES_VPCACCESS` | Full CLI support |
-| Cloud Functions | `gcloud functions` | `CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDFUNCTIONS` | Deploy may require direct HTTP |
-| Memorystore Redis | `gcloud redis instances` | `CLOUDSDK_API_ENDPOINT_OVERRIDES_REDIS` | Instance lifecycle |
-| Cloud SQL | `gcloud sql` | `CLOUDSDK_API_ENDPOINT_OVERRIDES_SQL` | Instance, database, and user lifecycle |
-| Cloud Storage | `gcloud storage` | `CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE` | Bucket and object lifecycle |
-| Cloud Run Jobs | — | — | Use direct HTTP |
-| GCS | — | — | Use direct HTTP or `STORAGE_EMULATOR_HOST` |
-| Artifact Registry | `gcloud artifacts` | `CLOUDSDK_API_ENDPOINT_OVERRIDES_ARTIFACTREGISTRY` | Repository CRUD and Docker image listing |
-| Compute | — | — | Use direct HTTP |
-| IAM | — | — | Use direct HTTP |
-
-## Automated bash tests
-
-A self-contained bash test script exercises Cloud DNS, Service Usage, Cloud Logging, Cloud Run Jobs, and GCS in both text and JSON output modes:
-
-```sh
-cd simulator-gcp/bash-tests
-./test_gcp_cli.sh
-```
-
-The script builds the simulator, starts it on a random port, runs 33 tests, and prints a pass/fail summary.
+[`specs/SIM_PARITY_MATRIX.md`](../../specs/SIM_PARITY_MATRIX.md) lists the
+served services, and
+[`specs/SIM_TEST_COVERAGE_MATRIX.md`](../../specs/SIM_TEST_COVERAGE_MATRIX.md)
+names the gcloud test of each surface (`simulator-gcp/cli-tests/`).
 
 ## Notes
 
-- The simulator accepts authentication without validating it. Any Bearer token works.
-- All state is in-memory and resets when the simulator restarts.
-- `CLOUDSDK_CONFIG` should point to an isolated directory to avoid interfering with your real gcloud configuration.
+- State lives in memory unless the simulator runs with `SIM_PERSIST=true`, which
+  keeps it under `SIM_DATA_DIR` across restarts.
+- Point `CLOUDSDK_CONFIG` at a directory of its own so the simulator's settings
+  never reach your real gcloud configuration.

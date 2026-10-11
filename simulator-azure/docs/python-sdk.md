@@ -2,9 +2,10 @@
 
 ## Prerequisites
 
-- Python 3.8+
-- Azure SDK packages installed (see per-service examples below)
-- Simulator running on `http://localhost:4568`
+- The Azure SDK for Python packages for the services you use
+- The simulator served over HTTPS (`SIM_TLS_CERT`/`SIM_TLS_KEY`, or the Caddy
+  gateway), because `azure-identity` accepts only an `https` authority; trust its
+  CA through `REQUESTS_CA_BUNDLE`
 
 ## Setup
 
@@ -16,20 +17,19 @@ pip install azure-identity azure-mgmt-resource azure-mgmt-containerinstance azur
 
 ```python
 from azure.identity import ClientSecretCredential
-from azure.core.pipeline.policies import CustomHookPolicy
 
-ENDPOINT = "http://localhost:4568"
+ENDPOINT = "https://localhost:4568"
 SUBSCRIPTION_ID = "00000000-0000-0000-0000-000000000001"
 TENANT_ID = "11111111-1111-1111-1111-111111111111"
 RESOURCE_GROUP = "my-resource-group"
 
-# The simulator accepts local-test credentials via its OAuth2 endpoint.
-# Point the credential at the simulator's authority host.
 credential = ClientSecretCredential(
     tenant_id=TENANT_ID,
     client_id="test-client-id",
     client_secret="test-client-secret",
     authority=ENDPOINT,
+    # MSAL otherwise asks login.microsoftonline.com to vouch for the host.
+    disable_instance_discovery=True,
 )
 ```
 
@@ -189,9 +189,10 @@ print(identity.principal_id)
 client.user_assigned_identities.delete(RESOURCE_GROUP, "my-identity")
 ```
 
-### Direct HTTP (for services without Python SDK wrappers)
+### Direct HTTP
 
-For Container App Jobs, Azure Functions, ACR, DNS, and other services, use `requests` with direct ARM API calls:
+Every Azure Resource Manager operation also answers a plain request carrying a
+token from the same endpoint:
 
 ```python
 import requests
@@ -277,26 +278,11 @@ resp = requests.put(
 print(resp.json()["name"])
 ```
 
-## Approach summary
-
-| Service | Recommended Client | Package |
-|---------|-------------------|---------|
-| Resource Groups | `ResourceManagementClient` | `azure-mgmt-resource` |
-| Networking | `NetworkManagementClient` | `azure-mgmt-network` |
-| Storage | `StorageManagementClient` | `azure-mgmt-storage` |
-| Managed Identity | `ManagedServiceIdentityClient` | `azure-mgmt-msi` |
-| Container App Jobs | `requests` (direct HTTP) | — |
-| Azure Functions | `requests` (direct HTTP) | — |
-| Container Registry | `requests` (direct HTTP) | — |
-| Private DNS | `requests` (direct HTTP) | — |
-| Log Analytics | `requests` (direct HTTP) | — |
-| App Insights | `requests` (direct HTTP) | — |
-| Authorization | `requests` (direct HTTP) | — |
-
 ## Notes
 
-- The simulator's OAuth2 endpoint accepts local-test credentials and returns token responses shaped for Azure SDK clients, including JWT `aud` claims derived from OAuth v2 `scope` or OAuth v1 `resource` requests.
-- All state is in-memory and resets when the simulator restarts.
-- Every ARM request must carry the `api-version` query parameter.
-- Management clients that use `base_url` should work. Clients that hardcode `management.azure.com` may require patching or direct HTTP.
-- The `authority` parameter on `ClientSecretCredential` must point to the simulator for the OAuth2 token flow to work.
+- State lives in memory unless the simulator runs with `SIM_PERSIST=true`, which
+  keeps it under `SIM_DATA_DIR` across restarts.
+- Every Azure Resource Manager request carries the `api-version` query
+  parameter.
+- The token endpoint derives each token's `aud` from the OAuth 2.0 v2 `scope` or
+  v1 `resource` requested.

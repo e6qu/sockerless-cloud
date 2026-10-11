@@ -1,6 +1,6 @@
 # simulator-azure
 
-Local reimplementation of a slice of Microsoft Azure. Not a mock — Container Apps job executions respect `replicaTimeout` for completion, Azure Functions invoke and produce real AppTraces entries, Kusto Query Language (KQL) queries parse and filter against real log data, and Azure Container Registry (ACR) stores real OCI manifests with chunked upload support.
+Local reimplementation of a slice of Microsoft Azure. Container Apps job executions honour `replicaTimeout`, App Service and Azure Functions sites run their containers and write real AppTraces entries, Kusto Query Language (KQL) queries run against real log data, and Azure Container Registry (ACR) stores real OCI images.
 
 ## Reference adaptor
 
@@ -8,17 +8,12 @@ The simulator exposes one HTTP endpoint (default `:4568`) that fronts all Azure 
 
 | Adaptor | Min version | What it proves |
 |---|---|---|
-| [Azure SDK for Go](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk) (`armappcontainers`, `armappservice`, `armcontainerregistry`, ...) | v3+ | Wire-level SDK compatibility — ARM REST shape, OData filters, async LRO polling (`Azure-AsyncOperation` / `Location` headers). |
-| [`az` CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) | 2.60+ | Endpoint-override fidelity (the sim accepts `https://management.azure.com` traffic when fronted with TLS). |
-| [Terraform `azurerm` provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs) | v4+ | Full plan → apply → destroy round-trip across `azurerm_resource_group`, `azurerm_container_app_environment`, `azurerm_container_app_job`, `azurerm_linux_function_app`, `azurerm_log_analytics_workspace`, `azurerm_container_registry`, `azurerm_storage_account`, `azurerm_private_dns_zone`, etc. macOS direct `go test` delegates to the shared Linux Docker test image so Terraform can honor `SSL_CERT_FILE`. |
+| [Azure SDK for Go](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk) (`armappcontainers`, `armappservice`, `armcontainerregistry`, ...) | the releases `sdk-tests/go.mod` pins | Wire-level SDK compatibility — ARM REST shape, OData filters, async LRO polling (`Azure-AsyncOperation` / `Location` headers). |
+| [`az` CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) | the host's `az` | `az rest` with a simulator-minted bearer, and native commands after `az cloud register` and `az login` against the simulator over TLS. |
+| [Terraform `azurerm` provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs) | the version `terraform-tests` pins | Full plan → apply → destroy round-trip across `azurerm_resource_group`, `azurerm_container_app_environment`, `azurerm_container_app_job`, `azurerm_linux_function_app`, `azurerm_log_analytics_workspace`, `azurerm_container_registry`, `azurerm_storage_account`, `azurerm_private_dns_zone`, etc. On macOS the harness runs inside the shared Linux test image so Terraform honours `SSL_CERT_FILE`. |
 
 Anything any of these three tools does against the real Azure endpoint, it must do against this simulator. Gaps from that contract are real bugs (see [BUGS.md](../BUGS.md)).
 
-
-The Storage data plane includes Blob container/blob CRUD, block staging,
-and Copy Blob via the public `x-ms-copy-source` REST operation. Copy Blob
-accepts simulator host-style and Azurite-style path-style source URLs,
-copies the stored source bytes, and returns Azure copy ID/status headers.
 
 ## Validation
 
@@ -34,8 +29,8 @@ copies the stored source bytes, and returns Azure copy ID/status headers.
 ```bash
 # 1. Build + start the sim (default :4568).
 cd simulator-azure
-go build -o simulator-azure .
-SIM_LISTEN_ADDR=:4568 ./simulator-azure
+go build -tags noui -o simulator-azure .
+./simulator-azure
 ```
 
 With `SIM_PERSIST=true`, `SIM_DATA_DIR` is the persistence root: the SQLite
@@ -169,12 +164,17 @@ Without an `appServiceScm` template, a web app's SCM host is its subdomain of
 the ARM request host, such as `myapp.scm.localhost:4568`.
 
 ```bash
-# 2. Point Azure clients at it.
-# For az CLI: use az rest with explicit URL.
-az rest --method GET --url "http://localhost:4568/subscriptions/00000000-0000-0000-0000-000000000001?api-version=2021-04-01"
-
-# For the Go SDK:
+# 2. Point Azure clients at it. az rest carries a bearer minted by the
+#    simulator's token endpoint (docs/cli.md shows the full setup).
+TOKEN=$(curl -s -X POST http://localhost:4568/11111111-1111-1111-1111-111111111111/oauth2/v2.0/token \
+  -d grant_type=client_credentials -d client_id=test-client-id -d client_secret=test-client-secret \
+  --data-urlencode scope=https://management.azure.com/.default \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+az rest --method GET --headers "Authorization=Bearer $TOKEN" \
+  --url "http://localhost:4568/subscriptions/00000000-0000-0000-0000-000000000001?api-version=2021-04-01"
 ```
+
+The Go SDK takes the simulator's coordinates as a cloud configuration:
 
 ```go
 import "github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
@@ -187,17 +187,20 @@ cfg := cloud.Configuration{
 }
 ```
 
-For Terraform, use TLS + Docker (see `terraform-tests/` Makefile):
+For Terraform, serve the simulator over HTTPS and point `azurerm` at its
+metadata host; [`docs/terraform.md`](docs/terraform.md) has the full setup:
 
 ```hcl
 provider "azurerm" {
+  client_id       = "test-client-id"
+  client_secret   = "test-client-secret"
+  tenant_id       = "11111111-1111-1111-1111-111111111111"
+  subscription_id = "00000000-0000-0000-0000-000000000001"
+  metadata_host   = "azure.sockerless.localhost:8443"
+
+  resource_provider_registrations = "none"
+
   features {}
-  environment      = "custom"
-  metadata_host    = "localhost:4568"
-  client_id        = "00000000-0000-0000-0000-000000000001"
-  tenant_id        = "00000000-0000-0000-0000-000000000001"
-  subscription_id  = "00000000-0000-0000-0000-000000000001"
-  skip_provider_registration = true
 }
 ```
 
@@ -216,76 +219,36 @@ matching RSA public key at `/{tenantId}/discovery/v2.0/keys`, so clients that
 follow Azure AD's JWKS validation flow can verify simulator-issued bearer
 tokens without shared secrets.
 
-### Compute & Containers
+### Everything else
 
-| Service | Endpoints |
-|---|---|
-| **Container App Environments** | CRUD for managed environments |
-| **Container App Jobs** | CRUD, Start execution, Stop execution, List/Get executions |
-| **Azure Functions (Sites)** | CRUD for function apps, List functions, a front end that forwards requests on a site's hostname to its container |
-| **App Service Plans** | CRUD (serverFarms) |
-| **ACR** | Registry CRUD, Name availability, [OCI Distribution](https://github.com/opencontainers/distribution-spec) (`/v2/` manifests + blobs + chunked upload) |
-
-### Infrastructure
-
-| Service | Endpoints |
-|---|---|
-| **Resource Groups** | CRUD, List resources, HEAD existence check |
-| **Virtual Networks / Subnets / NSGs** | CRUD (subnets with delegations + NSG references; NSGs with security rules) |
-| **Managed Identity** | User-assigned identity CRUD |
-| **Authorization** | Role definitions (list with OData filter), Role assignments at any scope |
-
-### Storage & Data
-
-| Service | Endpoints |
-|---|---|
-| **Storage Accounts** | CRUD, List keys |
-| **File Shares** | CRUD under storage accounts |
-| **Storage Data-Plane** | Host-based routing (`{account}.blob.localhost:{port}`) for blob/file service properties and ACLs |
-| **Cosmos DB for NoSQL** | ARM databaseAccounts, SQL databases, containers, throughput settings, listKeys/listConnectionStrings; SQL data-plane database/container/document CRUD and query |
-
-Storage account `listKeys` returns Azure-shaped 512-bit base64 SharedKeys that
-are deterministic per resource ID and key name, so downstream SharedKey
-verifiers can validate requests signed with the simulator-emitted account key.
-
-### Monitoring
-
-| Service | Endpoints |
-|---|---|
-| **Log Analytics Workspaces** | CRUD, Shared keys |
-| **Log Ingestion** | POST entries via data collection rules |
-| **Log Query** | KQL query execution: `where`, `take`/`limit`, `project`, `project-away`, `project-rename`, `extend`, `order by`/`sort by`, `top`, `count`, `summarize`, `distinct`; refused queries answer `BadArgumentError` |
-| **Application Insights** | Component CRUD, Billing features, Query |
-
-### DNS
-
-| Service | Endpoints |
-|---|---|
-| **Private DNS Zones** | `Microsoft.Network/privateDnsZones` zone CRUD, list-by-resource-group, and auto-created SOA record |
-| **Public DNS Zones** | `Microsoft.Network/dnsZones` zone CRUD, list-by-resource-group, and record-set CRUD |
-| **A Records** | CRUD under zones |
-| **Virtual Network Links** | CRUD and list-by-zone |
+The simulator serves the Swagger documents vendored under
+[`specs/cloud-api/azure`](../specs/cloud-api/azure): 2,653 of 2,660 operations
+across 122 documents, the rest answering a declared 501.
+[`specs/SIM_PARITY_MATRIX.md`](../specs/SIM_PARITY_MATRIX.md) lists the
+services, and [`specs/SIM_SURFACE_TABLES/`](../specs/SIM_SURFACE_TABLES/README.md)
+holds the per-operation tables. Storage account `listKeys` returns Azure-shaped
+512-bit base64 Shared Keys, deterministic per resource ID and key name, so a
+downstream Shared Key verifier validates requests signed with them.
 
 ## Special handling
 
 These are the load-bearing wire-quirks the sim implements to satisfy the real adaptors:
 
 - **Double-slash cleanup** — `CleanPathMiddleware` strips leading `//` from paths (the `azurerm` provider appends a trailing slash to the ARM endpoint).
-- **Case-insensitive paths** — `AzurePathNormalizationMiddleware` normalises known segments (e.g., `/resourcegroups/` → `/resourceGroups/`).
+- **Case-insensitive paths** — `azureNormalizeRequestPath`, the simulator's `Config.RewriteRequest`, folds known segments to their registered spelling (`/resourcegroups/` → `/resourceGroups/`).
 - **Auth outside mux** — outer middleware serves the OAuth2 token endpoints, so they do not collide with ACR's `/v2/` catch-all.
-- **TLS for Terraform** — Azure Terraform tests use self-signed certs because the `azurestack` provider hardcodes `https://`. On macOS, direct `go test` delegates into Linux Docker so the providers validate the generated CA through `SSL_CERT_FILE`.
+- **TLS for Terraform and MSAL** — the `azurerm` provider and MSAL-based clients (the Azure CLI's `az login`, `azure-identity`) reach the cloud over HTTPS only, so they talk to the simulator through its TLS listener or the Caddy gateway. On macOS the Terraform harness runs inside the shared Linux test image so the providers trust the CA through `SSL_CERT_FILE`.
 - **Host-addressed data-plane DNS** — the Host header routes data-plane requests (`{account}.{service}.<zone>`). The optional simulator DNS listener serves the local zones over UDP/TCP so real clients can use returned Azure-shaped hosts directly.
-- **Sync creates return 200** — `go-azure-sdk` treats 200 as immediate completion for `BeginCreate` LRO; the sim returns 200 instead of 201 for synchronous creates.
 
 ## Building
 
 ```bash
-cd simulator-azure && go build -o simulator-azure .
+cd simulator-azure && go build -tags noui -o simulator-azure .
 ```
 
 ## Sample
 
-End-to-end via `az rest`:
+End-to-end via `az rest`; each call carries `--headers "Authorization=Bearer $TOKEN"`, omitted below:
 
 ```bash
 $ SIM_LISTEN_ADDR=:4568 ./simulator-azure &
@@ -301,7 +264,7 @@ $ az rest --method PUT \
 
 $ az rest --method POST --url ".../jobs/my-job/start?api-version=2023-05-01" --body '{}'
 
-$ az rest --method POST --url "http://localhost:4568/v1/workspaces/default/query" \
+$ az rest --method POST --url "http://localhost:4568/v1/workspaces/$WORKSPACE_ID/query" \
     --body '{"query":"ContainerAppConsoleLogs_CL | where ContainerGroupName_s == \"my-job\""}'
 {"tables":[{"rows":[["...","my-job","hello-from-aca","stdout"]]}]}
 ```
@@ -337,7 +300,7 @@ Every Container Apps job execution and replica, Container Instance, Azure Functi
 
 ## Known issues
 
-Active Azure simulator bugs live in [BUGS.md](../BUGS.md). On macOS the Terraform harness runs inside the shared Linux Docker test image, which is what gives it a working TLS trust store.
+Open simulator bugs live in [BUGS.md](../BUGS.md).
 
 ## What's out of scope
 
@@ -348,6 +311,10 @@ Active Azure simulator bugs live in [BUGS.md](../BUGS.md). On macOS the Terrafor
 - **Identity providers outside the simulator**: Microsoft Entra issues and verifies its own tokens, and the Microsoft Graph `v1.0` and `beta` surfaces serve users, groups, applications, service principals and directory objects; federating an external identity provider into it is a coordinate a deployment supplies.
 
 ## Extended examples
+
+Each `az rest` call below carries `--headers "Authorization=Bearer $TOKEN"`,
+omitted for brevity; data-plane calls addressed by `Host` carry their own
+credentials.
 
 ### Container Apps Jobs
 
@@ -367,7 +334,7 @@ az rest --method PUT \
 az rest --method POST --url ".../jobs/my-job/start?api-version=2023-05-01" --body '{}'
 
 # Query Log Analytics for the execution output
-az rest --method POST --url "http://localhost:4568/v1/workspaces/default/query" \
+az rest --method POST --url "http://localhost:4568/v1/workspaces/$WORKSPACE_ID/query" \
   --body '{"query": "ContainerAppConsoleLogs_CL | where ContainerGroupName_s == \"my-job\""}'
 ```
 
@@ -404,7 +371,7 @@ az rest --method POST --url "http://localhost:4568/api/function" --body '{}' \
   --headers "Host=my-func-app.azurewebsites.net" --skip-authorization-header
 
 # Query AppTraces
-az rest --method POST --url "http://localhost:4568/v1/workspaces/default/query" \
+az rest --method POST --url "http://localhost:4568/v1/workspaces/$WORKSPACE_ID/query" \
   --body '{"query": "AppTraces | where AppRoleName == \"my-func-app\""}'
 
 # Create a Linux web app on a built-in stack (NODE|20-lts, NODE|22-lts or
@@ -444,15 +411,19 @@ az rest --method PUT \
   --url ".../providers/Microsoft.OperationalInsights/workspaces/my-workspace?api-version=2022-10-01" \
   --body '{"location":"eastus","properties":{"retentionInDays":30}}'
 
-# Ingest entries via data collection rule
+# Ingest rows through a data collection rule that declares the stream and
+# routes it to a table of the workspace, addressed by the rule's immutable ID
 az rest --method POST \
-  --url "http://localhost:4568/dataCollectionRules/dcr-1/streams/Custom-Logs" \
-  --body '[{"TimeGenerated":"2025-01-01T00:00:00Z","ContainerGroupName_s":"my-job","Log_s":"running","Stream_s":"stdout"}]'
+  --url "http://localhost:4568/dataCollectionRules/$DCR_IMMUTABLE_ID/streams/Custom-Logs" \
+  --body '[{"TimeGenerated":"2025-01-01T00:00:00Z","Message":"running"}]'
 
 # KQL query
-az rest --method POST --url "http://localhost:4568/v1/workspaces/default/query" \
+az rest --method POST --url "http://localhost:4568/v1/workspaces/$WORKSPACE_ID/query" \
   --body '{"query": "ContainerAppConsoleLogs_CL | where ContainerGroupName_s == \"my-job\" | take 100"}'
 ```
+
+`$WORKSPACE_ID` is the workspace's `customerId`. A Container Apps job's output
+reaches the workspace its environment names in `appLogsConfiguration`.
 
 ### ACR (Container Registry)
 

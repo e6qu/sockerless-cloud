@@ -2,8 +2,7 @@
 
 ## Prerequisites
 
-- Python 3.8+
-- `boto3` installed (`pip install boto3`)
+- `boto3` 1.34 or later (`pip install boto3`)
 - Simulator running on `http://localhost:4566`
 
 ## Setup
@@ -29,12 +28,13 @@ logs = session.client("logs", endpoint_url="http://localhost:4566")
 efs = session.client("efs", endpoint_url="http://localhost:4566")
 lam = session.client("lambda", endpoint_url="http://localhost:4566")
 sd = session.client("servicediscovery", endpoint_url="http://localhost:4566")
-s3 = session.client("s3", endpoint_url="http://localhost:4566/s3")
+s3 = session.client("s3", endpoint_url="http://localhost:4566")
 ```
 
-The simulator accepts any access key and secret. S3 requires the `/s3` path prefix.
+The simulator verifies each SigV4 signature; `test`/`test` is the access key of
+the administrator every simulator starts with.
 
-Alternatively, set environment variables and let boto3 pick them up:
+Or set the standard environment variables, which boto3 reads:
 
 ```sh
 export AWS_ENDPOINT_URL=http://localhost:4566
@@ -46,11 +46,8 @@ export AWS_DEFAULT_REGION=us-east-1
 ```python
 import boto3
 
-# boto3 reads AWS_ENDPOINT_URL automatically (boto3 >= 1.34)
 ecs = boto3.client("ecs")
 ```
-
-> Note: boto3 1.34+ honours `AWS_ENDPOINT_URL`. For older versions, pass `endpoint_url` explicitly.
 
 ## Examples
 
@@ -144,7 +141,7 @@ lam.delete_function(FunctionName="my-func")
 ### S3
 
 ```python
-s3 = session.client("s3", endpoint_url="http://localhost:4566/s3")
+s3 = session.client("s3", endpoint_url="http://localhost:4566")
 
 # Create a bucket
 s3.create_bucket(Bucket="my-bucket")
@@ -331,7 +328,7 @@ sd.delete_namespace(Id=ns_id)
 
 ## Notes
 
-- The simulator accepts authentication without validating it. Any credentials work.
-- All state is in-memory and resets when the simulator restarts.
-- S3 requires the `/s3` path prefix in the endpoint URL.
-- The simulator returns the local-test account ID `123456789012` for STS calls.
+- State lives in memory unless the simulator runs with `SIM_PERSIST=true`, which
+  keeps it under `SIM_DATA_DIR` across restarts.
+- STS reports account `123456789012` unless `SOCKERLESS_AWS_ACCOUNT_ID` names
+  another.

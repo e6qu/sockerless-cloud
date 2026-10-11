@@ -17,19 +17,10 @@ export AWS_DEFAULT_REGION=us-east-1
 export AWS_PAGER=
 ```
 
-`AWS_ENDPOINT_URL` redirects all AWS CLI requests to the simulator. The simulator accepts any access key and secret. `AWS_PAGER=` disables the pager for easier scripting.
-
-For S3 commands, the simulator routes S3 under a `/s3` prefix:
-
-```sh
-export AWS_ENDPOINT_URL=http://localhost:4566/s3
-```
-
-If you need both S3 and non-S3 commands in the same session, use the `--endpoint-url` flag for S3 commands instead:
-
-```sh
-aws s3 ls --endpoint-url http://localhost:4566/s3
-```
+`AWS_ENDPOINT_URL` sends every AWS CLI request, Amazon S3 included, to the
+simulator. The simulator verifies each SigV4 signature: `test`/`test` is the
+access key of the administrator every simulator starts with, as a new AWS
+account starts with a root credential. `AWS_PAGER=` turns off the pager.
 
 ## Examples
 
@@ -100,20 +91,20 @@ aws lambda delete-function --function-name my-func
 
 ```sh
 # Create a bucket
-aws s3 mb s3://my-bucket --endpoint-url http://localhost:4566/s3
+aws s3 mb s3://my-bucket
 
 # Upload a file
-aws s3 cp myfile.txt s3://my-bucket/myfile.txt --endpoint-url http://localhost:4566/s3
+aws s3 cp myfile.txt s3://my-bucket/myfile.txt
 
 # List objects
-aws s3 ls s3://my-bucket/ --endpoint-url http://localhost:4566/s3
+aws s3 ls s3://my-bucket/
 
 # Download a file
-aws s3 cp s3://my-bucket/myfile.txt downloaded.txt --endpoint-url http://localhost:4566/s3
+aws s3 cp s3://my-bucket/myfile.txt downloaded.txt
 
 # Remove
-aws s3 rm s3://my-bucket/myfile.txt --endpoint-url http://localhost:4566/s3
-aws s3 rb s3://my-bucket --endpoint-url http://localhost:4566/s3
+aws s3 rm s3://my-bucket/myfile.txt
+aws s3 rb s3://my-bucket
 ```
 
 ### CloudWatch Logs
@@ -222,34 +213,16 @@ aws ec2 create-security-group \
 aws ec2 describe-vpcs --output json
 ```
 
-## Supported services
+## Coverage
 
-| Service | CLI Subcommand | Tested |
-|---------|---------------|--------|
-| ECS | `aws ecs` | Yes |
-| ECR | `aws ecr` | Yes (via SDK tests) |
-| Lambda | `aws lambda` | Yes |
-| S3 | `aws s3` / `aws s3api` | Yes |
-| CloudWatch Logs | `aws logs` | Yes |
-| Cloud Map | `aws servicediscovery` | Yes |
-| EFS | `aws efs` | Yes |
-| IAM | `aws iam` | Yes (via SDK tests) |
-| EC2 | `aws ec2` | Yes (via SDK tests) |
-| STS | `aws sts` | Yes |
-
-## Automated bash tests
-
-A self-contained bash test script exercises all services above in both `--output text` and `--output json` modes:
-
-```sh
-cd simulator-aws/bash-tests
-./test_aws_cli.sh
-```
-
-The script builds the simulator, starts it on a random port, runs 61 tests, and prints a pass/fail summary.
+[`specs/SIM_PARITY_MATRIX.md`](../../specs/SIM_PARITY_MATRIX.md) lists every
+service the simulator serves, and
+[`specs/SIM_TEST_COVERAGE_MATRIX.md`](../../specs/SIM_TEST_COVERAGE_MATRIX.md)
+names the CLI test that drives each surface (`simulator-aws/cli-tests/`).
 
 ## Notes
 
-- The simulator accepts authentication without validating it. Any access key and secret works.
-- All state is in-memory and resets when the simulator restarts.
-- The simulator returns the local-test account ID `123456789012` for STS calls.
+- State lives in memory unless the simulator runs with `SIM_PERSIST=true`, which
+  keeps it under `SIM_DATA_DIR` across restarts.
+- STS reports account `123456789012` unless `SOCKERLESS_AWS_ACCOUNT_ID` names
+  another.

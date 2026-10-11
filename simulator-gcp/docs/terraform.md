@@ -19,10 +19,10 @@ terraform {
 }
 
 provider "google" {
-  project = "my-project"
+  project = "sockerless"
   region  = "us-central1"
 
-  access_token          = "test-token"
+  access_token          = var.access_token
   user_project_override = false
 
   # Point each service at the simulator
@@ -41,7 +41,17 @@ provider "google" {
 }
 ```
 
-Note the trailing `/` on endpoint URLs — the Google provider appends API paths directly.
+Keep the trailing `/` on endpoint URLs: the provider appends API paths to them.
+The simulator verifies the bearer on every request, so `var.access_token` must
+be a token its token endpoint minted:
+
+```sh
+export TF_VAR_access_token=$(curl -s -X POST http://localhost:4567/token \
+  -d grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+```
+
+`sockerless` is the project every simulator starts with.
 
 ## Optional HTTPS gateway
 
@@ -58,10 +68,10 @@ Then compose service-specific endpoint URLs from `var.endpoint` exactly as with 
 
 ```hcl
 provider "google" {
-  project = "my-project"
+  project = "sockerless"
   region  = "us-central1"
 
-  access_token          = "test-token"
+  access_token          = var.access_token
   user_project_override = false
 
   compute_custom_endpoint           = "${var.endpoint}/compute/v1/"
@@ -183,6 +193,11 @@ variable "endpoint" {
   type        = string
   default     = "http://localhost:4567"
 }
+
+variable "access_token" {
+  type      = string
+  sensitive = true
+}
 ```
 
 Then use `var.endpoint` as the base for custom endpoint URLs in the provider block:
@@ -194,24 +209,17 @@ redis_custom_endpoint   = "${var.endpoint}/v1/"
 sql_custom_endpoint     = "${var.endpoint}/sql/v1beta4/"
 ```
 
-## Supported resources
+## Coverage
 
-| Category | Resources |
-|----------|-----------|
-| Compute | `google_compute_network`, `google_compute_subnetwork` |
-| DNS | `google_dns_managed_zone`, `google_dns_record_set` |
-| Memorystore Redis | `google_redis_instance` |
-| Cloud SQL | `google_sql_database_instance`, `google_sql_database`, `google_sql_user` |
-| IAM | `google_service_account`, `google_project_iam_member` |
-| Cloud Run | `google_cloud_run_v2_job` |
-| Cloud Functions | `google_cloudfunctions2_function` |
-| Storage | `google_storage_bucket` |
-| Artifact Registry | `google_artifact_registry_repository` |
-| VPC Access | `google_vpc_access_connector` |
-| Service Usage | `google_project_service` |
+`simulator-gcp/terraform-tests/` holds the configurations the provider is tested
+with (`main.tf`, the per-feature tests and `fixtures/`), and
+[`specs/SIM_TEST_COVERAGE_MATRIX.md`](../../specs/SIM_TEST_COVERAGE_MATRIX.md)
+names the Terraform test of each surface.
 
 ## Notes
 
-- All state is in-memory and resets when the simulator restarts. Terraform state files will become stale after a restart.
-- Authentication is not validated — any `access_token` value will work.
-- Long-running operations return immediately with `done: true`, so Terraform never blocks on polling.
+- State lives in memory unless the simulator runs with `SIM_PERSIST=true`, which
+  keeps it under `SIM_DATA_DIR`; restarting a non-persistent simulator leaves
+  Terraform state describing resources that no longer exist.
+- Long-running operations finish when their work does, and the provider polls
+  them as it polls Google.
