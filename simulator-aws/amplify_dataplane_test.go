@@ -17,8 +17,9 @@ import (
 // static content resolution, and basic auth — all served from in-memory
 // stores.
 
-func amplifyResetHostingState() {
-	amplifyResetStores()
+func amplifyResetHostingState(t *testing.T) {
+	t.Helper()
+	amplifyResetStores(t)
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
 	bg.Await()
@@ -90,7 +91,7 @@ func amplifyHostingGet(t *testing.T, host, path string, header http.Header) *htt
 }
 
 func TestAmplifyHostingTargetTable(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("dhost1", "main", "dev")
 	amplifySeedApp("dhost2", "main")
 	// dhost2 has a production branch → its cloudfront host routes there.
@@ -177,7 +178,7 @@ func TestAmplifyMatchCustomRuleTable(t *testing.T) {
 }
 
 func TestAmplifyHostingStaticServing(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("dserve", "main")
 	st, _ := amplifyApps.Get("dserve")
 	st.App.CustomRules = []AmplifyCustomRule{
@@ -228,7 +229,7 @@ func TestAmplifyHostingStaticServing(t *testing.T) {
 }
 
 func TestAmplifyHostingSPAlessDefault404(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("dnospa", "main")
 	amplifySeedDeployment(t, "dnospa", "main", "djob2", map[string]string{"index.html": "x"})
 	rec := amplifyHostingGet(t, "main.dnospa.amplifyapp.com", "/missing", nil)
@@ -238,7 +239,7 @@ func TestAmplifyHostingSPAlessDefault404(t *testing.T) {
 }
 
 func TestAmplifyHostingNoDeployment404(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("dempty", "main")
 	rec := amplifyHostingGet(t, "main.dempty.amplifyapp.com", "/", nil)
 	if rec.Code != http.StatusNotFound {
@@ -247,7 +248,7 @@ func TestAmplifyHostingNoDeployment404(t *testing.T) {
 }
 
 func TestAmplifyHostingUnreadableArtifactIsAServerError(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("dsynth", "main")
 	key := "artifacts/dsynth/main/djob3/artifacts.zip"
 	if err := amplifyPutS3Object(key, "application/zip", []byte("not a zip archive\n")); err != nil {
@@ -275,7 +276,7 @@ func TestAmplifyHostingUnreadableArtifactIsAServerError(t *testing.T) {
 }
 
 func TestAmplifyHostingMissingFileMapObjectIsAServerError(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("dgone", "main")
 	present := "deployments/dgone/main/djob9/files/index.html"
 	if err := amplifyPutS3Object(present, "", []byte("<html>present</html>")); err != nil {
@@ -305,7 +306,7 @@ func TestAmplifyHostingMissingFileMapObjectIsAServerError(t *testing.T) {
 }
 
 func TestAmplifyDeploymentUnreadableArtifactFailsTheJob(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("dbadzip", "main")
 	jobID := "djob10"
 	amplifyJobs.Put(jobID, amplifyStoredJob{
@@ -346,7 +347,7 @@ func TestAmplifyDeploymentUnreadableArtifactFailsTheJob(t *testing.T) {
 }
 
 func TestAmplifyHostingFileMapDeployment(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("dmap", "main")
 	// fileMap deployments register one artifact per uploaded file.
 	for name, content := range map[string]string{"index.html": "<html>map</html>", "app.js": "js"} {
@@ -374,7 +375,7 @@ func TestAmplifyHostingFileMapDeployment(t *testing.T) {
 }
 
 func TestAmplifyHostingCacheInvalidatesOnNewJob(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("dcache", "main")
 	amplifySeedDeployment(t, "dcache", "main", "djob5", map[string]string{"index.html": "v1"})
 	host := "main.dcache.amplifyapp.com"
@@ -390,7 +391,7 @@ func TestAmplifyHostingCacheInvalidatesOnNewJob(t *testing.T) {
 }
 
 func TestAmplifyHostingBasicAuth(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("dauth", "main", "open")
 	st, _ := amplifyApps.Get("dauth")
 	creds := base64.StdEncoding.EncodeToString([]byte("user:secret"))
@@ -429,7 +430,7 @@ func TestAmplifyHostingBasicAuth(t *testing.T) {
 func contains(s, sub string) bool { return bytes.Contains([]byte(s), []byte(sub)) }
 
 func TestAmplifyDomainVerificationEvaluation(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("dverify", "main")
 
 	name, value := amplifyCertVerificationParts("dverify", "shop.example.net")
@@ -503,7 +504,7 @@ func TestAmplifyDomainVerificationEvaluation(t *testing.T) {
 }
 
 func TestAmplifyHostingCorruptStoredManifestServesNothing(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	files := map[string]string{
 		"deploy-manifest.json": `{"version": 2, "routes": []}`,
 		"index.html":           "<html>root content</html>",

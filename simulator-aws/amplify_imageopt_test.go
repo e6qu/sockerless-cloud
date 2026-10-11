@@ -205,7 +205,7 @@ func amplifyImageOptManifest(extraSettings string) string {
 }
 
 func TestAmplifyHostingImageOptimizationServing(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("imgapp1", "main")
 	amplifyApps.Update("imgapp1", func(a *amplifyStoredApp) { a.App.Platform = "WEB_COMPUTE" })
 	pngBytes := amplifyTestPNG(t, 100, 60)
@@ -367,7 +367,7 @@ func TestAmplifyCacheControlMaxAge(t *testing.T) {
 }
 
 func TestAmplifyHostingImageOptimizationFallback(t *testing.T) {
-	amplifyResetHostingState()
+	amplifyResetHostingState(t)
 	amplifySeedApp("imgfall1", "main")
 	amplifyApps.Update("imgfall1", func(a *amplifyStoredApp) { a.App.Platform = "WEB_COMPUTE" })
 	manifest := `{

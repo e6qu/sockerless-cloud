@@ -78,6 +78,7 @@ func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listene
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
+	elbv2RecordRoutedRequest(listener.LoadBalancerArn, targetGroup, time.Now())
 	scheme := "http"
 	if strings.EqualFold(targetGroup.Protocol, "HTTPS") {
 		scheme = "https"

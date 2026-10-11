@@ -773,6 +773,28 @@ through hooks:
   every host 8 cores, 1 socket and 16 vCPUs with room for two instances,
   reported every instance as `default` tenancy in one zone, and kept
   ModifyInstancePlacement's values where nothing read them.
+- **An attribute the reference fixes cannot be modified.** The
+  LoadBalancerAttribute reference says an Application Load Balancer's
+  cross-zone load balancing "is `true`, and can't be changed", yet
+  ModifyLoadBalancerAttributes stored `false`. It now refuses the change with
+  `InvalidConfigurationRequest`, the error the operation declares for an
+  attribute it cannot modify as requested.
+- **A scaling metric is one the simulator publishes.** Target tracking had
+  computed `round(current × metric ÷ target)` and created alarms only for the
+  Amazon ECS CPU and memory types. Capacity is now the smallest whole number
+  at which a metric moving in inverse proportion to capacity meets the target,
+  and ALBRequestCountPerTarget alarms on the `RequestCountPerTarget` the
+  Application Load Balancer data plane now publishes for every request it
+  routes. The proxy path only adds to a counter: writing each request to
+  CloudWatch would have read every metric stream per proxied request, the
+  full-store scan the store-scan gate exists to keep off that path. A predefined type whose metric nothing in the simulator emits still
+  gets no alarm rather than one watching a metric that never arrives.
+- **A download URL addresses logs the workload wrote.** An AWS Glue Python
+  shell run's output had gone to a discarding sink. It now writes to the
+  CloudWatch Logs groups the AWS Glue model names, and GetSystemLogsForJobRun
+  and GetSystemLogsForSession store what those streams hold as an object and
+  answer a presigned URL to it, the way Lambda's GetFunction and Amplify's
+  job logs hand out theirs.
 - **Every Elastic Load Balancing resource keeps its tags.** CreateListener
   and CreateRule store the tags they carry, and AddTags, RemoveTags,
   DescribeTags and the IAM gate's `aws:ResourceTag/<k>` read and write the tag

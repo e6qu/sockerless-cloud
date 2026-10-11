@@ -218,6 +218,7 @@ func registerELBv2(r *AWSQueryRouter, srv *sim.Server) {
 	registerELBv2Rules(r, srv)
 	registerELBv2TrustStores(r, srv)
 	startELBv2TargetHealthChecker(srv)
+	startELBv2RequestMetricsPublisher(srv)
 	if err := elbv2RecoverDataPlanes(); err != nil {
 		panic(fmt.Sprintf("restore Elastic Load Balancing data planes: %v", err))
 	}
@@ -354,13 +355,17 @@ func handleELBv2ModifyLoadBalancerAttributes(w http.ResponseWriter, r *http.Requ
 
 // elbv2InvalidLoadBalancerAttribute returns the message ELB refuses modified
 // with, or "" when every key belongs to the load balancer type and every value
-// is one the key accepts.
+// is one the key accepts. An Application Load Balancer's cross-zone load
+// balancing "is true, and can't be changed".
 func elbv2InvalidLoadBalancerAttribute(lbType string, modified map[string]string) string {
 	valid := defaultELBv2LoadBalancerAttributes(lbType, "")
 	for _, key := range slices.Sorted(maps.Keys(modified)) {
 		value := modified[key]
 		if _, ok := valid[key]; !ok {
 			return fmt.Sprintf("Key %s not valid", key)
+		}
+		if lbType == "application" && key == "load_balancing.cross_zone.enabled" && value != "true" {
+			return "Cross-zone load balancing is always enabled for Application Load Balancers and cannot be disabled"
 		}
 		if bounds, ok := elbv2RangedLoadBalancerAttributes[key]; ok {
 			if n, err := strconv.Atoi(value); err != nil || n < bounds[0] || n > bounds[1] {

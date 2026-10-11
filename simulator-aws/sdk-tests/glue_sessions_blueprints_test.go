@@ -1,6 +1,8 @@
 package aws_sdk_test
 
 import (
+	"io"
+	"net/http"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -90,6 +92,16 @@ func TestGlue_SessionAndStatements_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, gluetypes.StatementStateCancelled, stmt2.Statement.State)
 
+	systemLogs, err := c.GetSystemLogsForSession(ctx, &glue.GetSystemLogsForSessionInput{Id: aws.String(id)})
+	require.NoError(t, err)
+	download, err := http.Get(aws.ToString(systemLogs.SystemLogsUrl))
+	require.NoError(t, err)
+	systemLog, err := io.ReadAll(download.Body)
+	require.NoError(t, download.Body.Close())
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, download.StatusCode, string(systemLog))
+	assert.Empty(t, systemLog, "the simulator runs no process for a session")
+
 	stop, err := c.StopSession(ctx, &glue.StopSessionInput{Id: aws.String(id)})
 	require.NoError(t, err)
 	assert.Equal(t, id, aws.ToString(stop.Id))
@@ -100,6 +112,10 @@ func TestGlue_SessionAndStatements_SDK(t *testing.T) {
 
 	_, err = c.GetSession(ctx, &glue.GetSessionInput{Id: aws.String(id)})
 	assert.Error(t, err, "GetSession after delete should error")
+
+	_, err = c.GetSystemLogsForSession(ctx, &glue.GetSystemLogsForSessionInput{Id: aws.String(id)})
+	var notFound *gluetypes.EntityNotFoundException
+	assert.ErrorAs(t, err, &notFound)
 }
 
 // TestGlue_DevEndpointLifecycle_SDK exercises the Dev Endpoints family:

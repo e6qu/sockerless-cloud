@@ -43,12 +43,7 @@ import (
 // registration, and the source scan alone cannot tell the two apart. Scoped
 // entries are therefore also excluded from the staleness sweep — their
 // review lives with the catalogue their reason cites.
-var modelScopedDriftExemptions = map[string]string{
-	// Added to the AWS Glue model on 2026-10-08 and carried by service/glue
-	// v1.169.0, which the SDK suite now pins.
-	"glue.smithy.json.gz:GetSystemLogsForJobRun":  "BUG-3404: not served yet",
-	"glue.smithy.json.gz:GetSystemLogsForSession": "BUG-3404: not served yet",
-}
+var modelScopedDriftExemptions = map[string]string{}
 
 var modelDriftExemptions = map[string]string{
 	// S3 routes bucket subresources by query parameter, so these operation

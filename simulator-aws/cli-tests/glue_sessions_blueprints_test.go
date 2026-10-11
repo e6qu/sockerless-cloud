@@ -1,6 +1,8 @@
 package aws_cli_test
 
 import (
+	"io"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -84,6 +86,19 @@ func TestGlueSessionAndStatementsCLI(t *testing.T) {
 	parseJSON(t, out, &stmt)
 	assert.Equal(t, "CANCELLED", stmt.Statement.State)
 
+	out = runCLI(t, awsCLI("glue", "get-system-logs-for-session", "--id", id))
+	var systemLogs struct {
+		SystemLogsUrl string `json:"SystemLogsUrl"`
+	}
+	parseJSON(t, out, &systemLogs)
+	download, err := http.Get(systemLogs.SystemLogsUrl)
+	require.NoError(t, err)
+	systemLog, err := io.ReadAll(download.Body)
+	require.NoError(t, download.Body.Close())
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, download.StatusCode, string(systemLog))
+	assert.Empty(t, systemLog, "the simulator runs no process for a session")
+
 	out = runCLI(t, awsCLI("glue", "stop-session", "--id", id))
 	var stop struct {
 		Id string `json:"Id"`
@@ -97,6 +112,9 @@ func TestGlueSessionAndStatementsCLI(t *testing.T) {
 	}
 	parseJSON(t, out, &del)
 	assert.Equal(t, id, del.Id)
+
+	errOut := runCLIExpectError(t, awsCLI("glue", "get-system-logs-for-session", "--id", id))
+	assert.Contains(t, errOut, "EntityNotFoundException")
 }
 
 // TestGlueDevEndpointCLI exercises the Dev Endpoints family via the aws CLI:

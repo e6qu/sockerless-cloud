@@ -1,6 +1,8 @@
 package aws_cli_test
 
 import (
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -274,7 +276,7 @@ func TestGlue_JobCRUD_CLI(t *testing.T) {
 	ensureGluePythonShellImage(t)
 	bucket := "glue-cli-scripts"
 	scriptPath := filepath.Join(tmpDir, "glue-cli-script.py")
-	require.NoError(t, os.WriteFile(scriptPath, []byte("import sys\nprint('glue-cli-ready')\nsys.exit(0)\n"), 0644))
+	require.NoError(t, os.WriteFile(scriptPath, []byte("import sys\nprint('glue-cli-ready')\nprint('glue-cli-warning', file=sys.stderr)\nsys.exit(0)\n"), 0644))
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
 	runCLI(t, awsCLI("s3api", "put-object", "--bucket", bucket, "--key", "script.py", "--body", scriptPath))
 	t.Cleanup(func() {
@@ -341,9 +343,30 @@ func TestGlue_JobCRUD_CLI(t *testing.T) {
 	assert.Equal(t, run.JobRunID, getRun.JobRun.ID)
 	assert.Equal(t, "SUCCEEDED", getRun.JobRun.JobRunState)
 
+	out = runCLI(t, awsCLI("glue", "get-system-logs-for-job-run",
+		"--job-name", "glue-cli-job",
+		"--run-id", run.JobRunID))
+	var systemLogs struct {
+		SystemLogsUrl string `json:"SystemLogsUrl"`
+	}
+	parseJSON(t, out, &systemLogs)
+	download, err := http.Get(systemLogs.SystemLogsUrl)
+	require.NoError(t, err)
+	systemLog, err := io.ReadAll(download.Body)
+	require.NoError(t, download.Body.Close())
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, download.StatusCode, string(systemLog))
+	assert.Contains(t, string(systemLog), "glue-cli-ready\n")
+	assert.Contains(t, string(systemLog), "glue-cli-warning\n")
+
+	errOut := runCLIExpectError(t, awsCLI("glue", "get-system-logs-for-job-run",
+		"--job-name", "glue-cli-job",
+		"--run-id", "jr_does_not_exist"))
+	assert.Contains(t, errOut, "EntityNotFoundException")
+
 	// get-job-runs for a non-existent job must error (EntityNotFoundException),
 	// not return an empty list.
-	errOut := runCLIExpectError(t, awsCLI("glue", "get-job-runs", "--job-name", "glue-cli-no-such-job"))
+	errOut = runCLIExpectError(t, awsCLI("glue", "get-job-runs", "--job-name", "glue-cli-no-such-job"))
 	assert.Contains(t, errOut, "EntityNotFoundException")
 }
 

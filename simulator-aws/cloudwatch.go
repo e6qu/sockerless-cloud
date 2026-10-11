@@ -97,6 +97,31 @@ func cwIngestWorkloadLogLine(logGroup, logStream, message string, writtenAt time
 	cwEvaluateMetricFilters(logGroup, []CWLogEvent{event})
 }
 
+// cwEnsureLogStream creates group and its stream the way a service that writes
+// a workload's logs does before the workload starts, so the stream exists even
+// when the workload prints nothing.
+func cwEnsureLogStream(group, stream string) {
+	nowMs := time.Now().UnixMilli()
+	if _, exists := cwLogGroups.Get(group); !exists {
+		cwLogGroups.Put(group, CWLogGroup{
+			LogGroupName: group,
+			Arn:          cwLogGroupArn(group),
+			CreationTime: nowMs,
+		})
+	}
+	key := cwEventsKey(group, stream)
+	if _, exists := cwLogStreams.Get(key); !exists {
+		cwLogStreams.Put(key, CWLogStream{
+			LogStreamName:       stream,
+			LogGroupName:        group,
+			CreationTime:        nowMs,
+			Arn:                 cwLogStreamArn(group, stream),
+			UploadSequenceToken: "1",
+		})
+		cwLogEvents.Put(key, []CWLogEvent{})
+	}
+}
+
 // cwAppendLogEvents appends events to a stream and keeps the stream's own
 // record of them in step -- its first and last event timestamps and its last
 // ingestion time -- whichever path delivered them. touch, when set, updates

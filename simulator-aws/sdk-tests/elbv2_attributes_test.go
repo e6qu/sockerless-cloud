@@ -18,7 +18,8 @@ import (
 // attributes: an Application, a Network and a Gateway Load Balancer each
 // report the attributes the LoadBalancerAttribute reference lists for their
 // type at its default, and ModifyLoadBalancerAttributes refuses a key that
-// belongs to another type.
+// belongs to another type and an Application Load Balancer's cross-zone load
+// balancing turned off.
 //
 // Actions exercised: CreateLoadBalancer, DescribeLoadBalancerAttributes,
 // ModifyLoadBalancerAttributes.
@@ -72,7 +73,8 @@ func TestELBv2_LoadBalancerAttributesPerType(t *testing.T) {
 		return out
 	}
 
-	alb := describe(create("sdk-attrs-alb", elbtypes.LoadBalancerTypeEnumApplication, elbtypes.LoadBalancerSchemeEnumInternetFacing))
+	albArn := create("sdk-attrs-alb", elbtypes.LoadBalancerTypeEnumApplication, elbtypes.LoadBalancerSchemeEnumInternetFacing)
+	alb := describe(albArn)
 	assert.Equal(t, []string{
 		"access_logs.s3.bucket", "access_logs.s3.enabled", "access_logs.s3.prefix",
 		"client_keep_alive.seconds",
@@ -133,4 +135,15 @@ func TestELBv2_LoadBalancerAttributesPerType(t *testing.T) {
 		assert.Equal(t, "InvalidConfigurationRequest", apiErr.ErrorCode())
 		assert.Equal(t, "Key "+key+" not valid", apiErr.ErrorMessage())
 	}
+
+	_, err = elb.ModifyLoadBalancerAttributes(ctx, &elbv2.ModifyLoadBalancerAttributesInput{
+		LoadBalancerArn: aws.String(albArn),
+		Attributes: []elbtypes.LoadBalancerAttribute{{
+			Key: aws.String("load_balancing.cross_zone.enabled"), Value: aws.String("false"),
+		}},
+	})
+	var apiErr smithy.APIError
+	require.True(t, errors.As(err, &apiErr), "cross-zone load balancing off on an Application Load Balancer: %v", err)
+	assert.Equal(t, "InvalidConfigurationRequest", apiErr.ErrorCode())
+	assert.Equal(t, "true", describe(albArn)["load_balancing.cross_zone.enabled"])
 }

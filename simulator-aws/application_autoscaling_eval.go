@@ -94,8 +94,11 @@ type AppScalingAlarm struct {
 }
 
 // appScalingPolicyMetric names the CloudWatch metric a target tracking policy
-// tracks. Predefined ECS metrics resolve to the AWS/ECS namespace with the
-// ClusterName and ServiceName dimensions.
+// tracks. The predefined Amazon ECS metrics resolve to the AWS/ECS namespace
+// with the ClusterName and ServiceName dimensions; ALBRequestCountPerTarget
+// resolves to the RequestCountPerTarget metric of the target group its
+// ResourceLabel names, which an Application Load Balancer publishes as it
+// routes requests.
 func appScalingPolicyMetric(resourceID string, cfg targetTrackingConfig) (namespace, name string, dims []CWDimension, statistic string, ok bool) {
 	switch {
 	case cfg.CustomizedMetric != nil:
@@ -114,12 +117,29 @@ func appScalingPolicyMetric(resourceID string, cfg targetTrackingConfig) (namesp
 			name = "CPUUtilization"
 		case "ECSSERVICEAVERAGEMEMORYUTILIZATION":
 			name = "MemoryUtilization"
+		case "ALBREQUESTCOUNTPERTARGET":
+			targetGroup, ok := appScalingResourceLabelTargetGroup(cfg.PredefinedMetric.ResourceLabel)
+			if !ok {
+				return "", "", nil, "", false
+			}
+			return elbv2MetricNamespace, "RequestCountPerTarget", []CWDimension{targetGroup}, "Sum", true
 		default:
 			return "", "", nil, "", false
 		}
 		return "AWS/ECS", name, []CWDimension{{Name: "ClusterName", Value: cluster}, {Name: "ServiceName", Value: service}}, "Average", true
 	}
 	return "", "", nil, "", false
+}
+
+// appScalingResourceLabelTargetGroup is the TargetGroup dimension of the target
+// group a ResourceLabel names: "app/<load-balancer-name>/<load-balancer-id>"
+// followed by "targetgroup/<target-group-name>/<target-group-id>".
+func appScalingResourceLabelTargetGroup(label string) (CWDimension, bool) {
+	loadBalancer, targetGroup, ok := strings.Cut(label, "/targetgroup/")
+	if !ok || strings.Count(loadBalancer, "/") != 2 || !strings.HasPrefix(loadBalancer, "app/") || strings.Count(targetGroup, "/") != 1 {
+		return CWDimension{}, false
+	}
+	return CWDimension{Name: "TargetGroup", Value: "targetgroup/" + targetGroup}, true
 }
 
 // appScalingCreateAlarms creates the AlarmHigh and, unless scale-in is
@@ -243,26 +263,22 @@ func appScalingInvokeTargetTracking(policy AppScalingPolicy, cfg targetTrackingC
 	appScalingRecordActivity(policy, target, alarm.AlarmName, current, newCount, now)
 }
 
-// appScalingComputeCapacity is the target-tracking capacity formula. AWS uses
-// floor for scale-in and ceil for scale-out (then rounds), with a 10% breach
-// band; the sim uses the documented simplification: round(current * metric /
-// target), clamped to bounds. Whole-number capacity only.
+// appScalingComputeCapacity is the smallest whole capacity at which the
+// metric, which a target tracking metric must "increase or decrease in inverse
+// proportion to the number of capacity units", no longer exceeds the target:
+// ceil(current * metric / target), clamped to the scalable target's bounds.
 func appScalingComputeCapacity(current int, metricValue, targetValue float64, minCap, maxCap int) int {
 	if current <= 0 {
 		current = 1
 	}
-	raw := float64(current) * metricValue / targetValue
-	newCount := int(math.Round(raw))
+	// Round away the binary representation error of the quotient first, so a
+	// metric exactly at a multiple of the target does not ceil one unit high.
+	raw := math.Round(float64(current)*metricValue/targetValue*1e9) / 1e9
+	newCount := int(math.Ceil(raw))
 	if newCount < 1 {
 		newCount = 1
 	}
-	if newCount < minCap {
-		newCount = minCap
-	}
-	if newCount > maxCap {
-		newCount = maxCap
-	}
-	return newCount
+	return min(max(newCount, minCap), maxCap)
 }
 
 // appScalingCooldownAllows enforces the policy's ScaleOutCooldown or

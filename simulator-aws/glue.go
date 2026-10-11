@@ -99,6 +99,7 @@ type GlueJobRun struct {
 	ExecutionTime int               `json:"ExecutionTime"`
 	Arguments     map[string]string `json:"Arguments,omitempty"`
 	ErrorMessage  string            `json:"ErrorMessage,omitempty"`
+	LogGroupName  string            `json:"LogGroupName,omitempty"`
 }
 
 // GluePartition models a Data Catalog partition belonging to a table.
@@ -395,6 +396,7 @@ func registerGlue(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.GetJobRun", handleGlueGetJobRun)
 	r.Register("AWSGlue.GetJobRuns", handleGlueGetJobRuns)
 	r.Register("AWSGlue.BatchStopJobRun", handleGlueBatchStopJobRun)
+	registerGlueSystemLogs(r)
 	r.Register("AWSGlue.CreateCrawler", handleGlueCreateCrawler)
 	r.Register("AWSGlue.GetCrawler", handleGlueGetCrawler)
 	r.Register("AWSGlue.GetCrawlers", handleGlueGetCrawlers)
@@ -1405,11 +1407,12 @@ func handleGlueStartJobRun(w http.ResponseWriter, r *http.Request) {
 	runID := strings.ReplaceAll(uuid.New().String(), "-", "")[:16]
 	now := glueEpochNow()
 	run := GlueJobRun{
-		ID:          runID,
-		JobName:     req.JobName,
-		JobRunState: "RUNNING",
-		StartedOn:   now,
-		Arguments:   req.Arguments,
+		ID:           runID,
+		JobName:      req.JobName,
+		JobRunState:  "RUNNING",
+		StartedOn:    now,
+		Arguments:    req.Arguments,
+		LogGroupName: glueJobsLogGroup,
 	}
 	glueJobRuns.Put(req.JobName+"/"+runID, run)
 	go glueRunPythonJob(req.JobName, runID, job, script, req.Arguments)
@@ -1508,7 +1511,7 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 		ExtraHosts: workloadhost.ExtraHosts(),
 		Labels:     map[string]string{"sockerless-glue-job-run": runID},
 		Sandbox:    SandboxFargate,
-	}, sim.NoopSink{})
+	}, glueJobRunLogSink(runID))
 	if err != nil {
 		glueCompleteRun(jobName, runID, "FAILED", 0, fmt.Sprintf("start job environment %s: %v", image, err))
 		return

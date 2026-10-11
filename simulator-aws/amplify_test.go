@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -18,7 +17,8 @@ import (
 // the DeleteApp cascade, presence-based updates, job/stop state rules, and
 // the wire/store splits (webhook appId hydration, deployment rows).
 
-func amplifyResetStores() {
+func amplifyResetStores(t *testing.T) {
+	t.Helper()
 	// Work started by whatever ran before this must finish before the
 	// stores it is reading are replaced.
 	bg.Await()
@@ -36,12 +36,13 @@ func amplifyResetStores() {
 	s3ObjectVersions = sim.MakeStore[s3ObjectVersion](nil, "s3_object_versions")
 	s3ObjectTags = sim.MakeStore[map[string]string](nil, "s3_object_tags")
 	s3BucketConfigs = sim.MakeStore[S3BucketConfig](nil, "s3_bucket_configs")
-	dir, err := os.MkdirTemp("", "amplify-test-s3-bodies-")
-	if err != nil {
-		panic(err)
-	}
+	dir := t.TempDir()
+	// Background work this test starts must finish before its payload
+	// directory goes.
+	t.Cleanup(bg.Await)
+	var err error
 	if s3Bodies, err = blobstore.OpenPayloads(dir); err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 }
 
@@ -115,7 +116,7 @@ func amplifyWalkPages(t *testing.T, handler http.HandlerFunc, path, key string, 
 }
 
 func TestAmplifyListPaginationExplicitOnly(t *testing.T) {
-	amplifyResetStores()
+	amplifyResetStores(t)
 	amplifySeedApp("dapp1", "b1", "b2", "b3")
 	amplifySeedApp("dapp2")
 	amplifySeedApp("dapp3")
@@ -192,7 +193,7 @@ func TestAmplifyListPaginationExplicitOnly(t *testing.T) {
 }
 
 func TestAmplifyDeleteAppCascade(t *testing.T) {
-	amplifyResetStores()
+	amplifyResetStores(t)
 	amplifySeedApp("doomed", "main")
 	amplifySeedApp("keeper", "main")
 	bucket := amplifyArtifactBucketName()
@@ -266,7 +267,7 @@ func TestAmplifyDeleteAppCascade(t *testing.T) {
 }
 
 func TestAmplifyUpdateAppPresenceSemantics(t *testing.T) {
-	amplifyResetStores()
+	amplifyResetStores(t)
 	_, created := amplifyDoJSON(t, handleAmplifyCreateApp, http.MethodPost, "/apps",
 		`{"name":"presence","description":"keep me","platform":"WEB","enableAutoBranchCreation":true,
 		  "autoBranchCreationPatterns":["feature/*"],"autoBranchCreationConfig":{"stage":"BETA"},
@@ -305,7 +306,7 @@ func TestAmplifyUpdateAppPresenceSemantics(t *testing.T) {
 }
 
 func TestAmplifyUpdateBranchPresenceSemantics(t *testing.T) {
-	amplifyResetStores()
+	amplifyResetStores(t)
 	amplifySeedApp("brapp")
 	_, created := amplifyDoJSON(t, handleAmplifyCreateBranch, http.MethodPost, "/apps/brapp/branches",
 		`{"branchName":"main","description":"first","displayName":"Main","enableSkewProtection":true,
@@ -338,7 +339,7 @@ func TestAmplifyUpdateBranchPresenceSemantics(t *testing.T) {
 }
 
 func TestAmplifyStopJobRejectsFinishedJob(t *testing.T) {
-	amplifyResetStores()
+	amplifyResetStores(t)
 	amplifySeedApp("stopapp", "main")
 	amplifyJobs.Put("done1", amplifyStoredJob{
 		Job:   AmplifyJob{Summary: AmplifyJobSummary{JobId: "done1", Status: AmplifyJobStatusSucceed}},
@@ -373,7 +374,7 @@ func TestAmplifyStopJobRejectsFinishedJob(t *testing.T) {
 }
 
 func TestAmplifyStartDeploymentValidation(t *testing.T) {
-	amplifyResetStores()
+	amplifyResetStores(t)
 	amplifySeedApp("depapp", "main")
 	vals := map[string]string{"appId": "depapp", "name": "main"}
 
@@ -409,7 +410,7 @@ func TestAmplifyStartDeploymentValidation(t *testing.T) {
 }
 
 func TestAmplifyCreateDeploymentPendingRow(t *testing.T) {
-	amplifyResetStores()
+	amplifyResetStores(t)
 	amplifySeedApp("zipapp", "main")
 	vals := map[string]string{"appId": "zipapp", "name": "main"}
 
