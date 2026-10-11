@@ -166,7 +166,7 @@ func TestCompute_SubnetworkPrivateGoogleAccess(t *testing.T) {
 // interfaces the request names, which is the member the Instance schema
 // carries it on.
 func TestCompute_InstanceSecurityPolicyLandsOnItsAccessConfigs(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "set-verbs-instance", "us-central1-a", "armoured"
 	createVerbInstance(t, svc, project, zone, name)

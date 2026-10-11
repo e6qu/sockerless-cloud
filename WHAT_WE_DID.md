@@ -3270,6 +3270,24 @@ commit and the push is when it starts to matter. The daily specification refresh
 out the pull request it will land on before re-vendoring, so it measures drift
 against that branch's pins and lands as one commit.
 
+The real network host tests run in the Firecracker job, which has `/dev/kvm`,
+root through `sudo`, iproute2 and nftables. `tests/realexec/run-network-nic.sh`
+finds every package holding a `realexec_host` test file and runs the tests
+those files declare, so a host test added anywhere runs without being named;
+the Cloud NAT and Azure NAT gateway tests had run nowhere because the script
+named only `realexec` and the AWS simulator. It compiles each test binary as
+the runner user, on the warm Go cache, and runs only the binary as root.
+
+A suite's host gate skips only for what a run cannot be given — a kernel
+other than Linux, `/dev/kvm`, `CAP_NET_ADMIN` — and fails on a Linux host that
+lacks a command, naming what to install. The Google Cloud and Azure suites share
+one gate shape: `requireNetworkHost` for the network fabric, and
+`requireMicroVMHost` for a test that boots a Compute Engine instance or an
+Azure virtual machine, which adds the Firecracker detection the simulator
+itself boots with. The Azure gates had skipped on a missing command and had not
+looked at `/dev/kvm`, so a host without either failed or silently dropped the
+virtual machine tests.
+
 `scripts/check-repo-config-sane.sh` fails a commit whose checkout has acquired
 `core.bare = true` or a test fixture's identity — the corruption a `git config`
 run without `-C` in a linked worktree writes into the shared `.git/config`.

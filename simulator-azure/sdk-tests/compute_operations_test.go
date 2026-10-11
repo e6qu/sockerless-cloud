@@ -70,7 +70,7 @@ func TestSDK_Compute_OperationsAndUsage(t *testing.T) {
 // machine moves it. A machine needs a real network interface, so this half
 // needs the Linux network capabilities the simulator's fabric is built on.
 func TestSDK_Compute_UsageCountsWhatIsHeld(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 
 	const rg, location = "compute-usage-rg", "eastus"
 	ensureRG(t, rg)

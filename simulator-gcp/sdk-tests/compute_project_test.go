@@ -205,7 +205,7 @@ func TestCompute_MoveDiskBetweenZones(t *testing.T) {
 }
 
 func TestCompute_MoveInstanceBetweenZones(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, from, to, name = "move-instance", "us-central1-a", "us-central1-b", "worker"
 	createVerbInstance(t, svc, project, from, name)

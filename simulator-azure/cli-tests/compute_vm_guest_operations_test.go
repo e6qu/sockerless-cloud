@@ -9,7 +9,7 @@ import (
 // The in-guest operations over the real az CLI. Each runs against a machine
 // that really booted, and asserts on what the guest produced.
 func TestComputeVirtualMachineGuestOperationsCLI(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-guest-vnet", "2024-05-01")
 	runCLI(t, azRest("PUT", vnetURL, `{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.98.0.0/16"]}}}`))

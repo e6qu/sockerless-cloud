@@ -144,7 +144,7 @@ func TestConformance_ACRRegistryRoundTrip(t *testing.T) {
 // osProfile.adminPassword is never echoed back on GET. Host-gated because VM
 // create requires the real-execution network host.
 func TestConformance_VMAdminPasswordStripped(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 	rg := "conf-vm-rg"
 	vnetName := "conf-vm-vnet"
 	subnetName := "conf-vm-subnet"

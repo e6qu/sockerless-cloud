@@ -198,7 +198,7 @@ func TestCompute_AdviceCalendarMode(t *testing.T) {
 // Starting an instance whose disks are customer-encrypted, and replacing an
 // instance whole. Both are zonal, so both answer with a zone operation.
 func TestCompute_InstanceStartWithEncryptionKeyAndUpdate(t *testing.T) {
-	requireNetworkHost(t)
+	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "encrypted-boot", "us-central1-a", "sealed"
 	createVerbInstance(t, svc, project, zone, name)
