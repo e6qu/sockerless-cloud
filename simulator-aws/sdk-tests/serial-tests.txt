@@ -37,4 +37,9 @@ TestOrganizations_ResponsibilityTransfer	creates, changes or deletes the account
 TestOrganizations_Roots	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizations_Tags	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizations_zzCreateDeleteOrganization	creates, changes or deletes the account's one organization, which other tests read
+TestS3Control_AccessGrants	creates or deletes the account's one S3 Access Grants instance, which other tests create
+TestS3Control_AccessGrantsInstanceIsAuthorizedAgainstTheInstance	creates or deletes the account's one S3 Access Grants instance, which other tests create
+TestS3Control_AccessGrantsLocationAlsoAuthorizesPassingItsRole	creates or deletes the account's one S3 Access Grants instance, which other tests create
+TestS3_AccessGrantTagsAreTheGrantsResourceTags	creates or deletes the account's one S3 Access Grants instance, which other tests create
+TestS3_AccessGrantsInstanceArnConditionKeyScopesTheGrant	creates or deletes the account's one S3 Access Grants instance, which other tests create
 TestSSM_ServiceSetting	changes a service-wide setting other tests read
