@@ -207,3 +207,36 @@ func TestGCPListOperationsPagesInNameOrder(t *testing.T) {
 		t.Fatalf("a token the service never issued answered %d %s, want 400", code, body)
 	}
 }
+
+// operations.list answers google.longrunning.Operation as Service Usage
+// declares it: a Cloud Storage bucket operation in the shared store lists
+// without the kind and selfLink of Cloud Storage's own Operation.
+func TestGCPListOperationsAnswersTheLongrunningShape(t *testing.T) {
+	srv := gcpOperationsListFixture(t)
+	storageOp := Operation{
+		Name:     "projects/_/buckets/b/operations/relocate-1",
+		Done:     true,
+		Metadata: map[string]any{"@type": "type.googleapis.com/google.storage.control.v2.RelocateBucketMetadata"},
+		Kind:     "storage#operation",
+		SelfLink: "http://storage.googleapis.com/storage/v1/b/b/operations/relocate-1",
+	}
+	crOperations.Put(storageOp.Name, storageOp)
+	code, page, body := gcpListOperationsPage(t, srv, url.Values{"name": {"projects/_/buckets/"}})
+	if code != http.StatusOK {
+		t.Fatalf("list: %d %s", code, body)
+	}
+	if len(page.Operations) != 1 {
+		t.Fatalf("listed %v, want only %s", gcpOperationNames(page), storageOp.Name)
+	}
+	op := page.Operations[0]
+	for field := range op {
+		switch field {
+		case "name", "metadata", "done", "response", "error":
+		default:
+			t.Errorf("operation lists undeclared field %q: %s", field, body)
+		}
+	}
+	if op["name"] != storageOp.Name || op["done"] != true || op["metadata"] == nil {
+		t.Errorf("operation lost its declared fields: %s", body)
+	}
+}

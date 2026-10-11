@@ -1731,6 +1731,12 @@ Build and Cloud Logging, 404 for Compute Engine and BigQuery. Compute Engine
 addresses a project by ID or number and keys it by ID. Tests create their
 projects in Cloud Resource Manager first.
 
+`GET /v1/operations` lists the operation store every service records into and
+answers each entry as `google.longrunning.Operation` — `name`, `metadata`,
+`done`, `error`, `response` — the shape Service Usage's `operations.list`
+declares. A Cloud Storage bucket operation keeps its `kind` and `selfLink` on
+Cloud Storage's own operations collection and lists without them here.
+
 ### Cloud Run instances, worker pools and restarts
 
 A Cloud Run service instance starts its containers in

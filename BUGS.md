@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 103.
+Open: 104.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -10,6 +10,7 @@ live in `WHAT_WE_DID.md`.
 
 | ID | Sev | Area | Symptom and cause | Fix shape — what closes it |
 |----|-----|------|-------------------|----------------------------|
+| 3443 | P3 | Service Usage operations list scope | `GET /v1/operations`, which only Service Usage v1 declares, lists every operation in the simulator's shared operation store (Cloud Storage bucket operations among them, projected onto the google.longrunning.Operation shape) rather than only Service Usage's own. | List only the operations Service Usage itself starts, and serve each other service's operations from that service's own operations collection. |
 | 3442 | P3 | Google Cloud list page tokens are offsets | Every Google Cloud list outside Cloud Storage pages through `paginateList` or `paginateListCompute` (`simulator-gcp/pagination.go`), whose token is the index of the next item. A resource created or deleted between two page reads shifts that index, so a client walking the list sees an item on two pages or misses one, which Google's key-ordered tokens never do. Cloud Storage's lists resume after the last key returned. | Give the helpers each list's sort key and resume strictly after the key the token names, as `gcsPageAfter` does, with an in-package test per helper that creates and deletes between page reads. |
 | 3441 | P3 | Cloud Run job log lines the service invents | RunJob writes "Container started" to the job's `run.googleapis.com/stdout` log the moment it creates the execution, before any container runs, and the execution's end writes "Execution completed successfully", "Execution failed" or "Execution cancelled" there too (`injectCloudRunJobLog` in `simulator-gcp/cloudrunjobs.go`). Cloud Run writes a job's stdout log from its containers' output only; a client reading that log for a container's line can match the invented one. `simulator-gcp/sdk-tests/run_test.go` and `integration_test.go` assert those lines. | Drop the invented stdout lines; write the system events Cloud Run documents to the log it documents them in, once a source states their text, and assert the containers' own lines in the tests. |
 | 3440 | P3 | Cloud Resource Manager seeds a project for the test harnesses | `crmEnsureDefaultProject` (`simulator-gcp/cloudresourcemanager.go`) creates `test-project` at startup beside the default `sockerless`, because the SDK, CLI and Terraform harnesses are configured with that project ID; real Google Cloud pre-creates no project a client names, so the seed is runner-aware special-casing. | Have each harness create its project through Cloud Resource Manager in `TestMain`, as the tests that create their own projects already do, and seed only `sockerless`. |
